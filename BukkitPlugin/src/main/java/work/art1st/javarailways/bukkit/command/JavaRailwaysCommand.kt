@@ -17,11 +17,11 @@ import work.art1st.javarailways.simpleato.depot.DepotResetCoordinator
 import work.art1st.javarailways.simpleato.depot.DepotResetResult
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.RouteBuildResult
-import work.art1st.javarailways.basic.route.RoutePlanner
 import work.art1st.javarailways.simpleato.timetable.ManualNavigationParser
 import work.art1st.javarailways.simpleato.timetable.ManualNavigationTimetableFactory
 import work.art1st.javarailways.simpleato.timetable.TimetableDumper
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
+import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
 import work.art1st.javarailways.simpleato.timetable.TimetableEpochStartResult
 import work.art1st.javarailways.simpleato.timetable.TimetableReplanResult
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId
@@ -310,9 +310,7 @@ class JavaRailwaysCommand {
                     sender.sendMessage("用法: /jr route validate <fromWaypoint> <toWaypoint>")
                     return true
                 }
-                when (val result = RoutePlanner(world) {
-                    world.simpleAtoWorldData.operatingDirections.allows(it)
-                }.buildRoute(from, to)) {
+                when (val result = OperationalRoutePlanner(world).buildRoute(from, to)) {
                     is RouteBuildResult.Success -> {
                         val route = result.route
                         sender.sendMessage("=== 经路验证成功 ===")

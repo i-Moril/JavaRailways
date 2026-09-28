@@ -5,9 +5,9 @@ import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.ExpandedRoute
 import work.art1st.javarailways.basic.route.RouteBuildResult
-import work.art1st.javarailways.basic.route.RoutePlanner
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 sealed interface LineCompileResult {
@@ -32,9 +32,7 @@ data class CompiledLineResetCandidate(
 
 /** Resolves station berth combinations and chooses the shortest directed route for each line leg. */
 class LinePlanner(private val world: World) {
-    private val routePlanner = RoutePlanner(world) {
-        world.simpleAtoWorldData.operatingDirections.allows(it)
-    }
+    private val routePlanner = OperationalRoutePlanner(world)
 
     fun compile(line: Line, direction: LineDirection = LineDirection.UP): LineCompileResult =
         compileStations(line, line.stations(direction))

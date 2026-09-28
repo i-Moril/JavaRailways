@@ -38,7 +38,9 @@ data class TopologyRoutePlanningInput(
     val routeId: String,
     val routeRevision: Long,
     /** Restricts the first traversal to the authoritative physical facing when supplied. */
-    val startFacing: ViewDirection? = null
+    val startFacing: ViewDirection? = null,
+    /** Restricts arrival at the target to the caller's required physical facing when supplied. */
+    val endFacing: ViewDirection? = null
 ) {
     init {
         require(routeId.isNotBlank()) { "routeId must not be blank" }
@@ -107,7 +109,8 @@ object TopologyRoutePlanner {
         val graph = QueryGraph(topology, compiled, start, end)
         val startDirections = input.startFacing?.let { facing -> start.edgeDirection(facing) }?.let(::listOf)
             ?: EdgeDirection.entries
-        val path = Search(graph, end).run(
+        val endDirection = input.endFacing?.let { facing -> end.edgeDirection(facing) }
+        val path = Search(graph, end, endDirection).run(
             startDirections.map { direction -> OrientedPoint(start.edgeId, start.edgeDistanceMeters, direction) }
                 .filterNot(graph::isForbidden)
         ) ?: return rejected(
@@ -140,7 +143,8 @@ object TopologyRoutePlanner {
 
     private class Search(
         private val graph: QueryGraph,
-        private val goal: ResolvedLocation
+        private val goal: ResolvedLocation,
+        private val goalDirection: EdgeDirection?
     ) {
         private val distances = hashMapOf<OrientedPoint, Double>()
         private val predecessors = hashMapOf<OrientedPoint, Predecessor>()
@@ -152,7 +156,12 @@ object TopologyRoutePlanner {
             while (pending.isNotEmpty()) {
                 val entry = pending.remove()
                 if (entry.distance > distances.getValue(entry.point)) continue
-                if (entry.point.matches(goal) && !graph.isForbidden(entry.point)) return rebuild(entry.point)
+                if (entry.point.matches(goal) &&
+                    (goalDirection == null || entry.point.direction == goalDirection) &&
+                    !graph.isForbidden(entry.point)
+                ) {
+                    return rebuild(entry.point)
+                }
                 graph.next(entry.point).forEach { arc ->
                     offer(arc.target, entry.distance + arc.costMeters, Predecessor(entry.point, arc))
                 }

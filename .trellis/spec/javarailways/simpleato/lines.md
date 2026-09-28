@@ -21,7 +21,8 @@ data class Line private constructor(
 来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/line/Line.kt`。
 
 `LineStore` 由每世界唯一的 `SimpleATOWorldData.lines` 持有。Station 与 Destination 同样由
-`SimpleATOWorldData`唯一持有；Line planner从这些canonical stores读取停靠点与方向，再把显式方向传给Basic通用RoutePlanner。
+`SimpleATOWorldData`唯一持有；Line planner从这些canonical stores读取停靠点与方向，再把显式方向传给
+SimpleATO共用`OperationalRoutePlanner`。该seam在同一个immutable `TopologyState`上组合运行方向和所有已注册source。
 
 - `LineId`world-local stable、trimmed、no control char。
 - UP/DOWN独立有序，各2..128 stations、无duplicate、defensive copy。

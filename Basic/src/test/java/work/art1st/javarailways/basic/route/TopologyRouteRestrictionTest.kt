@@ -139,6 +139,29 @@ class TopologyRouteRestrictionTest {
     }
 
     @Test
+    fun `required goal facing is enforced at the target location`() {
+        val fixture = alternatives()
+        val input = TopologyRoutePlanningInput(
+            topology = fixture.topology,
+            restrictions = RoutePlanningRestrictions(fixture.topology.revision),
+            start = OperationalRouteLocation(fixture.entry.id, 0.0),
+            end = OperationalRouteLocation(fixture.exit.id, fixture.exit.lengthMeters),
+            routeId = "test:goal-facing",
+            routeRevision = 1L,
+            startFacing = ViewDirection.AB,
+            endFacing = ViewDirection.AB
+        )
+
+        assertEquals(
+            TopologyRoutePlanningRejection.UNREACHABLE,
+            (TopologyRoutePlanner.plan(input.copy(endFacing = ViewDirection.BA)) as
+                TopologyRoutePlanningResult.Rejected).reason
+        )
+        val planned = TopologyRoutePlanner.plan(input) as TopologyRoutePlanningResult.Planned
+        assertEquals(ViewDirection.AB, planned.route.segments.last().facing)
+    }
+
+    @Test
     fun `disconnected permitted path is rejected before search`() {
         val fixture = alternatives()
         val restrictions = RoutePlanningRestrictions(

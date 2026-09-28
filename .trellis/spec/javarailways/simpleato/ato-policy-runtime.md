@@ -10,8 +10,8 @@ SimpleATO是ATO mission、constraint与world Stall诊断的唯一owner。它拥�
 
 一次正常流程是：serialized owner解析WayPoint mission并生成完整legs → revision queue在physics boundary激活 → controller用一次
 route/perception scan生成车辆、停车、跟车、授权与外部restriction constraints → `MinimumConstraintPlanner`取最严格速度 → Basic actuator
-执行物理运动 → 成功epoch原子publication。resolver仍调用Basic通用`RoutePlanner`与route compiler；SimpleATO负责目标、方向、
-mission连续性和选择结果，Basic算法不成为运营状态owner。
+执行物理运动 → 成功epoch原子publication。resolver通过SimpleATO的`OperationalRoutePlanner`捕获一次不可变拓扑，合成运营方向与
+已注册的寻路限制，再调用一次Basic的拓扑寻路算法；SimpleATO负责目标、方向、mission连续性和选择结果，Basic算法不成为运营状态owner。
 
 ## World Stall与共享物理interlock
 
@@ -24,7 +24,8 @@ mission连续性和选择结果，Basic算法不成为运营状态owner。
 
 ## Mission与constraint机制
 
-- mission request与legs防御性复制；resolver逐leg执行WayPoint resolve、Basic通用寻路和compile，任一失败不产生partial mission；
+- mission request与legs防御性复制；resolver逐leg执行WayPoint resolve和统一的`OperationalRoutePlanner`，任一失败不产生partial mission；
+- 每次业务寻路只合成一次限制并执行一次拓扑搜索；搜索结果直接转换为冻结路线，不再针对live `RailView`做第二遍route compile；
 - `MissionRouteLayout`一次编译累计距离；重复rail/环线用先前progress选择非倒退occurrence；
 - constraint manager按owner原子replace，拒绝同owner重复key，并线性取全部当前candidate的最小许可速度；
 - signal inspection按已选冻结路线声明需要检查的来源，restriction adapter把插件的namespaced输出作为只会收紧的constraint并入同一个manager；

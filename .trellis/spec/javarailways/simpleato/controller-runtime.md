@@ -9,7 +9,7 @@ factory facade或转发访问器。
 
 SimpleATO同时拥有`AbstractATO`、mission、constraint与world Stall coordinator；详细机制见
 [ATO policy runtime](./ato-policy-runtime.md)。SimpleATO拥有`AtoSafetyProfile`；Basic只提供actuator、坡度制动包络、
-route/perception snapshot、通用route compiler与world safety interlock，不拥有或转发ATO可写状态。
+不可变拓扑、route/perception值对象与world safety interlock，不拥有或转发ATO可写状态。
 
 ## 正常流程与内部机制
 

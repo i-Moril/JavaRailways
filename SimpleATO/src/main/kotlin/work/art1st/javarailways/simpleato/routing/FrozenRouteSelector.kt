@@ -6,7 +6,6 @@ import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
 import work.art1st.javarailways.basic.route.OperationalRouteLocation
 import work.art1st.javarailways.basic.route.TopologyRoutePlanner
-import work.art1st.javarailways.basic.route.TopologyRoutePlanningInput
 import work.art1st.javarailways.basic.route.TopologyRoutePlanningRejection
 import work.art1st.javarailways.basic.route.TopologyRoutePlanningResult
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
@@ -121,25 +120,15 @@ internal object FrozenRouteSelector {
             )
         }
 
-        val restrictions = try {
-            input.planningRestrictions.compile(input.topology, input.operatingDirections)
-        } catch (failure: IllegalArgumentException) {
-            return FrozenRouteSelectionResult.Rejected(
-                reason = FrozenRouteSelectionRejection.PLANNER_REJECTED,
-                detail = failure.message ?: "route-planning restrictions are invalid",
-                plannerReason = TopologyRoutePlanningRejection.INVALID_RESTRICTIONS
-            )
-        }
-        val planned = TopologyRoutePlanner.plan(
-            TopologyRoutePlanningInput(
-                topology = input.topology,
-                restrictions = restrictions,
-                start = start,
-                end = input.target,
-                routeId = input.routeId,
-                routeRevision = input.routeRevision,
-                startFacing = train.tail.facing
-            )
+        val planned = OperationalRoutePlanner.plan(
+            topology = input.topology,
+            operatingDirections = input.operatingDirections,
+            planningRestrictions = input.planningRestrictions,
+            start = start,
+            end = input.target,
+            routeId = input.routeId,
+            routeRevision = input.routeRevision,
+            startFacing = train.tail.facing
         )
         return when (planned) {
             is TopologyRoutePlanningResult.Planned -> FrozenRouteSelectionResult.Selected(

@@ -19,10 +19,10 @@ import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.ExpandedRoute
 import work.art1st.javarailways.basic.route.RouteBuildResult
-import work.art1st.javarailways.basic.route.RoutePlanner
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
+import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
@@ -226,9 +226,7 @@ data class TimetableValidationResult(
 }
 
 class TimetableValidator(private val world: World) {
-    private val routePlanner = RoutePlanner(world) {
-        world.simpleAtoWorldData.operatingDirections.allows(it)
-    }
+    private val routePlanner = OperationalRoutePlanner(world)
 
     fun validate(timetable: Timetable): TimetableValidationResult {
         val errors = mutableListOf<String>()

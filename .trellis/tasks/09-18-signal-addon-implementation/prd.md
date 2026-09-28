@@ -16,7 +16,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - SimpleATO owns operating-route selection, resource inspection scheduling and the single most-restrictive ATO/ATP pipeline.
 - Generic longitudinal dynamics, actuation contracts and physical safety mechanisms shared by manual driving and automation remain in Basic; SimpleATO owns the automated operating policy that consumes them.
 - Each independent signalling system will be a separately compiled Java/Kotlin plugin. It may choose its own JS, YAML or other customization layer; no common script engine is mandatory.
-- Operational route selection is temporarily split between the legacy live-`RailView` `RoutePlanner` and Basic's immutable-`TopologyState` planner. The neutral restriction value/source contract and owner/world registration are implemented; production caller convergence remains unfinished.
+- Operational route selection now uses one SimpleATO seam over Basic's immutable-`TopologyState` planner. Mission, Station, Line, Timetable and route diagnostics all compose operating directions with owner/world registered neutral restriction sources before search; the legacy live-`RailView` planner has been deleted.
 
 ## Requirements
 
@@ -80,7 +80,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - [ ] Timetable apply/replace/unapply and draft/draining tests prove atomic applied-plan dependency replacement, edit blocking and separation from transient live claims/occupancy waits.
 - [ ] Plugin persistence round-trips current fixtures and rejects/preserves corrupt or orphaned input with actionable diagnostics.
 - [ ] Unit, integration, packaging and Folia smoke checks pass.
-- [ ] Mission, Line, Station and Timetable use one immutable-topology planning path; registered restrictions have identical semantics for all callers and no legacy `RailView` planner remains in production.
+- [x] Mission, Line, Station and Timetable use one immutable-topology planning path; registered restrictions have identical semantics for all callers and no legacy `RailView` planner remains in production.
 - [ ] A signalling plugin can compile its private interlocking/region model into neutral suppressed traversals plus complete physical traversal macros, without permitting hybrid paths assembled from portions of different table routes; Basic neither defines the region nor accepts any expanded traversal absent from physical topology.
 
 ## Out of scope

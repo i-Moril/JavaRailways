@@ -62,7 +62,10 @@ class TimetableValidatorTest {
     fun `validator expands route between checked origin and goto target`() {
         val world = createTestWorld()
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
-        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
+        val rail = createStraightRailFromSegments(
+            world,
+            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
+        )
         world.basicWorldData.wayPoints.add(WayPoint("A", "A", rail.id, 10.0))
         world.basicWorldData.wayPoints.add(WayPoint("B", "B", rail.id, 70.0))
 

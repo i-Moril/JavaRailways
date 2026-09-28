@@ -5,14 +5,12 @@ import work.art1st.javarailways.simpleato.api.mission.WayPointRef
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.PlannedRoute
-import work.art1st.javarailways.basic.route.PlannedRouteCompilationResult
-import work.art1st.javarailways.basic.route.PlannedRouteCompiler
 import work.art1st.javarailways.basic.route.RouteBuildResult
-import work.art1st.javarailways.basic.route.RoutePlanner
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.util.annotation.MainThread
+import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 data class StationCallRequest(
@@ -68,11 +66,7 @@ enum class StationCallResolutionFailure {
 
 /** Main-thread resolution of one explicit StationCall into an immutable PlannedRoute target. */
 class StationCallResolver(private val world: World) {
-    private val traversalAllowed = { view: work.art1st.javarailways.core.api.physics.rail.RailView ->
-        world.simpleAtoWorldData.operatingDirections.allows(view)
-    }
-    private val routePlanner = RoutePlanner(world, traversalAllowed)
-    private val routeCompiler = PlannedRouteCompiler(world, traversalAllowed)
+    private val routePlanner = OperationalRoutePlanner(world)
 
     @MainThread
     fun resolve(
@@ -150,17 +144,11 @@ class StationCallResolver(private val world: World) {
                 return failure(type, result.reason)
             }
         }
-        val planned = when (val result = routeCompiler.compile(
+        val planned = PlannedRoute(
             routeId = "${request.serviceRunId}/station/${request.call.callId}",
             revision = request.call.missionRevision,
-            route = expanded
-        )) {
-            is PlannedRouteCompilationResult.Success -> result.route
-            is PlannedRouteCompilationResult.Failure -> return failure(
-                StationCallResolutionFailure.ROUTE_UNAVAILABLE,
-                result.reason
-            )
-        }
+            expandedRoute = expanded
+        )
         return StationCallResolutionResult.Success(
             ResolvedStationCall(
                 request = request,

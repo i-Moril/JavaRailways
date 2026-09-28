@@ -20,7 +20,7 @@
 | [curve authoring](./curve-authoring.md) | Anchor/template/solver/measurement | stable token、SI单位、off-main build |
 | [rail infrastructure](./rail-infrastructure.md) | metadata、split/merge/turnout | metadata ownership与Core topology同步 |
 | [speed 与 derail safety](./speed-and-derail-safety.md) | speed signal/geometry threshold/derail request | operating limit与worker→main safety |
-| [route planning](./route-planning.md) | shortest path/progress/compiler或迁移到SimpleATO | 当前route合同、目标topology输入与ownership迁移 |
+| [route planning](./route-planning.md) | immutable topology shortest path、neutral restrictions、progress | Basic纯图算法与SimpleATO统一生产seam |
 | [resource allocation](./resource-allocation.md) | turnout/section/berth locks/manual resource | atomic ownership与physical release |
 | [route resource admission](./route-resource-admission.md) | 自动路线claim、插件附加资源、设备准备与release | Basic目标物理资源底线、原子union与grant生命周期 |
 | [持久化](./persistence.md) | Basic documents/codec/restore | split pairing、strict decode、materialize |

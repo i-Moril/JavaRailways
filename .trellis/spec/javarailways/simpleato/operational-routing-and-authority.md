@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与 Owner
 
-- **Status**：`TRANSITIONAL`；`SimpleATO` Gradle 模块已经拥有具体ATO、Destination、Station、Depot、Line、Timetable model/store/persistence、Dispatcher、内部运营选路/冻结路线、admission client、限制适配器与inspection scheduler/runtime，Bukkit production Dispatcher已接入Basic通用准入。Depot/rolling-stock已迁入SimpleATO，共享ATO primitive仍在Basic；具体信号插件、其内部依赖传播与presentation仍是Stage 2目标。
+- **Status**：`TRANSITIONAL`；`SimpleATO` Gradle 模块已经拥有具体ATO、Destination、Station、Depot、Line、Timetable model/store/persistence、Dispatcher、统一immutable-topology运营选路/冻结路线、admission client、限制适配器与inspection scheduler/runtime，Bukkit production Dispatcher已接入Basic通用准入。共享ATO primitive仍在Basic；具体信号插件、其内部依赖传播与presentation仍是Stage 2目标。
 - **Owner**：SimpleATO 拥有运营路线选择、运行方向、任务/时刻表决策和列车保护约束合成。
 - **Inputs**：Core 发布的不可变 `TopologyState` 与同 epoch 物理观察；SimpleATO 自己发布的运营 overlay/plan revision；Basic 的通用资源准入结果；已安装信号系统插件发布的资源检查与限制结果。
 - **Outputs**：一份绑定 topology revision 的冻结路线、资源准入请求，以及交给控制器的统一 authority/stop/speed constraint 结果。
@@ -10,10 +10,10 @@
 
 触发：迁移或修改 ATO mission、route planning、运行方向、固定/移动闭塞选择、保护区域交互、时刻表 dispatch、MA/stop/speed constraint 合成。
 
-当前迁移状态：SimpleATO的运行方向已能编译成Basic中立的`forbiddenTraversals`，
-`FrozenRouteSelector`调用Basic的不可变拓扑寻路器。插件source已通过共用owner/world lifecycle注册，
-并与运行方向在每次查询前编译、确定性合并。Mission、Station、Line和Timetable仍有生产调用使用legacy
-live-`RailView` planner；这些调用迁移完成前，不得声称统一运营寻路已经投入生产。
+当前迁移状态：SimpleATO的运行方向编译成Basic中立的`forbiddenTraversals`；插件source通过共用
+owner/world lifecycle注册，并与运行方向在每次查询前编译、确定性合并。Mission、Station、Line、Timetable、
+observation-based frozen route和Bukkit route diagnostic均经过同一个`OperationalRoutePlanner` planning seam；
+legacy live-`RailView` planner与二次live compiler已经删除。
 
 ## 2. 模块工作方式
 

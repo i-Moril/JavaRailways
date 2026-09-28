@@ -4,13 +4,13 @@
 
 触发：修改WayPoint route search、direction restriction、expanded/planned route、loop progress或route compilation。
 
-用途：记录当前Mission/Station/Line/Timetable共用的按实际弧长加权planner，并约束它向SimpleATO运营寻路迁移。长期authoritative输入是Core发布的版本化`TopologyState`；SimpleATO拥有方向、停站、线路和时刻表等路径选择策略，Basic只保留可复用的纯图算法与冻结路线校验/资源投影，不拥有另一张图。
+用途：记录Mission、Station、Line、Timetable与诊断命令共用的按实际弧长加权planner。authoritative输入是Core发布的版本化`TopologyState`；SimpleATO拥有方向、停站、线路和时刻表等路径选择策略，Basic只保留可复用的纯图算法与冻结路线校验/资源投影，不拥有另一张图。
 
-当前生产调用的`RoutePlanner`仍直接遍历`RailView.nextRails`，属于待迁移实现，不能被新API固化；它只接受调用方提供的`(RailView) -> Boolean`遍历谓词，不读取任何运营metadata。SimpleATO把自己的运行方向store作为谓词传入。Basic现已拥有基于不可变`TopologyState`的`TopologyRoutePlanner`和中立限制值；`FrozenRouteSelector`已消费它，但Mission/Station/Line/Timetable尚未全部迁移，不能把旧planner删除或声称生产统一已经完成。
+生产调用统一经过SimpleATO的`OperationalRoutePlanner`：每次查询捕获一个immutable topology root，在Dijkstra前组合运行方向与已注册plugin source，再调用Basic的`TopologyRoutePlanner`一次。旧的live-`RailView.nextRails` `RoutePlanner`和二次live `PlannedRouteCompiler`已经删除；Dispatcher、准入和时刻表应用不重新寻路。
 
 ## Owner、输入输出与坐标
 
-`RoutePlanner(world,traversalAllowed)`输入`WayPoint(id,displayName,railId,arcLength)`，arc是canonical AB米；optional required start/goal `ViewDirection`必须由运营调用方显式解析并传入。通用planner不查询Destination/Station/OperatingDirection store，也不推断运营方向；未传入端点方向表示该端点没有额外要求，默认谓词允许所有物理view。
+`TopologyRoutePlanningInput`输入同一个`TopologyState`、编译后的neutral restrictions、canonical AB米表示的起终点、route identity/revision与optional start/end `ViewDirection`。通用planner不查询Destination、Station或OperatingDirection store，也不推断运营方向；未传入端点方向表示该端点没有额外要求。
 
 ```kotlin
 data class RouteSegment(
@@ -20,13 +20,11 @@ data class RouteSegment(
 )
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/route/RoutePlanner.kt`。segment arcs是该view-local meters，finite且`0<=start<=end`；`ExpandedRoute`segments defensive copy、nonempty、total length positive。AB→BA转换只在boundary：`viewArc=railLength-abArc`。
+来源：`Basic/src/main/java/work/art1st/javarailways/basic/route/ExpandedRoute.kt`。segment arcs是该view-local meters，finite且`0<=start<=end`；`ExpandedRoute`segments defensive copy、nonempty、total length positive。SimpleATO adapter移除Topology planner为端点方向保留的零长度marker，只把正长度段交给既有timetable/mission consumers。
 
-`buildRoute(...): RouteBuildResult.Success(route)|Failure(reason)`使用Dijkstra actual remaining/full arc length。same view goal在start后direct；在start前可绕loop重新进入。
+`OperationalRoutePlanner.buildRoute(...): RouteBuildResult.Success(route)|Failure(reason)`使用Basic Dijkstra的actual metre cost。same rail goal在start后direct；在start前只可经合法loop重新进入。`PlannedRoute`只保存route identity、mission revision和已经由同一次immutable topology query选出的`ExpandedRoute`；它不保存信号边界、保护点、资源claim或道岔准备参数。
 
-`PlannedRouteCompiler.compile(routeId,revision,route): Success|Failure`重新resolve stable views，检查segment range、connected endpoint和调用方遍历谓词。`PlannedRoute`只保存route identity、revision和已通过验证且自身defensive copy的`ExpandedRoute`；它不保存信号边界、保护点、资源claim或道岔准备参数。
-
-目标流程为：SimpleATO在一个`TopologyState(revision)`上生成一份绑定该revision的冻结traversal；Basic验证该traversal连续且每个continuation合法，并在同一次pass中把沿途rail intervals、受控transition与route-bound shared resources加入唯一claim集合。物理占用范围只是资源binding的验证数据，不是第二份footprint。Basic不得要求调用方另报资源清单，也不得在验证时另行寻路或用保护区域替调用方选择路径。
+后续Basic准入仍独立验证冻结traversal连续且每个continuation合法，并把沿途rail intervals、受控transition与route-bound shared resources加入唯一claim集合。物理占用范围只是资源binding的验证数据，不是第二份footprint。Basic不得要求调用方另报资源清单，也不得在验证时另行寻路或用保护区域替调用方选择路径。
 
 ## 不可变拓扑寻路与限制
 
@@ -52,7 +50,7 @@ Dijkstra为`O((V+C+A) log(V+C))`，其中`A`为普通、结构连接及macro边�
 SimpleATO的source snapshot读取为`O(1)`，稳定顺序在低频replacement时以`O(K log K)`建立，一次查询调用与合并为
 `O(K+S+P)`加各source自身编译成本；tick、资源等待和Dijkstra扩展内部均不执行插件代码。
 
-## Route/compile矩阵
+## Route result矩阵
 
 | 条件 | result |
 | --- | --- |
@@ -60,26 +58,23 @@ SimpleATO的source snapshot读取为`O(1)`，稳定顺序在低频replacement时
 | disconnected/unreachable | `Failure`，无partial segments |
 | 多条route | actual meter total最短；不按hop数 |
 | same rail goal behind | direct非法；若loop存在可成功重复rail |
-| stale/missing compiled view | compilation `Failure` |
-| transition非endpoint/不connected | compilation `Failure` |
-| caller predicate rejects selected branch | compilation `Failure` |
-| facing/trailing turnout | compiler只验证选定连接；后续物理资源编译从冻结拓扑投影canonical turnout identity |
+| stale restrictions/topology mismatch | typed rejection，无partial route |
+| transition非endpoint/不合法continuation | query graph不生成该arc |
+| plugin禁止branch或完整path | 只在query-local graph收紧/替换 |
+| facing/trailing turnout | planner只选择Core legal continuation；后续物理资源编译投影canonical turnout identity |
 | straight/turnout route | 都不生成signal section或synthetic protection point |
 
 `MissionRouteLayout.project(position,previousProgress)`按facing转换AB→view arc，并用previous progress从repeated rail candidates选monotonic值。
 
 ## 项目内正确示例
 
-Planner把direction conversion集中在一个函数：
+Planner把canonical rail facing到normalized edge direction的转换集中在一个函数：
 
 ```kotlin
-return when (direction) {
-    ViewDirection.AB -> wayPoint.arcLength
-    ViewDirection.BA -> totalLength - wayPoint.arcLength
-}
+val runsFirstToSecond = if (facing == ViewDirection.AB) railRunsFirstToSecond else !railRunsFirstToSecond
 ```
 
-来源：`RoutePlanner.kt`。这避免caller多次翻转或把BA view arc写回persisted WayPoint。
+来源：`TopologyRoutePlanner.kt`。这避免caller多次翻转或把BA view arc写回persisted WayPoint。
 
 ## 禁止实现
 
@@ -87,25 +82,26 @@ return when (direction) {
 - 以rail hop count作为最短；
 - 返回partial unreachable route；
 - 任意并发读写`RailMap`；
-- compile后跳过stable topology revalidation；
+- 在准入时跳过stable topology revalidation；
 - 新功能继续把`RailView.nextRails`或Basic复制的adjacency当成第二个authoritative graph；
 - 在Dijkstra扩展期间调用插件callback，或让插件直接修改Core `TopologyState`；
 - 把保护区域/进路表类型加入Basic；插件只能提交中立有向区间和完整物理path；
 - 把一条permitted path拆成若干可自由拼接的边，从而产生进路表未列出的混合路径；
 - Basic收到非法或不连续route后自行搜索并补齐一条运营路径；
-- RoutePlanner隐式查询Basic/SimpleATO metadata；方向谓词只能由上层调用方显式注入；
+- `TopologyRoutePlanner`隐式查询Basic/SimpleATO metadata；运营限制必须由SimpleATO在查询前显式编译；
 - repeated rail progress取第一个candidate导致倒退。
 
 ## 必需测试与验证
 
-- `RoutePlannerWeightedTest.kt`：more hops但30 m更短、disconnected failure、same-view loop behind。
-- `DirectionRestrictionRouteTest.kt`：start/goal/branch direction。
-- `PlannedRouteCompilerTest.kt`：range/connection failure、direction restriction，以及道岔路线不会生成signal section。
+- `TopologyRoutePlannerTest.kt`：more hops但实际米数更短、disconnected、same-edge/loop与方向限制。
+- `OperationalRoutePlannerTest.kt`：运行方向/source组合只在查询前执行、端点方向和零长度marker适配。
+- `ExpandedRouteTest.kt`与`TopologyRouteProjectorTest.kt`：defensive copy及冻结路线range/connection验证。
 - `TopologyRouteRestrictionTest.kt`：完整path替换自由分支、禁止macro、内部目标不可中途退出及非法物理path拒绝。
 - SimpleATO `MissionRouteProgressTest.kt`：AB/BA和loop monotonic projection。
 
 ```bash
-./gradlew :Basic:test --tests '*RoutePlannerWeightedTest' --tests '*DirectionRestrictionRouteTest' \
-  --tests '*PlannedRouteCompilerTest'
-./gradlew :SimpleATO:test --tests '*MissionRouteProgressTest'
+./gradlew :Basic:test --tests '*TopologyRouteRestrictionTest' --tests '*ExpandedRouteTest' \
+  --tests '*TopologyRouteProjectorTest'
+./gradlew :SimpleATO:test --tests '*TopologyRoutePlannerTest' \
+  --tests '*OperationalRoutePlannerTest' --tests '*MissionRouteProgressTest'
 ```

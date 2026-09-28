@@ -16,12 +16,12 @@ import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.RouteBuildResult
-import work.art1st.javarailways.basic.route.RoutePlanner
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
+import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
 
 class OperationalDestinationTest {
     private val worlds = mutableListOf<work.art1st.javarailways.core.physics.CoreWorld>()
@@ -64,7 +64,7 @@ class OperationalDestinationTest {
         service.register(destination("B", rail.id, 80.0, ViewDirection.AB))
         service.register(destination("wrong-way", rail.id, 80.0, ViewDirection.BA))
 
-        val result = RoutePlanner(world).buildRoute(
+        val result = OperationalRoutePlanner(world).buildRoute(
             "A",
             "B",
             requiredGoalDirection = ViewDirection.AB,
@@ -74,7 +74,7 @@ class OperationalDestinationTest {
         assertEquals(ViewDirection.AB, result.route.segments.single().railViewRef.direction)
         assertEquals(20.0, world.basicWorldData.wayPoints["A"]?.arcLength)
         assertEquals(DestinationRoleType.REGULAR, world.simpleAtoWorldData.destinations["A"]?.role?.type)
-        assertTrue(RoutePlanner(world).buildRoute(
+        assertTrue(OperationalRoutePlanner(world).buildRoute(
             "A",
             "wrong-way",
             requiredGoalDirection = ViewDirection.BA,

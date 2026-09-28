@@ -2,13 +2,11 @@ package work.art1st.javarailways.simpleato.api.mission
 
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.PlannedRoute
-import work.art1st.javarailways.basic.route.PlannedRouteCompilationResult
-import work.art1st.javarailways.basic.route.PlannedRouteCompiler
 import work.art1st.javarailways.basic.route.RouteBuildResult
-import work.art1st.javarailways.basic.route.RoutePlanner
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.util.annotation.MainThread
+import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import java.util.Collections
 
@@ -151,11 +149,7 @@ sealed interface AtoMissionSubmissionResult {
 
 /** Resolves WayPoint references and compiles every mission leg before it reaches physics state. */
 class AtoMissionResolver(private val world: World) {
-    private val traversalAllowed = { view: work.art1st.javarailways.core.api.physics.rail.RailView ->
-        world.simpleAtoWorldData.operatingDirections.allows(view)
-    }
-    private val routePlanner = RoutePlanner(world, traversalAllowed)
-    private val plannedRouteCompiler = PlannedRouteCompiler(world, traversalAllowed)
+    private val routePlanner = OperationalRoutePlanner(world)
 
     @MainThread
     fun resolve(request: AtoMissionRequest): AtoMissionResolutionResult {
@@ -187,18 +181,11 @@ class AtoMissionResolver(private val world: World) {
                     result.reason
                 )
             }
-            val planned = when (val result = plannedRouteCompiler.compile(
+            val planned = PlannedRoute(
                 routeId = "${request.id}/leg/$index",
                 revision = request.revision,
-                route = expanded
-            )) {
-                is PlannedRouteCompilationResult.Success -> result.route
-                is PlannedRouteCompilationResult.Failure -> return AtoMissionResolutionResult.RouteUnavailable(
-                    from,
-                    to,
-                    result.reason
-                )
-            }
+                expandedRoute = expanded
+            )
             legs += AtoMissionLeg(index, point, planned)
             from = to
             currentDirection = expanded.segments.last().railViewRef.direction

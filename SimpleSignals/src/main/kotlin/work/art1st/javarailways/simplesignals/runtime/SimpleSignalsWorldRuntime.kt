@@ -12,6 +12,7 @@ import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSource
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
+import work.art1st.javarailways.core.util.ThreadGuard
 import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding
 import work.art1st.javarailways.simplesignals.block.FixedBlockCatalog
 import work.art1st.javarailways.simplesignals.block.FixedBlockCatalogStatus
@@ -609,7 +610,9 @@ internal class SimpleSignalsWorldRuntimeManager(
         worldId: UUID,
         expectedDefinitionRevision: Long,
         patch: SimpleSignalsDefinitionPatch
-    ): SimpleSignalsDefinitionAuthoringResult = synchronized(lock) {
+    ): SimpleSignalsDefinitionAuthoringResult {
+        ThreadGuard.ensureOffMainThread("SimpleSignals definition authoring preparation")
+        return synchronized(lock) {
         val runtime = runtimes[worldId] ?: return@synchronized authoringResult(
             SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
             "SimpleSignals world runtime is not installed: $worldId"
@@ -719,102 +722,115 @@ internal class SimpleSignalsWorldRuntimeManager(
                     diagnostics = listOf("topology root changed after edit permit acquisition")
                 )
             }
-            var callbackStarted = false
-            var staleBase = false
-            var staleTopologyDuringCommit = false
-            var topologyUnavailableDuringCommit = false
-            val commit = if (replaceSectionOccupancy) {
-                val candidateOccupancy = SectionOccupancyRuntime.from(
-                    prepared.candidatePublication
+            val stagedSave = try {
+                definitions.prepareSave(worldId, prepared.definitions)
+            } catch (failure: Exception) {
+                return@synchronized authoringResult(
+                    SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED,
+                    "definitions could not be staged: ${describe(failure)}"
                 )
-                try {
-                    signalEpochSources.replaceSourcesAtomically(
-                        plugin,
-                        worldId,
-                        listOfNotNull(candidateOccupancy.source)
-                    ) {
-                        callbackStarted = true
-                        val commitTopology = try {
-                            infrastructure.currentTopology(worldId)
-                        } catch (failure: Exception) {
-                            topologyUnavailableDuringCommit = true
-                            throw failure
-                        }
-                        if (commitTopology !== prepared.topology) {
-                            staleTopologyDuringCommit = true
-                            error("topology root changed before the atomic definition commit")
-                        }
-                        val committed = runtime.commitPrepared(
-                            prepared,
-                            candidateOccupancy
+            }
+            try {
+                var callbackStarted = false
+                var staleBase = false
+                var staleTopologyDuringCommit = false
+                var topologyUnavailableDuringCommit = false
+                val commit = if (replaceSectionOccupancy) {
+                    val candidateOccupancy = SectionOccupancyRuntime.from(
+                        prepared.candidatePublication
+                    )
+                    try {
+                        signalEpochSources.replaceSourcesAtomically(
+                            plugin,
+                            worldId,
+                            listOfNotNull(candidateOccupancy.source)
                         ) {
-                            definitions.save(worldId, prepared.definitions)
+                            callbackStarted = true
+                            val commitTopology = try {
+                                infrastructure.currentTopology(worldId)
+                            } catch (failure: Exception) {
+                                topologyUnavailableDuringCommit = true
+                                throw failure
+                            }
+                            if (commitTopology !== prepared.topology) {
+                                staleTopologyDuringCommit = true
+                                error("topology root changed before the atomic definition commit")
+                            }
+                            val committed = runtime.commitPrepared(
+                                prepared,
+                                candidateOccupancy
+                            ) {
+                                stagedSave.commitPrimary()
+                            }
+                            if (committed == SimpleSignalsDefinitionCommitStatus.STALE_BASE) {
+                                staleBase = true
+                                error("definitions changed before the prepared edit could be committed")
+                            }
                         }
-                        if (committed == SimpleSignalsDefinitionCommitStatus.STALE_BASE) {
-                            staleBase = true
-                            error("definitions changed before the prepared edit could be committed")
-                        }
-                    }
-                    SimpleSignalsDefinitionCommitStatus.COMMITTED
-                } catch (failure: Exception) {
-                    if (staleTopologyDuringCommit) {
-                        return@synchronized SimpleSignalsDefinitionAuthoringResult(
-                            SimpleSignalsDefinitionAuthoringStatus.STALE_TOPOLOGY,
-                            editDecision = TopologyEditDecision(
-                                TopologyEditStatus.STALE_TOPOLOGY,
-                                detail = "topology root changed before the atomic definition commit"
-                            ),
-                            diagnostics = listOf(
-                                "topology root changed before the atomic definition commit"
+                        SimpleSignalsDefinitionCommitStatus.COMMITTED
+                    } catch (failure: Exception) {
+                        if (staleTopologyDuringCommit) {
+                            return@synchronized SimpleSignalsDefinitionAuthoringResult(
+                                SimpleSignalsDefinitionAuthoringStatus.STALE_TOPOLOGY,
+                                editDecision = TopologyEditDecision(
+                                    TopologyEditStatus.STALE_TOPOLOGY,
+                                    detail = "topology root changed before the atomic definition commit"
+                                ),
+                                diagnostics = listOf(
+                                    "topology root changed before the atomic definition commit"
+                                )
                             )
+                        }
+                        val status = when {
+                            topologyUnavailableDuringCommit ->
+                                SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE
+                            staleBase -> SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED
+                            callbackStarted -> SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED
+                            failure is IllegalArgumentException ->
+                                SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED
+                            else -> SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE
+                        }
+                        val prefix = when (status) {
+                            SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED ->
+                                "definitions could not be saved"
+                            SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED ->
+                                "definitions changed before the prepared edit could be committed"
+                            else -> "section occupancy source could not be replaced"
+                        }
+                        return@synchronized authoringResult(
+                            status,
+                            "$prefix: ${describe(failure)}"
                         )
                     }
-                    val status = when {
-                        topologyUnavailableDuringCommit ->
-                            SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE
-                        staleBase -> SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED
-                        callbackStarted -> SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED
-                        failure is IllegalArgumentException ->
-                            SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED
-                        else -> SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE
+                } else {
+                    try {
+                        runtime.commitPrepared(prepared) {
+                            stagedSave.commitPrimary()
+                        }
+                    } catch (failure: Exception) {
+                        return@synchronized authoringResult(
+                            SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED,
+                            "definitions could not be saved: ${describe(failure)}"
+                        )
                     }
-                    val prefix = when (status) {
-                        SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED ->
-                            "definitions could not be saved"
-                        SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED ->
-                            "definitions changed before the prepared edit could be committed"
-                        else -> "section occupancy source could not be replaced"
-                    }
+                }
+                if (commit == SimpleSignalsDefinitionCommitStatus.STALE_BASE) {
                     return@synchronized authoringResult(
-                        status,
-                        "$prefix: ${describe(failure)}"
+                        SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED,
+                        "definitions changed before the prepared edit could be committed"
                     )
                 }
-            } else {
-                try {
-                    runtime.commitPrepared(prepared) {
-                        definitions.save(worldId, prepared.definitions)
-                    }
-                } catch (failure: Exception) {
-                    return@synchronized authoringResult(
-                        SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED,
-                        "definitions could not be saved: ${describe(failure)}"
-                    )
-                }
-            }
-            if (commit == SimpleSignalsDefinitionCommitStatus.STALE_BASE) {
-                return@synchronized authoringResult(
-                    SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED,
-                    "definitions changed before the prepared edit could be committed"
+                SimpleSignalsDefinitionAuthoringResult(
+                    SimpleSignalsDefinitionAuthoringStatus.APPLIED,
+                    definitions = prepared.definitions,
+                    editDecision = permitResult.decision()
                 )
+            } finally {
+                stagedSave.close()
             }
-            SimpleSignalsDefinitionAuthoringResult(
-                SimpleSignalsDefinitionAuthoringStatus.APPLIED,
-                definitions = prepared.definitions,
-                editDecision = permitResult.decision()
-            )
         } finally {
             permit.close()
+        }
         }
     }
 

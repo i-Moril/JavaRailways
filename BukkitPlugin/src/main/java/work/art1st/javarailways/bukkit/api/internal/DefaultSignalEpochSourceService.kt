@@ -73,7 +73,7 @@ internal class DefaultSignalEpochSourceService :
         worldId: UUID,
         sources: Collection<SignalEpochSource>,
         commitAction: Runnable
-    ) = BukkitThreadGuardBridge.runInSimulationContext {
+    ) {
         check(pluginOwner.isEnabled) {
             "Cannot install signal sources for disabled plugin ${pluginOwner.name}"
         }

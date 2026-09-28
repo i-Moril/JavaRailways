@@ -153,8 +153,10 @@ runtime先用fresh catalog完整编译candidate而不修改live publication。pr
 manager以旧、新affected rail ID并集申请既有`InfrastructureResourceService.acquireEditPermit`，不创建第二套锁，也不把permit扩大到
 不相关轨道。permit owner为`simplesignals:definitions/<world UUID>`，owner revision等于新的definition revision。
 
-permit取得后再次要求`currentTopology(worldId)`与prepared root是同一对象。commit在runtime lock内先复核base publication未变化，
-随后以store save作为pre-commit callback；只有save成功才执行一次volatile swap。permit覆盖save与swap并在所有返回路径关闭。
+permit取得后再次要求`currentTopology(worldId)`与prepared root是同一对象。store在进入publication callback前完成JSON encode、
+旧primary有效性检查、temporary write与backup staging。commit在runtime lock内先复核base publication未变化，再只以同目录
+atomic rename提交primary；rename成功后执行一次volatile swap。callback返回后才轮换backup并清理staging。permit覆盖prepare与swap并在
+所有返回路径关闭。
 revision/patch/validation、host conflict/stale、persistence和world unavailable使用不同typed result；host拒绝时保留原始
 `TopologyEditDecision`及blocker diagnostics。任一步失败都保留旧publication；save在替换primary前只写staging文件，替换primary
 是唯一commit point，之后backup rotation只作best-effort recovery维护，不能把已提交primary误报为失败。
@@ -162,8 +164,9 @@ revision/patch/validation、host conflict/stale、persistence和world unavailabl
 fixed-block增删/改形或exact topology root变化时，runtime先完整编译candidate definition与新的
 `SectionOccupancyRuntime`，再以旧/新affected rails并集取得既有edit permit。permit拒绝发生在写盘和source callback前。
 permit成功后通过host `replaceSourcesAtomically`提交：host先验证/编译所有owner的candidate source全集并检查retained restriction，
-随后在同一个simulation lock内运行SimpleSignals callback。callback在runtime lock内复核base publication，以sidecar save作为
-pre-commit，并在barrier内重读exact topology root；root已变化则在save前返回typed stale。然后用一个预构造的
+但不取得跨world simulation lock。已开始的epoch保留其捕获的旧immutable source，下一epoch才读取replacement并建立新baseline。
+callback在runtime lock内复核base publication，以staged primary rename作为pre-commit，并重读exact topology root；root已变化则在
+rename前返回typed stale。然后用一个预构造的
 `RuntimeState`引用同时替换definition publication和section occupancy runtime；callback成功后host只安装已经
 编译好的area source state。任何host prevalidation失败都不调用save，save或base commit失败则host保留旧source；没有rollback token、
 占位area或可被physics观察到的错配窗口。删除最后一个block使用empty epoch-source replacement，只清除此类别而保留同owner的
@@ -171,8 +174,10 @@ route-planning source。region/table-only且exact root未变化时不重建相�
 
 authoring是低频路径：patch map操作为`O(D)`。设fixed-block traversal总数为`T`、合并后interval数为`F`，跨section检查实际比较
 `H`个rail-local候选，则完整candidate编译为`O(V+E+S+P log Q+T log T+S log S+F log S+H)`；affected-rail并集与写盘为定义规模线性。
-route callback仍只读取一次volatile publication和cached restrictions。当前只建立plugin-local事务 seam，尚无RailObjectWand、命令、
-inspect/dry-run UI或拓扑迁移工具。
+这些规模相关的编译、encode、validation和ordinary write必须在async authoring worker；最终commit只允许exact root/base检查、
+already-staged atomic rename与immutable reference swap。route callback仍只读取一次volatile publication和cached restrictions。当前只建立plugin-local事务 seam，尚无RailObjectWand、命令、
+inspect/dry-run UI或拓扑迁移工具。`applyDefinitionPatch`以`ThreadGuard.ensureOffMainThread`拒绝错误的owner-thread调用；未来Wand/command必须先
+dispatch worker，不能依赖调用约定而省略这一断言。
 
 ## 已评审但尚未实现的响应式方向
 

@@ -30,6 +30,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
+import work.art1st.javarailways.core.util.IsolatedMainThreadMarker
 import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
@@ -51,6 +52,30 @@ import java.util.UUID
 class SimpleSignalsWorldRuntimeManagerTest {
     @TempDir
     lateinit var directory: Path
+
+    @Test
+    fun `definition authoring rejects platform owner thread before doing preparation work`() {
+        val fixture = Fixture()
+        val manager = SimpleSignalsWorldRuntimeManager(
+            plugin(),
+            MutableTopologyService(fixture.currentTopology).service,
+            CapturingRoutePlanningService(),
+            store(),
+            CapturingSignalEpochSourceService()
+        )
+
+        val failure = assertThrows(IllegalStateException::class.java) {
+            IsolatedMainThreadMarker.run {
+                manager.applyDefinitionPatch(
+                    fixture.worldId,
+                    0L,
+                    SimpleSignalsDefinitionPatch()
+                )
+            }
+        }
+
+        assertTrue(failure.message.orEmpty().contains("must not run on the main thread"))
+    }
 
     @Test
     fun `captured host source follows atomic publications and changes Basic route selection`() {

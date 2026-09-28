@@ -57,12 +57,17 @@ public interface SignalEpochSourceService {
      * the callback throws, the old source set and runtime remain installed. After a successful
      * callback the already compiled source state is installed by an infallible reference swap.</p>
      *
-     * <p>The complete operation runs under the JavaRailways simulation lock, so a physics epoch
-     * cannot observe the callback's committed state with the previous monitored geometry. The
-     * callback is therefore a low-frequency configuration commit boundary: it may perform the
-     * caller's durable definition write, but must not re-enter this service or wait for work that
-     * requires the simulation lock. Any attempted service re-entry from the callback is rejected
-     * before it can change another source category.</p>
+     * <p>Validation and monitored-area compilation may be linear or sorting work in the complete
+     * installed area set, so an online editor must call this method from its asynchronous
+     * preparation worker rather than a Bukkit/Paper owner thread. The operation does not acquire
+     * JavaRailways' cross-world simulation lock. An already-running epoch keeps the immutable old
+     * source snapshot; the next epoch sees the new snapshot and establishes a fresh baseline.</p>
+     *
+     * <p>The callback is the final, bounded commit boundary. It may exchange already-prepared
+     * immutable state and commit an already-staged atomic file replacement, but it must not encode
+     * or validate a full document, perform graph/index construction, call Bukkit, re-enter this
+     * service, or wait for asynchronous work. Any attempted service re-entry from the callback is
+     * rejected before it can change another source category.</p>
      *
      * @throws IllegalStateException if the plugin/world/service is unavailable or a removed source
      *                               still has a non-empty retained restriction stream

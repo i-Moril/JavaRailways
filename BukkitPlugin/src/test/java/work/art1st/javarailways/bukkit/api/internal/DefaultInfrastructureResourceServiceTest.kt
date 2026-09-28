@@ -66,8 +66,59 @@ import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import java.lang.reflect.Proxy
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class DefaultInfrastructureResourceServiceTest {
+    @Test
+    fun `edit permit acquisition does not wait for the cross-world simulation lock`() {
+        val service = DefaultInfrastructureResourceService()
+        val worldId = UUID.randomUUID()
+        val editor = plugin("editor")
+        val resource = StableInfrastructureResource("example.editor:signal", "home")
+        service.registerResourceProvider(
+            editor,
+            resource.typeId,
+            rejectingRouteProvider { _, id -> id == resource.resourceId },
+            emptyList()
+        )
+        registerWorld(service, worldId)
+        val lockEntered = CountDownLatch(1)
+        val releaseLock = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val heldSimulationLock = executor.submit {
+                BukkitThreadGuardBridge.runInSimulationContext {
+                    lockEntered.countDown()
+                    check(releaseLock.await(5, TimeUnit.SECONDS))
+                }
+            }
+            assertTrue(lockEntered.await(5, TimeUnit.SECONDS))
+
+            val permitResult = executor.submit(java.util.concurrent.Callable {
+                service.acquireEditPermit(
+                    editor,
+                    worldId,
+                    TopologyEditRequest(
+                        7L,
+                        InfrastructureOwner("example.editor:mutation/main", 1L),
+                        TopologyEditImpact(emptySet(), emptySet(), setOf(resource))
+                    )
+                )
+            }).get(5, TimeUnit.SECONDS)
+
+            assertEquals(TopologyEditStatus.GRANTED, permitResult.decision().status)
+            permitResult.permit().orElseThrow().close()
+            releaseLock.countDown()
+            heldSimulationLock.get(5, TimeUnit.SECONDS)
+        } finally {
+            releaseLock.countDown()
+            executor.shutdownNow()
+            service.close()
+        }
+    }
+
     @Test
     fun `current topology returns the exact live root and same UUID reload does not revive it`() {
         val service = DefaultInfrastructureResourceService()

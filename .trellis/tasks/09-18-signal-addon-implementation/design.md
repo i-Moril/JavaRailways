@@ -159,11 +159,19 @@ world-definition revision, creates one complete revision+1 candidate, and reject
 The runtime prepares fresh region, fixed-route and fixed-block catalogs against one exact immutable topology without changing the live source. The prepared
 value retains its base publication identity and old/new exact rail impacts, including boundaries, resolved interiors and route traversals.
 
-The manager acquires the existing host edit permit for the union of old and new rail impacts, rechecks the exact topology root, then invokes the
-definition store inside the runtime's commit callback. The runtime rechecks that its base publication is still current, saves the complete sidecar,
-and only then performs one volatile publication swap while the permit remains held. Rejected patches, catalog validation, permit conflicts/staleness
-and persistence failures leave the old source unchanged; no second lock service, topology-wide lease or authoring token exists. This low-frequency
-transaction is the sole future seam for Wand/command callers, which remain unimplemented in this batch.
+The manager acquires the existing host edit permit for the union of old and new rail impacts and rechecks the exact topology root. Before entering
+the publication callback, its worker encodes the complete sidecar, validates/copies the old primary and writes same-directory staging files. The
+callback rechecks the base publication and topology, atomically renames the staged primary, then swaps the already-built plugin and host source
+references. Backup rotation and staging cleanup happen after publication. Rejected patches, catalog validation, permit conflicts/staleness and
+persistence failures leave the old source unchanged; no second lock service, topology-wide lease or authoring token exists.
+
+Online editing has one cross-module latency rule. Preparation may perform work proportional to definition or topology size, but it runs on an
+asynchronous worker. Final commit is scoped to the affected world and may only perform stale/permit checks, an already-staged atomic rename and
+immutable reference swaps. It must not hold the cross-world simulation lock, rebuild a graph/index, encode a document, perform an ordinary file
+write, wait for a future or invoke Bukkit side effects. An in-progress signal epoch therefore finishes with its captured old immutable source and
+the next epoch establishes the new geometry baseline. Rail editing currently prepares curves and exact diamond geometry asynchronously, but its
+outer Core transaction still rebuilds the full normalized `TopologyState`; moving that build into the prepared value is an explicit unfinished
+acceptance item rather than being excused as a low-frequency operation.
 
 ## Persistence and lifecycle
 

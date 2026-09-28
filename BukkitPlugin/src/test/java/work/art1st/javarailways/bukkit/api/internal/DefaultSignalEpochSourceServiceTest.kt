@@ -34,7 +34,6 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
 
 class DefaultSignalEpochSourceServiceTest {
     private val railId = UUID.nameUUIDFromBytes("signal-service-rail".toByteArray())
@@ -144,14 +143,13 @@ class DefaultSignalEpochSourceServiceTest {
     }
 
     @Test
-    fun `atomic replacement callback excludes a physics epoch`() {
+    fun `atomic replacement callback does not block an epoch and publishes for the next epoch`() {
         val service = DefaultSignalEpochSourceService()
         val worldId = UUID.randomUUID()
         val owner = plugin("signal")
         val runtime = runtime()
         val commitEntered = CountDownLatch(1)
         val releaseCommit = CountDownLatch(1)
-        val physicsAttempted = CountDownLatch(1)
         val calls = mutableListOf<String>()
         service.registerWorld(worldId, runtime, inspectionRuntime(), { emptyList() }) { _, _ -> }
         service.replaceSources(owner, worldId, listOf(source("test:old", 0.0) { calls += "old" }))
@@ -171,25 +169,22 @@ class DefaultSignalEpochSourceServiceTest {
             }
             assertTrue(commitEntered.await(5, TimeUnit.SECONDS))
             val physics = executor.submit {
-                physicsAttempted.countDown()
                 BukkitThreadGuardBridge.runInSimulationContext {
                     runtime.process(frame(1L))
                 }
             }
-            assertTrue(physicsAttempted.await(5, TimeUnit.SECONDS))
-            assertThrows(TimeoutException::class.java) {
-                physics.get(250, TimeUnit.MILLISECONDS)
-            }
+            physics.get(5, TimeUnit.SECONDS)
+            assertEquals(listOf("old"), calls)
 
             releaseCommit.countDown()
             replacement.get(5, TimeUnit.SECONDS)
-            physics.get(5, TimeUnit.SECONDS)
+            runtime.process(frame(2L))
         } finally {
             releaseCommit.countDown()
             executor.shutdownNow()
         }
 
-        assertEquals(listOf("new"), calls)
+        assertEquals(listOf("old", "new"), calls)
     }
 
     @Test

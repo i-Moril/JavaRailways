@@ -516,13 +516,13 @@ internal class DefaultInfrastructureResourceService(
         pluginOwner: Plugin,
         worldId: UUID,
         request: TopologyEditRequest
-    ): InfrastructureEditPermitResult = BukkitThreadGuardBridge.runInSimulationContext {
+    ): InfrastructureEditPermitResult {
         val registry = registry(worldId)
-            ?: return@runInSimulationContext InfrastructureEditPermitResult.denied(unavailableEdit(worldId))
+            ?: return InfrastructureEditPermitResult.denied(unavailableEdit(worldId))
         val owner = requireEnabled(pluginOwner)
         val acquired = registry.acquireEditPermit(owner, request)
         if (!acquired.decision.successful) {
-            return@runInSimulationContext InfrastructureEditPermitResult.denied(acquired.decision)
+            return InfrastructureEditPermitResult.denied(acquired.decision)
         }
         val permit = object : InfrastructureEditPermit {
             private val permitClosed = AtomicBoolean()
@@ -533,7 +533,7 @@ internal class DefaultInfrastructureResourceService(
                 }
             }
         }
-        InfrastructureEditPermitResult.granted(acquired.decision, permit)
+        return InfrastructureEditPermitResult.granted(acquired.decision, permit)
     }
 
     override fun appliedPlanDependencies(worldId: UUID): List<AppliedPlanDependencySnapshot> =

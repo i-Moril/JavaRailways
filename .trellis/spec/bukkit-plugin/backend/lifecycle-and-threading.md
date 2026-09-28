@@ -33,10 +33,11 @@ fail-close该world，不能让后续suffix申请少执行一套信号策略。
 `SignalEpochSourceService`同样绑定plugin instance和exact world runtime。全集replacement可删除其中部分或全部epoch source ID，
 但删除前插件必须先对每个对应`(sourceId, trainId)`流发布更高revision的空restriction snapshot；空replacement只影响
 epoch source类别，完整owner删除仍只由上述
-统一pre-disable入口执行。低频`replaceSourcesAtomically`在simulation context内先验证并编译候选全集，再运行一次调用方
-commit callback；callback失败保留旧runtime/owner set，成功后只做已编译引用替换。因此插件可把sidecar/publication与
-area geometry放在同一physics barrier内提交而不需要rollback token。callback不得重入同一service或等待需要simulation lock
-的任务；host在任何其他source类别被修改前明确拒绝重入。普通`replaceSources`等价于使用空callback。若附属插件被强制禁用，
+统一pre-disable入口执行。`replaceSourcesAtomically`不取得跨world simulation lock；它验证并编译候选全集后运行一次调用方
+bounded commit callback，callback失败保留旧runtime/owner set，成功后只做已编译引用替换。已开始的epoch完成其捕获的旧source，
+下一epoch读取新source并建立baseline。callback只允许already-staged atomic rename与immutable state swap，不得执行graph/index
+build、JSON encode、ordinary file write、Bukkit调用、service重入或future wait；host在任何其他source类别被修改前明确拒绝重入。
+online editor必须在async worker调用这个可能随完整area集合增长的API。普通`replaceSources`等价于使用空callback。若附属插件被强制禁用，
 host总是删除失效callback，但只在仍有非空owner restriction时Stall该world；world unload与JavaRailways shutdown只清理
 binding，不误报故障。基础资源和signal的强制清理由同一个listener触发，不维护两套disable顺序。
 
@@ -87,6 +88,12 @@ wake physics + generic preTick
 `ThreadGuard.ensureMainThread()` 在 Bukkit bridge 下只证明 simulation serialization；对 entity/location 副作用仍要 target-aware ownership。参考 `BukkitThreadOwnership.kt`、`PlatformDispatcher.kt`、`BukkitThreadGuardBridgeTest.kt`。
 
 异步结果回 owner 后应重查：plugin/world 是否 stopping/unloading、player/entity 是否仍有效、world 是否改变、revision 是否仍是最新。`BukkitPlugin`内部的`LatestAffinityTaskDispatcher`为现有车辆画面与platform commit提供per-key one-in-flight + latest-pending模式来限制region backlog；最终呈现对象负责stale revision检查。它不是`SimpleATOBukkit`或附属插件的公共API。不要恢复逐tick无界task queue；未来确有跨插件复用需求时再单独评审public platform facade。
+
+在线基础设施编辑不得把“低频”当作阻塞平台线程或跨world simulation lock的理由。统一流程是：`runAsync`完成curve/geometry、
+完整graph/index、serialization、validation与staging I/O；回到受影响world owner后只复核captured root/permit并发布prepared value；
+玩家消息、render和其他Bukkit side effect在publication之后按target ownership执行。commit复杂度必须只与实际delta相关，不能在owner
+线程重新做`O(world)`扫描。当前信号definition事务遵守该边界；RailWand虽已异步准备curve和diamond geometry，outer Core transaction
+仍同步完整构建normalized topology，是明确待迁移项。
 
 ## 世界 lifecycle
 

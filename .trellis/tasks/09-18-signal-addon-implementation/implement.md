@@ -80,6 +80,23 @@ Current extraction progress:
   updates, stale-revision rejection and idempotent world/plugin cleanup. Use a host platform API only if a concrete
   cross-plugin requirement is reviewed first; do not route rendering through `SimpleATOBukkit`.
 
+## Cross-cutting online edit latency
+
+- [x] Remove cross-world simulation-lock ownership from online signal source replacement and Basic
+  edit-permit acquisition. A blocked commit callback must not prevent an old immutable signal epoch
+  from completing; the next epoch alone observes the replacement.
+- [x] Stage SimpleSignals JSON encoding, validation, temporary write and valid-primary backup copy
+  before the final source/publication commit. The bounded callback may only recheck identity,
+  atomically rename the staged primary and swap immutable references; backup rotation/cleanup follows
+  publication.
+- [ ] Audit every RailWand create/replace/split/merge/remove path. Move final normalized
+  `TopologyState` construction and any whole-world undo/persistence capture into asynchronous prepare;
+  the platform/world commit may only validate the captured root, apply the prepared delta and publish
+  the prepared root for the affected world.
+- [ ] Add concurrency regressions proving signal edits and edit-permit scans do not wait for the
+  cross-world simulation lock, plus track-edit tests proving another world continues ticking while a
+  prepared edit is delayed.
+
 ## Validation
 
 - [ ] Module-boundary tests prove Basic, SimpleATO, SimpleATOBukkit and `SimpleSignals` have one owner per state and valid dependency direction.

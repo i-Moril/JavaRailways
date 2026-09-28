@@ -39,6 +39,7 @@ internal class SimpleSignalsWorldDefinitionStore(
 ) {
     private val lock = Any()
     private val worldsDirectory = dataFolder.toPath().resolve("worlds")
+    private val preparedWorlds = hashSetOf<UUID>()
 
     fun load(worldId: UUID): SimpleSignalsWorldDefinitionLoadResult = synchronized(lock) {
         val primary = primaryFile(worldId)
@@ -70,9 +71,20 @@ internal class SimpleSignalsWorldDefinitionStore(
         SimpleSignalsWorldDefinitionLoadResult.Corrupted(java.util.List.copyOf(failures))
     }
 
-    fun save(worldId: UUID, definitions: SimpleSignalsWorldDefinitions) = synchronized(lock) {
+    /**
+     * Performs the complete document encoding, validation and staging write before publication.
+     * [PreparedSave.commitPrimary] is deliberately limited to the final same-directory rename;
+     * backup rotation and staging cleanup happen when the prepared value is closed.
+     */
+    fun prepareSave(
+        worldId: UUID,
+        definitions: SimpleSignalsWorldDefinitions
+    ): PreparedSave = synchronized(lock) {
         require(definitions.worldId == worldId) {
             "Cannot save SimpleSignals definitions for ${definitions.worldId} as world $worldId"
+        }
+        check(preparedWorlds.add(worldId)) {
+            "A SimpleSignals definition save is already prepared for world $worldId"
         }
         val primary = primaryFile(worldId)
         val backup = backupFile(worldId)
@@ -92,30 +104,55 @@ internal class SimpleSignalsWorldDefinitionStore(
             if (Files.isRegularFile(primary) && isValid(primary, worldId)) {
                 Files.copy(primary, backupTemporary, StandardCopyOption.REPLACE_EXISTING)
             }
+            PreparedSave(worldId, primary, backup, temporary, backupTemporary)
+        } catch (failure: Exception) {
+            preparedWorlds.remove(worldId)
+            cleanup(temporary)
+            cleanup(backupTemporary)
+            throw failure
+        }
+    }
+
+    fun save(worldId: UUID, definitions: SimpleSignalsWorldDefinitions) {
+        prepareSave(worldId, definitions).use { prepared ->
+            prepared.commitPrimary()
+        }
+    }
+
+    internal inner class PreparedSave internal constructor(
+        private val worldId: UUID,
+        private val primary: Path,
+        private val backup: Path,
+        private val temporary: Path,
+        private val backupTemporary: Path
+    ) : AutoCloseable {
+        private var committed = false
+        private var closed = false
+
+        /** The only persistence operation allowed inside the live publication commit. */
+        fun commitPrimary() = synchronized(lock) {
+            check(!closed) { "Prepared SimpleSignals save is already closed" }
+            check(!committed) { "Prepared SimpleSignals save is already committed" }
             beforePrimaryReplace()
             replace(temporary, primary)
+            committed = true
+        }
 
-            // The primary replacement above is the commit point. Backup rotation is recovery-only:
-            // once the new primary is durable, failure to refresh the old-primary backup must not
-            // turn a successful commit into a reported failure.
-            if (Files.exists(backupTemporary)) {
+        override fun close() = synchronized(lock) {
+            if (closed) return@synchronized
+            closed = true
+            // Primary replacement is the commit point. Backup rotation is recovery-only and is
+            // deliberately outside the live publication callback.
+            if (committed && Files.exists(backupTemporary)) {
                 try {
                     replace(backupTemporary, backup)
                 } catch (_: Exception) {
                     // Keep the previous valid backup. The next successful save can rotate it.
                 }
             }
-        } finally {
-            try {
-                Files.deleteIfExists(temporary)
-            } catch (_: Exception) {
-                // Cleanup failure after the commit point does not invalidate the saved primary.
-            }
-            try {
-                Files.deleteIfExists(backupTemporary)
-            } catch (_: Exception) {
-                // A stale staging file is ignored and overwritten by the next save.
-            }
+            cleanup(temporary)
+            cleanup(backupTemporary)
+            preparedWorlds.remove(worldId)
         }
     }
 
@@ -141,6 +178,15 @@ internal class SimpleSignalsWorldDefinitionStore(
             )
         } catch (_: AtomicMoveNotSupportedException) {
             Files.move(source, target, StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
+    private fun cleanup(path: Path) {
+        try {
+            Files.deleteIfExists(path)
+        } catch (_: Exception) {
+            // Cleanup cannot change whether the primary commit succeeded. A later preparation
+            // overwrites the stable staging name before writing a new document.
         }
     }
 

@@ -173,6 +173,39 @@ class SimpleSignalsWorldDefinitionStoreTest {
     }
 
     @Test
+    fun `prepared save leaves primary unchanged until its bounded commit`() {
+        val store = SimpleSignalsWorldDefinitionStore(directory.toFile())
+        store.save(WORLD_ID, definitions(1L))
+        val primaryBefore = Files.readString(store.primaryFile(WORLD_ID))
+
+        store.prepareSave(WORLD_ID, definitions(2L)).use { prepared ->
+            assertEquals(primaryBefore, Files.readString(store.primaryFile(WORLD_ID)))
+            assertTrue(Files.exists(store.temporaryFile(WORLD_ID)))
+
+            prepared.commitPrimary()
+
+            assertEquals(
+                2L,
+                SimpleSignalsWorldDefinitionsCodec.decode(
+                    Files.readString(store.primaryFile(WORLD_ID)),
+                    WORLD_ID
+                ).definitionRevision
+            )
+            assertFalse(Files.exists(store.backupFile(WORLD_ID)))
+        }
+
+        assertEquals(
+            1L,
+            SimpleSignalsWorldDefinitionsCodec.decode(
+                Files.readString(store.backupFile(WORLD_ID)),
+                WORLD_ID
+            ).definitionRevision
+        )
+        assertFalse(Files.exists(store.temporaryFile(WORLD_ID)))
+        assertFalse(Files.exists(store.backupTemporaryFile(WORLD_ID)))
+    }
+
+    @Test
     fun `save after backup recovery does not replace the last valid backup with corrupt primary`() {
         val store = SimpleSignalsWorldDefinitionStore(directory.toFile())
         val primary = store.primaryFile(WORLD_ID)

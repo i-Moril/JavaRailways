@@ -59,6 +59,12 @@ The result must prove that protection regions and fixed blocks are optional poli
 - Store each plugin's data in its own independently versioned sidecar using stable namespaced IDs, rail UUIDs, canonical AB positions/directions and explicit references.
 - Decode/migrate only at the plugin persistence boundary; business logic sees the current model and writers emit only the current version. No reflection from stored class names and no unreviewed runtime compatibility path.
 - Provide in-game create/edit/delete/inspect/validate/dry-run operations and recovery points for destructive topology-related migration.
+- All online infrastructure editing uses prepare/commit separation. Geometry, graph/index compilation,
+  document encoding, validation and ordinary file writes run on an asynchronous worker. The final
+  commit is scoped to the affected world, performs only stale checks plus bounded state/file swaps,
+  and never holds a cross-world simulation lock. This applies equally to signal definitions,
+  tracks, topology nodes and other resource definitions; describing an edit as low-frequency does
+  not permit an `O(world)` rebuild or blocking I/O on the Paper/Folia owner thread.
 
 ## Acceptance criteria
 
@@ -78,6 +84,12 @@ The result must prove that protection regions and fixed blocks are optional poli
 - [ ] Diamond crossings prevent conflicting passages without cross-line routing or runtime geometry scans.
 - [ ] Disable, failure, world unload/reload and stale-state tests prove authority never widens and live claims are not dropped beneath trains.
 - [ ] Timetable apply/replace/unapply and draft/draining tests prove atomic applied-plan dependency replacement, edit blocking and separation from transient live claims/occupancy waits.
+- [ ] A deliberately paused signal-definition commit cannot delay another railway world or an
+  already-running physics epoch; old epochs finish with the old immutable source and the next epoch
+  establishes the new baseline.
+- [ ] Rail create/replace/split/merge/remove prepares curve, crossing and normalized topology
+  candidates away from the platform owner thread; final publication pauses only the affected world
+  and contains no complete topology rebuild, persistence write or Bukkit wait.
 - [x] Plugin persistence round-trips current fixtures and rejects/preserves corrupt or orphaned input with actionable diagnostics.
 - [ ] Unit, integration, packaging and Folia smoke checks pass.
 - [x] Mission, Line, Station and Timetable use one immutable-topology planning path; registered restrictions have identical semantics for all callers and no legacy `RailView` planner remains in production.

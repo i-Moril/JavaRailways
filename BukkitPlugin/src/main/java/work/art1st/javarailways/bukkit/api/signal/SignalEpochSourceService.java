@@ -47,4 +47,31 @@ public interface SignalEpochSourceService {
         UUID worldId,
         Collection<SignalEpochSource> sources
     );
+
+    /**
+     * Atomically commits plugin state and replaces this plugin's complete source set.
+     *
+     * <p>The host first copies and validates the complete candidate source union, checks removed
+     * source restriction streams, and compiles the candidate monitored-area runtime. Only then is
+     * {@code commitAction} invoked. If validation or compilation fails, the callback is not run. If
+     * the callback throws, the old source set and runtime remain installed. After a successful
+     * callback the already compiled source state is installed by an infallible reference swap.</p>
+     *
+     * <p>The complete operation runs under the JavaRailways simulation lock, so a physics epoch
+     * cannot observe the callback's committed state with the previous monitored geometry. The
+     * callback is therefore a low-frequency configuration commit boundary: it may perform the
+     * caller's durable definition write, but must not re-enter this service or wait for work that
+     * requires the simulation lock. Any attempted service re-entry from the callback is rejected
+     * before it can change another source category.</p>
+     *
+     * @throws IllegalStateException if the plugin/world/service is unavailable or a removed source
+     *                               still has a non-empty retained restriction stream
+     * @throws IllegalArgumentException if the combined source definitions are invalid
+     */
+    void replaceSourcesAtomically(
+        Plugin pluginOwner,
+        UUID worldId,
+        Collection<SignalEpochSource> sources,
+        Runnable commitAction
+    );
 }

@@ -37,6 +37,7 @@ internal class DefaultSignalEpochSourceService :
     private val worlds = linkedMapOf<UUID, WorldBinding>()
     private val sourcesByWorld = linkedMapOf<UUID, MutableList<OwnerSources>>()
     private var closed = false
+    private var atomicCommitInProgress = false
 
     fun registerWorld(
         worldId: UUID,
@@ -47,6 +48,7 @@ internal class DefaultSignalEpochSourceService :
         stallWorld: (String, Exception) -> Unit
     ) = BukkitThreadGuardBridge.runInSimulationContext {
         synchronized(lock) {
+            requireNoAtomicCommitReentry()
             check(!closed) { "SignalEpochSourceService is closed" }
             check(worldId !in worlds) { "Signal epoch runtime already exists for world $worldId" }
             worlds[worldId] = WorldBinding(
@@ -64,12 +66,20 @@ internal class DefaultSignalEpochSourceService :
         pluginOwner: Plugin,
         worldId: UUID,
         sources: Collection<SignalEpochSource>
+    ) = replaceSourcesAtomically(pluginOwner, worldId, sources) {}
+
+    override fun replaceSourcesAtomically(
+        pluginOwner: Plugin,
+        worldId: UUID,
+        sources: Collection<SignalEpochSource>,
+        commitAction: Runnable
     ) = BukkitThreadGuardBridge.runInSimulationContext {
         check(pluginOwner.isEnabled) {
             "Cannot install signal sources for disabled plugin ${pluginOwner.name}"
         }
         val replacement = java.util.List.copyOf(sources)
         synchronized(lock) {
+            requireNoAtomicCommitReentry()
             check(!closed) { "SignalEpochSourceService is closed" }
             val world = checkNotNull(worlds[worldId]) {
                 "Railway world is not registered: $worldId"
@@ -91,10 +101,19 @@ internal class DefaultSignalEpochSourceService :
             if (existingIndex >= 0) candidate.removeAt(existingIndex)
             if (!replacementOwner.isEmpty()) candidate += replacementOwner
             validateSourceOwnership(candidate)
-            world.runtime.replaceSources(candidate.flatMap(OwnerSources::epochSources))
+            val committedOwnerSets = candidate.toMutableList()
+            atomicCommitInProgress = true
+            try {
+                world.runtime.replaceSourcesAtomically(
+                    candidate.flatMap(OwnerSources::epochSources)
+                ) {
+                    commitAction.run()
+                }
+            } finally {
+                atomicCommitInProgress = false
+            }
 
-            ownerSets.clear()
-            ownerSets += candidate
+            sourcesByWorld[worldId] = committedOwnerSets
         }
     }
 
@@ -108,6 +127,7 @@ internal class DefaultSignalEpochSourceService :
         }
         val replacement = java.util.List.copyOf(sources)
         synchronized(lock) {
+            requireNoAtomicCommitReentry()
             check(!closed) { "InspectionSourceService is closed" }
             val world = checkNotNull(worlds[worldId]) {
                 "Railway world is not registered: $worldId"
@@ -162,6 +182,7 @@ internal class DefaultSignalEpochSourceService :
         }
         val replacement = java.util.List.copyOf(sources)
         synchronized(lock) {
+            requireNoAtomicCommitReentry()
             check(!closed) { "RoutePlanningRestrictionSourceService is closed" }
             val world = checkNotNull(worlds[worldId]) {
                 "Railway world is not registered: $worldId"
@@ -206,6 +227,7 @@ internal class DefaultSignalEpochSourceService :
             "Cannot dirty inspection declarations for disabled plugin ${pluginOwner.name}"
         }
         synchronized(lock) {
+            requireNoAtomicCommitReentry()
             check(!closed) { "InspectionSourceService is closed" }
             val world = checkNotNull(worlds[worldId]) {
                 "Railway world is not registered: $worldId"
@@ -221,6 +243,7 @@ internal class DefaultSignalEpochSourceService :
 
     fun requireOwnerUnused(pluginOwner: Plugin) {
         synchronized(lock) {
+            requireNoAtomicCommitReentry()
             check(!closed) { "SignalEpochSourceService is closed" }
             sourcesByWorld.forEach { (worldId, ownerSets) ->
                 ownerSets.firstOrNull { it.owner === pluginOwner }?.let { owned ->
@@ -247,6 +270,7 @@ internal class DefaultSignalEpochSourceService :
     /** Removes source callbacks after the unified owner lifecycle completed all read-only checks. */
     fun removeUnusedOwner(pluginOwner: Plugin) {
         synchronized(lock) {
+            requireNoAtomicCommitReentry()
             check(!closed) { "SignalEpochSourceService is closed" }
             val removals = sourcesByWorld.mapNotNull { (worldId, ownerSets) ->
                 val owned = ownerSets.firstOrNull { it.owner === pluginOwner }
@@ -277,6 +301,7 @@ internal class DefaultSignalEpochSourceService :
 
     fun forcedDisableOwner(pluginOwner: Plugin) {
         synchronized(lock) {
+            requireNoAtomicCommitReentry()
             if (closed) return
             sourcesByWorld.forEach { (worldId, ownerSets) ->
                 val owned = ownerSets.firstOrNull { it.owner === pluginOwner } ?: return@forEach
@@ -307,6 +332,7 @@ internal class DefaultSignalEpochSourceService :
 
     fun removeWorld(worldId: UUID) = BukkitThreadGuardBridge.runInSimulationContext {
         synchronized(lock) {
+            requireNoAtomicCommitReentry()
             val world = worlds.remove(worldId) ?: return@runInSimulationContext
             sourcesByWorld.remove(worldId)
             world.runtime.replaceSources(emptyList())
@@ -317,6 +343,7 @@ internal class DefaultSignalEpochSourceService :
 
     override fun close() = BukkitThreadGuardBridge.runInSimulationContext {
         val snapshot = synchronized(lock) {
+            requireNoAtomicCommitReentry()
             if (closed) return@runInSimulationContext
             closed = true
             sourcesByWorld.clear()
@@ -326,6 +353,12 @@ internal class DefaultSignalEpochSourceService :
             it.runtime.replaceSources(emptyList())
             it.inspectionRuntime.clear()
             it.routePlanningRuntime.replaceSources(emptyList())
+        }
+    }
+
+    private fun requireNoAtomicCommitReentry() {
+        check(!atomicCommitInProgress) {
+            "SignalEpochSourceService cannot be re-entered from an atomic source commit callback"
         }
     }
 

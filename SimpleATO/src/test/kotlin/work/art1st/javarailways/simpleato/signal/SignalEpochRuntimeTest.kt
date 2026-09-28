@@ -121,6 +121,36 @@ class SignalEpochRuntimeTest {
     }
 
     @Test
+    fun `atomic replacement validates before callback and callback failure retains old state`() {
+        val calls = mutableListOf<String>()
+        val existing = source("test:first", area(firstAreaId, 10.0, 20.0)) {
+            calls += "old"
+            SignalEpochResult.empty()
+        }
+        val replacement = source("test:second", area(secondAreaId, 50.0, 60.0)) {
+            calls += "new"
+            SignalEpochResult.empty()
+        }
+        val runtime = runtime(listOf(existing))
+        var invalidCallbackCalls = 0
+
+        assertThrows(IllegalArgumentException::class.java) {
+            runtime.replaceSourcesAtomically(listOf(existing, existing)) {
+                invalidCallbackCalls++
+            }
+        }
+        assertEquals(0, invalidCallbackCalls)
+        assertThrows(IllegalStateException::class.java) {
+            runtime.replaceSourcesAtomically(listOf(replacement)) {
+                throw IllegalStateException("commit failed")
+            }
+        }
+
+        runtime.process(frame(1L, occupied = emptyList()))
+        assertEquals(listOf("old"), calls)
+    }
+
+    @Test
     fun `baseline invokes source once and unchanged area leaves handler idle`() {
         val invocations = AtomicInteger()
         val runtime = runtime(

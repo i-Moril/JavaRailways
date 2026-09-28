@@ -159,12 +159,15 @@ revision/patch/validation、host conflict/stale、persistence和world unavailabl
 `TopologyEditDecision`及blocker diagnostics。任一步失败都保留旧publication；save在替换primary前只写staging文件，替换primary
 是唯一commit point，之后backup rotation只作best-effort recovery维护，不能把已提交primary误报为失败。
 
-当前host没有把插件definition publication、sidecar commit和immutable `SignalEpochSource.areas` replacement合并为一个事务的
-公开边界。为避免新definition配旧监测区或反向错配，已安装world上的fixed-block增删/改形会在permit和写盘前返回typed
-`SECTION_OBSERVATION_REPLACEMENT_UNSUPPORTED`。即使patch只修改region/table，只要当前world仍有fixed block且host的exact
-topology root已经变化，也必须在permit和写盘前同样拒绝；不能把按新root重编译的block publication与旧root安装的监测几何配对。
-启动时从持久化定义完整编译并安装不受影响。不得用rollback token、占位area或短暂错配绕过。后续必须先单独评审原子replacement
-边界，再恢复live fixed-block authoring。
+fixed-block增删/改形或exact topology root变化时，runtime先完整编译candidate definition与新的
+`SectionOccupancyRuntime`，再以旧/新affected rails并集取得既有edit permit。permit拒绝发生在写盘和source callback前。
+permit成功后通过host `replaceSourcesAtomically`提交：host先验证/编译所有owner的candidate source全集并检查retained restriction，
+随后在同一个simulation lock内运行SimpleSignals callback。callback在runtime lock内复核base publication，以sidecar save作为
+pre-commit，并在barrier内重读exact topology root；root已变化则在save前返回typed stale。然后用一个预构造的
+`RuntimeState`引用同时替换definition publication和section occupancy runtime；callback成功后host只安装已经
+编译好的area source state。任何host prevalidation失败都不调用save，save或base commit失败则host保留旧source；没有rollback token、
+占位area或可被physics观察到的错配窗口。删除最后一个block使用empty epoch-source replacement，只清除此类别而保留同owner的
+route-planning source。region/table-only且exact root未变化时不重建相同fixed-block geometry，继续使用既有save+publication路径。
 
 authoring是低频路径：patch map操作为`O(D)`。设fixed-block traversal总数为`T`、合并后interval数为`F`，跨section检查实际比较
 `H`个rail-local候选，则完整candidate编译为`O(V+E+S+P log Q+T log T+S log S+F log S+H)`；affected-rail并集与写盘为定义规模线性。

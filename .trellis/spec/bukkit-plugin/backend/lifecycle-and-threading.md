@@ -33,7 +33,10 @@ fail-close该world，不能让后续suffix申请少执行一套信号策略。
 `SignalEpochSourceService`同样绑定plugin instance和exact world runtime。全集replacement可删除其中部分或全部epoch source ID，
 但删除前插件必须先对每个对应`(sourceId, trainId)`流发布更高revision的空restriction snapshot；空replacement只影响
 epoch source类别，完整owner删除仍只由上述
-统一pre-disable入口执行。source全集在simulation context内一次替换，不与physics epoch交错。若附属插件被强制禁用，
+统一pre-disable入口执行。低频`replaceSourcesAtomically`在simulation context内先验证并编译候选全集，再运行一次调用方
+commit callback；callback失败保留旧runtime/owner set，成功后只做已编译引用替换。因此插件可把sidecar/publication与
+area geometry放在同一physics barrier内提交而不需要rollback token。callback不得重入同一service或等待需要simulation lock
+的任务；host在任何其他source类别被修改前明确拒绝重入。普通`replaceSources`等价于使用空callback。若附属插件被强制禁用，
 host总是删除失效callback，但只在仍有非空owner restriction时Stall该world；world unload与JavaRailways shutdown只清理
 binding，不误报故障。基础资源和signal的强制清理由同一个listener触发，不维护两套disable顺序。
 

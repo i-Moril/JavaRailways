@@ -78,7 +78,6 @@ internal enum class SimpleSignalsDefinitionAuthoringStatus {
     EDIT_BLOCKED,
     STALE_TOPOLOGY,
     PERSISTENCE_FAILED,
-    SECTION_OBSERVATION_REPLACEMENT_UNSUPPORTED,
     WORLD_UNAVAILABLE
 }
 
@@ -134,49 +133,52 @@ internal class SimpleSignalsRuntimePublication(
 internal class SimpleSignalsWorldRuntime(
     val worldId: UUID
 ) {
+    private data class RuntimeState(
+        val publication: SimpleSignalsRuntimePublication?,
+        val sectionOccupancy: SectionOccupancyRuntime?
+    )
+
     private val lock = Any()
 
     @Volatile
-    private var publication: SimpleSignalsRuntimePublication? = null
-
-    @Volatile
-    private var sectionOccupancy: SectionOccupancyRuntime? = null
+    private var state = RuntimeState(null, null)
 
     val routePlanningBinding = RoutePlanningRestrictionBinding(
         PROTECTION_ROUTE_SOURCE_ID,
         RoutePlanningRestrictionSource { topology ->
-            val captured = publication
+            val captured = state.publication
                 ?: error("SimpleSignals definitions have not been published for world $worldId")
             captured.routeTables.restrictionSource.restrictions(topology)
         }
     )
 
     fun currentDefinitions(): SimpleSignalsWorldDefinitions = synchronized(lock) {
-        checkNotNull(publication) { "SimpleSignals definitions have not been published for world $worldId" }
+        checkNotNull(state.publication) { "SimpleSignals definitions have not been published for world $worldId" }
             .definitions
     }
 
     fun currentTopology(): TopologyState = synchronized(lock) {
-        checkNotNull(publication) { "SimpleSignals definitions have not been published for world $worldId" }
+        checkNotNull(state.publication) { "SimpleSignals definitions have not been published for world $worldId" }
             .topology
     }
 
     fun fixedBlockSnapshot(topology: TopologyState): FixedBlockReadSnapshot =
-        checkNotNull(publication) {
+        checkNotNull(state.publication) {
             "SimpleSignals definitions have not been published for world $worldId"
         }.fixedBlocks.snapshot(topology)
 
     /** Installs immutable fixed-block monitoring geometry exactly once for this world load. */
     fun initializeSectionOccupancy(): SectionOccupancyRuntime = synchronized(lock) {
-        check(sectionOccupancy == null) { "section occupancy is already initialized for world $worldId" }
+        val current = state
+        check(current.sectionOccupancy == null) { "section occupancy is already initialized for world $worldId" }
         SectionOccupancyRuntime.from(
-            checkNotNull(publication) {
+            checkNotNull(current.publication) {
                 "SimpleSignals definitions have not been published for world $worldId"
             }
-        ).also { sectionOccupancy = it }
+        ).also { state = RuntimeState(current.publication, it) }
     }
 
-    fun sectionOccupancySnapshot(): SectionOccupancySnapshot? = sectionOccupancy?.snapshot()
+    fun sectionOccupancySnapshot(): SectionOccupancySnapshot? = state.sectionOccupancy?.snapshot()
 
     fun prepareDefinitions(
         topology: TopologyState,
@@ -195,7 +197,7 @@ internal class SimpleSignalsWorldRuntime(
             copiedTables,
             copiedBlocks
         )
-        val current = publication
+        val current = state.publication
         if (current != null && definitions.definitionRevision < current.definitions.definitionRevision) {
             return@synchronized preparationRejected(
                 "definition revision ${definitions.definitionRevision} precedes published revision " +
@@ -281,16 +283,22 @@ internal class SimpleSignalsWorldRuntime(
 
     fun commitPrepared(
         prepared: SimpleSignalsPreparedDefinitions,
+        replacementSectionOccupancy: SectionOccupancyRuntime? = null,
         beforeCommit: () -> Unit = {}
     ): SimpleSignalsDefinitionCommitStatus = synchronized(lock) {
         require(prepared.runtime === this) {
             "prepared SimpleSignals definitions belong to another world runtime"
         }
-        if (publication !== prepared.basePublication) {
+        val current = state
+        if (current.publication !== prepared.basePublication) {
             return@synchronized SimpleSignalsDefinitionCommitStatus.STALE_BASE
         }
+        val candidateState = RuntimeState(
+            prepared.candidatePublication,
+            replacementSectionOccupancy ?: current.sectionOccupancy
+        )
         beforeCommit()
-        publication = prepared.candidatePublication
+        state = candidateState
         SimpleSignalsDefinitionCommitStatus.COMMITTED
     }
 
@@ -629,13 +637,6 @@ internal class SimpleSignalsWorldRuntimeManager(
                 application.diagnostics
             )
         }
-        if (candidate.fixedBlocks != current.fixedBlocks) {
-            return@synchronized authoringResult(
-                SimpleSignalsDefinitionAuthoringStatus.SECTION_OBSERVATION_REPLACEMENT_UNSUPPORTED,
-                "live fixed-block geometry replacement is not yet atomic with the host section " +
-                    "occupancy source; live editing remains disabled until that transaction boundary exists"
-            )
-        }
         val topology = try {
             infrastructure.currentTopology(worldId)
         } catch (failure: Exception) {
@@ -644,13 +645,8 @@ internal class SimpleSignalsWorldRuntimeManager(
                 "current topology is unavailable: ${describe(failure)}"
             )
         }
-        if (current.fixedBlocks.isNotEmpty() && topology !== runtime.currentTopology()) {
-            return@synchronized authoringResult(
-                SimpleSignalsDefinitionAuthoringStatus.SECTION_OBSERVATION_REPLACEMENT_UNSUPPORTED,
-                "topology root changed while fixed-block section occupancy still uses the installed " +
-                    "geometry; republish requires the future atomic source-replacement boundary"
-            )
-        }
+        val replaceSectionOccupancy =
+            candidate.fixedBlocks != current.fixedBlocks || topology !== runtime.currentTopology()
         val prepared = when (val preparation = runtime.prepareDefinitions(topology, candidate)) {
             SimpleSignalsDefinitionPreparationResult.Unchanged -> return@synchronized authoringResult(
                 SimpleSignalsDefinitionAuthoringStatus.PATCH_REJECTED,
@@ -723,15 +719,88 @@ internal class SimpleSignalsWorldRuntimeManager(
                     diagnostics = listOf("topology root changed after edit permit acquisition")
                 )
             }
-            val commit = try {
-                runtime.commitPrepared(prepared) {
-                    definitions.save(worldId, prepared.definitions)
-                }
-            } catch (failure: Exception) {
-                return@synchronized authoringResult(
-                    SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED,
-                    "definitions could not be saved: ${describe(failure)}"
+            var callbackStarted = false
+            var staleBase = false
+            var staleTopologyDuringCommit = false
+            var topologyUnavailableDuringCommit = false
+            val commit = if (replaceSectionOccupancy) {
+                val candidateOccupancy = SectionOccupancyRuntime.from(
+                    prepared.candidatePublication
                 )
+                try {
+                    signalEpochSources.replaceSourcesAtomically(
+                        plugin,
+                        worldId,
+                        listOfNotNull(candidateOccupancy.source)
+                    ) {
+                        callbackStarted = true
+                        val commitTopology = try {
+                            infrastructure.currentTopology(worldId)
+                        } catch (failure: Exception) {
+                            topologyUnavailableDuringCommit = true
+                            throw failure
+                        }
+                        if (commitTopology !== prepared.topology) {
+                            staleTopologyDuringCommit = true
+                            error("topology root changed before the atomic definition commit")
+                        }
+                        val committed = runtime.commitPrepared(
+                            prepared,
+                            candidateOccupancy
+                        ) {
+                            definitions.save(worldId, prepared.definitions)
+                        }
+                        if (committed == SimpleSignalsDefinitionCommitStatus.STALE_BASE) {
+                            staleBase = true
+                            error("definitions changed before the prepared edit could be committed")
+                        }
+                    }
+                    SimpleSignalsDefinitionCommitStatus.COMMITTED
+                } catch (failure: Exception) {
+                    if (staleTopologyDuringCommit) {
+                        return@synchronized SimpleSignalsDefinitionAuthoringResult(
+                            SimpleSignalsDefinitionAuthoringStatus.STALE_TOPOLOGY,
+                            editDecision = TopologyEditDecision(
+                                TopologyEditStatus.STALE_TOPOLOGY,
+                                detail = "topology root changed before the atomic definition commit"
+                            ),
+                            diagnostics = listOf(
+                                "topology root changed before the atomic definition commit"
+                            )
+                        )
+                    }
+                    val status = when {
+                        topologyUnavailableDuringCommit ->
+                            SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE
+                        staleBase -> SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED
+                        callbackStarted -> SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED
+                        failure is IllegalArgumentException ->
+                            SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED
+                        else -> SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE
+                    }
+                    val prefix = when (status) {
+                        SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED ->
+                            "definitions could not be saved"
+                        SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED ->
+                            "definitions changed before the prepared edit could be committed"
+                        else -> "section occupancy source could not be replaced"
+                    }
+                    return@synchronized authoringResult(
+                        status,
+                        "$prefix: ${describe(failure)}"
+                    )
+                }
+            } else {
+                try {
+                    runtime.commitPrepared(prepared) {
+                        definitions.save(worldId, prepared.definitions)
+                    }
+                } catch (failure: Exception) {
+                    return@synchronized authoringResult(
+                        SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED,
+                        "definitions could not be saved: ${describe(failure)}"
+                    )
+                }
             }
             if (commit == SimpleSignalsDefinitionCommitStatus.STALE_BASE) {
                 return@synchronized authoringResult(

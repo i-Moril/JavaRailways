@@ -37,7 +37,20 @@ class SignalEpochRuntime(
      * new state and establishes a fresh monitored-area baseline.
      */
     fun replaceSources(sources: Collection<SignalEpochSource>) {
-        state = SourceState.create(sources)
+        replaceSourcesAtomically(sources) {}
+    }
+
+    /**
+     * Compiles a complete source state before [commitAction], then installs it only after the
+     * callback returns successfully. The caller owns serialization with [process].
+     */
+    fun replaceSourcesAtomically(
+        sources: Collection<SignalEpochSource>,
+        commitAction: () -> Unit
+    ) {
+        val candidate = SourceState.create(sources)
+        commitAction()
+        state = candidate
     }
 
     override fun process(frame: RailwayWorldFrameSnapshot) {

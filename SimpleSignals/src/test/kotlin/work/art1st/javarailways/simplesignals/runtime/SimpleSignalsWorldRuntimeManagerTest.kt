@@ -664,15 +664,17 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
-    fun `live fixed block patch is rejected before permit or persistence until source replacement is atomic`() {
+    fun `non operational fixed blocks can be added updated and removed atomically at runtime`() {
         val fixture = Fixture()
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val store = store()
+        val routeSources = CapturingRoutePlanningService()
+        val signalSources = CapturingSignalEpochSourceService()
         val manager = SimpleSignalsWorldRuntimeManager(
-            plugin(), infrastructure.service, CapturingRoutePlanningService(), store, signalSources()
+            plugin(), infrastructure.service, routeSources, store, signalSources
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
-        val block = FixedBlockDefinition(
+        val first = FixedBlockDefinition(
             "test:approach-block",
             1L,
             listOf(
@@ -680,23 +682,236 @@ class SimpleSignalsWorldRuntimeManagerTest {
             )
         )
 
+        val added = manager.applyDefinitionPatch(
+            fixture.worldId,
+            0L,
+            SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(first))
+        )
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, added.status)
+        assertEquals(listOf(first), added.definitions?.fixedBlocks)
+        assertEquals(SECTION_OCCUPANCY_SOURCE_ID, signalSources.sources.getValue(fixture.worldId).single().sourceId)
+
+        val second = FixedBlockDefinition(
+            first.blockId,
+            2L,
+            listOf(FixedBlockTraversal(fixture.exit, ViewDirection.AB, 1.0, 6.0))
+        )
+        val updated = manager.applyDefinitionPatch(
+            fixture.worldId,
+            1L,
+            SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(second))
+        )
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, updated.status)
+        assertEquals(listOf(second), updated.definitions?.fixedBlocks)
+        val updatedArea = signalSources.sources.getValue(fixture.worldId).single().areas.single()
+        assertEquals(1.0, updatedArea.intervals.single().minArcLengthInAbMeters, 0.0)
+        assertEquals(6.0, updatedArea.intervals.single().maxArcLengthInAbMeters, 0.0)
+        assertTrue(fixture.entry in infrastructure.lastEditRequest!!.impact.railIds)
+        assertTrue(fixture.exit in infrastructure.lastEditRequest!!.impact.railIds)
+
+        val removed = manager.applyDefinitionPatch(
+            fixture.worldId,
+            2L,
+            SimpleSignalsDefinitionPatch(removeFixedBlockIds = listOf(second.blockId))
+        )
+
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, removed.status)
+        assertEquals(emptyList<FixedBlockDefinition>(), removed.definitions?.fixedBlocks)
+        assertEquals(emptyList<SignalEpochSource>(), signalSources.sources.getValue(fixture.worldId))
+        assertEquals(4, signalSources.atomicCommitCount) // install plus three authoring commits
+        assertEquals(1, routeSources.replacementCount)
+        assertEquals(3, infrastructure.permitAcquisitionCount)
+        assertEquals(3, infrastructure.permitCloseCount)
+        val stored = assertInstanceOf(
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded::class.java,
+            store.load(fixture.worldId)
+        ).definitions
+        assertEquals(removed.definitions, stored)
+    }
+
+    @Test
+    fun `fixed block source prevalidation failure preserves definitions disk and old source`() {
+        val fixture = Fixture()
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val store = store()
+        val signalSources = CapturingSignalEpochSourceService()
+        val manager = SimpleSignalsWorldRuntimeManager(
+            plugin(), infrastructure.service, CapturingRoutePlanningService(), store, signalSources
+        )
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val retainedSources = signalSources.sources.getValue(fixture.worldId)
+        val block = FixedBlockDefinition(
+            "test:approach-block",
+            1L,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0))
+        )
+        signalSources.nextPrevalidationFailure = IllegalArgumentException("injected invalid area union")
+
         val rejected = manager.applyDefinitionPatch(
             fixture.worldId,
             0L,
             SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(block))
         )
 
-        assertEquals(
-            SimpleSignalsDefinitionAuthoringStatus.SECTION_OBSERVATION_REPLACEMENT_UNSUPPORTED,
-            rejected.status
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED, rejected.status)
+        assertSame(retainedSources, signalSources.sources.getValue(fixture.worldId))
+        assertFalse(Files.exists(store.primaryFile(fixture.worldId)))
+        assertEquals(1, signalSources.atomicCommitCount)
+        assertEquals(1, infrastructure.permitCloseCount)
+
+        val retried = manager.applyDefinitionPatch(
+            fixture.worldId,
+            0L,
+            SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(block))
         )
-        assertTrue(rejected.diagnostics.single().contains("not yet atomic"))
-        assertEquals(0, infrastructure.permitAcquisitionCount)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, retried.status)
+        assertEquals(2, signalSources.atomicCommitCount)
+    }
+
+    @Test
+    fun `same topology route table edit reuses fixed block monitoring geometry`() {
+        val fixture = Fixture()
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val store = store()
+        val block = FixedBlockDefinition(
+            "test:approach-block",
+            1L,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0))
+        )
+        store.save(
+            fixture.worldId,
+            SimpleSignalsWorldDefinitions(
+                fixture.worldId,
+                1L,
+                listOf(fixture.region),
+                listOf(fixture.table(1L, fixture.lowerRoute())),
+                listOf(block)
+            )
+        )
+        val signalSources = CapturingSignalEpochSourceService()
+        val manager = SimpleSignalsWorldRuntimeManager(
+            plugin(), infrastructure.service, CapturingRoutePlanningService(), store, signalSources
+        )
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val retainedSource = signalSources.sources.getValue(fixture.worldId).single()
+
+        val applied = manager.applyDefinitionPatch(
+            fixture.worldId,
+            1L,
+            SimpleSignalsDefinitionPatch(
+                upsertRouteTables = listOf(fixture.table(2L, fixture.upperRoute()))
+            )
+        )
+
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, applied.status)
+        assertSame(retainedSource, signalSources.sources.getValue(fixture.worldId).single())
+        assertEquals(1, signalSources.atomicCommitCount)
+        assertEquals(1, infrastructure.permitCloseCount)
+    }
+
+    @Test
+    fun `applied plan and live claim block fixed block edits before save or source callback`() {
+        val fixture = Fixture()
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val store = store()
+        val signalSources = CapturingSignalEpochSourceService()
+        val manager = SimpleSignalsWorldRuntimeManager(
+            plugin(), infrastructure.service, CapturingRoutePlanningService(), store, signalSources
+        )
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val block = FixedBlockDefinition(
+            "test:approach-block",
+            1L,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0))
+        )
+
+        listOf(
+            TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY,
+            TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM
+        ).forEach { kind ->
+            infrastructure.nextEditDecision = TopologyEditDecision(
+                TopologyEditStatus.CONFLICT,
+                listOf(
+                    TopologyEditBlocker(
+                        kind,
+                        InfrastructureOwner("test:operator", 1L),
+                        TopologyEditOverlap(setOf(fixture.entry), emptySet(), emptySet())
+                    )
+                ),
+                "rail is operationally protected"
+            )
+            val blocked = manager.applyDefinitionPatch(
+                fixture.worldId,
+                0L,
+                SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(block))
+            )
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, blocked.status)
+            assertEquals(kind, blocked.editDecision?.blockers?.single()?.kind)
+        }
+
+        assertEquals(1, signalSources.atomicCommitCount) // initial empty install only
         assertFalse(Files.exists(store.primaryFile(fixture.worldId)))
     }
 
     @Test
-    fun `region table patch cannot rebind live fixed blocks to another exact topology root`() {
+    fun `fixed block persistence failure retains old source publication and disk`() {
+        val fixture = Fixture()
+        val seedStore = store()
+        val first = FixedBlockDefinition(
+            "test:approach-block",
+            1L,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0))
+        )
+        seedStore.save(
+            fixture.worldId,
+            SimpleSignalsWorldDefinitions(
+                fixture.worldId,
+                1L,
+                emptyList(),
+                emptyList(),
+                listOf(first)
+            )
+        )
+        val originalPrimary = Files.readString(seedStore.primaryFile(fixture.worldId))
+        val failingStore = SimpleSignalsWorldDefinitionStore(directory.toFile()) {
+            throw java.io.IOException("injected before primary replace")
+        }
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val signalSources = CapturingSignalEpochSourceService()
+        val manager = SimpleSignalsWorldRuntimeManager(
+            plugin(), infrastructure.service, CapturingRoutePlanningService(), failingStore, signalSources
+        )
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val retainedSource = signalSources.sources.getValue(fixture.worldId).single()
+        val second = FixedBlockDefinition(
+            first.blockId,
+            2L,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 6.0))
+        )
+
+        val failed = manager.applyDefinitionPatch(
+            fixture.worldId,
+            1L,
+            SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(second))
+        )
+
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED, failed.status)
+        assertSame(retainedSource, signalSources.sources.getValue(fixture.worldId).single())
+        assertEquals(1, signalSources.atomicCommitCount)
+        assertEquals(originalPrimary, Files.readString(seedStore.primaryFile(fixture.worldId)))
+        assertEquals(1, infrastructure.permitCloseCount)
+        assertEquals(
+            SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED,
+            manager.applyDefinitionPatch(
+                fixture.worldId,
+                2L,
+                SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(second))
+            ).status
+        )
+    }
+
+    @Test
+    fun `exact topology root change recompiles and atomically replaces fixed block geometry`() {
         val fixture = Fixture()
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val store = store()
@@ -716,19 +931,21 @@ class SimpleSignalsWorldRuntimeManagerTest {
             )
         )
         val storedBefore = Files.readString(store.primaryFile(fixture.worldId))
+        val signalSources = CapturingSignalEpochSourceService()
         val manager = SimpleSignalsWorldRuntimeManager(
             plugin(),
             infrastructure.service,
             CapturingRoutePlanningService(),
             store,
-            signalSources()
+            signalSources
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val initialSource = signalSources.sources.getValue(fixture.worldId).single()
 
         // The revision is deliberately equal: source geometry is bound to the root object, not only
         // to a numeric topology revision.
         infrastructure.topology = fixture.topology(fixture.currentTopology.revision)
-        val rejected = manager.applyDefinitionPatch(
+        val applied = manager.applyDefinitionPatch(
             fixture.worldId,
             1L,
             SimpleSignalsDefinitionPatch(
@@ -736,13 +953,61 @@ class SimpleSignalsWorldRuntimeManagerTest {
             )
         )
 
-        assertEquals(
-            SimpleSignalsDefinitionAuthoringStatus.SECTION_OBSERVATION_REPLACEMENT_UNSUPPORTED,
-            rejected.status
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, applied.status)
+        assertNotSame(initialSource, signalSources.sources.getValue(fixture.worldId).single())
+        assertEquals(2, signalSources.atomicCommitCount)
+        assertEquals(1, infrastructure.permitAcquisitionCount)
+        assertTrue(storedBefore != Files.readString(store.primaryFile(fixture.worldId)))
+    }
+
+    @Test
+    fun `topology change at the atomic callback rejects fixed block edit without publication`() {
+        val fixture = Fixture()
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val store = store()
+        val first = FixedBlockDefinition(
+            "test:approach-block",
+            1L,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0))
         )
-        assertTrue(rejected.diagnostics.single().contains("topology root changed"))
-        assertEquals(0, infrastructure.permitAcquisitionCount)
-        assertEquals(storedBefore, Files.readString(store.primaryFile(fixture.worldId)))
+        store.save(
+            fixture.worldId,
+            SimpleSignalsWorldDefinitions(
+                fixture.worldId,
+                1L,
+                emptyList(),
+                emptyList(),
+                listOf(first)
+            )
+        )
+        val originalPrimary = Files.readString(store.primaryFile(fixture.worldId))
+        val signalSources = CapturingSignalEpochSourceService()
+        val manager = SimpleSignalsWorldRuntimeManager(
+            plugin(), infrastructure.service, CapturingRoutePlanningService(), store, signalSources
+        )
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val retainedSource = signalSources.sources.getValue(fixture.worldId).single()
+        signalSources.beforeCommitAction = {
+            infrastructure.topology = fixture.topology(fixture.currentTopology.revision + 1L)
+        }
+        val second = FixedBlockDefinition(
+            first.blockId,
+            2L,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 6.0))
+        )
+
+        val rejected = manager.applyDefinitionPatch(
+            fixture.worldId,
+            1L,
+            SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(second))
+        )
+
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.STALE_TOPOLOGY, rejected.status)
+        assertEquals(TopologyEditStatus.STALE_TOPOLOGY, rejected.editDecision?.status)
+        assertSame(retainedSource, signalSources.sources.getValue(fixture.worldId).single())
+        assertEquals(originalPrimary, Files.readString(store.primaryFile(fixture.worldId)))
+        assertEquals(1, signalSources.atomicCommitCount)
+        assertEquals(1, infrastructure.permitCloseCount)
     }
 
     @Test
@@ -862,16 +1127,35 @@ class SimpleSignalsWorldRuntimeManagerTest {
         fun single(worldId: UUID): RoutePlanningRestrictionBinding = bindings.getValue(worldId).single()
     }
 
-    private class CapturingSignalEpochSourceService : SignalEpochSourceService {
+    private class CapturingSignalEpochSourceService(
+        var nextPrevalidationFailure: RuntimeException? = null
+    ) : SignalEpochSourceService {
         val sources = linkedMapOf<UUID, List<SignalEpochSource>>()
         val replacements = mutableListOf<List<SignalEpochSource>>()
+        var beforeCommitAction: () -> Unit = {}
+        var atomicCommitCount = 0
+            private set
 
         override fun replaceSources(
             pluginOwner: Plugin,
             worldId: UUID,
             sources: Collection<SignalEpochSource>
+        ) = replaceSourcesAtomically(pluginOwner, worldId, sources) {}
+
+        override fun replaceSourcesAtomically(
+            pluginOwner: Plugin,
+            worldId: UUID,
+            sources: Collection<SignalEpochSource>,
+            commitAction: Runnable
         ) {
             val copied = java.util.List.copyOf(sources)
+            nextPrevalidationFailure?.let { failure ->
+                nextPrevalidationFailure = null
+                throw failure
+            }
+            beforeCommitAction()
+            commitAction.run()
+            atomicCommitCount++
             replacements += copied
             this.sources[worldId] = copied
         }
@@ -976,9 +1260,13 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
     companion object {
         private fun signalSources(): SignalEpochSourceService =
-            proxy(SignalEpochSourceService::class.java) { method, _ ->
+            proxy(SignalEpochSourceService::class.java) { method, arguments ->
                 when (method.name) {
                     "replaceSources" -> Unit
+                    "replaceSourcesAtomically" -> {
+                        (arguments!![3] as Runnable).run()
+                        Unit
+                    }
                     else -> throw UnsupportedOperationException(method.name)
                 }
             }

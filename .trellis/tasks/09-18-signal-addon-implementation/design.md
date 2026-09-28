@@ -106,15 +106,15 @@ This source emits no speed/authority restriction yet. Protection regions join th
 surface only when concrete interlocking rules need them, because a branching region has no useful
 single physical length.
 
-Live fixed-block geometry editing is temporarily rejected with a typed result before edit permits or
-persistence. The host can replace immutable occupancy sources between epochs, but it does not yet
-offer one transaction spanning plugin sidecar commit, plugin publication and host source replacement;
-ordering those operations independently can leave mismatched live state after failure. Startup from
-persisted definitions remains supported. A region/table-only edit is also rejected before permit or
-persistence when fixed blocks remain installed but the host exposes a different exact topology root:
-otherwise candidate compilation would bind the unchanged definitions to the new root while the live
-occupancy source still monitors geometry from the old root. This is an explicit blocker for the later
-Wand/command authoring batch, not a rollback state machine or compatibility path.
+Live fixed-block geometry editing now uses the host's low-frequency atomic source replacement. The
+plugin compiles the full candidate first and acquires the existing edit permit over old plus new
+affected rails. Inside one simulation barrier the host prevalidates the complete source union, then a
+SimpleSignals callback rechecks the exact topology root, saves the sidecar and swaps one prebuilt runtime-state reference containing both the
+definition publication and section occupancy runtime; the host finally installs the already compiled
+area state. Host prevalidation never invokes the callback, while callback failure preserves the old
+source and publication. Deleting the final block installs an empty epoch-source set without removing
+the plugin's route-planning registration. This restores runtime authoring on non-operational rails
+without a rollback state machine, placeholder area or persistence compatibility path.
 
 Fixed blocks and protection regions are alternative section boundaries in this model: after all candidate catalogs compile,
 the world runtime rejects any positive-length overlap between a block occupancy interval and a derived protection-region

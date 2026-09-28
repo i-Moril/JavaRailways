@@ -2,7 +2,9 @@ package work.art1st.javarailways.bukkit.api.internal
 
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyBoundary
@@ -26,8 +28,13 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.routing.RoutePlanningRestrictionRuntime
+import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import java.lang.reflect.Proxy
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 class DefaultSignalEpochSourceServiceTest {
     private val railId = UUID.nameUUIDFromBytes("signal-service-rail".toByteArray())
@@ -67,6 +74,125 @@ class DefaultSignalEpochSourceServiceTest {
     }
 
     @Test
+    fun `atomic replacement validates before callback and callback failure preserves owner and runtime state`() {
+        val service = DefaultSignalEpochSourceService()
+        val worldId = UUID.randomUUID()
+        val firstOwner = plugin("first")
+        val secondOwner = plugin("second")
+        val calls = mutableListOf<String>()
+        val runtime = runtime()
+        val old = source("test:old", 0.0) { calls += "old" }
+        val replacement = source("test:new", 20.0) { calls += "replacement" }
+        service.registerWorld(worldId, runtime, inspectionRuntime(), { emptyList() }) { _, _ -> }
+        service.replaceSources(firstOwner, worldId, listOf(old))
+        var commitCalls = 0
+
+        assertThrows(IllegalArgumentException::class.java) {
+            service.replaceSourcesAtomically(firstOwner, worldId, listOf(replacement, replacement)) {
+                commitCalls++
+            }
+        }
+        assertEquals(0, commitCalls)
+        assertThrows(IllegalStateException::class.java) {
+            service.replaceSourcesAtomically(firstOwner, worldId, listOf(replacement)) {
+                commitCalls++
+                throw IllegalStateException("definition commit failed")
+            }
+        }
+        assertEquals(1, commitCalls)
+
+        // The failed candidate did not reserve test:new in the service owner records.
+        service.replaceSources(secondOwner, worldId, listOf(replacement))
+        runtime.process(frame(1L))
+        assertEquals(listOf("replacement", "old"), calls)
+    }
+
+    @Test
+    fun `atomic replacement rejects service reentry and restores the guard after failure`() {
+        val service = DefaultSignalEpochSourceService()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("signal")
+        val otherOwner = plugin("other")
+        val calls = mutableListOf<String>()
+        val runtime = runtime()
+        val old = source("test:old", 0.0) { calls += "old" }
+        val replacement = source("test:new", 20.0) { calls += "new" }
+        service.registerWorld(worldId, runtime, inspectionRuntime(), { emptyList() }) { _, _ -> }
+        service.replaceSources(owner, worldId, listOf(old))
+
+        val failure = assertThrows(IllegalStateException::class.java) {
+            service.replaceSourcesAtomically(owner, worldId, listOf(replacement)) {
+                service.replaceRoutePlanningSources(
+                    owner,
+                    worldId,
+                    listOf(routePlanningSource("test:planning"))
+                )
+            }
+        }
+
+        assertTrue(failure.message.orEmpty().contains("cannot be re-entered"))
+        runtime.process(frame(1L))
+        assertEquals(listOf("old"), calls)
+        service.replaceRoutePlanningSources(
+            otherOwner,
+            worldId,
+            listOf(routePlanningSource("test:planning"))
+        )
+        service.replaceSources(owner, worldId, listOf(replacement))
+        runtime.process(frame(2L))
+        assertEquals(listOf("old", "new"), calls)
+    }
+
+    @Test
+    fun `atomic replacement callback excludes a physics epoch`() {
+        val service = DefaultSignalEpochSourceService()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("signal")
+        val runtime = runtime()
+        val commitEntered = CountDownLatch(1)
+        val releaseCommit = CountDownLatch(1)
+        val physicsAttempted = CountDownLatch(1)
+        val calls = mutableListOf<String>()
+        service.registerWorld(worldId, runtime, inspectionRuntime(), { emptyList() }) { _, _ -> }
+        service.replaceSources(owner, worldId, listOf(source("test:old", 0.0) { calls += "old" }))
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val replacement = executor.submit {
+                service.replaceSourcesAtomically(
+                    owner,
+                    worldId,
+                    listOf(source("test:new", 20.0) { calls += "new" })
+                ) {
+                    commitEntered.countDown()
+                    check(releaseCommit.await(5, TimeUnit.SECONDS)) {
+                        "test did not release the atomic commit callback"
+                    }
+                }
+            }
+            assertTrue(commitEntered.await(5, TimeUnit.SECONDS))
+            val physics = executor.submit {
+                physicsAttempted.countDown()
+                BukkitThreadGuardBridge.runInSimulationContext {
+                    runtime.process(frame(1L))
+                }
+            }
+            assertTrue(physicsAttempted.await(5, TimeUnit.SECONDS))
+            assertThrows(TimeoutException::class.java) {
+                physics.get(250, TimeUnit.MILLISECONDS)
+            }
+
+            releaseCommit.countDown()
+            replacement.get(5, TimeUnit.SECONDS)
+            physics.get(5, TimeUnit.SECONDS)
+        } finally {
+            releaseCommit.countDown()
+            executor.shutdownNow()
+        }
+
+        assertEquals(listOf("new"), calls)
+    }
+
+    @Test
     fun `empty epoch replacement still requires withdrawn restrictions and preserves infrastructure ownership`() {
         val signalService = DefaultSignalEpochSourceService()
         val infrastructureService = DefaultInfrastructureResourceService(signalService)
@@ -81,11 +207,15 @@ class DefaultSignalEpochSourceServiceTest {
         }) { _, _ -> }
         signalService.replaceSources(owner, worldId, listOf(source("test:main", 0.0) { calls++ }))
         infrastructureService.registerRouteResourceContributor(owner, contributor)
+        var removalCommitCalled = false
 
         val removalFailure = assertThrows(IllegalStateException::class.java) {
-            signalService.replaceSources(owner, worldId, emptyList())
+            signalService.replaceSourcesAtomically(owner, worldId, emptyList()) {
+                removalCommitCalled = true
+            }
         }
         assertEquals(true, removalFailure.message.orEmpty().contains("train/test:main@4"))
+        assertFalse(removalCommitCalled)
         val failure = assertThrows(IllegalStateException::class.java) {
             infrastructureService.unregisterOwner(owner)
         }
@@ -222,6 +352,17 @@ class DefaultSignalEpochSourceServiceTest {
         assertThrows(IllegalStateException::class.java) {
             service.replaceSources(owner, worldId, listOf(source("test:main", 0.0) {}))
         }
+        var commitCalled = false
+        assertThrows(IllegalStateException::class.java) {
+            service.replaceSourcesAtomically(
+                owner,
+                worldId,
+                listOf(source("test:main", 0.0) {})
+            ) {
+                commitCalled = true
+            }
+        }
+        assertFalse(commitCalled)
         service.close()
         service.close()
     }

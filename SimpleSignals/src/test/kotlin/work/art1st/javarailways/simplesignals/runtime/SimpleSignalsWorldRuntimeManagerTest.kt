@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import work.art1st.javarailways.basic.route.OperationalRouteLocation
 import work.art1st.javarailways.basic.route.TopologyRoutePlanner
 import work.art1st.javarailways.basic.route.TopologyRoutePlanningInput
@@ -26,20 +27,32 @@ import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinit
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTraversal
 import work.art1st.javarailways.simplesignals.region.endpoint
 import work.art1st.javarailways.simplesignals.region.topologyState
+import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStore
+import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import java.lang.reflect.Proxy
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.UUID
 
 class SimpleSignalsWorldRuntimeManagerTest {
+    @TempDir
+    lateinit var directory: Path
+
     @Test
     fun `captured host source follows atomic publications and changes Basic route selection`() {
         val fixture = Fixture()
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val registrations = CapturingRoutePlanningService()
+        val store = store()
         val manager = SimpleSignalsWorldRuntimeManager(
-            plugin(), infrastructure.service, registrations
+            plugin(), infrastructure.service, registrations, store
         )
 
-        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val installed = manager.install(fixture.worldId)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, installed.status)
+        assertEquals(SimpleSignalsWorldInstallDefinitionSource.MISSING, installed.definitionSource)
+        assertFalse(Files.exists(store.primaryFile(fixture.worldId)))
+        assertFalse(Files.exists(store.backupFile(fixture.worldId)))
         val binding = registrations.single(fixture.worldId)
         assertEquals(PROTECTION_ROUTE_SOURCE_ID, binding.sourceId)
         assertEquals(
@@ -83,7 +96,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val registrations = CapturingRoutePlanningService()
         val manager = SimpleSignalsWorldRuntimeManager(
-            plugin(), infrastructure.service, registrations
+            plugin(), infrastructure.service, registrations, store()
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
         val firstBinding = registrations.single(fixture.worldId)
@@ -122,7 +135,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val infrastructure = MutableTopologyService(null)
         val registrations = CapturingRoutePlanningService()
         val manager = SimpleSignalsWorldRuntimeManager(
-            plugin(), infrastructure.service, registrations
+            plugin(), infrastructure.service, registrations, store()
         )
 
         val unavailable = manager.install(fixture.worldId)
@@ -134,6 +147,99 @@ class SimpleSignalsWorldRuntimeManagerTest {
             manager.publishDefinitions(fixture.worldId, 1L, emptyList(), emptyList())
         }
     }
+
+    @Test
+    fun `persisted route table is compiled before its source is registered`() {
+        val fixture = Fixture()
+        val store = store()
+        store.save(
+            fixture.worldId,
+            SimpleSignalsWorldDefinitions(
+                fixture.worldId,
+                1L,
+                listOf(fixture.region),
+                listOf(fixture.table(1L, fixture.upperRoute()))
+            )
+        )
+        val registrations = CapturingRoutePlanningService()
+        val manager = SimpleSignalsWorldRuntimeManager(
+            plugin(), MutableTopologyService(fixture.currentTopology).service, registrations, store
+        )
+
+        val installed = manager.install(fixture.worldId)
+
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, installed.status)
+        assertEquals(SimpleSignalsWorldInstallDefinitionSource.PRIMARY, installed.definitionSource)
+        val rails = fixture.plan(registrations.single(fixture.worldId), fixture.currentTopology)
+            .route.segments.map { it.railId }
+        assertTrue(fixture.upperIn in rails)
+        assertTrue(fixture.upperOut in rails)
+        assertFalse(fixture.lowerIn in rails)
+        assertFalse(fixture.lowerOut in rails)
+        assertEquals(1, registrations.replacementCount)
+    }
+
+    @Test
+    fun `persisted orphan definition installs only a fail closed source`() {
+        val fixture = Fixture()
+        val missingRail = UUID(9L, 9L)
+        val orphan = ProtectionRegionDefinition(
+            "test:orphan",
+            1L,
+            listOf(
+                ProtectionBoundaryDefinition(
+                    "test:orphan-boundary",
+                    RailPositionSnapshot(missingRail, ViewDirection.AB, 1.0)
+                )
+            )
+        )
+        val store = store()
+        store.save(
+            fixture.worldId,
+            SimpleSignalsWorldDefinitions(fixture.worldId, 1L, listOf(orphan), emptyList())
+        )
+        val registrations = CapturingRoutePlanningService()
+        val manager = SimpleSignalsWorldRuntimeManager(
+            plugin(), MutableTopologyService(fixture.currentTopology).service, registrations, store
+        )
+
+        val unavailable = manager.install(fixture.worldId)
+
+        assertEquals(SimpleSignalsWorldInstallStatus.UNAVAILABLE, unavailable.status)
+        assertTrue(unavailable.detail.contains("rejected"))
+        assertEquals(1, registrations.replacementCount)
+        assertThrows(IllegalStateException::class.java) {
+            registrations.single(fixture.worldId).source.restrictions(fixture.currentTopology)
+        }
+        assertThrows(IllegalStateException::class.java) {
+            manager.publishDefinitions(fixture.worldId, 2L, emptyList(), emptyList())
+        }
+    }
+
+    @Test
+    fun `corrupted persisted definitions install only a fail closed source`() {
+        val fixture = Fixture()
+        val store = store()
+        Files.createDirectories(store.primaryFile(fixture.worldId).parent)
+        Files.writeString(store.primaryFile(fixture.worldId), "broken-primary")
+        Files.writeString(store.backupFile(fixture.worldId), "broken-backup")
+        val registrations = CapturingRoutePlanningService()
+        val manager = SimpleSignalsWorldRuntimeManager(
+            plugin(), MutableTopologyService(fixture.currentTopology).service, registrations, store
+        )
+
+        val unavailable = manager.install(fixture.worldId)
+
+        assertEquals(SimpleSignalsWorldInstallStatus.UNAVAILABLE, unavailable.status)
+        assertTrue(unavailable.detail.contains("invalid"))
+        assertEquals(2, unavailable.diagnostics.size)
+        assertEquals(1, registrations.replacementCount)
+        assertThrows(IllegalStateException::class.java) {
+            registrations.single(fixture.worldId).source.restrictions(fixture.currentTopology)
+        }
+    }
+
+    private fun store() = SimpleSignalsWorldDefinitionStore(directory.toFile())
 
     private class MutableTopologyService(initial: TopologyState?) {
         var topology: TopologyState? = initial

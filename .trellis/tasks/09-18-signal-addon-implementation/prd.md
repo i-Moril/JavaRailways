@@ -78,10 +78,10 @@ The result must prove that protection regions and fixed blocks are optional poli
 - [ ] Diamond crossings prevent conflicting passages without cross-line routing or runtime geometry scans.
 - [ ] Disable, failure, world unload/reload and stale-state tests prove authority never widens and live claims are not dropped beneath trains.
 - [ ] Timetable apply/replace/unapply and draft/draining tests prove atomic applied-plan dependency replacement, edit blocking and separation from transient live claims/occupancy waits.
-- [ ] Plugin persistence round-trips current fixtures and rejects/preserves corrupt or orphaned input with actionable diagnostics.
+- [x] Plugin persistence round-trips current fixtures and rejects/preserves corrupt or orphaned input with actionable diagnostics.
 - [ ] Unit, integration, packaging and Folia smoke checks pass.
 - [x] Mission, Line, Station and Timetable use one immutable-topology planning path; registered restrictions have identical semantics for all callers and no legacy `RailView` planner remains in production.
-- [x] A signalling plugin can compile its private interlocking/region model into neutral suppressed traversals plus complete physical traversal macros, without permitting hybrid paths assembled from portions of different table routes; Basic neither defines the region nor accepts any expanded traversal absent from physical topology. SimpleSignals registers this compiler through one fresh planning-only runtime per host world load; persistence remains a later batch.
+- [x] A signalling plugin can compile its private interlocking/region model into neutral suppressed traversals plus complete physical traversal macros, without permitting hybrid paths assembled from portions of different table routes; Basic neither defines the region nor accepts any expanded traversal absent from physical topology. SimpleSignals restores strict current-model world definitions and compiles them against the exact host topology before publishing one usable planning source per world load; missing starts empty, while corrupt or orphaned input installs only a rejecting fail-closed source and no usable runtime.
 
 ## Out of scope
 
@@ -103,4 +103,4 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 ## Blocking open questions
 
-None for the route-restriction foundation. Sources compile immutable neutral contributions before search; no plugin callback is evaluated during graph expansion. Owner/world registration now shares the existing signal lifecycle; SimpleSignals route-table persistence remains a later reviewable batch.
+None for the route-restriction foundation. Sources compile immutable neutral contributions before search; no plugin callback is evaluated during graph expansion. Owner/world registration now shares the existing signal lifecycle, and the plugin restores its strict current-model route-table sidecar before publishing the compiled source; invalid persisted policy leaves a rejecting source installed. Authoring and runtime route/resource policy remain later reviewable batches.

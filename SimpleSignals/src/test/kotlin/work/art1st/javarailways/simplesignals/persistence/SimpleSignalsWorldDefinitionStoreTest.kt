@@ -1,0 +1,235 @@
+package work.art1st.javarailways.simplesignals.persistence
+
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.UUID
+
+class SimpleSignalsWorldDefinitionStoreTest {
+    @TempDir
+    lateinit var directory: Path
+
+    @Test
+    fun `strict current fixture round trips without derived topology`() {
+        val decoded = SimpleSignalsWorldDefinitionsCodec.decode(CURRENT_FIXTURE, WORLD_ID)
+        val encoded = SimpleSignalsWorldDefinitionsCodec.encode(decoded)
+        val roundTrip = SimpleSignalsWorldDefinitionsCodec.decode(encoded, WORLD_ID)
+
+        assertEquals(decoded, roundTrip)
+        assertEquals(9L, roundTrip.definitionRevision)
+        assertEquals("simplesignals:test-region", roundTrip.regions.single().regionId)
+        assertEquals(ViewDirection.BA, roundTrip.regions.single().boundaries[1].insideFacing)
+        assertEquals(3, roundTrip.routeTables.single().routes.single().traversals.size)
+        assertFalse(encoded.contains("interior"))
+        assertFalse(encoded.contains("topologyRevision"))
+    }
+
+    @Test
+    fun `strict codec rejects unknown fields versions and wrong world identity`() {
+        val unknownField = CURRENT_FIXTURE.replace(
+            "\"definitionRevision\": 9,",
+            "\"definitionRevision\": 9,\n  \"unexpected\": true,"
+        )
+        val futureVersion = CURRENT_FIXTURE.replace("\"schemaVersion\": 1", "\"schemaVersion\": 2")
+        val nonCanonicalWorldId = CURRENT_FIXTURE.replace(
+            WORLD_ID.toString(),
+            WORLD_ID.toString().uppercase()
+        )
+
+        assertThrows(Exception::class.java) {
+            SimpleSignalsWorldDefinitionsCodec.decode(unknownField, WORLD_ID)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            SimpleSignalsWorldDefinitionsCodec.decode(futureVersion, WORLD_ID)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            SimpleSignalsWorldDefinitionsCodec.decode(CURRENT_FIXTURE, UUID.randomUUID())
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            SimpleSignalsWorldDefinitionsCodec.decode(nonCanonicalWorldId, WORLD_ID)
+        }
+    }
+
+    @Test
+    fun `invalid primary recovers valid backup without changing either file`() {
+        val store = SimpleSignalsWorldDefinitionStore(directory.toFile())
+        val primary = store.primaryFile(WORLD_ID)
+        val backup = store.backupFile(WORLD_ID)
+        Files.createDirectories(primary.parent)
+        Files.writeString(primary, "{broken")
+        Files.writeString(backup, CURRENT_FIXTURE)
+
+        val loaded = assertInstanceOf(
+            SimpleSignalsWorldDefinitionLoadResult.Loaded::class.java,
+            store.load(WORLD_ID)
+        )
+
+        assertEquals(SimpleSignalsWorldDefinitionSource.BACKUP, loaded.source)
+        assertEquals(9L, loaded.definitions.definitionRevision)
+        assertEquals(1, loaded.ignoredFailures.size)
+        assertEquals("{broken", Files.readString(primary))
+        assertEquals(CURRENT_FIXTURE, Files.readString(backup))
+    }
+
+    @Test
+    fun `two invalid candidates stay on disk and report corruption`() {
+        val store = SimpleSignalsWorldDefinitionStore(directory.toFile())
+        val primary = store.primaryFile(WORLD_ID)
+        val backup = store.backupFile(WORLD_ID)
+        Files.createDirectories(primary.parent)
+        Files.writeString(primary, "primary-broken")
+        Files.writeString(backup, "backup-broken")
+
+        val corrupted = assertInstanceOf(
+            SimpleSignalsWorldDefinitionLoadResult.Corrupted::class.java,
+            store.load(WORLD_ID)
+        )
+
+        assertEquals(2, corrupted.failures.size)
+        assertEquals("primary-broken", Files.readString(primary))
+        assertEquals("backup-broken", Files.readString(backup))
+    }
+
+    @Test
+    fun `non readable candidate shape is corruption rather than missing definitions`() {
+        val store = SimpleSignalsWorldDefinitionStore(directory.toFile())
+        Files.createDirectories(store.primaryFile(WORLD_ID))
+
+        val corrupted = assertInstanceOf(
+            SimpleSignalsWorldDefinitionLoadResult.Corrupted::class.java,
+            store.load(WORLD_ID)
+        )
+
+        assertEquals(1, corrupted.failures.size)
+    }
+
+    @Test
+    fun `save replaces primary atomically and retains previous primary as backup`() {
+        val store = SimpleSignalsWorldDefinitionStore(directory.toFile())
+        val first = definitions(1L)
+        val second = definitions(2L)
+
+        store.save(WORLD_ID, first)
+        assertFalse(Files.exists(store.backupFile(WORLD_ID)))
+        store.save(WORLD_ID, second)
+
+        val primary = SimpleSignalsWorldDefinitionsCodec.decode(
+            Files.readString(store.primaryFile(WORLD_ID)),
+            WORLD_ID
+        )
+        val backup = SimpleSignalsWorldDefinitionsCodec.decode(
+            Files.readString(store.backupFile(WORLD_ID)),
+            WORLD_ID
+        )
+        assertEquals(2L, primary.definitionRevision)
+        assertEquals(1L, backup.definitionRevision)
+        assertFalse(Files.exists(store.temporaryFile(WORLD_ID)))
+    }
+
+    @Test
+    fun `save after backup recovery does not replace the last valid backup with corrupt primary`() {
+        val store = SimpleSignalsWorldDefinitionStore(directory.toFile())
+        val primary = store.primaryFile(WORLD_ID)
+        val backup = store.backupFile(WORLD_ID)
+        Files.createDirectories(primary.parent)
+        Files.writeString(primary, "{broken")
+        Files.writeString(backup, CURRENT_FIXTURE)
+
+        store.save(WORLD_ID, definitions(10L))
+
+        assertEquals(
+            10L,
+            SimpleSignalsWorldDefinitionsCodec.decode(Files.readString(primary), WORLD_ID)
+                .definitionRevision
+        )
+        assertEquals(
+            9L,
+            SimpleSignalsWorldDefinitionsCodec.decode(Files.readString(backup), WORLD_ID)
+                .definitionRevision
+        )
+    }
+
+    private fun definitions(revision: Long) = SimpleSignalsWorldDefinitions(
+        WORLD_ID,
+        revision,
+        emptyList(),
+        emptyList()
+    )
+
+    companion object {
+        private val WORLD_ID: UUID = UUID.fromString("a0000000-0000-0000-0000-000000000001")
+        private val ENTRY_RAIL: UUID = UUID.fromString("20000000-0000-0000-0000-000000000001")
+        private val MIDDLE_RAIL: UUID = UUID.fromString("20000000-0000-0000-0000-000000000002")
+        private val EXIT_RAIL: UUID = UUID.fromString("20000000-0000-0000-0000-000000000003")
+
+        private val CURRENT_FIXTURE = """
+            {
+              "schemaVersion": 1,
+              "worldId": "$WORLD_ID",
+              "definitionRevision": 9,
+              "protectionRegions": [
+                {
+                  "regionId": "simplesignals:test-region",
+                  "revision": 4,
+                  "boundaries": [
+                    {
+                      "boundaryId": "simplesignals:entry",
+                      "railId": "$ENTRY_RAIL",
+                      "arcLengthInAbMeters": 2.5,
+                      "insideFacing": "AB"
+                    },
+                    {
+                      "boundaryId": "simplesignals:exit",
+                      "railId": "$EXIT_RAIL",
+                      "arcLengthInAbMeters": 7.5,
+                      "insideFacing": "BA"
+                    }
+                  ]
+                }
+              ],
+              "protectionRouteTables": [
+                {
+                  "tableId": "simplesignals:test-table",
+                  "revision": 6,
+                  "regionId": "simplesignals:test-region",
+                  "regionRevision": 4,
+                  "routes": [
+                    {
+                      "routeId": "simplesignals:test-route",
+                      "entryBoundaryId": "simplesignals:entry",
+                      "exitBoundaryId": "simplesignals:exit",
+                      "traversals": [
+                        {
+                          "railId": "$ENTRY_RAIL",
+                          "facing": "AB",
+                          "lowerAbMeters": 2.5,
+                          "upperAbMeters": 10.0
+                        },
+                        {
+                          "railId": "$MIDDLE_RAIL",
+                          "facing": "AB",
+                          "lowerAbMeters": 0.0,
+                          "upperAbMeters": 10.0
+                        },
+                        {
+                          "railId": "$EXIT_RAIL",
+                          "facing": "AB",
+                          "lowerAbMeters": 0.0,
+                          "upperAbMeters": 7.5
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+        """.trimIndent()
+    }
+}

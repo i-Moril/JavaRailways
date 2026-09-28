@@ -116,7 +116,16 @@ Plugin definitions and operational objects referenced by an applied timetable ar
 
 ## Persistence and lifecycle
 
-SimpleATO and every signal plugin own separate persistence boundaries. `SimpleSignals` uses atomic primary/backup writes and fixed current-model fixtures. Decode/migration upcasts at that boundary; runtime code sees only the current model, and writers emit only the current version. Topology migrations are dry-run first and create a recovery point.
+SimpleATO and every signal plugin own separate persistence boundaries. `SimpleSignals` now stores schema-version-1 world definitions in
+`<dataFolder>/worlds/<world UUID>-definitions.json`, with a same-directory `.bak`. It persists only authored region boundaries and complete
+fixed-route traversals using namespaced IDs, canonical UUIDs/AB metres and `ViewDirection`; derived interiors and compiled restrictions are rebuilt.
+The strict current codec rejects unknown fields, versions and wrong world identity. Missing files start as an unwritten empty revision 0;
+an invalid primary may be read from a valid backup without overwriting either input, while no valid candidate leaves the world unavailable.
+Startup publishes no usable route source until decode, topology binding and complete compilation have all succeeded. A corrupt/orphaned
+candidate installs the same stable source ID in fail-closed form so new operational route searches are rejected instead of treating the
+plugin as unrestricted; it does not publish a usable local runtime. Runtime code sees only the current domain model and the writer emits only
+schema version 1 through same-directory temp/backup/atomic replace. No old development format reader
+or migration branch exists; a future topology migration remains a separate dry-run-first tool with a recovery point.
 
 At enable/load, the plugin remains restrictive until host capabilities, persisted definitions, topology bindings and derived indexes validate. Missing required host services prevents enable. Planned disable first un-applies the plugin's plans, publishes empty restrictions where required and calls the single host owner-unregister operation. That operation succeeds only when no plugin-owned pending request, live claim, referenced type, applied-plan dependency, active inspection binding or non-empty restriction remains. If Bukkit has already forced disable, the host removes dead callbacks, retains claims/dependencies and stalls only affected worlds. Renderer and authoring resources clean up idempotently after the safety gate succeeds.
 
@@ -125,12 +134,12 @@ At enable/load, the plugin remains restrictive until host capabilities, persiste
 The domain migration has moved the authored definitions, graph cut, catalog/index and route-window
 matching into `SimpleSignals`, deleted the unused Basic single-window request/claim path and retained
 generic projection, turnout/diamond identity, claim, preparation, cursor/release and suffix extension
-in Basic. The planning-only plugin world runtime now publishes candidate region/table pairs atomically and registers one
-fixed-route source for each exact host world load. The remaining reviewable batches are:
+in Basic. The planning-only plugin world runtime now loads its own strict sidecar, publishes candidate region/table pairs atomically and
+registers either one compiled fixed-route source or one rejecting fail-closed source for each available host world load. The remaining
+reviewable batches are:
 
-1. add the plugin-owned persistence/composition boundary around that runtime;
-2. add authoring and diagnostics;
-3. connect the plugin-generated route boundary/additions through the generic contributor API.
+1. add authoring and diagnostics;
+2. connect the plugin-generated route boundary/additions through the generic contributor API.
 
 Development data migration, if required, is a separate auditable one-time tool with dry-run and recovery point—not a permanent runtime compatibility path.
 

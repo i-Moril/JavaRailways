@@ -12,6 +12,10 @@ import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableCatalog
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableCatalogStatus
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
+import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult
+import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionSource
+import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStore
+import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import java.util.UUID
 
 internal const val PROTECTION_ROUTE_SOURCE_ID = "simplesignals:fixed-protection-routes"
@@ -144,22 +148,31 @@ internal class SimpleSignalsWorldRuntime(
     )
 }
 
-enum class SimpleSignalsWorldInstallStatus {
+internal enum class SimpleSignalsWorldInstallStatus {
     INSTALLED,
     ALREADY_INSTALLED,
     UNAVAILABLE
 }
 
-data class SimpleSignalsWorldInstallResult(
+internal enum class SimpleSignalsWorldInstallDefinitionSource {
+    MISSING,
+    PRIMARY,
+    BACKUP
+}
+
+internal data class SimpleSignalsWorldInstallResult(
     val status: SimpleSignalsWorldInstallStatus,
-    val detail: String = ""
+    val detail: String = "",
+    val definitionSource: SimpleSignalsWorldInstallDefinitionSource? = null,
+    val diagnostics: List<String> = emptyList()
 )
 
 /** Owns the local runtime map and the single host route-planning binding for each world load. */
-class SimpleSignalsWorldRuntimeManager(
+internal class SimpleSignalsWorldRuntimeManager(
     private val plugin: Plugin,
     private val infrastructure: InfrastructureResourceService,
-    private val routePlanningSources: RoutePlanningRestrictionSourceService
+    private val routePlanningSources: RoutePlanningRestrictionSourceService,
+    private val definitions: SimpleSignalsWorldDefinitionStore
 ) {
     private val lock = Any()
     private val runtimes = linkedMapOf<UUID, SimpleSignalsWorldRuntime>()
@@ -170,26 +183,90 @@ class SimpleSignalsWorldRuntimeManager(
                 SimpleSignalsWorldInstallStatus.ALREADY_INSTALLED
             )
         }
-        try {
-            val topology = infrastructure.currentTopology(worldId)
-            val runtime = SimpleSignalsWorldRuntime(worldId)
-            val initial = runtime.publishDefinitions(topology, 0L, emptyList(), emptyList())
-            check(initial.status == SimpleSignalsDefinitionPublicationStatus.PUBLISHED) {
-                "empty SimpleSignals definitions were rejected: ${initial.diagnostics.joinToString()}"
+        val load = try {
+            definitions.load(worldId)
+        } catch (failure: Exception) {
+            return@synchronized unavailable(
+                worldId,
+                "SimpleSignals definitions could not be read: " +
+                    (failure.message ?: failure.javaClass.simpleName)
+            )
+        }
+        val topology = try {
+            infrastructure.currentTopology(worldId)
+        } catch (failure: Exception) {
+            return@synchronized SimpleSignalsWorldInstallResult(
+                SimpleSignalsWorldInstallStatus.UNAVAILABLE,
+                failure.message ?: failure.javaClass.simpleName
+            )
+        }
+        val loaded = when (load) {
+            SimpleSignalsWorldDefinitionLoadResult.Missing -> LoadedDefinitions(
+                SimpleSignalsWorldDefinitions.empty(worldId),
+                SimpleSignalsWorldInstallDefinitionSource.MISSING
+            )
+            is SimpleSignalsWorldDefinitionLoadResult.Loaded -> LoadedDefinitions(
+                load.definitions,
+                when (load.source) {
+                    SimpleSignalsWorldDefinitionSource.PRIMARY ->
+                        SimpleSignalsWorldInstallDefinitionSource.PRIMARY
+                    SimpleSignalsWorldDefinitionSource.BACKUP ->
+                        SimpleSignalsWorldInstallDefinitionSource.BACKUP
+                },
+                load.ignoredFailures.map { failure ->
+                    "Ignored invalid definitions candidate ${failure.file}: " +
+                        describe(failure.error)
+                }
+            )
+            is SimpleSignalsWorldDefinitionLoadResult.Corrupted -> {
+                return@synchronized unavailable(
+                    worldId,
+                    "all SimpleSignals definition files are invalid",
+                    load.failures.map { failure ->
+                        "Failed to read ${failure.file}: ${describe(failure.error)}"
+                    }
+                )
             }
+        }
+
+        val runtime = SimpleSignalsWorldRuntime(worldId)
+        val initial = try {
+            runtime.publishDefinitions(
+                topology,
+                loaded.definitions.definitionRevision,
+                loaded.definitions.regions,
+                loaded.definitions.routeTables
+            )
+        } catch (failure: Exception) {
+            return@synchronized unavailable(
+                worldId,
+                "SimpleSignals definitions could not be compiled: ${describe(failure)}"
+            )
+        }
+        if (initial.status != SimpleSignalsDefinitionPublicationStatus.PUBLISHED) {
+            return@synchronized unavailable(
+                worldId,
+                "SimpleSignals definitions were rejected: ${initial.diagnostics.joinToString()}"
+            )
+        }
+        try {
             routePlanningSources.replaceRoutePlanningSources(
                 plugin,
                 worldId,
                 listOf(runtime.routePlanningBinding)
             )
-            runtimes[worldId] = runtime
-            SimpleSignalsWorldInstallResult(SimpleSignalsWorldInstallStatus.INSTALLED)
         } catch (failure: Exception) {
-            SimpleSignalsWorldInstallResult(
+            return@synchronized SimpleSignalsWorldInstallResult(
                 SimpleSignalsWorldInstallStatus.UNAVAILABLE,
-                failure.message ?: failure.javaClass.simpleName
+                "SimpleSignals route source could not be registered: ${describe(failure)}"
             )
         }
+        runtimes[worldId] = runtime
+        SimpleSignalsWorldInstallResult(
+            SimpleSignalsWorldInstallStatus.INSTALLED,
+            definitionSource = loaded.source,
+            diagnostics = loaded.diagnostics
+        )
     }
 
     fun remove(worldId: UUID) {
@@ -217,4 +294,42 @@ class SimpleSignalsWorldRuntimeManager(
             routeTableDefinitions
         )
     }
+
+    private data class LoadedDefinitions(
+        val definitions: SimpleSignalsWorldDefinitions,
+        val source: SimpleSignalsWorldInstallDefinitionSource,
+        val diagnostics: List<String> = emptyList()
+    )
+
+    private fun unavailable(
+        worldId: UUID,
+        detail: String,
+        diagnostics: List<String> = emptyList()
+    ): SimpleSignalsWorldInstallResult {
+        val allDiagnostics = diagnostics.toMutableList()
+        try {
+            routePlanningSources.replaceRoutePlanningSources(
+                plugin,
+                worldId,
+                listOf(
+                    RoutePlanningRestrictionBinding(
+                        PROTECTION_ROUTE_SOURCE_ID,
+                        RoutePlanningRestrictionSource {
+                            throw IllegalStateException(detail)
+                        }
+                    )
+                )
+            )
+        } catch (failure: Exception) {
+            allDiagnostics += "Could not install fail-closed route source: ${describe(failure)}"
+        }
+        return SimpleSignalsWorldInstallResult(
+            SimpleSignalsWorldInstallStatus.UNAVAILABLE,
+            detail,
+            diagnostics = java.util.List.copyOf(allDiagnostics)
+        )
+    }
+
+    private fun describe(failure: Exception): String =
+        "${failure.javaClass.simpleName}: ${failure.message.orEmpty()}"
 }

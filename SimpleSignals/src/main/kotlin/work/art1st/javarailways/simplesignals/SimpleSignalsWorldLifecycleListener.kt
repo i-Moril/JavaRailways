@@ -7,6 +7,7 @@ import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldInstallStatus
+import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldInstallDefinitionSource
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntimeManager
 
 /** Mirrors host world load boundaries without retaining mutable Bukkit world state. */
@@ -31,13 +32,29 @@ internal class SimpleSignalsWorldLifecycleListener(
     private fun install(world: World) {
         val result = runtimes.install(world.uid)
         when (result.status) {
-            SimpleSignalsWorldInstallStatus.INSTALLED ->
-                plugin.logger.info("SimpleSignals route planning enabled for world '${world.name}'")
-            SimpleSignalsWorldInstallStatus.ALREADY_INSTALLED -> Unit
-            SimpleSignalsWorldInstallStatus.UNAVAILABLE ->
-                plugin.logger.warning(
-                    "SimpleSignals is disabled for world '${world.name}': ${result.detail}"
+            SimpleSignalsWorldInstallStatus.INSTALLED -> {
+                val source = when (result.definitionSource) {
+                    SimpleSignalsWorldInstallDefinitionSource.MISSING ->
+                        "no definitions file; using empty revision 0"
+                    SimpleSignalsWorldInstallDefinitionSource.PRIMARY ->
+                        "loaded definitions from primary file"
+                    SimpleSignalsWorldInstallDefinitionSource.BACKUP ->
+                        "recovered definitions from backup file"
+                    null -> "definitions source unavailable"
+                }
+                plugin.logger.info(
+                    "SimpleSignals route planning enabled for world '${world.name}': $source"
                 )
+                result.diagnostics.forEach(plugin.logger::warning)
+            }
+            SimpleSignalsWorldInstallStatus.ALREADY_INSTALLED -> Unit
+            SimpleSignalsWorldInstallStatus.UNAVAILABLE -> {
+                plugin.logger.warning(
+                    "SimpleSignals is unavailable for world '${world.name}'; " +
+                        "new route planning is blocked: ${result.detail}"
+                )
+                result.diagnostics.forEach(plugin.logger::warning)
+            }
         }
     }
 }

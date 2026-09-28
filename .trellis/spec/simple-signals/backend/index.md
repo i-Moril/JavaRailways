@@ -6,8 +6,8 @@
 声明 `JavaRailways` 为必需服务器插件，并通过 Bukkit `ServicesManager` 获取宿主公开能力。它不是
 JavaRailways 主 JAR 的组成部分，也不能复制、shadow 或直接导入宿主实现包。
 
-当前已建立部署边界、保护区域领域核心、固定保护进路表的低频编译器，以及把该编译结果注册到实际world的
-planning-only runtime。尚未建立持久化文件、固定闭塞、资源申请、inspection、信号规则、渲染、命令或 JS/YAML
+当前已建立部署边界、严格current-model世界定义sidecar、保护区域领域核心、固定保护进路表的低频编译器，
+以及把存档编译结果注册到实际world的planning-only runtime。尚未建立固定闭塞、资源申请、inspection、信号规则、渲染、命令或 JS/YAML
 接口，不得把 foundation 描述为可用信号系统。
 
 ## 工作方式
@@ -20,8 +20,10 @@ Paper 先启用 JavaRailways
   -> Paper 构造并启用 SimpleSignalsPlugin
   -> SimpleSignals 同步取得所需 service capabilities
   -> 缺少任一能力则 onEnable 失败，不安装部分 world state
-  -> 对已经加载的world读取host的exact immutable topology root
-  -> 用空definition发布region/table candidate并注册一个route-planning source
+  -> 对已经加载的world读取自己的definition primary/backup sidecar
+  -> missing使用内存中的revision 0空定义，损坏则安装拒绝新寻路的fail-closed source
+  -> 取得host的exact immutable topology root并完整编译region/table candidate
+  -> 编译成功后才注册一个route-planning source并发布local runtime
   -> 后续WorldLoad在host完成注册后重复上述流程；WorldUnload丢弃local runtime
 ```
 
@@ -32,11 +34,31 @@ inspection source和route-planning restriction source五个 service。插件 des
 capability descriptor，再在同一公开边界检查。
 
 每次world load拥有一个新的`SimpleSignalsWorldRuntime`。`InfrastructureResourceService.currentTopology`返回
-host当前发布的exact immutable root；runtime不取得mutable Core world。启动阶段尚无持久化，因此以definition revision 0
-原子发布空region/table集合，再通过`RoutePlanningRestrictionSourceService`为该world注册且只注册
+host当前发布的exact immutable root；runtime不取得mutable Core world。安装先从插件data folder加载当前定义；只有
+missing才以definition revision 0原子发布空region/table集合，且不会为此写出空文件。随后通过
+`RoutePlanningRestrictionSourceService`为该world注册且只注册
 `simplesignals:fixed-protection-routes`一个binding。损坏world未被host注册时，查询root失败；插件只记录明确诊断并保持该world
-无runtime/无source，不安装半套状态。空region publication只保留root并使用空index，不扫描整张拓扑；相同UUID
+无runtime/无source，不安装半套状态。definition损坏、world ID不匹配、orphan rail引用或region/table编译失败时不发布可用runtime，
+但为已注册的host world安装同一ID的fail-closed source；其callback明确失败，使SimpleATO拒绝新的运营寻路，而不是把损坏定义解释为
+“没有限制”。文件修复后的重新安装以正常编译source整体替换该binding。空region publication只保留root并使用空index，不扫描整张拓扑；相同UUID
 unload/reload先删除local runtime，再创建新runtime与binding，不能复活旧缓存。
+
+## 世界定义持久化
+
+每个world使用带`schemaVersion = 1`的独立文件：
+`<plugin dataFolder>/worlds/<world UUID>-definitions.json`。current document只保存`worldId`、
+`definitionRevision`、保护区域及其有向边界、固定进路表和每条进路完整的有向traversal。identity使用稳定
+namespaced ID与canonical UUID字符串；位置统一保存canonical AB metres，方向使用`ViewDirection`。派生interior、
+rail reverse index、topology revision和编译后的Basic restriction都是可丢弃缓存，禁止写入sidecar。
+
+codec固定`encodeDefaults = true`和`ignoreUnknownKeys = false`。未知字段、非version 1、非canonical UUID、文件world ID与
+加载world不符或domain invariant失败均拒绝；runtime不包含旧格式reader、upcaster或兼容分支。decode边界把DTO一次转换为
+当前`ProtectionRegionDefinition`/`ProtectionRouteTableDefinition`，业务编译器不处理磁盘版本。
+
+读取顺序是primary再到同目录`.bak`：两者都不存在返回`Missing`；primary无效而backup有效时保留损坏primary、使用backup并
+返回可记录的candidate诊断；存在的candidate全部无效返回`Corrupted`，不能回退为空定义或覆盖原文件。写入在同目录
+`.tmp`先完整编码；已有primary复制为`.bak`后，以atomic move替换primary，不支持atomic move的文件系统只对最后一步使用
+replace fallback。启动读取/编译是world load低频路径且当前同步执行；route callback只读取已编译publication，不做JSON I/O。
 
 ## 保护区域领域
 
@@ -80,13 +102,12 @@ region或topology publication变化而table尚未重编译时source抛出失败�
 world runtime的definition入口为一次更新建立全新的candidate region catalog和candidate table catalog；两者都成功后才以
 一次volatile publication替换live pair。注册到host的binding保持稳定，只读取该publication，因此已捕获的source会立即看到
 完整新pair或完整旧pair，不会看到“新region + 旧table”。拓扑变更不会触发callback内重建；在authoring/persistence层显式
-republish之前，旧source按root identity检查fail-close。当前production启动只发布空集合，非空publication由内部入口和测试
-证明；持久化与authoring仍未实现。
+republish之前，旧source按root identity检查fail-close。production启动会把已恢复的非空定义完整编译后发布；authoring仍未实现。
 
 ## 依赖与打包不变量
 
 - 对 `Core`、`Basic`、`SimpleATO`、`BukkitPlugin` 和 Paper 使用 `compileOnly`；运行时由
-  `JavaRailways` 与服务器提供。
+  `JavaRailways` 与服务器提供。kotlinx serialization同样不打入JAR，由plugin descriptor声明Paper library。
 - 只允许导入 `core.api.*`、`basic.api.*`、`simpleato.api.*` 与 `bukkit.api.*`；不得导入
   `*.internal` 或平台无关模块的实现包。
 - Kotlin stdlib 由 Paper descriptor 的 library declaration 提供；仍不得打入插件 JAR。
@@ -116,4 +137,6 @@ git diff --check
 宿主 package。服务发现测试必须覆盖完整 capability 集合和缺少必需 capability 时的 fail-fast。
 保护区域测试必须覆盖简单/多道岔连通内部、outside reconnect、重叠、AB/BA路线窗口、缺少entry/exit和catalog失败不替换旧snapshot。
 world runtime测试还必须覆盖空启动、非空table改变Basic实际选路、candidate失败保留旧pair、topology变化到显式republish之间
-fail-close，以及同UUID reload得到新binding。
+fail-close，以及同UUID reload得到新binding。持久化测试必须覆盖固定current fixture round-trip、严格未知字段/version/world ID、
+primary损坏时backup恢复、恢复后写入不以坏primary覆盖最后有效backup、双损坏保留原文件、写入backup轮转、loaded definition在
+注册前改变Basic实际选路，以及orphan/corrupt输入只安装拒绝新寻路的fail-closed source而不发布可用runtime。

@@ -1,0 +1,217 @@
+package work.art1st.javarailways.simplesignals.persistence
+
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition
+import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
+import work.art1st.javarailways.simplesignals.region.ProtectionRouteDefinition
+import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
+import work.art1st.javarailways.simplesignals.region.ProtectionRouteTraversal
+import java.util.UUID
+
+/** Current in-memory definition document. Derived topology and compiled restrictions are not stored. */
+@ConsistentCopyVisibility
+internal data class SimpleSignalsWorldDefinitions private constructor(
+    val worldId: UUID,
+    val definitionRevision: Long,
+    val regions: List<ProtectionRegionDefinition>,
+    val routeTables: List<ProtectionRouteTableDefinition>
+) {
+    constructor(
+        worldId: UUID,
+        definitionRevision: Long,
+        regions: Collection<ProtectionRegionDefinition>,
+        routeTables: Collection<ProtectionRouteTableDefinition>
+    ) : this(
+        worldId,
+        definitionRevision,
+        java.util.List.copyOf(regions),
+        java.util.List.copyOf(routeTables)
+    )
+
+    init {
+        require(definitionRevision >= 0L) { "definitionRevision must be non-negative" }
+    }
+
+    companion object {
+        fun empty(worldId: UUID) = SimpleSignalsWorldDefinitions(worldId, 0L, emptyList(), emptyList())
+    }
+}
+
+@Serializable
+private data class SimpleSignalsWorldDefinitionsFileV1(
+    val schemaVersion: Int,
+    val worldId: String,
+    val definitionRevision: Long,
+    val protectionRegions: List<SavedProtectionRegionV1>,
+    val protectionRouteTables: List<SavedProtectionRouteTableV1>
+)
+
+@Serializable
+private data class SavedProtectionRegionV1(
+    val regionId: String,
+    val revision: Long,
+    val boundaries: List<SavedProtectionBoundaryV1>
+)
+
+@Serializable
+private data class SavedProtectionBoundaryV1(
+    val boundaryId: String,
+    val railId: String,
+    val arcLengthInAbMeters: Double,
+    val insideFacing: ViewDirection
+)
+
+@Serializable
+private data class SavedProtectionRouteTableV1(
+    val tableId: String,
+    val revision: Long,
+    val regionId: String,
+    val regionRevision: Long,
+    val routes: List<SavedProtectionRouteV1>
+)
+
+@Serializable
+private data class SavedProtectionRouteV1(
+    val routeId: String,
+    val entryBoundaryId: String,
+    val exitBoundaryId: String,
+    val traversals: List<SavedProtectionRouteTraversalV1>
+)
+
+@Serializable
+private data class SavedProtectionRouteTraversalV1(
+    val railId: String,
+    val facing: ViewDirection,
+    val lowerAbMeters: Double,
+    val upperAbMeters: Double
+)
+
+/** Strict codec for the independently versioned SimpleSignals world-definition sidecar. */
+internal object SimpleSignalsWorldDefinitionsCodec {
+    const val CURRENT_FORMAT_VERSION = 1
+
+    private val json = Json {
+        encodeDefaults = true
+        ignoreUnknownKeys = false
+        prettyPrint = true
+    }
+
+    fun encode(definitions: SimpleSignalsWorldDefinitions): String = json.encodeToString(
+        SimpleSignalsWorldDefinitionsFileV1.serializer(),
+        definitions.toFile()
+    )
+
+    fun decode(contents: String, expectedWorldId: UUID): SimpleSignalsWorldDefinitions {
+        val file = json.decodeFromString(SimpleSignalsWorldDefinitionsFileV1.serializer(), contents)
+        require(file.schemaVersion == CURRENT_FORMAT_VERSION) {
+            "Unsupported SimpleSignals world definitions version: ${file.schemaVersion}"
+        }
+        val worldId = parseCanonicalUuid(file.worldId, "worldId")
+        require(worldId == expectedWorldId) {
+            "SimpleSignals definitions belong to world $worldId, expected $expectedWorldId"
+        }
+        require(file.definitionRevision >= 0L) { "definitionRevision must be non-negative" }
+        return SimpleSignalsWorldDefinitions(
+            worldId,
+            file.definitionRevision,
+            file.protectionRegions.map { it.restore() },
+            file.protectionRouteTables.map { it.restore() }
+        )
+    }
+
+    private fun SimpleSignalsWorldDefinitions.toFile() = SimpleSignalsWorldDefinitionsFileV1(
+        CURRENT_FORMAT_VERSION,
+        worldId.toString(),
+        definitionRevision,
+        regions.map { region ->
+            SavedProtectionRegionV1(
+                region.regionId,
+                region.revision,
+                region.boundaries.map { boundary ->
+                    SavedProtectionBoundaryV1(
+                        boundary.boundaryId,
+                        boundary.position.railId.toString(),
+                        boundary.position.arcLengthInAbMeters,
+                        boundary.insideFacing
+                    )
+                }
+            )
+        },
+        routeTables.map { table ->
+            SavedProtectionRouteTableV1(
+                table.tableId,
+                table.revision,
+                table.regionId,
+                table.regionRevision,
+                table.routes.map { route ->
+                    SavedProtectionRouteV1(
+                        route.routeId,
+                        route.entryBoundaryId,
+                        route.exitBoundaryId,
+                        route.traversals.map { traversal ->
+                            SavedProtectionRouteTraversalV1(
+                                traversal.railId.toString(),
+                                traversal.facing,
+                                traversal.lowerAbMeters,
+                                traversal.upperAbMeters
+                            )
+                        }
+                    )
+                }
+            )
+        }
+    )
+
+    private fun SavedProtectionRegionV1.restore() = ProtectionRegionDefinition(
+        regionId,
+        revision,
+        boundaries.map { boundary ->
+            ProtectionBoundaryDefinition(
+                boundary.boundaryId,
+                RailPositionSnapshot(
+                    parseCanonicalUuid(boundary.railId, "boundary ${boundary.boundaryId} railId"),
+                    boundary.insideFacing,
+                    boundary.arcLengthInAbMeters
+                )
+            )
+        }
+    )
+
+    private fun SavedProtectionRouteTableV1.restore() = ProtectionRouteTableDefinition(
+        tableId,
+        revision,
+        regionId,
+        regionRevision,
+        routes.map { route ->
+            ProtectionRouteDefinition(
+                route.routeId,
+                route.entryBoundaryId,
+                route.exitBoundaryId,
+                route.traversals.map { traversal ->
+                    ProtectionRouteTraversal(
+                        parseCanonicalUuid(
+                            traversal.railId,
+                            "route ${route.routeId} traversal railId"
+                        ),
+                        traversal.facing,
+                        traversal.lowerAbMeters,
+                        traversal.upperAbMeters
+                    )
+                }
+            )
+        }
+    )
+
+    private fun parseCanonicalUuid(value: String, field: String): UUID {
+        val parsed = try {
+            UUID.fromString(value)
+        } catch (failure: IllegalArgumentException) {
+            throw IllegalArgumentException("$field must be a canonical UUID: $value", failure)
+        }
+        require(value == parsed.toString()) { "$field must be a canonical UUID: $value" }
+        return parsed
+    }
+}

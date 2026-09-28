@@ -4,12 +4,43 @@ import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossi
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailView
 import java.util.UUID
 
 /** Captures the mutable Core rail model exactly; the builder rejects incomplete connectivity. */
 internal object CoreTopologyInputAdapter {
+    /** Reconstructs transient builder input from the single authoritative immutable root. */
+    fun capture(source: TopologyState): TopologyInput {
+        val rails = source.railProjection.map { (railId, slices) ->
+            val slice = slices.single()
+            TopologyInputRail(railId, kotlin.math.abs(slice.railEndAbMeters - slice.railStartAbMeters))
+        }
+        val continuations = linkedMapOf<RailEndpointRef, Set<RailEndpointRef>>()
+        rails.forEach { rail ->
+            RailEndpoint.entries.forEach { endpoint ->
+                val port = RailEndpointRef(rail.id, endpoint)
+                source.ordinaryContinuationAt(port)?.let { continuations[port] = setOf(it) }
+            }
+        }
+        source.nodes.values.forEach { node ->
+            when (node) {
+                is TopologyNode.Terminus -> Unit
+                is TopologyNode.Turnout -> node.legalContinuations.forEach { (port, targets) ->
+                    continuations[port] = targets
+                }
+                is TopologyNode.LoopAnchor -> {
+                    val (first, second) = node.ports
+                    continuations[first] = setOf(second)
+                    continuations[second] = setOf(first)
+                }
+            }
+        }
+        return TopologyInput(source.revision, rails, continuations, source.atGradeCrossings)
+    }
+
     fun capture(
         revision: Long,
         sourceRails: Collection<CoreRail>,

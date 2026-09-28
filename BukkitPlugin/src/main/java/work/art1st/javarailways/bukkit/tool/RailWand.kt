@@ -1286,7 +1286,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     /** Curve-build output paired with one Core topology root before returning to the owner thread. */
     private data class PreparedRailBuild<T>(
         val value: T,
-        val railCreation: PreparedRailCreationBatch
+        val railCreation: PreparedRailCreationBatch,
+        val topologyEditPlan: RailWandTopologyEditPlan
     )
 
     private data class AdjacentRailBuildInput(
@@ -1360,7 +1361,24 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         derailLateralAccelerationMetersPerSecondSquared = derailAcceleration,
                         physics = plugin.physicsConfig.railSpeedPhysics()
                     )
-                    PreparedRailBuild(built, expectedCoreWorld.prepareRailCreation(result.curve))
+                    val railCreation = expectedCoreWorld.prepareRailCreation(result.curve)
+                    val createdEndpointA = RailEndpointRef(
+                        railCreation.creations.single().railId,
+                        RailEndpoint.A
+                    )
+                    val selectedExistingEndpoint = parseRailEndpointAnchorId(anchor.id)?.let { (railId, end) ->
+                        RailEndpointRef(railId, if (end == 'A') RailEndpoint.A else RailEndpoint.B)
+                    }
+                    PreparedRailBuild(
+                        built,
+                        railCreation,
+                        capturePreparedExplicitConnectionPlan(
+                            expectedCoreWorld,
+                            railCreation,
+                            emptyMap(),
+                            selectedExistingEndpoint?.let { listOf(it to createdEndpointA) }.orEmpty()
+                        )
+                    )
                 }
             },
             onSuccess = { builtTurnout ->
@@ -1383,28 +1401,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     ).color(NamedTextColor.YELLOW))
                     return@supply
                 }
-                val createdEndpointA = RailEndpointRef(
-                    builtTurnout.railCreation.creations.single().railId,
-                    RailEndpoint.A
-                )
-                val selectedExistingEndpoint = parseRailEndpointAnchorId(anchor.id)?.let { (railId, end) ->
-                    RailEndpointRef(railId, if (end == 'A') RailEndpoint.A else RailEndpoint.B)
-                }
-                val explicitConnections = selectedExistingEndpoint?.let { listOf(it to createdEndpointA) }.orEmpty()
-                val editPlan = capturePreparedExplicitConnectionPlanOrNotify(
-                    livePlayer,
-                    coreWorld,
-                    builtTurnout.railCreation,
-                    emptyMap(),
-                    explicitConnections,
-                    "message.turnout_create_failed"
-                ) ?: return@supply
+                val editPlan = builtTurnout.topologyEditPlan
                 val editPermit = acquireTopologyEditPermit(livePlayer, editPlan) ?: return@supply
                 editPermit.use {
                     val undoSnapshot = captureRailWorldUndoSnapshot(livePlayer, coreWorld)
                     var createdRail: CoreRail? = null
                     try {
-                        coreWorld.railTopologyTransaction {
+                        editPlan.commitTopology(coreWorld) {
                             requirePreparedExplicitEditReady(coreWorld, editPlan)
                             val installed = coreWorld.installPreparedRails(builtTurnout.railCreation)
                             createdRail = installed.single().also {
@@ -1450,7 +1453,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         "message.turnout_created",
                         standard.number,
                         (speedLimits.operatingLimitMetersPerSecond * 3.6).toInt(),
-                        explicitConnections.size
+                        if (parseRailEndpointAnchorId(anchor.id) == null) 0 else 1
                     ).color(NamedTextColor.GREEN))
                 }
             },
@@ -1607,9 +1610,42 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 ) ?: return@supply null
                 val curves = build.replacementCurves.values.map(BuiltCurve::curve) +
                     build.newLanes.flatten().map(BuiltRailPart::curve)
+                val railCreation = coreWorld.prepareRailCreationBatch(curves, build.replacementCurves.keys)
+                val preparedIds = railCreation.creations.map { it.railId }
+                val replacementIds = preparedIds.take(build.replacementCurves.size)
+                val replacementEndpoints = build.replacementCurves.keys.zip(replacementIds)
+                    .flatMap { (oldId, newId) -> listOf(
+                        railEndpointRef(oldId, 'A') to railEndpointRef(newId, 'A'),
+                        railEndpointRef(oldId, 'B') to railEndpointRef(newId, 'B')
+                    ) }
+                    .toMap()
+                val laneIds = buildList {
+                    val iterator = preparedIds.drop(replacementIds.size).iterator()
+                    build.newLanes.forEach { lane -> add(List(lane.size) { iterator.next() }) }
+                    check(!iterator.hasNext()) { "Prepared rail batch does not match connection lanes" }
+                }
+                val explicitConnections = buildList {
+                    laneIds.forEachIndexed { laneIndex, ids ->
+                        ids.zipWithNext().forEach { (first, second) ->
+                            add(railEndpointRef(first, 'B') to railEndpointRef(second, 'A'))
+                        }
+                        parseRailEndpointRef(startAnchors[laneIndex].id)?.let { selected ->
+                            add(selected to railEndpointRef(ids.first(), 'A'))
+                        }
+                        parseRailEndpointRef(endAnchors[laneIndex].id)?.let { selected ->
+                            add(railEndpointRef(ids.last(), 'B') to selected)
+                        }
+                    }
+                }
                 PreparedRailBuild(
                     build,
-                    coreWorld.prepareRailCreationBatch(curves, build.replacementCurves.keys)
+                    railCreation,
+                    capturePreparedExplicitConnectionPlan(
+                        coreWorld,
+                        railCreation,
+                        replacementEndpoints,
+                        explicitConnections
+                    )
                 )
             },
             onSuccess = { preparedConnectionBuild ->
@@ -1711,14 +1747,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         }
                     }
                 }
-                val editPlan = capturePreparedExplicitConnectionPlanOrNotify(
-                    livePlayer,
-                    liveCoreWorld,
-                    preparedConnectionBuild.railCreation,
-                    replacementEndpoints,
-                    explicitConnections,
-                    "message.rail_create_failed"
-                ) ?: return@supply
+                val editPlan = preparedConnectionBuild.topologyEditPlan
                 val editPermit = acquireTopologyEditPermit(livePlayer, editPlan) ?: return@supply
                 editPermit.use {
                 val existingRails = liveCoreWorld.allRails.toList()
@@ -1740,7 +1769,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val existingConnectionSnapshots = existingRails.map(::snapshotRailConnections)
                 var destinationsMigrated = false
                 try {
-                    liveCoreWorld.railTopologyTransaction {
+                    editPlan.commitTopology(liveCoreWorld) {
                     try {
                     requirePreparedExplicitEditReady(liveCoreWorld, editPlan)
                     val installedRails = liveCoreWorld.installPreparedRails(preparedConnectionBuild.railCreation)
@@ -2022,11 +2051,25 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     )
                     curvesByRailId[input.railId] = BuiltCurve(curve, limits)
                 }
-                PreparedRailBuild(
-                    curvesByRailId,
-                    coreWorld.prepareRailCreationBatch(
+                val railCreation = coreWorld.prepareRailCreationBatch(
                         curvesByRailId.values.map(BuiltCurve::curve),
                         curvesByRailId.keys
+                    )
+                val replacementEndpoints = rebuildInputs
+                    .zip(railCreation.creations)
+                    .flatMap { (input, prepared) -> listOf(
+                        railEndpointRef(input.railId, 'A') to railEndpointRef(prepared.railId, 'A'),
+                        railEndpointRef(input.railId, 'B') to railEndpointRef(prepared.railId, 'B')
+                    ) }
+                    .toMap()
+                PreparedRailBuild(
+                    curvesByRailId,
+                    railCreation,
+                    capturePreparedExplicitConnectionPlan(
+                        coreWorld,
+                        railCreation,
+                        replacementEndpoints,
+                        emptyList()
                     )
                 )
             },
@@ -2084,21 +2127,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     return@supply
                 }
 
-                val replacementEndpoints = rebuildInputs
-                    .zip(preparedRebuild.railCreation.creations)
-                    .flatMap { (input, prepared) -> listOf(
-                        railEndpointRef(input.railId, 'A') to railEndpointRef(prepared.railId, 'A'),
-                        railEndpointRef(input.railId, 'B') to railEndpointRef(prepared.railId, 'B')
-                    ) }
-                    .toMap()
-                val editPlan = capturePreparedExplicitConnectionPlanOrNotify(
-                    livePlayer,
-                    liveCoreWorld,
-                    preparedRebuild.railCreation,
-                    replacementEndpoints,
-                    emptyList(),
-                    "message.endpoint_rebuild_failed"
-                ) ?: return@supply
+                val editPlan = preparedRebuild.topologyEditPlan
                 val editPermit = acquireTopologyEditPermit(livePlayer, editPlan) ?: return@supply
                 editPermit.use {
                 val liveExistingMetas = RailRenderMetaStore.load(livePlayer.world)
@@ -2116,7 +2145,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val oldIds = rebuildInputs.map { it.railId }.toSet()
                 val oldToNew = mutableMapOf<UUID, CoreRail>()
                 try {
-                    liveCoreWorld.railTopologyTransaction {
+                    editPlan.commitTopology(liveCoreWorld) {
                     try {
                     requirePreparedExplicitEditReady(liveCoreWorld, editPlan)
                     val installedRails = liveCoreWorld.installPreparedRails(preparedRebuild.railCreation)
@@ -2257,18 +2286,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         view.activeRail = activeRail
     }
 
-    private fun detachRailReferences(removedRailIds: Set<UUID>, existingRails: List<CoreRail>) {
-        existingRails.forEach { rail ->
-            listOf(rail.viewAB, rail.viewBA).forEach { view ->
-                val replacement = view.mutableNextRails.firstOrNull { it.rail.id !in removedRailIds }
-                if (view.activeRail?.rail?.id in removedRailIds) {
-                    view.activeRail = replacement
-                }
-                view.mutableNextRails.removeIf { it.rail.id in removedRailIds }
-            }
-        }
-    }
-
     private fun capturePreparedExplicitConnectionPlan(
         world: CoreWorld,
         preparedBatch: PreparedRailCreationBatch,
@@ -2294,29 +2311,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         plan: RailWandTopologyEditPlan
     ) {
         plan.requireReadyToApply(world)
-    }
-
-    private fun capturePreparedExplicitConnectionPlanOrNotify(
-        player: Player,
-        world: CoreWorld,
-        preparedBatch: PreparedRailCreationBatch,
-        replacementEndpoints: Map<RailEndpointRef, RailEndpointRef>,
-        addedConnections: Collection<Pair<RailEndpointRef, RailEndpointRef>>,
-        failureMessageKey: String
-    ): RailWandTopologyEditPlan? = try {
-        capturePreparedExplicitConnectionPlan(
-            world,
-            preparedBatch,
-            replacementEndpoints,
-            addedConnections
-        )
-    } catch (failure: Exception) {
-        player.sendMessage(RailWandI18n.component(
-            player,
-            failureMessageKey,
-            railWandFailureReason(failure)
-        ).color(NamedTextColor.RED))
-        null
     }
 
     private fun railEndpointRef(railId: UUID, end: Char): RailEndpointRef = RailEndpointRef(
@@ -2719,9 +2713,25 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         )
                     }
                 }
+                val railCreation = world.prepareRailCreationBatch(
+                    rebuilt.values.map(BuiltCurve::curve),
+                    rebuilt.keys
+                )
+                val replacementEndpoints = rebuilt.keys.zip(railCreation.creations)
+                    .flatMap { (oldId, prepared) -> listOf(
+                        railEndpointRef(oldId, 'A') to railEndpointRef(prepared.railId, 'A'),
+                        railEndpointRef(oldId, 'B') to railEndpointRef(prepared.railId, 'B')
+                    ) }
+                    .toMap()
                 PreparedRailBuild(
                     rebuilt,
-                    world.prepareRailCreationBatch(rebuilt.values.map(BuiltCurve::curve), rebuilt.keys)
+                    railCreation,
+                    capturePreparedExplicitConnectionPlan(
+                        world,
+                        railCreation,
+                        replacementEndpoints,
+                        emptyList()
+                    )
                 )
             },
             onSuccess = { preparedRebuild ->
@@ -2843,21 +2853,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             ))
             return
         }
-        val replacementEndpoints = oldRails
-            .zip(preparedRebuild.railCreation.creations)
-            .flatMap { (old, prepared) -> listOf(
-                railEndpointRef(old.id, 'A') to railEndpointRef(prepared.railId, 'A'),
-                railEndpointRef(old.id, 'B') to railEndpointRef(prepared.railId, 'B')
-            ) }
-            .toMap()
-        val editPlan = capturePreparedExplicitConnectionPlanOrNotify(
-            player,
-            world,
-            preparedRebuild.railCreation,
-            replacementEndpoints,
-            emptyList(),
-            "message.grade_smooth_failed"
-        ) ?: return
+        val editPlan = preparedRebuild.topologyEditPlan
         val editPermit = acquireTopologyEditPermit(player, editPlan) ?: return
         editPermit.use {
         val allBefore = world.allRails.toList()
@@ -2877,7 +2873,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val oldToNew = linkedMapOf<UUID, UUID>()
         val connectionSnapshots = allBefore.map(::snapshotRailConnections)
         try {
-            world.railTopologyTransaction {
+            editPlan.commitTopology(world) {
             try {
             requirePreparedExplicitEditReady(world, editPlan)
             val installedRails = world.installPreparedRails(preparedRebuild.railCreation)
@@ -3462,11 +3458,36 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val builtLanes = createCurvesWithSpeedLimits(starts, ends, settings)?.map { built ->
                     partitionBuiltCurve(built, settings)
                 } ?: return@supply null
-                PreparedRailBuild(
-                    builtLanes,
-                    coreWorld.prepareRailCreationBatch(
+                val railCreation = coreWorld.prepareRailCreationBatch(
                         builtLanes.flatten().map(BuiltRailPart::curve),
                         oldIds
+                    )
+                val newLaneIds = buildList {
+                    val iterator = railCreation.creations.iterator()
+                    builtLanes.forEach { lane -> add(List(lane.size) { iterator.next().railId }) }
+                    check(!iterator.hasNext()) { "Prepared rail batch does not match rebuilt lanes" }
+                }
+                val replacementEndpoints = oldLanes.indices.flatMap { laneIndex ->
+                    val oldLane = oldLanes[laneIndex]
+                    val newLane = newLaneIds[laneIndex]
+                    listOf(
+                        railEndpointRef(oldLane.first().id, 'A') to railEndpointRef(newLane.first(), 'A'),
+                        railEndpointRef(oldLane.last().id, 'B') to railEndpointRef(newLane.last(), 'B')
+                    )
+                }.toMap()
+                val explicitConnections = newLaneIds.flatMap { lane ->
+                    lane.zipWithNext().map { (first, second) ->
+                        railEndpointRef(first, 'B') to railEndpointRef(second, 'A')
+                    }
+                }
+                PreparedRailBuild(
+                    builtLanes,
+                    railCreation,
+                    capturePreparedExplicitConnectionPlan(
+                        coreWorld,
+                        railCreation,
+                        replacementEndpoints,
+                        explicitConnections
                     )
                 )
             },
@@ -3538,27 +3559,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     builtLanes.forEach { lane -> add(List(lane.size) { iterator.next().railId }) }
                     check(!iterator.hasNext()) { "Prepared rail batch does not match rebuilt lanes" }
                 }
-                val replacementEndpoints = oldLanes.indices.flatMap { laneIndex ->
-                    val oldLane = oldLanes[laneIndex]
-                    val newLane = newLaneIds[laneIndex]
-                    listOf(
-                        railEndpointRef(oldLane.first().id, 'A') to railEndpointRef(newLane.first(), 'A'),
-                        railEndpointRef(oldLane.last().id, 'B') to railEndpointRef(newLane.last(), 'B')
-                    )
-                }.toMap()
-                val explicitConnections = newLaneIds.flatMap { lane ->
-                    lane.zipWithNext().map { (first, second) ->
-                        railEndpointRef(first, 'B') to railEndpointRef(second, 'A')
-                    }
-                }
-                val editPlan = capturePreparedExplicitConnectionPlanOrNotify(
-                    livePlayer,
-                    liveWorld,
-                    preparedBuild.railCreation,
-                    replacementEndpoints,
-                    explicitConnections,
-                    "message.rebuild_failed"
-                ) ?: return@supply
+                val editPlan = preparedBuild.topologyEditPlan
                 val editPermit = acquireTopologyEditPermit(livePlayer, editPlan) ?: return@supply
                 editPermit.use {
                 val persisted = RailRenderMetaStore.load(livePlayer.world)
@@ -3579,7 +3580,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val assemblyId = if (segmentCount > 1) oldAssemblyId ?: UUID.randomUUID().toString() else null
                 val parallelIds = List(segmentCount) { UUID.randomUUID().toString().takeIf { oldLanes.size > 1 } }
                 try {
-                    liveWorld.railTopologyTransaction {
+                    editPlan.commitTopology(liveWorld) {
                     try {
                     requirePreparedExplicitEditReady(liveWorld, editPlan)
                     val installedRails = liveWorld.installPreparedRails(preparedBuild.railCreation)
@@ -4156,9 +4157,21 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             operation = "RailWand.confirmSplit",
             supplier = {
                 val curves = curveSnapshot.splitAt(arcLength)
+                val railCreation = coreWorld.prepareRailCreationBatch(curves.toList(), setOf(railId))
+                val beforeId = railCreation.creations[0].railId
+                val afterId = railCreation.creations[1].railId
                 PreparedRailBuild(
                     curves,
-                    coreWorld.prepareRailCreationBatch(curves.toList(), setOf(railId))
+                    railCreation,
+                    capturePreparedExplicitConnectionPlan(
+                        coreWorld,
+                        railCreation,
+                        mapOf(
+                            railEndpointRef(railId, 'A') to railEndpointRef(beforeId, 'A'),
+                            railEndpointRef(railId, 'B') to railEndpointRef(afterId, 'B')
+                        ),
+                        listOf(railEndpointRef(beforeId, 'B') to railEndpointRef(afterId, 'A'))
+                    )
                 )
             },
             onSuccess = { preparedSplit ->
@@ -4197,10 +4210,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     return@supply
                 }
 
-                val editPlan = RailWandTopologyEditPlan.captureReplacementOrRemoval(
-                    liveWorld,
-                    listOf(liveRail.id)
-                )
+                val editPlan = preparedSplit.topologyEditPlan
                 val editPermit = acquireTopologyEditPermit(livePlayer, editPlan) ?: return@supply
                 editPermit.use {
                     val renderMetas = RailRenderMetaStore.load(livePlayer.world)
@@ -4214,7 +4224,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         railMetadataBefore
                     )
                     try {
-                        liveWorld.railTopologyTransaction {
+                        editPlan.commitTopology(liveWorld) {
                             editPlan.requireCurrent(liveWorld)
                             val result = RailTopologyEditor.splitWithPreparedRails(
                                 liveRail,
@@ -4391,11 +4401,22 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             operation = "RailWand.mergeSplitAnchor",
             supplier = {
                 val mergedCurve = beforeCurve.concatenate(afterCurve)
+                val railCreation = coreWorld.prepareRailCreation(
+                    mergedCurve,
+                    setOf(before.id, after.id)
+                )
+                val mergedId = railCreation.creations.single().railId
                 PreparedRailBuild(
                     mergedCurve,
-                    coreWorld.prepareRailCreation(
-                        mergedCurve,
-                        setOf(before.id, after.id)
+                    railCreation,
+                    capturePreparedExplicitConnectionPlan(
+                        coreWorld,
+                        railCreation,
+                        mapOf(
+                            railEndpointRef(before.id, 'A') to railEndpointRef(mergedId, 'A'),
+                            railEndpointRef(after.id, 'B') to railEndpointRef(mergedId, 'B')
+                        ),
+                        emptyList()
                     )
                 )
             },
@@ -4459,10 +4480,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     return@supply
                 }
 
-                val editPlan = RailWandTopologyEditPlan.captureReplacementOrRemoval(
-                    liveWorld,
-                    listOf(livePair.first.id, livePair.second.id)
-                )
+                val editPlan = preparedMerge.topologyEditPlan
                 val editPermit = acquireTopologyEditPermit(livePlayer, editPlan) ?: return@supply
                 editPermit.use {
                     val undoSnapshot = captureRailWorldUndoSnapshot(
@@ -4472,7 +4490,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         liveWorld.basicWorldData.railMetadata.snapshot()
                     )
                     try {
-                        liveWorld.railTopologyTransaction {
+                        editPlan.commitTopology(liveWorld) {
                             editPlan.requireCurrent(liveWorld)
                             val beforeRailId = livePair.first.id
                             val afterRailId = livePair.second.id
@@ -4721,55 +4739,84 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         }
 
         val targetIds = targetRails.mapTo(linkedSetOf()) { it.id }
-        val editPlan = RailWandTopologyEditPlan.captureReplacementOrRemoval(coreWorld, targetIds)
-        val editPermit = acquireTopologyEditPermit(player, editPlan) ?: return
-        editPermit.use {
-            val allRails = coreWorld.allRails.toList()
-            val undoSnapshot = captureRailWorldUndoSnapshot(player, coreWorld)
-            var removedDestinations = 0
-            coreWorld.railTopologyTransaction {
-                editPlan.requireCurrent(coreWorld)
-                detachRailReferences(targetIds, allRails.filter { it.id !in targetIds })
-                val destinations = OperationalDestinationService(coreWorld)
-                removedDestinations = targetIds.sumOf { destinations.removeAllOnRail(it).size }
-                val renderAfter = RailRenderMetaStore.load(player.world).filterNot { it.railId in targetIds }
-                targetRails.forEach { target ->
-                    RailVisualBootstrap.unregisterRail(target.id)
-                    target.destroy()
-                    coreWorld.removeRail(target)
-                    coreWorld.basicWorldData.railMetadata.remove(target.id)
-                }
-                coreWorld.simpleAtoWorldData.operatingDirections.replaceRails(targetIds, emptyMap())
-                RailRenderMetaStore.saveAll(player.world, renderAfter)
-                state.selectedRails.removeAll(targetIds)
-                state.selectedAnchors.removeIf { railIdFromEndpointAnchor(it) in targetIds }
-                targetIds.forEach { removedId ->
-                    removeAnchorDisplay(player, railEndpointAnchorId(removedId, 'A'))
-                    removeAnchorDisplay(player, railEndpointAnchorId(removedId, 'B'))
-                }
-                persistState(player, state)
-                refreshAllAnchorsForPlayer(player)
-                pushUndo(player, WandAction.RestoreRailWorld(
-                    player.world.uid,
-                    undoSnapshot,
-                    captureRailWorldUndoSnapshot(player, coreWorld)
-                ))
-            }
-            val deleteMessageKey = if (removedDestinations > 0) {
-                "message.rail_deleted_with_destinations"
-            } else {
-                "message.rail_deleted"
-            }
+        val pendingOperation = heavyOperationGate.tryStart(
+            player.uniqueId,
+            RailWandI18n.format(player, "operation_name.rail_delete")
+        )
+        if (pendingOperation != null) {
             player.sendActionBar(RailWandI18n.component(
                 player,
-                deleteMessageKey,
-                *if (removedDestinations > 0) {
-                    arrayOf(targetRails.size, removedDestinations)
-                } else {
-                    arrayOf(targetRails.size)
-                }
-            ).color(NamedTextColor.GREEN))
+                "message.busy",
+                pendingOperation
+            ).color(NamedTextColor.YELLOW))
+            return
         }
+        val worldId = player.world.uid
+        BukkitAsyncTasks.supply(
+            plugin = plugin,
+            completionEntity = player,
+            operation = "RailWand.deleteRail",
+            supplier = { RailWandTopologyEditPlan.prepareReplacementOrRemoval(coreWorld, targetIds) },
+            onSuccess = { editPlan ->
+                heavyOperationGate.finish(player.uniqueId)
+                val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
+                if (livePlayer.world.uid != worldId || getCoreWorld(livePlayer) !== coreWorld) return@supply
+                val liveTargets = targetIds.map { id -> coreWorld.getRail(id) ?: return@supply }
+                if (!editPlan.isCurrent(coreWorld) || liveTargets.any { it.trains.isNotEmpty() }) return@supply
+                splitSafetyError(coreWorld, liveTargets)?.let { return@supply }
+                val editPermit = acquireTopologyEditPermit(livePlayer, editPlan) ?: return@supply
+                editPermit.use {
+                    val undoSnapshot = captureRailWorldUndoSnapshot(livePlayer, coreWorld)
+                    var removedDestinations = 0
+                    editPlan.commitTopology(coreWorld) {
+                        val destinations = OperationalDestinationService(coreWorld)
+                        removedDestinations = targetIds.sumOf { destinations.removeAllOnRail(it).size }
+                        val renderAfter = RailRenderMetaStore.load(livePlayer.world).filterNot { it.railId in targetIds }
+                        liveTargets.forEach { target ->
+                            RailVisualBootstrap.unregisterRail(target.id)
+                            target.destroy()
+                            coreWorld.removeRail(target)
+                            coreWorld.basicWorldData.railMetadata.remove(target.id)
+                        }
+                        coreWorld.simpleAtoWorldData.operatingDirections.replaceRails(targetIds, emptyMap())
+                        RailRenderMetaStore.saveAll(livePlayer.world, renderAfter)
+                        val liveState = getState(livePlayer)
+                        liveState.selectedRails.removeAll(targetIds)
+                        liveState.selectedAnchors.removeIf { railIdFromEndpointAnchor(it) in targetIds }
+                        targetIds.forEach { removedId ->
+                            removeAnchorDisplay(livePlayer, railEndpointAnchorId(removedId, 'A'))
+                            removeAnchorDisplay(livePlayer, railEndpointAnchorId(removedId, 'B'))
+                        }
+                        persistState(livePlayer, liveState)
+                        refreshAllAnchorsForPlayer(livePlayer)
+                        pushUndo(livePlayer, WandAction.RestoreRailWorld(
+                            livePlayer.world.uid,
+                            undoSnapshot,
+                            captureRailWorldUndoSnapshot(livePlayer, coreWorld)
+                        ))
+                    }
+                    val deleteMessageKey = if (removedDestinations > 0) {
+                        "message.rail_deleted_with_destinations"
+                    } else {
+                        "message.rail_deleted"
+                    }
+                    livePlayer.sendActionBar(RailWandI18n.component(
+                        livePlayer,
+                        deleteMessageKey,
+                        *if (removedDestinations > 0) {
+                            arrayOf(liveTargets.size, removedDestinations)
+                        } else {
+                            arrayOf(liveTargets.size)
+                        }
+                    ).color(NamedTextColor.GREEN))
+                }
+            },
+            onFailure = { failure ->
+                heavyOperationGate.finish(player.uniqueId)
+                plugin.logger.warning("Rail deletion preparation failed: ${failure.message ?: failure::class.simpleName}")
+            },
+            onRetired = { heavyOperationGate.finish(player.uniqueId) }
+        )
     }
 
     internal fun findLookedAtRailAsync(
@@ -5752,7 +5799,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             target.destinations,
             target.wayPoints
         )
-        coreWorld.railTopologyTransaction {
+        editPlan.commitTopology(coreWorld) {
             editPlan.requireReadyToApply(coreWorld)
             removeChangedOperationalInfrastructure(coreWorld, infrastructureRestore)
 

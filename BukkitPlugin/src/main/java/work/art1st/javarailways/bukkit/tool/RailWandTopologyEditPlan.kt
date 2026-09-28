@@ -15,6 +15,7 @@ import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.PreparedRailConnectionPlan
 import work.art1st.javarailways.core.physics.rail.PreparedRailCreationBatch
+import work.art1st.javarailways.core.physics.rail.PreparedRailTopologyUpdate
 import work.art1st.javarailways.core.physics.rail.PreparedRailWorldSnapshotPlan
 import java.util.UUID
 
@@ -25,7 +26,8 @@ internal class RailWandTopologyEditPlan private constructor(
     private val affectedRails: Map<UUID, CoreRail>,
     val impact: TopologyEditImpact?,
     private val explicitConnectionPlan: PreparedRailConnectionPlan? = null,
-    private val snapshotRestorePlan: PreparedRailWorldSnapshotPlan? = null
+    private val snapshotRestorePlan: PreparedRailWorldSnapshotPlan? = null,
+    private val preparedTopologyUpdate: PreparedRailTopologyUpdate? = null
 ) {
     val topologyRevision: Long = topologyRoot.revision
     val explicitConnectionAffectedExistingRailIds: Set<UUID> =
@@ -80,6 +82,14 @@ internal class RailWandTopologyEditPlan private constructor(
             .apply(candidateWorld)
     }
 
+    fun <T> commitTopology(candidateWorld: CoreWorld, action: () -> T): T {
+        requireCurrent(candidateWorld)
+        return candidateWorld.railTopologyTransaction(
+            requireNotNull(preparedTopologyUpdate) { "RailWand structural edit has no prepared target topology" },
+            action
+        )
+    }
+
     private fun stale(detail: String) = RailWandEditPermitAcquisition.Denied(
         TopologyEditDecision(TopologyEditStatus.STALE_TOPOLOGY, detail = detail)
     )
@@ -112,7 +122,7 @@ internal class RailWandTopologyEditPlan private constructor(
             ).also { it.requireCurrent(world) }
         }
 
-        fun captureReplacementOrRemoval(
+        fun prepareReplacementOrRemoval(
             world: CoreWorld,
             replacedOrRemovedRailIds: Collection<UUID>
         ): RailWandTopologyEditPlan {
@@ -127,7 +137,17 @@ internal class RailWandTopologyEditPlan private constructor(
             val rails = impact.railIds.associateWith { railId ->
                 requireNotNull(world.getRail(railId)) { "RailWand edit references missing rail $railId" }
             }
-            val plan = RailWandTopologyEditPlan(world, topology, rails, impact)
+            val topologyUpdate = world.prepareRailRemovalTopologyUpdate(
+                topology,
+                LinkedHashSet(replacedOrRemovedRailIds)
+            )
+            val plan = RailWandTopologyEditPlan(
+                world,
+                topology,
+                rails,
+                impact,
+                preparedTopologyUpdate = topologyUpdate
+            )
             plan.requireCurrent(world)
             return plan
         }
@@ -155,7 +175,8 @@ internal class RailWandTopologyEditPlan private constructor(
                 explicitConnections.topologyRoot,
                 rails,
                 impact,
-                explicitConnections
+                explicitConnections,
+                preparedTopologyUpdate = explicitConnections.prepareTopologyUpdate()
             ).also { it.requireCurrent(world) }
         }
 
@@ -179,7 +200,8 @@ internal class RailWandTopologyEditPlan private constructor(
                 topologyRoot = snapshotPlan.topologyRoot,
                 affectedRails = rails,
                 impact = impact,
-                snapshotRestorePlan = snapshotPlan
+                snapshotRestorePlan = snapshotPlan,
+                preparedTopologyUpdate = snapshotPlan.topologyUpdate
             ).also { it.requireCurrent(world) }
         }
 

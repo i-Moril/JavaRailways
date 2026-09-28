@@ -31,9 +31,10 @@ class PreparedRailConnectionPlanTest {
                 PreparedRailEndpointConnection(createdA, listOf(selectedB), selectedB)
             )
         )
+        val topologyUpdate = plan.prepareTopologyUpdate()
 
         lateinit var created: CoreRail
-        world.railTopologyTransaction {
+        world.railTopologyTransaction(topologyUpdate) {
             created = world.installPreparedRails(prepared).single()
             plan.apply(world, listOf(created))
         }
@@ -42,6 +43,7 @@ class PreparedRailConnectionPlanTest {
         assertEquals(listOf(selected.viewBA), created.viewBA.nextRails)
         assertTrue(nearbyButUnselected.viewBA.nextRails.isEmpty())
         assertEquals(setOf(selected.id), plan.affectedExistingRailIds)
+        assertTrue(world.topologyState === topologyUpdate.targetRoot)
     }
 
     @Test
@@ -50,9 +52,10 @@ class PreparedRailConnectionPlanTest {
         world.createRailForTest(line(0.0, 10.0))
         val prepared = world.prepareRailCreation(line(10.0, 20.0))
         val plan = PreparedRailConnectionPlan.capture(world, prepared, emptyList())
+        val topologyUpdate = plan.prepareTopologyUpdate()
 
         lateinit var created: CoreRail
-        world.railTopologyTransaction {
+        world.railTopologyTransaction(topologyUpdate) {
             created = world.installPreparedRails(prepared).single()
             plan.apply(world, listOf(created))
         }
@@ -60,6 +63,7 @@ class PreparedRailConnectionPlanTest {
         assertTrue(created.viewAB.nextRails.isEmpty())
         assertTrue(created.viewBA.nextRails.isEmpty())
         assertTrue(plan.affectedExistingEndpoints.isEmpty())
+        assertTrue(world.topologyState === topologyUpdate.targetRoot)
     }
 
     @Test
@@ -83,6 +87,26 @@ class PreparedRailConnectionPlanTest {
         assertFalse(plan.isCurrent(world))
         assertThrows(IllegalStateException::class.java) { plan.requireCurrent(world) }
         assertTrue(selected.viewAB.nextRails.isEmpty())
+    }
+
+    @Test
+    fun `stale prepared topology rejects the whole transaction before mutation`() {
+        val world = createTestWorld()
+        val prepared = world.prepareRailCreation(line(0.0, 10.0))
+        val plan = PreparedRailConnectionPlan.capture(world, prepared, emptyList())
+        val topologyUpdate = plan.prepareTopologyUpdate()
+        world.createRailForTest(line(20.0, 30.0))
+        var actionRan = false
+
+        assertThrows(IllegalStateException::class.java) {
+            world.railTopologyTransaction(topologyUpdate) {
+                actionRan = true
+                world.installPreparedRails(prepared)
+            }
+        }
+
+        assertFalse(actionRan)
+        assertEquals(null, world.getRail(prepared.creations.single().railId))
     }
 
     @Test

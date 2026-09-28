@@ -13,11 +13,10 @@
 - Basic `allowedDirection`/route allocation不是Core physical topology。
 - structural owner调用 `CoreWorld.railTopologyTransaction(action)`：先await current `PhysicsTicket`，再持write lock；expensive curve build在transaction外。
 - live rail创建使用两阶段批量协议：平台worker调用`CoreWorld.prepareRailCreationBatch(curves, excludedIds)`，owner线程调用`installPreparedRails(batch)`；Core不持有executor或future。`CoreRail`构造本身不注册world。持久化restore在physics启动前只使用Core内部同步`createRailInTransaction`重建索引；同步测试建轨只存在于不打入runtime JAR的Core test fixture，runtime不暴露同步创建入口。
-- **TRANSITIONAL**：prepared batch已经把curve sampling与diamond exact detection移出owner线程，但当前outer transaction仍在mutation后
-  从完整rail inventory同步构建`TopologyState`。online editor的TARGET必须在worker从captured immutable root与明确final delta构造并验证
-  normalized topology candidate；world commit只复核root/rail identities/occupancy、应用delta并publish prepared root。最终commit不得执行
-  完整`CoreTopologyInputAdapter.capture`、`TopologyStateBuilder.build`、持久化I/O或Bukkit side effect。bootstrap/load在physics启动前的同步
-  完整构建不受此online latency限制。
+- RailWand online editor在worker从captured immutable `TopologyState`与明确final delta还原一次transient builder input，构造并验证
+  完整normalized topology candidate；world commit只复核exact root、delta rail identities/count、changed endpoint与diamond result，应用delta并publish
+  prepared root。它不执行完整live inventory fingerprint、`TopologyStateBuilder.build`或同步fallback。bootstrap/load以及Core内部低层同步
+  transaction仍可从live rail inventory完整构建；这些入口不得重新用于玩家在线编辑。
 - outer structural transaction在释放write lock前比较进入/退出时的rail identity与structural adjacency；只有成功且结构确实变化时才递增一次`topologyRevision`。nested transaction不重复递增，直接add/remove rail也进入同一边界；成功no-op与完整rollback不发布新revision。
 - transaction exception不自动rollback。若异常前结构未变化，revision不变且world仍可用；若结构已经变化，revision仍保持旧值、world topology进入`RailTopologyHealth.Faulted`并Stall physics，禁止继续发布world frame或执行新结构事务，直到reload/recovery。fault record只保留稳定reason、最后成功revision、异常类型和消息，不长期持有原始`Throwable`；嵌套失败只存在于当前`RailTopologyTransactionContext`。不得把失败后的部分结构伪装成一个正常新revision。
 - `removeRail`检查target及affected rails的full train placement envelope，修复links/spatial index后移除。

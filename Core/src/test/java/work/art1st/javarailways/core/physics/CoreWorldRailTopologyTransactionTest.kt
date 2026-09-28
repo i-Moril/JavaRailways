@@ -211,6 +211,45 @@ class CoreWorldRailTopologyTransactionTest {
         writer.get(5, TimeUnit.SECONDS)
     }
 
+    @Test
+    fun `prepared edit delayed in one world does not block another world`() {
+        val editedWorld = createTestWorld()
+        val otherWorld = createTestWorld()
+        try {
+            val removed = editedWorld.createRailForTest(straightCurve(0.0, 10.0))
+            otherWorld.physicsCoordinator.start()
+            val prepared = editedWorld.prepareRailRemovalTopologyUpdate(
+                editedWorld.topologyState,
+                setOf(removed.id)
+            )
+            val mutationReached = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val writer = CompletableFuture.runAsync {
+                editedWorld.railTopologyTransaction(prepared) {
+                    editedWorld.removeRail(removed)
+                    mutationReached.countDown()
+                    check(release.await(5, TimeUnit.SECONDS))
+                }
+            }
+
+            check(mutationReached.await(5, TimeUnit.SECONDS))
+            val completedEpoch = otherWorld.physicsCoordinator.wakeFromMainThread().await().epoch
+            val unrelatedFrame = otherWorld.publishWorldFrame(completedEpoch)
+
+            assertEquals(0L, unrelatedFrame.topologyRevision)
+            assertEquals(1L, unrelatedFrame.physicsEpoch)
+            release.countDown()
+            writer.get(5, TimeUnit.SECONDS)
+            assertTrue(editedWorld.allRails.isEmpty())
+            assertTrue(editedWorld.topologyState === prepared.targetRoot)
+        } finally {
+            editedWorld.physicsCoordinator.close()
+            (editedWorld.tickManager as AutoCloseable).close()
+            otherWorld.physicsCoordinator.close()
+            (otherWorld.tickManager as AutoCloseable).close()
+        }
+    }
+
     private fun straightCurve(fromX: Double, toX: Double): PrimeCurve {
         val normal = Vector3d(0.0, 1.0, 0.0)
         val tangent = Vector3d(1.0, 0.0, 0.0)

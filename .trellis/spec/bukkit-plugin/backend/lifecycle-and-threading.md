@@ -92,8 +92,10 @@ wake physics + generic preTick
 在线基础设施编辑不得把“低频”当作阻塞平台线程或跨world simulation lock的理由。统一流程是：`runAsync`完成curve/geometry、
 完整graph/index、serialization、validation与staging I/O；回到受影响world owner后只复核captured root/permit并发布prepared value；
 玩家消息、render和其他Bukkit side effect在publication之后按target ownership执行。commit复杂度必须只与实际delta相关，不能在owner
-线程重新做`O(world)`扫描。当前信号definition事务遵守该边界；RailWand虽已异步准备curve和diamond geometry，outer Core transaction
-仍同步完整构建normalized topology，是明确待迁移项。
+线程重新做`O(world)`扫描。当前信号definition事务遵守该边界；RailWand的create/rebuild/smooth/split/merge/remove/snapshot-restore
+也在现有async prepare中完成curve、diamond与完整normalized topology构建，owner transaction只验证exact base/delta并publish prepared root。
+whole-world undo capture、render/persistence side effect若仍位于owner阶段，继续作为单独待迁移项，不能回退为transaction内的`O(world)`
+topology rebuild。
 
 ## 世界 lifecycle
 

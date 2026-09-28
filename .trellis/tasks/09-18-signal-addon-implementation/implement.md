@@ -93,6 +93,11 @@ Current extraction progress:
   `TopologyState` construction and any whole-world undo/persistence capture into asynchronous prepare;
   the platform/world commit may only validate the captured root, apply the prepared delta and publish
   the prepared root for the affected world.
+- [x] RailWand create/rebuild/smooth/split/merge/remove/snapshot-restore now build the complete normalized
+  `TopologyState` on the existing async worker. Prepared commits validate the exact base root plus only
+  affected rail/endpoint results and publish the prebuilt root; stale preparation rejects before action,
+  with no full-world fingerprint or synchronous builder fallback. Whole-world undo/persistence capture
+  remains the unfinished half of the parent item above.
 - [ ] Add concurrency regressions proving signal edits and edit-permit scans do not wait for the
   cross-world simulation lock, plus track-edit tests proving another world continues ticking while a
   prepared edit is delayed.

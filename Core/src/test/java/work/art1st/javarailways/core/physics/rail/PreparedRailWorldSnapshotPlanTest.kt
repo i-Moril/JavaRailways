@@ -40,7 +40,7 @@ class PreparedRailWorldSnapshotPlanTest {
             val plan = world.prepareRailWorldSnapshotRestore(current, target)
 
             assertEquals(setOf(RailEndpointRef(peer.id, RailEndpoint.A)), plan.changedExistingEndpoints)
-            world.railTopologyTransaction { plan.apply(world) }
+            world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) }
             val restored = requireNotNull(world.getRail(source.id))
             assertEquals(target.first { it.id == source.id.toString() }.nextRailAtA, restored.save().nextRailAtA)
             assertEquals(target.first { it.id == peer.id.toString() }.nextRailAtA, peer.save().nextRailAtA)
@@ -60,7 +60,8 @@ class PreparedRailWorldSnapshotPlanTest {
         val world = createTestWorld()
         try {
             val first = world.createRailForTest(line(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
-            val second = world.createRailForTest(line(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
+            val second = world.createRailForTest(line(Vector3d(10.0, 0.0, 0.0), Vector3d(10.0, 0.0, 10.0)))
+            assertEquals(1, world.topologyState.atGradeCrossings.size)
             val current = world.allRails.map(CoreRail::save)
             val target = current.map { saved ->
                 when (saved.id) {
@@ -85,7 +86,7 @@ class PreparedRailWorldSnapshotPlanTest {
                 ),
                 plan.changedExistingEndpoints
             )
-            world.railTopologyTransaction { plan.apply(world) }
+            world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) }
             assertEquals(target.associateBy { it.id }, world.allRails.map(CoreRail::save).associateBy { it.id })
             assertTrue(world.topologyState.atGradeCrossings.isEmpty())
         } finally {
@@ -114,7 +115,7 @@ class PreparedRailWorldSnapshotPlanTest {
             }
             val plan = world.prepareRailWorldSnapshotRestore(current, target)
 
-            world.railTopologyTransaction { plan.apply(world) }
+            world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) }
 
             val restored = requireNotNull(world.getRail(source.id))
             assertSame(peer.viewAB, restored.viewAB.activeRail)
@@ -147,7 +148,7 @@ class PreparedRailWorldSnapshotPlanTest {
             assertEquals(setOf(source.id, crossing.id), plan.affectedExistingRailIds)
             assertFalse(unrelated.id in plan.affectedExistingRailIds)
             val oldSource = source
-            world.railTopologyTransaction { plan.apply(world) }
+            world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) }
 
             val restored = requireNotNull(world.getRail(source.id))
             assertNotSame(oldSource, restored)
@@ -179,7 +180,7 @@ class PreparedRailWorldSnapshotPlanTest {
 
             assertFalse(plan.isCurrent(world))
             assertThrows(IllegalStateException::class.java) {
-                world.railTopologyTransaction { plan.apply(world) }
+                world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) }
             }
             assertSame(source, world.getRail(source.id))
         } finally {
@@ -235,7 +236,7 @@ class PreparedRailWorldSnapshotPlanTest {
             val plan = world.prepareRailWorldSnapshotRestore(current, target)
 
             assertThrows(IllegalArgumentException::class.java) {
-                world.railTopologyTransaction { plan.apply(world) }
+                world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) }
             }
             assertSame(source, world.getRail(source.id))
             assertEquals(current.single(), source.save())

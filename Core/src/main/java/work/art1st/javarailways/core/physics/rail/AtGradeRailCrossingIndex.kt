@@ -60,6 +60,9 @@ internal class AtGradeRailCrossingIndex(
         .sortedWith(compareBy({ it.key.first.toString() }, { it.key.second.toString() }))
         .map { it.value }
 
+    /** Constant-time validation hook for one crossing pair named by a prepared edit delta. */
+    fun crossing(pair: RailPair): AtGradeRailCrossing? = crossingsByPair[pair]
+
     /** Samples one immutable curve and computes its spatial footprint without reading live world state. */
     fun prepareGeometry(railId: UUID, curve: work.art1st.javarailways.core.api.physics.curve.PrimeCurve): SampledRail {
         val samples = simplifyCollinear(

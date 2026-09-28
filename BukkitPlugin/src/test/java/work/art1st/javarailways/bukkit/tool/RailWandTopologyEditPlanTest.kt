@@ -94,7 +94,7 @@ class RailWandTopologyEditPlanTest {
         val world = createTestWorld()
         try {
             val affected = world.createRailForTest(straightCurve(0.0, 10.0))
-            val plan = RailWandTopologyEditPlan.captureReplacementOrRemoval(world, listOf(affected.id))
+            val plan = RailWandTopologyEditPlan.prepareReplacementOrRemoval(world, listOf(affected.id))
 
             assertTrue(plan.isCurrent(world))
 
@@ -171,7 +171,7 @@ class RailWandTopologyEditPlanTest {
             )
 
             lateinit var replacement: work.art1st.javarailways.core.physics.rail.CoreRail
-            world.railTopologyTransaction {
+            plan.commitTopology(world) {
                 replacement = world.installPreparedRails(prepared).single()
                 plan.applyExplicitConnections(world, listOf(replacement))
                 world.removeRail(source)
@@ -210,7 +210,7 @@ class RailWandTopologyEditPlanTest {
             )
 
             lateinit var replacement: CoreRail
-            world.railTopologyTransaction {
+            plan.commitTopology(world) {
                 replacement = world.installPreparedRails(prepared).single()
                 plan.applyExplicitConnections(world, listOf(replacement))
                 world.removeRail(stem)

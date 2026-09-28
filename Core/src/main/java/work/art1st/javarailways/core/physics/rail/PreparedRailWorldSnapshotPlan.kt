@@ -39,7 +39,8 @@ class PreparedRailWorldSnapshotPlan private constructor(
     @get:JvmSynthetic internal val targetEndpointStates: Map<RailEndpointRef, SnapshotEndpointState>,
     removedCrossings: Set<AtGradeRailCrossing>,
     affectedExistingRailIds: Set<UUID>,
-    private val capturedEndpointStates: Map<RailEndpointRef, SnapshotEndpointState>
+    private val capturedEndpointStates: Map<RailEndpointRef, SnapshotEndpointState>,
+    val topologyUpdate: PreparedRailTopologyUpdate
 ) {
     private val currentRails: Map<UUID, CoreRail> = Collections.unmodifiableMap(LinkedHashMap(currentRails))
     val removedOrReplacedRailIds: Set<UUID> =
@@ -115,14 +116,13 @@ class PreparedRailWorldSnapshotPlan private constructor(
             val rawTargetCrossings = rawCurrentCrossings
                 .filterNot { crossing -> crossingTouches(crossing, removedOrReplacedRailIds) } +
                 preparedCreations?.crossings.orEmpty()
-            val targetTopology = TopologyStateBuilder.build(
-                TopologyInput(
-                    revision = topologyRoot.revision,
+            val targetInput = TopologyInput(
+                    revision = Math.addExact(topologyRoot.revision, 1L),
                     rails = targetCurves.map { (railId, curve) -> TopologyInputRail(railId, curve.totalArcLength) },
                     continuations = targetStates.mapValues { (_, state) -> state.connectedEndpoints.toSet() },
                     atGradeCrossings = rawTargetCrossings
                 )
-            )
+            val targetTopology = TopologyStateBuilder.build(targetInput)
             val removedCrossings = topologyRoot.atGradeCrossings.toSet() - targetTopology.atGradeCrossings.toSet()
             val introducedCrossings = targetTopology.atGradeCrossings.toSet() - topologyRoot.atGradeCrossings.toSet()
             val changedConnectionIds = linkedSetOf<UUID>().apply {
@@ -151,10 +151,46 @@ class PreparedRailWorldSnapshotPlan private constructor(
                 .flatMap { railId -> RailEndpoint.entries.asSequence().map { RailEndpointRef(railId, it) } }
                 .associateWith(currentStates::getValue)
 
+            val expectedConnections = linkedMapOf<RailEndpointRef, Set<RailEndpointRef>>()
+            changedExistingEndpoints.forEach { endpoint ->
+                expectedConnections[endpoint] = targetStates.getValue(endpoint).connectedEndpoints.toSet()
+            }
+            createdOrReplacedRailIds.forEach { railId ->
+                RailEndpoint.entries.forEach { endpoint ->
+                    val ref = RailEndpointRef(railId, endpoint)
+                    expectedConnections[ref] = targetStates.getValue(ref).connectedEndpoints.toSet()
+                }
+            }
+            val topologyUpdate = PreparedRailTopologyUpdate(
+                ownerWorld = world,
+                baseRoot = topologyRoot,
+                targetRoot = targetTopology,
+                expectedRailCount = targetCurves.size,
+                addedRailLengthsMeters = createdOrReplacedRailIds.associateWith { targetCurves.getValue(it).totalArcLength },
+                removedRailIds = removedOrReplacedRailIds,
+                expectedConnections = expectedConnections,
+                expectedCrossings = linkedMapOf<AtGradeRailCrossingIndex.RailPair, AtGradeRailCrossing?>().apply {
+                    rawCurrentCrossings.asSequence()
+                        .filter { crossing -> crossingTouches(crossing, removedOrReplacedRailIds) }
+                        .forEach { crossing ->
+                            this[AtGradeRailCrossingIndex.RailPair.of(
+                                crossing.first.railId,
+                                crossing.second.railId
+                            )] = null
+                        }
+                    preparedCreations?.crossings.orEmpty().forEach { crossing ->
+                        this[AtGradeRailCrossingIndex.RailPair.of(
+                            crossing.first.railId,
+                            crossing.second.railId
+                        )] = crossing
+                    }
+                }
+            )
             return PreparedRailWorldSnapshotPlan(
                 world, topologyRoot, currentById.filterKeys(affectedExistingIds::contains),
                 removedOrReplacedRailIds, createdOrReplacedRailIds, changedExistingEndpoints,
-                preparedCreations, targetStates, removedCrossings, affectedExistingIds, capturedStates
+                preparedCreations, targetStates, removedCrossings, affectedExistingIds, capturedStates,
+                topologyUpdate
             )
         }
 

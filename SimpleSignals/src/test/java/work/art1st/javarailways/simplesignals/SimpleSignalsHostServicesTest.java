@@ -5,6 +5,7 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService;
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService;
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService;
+import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService;
 
 import java.lang.reflect.Proxy;
 import java.util.HashMap;
@@ -25,6 +26,10 @@ class SimpleSignalsHostServicesTest {
         assertSame(registered.get(InfrastructureResourceService.class), services.infrastructure());
         assertSame(registered.get(SignalEpochSourceService.class), services.signalEpochSources());
         assertSame(registered.get(InspectionSourceService.class), services.inspectionSources());
+        assertSame(
+            registered.get(RoutePlanningRestrictionSourceService.class),
+            services.routePlanningSources()
+        );
     }
 
     @Test
@@ -48,6 +53,10 @@ class SimpleSignalsHostServicesTest {
         services.put(InfrastructureResourceService.class, proxy(InfrastructureResourceService.class));
         services.put(SignalEpochSourceService.class, proxy(SignalEpochSourceService.class));
         services.put(InspectionSourceService.class, proxy(InspectionSourceService.class));
+        services.put(
+            RoutePlanningRestrictionSourceService.class,
+            proxy(RoutePlanningRestrictionSourceService.class)
+        );
         return services;
     }
 

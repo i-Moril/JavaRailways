@@ -3,20 +3,25 @@ package work.art1st.javarailways.bukkit.api.internal
 import org.bukkit.plugin.Plugin
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
+import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
+import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding
+import work.art1st.javarailways.simpleato.routing.RoutePlanningRestrictionRuntime
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import java.util.UUID
 
 internal class DefaultSignalEpochSourceService :
     SignalEpochSourceService,
     InspectionSourceService,
+    RoutePlanningRestrictionSourceService,
     AutoCloseable {
     private data class WorldBinding(
         val runtime: SignalEpochRuntime,
         val inspectionRuntime: InspectionRuntime,
+        val routePlanningRuntime: RoutePlanningRestrictionRuntime,
         val activeRestrictionStreams: (Set<String>) -> List<String>,
         val stallWorld: (String, Exception) -> Unit
     )
@@ -24,7 +29,8 @@ internal class DefaultSignalEpochSourceService :
     private data class OwnerSources(
         val owner: Plugin,
         val epochSources: List<SignalEpochSource>,
-        val inspectionSources: List<InspectionSource> = emptyList()
+        val inspectionSources: List<InspectionSource> = emptyList(),
+        val routePlanningSources: List<RoutePlanningRestrictionBinding> = emptyList()
     )
 
     private val lock = Any()
@@ -37,12 +43,19 @@ internal class DefaultSignalEpochSourceService :
         runtime: SignalEpochRuntime,
         inspectionRuntime: InspectionRuntime,
         activeRestrictionStreams: (Set<String>) -> List<String>,
+        routePlanningRuntime: RoutePlanningRestrictionRuntime = RoutePlanningRestrictionRuntime(),
         stallWorld: (String, Exception) -> Unit
     ) = BukkitThreadGuardBridge.runInSimulationContext {
         synchronized(lock) {
             check(!closed) { "SignalEpochSourceService is closed" }
             check(worldId !in worlds) { "Signal epoch runtime already exists for world $worldId" }
-            worlds[worldId] = WorldBinding(runtime, inspectionRuntime, activeRestrictionStreams, stallWorld)
+            worlds[worldId] = WorldBinding(
+                runtime,
+                inspectionRuntime,
+                routePlanningRuntime,
+                activeRestrictionStreams,
+                stallWorld
+            )
             sourcesByWorld[worldId] = mutableListOf()
         }
     }
@@ -67,13 +80,14 @@ internal class DefaultSignalEpochSourceService :
             val ownerSets = checkNotNull(sourcesByWorld[worldId])
             val existingIndex = ownerSets.indexOfFirst { it.owner === pluginOwner }
             val existing = ownerSets.getOrNull(existingIndex)
-            val previousIds = existing?.allSourceIds().orEmpty()
+            val previousIds = existing?.restrictionSourceIds().orEmpty()
             val replacementOwner = OwnerSources(
                 pluginOwner,
                 replacement,
-                existing?.inspectionSources.orEmpty()
+                existing?.inspectionSources.orEmpty(),
+                existing?.routePlanningSources.orEmpty()
             )
-            val removedIds = previousIds - replacementOwner.allSourceIds()
+            val removedIds = previousIds - replacementOwner.restrictionSourceIds()
             requireWithdrawn(worldId, world, pluginOwner, removedIds)
 
             val candidate = ownerSets.toMutableList()
@@ -104,15 +118,21 @@ internal class DefaultSignalEpochSourceService :
             val ownerSets = checkNotNull(sourcesByWorld[worldId])
             val existingIndex = ownerSets.indexOfFirst { it.owner === pluginOwner }
             val existing = ownerSets.getOrNull(existingIndex)
-            check(replacement.isNotEmpty() || existing?.epochSources?.isNotEmpty() == true) {
+            check(
+                replacement.isNotEmpty() ||
+                    existing?.epochSources?.isNotEmpty() == true ||
+                    existing?.routePlanningSources?.isNotEmpty() == true
+            ) {
                 "Complete signal owner removal requires InfrastructureResourceService.unregisterOwner"
             }
             val replacementOwner = OwnerSources(
                 pluginOwner,
                 existing?.epochSources.orEmpty(),
-                replacement
+                replacement,
+                existing?.routePlanningSources.orEmpty()
             )
-            val removedIds = existing?.allSourceIds().orEmpty() - replacementOwner.allSourceIds()
+            val removedIds = existing?.restrictionSourceIds().orEmpty() -
+                replacementOwner.restrictionSourceIds()
             requireWithdrawn(worldId, world, pluginOwner, removedIds)
 
             val candidate = ownerSets.toMutableList()
@@ -129,6 +149,49 @@ internal class DefaultSignalEpochSourceService :
                 }
                 throw failure
             }
+
+            ownerSets.clear()
+            ownerSets += candidate
+        }
+    }
+
+    override fun replaceRoutePlanningSources(
+        pluginOwner: Plugin,
+        worldId: UUID,
+        sources: Collection<RoutePlanningRestrictionBinding>
+    ) = BukkitThreadGuardBridge.runInSimulationContext {
+        check(pluginOwner.isEnabled) {
+            "Cannot install route-planning sources for disabled plugin ${pluginOwner.name}"
+        }
+        val replacement = java.util.List.copyOf(sources)
+        synchronized(lock) {
+            check(!closed) { "RoutePlanningRestrictionSourceService is closed" }
+            val world = checkNotNull(worlds[worldId]) {
+                "Railway world is not registered: $worldId"
+            }
+            val ownerSets = checkNotNull(sourcesByWorld[worldId])
+            val existingIndex = ownerSets.indexOfFirst { it.owner === pluginOwner }
+            val existing = ownerSets.getOrNull(existingIndex)
+            check(
+                replacement.isNotEmpty() ||
+                    existing?.epochSources?.isNotEmpty() == true ||
+                    existing?.inspectionSources?.isNotEmpty() == true
+            ) {
+                "Complete signal owner removal requires InfrastructureResourceService.unregisterOwner"
+            }
+            val replacementOwner = OwnerSources(
+                pluginOwner,
+                existing?.epochSources.orEmpty(),
+                existing?.inspectionSources.orEmpty(),
+                replacement
+            )
+            val candidate = ownerSets.toMutableList()
+            if (existingIndex >= 0) candidate.removeAt(existingIndex)
+            candidate += replacementOwner
+            validateSourceOwnership(candidate)
+            world.routePlanningRuntime.replaceSources(
+                candidate.flatMap(OwnerSources::routePlanningSources)
+            )
 
             ownerSets.clear()
             ownerSets += candidate
@@ -169,10 +232,10 @@ internal class DefaultSignalEpochSourceService :
                         worldId,
                         world,
                         pluginOwner,
-                        owned.allSourceIds()
+                        owned.restrictionSourceIds()
                     )
                     val activeBindings = world.inspectionRuntime.activeBindings(
-                        owned.inspectionSources.mapTo(linkedSetOf()) { it.sourceId }
+                        owned.inspectionSourceIds()
                     )
                     if (activeBindings.isNotEmpty()) {
                         val reason = "Cannot remove inspection sources owned by ${pluginOwner.name} from world " +
@@ -195,7 +258,7 @@ internal class DefaultSignalEpochSourceService :
             }
             removals.forEach { (worldId, _, owned) ->
                 val activeBindings = checkNotNull(worlds[worldId]).inspectionRuntime.activeBindings(
-                    owned.inspectionSources.mapTo(linkedSetOf()) { it.sourceId }
+                    owned.inspectionSourceIds()
                 )
                 check(activeBindings.isEmpty()) {
                     "Inspection bindings changed while unregistering ${pluginOwner.name}: " +
@@ -207,6 +270,9 @@ internal class DefaultSignalEpochSourceService :
                 val candidate = ownerSets.filterNot { it === owned }
                 world.inspectionRuntime.replaceSources(candidate.flatMap(OwnerSources::inspectionSources))
                 world.runtime.replaceSources(candidate.flatMap(OwnerSources::epochSources))
+                world.routePlanningRuntime.replaceSources(
+                    candidate.flatMap(OwnerSources::routePlanningSources)
+                )
                 ownerSets.remove(owned)
             }
         }
@@ -218,10 +284,11 @@ internal class DefaultSignalEpochSourceService :
             sourcesByWorld.forEach { (worldId, ownerSets) ->
                 val owned = ownerSets.firstOrNull { it.owner === pluginOwner } ?: return@forEach
                 val world = checkNotNull(worlds[worldId])
-                val sourceIds = owned.allSourceIds()
+                val restrictionSourceIds = owned.restrictionSourceIds()
                 val active = try {
-                    world.activeRestrictionStreams(sourceIds) +
-                        world.inspectionRuntime.activeBindings(sourceIds).map { "active inspection binding: $it" }
+                    world.activeRestrictionStreams(restrictionSourceIds) +
+                        world.inspectionRuntime.activeBindings(owned.inspectionSourceIds())
+                            .map { "active inspection binding: $it" }
                 } catch (failure: Exception) {
                     listOf("unable to inspect retained restrictions: ${failure.message ?: failure.javaClass.name}")
                 }
@@ -233,6 +300,9 @@ internal class DefaultSignalEpochSourceService :
                 val candidate = ownerSets.filterNot { it === owned }
                 world.runtime.replaceSources(candidate.flatMap(OwnerSources::epochSources))
                 owned.inspectionSources.forEach { world.inspectionRuntime.removeSource(it.sourceId) }
+                world.routePlanningRuntime.replaceSources(
+                    candidate.flatMap(OwnerSources::routePlanningSources)
+                )
                 ownerSets.remove(owned)
             }
         }
@@ -244,6 +314,7 @@ internal class DefaultSignalEpochSourceService :
             sourcesByWorld.remove(worldId)
             world.runtime.replaceSources(emptyList())
             world.inspectionRuntime.clear()
+            world.routePlanningRuntime.replaceSources(emptyList())
         }
     }
 
@@ -257,6 +328,7 @@ internal class DefaultSignalEpochSourceService :
         snapshot.forEach {
             it.runtime.replaceSources(emptyList())
             it.inspectionRuntime.clear()
+            it.routePlanningRuntime.replaceSources(emptyList())
         }
     }
 
@@ -274,9 +346,17 @@ internal class DefaultSignalEpochSourceService :
         }
     }
 
-    private fun OwnerSources.allSourceIds(): Set<String> = buildSet {
+    private fun OwnerSources.restrictionSourceIds(): Set<String> = buildSet {
         epochSources.mapTo(this) { it.sourceId }
         inspectionSources.mapTo(this) { it.sourceId }
+    }
+
+    private fun OwnerSources.inspectionSourceIds(): Set<String> =
+        inspectionSources.mapTo(linkedSetOf()) { it.sourceId }
+
+    private fun OwnerSources.allSourceIds(): Set<String> = buildSet {
+        addAll(restrictionSourceIds())
+        routePlanningSources.mapTo(this) { it.sourceId }
     }
 
     private fun validateSourceOwnership(ownerSets: Collection<OwnerSources>) {

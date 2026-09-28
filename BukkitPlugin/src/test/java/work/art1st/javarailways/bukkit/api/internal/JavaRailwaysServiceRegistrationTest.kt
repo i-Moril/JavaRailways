@@ -15,6 +15,7 @@ import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
+import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService
 import java.lang.reflect.Proxy
 import java.util.Optional
 import java.util.concurrent.CompletableFuture
@@ -40,6 +41,7 @@ class JavaRailwaysServiceRegistrationTest {
                 observations,
                 infrastructure,
                 signalSources,
+                signalSources,
                 signalSources
             )
 
@@ -49,7 +51,11 @@ class JavaRailwaysServiceRegistrationTest {
             assertSame(infrastructure, manager.load(InfrastructureResourceService::class.java))
             assertSame(signalSources, manager.load(SignalEpochSourceService::class.java))
             assertSame(signalSources, manager.load(InspectionSourceService::class.java))
-            assertEquals(6, manager.getRegistrations(owner).size)
+            assertSame(
+                signalSources,
+                manager.load(RoutePlanningRestrictionSourceService::class.java)
+            )
+            assertEquals(7, manager.getRegistrations(owner).size)
 
             manager.unregisterAll(owner)
             assertNull(manager.load(RailTargetService::class.java))
@@ -58,6 +64,7 @@ class JavaRailwaysServiceRegistrationTest {
             assertNull(manager.load(InfrastructureResourceService::class.java))
             assertNull(manager.load(SignalEpochSourceService::class.java))
             assertNull(manager.load(InspectionSourceService::class.java))
+            assertNull(manager.load(RoutePlanningRestrictionSourceService::class.java))
         } finally {
             infrastructure.close()
             signalSources.close()

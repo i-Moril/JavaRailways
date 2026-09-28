@@ -30,6 +30,7 @@ internal data class FrozenRouteSelectionInput(
     val topology: TopologyState,
     val context: FrozenRouteSelectionContext,
     val operatingDirections: OperatingDirectionOverlay,
+    val planningRestrictions: RoutePlanningRestrictionRuntime,
     val trainId: String,
     val target: OperationalRouteLocation,
     val routeId: String,
@@ -120,12 +121,15 @@ internal object FrozenRouteSelector {
             )
         }
 
-        val restrictions = input.operatingDirections.toRestrictions(input.topology)
-            ?: return FrozenRouteSelectionResult.Rejected(
+        val restrictions = try {
+            input.planningRestrictions.compile(input.topology, input.operatingDirections)
+        } catch (failure: IllegalArgumentException) {
+            return FrozenRouteSelectionResult.Rejected(
                 reason = FrozenRouteSelectionRejection.PLANNER_REJECTED,
-                detail = "operating directions reference rails absent from topology revision $topologyRevision",
+                detail = failure.message ?: "route-planning restrictions are invalid",
                 plannerReason = TopologyRoutePlanningRejection.INVALID_RESTRICTIONS
             )
+        }
         val planned = TopologyRoutePlanner.plan(
             TopologyRoutePlanningInput(
                 topology = input.topology,

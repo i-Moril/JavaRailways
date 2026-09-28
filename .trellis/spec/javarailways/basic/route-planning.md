@@ -35,9 +35,9 @@ data class RouteSegment(
 `RoutePlanningRestrictionSource`。其中span使用canonical AB米范围加行驶方向；restriction绑定一个
 topology revision并防御性复制集合。接口不知道保护区域、闭塞、信号、联锁或资源claim。
 
-正常流程是：SimpleATO在搜索前调用各owner source，把运行方向和插件私有策略编译成不可变
-restrictions；Basic一次性校验并建立query-local图；Dijkstra只枚举已经准备好的图边，不在扩展循环里
-回调插件。`forbiddenTraversals`删除指定方向上的物理区间；`PathReplacement`删除
+正常流程是：SimpleATO通过world-local source runtime捕获按namespaced source ID排序的不可变快照，在搜索前
+依次调用各owner source一次，把运行方向和插件私有策略编译并合并成不可变restrictions；Basic一次性校验并建立
+query-local图；Dijkstra只枚举已经准备好的图边，不在扩展循环里回调插件。`forbiddenTraversals`删除指定方向上的物理区间；`PathReplacement`删除
 `replacedTraversals`的自由通行，并把每个`permittedPath`加入为一条不可拆分的有向macro。搜索选中
 macro后才展开成普通`RouteSegmentSnapshot`，后续仍由Basic route projector独立验证。
 
@@ -48,8 +48,9 @@ replacement覆盖范围的macro、不连续或不合法道岔路径，以及两�
 
 设normalized topology为`V/E`，限制span总数为`S`，macro展开后的物理span总数为`P`，临时切点为
 `C`。编译和物理连续性验证为`O(V+E+S log S+P)`量级，query-local图规模为`O(V+C+P)`，
-Dijkstra为`O((V+C+A) log(V+C))`，其中`A`为普通、结构连接及macro边总数。source调用、编译和
-图构造每次规划至多一次；tick、资源等待和Dijkstra扩展内部均不执行插件代码。
+Dijkstra为`O((V+C+A) log(V+C))`，其中`A`为普通、结构连接及macro边总数。若注册source数为`K`，
+SimpleATO的source snapshot读取为`O(1)`，稳定顺序在低频replacement时以`O(K log K)`建立，一次查询调用与合并为
+`O(K+S+P)`加各source自身编译成本；tick、资源等待和Dijkstra扩展内部均不执行插件代码。
 
 ## Route/compile矩阵
 

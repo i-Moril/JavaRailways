@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyBoundary
+import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
 import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributor
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
@@ -19,10 +20,12 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublic
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
+import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
+import work.art1st.javarailways.simpleato.routing.RoutePlanningRestrictionRuntime
 import java.lang.reflect.Proxy
 import java.util.UUID
 
@@ -338,6 +341,58 @@ class DefaultSignalEpochSourceServiceTest {
         assertEquals(emptyList<String>(), stalls)
     }
 
+    @Test
+    fun `route planning sources share owner replacement and planned unregister lifecycle`() {
+        val service = DefaultSignalEpochSourceService()
+        val infrastructure = DefaultInfrastructureResourceService(service)
+        val worldId = UUID.randomUUID()
+        val firstOwner = plugin("first")
+        val secondOwner = plugin("second")
+        val planningRuntime = RoutePlanningRestrictionRuntime()
+        service.registerWorld(
+            worldId,
+            runtime(),
+            inspectionRuntime(),
+            { emptyList() },
+            planningRuntime
+        ) { reason, failure -> throw IllegalStateException(reason, failure) }
+        val source = routePlanningSource("test:route-table")
+
+        service.replaceRoutePlanningSources(firstOwner, worldId, listOf(source))
+        assertThrows(IllegalArgumentException::class.java) {
+            service.replaceRoutePlanningSources(secondOwner, worldId, listOf(source))
+        }
+
+        infrastructure.unregisterOwner(firstOwner)
+        service.replaceRoutePlanningSources(secondOwner, worldId, listOf(source))
+    }
+
+    @Test
+    fun `forced disable removes idle route planning callbacks without stalling`() {
+        val service = DefaultSignalEpochSourceService()
+        val infrastructure = DefaultInfrastructureResourceService(service)
+        val worldId = UUID.randomUUID()
+        var enabled = true
+        val disabledOwner = plugin("disabled") { enabled }
+        val survivingOwner = plugin("surviving")
+        val stalls = mutableListOf<String>()
+        service.registerWorld(
+            worldId,
+            runtime(),
+            inspectionRuntime(),
+            { emptyList() },
+            RoutePlanningRestrictionRuntime()
+        ) { reason, _ -> stalls += reason }
+        val source = routePlanningSource("test:route-table")
+        service.replaceRoutePlanningSources(disabledOwner, worldId, listOf(source))
+
+        enabled = false
+        infrastructure.forcedDisableOwner(disabledOwner)
+        service.replaceRoutePlanningSources(survivingOwner, worldId, listOf(source))
+
+        assertEquals(emptyList<String>(), stalls)
+    }
+
     private fun runtime() = SignalEpochRuntime(
         "world",
         TrainRestrictionPublisher { snapshot ->
@@ -390,6 +445,10 @@ class DefaultSignalEpochSourceServiceTest {
         },
         { emptyList() }
     )
+
+    private fun routePlanningSource(sourceId: String) = RoutePlanningRestrictionBinding(sourceId) {
+        RoutePlanningRestrictions.unrestricted(it)
+    }
 
     private fun source(sourceId: String, start: Double, callback: () -> Unit): SignalEpochSource {
         val areaId = RailObjectRef("test", sourceId.substringAfter(':'))

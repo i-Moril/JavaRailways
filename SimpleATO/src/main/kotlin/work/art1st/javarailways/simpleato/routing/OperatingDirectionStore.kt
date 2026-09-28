@@ -24,7 +24,7 @@ internal class OperatingDirectionOverlay(
     fun toRestrictions(topology: TopologyState): RoutePlanningRestrictions? {
         if (topology.revision != topologyRevision) return null
         val forbidden = ArrayList<DirectedRailSpan>(allowedDirections.size)
-        for ((railId, permitted) in allowedDirections) {
+        for ((railId, permitted) in allowedDirections.entries.sortedBy { it.key }) {
             val projection = topology.railProjection[railId]?.singleOrNull() ?: return null
             val railLength = abs(projection.railEndAbMeters - projection.railStartAbMeters)
             forbidden += DirectedRailSpan(

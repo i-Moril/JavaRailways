@@ -5,6 +5,7 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService;
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService;
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService;
+import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService;
 
 import java.util.Objects;
 import java.util.function.Function;
@@ -14,13 +15,15 @@ record SimpleSignalsHostServices(
     RailwayObservationService observations,
     InfrastructureResourceService infrastructure,
     SignalEpochSourceService signalEpochSources,
-    InspectionSourceService inspectionSources
+    InspectionSourceService inspectionSources,
+    RoutePlanningRestrictionSourceService routePlanningSources
 ) {
     SimpleSignalsHostServices {
         Objects.requireNonNull(observations, "observations");
         Objects.requireNonNull(infrastructure, "infrastructure");
         Objects.requireNonNull(signalEpochSources, "signalEpochSources");
         Objects.requireNonNull(inspectionSources, "inspectionSources");
+        Objects.requireNonNull(routePlanningSources, "routePlanningSources");
     }
 
     static SimpleSignalsHostServices load(ServicesManager servicesManager) {
@@ -34,7 +37,8 @@ record SimpleSignalsHostServices(
             require(lookup, RailwayObservationService.class),
             require(lookup, InfrastructureResourceService.class),
             require(lookup, SignalEpochSourceService.class),
-            require(lookup, InspectionSourceService.class)
+            require(lookup, InspectionSourceService.class),
+            require(lookup, RoutePlanningRestrictionSourceService.class)
         );
     }
 

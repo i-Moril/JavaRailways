@@ -13,6 +13,7 @@ import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simpleato.routing.OperatingDirectionStore
+import work.art1st.javarailways.simpleato.routing.RoutePlanningRestrictionRuntime
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.TimetableStore
@@ -32,7 +33,8 @@ data class SimpleATOWorldData(
     val depots: DepotStore = DepotStore(),
     val lines: LineStore = LineStore(),
     val timetables: TimetableStore = TimetableStore(),
-    val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry()
+    val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
+    val routePlanningRestrictions: RoutePlanningRestrictionRuntime = RoutePlanningRestrictionRuntime()
 ) {
     init {
         require(stations.usesRailObjectStore(sharedRailObjects)) {

@@ -39,6 +39,12 @@ the module boundary. Plugins are invoked only while compiling immutable contribu
 does not call plugin code. The selected macro expands back to a normal frozen route for Basic's independent physical
 validation and later resource admission.
 
+The host exposes owner/world replacement through `RoutePlanningRestrictionSourceService`. It shares the existing signal
+source registry, world binding and unified infrastructure-owner unregister gate. SimpleATO captures sources in stable ID
+order, invokes each exactly once for a query and combines them with operating direction before calling Basic. Route-planning
+callbacks are configuration, not live train restrictions: forced disable removes them without stalling solely for their
+presence, while frozen routes, claims and applied-plan dependencies retain their existing safety lifecycle.
+
 ## Deliverable 2: SimpleSignals
 
 ### Domain model

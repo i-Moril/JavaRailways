@@ -26,6 +26,8 @@ when a required service is absent. The fixture currently proves these services:
 - `SignalEpochSourceService`: complete nonempty signal-source sets installed per plugin and world;
 - `InspectionSourceService`: host-route-bound inspection providers plus authenticated dirty
   declaration publication;
+- `RoutePlanningRestrictionSourceService`: owner/world-scoped route-table and traversal restrictions
+  compiled once before immutable-topology search;
 - `RailTargetService` and `PlayerOperationService`: lower-level Bukkit interaction capabilities.
 
 The returned services are host-owned. Do not retain a world-bound admission service across world
@@ -51,10 +53,13 @@ one complete snapshot bound to the new route, even when that snapshot contains n
    baseline/changed monitored areas and returns complete restriction snapshots synchronously.
 5. Install a complete `InspectionSource` set. The host invokes each provider only after selecting an
    exact production route; publish dependency changes through `markInspectionDeclarationsDirty`.
-6. Publish timetable or other applied-plan dependencies only to protect their referenced rail,
+6. Install a complete route-planning source set when the plugin restricts path choice. Each source
+   compiles neutral forbidden spans or complete atomic paths from one supplied topology snapshot;
+   it is not called from Dijkstra and does not edit the physical graph.
+7. Publish timetable or other applied-plan dependencies only to protect their referenced rail,
    topology-node and runtime-resource identities from conflicting edits. These declarations are
    not train claims and do not prevent trains from acquiring the resources.
-7. Before changing any declared rail, topology node or runtime resource, acquire one edit permit
+8. Before changing any declared rail, topology node or runtime resource, acquire one edit permit
    for the exact impact and keep it open through the complete mutation and persistence transaction.
    A denied result has no permit; inspect its field-wise blockers instead of performing any part of
    the edit. Closing a granted permit is idempotent.

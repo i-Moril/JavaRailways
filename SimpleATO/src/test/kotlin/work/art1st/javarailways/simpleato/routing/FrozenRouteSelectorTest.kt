@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
+import work.art1st.javarailways.basic.api.route.planning.DirectedRailSpan
+import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
 import work.art1st.javarailways.basic.route.OperationalRouteLocation
 import work.art1st.javarailways.basic.route.TopologyRoutePlanningRejection
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
@@ -15,6 +17,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
 import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
+import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding
 import java.util.UUID
 
 class FrozenRouteSelectorTest {
@@ -165,13 +168,53 @@ class FrozenRouteSelectorTest {
         )
     }
 
+    @Test
+    fun `registered restrictions are compiled once before planning`() {
+        val rail = rail(1, 20.0)
+        val topology = topology(12L, listOf(rail))
+        val observation = observation(
+            topology.revision,
+            "train-1",
+            RailPositionSnapshot(rail.id, ViewDirection.AB, 2.0)
+        )
+        var calls = 0
+        val restrictions = RoutePlanningRestrictionRuntime().also { runtime ->
+            runtime.replaceSources(
+                listOf(
+                    RoutePlanningRestrictionBinding("test:route-table") { sourceTopology ->
+                        calls++
+                        RoutePlanningRestrictions(
+                            sourceTopology.revision,
+                            forbiddenTraversals = listOf(
+                                DirectedRailSpan(rail.id, ViewDirection.AB, 5.0, 6.0)
+                            )
+                        )
+                    }
+                )
+            )
+        }
+
+        val rejected = select(
+            topology = topology,
+            observation = observation,
+            trainId = "train-1",
+            target = OperationalRouteLocation(rail.id, 10.0),
+            planningRestrictions = restrictions
+        ) as FrozenRouteSelectionResult.Rejected
+
+        assertEquals(1, calls)
+        assertEquals(FrozenRouteSelectionRejection.PLANNER_REJECTED, rejected.reason)
+        assertEquals(TopologyRoutePlanningRejection.UNREACHABLE, rejected.plannerReason)
+    }
+
     private fun select(
         topology: TopologyState,
         observation: RailwayObservation,
         trainId: String,
         target: OperationalRouteLocation,
         overlayTopologyRevision: Long = topology.revision,
-        allowedDirections: Map<UUID, ViewDirection> = emptyMap()
+        allowedDirections: Map<UUID, ViewDirection> = emptyMap(),
+        planningRestrictions: RoutePlanningRestrictionRuntime = RoutePlanningRestrictionRuntime()
     ): FrozenRouteSelectionResult = FrozenRouteSelector.select(
         FrozenRouteSelectionInput(
             topology = topology,
@@ -180,6 +223,7 @@ class FrozenRouteSelectorTest {
                 topologyRevision = overlayTopologyRevision,
                 allowedDirections = allowedDirections
             ),
+            planningRestrictions = planningRestrictions,
             trainId = trainId,
             target = target,
             routeId = "test-route",

@@ -21,8 +21,8 @@ Paper 先启用 JavaRailways
   -> 缺少任一能力则 onEnable 失败，不安装部分 world state
 ```
 
-当前要求的能力是 coherent observation、通用 infrastructure/resource、signal epoch source 和
-inspection source 四个 service。插件 descriptor 的 `depend: [JavaRailways]` 确保加载顺序；
+当前要求的能力是 coherent observation、通用 infrastructure/resource、signal epoch source、
+inspection source和route-planning restriction source五个 service。插件 descriptor 的 `depend: [JavaRailways]` 确保加载顺序；
 `api-version` 声明 Bukkit API 目标。宿主目前没有独立的数值化 signal API version，因此不能伪造
 字符串版本比较；实际 capability gate 是所需 service 类型能否全部发现。后续若宿主引入明确的
 capability descriptor，再在同一公开边界检查。
@@ -40,10 +40,10 @@ capability descriptor，再在同一公开边界检查。
 
 route-window 只描述 region entry/exit。列车需要在出口后继续申请固定闭塞或移动闭塞距离属于后续 plugin route-decision 层，不放回 region model，也不复制旧 Basic `exitClearance` 单窗口合同。
 
-固定进路表仍属于后续SimpleSignals领域功能。宿主现有的中立寻路限制合同允许插件在低频编译时把
+固定进路表仍属于后续SimpleSignals领域功能。宿主现有的owner/world注册与中立寻路限制合同允许插件在低频编译时把
 私有区域/联锁表输出为“被替换的有向轨道区间 + 若干完整物理path”；Basic把每条path作为不可拆分
 macro参与查询，不认识region ID，也不在Dijkstra循环中回调插件。当前SimpleSignals尚未定义、持久化
-或注册进路表，不能把该宿主能力描述为已经完成的保护区域选路。
+或注册具体进路表，不能把宿主source service能力描述为已经完成的保护区域选路。
 
 ## 依赖与打包不变量
 

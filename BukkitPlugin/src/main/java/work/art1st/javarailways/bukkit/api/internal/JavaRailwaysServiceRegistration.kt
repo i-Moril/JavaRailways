@@ -9,6 +9,7 @@ import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
+import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService
 
 /** Registers the complete public JavaRailways service set under one Bukkit plugin owner. */
 @JvmSynthetic
@@ -19,7 +20,8 @@ internal fun ServicesManager.registerJavaRailwaysServices(
     observations: RailwayObservationService,
     infrastructure: InfrastructureResourceService,
     signalSources: SignalEpochSourceService,
-    inspectionSources: InspectionSourceService
+    inspectionSources: InspectionSourceService,
+    routePlanningSources: RoutePlanningRestrictionSourceService
 ) {
     register(RailTargetService::class.java, railTargets, owner, ServicePriority.Normal)
     register(PlayerOperationService::class.java, playerOperations, owner, ServicePriority.Normal)
@@ -27,4 +29,10 @@ internal fun ServicesManager.registerJavaRailwaysServices(
     register(InfrastructureResourceService::class.java, infrastructure, owner, ServicePriority.Normal)
     register(SignalEpochSourceService::class.java, signalSources, owner, ServicePriority.Normal)
     register(InspectionSourceService::class.java, inspectionSources, owner, ServicePriority.Normal)
+    register(
+        RoutePlanningRestrictionSourceService::class.java,
+        routePlanningSources,
+        owner,
+        ServicePriority.Normal
+    )
 }

@@ -190,6 +190,7 @@ class WorldManager internal constructor(
                     worldId = bukkitWorld.uid,
                     runtime = simpleAtoData.signalEpochRuntime,
                     inspectionRuntime = simpleAtoData.inspectionRuntime,
+                    routePlanningRuntime = simpleAtoData.routePlanningRestrictions,
                     activeRestrictionStreams = simpleAtoData.signalRestrictions::activeRestrictionStreams,
                     stallWorld = { reason, failure ->
                         stallWorldRuntime(bukkitWorld, railWorld, reason, failure)

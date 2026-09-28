@@ -12,7 +12,7 @@ owner-scoped 的速度、停车、跟车和移动授权约束，以及取最严�
 
 # Package work.art1st.javarailways.simpleato.api.route
 
-SimpleATO跨限制与资源检查共用的常量大小冻结路线绑定。它只携带路线身份、路线revision、拓扑revision和总长度；完整有序traversal仍由host持有。
+SimpleATO跨限制与资源检查共用的常量大小冻结路线绑定，以及独立信号插件安装中立寻路限制时使用的namespaced source binding。冻结绑定只携带路线身份、路线revision、拓扑revision和总长度；完整有序traversal仍由host持有。寻路source在搜索前编译一次，不在Dijkstra扩展中执行。
 
 # Package work.art1st.javarailways.simpleato.api.line
 

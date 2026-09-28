@@ -14,6 +14,7 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributorRegistration;
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService;
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService;
+import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService;
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies;
 import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
@@ -36,6 +37,7 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode;
 import work.art1st.javarailways.basic.api.route.RouteBoundary;
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService;
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent;
+import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions;
 import work.art1st.javarailways.basic.api.observation.RailwayAreaOccupancyEngine;
 import work.art1st.javarailways.basic.api.observation.RailwayObservation;
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition;
@@ -54,6 +56,7 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublic
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher;
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot;
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding;
+import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding;
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult;
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource;
 
@@ -174,6 +177,14 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                             List.of()
                         ));
                     }
+                ))
+            );
+            services.routePlanningSources().replaceRoutePlanningSources(
+                this,
+                worldId,
+                List.of(new RoutePlanningRestrictionBinding(
+                    "example.signaladdon:route-table",
+                    topology -> RoutePlanningRestrictions.Companion.unrestricted(topology)
                 ))
             );
             var signalResource = new StableInfrastructureResource("example.signaladdon:signal", "home");
@@ -379,6 +390,10 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             Objects.requireNonNull(
                 serviceManager.load(InspectionSourceService.class),
                 "JavaRailways did not register InspectionSourceService"
+            ),
+            Objects.requireNonNull(
+                serviceManager.load(RoutePlanningRestrictionSourceService.class),
+                "JavaRailways did not register RoutePlanningRestrictionSourceService"
             )
         );
     }
@@ -389,7 +404,8 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         RailwayObservationService observations,
         InfrastructureResourceService infrastructure,
         SignalEpochSourceService signalSources,
-        InspectionSourceService inspectionSources
+        InspectionSourceService inspectionSources,
+        RoutePlanningRestrictionSourceService routePlanningSources
     ) {
         Services {
             Objects.requireNonNull(railTargets, "railTargets");
@@ -398,6 +414,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             Objects.requireNonNull(infrastructure, "infrastructure");
             Objects.requireNonNull(signalSources, "signalSources");
             Objects.requireNonNull(inspectionSources, "inspectionSources");
+            Objects.requireNonNull(routePlanningSources, "routePlanningSources");
         }
     }
 }

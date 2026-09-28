@@ -16,6 +16,7 @@ import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
+import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService
 import work.art1st.javarailways.bukkit.behavior.TrainReverseBehaviorListener
 import work.art1st.javarailways.bukkit.command.CloudCommandRegistrar
 import work.art1st.javarailways.bukkit.config.DisplayRendererBackend
@@ -85,6 +86,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var signalEpochSourceService: SignalEpochSourceService
         private set
     lateinit var inspectionSourceService: InspectionSourceService
+        private set
+    lateinit var routePlanningRestrictionSourceService: RoutePlanningRestrictionSourceService
         private set
     private lateinit var signalEpochSourceServiceImpl: DefaultSignalEpochSourceService
     val webUiLoginTokens: WebUiLoginTokens = WebUiLoginTokens()
@@ -171,6 +174,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         signalEpochSourceServiceImpl = DefaultSignalEpochSourceService()
         signalEpochSourceService = signalEpochSourceServiceImpl
         inspectionSourceService = signalEpochSourceServiceImpl
+        routePlanningRestrictionSourceService = signalEpochSourceServiceImpl
         infrastructureResourceServiceImpl = DefaultInfrastructureResourceService(signalEpochSourceServiceImpl)
         infrastructureResourceService = infrastructureResourceServiceImpl
         worldManager = WorldManager(
@@ -186,7 +190,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             observations = railwayObservationService,
             infrastructure = infrastructureResourceService,
             signalSources = signalEpochSourceService,
-            inspectionSources = inspectionSourceService
+            inspectionSources = inspectionSourceService,
+            routePlanningSources = routePlanningRestrictionSourceService
         )
         server.pluginManager.registerEvents(OperationOwnerLifecycleListener(playerOperationServiceImpl), this)
         server.pluginManager.registerEvents(ObservationOwnerLifecycleListener(railwayObservationServiceImpl), this)

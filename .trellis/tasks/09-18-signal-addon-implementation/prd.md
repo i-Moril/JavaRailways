@@ -16,7 +16,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - SimpleATO owns operating-route selection, resource inspection scheduling and the single most-restrictive ATO/ATP pipeline.
 - Generic longitudinal dynamics, actuation contracts and physical safety mechanisms shared by manual driving and automation remain in Basic; SimpleATO owns the automated operating policy that consumes them.
 - Each independent signalling system will be a separately compiled Java/Kotlin plugin. It may choose its own JS, YAML or other customization layer; no common script engine is mandatory.
-- Operational route selection is temporarily split between the legacy live-`RailView` `RoutePlanner` and Basic's immutable-`TopologyState` planner. The neutral restriction value/source contract exists, but owner registration and production caller convergence remain unfinished.
+- Operational route selection is temporarily split between the legacy live-`RailView` `RoutePlanner` and Basic's immutable-`TopologyState` planner. The neutral restriction value/source contract and owner/world registration are implemented; production caller convergence remains unfinished.
 
 ## Requirements
 
@@ -103,4 +103,4 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 ## Blocking open questions
 
-None for the route-restriction foundation. Sources compile immutable neutral contributions before search; no plugin callback is evaluated during graph expansion. Registration/lifecycle wiring and SimpleSignals route-table persistence remain later reviewable batches.
+None for the route-restriction foundation. Sources compile immutable neutral contributions before search; no plugin callback is evaluated during graph expansion. Owner/world registration now shares the existing signal lifecycle; SimpleSignals route-table persistence remains a later reviewable batch.

@@ -11,9 +11,9 @@
 触发：迁移或修改 ATO mission、route planning、运行方向、固定/移动闭塞选择、保护区域交互、时刻表 dispatch、MA/stop/speed constraint 合成。
 
 当前迁移状态：SimpleATO的运行方向已能编译成Basic中立的`forbiddenTraversals`，
-`FrozenRouteSelector`调用Basic的不可变拓扑寻路器。Mission、Station、Line和Timetable仍有生产调用
-使用legacy live-`RailView` planner；插件source注册、所有owner限制的查询级合并和这些调用迁移完成前，
-不得声称统一运营寻路已经投入生产。
+`FrozenRouteSelector`调用Basic的不可变拓扑寻路器。插件source已通过共用owner/world lifecycle注册，
+并与运行方向在每次查询前编译、确定性合并。Mission、Station、Line和Timetable仍有生产调用使用legacy
+live-`RailView` planner；这些调用迁移完成前，不得声称统一运营寻路已经投入生产。
 
 ## 2. 模块工作方式
 
@@ -66,6 +66,15 @@ observation解析具名列车。脱轨列车作为无效权威起点被拒绝；
 列车无效和planner拒绝分别是typed internal结果；planner的`INVALID_LOCATION`/`UNREACHABLE`等原始reason不被
 抹平。该接缝不读取live train、不申请资源，也不为测试暴露Basic内部progress cursor；首segment的rail、facing
 和局部起点必须精确对应权威tail，Basic随后仍独立验证这一不变量。
+
+每个world的`RoutePlanningRestrictionRuntime`原子保存一份按namespaced source ID排序的不可变source binding
+快照。Bukkit的`RoutePlanningRestrictionSourceService`按plugin/world整体replace某个owner的全集，并与signal epoch、
+inspection source共用同一个内部owner registry、world unload和`InfrastructureResourceService.unregisterOwner`
+入口，不创建第二套token或卸载状态机。一次`FrozenRouteSelector`查询先捕获source快照，依稳定顺序各调用一次，
+再与运行方向restriction一次性combine；replacement若ID冲突或非法则不发布候选全集。source异常、返回错误topology
+revision或合并失败映射为`INVALID_RESTRICTIONS`，不会启动Dijkstra。正常unregister直接清除这些低频规划callback；
+强制disable也立即清除它们，但仅有规划source注册不会stall world，因为已选择路线已经冻结了其结果，真正active
+restriction、inspection binding、claim和applied-plan dependency仍按各自既有规则fail closed。
 
 生产Dispatcher已经拥有由mission resolver选定的head-forward路线，不能在准入时再跑一次最短路。Core观察
 因此额外发布epoch末实际`bodyTraversal`，即从保守车尾到车头的有序物理路径。内部
@@ -298,6 +307,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 ## 7. 性能、复杂度与退化行为
 
 - 当前内部选路器每次查询从已发布`TopologyState`构造revision-local node→incident-edge只读索引，随后执行Dijkstra。令`P`为可到达入口port状态数、`C`为这些port之间实际展开的合法continuation数、`R_q`为所有候选edge方向过滤实际检查的physical rail slice次数、`S_out`为结果rail slice数，则时间复杂度为`O((P + C) log P + R_q + S_out)`，空间复杂度为`O(P + E)`；不能把高阶turnout的port-pair展开错误地只计成一个edge。它不从live rails重建图、不读取当前道岔选位，也不修改topology；后续批量选路可以按topology root缓存incident-edge索引，但缓存不得跨revision复用。
+- route-planning source全集在低频replace时按ID排序并防御性复制，`K`个source的replacement为`O(K log K)`；一次查询只做`O(1)`快照捕获、每source恰好一次调用和对全部中立span/path的线性合并。plugin callback不进入Dijkstra、tick或资源等待路径。
 - `FrozenRouteSelectionContext`对一次不可变observation以`O(T)`建立train ID索引，随后同一Dispatcher批次的`Q`次列车解析合计`O(Q)`；选路仍只在mission/target/revision事件触发，不得逐tick、逐信号或每次authority extension调用。索引不跨observation保存。
 - production mission route不调用上述Dijkstra。设Core车体跨越`B`个rail occurrence、预选mission含`M`个segment，`FrozenMissionRouteAssembler`在route session建立时做一次`O(B + M)`转换、裁剪和相邻合并；普通下一mission append复制既有`R`个segment并追加`M`项，成本`O(R + M)`且不重新寻路。authority extension复用结果，不重新装配。
 - 当前准入client在首次绑定或成功append后以`O(R)`从segments计算一次restriction route length；pending/denied及普通progress/end的本地状态处理为`O(1)`。完整traversal一致性、资源编译、占用和claim复杂度仍唯一属于Basic。pending期间不轮询路线、不复制资源集合，也不重新发布未变化的旧authority。

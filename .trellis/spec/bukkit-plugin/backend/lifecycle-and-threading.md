@@ -43,6 +43,13 @@ source增删/替换不能静默放宽既有授权：普通replacement经world co
 只有插件已经被强制禁用、callback确定不可再调用时才执行fail-close。binding provider/update handler同步运行在simulation owner，
 必须有界、非阻塞且不得重入source service或直接访问Bukkit world。
 
+`RoutePlanningRestrictionSourceService`也复用上述plugin/world owner registry和唯一
+`InfrastructureResourceService.unregisterOwner`入口。它整体replace某owner的namespaced source bindings；world runtime
+在实际选路前捕获已排序全集并调用每项一次。规划callback不是live train restriction或claim：正常unregister与forced
+disable都直接清除callback，单独存在规划source不阻止停用也不stall world；已冻结路线继续由其route snapshot、Basic验证和
+资源claim约束。若应用中的时刻表依赖该插件定义，则由既有applied-plan dependency先阻止正常unregister，不能把规划source
+注册本身冒充运行期锁。
+
 ## Simulation 与 physics
 
 Bukkit是列车控制的composition owner，但不是动力学owner：它从当前renderer的pinned/live策略解析

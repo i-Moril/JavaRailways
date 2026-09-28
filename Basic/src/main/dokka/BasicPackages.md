@@ -38,3 +38,9 @@ Applied-plan dependency以persistent rail ID、stable topology-node key和runtim
 # Package work.art1st.javarailways.basic.api.route
 
 冻结 route intent、route-metre authority/release boundary、插件附加资源、设备准备参数及 grant result。调用方不提交完整 footprint；Basic 按权威拓扑推导不可删除的 rail、turnout 与 route-bound physical resources，并把经过认证的插件 additions 合并进同一个原子 claim。保护区域与固定闭塞属于具体信号插件，不在本 package 定义。
+
+# Package work.art1st.javarailways.basic.api.route.planning
+
+绑定一个不可变 topology revision 的中立寻路限制：禁止有向轨道区间，以及用完整物理路径替代
+局部自由通行。具体信号插件可把私有联锁/区域模型编译成这些值；本 package 不暴露保护区域、
+信号或资源占用模型。

@@ -40,6 +40,11 @@ capability descriptor，再在同一公开边界检查。
 
 route-window 只描述 region entry/exit。列车需要在出口后继续申请固定闭塞或移动闭塞距离属于后续 plugin route-decision 层，不放回 region model，也不复制旧 Basic `exitClearance` 单窗口合同。
 
+固定进路表仍属于后续SimpleSignals领域功能。宿主现有的中立寻路限制合同允许插件在低频编译时把
+私有区域/联锁表输出为“被替换的有向轨道区间 + 若干完整物理path”；Basic把每条path作为不可拆分
+macro参与查询，不认识region ID，也不在Dijkstra循环中回调插件。当前SimpleSignals尚未定义、持久化
+或注册进路表，不能把该宿主能力描述为已经完成的保护区域选路。
+
 ## 依赖与打包不变量
 
 - 对 `Core`、`Basic`、`SimpleATO`、`BukkitPlugin` 和 Paper 使用 `compileOnly`；运行时由

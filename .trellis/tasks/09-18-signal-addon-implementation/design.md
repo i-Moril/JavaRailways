@@ -25,6 +25,20 @@ SimpleSignals
 
 `BukkitPlugin` keeps RailWand, manual driving, the final host world composition and other low-level tools. It calls the adapter module at explicit lifecycle points rather than delegating lifecycle ownership. Each migrated slice moves its contract, implementation, tests and composition together; the old production owner is then removed.
 
+### Operational route restrictions
+
+Basic owns the deterministic search over one immutable `TopologyState` and a physical-neutral restriction contract.
+Before search, SimpleATO composes its operating direction with contributions compiled by installed owners. A contribution
+may forbid a directed canonical rail span or replace free traversal through several spans with one or more complete,
+physically valid paths. Basic validates these values, builds one query-local graph and represents each complete path as
+one atomic macro edge. Dijkstra therefore cannot splice the first half of one table route to the second half of another.
+
+The interface contains no region, block, signal, interlocking or resource identity. SimpleSignals may use the same
+authored protection-region boundaries for its private route table, but only the neutral spans and complete paths cross
+the module boundary. Plugins are invoked only while compiling immutable contributions before search; graph expansion
+does not call plugin code. The selected macro expands back to a normal frozen route for Basic's independent physical
+validation and later resource admission.
+
 ## Deliverable 2: SimpleSignals
 
 ### Domain model

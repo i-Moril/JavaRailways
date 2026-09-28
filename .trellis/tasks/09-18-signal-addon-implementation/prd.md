@@ -16,6 +16,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - SimpleATO owns operating-route selection, resource inspection scheduling and the single most-restrictive ATO/ATP pipeline.
 - Generic longitudinal dynamics, actuation contracts and physical safety mechanisms shared by manual driving and automation remain in Basic; SimpleATO owns the automated operating policy that consumes them.
 - Each independent signalling system will be a separately compiled Java/Kotlin plugin. It may choose its own JS, YAML or other customization layer; no common script engine is mandatory.
+- Operational route selection is temporarily split between the legacy live-`RailView` `RoutePlanner` and Basic's immutable-`TopologyState` planner. The neutral restriction value/source contract exists, but owner registration and production caller convergence remain unfinished.
 
 ## Requirements
 
@@ -27,6 +28,9 @@ The result must prove that protection regions and fixed blocks are optional poli
 - Keep `SimpleATOBukkit` as the Bukkit/Paper adapter module for platform behavior specifically owned by SimpleATO, such as startup wiring and ATO diagnostics/presentation. `BukkitPlugin` directly constructs/calls it and embeds it in the main plugin JAR; there is one deployable JavaRailways plugin and one Bukkit lifecycle. Generic host rendering/Folia scheduling remains in `BukkitPlugin`, while each independent signal plugin owns its signal presentation and may consume a separately reviewed public host platform API if one is needed.
 - Leave low-level `RailWand`, manual driving and host world/composition behavior in `BukkitPlugin`.
 - Remove old Basic/BukkitPlugin owners as each slice moves; never keep two writable production implementations or add runtime compatibility wrappers for development data without separate approval.
+- Converge operational route selection on the immutable normalized `TopologyState` before exposing an external restriction contract. Basic owns the generic deterministic graph search, while SimpleATO owns composition of operating direction, line/train policy and independently installed plugin constraints for one planning query.
+- External planning constraints must not mutate Core topology, create physical connectivity or bypass Basic validation. They may only restrict a query-local graph and contribute validated complete physical traversal macros; the selected result is expanded to a normal frozen route and independently validated by Basic. Basic must not expose a generic `RouteChoiceZone`/protection-area abstraction: a concrete signal plugin keeps its own region/interlocking model and compiles it into neutral query-graph primitives.
+- Temporary live occupancy or a denied resource claim does not silently remove a route from the planning graph. The default response is to wait; replanning is an explicit higher-level action at a safe boundary.
 
 ### B. Independent `SimpleSignals` plugin
 
@@ -76,6 +80,8 @@ The result must prove that protection regions and fixed blocks are optional poli
 - [ ] Timetable apply/replace/unapply and draft/draining tests prove atomic applied-plan dependency replacement, edit blocking and separation from transient live claims/occupancy waits.
 - [ ] Plugin persistence round-trips current fixtures and rejects/preserves corrupt or orphaned input with actionable diagnostics.
 - [ ] Unit, integration, packaging and Folia smoke checks pass.
+- [ ] Mission, Line, Station and Timetable use one immutable-topology planning path; registered restrictions have identical semantics for all callers and no legacy `RailView` planner remains in production.
+- [ ] A signalling plugin can compile its private interlocking/region model into neutral suppressed traversals plus complete physical traversal macros, without permitting hybrid paths assembled from portions of different table routes; Basic neither defines the region nor accepts any expanded traversal absent from physical topology.
 
 ## Out of scope
 
@@ -97,4 +103,4 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 ## Blocking open questions
 
-None. The Gradle module, plugin and product name is `SimpleSignals`, and the scaffold freezes its Java package root as `work.art1st.javarailways.simplesignals`. Persisted type IDs and script API names remain intentionally unfrozen until their owning domain batches.
+None for the route-restriction foundation. Sources compile immutable neutral contributions before search; no plugin callback is evaluated during graph expansion. Registration/lifecycle wiring and SimpleSignals route-table persistence remain later reviewable batches.

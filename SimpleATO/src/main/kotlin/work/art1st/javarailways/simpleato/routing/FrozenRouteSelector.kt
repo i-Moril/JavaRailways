@@ -4,6 +4,11 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
+import work.art1st.javarailways.basic.route.OperationalRouteLocation
+import work.art1st.javarailways.basic.route.TopologyRoutePlanner
+import work.art1st.javarailways.basic.route.TopologyRoutePlanningInput
+import work.art1st.javarailways.basic.route.TopologyRoutePlanningRejection
+import work.art1st.javarailways.basic.route.TopologyRoutePlanningResult
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 
 /** One observation-scoped train lookup shared by all route selections in a Dispatcher pass. */
@@ -115,10 +120,16 @@ internal object FrozenRouteSelector {
             )
         }
 
+        val restrictions = input.operatingDirections.toRestrictions(input.topology)
+            ?: return FrozenRouteSelectionResult.Rejected(
+                reason = FrozenRouteSelectionRejection.PLANNER_REJECTED,
+                detail = "operating directions reference rails absent from topology revision $topologyRevision",
+                plannerReason = TopologyRoutePlanningRejection.INVALID_RESTRICTIONS
+            )
         val planned = TopologyRoutePlanner.plan(
             TopologyRoutePlanningInput(
                 topology = input.topology,
-                operatingDirections = input.operatingDirections,
+                restrictions = restrictions,
                 start = start,
                 end = input.target,
                 routeId = input.routeId,

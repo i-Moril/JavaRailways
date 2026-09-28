@@ -27,6 +27,8 @@ Current extraction progress:
   `BukkitPlugin` consumers, keep concrete signal rendering in `SimpleSignals`, and do not turn `SimpleATOBukkit` into a
   generic platform bridge merely to share one helper. Move only platform behavior with a real SimpleATO owner/caller.
 - [x] Remove each old production owner after its replacement is wired; a final source audit confirms Basic has no Destination/Station/Depot/Line/Timetable/operating-direction/ATO-policy store or compatibility facade, while BukkitPlugin only composes or presents the SimpleATO-owned stores. Basic's remaining RailObject/WayPoint projections and generic pathfinding/actuation/resource code have distinct shared owners; protection-region ownership has now moved to SimpleSignals.
+- [x] Move the immutable-topology search implementation into Basic and add the neutral forbidden-span/path-replacement contract. Compile SimpleATO operating direction into the same restrictions; keep complete replacement paths atomic in the query graph.
+- [ ] Add owner-scoped source registration/composition and migrate Mission, Station, Line and Timetable from the live-`RailView` planner before deleting it.
 - [ ] Integrate concrete signal sources with the existing SimpleATO inspection declarations, single shared perception scan and dynamic braking-distance comparison; do not build another inspection runtime.
 - [ ] Wire `SimpleSignals` through the existing namespaced most-restrictive restriction pipeline; plugin output cannot widen Basic grants or existing ATO/ATP limits.
 

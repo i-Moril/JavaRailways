@@ -31,6 +31,10 @@
   handler只接收attempt UUID、world UUID、exact stable resource和descriptor，不接收train/route/registry/live Core
   object。迁移直接删除caller-additions constructor和三参数provider registration，不保留兼容overload。
 - Basic production不得import Bukkit/Paper/Minecraft；platform side effect只经`TrainOperationGateway`等semantic adapter。
+- `basic.api.route.planning`的限制值只携带canonical AB米、有向rail UUID、topology revision和完整物理path。
+  `RoutePlanningRestrictionSource`在搜索前低频编译一次immutable value；Dijkstra扩展期间不回调source。该API不得加入
+  protection region、fixed block、signal aspect、resource claim或live world对象。完整编译/校验算法见
+  [route planning](./route-planning.md)。
 - 非Core模块优先`core.api.*`；能力不足先设计最小Core API/value DTO，不能以现存internal import为先例。
 - BukkitPlugin是同仓库composition root，不是第三方add-on contract；它不能把Basic non-API object重新包装成稳定API。
 - Bukkit `InfrastructureResourceService.routeAdmission(plugin, worldId)` 是公开准入service的认证入口：返回值绑定

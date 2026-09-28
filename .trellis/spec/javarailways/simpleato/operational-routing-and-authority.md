@@ -10,6 +10,11 @@
 
 触发：迁移或修改 ATO mission、route planning、运行方向、固定/移动闭塞选择、保护区域交互、时刻表 dispatch、MA/stop/speed constraint 合成。
 
+当前迁移状态：SimpleATO的运行方向已能编译成Basic中立的`forbiddenTraversals`，
+`FrozenRouteSelector`调用Basic的不可变拓扑寻路器。Mission、Station、Line和Timetable仍有生产调用
+使用legacy live-`RailView` planner；插件source注册、所有owner限制的查询级合并和这些调用迁移完成前，
+不得声称统一运营寻路已经投入生产。
+
 ## 2. 模块工作方式
 
 一次正常自动行车决策按以下流程工作：

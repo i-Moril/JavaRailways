@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
+import work.art1st.javarailways.basic.route.OperationalRouteLocation
+import work.art1st.javarailways.basic.route.TopologyRoutePlanningRejection
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -158,7 +160,7 @@ class FrozenRouteSelectorTest {
         ) as FrozenRouteSelectionResult.Rejected
         assertEquals(FrozenRouteSelectionRejection.PLANNER_REJECTED, invalidDirections.reason)
         assertEquals(
-            TopologyRoutePlanningRejection.INVALID_OPERATING_DIRECTIONS,
+            TopologyRoutePlanningRejection.INVALID_RESTRICTIONS,
             invalidDirections.plannerReason
         )
     }

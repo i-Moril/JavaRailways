@@ -4,6 +4,13 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
+import work.art1st.javarailways.basic.api.route.planning.DirectedRailSpan
+import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
+import work.art1st.javarailways.basic.route.OperationalRouteLocation
+import work.art1st.javarailways.basic.route.TopologyRoutePlanner
+import work.art1st.javarailways.basic.route.TopologyRoutePlanningInput
+import work.art1st.javarailways.basic.route.TopologyRoutePlanningRejection
+import work.art1st.javarailways.basic.route.TopologyRoutePlanningResult
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
@@ -326,7 +333,7 @@ class TopologyRoutePlannerTest {
             plan(topology, location(first, 3.0), location(first, 3.0))
         )
         assertRejected(
-            TopologyRoutePlanningRejection.INVALID_OPERATING_DIRECTIONS,
+            TopologyRoutePlanningRejection.INVALID_RESTRICTIONS,
             plan(
                 topology,
                 location(first, 1.0),
@@ -343,7 +350,7 @@ class TopologyRoutePlannerTest {
                 overlayTopologyRevision = topology.revision - 1
             )
         )
-        assertRejected(TopologyRoutePlanningRejection.STALE_OPERATING_DIRECTIONS, stale)
+        assertRejected(TopologyRoutePlanningRejection.STALE_RESTRICTIONS, stale)
     }
 
     private fun plan(
@@ -363,9 +370,20 @@ class TopologyRoutePlannerTest {
         allowedDirections: Map<UUID, ViewDirection> = emptyMap()
     ) = TopologyRoutePlanningInput(
         topology = topology,
-        operatingDirections = OperatingDirectionOverlay(
+        restrictions = RoutePlanningRestrictions(
             topologyRevision = overlayTopologyRevision,
-            allowedDirections = allowedDirections
+            forbiddenTraversals = allowedDirections.map { (railId, permitted) ->
+                val projection = topology.railProjection[railId]?.singleOrNull()
+                val railLength = projection?.let {
+                    kotlin.math.abs(it.railEndAbMeters - it.railStartAbMeters)
+                } ?: 1.0
+                DirectedRailSpan(
+                    railId,
+                    if (permitted == ViewDirection.AB) ViewDirection.BA else ViewDirection.AB,
+                    0.0,
+                    railLength
+                )
+            }
         ),
         start = start,
         end = end,

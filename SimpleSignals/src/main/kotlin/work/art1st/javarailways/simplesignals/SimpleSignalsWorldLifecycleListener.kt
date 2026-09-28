@@ -43,7 +43,8 @@ internal class SimpleSignalsWorldLifecycleListener(
                     null -> "definitions source unavailable"
                 }
                 plugin.logger.info(
-                    "SimpleSignals route planning enabled for world '${world.name}': $source"
+                    "SimpleSignals route planning and section occupancy enabled for world " +
+                        "'${world.name}': $source"
                 )
                 result.diagnostics.forEach(plugin.logger::warning)
             }

@@ -94,7 +94,27 @@ The current foundation compiles each block only on load/authoring. It validates 
 `TopologyState`, derives whole-block Basic occupancy geometry with directed entry/exit boundaries, sums its physical length,
 and publishes a rail-to-block reverse index together with the other world definitions. The sidecar adds `fixedBlocks` to
 schema 1 with an explicit empty default, so this backward-readable additive field does not create a new schema version.
-Resource claiming and the common live section state remain later batches.
+Resource claiming, route-local matching and protection-region observation remain later batches.
+
+The first common live section slice now covers fixed-block occupancy only. On world installation,
+SimpleSignals groups every compiled block area into one host `SignalEpochSource`; Basic derives the
+baseline and changed occupants plus directed ENTER/LEFT crossings in the coherent physics epoch.
+The plugin maps changed area IDs to immutable section observations containing the block identity,
+definition revision, compiled length and conservative occupants. Before the first baseline the
+snapshot is unknown, and an unchanged epoch does not invoke plugin code or replace the snapshot.
+This source emits no speed/authority restriction yet. Protection regions join the same private read
+surface only when concrete interlocking rules need them, because a branching region has no useful
+single physical length.
+
+Live fixed-block geometry editing is temporarily rejected with a typed result before edit permits or
+persistence. The host can replace immutable occupancy sources between epochs, but it does not yet
+offer one transaction spanning plugin sidecar commit, plugin publication and host source replacement;
+ordering those operations independently can leave mismatched live state after failure. Startup from
+persisted definitions remains supported. A region/table-only edit is also rejected before permit or
+persistence when fixed blocks remain installed but the host exposes a different exact topology root:
+otherwise candidate compilation would bind the unchanged definitions to the new root while the live
+occupancy source still monitors geometry from the old root. This is an explicit blocker for the later
+Wand/command authoring batch, not a rollback state machine or compatibility path.
 
 Fixed blocks and protection regions are alternative section boundaries in this model: after all candidate catalogs compile,
 the world runtime rejects any positive-length overlap between a block occupancy interval and a derived protection-region

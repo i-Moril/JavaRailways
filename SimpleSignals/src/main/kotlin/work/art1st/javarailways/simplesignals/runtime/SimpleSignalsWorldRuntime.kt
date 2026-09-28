@@ -9,6 +9,7 @@ import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictionSource
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService
+import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding
@@ -77,6 +78,7 @@ internal enum class SimpleSignalsDefinitionAuthoringStatus {
     EDIT_BLOCKED,
     STALE_TOPOLOGY,
     PERSISTENCE_FAILED,
+    SECTION_OBSERVATION_REPLACEMENT_UNSUPPORTED,
     WORLD_UNAVAILABLE
 }
 
@@ -137,6 +139,9 @@ internal class SimpleSignalsWorldRuntime(
     @Volatile
     private var publication: SimpleSignalsRuntimePublication? = null
 
+    @Volatile
+    private var sectionOccupancy: SectionOccupancyRuntime? = null
+
     val routePlanningBinding = RoutePlanningRestrictionBinding(
         PROTECTION_ROUTE_SOURCE_ID,
         RoutePlanningRestrictionSource { topology ->
@@ -151,10 +156,27 @@ internal class SimpleSignalsWorldRuntime(
             .definitions
     }
 
+    fun currentTopology(): TopologyState = synchronized(lock) {
+        checkNotNull(publication) { "SimpleSignals definitions have not been published for world $worldId" }
+            .topology
+    }
+
     fun fixedBlockSnapshot(topology: TopologyState): FixedBlockReadSnapshot =
         checkNotNull(publication) {
             "SimpleSignals definitions have not been published for world $worldId"
         }.fixedBlocks.snapshot(topology)
+
+    /** Installs immutable fixed-block monitoring geometry exactly once for this world load. */
+    fun initializeSectionOccupancy(): SectionOccupancyRuntime = synchronized(lock) {
+        check(sectionOccupancy == null) { "section occupancy is already initialized for world $worldId" }
+        SectionOccupancyRuntime.from(
+            checkNotNull(publication) {
+                "SimpleSignals definitions have not been published for world $worldId"
+            }
+        ).also { sectionOccupancy = it }
+    }
+
+    fun sectionOccupancySnapshot(): SectionOccupancySnapshot? = sectionOccupancy?.snapshot()
 
     fun prepareDefinitions(
         topology: TopologyState,
@@ -457,7 +479,8 @@ internal class SimpleSignalsWorldRuntimeManager(
     private val plugin: Plugin,
     private val infrastructure: InfrastructureResourceService,
     private val routePlanningSources: RoutePlanningRestrictionSourceService,
-    private val definitions: SimpleSignalsWorldDefinitionStore
+    private val definitions: SimpleSignalsWorldDefinitionStore,
+    private val signalEpochSources: SignalEpochSourceService
 ) {
     private val lock = Any()
     private val runtimes = linkedMapOf<UUID, SimpleSignalsWorldRuntime>()
@@ -529,6 +552,19 @@ internal class SimpleSignalsWorldRuntimeManager(
                 "SimpleSignals definitions were rejected: ${initial.diagnostics.joinToString()}"
             )
         }
+        val sectionOccupancy = runtime.initializeSectionOccupancy()
+        try {
+            signalEpochSources.replaceSources(
+                plugin,
+                worldId,
+                listOfNotNull(sectionOccupancy.source)
+            )
+        } catch (failure: Exception) {
+            return@synchronized unavailable(
+                worldId,
+                "SimpleSignals section occupancy could not be registered: ${describe(failure)}"
+            )
+        }
         try {
             routePlanningSources.replaceRoutePlanningSources(
                 plugin,
@@ -536,8 +572,8 @@ internal class SimpleSignalsWorldRuntimeManager(
                 listOf(runtime.routePlanningBinding)
             )
         } catch (failure: Exception) {
-            return@synchronized SimpleSignalsWorldInstallResult(
-                SimpleSignalsWorldInstallStatus.UNAVAILABLE,
+            return@synchronized unavailable(
+                worldId,
                 "SimpleSignals route source could not be registered: ${describe(failure)}"
             )
         }
@@ -593,12 +629,26 @@ internal class SimpleSignalsWorldRuntimeManager(
                 application.diagnostics
             )
         }
+        if (candidate.fixedBlocks != current.fixedBlocks) {
+            return@synchronized authoringResult(
+                SimpleSignalsDefinitionAuthoringStatus.SECTION_OBSERVATION_REPLACEMENT_UNSUPPORTED,
+                "live fixed-block geometry replacement is not yet atomic with the host section " +
+                    "occupancy source; live editing remains disabled until that transaction boundary exists"
+            )
+        }
         val topology = try {
             infrastructure.currentTopology(worldId)
         } catch (failure: Exception) {
             return@synchronized authoringResult(
                 SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
                 "current topology is unavailable: ${describe(failure)}"
+            )
+        }
+        if (current.fixedBlocks.isNotEmpty() && topology !== runtime.currentTopology()) {
+            return@synchronized authoringResult(
+                SimpleSignalsDefinitionAuthoringStatus.SECTION_OBSERVATION_REPLACEMENT_UNSUPPORTED,
+                "topology root changed while fixed-block section occupancy still uses the installed " +
+                    "geometry; republish requires the future atomic source-replacement boundary"
             )
         }
         val prepared = when (val preparation = runtime.prepareDefinitions(topology, candidate)) {
@@ -814,6 +864,11 @@ internal class SimpleSignalsWorldRuntimeManager(
         diagnostics: List<String> = emptyList()
     ): SimpleSignalsWorldInstallResult {
         val allDiagnostics = diagnostics.toMutableList()
+        try {
+            signalEpochSources.replaceSources(plugin, worldId, emptyList())
+        } catch (failure: Exception) {
+            allDiagnostics += "Could not clear section occupancy source: ${describe(failure)}"
+        }
         try {
             routePlanningSources.replaceRoutePlanningSources(
                 plugin,

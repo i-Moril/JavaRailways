@@ -15,7 +15,8 @@ class SimpleSignalsPlugin : JavaPlugin() {
             this,
             services.infrastructure(),
             services.routePlanningSources(),
-            SimpleSignalsWorldDefinitionStore(dataFolder)
+            SimpleSignalsWorldDefinitionStore(dataFolder),
+            services.signalEpochSources()
         )
         val listener = SimpleSignalsWorldLifecycleListener(this, runtimes)
         server.pluginManager.registerEvents(listener, this)

@@ -50,8 +50,10 @@ one complete snapshot bound to the new route, even when that snapshot contains n
 3. Register one route contributor when the signal policy needs additive resources. The contributor
    is called once for a route request and may only add validated resources and hold boundaries;
    Basic independently restores the mandatory rail, turnout and diamond footprint.
-4. Install a nonempty complete `SignalEpochSource` set for each world. Its callback receives only
-   baseline/changed monitored areas and returns complete restriction snapshots synchronously.
+4. Install the complete `SignalEpochSource` set for each world. A nonempty set receives only
+   baseline/changed monitored areas and returns complete restriction snapshots synchronously. An
+   empty replacement clears only this owner's epoch sources after retained restrictions are
+   withdrawn; it preserves inspection, route-planning and infrastructure ownership.
 5. Install a complete `InspectionSource` set. The host invokes each provider only after selecting an
    exact production route; publish dependency changes through `markInspectionDeclarationsDirty`.
 6. Install a complete route-planning source set when the plugin restricts path choice. Each source

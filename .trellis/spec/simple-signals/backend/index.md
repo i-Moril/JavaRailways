@@ -7,8 +7,9 @@
 JavaRailways 主 JAR 的组成部分，也不能复制、shadow 或直接导入宿主实现包。
 
 当前已建立部署边界、严格current-model世界定义sidecar、保护区域领域核心、固定保护进路表和固定闭塞定义的低频编译器，
-以及把存档编译结果原子发布到实际world runtime。固定闭塞当前只提供拓扑验证、route-local反向索引、长度和Basic监测区几何；
-尚未建立资源申请、section运行状态、inspection、信号规则、渲染、命令或 JS/YAML接口，不得把 foundation 描述为可用信号系统。
+以及把存档编译结果原子发布到实际world runtime。固定闭塞还把已编译Basic监测区接入host physics epoch，并发布
+plugin-local immutable section occupancy snapshot；尚未建立资源申请、route-local exact match、inspection、信号规则、渲染、
+命令或 JS/YAML接口，不得把 foundation 描述为可用信号系统。
 
 ## 工作方式
 
@@ -128,6 +129,13 @@ publication同时建立`rail UUID -> block IDs`反向索引。给定冻结路线
 interval合并），route-local候选发现为`O(R+K log K)`，其中`R`是route segment数、`K`是唯一候选数。这些工作均不进入physics tick；
 后续common section observation只消费已编译length/geometry/snapshot，不重新解析定义。
 
+world install会把全部固定闭塞的已编译occupancy geometry组成一个
+`simplesignals:section-occupancy` source；没有固定闭塞时以owner-scoped empty replacement明确清空该类source，不创建占位监测区。
+Basic在同一physics epoch完成occupant和ENTER/LEFT推导，SimpleSignals callback只把changed area ID映射回fixed-block section并原子发布
+不可变occupancy snapshot，输出始终为空restriction。首次callback必须为全部block建立baseline；此前snapshot为unknown而不是空占用。
+后续occupant/crossing不变时host不会调用callback，snapshot对象保持不变。因此没有新tick loop，也没有
+`all trains x all blocks`扫描。保护区域尚未加入这个common read surface；等具体联锁规则需要时复用同一接口，不提前虚构全局长度语义。
+
 同一world candidate完整编译后、outer publication替换前，runtime还会用已编译interval检查fixed block与所有保护区域的正长度interior
 重叠；大于`Curve.TOLERANCE`的交集拒绝整批candidate，只有共用边界点允许。失败不取得edit permit、不写盘且保留旧publication。
 这个检查只发生在load/authoring路径，不进入tick。当前不规定两个fixed block之间能否重叠；双向block是否共享物理范围属于后续信号规则，
@@ -150,6 +158,13 @@ permit取得后再次要求`currentTopology(worldId)`与prepared root是同一�
 revision/patch/validation、host conflict/stale、persistence和world unavailable使用不同typed result；host拒绝时保留原始
 `TopologyEditDecision`及blocker diagnostics。任一步失败都保留旧publication；save在替换primary前只写staging文件，替换primary
 是唯一commit point，之后backup rotation只作best-effort recovery维护，不能把已提交primary误报为失败。
+
+当前host没有把插件definition publication、sidecar commit和immutable `SignalEpochSource.areas` replacement合并为一个事务的
+公开边界。为避免新definition配旧监测区或反向错配，已安装world上的fixed-block增删/改形会在permit和写盘前返回typed
+`SECTION_OBSERVATION_REPLACEMENT_UNSUPPORTED`。即使patch只修改region/table，只要当前world仍有fixed block且host的exact
+topology root已经变化，也必须在permit和写盘前同样拒绝；不能把按新root重编译的block publication与旧root安装的监测几何配对。
+启动时从持久化定义完整编译并安装不受影响。不得用rollback token、占位area或短暂错配绕过。后续必须先单独评审原子replacement
+边界，再恢复live fixed-block authoring。
 
 authoring是低频路径：patch map操作为`O(D)`。设fixed-block traversal总数为`T`、合并后interval数为`F`，跨section检查实际比较
 `H`个rail-local候选，则完整candidate编译为`O(V+E+S+P log Q+T log T+S log S+F log S+H)`；affected-rail并集与写盘为定义规模线性。

@@ -12,7 +12,9 @@
 
 独立信号/ATO附属插件的正常停用必须先显式unapply其计划依赖，再调用唯一的
 `InfrastructureResourceService.unregisterOwner`。该调用同时负责插件的基础资源注册和信号source全集；
-`SignalEpochSourceService`不提供第二个owner删除入口，空source replacement也不能绕过统一检查。
+`SignalEpochSourceService`不提供第二个完整owner删除入口。它允许空epoch-source replacement只清空该插件在该world的
+区间占用callback；同owner的inspection、route-planning和infrastructure注册保持不变。如果三类signal source均为空，
+内部可丢弃空owner记录，但这不等于`InfrastructureResourceService.unregisterOwner`，也不能删除基础资源owner。
 该调用只是可检查的pre-disable步骤，不会也不能替Bukkit禁用插件；任一world仍有applied-plan dependency、pending
 route reservation、非空host-owned claim或该插件source发布的非空restriction流时抛出诊断，并且在删除任何一侧注册前
 完成全部只读检查。无关列车、仅已安装但restriction流均为空的source不阻止停用。`PluginDisableEvent`本身不可取消，
@@ -28,8 +30,9 @@ fail-close该world，不能让后续suffix申请少执行一套信号策略。
 `Bukkit.isStopping()`时走正常world/service close，不把服务器shutdown误报为附属插件故障。不使用永久owner tombstone、
 启用周期token、自动drain、跨插件实例继承或恢复状态机。
 
-`SignalEpochSourceService`同样绑定plugin instance和exact world runtime。非空全集replacement可删除其中部分source ID，
-但删除前插件必须先对每个对应`(sourceId, trainId)`流发布更高revision的空restriction snapshot；完整owner删除只由上述
+`SignalEpochSourceService`同样绑定plugin instance和exact world runtime。全集replacement可删除其中部分或全部epoch source ID，
+但删除前插件必须先对每个对应`(sourceId, trainId)`流发布更高revision的空restriction snapshot；空replacement只影响
+epoch source类别，完整owner删除仍只由上述
 统一pre-disable入口执行。source全集在simulation context内一次替换，不与physics epoch交错。若附属插件被强制禁用，
 host总是删除失效callback，但只在仍有非空owner restriction时Stall该world；world unload与JavaRailways shutdown只清理
 binding，不误报故障。基础资源和signal的强制清理由同一个listener触发，不维护两套disable顺序。

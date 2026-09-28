@@ -67,7 +67,7 @@ class DefaultSignalEpochSourceServiceTest {
     }
 
     @Test
-    fun `unified planned removal requires empty owner restrictions and empty replacement cannot bypass it`() {
+    fun `empty epoch replacement still requires withdrawn restrictions and preserves infrastructure ownership`() {
         val signalService = DefaultSignalEpochSourceService()
         val infrastructureService = DefaultInfrastructureResourceService(signalService)
         val worldId = UUID.randomUUID()
@@ -82,9 +82,10 @@ class DefaultSignalEpochSourceServiceTest {
         signalService.replaceSources(owner, worldId, listOf(source("test:main", 0.0) { calls++ }))
         infrastructureService.registerRouteResourceContributor(owner, contributor)
 
-        assertThrows(IllegalArgumentException::class.java) {
+        val removalFailure = assertThrows(IllegalStateException::class.java) {
             signalService.replaceSources(owner, worldId, emptyList())
         }
+        assertEquals(true, removalFailure.message.orEmpty().contains("train/test:main@4"))
         val failure = assertThrows(IllegalStateException::class.java) {
             infrastructureService.unregisterOwner(owner)
         }
@@ -96,11 +97,60 @@ class DefaultSignalEpochSourceServiceTest {
         assertEquals(1, calls)
 
         active = emptyList()
+        signalService.replaceSources(owner, worldId, emptyList())
+        runtime.process(frame(2L))
+        assertEquals(1, calls)
+
+        // Clearing epoch callbacks is not complete owner removal; the contributor remains owned.
+        assertThrows(IllegalStateException::class.java) {
+            infrastructureService.registerRouteResourceContributor(owner, contributor)
+        }
+
         infrastructureService.unregisterOwner(owner)
         infrastructureService.unregisterOwner(owner)
         infrastructureService.registerRouteResourceContributor(owner, contributor).close()
-        runtime.process(frame(2L))
+        runtime.process(frame(3L))
         assertEquals(1, calls)
+    }
+
+    @Test
+    fun `empty epoch replacement preserves inspection and route planning registrations`() {
+        val service = DefaultSignalEpochSourceService()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("combined")
+        val otherOwner = plugin("other")
+        val epochRuntime = runtime()
+        val inspectionRuntime = inspectionRuntime()
+        val planningRuntime = RoutePlanningRestrictionRuntime()
+        var epochCalls = 0
+        service.registerWorld(
+            worldId,
+            epochRuntime,
+            inspectionRuntime,
+            { emptyList() },
+            planningRuntime
+        ) { reason, failure -> throw IllegalStateException(reason, failure) }
+        service.replaceSources(owner, worldId, listOf(source("test:epoch", 0.0) { epochCalls++ }))
+        service.replaceInspectionSources(owner, worldId, listOf(inspectionSource()))
+        service.replaceRoutePlanningSources(owner, worldId, listOf(routePlanningSource("test:planning")))
+
+        service.replaceSources(owner, worldId, emptyList())
+        epochRuntime.process(frame(1L))
+        inspectionRuntime.synchronizeRoute(
+            work.art1st.javarailways.basic.api.observation.RailwayStateStamp("world", 1L, 7L),
+            "train",
+            inspectionRoute()
+        )
+
+        assertEquals(0, epochCalls)
+        assertEquals(80.0, inspectionRuntime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertThrows(IllegalArgumentException::class.java) {
+            service.replaceRoutePlanningSources(
+                otherOwner,
+                worldId,
+                listOf(routePlanningSource("test:planning"))
+            )
+        }
     }
 
     @Test

@@ -43,8 +43,9 @@ Current extraction progress:
 - [x] Add the plugin-local protection definition patch transaction: expected-revision create/update/delete composition, fresh prepare/compile, exact old+new affected-rail edit permit, persistence-before-publication commit and typed failure diagnostics. Retained region/table revisions are monotonic, and every failure preserves the old disk/live state.
 - [ ] Connect the completed authoring transaction and diagnostics to a SimpleSignals-owned RailObjectWand/command mode; no UI caller exists yet.
 - [x] Remove Basic's protection-region request/claim/validator API and `PROTECTION_REQUIRED` policy after confirming the generic route-resource runtime is the production path. Keep and rename the generic tail-release controller used by that runtime.
-- [x] Add plugin-owned fixed-block definitions, exact-topology compilation, route-local reverse index, derived Basic occupancy geometry, protection-interior non-overlap validation and atomic world-definition authoring/persistence.
-- [ ] Add the plugin-local common section observation interface when the concrete fixed-block/protection signal rules require it.
+- [x] Add plugin-owned fixed-block definitions, exact-topology compilation, route-local reverse index, derived Basic occupancy geometry, protection-interior non-overlap validation and current-model persistence. The patch model validates fixed-block edits, while live geometry publication remains gated by the atomic source-replacement item below.
+- [x] Add the first plugin-local common section observation slice for fixed blocks: one host physical-epoch source publishes immutable baseline/changed occupancy and directed crossings, while unchanged blocks remain idle. Protection regions join only with concrete interlocking rules.
+- [ ] Define an atomic host transaction for live fixed-block geometry source replacement before wiring fixed-block Wand/command edits. Until then the runtime rejects those patches before permit/persistence instead of risking definition/monitor mismatch.
 
 ## Route and resource integration
 

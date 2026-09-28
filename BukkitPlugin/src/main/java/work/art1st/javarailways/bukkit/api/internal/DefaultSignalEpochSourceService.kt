@@ -69,9 +69,6 @@ internal class DefaultSignalEpochSourceService :
             "Cannot install signal sources for disabled plugin ${pluginOwner.name}"
         }
         val replacement = java.util.List.copyOf(sources)
-        require(replacement.isNotEmpty()) {
-            "Signal source replacement cannot be empty; use InfrastructureResourceService.unregisterOwner"
-        }
         synchronized(lock) {
             check(!closed) { "SignalEpochSourceService is closed" }
             val world = checkNotNull(worlds[worldId]) {
@@ -92,7 +89,7 @@ internal class DefaultSignalEpochSourceService :
 
             val candidate = ownerSets.toMutableList()
             if (existingIndex >= 0) candidate.removeAt(existingIndex)
-            candidate += replacementOwner
+            if (!replacementOwner.isEmpty()) candidate += replacementOwner
             validateSourceOwnership(candidate)
             world.runtime.replaceSources(candidate.flatMap(OwnerSources::epochSources))
 
@@ -358,6 +355,9 @@ internal class DefaultSignalEpochSourceService :
         addAll(restrictionSourceIds())
         routePlanningSources.mapTo(this) { it.sourceId }
     }
+
+    private fun OwnerSources.isEmpty(): Boolean =
+        epochSources.isEmpty() && inspectionSources.isEmpty() && routePlanningSources.isEmpty()
 
     private fun validateSourceOwnership(ownerSets: Collection<OwnerSources>) {
         val ownersBySource = linkedMapOf<String, Plugin>()

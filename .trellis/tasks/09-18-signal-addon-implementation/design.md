@@ -54,7 +54,8 @@ Conceptual shapes, not frozen public Java names:
 - `SignalDefinition`: stable ID, directed rail position, model/style and plugin policy reference.
 - `RegionBoundary`: stable ID, canonical rail position, direction and entry/exit role.
 - `ProtectionRegion`: stable ID, boundary set and definition revision; its disposable resolved snapshot additionally records the topology revision.
-- `FixedBlock`: stable ID, directed extent and plugin-local policy.
+- `FixedBlock`: stable ID/revision and one complete ordered directed physical traversal; its length,
+  occupancy geometry and route-local reverse index are derived against one exact topology root.
 - `SignalDependency`: occupancy/grant/section/downstream-signal dependency used for reactive invalidation.
 - `SignalState`: restrictive limit, model variant and diagnostics derived for one train/direction.
 - `SignalWorldRuntime`: immutable definition/index snapshots plus current dependency graph and render handles.
@@ -89,6 +90,18 @@ Basic either claims the complete union or none. A confirmed Basic grant is neces
 
 Fixed blocks are plugin-owned definitions. Entering one normally adds its whole block resource and holds it until the train tail clears the plugin-defined boundary. Protection regions and fixed blocks may implement a common plugin-local read surface—occupancy, length, grant state and downstream limit—but this interface is not a Basic `AuthoritySection`.
 
+The current foundation compiles each block only on load/authoring. It validates the ordered traversal against one exact
+`TopologyState`, derives whole-block Basic occupancy geometry with directed entry/exit boundaries, sums its physical length,
+and publishes a rail-to-block reverse index together with the other world definitions. The sidecar adds `fixedBlocks` to
+schema 1 with an explicit empty default, so this backward-readable additive field does not create a new schema version.
+Resource claiming and the common live section state remain later batches.
+
+Fixed blocks and protection regions are alternative section boundaries in this model: after all candidate catalogs compile,
+the world runtime rejects any positive-length overlap between a block occupancy interval and a derived protection-region
+interior before its single publication swap. A shared cut point is allowed. This is a low-frequency cross-catalog validation;
+it is never repeated per tick. The foundation deliberately leaves fixed-block-to-fixed-block overlap unspecified until the
+semantics of opposite-direction definitions are frozen.
+
 When the protection-region exit leads into a fixed block, the plugin can extend the requested authority through that block according to its signal rules. When it leads into moving-block territory, it may choose an exact frozen-route boundary based on SimpleATO braking/following state. The region object does not recursively call its successor; the plugin's route-decision layer sees the ordered route-local observations and constructs one intent.
 
 ### Inspection and reactive updates
@@ -99,6 +112,13 @@ its per-train/route inspection declarations and owns any downstream reverse-depe
 declarations through its one shared perception and owns current-speed braking. The plugin does not reevaluate all signals or run
 arbitrary JS every tick. Scripts, if the plugin offers them, receive immutable bounded views and return requests/restrictions/model
 variants through plugin-controlled APIs; they never mutate the Minecraft world or Basic registry directly.
+
+The reviewed propagation direction is a directed provider-to-consumer invalidation chain, not a fixed-point solver. Occupancy,
+the currently active turnout continuation and changed downstream section output may enqueue only registered upstream consumers;
+consumers never enqueue their providers. Each node runs at most once in one wave and an unchanged output ends propagation on
+that branch. Core remains the authority for live directed active continuations. A future general immutable same-physics-epoch
+snapshot exposes `entry endpoint -> selected exit endpoint?`; Basic only projects it and any consumer may read it. That Core/Basic
+observation addition is a prerequisite for turnout-aware dependency selection and is deliberately not implemented in the fixed-block batch.
 
 ### Rendering and customization
 
@@ -116,7 +136,7 @@ Plugin definitions and operational objects referenced by an applied timetable ar
 
 SimpleSignals definition authoring uses one plugin-local patch transaction rather than exposing mutable catalogs. A patch checks an expected
 world-definition revision, creates one complete revision+1 candidate, and rejects empty/redundant/conflicting operations before host coordination.
-The runtime prepares fresh region and fixed-route catalogs against one exact immutable topology without changing the live source. The prepared
+The runtime prepares fresh region, fixed-route and fixed-block catalogs against one exact immutable topology without changing the live source. The prepared
 value retains its base publication identity and old/new exact rail impacts, including boundaries, resolved interiors and route traversals.
 
 The manager acquires the existing host edit permit for the union of old and new rail impacts, rechecks the exact topology root, then invokes the
@@ -128,8 +148,9 @@ transaction is the sole future seam for Wand/command callers, which remain unimp
 ## Persistence and lifecycle
 
 SimpleATO and every signal plugin own separate persistence boundaries. `SimpleSignals` now stores schema-version-1 world definitions in
-`<dataFolder>/worlds/<world UUID>-definitions.json`, with a same-directory `.bak`. It persists only authored region boundaries and complete
-fixed-route traversals using namespaced IDs, canonical UUIDs/AB metres and `ViewDirection`; derived interiors and compiled restrictions are rebuilt.
+`<dataFolder>/worlds/<world UUID>-definitions.json`, with a same-directory `.bak`. It persists only authored region boundaries, complete
+fixed-route traversals and fixed-block traversals using namespaced IDs, canonical UUIDs/AB metres and `ViewDirection`; derived interiors,
+occupancy geometry, indexes and compiled restrictions are rebuilt.
 The strict current codec rejects unknown fields, versions and wrong world identity. Missing files start as an unwritten empty revision 0;
 an invalid primary may be read from a valid backup without overwriting either input, while no valid candidate leaves the world unavailable.
 Startup publishes no usable route source until decode, topology binding and complete compilation have all succeeded. A corrupt/orphaned
@@ -158,7 +179,7 @@ Development data migration, if required, is a separate auditable one-time tool w
 
 - Region derivation is proportional to the affected topology subgraph during create/update/load, never per tick.
 - Route matching is linear in the relevant frozen-route range plus indexed resource hits.
-- Dependency invalidation is proportional to affected resources/edges; a cycle or non-stabilizing plugin dependency fails restrictive with diagnostics.
+- Dependency invalidation is proportional to the affected one-way provider-to-consumer chain; construction must reject a dependency that would point downstream again rather than trying to settle a cycle at runtime.
 - Basic admission is one physical projection plus additions and one atomic claim.
 - Missing indexes, stale revisions, invalid script output, plugin exception, forced owner loss or preparation uncertainty cannot widen authority.
 

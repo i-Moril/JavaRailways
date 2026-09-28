@@ -30,6 +30,8 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding
+import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
+import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteDefinition
@@ -235,6 +237,43 @@ class SimpleSignalsWorldRuntimeManagerTest {
                 SimpleSignalsDefinitionPatch()
             ).status
         )
+    }
+
+    @Test
+    fun `persisted orphan fixed block installs only a fail closed source`() {
+        val fixture = Fixture()
+        val orphan = FixedBlockDefinition(
+            "test:orphan-block",
+            1L,
+            listOf(FixedBlockTraversal(UUID(9L, 9L), ViewDirection.AB, 0.0, 1.0))
+        )
+        val store = store()
+        store.save(
+            fixture.worldId,
+            SimpleSignalsWorldDefinitions(
+                fixture.worldId,
+                1L,
+                emptyList(),
+                emptyList(),
+                listOf(orphan)
+            )
+        )
+        val registrations = CapturingRoutePlanningService()
+        val manager = SimpleSignalsWorldRuntimeManager(
+            plugin(),
+            MutableTopologyService(fixture.currentTopology).service,
+            registrations,
+            store
+        )
+
+        val unavailable = manager.install(fixture.worldId)
+
+        assertEquals(SimpleSignalsWorldInstallStatus.UNAVAILABLE, unavailable.status)
+        assertTrue(unavailable.detail.contains("rejected"))
+        assertEquals(1, registrations.replacementCount)
+        assertThrows(IllegalStateException::class.java) {
+            registrations.single(fixture.worldId).source.restrictions(fixture.currentTopology)
+        }
     }
 
     @Test
@@ -527,6 +566,152 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertFalse(Files.exists(seedStore.backupFile(fixture.worldId)))
         assertSame(retainedRestrictions, binding.source.restrictions(fixture.currentTopology))
         assertEquals(1, infrastructure.permitCloseCount)
+    }
+
+    @Test
+    fun `fixed block patch compiles persists and protects every affected rail with one publication`() {
+        val fixture = Fixture()
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val store = store()
+        val manager = SimpleSignalsWorldRuntimeManager(
+            plugin(), infrastructure.service, CapturingRoutePlanningService(), store
+        )
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val block = FixedBlockDefinition(
+            "test:approach-block",
+            1L,
+            listOf(
+                FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0)
+            )
+        )
+
+        val applied = manager.applyDefinitionPatch(
+            fixture.worldId,
+            0L,
+            SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(block))
+        )
+
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, applied.status)
+        assertEquals(1L, applied.definitions?.definitionRevision)
+        assertEquals(listOf(block), applied.definitions?.fixedBlocks)
+        assertEquals(setOf(fixture.entry), infrastructure.lastEditRequest!!.impact.railIds)
+        assertEquals(1, infrastructure.permitAcquisitionCount)
+        assertEquals(1, infrastructure.permitCloseCount)
+        val loaded = assertInstanceOf(
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded::class.java,
+            store.load(fixture.worldId)
+        ).definitions
+        assertEquals(listOf(block), loaded.fixedBlocks)
+
+        val rejected = manager.applyDefinitionPatch(
+            fixture.worldId,
+            1L,
+            SimpleSignalsDefinitionPatch(
+                upsertFixedBlocks = listOf(
+                    FixedBlockDefinition(
+                        block.blockId,
+                        2L,
+                        listOf(
+                            FixedBlockTraversal(fixture.entry, ViewDirection.AB, 5.0, 10.0),
+                            FixedBlockTraversal(fixture.lowerOut, ViewDirection.AB, 0.0, 10.0)
+                        )
+                    )
+                )
+            )
+        )
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED, rejected.status)
+        assertEquals(1, infrastructure.permitAcquisitionCount)
+        assertEquals(listOf(block), assertInstanceOf(
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded::class.java,
+            store.load(fixture.worldId)
+        ).definitions.fixedBlocks)
+
+        val removed = manager.applyDefinitionPatch(
+            fixture.worldId,
+            1L,
+            SimpleSignalsDefinitionPatch(removeFixedBlockIds = listOf(block.blockId))
+        )
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, removed.status)
+        assertEquals(2L, removed.definitions?.definitionRevision)
+        assertEquals(emptyList<FixedBlockDefinition>(), removed.definitions?.fixedBlocks)
+        assertEquals(setOf(fixture.entry), infrastructure.lastEditRequest!!.impact.railIds)
+        assertEquals(2, infrastructure.permitAcquisitionCount)
+        assertEquals(2, infrastructure.permitCloseCount)
+        assertEquals(emptyList<FixedBlockDefinition>(), assertInstanceOf(
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded::class.java,
+            store.load(fixture.worldId)
+        ).definitions.fixedBlocks)
+    }
+
+    @Test
+    fun `definition patch defensively copies fixed block edits`() {
+        val block = FixedBlockDefinition(
+            "test:block",
+            1L,
+            listOf(FixedBlockTraversal(UUID(0L, 1L), ViewDirection.AB, 0.0, 1.0))
+        )
+        val upserts = mutableListOf(block)
+        val removals = mutableListOf("test:removed")
+
+        val patch = SimpleSignalsDefinitionPatch(
+            upsertFixedBlocks = upserts,
+            removeFixedBlockIds = removals
+        )
+        upserts.clear()
+        removals.clear()
+
+        assertEquals(listOf(block), patch.upsertFixedBlocks)
+        assertEquals(listOf("test:removed"), patch.removeFixedBlockIds)
+    }
+
+    @Test
+    fun `fixed block and protection interior overlap rejects the whole candidate publication`() {
+        val fixture = Fixture()
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val store = store()
+        val manager = SimpleSignalsWorldRuntimeManager(
+            plugin(), infrastructure.service, CapturingRoutePlanningService(), store
+        )
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val outsideBlock = FixedBlockDefinition(
+            "test:approach-block",
+            1L,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0))
+        )
+        val initial = manager.applyDefinitionPatch(
+            fixture.worldId,
+            0L,
+            SimpleSignalsDefinitionPatch(
+                upsertRegions = listOf(fixture.region),
+                upsertFixedBlocks = listOf(outsideBlock)
+            )
+        )
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, initial.status)
+        val storedBefore = Files.readString(store.primaryFile(fixture.worldId))
+
+        val overlap = FixedBlockDefinition(
+            outsideBlock.blockId,
+            2L,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 5.0, 10.0))
+        )
+        val rejected = manager.applyDefinitionPatch(
+            fixture.worldId,
+            1L,
+            SimpleSignalsDefinitionPatch(
+                upsertFixedBlocks = listOf(overlap)
+            )
+        )
+
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED, rejected.status)
+        assertTrue(rejected.diagnostics.single().contains("overlaps protection region"))
+        assertEquals(1, infrastructure.permitAcquisitionCount)
+        assertEquals(storedBefore, Files.readString(store.primaryFile(fixture.worldId)))
+        val retained = assertInstanceOf(
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded::class.java,
+            store.load(fixture.worldId)
+        ).definitions
+        assertEquals(listOf(fixture.region), retained.regions)
+        assertEquals(listOf(outsideBlock), retained.fixedBlocks)
     }
 
     private fun store() = SimpleSignalsWorldDefinitionStore(directory.toFile())

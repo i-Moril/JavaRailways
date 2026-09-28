@@ -43,12 +43,13 @@ Current extraction progress:
 - [x] Add the plugin-local protection definition patch transaction: expected-revision create/update/delete composition, fresh prepare/compile, exact old+new affected-rail edit permit, persistence-before-publication commit and typed failure diagnostics. Retained region/table revisions are monotonic, and every failure preserves the old disk/live state.
 - [ ] Connect the completed authoring transaction and diagnostics to a SimpleSignals-owned RailObjectWand/command mode; no UI caller exists yet.
 - [x] Remove Basic's protection-region request/claim/validator API and `PROTECTION_REQUIRED` policy after confirming the generic route-resource runtime is the production path. Keep and rename the generic tail-release controller used by that runtime.
-- [ ] Add plugin-owned fixed-block definitions and the plugin-local common section observation interface if the reference rules need it.
+- [x] Add plugin-owned fixed-block definitions, exact-topology compilation, route-local reverse index, derived Basic occupancy geometry, protection-interior non-overlap validation and atomic world-definition authoring/persistence.
+- [ ] Add the plugin-local common section observation interface when the concrete fixed-block/protection signal rules require it.
 
 ## Route and resource integration
 
 - [x] Index protection-region gates/interiors by topology plus plugin-definition revision and rebuild only on catalog publication, outside the tick loop.
-- [ ] Index fixed blocks by topology plus plugin-definition revision outside the tick loop.
+- [x] Index fixed blocks by exact topology root plus plugin-definition revision outside the tick loop.
 - [ ] Match only resources reached by the shared frozen-route perception and validate entry/interior/exit traversal.
 - [ ] Implement the plugin route-decision layer that chooses a post-exit authority boundary for fixed- or moving-block territory without recursive Basic contributors.
 - [ ] Submit only additive flank/approach/block resources; rely on Basic to derive every rail/turnout/diamond physical resource.
@@ -59,10 +60,10 @@ Current extraction progress:
 
 ## Reactive signal state and customization
 
-- [ ] Review the deferred reactive design with the user before implementing this section; settle scheduler/dependency ownership and the minimum cache/index needed.
+- [x] Review the deferred reactive design: SimpleSignals owns a one-way provider-to-upstream-consumer invalidation chain; no fixed-point solver or host-owned dependency graph. Record the future Core active-continuation snapshot prerequisite without implementing it in this batch.
 - [ ] Implement only the dependency/invalidation mechanism approved in that review; update affected signals without a world-wide scan.
 - [ ] Prove unchanged resources remain idle and stale permissive outputs cannot survive invalidation.
-- [ ] Propagate changed downstream state only as far as needed; stop when an output is unchanged and fail closed if an actual feedback loop cannot settle.
+- [ ] Propagate changed downstream state only as far as needed; stop when an output is unchanged and reject dependency construction that would introduce reverse/downstream feedback.
 - [ ] Define `SimpleSignals` Java/Kotlin aspect/block/interlocking rules before adding scripts.
 - [ ] In a separately reviewed batch, define optional JS/YAML input views, setters such as speed/model variant, validation, execution budget and failure behavior.
 - [ ] Keep scripts away from mutable world objects and raw Basic claim mutation; all outputs pass plugin validation and host restriction/resource APIs.

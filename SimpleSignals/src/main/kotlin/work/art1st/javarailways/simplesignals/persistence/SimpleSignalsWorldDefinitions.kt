@@ -4,6 +4,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
+import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteDefinition
@@ -17,18 +19,21 @@ internal data class SimpleSignalsWorldDefinitions private constructor(
     val worldId: UUID,
     val definitionRevision: Long,
     val regions: List<ProtectionRegionDefinition>,
-    val routeTables: List<ProtectionRouteTableDefinition>
+    val routeTables: List<ProtectionRouteTableDefinition>,
+    val fixedBlocks: List<FixedBlockDefinition>
 ) {
     constructor(
         worldId: UUID,
         definitionRevision: Long,
         regions: Collection<ProtectionRegionDefinition>,
-        routeTables: Collection<ProtectionRouteTableDefinition>
+        routeTables: Collection<ProtectionRouteTableDefinition>,
+        fixedBlocks: Collection<FixedBlockDefinition> = emptyList()
     ) : this(
         worldId,
         definitionRevision,
         java.util.List.copyOf(regions),
-        java.util.List.copyOf(routeTables)
+        java.util.List.copyOf(routeTables),
+        java.util.List.copyOf(fixedBlocks)
     )
 
     init {
@@ -36,7 +41,13 @@ internal data class SimpleSignalsWorldDefinitions private constructor(
     }
 
     companion object {
-        fun empty(worldId: UUID) = SimpleSignalsWorldDefinitions(worldId, 0L, emptyList(), emptyList())
+        fun empty(worldId: UUID) = SimpleSignalsWorldDefinitions(
+            worldId,
+            0L,
+            emptyList(),
+            emptyList(),
+            emptyList()
+        )
     }
 }
 
@@ -46,7 +57,8 @@ private data class SimpleSignalsWorldDefinitionsFileV1(
     val worldId: String,
     val definitionRevision: Long,
     val protectionRegions: List<SavedProtectionRegionV1>,
-    val protectionRouteTables: List<SavedProtectionRouteTableV1>
+    val protectionRouteTables: List<SavedProtectionRouteTableV1>,
+    val fixedBlocks: List<SavedFixedBlockV1> = emptyList()
 )
 
 @Serializable
@@ -89,6 +101,21 @@ private data class SavedProtectionRouteTraversalV1(
     val upperAbMeters: Double
 )
 
+@Serializable
+private data class SavedFixedBlockV1(
+    val blockId: String,
+    val revision: Long,
+    val traversals: List<SavedFixedBlockTraversalV1>
+)
+
+@Serializable
+private data class SavedFixedBlockTraversalV1(
+    val railId: String,
+    val facing: ViewDirection,
+    val lowerAbMeters: Double,
+    val upperAbMeters: Double
+)
+
 /** Strict codec for the independently versioned SimpleSignals world-definition sidecar. */
 internal object SimpleSignalsWorldDefinitionsCodec {
     const val CURRENT_FORMAT_VERSION = 1
@@ -118,7 +145,8 @@ internal object SimpleSignalsWorldDefinitionsCodec {
             worldId,
             file.definitionRevision,
             file.protectionRegions.map { it.restore() },
-            file.protectionRouteTables.map { it.restore() }
+            file.protectionRouteTables.map { it.restore() },
+            file.fixedBlocks.map { it.restore() }
         )
     }
 
@@ -162,6 +190,20 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                     )
                 }
             )
+        },
+        fixedBlocks.map { block ->
+            SavedFixedBlockV1(
+                block.blockId,
+                block.revision,
+                block.traversals.map { traversal ->
+                    SavedFixedBlockTraversalV1(
+                        traversal.railId.toString(),
+                        traversal.facing,
+                        traversal.lowerAbMeters,
+                        traversal.upperAbMeters
+                    )
+                }
+            )
         }
     )
 
@@ -201,6 +243,22 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                         traversal.upperAbMeters
                     )
                 }
+            )
+        }
+    )
+
+    private fun SavedFixedBlockV1.restore() = FixedBlockDefinition(
+        blockId,
+        revision,
+        traversals.map { traversal ->
+            FixedBlockTraversal(
+                parseCanonicalUuid(
+                    traversal.railId,
+                    "fixed block $blockId traversal railId"
+                ),
+                traversal.facing,
+                traversal.lowerAbMeters,
+                traversal.upperAbMeters
             )
         }
     )

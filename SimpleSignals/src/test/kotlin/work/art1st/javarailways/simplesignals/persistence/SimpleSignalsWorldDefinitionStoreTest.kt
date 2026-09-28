@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
+import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
@@ -27,8 +29,45 @@ class SimpleSignalsWorldDefinitionStoreTest {
         assertEquals("simplesignals:test-region", roundTrip.regions.single().regionId)
         assertEquals(ViewDirection.BA, roundTrip.regions.single().boundaries[1].insideFacing)
         assertEquals(3, roundTrip.routeTables.single().routes.single().traversals.size)
+        assertEquals(emptyList<FixedBlockDefinition>(), roundTrip.fixedBlocks)
+        assertTrue(encoded.contains("\"fixedBlocks\": []"))
         assertFalse(encoded.contains("interior"))
         assertFalse(encoded.contains("topologyRevision"))
+    }
+
+    @Test
+    fun `fixed blocks round trip within schema one and reject malformed domain input`() {
+        val definitions = SimpleSignalsWorldDefinitions(
+            WORLD_ID,
+            10L,
+            emptyList(),
+            emptyList(),
+            listOf(
+                FixedBlockDefinition(
+                    "simplesignals:block",
+                    3L,
+                    listOf(
+                        FixedBlockTraversal(ENTRY_RAIL, ViewDirection.AB, 2.0, 10.0),
+                        FixedBlockTraversal(MIDDLE_RAIL, ViewDirection.BA, 0.0, 10.0)
+                    )
+                )
+            )
+        )
+
+        val encoded = SimpleSignalsWorldDefinitionsCodec.encode(definitions)
+        val decoded = SimpleSignalsWorldDefinitionsCodec.decode(encoded, WORLD_ID)
+
+        assertEquals(definitions, decoded)
+        assertTrue(encoded.contains("\"schemaVersion\": 1"))
+        assertTrue(encoded.contains("\"fixedBlocks\""))
+
+        val emptyTraversal = encoded.replace(
+            Regex("\\\"traversals\\\": \\[.*?]", RegexOption.DOT_MATCHES_ALL),
+            "\"traversals\": []"
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            SimpleSignalsWorldDefinitionsCodec.decode(emptyTraversal, WORLD_ID)
+        }
     }
 
     @Test

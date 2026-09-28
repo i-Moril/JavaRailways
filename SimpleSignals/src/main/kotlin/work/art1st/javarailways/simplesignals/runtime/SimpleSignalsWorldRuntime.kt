@@ -9,8 +9,13 @@ import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictionSource
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService
+import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding
+import work.art1st.javarailways.simplesignals.block.FixedBlockCatalog
+import work.art1st.javarailways.simplesignals.block.FixedBlockCatalogStatus
+import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
+import work.art1st.javarailways.simplesignals.block.FixedBlockReadSnapshot
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionCatalog
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionCatalogStatus
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
@@ -22,6 +27,8 @@ import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefi
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStore
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import java.util.UUID
+import kotlin.math.max
+import kotlin.math.min
 
 internal const val PROTECTION_ROUTE_SOURCE_ID = "simplesignals:fixed-protection-routes"
 
@@ -36,22 +43,29 @@ internal data class SimpleSignalsDefinitionPublicationResult(
     val diagnostics: List<String> = emptyList()
 )
 
-internal data class SimpleSignalsDefinitionPatch(
+@ConsistentCopyVisibility
+internal data class SimpleSignalsDefinitionPatch private constructor(
     val upsertRegions: List<ProtectionRegionDefinition>,
     val removeRegionIds: List<String>,
     val upsertRouteTables: List<ProtectionRouteTableDefinition>,
-    val removeRouteTableIds: List<String>
+    val removeRouteTableIds: List<String>,
+    val upsertFixedBlocks: List<FixedBlockDefinition>,
+    val removeFixedBlockIds: List<String>
 ) {
     constructor(
         upsertRegions: Collection<ProtectionRegionDefinition> = emptyList(),
         removeRegionIds: Collection<String> = emptyList(),
         upsertRouteTables: Collection<ProtectionRouteTableDefinition> = emptyList(),
-        removeRouteTableIds: Collection<String> = emptyList()
+        removeRouteTableIds: Collection<String> = emptyList(),
+        upsertFixedBlocks: Collection<FixedBlockDefinition> = emptyList(),
+        removeFixedBlockIds: Collection<String> = emptyList()
     ) : this(
         java.util.List.copyOf(upsertRegions),
         java.util.List.copyOf(removeRegionIds),
         java.util.List.copyOf(upsertRouteTables),
-        java.util.List.copyOf(removeRouteTableIds)
+        java.util.List.copyOf(removeRouteTableIds),
+        java.util.List.copyOf(upsertFixedBlocks),
+        java.util.List.copyOf(removeFixedBlockIds)
     )
 }
 
@@ -104,7 +118,8 @@ internal class SimpleSignalsRuntimePublication(
     val definitions: SimpleSignalsWorldDefinitions,
     val affectedRailIds: Set<UUID>,
     val regions: ProtectionRegionCatalog,
-    val routeTables: ProtectionRouteTableCatalog
+    val routeTables: ProtectionRouteTableCatalog,
+    val fixedBlocks: FixedBlockCatalog
 )
 
 /**
@@ -136,6 +151,11 @@ internal class SimpleSignalsWorldRuntime(
             .definitions
     }
 
+    fun fixedBlockSnapshot(topology: TopologyState): FixedBlockReadSnapshot =
+        checkNotNull(publication) {
+            "SimpleSignals definitions have not been published for world $worldId"
+        }.fixedBlocks.snapshot(topology)
+
     fun prepareDefinitions(
         topology: TopologyState,
         definitions: SimpleSignalsWorldDefinitions
@@ -145,11 +165,13 @@ internal class SimpleSignalsWorldRuntime(
         }
         val copiedRegions = java.util.List.copyOf(definitions.regions.sortedBy { it.regionId })
         val copiedTables = java.util.List.copyOf(definitions.routeTables.sortedBy { it.tableId })
+        val copiedBlocks = java.util.List.copyOf(definitions.fixedBlocks.sortedBy { it.blockId })
         val copiedDefinitions = SimpleSignalsWorldDefinitions(
             worldId,
             definitions.definitionRevision,
             copiedRegions,
-            copiedTables
+            copiedTables,
+            copiedBlocks
         )
         val current = publication
         if (current != null && definitions.definitionRevision < current.definitions.definitionRevision) {
@@ -169,6 +191,9 @@ internal class SimpleSignalsWorldRuntime(
             return@synchronized preparationRejected(it)
         }
         validateRetainedTableRevisions(current?.definitions?.routeTables.orEmpty(), copiedTables)?.let {
+            return@synchronized preparationRejected(it)
+        }
+        validateRetainedBlockRevisions(current?.definitions?.fixedBlocks.orEmpty(), copiedBlocks)?.let {
             return@synchronized preparationRejected(it)
         }
         if (current != null && current.topology === topology &&
@@ -192,13 +217,32 @@ internal class SimpleSignalsWorldRuntime(
             return@synchronized preparationRejected(tableResult.diagnostics.map { it.detail })
         }
 
-        val affectedRailIds = affectedRailIds(candidateRegions, copiedRegions, copiedTables)
+        val candidateBlocks = FixedBlockCatalog()
+        val blockResult = candidateBlocks.publish(
+            topology,
+            definitions.definitionRevision,
+            copiedBlocks
+        )
+        if (blockResult.status == FixedBlockCatalogStatus.REJECTED) {
+            return@synchronized preparationRejected(blockResult.diagnostics.map { it.detail })
+        }
+        validateSectionSeparation(candidateRegions, candidateBlocks, topology)?.let { diagnostic ->
+            return@synchronized preparationRejected(diagnostic)
+        }
+
+        val affectedRailIds = affectedRailIds(
+            candidateRegions,
+            copiedRegions,
+            copiedTables,
+            copiedBlocks
+        )
         val candidate = SimpleSignalsRuntimePublication(
             topology,
             copiedDefinitions,
             affectedRailIds,
             candidateRegions,
-            candidateTables
+            candidateTables,
+            candidateBlocks
         )
         SimpleSignalsDefinitionPreparationResult.Prepared(
             SimpleSignalsPreparedDefinitions(
@@ -251,7 +295,8 @@ internal class SimpleSignalsWorldRuntime(
     private fun affectedRailIds(
         regions: ProtectionRegionCatalog,
         regionDefinitions: Collection<ProtectionRegionDefinition>,
-        routeTables: Collection<ProtectionRouteTableDefinition>
+        routeTables: Collection<ProtectionRouteTableDefinition>,
+        fixedBlocks: Collection<FixedBlockDefinition>
     ): Set<UUID> {
         val result = linkedSetOf<UUID>()
         regionDefinitions.flatMapTo(result) { region ->
@@ -264,6 +309,9 @@ internal class SimpleSignalsWorldRuntime(
             table.routes.forEach { route ->
                 route.traversals.mapTo(result) { it.railId }
             }
+        }
+        fixedBlocks.forEach { block ->
+            block.traversals.mapTo(result) { it.railId }
         }
         return java.util.Set.copyOf(result)
     }
@@ -301,6 +349,70 @@ internal class SimpleSignalsWorldRuntime(
             if (definition.revision == retained.revision && definition != retained) {
                 return "route table ${definition.tableId} changed without advancing revision " +
                     definition.revision
+            }
+        }
+        return null
+    }
+
+    private fun validateRetainedBlockRevisions(
+        previous: Collection<FixedBlockDefinition>,
+        candidate: Collection<FixedBlockDefinition>
+    ): String? {
+        val previousById = previous.associateBy { it.blockId }
+        for (definition in candidate) {
+            val retained = previousById[definition.blockId] ?: continue
+            if (definition.revision < retained.revision) {
+                return "fixed block ${definition.blockId} revision ${definition.revision} precedes " +
+                    "published revision ${retained.revision}"
+            }
+            if (definition.revision == retained.revision && definition != retained) {
+                return "fixed block ${definition.blockId} changed without advancing revision " +
+                    definition.revision
+            }
+        }
+        return null
+    }
+
+    /** Fixed blocks and protection interiors are distinct section types and may only touch at cuts. */
+    private fun validateSectionSeparation(
+        regions: ProtectionRegionCatalog,
+        fixedBlocks: FixedBlockCatalog,
+        topology: TopologyState
+    ): String? {
+        val regionSnapshot = regions.compilationSnapshot() ?: return null
+        val regionSlicesByRail = regionSnapshot.regionsById.values
+            .flatMap { region -> region.interior.map { slice -> region.definition.regionId to slice } }
+            .groupBy { (_, slice) -> slice.railId }
+            .mapValues { (_, slices) -> slices.sortedBy { (_, slice) -> slice.startAbMeters } }
+        fixedBlocks.snapshot(topology).blocksById.values.forEach { block ->
+            block.occupancyArea.intervals.forEach { interval ->
+                val slices = regionSlicesByRail[interval.railId].orEmpty()
+                var low = 0
+                var high = slices.size
+                while (low < high) {
+                    val middle = (low + high) ushr 1
+                    if (slices[middle].second.endAbMeters <=
+                        interval.minArcLengthInAbMeters + Curve.TOLERANCE
+                    ) {
+                        low = middle + 1
+                    } else {
+                        high = middle
+                    }
+                }
+                for (index in low until slices.size) {
+                    val (regionId, slice) = slices[index]
+                    if (slice.startAbMeters >=
+                        interval.maxArcLengthInAbMeters - Curve.TOLERANCE
+                    ) {
+                        break
+                    }
+                    val overlapStart = max(interval.minArcLengthInAbMeters, slice.startAbMeters)
+                    val overlapEnd = min(interval.maxArcLengthInAbMeters, slice.endAbMeters)
+                    if (overlapEnd - overlapStart > Curve.TOLERANCE) {
+                        return "fixed block ${block.definition.blockId} overlaps protection region " +
+                            "$regionId on rail ${interval.railId}"
+                    }
+                }
             }
         }
         return null
@@ -607,8 +719,16 @@ internal class SimpleSignalsWorldRuntimeManager(
             current.routeTables.map { it.tableId }.toSet(),
             diagnostics
         )
+        validatePatchIdentities(
+            "fixed block",
+            patch.upsertFixedBlocks.map { it.blockId },
+            patch.removeFixedBlockIds,
+            current.fixedBlocks.map { it.blockId }.toSet(),
+            diagnostics
+        )
         if (patch.upsertRegions.isEmpty() && patch.removeRegionIds.isEmpty() &&
-            patch.upsertRouteTables.isEmpty() && patch.removeRouteTableIds.isEmpty()
+            patch.upsertRouteTables.isEmpty() && patch.removeRouteTableIds.isEmpty() &&
+            patch.upsertFixedBlocks.isEmpty() && patch.removeFixedBlockIds.isEmpty()
         ) {
             diagnostics += "definition patch is empty"
         }
@@ -622,13 +742,20 @@ internal class SimpleSignalsWorldRuntimeManager(
         val tables = current.routeTables.associateByTo(linkedMapOf()) { it.tableId }
         patch.removeRouteTableIds.forEach(tables::remove)
         patch.upsertRouteTables.forEach { tables[it.tableId] = it }
+        val fixedBlocks = current.fixedBlocks.associateByTo(linkedMapOf()) { it.blockId }
+        patch.removeFixedBlockIds.forEach(fixedBlocks::remove)
+        patch.upsertFixedBlocks.forEach { fixedBlocks[it.blockId] = it }
         val candidate = SimpleSignalsWorldDefinitions(
             current.worldId,
             nextRevision,
             regions.values.sortedBy { it.regionId },
-            tables.values.sortedBy { it.tableId }
+            tables.values.sortedBy { it.tableId },
+            fixedBlocks.values.sortedBy { it.blockId }
         )
-        if (candidate.regions == current.regions && candidate.routeTables == current.routeTables) {
+        if (candidate.regions == current.regions &&
+            candidate.routeTables == current.routeTables &&
+            candidate.fixedBlocks == current.fixedBlocks
+        ) {
             return PatchApplication.Rejected(
                 listOf("definition patch does not change the current definitions")
             )

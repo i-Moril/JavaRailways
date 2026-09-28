@@ -33,7 +33,10 @@ internal sealed interface SimpleSignalsWorldDefinitionLoadResult {
 }
 
 /** Owns primary/backup transport for one independent SimpleSignals persistence boundary. */
-internal class SimpleSignalsWorldDefinitionStore(dataFolder: File) {
+internal class SimpleSignalsWorldDefinitionStore(
+    dataFolder: File,
+    private val beforePrimaryReplace: () -> Unit = {}
+) {
     private val lock = Any()
     private val worldsDirectory = dataFolder.toPath().resolve("worlds")
 
@@ -74,8 +77,11 @@ internal class SimpleSignalsWorldDefinitionStore(dataFolder: File) {
         val primary = primaryFile(worldId)
         val backup = backupFile(worldId)
         val temporary = temporaryFile(worldId)
+        val backupTemporary = backupTemporaryFile(worldId)
         Files.createDirectories(worldsDirectory)
         try {
+            Files.deleteIfExists(temporary)
+            Files.deleteIfExists(backupTemporary)
             Files.writeString(
                 temporary,
                 SimpleSignalsWorldDefinitionsCodec.encode(definitions),
@@ -84,20 +90,32 @@ internal class SimpleSignalsWorldDefinitionStore(dataFolder: File) {
                 StandardOpenOption.WRITE
             )
             if (Files.isRegularFile(primary) && isValid(primary, worldId)) {
-                Files.copy(primary, backup, StandardCopyOption.REPLACE_EXISTING)
+                Files.copy(primary, backupTemporary, StandardCopyOption.REPLACE_EXISTING)
             }
-            try {
-                Files.move(
-                    temporary,
-                    primary,
-                    StandardCopyOption.REPLACE_EXISTING,
-                    StandardCopyOption.ATOMIC_MOVE
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(temporary, primary, StandardCopyOption.REPLACE_EXISTING)
+            beforePrimaryReplace()
+            replace(temporary, primary)
+
+            // The primary replacement above is the commit point. Backup rotation is recovery-only:
+            // once the new primary is durable, failure to refresh the old-primary backup must not
+            // turn a successful commit into a reported failure.
+            if (Files.exists(backupTemporary)) {
+                try {
+                    replace(backupTemporary, backup)
+                } catch (_: Exception) {
+                    // Keep the previous valid backup. The next successful save can rotate it.
+                }
             }
         } finally {
-            Files.deleteIfExists(temporary)
+            try {
+                Files.deleteIfExists(temporary)
+            } catch (_: Exception) {
+                // Cleanup failure after the commit point does not invalidate the saved primary.
+            }
+            try {
+                Files.deleteIfExists(backupTemporary)
+            } catch (_: Exception) {
+                // A stale staging file is ignored and overwritten by the next save.
+            }
         }
     }
 
@@ -109,6 +127,22 @@ internal class SimpleSignalsWorldDefinitionStore(dataFolder: File) {
 
     internal fun temporaryFile(worldId: UUID): Path =
         worldsDirectory.resolve("$worldId-definitions.json.tmp")
+
+    internal fun backupTemporaryFile(worldId: UUID): Path =
+        worldsDirectory.resolve("$worldId-definitions.json.bak.tmp")
+
+    private fun replace(source: Path, target: Path) {
+        try {
+            Files.move(
+                source,
+                target,
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
 
     private fun isValid(file: Path, worldId: UUID): Boolean = try {
         SimpleSignalsWorldDefinitionsCodec.decode(Files.readString(file), worldId)

@@ -57,8 +57,10 @@ codec固定`encodeDefaults = true`和`ignoreUnknownKeys = false`。未知字段�
 
 读取顺序是primary再到同目录`.bak`：两者都不存在返回`Missing`；primary无效而backup有效时保留损坏primary、使用backup并
 返回可记录的candidate诊断；存在的candidate全部无效返回`Corrupted`，不能回退为空定义或覆盖原文件。写入在同目录
-`.tmp`先完整编码；已有primary复制为`.bak`后，以atomic move替换primary，不支持atomic move的文件系统只对最后一步使用
-replace fallback。启动读取/编译是world load低频路径且当前同步执行；route callback只读取已编译publication，不做JSON I/O。
+`.tmp`先完整编码，并把有效旧primary复制到独立`.bak.tmp` staging；以atomic move替换primary作为唯一commit point，随后才
+best-effort把staged旧primary轮转为`.bak`。commit point之后的backup/cleanup失败不把已提交primary误报成失败；commit point
+之前的异常不修改primary/backup。不支持atomic move的文件系统只对对应replace使用普通move fallback。启动读取/编译是world load
+低频路径且当前同步执行；route callback只读取已编译publication，不做JSON I/O。
 
 ## 保护区域领域
 
@@ -102,7 +104,29 @@ region或topology publication变化而table尚未重编译时source抛出失败�
 world runtime的definition入口为一次更新建立全新的candidate region catalog和candidate table catalog；两者都成功后才以
 一次volatile publication替换live pair。注册到host的binding保持稳定，只读取该publication，因此已捕获的source会立即看到
 完整新pair或完整旧pair，不会看到“新region + 旧table”。拓扑变更不会触发callback内重建；在authoring/persistence层显式
-republish之前，旧source按root identity检查fail-close。production启动会把已恢复的非空定义完整编译后发布；authoring仍未实现。
+republish之前，旧source按root identity检查fail-close。production启动会把已恢复的非空定义完整编译后发布。
+
+## 定义编辑事务
+
+插件内部唯一的definition patch入口在一个事务中接受region/table的upsert与remove，并要求调用方提交
+`expectedDefinitionRevision`。空patch、整体无变化、重复操作、同ID同时upsert/remove、删除不存在对象以及revision冲突均在
+取得host permit前拒绝；成功revision严格增加1。保留的region和table各自也必须保持revision单调，同revision改变内容或revision
+倒退都属于validation failure。
+
+runtime先用fresh catalog完整编译candidate而不修改live publication。prepared value绑定base publication对象身份、exact
+`TopologyState` root、完整候选定义及解析后的affected rail IDs；后者包含region boundary、derived interior和全部route traversal。
+manager以旧、新affected rail ID并集申请既有`InfrastructureResourceService.acquireEditPermit`，不创建第二套锁，也不把permit扩大到
+不相关轨道。permit owner为`simplesignals:definitions/<world UUID>`，owner revision等于新的definition revision。
+
+permit取得后再次要求`currentTopology(worldId)`与prepared root是同一对象。commit在runtime lock内先复核base publication未变化，
+随后以store save作为pre-commit callback；只有save成功才执行一次volatile swap。permit覆盖save与swap并在所有返回路径关闭。
+revision/patch/validation、host conflict/stale、persistence和world unavailable使用不同typed result；host拒绝时保留原始
+`TopologyEditDecision`及blocker diagnostics。任一步失败都保留旧publication；save在替换primary前只写staging文件，替换primary
+是唯一commit point，之后backup rotation只作best-effort recovery维护，不能把已提交primary误报为失败。
+
+authoring是低频路径：patch map操作为`O(D)`，candidate编译保持`O(V+E+S+P log Q)`，affected-rail并集与写盘为定义规模线性；
+route callback仍只读取一次volatile publication和cached restrictions。当前只建立plugin-local事务 seam，尚无RailObjectWand、命令、
+inspect/dry-run UI或拓扑迁移工具。
 
 ## 依赖与打包不变量
 
@@ -139,4 +163,6 @@ git diff --check
 world runtime测试还必须覆盖空启动、非空table改变Basic实际选路、candidate失败保留旧pair、topology变化到显式republish之间
 fail-close，以及同UUID reload得到新binding。持久化测试必须覆盖固定current fixture round-trip、严格未知字段/version/world ID、
 primary损坏时backup恢复、恢复后写入不以坏primary覆盖最后有效backup、双损坏保留原文件、写入backup轮转、loaded definition在
-注册前改变Basic实际选路，以及orphan/corrupt输入只安装拒绝新寻路的fail-closed source而不发布可用runtime。
+注册前改变Basic实际选路，以及orphan/corrupt输入只安装拒绝新寻路的fail-closed source而不发布可用runtime。authoring测试还须覆盖
+组合patch、revision/patch/validation拒绝、三类host conflict透传、permit后root变化、save失败保持disk/live旧值、成功disk/source同步
+和permit关闭。

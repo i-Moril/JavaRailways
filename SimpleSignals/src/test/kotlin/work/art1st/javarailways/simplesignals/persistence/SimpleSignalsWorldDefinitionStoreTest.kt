@@ -156,6 +156,29 @@ class SimpleSignalsWorldDefinitionStoreTest {
         )
     }
 
+    @Test
+    fun `save failure before the commit point preserves valid primary and backup`() {
+        val store = SimpleSignalsWorldDefinitionStore(directory.toFile())
+        store.save(WORLD_ID, definitions(1L))
+        store.save(WORLD_ID, definitions(2L))
+        val primary = store.primaryFile(WORLD_ID)
+        val backup = store.backupFile(WORLD_ID)
+        val primaryBefore = Files.readString(primary)
+        val backupBefore = Files.readString(backup)
+        val failingStore = SimpleSignalsWorldDefinitionStore(directory.toFile()) {
+            throw java.io.IOException("injected before primary replace")
+        }
+
+        assertThrows(java.io.IOException::class.java) {
+            failingStore.save(WORLD_ID, definitions(3L))
+        }
+
+        assertEquals(primaryBefore, Files.readString(primary))
+        assertEquals(backupBefore, Files.readString(backup))
+        assertFalse(Files.exists(failingStore.temporaryFile(WORLD_ID)))
+        assertFalse(Files.exists(failingStore.backupTemporaryFile(WORLD_ID)))
+    }
+
     private fun definitions(revision: Long) = SimpleSignalsWorldDefinitions(
         WORLD_ID,
         revision,

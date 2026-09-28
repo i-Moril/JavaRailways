@@ -40,7 +40,8 @@ Current extraction progress:
 - [x] Add the strict current-model SimpleSignals world-definition sidecar with stable namespaced IDs, canonical UUID/AB positions and complete fixed-route traversals. The plugin loads primary/backup and compiles the full candidate against the current host topology before publishing a usable planning source; missing starts empty without writing, while corrupt/orphan/rejected input installs only a rejecting fail-closed source and no usable runtime. Writes use same-directory temp, last-known-valid backup rotation and atomic-move fallback with no runtime legacy reader.
 - [x] Move `ProtectionRegionDefinition`, boundary/catalog, graph-cut/interior derivation, route-window matching and validation tests out of Basic. The plugin catalog atomically publishes one topology/definition-revision snapshot and indexes candidate regions by rail; Basic still performs independent structural route validation.
 - [x] Define SimpleSignals-private fixed protection route tables and compile each region table atomically into one neutral Basic `PathReplacement`. Publication validates gate correspondence, direction, continuity and interior containment; the cached source rejects stale topology/region publications and is registered by the planning-only world runtime.
-- [ ] Add protection-region authoring, diagnostics and RailObjectWand mode inside the plugin; world-definition persistence/composition is complete in the preceding batch.
+- [x] Add the plugin-local protection definition patch transaction: expected-revision create/update/delete composition, fresh prepare/compile, exact old+new affected-rail edit permit, persistence-before-publication commit and typed failure diagnostics. Retained region/table revisions are monotonic, and every failure preserves the old disk/live state.
+- [ ] Connect the completed authoring transaction and diagnostics to a SimpleSignals-owned RailObjectWand/command mode; no UI caller exists yet.
 - [x] Remove Basic's protection-region request/claim/validator API and `PROTECTION_REQUIRED` policy after confirming the generic route-resource runtime is the production path. Keep and rename the generic tail-release controller used by that runtime.
 - [ ] Add plugin-owned fixed-block definitions and the plugin-local common section observation interface if the reference rules need it.
 
@@ -71,7 +72,7 @@ Current extraction progress:
 - [ ] Add signal-plugin participation to the existing selected-route timetable compile/audit with pinned topology/plugin/timetable/train-assignment revisions; do not run pathfinding again.
 - [ ] Extend the existing atomic applied-plan dependency declaration with every exact SimpleSignals runtime resource referenced by those selected routes; keep this non-exclusive edit protection distinct from live train claims.
 - [ ] Implement draft/apply/replace/draining/unapply lifecycle with no dependency changes from save/dry-run and no removal beneath live work.
-- [ ] Route all affected editors through the common edit permit and show blocking owner/revision diagnostics.
+- [ ] Route all remaining affected editors through the common edit permit and show blocking owner/revision diagnostics. The protection region/fixed-route definition transaction already preserves the host `TopologyEditDecision`; UI presentation remains.
 - [ ] Add create/edit/delete/inspect/validate/dry-run commands/tools and topology-migration recovery points.
 - [ ] Add plugin-owned aspect/model rendering in `SimpleSignals`, with target-aware latest-only scheduling, change-only
   updates, stale-revision rejection and idempotent world/plugin cleanup. Use a host platform API only if a concrete

@@ -6,6 +6,15 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.rail.RailMetadata
+import work.art1st.javarailways.bukkit.extension.rail.RailDecorationLayout
+import work.art1st.javarailways.bukkit.extension.rail.RailTemplateSnapshot
+import work.art1st.javarailways.bukkit.logic.RailVisualBootstrap
+import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.curve.Anchor
 import java.util.UUID
@@ -103,5 +112,107 @@ class WandActionUndoSupportTest {
         assertEquals(setOf("standalone"), plan.wayPointIdsToRemove)
         assertEquals(listOf(targetDestination), plan.destinationsToRestore)
         assertEquals(listOf(targetWayPoint), plan.wayPointsToRestore)
+    }
+
+    @Test
+    fun `prepared world undo materializes complete expected state before owner commit`() {
+        val removedRail = UUID.randomUUID()
+        val destination = OperationalDestination("removed", "Removed", removedRail, 3.0)
+        val standAloneWayPoint = WayPoint("standalone", "Standalone", removedRail, 4.0)
+        val before = RailWorldUndoSnapshot(
+            rails = emptyList(),
+            renderMetas = emptyList(),
+            railMetadata = mapOf(removedRail to RailMetadata.EMPTY),
+            operatingDirections = mapOf(removedRail to ViewDirection.AB),
+            destinations = listOf(destination),
+            wayPoints = listOf(destination.toWayPoint(), standAloneWayPoint)
+        )
+
+        val prepared = PreparedRailWorldUndoBuilder.fromSnapshots(before, emptyList())
+            .also {
+                it.removeRails(setOf(removedRail))
+                it.removeInfrastructureOnRails(setOf(removedRail))
+            }
+            .build()
+
+        assertEquals(before, prepared.before)
+        assertEquals(emptyMap<UUID, RailMetadata>(), prepared.expectedAfter.railMetadata)
+        assertEquals(emptyMap<UUID, ViewDirection>(), prepared.expectedAfter.operatingDirections)
+        assertEquals(emptyList<OperationalDestination>(), prepared.expectedAfter.destinations)
+        assertEquals(emptyList<WayPoint>(), prepared.expectedAfter.wayPoints)
+        assertEquals(setOf(removedRail), prepared.metadataRemovals)
+    }
+
+    @Test
+    fun `prepared replacement keeps source metadata before removing the old rail`() {
+        val oldRail = UUID.randomUUID()
+        val replacementRail = UUID.randomUUID()
+        val sourceMetadata = RailMetadata(
+            designSpeedMetersPerSecond = 30.0,
+            speedLimitMetersPerSecond = 20.0,
+            gradeLockedAtA = true
+        )
+        val before = RailWorldUndoSnapshot(
+            rails = emptyList(),
+            renderMetas = emptyList(),
+            railMetadata = mapOf(oldRail to sourceMetadata),
+            operatingDirections = mapOf(oldRail to ViewDirection.AB),
+            destinations = emptyList(),
+            wayPoints = emptyList()
+        )
+        val builder = PreparedRailWorldUndoBuilder.fromSnapshots(before, emptyList())
+        builder.migrateMappedRailReplacement(mapOf(oldRail to replacementRail))
+        val replacementMetadata = builder.metadataFor(oldRail).copy(speedLimitMetersPerSecond = 15.0)
+
+        builder.putMetadata(replacementRail, replacementMetadata)
+        builder.removeRails(setOf(oldRail))
+        val prepared = builder.build()
+
+        assertEquals(30.0, prepared.expectedAfter.railMetadata.getValue(replacementRail).designSpeedMetersPerSecond)
+        assertEquals(15.0, prepared.expectedAfter.railMetadata.getValue(replacementRail).speedLimitMetersPerSecond)
+        assertTrue(prepared.expectedAfter.railMetadata.getValue(replacementRail).gradeLockedAtA)
+        assertEquals(mapOf(replacementRail to ViewDirection.AB), prepared.expectedAfter.operatingDirections)
+    }
+
+    @Test
+    fun `prepared render metadata preserves assembly-wide decoration spacing`() {
+        val template = RailTemplateSnapshot("test", 3.0, emptyList())
+        val first = RailVisualBootstrap.preparePersistedMeta(
+            UUID.randomUUID(), 5.0, template, assemblyIndex = 0, assemblyLengths = listOf(5.0, 7.0)
+        )
+        val second = RailVisualBootstrap.preparePersistedMeta(
+            UUID.randomUUID(), 7.0, template, assemblyIndex = 1, assemblyLengths = listOf(5.0, 7.0)
+        )
+        val assembledArcs = first.segments.flatMap { it.pointArcs } +
+            second.segments.flatMap { segment -> segment.pointArcs.map { it + 5.0 } }
+
+        assertEquals(RailDecorationLayout.endpointInclusiveArcs(12.0, 3.0), assembledArcs)
+    }
+
+    @Test
+    fun `structural undo snapshots ignore transient active branch without reordering connections`() {
+        val railId = UUID.randomUUID()
+        val firstBranch = UUID.randomUUID().toString()
+        val secondBranch = UUID.randomUUID().toString()
+        val curve = PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0),
+            Curve.RawPoint(Vector3d(10.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 10.0)
+        )).save() as PrimeCurveImpl.SavedPrimeCurveV1
+        fun saved(active: String?) = CoreRail.SavedRailV1(
+            railId.toString(), curve, emptyList(), listOf(secondBranch, firstBranch), null, active
+        )
+        fun snapshot(rail: CoreRail.SavedRailV1) = RailWorldUndoSnapshot(
+            listOf(rail), emptyList(), emptyMap(), emptyMap(), emptyList(), emptyList()
+        )
+
+        val prepared = PreparedRailWorldUndoBuilder.fromSnapshots(
+            snapshot(saved(firstBranch)),
+            listOf(saved(secondBranch))
+        ).build()
+
+        assertEquals(null, prepared.before.rails.single().activeTrackAtB)
+        assertEquals(null, prepared.expectedAfter.rails.single().activeTrackAtB)
+        assertEquals(listOf(secondBranch, firstBranch), prepared.before.rails.single().nextRailAtB)
+        assertEquals(prepared.before.rails, prepared.expectedAfter.rails)
     }
 }

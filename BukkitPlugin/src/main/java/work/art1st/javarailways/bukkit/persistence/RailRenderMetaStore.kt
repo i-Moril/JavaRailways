@@ -90,40 +90,46 @@ object RailRenderMetaStore {
     }
     private val cache: MutableMap<UUID, CacheEntry> = ConcurrentHashMap()
 
-    private fun file(world: World): File =
-        File(BukkitPlugin.INSTANCE.dataFolder, "worlds/${world.uid}-rail-render.json").also {
+    private fun file(worldId: UUID): File =
+        File(BukkitPlugin.INSTANCE.dataFolder, "worlds/$worldId-rail-render.json").also {
             it.parentFile?.mkdirs()
         }
+
+    private fun file(world: World): File = file(world.uid)
 
     fun decoratedRailIds(world: World): Set<UUID> =
         (cache[world.uid]?.records ?: load(world)).mapTo(linkedSetOf()) { it.railId }
 
     @Synchronized
-    fun load(world: World): List<PersistedRailRenderMeta> {
-        val f = file(world)
+    fun load(world: World): List<PersistedRailRenderMeta> = load(world.uid, world.name)
+
+    /** File/cache-only snapshot entry for RailWand asynchronous preparation. */
+    @Synchronized
+    fun load(worldId: UUID, worldName: String = worldId.toString()): List<PersistedRailRenderMeta> {
+        val f = file(worldId)
         if (!f.exists()) {
-            cache.remove(world.uid)
+            cache.remove(worldId)
             return emptyList()
         }
 
         val lastModified = f.lastModified()
         val length = f.length()
-        cache[world.uid]?.takeIf { it.lastModified == lastModified && it.length == length }?.let {
+        cache[worldId]?.takeIf { it.lastModified == lastModified && it.length == length }?.let {
             return it.records
         }
 
-        val staleRecords = cache[world.uid]?.takeIf { !it.corrupted }?.records.orEmpty()
+        val staleRecords = cache[worldId]?.takeIf { !it.corrupted }?.records.orEmpty()
         if (!f.canRead()) {
-            markCorrupted(world, f, lastModified, length, staleRecords, "File is not readable")
+            markCorrupted(worldId, worldName, f, lastModified, length, staleRecords, "File is not readable")
             return staleRecords
         }
 
         return try {
             val records = parseFile(f)
-            cache[world.uid] = CacheEntry(lastModified = lastModified, length = length, records = records)
+            cache[worldId] = CacheEntry(lastModified = lastModified, length = length, records = records)
             records
         } catch (t: Throwable) {
-            markCorrupted(world, f, lastModified, length, staleRecords, "${t::class.simpleName}: ${t.message ?: ""}")
+            markCorrupted(worldId, worldName, f, lastModified, length, staleRecords, "${t::class.simpleName}: ${t.message ?: ""}")
             staleRecords
         }
     }
@@ -302,16 +308,17 @@ object RailRenderMetaStore {
     }
 
     private fun markCorrupted(
-        world: World,
+        worldId: UUID,
+        worldName: String,
         file: File,
         lastModified: Long,
         length: Long,
         staleRecords: List<PersistedRailRenderMeta>,
         detail: String
     ) {
-        val message = "Failed to parse rail render metadata for world '${world.name}' at ${file.path}. $detail"
+        val message = "Failed to parse rail render metadata for world '$worldName' at ${file.path}. $detail"
         BukkitPlugin.INSTANCE.logger.severe(message)
-        cache[world.uid] = CacheEntry(
+        cache[worldId] = CacheEntry(
             lastModified = lastModified,
             length = length,
             records = staleRecords,

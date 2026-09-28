@@ -21,12 +21,14 @@ internal data class SnapshotEndpointState(
 )
 
 /**
- * Off-thread prepared structural part of one whole-world RailWand snapshot restore.
+ * Off-thread prepared structural part of one whole-world snapshot restore.
  *
  * Bukkit chooses the current/target snapshots. Core derives their exact physical diff, prepares
  * only added/replaced geometry through [PreparedRailCreationBatch], and binds the result to one
- * live topology root. The target snapshot is the sole source of connection and active-branch state;
- * no nearby endpoint search creates an undeclared connection.
+ * live topology root. The target snapshot is always the sole source of ordered connections. Normal
+ * restore also uses its active branch; a structural undo caller may instead preserve a still-valid
+ * live selection and otherwise fall back to the first target connection. No nearby endpoint search
+ * creates an undeclared connection.
  */
 class PreparedRailWorldSnapshotPlan private constructor(
     @get:JvmSynthetic internal val ownerWorld: CoreWorld,
@@ -40,6 +42,7 @@ class PreparedRailWorldSnapshotPlan private constructor(
     removedCrossings: Set<AtGradeRailCrossing>,
     affectedExistingRailIds: Set<UUID>,
     private val capturedEndpointStates: Map<RailEndpointRef, SnapshotEndpointState>,
+    @get:JvmSynthetic internal val preserveCurrentActiveSelections: Boolean,
     val topologyUpdate: PreparedRailTopologyUpdate
 ) {
     private val currentRails: Map<UUID, CoreRail> = Collections.unmodifiableMap(LinkedHashMap(currentRails))
@@ -58,7 +61,9 @@ class PreparedRailWorldSnapshotPlan private constructor(
         candidateWorld === ownerWorld && candidateWorld.topologyState === topologyRoot &&
             currentRails.all { (railId, rail) -> candidateWorld.getRail(railId) === rail } &&
             capturedEndpointStates.all { (endpoint, state) ->
-                candidateWorld.getRail(endpoint.railId)?.let { rail -> captureEndpoint(rail, endpoint.endpoint) } == state
+                candidateWorld.getRail(endpoint.railId)?.let { rail ->
+                    endpointStateMatches(captureEndpoint(rail, endpoint.endpoint), state)
+                } == true
             } &&
             (preparedCreations == null || preparedCreations.topologyRoot === topologyRoot)
 
@@ -79,6 +84,24 @@ class PreparedRailWorldSnapshotPlan private constructor(
     @JvmSynthetic
     fun apply(candidateWorld: CoreWorld) = candidateWorld.applyPreparedRailWorldSnapshot(this)
 
+    @JvmSynthetic
+    internal fun activeSelectionEndpoints(): Set<RailEndpointRef> {
+        if (!preserveCurrentActiveSelections) return emptySet()
+        return LinkedHashSet<RailEndpointRef>().apply {
+            addAll(changedExistingEndpoints)
+            createdOrReplacedRailIds.forEach { railId ->
+                RailEndpoint.entries.forEach { endpoint -> add(RailEndpointRef(railId, endpoint)) }
+            }
+            toList().forEach { endpoint ->
+                targetEndpointStates.getValue(endpoint).connectedEndpoints.forEach(::add)
+            }
+        }
+    }
+
+    private fun endpointStateMatches(current: SnapshotEndpointState, captured: SnapshotEndpointState): Boolean =
+        current.connectedEndpoints == captured.connectedEndpoints &&
+            (preserveCurrentActiveSelections || current.activeEndpoint == captured.activeEndpoint)
+
     companion object {
         @JvmSynthetic
         internal fun create(
@@ -90,7 +113,8 @@ class PreparedRailWorldSnapshotPlan private constructor(
             removedOrReplacedRailIds: Set<UUID>,
             createdOrReplacedRailIds: Set<UUID>,
             preparedCreations: PreparedRailCreationBatch?,
-            rawCurrentCrossings: List<AtGradeRailCrossing>
+            rawCurrentCrossings: List<AtGradeRailCrossing>,
+            preserveCurrentActiveSelections: Boolean = false
         ): PreparedRailWorldSnapshotPlan {
             val currentCurves = currentSaved.mapValues { (_, saved) -> saved.curveAB.load(Unit) }
             val targetCurves = targetSaved.mapValues { (_, saved) -> saved.curveAB.load(Unit) }
@@ -101,7 +125,10 @@ class PreparedRailWorldSnapshotPlan private constructor(
                 .filterNot(removedOrReplacedRailIds::contains)
                 .flatMap { railId -> RailEndpoint.entries.asSequence().map { RailEndpointRef(railId, it) } }
                 .filterTo(linkedSetOf()) { endpoint ->
-                    currentStates.getValue(endpoint) != targetStates.getValue(endpoint)
+                    val current = currentStates.getValue(endpoint)
+                    val target = targetStates.getValue(endpoint)
+                    current.connectedEndpoints != target.connectedEndpoints ||
+                        (!preserveCurrentActiveSelections && current.activeEndpoint != target.activeEndpoint)
                 }
 
             require((createdOrReplacedRailIds.isEmpty()) == (preparedCreations == null)) {
@@ -204,6 +231,8 @@ class PreparedRailWorldSnapshotPlan private constructor(
                 ownerWorld = world,
                 baseRoot = topologyRoot,
                 targetRoot = targetTopology,
+                baseRailSnapshot = currentSaved.values.sortedBy(CoreRail.SavedRailV1::id),
+                targetRailSnapshot = targetSaved.values.sortedBy(CoreRail.SavedRailV1::id),
                 expectedRailCount = targetCurves.size,
                 baseRailCount = currentById.size,
                 baseRails = baseExpectationRailIds.associateWith(currentById::get),
@@ -223,7 +252,7 @@ class PreparedRailWorldSnapshotPlan private constructor(
                 world, topologyRoot, currentById.filterKeys(affectedExistingIds::contains),
                 removedOrReplacedRailIds, createdOrReplacedRailIds, changedExistingEndpoints,
                 preparedCreations, targetStates, removedCrossings, affectedExistingIds, capturedStates,
-                topologyUpdate
+                preserveCurrentActiveSelections, topologyUpdate
             )
         }
 

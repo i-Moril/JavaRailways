@@ -293,6 +293,85 @@ class PreparedRailWorldSnapshotPlanTest {
     }
 
     @Test
+    fun `RailWand undo plan ignores a later turnout selection and preserves it`() {
+        val world = createTestWorld()
+        try {
+            val source = world.createRailForTest(line(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+            val first = world.createRailForTest(line(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
+            val second = world.createRailForTest(line(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 5.0)))
+            CoreRail.connect(source, first)
+            CoreRail.connect(source, second)
+            source.viewAB.activeRail = first.viewAB
+            val current = world.allRails.map(CoreRail::save)
+            val replacement = PrimeCurve.fromPoints(listOf(
+                Curve.RawPoint(Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0),
+                Curve.RawPoint(Vector3d(5.0, 0.0, 1.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 5.1),
+                Curve.RawPoint(Vector3d(10.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 10.2)
+            ))
+            val target = current.map { saved ->
+                saved.copy(
+                    curveAB = if (saved.id == source.id.toString()) {
+                        replacement.save() as PrimeCurveImpl.SavedPrimeCurveV1
+                    } else saved.curveAB,
+                    activeTrackAtA = null,
+                    activeTrackAtB = null
+                )
+            }
+            val plan = world.prepareRailWorldSnapshotRestorePreservingActiveSelections(current, target)
+
+            source.viewAB.activeRail = second.viewAB
+
+            assertTrue(plan.isCurrent(world))
+            world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) }
+            val restored = requireNotNull(world.getRail(source.id))
+            assertSame(second.viewAB, restored.viewAB.activeRail)
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    fun `RailWand undo falls back to first target connection when selected branch is removed`() {
+        val world = createTestWorld()
+        try {
+            val source = world.createRailForTest(line(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
+            val first = world.createRailForTest(line(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
+            val second = world.createRailForTest(line(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 5.0)))
+            CoreRail.connect(source, first)
+            CoreRail.connect(source, second)
+            source.viewAB.activeRail = second.viewAB
+            val current = world.allRails.map(CoreRail::save)
+            val target = current.map { saved ->
+                when (saved.id) {
+                    source.id.toString() -> saved.copy(
+                        nextRailAtB = listOf(first.id.toString()),
+                        activeTrackAtA = null,
+                        activeTrackAtB = null
+                    )
+                    second.id.toString() -> saved.copy(
+                        nextRailAtA = emptyList(),
+                        activeTrackAtA = null,
+                        activeTrackAtB = null
+                    )
+                    else -> saved.copy(activeTrackAtA = null, activeTrackAtB = null)
+                }
+            }
+            val plan = world.prepareRailWorldSnapshotRestorePreservingActiveSelections(current, target)
+
+            world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) }
+
+            assertEquals(listOf(first.id.toString()), source.save().nextRailAtB)
+            assertSame(first.viewAB, source.viewAB.activeRail)
+            assertEquals(emptyList<String>(), second.save().nextRailAtA)
+            assertEquals(null, second.viewBA.activeRail)
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
     fun `occupied replacement is rejected without partial mutation`() {
         val world = createTestWorld()
         try {

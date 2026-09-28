@@ -30,6 +30,10 @@ internal class RailWandTopologyEditPlan private constructor(
     private val preparedTopologyUpdate: PreparedRailTopologyUpdate? = null
 ) {
     val topologyRevision: Long = topologyRoot.revision
+    val baseRailSnapshot: List<CoreRail.SavedRailV1> =
+        preparedTopologyUpdate?.baseRailSnapshot.orEmpty()
+    val targetRailSnapshot: List<CoreRail.SavedRailV1> =
+        preparedTopologyUpdate?.targetRailSnapshot.orEmpty()
     val explicitConnectionAffectedExistingRailIds: Set<UUID> =
         explicitConnectionPlan?.affectedExistingRailIds.orEmpty()
     val snapshotGeometryChangedRailIds: Set<UUID> = snapshotRestorePlan?.let { plan ->

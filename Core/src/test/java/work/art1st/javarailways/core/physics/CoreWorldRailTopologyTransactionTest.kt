@@ -8,7 +8,10 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.PreparedRailEndpointConnection
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus
 import work.art1st.javarailways.core.physics.train.createTestWorld
@@ -202,6 +205,69 @@ class CoreWorldRailTopologyTransactionTest {
         assertEquals(null, world.getRail(batch.creations.single().railId))
         assertTrue(world.topologyState === root)
         assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
+    }
+
+    @Test
+    fun `prepared topology update carries complete base and target rail snapshots`() {
+        val world = createTestWorld()
+        val existing = world.createRailForTest(straightCurve(0.0, 10.0))
+        val batch = world.prepareRailCreation(straightCurve(20.0, 30.0))
+        val connectionPlan = world.capturePreparedRailConnectionPlan(batch, emptyList())
+        val prepared = connectionPlan.prepareTopologyUpdate()
+
+        assertEquals(listOf(existing.save()), prepared.baseRailSnapshot)
+        assertEquals(
+            setOf(existing.id.toString(), batch.creations.single().railId.toString()),
+            prepared.targetRailSnapshot.mapTo(linkedSetOf(), CoreRail.SavedRailV1::id)
+        )
+
+        world.railTopologyTransaction(prepared) {
+            val installed = world.installPreparedRails(batch)
+            connectionPlan.apply(world, installed)
+        }
+        assertEquals(
+            prepared.targetRailSnapshot.associateBy(CoreRail.SavedRailV1::id),
+            world.allRails.map(CoreRail::save).associateBy(CoreRail.SavedRailV1::id)
+        )
+    }
+
+    @Test
+    fun `prepared target snapshot preserves declared connection order and active branch`() {
+        val world = createTestWorld()
+        val stem = world.createRailForTest(straightCurve(0.0, 10.0))
+        val first = world.createRailForTest(straightCurve(10.0, 20.0))
+        val second = world.createRailForTest(straightCurve(10.0, 30.0))
+        world.railTopologyTransaction {
+            RailView.connect(stem.viewAB, first.viewBA)
+            RailView.connect(stem.viewAB, second.viewBA)
+            stem.viewAB.activeRail = first.viewAB
+        }
+        val batch = world.prepareRailCreation(straightCurve(40.0, 50.0))
+        val stemB = RailEndpointRef(stem.id, RailEndpoint.B)
+        val firstA = RailEndpointRef(first.id, RailEndpoint.A)
+        val secondA = RailEndpointRef(second.id, RailEndpoint.A)
+        val connectionPlan = world.capturePreparedRailConnectionPlan(
+            batch,
+            listOf(
+                PreparedRailEndpointConnection(stemB, listOf(secondA, firstA), secondA),
+                PreparedRailEndpointConnection(firstA, listOf(stemB), stemB),
+                PreparedRailEndpointConnection(secondA, listOf(stemB), stemB)
+            )
+        )
+        val prepared = connectionPlan.prepareTopologyUpdate()
+        val targetStem = prepared.targetRailSnapshot.single { it.id == stem.id.toString() }
+
+        assertEquals(listOf(second.id.toString(), first.id.toString()), targetStem.nextRailAtB)
+        assertEquals(second.id.toString(), targetStem.activeTrackAtB)
+        assertThrows(UnsupportedOperationException::class.java) {
+            (targetStem.nextRailAtB as MutableList<String>).add(UUID.randomUUID().toString())
+        }
+
+        world.railTopologyTransaction(prepared) {
+            val installed = world.installPreparedRails(batch)
+            connectionPlan.apply(world, installed)
+        }
+        assertEquals(targetStem, stem.save())
     }
 
     @Test

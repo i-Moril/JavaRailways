@@ -14,8 +14,12 @@
   使用Core在安装前生成的prepared explicit-connection plan。新独立rail保持断开；selected-anchor只连接选中endpoint及明确的
   批内相邻段；rebuild用旧到新endpoint映射保留已有连接。任何路径都不得按距离搜索附近endpoint或推断turnout stem/branch。
   Basic仅转换计划公布的exact existing endpoint/crossing identity，禁止用附近rail候选或整图扫描扩大impact。whole-world
-  snapshot undo由Bukkit捕获current/target rail snapshot，在async worker交给Core完成唯一一次diff及stable-identity
-  prospective plan；回到player owner后重新验证world instance、完整current snapshot与topology root。permit持有到
+  snapshot undo由Bukkit在async worker从exact prepared base/target rail值、render sidecar cache及Basic/SimpleATO immutable store
+  snapshot一次性构造完整`before`/`expectedAfter`和对应delta；回到player owner后必须验证world instance、exact topology root，以及
+  ordered physical connections没有变化。`SavedRailV1.activeTrackAtA/B`是transient运行选择，不进入structural undo的记录或相等性；
+  undo应用时保留target结构中仍有效的当前选择，否则退回target首条connection或null。
+  不为写入undo record重新遍历rail、metadata、render或运营对象。主动undo仍在owner上比较完整current snapshot，随后才把Core restore plan
+  交给worker准备，并在应用前再次进行完整一致性检查；在非拓扑store具备统一revision以前，不能把这项检查降级为只比较topology root。permit持有到
   outer Core transaction、metadata/render、player state persistence与显示刷新全部完成。MultiAction以CompletionStage逆序串行，
   不在Bukkit owner线程阻塞等待。snapshot plan统一执行准确occupancy验证；Dispatcher已经只使用common registry中的
   route claim，因此编辑器不再读取一份私有route-allocation状态。

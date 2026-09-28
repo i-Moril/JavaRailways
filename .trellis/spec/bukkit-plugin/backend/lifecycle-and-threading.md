@@ -94,8 +94,10 @@ wake physics + generic preTick
 玩家消息、render和其他Bukkit side effect在publication之后按target ownership执行。commit复杂度必须只与实际delta相关，不能在owner
 线程重新做`O(world)`扫描。当前信号definition事务遵守该边界；RailWand的create/rebuild/smooth/split/merge/remove/snapshot-restore
 也在现有async prepare中完成curve、diamond与完整normalized topology构建，owner transaction只验证exact base/delta并publish prepared root。
-whole-world undo capture、render/persistence side effect若仍位于owner阶段，继续作为单独待迁移项，不能回退为transaction内的`O(world)`
-topology rebuild。
+结构编辑先异步准备topology candidate，随后获取exact affected-infrastructure permit；permit持有期间由worker构造whole-world undo
+`before`/`expectedAfter`，再回到owner复核exact root并提交。这样非拓扑store不会在undo capture与commit之间被重叠编辑。runtime active branch
+不属于structural undo：准备值把它归一化掉，提交不能因为无关的道岔选择变化而失败或覆盖该选择。
+剩余render sidecar encode/write若仍位于owner阶段，继续作为单独待迁移项，不能回退为transaction内的`O(world)` topology rebuild或capture。
 
 ## 世界 lifecycle
 

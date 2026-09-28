@@ -96,8 +96,21 @@ Current extraction progress:
 - [x] RailWand create/rebuild/smooth/split/merge/remove/snapshot-restore now build the complete normalized
   `TopologyState` on the existing async worker. Prepared commits validate the exact base root plus only
   affected rail/endpoint results and publish the prebuilt root; stale preparation rejects before action,
-  with no full-world fingerprint or synchronous builder fallback. Whole-world undo/persistence capture
-  remains the unfinished half of the parent item above.
+  with no full-world fingerprint or synchronous builder fallback.
+- [ ] RailWand structural-edit undo captures both complete `before` and `expectedAfter` values in the
+  asynchronous prepare pipeline. Core first freezes complete saved-rail values for the exact base/target roots;
+  Bukkit then acquires the exact affected-infrastructure permit before a second worker stage prepares metadata,
+  direction, render and operational-object values. The same permit remains held through owner revalidation and
+  commit, so the prepared side-state cannot be superseded by an overlapping edit. The owner callback only consumes
+  those prepared undo values and rejects a stale base root;
+  it does not rescan the world to create the undo record. Staging the remaining render sidecar writes is
+  still required before the parent item can be closed. User-triggered application of an existing undo record
+  deliberately keeps its complete owner-thread current-state checks until non-topology stores have one reviewed
+  revision/stale boundary; optimizing that separate flow is not part of this item. Transient
+  `SavedRailV1.activeTrackAtA/B` is now normalized out of structural undo before/after equality. Undo apply preserves
+  the live selection when it remains in the ordered target connections, otherwise selects the first target or null;
+  unrelated turnout switching therefore does not stale or overwrite the structural undo. Remaining blocker is only
+  the render sidecar staging described above.
 - [x] Prepared topology failure handling now compares immutable `O(delta)` base rail identities,
   endpoint continuations and crossing pairs: failures before mutation or after complete rollback keep
   the world healthy, while an incomplete rollback faults it. Snapshot restore reuses the exact topology

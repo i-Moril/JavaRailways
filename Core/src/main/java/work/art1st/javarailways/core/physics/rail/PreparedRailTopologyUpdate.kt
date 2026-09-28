@@ -21,6 +21,8 @@ class PreparedRailTopologyUpdate internal constructor(
     @get:JvmSynthetic internal val ownerWorld: CoreWorld,
     val baseRoot: TopologyState,
     val targetRoot: TopologyState,
+    baseRailSnapshot: List<CoreRail.SavedRailV1>,
+    targetRailSnapshot: List<CoreRail.SavedRailV1>,
     val expectedRailCount: Int,
     baseRailCount: Int,
     baseRails: Map<UUID, CoreRail?>,
@@ -31,6 +33,14 @@ class PreparedRailTopologyUpdate internal constructor(
     expectedConnections: Map<RailEndpointRef, Set<RailEndpointRef>>,
     expectedCrossings: Map<AtGradeRailCrossingIndex.RailPair, AtGradeRailCrossing?>
 ) {
+    /** Complete saved rail values captured while this plan was prepared off the owner thread. */
+    val baseRailSnapshot: List<CoreRail.SavedRailV1> =
+        immutableSavedRails(baseRailSnapshot)
+
+    /** Complete expected saved rail values for [targetRoot], prepared without reading live rails at commit. */
+    val targetRailSnapshot: List<CoreRail.SavedRailV1> =
+        immutableSavedRails(targetRailSnapshot)
+
     @get:JvmSynthetic
     internal val baseRailCount: Int = baseRailCount
 
@@ -80,5 +90,16 @@ class PreparedRailTopologyUpdate internal constructor(
         }
         require(baseRailCount >= 0)
         require(expectedRailCount >= 0)
+        require(baseRailSnapshot.map(CoreRail.SavedRailV1::id).distinct().size == baseRailSnapshot.size)
+        require(targetRailSnapshot.map(CoreRail.SavedRailV1::id).distinct().size == targetRailSnapshot.size)
+        require(targetRailSnapshot.size == expectedRailCount)
     }
+
+    private fun immutableSavedRails(values: List<CoreRail.SavedRailV1>): List<CoreRail.SavedRailV1> =
+        Collections.unmodifiableList(values.map { saved ->
+            saved.copy(
+                nextRailAtA = Collections.unmodifiableList(ArrayList(saved.nextRailAtA)),
+                nextRailAtB = Collections.unmodifiableList(ArrayList(saved.nextRailAtB))
+            )
+        })
 }

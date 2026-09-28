@@ -24,6 +24,10 @@ object RailVisualBootstrap {
     fun registerRail(rail: CoreRail, railType: String = "standard"): PersistedRailRenderMeta =
         registerRailWithTemplate(rail, createTemplateSnapshot(railType))
 
+    /** Captures the immutable model template before an asynchronous RailWand prepare stage. */
+    fun captureTemplateSnapshot(railType: String = "standard"): RailTemplateSnapshot =
+        createTemplateSnapshot(railType)
+
     fun registerRailWithTemplate(
         rail: CoreRail,
         templateSnapshot: RailTemplateSnapshot
@@ -46,8 +50,55 @@ object RailVisualBootstrap {
     fun fromPersisted(coreWorld: CoreWorld, persisted: PersistedRailRenderMeta): Boolean {
         ThreadGuard.ensureMainThread("RailVisualBootstrap.fromPersisted")
         val rail = coreWorld.getRail(persisted.railId) ?: return false
-        registerSegments(rail.id, createSegments(rail, persisted.templateSnapshot))
+        registerSegments(rail.id, createSegmentsFromPersisted(rail, persisted))
         return true
+    }
+
+    /**
+     * Builds persistence/render input without touching a live world. [assemblyLengths] is the
+     * ordered length of every segment in the same lane when [assemblyIndex] is non-null.
+     */
+    fun preparePersistedMeta(
+        railId: UUID,
+        totalArcLength: Double,
+        templateSnapshot: RailTemplateSnapshot,
+        assemblyIndex: Int? = null,
+        assemblyLengths: List<Double> = emptyList()
+    ): PersistedRailRenderMeta {
+        require(totalArcLength >= 0.0 && totalArcLength.isFinite())
+        val allArcs = if (assemblyIndex == null) {
+            RailDecorationLayout.endpointInclusiveArcs(
+                totalArcLength,
+                templateSnapshot.repeatLength.coerceAtLeast(0.1)
+            )
+        } else {
+            require(assemblyIndex in assemblyLengths.indices)
+            require(assemblyLengths.all { it >= 0.0 && it.isFinite() })
+            val offset = assemblyLengths.take(assemblyIndex).sum()
+            val assemblyTotal = assemblyLengths.sum()
+            RailDecorationLayout.endpointInclusiveArcs(
+                assemblyTotal,
+                templateSnapshot.repeatLength.coerceAtLeast(0.1)
+            ).filter { globalArc ->
+                globalArc >= offset - 1.0e-9 &&
+                    (globalArc < offset + totalArcLength - 1.0e-9 || assemblyIndex == assemblyLengths.lastIndex)
+            }.map { it - offset }
+        }
+        val segmentCount = kotlin.math.ceil(totalArcLength / RailArcVisualSegment.SEGMENT_ARC_LENGTH).toInt()
+        val segments = (0 until segmentCount).mapNotNull { index ->
+            val arcStart = index * RailArcVisualSegment.SEGMENT_ARC_LENGTH
+            val arcEnd = minOf((index + 1) * RailArcVisualSegment.SEGMENT_ARC_LENGTH, totalArcLength)
+            val pointArcs = RailDecorationLayout.arcsInSegment(
+                allArcs,
+                arcStart,
+                arcEnd,
+                includeEnd = index == segmentCount - 1
+            )
+            pointArcs.takeIf { it.isNotEmpty() }?.let {
+                RailArcSegmentMeta(arcStart, arcEnd, it)
+            }
+        }
+        return PersistedRailRenderMeta(railId, segments, templateSnapshot)
     }
 
     private fun registerSegments(railId: UUID, segments: List<RailArcVisualSegment>) {
@@ -116,6 +167,20 @@ object RailVisualBootstrap {
                 )
             }
         }
+    }
+
+    private fun createSegmentsFromPersisted(
+        rail: CoreRail,
+        persisted: PersistedRailRenderMeta
+    ): List<RailArcVisualSegment> = persisted.segments.map { segment ->
+        require(segment.arcStart >= 0.0 && segment.arcEnd <= rail.curve.totalArcLength + 1.0e-6)
+        RailArcVisualSegment(
+            rail = rail,
+            arcStart = segment.arcStart,
+            arcEnd = segment.arcEnd,
+            pointArcs = segment.pointArcs,
+            templateSnapshot = persisted.templateSnapshot
+        )
     }
 
     private fun createTemplateSnapshot(railType: String): RailTemplateSnapshot {

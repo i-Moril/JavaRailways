@@ -293,7 +293,7 @@ class CoreWorld(
     }
 
     /**
-     * Prepares the exact structural portion of one persisted RailWand snapshot restore. Core owns
+     * Prepares the exact structural portion of one persisted whole-world snapshot restore. Core owns
      * the complete physical diff and derives endpoint changes after decoding the target snapshot
      * against its target geometry.
      */
@@ -302,6 +302,28 @@ class CoreWorld(
     fun prepareRailWorldSnapshotRestore(
         currentSnapshot: List<CoreRail.SavedRailV1>,
         targetSnapshot: List<CoreRail.SavedRailV1>
+    ): PreparedRailWorldSnapshotPlan = prepareRailWorldSnapshotRestore(
+        currentSnapshot,
+        targetSnapshot,
+        preserveCurrentActiveSelections = false
+    )
+
+    /** Structural restore variant that retains any still-valid live branch selection. */
+    @JvmSynthetic
+    @OptIn(Heavy::class)
+    fun prepareRailWorldSnapshotRestorePreservingActiveSelections(
+        currentSnapshot: List<CoreRail.SavedRailV1>,
+        targetSnapshot: List<CoreRail.SavedRailV1>
+    ): PreparedRailWorldSnapshotPlan = prepareRailWorldSnapshotRestore(
+        currentSnapshot,
+        targetSnapshot,
+        preserveCurrentActiveSelections = true
+    )
+
+    private fun prepareRailWorldSnapshotRestore(
+        currentSnapshot: List<CoreRail.SavedRailV1>,
+        targetSnapshot: List<CoreRail.SavedRailV1>,
+        preserveCurrentActiveSelections: Boolean
     ): PreparedRailWorldSnapshotPlan {
         ThreadGuard.ensureOffMainThread("CoreWorld.prepareRailWorldSnapshotRestore")
         fun index(snapshot: List<CoreRail.SavedRailV1>): Map<UUID, CoreRail.SavedRailV1> {
@@ -349,7 +371,8 @@ class CoreWorld(
             removedOrReplacedRailIds = removedOrReplacedRailIds,
             createdOrReplacedRailIds = createdOrReplacedRailIds,
             preparedCreations = prepared,
-            rawCurrentCrossings = captured.third
+            rawCurrentCrossings = captured.third,
+            preserveCurrentActiveSelections = preserveCurrentActiveSelections
         )
     }
 
@@ -359,6 +382,7 @@ class CoreWorld(
     fun prepareRailTopologyUpdate(plan: PreparedRailConnectionPlan): PreparedRailTopologyUpdate {
         ThreadGuard.ensureOffMainThread("CoreWorld.prepareRailTopologyUpdate")
         val batch = plan.preparedBatch()
+        val orderedFinalConnections = plan.finalConnections()
         val rawCrossings = railTopologyLock.read {
             ensureTopologyHealthy()
             plan.requireCurrent(this)
@@ -375,8 +399,14 @@ class CoreWorld(
             baseInput = baseInput,
             removedRailIds = removedIds,
             addedRailCurves = createdCurves,
-            finalConnections = plan.finalConnections().associate { connection ->
+            finalConnections = orderedFinalConnections.associate { connection ->
                 connection.endpoint to connection.connectedEndpoints.toSet()
+            },
+            finalConnectionOrder = orderedFinalConnections.associate { connection ->
+                connection.endpoint to connection.connectedEndpoints
+            },
+            finalActiveEndpoints = orderedFinalConnections.associate { connection ->
+                connection.endpoint to connection.activeEndpoint
             },
             rawBaseCrossings = rawCrossings,
             addedCrossings = batch.crossings
@@ -436,6 +466,8 @@ class CoreWorld(
             removedRailIds = removedRailIds,
             addedRailCurves = emptyMap(),
             finalConnections = emptyMap(),
+            finalConnectionOrder = emptyMap(),
+            finalActiveEndpoints = emptyMap(),
             rawBaseCrossings = rawCrossings,
             addedCrossings = emptyList()
         )
@@ -448,11 +480,17 @@ class CoreWorld(
         addedRailCurves: Map<UUID, PrimeCurve>,
         finalConnections: Map<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef,
             Set<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef>>,
+        finalConnectionOrder: Map<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef,
+            List<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef>>,
+        finalActiveEndpoints: Map<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef,
+            work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef?>,
         rawBaseCrossings: List<work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing>,
         addedCrossings: List<work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing>
     ): PreparedRailTopologyUpdate {
         check(baseInput.revision == baseRoot.revision)
         require(addedRailCurves.keys.intersect(removedRailIds).isEmpty())
+        require(finalActiveEndpoints.keys == finalConnections.keys)
+        require(finalConnectionOrder.keys == finalConnections.keys)
         val targetRailIds = (baseInput.rails.mapTo(linkedSetOf(), TopologyInputRail::id) - removedRailIds) +
             addedRailCurves.keys
         val continuations = linkedMapOf<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef,
@@ -524,6 +562,8 @@ class CoreWorld(
             baseRoot = baseRoot,
             targetRoot = TopologyStateBuilder.build(targetInput),
             expectedRailCount = targetRailIds.size,
+            finalConnectionOrder = finalConnectionOrder,
+            finalActiveEndpoints = finalActiveEndpoints,
             expectedAddedRailCurves = addedRailCurves,
             removedRailIds = removedRailIds,
             expectedConnections = expectedConnections,
@@ -537,6 +577,8 @@ class CoreWorld(
         baseRoot: TopologyState,
         targetRoot: TopologyState,
         expectedRailCount: Int,
+        finalConnectionOrder: Map<RailEndpointRef, List<RailEndpointRef>>,
+        finalActiveEndpoints: Map<RailEndpointRef, RailEndpointRef?>,
         expectedAddedRailCurves: Map<UUID, PrimeCurve>,
         removedRailIds: Set<UUID>,
         expectedConnections: Map<RailEndpointRef, Set<RailEndpointRef>>,
@@ -560,6 +602,16 @@ class CoreWorld(
                 "Prepared topology is stale while capturing its rollback boundary"
             }
             val baseRails = affectedRailIds.associateWith(rails::get)
+            val baseRailSnapshot = rails.values.map(CoreRail::save).sortedBy(CoreRail.SavedRailV1::id)
+            val targetInput = CoreTopologyInputAdapter.capture(targetRoot)
+            val targetRailSnapshot = buildPreparedTargetRailSnapshot(
+                baseRailSnapshot,
+                targetInput.rails.mapTo(linkedSetOf(), TopologyInputRail::id),
+                targetInput.continuations,
+                finalConnectionOrder,
+                expectedAddedRailCurves,
+                finalActiveEndpoints
+            )
             val baseConnections = linkedMapOf<
                 RailEndpointRef,
                 Set<RailEndpointRef>
@@ -574,6 +626,8 @@ class CoreWorld(
                 ownerWorld = this,
                 baseRoot = baseRoot,
                 targetRoot = targetRoot,
+                baseRailSnapshot = baseRailSnapshot,
+                targetRailSnapshot = targetRailSnapshot,
                 expectedRailCount = expectedRailCount,
                 baseRailCount = rails.size,
                 baseRails = baseRails,
@@ -587,6 +641,50 @@ class CoreWorld(
         }
     }
 
+    private fun buildPreparedTargetRailSnapshot(
+        baseSnapshot: List<CoreRail.SavedRailV1>,
+        targetRailIds: Set<UUID>,
+        targetConnections: Map<RailEndpointRef, Set<RailEndpointRef>>,
+        finalConnectionOrder: Map<RailEndpointRef, List<RailEndpointRef>>,
+        addedRailCurves: Map<UUID, PrimeCurve>,
+        finalActiveEndpoints: Map<RailEndpointRef, RailEndpointRef?>
+    ): List<CoreRail.SavedRailV1> {
+        val baseById = baseSnapshot.associateBy { saved -> UUID.fromString(saved.id) }
+        fun connections(endpoint: RailEndpointRef, base: List<String>): List<String> {
+            val targetIds = targetConnections[endpoint].orEmpty().mapTo(linkedSetOf(), RailEndpointRef::railId)
+            val explicit = finalConnectionOrder[endpoint]
+            if (explicit != null) return explicit.map { it.railId.toString() }
+            val retained = base.filter { UUID.fromString(it) in targetIds }
+            val retainedIds = retained.mapTo(hashSetOf(), UUID::fromString)
+            return retained + (targetIds - retainedIds).map(UUID::toString).sorted()
+        }
+        fun active(endpoint: RailEndpointRef, connected: List<String>, base: String?): String? {
+            val explicit = finalActiveEndpoints[endpoint]?.railId?.toString()
+            return when {
+                endpoint in finalActiveEndpoints -> explicit
+                base in connected -> base
+                else -> connected.firstOrNull()
+            }
+        }
+        return targetRailIds.sortedBy(UUID::toString).map { railId ->
+            val base = baseById[railId]
+            val curve = addedRailCurves[railId]?.save() as? work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl.SavedPrimeCurveV1
+                ?: requireNotNull(base) { "missing curve for prepared target rail $railId" }.curveAB
+            val endpointA = RailEndpointRef(railId, RailEndpoint.A)
+            val endpointB = RailEndpointRef(railId, RailEndpoint.B)
+            val atA = connections(endpointA, base?.nextRailAtA.orEmpty())
+            val atB = connections(endpointB, base?.nextRailAtB.orEmpty())
+            CoreRail.SavedRailV1(
+                id = railId.toString(),
+                curveAB = curve,
+                nextRailAtA = atA,
+                nextRailAtB = atB,
+                activeTrackAtA = active(endpointA, atA, base?.activeTrackAtA),
+                activeTrackAtB = active(endpointB, atB, base?.activeTrackAtB)
+            )
+        }
+    }
+
     /** Applies one already validated stable-identity snapshot plan inside the caller's transaction. */
     @JvmSynthetic
     @MainThread
@@ -595,6 +693,17 @@ class CoreWorld(
             "Prepared rail-world snapshot restore requires an outer topology transaction"
         }
         plan.requireReadyToApply(this)
+        val preservedActiveEndpoints = plan.activeSelectionEndpoints().associateWith { endpoint ->
+            getRail(endpoint.railId)?.let { rail ->
+                val sourceView = if (endpoint.endpoint == RailEndpoint.A) rail.viewBA else rail.viewAB
+                sourceView.activeRail?.let { active ->
+                    RailEndpointRef(
+                        active.rail.id,
+                        if (active.viewDirection == ViewDirection.AB) RailEndpoint.A else RailEndpoint.B
+                    )
+                }
+            }
+        }
         val removed = plan.removedOrReplacedRailIds.map { railId ->
             requireNotNull(rails[railId]) { "snapshot replacement source $railId disappeared" }
         }
@@ -657,7 +766,13 @@ class CoreWorld(
             sourceView.activeRail = null
             sourceView.mutableNextRails.clear()
             sourceView.mutableNextRails.addAll(target.connectedEndpoints.map { view(it).reversed })
-            sourceView.activeRail = target.activeEndpoint?.let { view(it).reversed }
+            val activeEndpoint = if (plan.preserveCurrentActiveSelections) {
+                preservedActiveEndpoints[endpoint]?.takeIf(target.connectedEndpoints::contains)
+                    ?: target.connectedEndpoints.firstOrNull()
+            } else {
+                target.activeEndpoint
+            }
+            sourceView.activeRail = activeEndpoint?.let { view(it).reversed }
         }
     }
 

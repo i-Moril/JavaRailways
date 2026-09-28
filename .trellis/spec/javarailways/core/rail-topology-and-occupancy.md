@@ -18,6 +18,10 @@
   prepared root。它不执行完整live inventory fingerprint、`TopologyStateBuilder.build`或同步fallback。bootstrap/load以及Core内部低层同步
   transaction仍可从live rail inventory完整构建；这些入口不得重新用于玩家在线编辑。
 - prepared update同时冻结该delta涉及的旧rail instance/absent identity、prepared新curve identity、两端structural continuation、raw crossing pair与全局rail count。
+  同一次worker prepare还冻结exact base root对应的完整`SavedRailV1`列表，并由prepared target root、明确endpoint顺序、active branch与新curve
+  生成完整target列表；RailWand用这两份值构造undo，不得在owner commit重新遍历live rail。该完整快照是undo输入，不参与commit的delta验证。
+  `activeTrackAtA/B`是runtime选择而不是topology root内容；普通exact snapshot restore仍比较它，structural undo则必须在边界上明确归一化并使用
+  下文的preserve-active apply语义，不能把topology root identity误称为完整saved-rail版本。
   action异常后只以`O(delta)`复核这些旧值：完全未改或完整恢复则保持world可用；任一结构结果未恢复才fault/stall。不得为了异常判断
   恢复`O(world)` fingerprint，也不得用“曾调用过mutation”代替最终结构检查。
 - outer structural transaction在释放write lock前比较进入/退出时的rail identity与structural adjacency；只有成功且结构确实变化时才递增一次`topologyRevision`。nested transaction不重复递增，直接add/remove rail也进入同一边界；成功no-op与完整rollback不发布新revision。
@@ -131,6 +135,10 @@ snapshot若只改变active branch selection，则它是runtime选择而非struct
 `TopologyState` root且revision不变；rail identity/geometry或`nextRailAtA/B`变化才构造并发布revision+1 candidate。
 async prepare只解析owner线程已捕获的current/target saved values和immutable curve geometry，不读取live mutable connection或
 active branch；回到player owner后，plan以captured endpoint state逐项复核live rail，再允许permit/apply。
+上述exact-active语义仍用于普通snapshot restore。RailWand structural undo使用单独的preserve-active入口：undo的`before`、
+`expectedAfter`与相等性比较把`activeTrackAtA/B`归一化为null，connection列表及顺序保持不变；apply在持有topology transaction时
+读取每个受影响endpoint的当前选择，目标结构仍包含该连接时保留，否则按target connection顺序选第一条，无连接则为null。
+该模式的stale检查只忽略active变化，rail identity、geometry及ordered connection变化仍然fail-close；不改变persisted schema。
 比较与target topology构建为`O(N + M + K)`，其中`M`为snapshot连接数、`K`为相关crossing数；exact geometry成本仍沿用
 前述candidate-pruned bound。apply对surviving endpoints单次遍历并只写changed/created endpoints，不扫描图资源。
 

@@ -1,13 +1,9 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.simplesignals.region
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.route.ProtectionBoundaryDefinition
-import work.art1st.javarailways.basic.api.route.ProtectionRegionDefinition
-import work.art1st.javarailways.basic.api.route.ProtectionRegionRef
-import work.art1st.javarailways.basic.api.route.ProtectionRegionValidationCode
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
@@ -163,7 +159,7 @@ class ProtectionRegionGraphResolverTest {
         ).region
 
     private fun region(id: String, vararg boundaries: ProtectionBoundaryDefinition) =
-        ProtectionRegionDefinition(ProtectionRegionRef(id, 1L), topology.topologyRevision, boundaries.toList())
+        ProtectionRegionDefinition(id, 1L, boundaries.toList())
 
     private fun boundary(id: String, railId: UUID, arc: Double, facing: ViewDirection) =
         ProtectionBoundaryDefinition(id, RailPositionSnapshot(railId, facing, arc))

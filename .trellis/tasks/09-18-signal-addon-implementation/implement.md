@@ -26,7 +26,7 @@ Current extraction progress:
 - [x] Audit the platform presentation boundary: keep the existing generic latest-only scheduler with its actual
   `BukkitPlugin` consumers, keep concrete signal rendering in `SimpleSignals`, and do not turn `SimpleATOBukkit` into a
   generic platform bridge merely to share one helper. Move only platform behavior with a real SimpleATO owner/caller.
-- [x] Remove each old production owner after its replacement is wired; a final source audit confirms Basic has no Destination/Station/Depot/Line/Timetable/operating-direction/ATO-policy store or compatibility facade, while BukkitPlugin only composes or presents the SimpleATO-owned stores. Basic's remaining RailObject/WayPoint projections and generic pathfinding/actuation/resource code have distinct shared owners; its explicitly transitional protection-region code belongs to the next SimpleSignals migration rather than duplicating SimpleATO.
+- [x] Remove each old production owner after its replacement is wired; a final source audit confirms Basic has no Destination/Station/Depot/Line/Timetable/operating-direction/ATO-policy store or compatibility facade, while BukkitPlugin only composes or presents the SimpleATO-owned stores. Basic's remaining RailObject/WayPoint projections and generic pathfinding/actuation/resource code have distinct shared owners; protection-region ownership has now moved to SimpleSignals.
 - [ ] Integrate concrete signal sources with the existing SimpleATO inspection declarations, single shared perception scan and dynamic braking-distance comparison; do not build another inspection runtime.
 - [ ] Wire `SimpleSignals` through the existing namespaced most-restrictive restriction pipeline; plugin output cannot widen Basic grants or existing ATO/ATP limits.
 
@@ -34,14 +34,15 @@ Current extraction progress:
 
 - [x] Scaffold the independent Java/Kotlin plugin, descriptor, compile-only host dependencies, capability checks and separate JAR packaging. The descriptor hard-depends on JavaRailways and declares the Bukkit API target; the current host exposes typed services rather than a numeric signal-API version, so startup validates the four required service capabilities instead of inventing string-version comparison.
 - [ ] Establish plugin-owned world runtime, strict current-model sidecar, stable namespaced IDs and atomic primary/backup store.
-- [ ] Move `ProtectionRegionDefinition`, boundary/catalog, graph-cut/interior derivation, route-window matching and validation tests out of Basic.
+- [x] Move `ProtectionRegionDefinition`, boundary/catalog, graph-cut/interior derivation, route-window matching and validation tests out of Basic. The plugin catalog atomically publishes one topology/definition-revision snapshot and indexes candidate regions by rail; Basic still performs independent structural route validation.
 - [ ] Move protection-region authoring, diagnostics, RailObjectWand mode and persistence/composition callers into the plugin.
-- [ ] Remove Basic's protection-region/fixed-block target API, `AuthoritySection` ownership and `PROTECTION_REQUIRED` policy after all callers migrate.
+- [x] Remove Basic's protection-region request/claim/validator API and `PROTECTION_REQUIRED` policy after confirming the generic route-resource runtime is the production path. Keep and rename the generic tail-release controller used by that runtime.
 - [ ] Add plugin-owned fixed-block definitions and the plugin-local common section observation interface if the reference rules need it.
 
 ## Route and resource integration
 
-- [ ] Index protection-region gates/interiors and fixed blocks by topology plus plugin-definition revision; rebuild outside the tick loop.
+- [x] Index protection-region gates/interiors by topology plus plugin-definition revision and rebuild only on catalog publication, outside the tick loop.
+- [ ] Index fixed blocks by topology plus plugin-definition revision outside the tick loop.
 - [ ] Match only resources reached by the shared frozen-route perception and validate entry/interior/exit traversal.
 - [ ] Implement the plugin route-decision layer that chooses a post-exit authority boundary for fixed- or moving-block territory without recursive Basic contributors.
 - [ ] Submit only additive flank/approach/block resources; rely on Basic to derive every rail/turnout/diamond physical resource.

@@ -23,7 +23,6 @@
 | [route planning](./route-planning.md) | shortest path/progress/compiler或迁移到SimpleATO | 当前route合同、目标topology输入与ownership迁移 |
 | [resource allocation](./resource-allocation.md) | turnout/section/berth locks/manual resource | atomic ownership与physical release |
 | [route resource admission](./route-resource-admission.md) | 自动路线claim、插件附加资源、设备准备与release | Basic目标物理资源底线、原子union与grant生命周期 |
-| [protected route admission](./protected-route-admission.md) | 迁移/删除当前保护区域实现时 | transitional region cut、window与既有回归语义；非目标ownership |
 | [持久化](./persistence.md) | Basic documents/codec/restore | split pairing、strict decode、materialize |
 | [测试](./testing.md) | Basic fixture/contract tests | isolation、assertion matrix、downstream验证 |
 

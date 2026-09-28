@@ -112,7 +112,7 @@ class RouteResourceAdmissionEngineTest {
             9L,
             train("first", 10.0, 0.0, 9L, ViewDirection.BA, reversed = true)
         )
-        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Active::class.java,
+        assertInstanceOf(RouteGrantTailReleaseUpdate.Active::class.java,
             service.consumeObservation(observation).single())
         assertEquals(
             setOf(RailIntervalResource(railId, 0.0, 10.0)),
@@ -250,7 +250,7 @@ class RouteResourceAdmissionEngineTest {
 
         // The old cursor and release queue remain live while the appended path is still pending.
         observation = observation(8L, train("first", 11.0, 20.0, 8L))
-        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Active::class.java,
+        assertInstanceOf(RouteGrantTailReleaseUpdate.Active::class.java,
             service.consumeObservation(observation).single())
         assertEquals(setOf(
             RailIntervalResource(railId, 0.0, 20.0),
@@ -278,7 +278,7 @@ class RouteResourceAdmissionEngineTest {
         assertEquals(setOf(RailIntervalResource(railId, 20.0, 40.0)),
             registry.claimSnapshots().single().footprint.resources.toSet())
         observation = observation(10L, train("first", 40.0, 40.0, 10L))
-        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java,
+        assertInstanceOf(RouteGrantTailReleaseUpdate.Completed::class.java,
             service.consumeObservation(observation).single())
         assertTrue(service.endGrant(requester, first.grantId))
     }
@@ -407,7 +407,7 @@ class RouteResourceAdmissionEngineTest {
         assertEquals(1, service.requesterActivity(platformOwner).size)
         assertFalse(service.discardInactiveRequester(platformOwner))
         observation = observation(8L, train("first", 21.0, 22.0, 8L))
-        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java,
+        assertInstanceOf(RouteGrantTailReleaseUpdate.Completed::class.java,
             service.consumeObservation(observation).single())
         assertTrue(registry.claimSnapshots().isEmpty())
         assertTrue(service.requesterActivity(platformOwner).isEmpty())
@@ -667,7 +667,7 @@ class RouteResourceAdmissionEngineTest {
             service.progress(requester, pending.handle)).grant
 
         assertEquals(observation.stamp, grant.observationStamp)
-        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Active::class.java,
+        assertInstanceOf(RouteGrantTailReleaseUpdate.Active::class.java,
             service.consumeObservation(observation(9L, train("first", 0.0, 1.0, 9L))).single())
     }
 
@@ -902,7 +902,7 @@ class RouteResourceAdmissionEngineTest {
         assertSame(extended, assertInstanceOf(RouteAdmissionResult.Granted::class.java,
             service.progress(requester, pending.handle)).grant)
         observation = observation(9L, train("first", 41.0, 42.0, 9L))
-        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java,
+        assertInstanceOf(RouteGrantTailReleaseUpdate.Completed::class.java,
             service.consumeObservation(observation).single())
         assertTrue(registry.claimSnapshots().isEmpty())
         assertTrue(service.endGrant(requester, first.grantId))
@@ -979,7 +979,7 @@ class RouteResourceAdmissionEngineTest {
             service.request(requester, intent(authority = 40.0)))
         observation = observation(8L, train("first", 21.0, 22.0, 8L))
 
-        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java,
+        assertInstanceOf(RouteGrantTailReleaseUpdate.Completed::class.java,
             service.consumeObservation(observation).single())
         assertEquals(listOf(RailIntervalResource(railId, 20.0, 40.0)),
             registry.claimSnapshots().single().footprint.resources)
@@ -990,7 +990,7 @@ class RouteResourceAdmissionEngineTest {
         assertSame(first.grantId, extended.grantId)
         assertEquals(RouteBoundary(40.0), extended.committedAuthority)
         observation = observation(9L, train("first", 41.0, 42.0, 9L))
-        assertInstanceOf(ProtectedRouteTailReleaseUpdate.Completed::class.java,
+        assertInstanceOf(RouteGrantTailReleaseUpdate.Completed::class.java,
             service.consumeObservation(observation).single())
         assertTrue(registry.claimSnapshots().isEmpty())
     }

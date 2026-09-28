@@ -17,7 +17,7 @@ import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import java.util.UUID
 
-class ProtectedRouteTailReleaseTest {
+class RouteGrantTailReleaseTest {
     private val railId = UUID.randomUUID()
     private val worldId = "world"
     private val topologyRevision = 4L
@@ -37,7 +37,7 @@ class ProtectedRouteTailReleaseTest {
         )
 
         val shrunk = assertInstanceOf(
-            ProtectedRouteTailReleaseUpdate.Active::class.java,
+            RouteGrantTailReleaseUpdate.Active::class.java,
             consume(fixture.tailRelease, observation(epoch = 8L, tailMeters = 10.0))
         )
         val repeated = consume(fixture.tailRelease, observation(epoch = 8L, tailMeters = 100.0))
@@ -45,15 +45,15 @@ class ProtectedRouteTailReleaseTest {
         assertInstanceOf(LiveClaimTailReleaseResult.Shrunk::class.java, shrunk.releaseResult)
         assertEquals(listOf(second), fixture.registry.claimSnapshots().single().footprint.resources)
         assertEquals(
-            ProtectedRouteTailReleaseUpdate.Unchanged(8L, RouteProgressCursorState(0, 10.0)),
+            RouteGrantTailReleaseUpdate.Unchanged(8L, RouteProgressCursorState(0, 10.0)),
             repeated
         )
 
         val completed = consume(fixture.tailRelease, observation(epoch = 9L, tailMeters = 20.0))
         val afterCompletion = consume(fixture.tailRelease, observation(epoch = 10L, tailMeters = 30.0))
 
-        assertEquals(ProtectedRouteTailReleaseUpdate.Completed(9L, alreadyCompleted = false), completed)
-        assertEquals(ProtectedRouteTailReleaseUpdate.Completed(10L, alreadyCompleted = true), afterCompletion)
+        assertEquals(RouteGrantTailReleaseUpdate.Completed(9L, alreadyCompleted = false), completed)
+        assertEquals(RouteGrantTailReleaseUpdate.Completed(10L, alreadyCompleted = true), afterCompletion)
         assertEquals(RouteProgressCursorState(0, 30.0), fixture.cursor.state)
         assertTrue(fixture.tailRelease.resourceQueueEmpty)
         assertTrue(fixture.registry.claimSnapshots().isEmpty())
@@ -67,7 +67,7 @@ class ProtectedRouteTailReleaseTest {
         val fixture = fixture(listOf(ResolvedTailReleaseEntry(first, 10.0)))
 
         assertInstanceOf(
-            ProtectedRouteTailReleaseUpdate.Completed::class.java,
+            RouteGrantTailReleaseUpdate.Completed::class.java,
             consume(fixture.tailRelease, observation(epoch = 8L, tailMeters = 10.0))
         )
         consume(fixture.tailRelease, observation(epoch = 9L, tailMeters = 15.0))
@@ -91,7 +91,7 @@ class ProtectedRouteTailReleaseTest {
             observation(epoch = 10L, tailMeters = 20.0)
         )
 
-        assertEquals(ProtectedRouteTailReleaseUpdate.Completed(10L, false), completed)
+        assertEquals(RouteGrantTailReleaseUpdate.Completed(10L, false), completed)
         assertEquals(RouteProgressCursorState(0, 20.0), fixture.cursor.state)
         assertTrue(fixture.registry.claimSnapshots().isEmpty())
         assertEquals(0, fixture.stalls.size)
@@ -101,22 +101,22 @@ class ProtectedRouteTailReleaseTest {
     fun `observation identity epoch and train failures latch and stall exactly once`() {
         val scenarios = listOf(
             Triple(
-                ProtectedRouteTailReleaseFailureKind.WRONG_WORLD,
+                RouteGrantTailReleaseFailureKind.WRONG_WORLD,
                 observation(epoch = 8L, tailMeters = 1.0, world = "other"),
                 "wrong world"
             ),
             Triple(
-                ProtectedRouteTailReleaseFailureKind.STALE_TOPOLOGY,
+                RouteGrantTailReleaseFailureKind.STALE_TOPOLOGY,
                 observation(epoch = 8L, tailMeters = 1.0, topology = topologyRevision + 1L),
                 "wrong topology"
             ),
             Triple(
-                ProtectedRouteTailReleaseFailureKind.DECREASING_PHYSICS_EPOCH,
+                RouteGrantTailReleaseFailureKind.DECREASING_PHYSICS_EPOCH,
                 observation(epoch = 6L, tailMeters = 1.0),
                 "decreasing epoch"
             ),
             Triple(
-                ProtectedRouteTailReleaseFailureKind.TRAIN_MISSING,
+                RouteGrantTailReleaseFailureKind.TRAIN_MISSING,
                 observation(epoch = 8L, tailMeters = 1.0, id = "other-train"),
                 "missing train"
             )
@@ -125,7 +125,7 @@ class ProtectedRouteTailReleaseTest {
         scenarios.forEach { (expectedKind, invalidObservation, description) ->
             val fixture = fixture(singleEntry())
             val failed = assertInstanceOf(
-                ProtectedRouteTailReleaseUpdate.FailedClosed::class.java,
+                RouteGrantTailReleaseUpdate.FailedClosed::class.java,
                 consume(fixture.tailRelease, invalidObservation),
                 description
             )
@@ -143,11 +143,11 @@ class ProtectedRouteTailReleaseTest {
         val fixture = fixture(singleEntry())
 
         val failed = assertInstanceOf(
-            ProtectedRouteTailReleaseUpdate.FailedClosed::class.java,
+            RouteGrantTailReleaseUpdate.FailedClosed::class.java,
             consume(fixture.tailRelease, observation(epoch = 8L, tailMeters = 101.0))
         )
 
-        assertEquals(ProtectedRouteTailReleaseFailureKind.ROUTE_CURSOR_FAILED, failed.kind)
+        assertEquals(RouteGrantTailReleaseFailureKind.ROUTE_CURSOR_FAILED, failed.kind)
         assertEquals(failed, consume(fixture.tailRelease, observation(epoch = 9L, tailMeters = 20.0)))
         assertEquals(1, fixture.stalls.size)
         assertEquals(1, fixture.registry.claimSnapshots().size)
@@ -158,11 +158,11 @@ class ProtectedRouteTailReleaseTest {
         val fixture = fixture(singleEntry(), releasePlatformOwner = Any())
 
         val failed = assertInstanceOf(
-            ProtectedRouteTailReleaseUpdate.FailedClosed::class.java,
+            RouteGrantTailReleaseUpdate.FailedClosed::class.java,
             consume(fixture.tailRelease, observation(epoch = 8L, tailMeters = 10.0))
         )
 
-        assertEquals(ProtectedRouteTailReleaseFailureKind.TAIL_RELEASE_FAILED, failed.kind)
+        assertEquals(RouteGrantTailReleaseFailureKind.TAIL_RELEASE_FAILED, failed.kind)
         assertEquals(failed, consume(fixture.tailRelease, observation(epoch = 9L, tailMeters = 20.0)))
         assertEquals(1, fixture.stalls.size)
         assertEquals(1, fixture.registry.claimSnapshots().size)
@@ -197,7 +197,7 @@ class ProtectedRouteTailReleaseTest {
             registry,
             stalls,
             initialized.cursor,
-            ProtectedRouteTailRelease(
+            RouteGrantTailRelease(
                 worldId,
                 topologyRevision,
                 trainId,
@@ -234,9 +234,9 @@ class ProtectedRouteTailReleaseTest {
     )
 
     private fun consume(
-        tailRelease: ProtectedRouteTailRelease,
+        tailRelease: RouteGrantTailRelease,
         observation: RailwayObservation
-    ): ProtectedRouteTailReleaseUpdate = tailRelease.consume(
+    ): RouteGrantTailReleaseUpdate = tailRelease.consume(
         observation.stamp,
         observation.trains.firstOrNull { it.trainId == trainId }
     )
@@ -265,6 +265,6 @@ class ProtectedRouteTailReleaseTest {
         val registry: InfrastructureCoordinationRegistry,
         val stalls: MutableList<String>,
         val cursor: RouteProgressCursor,
-        val tailRelease: ProtectedRouteTailRelease
+        val tailRelease: RouteGrantTailRelease
     )
 }

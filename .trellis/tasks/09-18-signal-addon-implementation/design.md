@@ -102,14 +102,14 @@ At enable/load, the plugin remains restrictive until host capabilities, persiste
 
 ## Migration from Basic
 
-Move, rather than duplicate, the current protection-region concepts in reviewable batches:
+The domain migration has moved the authored definitions, graph cut, catalog/index and route-window
+matching into `SimpleSignals`, deleted the unused Basic single-window request/claim path and retained
+generic projection, turnout/diamond identity, claim, preparation, cursor/release and suffix extension
+in Basic. The remaining reviewable batches are:
 
-1. copy no mutable world state; make the code consume public `TopologyState` and Basic resources;
-2. establish plugin-owned current model, catalog/index and tests;
-3. move authoring/persistence/composition callers;
-4. replace Basic protection-window input with plugin-generated route boundary/additions;
-5. remove Basic protection definitions, `AuthoritySection` target and `PROTECTION_REQUIRED` policy;
-6. retain generic projection, turnout/diamond identity, claim, preparation, cursor/release and suffix extension in Basic.
+1. establish the plugin-owned world runtime and persistence/composition around the current region model;
+2. add authoring and diagnostics;
+3. connect the plugin-generated route boundary/additions through the generic contributor API.
 
 Development data migration, if required, is a separate auditable one-time tool with dry-run and recovery point—not a permanent runtime compatibility path.
 

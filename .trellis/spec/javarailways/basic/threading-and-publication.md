@@ -19,7 +19,7 @@ Core complete epoch
 → onPhysicsStatePublished写volatile value state/notifications
 main owner await exact PhysicsTicket success
 → publish RailwayObservation
-→ 显式驱动world-local protected-route tail release（stable owner order，首个Stall即停止）
+→ 显式驱动world-local route-grant tail release（stable owner order，首个Stall即停止）
 → apply safety requests、drain frames、Dispatcher.tick(world)
 ```
 

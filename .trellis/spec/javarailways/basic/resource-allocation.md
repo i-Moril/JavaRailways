@@ -101,7 +101,7 @@ footprint使用其`StableInfrastructureResource`，不得改用revision-local `T
 
 ## 路线资源准入
 
-目标物理资源底线、附加资源、transaction和release/lifecycle合同见[route resource admission](./route-resource-admission.md)。当前保护区域实现细节只作为迁移记录保留在[protected route admission](./protected-route-admission.md)。本节只保留与通用registry直接相关的约束。
+目标物理资源底线、附加资源、transaction和release/lifecycle合同见[route resource admission](./route-resource-admission.md)。保护区域领域已经迁出 Basic；本节只保留与通用registry直接相关的约束。
 
 `RouteResourceIntent`只描述一个自身携带topology revision的冻结route plan、列车身份、同一观察stamp与期望authority boundary；request本身既不复制第二个topology revision，也不携带附加资源。SimpleATO提供有序traversal；宿主在同一准入流程中认证并调用具体信号插件的contributor，收集只能增加最终union的资源和保持边界。Basic从authoritative observation读取列车实际占用，并从请求范围自行推导不可删除的物理资源底线。Basic不执行保护区域/固定闭塞的递归contributor closure。
 
@@ -164,15 +164,15 @@ handle，也不执行preparation、finalize或rollback。
 选择第一个匹配项，从不回退。匹配结果低于已接受route distance或未匹配到当前位置都会锁存fail closed并
 保留原state。
 
-`ProtectedRouteClaimService`内部按logical owner ID持有live-grant record，包含精确platform/logical owner、train与
-`ProtectedRouteTailRelease`。成功acquire在READY/finalize后安装，UNCHANGED保留原项。service显式消费后续
+`RouteResourceAdmissionEngine`按logical owner ID持有live-grant record，包含精确platform/logical owner、train与
+`RouteGrantTailRelease`。成功acquire在READY后安装并保留原grant identity。runtime显式消费后续
 `RailwayObservation`，一次建立train ID lookup并按owner稳定顺序驱动控制器；controller仍校验stamp/train identity，
 把tail投影为候选进度，registry shrink成功后才提交cursor。Completed只表示当前资源队列为空：record继续消费后续
 observation并推进cursor但不访问registry。只有精确owner的显式release/end删除record；registry已无资源时必须由该
 record证明queue为空才把`NOT_FOUND`解释为`RELEASED`。错误owner或active queue下的`NOT_FOUND`不能被掩盖。
 
-当前仍没有自动publication订阅、持久化/reload恢复、provider-disable takeover或clearance margin。内部
-same-route suffix extension已经沿同一冻结路线验证并原子追加；公开SimpleATO调用接口仍未冻结。route plan变化
+当前仍没有持久化/reload恢复、provider-disable takeover或clearance margin。内部same-route suffix extension
+已经沿同一冻结路线验证并原子追加。route plan变化
 在安全运营边界结束旧claim后重新准入，不通过whole-claim replace实现。
 
 目标registry为同一冻结路线的rolling extension提供internal append-only mutation，而不是复用通用replace。调用方提交

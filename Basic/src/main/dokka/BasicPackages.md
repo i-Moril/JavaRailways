@@ -37,4 +37,4 @@ Applied-plan dependency以persistent rail ID、stable topology-node key和runtim
 
 # Package work.art1st.javarailways.basic.api.route
 
-受保护进路的有向边界、保护区域 provider/revision、冻结 route window、出口净空与组合原子请求。区域定义在注册或显式刷新时由主插件切分拓扑并检查内部唯一性/重叠；调用方只描述路径和区域，完整 infrastructure footprint 必须由主插件按权威拓扑解析。
+冻结 route intent、route-metre authority/release boundary、插件附加资源、设备准备参数及 grant result。调用方不提交完整 footprint；Basic 按权威拓扑推导不可删除的 rail、turnout 与 route-bound physical resources，并把经过认证的插件 additions 合并进同一个原子 claim。保护区域与固定闭塞属于具体信号插件，不在本 package 定义。

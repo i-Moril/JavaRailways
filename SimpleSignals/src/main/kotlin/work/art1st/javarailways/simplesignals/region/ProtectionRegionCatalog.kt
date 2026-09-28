@@ -1,0 +1,191 @@
+package work.art1st.javarailways.simplesignals.region
+
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
+import java.util.UUID
+
+internal enum class ProtectionRegionCatalogStatus {
+    PUBLISHED,
+    UNCHANGED,
+    REJECTED
+}
+
+internal data class ProtectionRegionCatalogResult(
+    val status: ProtectionRegionCatalogStatus,
+    val diagnostics: List<ProtectionRegionDiagnostic> = emptyList()
+) {
+    init {
+        require(status == ProtectionRegionCatalogStatus.REJECTED || diagnostics.isEmpty()) {
+            "diagnostics are only valid for rejected publications"
+        }
+    }
+}
+
+internal sealed interface ProtectionRegionRouteMatchResult {
+    data class Matched(val windows: List<ProtectionRegionRouteWindow>) : ProtectionRegionRouteMatchResult
+    data class Rejected(val diagnostics: List<ProtectionRegionDiagnostic>) : ProtectionRegionRouteMatchResult
+}
+
+/**
+ * Atomically publishes plugin-owned protection definitions and their disposable topology index.
+ * A rejected rebuild preserves the previous snapshot. Rebuild work occurs on authoring/load, not
+ * in a train tick; route matching consults only regions indexed by rails on the frozen route.
+ */
+internal class ProtectionRegionCatalog {
+    private val lock = Any()
+    @Volatile
+    private var snapshot: Snapshot? = null
+
+    fun publish(
+        topology: TopologyState,
+        definitionRevision: Long,
+        definitions: Collection<ProtectionRegionDefinition>
+    ): ProtectionRegionCatalogResult = synchronized(lock) {
+        require(definitionRevision >= 0L) { "definitionRevision must be non-negative" }
+        val copiedDefinitions = java.util.List.copyOf(
+            definitions.sortedBy(ProtectionRegionDefinition::regionId)
+        )
+        val current = snapshot
+        if (current != null && definitionRevision < current.definitionRevision) {
+            return@synchronized rejected(
+                ProtectionRegionValidationCode.INVALID_DEFINITION_REVISION,
+                "definition revision $definitionRevision precedes published revision " +
+                    current.definitionRevision
+            )
+        }
+        if (current != null &&
+            definitionRevision == current.definitionRevision &&
+            copiedDefinitions != current.definitions
+        ) {
+            return@synchronized rejected(
+                ProtectionRegionValidationCode.INVALID_DEFINITION_REVISION,
+                "definition content changed without advancing revision $definitionRevision"
+            )
+        }
+        val duplicate = copiedDefinitions.groupBy(ProtectionRegionDefinition::regionId)
+            .entries.firstOrNull { it.value.size > 1 }
+        if (duplicate != null) {
+            return@synchronized rejected(
+                ProtectionRegionValidationCode.DUPLICATE_REGION_ID,
+                "region ${duplicate.key} is defined more than once",
+                duplicate.key
+            )
+        }
+
+        val derivedTopology = try {
+            ProtectionRegionTopology.derive(topology)
+        } catch (failure: Exception) {
+            return@synchronized rejected(
+                ProtectionRegionValidationCode.STALE_TOPOLOGY,
+                "topology ${topology.revision} could not be indexed: ${failure.message.orEmpty()}"
+            )
+        }
+        val resolved = ArrayList<ResolvedProtectionRegion>(copiedDefinitions.size)
+        for (definition in copiedDefinitions) {
+            when (val result = ProtectionRegionGraphResolver.resolve(definition, derivedTopology)) {
+                is ProtectionRegionGraphResolution.Resolved -> resolved += result.region
+                is ProtectionRegionGraphResolution.Rejected ->
+                    return@synchronized ProtectionRegionCatalogResult(
+                        ProtectionRegionCatalogStatus.REJECTED,
+                        listOf(result.diagnostic)
+                    )
+            }
+        }
+        for (index in resolved.indices) {
+            for (other in index + 1 until resolved.size) {
+                ProtectionRegionGraphResolver.overlap(resolved[index], resolved[other])?.let {
+                    return@synchronized ProtectionRegionCatalogResult(
+                        ProtectionRegionCatalogStatus.REJECTED,
+                        listOf(it)
+                    )
+                }
+            }
+        }
+
+        val candidate = Snapshot.create(topology, definitionRevision, derivedTopology, resolved)
+        if (snapshot?.equivalentTo(candidate) == true) {
+            return@synchronized ProtectionRegionCatalogResult(ProtectionRegionCatalogStatus.UNCHANGED)
+        }
+        snapshot = candidate
+        ProtectionRegionCatalogResult(ProtectionRegionCatalogStatus.PUBLISHED)
+    }
+
+    fun definitions(): List<ProtectionRegionDefinition> = snapshot?.definitions.orEmpty()
+
+    fun match(route: RouteSnapshot): ProtectionRegionRouteMatchResult {
+        val captured = snapshot ?: return ProtectionRegionRouteMatchResult.Rejected(
+            listOf(
+                ProtectionRegionDiagnostic(
+                    ProtectionRegionValidationCode.STALE_TOPOLOGY,
+                    "protection-region catalog has not been published"
+                )
+            )
+        )
+        if (route.topologyRevision != captured.topology.revision) {
+            return ProtectionRegionRouteMatchResult.Rejected(
+                listOf(
+                    ProtectionRegionDiagnostic(
+                        ProtectionRegionValidationCode.STALE_TOPOLOGY,
+                        "route topology revision ${route.topologyRevision} does not match catalog " +
+                            captured.topology.revision
+                    )
+                )
+            )
+        }
+        return ProtectionRegionRouteMatcher.matchIndexed(
+            route,
+            captured.derivedTopology,
+            captured.regionsById,
+            captured.regionIdsByRail
+        )
+    }
+
+    private fun rejected(
+        code: ProtectionRegionValidationCode,
+        detail: String,
+        regionId: String? = null
+    ) = ProtectionRegionCatalogResult(
+        ProtectionRegionCatalogStatus.REJECTED,
+        listOf(ProtectionRegionDiagnostic(code, detail, regionId = regionId))
+    )
+
+    private data class Snapshot(
+        val topology: TopologyState,
+        val definitionRevision: Long,
+        val derivedTopology: ProtectionRegionTopology,
+        val definitions: List<ProtectionRegionDefinition>,
+        val regionsById: Map<String, ResolvedProtectionRegion>,
+        val regionIdsByRail: Map<UUID, Set<String>>
+    ) {
+        fun equivalentTo(other: Snapshot): Boolean =
+            topology === other.topology &&
+                definitionRevision == other.definitionRevision &&
+                definitions == other.definitions
+
+        companion object {
+            fun create(
+                topology: TopologyState,
+                definitionRevision: Long,
+                derivedTopology: ProtectionRegionTopology,
+                regions: Collection<ResolvedProtectionRegion>
+            ): Snapshot {
+                val definitions = regions.map(ResolvedProtectionRegion::definition)
+                val byId = regions.associateBy { it.definition.regionId }
+                val byRail = linkedMapOf<UUID, MutableSet<String>>()
+                for (region in regions) {
+                    for (slice in region.interior) {
+                        byRail.getOrPut(slice.railId, ::linkedSetOf) += region.definition.regionId
+                    }
+                }
+                return Snapshot(
+                    topology,
+                    definitionRevision,
+                    derivedTopology,
+                    java.util.List.copyOf(definitions),
+                    java.util.Map.copyOf(byId),
+                    java.util.Map.copyOf(byRail.mapValues { java.util.Set.copyOf(it.value) })
+                )
+            }
+        }
+    }
+}

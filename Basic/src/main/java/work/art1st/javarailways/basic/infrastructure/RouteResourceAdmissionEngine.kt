@@ -64,7 +64,7 @@ internal class RouteResourceAdmissionEngine(
         var cursor: RouteProgressCursor,
         var routeProgressPath: CompiledRouteProgressPath,
         var committedGrant: RouteGrantSnapshot? = null,
-        var tailRelease: ProtectedRouteTailRelease? = null,
+        var tailRelease: RouteGrantTailRelease? = null,
         var controlledResources: Set<StableInfrastructureResource>,
         val preparationsByResource: MutableMap<InfrastructureResource, InfrastructurePreparationRequirement>,
         var pendingHandle: RouteAdmissionHandle? = null,
@@ -120,7 +120,7 @@ internal class RouteResourceAdmissionEngine(
                         ) { "train tail no longer starts at the frozen route" }
                     } else {
                         val release = checkNotNull(route.tailRelease).consume(observation.stamp, train)
-                        check(release !is ProtectedRouteTailReleaseUpdate.FailedClosed) {
+                        check(release !is RouteGrantTailReleaseUpdate.FailedClosed) {
                             "train tail no longer follows the frozen route"
                         }
                     }
@@ -135,7 +135,7 @@ internal class RouteResourceAdmissionEngine(
                     }
                     check(reservation.complete()) { "resource reservation disappeared" }
                     if (oldGrant == null) {
-                        route.tailRelease = ProtectedRouteTailRelease(
+                        route.tailRelease = RouteGrantTailRelease(
                             worldId, intent.route.topologyRevision, intent.trainId,
                             observation.stamp.physicsEpoch, route.cursor,
                             LiveClaimTailRelease(
@@ -179,7 +179,7 @@ internal class RouteResourceAdmissionEngine(
                         val train = observation.trains.firstOrNull { it.trainId == intent.trainId }
                             ?: error("train disappeared before safe request abort")
                         check(checkNotNull(route.tailRelease).consume(observation.stamp, train) !is
-                            ProtectedRouteTailReleaseUpdate.FailedClosed
+                            RouteGrantTailReleaseUpdate.FailedClosed
                         ) { "train tail could not be reconciled before safe request abort" }
                     }
                     val rolledBack = reservation.rollback()
@@ -274,7 +274,7 @@ internal class RouteResourceAdmissionEngine(
         } else {
             // Tail release is independent of this request and keeps using the committed prefix.
             if (checkNotNull(existing.tailRelease).consume(observation.stamp, train) is
-                ProtectedRouteTailReleaseUpdate.FailedClosed
+                RouteGrantTailReleaseUpdate.FailedClosed
             ) return rejected(RouteAdmissionFailureCode.WORLD_STALLED, "train tail no longer follows frozen route")
             existing.projection
         }
@@ -690,7 +690,7 @@ internal class RouteResourceAdmissionEngine(
             retainedResources,
             stableBoundaries
         )
-        val newTailRelease = ProtectedRouteTailRelease(
+        val newTailRelease = RouteGrantTailRelease(
             worldId,
             intent.route.topologyRevision,
             intent.trainId,
@@ -726,16 +726,16 @@ internal class RouteResourceAdmissionEngine(
 
     /** One already-published observation drives only routes with a committed grant. */
     @MainThread
-    fun consumeObservation(observation: RailwayObservation): List<ProtectedRouteTailReleaseUpdate> {
+    fun consumeObservation(observation: RailwayObservation): List<RouteGrantTailReleaseUpdate> {
         if (worldStalled || routes.values.none { it.committedGrant != null }) return emptyList()
         val trains = observation.trains.associateBy { it.trainId }
-        val updates = ArrayList<ProtectedRouteTailReleaseUpdate>(routes.size)
+        val updates = ArrayList<RouteGrantTailReleaseUpdate>(routes.size)
         for (route in routes.values) {
             if (route.committedGrant == null) continue
             if (route.reversalFromTrainState != null) continue
             val update = checkNotNull(route.tailRelease).consume(observation.stamp, trains[route.trainId])
             updates += update
-            if (update is ProtectedRouteTailReleaseUpdate.FailedClosed) break
+            if (update is RouteGrantTailReleaseUpdate.FailedClosed) break
         }
         return updates
     }

@@ -491,7 +491,7 @@ internal class DefaultInfrastructureResourceService(
                 ?: unavailableDependencies(worldId)
         }
 
-    /** Internal seam for the future ProtectedRouteWindow service; deliberately absent from public API. */
+    /** Internal world-runtime seam; deliberately absent from the public add-on API. */
     fun acquireLiveClaim(pluginOwner: Plugin, worldId: UUID, request: InfrastructureClaimRequest) =
         BukkitThreadGuardBridge.runInSimulationContext {
             registry(worldId)?.acquireClaim(requireEnabled(pluginOwner), request) ?: unavailable(worldId)

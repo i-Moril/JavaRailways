@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.simplesignals.region
 
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint

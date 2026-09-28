@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.simplesignals.region
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame

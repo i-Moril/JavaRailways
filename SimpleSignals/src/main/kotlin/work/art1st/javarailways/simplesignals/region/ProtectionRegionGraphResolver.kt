@@ -1,9 +1,5 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.simplesignals.region
 
-import work.art1st.javarailways.basic.api.route.ProtectionBoundaryDefinition
-import work.art1st.javarailways.basic.api.route.ProtectionRegionDefinition
-import work.art1st.javarailways.basic.api.route.ProtectionRegionDiagnostic
-import work.art1st.javarailways.basic.api.route.ProtectionRegionValidationCode
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import java.util.ArrayDeque
@@ -33,14 +29,6 @@ internal object ProtectionRegionGraphResolver {
         definition: ProtectionRegionDefinition,
         topology: ProtectionRegionTopology
     ): ProtectionRegionGraphResolution {
-        if (definition.topologyRevision != topology.topologyRevision) {
-            return rejected(
-                code = ProtectionRegionValidationCode.STALE_TOPOLOGY,
-                detail = "region topology revision ${definition.topologyRevision} does not match " +
-                    topology.topologyRevision,
-                regionId = definition.region.regionId
-            )
-        }
         val cuts = linkedMapOf<UUID, MutableList<ProtectionBoundaryDefinition>>()
         for (boundary in definition.boundaries) {
             val rail = topology.rails[boundary.position.railId]
@@ -123,9 +111,9 @@ internal object ProtectionRegionGraphResolver {
                 if (overlapEnd - overlapStart > Curve.TOLERANCE) {
                     return ProtectionRegionDiagnostic(
                         code = ProtectionRegionValidationCode.REGION_OVERLAP,
-                        detail = "regions ${first.definition.region.regionId} and " +
-                            "${second.definition.region.regionId} overlap on rail ${firstSlice.railId}",
-                        regionId = second.definition.region.regionId,
+                        detail = "regions ${first.definition.regionId} and " +
+                            "${second.definition.regionId} overlap on rail ${firstSlice.railId}",
+                        regionId = second.definition.regionId,
                         railId = firstSlice.railId
                     )
                 }
@@ -209,7 +197,7 @@ internal object ProtectionRegionGraphResolver {
         detail: String,
         definition: ProtectionRegionDefinition? = null,
         boundary: ProtectionBoundaryDefinition? = null,
-        regionId: String? = definition?.region?.regionId
+        regionId: String? = definition?.regionId
     ) = ProtectionRegionGraphResolution.Rejected(
         ProtectionRegionDiagnostic(
             code = code,

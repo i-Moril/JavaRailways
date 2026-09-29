@@ -51,12 +51,18 @@ Current extraction progress:
 
 - [x] Index protection-region gates/interiors by topology plus plugin-definition revision and rebuild only on catalog publication, outside the tick loop.
 - [x] Index fixed blocks by exact topology root plus plugin-definition revision outside the tick loop.
-- [ ] Match only resources reached by the shared frozen-route perception and validate entry/interior/exit traversal.
+- [x] Match fixed-block resources only on the frozen-route authority prefix: reuse one plugin-local directed-route projection,
+  discover candidates through the rail reverse index, require a complete entry-to-exit traversal and fail closed on a partial block.
+- [ ] Match protection-region resources reached by shared frozen-route perception and validate entry/interior/exit traversal.
 - [ ] Implement the plugin route-decision layer that chooses a post-exit authority boundary for fixed- or moving-block territory without recursive Basic contributors.
-- [ ] Submit only additive flank/approach/block resources; rely on Basic to derive every rail/turnout/diamond physical resource.
+- [x] Submit fixed-block tokens only as additive resources through the host contributor; rely on Basic to derive every
+  rail/turnout/diamond physical resource and its existing atomic claim/release lifecycle.
+- [ ] Add concrete flank/approach resources when the first interlocking rule requires them; do not invent generic placeholders.
 - [ ] Keep region identity non-exclusive by default; test disjoint paths through one throat and conflicts from actual shared/additional resources.
 - [ ] Derive permissive aspects only from a committed Basic grant and valid SimpleATO authority; missing or stale plugin state remains restrictive.
-- [ ] Use the existing host cursor/release/extension lifecycle and unified owner-unregister gate; verify planned disable is rejected while plugin resources remain active and forced disable retains committed claims/dependencies while stalling only affected worlds.
+- [x] Hold each contributed fixed-block identity to its last matched exit and use the existing host cursor/release/extension lifecycle;
+  do not create a plugin release queue.
+- [ ] Verify the unified owner-unregister gate rejects planned disable while plugin resources remain active and forced disable retains committed claims/dependencies while stalling only affected worlds.
 - [ ] Integrate route-bound diamonds for conflict/inspection without cross-line continuation or selectable state.
 
 ## Reactive signal state and customization

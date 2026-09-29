@@ -94,7 +94,16 @@ The current foundation compiles each block only on load/authoring. It validates 
 `TopologyState`, derives whole-block Basic occupancy geometry with directed entry/exit boundaries, sums its physical length,
 and publishes a rail-to-block reverse index together with the other world definitions. The sidecar adds `fixedBlocks` to
 schema 1 with an explicit empty default, so this backward-readable additive field does not create a new schema version.
-Resource claiming, route-local matching and protection-region observation remain later batches.
+Protection-region observation remains a later batch.
+
+Fixed-block route admission now uses one plugin-owned `simplesignals:fixed-block` resource type and the existing host
+provider/contributor seam. On each new or extended admission, SimpleSignals projects the frozen route once into route metres plus
+canonical AB coordinates, discovers only blocks indexed by rails on that route, and matches the requested authority prefix against
+each complete directed block traversal. Authority ending at the entry contributes nothing; authority entering but not reaching the
+exit is rejected; complete traversal contributes one stable block resource held until the tail passes the route-local exit. More than
+one complete occurrence of the same block in one authority prefix is rejected as an ambiguous route. Basic independently adds the physical rail,
+turnout and diamond floor and atomically claims the union. This does not yet choose a farther authority boundary for ATO or produce
+signal aspects.
 
 The first common live section slice now covers fixed-block occupancy only. On world installation,
 SimpleSignals groups every compiled block area into one host `SignalEpochSource`; Basic derives the

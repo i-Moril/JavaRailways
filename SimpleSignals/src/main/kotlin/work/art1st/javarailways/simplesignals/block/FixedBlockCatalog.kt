@@ -71,7 +71,8 @@ internal class FixedBlockReadSnapshot internal constructor(
     val topology: TopologyState,
     val definitionRevision: Long,
     blocksById: Map<String, CompiledFixedBlock>,
-    blockIdsByRail: Map<UUID, Set<String>>
+    blockIdsByRail: Map<UUID, Set<String>>,
+    internal val routeTopology: ProtectionRegionTopology
 ) {
     val blocksById: Map<String, CompiledFixedBlock> = java.util.Map.copyOf(blocksById)
     val blockIdsByRail: Map<UUID, Set<String>> = java.util.Map.copyOf(
@@ -83,9 +84,13 @@ internal class FixedBlockReadSnapshot internal constructor(
             "route topology revision ${route.topologyRevision} does not match fixed-block topology " +
                 topology.revision
         }
+        return candidates(route.segments.map { it.railId })
+    }
+
+    internal fun candidates(railIds: Iterable<UUID>): List<CompiledFixedBlock> {
         val candidateIds = linkedSetOf<String>()
-        route.segments.forEach { segment ->
-            blockIdsByRail[segment.railId]?.let(candidateIds::addAll)
+        railIds.forEach { railId ->
+            blockIdsByRail[railId]?.let(candidateIds::addAll)
         }
         return java.util.List.copyOf(candidateIds.sorted().map(blocksById::getValue))
     }
@@ -183,7 +188,13 @@ internal class FixedBlockCatalog {
                 )
             }
         }
-        val snapshot = FixedBlockReadSnapshot(topology, definitionRevision, blocks, byRail)
+        val snapshot = FixedBlockReadSnapshot(
+            topology,
+            definitionRevision,
+            blocks,
+            byRail,
+            derivedTopology
+        )
         val candidate = Publication(topology, definitionRevision, copiedDefinitions, snapshot)
         if (current?.equivalentTo(candidate) == true) {
             return@synchronized FixedBlockCatalogResult(FixedBlockCatalogStatus.UNCHANGED)

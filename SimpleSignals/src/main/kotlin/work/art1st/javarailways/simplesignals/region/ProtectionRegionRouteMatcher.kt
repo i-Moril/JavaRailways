@@ -4,6 +4,10 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simplesignals.route.DirectedRouteOccurrence
+import work.art1st.javarailways.simplesignals.route.DirectedRouteProjectionFailureCode
+import work.art1st.javarailways.simplesignals.route.DirectedRouteProjectionResult
+import work.art1st.javarailways.simplesignals.route.DirectedRouteProjector
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -29,13 +33,24 @@ internal object ProtectionRegionRouteMatcher {
         regionsById: Map<String, ResolvedProtectionRegion>,
         regionIdsByRail: Map<java.util.UUID, Set<String>>
     ): ProtectionRegionRouteMatchResult {
-        val occurrences = when (val projected = project(route, topology)) {
-            is RouteProjection.Projected -> projected.occurrences
-            is RouteProjection.Rejected -> return ProtectionRegionRouteMatchResult.Rejected(
-                listOf(projected.diagnostic)
+        val occurrences = when (val projected = DirectedRouteProjector.project(route, topology)) {
+            is DirectedRouteProjectionResult.Projected -> projected.route.occurrences
+            is DirectedRouteProjectionResult.Rejected -> return ProtectionRegionRouteMatchResult.Rejected(
+                listOf(
+                    ProtectionRegionDiagnostic(
+                        when (projected.failure.code) {
+                            DirectedRouteProjectionFailureCode.STALE_TOPOLOGY ->
+                                ProtectionRegionValidationCode.STALE_TOPOLOGY
+                            DirectedRouteProjectionFailureCode.INVALID_ROUTE ->
+                                ProtectionRegionValidationCode.INVALID_ROUTE
+                        },
+                        projected.failure.detail,
+                        railId = projected.failure.railId
+                    )
+                )
             )
         }
-        val occurrencesByRegion = linkedMapOf<String, MutableList<RouteOccurrence>>()
+        val occurrencesByRegion = linkedMapOf<String, MutableList<DirectedRouteOccurrence>>()
         for (occurrence in occurrences) {
             for (regionId in regionIdsByRail[occurrence.railId].orEmpty()) {
                 occurrencesByRegion.getOrPut(regionId, ::mutableListOf) += occurrence
@@ -59,65 +74,9 @@ internal object ProtectionRegionRouteMatcher {
         )
     }
 
-    private fun project(
-        route: RouteSnapshot,
-        topology: ProtectionRegionTopology
-    ): RouteProjection {
-        if (route.topologyRevision != topology.topologyRevision) {
-            return RouteProjection.Rejected(
-                ProtectionRegionDiagnostic(
-                    ProtectionRegionValidationCode.STALE_TOPOLOGY,
-                    "route topology revision ${route.topologyRevision} does not match " +
-                        topology.topologyRevision
-                )
-            )
-        }
-        val occurrences = ArrayList<RouteOccurrence>(route.segments.size)
-        var routeStart = 0.0
-        for (segment in route.segments) {
-            val rail = topology.rails[segment.railId]
-                ?: return RouteProjection.Rejected(
-                    ProtectionRegionDiagnostic(
-                        ProtectionRegionValidationCode.INVALID_ROUTE,
-                        "route references missing rail ${segment.railId}",
-                        railId = segment.railId
-                    )
-                )
-            if (segment.endArcLengthMeters > rail.lengthMeters + Curve.TOLERANCE) {
-                return RouteProjection.Rejected(
-                    ProtectionRegionDiagnostic(
-                        ProtectionRegionValidationCode.INVALID_ROUTE,
-                        "route segment exceeds rail ${segment.railId}",
-                        railId = segment.railId
-                    )
-                )
-            }
-            val localStart = segment.startArcLengthMeters.coerceIn(0.0, rail.lengthMeters)
-            val localEnd = segment.endArcLengthMeters.coerceIn(0.0, rail.lengthMeters)
-            val canonicalStart = when (segment.facing) {
-                ViewDirection.AB -> localStart
-                ViewDirection.BA -> rail.lengthMeters - localStart
-            }
-            val canonicalEnd = when (segment.facing) {
-                ViewDirection.AB -> localEnd
-                ViewDirection.BA -> rail.lengthMeters - localEnd
-            }
-            occurrences += RouteOccurrence(
-                railId = segment.railId,
-                facing = segment.facing,
-                canonicalStartAbMeters = canonicalStart,
-                canonicalEndAbMeters = canonicalEnd,
-                routeStartMeters = routeStart,
-                routeEndMeters = routeStart + segment.lengthMeters
-            )
-            routeStart += segment.lengthMeters
-        }
-        return RouteProjection.Projected(java.util.List.copyOf(occurrences))
-    }
-
     private fun match(
         region: ResolvedProtectionRegion,
-        occurrences: List<RouteOccurrence>
+        occurrences: List<DirectedRouteOccurrence>
     ): RegionRouteMatch {
         val intervals = interiorIntervals(region, occurrences)
         if (intervals.isEmpty()) return RegionRouteMatch.NotTraversed
@@ -153,7 +112,7 @@ internal object ProtectionRegionRouteMatcher {
 
     private fun boundaryAt(
         region: ResolvedProtectionRegion,
-        occurrences: List<RouteOccurrence>,
+        occurrences: List<DirectedRouteOccurrence>,
         routeDistanceMeters: Double,
         entering: Boolean
     ): ProtectionRouteBoundary? {
@@ -182,7 +141,7 @@ internal object ProtectionRegionRouteMatcher {
 
     private fun interiorIntervals(
         region: ResolvedProtectionRegion,
-        occurrences: List<RouteOccurrence>
+        occurrences: List<DirectedRouteOccurrence>
     ): List<RouteDistanceInterval> {
         val interiorByRail = region.interior.groupBy(ProtectionRegionInteriorSlice::railId)
         val intersections = ArrayList<RouteDistanceInterval>()
@@ -228,15 +187,6 @@ internal object ProtectionRegionRouteMatcher {
         ProtectionRegionDiagnostic(code, detail, regionId = region.definition.regionId)
     )
 
-    private fun RouteOccurrence.canonicalAt(routeDistanceMeters: Double): Double {
-        val localOffset = (routeDistanceMeters - routeStartMeters)
-            .coerceIn(0.0, routeEndMeters - routeStartMeters)
-        return when (facing) {
-            ViewDirection.AB -> canonicalStartAbMeters + localOffset
-            ViewDirection.BA -> canonicalStartAbMeters - localOffset
-        }
-    }
-
     private fun ViewDirection.opposite(): ViewDirection = when (this) {
         ViewDirection.AB -> ViewDirection.BA
         ViewDirection.BA -> ViewDirection.AB
@@ -245,19 +195,5 @@ internal object ProtectionRegionRouteMatcher {
     private fun samePosition(first: Double, second: Double): Boolean =
         abs(first - second) <= Curve.TOLERANCE
 
-    private data class RouteOccurrence(
-        val railId: java.util.UUID,
-        val facing: ViewDirection,
-        val canonicalStartAbMeters: Double,
-        val canonicalEndAbMeters: Double,
-        val routeStartMeters: Double,
-        val routeEndMeters: Double
-    )
-
     private data class RouteDistanceInterval(val startMeters: Double, val endMeters: Double)
-
-    private sealed interface RouteProjection {
-        data class Projected(val occurrences: List<RouteOccurrence>) : RouteProjection
-        data class Rejected(val diagnostic: ProtectionRegionDiagnostic) : RouteProjection
-    }
 }

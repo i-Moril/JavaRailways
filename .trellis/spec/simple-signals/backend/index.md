@@ -141,6 +141,34 @@ Basic在同一physics epoch完成occupant和ENTER/LEFT推导，SimpleSignals cal
 这个检查只发生在load/authoring路径，不进入tick。当前不规定两个fixed block之间能否重叠；双向block是否共享物理范围属于后续信号规则，
 不能在基础catalog中提前禁止。
 
+## 固定闭塞进路资源
+
+SimpleSignals在plugin enable时向宿主注册一个`simplesignals:fixed-block`稳定资源类型和一个route-resource contributor。
+资源`resourceId`直接使用作者定义的block ID；它没有设备准备参数。provider只接受同一SimpleSignals plugin instance提交、
+当前world publication中确实存在且不带preparation的资源。world没有可用publication时contributor抛出失败，不能返回empty把损坏状态
+解释成无限制。
+
+contributor只在Basic的新授权或同路线suffix extension准入中执行，不是physics tick或全世界signal loop。它先把冻结route的每个
+segment从facing-local metres转换为canonical AB起终点，并保留单调route metres；这份plugin-local projection同时供region matcher
+复用。随后用publication的`rail UUID -> block IDs`反向索引取得候选，而不是扫描全部block。对每个候选，把相同rail/facing的route
+occurrence与authoritative block traversal求正长度交集，并同时记录block-local与route-local区间；两个坐标都连续的piece才会合并。
+
+只检查本次`desiredAuthority`前缀：authority恰好停在entry不申请block；一旦与有向block产生正长度交集，合并结果必须完整覆盖
+block-local `[0, length]`，否则整个contribution失败。完整window产生
+`ContributedRouteResource(StableInfrastructureResource("simplesignals:fixed-block", blockId), exitRouteBoundary)`。
+同一block在一个authority prefix中出现多个完整window时视为路线有歧义并拒绝；当前不为理论上的多圈环线引入跨圈资源生命周期。
+不同block独立加入同一个union；Basic仍自行编译不可删除的rail/turnout/diamond物理底线并原子claim。
+
+匹配失败、stale topology、缺world runtime或provider validation失败均发生在registry mutation前。在线definition patch继续持有旧、新
+受影响rail的host edit permit：若route已经claim这些物理rail，edit被拒绝；若edit先取得permit，route claim被拒绝。因此无需把
+definition revision编码进resource ID，也不新增第二个revision token。publication通过volatile runtime引用读取；manager另发布只读
+world→runtime map，使准入热路径不等待authoring持有的manager lock或文件I/O。
+
+设冻结route occurrence数为`R`、命中的唯一block数为`K`、候选block traversal与同rail route occurrence形成的实际比较数为`I`。
+projection与rail分组为`O(R)`，候选去重/稳定排序为`O(R + K log K)`，交集和window合并为`O(I log I)`；没有block时为`O(1)`返回empty。
+这些成本只在授权申请/延长发生，不进入每tick occupancy source。当前流程只保证block token与释放边界；由inspection/route-decision层
+把ATO请求边界扩大到完整block，以及从confirmed grant产生限速/灯色，仍是后续批次。
+
 ## 定义编辑事务
 
 插件内部唯一的definition patch入口在一个事务中接受region/table/fixed-block的upsert与remove，并要求调用方提交

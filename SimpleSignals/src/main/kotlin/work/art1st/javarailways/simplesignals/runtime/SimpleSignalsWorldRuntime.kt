@@ -168,6 +168,14 @@ internal class SimpleSignalsWorldRuntime(
             "SimpleSignals definitions have not been published for world $worldId"
         }.fixedBlocks.snapshot(topology)
 
+    /** Captures the fixed-block index and its exact topology root from one publication. */
+    fun fixedBlockSnapshot(): FixedBlockReadSnapshot {
+        val captured = checkNotNull(state.publication) {
+            "SimpleSignals definitions have not been published for world $worldId"
+        }
+        return captured.fixedBlocks.snapshot(captured.topology)
+    }
+
     /** Installs immutable fixed-block monitoring geometry exactly once for this world load. */
     fun initializeSectionOccupancy(): SectionOccupancyRuntime = synchronized(lock) {
         val current = state
@@ -494,6 +502,13 @@ internal class SimpleSignalsWorldRuntimeManager(
     private val lock = Any()
     private val runtimes = linkedMapOf<UUID, SimpleSignalsWorldRuntime>()
 
+    @Volatile
+    private var runtimeReadView: Map<UUID, SimpleSignalsWorldRuntime> = emptyMap()
+
+    /** Hot-path lookup used by the resource provider/contributor without waiting for authoring I/O. */
+    fun fixedBlockSnapshot(worldId: UUID): FixedBlockReadSnapshot? =
+        runtimeReadView[worldId]?.fixedBlockSnapshot()
+
     fun install(worldId: UUID): SimpleSignalsWorldInstallResult = synchronized(lock) {
         if (worldId in runtimes) {
             return@synchronized SimpleSignalsWorldInstallResult(
@@ -587,6 +602,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             )
         }
         runtimes[worldId] = runtime
+        publishRuntimeReadView()
         SimpleSignalsWorldInstallResult(
             SimpleSignalsWorldInstallStatus.INSTALLED,
             definitionSource = loaded.source,
@@ -595,11 +611,21 @@ internal class SimpleSignalsWorldRuntimeManager(
     }
 
     fun remove(worldId: UUID) {
-        synchronized(lock) { runtimes.remove(worldId) }
+        synchronized(lock) {
+            runtimes.remove(worldId)
+            publishRuntimeReadView()
+        }
     }
 
     fun clearLocal() {
-        synchronized(lock) { runtimes.clear() }
+        synchronized(lock) {
+            runtimes.clear()
+            publishRuntimeReadView()
+        }
+    }
+
+    private fun publishRuntimeReadView() {
+        runtimeReadView = java.util.Map.copyOf(runtimes)
     }
 
     /**

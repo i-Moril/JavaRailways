@@ -15,6 +15,10 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublic
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
+import work.art1st.javarailways.simplesignals.block.FixedBlockCatalog
+import work.art1st.javarailways.simplesignals.block.FixedBlockCatalogStatus
+import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
+import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import java.util.UUID
 
 class ProtectionRegionInspectionSourceTest {
@@ -110,6 +114,46 @@ class ProtectionRegionInspectionSourceTest {
     }
 
     @Test
+    fun `immediate fixed-block successor extends the region authority floor through that block`() {
+        val block = FixedBlockDefinition(
+            "test:block/east",
+            1L,
+            listOf(FixedBlockTraversal(east, ViewDirection.AB, 5.0, 10.0))
+        )
+
+        val declaration = source(listOf(block)).bindingProvider.bind(
+            InspectionBindingInput(stamp, "train", forwardRoute())
+        ).declarations.single()
+
+        assertEquals(5.0, declaration.triggerRouteDistanceMeters, 0.0)
+        assertEquals(
+            30.0,
+            requireNotNull(declaration.minimumRequestedAuthorityEndRouteDistanceMeters),
+            0.0
+        )
+    }
+
+    @Test
+    fun `multiple fixed blocks beginning at the region exit reject an ambiguous binding`() {
+        val first = FixedBlockDefinition(
+            "test:block/east-one",
+            1L,
+            listOf(FixedBlockTraversal(east, ViewDirection.AB, 5.0, 10.0))
+        )
+        val second = FixedBlockDefinition(
+            "test:block/east-two",
+            1L,
+            listOf(FixedBlockTraversal(east, ViewDirection.AB, 5.0, 10.0))
+        )
+
+        assertThrows(IllegalStateException::class.java) {
+            source(listOf(first, second)).bindingProvider.bind(
+                InspectionBindingInput(stamp, "train", forwardRoute())
+            )
+        }
+    }
+
+    @Test
     fun `route ending inside the region fails binding instead of requesting a partial path`() {
         val partial = RouteSnapshot(
             "test:route/partial",
@@ -133,9 +177,11 @@ class ProtectionRegionInspectionSourceTest {
             ProtectionRegionCatalogStatus.PUBLISHED,
             catalog.publish(topology, 0L, emptyList()).status
         )
-        val source = ProtectionRegionInspectionSource {
-            requireNotNull(catalog.compilationSnapshot())
-        }.source
+        val blocks = fixedBlockCatalog(0L, emptyList())
+        val source = ProtectionRegionInspectionSource(
+            { requireNotNull(catalog.compilationSnapshot()) },
+            { blocks.snapshot(topology) }
+        ).source
 
         val binding = source.bindingProvider.bind(
             InspectionBindingInput(stamp, "train", forwardRoute())
@@ -145,14 +191,28 @@ class ProtectionRegionInspectionSourceTest {
         assertEquals(0L, binding.definitionRevision)
     }
 
-    private fun source() = ProtectionRegionInspectionSource {
-        val catalog = ProtectionRegionCatalog()
+    private fun source(blocks: Collection<FixedBlockDefinition> = emptyList()) =
+        ProtectionRegionInspectionSource(
+            {
+                val catalog = ProtectionRegionCatalog()
+                assertEquals(
+                    ProtectionRegionCatalogStatus.PUBLISHED,
+                    catalog.publish(topology, 3L, listOf(region())).status
+                )
+                requireNotNull(catalog.compilationSnapshot())
+            },
+            { fixedBlockCatalog(3L, blocks).snapshot(topology) }
+        ).source
+
+    private fun fixedBlockCatalog(
+        definitionRevision: Long,
+        blocks: Collection<FixedBlockDefinition>
+    ) = FixedBlockCatalog().also { catalog ->
         assertEquals(
-            ProtectionRegionCatalogStatus.PUBLISHED,
-            catalog.publish(topology, 3L, listOf(region())).status
+            FixedBlockCatalogStatus.PUBLISHED,
+            catalog.publish(topology, definitionRevision, blocks).status
         )
-        requireNotNull(catalog.compilationSnapshot())
-    }.source
+    }
 
     private fun forwardRoute() = RouteSnapshot(
         "test:route/forward",

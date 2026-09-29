@@ -163,7 +163,8 @@ internal class SimpleSignalsWorldRuntime(
     ).source
 
     val protectionRegionInspectionSource = ProtectionRegionInspectionSource(
-        ::protectionRegionSnapshot
+        ::protectionRegionSnapshot,
+        ::fixedBlockSnapshot
     ).source
 
     fun currentDefinitions(): SimpleSignalsWorldDefinitions = synchronized(lock) {

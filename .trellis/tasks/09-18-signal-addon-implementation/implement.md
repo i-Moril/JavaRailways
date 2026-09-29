@@ -53,8 +53,8 @@ Current extraction progress:
 - [x] Index fixed blocks by exact topology root plus plugin-definition revision outside the tick loop.
 - [x] Match fixed-block resources only on the frozen-route authority prefix: reuse one plugin-local directed-route projection,
   discover candidates through the rail reverse index, require a complete entry-to-exit traversal and fail closed on a partial block.
-- [x] Match protection-region windows on the exact frozen-route inspection binding, validate one complete entry/interior/exit traversal and compile an entry-to-exit authority floor. Basic derives the physical resources for that expanded route prefix; no exclusive region token is added. Post-exit tail clearance remains in the next item.
-- [ ] Implement the plugin route-decision layer that chooses a post-exit authority boundary for fixed- or moving-block territory without recursive Basic contributors. The fixed-block entry-to-exit minimum is complete through a neutral inspection authority floor; protection-region/post-exit and moving-block policy remain.
+- [x] Match protection-region windows on the exact frozen-route inspection binding, validate one complete entry/interior/exit traversal and compile an entry-to-exit authority floor. If exactly one fixed block begins at the exit, extend that same floor through its exit; reject ambiguous same-point successors. Basic derives the physical resources for the expanded route prefix, and no exclusive region token is added.
+- [ ] Implement the remaining plugin policy that chooses a moving-block post-exit boundary without recursive Basic contributors. Fixed-block entry-to-exit floors and the protection-region-to-immediate-fixed-block transition are complete; moving-block policy and its exact clearance contract remain.
 - [x] Submit fixed-block tokens only as additive resources through the host contributor; rely on Basic to derive every
   rail/turnout/diamond physical resource and its existing atomic claim/release lifecycle.
 - [ ] Add concrete flank/approach resources when the first interlocking rule requires them; do not invent generic placeholders.

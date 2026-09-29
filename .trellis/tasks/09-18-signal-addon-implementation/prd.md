@@ -83,7 +83,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - [ ] ATO stops before an unavailable grant and applies plugin speed limits/model variants only as stricter outputs.
 - [ ] Unchanged signal state does not execute every signal script/update every tick; dependency changes propagate to affected upstream resources.
 - [x] Diamond crossings prevent conflicting passages without cross-line routing or runtime geometry scans.
-- [ ] Disable, failure, world unload/reload and stale-state tests prove authority never widens and live claims are not dropped beneath trains.
+- [x] Disable, failure, world unload/reload and stale-state tests prove authority never widens and live claims are not dropped beneath trains.
 - [ ] Timetable apply/replace/unapply and draft/draining tests prove atomic applied-plan dependency replacement, edit blocking and separation from transient live claims/occupancy waits.
 - [ ] A deliberately paused signal-definition commit cannot delay another railway world or an
   already-running physics epoch; old epochs finish with the old immutable source and the next epoch

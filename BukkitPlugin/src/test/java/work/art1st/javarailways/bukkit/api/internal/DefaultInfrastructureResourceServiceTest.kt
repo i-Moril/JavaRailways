@@ -35,6 +35,7 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
+import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProviderRegistration
@@ -65,6 +66,13 @@ import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
+import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
+import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding
+import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
+import work.art1st.javarailways.simpleato.routing.RoutePlanningRestrictionRuntime
+import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import java.lang.reflect.Proxy
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
@@ -322,7 +330,8 @@ class DefaultInfrastructureResourceServiceTest {
 
     @Test
     fun `normal unregister rejects active route resources and accepts an empty route state`() {
-        val service = DefaultInfrastructureResourceService()
+        val signalSources = DefaultSignalEpochSourceService()
+        val service = DefaultInfrastructureResourceService(signalSources)
         val worldId = UUID.randomUUID()
         val railId = UUID.randomUUID()
         val requester = plugin("signal")
@@ -336,6 +345,12 @@ class DefaultInfrastructureResourceServiceTest {
         ) { reason, failure ->
             throw IllegalStateException("unexpected stall: $reason", failure)
         }
+        registerSignalWorld(signalSources, worldId)
+        signalSources.replaceRoutePlanningSources(
+            requester,
+            worldId,
+            listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+        )
         val admission = service.routeAdmission(requester, worldId)
         val intent = RouteResourceIntent(
             "test.signal:request/main",
@@ -359,11 +374,23 @@ class DefaultInfrastructureResourceServiceTest {
         }
         assertTrue(active.message.orEmpty().contains("route=${intent.owner.ownerId}"))
         assertEquals(1, service.liveClaims(worldId).size)
+        assertThrows(IllegalArgumentException::class.java) {
+            signalSources.replaceRoutePlanningSources(
+                plugin("other-signal"),
+                worldId,
+                listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+            )
+        }
 
         observation = routeObservation(worldId, topology.revision, 2L, railId, 21.0, 22.0)
         service.consumeObservation(worldId, observation)
         assertTrue(service.liveClaims(worldId).isEmpty())
         service.unregisterOwner(requester)
+        signalSources.replaceRoutePlanningSources(
+            plugin("replacement-signal"),
+            worldId,
+            listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+        )
         assertFalse(admission.endGrant(grant.grantId))
 
         var pluginEnabled = true
@@ -486,20 +513,21 @@ class DefaultInfrastructureResourceServiceTest {
     }
 
     @Test
-    fun `resource provider cannot unregister while another plugin holds its route resource`() {
-        val service = DefaultInfrastructureResourceService()
+    fun `SimpleSignals provider cannot unregister while ATO holds its resource and forced loss is world local`() {
+        val signalSources = DefaultSignalEpochSourceService()
+        val service = DefaultInfrastructureResourceService(signalSources)
         val worldId = UUID.randomUUID()
+        val idleWorldId = UUID.randomUUID()
         val railId = UUID.randomUUID()
-        var providerEnabled = true
-        val providerOwner = plugin("block-provider") { providerEnabled }
+        var signalPluginEnabled = true
+        val signalPlugin = plugin("SimpleSignals") { signalPluginEnabled }
         val requester = plugin("ato")
-        val contributor = plugin("signal-policy")
-        val block = StableInfrastructureResource("example.block:section", "main")
+        val block = StableInfrastructureResource(SIMPLE_SIGNALS_FIXED_BLOCK_TYPE, "main")
         val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
         val observation = routeObservation(worldId, topology.revision, 1L, railId, 0.0, 1.0)
         val stalls = mutableListOf<String>()
         var contributionCalls = 0
-        val registration = service.registerResourceProvider(providerOwner, block.typeId, object : InfrastructureResourceProvider {
+        val registration = service.registerResourceProvider(signalPlugin, block.typeId, object : InfrastructureResourceProvider {
             override fun exists(candidateWorld: UUID, resourceId: String) =
                 candidateWorld == worldId && resourceId == block.resourceId
 
@@ -509,11 +537,11 @@ class DefaultInfrastructureResourceServiceTest {
                 resourceId: String,
                 descriptor: ResourcePreparationDescriptor?
             ): RouteAdmissionFailureCode? {
-                assertSame(contributor, actualContributor)
+                assertSame(signalPlugin, actualContributor)
                 return null
             }
         }, emptyList())
-        val contributorRegistration = service.registerRouteResourceContributor(contributor) { candidateWorld, _ ->
+        val contributorRegistration = service.registerRouteResourceContributor(signalPlugin) { candidateWorld, _ ->
             contributionCalls++
             if (candidateWorld == worldId) {
                 listOf(ContributedRouteResource(block, RouteBoundary(20.0)))
@@ -530,6 +558,20 @@ class DefaultInfrastructureResourceServiceTest {
         ) { reason, _ ->
             stalls += reason
         }
+        registerSignalWorld(signalSources, worldId, stallWorld = { reason, _ -> stalls += reason })
+        registerSignalWorld(signalSources, idleWorldId, stallWorld = { reason, _ ->
+            stalls += "idle-world: $reason"
+        })
+        signalSources.replaceRoutePlanningSources(
+            signalPlugin,
+            worldId,
+            listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+        )
+        signalSources.replaceRoutePlanningSources(
+            signalPlugin,
+            idleWorldId,
+            listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+        )
         val admission = service.routeAdmission(requester, worldId)
         val intent = RouteResourceIntent(
             "test.signal:request/provider",
@@ -552,24 +594,35 @@ class DefaultInfrastructureResourceServiceTest {
         }
         assertTrue(contributorActive.message.orEmpty().contains("route states remain active"))
         assertThrows(IllegalStateException::class.java) {
-            service.unregisterOwner(contributor)
+            service.unregisterOwner(signalPlugin)
         }
         val registrationActive = assertThrows(IllegalStateException::class.java) {
             registration.close()
         }
         assertTrue(registrationActive.message.orEmpty().contains(block.typeId))
         val active = assertThrows(IllegalStateException::class.java) {
-            service.unregisterOwner(providerOwner)
+            service.unregisterOwner(signalPlugin)
         }
         assertTrue(active.message.orEmpty().contains("types=${block.typeId}"))
         assertEquals(1, service.liveClaims(worldId).size)
 
-        providerEnabled = false
-        service.forcedDisableOwner(providerOwner)
+        signalPluginEnabled = false
+        service.forcedDisableOwner(signalPlugin)
         assertEquals(1, service.liveClaims(worldId).size)
         assertEquals(1, stalls.size)
-        assertTrue(stalls.single().contains("block-provider"))
+        assertTrue(stalls.single().contains("SimpleSignals"))
         assertTrue(stalls.single().contains(block.typeId))
+        val replacement = plugin("replacement-signals")
+        signalSources.replaceRoutePlanningSources(
+            replacement,
+            worldId,
+            listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+        )
+        signalSources.replaceRoutePlanningSources(
+            replacement,
+            idleWorldId,
+            listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+        )
     }
 
     @Test
@@ -876,16 +929,23 @@ class DefaultInfrastructureResourceServiceTest {
 
     @Test
     fun `plugin cleanup requires explicit unapply and removes disposable ownership by identity`() {
-        val service = DefaultInfrastructureResourceService()
+        val signalSources = DefaultSignalEpochSourceService()
+        val service = DefaultInfrastructureResourceService(signalSources)
         val worldId = UUID.randomUUID()
         val first = plugin("same-name")
         val second = plugin("same-name")
         service.registerResourceProvider(
-            first, "example.signal:signal", rejectingRouteProvider { _, id -> id == "home" }, emptyList()
+            first, SIMPLE_SIGNALS_FIXED_BLOCK_TYPE, rejectingRouteProvider { _, id -> id == "home" }, emptyList()
         )
         registerWorld(service, worldId)
+        registerSignalWorld(signalSources, worldId)
+        signalSources.replaceRoutePlanningSources(
+            first,
+            worldId,
+            listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+        )
         service.setInfrastructureDependencies(
-            first, worldId, dependencies("example.signal:plan/main", "example.signal:signal", "home")
+            first, worldId, dependencies("simplesignals:plan/main", SIMPLE_SIGNALS_FIXED_BLOCK_TYPE, "home")
         )
         val edit = service.acquireEditPermit(
             first,
@@ -916,20 +976,32 @@ class DefaultInfrastructureResourceServiceTest {
         assertEquals(1, service.infrastructureDependencies(worldId).size)
         assertThrows(IllegalStateException::class.java) { service.unregisterOwner(first) }
         assertEquals(1, service.infrastructureDependencies(worldId).size)
+        assertThrows(IllegalArgumentException::class.java) {
+            signalSources.replaceRoutePlanningSources(
+                second,
+                worldId,
+                listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+            )
+        }
         assertEquals(
             InfrastructureDependencyMutationStatus.REMOVED,
             service.removeInfrastructureDependencies(
                 first,
                 worldId,
-                InfrastructureOwner("example.signal:plan/main", 1L)
+                InfrastructureOwner("simplesignals:plan/main", 1L)
             ).status
         )
         service.unregisterOwner(first)
         assertTrue(service.infrastructureDependencies(worldId).isEmpty())
+        signalSources.replaceRoutePlanningSources(
+            second,
+            worldId,
+            listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+        )
         assertEquals(
             InfrastructureDependencyMutationStatus.INVALID_REFERENCE,
             service.setInfrastructureDependencies(
-                second, worldId, dependencies("example.signal:plan/new", "example.signal:signal", "home")
+                second, worldId, dependencies("simplesignals:plan/new", SIMPLE_SIGNALS_FIXED_BLOCK_TYPE, "home")
             ).status
         )
         heldEdit.permit().orElseThrow().close()
@@ -937,18 +1009,20 @@ class DefaultInfrastructureResourceServiceTest {
 
     @Test
     fun `forced plugin disable retains applied dependencies and stalls its world`() {
-        val service = DefaultInfrastructureResourceService()
+        val signalSources = DefaultSignalEpochSourceService()
+        val service = DefaultInfrastructureResourceService(signalSources)
         val worldId = UUID.randomUUID()
+        val idleWorldId = UUID.randomUUID()
         val railId = UUID.randomUUID()
         var pluginEnabled = true
-        val plugin = plugin("signal") { pluginEnabled }
+        val plugin = plugin("SimpleSignals") { pluginEnabled }
         val requester = plugin("ato")
         val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
         val observation = routeObservation(worldId, topology.revision, 1L, railId, 0.0, 1.0)
         val stalls = mutableListOf<String>()
         service.registerResourceProvider(
             plugin,
-            "example.signal:signal",
+            SIMPLE_SIGNALS_FIXED_BLOCK_TYPE,
             rejectingRouteProvider { _, id -> id == "home" },
             emptyList()
         )
@@ -959,12 +1033,25 @@ class DefaultInfrastructureResourceServiceTest {
         service.attachInfrastructureRuntime(
             worldId, TestWorld(topology), { observation }, {}, 5.0
         ) { reason, _ -> stalls += reason }
+        registerSignalWorld(signalSources, worldId, stallWorld = { reason, _ -> stalls += reason })
+        registerSignalWorld(signalSources, idleWorldId, stallWorld = { reason, _ ->
+            stalls += "idle-world: $reason"
+        })
+        signalSources.replaceRoutePlanningSources(
+            plugin,
+            worldId,
+            listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+        )
+        signalSources.replaceRoutePlanningSources(
+            plugin,
+            idleWorldId,
+            listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+        )
         assertEquals(
             InfrastructureDependencyMutationStatus.APPLIED,
             service.setInfrastructureDependencies(
-                plugin,
-                worldId,
-                dependencies("example.signal:plan/main", "example.signal:signal", "home")
+                plugin, worldId,
+                dependencies("simplesignals:plan/main", SIMPLE_SIGNALS_FIXED_BLOCK_TYPE, "home")
             ).status
         )
 
@@ -973,7 +1060,18 @@ class DefaultInfrastructureResourceServiceTest {
 
         assertEquals(1, service.infrastructureDependencies(worldId).size)
         assertEquals(1, stalls.size)
-        assertTrue(stalls.single().contains("example.signal:plan/main@1"))
+        assertTrue(stalls.single().contains("simplesignals:plan/main@1"))
+        val replacement = plugin("replacement-signals")
+        signalSources.replaceRoutePlanningSources(
+            replacement,
+            worldId,
+            listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+        )
+        signalSources.replaceRoutePlanningSources(
+            replacement,
+            idleWorldId,
+            listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+        )
         val rejected = assertInstanceOf(
             RouteAdmissionResult.Rejected::class.java,
             service.routeAdmission(requester, worldId).request(
@@ -1085,6 +1183,34 @@ class DefaultInfrastructureResourceServiceTest {
         service.registerWorld(worldId, { topology }) { resource: InfrastructureResource ->
             resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
         }
+    }
+
+    private fun registerSignalWorld(
+        service: DefaultSignalEpochSourceService,
+        worldId: UUID,
+        activeRestrictionStreams: (Set<String>) -> List<String> = { emptyList() },
+        stallWorld: (String, Exception) -> Unit = { reason, failure ->
+            throw IllegalStateException(reason, failure)
+        }
+    ) {
+        val publisher = TrainRestrictionPublisher { snapshot ->
+            TrainRestrictionPublicationResult(
+                TrainRestrictionPublicationStatus.ACCEPTED,
+                snapshot.revision
+            )
+        }
+        service.registerWorld(
+            worldId,
+            SignalEpochRuntime(worldId.toString(), publisher),
+            InspectionRuntime(publisher) { _, _, _ -> },
+            activeRestrictionStreams,
+            RoutePlanningRestrictionRuntime(),
+            stallWorld
+        )
+    }
+
+    private fun routePlanningSource(sourceId: String) = RoutePlanningRestrictionBinding(sourceId) {
+        RoutePlanningRestrictions.unrestricted(it)
     }
 
     private fun rejectingRouteProvider(exists: (UUID, String) -> Boolean) = object : InfrastructureResourceProvider {
@@ -1212,5 +1338,10 @@ class DefaultInfrastructureResourceServiceTest {
             Curve.RawPoint(from, tangent, normal, 0.0, Curve.SegmentType.LINE_START),
             Curve.RawPoint(to, tangent, normal, from.distance(to), Curve.SegmentType.LINE_END)
         ))
+    }
+
+    private companion object {
+        private const val SIMPLE_SIGNALS_FIXED_BLOCK_TYPE = "simplesignals:fixed-block"
+        private const val SIMPLE_SIGNALS_ROUTE_SOURCE_ID = "simplesignals:fixed-protection-routes"
     }
 }

@@ -16,8 +16,10 @@
 区间占用callback；同owner的inspection、route-planning和infrastructure注册保持不变。如果三类signal source均为空，
 内部可丢弃空owner记录，但这不等于`InfrastructureResourceService.unregisterOwner`，也不能删除基础资源owner。
 该调用只是可检查的pre-disable步骤，不会也不能替Bukkit禁用插件；任一world仍有infrastructure dependency、pending
-route reservation、非空host-owned claim或该插件source发布的非空restriction流时抛出诊断，并且在删除任何一侧注册前
-完成全部只读检查。无关列车、仅已安装但restriction流均为空的source不阻止停用。`PluginDisableEvent`本身不可取消，
+route reservation、非空host-owned claim、由其他requester持有的该插件resource type、active inspection binding或该插件
+source发布的非空restriction流时抛出诊断。基础资源侧和signal侧的检查全部成功以前，provider/contributor与三类signal
+callback均保持原样；只剩空route state和空restriction stream时才允许一次性移除这些注册及可丢弃platform ownership。
+无关列车、仅已安装但restriction流均为空的source和单独存在的route-planning callback不阻止停用。`PluginDisableEvent`本身不可取消，
 事件路径因此只处理“已经被强制禁用”：保留infrastructure dependency，移除普通provider/platform ownership和失效
 signal callback，但不释放route-admission claim/reservation；只对该插件仍有实际基础资源使用或非空restriction的world
 通过既有Stall回调fail-close。
@@ -29,6 +31,12 @@ fail-close该world，不能让后续suffix申请少执行一套信号策略。
 空claim、无pending、仅遗漏`endGrant`的route state可直接清除。JavaRailways自身禁用、service已关闭或
 `Bukkit.isStopping()`时走正常world/service close，不把服务器shutdown误报为附属插件故障。不使用永久owner tombstone、
 启用周期token、自动drain、跨插件实例继承或恢复状态机。
+
+跨service回归测试使用SimpleSignals实际的`simplesignals:fixed-block`、
+`simplesignals:fixed-block-signals`、`simplesignals:protection-regions`和
+`simplesignals:fixed-protection-routes`身份锁定这条顺序：任一claim/dependency/restriction/binding blocker拒绝planned
+unregister时两侧注册仍可观测；依次清除blocker后同一入口成功释放全部身份。forced disable则立即移除死callback，保留已提交
+claim/dependency，并只让包含该owner活动状态的world进入Stall；仅安装空闲planning callback的world不受影响。
 
 `SignalEpochSourceService`同样绑定plugin instance和exact world runtime。全集replacement可删除其中部分或全部epoch source ID，
 但删除前插件必须先对每个对应`(sourceId, trainId)`流发布更高revision的空restriction snapshot；空replacement只影响

@@ -9,6 +9,9 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyBoundary
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
+import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
+import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
+import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceProvider
 import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributor
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
@@ -194,14 +197,18 @@ class DefaultSignalEpochSourceServiceTest {
         val infrastructureService = DefaultInfrastructureResourceService(signalService)
         val worldId = UUID.randomUUID()
         val owner = plugin("signal")
-        var active = listOf("train/test:main@4")
+        var active = listOf("train/$SIMPLE_SIGNALS_SIGNAL_SOURCE_ID@4")
         var calls = 0
         val contributor = RouteResourceContributor { _, _ -> emptyList() }
         val runtime = runtime()
         signalService.registerWorld(worldId, runtime, inspectionRuntime(), { sourceIds ->
-            if ("test:main" in sourceIds) active else emptyList()
+            if (SIMPLE_SIGNALS_SIGNAL_SOURCE_ID in sourceIds) active else emptyList()
         }) { _, _ -> }
-        signalService.replaceSources(owner, worldId, listOf(source("test:main", 0.0) { calls++ }))
+        signalService.replaceSources(
+            owner,
+            worldId,
+            listOf(source(SIMPLE_SIGNALS_SIGNAL_SOURCE_ID, 0.0) { calls++ })
+        )
         infrastructureService.registerRouteResourceContributor(owner, contributor)
         var removalCommitCalled = false
 
@@ -210,12 +217,12 @@ class DefaultSignalEpochSourceServiceTest {
                 removalCommitCalled = true
             }
         }
-        assertEquals(true, removalFailure.message.orEmpty().contains("train/test:main@4"))
+        assertEquals(true, removalFailure.message.orEmpty().contains(SIMPLE_SIGNALS_SIGNAL_SOURCE_ID))
         assertFalse(removalCommitCalled)
         val failure = assertThrows(IllegalStateException::class.java) {
             infrastructureService.unregisterOwner(owner)
         }
-        assertEquals(true, failure.message.orEmpty().contains("train/test:main@4"))
+        assertEquals(true, failure.message.orEmpty().contains(SIMPLE_SIGNALS_SIGNAL_SOURCE_ID))
         assertThrows(IllegalStateException::class.java) {
             infrastructureService.registerRouteResourceContributor(owner, contributor)
         }
@@ -489,11 +496,30 @@ class DefaultSignalEpochSourceServiceTest {
         var epochCallbacks = 0
         val epochRuntime = runtime()
         val inspectionRuntime = inspectionRuntime()
+        val contributor = RouteResourceContributor { _, _ -> emptyList() }
         service.registerWorld(worldId, epochRuntime, inspectionRuntime, { emptyList() }) { reason, _ ->
             stalls += reason
         }
-        service.replaceSources(owner, worldId, listOf(source("test:epoch", 0.0) { epochCallbacks++ }))
-        service.replaceInspectionSources(owner, worldId, listOf(inspectionSource()))
+        infrastructure.registerResourceProvider(
+            owner,
+            SIMPLE_SIGNALS_FIXED_BLOCK_TYPE,
+            resourceProvider(),
+            emptyList()
+        )
+        infrastructure.registerRouteResourceContributor(owner, contributor)
+        service.replaceSources(
+            owner,
+            worldId,
+            listOf(source(SIMPLE_SIGNALS_SIGNAL_SOURCE_ID, 0.0) { epochCallbacks++ })
+        )
+        service.replaceInspectionSources(owner, worldId, listOf(
+            inspectionSource(SIMPLE_SIGNALS_INSPECTION_SOURCE_ID)
+        ))
+        service.replaceRoutePlanningSources(
+            owner,
+            worldId,
+            listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+        )
         inspectionRuntime.synchronizeRoute(
             work.art1st.javarailways.basic.api.observation.RailwayStateStamp("world", 1L, 7L),
             "train",
@@ -508,6 +534,36 @@ class DefaultSignalEpochSourceServiceTest {
         assertEquals(1, epochCallbacks)
         assertEquals(80.0, inspectionRuntime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
         assertEquals(emptyList<String>(), stalls)
+        assertThrows(IllegalStateException::class.java) {
+            infrastructure.registerResourceProvider(
+                plugin("other-provider"),
+                SIMPLE_SIGNALS_FIXED_BLOCK_TYPE,
+                resourceProvider(),
+                emptyList()
+            )
+        }
+        assertThrows(IllegalStateException::class.java) {
+            infrastructure.registerRouteResourceContributor(owner, contributor)
+        }
+
+        inspectionRuntime.removeTrain("train")
+        infrastructure.unregisterOwner(owner)
+        epochRuntime.process(frame(3L))
+
+        assertEquals(1, epochCallbacks)
+        assertEquals(0.0, inspectionRuntime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
+        infrastructure.registerResourceProvider(
+            plugin("replacement-provider"),
+            SIMPLE_SIGNALS_FIXED_BLOCK_TYPE,
+            resourceProvider(),
+            emptyList()
+        ).close()
+        infrastructure.registerRouteResourceContributor(owner, contributor).close()
+        service.replaceRoutePlanningSources(
+            plugin("replacement-planner"),
+            worldId,
+            listOf(routePlanningSource(SIMPLE_SIGNALS_ROUTE_SOURCE_ID))
+        )
     }
 
     @Test
@@ -592,11 +648,11 @@ class DefaultSignalEpochSourceServiceTest {
         )
     )
 
-    private fun inspectionSource() = InspectionSource(
-        "test:inspection",
+    private fun inspectionSource(sourceId: String = "test:inspection") = InspectionSource(
+        sourceId,
         { input ->
             InspectionDeclarationBinding(
-                "test:inspection",
+                sourceId,
                 input.trainId,
                 FrozenRouteBinding.from(input.route),
                 1L,
@@ -617,6 +673,17 @@ class DefaultSignalEpochSourceServiceTest {
 
     private fun routePlanningSource(sourceId: String) = RoutePlanningRestrictionBinding(sourceId) {
         RoutePlanningRestrictions.unrestricted(it)
+    }
+
+    private fun resourceProvider() = object : InfrastructureResourceProvider {
+        override fun exists(worldId: UUID, resourceId: String) = true
+
+        override fun validateRouteContribution(
+            contributor: Plugin,
+            worldId: UUID,
+            resourceId: String,
+            preparation: ResourcePreparationDescriptor?
+        ): RouteAdmissionFailureCode? = null
     }
 
     private fun source(sourceId: String, start: Double, callback: () -> Unit): SignalEpochSource {
@@ -678,5 +745,12 @@ class DefaultSignalEpochSourceServiceTest {
         java.lang.Double.TYPE -> 0.0
         java.lang.Character.TYPE -> '\u0000'
         else -> null
+    }
+
+    private companion object {
+        private const val SIMPLE_SIGNALS_FIXED_BLOCK_TYPE = "simplesignals:fixed-block"
+        private const val SIMPLE_SIGNALS_SIGNAL_SOURCE_ID = "simplesignals:fixed-block-signals"
+        private const val SIMPLE_SIGNALS_INSPECTION_SOURCE_ID = "simplesignals:protection-regions"
+        private const val SIMPLE_SIGNALS_ROUTE_SOURCE_ID = "simplesignals:fixed-protection-routes"
     }
 }

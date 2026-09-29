@@ -62,7 +62,10 @@ Current extraction progress:
 - [x] Derive permissive aspects only from a committed Basic grant and valid SimpleATO authority. The shared constraint pipeline keeps the initial/pending Basic authority at 0 m despite permissive plugin speed, applies plugin output only as a tighter post-grant limit, fails stale route bindings closed, and distinguishes an unconfigured block from a configured signal whose missing baseline publishes 0 m/s.
 - [x] Hold each contributed fixed-block identity to its last matched exit and use the existing host cursor/release/extension lifecycle;
   do not create a plugin release queue.
-- [ ] Verify the unified owner-unregister gate rejects planned disable while plugin resources remain active and forced disable retains committed claims/dependencies while stalling only affected worlds.
+- [x] Verify the unified owner-unregister gate with the concrete SimpleSignals resource/source identities: claim,
+  dependency, non-empty restriction and active inspection blockers all reject planned disable before either
+  registration set changes; clearing them permits complete owner removal. Forced disable removes dead callbacks,
+  retains committed claims/dependencies and stalls only worlds with affected live state.
 - [x] Integrate route-bound diamonds for conflict/inspection without cross-line continuation or selectable state. End-to-end admission proves both crossing rails derive one Basic diamond identity, conflict while held, and permit the other route after tail release; route validation still rejects crossing-line continuation and the crossing creates no turnout state.
 
 ## Reactive signal state and customization

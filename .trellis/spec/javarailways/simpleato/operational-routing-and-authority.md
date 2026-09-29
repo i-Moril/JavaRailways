@@ -257,8 +257,8 @@ grant/tail-release生命周期释放，不能因检查范围变化而撤销。
 当前平台无关`InspectionRuntime`为每个`(sourceId, trainId)`保留一份编译binding、激活/dirty状态和同步handler。
 完整binding替换先离线编译，成功后才替换旧session；非法替换不改变旧session。一次update按source ID稳定顺序查询scheduler，
 把同一source本次新激活或dirty的声明合并为一个`InspectionUpdateInput`，并复用controller已经完成的`PerceptionSnapshot`。
-handler直接返回零或一个该source/列车的完整`TrainRestrictionSnapshot`集合，不增加第二种restriction结果模型；空集合表示没有
-publication变化，清除旧限制仍必须返回更高revision的空restriction snapshot。
+handler每次必须返回恰好一个该source/列车的完整`TrainRestrictionSnapshot`，不增加第二种restriction结果模型；即使当前没有
+restriction，baseline、激活集合变化和最后一个声明离开仍返回更高revision的空restriction snapshot，以明确替换旧值。
 
 runtime在首次publisher side effect前验证本批全部callback输出的source、train、observation stamp和frozen route。回调异常、
 过期binding、非法输出或publisher拒绝都会先通知注入的fail-closed owner，再向serialized caller抛出；尚未成功发布的声明重新

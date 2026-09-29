@@ -41,6 +41,7 @@ import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_SIGNAL_SOURCE_ID
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
+import work.art1st.javarailways.simplesignals.region.PROTECTION_REGION_INSPECTION_SOURCE_ID
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTraversal
@@ -276,7 +277,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
-    fun `world install registers the fixed block inspection source`() {
+    fun `world install registers fixed block and protection region inspection sources`() {
         val fixture = Fixture()
         val registered = linkedMapOf<UUID, List<InspectionSource>>()
         val inspectionService = proxy(InspectionSourceService::class.java) { method, arguments ->
@@ -302,7 +303,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
 
         assertEquals(
-            listOf(FIXED_BLOCK_SIGNAL_SOURCE_ID),
+            listOf(FIXED_BLOCK_SIGNAL_SOURCE_ID, PROTECTION_REGION_INSPECTION_SOURCE_ID),
             registered.getValue(fixture.worldId).map(InspectionSource::sourceId)
         )
     }
@@ -359,7 +360,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
         assertEquals(SimpleSignalsWorldInstallStatus.UNAVAILABLE, unavailable.status)
         assertEquals(listOf(1, 0), signalSources.replacements.map(List<SignalEpochSource>::size))
-        assertEquals(listOf(1, 0), inspectionReplacementSizes)
+        assertEquals(listOf(2, 0), inspectionReplacementSizes)
         assertThrows(IllegalStateException::class.java) {
             routeSources.single(fixture.worldId).source.restrictions(fixture.currentTopology)
         }

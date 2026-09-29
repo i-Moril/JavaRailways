@@ -84,6 +84,13 @@ For a protection-region entry, the plugin:
 
 Basic independently derives every traversed rail, turnout and diamond resource over that range. The plugin cannot delete them. A region ID is not automatically claimed as one exclusive token; conflicts come from overlapping physical resources and explicit additions. This allows two disjoint paths within a large throat when the plugin policy and actual conflict resources permit it.
 
+The current runtime slice implements the first bounded part of that decision: one stable SimpleSignals inspection source
+captures the immutable region index, matches the exact host-selected frozen route and compiles every complete window into
+an entry-triggered minimum authority end at the region exit. This prevents an authority request that has begun entering the
+region from ending inside it, while Basic still derives and claims the physical route prefix. It deliberately does not claim
+the region identity or yet prove tail clearance beyond the exit; the following fixed-/moving-block policy remains the next
+route-decision slice.
+
 Basic either claims the complete union or none. A confirmed Basic grant is necessary but not alone sufficient for a permissive signal: the plugin may apply a stricter speed/stop, and SimpleATO takes the most restrictive result with following, operational stops and infrastructure limits.
 
 ### Fixed blocks and transitions

@@ -31,8 +31,32 @@ internal class ProtectionRegionCompilationSnapshot(
     val topology: TopologyState,
     val definitionRevision: Long,
     val derivedTopology: ProtectionRegionTopology,
-    val regionsById: Map<String, ResolvedProtectionRegion>
-)
+    val regionsById: Map<String, ResolvedProtectionRegion>,
+    private val regionIdsByRail: Map<UUID, Set<String>>
+) {
+    fun match(route: RouteSnapshot): ProtectionRegionRouteMatchResult {
+        if (route.topologyRevision != topology.revision) {
+            return ProtectionRegionRouteMatchResult.Rejected(
+                listOf(
+                    ProtectionRegionDiagnostic(
+                        ProtectionRegionValidationCode.STALE_TOPOLOGY,
+                        "route topology revision ${route.topologyRevision} does not match catalog " +
+                            topology.revision
+                    )
+                )
+            )
+        }
+        if (regionsById.isEmpty()) {
+            return ProtectionRegionRouteMatchResult.Matched(emptyList())
+        }
+        return ProtectionRegionRouteMatcher.matchIndexed(
+            route,
+            derivedTopology,
+            regionsById,
+            regionIdsByRail
+        )
+    }
+}
 
 /**
  * Atomically publishes plugin-owned protection definitions and their disposable topology index.
@@ -139,23 +163,7 @@ internal class ProtectionRegionCatalog {
                 )
             )
         )
-        if (route.topologyRevision != captured.topology.revision) {
-            return ProtectionRegionRouteMatchResult.Rejected(
-                listOf(
-                    ProtectionRegionDiagnostic(
-                        ProtectionRegionValidationCode.STALE_TOPOLOGY,
-                        "route topology revision ${route.topologyRevision} does not match catalog " +
-                            captured.topology.revision
-                    )
-                )
-            )
-        }
-        return ProtectionRegionRouteMatcher.matchIndexed(
-            route,
-            captured.derivedTopology,
-            captured.regionsById,
-            captured.regionIdsByRail
-        )
+        return captured.compilationSnapshot.match(route)
     }
 
     private fun rejected(
@@ -197,18 +205,22 @@ internal class ProtectionRegionCatalog {
                     }
                 }
                 val immutableById = java.util.Map.copyOf(byId)
+                val immutableByRail = java.util.Map.copyOf(
+                    byRail.mapValues { java.util.Set.copyOf(it.value) }
+                )
                 return Snapshot(
                     topology,
                     definitionRevision,
                     derivedTopology,
                     java.util.List.copyOf(definitions),
                     immutableById,
-                    java.util.Map.copyOf(byRail.mapValues { java.util.Set.copyOf(it.value) }),
+                    immutableByRail,
                     ProtectionRegionCompilationSnapshot(
                         topology,
                         definitionRevision,
                         derivedTopology,
-                        immutableById
+                        immutableById,
+                        immutableByRail
                     )
                 )
             }

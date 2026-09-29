@@ -22,7 +22,9 @@ import work.art1st.javarailways.simplesignals.block.FixedBlockInspectionSource
 import work.art1st.javarailways.simplesignals.block.FixedBlockReadSnapshot
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionCatalog
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionCatalogStatus
+import work.art1st.javarailways.simplesignals.region.ProtectionRegionCompilationSnapshot
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
+import work.art1st.javarailways.simplesignals.region.ProtectionRegionInspectionSource
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableCatalog
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableCatalogStatus
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
@@ -160,6 +162,10 @@ internal class SimpleSignalsWorldRuntime(
         ::fixedBlockSignal
     ).source
 
+    val protectionRegionInspectionSource = ProtectionRegionInspectionSource(
+        ::protectionRegionSnapshot
+    ).source
+
     fun currentDefinitions(): SimpleSignalsWorldDefinitions = synchronized(lock) {
         checkNotNull(state.publication) { "SimpleSignals definitions have not been published for world $worldId" }
             .definitions
@@ -181,6 +187,16 @@ internal class SimpleSignalsWorldRuntime(
             "SimpleSignals definitions have not been published for world $worldId"
         }
         return captured.fixedBlocks.snapshot(captured.topology)
+    }
+
+    /** Captures the immutable region index used to compile one exact frozen-route binding. */
+    fun protectionRegionSnapshot(): ProtectionRegionCompilationSnapshot {
+        val captured = checkNotNull(state.publication) {
+            "SimpleSignals definitions have not been published for world $worldId"
+        }
+        return checkNotNull(captured.regions.compilationSnapshot()) {
+            "SimpleSignals protection regions have not been published for world $worldId"
+        }
     }
 
     /** Installs immutable fixed-block monitoring geometry exactly once for this world load. */
@@ -623,12 +639,15 @@ internal class SimpleSignalsWorldRuntimeManager(
             inspectionSources.replaceInspectionSources(
                 plugin,
                 worldId,
-                listOf(runtime.fixedBlockInspectionSource)
+                listOf(
+                    runtime.fixedBlockInspectionSource,
+                    runtime.protectionRegionInspectionSource
+                )
             )
         } catch (failure: Exception) {
             return@synchronized unavailable(
                 worldId,
-                "SimpleSignals fixed-block inspection source could not be registered: ${describe(failure)}"
+                "SimpleSignals inspection sources could not be registered: ${describe(failure)}"
             )
         }
         runtimes[worldId] = runtime
@@ -1030,7 +1049,7 @@ internal class SimpleSignalsWorldRuntimeManager(
         try {
             inspectionSources.replaceInspectionSources(plugin, worldId, emptyList())
         } catch (failure: Exception) {
-            allDiagnostics += "Could not clear fixed-block inspection source: ${describe(failure)}"
+            allDiagnostics += "Could not clear SimpleSignals inspection sources: ${describe(failure)}"
         }
         return SimpleSignalsWorldInstallResult(
             SimpleSignalsWorldInstallStatus.UNAVAILABLE,

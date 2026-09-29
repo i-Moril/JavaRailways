@@ -78,6 +78,13 @@ best-effort把staged旧primary轮转为`.bak`。commit point之后的backup/clea
 
 route-window 只描述 region entry/exit。列车需要在出口后继续申请固定闭塞或移动闭塞距离属于后续 plugin route-decision 层，不放回 region model，也不复制旧 Basic `exitClearance` 单窗口合同。
 
+world runtime稳定注册`simplesignals:protection-regions` inspection source。binding provider捕获一次上述immutable compilation snapshot，
+只投影host已经选择的exact frozen route；每个完整window形成`trigger=entry`、`minimumRequestedAuthorityEnd=exit`的声明。nominal authority
+未越过entry时不申请区域，严格越过后至少把同一次Basic请求抬到exit；Basic随后从扩大后的同一冻结路线前缀独立推导rail、turnout和
+diamond资源。插件不提交region ID整区锁，因此本步骤不会把一整个咽喉强制互斥。部分进入、部分离开、同一区域重复经过或过期topology
+在binding编译时拒绝，不能形成部分授权。当前floor只防止授权终点落在区域内部；列车尾完全越过exit及后续固定/移动闭塞距离仍由下一批
+route-decision策略决定，不能把`exit`误称为完整净空终点。
+
 ## 固定保护进路表
 
 `ProtectionRouteTableDefinition`是SimpleSignals私有的联锁选路模型。每个table以稳定namespaced ID和
@@ -138,7 +145,8 @@ Basic在同一physics epoch完成occupant和ENTER/LEFT推导，SimpleSignals cal
 下一次受影响列车的既有controller update中，把完整active block集合投影为入口处限速restriction。首次callback必须为全部block建立
 baseline；此前snapshot为unknown而不是空占用。没有配置规则的block不产生额外限速，仍由既有资源授权约束进入。
 后续occupant/crossing不变时host不会调用callback，snapshot对象保持不变。因此没有新tick loop，也没有
-`all trains x all blocks`扫描。保护区域尚未加入这个common read surface；等具体联锁规则需要时复用同一接口，不提前虚构全局长度语义。
+`all trains x all blocks`扫描。保护区域当前只接入冻结路线inspection/authority floor，尚未加入这个common occupancy read surface；
+等具体联锁规则需要时复用适合分支区域的观测，不提前虚构全局长度语义。
 
 同一world candidate完整编译后、outer publication替换前，runtime还会用已编译interval检查fixed block与所有保护区域的正长度interior
 重叠；大于`Curve.TOLERANCE`的交集拒绝整批candidate，只有共用边界点允许。失败不取得edit permit、不写盘且保留旧publication。

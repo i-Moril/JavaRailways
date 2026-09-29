@@ -181,17 +181,22 @@ internal class SimpleSignalsWorldRuntime(
     }
 
     /** Installs immutable fixed-block monitoring geometry exactly once for this world load. */
-    fun initializeSectionOccupancy(): SectionOccupancyRuntime = synchronized(lock) {
+    fun initializeSectionOccupancy(
+        signalRuleBindings: Collection<SectionSignalRuleBinding>
+    ): SectionOccupancyRuntime = synchronized(lock) {
         val current = state
         check(current.sectionOccupancy == null) { "section occupancy is already initialized for world $worldId" }
         SectionOccupancyRuntime.from(
             checkNotNull(current.publication) {
                 "SimpleSignals definitions have not been published for world $worldId"
-            }
+            },
+            signalRuleBindings
         ).also { state = RuntimeState(current.publication, it) }
     }
 
     fun sectionOccupancySnapshot(): SectionOccupancySnapshot? = state.sectionOccupancy?.snapshot()
+
+    fun sectionSignalSnapshot(): SectionSignalSnapshot? = state.sectionOccupancy?.signalSnapshot()
 
     fun prepareDefinitions(
         topology: TopologyState,
@@ -581,7 +586,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                 "SimpleSignals definitions were rejected: ${initial.diagnostics.joinToString()}"
             )
         }
-        val sectionOccupancy = runtime.initializeSectionOccupancy()
+        val sectionOccupancy = runtime.initializeSectionOccupancy(emptyList())
         try {
             signalEpochSources.replaceSources(
                 plugin,
@@ -780,7 +785,8 @@ internal class SimpleSignalsWorldRuntimeManager(
                 var topologyUnavailableDuringCommit = false
                 val commit = if (replaceSectionOccupancy) {
                     val candidateOccupancy = SectionOccupancyRuntime.from(
-                        prepared.candidatePublication
+                        prepared.candidatePublication,
+                        emptyList()
                     )
                     try {
                         signalEpochSources.replaceSourcesAtomically(

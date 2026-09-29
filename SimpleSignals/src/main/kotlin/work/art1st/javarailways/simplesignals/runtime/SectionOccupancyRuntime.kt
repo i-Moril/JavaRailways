@@ -16,7 +16,9 @@ internal enum class SectionKind {
 internal data class SectionRef(
     val kind: SectionKind,
     val id: String
-)
+) : Comparable<SectionRef> {
+    override fun compareTo(other: SectionRef): Int = SECTION_REF_ORDER.compare(this, other)
+}
 
 private val SECTION_REF_ORDER = compareBy<SectionRef>({ it.kind.name }, { it.id })
 
@@ -67,10 +69,16 @@ internal class SectionOccupancySnapshot(
  * it owns no tick loop, world lookup, aspect or restriction policy.
  */
 internal class SectionOccupancyRuntime private constructor(
-    private val bindingsByArea: Map<RailObjectRef, Binding>
+    private val bindingsByArea: Map<RailObjectRef, Binding>,
+    private val signalRules: SectionSignalRuleRuntime?
 ) {
+    private data class PublishedState(
+        val occupancy: SectionOccupancySnapshot,
+        val signals: SectionSignalSnapshot?
+    )
+
     @Volatile
-    private var latest: SectionOccupancySnapshot? = null
+    private var latest: PublishedState? = null
 
     val source: SignalEpochSource? = if (bindingsByArea.isEmpty()) {
         null
@@ -81,11 +89,13 @@ internal class SectionOccupancyRuntime private constructor(
         ) { input -> update(input) }
     }
 
-    fun snapshot(): SectionOccupancySnapshot? = latest
+    fun snapshot(): SectionOccupancySnapshot? = latest?.occupancy
+
+    fun signalSnapshot(): SectionSignalSnapshot? = latest?.signals
 
     private fun update(input: SignalEpochInput): SignalEpochResult {
         val previous = latest
-        val observations = previous?.sections?.toMutableMap() ?: linkedMapOf()
+        val observations = previous?.occupancy?.sections?.toMutableMap() ?: linkedMapOf()
         val changed = linkedSetOf<SectionRef>()
         val crossings = linkedMapOf<SectionRef, List<RailwayOccupancyCrossing>>()
         input.areaUpdates.forEach { update ->
@@ -112,7 +122,9 @@ internal class SectionOccupancyRuntime private constructor(
                 "first section occupancy callback must baseline every compiled section"
             }
         }
-        latest = SectionOccupancySnapshot(input.observation.stamp, observations, changed, crossings)
+        val occupancy = SectionOccupancySnapshot(input.observation.stamp, observations, changed, crossings)
+        val signals = signalRules?.evaluate(previous?.signals, occupancy)
+        latest = PublishedState(occupancy, signals)
         return SignalEpochResult.empty()
     }
 
@@ -124,7 +136,10 @@ internal class SectionOccupancyRuntime private constructor(
     )
 
     companion object {
-        fun from(publication: SimpleSignalsRuntimePublication): SectionOccupancyRuntime {
+        fun from(
+            publication: SimpleSignalsRuntimePublication,
+            signalRuleBindings: Collection<SectionSignalRuleBinding>
+        ): SectionOccupancyRuntime {
             val blockSnapshot = publication.fixedBlocks.snapshot(publication.topology)
             val bindings = linkedMapOf<RailObjectRef, Binding>()
             blockSnapshot.blocksById.toSortedMap().forEach { (blockId, block) ->
@@ -138,7 +153,14 @@ internal class SectionOccupancyRuntime private constructor(
                     "duplicate SimpleSignals occupancy area ${binding.area.areaId}"
                 }
             }
-            return SectionOccupancyRuntime(java.util.Map.copyOf(bindings))
+            val copiedBindings = java.util.Map.copyOf(bindings)
+            val signalRules = signalRuleBindings.takeIf { it.isNotEmpty() }?.let { rules ->
+                SectionSignalRuleRuntime.compile(
+                    copiedBindings.values.map(Binding::section),
+                    java.util.List.copyOf(rules)
+                )
+            }
+            return SectionOccupancyRuntime(copiedBindings, signalRules)
         }
     }
 }

@@ -16,6 +16,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - SimpleATO owns operating-route selection, resource inspection scheduling and the single most-restrictive ATO/ATP pipeline.
 - Generic longitudinal dynamics, actuation contracts and physical safety mechanisms shared by manual driving and automation remain in Basic; SimpleATO owns the automated operating policy that consumes them.
 - Each independent signalling system will be a separately compiled Java/Kotlin plugin. It may choose its own JS, YAML or other customization layer; no common script engine is mandatory.
+- The Java/Kotlin signal runtime validates and transports a rule-selected speed limit plus opaque model variant; it must not hard-code a national aspect vocabulary or map `R/Y/YG/G`-style names to fixed speeds. Only unavailable/invalid rule state has a host-owned zero-speed safety meaning.
 - Operational route selection now uses one SimpleATO seam over Basic's immutable-`TopologyState` planner. Mission, Station, Line, Timetable and route diagnostics all compose operating directions with owner/world registered neutral restriction sources before search; the legacy live-`RailView` planner has been deleted.
 
 ## Requirements

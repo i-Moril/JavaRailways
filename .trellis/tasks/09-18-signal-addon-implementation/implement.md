@@ -70,9 +70,10 @@ Current extraction progress:
 - [x] Review the deferred reactive design: SimpleSignals owns a one-way provider-to-upstream-consumer invalidation chain; no fixed-point solver or host-owned dependency graph. Record the future Core active-continuation snapshot prerequisite without implementing it in this batch.
 - [x] Publish Core's immutable active-turnout continuations in the coherent world frame and project them unchanged through Basic observation. Rebuild the turnout-port map only when topology or live selection revision changes; reject a candidate frame if the selection changes during epoch processing.
 - [x] Implement only the dependency/invalidation mechanism approved in that review: precompile an acyclic one-way graph and evaluate only reached consumers, stopping unchanged branches without a world-wide scan. Concrete aspect/limit rules remain separate.
-- [ ] Prove unchanged resources remain idle and stale permissive outputs cannot survive invalidation.
+- [x] Prove unchanged resources remain idle and stale permissive outputs cannot survive invalidation: unchanged host area state skips the plugin callback, unchanged rule output stops the branch, and rule/downstream failure publishes an unavailable zero-limit state instead of retaining an old permissive result.
 - [x] Propagate changed downstream state only as far as needed; stop when an output is unchanged and reject dependency construction that would introduce reverse/downstream feedback.
-- [ ] Define `SimpleSignals` Java/Kotlin aspect/block/interlocking rules before adding scripts.
+- [x] Define the `SimpleSignals` Java/Kotlin rule execution boundary before adding scripts: immutable controlled-section/downstream views enter an injected rule and a validated speed plus opaque model variant leaves it; no concrete aspect vocabulary or speed table is hard-coded.
+- [ ] Implement concrete block/interlocking rule providers through that boundary without moving their policy into Basic or SimpleATO.
 - [ ] In a separately reviewed batch, define optional JS/YAML input views, setters such as speed/model variant, validation, execution budget and failure behavior.
 - [ ] Keep scripts away from mutable world objects and raw Basic claim mutation; all outputs pass plugin validation and host restriction/resource APIs.
 

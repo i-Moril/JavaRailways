@@ -9,7 +9,8 @@ JavaRailways 主 JAR 的组成部分，也不能复制、shadow 或直接导入�
 当前已建立部署边界、严格current-model世界定义sidecar、保护区域领域核心、固定保护进路表和固定闭塞定义的低频编译器，
 以及把存档编译结果原子发布到实际world runtime。固定闭塞还把已编译Basic监测区接入host physics epoch，发布
 plugin-local immutable section occupancy snapshot，并以同一exact frozen-route matcher建立资源贡献与inspection authority floor；
-尚未建立信号规则、灯色/限速输出、渲染、命令或 JS/YAML接口，不得把 foundation 描述为可用信号系统。
+已建立plugin-local信号规则执行边界和灯色/限速输出快照，但尚未提供具体规则、渲染、命令、JS/YAML接口或列车限制投影，
+不得把 foundation 描述为可用信号系统。
 
 ## 工作方式
 
@@ -228,7 +229,19 @@ node/edge集合做一次Kahn拓扑排序；未知端点、重复node/edge、自�
 每个node最多入队和执行一次，recompute返回output unchanged时该分支立即停止，返回changed时才继续加入其consumer。多个变化provider
 汇入同一consumer时，topological order保证所有本wave内可能变化的前驱先执行，而consumer仍只执行一次。设本wave实际到达`A`个
 node、`D`条edge，成本为`O((A + D) log A)`、临时空间为`O(A)`，与world中未受影响的信号数量无关。callback失败由既有同步signal
-epoch向外传播并fail-close，不为plugin-local output增加rollback协议。当前该机制尚未绑定具体aspect/限速规则。
+epoch向外传播并fail-close，不为plugin-local output增加rollback协议。该机制本身不定义具体aspect/限速策略。
+
+`SectionSignalRuleRuntime`在这张图上提供plugin-local规则执行边界。一个预编译binding只关联稳定signal ID、自己控制的section、按距离
+排序的下游signal引用和一个注入rule；Java/Kotlin runtime不包含`R/Y/YG/G`词汇、速度表或model到速度的反向映射。rule输入只包含同一
+`RailwayStateStamp`的本section占用/长度及已发布下游输出；rule必须返回有限非负`speedLimitMetersPerSecond`和非空但不透明的
+`modelVariant`。这些值在进入snapshot前统一验证，未来Java、JS或YAML provider都构造相同binding/output。
+
+section callback先建立完整occupancy candidate，再在临时signal-state map上执行受影响wave；全部到达的rule处理完后，以一个volatile
+state同时发布occupancy和signal snapshot。相同输出不继续传播。rule抛错或返回非法output时，对应signal变成`Unavailable(reason)`，
+其宿主安全限速为0且没有伪造model variant；任一下游unavailable会跳过consumer rule并继续传播unavailable，因此旧permissive输出
+不会在失效后留存。首次baseline必须为全部binding建立Available或Unavailable状态；未收到首个physical baseline以前仍没有signal
+snapshot。当前输出尚未投影为每列车SimpleATO restriction，也没有处理“只有active turnout发生变化而area不变”的source唤醒；二者
+必须分别通过既有inspection/restriction seam和一次单独评审的signal-epoch触发扩展完成，不能由本runtime自行轮询。
 
 ## 依赖与打包不变量
 

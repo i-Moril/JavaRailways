@@ -13,6 +13,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
@@ -300,7 +301,12 @@ class RailwayAreaOccupancyTrackerTest {
         }
         return RailwayObservation.fromCore(
             "world",
-            RailwayWorldFrameSnapshot.create(epoch, topologyRevision, frames)
+            RailwayWorldFrameSnapshot.create(
+                epoch,
+                topologyRevision,
+                frames,
+                ActiveRailContinuationsSnapshot.empty(topologyRevision)
+            )
         )
     }
 }

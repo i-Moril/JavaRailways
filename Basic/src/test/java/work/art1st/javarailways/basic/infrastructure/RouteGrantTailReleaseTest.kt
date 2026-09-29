@@ -13,6 +13,7 @@ import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import java.util.UUID
@@ -229,7 +230,8 @@ class RouteGrantTailReleaseTest {
         RailwayWorldFrameSnapshot.create(
             epoch,
             topology,
-            listOf(train(id, epoch, tailMeters))
+            listOf(train(id, epoch, tailMeters)),
+            ActiveRailContinuationsSnapshot.empty(topology)
         )
     )
 

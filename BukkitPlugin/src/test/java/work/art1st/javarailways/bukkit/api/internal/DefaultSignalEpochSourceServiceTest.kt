@@ -15,6 +15,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBinding
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
@@ -660,7 +661,12 @@ class DefaultSignalEpochSourceServiceTest {
         }
     }
 
-    private fun frame(epoch: Long) = RailwayWorldFrameSnapshot.create(epoch, 7L, emptyList())
+    private fun frame(epoch: Long) = RailwayWorldFrameSnapshot.create(
+        epoch,
+        7L,
+        emptyList(),
+        ActiveRailContinuationsSnapshot.empty(7L)
+    )
 
     private fun plugin(name: String, enabled: () -> Boolean = { true }): Plugin {
         lateinit var proxy: Plugin

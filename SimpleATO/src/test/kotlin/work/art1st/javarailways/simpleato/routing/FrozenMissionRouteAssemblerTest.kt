@@ -20,6 +20,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
@@ -378,7 +379,8 @@ class FrozenMissionRouteAssemblerTest {
                 headTraversal = frame.headTraversal,
                 tailTraversal = frame.tailTraversal
             )),
-            occupancy = RailwayOccupancySnapshot.create(frame.physicsEpoch, listOf(frame))
+            occupancy = RailwayOccupancySnapshot.create(frame.physicsEpoch, listOf(frame)),
+            activeContinuations = ActiveRailContinuationsSnapshot.empty(topologyRevision)
         )
     }
 

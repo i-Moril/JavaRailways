@@ -1,6 +1,7 @@
 package work.art1st.javarailways.core.api.physics
 
 import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 
 /**
@@ -14,13 +15,15 @@ import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
  * @property topologyRevision runtime structural topology revision used by this publication
  * @property trains immutable train frames sorted by stable train ID
  * @property occupancy immutable swept-occupancy index built once from these train frames
+ * @property activeContinuations immutable live turnout selections captured for the same world frame
  */
 @ConsistentCopyVisibility
 data class RailwayWorldFrameSnapshot private constructor(
     val physicsEpoch: Long,
     val topologyRevision: Long,
     val trains: List<TrainFrameSnapshot>,
-    val occupancy: RailwayOccupancySnapshot
+    val occupancy: RailwayOccupancySnapshot,
+    val activeContinuations: ActiveRailContinuationsSnapshot
 ) {
     init {
         require(physicsEpoch >= 0L) { "physicsEpoch must be non-negative" }
@@ -37,6 +40,9 @@ data class RailwayWorldFrameSnapshot private constructor(
         require(occupancy.trainIds == trains.map(TrainFrameSnapshot::trainId).toSet()) {
             "occupancy snapshot must contain exactly the world frame train IDs"
         }
+        require(activeContinuations.topologyRevision == topologyRevision) {
+            "active continuations must belong to topology revision $topologyRevision"
+        }
     }
 
     companion object {
@@ -45,14 +51,16 @@ data class RailwayWorldFrameSnapshot private constructor(
         fun create(
             physicsEpoch: Long,
             topologyRevision: Long,
-            trains: Collection<TrainFrameSnapshot>
+            trains: Collection<TrainFrameSnapshot>,
+            activeContinuations: ActiveRailContinuationsSnapshot
         ): RailwayWorldFrameSnapshot {
             val copiedTrains = java.util.List.copyOf(trains.sortedBy(TrainFrameSnapshot::trainId))
             return RailwayWorldFrameSnapshot(
                 physicsEpoch = physicsEpoch,
                 topologyRevision = topologyRevision,
                 trains = copiedTrains,
-                occupancy = RailwayOccupancySnapshot.create(physicsEpoch, copiedTrains)
+                occupancy = RailwayOccupancySnapshot.create(physicsEpoch, copiedTrains),
+                activeContinuations = activeContinuations
             )
         }
 
@@ -60,12 +68,14 @@ data class RailwayWorldFrameSnapshot private constructor(
             physicsEpoch: Long,
             topologyRevision: Long,
             trains: Collection<TrainFrameSnapshot>,
-            occupancy: RailwayOccupancySnapshot
+            occupancy: RailwayOccupancySnapshot,
+            activeContinuations: ActiveRailContinuationsSnapshot
         ): RailwayWorldFrameSnapshot = RailwayWorldFrameSnapshot(
             physicsEpoch = physicsEpoch,
             topologyRevision = topologyRevision,
             trains = java.util.List.copyOf(trains.sortedBy(TrainFrameSnapshot::trainId)),
-            occupancy = occupancy
+            occupancy = occupancy,
+            activeContinuations = activeContinuations
         )
     }
 }

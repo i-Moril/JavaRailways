@@ -39,7 +39,10 @@ class RailView(
             if (value != null && !mutableNextRails.contains(value)) {
                 throw InvalidActiveRailException(this, value)
             }
-            activeRailValue = value
+            rail.world.updateActiveRailSelection(
+                shouldChange = { activeRailValue !== value },
+                change = { activeRailValue = value }
+            )
         }
 
     override val nextActiveRail: ApiRailView?

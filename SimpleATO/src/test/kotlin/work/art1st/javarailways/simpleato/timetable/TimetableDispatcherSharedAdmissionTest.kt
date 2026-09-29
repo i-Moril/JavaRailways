@@ -24,6 +24,7 @@ import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
@@ -860,7 +861,8 @@ class TimetableDispatcherSharedAdmissionTest {
                     headTraversal = frame.headTraversal,
                     tailTraversal = frame.tailTraversal
                 )),
-                RailwayOccupancySnapshot.create(nextEpoch, listOf(frame))
+                RailwayOccupancySnapshot.create(nextEpoch, listOf(frame)),
+                ActiveRailContinuationsSnapshot.empty(world.topologyState.revision)
             )
         }
     }

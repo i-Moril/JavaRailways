@@ -4,6 +4,7 @@ import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
@@ -101,12 +102,14 @@ data class RailwayTrainObservation private constructor(
  * @property stamp coherent world identity, physics epoch, and topology revision
  * @property trains immutable train observations sorted by stable train ID
  * @property occupancy immutable Core occupancy query for the same physics epoch
+ * @property activeContinuations immutable live turnout selections from the same Core world frame
  */
 @ConsistentCopyVisibility
 data class RailwayObservation private constructor(
     val stamp: RailwayStateStamp,
     val trains: List<RailwayTrainObservation>,
-    val occupancy: RailwayOccupancySnapshot
+    val occupancy: RailwayOccupancySnapshot,
+    val activeContinuations: ActiveRailContinuationsSnapshot
 ) {
     init {
         require(trains.map(RailwayTrainObservation::trainId).toSet().size == trains.size) {
@@ -118,6 +121,9 @@ data class RailwayObservation private constructor(
         require(occupancy.trainIds == trains.map(RailwayTrainObservation::trainId).toSet()) {
             "occupancy snapshot must contain exactly the railway observation train IDs"
         }
+        require(activeContinuations.topologyRevision == stamp.topologyRevision) {
+            "active continuations must belong to topology revision ${stamp.topologyRevision}"
+        }
     }
 
     companion object {
@@ -126,11 +132,13 @@ data class RailwayObservation private constructor(
         fun create(
             stamp: RailwayStateStamp,
             trains: Collection<RailwayTrainObservation>,
-            occupancy: RailwayOccupancySnapshot
+            occupancy: RailwayOccupancySnapshot,
+            activeContinuations: ActiveRailContinuationsSnapshot
         ): RailwayObservation = RailwayObservation(
             stamp,
             java.util.List.copyOf(trains.sortedBy(RailwayTrainObservation::trainId)),
-            occupancy
+            occupancy,
+            activeContinuations
         )
 
         /** Projects a coherent Core frame without retaining render data or mutable Core objects. */
@@ -138,7 +146,8 @@ data class RailwayObservation private constructor(
         fun fromCore(worldId: String, frame: RailwayWorldFrameSnapshot): RailwayObservation = create(
             RailwayStateStamp(worldId, frame.physicsEpoch, frame.topologyRevision),
             frame.trains.map(::projectTrain),
-            frame.occupancy
+            frame.occupancy,
+            frame.activeContinuations
         )
 
         private fun projectTrain(frame: TrainFrameSnapshot): RailwayTrainObservation =

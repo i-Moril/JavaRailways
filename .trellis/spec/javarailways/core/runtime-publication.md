@@ -37,8 +37,9 @@ apply prior collision decisions
 → process frames per train；completeEpoch once
 → build one shared RailwayOccupancySnapshot
 → capture candidate RailwayWorldFrameSnapshot under topology read lock
+  （同时捕获与该root一致的immutable active turnout continuations）
 → run registered RailwayEpochProcessor synchronously in registration order
-→ revalidate candidate topology/occupancy/train frames and publish it
+→ revalidate candidate topology/occupancy/train frames/active continuations and publish it
 → complete exact PhysicsTicket
 ```
 
@@ -53,9 +54,11 @@ apply prior collision decisions
 
 Generic TickManager 的 `postTick()` 只 await workers并drain `afterCommitTasks/postTickTasks`；平台之后才 `drainPendingCommits()`。`scheduleMainThreadAfterCommitTask` 的历史命名不表示 platform commit 已执行。
 
-world frame的capture与publication是两个阶段，但不是两个可独立观察的revision。capture持有topology read lock并保存当时同epoch的train frames、共享occupancy实例和topology revision；processor只读该value。最终publication再次持有read lock，要求topology revision未变、occupancy仍为同一实例、按train ID排序的当前published frames与candidate相等。任一不匹配都令ticket失败，不发布candidate。processor耗时计入`wallNanos`、`coordinatorNanos`与overload窗口；它不是不受physics预算约束的异步队列。
+world frame的capture与publication是两个阶段，但不是两个可独立观察的revision。capture持有topology read lock并保存当时同epoch的train frames、共享occupancy实例、topology revision和live turnout continuation snapshot；processor只读该value。最终publication再次持有read lock，要求topology revision未变、occupancy仍为同一实例、按train ID排序的当前published frames与candidate相等，且active-continuation snapshot仍是同一对象。任一不匹配都令ticket失败，不发布candidate。processor耗时计入`wallNanos`、`coordinatorNanos`与overload窗口；它不是不受physics预算约束的异步队列。
 
-`RailwayWorldFrameSnapshot` 是一个 value-only 一致副本：所有 `TrainFrameSnapshot.physicsEpoch` 必须等于 world frame 的 `physicsEpoch`，列车按稳定 ID 排序且集合 defensive copy。每个train frame同时携带三种不能混用的物理事实：`occupiedIntervals`是epoch结束时的保守车体占用，`sweptSpans`是整个epoch扫过的合并包络，head/tail traversal是带方向和顺序的边界穿越证据。`topologyRevision` 是该次发布持有 topology read lock 时捕获的 runtime structural revision；它不是 schema version、配置 revision 或可独立拼接到其他 epoch 的“最新值”。平台 service 必须先等待 exact `PhysicsTicket` 成功，再发布该 world frame；不得把旧列车 frame 与新 topology revision 重新组合。
+active continuation不是每tick重扫全图。`RailView.activeRail`的成功引用变化在world-local selection lock内推进一个`Long` runtime revision；Core按`(topologyRevision, selectionRevision)`缓存immutable snapshot。普通未变化epoch在`O(1)`内复用同一对象；仅拓扑或选择变化时遍历当前`P`个turnout port，验证live target仍属于该entry的`legalContinuations`，以`O(P log P)`稳定排序并发布新map。选择在processor期间发生即使最终切回原支路也会推进revision，因此candidate在publication复核时被拒绝，而不会把旧占用与新道岔方向拼接。
+
+`RailwayWorldFrameSnapshot` 是一个 value-only 一致副本：所有 `TrainFrameSnapshot.physicsEpoch` 必须等于 world frame 的 `physicsEpoch`，列车按稳定 ID 排序且集合 defensive copy。每个train frame同时携带三种不能混用的物理事实：`occupiedIntervals`是epoch结束时的保守车体占用，`sweptSpans`是整个epoch扫过的合并包络，head/tail traversal是带方向和顺序的边界穿越证据。`topologyRevision`与`activeContinuations`是该次发布持有topology/selection边界时捕获的结构和live选择；它们不是schema version、配置revision或可独立拼接到其他epoch的“最新值”。平台 service 必须先等待 exact `PhysicsTicket` 成功，再发布该 world frame；不得把旧列车 frame 与新 topology/continuation observation重新组合。
 
 ## 项目内正确示例
 

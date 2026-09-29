@@ -49,6 +49,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.RailCrossingPoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
@@ -669,7 +670,12 @@ class DefaultInfrastructureResourceServiceTest {
         val world = TestWorld(topology)
         val observation = RailwayObservation.fromCore(
             worldId.toString(),
-            RailwayWorldFrameSnapshot.create(1L, topology.revision, emptyList())
+            RailwayWorldFrameSnapshot.create(
+                1L,
+                topology.revision,
+                emptyList(),
+                ActiveRailContinuationsSnapshot.empty(topology.revision)
+            )
         )
         service.registerWorld(worldId, { topology }) { false }
         service.attachInfrastructureRuntime(
@@ -1143,7 +1149,12 @@ class DefaultInfrastructureResourceServiceTest {
         )
         return RailwayObservation.fromCore(
             worldId.toString(),
-            RailwayWorldFrameSnapshot.create(epoch, topologyRevision, listOf(train))
+            RailwayWorldFrameSnapshot.create(
+                epoch,
+                topologyRevision,
+                listOf(train),
+                ActiveRailContinuationsSnapshot.empty(topologyRevision)
+            )
         )
     }
 

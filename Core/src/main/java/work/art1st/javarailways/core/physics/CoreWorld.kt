@@ -8,8 +8,10 @@ import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
@@ -67,14 +69,18 @@ class CoreWorld(
     private val railSpatialIndex = RailSpatialIndex()
     private val atGradeRailCrossingIndex = AtGradeRailCrossingIndex(railSpatialIndex)
     private val railTopologyLock = ReentrantReadWriteLock()
+    private val activeRailSelectionLock = Any()
     private val railTopologyTransactionContext = ThreadLocal<RailTopologyTransactionContext?>()
     private val trainsByName = ConcurrentHashMap<String, CoreTrain>()
     val runtimeId: String = UUID.randomUUID().toString()
 
     private val publishedTrainFrames = LatestTrainFrameMailbox(DEFAULT_TRAIN_FRAME_MAILBOX_CAPACITY)
+    private var activeRailSelectionRevision = 0L
+    @Volatile
+    private var cachedActiveContinuations = ActiveRailContinuationsSnapshot.empty(0L)
     @Volatile
     private var publishedWorldFrame: RailwayWorldFrameSnapshot =
-        RailwayWorldFrameSnapshot.create(0L, 0L, emptyList())
+        RailwayWorldFrameSnapshot.create(0L, 0L, emptyList(), cachedActiveContinuations)
     @Volatile
     private var sweptOccupancy: RailwayOccupancySnapshot = publishedWorldFrame.occupancy
     @Volatile
@@ -1182,11 +1188,13 @@ class CoreWorld(
     internal fun captureWorldFrame(physicsEpoch: Long): RailwayWorldFrameSnapshot =
         railTopologyLock.read {
             ensureTopologyHealthy()
+            val activeContinuations = captureActiveRailContinuations()
             RailwayWorldFrameSnapshot.createWithOccupancy(
                 physicsEpoch = physicsEpoch,
                 topologyRevision = publishedTopologyState.revision,
                 trains = trains.values.map(CoreTrain::publishedFrame),
-                occupancy = sweptOccupancy
+                occupancy = sweptOccupancy,
+                activeContinuations = activeContinuations
             )
         }
 
@@ -1208,8 +1216,60 @@ class CoreWorld(
             check(frame.trains == currentFrames) {
                 "train frames changed while processing physics epoch ${frame.physicsEpoch}"
             }
+            check(frame.activeContinuations === captureActiveRailContinuations()) {
+                "active rail continuation changed while processing physics epoch ${frame.physicsEpoch}"
+            }
             publishedWorldFrame = frame
             frame
+        }
+
+    /** Serializes live branch selection changes with immutable continuation capture. */
+    internal fun updateActiveRailSelection(
+        shouldChange: () -> Boolean,
+        change: () -> Unit
+    ) {
+        synchronized(activeRailSelectionLock) {
+            if (!shouldChange()) return
+            val nextRevision = Math.addExact(activeRailSelectionRevision, 1L)
+            change()
+            activeRailSelectionRevision = nextRevision
+        }
+    }
+
+    /** Rebuilds only after topology or live branch selection changes; unchanged epochs reuse one value. */
+    private fun captureActiveRailContinuations(): ActiveRailContinuationsSnapshot =
+        synchronized(activeRailSelectionLock) {
+            val topology = publishedTopologyState
+            val cached = cachedActiveContinuations
+            if (cached.topologyRevision == topology.revision &&
+                cached.selectionRevision == activeRailSelectionRevision
+            ) {
+                return@synchronized cached
+            }
+            val selections = linkedMapOf<RailEndpointRef, RailEndpointRef>()
+            topology.nodes.values.filterIsInstance<TopologyNode.Turnout>().forEach { turnout ->
+                turnout.ports.forEach { entry ->
+                    val rail = requireNotNull(rails[entry.railId]) {
+                        "turnout entry rail is missing from the live world: ${entry.railId}"
+                    }
+                    val arrivingView = if (entry.endpoint == RailEndpoint.A) rail.viewBA else rail.viewAB
+                    arrivingView.activeRail?.let { active ->
+                        val exit = RailEndpointRef(
+                            active.rail.id,
+                            if (active.viewDirection == ViewDirection.AB) RailEndpoint.A else RailEndpoint.B
+                        )
+                        check(exit in turnout.legalContinuations.getValue(entry)) {
+                            "live turnout selection is not a legal topology continuation: $entry -> $exit"
+                        }
+                        selections[entry] = exit
+                    }
+                }
+            }
+            ActiveRailContinuationsSnapshot.create(
+                topology.revision,
+                activeRailSelectionRevision,
+                selections
+            ).also { cachedActiveContinuations = it }
         }
 
     /**

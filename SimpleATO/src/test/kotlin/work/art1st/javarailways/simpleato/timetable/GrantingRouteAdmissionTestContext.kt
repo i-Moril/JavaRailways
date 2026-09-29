@@ -21,6 +21,7 @@ import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationR
 import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.physics.CoreWorld
 
@@ -97,7 +98,8 @@ internal class GrantingRouteAdmissionTestContext(
                     tailTraversal = frame.tailTraversal
                 )
             },
-            RailwayOccupancySnapshot.create(nextEpoch, frames)
+            RailwayOccupancySnapshot.create(nextEpoch, frames),
+            ActiveRailContinuationsSnapshot.empty(currentWorld.topologyState.revision)
         )
         latestObservation = observation
         checkNotNull(runtime).consumeObservation(observation)

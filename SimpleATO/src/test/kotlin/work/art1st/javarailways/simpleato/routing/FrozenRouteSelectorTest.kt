@@ -13,6 +13,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
@@ -272,7 +273,8 @@ class FrozenRouteSelectorTest {
         return RailwayObservation.create(
             stamp = RailwayStateStamp("test-world", frame.physicsEpoch, topologyRevision),
             trains = listOf(train),
-            occupancy = RailwayOccupancySnapshot.create(frame.physicsEpoch, listOf(frame))
+            occupancy = RailwayOccupancySnapshot.create(frame.physicsEpoch, listOf(frame)),
+            activeContinuations = ActiveRailContinuationsSnapshot.empty(topologyRevision)
         )
     }
 

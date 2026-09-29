@@ -211,16 +211,16 @@ already-staged atomic rename与immutable reference swap。route callback仍只�
 inspect/dry-run UI或拓扑迁移工具。`applyDefinitionPatch`以`ThreadGuard.ensureOffMainThread`拒绝错误的owner-thread调用；未来Wand/command必须先
 dispatch worker，不能依赖调用约定而省略这一断言。
 
-## 已评审但尚未实现的响应式方向
+## 已评审的响应式方向与已完成前置观测
 
 响应式signal更新必须是有向无环的provider-to-consumer失效链：占用变化、同一physics epoch的道岔active continuation变化和下游
 section输出变化只能通知预注册的上游consumer；consumer不得反向enqueue自己的provider。一个update wave内每个node最多执行一次，
 输出不变即停止向上游传播，不引入fixed-point求解器或通用双向graph runtime。
 
-Core是live directed active continuation的物理权威。后续通用只读快照应在同一physics epoch公开
-`entry RailEndpointRef -> selected exit RailEndpointRef?`；Basic只原样投影，不解释信号含义，SimpleSignals、SimpleATO、WebUI、
-渲染或诊断等consumer均可读取。该快照是按当前道岔分支选择依赖边的前置条件，本批固定闭塞不修改Core/Basic，也不得临时读取
-mutable `RailView`替代它。
+Core是live directed active continuation的物理权威。`RailwayWorldFrameSnapshot.activeContinuations`已在同一physics epoch公开
+`entry RailEndpointRef -> selected exit RailEndpointRef?`；Basic通过`RailwayObservation`原样投影，不解释信号含义，SimpleSignals、
+SimpleATO、WebUI、渲染或诊断等consumer均可读取。Core仅在topology或selection revision变化时重建turnout-port map，普通tick复用
+同一immutable snapshot；processor期间发生选择变化会使候选frame拒绝发布。后续依赖链必须使用该值，不能临时读取mutable `RailView`。
 
 ## 依赖与打包不变量
 

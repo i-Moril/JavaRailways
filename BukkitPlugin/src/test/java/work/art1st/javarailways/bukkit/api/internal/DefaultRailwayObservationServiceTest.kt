@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import java.lang.reflect.Proxy
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
@@ -96,7 +97,12 @@ class DefaultRailwayObservationServiceTest {
         }
     }
 
-    private fun frame(epoch: Long) = RailwayWorldFrameSnapshot.create(epoch, 4L, emptyList())
+    private fun frame(epoch: Long) = RailwayWorldFrameSnapshot.create(
+        epoch,
+        4L,
+        emptyList(),
+        ActiveRailContinuationsSnapshot.empty(4L)
+    )
 
     private fun plugin(name: String): Plugin {
         lateinit var proxy: Plugin

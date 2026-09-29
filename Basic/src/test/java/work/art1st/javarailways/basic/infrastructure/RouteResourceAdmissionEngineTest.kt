@@ -28,6 +28,7 @@ import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
@@ -1149,7 +1150,13 @@ class RouteResourceAdmissionEngineTest {
         contributionsByIntent[intent].orEmpty().map { contributorOwner to it }
 
     private fun observation(epoch: Long, vararg trains: TrainFrameSnapshot) = RailwayObservation.fromCore(
-        "world", RailwayWorldFrameSnapshot.create(epoch, topology.revision, trains.toList())
+        "world",
+        RailwayWorldFrameSnapshot.create(
+            epoch,
+            topology.revision,
+            trains.toList(),
+            ActiveRailContinuationsSnapshot.empty(topology.revision)
+        )
     )
 
     private fun train(

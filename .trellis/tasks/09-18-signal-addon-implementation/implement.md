@@ -68,6 +68,7 @@ Current extraction progress:
 ## Reactive signal state and customization
 
 - [x] Review the deferred reactive design: SimpleSignals owns a one-way provider-to-upstream-consumer invalidation chain; no fixed-point solver or host-owned dependency graph. Record the future Core active-continuation snapshot prerequisite without implementing it in this batch.
+- [x] Publish Core's immutable active-turnout continuations in the coherent world frame and project them unchanged through Basic observation. Rebuild the turnout-port map only when topology or live selection revision changes; reject a candidate frame if the selection changes during epoch processing.
 - [ ] Implement only the dependency/invalidation mechanism approved in that review; update affected signals without a world-wide scan.
 - [ ] Prove unchanged resources remain idle and stale permissive outputs cannot survive invalidation.
 - [ ] Propagate changed downstream state only as far as needed; stop when an output is unchanged and reject dependency construction that would introduce reverse/downstream feedback.

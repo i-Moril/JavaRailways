@@ -1,0 +1,103 @@
+package work.art1st.javarailways.core.physics
+
+import org.joml.Vector3d
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotSame
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.RailView
+import work.art1st.javarailways.core.physics.train.createTestWorld
+import java.util.UUID
+
+class CoreWorldActiveContinuationsPublicationTest {
+    @Test
+    fun `world frame reuses unchanged continuations and publishes a later branch selection`() = withWorld { world ->
+        val (stem, first, second) = turnout(world)
+        val stemEntry = RailEndpointRef(stem.id, RailEndpoint.B)
+        val firstExit = RailEndpointRef(first.id, RailEndpoint.A)
+        val secondExit = RailEndpointRef(second.id, RailEndpoint.A)
+
+        stem.viewAB.activeRail = first.viewAB
+        val firstFrame = publish(world, 1L)
+        val unchangedFrame = publish(world, 2L)
+
+        assertEquals(firstExit, firstFrame.activeContinuations.selectedContinuation(stemEntry))
+        assertSame(firstFrame.activeContinuations, unchangedFrame.activeContinuations)
+
+        stem.viewAB.activeRail = second.viewAB
+        val changedFrame = publish(world, 3L)
+
+        assertEquals(secondExit, changedFrame.activeContinuations.selectedContinuation(stemEntry))
+        assertTrue(
+            changedFrame.activeContinuations.selectionRevision >
+                firstFrame.activeContinuations.selectionRevision
+        )
+        assertNotSame(firstFrame.activeContinuations, changedFrame.activeContinuations)
+        assertEquals(firstExit, firstFrame.activeContinuations.selectedContinuation(stemEntry))
+        assertEquals(firstFrame.topologyRevision, changedFrame.topologyRevision)
+
+        stem.viewAB.activeRail = null
+        val unselectedFrame = publish(world, 4L)
+        assertNull(unselectedFrame.activeContinuations.selectedContinuation(stemEntry))
+    }
+
+    @Test
+    fun `branch change during epoch processing rejects the captured frame`() = withWorld { world ->
+        val (stem, first, second) = turnout(world)
+        stem.viewAB.activeRail = first.viewAB
+        world.rebuildSweptOccupancyIndex(1L)
+        val candidate = world.captureWorldFrame(1L)
+
+        stem.viewAB.activeRail = second.viewAB
+
+        val failure = assertThrows(IllegalStateException::class.java) {
+            world.publishCapturedWorldFrame(candidate)
+        }
+        assertTrue(failure.message.orEmpty().contains("active rail continuation changed"))
+        assertNotSame(candidate, world.latestWorldFrame())
+    }
+
+    private fun turnout(world: CoreWorld): Triple<CoreRail, CoreRail, CoreRail> {
+        lateinit var stem: CoreRail
+        lateinit var first: CoreRail
+        lateinit var second: CoreRail
+        world.railTopologyTransaction {
+            stem = world.createRailInTransaction(UUID.randomUUID(), straightCurve(0.0, 10.0))
+            first = world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 20.0))
+            second = world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 30.0))
+            RailView.connect(stem.viewAB, first.viewBA)
+            RailView.connect(stem.viewAB, second.viewBA)
+        }
+        return Triple(stem, first, second)
+    }
+
+    private fun publish(world: CoreWorld, epoch: Long) =
+        world.rebuildSweptOccupancyIndex(epoch).let { world.publishWorldFrame(epoch) }
+
+    private fun straightCurve(fromX: Double, toX: Double): PrimeCurve {
+        val normal = Vector3d(0.0, 1.0, 0.0)
+        val tangent = Vector3d(1.0, 0.0, 0.0)
+        return PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(fromX, 0.0, 0.0), Vector3d(tangent), Vector3d(normal), 0.0),
+            Curve.RawPoint(Vector3d(toX, 0.0, 0.0), Vector3d(tangent), Vector3d(normal), toX - fromX)
+        ))
+    }
+
+    private fun withWorld(block: (CoreWorld) -> Unit) {
+        val world = createTestWorld()
+        try {
+            block(world)
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+}

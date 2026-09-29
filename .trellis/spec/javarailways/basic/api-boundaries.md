@@ -11,7 +11,7 @@
 - `Basic/build.gradle.kts` Dokka只保留`work.art1st.javarailways.basic.api.*`；`Module.md`定义`1.0-SNAPSHOT`实验面，无binary compatibility promise。
 - Basic以`compileOnly(project(":Core"))`、`compileOnly(ConfigLib/JOML)`编译；artifact不自动携带这些runtime。
 - 新Basic API优先stable ID、immutable/value snapshot、sealed result与最小interface；collection defensive copy。
-- `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；它们保留epoch-end保守`occupiedIntervals`、有序tail-to-head `bodyTraversal`、整epoch`sweptSpans`及同epoch有序head/tail movement traversal。这些事实不得互相替代，也不得包含render car或live Core对象。
+- `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；它们保留epoch-end保守`occupiedIntervals`、有序tail-to-head `bodyTraversal`、整epoch`sweptSpans`、同epoch有序head/tail movement traversal及Core frame的immutable active-turnout continuation snapshot。这些事实不得互相替代，也不得包含render car或live Core对象。Basic只原样投影live continuation，不解释信号依赖或重建一份选择map。
 - `RailwayOccupancyAreaDefinition`只描述插件拥有的监测区几何和有向边界；公开`RailwayAreaOccupancyEngine`由串行caller喂入连续observation并推导`ENTER`/`LEFT`，不把该area解释成固定闭塞、保护区域或授权资源。详见[监测区占用](./railway-area-occupancy.md)。
 - `InfrastructureResource`只表示运行资源；`InfrastructureDependencies`和`TopologyEditImpact`分别以rail ID、stable
   topology-node key、runtime resource ID三类集合表达非独占编辑依赖与编辑影响。它们的typed result/read-only snapshot属于

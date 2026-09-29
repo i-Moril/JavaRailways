@@ -145,9 +145,10 @@ variants through plugin-controlled APIs; they never mutate the Minecraft world o
 The reviewed propagation direction is a directed provider-to-consumer invalidation chain, not a fixed-point solver. Occupancy,
 the currently active turnout continuation and changed downstream section output may enqueue only registered upstream consumers;
 consumers never enqueue their providers. Each node runs at most once in one wave and an unchanged output ends propagation on
-that branch. Core remains the authority for live directed active continuations. A future general immutable same-physics-epoch
-snapshot exposes `entry endpoint -> selected exit endpoint?`; Basic only projects it and any consumer may read it. That Core/Basic
-observation addition is a prerequisite for turnout-aware dependency selection and is deliberately not implemented in the fixed-block batch.
+that branch. Core remains the authority for live directed active continuations. The immutable same-physics-epoch world frame now
+exposes `entry endpoint -> selected exit endpoint?`; Basic projects that snapshot unchanged and any consumer may read it. Core
+reuses the immutable value while topology/selection revisions remain unchanged and rejects publication if a selection changes
+during epoch processing. This completes the prerequisite for turnout-aware dependency selection without exposing mutable `RailView`.
 
 ### Rendering and customization
 

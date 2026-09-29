@@ -222,6 +222,14 @@ Core是live directed active continuation的物理权威。`RailwayWorldFrameSnap
 SimpleATO、WebUI、渲染或诊断等consumer均可读取。Core仅在topology或selection revision变化时重建turnout-port map，普通tick复用
 同一immutable snapshot；processor期间发生选择变化会使候选frame拒绝发布。后续依赖链必须使用该值，不能临时读取mutable `RailView`。
 
+插件内部的`OneWayInvalidationGraph`只保存预编译的provider-to-consumer邻接表和topological index。定义安装低频路径对完整
+node/edge集合做一次Kahn拓扑排序；未知端点、重复node/edge、自环或任意cycle拒绝整份candidate，因此运行时没有fixed-point、
+迭代上限或双向通知。一个update wave以已经发生状态变化的provider作为seed，只把其consumer加入按topological index排序的队列；
+每个node最多入队和执行一次，recompute返回output unchanged时该分支立即停止，返回changed时才继续加入其consumer。多个变化provider
+汇入同一consumer时，topological order保证所有本wave内可能变化的前驱先执行，而consumer仍只执行一次。设本wave实际到达`A`个
+node、`D`条edge，成本为`O((A + D) log A)`、临时空间为`O(A)`，与world中未受影响的信号数量无关。callback失败由既有同步signal
+epoch向外传播并fail-close，不为plugin-local output增加rollback协议。当前该机制尚未绑定具体aspect/限速规则。
+
 ## 依赖与打包不变量
 
 - 对 `Core`、`Basic`、`SimpleATO`、`BukkitPlugin` 和 Paper 使用 `compileOnly`；运行时由

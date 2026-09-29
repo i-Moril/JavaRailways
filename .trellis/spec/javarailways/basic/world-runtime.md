@@ -62,7 +62,7 @@ byRail[registered.location.rail.id]?.remove(registered)
 
 - singleton map存world mutable state；
 - 在`BasicWorldData`增加Dispatcher forwarding字段或Basic→SimpleATO accessor；
-- 为applied-plan dependency API与自动进路分别创建两个`InfrastructureCoordinationRegistry`；
+- 为infrastructure dependency API与自动进路分别创建两个`InfrastructureCoordinationRegistry`；
 - accessor fallback到`TestBasicWorldDataRegistry`；
 - `BasicPlugin.INSTANCE`持有world data；
 - 从Basic增加Destination/Station mirror store或SimpleATO forwarding字段；

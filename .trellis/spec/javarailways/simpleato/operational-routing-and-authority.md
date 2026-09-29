@@ -74,7 +74,7 @@ inspection source共用同一个内部owner registry、world unload和`Infrastru
 再与运行方向restriction一次性combine；replacement若ID冲突或非法则不发布候选全集。source异常、返回错误topology
 revision或合并失败映射为`INVALID_RESTRICTIONS`，不会启动Dijkstra。正常unregister直接清除这些低频规划callback；
 强制disable也立即清除它们，但仅有规划source注册不会stall world，因为已选择路线已经冻结了其结果，真正active
-restriction、inspection binding、claim和applied-plan dependency仍按各自既有规则fail closed。
+restriction、inspection binding、claim和infrastructure dependency仍按各自既有规则fail closed。
 
 生产Dispatcher已经拥有由mission resolver选定的head-forward路线，不能在准入时再跑一次最短路。Core观察
 因此额外发布epoch末实际`bodyTraversal`，即从保守车尾到车头的有序物理路径。内部
@@ -92,6 +92,13 @@ client和controller继续使用旧route binding，Basic `READY`后才一起切�
 同一次Dispatcher处理使用一个`FrozenRouteSelectionContext`为该不可变observation建立train ID索引；普通
 选择器和mission一致性接缝都从该索引解析列车，不能各自再次线性扫描train列表。context不跨observation
 保存，也不缓存topology或route结果。
+
+Dispatcher在安装inspection binding或向Basic提交准入前，把完整exact frozen route编译为同一通用registry中的
+非独占infrastructure dependency，覆盖路线轨道、相关拓扑节点及Basic物理资源。它只阻止相交编辑，不是claim，
+不妨碍列车取得资源。相同路线幂等；正向append用同owner更高revision原子替换；折返rebase成功前先保护旧、新
+路线依赖的并集，失败或重试保留并集，成功后再收缩到新路线。顺序service只转移一个dependency owner；旧run不再
+拥有释放权。只有旧binding和Basic admission生命周期结束后才删除依赖，任何set/remove失败均保留较安全旧状态并stall。
+时刻表应用时的静态selected-route dependency仍使用另一owner及独立生命周期。
 
 ### 3.2 冻结路线与准入客户端
 
@@ -180,11 +187,17 @@ production route；host在Dispatcher选定exact `RouteSnapshot`后调用source b
 - namespaced稳定来源ID和资源/信号ID；
 - 当前冻结路线binding及该资源在路线中的occurrence-specific绝对触发米数；
 - 有限、非负的提前检查距离，单位为米；
+- 可选的最小请求终点：nominal authority严格越过本声明触发点后，请求边界至少到达该route-metre；
 - 插件定义revision和列车低频能力revision。
 
 同一rail在环线或折返路线中可以重复出现，因此不能只用rail UUID定位声明。编译器先用路线累计距离二分定位声明的唯一
 segment occurrence，并以声明携带的rail UUID和AB/BA方向做一次交叉验证；随后只需按occurrence-specific绝对触发米数排序声明，
 并保存声明距离的最大值。空声明集的最大值为0。插件原子替换完整binding，SimpleATO不逐项拼接来自不同route/profile revision的声明。
+
+最小请求终点只改变提交给Basic的请求形状，不直接扩大grant。Dispatcher先按既有滚动策略计算nominal boundary，
+再读取binding时已编译、按触发米数排序的route-local floor。查找先二分定位已严格越过的触发点，用prefix maximum取得
+初始最远终点，再向前单调扫过因抬高边界而新越过的重叠窗口；相邻窗口入口恰好等于当前终点时不连锁。因此请求一次
+成本为`O(log D + k)`，`D`为声明数、`k`为本次实际跨过的后续要求数；没有第二次路线扫描或每tick插件回调。
 
 职责固定为：
 

@@ -18,13 +18,17 @@ import java.util.UUID
  * @property facing direction in which the train reaches the trigger
  * @property triggerRouteDistanceMeters absolute trigger position from the frozen-route start
  * @property inspectionDistanceMeters non-negative plugin-declared lead distance in metres
+ * @property minimumRequestedAuthorityEndRouteDistanceMeters optional route-local request floor;
+ * once a nominal request crosses this declaration's trigger, SimpleATO asks Basic for at least
+ * this boundary. Basic remains authoritative and may deny the larger request.
  */
 data class InspectionDeclaration(
     val declarationId: String,
     val railId: UUID,
     val facing: ViewDirection,
     val triggerRouteDistanceMeters: Double,
-    val inspectionDistanceMeters: Double
+    val inspectionDistanceMeters: Double,
+    val minimumRequestedAuthorityEndRouteDistanceMeters: Double? = null
 ) {
     init {
         require(NAMESPACED_SIMPLE_ATO_ID.matches(declarationId)) {
@@ -35,6 +39,11 @@ data class InspectionDeclaration(
         }
         require(inspectionDistanceMeters.isFinite() && inspectionDistanceMeters >= 0.0) {
             "inspectionDistanceMeters must be finite and non-negative"
+        }
+        minimumRequestedAuthorityEndRouteDistanceMeters?.let { requestEnd ->
+            require(requestEnd.isFinite() && requestEnd >= triggerRouteDistanceMeters) {
+                "minimum requested authority end must be finite and not precede the trigger"
+            }
         }
     }
 }
@@ -89,6 +98,11 @@ data class InspectionDeclarationBinding private constructor(
         declarations.forEach { declaration ->
             require(declaration.triggerRouteDistanceMeters <= route.totalLengthMeters) {
                 "declaration ${declaration.declarationId} exceeds the frozen route"
+            }
+            declaration.minimumRequestedAuthorityEndRouteDistanceMeters?.let { requestEnd ->
+                require(requestEnd <= route.totalLengthMeters) {
+                    "declaration ${declaration.declarationId} authority request floor exceeds the frozen route"
+                }
             }
         }
     }

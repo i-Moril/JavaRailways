@@ -18,7 +18,8 @@ class SimpleSignalsPlugin : JavaPlugin() {
             services.infrastructure(),
             services.routePlanningSources(),
             SimpleSignalsWorldDefinitionStore(dataFolder),
-            services.signalEpochSources()
+            services.signalEpochSources(),
+            services.inspectionSources()
         )
         val fixedBlocks = FixedBlockRouteResourcePolicy(this, runtimes::fixedBlockSnapshot)
         val providerRegistration = services.infrastructure().registerResourceProvider(

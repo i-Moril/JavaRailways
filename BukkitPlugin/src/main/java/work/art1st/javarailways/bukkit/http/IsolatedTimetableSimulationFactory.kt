@@ -144,12 +144,12 @@ internal class IsolatedTimetableSimulationFactory(
             },
             timetableExtensions = snapshot.timetableExtensions,
             dispatcherFactory = {
-                    _, routeAdmissionContextProvider, signalRestrictions, inspectionRuntime, appliedPlanService ->
+                    _, routeAdmissionContextProvider, signalRestrictions, inspectionRuntime, infrastructureDependencyService ->
                 TimetableDispatcher(
                     routeAdmissionContextProvider = routeAdmissionContextProvider,
                     signalRestrictionSnapshots = signalRestrictions,
                     inspectionRuntime = inspectionRuntime,
-                    appliedPlanService = appliedPlanService,
+                    infrastructureDependencyService = infrastructureDependencyService,
                     operationGateway = operationGateway,
                     atoFactory = TimetableAtoFactory { train, owningWorld ->
                         val profile = requireNotNull(profilesByTrainId[train.id]) {

@@ -20,7 +20,7 @@ import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
-import work.art1st.javarailways.simpleato.timetable.TimetableAppliedPlanService
+import work.art1st.javarailways.simpleato.timetable.InfrastructureDependencyService
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContext
 import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContextProvider
@@ -126,16 +126,16 @@ object RailWorldFactory {
         // Dispatcher owns rich train/route failure reporting for synchronous update failures.
         // Bukkit service-time source changes use DefaultSignalEpochSourceService.stallWorld.
         val inspectionRuntime = InspectionRuntime(signalRestrictions) { _, _, _ -> }
-        val appliedPlanService = object : TimetableAppliedPlanService {
-            override fun set(request: work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest) =
-                plugin.infrastructureResourceService.setAppliedPlanDependencies(
+        val infrastructureDependencyService = object : InfrastructureDependencyService {
+            override fun set(request: work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest) =
+                plugin.infrastructureResourceService.setInfrastructureDependencies(
                     plugin,
                     bukkitWorld.uid,
                     request
                 )
 
             override fun remove(owner: work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner) =
-                plugin.infrastructureResourceService.removeAppliedPlanDependencies(
+                plugin.infrastructureResourceService.removeInfrastructureDependencies(
                     plugin,
                     bukkitWorld.uid,
                     owner
@@ -145,7 +145,7 @@ object RailWorldFactory {
             routeAdmissionContextProvider = routeAdmissionProvider,
             signalRestrictionSnapshots = signalRestrictions,
             inspectionRuntime = inspectionRuntime,
-            appliedPlanService = appliedPlanService,
+            infrastructureDependencyService = infrastructureDependencyService,
             operationGateway = BukkitTrainOperationGateway(
                 coreWorld,
                 operationDispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)

@@ -1,10 +1,10 @@
 package work.art1st.javarailways.bukkit.api.internal
 
 import org.bukkit.plugin.Plugin
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencySnapshot
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencySnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureClaimSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationResult
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
@@ -263,18 +263,18 @@ internal class DefaultInfrastructureResourceService(
         val activity = snapshot.flatMap { (worldId, runtime) ->
             runtime.routeAdmission?.providerActivity(setOf(typeId)).orEmpty().map { worldId to it }
         }
-        val appliedDependencies = snapshot.flatMap { (worldId, runtime) ->
-            runtime.registry.appliedPlanDependenciesUsingResourceTypes(setOf(typeId)).map { worldId to it }
+        val infrastructureDependencies = snapshot.flatMap { (worldId, runtime) ->
+            runtime.registry.dependenciesUsingResourceTypes(setOf(typeId)).map { worldId to it }
         }
-        check(activity.isEmpty() && appliedDependencies.isEmpty()) {
+        check(activity.isEmpty() && infrastructureDependencies.isEmpty()) {
             val routeDetails = activity.joinToString { (worldId, active) ->
                 "world=$worldId route=${active.owner.ownerId} train=${active.trainId}"
             }
-            val planDetails = appliedDependencies.joinToString { (worldId, dependency) ->
-                "world=$worldId plan=${dependency.owner.ownerId}@${dependency.owner.revision}"
+            val dependencyDetails = infrastructureDependencies.joinToString { (worldId, dependency) ->
+                "world=$worldId dependency=${dependency.owner.ownerId}@${dependency.owner.revision}"
             }
             "Cannot unregister infrastructure resource provider $typeId while it remains referenced: " +
-                listOf(routeDetails, planDetails).filter(String::isNotEmpty).joinToString()
+                listOf(routeDetails, dependencyDetails).filter(String::isNotEmpty).joinToString()
         }
         synchronized(lock) {
             resourceProviders[typeId]?.takeIf {
@@ -485,19 +485,19 @@ internal class DefaultInfrastructureResourceService(
         admission.consumeObservation(observation)
     }
 
-    override fun setAppliedPlanDependencies(
+    override fun setInfrastructureDependencies(
         pluginOwner: Plugin,
         worldId: UUID,
-        request: AppliedPlanDependencyRequest
+        request: InfrastructureDependencyRequest
     ) =
         BukkitThreadGuardBridge.runInSimulationContext {
-            registry(worldId)?.setAppliedPlanDependencies(requireEnabled(pluginOwner), request)
+            registry(worldId)?.setInfrastructureDependencies(requireEnabled(pluginOwner), request)
                 ?: unavailableDependencies(worldId)
         }
 
-    override fun removeAppliedPlanDependencies(pluginOwner: Plugin, worldId: UUID, owner: InfrastructureOwner) =
+    override fun removeInfrastructureDependencies(pluginOwner: Plugin, worldId: UUID, owner: InfrastructureOwner) =
         BukkitThreadGuardBridge.runInSimulationContext {
-            registry(worldId)?.removeAppliedPlanDependencies(pluginOwner, owner)
+            registry(worldId)?.removeInfrastructureDependencies(pluginOwner, owner)
                 ?: unavailableDependencies(worldId)
         }
 
@@ -536,8 +536,8 @@ internal class DefaultInfrastructureResourceService(
         return InfrastructureEditPermitResult.granted(acquired.decision, permit)
     }
 
-    override fun appliedPlanDependencies(worldId: UUID): List<AppliedPlanDependencySnapshot> =
-        registry(worldId)?.appliedPlanDependencySnapshots().orEmpty()
+    override fun infrastructureDependencies(worldId: UUID): List<InfrastructureDependencySnapshot> =
+        registry(worldId)?.dependencySnapshots().orEmpty()
 
     override fun liveClaims(worldId: UUID): List<InfrastructureClaimSnapshot> =
         registry(worldId)?.claimSnapshots().orEmpty()
@@ -561,11 +561,11 @@ internal class DefaultInfrastructureResourceService(
             val providerActivity = snapshot.flatMap { (worldId, runtime) ->
                 runtime.routeAdmission?.providerActivity(providedTypeIds).orEmpty().map { worldId to it }
             }
-            val appliedDependencies = snapshot.flatMap { (worldId, runtime) ->
-                runtime.registry.appliedPlanDependenciesOwnedBy(pluginOwner).map { worldId to it }
+            val infrastructureDependencies = snapshot.flatMap { (worldId, runtime) ->
+                runtime.registry.dependenciesOwnedBy(pluginOwner).map { worldId to it }
             }
             val dependencyProviderActivity = snapshot.flatMap { (worldId, runtime) ->
-                runtime.registry.appliedPlanDependenciesUsingResourceTypes(providedTypeIds).map { worldId to it }
+                runtime.registry.dependenciesUsingResourceTypes(providedTypeIds).map { worldId to it }
             }
             check(requesterActivity.isEmpty() && providerActivity.isEmpty() && dependencyProviderActivity.isEmpty()) {
                 "Cannot unregister infrastructure owner ${pluginOwner.name} while route resources remain active: " +
@@ -574,15 +574,15 @@ internal class DefaultInfrastructureResourceService(
                             "pending=${active.pendingRequest} heldResources=${active.heldResourceCount}" +
                             active.resourceTypeIds.takeIf(Set<String>::isNotEmpty)
                                 ?.joinToString(prefix = " types=", separator = ",").orEmpty()
-                    } + dependencyProviderActivity.joinToString(prefix = " appliedPlans=", separator = ",") {
+                    } + dependencyProviderActivity.joinToString(prefix = " dependencies=", separator = ",") {
                         (worldId, dependency) ->
                         "$worldId/${dependency.owner.ownerId}@${dependency.owner.revision}"
                     }
             }
-            check(appliedDependencies.isEmpty()) {
-                "Cannot unregister infrastructure owner ${pluginOwner.name} while applied plans remain active: " +
-                    appliedDependencies.joinToString { (worldId, dependency) ->
-                        "world=$worldId plan=${dependency.owner.ownerId} revision=${dependency.owner.revision}"
+            check(infrastructureDependencies.isEmpty()) {
+                "Cannot unregister infrastructure owner ${pluginOwner.name} while dependencies remain active: " +
+                    infrastructureDependencies.joinToString { (worldId, dependency) ->
+                        "world=$worldId dependency=${dependency.owner.ownerId} revision=${dependency.owner.revision}"
                     }
             }
             check(!ownsContributor || snapshot.none { (_, runtime) ->
@@ -623,13 +623,13 @@ internal class DefaultInfrastructureResourceService(
                 Triple(worlds.entries.map { it.key to it.value }, ownedTypes, ownsContributor)
             }
             snapshot.forEach { (worldId, runtime) ->
-                val appliedDependencies = (
-                    runtime.registry.appliedPlanDependenciesOwnedBy(pluginOwner) +
-                        runtime.registry.appliedPlanDependenciesUsingResourceTypes(providedTypeIds)
+                val infrastructureDependencies = (
+                    runtime.registry.dependenciesOwnedBy(pluginOwner) +
+                        runtime.registry.dependenciesUsingResourceTypes(providedTypeIds)
                     ).distinctBy { it.owner }
-                if (appliedDependencies.isNotEmpty()) {
+                if (infrastructureDependencies.isNotEmpty()) {
                     val reason = "Bukkit plugin ${pluginOwner.name} in world $worldId was disabled with active " +
-                        "applied plans: " + appliedDependencies.joinToString { dependency ->
+                        "infrastructure dependencies: " + infrastructureDependencies.joinToString { dependency ->
                             "${dependency.owner.ownerId}@${dependency.owner.revision}"
                         }
                     runtime.routeAdmission?.failClosedInfrastructureDependencyLoss(reason)
@@ -685,8 +685,8 @@ internal class DefaultInfrastructureResourceService(
         detail = "railway world is not registered: $worldId"
     )
 
-    private fun unavailableDependencies(worldId: UUID) = AppliedPlanDependencyMutationResult(
-        AppliedPlanDependencyMutationStatus.WORLD_UNAVAILABLE,
+    private fun unavailableDependencies(worldId: UUID) = InfrastructureDependencyMutationResult(
+        InfrastructureDependencyMutationStatus.WORLD_UNAVAILABLE,
         "railway world is not registered: $worldId"
     )
 

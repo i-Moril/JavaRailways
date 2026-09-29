@@ -9,9 +9,9 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
@@ -155,14 +155,14 @@ class DefaultInfrastructureResourceServiceTest {
         )
         registerWorld(service, worldId)
         assertEquals(
-            AppliedPlanDependencyMutationStatus.APPLIED,
-            service.setAppliedPlanDependencies(
+            InfrastructureDependencyMutationStatus.APPLIED,
+            service.setInfrastructureDependencies(
                 planPlugin,
                 worldId,
-                AppliedPlanDependencyRequest(
+                InfrastructureDependencyRequest(
                     7L,
                     planOwner,
-                    AppliedPlanDependencies(emptySet(), emptySet(), setOf(resource))
+                    InfrastructureDependencies(emptySet(), emptySet(), setOf(resource))
                 )
             ).status
         )
@@ -180,16 +180,16 @@ class DefaultInfrastructureResourceServiceTest {
         assertEquals(TopologyEditStatus.CONFLICT, denied.decision().status)
         assertTrue(denied.permit().isEmpty)
         val blocker = denied.decision().blockers.single()
-        assertEquals(TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY, blocker.kind)
+        assertEquals(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, blocker.kind)
         assertEquals(planOwner, blocker.owner)
         assertTrue(blocker.overlap.railIds.isEmpty())
         assertTrue(blocker.overlap.topologyNodeKeys.isEmpty())
         assertEquals(setOf(resource), blocker.overlap.resourceIds)
-        assertEquals(listOf(planOwner), service.appliedPlanDependencies(worldId).map { it.owner })
+        assertEquals(listOf(planOwner), service.infrastructureDependencies(worldId).map { it.owner })
 
         assertEquals(
-            AppliedPlanDependencyMutationStatus.REMOVED,
-            service.removeAppliedPlanDependencies(planPlugin, worldId, planOwner).status
+            InfrastructureDependencyMutationStatus.REMOVED,
+            service.removeInfrastructureDependencies(planPlugin, worldId, planOwner).status
         )
         val granted = service.acquireEditPermit(
             editorPlugin,
@@ -830,29 +830,29 @@ class DefaultInfrastructureResourceServiceTest {
         registerWorld(service, worldId)
 
         assertEquals(
-            AppliedPlanDependencyMutationStatus.APPLIED,
-            service.setAppliedPlanDependencies(
+            InfrastructureDependencyMutationStatus.APPLIED,
+            service.setInfrastructureDependencies(
                 plugin, worldId, dependencies("example.signal:plan/main", "example.signal:signal", "home")
             ).status
         )
         assertTrue(providerRanInSimulationContext)
         assertEquals(
-            AppliedPlanDependencyMutationStatus.INVALID_REFERENCE,
-            service.setAppliedPlanDependencies(
+            InfrastructureDependencyMutationStatus.INVALID_REFERENCE,
+            service.setInfrastructureDependencies(
                 plugin, worldId, dependencies("example.signal:plan/missing", "example.signal:signal", "missing")
             ).status
         )
         assertEquals(
-            AppliedPlanDependencyMutationStatus.INVALID_REFERENCE,
-            service.setAppliedPlanDependencies(
+            InfrastructureDependencyMutationStatus.INVALID_REFERENCE,
+            service.setInfrastructureDependencies(
                 plugin, worldId, dependencies("example.signal:plan/unknown", "other.plugin:signal", "home")
             ).status
         )
 
         assertThrows(IllegalStateException::class.java) { provider.close() }
         assertEquals(
-            AppliedPlanDependencyMutationStatus.REMOVED,
-            service.removeAppliedPlanDependencies(
+            InfrastructureDependencyMutationStatus.REMOVED,
+            service.removeInfrastructureDependencies(
                 plugin,
                 worldId,
                 InfrastructureOwner("example.signal:plan/main", 1L)
@@ -861,8 +861,8 @@ class DefaultInfrastructureResourceServiceTest {
         provider.close()
         provider.close()
         assertEquals(
-            AppliedPlanDependencyMutationStatus.INVALID_REFERENCE,
-            service.setAppliedPlanDependencies(
+            InfrastructureDependencyMutationStatus.INVALID_REFERENCE,
+            service.setInfrastructureDependencies(
                 plugin, worldId, dependencies("example.signal:plan/after-close", "example.signal:signal", "home")
             ).status
         )
@@ -878,7 +878,7 @@ class DefaultInfrastructureResourceServiceTest {
             first, "example.signal:signal", rejectingRouteProvider { _, id -> id == "home" }, emptyList()
         )
         registerWorld(service, worldId)
-        service.setAppliedPlanDependencies(
+        service.setInfrastructureDependencies(
             first, worldId, dependencies("example.signal:plan/main", "example.signal:signal", "home")
         )
         val edit = service.acquireEditPermit(
@@ -907,22 +907,22 @@ class DefaultInfrastructureResourceServiceTest {
         assertTrue(heldEdit.decision().successful)
 
         service.unregisterOwner(second)
-        assertEquals(1, service.appliedPlanDependencies(worldId).size)
+        assertEquals(1, service.infrastructureDependencies(worldId).size)
         assertThrows(IllegalStateException::class.java) { service.unregisterOwner(first) }
-        assertEquals(1, service.appliedPlanDependencies(worldId).size)
+        assertEquals(1, service.infrastructureDependencies(worldId).size)
         assertEquals(
-            AppliedPlanDependencyMutationStatus.REMOVED,
-            service.removeAppliedPlanDependencies(
+            InfrastructureDependencyMutationStatus.REMOVED,
+            service.removeInfrastructureDependencies(
                 first,
                 worldId,
                 InfrastructureOwner("example.signal:plan/main", 1L)
             ).status
         )
         service.unregisterOwner(first)
-        assertTrue(service.appliedPlanDependencies(worldId).isEmpty())
+        assertTrue(service.infrastructureDependencies(worldId).isEmpty())
         assertEquals(
-            AppliedPlanDependencyMutationStatus.INVALID_REFERENCE,
-            service.setAppliedPlanDependencies(
+            InfrastructureDependencyMutationStatus.INVALID_REFERENCE,
+            service.setInfrastructureDependencies(
                 second, worldId, dependencies("example.signal:plan/new", "example.signal:signal", "home")
             ).status
         )
@@ -954,8 +954,8 @@ class DefaultInfrastructureResourceServiceTest {
             worldId, TestWorld(topology), { observation }, {}, 5.0
         ) { reason, _ -> stalls += reason }
         assertEquals(
-            AppliedPlanDependencyMutationStatus.APPLIED,
-            service.setAppliedPlanDependencies(
+            InfrastructureDependencyMutationStatus.APPLIED,
+            service.setInfrastructureDependencies(
                 plugin,
                 worldId,
                 dependencies("example.signal:plan/main", "example.signal:signal", "home")
@@ -965,7 +965,7 @@ class DefaultInfrastructureResourceServiceTest {
         pluginEnabled = false
         service.forcedDisableOwner(plugin)
 
-        assertEquals(1, service.appliedPlanDependencies(worldId).size)
+        assertEquals(1, service.infrastructureDependencies(worldId).size)
         assertEquals(1, stalls.size)
         assertTrue(stalls.single().contains("example.signal:plan/main@1"))
         val rejected = assertInstanceOf(
@@ -1013,8 +1013,8 @@ class DefaultInfrastructureResourceServiceTest {
         permit.close()
         permit.close()
         assertEquals(
-            AppliedPlanDependencyMutationStatus.WORLD_UNAVAILABLE,
-            service.setAppliedPlanDependencies(
+            InfrastructureDependencyMutationStatus.WORLD_UNAVAILABLE,
+            service.setInfrastructureDependencies(
                 plugin, worldId, dependencies("example.signal:plan/main", "example.signal:signal", "home")
             ).status
         )
@@ -1044,12 +1044,12 @@ class DefaultInfrastructureResourceServiceTest {
         currentTopology = buildTestTopology(8L, emptyList(), emptyMap())
         assertSame(currentTopology, service.currentTopology(worldId))
         assertEquals(
-            AppliedPlanDependencyMutationStatus.STALE_TOPOLOGY,
-            service.setAppliedPlanDependencies(
+            InfrastructureDependencyMutationStatus.STALE_TOPOLOGY,
+            service.setInfrastructureDependencies(
                 plugin, worldId, dependencies("example.signal:plan/main", "example.signal:signal", "home")
             ).status
         )
-        assertTrue(service.appliedPlanDependencies(worldId).isEmpty())
+        assertTrue(service.infrastructureDependencies(worldId).isEmpty())
     }
 
     @Test
@@ -1063,15 +1063,15 @@ class DefaultInfrastructureResourceServiceTest {
         )
         registerWorld(service, worldId)
 
-        val result = service.setAppliedPlanDependencies(
+        val result = service.setInfrastructureDependencies(
             plugin,
             worldId,
             dependencies("example.signal:plan/main", "example.signal:signal", "home")
         )
 
-        assertEquals(AppliedPlanDependencyMutationStatus.INVALID_REFERENCE, result.status)
+        assertEquals(InfrastructureDependencyMutationStatus.INVALID_REFERENCE, result.status)
         assertTrue(result.detail.contains("provider offline"))
-        assertTrue(service.appliedPlanDependencies(worldId).isEmpty())
+        assertTrue(service.infrastructureDependencies(worldId).isEmpty())
     }
 
     private fun registerWorld(service: DefaultInfrastructureResourceService, worldId: UUID) {
@@ -1104,10 +1104,10 @@ class DefaultInfrastructureResourceServiceTest {
         }
     }
 
-    private fun dependencies(ownerId: String, typeId: String, resourceId: String) = AppliedPlanDependencyRequest(
+    private fun dependencies(ownerId: String, typeId: String, resourceId: String) = InfrastructureDependencyRequest(
         7L,
         InfrastructureOwner(ownerId, 1L),
-        AppliedPlanDependencies(emptySet(), emptySet(), setOf(StableInfrastructureResource(typeId, resourceId)))
+        InfrastructureDependencies(emptySet(), emptySet(), setOf(StableInfrastructureResource(typeId, resourceId)))
     )
 
     private fun editImpact(typeId: String, resourceId: String) =

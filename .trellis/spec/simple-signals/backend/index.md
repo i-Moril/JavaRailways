@@ -7,9 +7,9 @@
 JavaRailways 主 JAR 的组成部分，也不能复制、shadow 或直接导入宿主实现包。
 
 当前已建立部署边界、严格current-model世界定义sidecar、保护区域领域核心、固定保护进路表和固定闭塞定义的低频编译器，
-以及把存档编译结果原子发布到实际world runtime。固定闭塞还把已编译Basic监测区接入host physics epoch，并发布
-plugin-local immutable section occupancy snapshot；尚未建立资源申请、route-local exact match、inspection、信号规则、渲染、
-命令或 JS/YAML接口，不得把 foundation 描述为可用信号系统。
+以及把存档编译结果原子发布到实际world runtime。固定闭塞还把已编译Basic监测区接入host physics epoch，发布
+plugin-local immutable section occupancy snapshot，并以同一exact frozen-route matcher建立资源贡献与inspection authority floor；
+尚未建立信号规则、灯色/限速输出、渲染、命令或 JS/YAML接口，不得把 foundation 描述为可用信号系统。
 
 ## 工作方式
 
@@ -166,8 +166,12 @@ world→runtime map，使准入热路径不等待authoring持有的manager lock�
 
 设冻结route occurrence数为`R`、命中的唯一block数为`K`、候选block traversal与同rail route occurrence形成的实际比较数为`I`。
 projection与rail分组为`O(R)`，候选去重/稳定排序为`O(R + K log K)`，交集和window合并为`O(I log I)`；没有block时为`O(1)`返回empty。
-这些成本只在授权申请/延长发生，不进入每tick occupancy source。当前流程只保证block token与释放边界；由inspection/route-decision层
-把ATO请求边界扩大到完整block，以及从confirmed grant产生限速/灯色，仍是后续批次。
+这些成本只在授权申请/延长发生，不进入每tick occupancy source。world runtime另注册一个稳定fixed-block inspection source：
+binding provider复用同一publication reverse index和exact frozen-route matcher，把每个完整block window编译成
+`trigger=entry, minimumRequestedAuthorityEnd=exit`。SimpleATO只看到中立route-local floor；nominal请求未越过entry或已经
+到达exit时不变，进入block后才向前抬到exit，重叠window按有序单向扫描连锁。随后上述contributor收到完整authority prefix并
+继续做独立完整性验证，Basic仍可拒绝且只有Basic grant能扩大实际authority。定义patch的旧、新affected-rail permit会被active
+frozen-route dependency阻止，因此retained inspection binding不会在运行中失效；不相交、非运营轨道仍可在线编辑。
 
 ## 定义编辑事务
 
@@ -228,7 +232,7 @@ mutable `RailView`替代它。
 - 插件只有 `SimpleSignalsPlugin` 一个 `JavaPlugin` lifecycle owner。
 - 普通 `jar` 就是部署 artifact；不使用 shadowJar，也不把宿主 classes 打入该 JAR。
 - 当前 `onDisable` 只丢弃plugin-local runtime map；Bukkit已经强制禁用时由host现有`PluginDisableEvent`路径删除失效
-  planning callback。尚未实现planned-disable UI/state machine；未来正常停用仍必须先移除applied-plan dependency并调用
+  planning callback。尚未实现planned-disable UI/state machine；未来正常停用仍必须先移除infrastructure dependency并调用
   宿主唯一owner-unregister gate，不能新增第二套卸载协议。
 
 ## 开发前检查

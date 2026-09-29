@@ -20,7 +20,7 @@ fun startService(world: World, timetableId: String, serviceId: String): Timetabl
 来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt`。
 
 `beginTimetable`先validation和blocking-run check，然后把validation已经得到的全部物理route交给Basic编译，并通过
-world-local `TimetableAppliedPlanService`原子安装完整rail/node/resource dependency；只有安装成功后才执行atomic initial
+world-local `InfrastructureDependencyService`原子安装完整rail/node/resource dependency；只有安装成功后才执行atomic initial
 positions并发布shared epoch。dependency失败不发布clock；initial-position失败则删除新声明，replacement场景以更高的
 runtime owner revision恢复旧声明。这个步骤不再次寻路。`scheduleInitialCycle`只能紧随begin，manual activation不自动启动。
 scheduled/conditional cycles按period recurrence；`WAIT_UNTIL_TRUE`只保留该cycle，不阻塞其他service/clock；`SKIP_CYCLE`跳过。

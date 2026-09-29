@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.UnavailableRouteAdmissionTestContext
-import work.art1st.javarailways.simpleato.timetable.RecordingTimetableAppliedPlanService
+import work.art1st.javarailways.simpleato.timetable.RecordingInfrastructureDependencyService
 import work.art1st.javarailways.simpleato.timetable.TimetableCheckpointRestoreResult
 import work.art1st.javarailways.simpleato.restriction.emptyInspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.emptyTrainRestrictionSnapshots
@@ -219,7 +219,7 @@ class DispatcherSnapshotTest {
             UnavailableRouteAdmissionTestContext,
             emptyTrainRestrictionSnapshots,
             emptyInspectionRuntime(),
-            RecordingTimetableAppliedPlanService()
+            RecordingInfrastructureDependencyService()
         )
 
         assertEquals(
@@ -243,7 +243,7 @@ class DispatcherSnapshotTest {
     fun `restore publishes no clocks when an applied timetable cannot be reinstalled`() {
         val world = createTestWorld()
         TestSimpleATOWorldDataRegistry.register(world, BasicWorldData())
-        val plans = RecordingTimetableAppliedPlanService()
+        val plans = RecordingInfrastructureDependencyService()
         val dispatcher = TimetableDispatcher(
             UnavailableRouteAdmissionTestContext,
             emptyTrainRestrictionSnapshots,

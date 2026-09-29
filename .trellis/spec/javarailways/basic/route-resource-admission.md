@@ -349,7 +349,10 @@ preparation只在claim之后开始，并遵循第6节的retained-claim failure�
   exact successful observation publication; provider handlers may return `Pending` but may not block that owner thread.
 - Registration belongs to one authenticated platform-plugin owner. A successful planned unregister proves that requester
   has no pending route request and no resources remaining in its host-owned registry claim before removing its provider,
-  explicitly removed applied-plan dependencies and empty route state. Forced disable rejects new calls immediately, does not delete host-owned live claims,
+  explicitly removed infrastructure dependencies and empty route state. Infrastructure dependencies are one
+  non-exclusive edit-protection mechanism: timetable selected-route dependencies and active frozen-route
+  dependencies use distinct owners and lifecycles in the same registry. They never claim resources or block trains.
+  Forced disable rejects new calls immediately, does not delete host-owned live claims,
   release queues or copied contribution data, and stalls each world with requester-owned pending/held route resources. Provider
   disappearance during pending preparation is unprovable, so Basic retains the safest reservation and stalls the world.
 

@@ -30,7 +30,7 @@ Current extraction progress:
 - [x] Move the immutable-topology search implementation into Basic and add the neutral forbidden-span/path-replacement contract. Compile SimpleATO operating direction into the same restrictions; keep complete replacement paths atomic in the query graph.
 - [x] Add owner/world-scoped route-planning source registration through the existing Bukkit signal owner registry. Compile one stable source snapshot once per immutable-topology query, combine it deterministically with operating directions, and reuse the unified owner unregister/world lifecycle without a second token framework.
 - [x] Migrate Mission, Station, Line, Timetable and the Bukkit route diagnostic to one SimpleATO immutable-topology planning seam, preserve precomputed timetable routes and typed direction failures, then delete the live-`RailView` planner and compiler.
-- [ ] Integrate concrete signal sources with the existing SimpleATO inspection declarations, single shared perception scan and dynamic braking-distance comparison; do not build another inspection runtime.
+- [ ] Integrate concrete signal sources with the existing SimpleATO inspection declarations, single shared perception scan and dynamic braking-distance comparison; do not build another inspection runtime. Fixed blocks now compile their route-local authority floors through the existing inspection binding; dynamic signal restriction output remains.
 - [ ] Wire `SimpleSignals` through the existing namespaced most-restrictive restriction pipeline; plugin output cannot widen Basic grants or existing ATO/ATP limits.
 
 ## Deliverable 2: SimpleSignals foundation
@@ -54,7 +54,7 @@ Current extraction progress:
 - [x] Match fixed-block resources only on the frozen-route authority prefix: reuse one plugin-local directed-route projection,
   discover candidates through the rail reverse index, require a complete entry-to-exit traversal and fail closed on a partial block.
 - [ ] Match protection-region resources reached by shared frozen-route perception and validate entry/interior/exit traversal.
-- [ ] Implement the plugin route-decision layer that chooses a post-exit authority boundary for fixed- or moving-block territory without recursive Basic contributors.
+- [ ] Implement the plugin route-decision layer that chooses a post-exit authority boundary for fixed- or moving-block territory without recursive Basic contributors. The fixed-block entry-to-exit minimum is complete through a neutral inspection authority floor; protection-region/post-exit and moving-block policy remain.
 - [x] Submit fixed-block tokens only as additive resources through the host contributor; rely on Basic to derive every
   rail/turnout/diamond physical resource and its existing atomic claim/release lifecycle.
 - [ ] Add concrete flank/approach resources when the first interlocking rule requires them; do not invent generic placeholders.

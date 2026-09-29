@@ -12,6 +12,7 @@ import kotlin.math.max
 internal class CompiledInspectionBinding private constructor(
     val binding: InspectionDeclarationBinding,
     val maximumDeclaredInspectionDistanceMeters: Double,
+    val authorityRequestFloors: List<AuthorityRequestFloor>,
     private val declarationsByTriggerDistance: List<InspectionDeclaration>,
     private val declarationIds: Set<String>
 ) {
@@ -79,6 +80,18 @@ internal class CompiledInspectionBinding private constructor(
             return CompiledInspectionBinding(
                 binding,
                 binding.declarations.maxOfOrNull(InspectionDeclaration::inspectionDistanceMeters) ?: 0.0,
+                java.util.List.copyOf(binding.declarations.mapNotNull { declaration ->
+                    declaration.minimumRequestedAuthorityEndRouteDistanceMeters?.let { requestEnd ->
+                        AuthorityRequestFloor(
+                            declaration.triggerRouteDistanceMeters,
+                            requestEnd,
+                            declaration.declarationId
+                        )
+                    }
+                }.sortedWith(
+                    compareBy(AuthorityRequestFloor::triggerRouteDistanceMeters)
+                        .thenBy(AuthorityRequestFloor::declarationId)
+                )),
                 binding.declarations.sortedWith(
                     compareBy(InspectionDeclaration::triggerRouteDistanceMeters)
                         .thenBy(InspectionDeclaration::declarationId)

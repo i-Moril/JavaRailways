@@ -12,7 +12,7 @@ import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.UnavailableRouteAdmissionTestContext
-import work.art1st.javarailways.simpleato.timetable.acceptingTimetableAppliedPlanService
+import work.art1st.javarailways.simpleato.timetable.acceptingInfrastructureDependencyService
 
 /** Installs the Basic and SimpleATO world-local stores needed by SimpleATO tests. */
 internal object TestSimpleATOWorldDataRegistry {
@@ -57,7 +57,7 @@ internal object TestSimpleATOWorldDataRegistry {
             routeAdmissionContextProvider = UnavailableRouteAdmissionTestContext,
             signalRestrictionSnapshots = restrictions,
             inspectionRuntime = inspection,
-            appliedPlanService = acceptingTimetableAppliedPlanService()
+            infrastructureDependencyService = acceptingInfrastructureDependencyService()
         )
         val plugin = SimpleATOPlugin.instanceOrNull()
             ?: SimpleATOPlugin(101).also { SimpleATOPlugin.INSTANCE = it }

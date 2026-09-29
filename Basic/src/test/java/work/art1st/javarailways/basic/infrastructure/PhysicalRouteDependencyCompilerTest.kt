@@ -14,7 +14,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
 import java.util.UUID
 
-class PhysicalRouteAppliedPlanCompilerTest {
+class PhysicalRouteDependencyCompilerTest {
     @Test
     fun `plan without known routes needs no physical dependency`() {
         val topology = topologyState(
@@ -24,8 +24,8 @@ class PhysicalRouteAppliedPlanCompilerTest {
         )
 
         assertEquals(
-            PhysicalRouteAppliedPlanCompilation.NoDependencies,
-            PhysicalRouteAppliedPlanCompiler.compile(topology, emptyList())
+            PhysicalRouteDependencyCompilation.NoDependencies,
+            PhysicalRouteDependencyCompiler.compile(topology, emptyList())
         )
     }
 
@@ -60,8 +60,8 @@ class PhysicalRouteAppliedPlanCompilerTest {
         )
 
         val result = assertInstanceOf(
-            PhysicalRouteAppliedPlanCompilation.Compiled::class.java,
-            PhysicalRouteAppliedPlanCompiler.compile(topology, listOf(route))
+            PhysicalRouteDependencyCompilation.Compiled::class.java,
+            PhysicalRouteDependencyCompiler.compile(topology, listOf(route))
         )
         val turnout = topology.nodes.values.filterIsInstance<TopologyNode.Turnout>().single()
 
@@ -100,8 +100,8 @@ class PhysicalRouteAppliedPlanCompilerTest {
         )
 
         val result = assertInstanceOf(
-            PhysicalRouteAppliedPlanCompilation.Rejected::class.java,
-            PhysicalRouteAppliedPlanCompiler.compile(topology, listOf(illegal))
+            PhysicalRouteDependencyCompilation.Rejected::class.java,
+            PhysicalRouteDependencyCompiler.compile(topology, listOf(illegal))
         )
 
         assertTrue(result.detail.contains("illegal turnout continuation"))

@@ -9,7 +9,7 @@ import java.util.UUID
  * Stable identity of one structural topology node, independent of a runtime topology revision.
  *
  * A Core [work.art1st.javarailways.core.api.physics.rail.topology.TopologyNodeId] is revision-local
- * and must not be retained by an applied plan. The canonical set of persistent rail endpoints is
+ * and must not be retained by an infrastructure dependency. The canonical set of persistent rail endpoints is
  * stable until that physical node is itself edited.
  */
 class StableTopologyNodeKey(ports: Collection<RailEndpointRef>) {
@@ -27,8 +27,8 @@ class StableTopologyNodeKey(ports: Collection<RailEndpointRef>) {
     override fun toString(): String = "StableTopologyNodeKey(ports=$ports)"
 }
 
-/** Non-exclusive infrastructure references required by one applied operational plan. */
-class AppliedPlanDependencies(
+/** Non-exclusive infrastructure references required by one long-lived runtime or plan owner. */
+class InfrastructureDependencies(
     railIds: Collection<UUID>,
     topologyNodeKeys: Collection<StableTopologyNodeKey>,
     resourceIds: Collection<StableInfrastructureResource>
@@ -39,33 +39,33 @@ class AppliedPlanDependencies(
 
     init {
         require(this.railIds.isNotEmpty() || this.topologyNodeKeys.isNotEmpty() || this.resourceIds.isNotEmpty()) {
-            "applied plan dependencies must not be empty"
+            "infrastructure dependencies must not be empty"
         }
     }
 
-    override fun equals(other: Any?): Boolean = other is AppliedPlanDependencies &&
+    override fun equals(other: Any?): Boolean = other is InfrastructureDependencies &&
         railIds == other.railIds && topologyNodeKeys == other.topologyNodeKeys && resourceIds == other.resourceIds
 
     override fun hashCode(): Int = 31 * (31 * railIds.hashCode() + topologyNodeKeys.hashCode()) + resourceIds.hashCode()
 }
 
-/** Applies or replaces one plan's complete dependency declaration against the current topology. */
-data class AppliedPlanDependencyRequest(
+/** Applies or replaces one owner's complete dependency declaration against the current topology. */
+data class InfrastructureDependencyRequest(
     val topologyRevision: Long,
     val owner: InfrastructureOwner,
-    val dependencies: AppliedPlanDependencies
+    val dependencies: InfrastructureDependencies
 ) {
     init {
         require(topologyRevision >= 0L) { "topologyRevision must be non-negative" }
     }
 }
 
-data class AppliedPlanDependencySnapshot(
+data class InfrastructureDependencySnapshot(
     val owner: InfrastructureOwner,
-    val dependencies: AppliedPlanDependencies
+    val dependencies: InfrastructureDependencies
 )
 
-enum class AppliedPlanDependencyMutationStatus {
+enum class InfrastructureDependencyMutationStatus {
     APPLIED,
     REPLACED,
     REMOVED,
@@ -78,15 +78,15 @@ enum class AppliedPlanDependencyMutationStatus {
     SERVICE_CLOSED
 }
 
-data class AppliedPlanDependencyMutationResult(
-    val status: AppliedPlanDependencyMutationStatus,
+data class InfrastructureDependencyMutationResult(
+    val status: InfrastructureDependencyMutationStatus,
     val detail: String = ""
 ) {
     val successful: Boolean
-        get() = status == AppliedPlanDependencyMutationStatus.APPLIED ||
-            status == AppliedPlanDependencyMutationStatus.REPLACED ||
-            status == AppliedPlanDependencyMutationStatus.REMOVED ||
-            status == AppliedPlanDependencyMutationStatus.UNCHANGED
+        get() = status == InfrastructureDependencyMutationStatus.APPLIED ||
+            status == InfrastructureDependencyMutationStatus.REPLACED ||
+            status == InfrastructureDependencyMutationStatus.REMOVED ||
+            status == InfrastructureDependencyMutationStatus.UNCHANGED
 }
 
 private fun <T> immutableSet(values: Collection<T>): Set<T> =

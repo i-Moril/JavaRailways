@@ -15,8 +15,8 @@ import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContribut
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService;
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService;
 import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService;
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies;
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest;
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies;
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest;
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionResult;
@@ -79,8 +79,8 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
     private InfrastructureResourceProviderRegistration resourceProviderRegistration;
     private RouteResourceContributorRegistration routeContributorRegistration;
     private UUID worldId;
-    private InfrastructureOwner appliedPlanOwner;
-    private boolean appliedPlanDependenciesInstalled;
+    private InfrastructureOwner infrastructureDependencyOwner;
+    private boolean infrastructureDependenciesInstalled;
     private final AtomicLong inspectionRevision = new AtomicLong();
 
     @Override
@@ -207,26 +207,26 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                 // Apply and persist the exact resource edit while this permit remains open.
             }
 
-            appliedPlanOwner = new InfrastructureOwner("example.signaladdon:plan/main", 1L);
-            var request = new AppliedPlanDependencyRequest(
+            infrastructureDependencyOwner = new InfrastructureOwner("example.signaladdon:dependency/main", 1L);
+            var request = new InfrastructureDependencyRequest(
                 observation.getStamp().getTopologyRevision(),
-                appliedPlanOwner,
-                new AppliedPlanDependencies(List.of(), List.of(), List.of(
+                infrastructureDependencyOwner,
+                new InfrastructureDependencies(List.of(), List.of(), List.of(
                     signalResource
                 ))
             );
-            var result = services.infrastructure().setAppliedPlanDependencies(this, worldId, request);
-            appliedPlanDependenciesInstalled = result.getSuccessful();
-            getLogger().fine("Applied-plan dependency result: " + result.getStatus());
-            if (appliedPlanDependenciesInstalled) {
+            var result = services.infrastructure().setInfrastructureDependencies(this, worldId, request);
+            infrastructureDependenciesInstalled = result.getSuccessful();
+            getLogger().fine("Infrastructure dependency result: " + result.getStatus());
+            if (infrastructureDependenciesInstalled) {
                 var denied = services.infrastructure().acquireEditPermit(this, worldId, editRequest);
-                var reportsAppliedPlan = denied.decision().getBlockers().stream().anyMatch(blocker ->
-                    blocker.getKind() == TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY &&
+                var reportsDependency = denied.decision().getBlockers().stream().anyMatch(blocker ->
+                    blocker.getKind() == TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY &&
                         blocker.getOverlap().getResourceIds().contains(signalResource)
                 );
                 if (denied.decision().getStatus() != TopologyEditStatus.CONFLICT ||
-                    denied.permit().isPresent() || !reportsAppliedPlan) {
-                    throw new IllegalStateException("Applied-plan edit conflict did not return exact diagnostics");
+                    denied.permit().isPresent() || !reportsDependency) {
+                    throw new IllegalStateException("Infrastructure edit conflict did not return exact diagnostics");
                 }
             }
 
@@ -263,9 +263,14 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        if (appliedPlanDependenciesInstalled && services != null && worldId != null && appliedPlanOwner != null) {
-            services.infrastructure().removeAppliedPlanDependencies(this, worldId, appliedPlanOwner);
-            appliedPlanDependenciesInstalled = false;
+        if (infrastructureDependenciesInstalled && services != null && worldId != null &&
+            infrastructureDependencyOwner != null) {
+            services.infrastructure().removeInfrastructureDependencies(
+                this,
+                worldId,
+                infrastructureDependencyOwner
+            );
+            infrastructureDependenciesInstalled = false;
         }
         if (observationSubscription != null) {
             observationSubscription.close();
@@ -308,7 +313,8 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             segment.getRailId(),
             segment.getFacing(),
             80.0,
-            150.0
+            150.0,
+            null
         );
         return new InspectionDeclarationBinding(
             "example.signaladdon:main",

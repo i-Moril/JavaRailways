@@ -13,8 +13,8 @@
 - 新Basic API优先stable ID、immutable/value snapshot、sealed result与最小interface；collection defensive copy。
 - `RailwayObservation`、`RailwayTrainObservation`与`RailwayStateStamp`是公开value投影；它们保留epoch-end保守`occupiedIntervals`、有序tail-to-head `bodyTraversal`、整epoch`sweptSpans`及同epoch有序head/tail movement traversal。这些事实不得互相替代，也不得包含render car或live Core对象。
 - `RailwayOccupancyAreaDefinition`只描述插件拥有的监测区几何和有向边界；公开`RailwayAreaOccupancyEngine`由串行caller喂入连续observation并推导`ENTER`/`LEFT`，不把该area解释成固定闭塞、保护区域或授权资源。详见[监测区占用](./railway-area-occupancy.md)。
-- `InfrastructureResource`只表示运行资源；`AppliedPlanDependencies`和`TopologyEditImpact`分别以rail ID、stable
-  topology-node key、runtime resource ID三类集合表达计划依赖与编辑影响。它们的typed result/read-only snapshot属于
+- `InfrastructureResource`只表示运行资源；`InfrastructureDependencies`和`TopologyEditImpact`分别以rail ID、stable
+  topology-node key、runtime resource ID三类集合表达非独占编辑依赖与编辑影响。它们的typed result/read-only snapshot属于
   公开host contract；raw live-claim mutation只属于Basic路线准入实现，不进入add-on API。
 - 目标`work.art1st.javarailways.basic.api.route.RouteResourceIntent`复用现有`RouteSnapshot`，并只携带nonblank stable
   train ID、同一观察stamp及从冻结路线起点起算的米制authority boundary。ATO request不得携带具体resource identity、
@@ -70,7 +70,7 @@ Basic只知道semantic request/result；region scheduling与model action完成�
 | API变更 | Dokka+Core/Basic/Bukkit downstream review | 仅compile success |
 | extension identity | namespaced stable ID/version | JVM FQCN reflection |
 | 世界观察 | 同一`RailwayStateStamp`下的immutable train values | 分别读取live train与latest topology再拼装 |
-| 基础设施协调 | 运行claim使用immutable footprint；计划依赖/编辑影响使用独立三类引用 + typed atomic result | 把rail/node包装成resource、让计划依赖阻止列车claim，或向add-on暴露raw registry |
+| 基础设施协调 | 运行claim使用immutable footprint；编辑依赖/编辑影响使用独立三类引用 + typed atomic result | 把rail/node包装成resource、让编辑依赖阻止列车claim，或向add-on暴露raw registry |
 | 路线资源准入 | ATO只提交topology-bound frozen route + train/observation/boundary；宿主收集认证contribution，Basic推导不可删除的物理底线并原子claim union | ATO认识信号资源、add-on替换物理footprint/列车长度、Basic替其寻路或执行具体信号制式 |
 | 自定义资源准备 | exact identity + provider-owned runtime descriptor；world owner thread返回typed ticket | handler读取mutable train/world、扫描路线、追加资源或把descriptor当存档schema |
 | 手动道岔操作 | stable ports + topology revision；短期占用确切道岔资源，等待physics后检查锁闭区物理占用，再通过统一live selector切换 | 绕过运行claim/物理占用、创建ATO授权，或向调用方返回live turnout object |

@@ -15,14 +15,14 @@
 `SignalEpochSourceService`不提供第二个完整owner删除入口。它允许空epoch-source replacement只清空该插件在该world的
 区间占用callback；同owner的inspection、route-planning和infrastructure注册保持不变。如果三类signal source均为空，
 内部可丢弃空owner记录，但这不等于`InfrastructureResourceService.unregisterOwner`，也不能删除基础资源owner。
-该调用只是可检查的pre-disable步骤，不会也不能替Bukkit禁用插件；任一world仍有applied-plan dependency、pending
+该调用只是可检查的pre-disable步骤，不会也不能替Bukkit禁用插件；任一world仍有infrastructure dependency、pending
 route reservation、非空host-owned claim或该插件source发布的非空restriction流时抛出诊断，并且在删除任何一侧注册前
 完成全部只读检查。无关列车、仅已安装但restriction流均为空的source不阻止停用。`PluginDisableEvent`本身不可取消，
-事件路径因此只处理“已经被强制禁用”：保留applied-plan dependency，移除普通provider/platform ownership和失效
+事件路径因此只处理“已经被强制禁用”：保留infrastructure dependency，移除普通provider/platform ownership和失效
 signal callback，但不释放route-admission claim/reservation；只对该插件仍有实际基础资源使用或非空restriction的world
 通过既有Stall回调fail-close。
 检查同时覆盖插件作为requester持有的路线，以及它作为provider注册、但由其他requester持有的stable resource类型；
-provider ownership不另建长期索引，而是只在低频停用边界读取applied-plan dependencies、现有claim、release queue和pending compiled request。
+provider ownership不另建长期索引，而是只在低频停用边界读取infrastructure dependencies、现有claim、release queue和pending compiled request。
 单个`InfrastructureResourceProviderRegistration.close()`执行同一检查，不能绕过owner unregister删除仍被使用的type。
 route-resource contributor集合在任一world仍有route state时不可增删；强制失去contributor会通过既有Stall owner
 fail-close该world，不能让后续suffix申请少执行一套信号策略。
@@ -54,7 +54,7 @@ source增删/替换不能静默放宽既有授权：普通replacement经world co
 `InfrastructureResourceService.unregisterOwner`入口。它整体replace某owner的namespaced source bindings；world runtime
 在实际选路前捕获已排序全集并调用每项一次。规划callback不是live train restriction或claim：正常unregister与forced
 disable都直接清除callback，单独存在规划source不阻止停用也不stall world；已冻结路线继续由其route snapshot、Basic验证和
-资源claim约束。若应用中的时刻表依赖该插件定义，则由既有applied-plan dependency先阻止正常unregister，不能把规划source
+资源claim约束。若应用中的时刻表依赖该插件定义，则由既有infrastructure dependency先阻止正常unregister，不能把规划source
 注册本身冒充运行期锁。
 
 ## Simulation 与 physics

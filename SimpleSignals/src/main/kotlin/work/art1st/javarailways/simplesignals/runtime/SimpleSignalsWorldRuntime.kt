@@ -9,6 +9,7 @@ import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictionSource
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService
+import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
@@ -17,6 +18,7 @@ import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBind
 import work.art1st.javarailways.simplesignals.block.FixedBlockCatalog
 import work.art1st.javarailways.simplesignals.block.FixedBlockCatalogStatus
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
+import work.art1st.javarailways.simplesignals.block.FixedBlockInspectionSource
 import work.art1st.javarailways.simplesignals.block.FixedBlockReadSnapshot
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionCatalog
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionCatalogStatus
@@ -152,6 +154,8 @@ internal class SimpleSignalsWorldRuntime(
             captured.routeTables.restrictionSource.restrictions(topology)
         }
     )
+
+    val fixedBlockInspectionSource = FixedBlockInspectionSource(::fixedBlockSnapshot).source
 
     fun currentDefinitions(): SimpleSignalsWorldDefinitions = synchronized(lock) {
         checkNotNull(state.publication) { "SimpleSignals definitions have not been published for world $worldId" }
@@ -497,7 +501,8 @@ internal class SimpleSignalsWorldRuntimeManager(
     private val infrastructure: InfrastructureResourceService,
     private val routePlanningSources: RoutePlanningRestrictionSourceService,
     private val definitions: SimpleSignalsWorldDefinitionStore,
-    private val signalEpochSources: SignalEpochSourceService
+    private val signalEpochSources: SignalEpochSourceService,
+    private val inspectionSources: InspectionSourceService
 ) {
     private val lock = Any()
     private val runtimes = linkedMapOf<UUID, SimpleSignalsWorldRuntime>()
@@ -599,6 +604,18 @@ internal class SimpleSignalsWorldRuntimeManager(
             return@synchronized unavailable(
                 worldId,
                 "SimpleSignals route source could not be registered: ${describe(failure)}"
+            )
+        }
+        try {
+            inspectionSources.replaceInspectionSources(
+                plugin,
+                worldId,
+                listOf(runtime.fixedBlockInspectionSource)
+            )
+        } catch (failure: Exception) {
+            return@synchronized unavailable(
+                worldId,
+                "SimpleSignals fixed-block inspection source could not be registered: ${describe(failure)}"
             )
         }
         runtimes[worldId] = runtime
@@ -995,6 +1012,11 @@ internal class SimpleSignalsWorldRuntimeManager(
             )
         } catch (failure: Exception) {
             allDiagnostics += "Could not install fail-closed route source: ${describe(failure)}"
+        }
+        try {
+            inspectionSources.replaceInspectionSources(plugin, worldId, emptyList())
+        } catch (failure: Exception) {
+            allDiagnostics += "Could not clear fixed-block inspection source: ${describe(failure)}"
         }
         return SimpleSignalsWorldInstallResult(
             SimpleSignalsWorldInstallStatus.UNAVAILABLE,

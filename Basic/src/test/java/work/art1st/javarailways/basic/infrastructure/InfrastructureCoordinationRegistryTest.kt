@@ -5,9 +5,9 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureBlockerKind
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
@@ -40,19 +40,19 @@ class InfrastructureCoordinationRegistryTest {
     )
 
     @Test
-    fun `applied plan dependencies overlap without claiming runtime resources`() {
+    fun `non-exclusive dependencies overlap without claiming runtime resources`() {
         val firstPlatform = Any()
         val secondPlatform = Any()
         val first = owner("test:first", 1)
         val second = owner("test:second", 2)
 
         assertEquals(
-            AppliedPlanDependencyMutationStatus.APPLIED,
-            registry.setAppliedPlanDependencies(firstPlatform, dependencies(first)).status
+            InfrastructureDependencyMutationStatus.APPLIED,
+            registry.setInfrastructureDependencies(firstPlatform, dependencies(first)).status
         )
         assertEquals(
-            AppliedPlanDependencyMutationStatus.APPLIED,
-            registry.setAppliedPlanDependencies(secondPlatform, dependencies(second)).status
+            InfrastructureDependencyMutationStatus.APPLIED,
+            registry.setInfrastructureDependencies(secondPlatform, dependencies(second)).status
         )
         assertEquals(
             InfrastructureMutationStatus.ACQUIRED,
@@ -64,15 +64,42 @@ class InfrastructureCoordinationRegistryTest {
 
         val replacement = owner("test:first", 2)
         assertEquals(
-            AppliedPlanDependencyMutationStatus.REPLACED,
-            registry.setAppliedPlanDependencies(firstPlatform, dependencies(replacement)).status
+            InfrastructureDependencyMutationStatus.REPLACED,
+            registry.setInfrastructureDependencies(firstPlatform, dependencies(replacement)).status
         )
-        assertEquals(setOf(replacement, second), registry.appliedPlanDependencySnapshots().map { it.owner }.toSet())
+        assertEquals(setOf(replacement, second), registry.dependencySnapshots().map { it.owner }.toSet())
+    }
+
+    @Test
+    fun `route dependency blocks intersecting edits but leaves unrelated rails editable`() {
+        val unrelatedRail = UUID.randomUUID()
+        validRails += unrelatedRail
+        registry.setInfrastructureDependencies(Any(), dependencies(owner("test:active-route", 1)))
+
+        val blocked = registry.acquireEditPermit(
+            Any(),
+            TopologyEditRequest(
+                4L,
+                owner("test:blocked-editor", 1),
+                TopologyEditImpact(setOf(railId), emptySet(), emptySet())
+            )
+        ).decision
+        val allowed = registry.acquireEditPermit(
+            Any(),
+            TopologyEditRequest(
+                4L,
+                owner("test:unrelated-editor", 1),
+                TopologyEditImpact(setOf(unrelatedRail), emptySet(), emptySet())
+            )
+        ).decision
+
+        assertEquals(TopologyEditStatus.CONFLICT, blocked.status)
+        assertEquals(TopologyEditStatus.GRANTED, allowed.status)
     }
 
     @Test
     fun `edit diagnostics preserve independent rail node and resource intersections`() {
-        registry.setAppliedPlanDependencies(Any(), dependencies(owner("test:plan", 1)))
+        registry.setInfrastructureDependencies(Any(), dependencies(owner("test:plan", 1)))
         registry.acquireClaim(
             Any(),
             InfrastructureClaimRequest(4L, owner("test:route", 1), footprint(0.0, 10.0))
@@ -87,21 +114,21 @@ class InfrastructureCoordinationRegistryTest {
             denied.status
         )
         assertEquals(
-            setOf(TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM),
+            setOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM),
             denied.blockers.map { it.kind }.toSet()
         )
         assertEquals(
             setOf(railId),
-            denied.blockers.single { it.kind == TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY }.overlap.railIds
+            denied.blockers.single { it.kind == TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY }.overlap.railIds
         )
         assertEquals(
             setOf(nodeKey),
-            denied.blockers.single { it.kind == TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY }
+            denied.blockers.single { it.kind == TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY }
                 .overlap.topologyNodeKeys
         )
         assertEquals(
             setOf(runtimeResource),
-            denied.blockers.single { it.kind == TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY }.overlap.resourceIds
+            denied.blockers.single { it.kind == TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY }.overlap.resourceIds
         )
     }
 
@@ -115,8 +142,8 @@ class InfrastructureCoordinationRegistryTest {
         assertTrue(permit.decision.successful)
 
         assertEquals(
-            AppliedPlanDependencyMutationStatus.EDIT_IN_PROGRESS,
-            registry.setAppliedPlanDependencies(Any(), dependencies(owner("test:plan", 1))).status
+            InfrastructureDependencyMutationStatus.EDIT_IN_PROGRESS,
+            registry.setInfrastructureDependencies(Any(), dependencies(owner("test:plan", 1))).status
         )
         val blockedClaim = registry.acquireClaim(
             Any(),
@@ -131,18 +158,18 @@ class InfrastructureCoordinationRegistryTest {
     @Test
     fun `dependencies validate the three categories only when applied`() {
         assertEquals(
-            AppliedPlanDependencyMutationStatus.STALE_TOPOLOGY,
-            registry.setAppliedPlanDependencies(
+            InfrastructureDependencyMutationStatus.STALE_TOPOLOGY,
+            registry.setInfrastructureDependencies(
                 Any(),
                 dependencies(owner("test:stale", 1), topologyRevision = 3L)
             ).status
         )
         validNodes.clear()
         assertEquals(
-            AppliedPlanDependencyMutationStatus.INVALID_REFERENCE,
-            registry.setAppliedPlanDependencies(Any(), dependencies(owner("test:missing", 1))).status
+            InfrastructureDependencyMutationStatus.INVALID_REFERENCE,
+            registry.setInfrastructureDependencies(Any(), dependencies(owner("test:missing", 1))).status
         )
-        assertTrue(registry.appliedPlanDependencySnapshots().isEmpty())
+        assertTrue(registry.dependencySnapshots().isEmpty())
     }
 
     @Test
@@ -158,19 +185,19 @@ class InfrastructureCoordinationRegistryTest {
             topologyNodeExists = { true }
         )
 
-        val result = changingRegistry.setAppliedPlanDependencies(
+        val result = changingRegistry.setInfrastructureDependencies(
             Any(),
             dependencies(owner("test:plan", 1))
         )
 
-        assertEquals(AppliedPlanDependencyMutationStatus.STALE_TOPOLOGY, result.status)
-        assertTrue(changingRegistry.appliedPlanDependencySnapshots().isEmpty())
+        assertEquals(InfrastructureDependencyMutationStatus.STALE_TOPOLOGY, result.status)
+        assertTrue(changingRegistry.dependencySnapshots().isEmpty())
     }
 
     @Test
-    fun `owner cleanup keeps applied dependencies until explicit unapply`() {
+    fun `owner cleanup keeps dependencies until explicit removal`() {
         val platform = Any()
-        registry.setAppliedPlanDependencies(platform, dependencies(owner("test:plan", 1)))
+        registry.setInfrastructureDependencies(platform, dependencies(owner("test:plan", 1)))
         registry.acquireClaim(
             platform,
             InfrastructureClaimRequest(4L, owner("test:route", 1), footprint(20.0, 30.0))
@@ -181,7 +208,7 @@ class InfrastructureCoordinationRegistryTest {
         )
 
         registry.releasePlatformOwner(platform)
-        assertEquals(1, registry.appliedPlanDependencySnapshots().size)
+        assertEquals(1, registry.dependencySnapshots().size)
         assertTrue(registry.claimSnapshots().isEmpty())
         assertEquals(
             TopologyEditStatus.CONFLICT,
@@ -190,36 +217,36 @@ class InfrastructureCoordinationRegistryTest {
             ).decision.status
         )
         assertEquals(
-            AppliedPlanDependencyMutationStatus.REMOVED,
-            registry.removeAppliedPlanDependencies(platform, owner("test:plan", 1)).status
+            InfrastructureDependencyMutationStatus.REMOVED,
+            registry.removeInfrastructureDependencies(platform, owner("test:plan", 1)).status
         )
 
         registry.close()
         assertEquals(
-            AppliedPlanDependencyMutationStatus.SERVICE_CLOSED,
-            registry.setAppliedPlanDependencies(Any(), dependencies(owner("test:late", 1))).status
+            InfrastructureDependencyMutationStatus.SERVICE_CLOSED,
+            registry.setInfrastructureDependencies(Any(), dependencies(owner("test:late", 1))).status
         )
     }
 
     @Test
-    fun `applied dependencies survive unrelated topology revisions`() {
+    fun `dependencies survive unrelated topology revisions`() {
         val platform = Any()
         val plan = owner("test:plan", 1)
         assertEquals(
-            AppliedPlanDependencyMutationStatus.APPLIED,
-            registry.setAppliedPlanDependencies(platform, dependencies(plan)).status
+            InfrastructureDependencyMutationStatus.APPLIED,
+            registry.setInfrastructureDependencies(platform, dependencies(plan)).status
         )
 
         topologyRevision = 5L
 
-        assertEquals(listOf(plan), registry.appliedPlanDependencySnapshots().map { it.owner })
+        assertEquals(listOf(plan), registry.dependencySnapshots().map { it.owner })
         val edit = registry.acquireEditPermit(
             Any(),
             TopologyEditRequest(5L, owner("test:editor", 1), editImpact())
         ).decision
         assertEquals(TopologyEditStatus.CONFLICT, edit.status)
         assertEquals(
-            TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY,
+            TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY,
             edit.blockers.first().kind
         )
     }
@@ -812,10 +839,10 @@ class InfrastructureCoordinationRegistryTest {
     private fun interval(start: Double, end: Double) = RailIntervalResource(railId, start, end)
     private fun footprint(start: Double, end: Double) = InfrastructureFootprint(listOf(interval(start, end)))
     private fun dependencies(owner: InfrastructureOwner, topologyRevision: Long = 4L) =
-        AppliedPlanDependencyRequest(
+        InfrastructureDependencyRequest(
             topologyRevision,
             owner,
-            AppliedPlanDependencies(setOf(railId), setOf(nodeKey), setOf(runtimeResource))
+            InfrastructureDependencies(setOf(railId), setOf(nodeKey), setOf(runtimeResource))
         )
 
     private fun editImpact() = TopologyEditImpact(setOf(railId), setOf(nodeKey), setOf(runtimeResource))

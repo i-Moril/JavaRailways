@@ -1,9 +1,9 @@
 package work.art1st.javarailways.bukkit.api.infrastructure;
 
 import org.bukkit.plugin.Plugin;
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult;
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest;
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencySnapshot;
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult;
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest;
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencySnapshot;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureClaimSnapshot;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest;
@@ -17,16 +17,16 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * World-local coordination for applied-plan dependencies, exclusive live claims, and edits.
+ * World-local coordination for non-exclusive edit dependencies, exclusive live claims, and edits.
  *
  * <p>Every mutation is atomic and checks the request's topology revision against the authoritative
- * current world revision. Applied-plan dependencies may overlap each other and never reserve a
+ * current world revision. Infrastructure dependencies may overlap each other and never reserve a
  * runtime resource. Live claims are mutually exclusive. An edit permit conflicts with both and remains
  * held until closed. Mutation methods may be called from plugin lifecycle or simulation code and
  * are serialized with JavaRailways topology changes. The protected infrastructure mutation itself
  * must still execute on its platform-required owner while the returned edit permit remains open.</p>
  *
- * <p>An applied plan declares three independent dependency categories: persistent rail IDs,
+ * <p>A dependency owner declares three independent categories: persistent rail IDs,
  * stable topology-node keys, and runtime resource IDs. These references only prevent conflicting
  * infrastructure edits; trains do not inspect them and runtime claims do not conflict with them.</p>
  */
@@ -83,7 +83,7 @@ public interface InfrastructureResourceService {
      * namespaced. Pass an empty collection when this resource type has no delayed preparation.</p>
      *
      * <p>Closing the returned registration is guarded by the same active-reference check as
-     * {@link #unregisterOwner(Plugin)} and may be retried after routes release and applied plans
+     * {@link #unregisterOwner(Plugin)} and may be retried after routes release and dependencies
      * remove every reference to the type.</p>
      */
     InfrastructureResourceProviderRegistration registerResourceProvider(
@@ -104,18 +104,18 @@ public interface InfrastructureResourceService {
     );
 
     /**
-     * Atomically installs or replaces one applied plan's complete non-exclusive dependency set.
+     * Atomically installs or replaces one owner's complete non-exclusive dependency set.
      * A replacement must keep the owner ID and advance its owner revision. Dependencies only block
      * intersecting edits; they never conflict with route claims.
      */
-    AppliedPlanDependencyMutationResult setAppliedPlanDependencies(
+    InfrastructureDependencyMutationResult setInfrastructureDependencies(
         Plugin pluginOwner,
         UUID worldId,
-        AppliedPlanDependencyRequest request
+        InfrastructureDependencyRequest request
     );
 
-    /** Removes the exact applied-plan owner revision without changing any live route claim. */
-    AppliedPlanDependencyMutationResult removeAppliedPlanDependencies(
+    /** Removes the exact dependency owner revision without changing any live route claim. */
+    InfrastructureDependencyMutationResult removeInfrastructureDependencies(
         Plugin pluginOwner,
         UUID worldId,
         InfrastructureOwner owner
@@ -131,8 +131,8 @@ public interface InfrastructureResourceService {
         TopologyEditRequest request
     );
 
-    /** Returns detached diagnostics for the currently applied plan dependency declarations. */
-    List<AppliedPlanDependencySnapshot> appliedPlanDependencies(UUID worldId);
+    /** Returns detached diagnostics for current non-exclusive dependency declarations. */
+    List<InfrastructureDependencySnapshot> infrastructureDependencies(UUID worldId);
 
     /** Read-only diagnostics for claims created by the protected route-resource service. */
     List<InfrastructureClaimSnapshot> liveClaims(UUID worldId);
@@ -140,10 +140,10 @@ public interface InfrastructureResourceService {
     /**
      * Prepares this plugin instance for a planned disable by removing its infrastructure
      * registrations, edit permits, empty route-admission state, and installed signal-source sets.
-     * Every applied plan dependency must be explicitly removed first.
+     * Every infrastructure dependency must be explicitly removed first.
      *
      * <p>The operation refuses to unregister while any route request is pending, its host-owned
-     * claim still contains resources, an applied plan remains installed, or a stable resource type
+     * claim still contains resources, an infrastructure dependency remains installed, or a stable resource type
      * registered by this plugin is still used by another requester's route, or one of its signal
      * sources still contributes a non-empty retained train restriction. Unrelated trains and
      * installed sources whose retained streams are all empty do not block removal. All checks finish

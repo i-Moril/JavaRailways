@@ -36,8 +36,8 @@ import work.art1st.javarailways.simpleato.api.station.StationBerth
 import work.art1st.javarailways.simpleato.api.station.StationBerthRef
 import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.api.timetable.*
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
 import work.art1st.javarailways.simpleato.timetable.*
 import work.art1st.javarailways.basic.controller.ManualController
 import work.art1st.javarailways.simpleato.controller.SimpleATO
@@ -65,7 +65,7 @@ class TimetableDispatcherTest {
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         world.simpleAtoWorldData.timetables.add(Timetable("empty"))
-        val plans = RecordingTimetableAppliedPlanService()
+        val plans = RecordingInfrastructureDependencyService()
         val dispatcher = dispatcher(plans)
 
         assertTrue(dispatcher.beginTimetable(world, "empty") is TimetableEpochStartResult.Started)
@@ -87,7 +87,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("A", "A", rail.id, origin))
         data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 20.0))
         world.simpleAtoWorldData.timetables.add(timetable("tt-plan", "s1", train.id, "A", "B"))
-        val plans = RecordingTimetableAppliedPlanService()
+        val plans = RecordingInfrastructureDependencyService()
         val dispatcher = dispatcher(plans)
 
         assertTrue(dispatcher.beginTimetable(world, "tt-plan") is TimetableEpochStartResult.Started)
@@ -111,9 +111,9 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("A", "A", rail.id, origin))
         data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 20.0))
         world.simpleAtoWorldData.timetables.add(timetable("tt-plan", "s1", train.id, "A", "B"))
-        val plans = RecordingTimetableAppliedPlanService().apply {
-            setFailure = AppliedPlanDependencyMutationResult(
-                AppliedPlanDependencyMutationStatus.EDIT_IN_PROGRESS,
+        val plans = RecordingInfrastructureDependencyService().apply {
+            setFailure = InfrastructureDependencyMutationResult(
+                InfrastructureDependencyMutationStatus.EDIT_IN_PROGRESS,
                 "test edit"
             )
         }
@@ -140,7 +140,7 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("A", "A", rail.id, origin))
         data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 20.0))
         world.simpleAtoWorldData.timetables.add(timetable("tt-plan", "s1", train.id, "A", "B"))
-        val plans = RecordingTimetableAppliedPlanService()
+        val plans = RecordingInfrastructureDependencyService()
         val dispatcher = dispatcher(plans)
 
         assertTrue(dispatcher.beginTimetable(world, "tt-plan") is TimetableEpochStartResult.Started)
@@ -2002,7 +2002,7 @@ class TimetableDispatcherTest {
     }
 
     private fun dispatcher(
-        appliedPlanService: TimetableAppliedPlanService = acceptingTimetableAppliedPlanService()
+        infrastructureDependencyService: InfrastructureDependencyService = acceptingInfrastructureDependencyService()
     ): TimetableDispatcher {
         var boundWorld: CoreWorld? = null
         val inspectionRuntime = emptyInspectionRuntime()
@@ -2010,7 +2010,7 @@ class TimetableDispatcherTest {
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { boundWorld },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,
-            appliedPlanService = appliedPlanService,
+            infrastructureDependencyService = infrastructureDependencyService,
             atoFactory = TimetableAtoFactory { train, world ->
                 boundWorld = world as CoreWorld
                 SimpleATO(

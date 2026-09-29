@@ -32,7 +32,7 @@ import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
-import work.art1st.javarailways.simpleato.timetable.TimetableAppliedPlanService
+import work.art1st.javarailways.simpleato.timetable.InfrastructureDependencyService
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContextProvider
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
@@ -235,15 +235,15 @@ class IsolatedTimetableSimulationFactoryTest {
             TimetableRouteAdmissionContextProvider { null },
             restrictions,
             inspection,
-            object : TimetableAppliedPlanService {
-                override fun set(request: work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest) =
-                    work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult(
-                        work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus.APPLIED
+            object : InfrastructureDependencyService {
+                override fun set(request: work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest) =
+                    work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult(
+                        work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus.APPLIED
                     )
 
                 override fun remove(owner: work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner) =
-                    work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult(
-                        work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus.REMOVED
+                    work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult(
+                        work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus.REMOVED
                     )
             }
         )

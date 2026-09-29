@@ -25,6 +25,12 @@ internal sealed interface FixedBlockAuthorityMatchResult {
  * A positive prefix intersection must contain the whole block; stopping inside a block is rejected.
  */
 internal object FixedBlockRouteMatcher {
+    /** Matches every fixed block reached by the complete exact frozen route. */
+    fun matchRoute(
+        snapshot: FixedBlockReadSnapshot,
+        route: RouteSnapshot
+    ): FixedBlockAuthorityMatchResult = matchAuthority(snapshot, route, route.totalLengthMeters)
+
     fun matchAuthority(
         snapshot: FixedBlockReadSnapshot,
         route: RouteSnapshot,

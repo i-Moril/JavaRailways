@@ -121,7 +121,7 @@ class RouteResourceAdmissionRuntime private constructor(
     fun failClosedContributorLoss(contributorDescription: String): Boolean =
         !closed && engine.failClosedContributorLoss(contributorDescription)
 
-    /** Prevents new admission after forced loss of an applied-plan owner or referenced provider. */
+    /** Prevents new admission after forced loss of an infrastructure-dependency owner or provider. */
     @MainThread
     fun failClosedInfrastructureDependencyLoss(dependencyDescription: String) {
         if (!closed) engine.failClosedInfrastructureDependencyLoss(dependencyDescription)

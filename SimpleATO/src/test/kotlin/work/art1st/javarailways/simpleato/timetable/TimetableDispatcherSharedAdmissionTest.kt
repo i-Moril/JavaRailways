@@ -25,6 +25,8 @@ import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
@@ -106,6 +108,38 @@ class TimetableDispatcherSharedAdmissionTest {
         assertSame(fixture.service.grantId, fixture.service.grants[0].grantId)
         assertSame(fixture.service.grantId, fixture.service.grants[1].grantId)
         assertEquals(fixture.providerCalls, fixture.dispatchTicks)
+    }
+
+    @Test
+    fun `complete frozen route is edit protected before Basic admission`() {
+        val fixture = fixture()
+        fixture.service.onRequest = { intent ->
+            val dependency = fixture.dependencies.applied.values.single()
+            assertEquals(intent.route.segments.map { it.railId }.toSet(), dependency.dependencies.railIds)
+            fixture.service.grant(intent)
+        }
+
+        fixture.start()
+        fixture.dispatch()
+
+        assertEquals(1, fixture.service.intents.size)
+        assertEquals(1, fixture.dependencies.mutations.size)
+    }
+
+    @Test
+    fun `dependency failure preserves fail closed route progression`() {
+        val fixture = fixture()
+        fixture.dependencies.setFailure = InfrastructureDependencyMutationResult(
+            InfrastructureDependencyMutationStatus.EDIT_IN_PROGRESS,
+            "test edit overlaps the route"
+        )
+
+        fixture.start()
+        fixture.dispatch()
+
+        assertTrue(fixture.service.intents.isEmpty())
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertTrue(fixture.status().message.orEmpty().contains("could not be protected"))
     }
 
     @Test
@@ -241,6 +275,51 @@ class TimetableDispatcherSharedAdmissionTest {
     }
 
     @Test
+    fun `inspection floor expands the Basic request without granting it directly`() {
+        var revision = 0L
+        val source = InspectionSource(
+            sourceId = "test:authority-floor",
+            bindingProvider = { input ->
+                val segment = input.route.segments.first()
+                InspectionDeclarationBinding(
+                    sourceId = "test:authority-floor",
+                    trainId = input.trainId,
+                    route = FrozenRouteBinding.from(input.route),
+                    definitionRevision = 1L,
+                    trainProfileRevision = 1L,
+                    declarations = listOf(InspectionDeclaration(
+                        declarationId = "test:whole-route-window",
+                        railId = segment.railId,
+                        facing = segment.facing,
+                        triggerRouteDistanceMeters = 0.0,
+                        inspectionDistanceMeters = 0.0,
+                        minimumRequestedAuthorityEndRouteDistanceMeters = input.route.totalLengthMeters
+                    ))
+                )
+            },
+            updateHandler = { input ->
+                listOf(TrainRestrictionSnapshot(
+                    sourceId = "test:authority-floor",
+                    revision = revision++,
+                    trainId = input.perception.train.trainId,
+                    observationStamp = input.observationStamp,
+                    route = input.route,
+                    restrictions = emptyList()
+                ))
+            }
+        )
+        val fixture = fixture(inspectionSources = listOf(source))
+        fixture.service.onRequest = fixture.service::grant
+
+        fixture.start()
+        fixture.dispatch()
+
+        val intent = fixture.service.intents.single()
+        assertEquals(intent.route.totalLengthMeters,
+            intent.desiredAuthority.distanceFromRouteStartMeters, 1.0e-9)
+    }
+
+    @Test
     fun `full manual starts no new admission but lets an existing handle reach terminal state`() {
         val fixture = fixture()
         val handle = RouteAdmissionTestFixtures.handle()
@@ -358,6 +437,9 @@ class TimetableDispatcherSharedAdmissionTest {
         assertEquals(first.route.segments, appended.route.segments.take(first.route.segments.size))
         assertEquals(first.owner, appended.owner)
         assertTrue(fixture.service.grants.all { it.grantId === fixture.service.grantId })
+        assertTrue(fixture.dependencies.mutations.size >= 2)
+        assertEquals(0L, fixture.dependencies.mutations.first().owner.revision)
+        assertEquals(1L, fixture.dependencies.mutations.last().owner.revision)
     }
 
     @Test
@@ -467,15 +549,17 @@ class TimetableDispatcherSharedAdmissionTest {
         ))
         val service = FakeAdmissionService().also { it.onRequest = it::grant }
         val signalRestrictions = TrainRestrictionSnapshotStore(WORLD_ID)
+        val dependencies = RecordingInfrastructureDependencyService()
         lateinit var fixture: Fixture
         val dispatcher = sharedDispatcher(
             TimetableRouteAdmissionContextProvider {
                 fixture.providerCalls++
                 TimetableRouteAdmissionContext(fixture.observation(), service)
             },
-            signalRestrictions
+            signalRestrictions,
+            dependencies
         )
-        fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions)
+        fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions, dependencies)
 
         val storageStart = dispatcher.startService(world, "store", "first")
         assertTrue(storageStart is TimetableServiceStartResult.Started, storageStart.toString())
@@ -562,15 +646,17 @@ class TimetableDispatcherSharedAdmissionTest {
             it.endResult = true
         }
         val signalRestrictions = TrainRestrictionSnapshotStore(WORLD_ID)
+        val dependencies = RecordingInfrastructureDependencyService()
         lateinit var fixture: Fixture
         val dispatcher = sharedDispatcher(
             TimetableRouteAdmissionContextProvider {
                 fixture.providerCalls++
                 TimetableRouteAdmissionContext(fixture.observation(), service)
             },
-            signalRestrictions
+            signalRestrictions,
+            dependencies
         )
-        fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions)
+        fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions, dependencies)
 
         assertTrue(
             dispatcher.startService(world, "first", "run") is TimetableServiceStartResult.Started
@@ -588,6 +674,7 @@ class TimetableDispatcherSharedAdmissionTest {
             dispatcher.status(TimetableServiceRunId("first", "run"))?.state
         )
         fixture.dispatch()
+        assertTrue(dependencies.applied.isEmpty())
         val firstOwner = service.intents.first().owner
         val requestCountAfterFirst = service.intents.size
 
@@ -598,6 +685,7 @@ class TimetableDispatcherSharedAdmissionTest {
 
         assertTrue(service.intents.size > requestCountAfterFirst)
         assertTrue(service.intents.drop(requestCountAfterFirst).all { it.owner == firstOwner })
+        assertEquals(1, dependencies.applied.size)
         assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
         assertSame(externalAto, train.controller)
     }
@@ -636,6 +724,7 @@ class TimetableDispatcherSharedAdmissionTest {
             ))
         ))
         val service = FakeAdmissionService()
+        val dependencies = RecordingInfrastructureDependencyService()
         val signalRestrictions = TrainRestrictionSnapshotStore(WORLD_ID)
         lateinit var fixture: Fixture
         val dispatcher = sharedDispatcher(
@@ -643,17 +732,19 @@ class TimetableDispatcherSharedAdmissionTest {
                 fixture.providerCalls++
                 TimetableRouteAdmissionContext(fixture.observation(), service)
             },
-            signalRestrictions
+            signalRestrictions,
+            dependencies
         ) { inspectionRuntime ->
             inspectionRuntime.replaceSources(inspectionSources)
         }
-        fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions)
+        fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions, dependencies)
         return fixture
     }
 
     private fun sharedDispatcher(
         contextProvider: TimetableRouteAdmissionContextProvider,
         signalRestrictions: TrainRestrictionSnapshotStore,
+        infrastructureDependencies: InfrastructureDependencyService = acceptingInfrastructureDependencyService(),
         configureInspection: (InspectionRuntime) -> Unit = {}
     ): TimetableDispatcher {
         val inspectionRuntime = InspectionRuntime(signalRestrictions) { _, _, failure -> throw failure }
@@ -662,7 +753,7 @@ class TimetableDispatcherSharedAdmissionTest {
             routeAdmissionContextProvider = contextProvider,
             signalRestrictionSnapshots = signalRestrictions,
             inspectionRuntime = inspectionRuntime,
-            appliedPlanService = acceptingTimetableAppliedPlanService(),
+            infrastructureDependencyService = infrastructureDependencies,
             atoFactory = TimetableAtoFactory { selectedTrain, selectedWorld ->
                 SimpleATO(
                     selectedTrain,
@@ -692,7 +783,8 @@ class TimetableDispatcherSharedAdmissionTest {
         val train: CoreTrain,
         val dispatcher: TimetableDispatcher,
         val service: FakeAdmissionService,
-        val signalRestrictions: TrainRestrictionSnapshotStore
+        val signalRestrictions: TrainRestrictionSnapshotStore,
+        val dependencies: RecordingInfrastructureDependencyService
     ) {
         var epoch = 0L
         var providerCalls = 0

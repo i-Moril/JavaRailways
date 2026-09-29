@@ -9,8 +9,8 @@ import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolver
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionSubmissionResult
 import work.art1st.javarailways.simpleato.api.mission.WayPointRef
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
@@ -65,8 +65,8 @@ import work.art1st.javarailways.simpleato.admission.RollingRouteAuthorityPlanner
 import work.art1st.javarailways.simpleato.admission.RouteAuthorityAdmissionClient
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.infrastructure.PhysicalRouteAppliedPlanCompilation
-import work.art1st.javarailways.basic.infrastructure.PhysicalRouteAppliedPlanCompiler
+import work.art1st.javarailways.basic.infrastructure.PhysicalRouteDependencyCompilation
+import work.art1st.javarailways.basic.infrastructure.PhysicalRouteDependencyCompiler
 import work.art1st.javarailways.basic.route.toSnapshot
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRouteAssembler
@@ -267,7 +267,7 @@ class TimetableDispatcher(
     private val routeAdmissionContextProvider: TimetableRouteAdmissionContextProvider,
     private val signalRestrictionSnapshots: TrainRestrictionSnapshotProvider,
     private val inspectionRuntime: InspectionRuntime,
-    private val appliedPlanService: TimetableAppliedPlanService,
+    private val infrastructureDependencyService: InfrastructureDependencyService,
     private val allocationTiming: RouteAllocationTiming = RouteAllocationTiming(
         switchSetupSeconds = 0.25,
         reactionTimeSeconds = 0.25,
@@ -385,7 +385,7 @@ class TimetableDispatcher(
                 is AppliedPlanInstallResult.Installed -> result.plan
                 is AppliedPlanInstallResult.Rejected -> {
                     val rollbackFailures = installed.asReversed().mapNotNull { (_, applied) ->
-                        appliedPlanService.remove(applied.owner).takeUnless { it.successful }?.let {
+                        infrastructureDependencyService.remove(applied.owner).takeUnless { it.successful }?.let {
                             "${applied.owner.ownerId}: ${it.status}${it.detail.takeIf(String::isNotBlank)?.let { detail -> ": $detail" }.orEmpty()}"
                         }
                     }
@@ -487,7 +487,7 @@ class TimetableDispatcher(
                     stallTimetableRuntime(
                         world,
                         TimetableServiceRunId(timetableId, "<applied-plan>"),
-                        "AppliedPlanDependencyFailure",
+                        "InfrastructureDependencyFailure",
                         "initial-position failure could not restore the previous applied dependency: " +
                             rollbackFailure
                     )
@@ -698,6 +698,7 @@ class TimetableDispatcher(
             cycleIndex = cycleIndex,
             cycleStartDispatcherTick = cycleStartDispatcherTick,
             admissionOwnerSequence = admissionOwnerSequence.incrementAndGet(),
+            infrastructureDependencyService = infrastructureDependencyService,
             lastObservedDispatcherTick = dispatcherTick,
             depotAllocation = selected.depotAllocation,
             depotReservationPending = selected.depotReservationPending,
@@ -715,6 +716,10 @@ class TimetableDispatcher(
         }
         inheritedAdmission.singleOrNull()?.let { previous ->
             run.admissionClient = previous.admissionClient
+            run.routeEditProtection = checkNotNull(previous.routeEditProtection) {
+                "previous run already transferred its frozen-route edit protection"
+            }
+            previous.routeEditProtection = null
             run.admissionEnded = previous.admissionEnded
             if (!previous.admissionEnded) {
                 run.admittedRoute = previous.admittedRoute
@@ -1152,7 +1157,7 @@ class TimetableDispatcher(
             if (coordinator.isStalled) return
             if (run.state.isTerminal()) {
                 progressSharedAdmissionOnly(world, run, routeAdmissionContext)
-                tryEndSharedAdmission(run)
+                tryEndSharedAdmission(world, run)
                 waypointProgressListeners.remove(run.waypointProgressKey())
                 return@forEach
             }
@@ -1218,7 +1223,7 @@ class TimetableDispatcher(
             }
             if (fullManual) {
                 progressSharedAdmissionOnly(world, run, routeAdmissionContext)
-                tryEndSharedAdmission(run)
+                tryEndSharedAdmission(world, run)
                 return@forEach
             }
             if (manualRouted) {
@@ -2406,12 +2411,49 @@ class TimetableDispatcher(
                 committed.route
             )) {
                 is FrozenMissionRouteResult.Frozen -> {
+                    // The stopped train no longer consumes the old inspection binding. Basic still
+                    // retains the old grant until the rebase succeeds, so protect the union of old
+                    // and reversed routes during every retry.
+                    inspectionRuntime.removeTrain(run.train.id)
+                    when (val protection = checkNotNull(run.routeEditProtection).protectReversalTransition(
+                        world.topologyState,
+                        committed.route.selection.route,
+                        body.route.selection.route
+                    )) {
+                        is FrozenRouteProtectionResult.Protected -> Unit
+                        is FrozenRouteProtectionResult.Rejected -> {
+                            stallRun(
+                                world,
+                                run,
+                                "InfrastructureDependencyFailure",
+                                "reversed frozen route could not be protected from edits: " +
+                                    protection.detail
+                            )
+                            return
+                        }
+                    }
                     when (val result = client.rebaseAfterReversal(
                         body.route.selection,
                         RouteBoundary(body.route.headDistanceFromRouteStartMeters)
                     )) {
                         is RouteAdmissionResult.Granted -> {
                             run.admittedRoute = AdmissionRoute(body.route, committed.missionRevision)
+                            when (val protection = checkNotNull(run.routeEditProtection).protect(
+                                world.topologyState,
+                                body.route.selection.route
+                            )) {
+                                is FrozenRouteProtectionResult.Protected -> Unit
+                                is FrozenRouteProtectionResult.Rejected -> {
+                                    stallRun(
+                                        world,
+                                        run,
+                                        "InfrastructureDependencyFailure",
+                                        "reversed frozen route transition could not be finalized: " +
+                                            protection.detail
+                                    )
+                                    return
+                                }
+                            }
                         }
                         is RouteAdmissionResult.Pending -> error(
                             "reversal rebase cannot enter asynchronous preparation"
@@ -2834,6 +2876,22 @@ class TimetableDispatcher(
             ).also {
                 run.admissionClient = it
             }
+            when (val protection = checkNotNull(run.routeEditProtection).protect(
+                world.topologyState,
+                candidate.route.selection.route
+            )) {
+                is FrozenRouteProtectionResult.Protected -> Unit
+                is FrozenRouteProtectionResult.Rejected -> {
+                    stallRun(
+                        world,
+                        run,
+                        "InfrastructureDependencyFailure",
+                        "frozen route could not be protected from edits: ${protection.detail}",
+                        snapshot
+                    )
+                    return
+                }
+            }
             run.admissionCandidate = candidate
             run.admissionEnded = false
             if (!applyCommittedAdmissionRestriction(
@@ -2855,7 +2913,7 @@ class TimetableDispatcher(
                 return
             }
             val routeProgress = candidate.progressFor(runtime)
-            val desired = RollingRouteAuthorityPlanner.nextBoundary(
+            val nominalDesired = RollingRouteAuthorityPlanner.nextBoundary(
                 routeLengthMeters = candidate.route.selection.route.totalLengthMeters,
                 headProgressMeters = routeProgress,
                 perceptionHorizonMeters = run.ato.routePerceptionHorizonMeters(
@@ -2864,11 +2922,16 @@ class TimetableDispatcher(
                 extensionTriggerMeters = run.ato.routeAllocationTriggerDistanceMeters(allocationTiming),
                 admissionState = client.state
             )
-            if (desired == null) {
+            if (nominalDesired == null) {
                 applyCommittedAdmissionRestriction(world, run, runtime, context.observation, snapshot)
                 setRouteState(run, TimetableServiceRunState.RUNNING, null)
                 return
             }
+            val desired = inspectionRuntime.adjustRequestedAuthorityBoundary(
+                run.train.id,
+                FrozenRouteBinding.from(candidate.route.selection.route),
+                nominalDesired
+            )
             result = client.request(candidate.route.selection, desired)
         }
 
@@ -3076,9 +3139,22 @@ class TimetableDispatcher(
         }
     }
 
-    private fun tryEndSharedAdmission(run: ActiveRun) {
+    private fun tryEndSharedAdmission(world: World, run: ActiveRun) {
         val client = run.admissionClient ?: return
         if (!run.admissionEnded && client.end()) {
+            inspectionRuntime.removeTrain(run.train.id)
+            when (val protection = checkNotNull(run.routeEditProtection).release()) {
+                is FrozenRouteProtectionResult.Protected -> Unit
+                is FrozenRouteProtectionResult.Rejected -> {
+                    stallRun(
+                        world,
+                        run,
+                        "InfrastructureDependencyFailure",
+                        "ended frozen route remains edit-protected: ${protection.detail}"
+                    )
+                    return
+                }
+            }
             run.admissionEnded = true
             run.admittedRoute = null
             run.admissionCandidate = null
@@ -3950,12 +4026,12 @@ class TimetableDispatcher(
             )
         }
         val dependencies = when (
-            val compiled = PhysicalRouteAppliedPlanCompiler.compile(topology, snapshots)
+            val compiled = PhysicalRouteDependencyCompiler.compile(topology, snapshots)
         ) {
-            is PhysicalRouteAppliedPlanCompilation.Compiled -> compiled.dependencies
-            PhysicalRouteAppliedPlanCompilation.NoDependencies -> {
+            is PhysicalRouteDependencyCompilation.Compiled -> compiled.dependencies
+            PhysicalRouteDependencyCompilation.NoDependencies -> {
                 if (previous == null) return AppliedPlanInstallResult.Installed(null)
-                val removed = appliedPlanService.remove(previous.owner)
+                val removed = infrastructureDependencyService.remove(previous.owner)
                 return if (removed.successful) {
                     AppliedPlanInstallResult.Installed(null)
                 } else {
@@ -3965,7 +4041,7 @@ class TimetableDispatcher(
                     })
                 }
             }
-            is PhysicalRouteAppliedPlanCompilation.Rejected ->
+            is PhysicalRouteDependencyCompilation.Rejected ->
                 return AppliedPlanInstallResult.Rejected(
                     "could not compile applied timetable '$timetableId': ${compiled.detail}"
                 )
@@ -3979,8 +4055,8 @@ class TimetableDispatcher(
             "simpleato:timetable/${timetableOwnerToken(timetableId)}",
             nextAppliedPlanRevision(previous?.owner?.revision)
         )
-        val result = appliedPlanService.set(
-            AppliedPlanDependencyRequest(topology.revision, owner, dependencies)
+        val result = infrastructureDependencyService.set(
+            InfrastructureDependencyRequest(topology.revision, owner, dependencies)
         )
         return if (result.successful) {
             AppliedPlanInstallResult.Installed(AppliedTimetablePlan(owner, dependencies))
@@ -3999,7 +4075,7 @@ class TimetableDispatcher(
     ): String? {
         if (previous == null) {
             if (installed == null) return null
-            val removed = appliedPlanService.remove(installed.owner)
+            val removed = infrastructureDependencyService.remove(installed.owner)
             return removed.takeUnless { it.successful }?.let {
                 "${it.status}${it.detail.takeIf(String::isNotBlank)?.let { detail -> ": $detail" }.orEmpty()}"
             }
@@ -4008,8 +4084,8 @@ class TimetableDispatcher(
             previous.owner.ownerId,
             nextAppliedPlanRevision(installed?.owner?.revision ?: previous.owner.revision)
         )
-        val restored = appliedPlanService.set(
-            AppliedPlanDependencyRequest(
+        val restored = infrastructureDependencyService.set(
+            InfrastructureDependencyRequest(
                 checkNotNull(boundWorld).topologyState.revision,
                 restoredOwner,
                 previous.dependencies
@@ -4030,12 +4106,12 @@ class TimetableDispatcher(
                 runs.values.filter { it.id.timetableId == timetableId }.all(ActiveRun::canBeReplaced)
         }
         for ((timetableId, plan) in releasable) {
-            val result = appliedPlanService.remove(plan.owner)
+            val result = infrastructureDependencyService.remove(plan.owner)
             if (!result.successful) {
                 stallTimetableRuntime(
                     world,
                     TimetableServiceRunId(timetableId, "<applied-plan>"),
-                    "AppliedPlanDependencyFailure",
+                    "InfrastructureDependencyFailure",
                     "could not remove drained applied timetable: ${result.status}: ${result.detail}"
                 )
                 return
@@ -4518,7 +4594,7 @@ class TimetableDispatcher(
 
     private data class AppliedTimetablePlan(
         val owner: InfrastructureOwner,
-        val dependencies: AppliedPlanDependencies
+        val dependencies: InfrastructureDependencies
     )
 
     private sealed interface AppliedPlanInstallResult {
@@ -4671,6 +4747,7 @@ class TimetableDispatcher(
         val cycleIndex: Long,
         val cycleStartDispatcherTick: Long,
         admissionOwnerSequence: Long,
+        infrastructureDependencyService: InfrastructureDependencyService,
         var lastObservedDispatcherTick: Long = cycleStartDispatcherTick,
         var lastPublishedAtoState: SimpleAtoPublishedState? = null,
         var waitingUntilTimetableTick: Long? = null,
@@ -4708,6 +4785,10 @@ class TimetableDispatcher(
 
         val instanceId: String = "$id@cycle-$cycleIndex/start-$cycleStartDispatcherTick"
         val admissionOwner = InfrastructureOwner("simpleato:dispatcher/run-$admissionOwnerSequence", 0L)
+        var routeEditProtection: FrozenRouteEditProtection? = FrozenRouteEditProtection(
+            "${admissionOwner.ownerId}/frozen-route",
+            infrastructureDependencyService
+        )
         var admissionClient: RouteAuthorityAdmissionClient? = null
         var admittedRoute: AdmissionRoute? = null
         var admissionCandidate: AdmissionRoute? = null

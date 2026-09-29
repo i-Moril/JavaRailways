@@ -1,10 +1,10 @@
 package work.art1st.javarailways.basic.infrastructure
 
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencySnapshot
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencySnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureBlocker
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureBlockerKind
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureClaimSnapshot
@@ -74,10 +74,10 @@ class InfrastructureCoordinationRegistry(
         val resources: Collection<InfrastructureResource>
     }
 
-    private data class PlanDependencyHeld(
+    private data class DependencyHeld(
         val platformOwner: Any,
         val owner: InfrastructureOwner,
-        val dependencies: AppliedPlanDependencies
+        val dependencies: InfrastructureDependencies
     )
 
     private data class EditPermitHeld(
@@ -117,72 +117,72 @@ class InfrastructureCoordinationRegistry(
     )
 
     private val lock = Any()
-    private val planDependencies = linkedMapOf<String, PlanDependencyHeld>()
+    private val dependencyDeclarations = linkedMapOf<String, DependencyHeld>()
     private val claims = linkedMapOf<String, ClaimHeld>()
     private val pendingClaimMutations = linkedMapOf<UUID, PendingClaimMutation>()
     private val pendingClaimAppends = linkedMapOf<UUID, PendingClaimAppend>()
     private val editPermits = linkedMapOf<UUID, EditPermitHeld>()
     private var closed = false
 
-    fun setAppliedPlanDependencies(
+    fun setInfrastructureDependencies(
         platformOwner: Any,
-        request: AppliedPlanDependencyRequest
-    ): AppliedPlanDependencyMutationResult = synchronized(lock) {
+        request: InfrastructureDependencyRequest
+    ): InfrastructureDependencyMutationResult = synchronized(lock) {
         validateDependencies(request)?.let { return@synchronized it }
-        planDependencies[request.owner.ownerId]?.let { existing ->
+        dependencyDeclarations[request.owner.ownerId]?.let { existing ->
             if (existing.platformOwner !== platformOwner || request.owner.revision < existing.owner.revision) {
                 return@synchronized dependencyResult(
-                    AppliedPlanDependencyMutationStatus.OWNER_REVISION_CONFLICT,
-                    "applied plan owner or revision does not match"
+                    InfrastructureDependencyMutationStatus.OWNER_REVISION_CONFLICT,
+                    "infrastructure dependency owner or revision does not match"
                 )
             }
             if (request.owner == existing.owner && request.dependencies == existing.dependencies) {
-                return@synchronized dependencyResult(AppliedPlanDependencyMutationStatus.UNCHANGED)
+                return@synchronized dependencyResult(InfrastructureDependencyMutationStatus.UNCHANGED)
             }
             if (request.owner.revision == existing.owner.revision) {
                 return@synchronized dependencyResult(
-                    AppliedPlanDependencyMutationStatus.OWNER_REVISION_CONFLICT,
-                    "changing applied dependencies requires a newer owner revision"
+                    InfrastructureDependencyMutationStatus.OWNER_REVISION_CONFLICT,
+                    "changing infrastructure dependencies requires a newer owner revision"
                 )
             }
         }
         if (editPermits.values.any { overlaps(request.dependencies, it.impact) != null }) {
             return@synchronized dependencyResult(
-                AppliedPlanDependencyMutationStatus.EDIT_IN_PROGRESS,
-                "an infrastructure edit already covers an applied-plan dependency"
+                InfrastructureDependencyMutationStatus.EDIT_IN_PROGRESS,
+                "an infrastructure edit already covers this dependency"
             )
         }
-        val replaced = planDependencies.put(
+        val replaced = dependencyDeclarations.put(
             request.owner.ownerId,
-            PlanDependencyHeld(platformOwner, request.owner, request.dependencies)
+            DependencyHeld(platformOwner, request.owner, request.dependencies)
         ) != null
         dependencyResult(
-            if (replaced) AppliedPlanDependencyMutationStatus.REPLACED
-            else AppliedPlanDependencyMutationStatus.APPLIED
+            if (replaced) InfrastructureDependencyMutationStatus.REPLACED
+            else InfrastructureDependencyMutationStatus.APPLIED
         )
     }
 
-    fun removeAppliedPlanDependencies(
+    fun removeInfrastructureDependencies(
         platformOwner: Any,
         owner: InfrastructureOwner
-    ): AppliedPlanDependencyMutationResult = synchronized(lock) {
+    ): InfrastructureDependencyMutationResult = synchronized(lock) {
         if (closed) return@synchronized dependencyResult(
-            AppliedPlanDependencyMutationStatus.SERVICE_CLOSED,
+            InfrastructureDependencyMutationStatus.SERVICE_CLOSED,
             "registry is closed"
         )
-        val existing = planDependencies[owner.ownerId]
+        val existing = dependencyDeclarations[owner.ownerId]
             ?: return@synchronized dependencyResult(
-                AppliedPlanDependencyMutationStatus.OWNER_REVISION_CONFLICT,
-                "applied plan dependencies do not exist"
+                InfrastructureDependencyMutationStatus.OWNER_REVISION_CONFLICT,
+                "infrastructure dependencies do not exist"
             )
         if (existing.platformOwner !== platformOwner || existing.owner != owner) {
             return@synchronized dependencyResult(
-                AppliedPlanDependencyMutationStatus.OWNER_REVISION_CONFLICT,
-                "applied plan owner or revision does not match"
+                InfrastructureDependencyMutationStatus.OWNER_REVISION_CONFLICT,
+                "infrastructure dependency owner or revision does not match"
             )
         }
-        planDependencies.remove(owner.ownerId)
-        dependencyResult(AppliedPlanDependencyMutationStatus.REMOVED)
+        dependencyDeclarations.remove(owner.ownerId)
+        dependencyResult(InfrastructureDependencyMutationStatus.REMOVED)
     }
 
     fun acquireClaim(platformOwner: Any, request: InfrastructureClaimRequest): InfrastructureMutationResult =
@@ -450,9 +450,9 @@ class InfrastructureCoordinationRegistry(
 
     fun acquireEditPermit(platformOwner: Any, request: TopologyEditRequest): EditPermit = synchronized(lock) {
         validateEdit(request)?.let { return@synchronized EditPermit(UUID(0L, 0L), it) }
-        val blockers = planDependencies.values.mapNotNull { held ->
+        val blockers = dependencyDeclarations.values.mapNotNull { held ->
             overlaps(held.dependencies, request.impact)?.let { overlap ->
-                TopologyEditBlocker(TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY, held.owner, overlap)
+                TopologyEditBlocker(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, held.owner, overlap)
             }
         } + claims.values.mapNotNull { held ->
             claimOverlap(held.resources, request.impact)?.let { overlap ->
@@ -485,26 +485,26 @@ class InfrastructureCoordinationRegistry(
         true
     }
 
-    fun appliedPlanDependencySnapshots(): List<AppliedPlanDependencySnapshot> = synchronized(lock) {
-        Collections.unmodifiableList(planDependencies.values.map {
-            AppliedPlanDependencySnapshot(it.owner, it.dependencies)
+    fun dependencySnapshots(): List<InfrastructureDependencySnapshot> = synchronized(lock) {
+        Collections.unmodifiableList(dependencyDeclarations.values.map {
+            InfrastructureDependencySnapshot(it.owner, it.dependencies)
         })
     }
 
-    fun appliedPlanDependenciesOwnedBy(platformOwner: Any): List<AppliedPlanDependencySnapshot> =
+    fun dependenciesOwnedBy(platformOwner: Any): List<InfrastructureDependencySnapshot> =
         synchronized(lock) {
-            Collections.unmodifiableList(planDependencies.values
+            Collections.unmodifiableList(dependencyDeclarations.values
                 .filter { it.platformOwner === platformOwner }
-                .map { AppliedPlanDependencySnapshot(it.owner, it.dependencies) })
+                .map { InfrastructureDependencySnapshot(it.owner, it.dependencies) })
         }
 
-    fun appliedPlanDependenciesUsingResourceTypes(
+    fun dependenciesUsingResourceTypes(
         typeIds: Set<String>
-    ): List<AppliedPlanDependencySnapshot> = synchronized(lock) {
+    ): List<InfrastructureDependencySnapshot> = synchronized(lock) {
         if (typeIds.isEmpty()) return@synchronized emptyList()
-        Collections.unmodifiableList(planDependencies.values
+        Collections.unmodifiableList(dependencyDeclarations.values
             .filter { held -> held.dependencies.resourceIds.any { it.typeId in typeIds } }
-            .map { AppliedPlanDependencySnapshot(it.owner, it.dependencies) })
+            .map { InfrastructureDependencySnapshot(it.owner, it.dependencies) })
     }
 
     fun claimSnapshots(): List<InfrastructureClaimSnapshot> = synchronized(lock) {
@@ -522,7 +522,7 @@ class InfrastructureCoordinationRegistry(
 
     fun close() = synchronized(lock) {
         closed = true
-        planDependencies.clear()
+        dependencyDeclarations.clear()
         claims.clear()
         pendingClaimMutations.clear()
         pendingClaimAppends.clear()
@@ -602,13 +602,13 @@ class InfrastructureCoordinationRegistry(
             first.owner == pending.after.owner && first.hasFootprint(pending.expectedFootprint)
 
     private fun validateDependencies(
-        request: AppliedPlanDependencyRequest
-    ): AppliedPlanDependencyMutationResult? {
-        if (closed) return dependencyResult(AppliedPlanDependencyMutationStatus.SERVICE_CLOSED, "registry is closed")
+        request: InfrastructureDependencyRequest
+    ): InfrastructureDependencyMutationResult? {
+        if (closed) return dependencyResult(InfrastructureDependencyMutationStatus.SERVICE_CLOSED, "registry is closed")
         val currentRevision = currentTopologyRevision()
         if (request.topologyRevision != currentRevision) {
             return dependencyResult(
-                AppliedPlanDependencyMutationStatus.STALE_TOPOLOGY,
+                InfrastructureDependencyMutationStatus.STALE_TOPOLOGY,
                 "requested topology revision ${request.topologyRevision} does not match current $currentRevision"
             )
         }
@@ -618,12 +618,12 @@ class InfrastructureCoordinationRegistry(
             request.dependencies.resourceIds
         )
         if (invalid != null) {
-            return dependencyResult(AppliedPlanDependencyMutationStatus.INVALID_REFERENCE, invalid)
+            return dependencyResult(InfrastructureDependencyMutationStatus.INVALID_REFERENCE, invalid)
         }
         val confirmedRevision = currentTopologyRevision()
         if (request.topologyRevision != confirmedRevision) {
             return dependencyResult(
-                AppliedPlanDependencyMutationStatus.STALE_TOPOLOGY,
+                InfrastructureDependencyMutationStatus.STALE_TOPOLOGY,
                 "topology changed during validation from requested ${request.topologyRevision} to $confirmedRevision"
             )
         }
@@ -672,7 +672,7 @@ class InfrastructureCoordinationRegistry(
     }
 
     private fun overlaps(
-        dependencies: AppliedPlanDependencies,
+        dependencies: InfrastructureDependencies,
         impact: TopologyEditImpact
     ): TopologyEditOverlap? = overlap(
         dependencies.railIds,
@@ -789,7 +789,7 @@ class InfrastructureCoordinationRegistry(
         InfrastructureMutationResult(status, detail = detail)
 
     private fun dependencyResult(
-        status: AppliedPlanDependencyMutationStatus,
+        status: InfrastructureDependencyMutationStatus,
         detail: String = ""
-    ) = AppliedPlanDependencyMutationResult(status, detail)
+    ) = InfrastructureDependencyMutationResult(status, detail)
 }

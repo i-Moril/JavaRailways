@@ -3,6 +3,7 @@ package work.art1st.javarailways.simpleato.inspection
 import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
+import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration
 import work.art1st.javarailways.simpleato.api.inspection.InspectionBindingInput
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
@@ -62,6 +63,9 @@ class InspectionRuntime(
     @Volatile
     private var maximumDistancesByTrain: Map<String, Double> = emptyMap()
 
+    @Volatile
+    private var authorityRequestFloorsByTrain: Map<String, CompiledAuthorityRequestFloors> = emptyMap()
+
     /**
      * Atomically replaces the complete world source set.
      *
@@ -108,7 +112,7 @@ class InspectionRuntime(
         sourcesById = candidateSources
         sessionsByTrain.clear()
         sessionsByTrain.putAll(candidateSessions)
-        publishMaximumDistances()
+        publishCompiledViews()
     }
 
     /**
@@ -134,7 +138,7 @@ class InspectionRuntime(
         }
         activeRoutesByTrain[trainId] = activeRoute
         if (compiled.isEmpty()) sessionsByTrain.remove(trainId) else sessionsByTrain[trainId] = compiled
-        publishMaximumDistances()
+        publishCompiledViews()
         return maximumDeclaredDistanceMeters(trainId)
     }
 
@@ -152,6 +156,18 @@ class InspectionRuntime(
     fun maximumDeclaredDistanceMeters(trainId: String): Double {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         return maximumDistancesByTrain[trainId] ?: 0.0
+    }
+
+    /** Applies precompiled route-local request floors without invoking a signal plugin callback. */
+    fun adjustRequestedAuthorityBoundary(
+        trainId: String,
+        currentRoute: FrozenRouteBinding,
+        nominalBoundary: RouteBoundary
+    ): RouteBoundary {
+        require(trainId.isNotBlank()) { "trainId must not be blank" }
+        return authorityRequestFloorsByTrain[trainId]
+            ?.adjust(currentRoute, nominalBoundary)
+            ?: nominalBoundary
     }
 
     fun hasBindings(trainId: String): Boolean {
@@ -259,7 +275,7 @@ class InspectionRuntime(
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         sessionsByTrain.remove(trainId)
         activeRoutesByTrain.remove(trainId)
-        publishMaximumDistances()
+        publishCompiledViews()
     }
 
     fun removeSource(sourceId: String) {
@@ -269,7 +285,7 @@ class InspectionRuntime(
             bySource.isEmpty()
         }
         sourcesById.remove(sourceId)
-        publishMaximumDistances()
+        publishCompiledViews()
     }
 
     /** World teardown only: discards all callbacks and route-local state without an unload stall. */
@@ -277,14 +293,14 @@ class InspectionRuntime(
         sessionsByTrain.clear()
         activeRoutesByTrain.clear()
         sourcesById.clear()
-        publishMaximumDistances()
+        publishCompiledViews()
     }
 
     /** Removes sessions for trains whose production route lifecycle has ended. */
     fun retainTrains(trainIds: Set<String>) {
         sessionsByTrain.keys.removeIf { it !in trainIds }
         activeRoutesByTrain.keys.removeIf { it !in trainIds }
-        publishMaximumDistances()
+        publishCompiledViews()
     }
 
     private fun validatePublications(
@@ -367,9 +383,18 @@ class InspectionRuntime(
         return compiled
     }
 
-    private fun publishMaximumDistances() {
+    private fun publishCompiledViews() {
         maximumDistancesByTrain = sessionsByTrain.mapValues { (_, bySource) ->
             bySource.values.maxOfOrNull { it.scheduler.maximumDeclaredInspectionDistanceMeters } ?: 0.0
+        }.toMap()
+        authorityRequestFloorsByTrain = sessionsByTrain.mapNotNull { (trainId, bySource) ->
+            if (bySource.isEmpty()) return@mapNotNull null
+            val routes = bySource.values.map { it.compiled.binding.route }.distinct()
+            check(routes.size == 1) { "inspection sources for one train must bind one frozen route" }
+            trainId to CompiledAuthorityRequestFloors.compile(
+                routes.single(),
+                bySource.values.flatMap { it.compiled.authorityRequestFloors }
+            )
         }.toMap()
     }
 }

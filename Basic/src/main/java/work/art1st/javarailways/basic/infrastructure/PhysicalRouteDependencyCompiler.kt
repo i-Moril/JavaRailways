@@ -1,7 +1,7 @@
 package work.art1st.javarailways.basic.infrastructure
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencies
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
@@ -9,12 +9,12 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 
 /** Result of compiling already-selected routes into non-exclusive edit dependencies. */
-sealed interface PhysicalRouteAppliedPlanCompilation {
-    data object NoDependencies : PhysicalRouteAppliedPlanCompilation
+sealed interface PhysicalRouteDependencyCompilation {
+    data object NoDependencies : PhysicalRouteDependencyCompilation
 
-    data class Compiled(val dependencies: AppliedPlanDependencies) : PhysicalRouteAppliedPlanCompilation
+    data class Compiled(val dependencies: InfrastructureDependencies) : PhysicalRouteDependencyCompilation
 
-    data class Rejected(val detail: String) : PhysicalRouteAppliedPlanCompilation {
+    data class Rejected(val detail: String) : PhysicalRouteDependencyCompilation {
         init {
             require(detail.isNotBlank())
         }
@@ -27,13 +27,13 @@ sealed interface PhysicalRouteAppliedPlanCompilation {
  * The result contains persistent rail identities, stable structural-node keys and Basic-owned
  * turnout/diamond resources. It is an edit dependency declaration, not a live train claim.
  */
-object PhysicalRouteAppliedPlanCompiler {
+object PhysicalRouteDependencyCompiler {
     @JvmStatic
     fun compile(
         topology: TopologyState,
         routes: Collection<RouteSnapshot>
-    ): PhysicalRouteAppliedPlanCompilation {
-        if (routes.isEmpty()) return PhysicalRouteAppliedPlanCompilation.NoDependencies
+    ): PhysicalRouteDependencyCompilation {
+        if (routes.isEmpty()) return PhysicalRouteDependencyCompilation.NoDependencies
 
         val railIds = linkedSetOf<java.util.UUID>()
         val nodeKeys = linkedSetOf<StableTopologyNodeKey>()
@@ -80,10 +80,10 @@ object PhysicalRouteAppliedPlanCompiler {
             }
         }
         if (railIds.isEmpty()) return rejected("known routes contain no persistent rails")
-        return PhysicalRouteAppliedPlanCompilation.Compiled(
-            AppliedPlanDependencies(railIds, nodeKeys, resourceIds)
+        return PhysicalRouteDependencyCompilation.Compiled(
+            InfrastructureDependencies(railIds, nodeKeys, resourceIds)
         )
     }
 
-    private fun rejected(detail: String) = PhysicalRouteAppliedPlanCompilation.Rejected(detail)
+    private fun rejected(detail: String) = PhysicalRouteDependencyCompilation.Rejected(detail)
 }

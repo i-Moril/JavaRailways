@@ -8,6 +8,7 @@ import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
+import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
@@ -274,6 +275,24 @@ class InspectionRuntimeTest {
         runtime.synchronizeRoute(stamp, "train", route)
 
         assertEquals(80.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
+    }
+
+    @Test
+    fun `empty source replacement keeps an active route without a compiled floor`() {
+        val runtime = runtime()
+        runtime.synchronizeRoute(stamp, "train", route)
+
+        runtime.replaceSources(emptyList())
+
+        assertEquals(
+            55.0,
+            runtime.adjustRequestedAuthorityBoundary(
+                "train",
+                routeBinding,
+                RouteBoundary(55.0)
+            ).distanceFromRouteStartMeters,
+            0.0
+        )
     }
 
     @Test

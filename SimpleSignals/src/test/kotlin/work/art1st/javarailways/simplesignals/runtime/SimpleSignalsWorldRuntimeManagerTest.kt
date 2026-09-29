@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotSame
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -26,14 +27,17 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPerm
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPermitResult
 import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
+import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.util.IsolatedMainThreadMarker
 import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding
+import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
+import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_INSPECTION_SOURCE_ID
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
@@ -56,7 +60,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     @Test
     fun `definition authoring rejects platform owner thread before doing preparation work`() {
         val fixture = Fixture()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(),
             MutableTopologyService(fixture.currentTopology).service,
             CapturingRoutePlanningService(),
@@ -83,7 +87,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val registrations = CapturingRoutePlanningService()
         val store = store()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, registrations, store, signalSources()
         )
 
@@ -137,7 +141,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val fixture = Fixture()
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val registrations = CapturingRoutePlanningService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, registrations, store(), signalSources()
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
@@ -174,7 +178,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val fixture = Fixture()
         val infrastructure = MutableTopologyService(null)
         val registrations = CapturingRoutePlanningService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, registrations, store(), signalSources()
         )
 
@@ -207,7 +211,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             )
         )
         val registrations = CapturingRoutePlanningService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), MutableTopologyService(fixture.currentTopology).service, registrations, store,
             signalSources()
         )
@@ -245,7 +249,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             )
         )
         val signalSources = CapturingSignalEpochSourceService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(),
             MutableTopologyService(fixture.currentTopology).service,
             CapturingRoutePlanningService(),
@@ -260,7 +264,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(block.blockId, source.areas.single().areaId.toString())
 
         val emptyWorldId = UUID.randomUUID()
-        val emptyManager = SimpleSignalsWorldRuntimeManager(
+        val emptyManager = runtimeManager(
             plugin(),
             MutableTopologyService(fixture.currentTopology).service,
             CapturingRoutePlanningService(),
@@ -269,6 +273,99 @@ class SimpleSignalsWorldRuntimeManagerTest {
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, emptyManager.install(emptyWorldId).status)
         assertEquals(emptyList<SignalEpochSource>(), signalSources.sources.getValue(emptyWorldId))
+    }
+
+    @Test
+    fun `world install registers the fixed block inspection source`() {
+        val fixture = Fixture()
+        val registered = linkedMapOf<UUID, List<InspectionSource>>()
+        val inspectionService = proxy(InspectionSourceService::class.java) { method, arguments ->
+            when (method.name) {
+                "replaceInspectionSources" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    registered[arguments!![1] as UUID] =
+                        java.util.List.copyOf(arguments[2] as Collection<InspectionSource>)
+                    Unit
+                }
+                "markInspectionDeclarationsDirty" -> Unit
+                else -> throw UnsupportedOperationException(method.name)
+            }
+        }
+        val manager = runtimeManager(
+            plugin(),
+            MutableTopologyService(fixture.currentTopology).service,
+            CapturingRoutePlanningService(),
+            store(),
+            signalSources(),
+            inspectionService
+        )
+
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+
+        assertEquals(
+            listOf(FIXED_BLOCK_INSPECTION_SOURCE_ID),
+            registered.getValue(fixture.worldId).map(InspectionSource::sourceId)
+        )
+    }
+
+    @Test
+    fun `inspection source install failure clears partial sources and leaves route planning fail closed`() {
+        val fixture = Fixture()
+        val store = store()
+        store.save(
+            fixture.worldId,
+            SimpleSignalsWorldDefinitions(
+                fixture.worldId,
+                1L,
+                emptyList(),
+                emptyList(),
+                listOf(
+                    FixedBlockDefinition(
+                        "test:approach-block",
+                        1L,
+                        listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0))
+                    )
+                )
+            )
+        )
+        val signalSources = CapturingSignalEpochSourceService()
+        val routeSources = CapturingRoutePlanningService()
+        val inspectionReplacementSizes = arrayListOf<Int>()
+        var rejectFirstInstall = true
+        val inspectionService = proxy(InspectionSourceService::class.java) { method, arguments ->
+            when (method.name) {
+                "replaceInspectionSources" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val sources = arguments!![2] as Collection<InspectionSource>
+                    inspectionReplacementSizes += sources.size
+                    if (sources.isNotEmpty() && rejectFirstInstall) {
+                        rejectFirstInstall = false
+                        throw IllegalStateException("injected inspection source install failure")
+                    }
+                    Unit
+                }
+                "markInspectionDeclarationsDirty" -> Unit
+                else -> throw UnsupportedOperationException(method.name)
+            }
+        }
+        val manager = runtimeManager(
+            plugin(),
+            MutableTopologyService(fixture.currentTopology).service,
+            routeSources,
+            store,
+            signalSources,
+            inspectionService
+        )
+
+        val unavailable = manager.install(fixture.worldId)
+
+        assertEquals(SimpleSignalsWorldInstallStatus.UNAVAILABLE, unavailable.status)
+        assertEquals(listOf(1, 0), signalSources.replacements.map(List<SignalEpochSource>::size))
+        assertEquals(listOf(1, 0), inspectionReplacementSizes)
+        assertThrows(IllegalStateException::class.java) {
+            routeSources.single(fixture.worldId).source.restrictions(fixture.currentTopology)
+        }
+        assertNull(manager.fixedBlockSnapshot(fixture.worldId))
     }
 
     @Test
@@ -295,7 +392,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val routeSources = CapturingRoutePlanningService(
             IllegalStateException("injected route source install failure")
         )
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(),
             MutableTopologyService(fixture.currentTopology).service,
             routeSources,
@@ -334,7 +431,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             SimpleSignalsWorldDefinitions(fixture.worldId, 1L, listOf(orphan), emptyList())
         )
         val registrations = CapturingRoutePlanningService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), MutableTopologyService(fixture.currentTopology).service, registrations, store,
             signalSources()
         )
@@ -377,7 +474,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             )
         )
         val registrations = CapturingRoutePlanningService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(),
             MutableTopologyService(fixture.currentTopology).service,
             registrations,
@@ -403,7 +500,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         Files.writeString(store.primaryFile(fixture.worldId), "broken-primary")
         Files.writeString(store.backupFile(fixture.worldId), "broken-backup")
         val registrations = CapturingRoutePlanningService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), MutableTopologyService(fixture.currentTopology).service, registrations, store,
             signalSources()
         )
@@ -434,7 +531,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         )
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val registrations = CapturingRoutePlanningService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, registrations, store, signalSources()
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
@@ -483,7 +580,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     fun `revision and malformed patches are rejected before an edit permit`() {
         val fixture = Fixture()
         val infrastructure = MutableTopologyService(fixture.currentTopology)
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, CapturingRoutePlanningService(), store(), signalSources()
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
@@ -533,7 +630,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             )
         )
         val infrastructure = MutableTopologyService(fixture.currentTopology)
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, CapturingRoutePlanningService(), store, signalSources()
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
@@ -604,7 +701,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     fun `edit conflict and topology change after permit are returned and permits close`() {
         val fixture = Fixture()
         val infrastructure = MutableTopologyService(fixture.currentTopology)
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, CapturingRoutePlanningService(), store(), signalSources()
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
@@ -666,7 +763,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         }
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val registrations = CapturingRoutePlanningService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, registrations, failingStore, signalSources()
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
@@ -695,7 +792,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val store = store()
         val routeSources = CapturingRoutePlanningService()
         val signalSources = CapturingSignalEpochSourceService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, routeSources, store, signalSources
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
@@ -760,7 +857,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val store = store()
         val signalSources = CapturingSignalEpochSourceService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, CapturingRoutePlanningService(), store, signalSources
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
@@ -814,7 +911,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             )
         )
         val signalSources = CapturingSignalEpochSourceService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, CapturingRoutePlanningService(), store, signalSources
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
@@ -835,12 +932,12 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
-    fun `applied plan and live claim block fixed block edits before save or source callback`() {
+    fun `infrastructure dependency and live claim block fixed block edits before save or source callback`() {
         val fixture = Fixture()
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val store = store()
         val signalSources = CapturingSignalEpochSourceService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, CapturingRoutePlanningService(), store, signalSources
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
@@ -851,7 +948,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         )
 
         listOf(
-            TopologyEditBlockerKind.APPLIED_PLAN_DEPENDENCY,
+            TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY,
             TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM
         ).forEach { kind ->
             infrastructure.nextEditDecision = TopologyEditDecision(
@@ -903,7 +1000,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         }
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val signalSources = CapturingSignalEpochSourceService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, CapturingRoutePlanningService(), failingStore, signalSources
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
@@ -957,7 +1054,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         )
         val storedBefore = Files.readString(store.primaryFile(fixture.worldId))
         val signalSources = CapturingSignalEpochSourceService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(),
             infrastructure.service,
             CapturingRoutePlanningService(),
@@ -1007,7 +1104,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         )
         val originalPrimary = Files.readString(store.primaryFile(fixture.worldId))
         val signalSources = CapturingSignalEpochSourceService()
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, CapturingRoutePlanningService(), store, signalSources
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
@@ -1076,7 +1173,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
                 listOf(outsideBlock)
             )
         )
-        val manager = SimpleSignalsWorldRuntimeManager(
+        val manager = runtimeManager(
             plugin(), infrastructure.service, CapturingRoutePlanningService(), store, signalSources()
         )
 
@@ -1284,6 +1381,30 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     companion object {
+        private fun runtimeManager(
+            plugin: Plugin,
+            infrastructure: InfrastructureResourceService,
+            routePlanningSources: RoutePlanningRestrictionSourceService,
+            definitions: SimpleSignalsWorldDefinitionStore,
+            signalEpochSources: SignalEpochSourceService,
+            inspectionSources: InspectionSourceService = inspectionSources()
+        ) = SimpleSignalsWorldRuntimeManager(
+            plugin,
+            infrastructure,
+            routePlanningSources,
+            definitions,
+            signalEpochSources,
+            inspectionSources
+        )
+
+        private fun inspectionSources(): InspectionSourceService =
+            proxy(InspectionSourceService::class.java) { method, _ ->
+                when (method.name) {
+                    "replaceInspectionSources", "markInspectionDeclarationsDirty" -> Unit
+                    else -> throw UnsupportedOperationException(method.name)
+                }
+            }
+
         private fun signalSources(): SignalEpochSourceService =
             proxy(SignalEpochSourceService::class.java) { method, arguments ->
                 when (method.name) {

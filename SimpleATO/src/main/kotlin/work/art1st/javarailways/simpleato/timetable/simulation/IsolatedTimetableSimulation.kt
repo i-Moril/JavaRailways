@@ -4,7 +4,7 @@ import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
@@ -30,7 +30,7 @@ import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
-import work.art1st.javarailways.simpleato.timetable.TimetableAppliedPlanService
+import work.art1st.javarailways.simpleato.timetable.InfrastructureDependencyService
 import work.art1st.javarailways.simpleato.timetable.TimetableEpochStartResult
 import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContext
 import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContextProvider
@@ -224,7 +224,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                 TimetableRouteAdmissionContextProvider,
                 TrainRestrictionSnapshotProvider,
                 InspectionRuntime,
-                TimetableAppliedPlanService
+                InfrastructureDependencyService
             ) -> TimetableDispatcher,
             seed: (CoreWorld) -> Unit
         ): IsolatedTimetableSimulationWorld {
@@ -284,7 +284,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                                     admission.contextProvider,
                                     signalRestrictions,
                                     inspectionRuntime,
-                                    admission.appliedPlanService
+                                    admission.infrastructureDependencyService
                                 ),
                                 signalEpochRuntime,
                                 signalRestrictions,
@@ -352,12 +352,12 @@ private class IsolatedRouteAdmissionHost(
         latestObservation?.let { TimetableRouteAdmissionContext(it, service) }
     }
 
-    val appliedPlanService = object : TimetableAppliedPlanService {
-        override fun set(request: AppliedPlanDependencyRequest) =
-            registry.setAppliedPlanDependencies(requester, request)
+    val infrastructureDependencyService = object : InfrastructureDependencyService {
+        override fun set(request: InfrastructureDependencyRequest) =
+            registry.setInfrastructureDependencies(requester, request)
 
         override fun remove(owner: InfrastructureOwner) =
-            registry.removeAppliedPlanDependencies(requester, owner)
+            registry.removeInfrastructureDependencies(requester, owner)
     }
 
     init {

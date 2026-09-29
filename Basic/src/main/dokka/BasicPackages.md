@@ -28,7 +28,7 @@ world-local 通用 RailObject、双索引 store 与 lifecycle 契约；不包含
 
 # Package work.art1st.javarailways.basic.api.infrastructure
 
-Applied-plan dependency以persistent rail ID、stable topology-node key和runtime resource ID三类引用阻止相关编辑，
+Infrastructure dependency以persistent rail ID、stable topology-node key和runtime resource ID三类引用阻止相关编辑，
 但不占用列车资源。Live claim使用独立的原子resource footprint；edit permit使用同三类影响集合并返回逐字段冲突诊断。
 
 # Package work.art1st.javarailways.basic.api.observation

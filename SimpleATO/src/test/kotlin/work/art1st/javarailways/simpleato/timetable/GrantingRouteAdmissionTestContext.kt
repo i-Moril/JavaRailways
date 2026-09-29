@@ -9,9 +9,9 @@ import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationResult
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.AppliedPlanDependencyRequest
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.route.RouteGrantId
 import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
@@ -159,33 +159,35 @@ internal class GrantingRouteAdmissionTestContext(
 internal val UnavailableRouteAdmissionTestContext =
     TimetableRouteAdmissionContextProvider { null }
 
-internal class RecordingTimetableAppliedPlanService : TimetableAppliedPlanService {
-    val applied = LinkedHashMap<String, AppliedPlanDependencyRequest>()
-    var setFailure: AppliedPlanDependencyMutationResult? = null
+internal class RecordingInfrastructureDependencyService : InfrastructureDependencyService {
+    val applied = LinkedHashMap<String, InfrastructureDependencyRequest>()
+    val mutations = ArrayList<InfrastructureDependencyRequest>()
+    var setFailure: InfrastructureDependencyMutationResult? = null
 
-    override fun set(request: AppliedPlanDependencyRequest): AppliedPlanDependencyMutationResult {
+    override fun set(request: InfrastructureDependencyRequest): InfrastructureDependencyMutationResult {
         setFailure?.let { return it }
+        mutations += request
         val previous = applied.put(request.owner.ownerId, request)
-        return AppliedPlanDependencyMutationResult(
-            if (previous == null) AppliedPlanDependencyMutationStatus.APPLIED
-            else AppliedPlanDependencyMutationStatus.REPLACED
+        return InfrastructureDependencyMutationResult(
+            if (previous == null) InfrastructureDependencyMutationStatus.APPLIED
+            else InfrastructureDependencyMutationStatus.REPLACED
         )
     }
 
-    override fun remove(owner: InfrastructureOwner): AppliedPlanDependencyMutationResult {
+    override fun remove(owner: InfrastructureOwner): InfrastructureDependencyMutationResult {
         val existing = applied[owner.ownerId]
-            ?: return AppliedPlanDependencyMutationResult(
-                AppliedPlanDependencyMutationStatus.OWNER_REVISION_CONFLICT
+            ?: return InfrastructureDependencyMutationResult(
+                InfrastructureDependencyMutationStatus.OWNER_REVISION_CONFLICT
             )
         if (existing.owner != owner) {
-            return AppliedPlanDependencyMutationResult(
-                AppliedPlanDependencyMutationStatus.OWNER_REVISION_CONFLICT
+            return InfrastructureDependencyMutationResult(
+                InfrastructureDependencyMutationStatus.OWNER_REVISION_CONFLICT
             )
         }
         applied.remove(owner.ownerId)
-        return AppliedPlanDependencyMutationResult(AppliedPlanDependencyMutationStatus.REMOVED)
+        return InfrastructureDependencyMutationResult(InfrastructureDependencyMutationStatus.REMOVED)
     }
 }
 
-internal fun acceptingTimetableAppliedPlanService(): TimetableAppliedPlanService =
-    RecordingTimetableAppliedPlanService()
+internal fun acceptingInfrastructureDependencyService(): InfrastructureDependencyService =
+    RecordingInfrastructureDependencyService()

@@ -22,7 +22,7 @@ when a required service is absent. The fixture currently proves these services:
 
 - `RailwayObservationService`: immutable coherent world/train observations and subscriptions;
 - `InfrastructureResourceService`: the exact immutable topology root, custom resources, route
-  contributions, preparation, route admission, applied-plan edit dependencies and the unified
+  contributions, preparation, route admission, infrastructure edit dependencies and the unified
   owner lifecycle;
 - `SignalEpochSourceService`: complete nonempty signal-source sets installed per plugin and world;
 - `InspectionSourceService`: host-route-bound inspection providers plus authenticated dirty
@@ -59,7 +59,7 @@ one complete snapshot bound to the new route, even when that snapshot contains n
 6. Install a complete route-planning source set when the plugin restricts path choice. Each source
    compiles neutral forbidden spans or complete atomic paths from one supplied topology snapshot;
    it is not called from Dijkstra and does not edit the physical graph.
-7. Publish timetable or other applied-plan dependencies only to protect their referenced rail,
+7. Publish timetable or other infrastructure dependencies only to protect their referenced rail,
    topology-node and runtime-resource identities from conflicting edits. These declarations are
    not train claims and do not prevent trains from acquiring the resources.
 8. Before changing any declared rail, topology node or runtime resource, acquire one edit permit
@@ -86,13 +86,13 @@ can end only after its resource queue is empty; `endGrant` is not a force-releas
 Planned removal is an explicit pre-disable operation while the add-on is still enabled:
 
 1. publish higher-revision empty snapshots for every retained nonempty restriction stream;
-2. remove the add-on's applied-plan dependencies;
+2. remove the add-on's infrastructure dependencies;
 3. close observation or other passive subscriptions;
 4. call `InfrastructureResourceService.unregisterOwner(plugin)` once.
 
 That final call checks both infrastructure and signal ownership before deleting either side. It
 rejects removal while the add-on has a pending request, held route resources, a resource type used
-by another route, an applied plan, an active contributor route state or a nonempty signal
+by another route, an infrastructure dependency, an active contributor route state or a nonempty signal
 restriction. Unrelated trains and installed sources whose retained streams are empty do not block
 removal. Do not close provider/contributor registrations first as an attempted unload shortcut.
 
@@ -102,7 +102,7 @@ replacement is not a second plugin-unload path.
 ## Forced disable and failures
 
 `PluginDisableEvent` cannot be cancelled. If an add-on disappears without completing the normal
-gate, JavaRailways removes dead callbacks but keeps host-owned claims and applied-plan protection.
+gate, JavaRailways removes dead callbacks but keeps host-owned claims and infrastructure dependencies.
 Only worlds where that add-on still has active infrastructure state or a nonempty restriction are
 stalled fail-closed. Idle source registrations and unrelated trains do not stall a world.
 

@@ -807,8 +807,8 @@ internal class RouteResourceAdmissionEngine(
     @MainThread
     fun failClosedInfrastructureDependencyLoss(dependencyDescription: String) {
         markWorldStalled(
-            "$dependencyDescription disappeared while an applied plan remains active",
-            IllegalStateException("applied-plan infrastructure dependency owner disappeared")
+            "$dependencyDescription disappeared while an infrastructure dependency remains active",
+            IllegalStateException("infrastructure dependency owner disappeared")
         )
     }
 

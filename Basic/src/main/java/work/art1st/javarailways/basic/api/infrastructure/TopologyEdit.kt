@@ -49,7 +49,7 @@ class TopologyEditOverlap(
 }
 
 enum class TopologyEditBlockerKind {
-    APPLIED_PLAN_DEPENDENCY,
+    INFRASTRUCTURE_DEPENDENCY,
     LIVE_RUNTIME_CLAIM,
     EDIT_PERMIT
 }

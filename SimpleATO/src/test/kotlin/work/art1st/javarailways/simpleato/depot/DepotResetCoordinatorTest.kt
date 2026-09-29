@@ -35,7 +35,7 @@ import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
 import work.art1st.javarailways.simpleato.timetable.TimetableService
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult
-import work.art1st.javarailways.simpleato.timetable.acceptingTimetableAppliedPlanService
+import work.art1st.javarailways.simpleato.timetable.acceptingInfrastructureDependencyService
 import work.art1st.javarailways.simpleato.timetable.TimetableStep
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
@@ -74,7 +74,7 @@ class DepotResetCoordinatorTest {
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,
-            appliedPlanService = acceptingTimetableAppliedPlanService(),
+            infrastructureDependencyService = acceptingInfrastructureDependencyService(),
             atoFactory = TimetableAtoFactory { train, trainWorld ->
                 SimpleATO(
                     train,
@@ -256,7 +256,7 @@ class DepotResetCoordinatorTest {
                 UnavailableRouteAdmissionTestContext,
                 emptyTrainRestrictionSnapshots,
                 emptyInspectionRuntime(),
-                acceptingTimetableAppliedPlanService()
+                acceptingInfrastructureDependencyService()
             ))
                 .reset(setOf(depotId))
         }
@@ -366,7 +366,7 @@ class DepotResetCoordinatorTest {
                 UnavailableRouteAdmissionTestContext,
                 emptyTrainRestrictionSnapshots,
                 emptyInspectionRuntime(),
-                acceptingTimetableAppliedPlanService()
+                acceptingInfrastructureDependencyService()
             )
         ).reset(setOf(depotId))
 
@@ -424,7 +424,7 @@ class DepotResetCoordinatorTest {
                 UnavailableRouteAdmissionTestContext,
                 emptyTrainRestrictionSnapshots,
                 emptyInspectionRuntime(),
-                acceptingTimetableAppliedPlanService()
+                acceptingInfrastructureDependencyService()
             )
         ).reset(setOf(depotId))
 

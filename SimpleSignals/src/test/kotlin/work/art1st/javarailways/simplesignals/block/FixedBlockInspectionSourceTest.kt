@@ -27,6 +27,7 @@ import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntime
 import work.art1st.javarailways.simplesignals.runtime.PublishedSectionSignal
 import work.art1st.javarailways.simplesignals.runtime.SectionSignalOutput
 import work.art1st.javarailways.simplesignals.runtime.SectionSignalState
+import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionPublicationStatus
 import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
@@ -284,6 +285,88 @@ class FixedBlockInspectionSourceTest {
 
         assertEquals(0, publications.single().restrictions.size)
     }
+
+    @Test
+    fun `ended route drops its cached lead time and the next binding uses the new definition`() {
+        val block = FixedBlockDefinition(
+            "test:signal-block",
+            1L,
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 9.0))
+        )
+        val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0))
+        val worldRuntime = SimpleSignalsWorldRuntime(worldId)
+        assertEquals(
+            SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
+            worldRuntime.initializeDefinitions(
+                topology,
+                definitions(block, signal(block.blockId, revision = 1L, leadTimeSeconds = 300.0), 1L)
+            ).status
+        )
+        val inspectionRuntime = InspectionRuntime(
+            publisher = { publication ->
+                TrainRestrictionPublicationResult(
+                    TrainRestrictionPublicationStatus.ACCEPTED,
+                    publication.revision
+                )
+            },
+            sourceUnavailable = { _, _, failure -> throw failure }
+        )
+        inspectionRuntime.replaceSources(listOf(worldRuntime.fixedBlockInspectionSource))
+
+        assertEquals(
+            300.0,
+            inspectionRuntime.synchronizeRoute(stamp(), "train", route),
+            0.0
+        )
+        inspectionRuntime.retainTrains(emptySet())
+        assertEquals(0.0, inspectionRuntime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
+
+        assertEquals(
+            SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
+            worldRuntime.initializeDefinitions(
+                topology,
+                definitions(block, signal(block.blockId, revision = 2L, leadTimeSeconds = 45.0), 2L)
+            ).status
+        )
+
+        assertEquals(
+            45.0,
+            inspectionRuntime.synchronizeRoute(stamp(), "train", route),
+            0.0
+        )
+        assertEquals(45.0, inspectionRuntime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
+    }
+
+    private fun definitions(
+        block: FixedBlockDefinition,
+        signal: FixedBlockSignalDefinition,
+        revision: Long
+    ) = SimpleSignalsWorldDefinitions(
+        worldId,
+        revision,
+        emptyList(),
+        emptyList(),
+        listOf(block),
+        listOf(signal)
+    )
+
+    private fun signal(
+        blockId: String,
+        revision: Long,
+        leadTimeSeconds: Double
+    ) = FixedBlockSignalDefinition(
+        "test:signal",
+        revision,
+        blockId,
+        leadTimeSeconds,
+        ConfiguredSignalOutput(0.0, "private/occupied"),
+        listOf(
+            FixedBlockSignalClearLevel(
+                0.0,
+                ConfiguredSignalOutput(20.0, "private/open")
+            )
+        )
+    )
 
     private fun snapshot(block: FixedBlockDefinition): FixedBlockReadSnapshot =
         FixedBlockCatalog().also { catalog ->

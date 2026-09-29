@@ -138,7 +138,7 @@ Current extraction progress:
 - [ ] Region tests cover simple turnout, multi-turnout throat, leak, ambiguity, direction, topology invalidation and unsupported overlap.
 - [x] Resource tests cover mandatory Basic physical floor, valid additions, omitted/invalid additions, disjoint paths and atomic conflict denial.
 - [ ] Fixed/moving transition tests cover whole next block versus exact post-exit boundary and sufficient train-tail clearance.
-- [ ] Reactive tests cover inspection lead-time cache invalidation, host time-to-distance and braking calculations, affected-only dependency propagation and idle unchanged state.
+- [x] Reactive tests cover inspection lead-time cache invalidation, host time-to-distance and braking calculations, affected-only dependency propagation and idle unchanged state. The cross-layer fixed-block test now proves an ended route drops its cached maximum and a later binding reads the newly published SimpleSignals lead time; existing scheduler/runtime/one-way-graph tests cover motion conversion, braking activation, active-route source replacement fail-close, affected-only propagation and unchanged IDLE behavior.
 - [x] Constraint tests prove plugin output only tightens authority/speed and stale/exceptional state fails restrictive.
 - [ ] Lifecycle tests cover enable/disable, missing capability, world unload/reload, live-grant recovery and rendering cleanup.
 - [ ] Persistence tests use fixed current-model fixtures plus corruption/orphan cases. Add a legacy fixture only for a separately approved sidecar migration support window.

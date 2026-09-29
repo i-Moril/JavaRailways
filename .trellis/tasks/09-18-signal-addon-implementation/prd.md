@@ -81,7 +81,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - [x] Disjoint route footprints through one region may coexist when policy allows; overlapping rail/conflict/additional resources cannot.
 - [ ] Fixed-block, protection-region and moving-block transitions choose their authority boundary in the signal/ATO layer without a Basic contributor closure.
 - [ ] ATO stops before an unavailable grant and applies plugin speed limits/model variants only as stricter outputs.
-- [ ] Unchanged signal state does not execute every signal script/update every tick; dependency changes propagate to affected upstream resources.
+- [x] Unchanged signal state does not execute every signal script/update every tick; dependency changes propagate to affected upstream resources.
 - [x] Diamond crossings prevent conflicting passages without cross-line routing or runtime geometry scans.
 - [x] Disable, failure, world unload/reload and stale-state tests prove authority never widens and live claims are not dropped beneath trains.
 - [ ] Timetable apply/replace/unapply and draft/draining tests prove atomic applied-plan dependency replacement, edit blocking and separation from transient live claims/occupancy waits.

@@ -6,10 +6,13 @@ import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.core.api.physics.RailwayEpochProcessor
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochInput
+import work.art1st.javarailways.simpleato.api.signal.SignalRailContinuationUpdate
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 
 /**
@@ -71,10 +74,16 @@ class SignalEpochRuntime(
         val updatesBySource = areaBatch.updates.groupBy { update ->
             current.ownerByArea.getValue(update.areaId)
         }
+        val continuationUpdatesBySource = current.consumeContinuationUpdates(
+            observation.activeContinuations
+        )
         current.sources.forEach { source ->
             val updates = updatesBySource[source.sourceId].orEmpty()
-            if (updates.isEmpty()) return@forEach
-            val result = source.handler.update(SignalEpochInput.create(observation, updates))
+            val continuationUpdates = continuationUpdatesBySource[source.sourceId].orEmpty()
+            if (updates.isEmpty() && continuationUpdates.isEmpty()) return@forEach
+            val result = source.handler.update(
+                SignalEpochInput.create(observation, updates, continuationUpdates)
+            )
             validateResult(source, observation, liveTrainIds, result.publications)
             validated += result.publications
             if (result.invalidatedInspectionDeclarationIds.isNotEmpty()) {
@@ -118,8 +127,40 @@ class SignalEpochRuntime(
     private class SourceState(
         val sources: List<SignalEpochSource>,
         val ownerByArea: Map<RailObjectRef, String>,
-        val occupancyEngine: RailwayAreaOccupancyEngine
+        val occupancyEngine: RailwayAreaOccupancyEngine,
+        private val ownersByContinuationEntry: Map<RailEndpointRef, Set<String>>
     ) {
+        private var previousContinuations: ActiveRailContinuationsSnapshot? = null
+
+        fun consumeContinuationUpdates(
+            current: ActiveRailContinuationsSnapshot
+        ): Map<String, List<SignalRailContinuationUpdate>> {
+            if (ownersByContinuationEntry.isEmpty()) return emptyMap()
+            val previous = previousContinuations
+            if (previous != null &&
+                previous.topologyRevision == current.topologyRevision &&
+                previous.selectionRevision == current.selectionRevision
+            ) {
+                return emptyMap()
+            }
+            val updatesBySource = linkedMapOf<String, MutableList<SignalRailContinuationUpdate>>()
+            ownersByContinuationEntry.forEach { (entry, owners) ->
+                val selectedExit = current.selectedContinuation(entry)
+                if (previous != null &&
+                    previous.topologyRevision == current.topologyRevision &&
+                    previous.selectedContinuation(entry) == selectedExit
+                ) {
+                    return@forEach
+                }
+                val update = SignalRailContinuationUpdate(entry, selectedExit)
+                owners.forEach { owner ->
+                    updatesBySource.getOrPut(owner, ::arrayListOf) += update
+                }
+            }
+            previousContinuations = current
+            return updatesBySource.mapValues { (_, updates) -> java.util.List.copyOf(updates) }
+        }
+
         companion object {
             fun create(sources: Collection<SignalEpochSource>): SourceState {
                 val ordered = java.util.List.copyOf(sources.sortedBy(SignalEpochSource::sourceId))
@@ -127,17 +168,30 @@ class SignalEpochRuntime(
                     "signal source IDs must be unique"
                 }
                 val areaOwners = linkedMapOf<RailObjectRef, String>()
+                val continuationOwners = linkedMapOf<RailEndpointRef, MutableSet<String>>()
                 ordered.forEach { source ->
                     source.areas.forEach { area ->
                         require(areaOwners.putIfAbsent(area.areaId, source.sourceId) == null) {
                             "monitored area ${area.areaId} belongs to more than one signal source"
                         }
                     }
+                    source.watchedContinuationEntries.forEach { entry ->
+                        continuationOwners.getOrPut(entry, ::sortedSetOf) += source.sourceId
+                    }
                 }
                 return SourceState(
                     ordered,
                     java.util.Map.copyOf(areaOwners),
-                    RailwayAreaOccupancyEngine.create(ordered.flatMap(SignalEpochSource::areas))
+                    RailwayAreaOccupancyEngine.create(ordered.flatMap(SignalEpochSource::areas)),
+                    java.util.Collections.unmodifiableMap(
+                        LinkedHashMap<RailEndpointRef, Set<String>>().also { copied ->
+                            continuationOwners.toSortedMap().forEach { (entry, owners) ->
+                                copied[entry] = java.util.Collections.unmodifiableSet(
+                                    LinkedHashSet(owners)
+                                )
+                            }
+                        }
+                    )
                 )
             }
         }

@@ -12,7 +12,8 @@ SimpleATO拥有一次完整physics epoch内的source路由、返回值校验、r
 Core捕获一个尚未公开的RailwayWorldFrameSnapshot
   → SignalEpochRuntime投影唯一RailwayObservation
   → 一个Basic RailwayAreaOccupancyEngine派生changed/baseline area updates
-  → 只按area owner唤醒有update的SignalEpochSource
+  → selectionRevision变化时只比较source预注册的watched continuation entries
+  → 只按area/continuation owner唤醒有update的SignalEpochSource
   → 每个source同步处理自己的完整update子集
   → host先校验全部source结果
   → 按sourceId、trainId确定顺序发布到world-local immutable snapshot store
@@ -24,12 +25,12 @@ Core捕获一个尚未公开的RailwayWorldFrameSnapshot
   → 同一个constraint manager计算本次运动
 ```
 
-第一次observation是baseline，因此每个至少拥有一个area的source都会调用一次。后续若area的occupants和crossings都不变，则该source保持IDLE；不通过每tick无条件callback查询状态。同一epoch的`ENTER`、`LEFT`保留在一次area update和一次source调用中，不进入跨epoch事件队列。
+第一次observation是baseline，因此每个至少拥有一个area或watched continuation entry的source都会调用一次。后续若area不变且`(topologyRevision, selectionRevision)`不变，continuation路径为`O(1)`并保持IDLE。selection revision变化时只比较已编译的watched entries，未实际变化的entry不唤醒source。同一epoch的`ENTER`、`LEFT`保留在一次area update和一次source调用中，不进入跨epoch事件队列。
 
 ## 公共值与callback
 
-- `SignalEpochSource(sourceId, areas, handler)`：一个已安装source snapshot中的immutable binding；`sourceId`使用与restriction相同的namespaced语法，source至少拥有一个area，area ID在整个snapshot唯一。
-- `SignalEpochInput(observation, areaUpdates)`：immutable value；updates只包含该source拥有且本epoch baseline/changed的area。
+- `SignalEpochSource(sourceId, areas, watchedContinuationEntries, handler)`：一个已安装source snapshot中的immutable binding；source至少拥有一个area或watched entry。watched entry只声明唤醒兴趣，SimpleATO不解释道岔、信号或分支含义。
+- `SignalEpochInput(observation, areaUpdates, continuationUpdates)`：immutable value；两籺updates只包含该source拥有且本epoch baseline/changed的值。`SignalRailContinuationUpdate`保留canonical entry和nullable selected exit；完整同epoch snapshot仍由`observation.activeContinuations`提供。
 - `SignalEpochResult(publications, invalidatedInspectionDeclarationIds)`：完整immutable snapshot publications与同source ID下需要
   重算的inspection声明ID；空result表示本epoch两者均无变化，不表示撤销旧限制。
 - `TrainRestrictionPublisher.publish(snapshot)`：平台无关publication seam；只有`ACCEPTED`允许epoch继续。
@@ -55,9 +56,13 @@ runtime在任何publisher调用前先收集并校验本epoch全部handler结果�
 
 runtime以空source state启动。`replaceSources`先完整复制、排序、验证source/area唯一性并建立新的`areaId → sourceId` map和Basic rail-local occupancy index；全部成功后才用一次volatile写替换state，失败保留旧state。低频配置事务使用同一编译路径的`replaceSourcesAtomically`：完整candidate先编译，随后执行调用方commit callback，callback抛错时不替换state，成功后只做已经编译好的引用写入。每个`process`开头只捕获一次state，因此并发替换不会把两个集合混入同一epoch；新state第一次消费的frame建立自己的baseline。空state不投影完整observation、不运行occupancy engine或source callback，只从Core frame读取stamp和live train ID并提交completed boundary，供controller证明自己消费的是上一成功physics epoch。
 
+同一candidate还预编译`watched entry → source IDs`反向索引并复制排序后的entry集合。source替换会丢弃旧continuation baseline，下一epoch为新source snapshot提供完整watched-entry baseline；已开始epoch仍只使用自己捕获的旧state。
+
 `TrainRestrictionSnapshotStore`是每world一个的value-only交接点，不查找、注册或保留live train/controller。一次成功publication只对应列车的concurrent-map entry内替换`sourceId`，并原子公布新的immutable per-train list；不复制其他列车的值。旧reader仍持有完整旧快照，新reader按source ID稳定顺序获得最新快照。所有publication成功后才清理离场列车并推进completed stamp。写入成本为`O(S_train log S_train)`；controller查找为`O(1)`并线性处理该列车的source数。
 
 每个epoch将Core frame投影一次并为`T`列车建立一次live-ID集合；非空source state只对Basic返回的`U`个更新做owner分组。host线性查看该epoch捕获的`S`个source以保持稳定调用顺序，但只有其中`D`个dirty source执行callback。若返回`R`个snapshot和`I`个声明invalidation，host发布阶段为`O(R log R + I)`；inspection runtime只遍历该source当前的`B`个列车binding并做hash membership，标记成本为`O(B × I)`，不调用插件规则。每个active controller再以`O(S_train)`重编译自己的source限制。整个过程不扫描所有列车×所有area、不遍历完整路线，也不重跑perception；area几何查询复杂度归Basic监测区契约。source替换的编译成本只发生在配置变化时，不进入每tick热路径。
+
+selection revision未变时continuation检查为`O(1)`；变化时比较`W`个已注册entry并只为实际变化的entry构造update，成本`O(W)`。这不扫描Core的全部turnout ports，也不把物理分支语义放入SimpleATO。
 
 `process`只由Core serialized physics coordinator调用，不并发重入；handler必须同步返回且不得调用Bukkit、阻塞I/O或把安全工作异步延后。Dispatcher只在route建立/延长时绑定冻结route与Mission progress的映射，不参与逐epoch限制执行。epoch N写入的snapshot和completed stamp由controller在epoch N+1规划运动前直接消费，因此Bukkit主线程停顿不会使旧限制继续驱动车辆。source替换可来自另一线程，但生产adapter仍须先等待当前physics epoch结束再允许插件卸载或废弃callback owner；volatile snapshot只保证epoch内一致性，不替代插件lifecycle barrier。具体插件内部可以根据B变化同步重算A；host当前不建立通用fixed-point依赖图。
 
@@ -67,6 +72,8 @@ Bukkit通过`SignalEpochSourceService`按`(plugin owner, world UUID)`安装完�
 
 - Good：B保护区同epoch产生ENTER+LEFT；拥有B的source被调用一次，在内部同步更新B及受其影响的A，然后返回完整restriction snapshot。
 - Base：baseline后所有area不变；Basic返回空batch，任何source都不调用，旧restriction仍按revision语义保留。
+- Good：某watched turnout entry的selected exit变化；只唤醒注册该entry的source，同一source的area和continuation变化仍合并为一次callback。
+- Base：其他道岔使全局selection revision前进，但所有watched entry值未变；不唤醒source。
 - Bad：handler没有返回某列车便希望清除旧限制；必须显式发布更高revision空snapshot。
 - Bad：把update放入Bukkit/event queue下一tick执行；这会跨过Core安全epoch边界。
 - Bad：source返回旧epochstamp或其他sourceId并继续发布；host必须在第一个publisher side effect前拒绝整批。

@@ -3,6 +3,7 @@ package work.art1st.javarailways.simpleato.api.signal
 import work.art1st.javarailways.basic.api.observation.RailwayAreaOccupancyUpdate
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.simpleato.api.NAMESPACED_SIMPLE_ATO_ID
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import java.util.Collections
@@ -19,27 +20,42 @@ fun interface SignalEpochHandler {
     fun update(input: SignalEpochInput): SignalEpochResult
 }
 
+/** One baselined or changed live continuation selected for a watched rail endpoint. */
+data class SignalRailContinuationUpdate(
+    val entry: RailEndpointRef,
+    val selectedExit: RailEndpointRef?
+) {
+    init {
+        require(entry != selectedExit) { "an active continuation cannot return through its entry" }
+    }
+}
+
 /**
  * Immutable input for one signal source invocation.
  *
- * [areaUpdates] contains only areas owned by that source and only values baselined or changed in
- * [observation]. The callback runs synchronously before the physics epoch may complete.
+ * [areaUpdates] and [continuationUpdates] contain only values watched by that source and only
+ * values baselined or changed in [observation]. The callback runs synchronously before the physics
+ * epoch may complete.
  *
  * @property observation coherent world observation for the current railway epoch
  * @property areaUpdates immutable baseline/changed updates owned by the invoked source
+ * @property continuationUpdates immutable baseline/changed live selections watched by the source
  */
 @ConsistentCopyVisibility
 data class SignalEpochInput private constructor(
     val observation: RailwayObservation,
-    val areaUpdates: List<RailwayAreaOccupancyUpdate>
+    val areaUpdates: List<RailwayAreaOccupancyUpdate>,
+    val continuationUpdates: List<SignalRailContinuationUpdate>
 ) {
     internal companion object {
         fun create(
             observation: RailwayObservation,
-            areaUpdates: Collection<RailwayAreaOccupancyUpdate>
+            areaUpdates: Collection<RailwayAreaOccupancyUpdate>,
+            continuationUpdates: Collection<SignalRailContinuationUpdate>
         ): SignalEpochInput = SignalEpochInput(
             observation,
-            Collections.unmodifiableList(ArrayList(areaUpdates))
+            Collections.unmodifiableList(ArrayList(areaUpdates)),
+            Collections.unmodifiableList(ArrayList(continuationUpdates))
         )
     }
 }
@@ -87,30 +103,47 @@ data class SignalEpochResult private constructor(
  * Immutable binding for one independently implemented signal-system source.
  *
  * [sourceId] uses the same stable namespaced identity as every restriction snapshot produced by
- * [handler]. [areas] are plugin-owned physical monitoring definitions; the host routes only their
+ * [handler]. [areas] are plugin-owned physical monitoring definitions and
+ * [watchedContinuationEntries] are neutral live-selection interests; the host routes only their
  * changed/baseline updates to this source and does not interpret their signal meaning. A running
  * world may replace its complete installed source set between epochs. One epoch always sees one
  * immutable source snapshot; newly installed definitions establish a fresh baseline.
  *
  * @property sourceId stable namespaced identity also used by every returned restriction snapshot
- * @property areas immutable nonempty monitored-area definitions owned by this source
- * @property handler synchronous platform-neutral callback invoked only for baseline/changed areas
+ * @property areas immutable monitored-area definitions owned by this source
+ * @property watchedContinuationEntries immutable canonical endpoints whose live selection matters
+ * @property handler synchronous callback invoked only for baselined/changed watched values
  */
 @ConsistentCopyVisibility
 data class SignalEpochSource private constructor(
     val sourceId: String,
     val areas: List<RailwayOccupancyAreaDefinition>,
+    val watchedContinuationEntries: Set<RailEndpointRef>,
     val handler: SignalEpochHandler
 ) {
     constructor(
         sourceId: String,
         areas: Collection<RailwayOccupancyAreaDefinition>,
         handler: SignalEpochHandler
-    ) : this(sourceId, Collections.unmodifiableList(ArrayList(areas)), handler)
+    ) : this(sourceId, areas, emptyList(), handler)
+
+    constructor(
+        sourceId: String,
+        areas: Collection<RailwayOccupancyAreaDefinition>,
+        watchedContinuationEntries: Collection<RailEndpointRef>,
+        handler: SignalEpochHandler
+    ) : this(
+        sourceId,
+        Collections.unmodifiableList(ArrayList(areas)),
+        Collections.unmodifiableSet(LinkedHashSet(watchedContinuationEntries.sorted())),
+        handler
+    )
 
     init {
         require(NAMESPACED_SIMPLE_ATO_ID.matches(sourceId)) { "sourceId must be namespaced" }
-        require(areas.isNotEmpty()) { "signal epoch source must own at least one monitored area" }
+        require(areas.isNotEmpty() || watchedContinuationEntries.isNotEmpty()) {
+            "signal epoch source must own a monitored area or watch a rail continuation"
+        }
         require(areas.map(RailwayOccupancyAreaDefinition::areaId).distinct().size == areas.size) {
             "signal epoch source must not contain duplicate area IDs"
         }

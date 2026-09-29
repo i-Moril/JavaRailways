@@ -256,8 +256,7 @@ section callback先建立完整occupancy candidate，再在临时signal-state ma
 state同时发布occupancy和signal snapshot。相同输出不继续传播。rule抛错或返回非法output时，对应signal变成`Unavailable(reason)`，
 其宿主安全限速为0且没有伪造model variant；任一下游unavailable会跳过consumer rule并继续传播unavailable，因此旧permissive输出
 不会在失效后留存。首次baseline必须为全部binding建立Available或Unavailable状态；未收到首个physical baseline以前仍没有signal
-snapshot。规则输出到每列车SimpleATO restriction的投影已经接通；“只有active turnout发生变化而area不变”的source唤醒仍须通过
-一次单独评审的signal-epoch触发扩展完成，不能由本runtime自行轮询。
+snapshot。规则输出到每列车SimpleATO restriction的投影已经接通。编译结果另外把实际依赖的turnout entry注册到同signal-epoch source；只有active continuation变化时，SimpleATO才以同epoch immutable snapshot唤醒source，不轮询mutable turnout或增加第二条事件队列。
 
 固定闭塞的area source与inspection source使用同一个`simplesignals:fixed-block-signals`身份。规则wave把实际变化signal映射为其
 controlled block声明ID并随`SignalEpochResult`返回；SimpleATO只在当前路线binding中标记存在的声明，下一次controller计算把当前
@@ -270,19 +269,19 @@ ATO。列车通过入口导致active集合移除该声明时，source发布新�
 
 当前production provider由`FixedBlockSignalDefinition`配置，不在Kotlin中写死灯色名称或速度表。每个定义保存稳定namespaced
 `signalId`、单调`revision`、唯一`controlledBlockId`、非负有限`inspectionLeadTimeSeconds`、一个`occupiedOutput`、至少一个
-`clearLevel`及零个或多个带距离的`downstreamSignal`引用。output只包含有限非负`speedLimitMetersPerSecond`和非空但不透明的
+`clearLevel`及零个或多个`downstreamSignal`引用。每个下游引用只另存沿途必须的turnout `entry -> selected exit`选择，不重复存完整rail traversal，也不让作者手填物理距离。output只包含有限非负`speedLimitMetersPerSecond`和非空但不透明的
 `modelVariant`。clear level按`minimumDownstreamSpeedMetersPerSecond`严格递增，第一项必须为0，从而让任意合法下游限速都有结果。
 
 world definition prepare会在publication前完成以下编译：验证signal ID与controlled block一一对应、block及downstream signal引用
-存在、每个signal内部dependency不重复，并把section/provider依赖交给既有`SectionSignalRuleRuntime`做完整DAG检查。任一引用、revision、
-阈值或cycle非法都会拒绝整份candidate，旧publication与存档不变。编译后的binding和inspection lead-time map与region/table/block
+存在、每个signal内部dependency不重复。编译器先从控制block自身的完整有向traversal提取已经确定的turnout选择，再从block出口开始沿ordinary/loop continuation单向前进；遇到多出口turnout时必须消费dependency明示声明的合法选择，直到目标signal的block入口，并从实际经过距离派生`distanceMeters`。未声明的多出口、非turnout entry、非法或未使用的选择、循环、无法到达目标，以及同一entry合并后要求不同exit，都拒绝整份candidate。这不是寻路，不猜测shortest path；它只执行作者明示给出的分支决定并验证其与exact topology一致。派生条件随后与section provider和downstream signal依赖一起交给既有`SectionSignalRuleRuntime`做完整DAG检查。任一引用、revision、阈值或cycle非法都会拒绝整份candidate，旧publication与存档不变。编译后的binding和inspection lead-time map与region/table/block
 catalog一起放入同一个immutable `SimpleSignalsRuntimePublication`；production world install直接使用这里的rule runtime，不再安装空规则。
 
-一次规则执行只做如下选择：本block有occupant时直接返回配置的`occupiedOutput`；本block空闲时取所有已发布下游signal限速的最小值，
+上述dependency存档shape属于尚未发布的开发中schema-1直接修正：当前writer只写`requiredContinuations`，strict decoder不接受旧`distanceMeters`形状，不增加runtime alias、upcaster或虚构的中间version。
+
+一次规则执行先从同epoch active-continuation snapshot中过滤出所有预编译条件均成立的下游dependency。本block有occupant时直接返回配置的`occupiedOutput`；本block空闲时取当前物理分支上已发布下游signal限速的最小值，
 再返回threshold不大于该值的最后一个clear level；没有下游依赖时把下游限速视为正无穷，选择最后一个clear level。下游
-`Unavailable`不进入这段算法，由通用runtime把当前signal也发布为`Unavailable`和0限速。该算法因此不解释`modelVariant`，也不从模型名
-反查速度。定义阶段排序、引用检查和确定性DAG编译为`O((S + D) log S)`；单个被触发signal扫描其声明的下游输出和档位表，成本为
-`O(d + l)`，整个update wave仍只与实际到达的signal/dependency/level有关，不增加world tick或`trains x signals`扫描。
+`Unavailable`不进入这段算法，由通用runtime把当前signal也发布为`Unavailable`和0限速。已配置下游但没有任何已配置路径active时也发布`Unavailable`和0限速，不得回退到“无下游”的末端放行语义。该算法因此不解释`modelVariant`，也不从模型名反查速度。设所有dependency实际经过的有向rail/continuation总数为`P`，路径编译为`O(P)`，只发生在load/authoring prepare。单个被触发signal扫描其声明的当前active下游输出、预编译条件和档位表，成本为
+`O(c + d + l)`，其中`c`是这些dependency的预编译turnout条件数；整个update wave仍只与实际到达的signal/dependency/condition/level有关，不增加world tick或`trains x signals`扫描。
 
 `inspectionLeadTimeSeconds`只声明信号需要提前多少时间准备，不改变动态制动曲线或Basic授权。SimpleATO按当前速度、ATO加速度和
 最高速度把时间换算成每列车的激活距离；即使列车当前静止，也会按可加速到达的距离提前激活。binding provider先捕获一个fixed-block

@@ -345,7 +345,7 @@ internal class SimpleSignalsWorldRuntime(
         val candidateSignals = try {
             CompiledFixedBlockSignals.compile(
                 copiedSignals,
-                candidateBlocks.snapshot(topology).blocksById.keys
+                candidateBlocks.snapshot(topology)
             )
         } catch (failure: IllegalArgumentException) {
             return@synchronized preparationRejected(

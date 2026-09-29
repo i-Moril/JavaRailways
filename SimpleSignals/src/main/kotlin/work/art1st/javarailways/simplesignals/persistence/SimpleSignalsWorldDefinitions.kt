@@ -4,6 +4,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition
@@ -13,6 +15,7 @@ import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinit
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTraversal
 import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalContinuationRequirement
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDependency
 import java.util.UUID
@@ -151,7 +154,15 @@ private data class SavedFixedBlockSignalClearLevelV1(
 @Serializable
 private data class SavedFixedBlockSignalDependencyV1(
     val signalId: String,
-    val distanceMeters: Double
+    val requiredContinuations: List<SavedFixedBlockSignalContinuationRequirementV1>
+)
+
+@Serializable
+private data class SavedFixedBlockSignalContinuationRequirementV1(
+    val entryRailId: String,
+    val entryEndpoint: RailEndpoint,
+    val selectedExitRailId: String,
+    val selectedExitEndpoint: RailEndpoint
 )
 
 /** Strict codec for the independently versioned SimpleSignals world-definition sidecar. */
@@ -260,7 +271,14 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                 signal.downstreamSignals.map { downstream ->
                     SavedFixedBlockSignalDependencyV1(
                         downstream.signalId,
-                        downstream.distanceMeters
+                        downstream.requiredContinuations.map { requirement ->
+                            SavedFixedBlockSignalContinuationRequirementV1(
+                                requirement.entry.railId.toString(),
+                                requirement.entry.endpoint,
+                                requirement.selectedExit.railId.toString(),
+                                requirement.selectedExit.endpoint
+                            )
+                        }
                     )
                 }
             )
@@ -341,7 +359,27 @@ internal object SimpleSignalsWorldDefinitionsCodec {
             )
         },
         downstreamSignals.map { downstream ->
-            FixedBlockSignalDependency(downstream.signalId, downstream.distanceMeters)
+            FixedBlockSignalDependency(
+                downstream.signalId,
+                downstream.requiredContinuations.map { requirement ->
+                    FixedBlockSignalContinuationRequirement(
+                        RailEndpointRef(
+                            parseCanonicalUuid(
+                                requirement.entryRailId,
+                                "signal $signalId continuation entry railId"
+                            ),
+                            requirement.entryEndpoint
+                        ),
+                        RailEndpointRef(
+                            parseCanonicalUuid(
+                                requirement.selectedExitRailId,
+                                "signal $signalId continuation exit railId"
+                            ),
+                            requirement.selectedExitEndpoint
+                        )
+                    )
+                }
+            )
         }
     )
 

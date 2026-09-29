@@ -86,7 +86,8 @@ internal class SectionOccupancyRuntime private constructor(
     } else {
         SignalEpochSource(
             SECTION_OCCUPANCY_SOURCE_ID,
-            bindingsByArea.entries.sortedBy { it.key.toString() }.map { it.value.area }
+            bindingsByArea.entries.sortedBy { it.key.toString() }.map { it.value.area },
+            signalRules?.watchedContinuationEntries.orEmpty()
         ) { input -> update(input) }
     }
 
@@ -130,7 +131,12 @@ internal class SectionOccupancyRuntime private constructor(
             }
         }
         val occupancy = SectionOccupancySnapshot(input.observation.stamp, observations, changed, crossings)
-        val signals = signalRules?.evaluate(previous?.signals, occupancy)
+        val signals = signalRules?.evaluate(
+            previous?.signals,
+            occupancy,
+            input.observation.activeContinuations,
+            input.continuationUpdates.map { it.entry }
+        )
         latest = PublishedState(occupancy, signals)
         return SignalEpochResult(
             emptyList(),

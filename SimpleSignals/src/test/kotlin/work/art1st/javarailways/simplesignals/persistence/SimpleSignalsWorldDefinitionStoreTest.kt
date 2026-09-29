@@ -8,10 +8,13 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalContinuationRequirement
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDependency
 import java.nio.file.Files
@@ -64,7 +67,17 @@ class SimpleSignalsWorldDefinitionStoreTest {
                     ConfiguredSignalOutput(33.0, "clear/permissive")
                 )
             ),
-            listOf(FixedBlockSignalDependency("simplesignals:next-signal", 180.0))
+            listOf(
+                FixedBlockSignalDependency(
+                    "simplesignals:next-signal",
+                    listOf(
+                        FixedBlockSignalContinuationRequirement(
+                            RailEndpointRef(ENTRY_RAIL, RailEndpoint.B),
+                            RailEndpointRef(EXIT_RAIL, RailEndpoint.A)
+                        )
+                    )
+                )
+            )
         )
         val definitions = SimpleSignalsWorldDefinitions(
             WORLD_ID,
@@ -82,6 +95,8 @@ class SimpleSignalsWorldDefinitionStoreTest {
         assertTrue(encoded.contains("\"schemaVersion\": 1"))
         assertTrue(encoded.contains("\"inspectionLeadTimeSeconds\": 12.0"))
         assertTrue(encoded.contains("\"modelVariant\": \"clear/permissive\""))
+        assertTrue(encoded.contains("\"requiredContinuations\""))
+        assertFalse(encoded.contains("\"distanceMeters\""))
     }
 
     @Test

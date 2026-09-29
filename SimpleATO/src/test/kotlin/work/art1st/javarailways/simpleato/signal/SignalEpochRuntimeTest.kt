@@ -13,6 +13,8 @@ import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
@@ -165,6 +167,99 @@ class SignalEpochRuntimeTest {
         runtime.process(frame(2L, occupied = listOf(RailInterval(railId, 0.0, 5.0))))
 
         assertEquals(1, invocations.get())
+    }
+
+    @Test
+    fun `continuation revision wakes only sources watching an actually changed entry`() {
+        val firstEntry = RailEndpointRef(railId, RailEndpoint.B)
+        val secondRail = UUID.nameUUIDFromBytes("second-watched-rail".toByteArray())
+        val secondEntry = RailEndpointRef(secondRail, RailEndpoint.B)
+        val firstExit = RailEndpointRef(secondRail, RailEndpoint.A)
+        val alternateExit = RailEndpointRef(
+            UUID.nameUUIDFromBytes("alternate-exit-rail".toByteArray()),
+            RailEndpoint.A
+        )
+        val calls = mutableListOf<Pair<String, List<Pair<RailEndpointRef, RailEndpointRef?>>>>()
+        val runtime = runtime(
+            listOf(
+                SignalEpochSource("test:first", emptyList(), listOf(firstEntry)) { input ->
+                    calls += "first" to input.continuationUpdates.map {
+                        it.entry to it.selectedExit
+                    }
+                    SignalEpochResult.empty()
+                },
+                SignalEpochSource("test:second", emptyList(), listOf(secondEntry)) { input ->
+                    calls += "second" to input.continuationUpdates.map {
+                        it.entry to it.selectedExit
+                    }
+                    SignalEpochResult.empty()
+                }
+            )
+        )
+
+        runtime.process(
+            frame(
+                1L,
+                emptyList(),
+                activeContinuations = continuations(
+                    1L,
+                    mapOf(firstEntry to firstExit, secondEntry to firstEntry)
+                )
+            )
+        )
+        assertEquals(
+            listOf(
+                "first" to listOf(firstEntry to firstExit),
+                "second" to listOf(secondEntry to firstEntry)
+            ),
+            calls
+        )
+
+        calls.clear()
+        runtime.process(
+            frame(
+                2L,
+                emptyList(),
+                activeContinuations = continuations(
+                    1L,
+                    mapOf(firstEntry to firstExit, secondEntry to firstEntry)
+                )
+            )
+        )
+        assertEquals(emptyList<Pair<String, List<Pair<RailEndpointRef, RailEndpointRef?>>>>(), calls)
+
+        runtime.process(
+            frame(
+                3L,
+                emptyList(),
+                activeContinuations = continuations(
+                    2L,
+                    mapOf(firstEntry to alternateExit, secondEntry to firstEntry)
+                )
+            )
+        )
+        assertEquals(listOf("first" to listOf(firstEntry to alternateExit)), calls)
+
+        calls.clear()
+        val unwatchedEntry = RailEndpointRef(
+            UUID.nameUUIDFromBytes("unwatched-rail".toByteArray()),
+            RailEndpoint.B
+        )
+        runtime.process(
+            frame(
+                4L,
+                emptyList(),
+                activeContinuations = continuations(
+                    3L,
+                    mapOf(
+                        firstEntry to alternateExit,
+                        secondEntry to firstEntry,
+                        unwatchedEntry to firstExit
+                    )
+                )
+            )
+        )
+        assertEquals(emptyList<Pair<String, List<Pair<RailEndpointRef, RailEndpointRef?>>>>(), calls)
     }
 
     @Test
@@ -532,7 +627,9 @@ class SignalEpochRuntimeTest {
         epoch: Long,
         occupied: List<RailInterval>,
         headTraversal: List<RailTraversalSegmentSnapshot> = emptyList(),
-        tailTraversal: List<RailTraversalSegmentSnapshot> = emptyList()
+        tailTraversal: List<RailTraversalSegmentSnapshot> = emptyList(),
+        activeContinuations: ActiveRailContinuationsSnapshot =
+            ActiveRailContinuationsSnapshot.empty(7L)
     ): RailwayWorldFrameSnapshot {
         val position = occupied.firstOrNull()?.let {
             RailPositionSnapshot(it.railId, ViewDirection.AB, it.maxArcLengthInAbMeters)
@@ -565,9 +662,18 @@ class SignalEpochRuntimeTest {
                     tailTraversal = tailTraversal
                 )
             ),
-            ActiveRailContinuationsSnapshot.empty(7L)
+            activeContinuations
         )
     }
+
+    private fun continuations(
+        selectionRevision: Long,
+        selections: Map<RailEndpointRef, RailEndpointRef>
+    ): ActiveRailContinuationsSnapshot = ActiveRailContinuationsSnapshot.create(
+        7L,
+        selectionRevision,
+        selections
+    )
 
     private fun restriction(
         sourceId: String,

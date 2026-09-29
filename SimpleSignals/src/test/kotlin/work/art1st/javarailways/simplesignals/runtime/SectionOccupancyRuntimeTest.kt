@@ -12,6 +12,9 @@ import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
@@ -23,8 +26,11 @@ import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.region.lineTopologyState
+import work.art1st.javarailways.simplesignals.region.endpoint
+import work.art1st.javarailways.simplesignals.region.topologyState
 import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalContinuationRequirement
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDependency
 import java.util.UUID
@@ -109,7 +115,7 @@ class SectionOccupancyRuntimeTest {
         val upstreamSignal = configuredSignal(
             "test:upstream-signal",
             upstreamBlock.blockId,
-            listOf(FixedBlockSignalDependency(downstreamSignal.signalId, 6.0))
+            listOf(FixedBlockSignalDependency(downstreamSignal.signalId))
         )
         val worldRuntime = SimpleSignalsWorldRuntime(worldId)
         worldRuntime.initializeDefinitions(
@@ -136,6 +142,130 @@ class SectionOccupancyRuntimeTest {
         assertEquals("private/occupied", occupied.availableOutput(downstreamSignal.signalId).modelVariant)
         assertEquals(8.0, occupied.availableOutput(upstreamSignal.signalId).speedLimitMetersPerSecond)
         assertEquals("private/approach", occupied.availableOutput(upstreamSignal.signalId).modelVariant)
+    }
+
+    @Test
+    fun `turnout-only selection change evaluates the configured physical branch`() {
+        val trunk = UUID.nameUUIDFromBytes("signal-turnout-trunk".toByteArray())
+        val firstBranch = UUID.nameUUIDFromBytes("signal-turnout-first".toByteArray())
+        val secondBranch = UUID.nameUUIDFromBytes("signal-turnout-second".toByteArray())
+        val turnoutTopology = topologyState(
+            9L,
+            listOf(trunk, firstBranch, secondBranch),
+            listOf(
+                endpoint(trunk, RailEndpoint.B) to endpoint(firstBranch, RailEndpoint.A),
+                endpoint(trunk, RailEndpoint.B) to endpoint(secondBranch, RailEndpoint.A)
+            )
+        )
+        val upstreamBlock = fixedBlock("test:turnout-upstream", trunk)
+        val firstBranchBlock = fixedBlock("test:turnout-first-block", firstBranch)
+        val secondBranchBlock = fixedBlock("test:turnout-second-block", secondBranch)
+        val firstSignal = terminalSignal(
+            "test:turnout-first-signal",
+            firstBranchBlock.blockId,
+            30.0,
+            "private/first-clear"
+        )
+        val secondSignal = terminalSignal(
+            "test:turnout-second-signal",
+            secondBranchBlock.blockId,
+            5.0,
+            "private/second-restricted"
+        )
+        val upstreamSignal = configuredSignal(
+            "test:turnout-upstream-signal",
+            upstreamBlock.blockId,
+            listOf(
+                FixedBlockSignalDependency(
+                    firstSignal.signalId,
+                    listOf(
+                        FixedBlockSignalContinuationRequirement(
+                            endpoint(trunk, RailEndpoint.B),
+                            endpoint(firstBranch, RailEndpoint.A)
+                        )
+                    )
+                ),
+                FixedBlockSignalDependency(
+                    secondSignal.signalId,
+                    listOf(
+                        FixedBlockSignalContinuationRequirement(
+                            endpoint(trunk, RailEndpoint.B),
+                            endpoint(secondBranch, RailEndpoint.A)
+                        )
+                    )
+                )
+            )
+        )
+        val worldRuntime = SimpleSignalsWorldRuntime(worldId)
+        worldRuntime.initializeDefinitions(
+            turnoutTopology,
+            SimpleSignalsWorldDefinitions(
+                worldId,
+                1L,
+                emptyList(),
+                emptyList(),
+                listOf(upstreamBlock, firstBranchBlock, secondBranchBlock),
+                listOf(upstreamSignal, firstSignal, secondSignal)
+            )
+        )
+        val occupancy = worldRuntime.initializeSectionOccupancy()
+        val source = requireNotNull(occupancy.source)
+        val watchedEntry = endpoint(trunk, RailEndpoint.B)
+        assertEquals(setOf(watchedEntry), source.watchedContinuationEntries)
+        val invalidations = arrayListOf<Pair<String, Set<String>>>()
+        val epochRuntime = epochRuntime(source, invalidations)
+
+        epochRuntime.process(
+            emptyFrame(
+                1L,
+                turnoutTopology,
+                activeContinuations(turnoutTopology, 1L, watchedEntry, endpoint(firstBranch, RailEndpoint.A))
+            )
+        )
+        assertEquals(
+            "private/open",
+            requireNotNull(occupancy.signalSnapshot())
+                .availableOutput(upstreamSignal.signalId).modelVariant
+        )
+
+        invalidations.clear()
+        epochRuntime.process(
+            emptyFrame(
+                2L,
+                turnoutTopology,
+                activeContinuations(turnoutTopology, 2L, watchedEntry, endpoint(secondBranch, RailEndpoint.A))
+            )
+        )
+        val switched = requireNotNull(occupancy.signalSnapshot())
+        assertEquals("private/approach", switched.availableOutput(upstreamSignal.signalId).modelVariant)
+        assertEquals(setOf(upstreamSignal.signalId), switched.changedSignalIds)
+        assertEquals(
+            listOf(SECTION_OCCUPANCY_SOURCE_ID to setOf(upstreamBlock.blockId)),
+            invalidations
+        )
+
+        epochRuntime.process(
+            emptyFrame(
+                3L,
+                turnoutTopology,
+                ActiveRailContinuationsSnapshot.create(
+                    turnoutTopology.revision,
+                    3L,
+                    emptyMap()
+                )
+            )
+        )
+        val missingSelection = requireNotNull(occupancy.signalSnapshot())
+        assertEquals(
+            0.0,
+            missingSelection.states.getValue(upstreamSignal.signalId)
+                .effectiveSpeedLimitMetersPerSecond
+        )
+        assertEquals(
+            "no configured downstream path is active",
+            (missingSelection.states.getValue(upstreamSignal.signalId) as
+                SectionSignalState.Unavailable).reason
+        )
     }
 
     @Test
@@ -464,6 +594,53 @@ class SectionOccupancyRuntimeTest {
             )
         ),
         downstream
+    )
+
+    private fun terminalSignal(
+        signalId: String,
+        blockId: String,
+        speedMetersPerSecond: Double,
+        modelVariant: String
+    ) = FixedBlockSignalDefinition(
+        signalId,
+        1L,
+        blockId,
+        200.0,
+        ConfiguredSignalOutput(0.0, "private/occupied"),
+        listOf(
+            FixedBlockSignalClearLevel(
+                0.0,
+                ConfiguredSignalOutput(speedMetersPerSecond, modelVariant)
+            )
+        )
+    )
+
+    private fun fixedBlock(blockId: String, blockRailId: UUID) = FixedBlockDefinition(
+        blockId,
+        1L,
+        listOf(FixedBlockTraversal(blockRailId, ViewDirection.AB, 0.0, 10.0))
+    )
+
+    private fun activeContinuations(
+        topology: TopologyState,
+        selectionRevision: Long,
+        entry: RailEndpointRef,
+        exit: RailEndpointRef
+    ) = ActiveRailContinuationsSnapshot.create(
+        topology.revision,
+        selectionRevision,
+        mapOf(entry to exit)
+    )
+
+    private fun emptyFrame(
+        epoch: Long,
+        topology: TopologyState,
+        activeContinuations: ActiveRailContinuationsSnapshot
+    ) = RailwayWorldFrameSnapshot.create(
+        epoch,
+        topology.revision,
+        emptyList(),
+        activeContinuations
     )
 
     private fun frame(

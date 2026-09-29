@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simplesignals.signal
 
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.simplesignals.region.SIMPLE_SIGNALS_NAMESPACED_ID
 
 /** One configured signal presentation and the speed limit it contributes. */
@@ -15,17 +16,33 @@ internal data class ConfiguredSignalOutput(
     }
 }
 
-/** One downstream signal whose published limit may restrict this signal. */
-internal data class FixedBlockSignalDependency(
-    val signalId: String,
-    val distanceMeters: Double
+/** One explicitly selected turnout continuation along a downstream signal path. */
+internal data class FixedBlockSignalContinuationRequirement(
+    val entry: RailEndpointRef,
+    val selectedExit: RailEndpointRef
 ) {
+    init {
+        require(entry != selectedExit) { "turnout continuation cannot return through its entry" }
+    }
+}
+
+/** One downstream signal whose published limit may restrict this signal. */
+@ConsistentCopyVisibility
+internal data class FixedBlockSignalDependency private constructor(
+    val signalId: String,
+    val requiredContinuations: List<FixedBlockSignalContinuationRequirement>
+) {
+    constructor(
+        signalId: String,
+        requiredContinuations: Collection<FixedBlockSignalContinuationRequirement> = emptyList()
+    ) : this(signalId, java.util.List.copyOf(requiredContinuations))
+
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalId)) {
             "downstream signalId must be namespaced"
         }
-        require(distanceMeters.isFinite() && distanceMeters >= 0.0) {
-            "downstream signal distance must be finite and non-negative"
+        require(requiredContinuations.map { it.entry }.distinct().size == requiredContinuations.size) {
+            "downstream signal continuation entries must be unique"
         }
     }
 }

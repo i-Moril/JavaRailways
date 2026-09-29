@@ -49,6 +49,9 @@ import work.art1st.javarailways.simplesignals.region.endpoint
 import work.art1st.javarailways.simplesignals.region.topologyState
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStore
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
+import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import java.lang.reflect.Proxy
 import java.nio.file.Files
 import java.nio.file.Path
@@ -848,6 +851,71 @@ class SimpleSignalsWorldRuntimeManagerTest {
             store.load(fixture.worldId)
         ).definitions
         assertEquals(removed.definitions, stored)
+    }
+
+    @Test
+    fun `fixed-block signal edits compile and persist with their controlled block`() {
+        val fixture = Fixture()
+        val store = store()
+        val signalSources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(
+            plugin(),
+            MutableTopologyService(fixture.currentTopology).service,
+            CapturingRoutePlanningService(),
+            store,
+            signalSources
+        )
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val block = FixedBlockDefinition(
+            "test:signal-block",
+            1L,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0))
+        )
+        val signal = FixedBlockSignalDefinition(
+            "test:signal",
+            1L,
+            block.blockId,
+            300.0,
+            ConfiguredSignalOutput(0.0, "private/occupied"),
+            listOf(
+                FixedBlockSignalClearLevel(
+                    0.0,
+                    ConfiguredSignalOutput(24.0, "private/clear")
+                )
+            )
+        )
+
+        val applied = manager.applyDefinitionPatch(
+            fixture.worldId,
+            0L,
+            SimpleSignalsDefinitionPatch(
+                upsertFixedBlocks = listOf(block),
+                upsertFixedBlockSignals = listOf(signal)
+            )
+        )
+
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, applied.status)
+        assertEquals(listOf(signal), applied.definitions?.fixedBlockSignals)
+        assertEquals(SECTION_OCCUPANCY_SOURCE_ID, signalSources.sources.getValue(fixture.worldId).single().sourceId)
+        val stored = assertInstanceOf(
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded::class.java,
+            store.load(fixture.worldId)
+        ).definitions
+        assertEquals(listOf(signal), stored.fixedBlockSignals)
+
+        val orphaned = manager.applyDefinitionPatch(
+            fixture.worldId,
+            1L,
+            SimpleSignalsDefinitionPatch(removeFixedBlockIds = listOf(block.blockId))
+        )
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED, orphaned.status)
+        assertTrue(orphaned.diagnostics.single().contains("unknown fixed block"))
+        val retained = assertInstanceOf(
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded::class.java,
+            store.load(fixture.worldId)
+        ).definitions
+        assertEquals(listOf(block), retained.fixedBlocks)
+        assertEquals(listOf(signal), retained.fixedBlockSignals)
     }
 
     @Test

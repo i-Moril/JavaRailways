@@ -28,6 +28,8 @@ import work.art1st.javarailways.simplesignals.region.ProtectionRegionInspectionS
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableCatalog
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableCatalogStatus
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
+import work.art1st.javarailways.simplesignals.signal.CompiledFixedBlockSignals
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionSource
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStore
@@ -56,7 +58,9 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
     val upsertRouteTables: List<ProtectionRouteTableDefinition>,
     val removeRouteTableIds: List<String>,
     val upsertFixedBlocks: List<FixedBlockDefinition>,
-    val removeFixedBlockIds: List<String>
+    val removeFixedBlockIds: List<String>,
+    val upsertFixedBlockSignals: List<FixedBlockSignalDefinition>,
+    val removeFixedBlockSignalIds: List<String>
 ) {
     constructor(
         upsertRegions: Collection<ProtectionRegionDefinition> = emptyList(),
@@ -64,14 +68,18 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
         upsertRouteTables: Collection<ProtectionRouteTableDefinition> = emptyList(),
         removeRouteTableIds: Collection<String> = emptyList(),
         upsertFixedBlocks: Collection<FixedBlockDefinition> = emptyList(),
-        removeFixedBlockIds: Collection<String> = emptyList()
+        removeFixedBlockIds: Collection<String> = emptyList(),
+        upsertFixedBlockSignals: Collection<FixedBlockSignalDefinition> = emptyList(),
+        removeFixedBlockSignalIds: Collection<String> = emptyList()
     ) : this(
         java.util.List.copyOf(upsertRegions),
         java.util.List.copyOf(removeRegionIds),
         java.util.List.copyOf(upsertRouteTables),
         java.util.List.copyOf(removeRouteTableIds),
         java.util.List.copyOf(upsertFixedBlocks),
-        java.util.List.copyOf(removeFixedBlockIds)
+        java.util.List.copyOf(removeFixedBlockIds),
+        java.util.List.copyOf(upsertFixedBlockSignals),
+        java.util.List.copyOf(removeFixedBlockSignalIds)
     )
 }
 
@@ -125,15 +133,16 @@ internal class SimpleSignalsRuntimePublication(
     val affectedRailIds: Set<UUID>,
     val regions: ProtectionRegionCatalog,
     val routeTables: ProtectionRouteTableCatalog,
-    val fixedBlocks: FixedBlockCatalog
+    val fixedBlocks: FixedBlockCatalog,
+    val fixedBlockSignals: CompiledFixedBlockSignals
 )
 
 /**
  * One plugin-owned runtime for one exact host world load.
  *
- * Definitions are compiled into fresh candidate catalogs and become visible through one volatile
- * publication only after both catalogs accept them. Route search reads that publication and never
- * rebuilds region or route-table state inside its callback.
+ * Definitions are compiled into fresh candidate catalogs and a concrete fixed-block rule runtime,
+ * then become visible through one volatile publication only after every candidate accepts them.
+ * Hot-path readers never rebuild definition state inside their callbacks.
  */
 internal class SimpleSignalsWorldRuntime(
     val worldId: UUID
@@ -159,7 +168,8 @@ internal class SimpleSignalsWorldRuntime(
 
     val fixedBlockInspectionSource = FixedBlockInspectionSource(
         ::fixedBlockSnapshot,
-        ::fixedBlockSignal
+        ::fixedBlockSignal,
+        ::fixedBlockInspectionDistance
     ).source
 
     val protectionRegionInspectionSource = ProtectionRegionInspectionSource(
@@ -201,17 +211,27 @@ internal class SimpleSignalsWorldRuntime(
     }
 
     /** Installs immutable fixed-block monitoring geometry exactly once for this world load. */
+    fun initializeSectionOccupancy(): SectionOccupancyRuntime =
+        initializeSectionOccupancyInternal(null)
+
     fun initializeSectionOccupancy(
         signalRuleBindings: Collection<SectionSignalRuleBinding>
+    ): SectionOccupancyRuntime = initializeSectionOccupancyInternal(signalRuleBindings)
+
+    private fun initializeSectionOccupancyInternal(
+        signalRuleBindings: Collection<SectionSignalRuleBinding>?
     ): SectionOccupancyRuntime = synchronized(lock) {
         val current = state
         check(current.sectionOccupancy == null) { "section occupancy is already initialized for world $worldId" }
-        SectionOccupancyRuntime.from(
-            checkNotNull(current.publication) {
-                "SimpleSignals definitions have not been published for world $worldId"
-            },
-            signalRuleBindings
-        ).also { state = RuntimeState(current.publication, it) }
+        val publication = checkNotNull(current.publication) {
+            "SimpleSignals definitions have not been published for world $worldId"
+        }
+        val occupancy = if (signalRuleBindings == null) {
+            SectionOccupancyRuntime.from(publication)
+        } else {
+            SectionOccupancyRuntime.from(publication, signalRuleBindings)
+        }
+        occupancy.also { state = RuntimeState(current.publication, it) }
     }
 
     fun sectionOccupancySnapshot(): SectionOccupancySnapshot? = state.sectionOccupancy?.snapshot()
@@ -223,6 +243,19 @@ internal class SimpleSignalsWorldRuntime(
             "section occupancy is not initialized for world $worldId"
         }.signalFor(SectionRef(SectionKind.FIXED_BLOCK, blockId))
 
+    private fun fixedBlockInspectionDistance(
+        blockSnapshot: FixedBlockReadSnapshot,
+        blockId: String
+    ): Double {
+        val captured = checkNotNull(state.publication) {
+            "SimpleSignals definitions have not been published for world $worldId"
+        }
+        check(captured.fixedBlocks.snapshot(captured.topology) === blockSnapshot) {
+            "fixed-block publication changed while compiling an inspection binding"
+        }
+        return captured.fixedBlockSignals.inspectionDistanceMeters(blockId)
+    }
+
     fun prepareDefinitions(
         topology: TopologyState,
         definitions: SimpleSignalsWorldDefinitions
@@ -233,12 +266,16 @@ internal class SimpleSignalsWorldRuntime(
         val copiedRegions = java.util.List.copyOf(definitions.regions.sortedBy { it.regionId })
         val copiedTables = java.util.List.copyOf(definitions.routeTables.sortedBy { it.tableId })
         val copiedBlocks = java.util.List.copyOf(definitions.fixedBlocks.sortedBy { it.blockId })
+        val copiedSignals = java.util.List.copyOf(
+            definitions.fixedBlockSignals.sortedBy { it.signalId }
+        )
         val copiedDefinitions = SimpleSignalsWorldDefinitions(
             worldId,
             definitions.definitionRevision,
             copiedRegions,
             copiedTables,
-            copiedBlocks
+            copiedBlocks,
+            copiedSignals
         )
         val current = state.publication
         if (current != null && definitions.definitionRevision < current.definitions.definitionRevision) {
@@ -261,6 +298,12 @@ internal class SimpleSignalsWorldRuntime(
             return@synchronized preparationRejected(it)
         }
         validateRetainedBlockRevisions(current?.definitions?.fixedBlocks.orEmpty(), copiedBlocks)?.let {
+            return@synchronized preparationRejected(it)
+        }
+        validateRetainedSignalRevisions(
+            current?.definitions?.fixedBlockSignals.orEmpty(),
+            copiedSignals
+        )?.let {
             return@synchronized preparationRejected(it)
         }
         if (current != null && current.topology === topology &&
@@ -293,6 +336,16 @@ internal class SimpleSignalsWorldRuntime(
         if (blockResult.status == FixedBlockCatalogStatus.REJECTED) {
             return@synchronized preparationRejected(blockResult.diagnostics.map { it.detail })
         }
+        val candidateSignals = try {
+            CompiledFixedBlockSignals.compile(
+                copiedSignals,
+                candidateBlocks.snapshot(topology).blocksById.keys
+            )
+        } catch (failure: IllegalArgumentException) {
+            return@synchronized preparationRejected(
+                failure.message ?: "fixed-block signals could not be compiled"
+            )
+        }
         validateSectionSeparation(candidateRegions, candidateBlocks, topology)?.let { diagnostic ->
             return@synchronized preparationRejected(diagnostic)
         }
@@ -309,7 +362,8 @@ internal class SimpleSignalsWorldRuntime(
             affectedRailIds,
             candidateRegions,
             candidateTables,
-            candidateBlocks
+            candidateBlocks,
+            candidateSignals
         )
         SimpleSignalsDefinitionPreparationResult.Prepared(
             SimpleSignalsPreparedDefinitions(
@@ -440,6 +494,25 @@ internal class SimpleSignalsWorldRuntime(
             }
             if (definition.revision == retained.revision && definition != retained) {
                 return "fixed block ${definition.blockId} changed without advancing revision " +
+                    definition.revision
+            }
+        }
+        return null
+    }
+
+    private fun validateRetainedSignalRevisions(
+        previous: Collection<FixedBlockSignalDefinition>,
+        candidate: Collection<FixedBlockSignalDefinition>
+    ): String? {
+        val previousById = previous.associateBy { it.signalId }
+        for (definition in candidate) {
+            val retained = previousById[definition.signalId] ?: continue
+            if (definition.revision < retained.revision) {
+                return "fixed-block signal ${definition.signalId} revision ${definition.revision} precedes " +
+                    "published revision ${retained.revision}"
+            }
+            if (definition.revision == retained.revision && definition != retained) {
+                return "fixed-block signal ${definition.signalId} changed without advancing revision " +
                     definition.revision
             }
         }
@@ -611,7 +684,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                 "SimpleSignals definitions were rejected: ${initial.diagnostics.joinToString()}"
             )
         }
-        val sectionOccupancy = runtime.initializeSectionOccupancy(emptyList())
+        val sectionOccupancy = runtime.initializeSectionOccupancy()
         try {
             signalEpochSources.replaceSources(
                 plugin,
@@ -725,7 +798,9 @@ internal class SimpleSignalsWorldRuntimeManager(
             )
         }
         val replaceSectionOccupancy =
-            candidate.fixedBlocks != current.fixedBlocks || topology !== runtime.currentTopology()
+            candidate.fixedBlocks != current.fixedBlocks ||
+                candidate.fixedBlockSignals != current.fixedBlockSignals ||
+                topology !== runtime.currentTopology()
         val prepared = when (val preparation = runtime.prepareDefinitions(topology, candidate)) {
             SimpleSignalsDefinitionPreparationResult.Unchanged -> return@synchronized authoringResult(
                 SimpleSignalsDefinitionAuthoringStatus.PATCH_REJECTED,
@@ -813,8 +888,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                 var topologyUnavailableDuringCommit = false
                 val commit = if (replaceSectionOccupancy) {
                     val candidateOccupancy = SectionOccupancyRuntime.from(
-                        prepared.candidatePublication,
-                        emptyList()
+                        prepared.candidatePublication
                     )
                     try {
                         signalEpochSources.replaceSourcesAtomically(
@@ -938,9 +1012,17 @@ internal class SimpleSignalsWorldRuntimeManager(
             current.fixedBlocks.map { it.blockId }.toSet(),
             diagnostics
         )
+        validatePatchIdentities(
+            "fixed-block signal",
+            patch.upsertFixedBlockSignals.map { it.signalId },
+            patch.removeFixedBlockSignalIds,
+            current.fixedBlockSignals.map { it.signalId }.toSet(),
+            diagnostics
+        )
         if (patch.upsertRegions.isEmpty() && patch.removeRegionIds.isEmpty() &&
             patch.upsertRouteTables.isEmpty() && patch.removeRouteTableIds.isEmpty() &&
-            patch.upsertFixedBlocks.isEmpty() && patch.removeFixedBlockIds.isEmpty()
+            patch.upsertFixedBlocks.isEmpty() && patch.removeFixedBlockIds.isEmpty() &&
+            patch.upsertFixedBlockSignals.isEmpty() && patch.removeFixedBlockSignalIds.isEmpty()
         ) {
             diagnostics += "definition patch is empty"
         }
@@ -957,16 +1039,23 @@ internal class SimpleSignalsWorldRuntimeManager(
         val fixedBlocks = current.fixedBlocks.associateByTo(linkedMapOf()) { it.blockId }
         patch.removeFixedBlockIds.forEach(fixedBlocks::remove)
         patch.upsertFixedBlocks.forEach { fixedBlocks[it.blockId] = it }
+        val fixedBlockSignals = current.fixedBlockSignals.associateByTo(linkedMapOf()) {
+            it.signalId
+        }
+        patch.removeFixedBlockSignalIds.forEach(fixedBlockSignals::remove)
+        patch.upsertFixedBlockSignals.forEach { fixedBlockSignals[it.signalId] = it }
         val candidate = SimpleSignalsWorldDefinitions(
             current.worldId,
             nextRevision,
             regions.values.sortedBy { it.regionId },
             tables.values.sortedBy { it.tableId },
-            fixedBlocks.values.sortedBy { it.blockId }
+            fixedBlocks.values.sortedBy { it.blockId },
+            fixedBlockSignals.values.sortedBy { it.signalId }
         )
         if (candidate.regions == current.regions &&
             candidate.routeTables == current.routeTables &&
-            candidate.fixedBlocks == current.fixedBlocks
+            candidate.fixedBlocks == current.fixedBlocks &&
+            candidate.fixedBlockSignals == current.fixedBlockSignals
         ) {
             return PatchApplication.Rejected(
                 listOf("definition patch does not change the current definitions")

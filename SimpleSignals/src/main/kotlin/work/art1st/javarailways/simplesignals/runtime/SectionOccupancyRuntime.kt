@@ -148,9 +148,27 @@ internal class SectionOccupancyRuntime private constructor(
     )
 
     companion object {
+        fun from(publication: SimpleSignalsRuntimePublication): SectionOccupancyRuntime =
+            from(publication, publication.fixedBlockSignals.ruleRuntime)
+
         fun from(
             publication: SimpleSignalsRuntimePublication,
             signalRuleBindings: Collection<SectionSignalRuleBinding>
+        ): SectionOccupancyRuntime = from(
+            publication,
+            signalRuleBindings.takeIf { it.isNotEmpty() }?.let { rules ->
+                SectionSignalRuleRuntime.compile(
+                    publication.fixedBlocks.snapshot(publication.topology).blocksById.keys.map {
+                        SectionRef(SectionKind.FIXED_BLOCK, it)
+                    },
+                    java.util.List.copyOf(rules)
+                )
+            }
+        )
+
+        private fun from(
+            publication: SimpleSignalsRuntimePublication,
+            signalRules: SectionSignalRuleRuntime?
         ): SectionOccupancyRuntime {
             val blockSnapshot = publication.fixedBlocks.snapshot(publication.topology)
             val bindings = linkedMapOf<RailObjectRef, Binding>()
@@ -166,12 +184,6 @@ internal class SectionOccupancyRuntime private constructor(
                 }
             }
             val copiedBindings = java.util.Map.copyOf(bindings)
-            val signalRules = signalRuleBindings.takeIf { it.isNotEmpty() }?.let { rules ->
-                SectionSignalRuleRuntime.compile(
-                    copiedBindings.values.map(Binding::section),
-                    java.util.List.copyOf(rules)
-                )
-            }
             return SectionOccupancyRuntime(copiedBindings, signalRules)
         }
     }

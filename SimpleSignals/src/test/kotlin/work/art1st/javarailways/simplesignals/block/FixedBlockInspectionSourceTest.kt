@@ -50,7 +50,12 @@ class FixedBlockInspectionSourceTest {
             RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0)
         )
 
-        val binding = FixedBlockInspectionSource(snapshot = { snapshot }).source.bindingProvider.bind(
+        val binding = FixedBlockInspectionSource(
+            snapshot = { snapshot },
+            inspectionDistanceMeters = { _, blockId ->
+                if (blockId == block.blockId) 275.0 else 0.0
+            }
+        ).source.bindingProvider.bind(
             InspectionBindingInput(stamp(), "train", route)
         )
         val declaration = binding.declarations.single()
@@ -59,6 +64,7 @@ class FixedBlockInspectionSourceTest {
         assertEquals(first, declaration.railId)
         assertEquals(ViewDirection.AB, declaration.facing)
         assertEquals(2.0, declaration.triggerRouteDistanceMeters, 1.0e-9)
+        assertEquals(275.0, declaration.inspectionDistanceMeters, 0.0)
         assertEquals(18.0, requireNotNull(declaration.minimumRequestedAuthorityEndRouteDistanceMeters), 1.0e-9)
 
         val policy = FixedBlockRouteResourcePolicy(plugin()) { snapshot }

@@ -23,6 +23,10 @@ import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.region.lineTopologyState
+import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDependency
 import java.util.UUID
 
 class SectionOccupancyRuntimeTest {
@@ -84,6 +88,54 @@ class SectionOccupancyRuntimeTest {
         assertThrows(UnsupportedOperationException::class.java) {
             (baseline.sections as MutableMap<*, *>).clear()
         }
+    }
+
+    @Test
+    fun `world definitions install concrete fixed-block rules without injected bindings`() {
+        val upstreamBlock = FixedBlockDefinition(
+            "test:upstream-block",
+            1L,
+            listOf(FixedBlockTraversal(railId, ViewDirection.AB, 0.0, 4.0))
+        )
+        val downstreamBlock = FixedBlockDefinition(
+            "test:downstream-block",
+            1L,
+            listOf(FixedBlockTraversal(railId, ViewDirection.AB, 6.0, 10.0))
+        )
+        val downstreamSignal = configuredSignal(
+            "test:downstream-signal",
+            downstreamBlock.blockId
+        )
+        val upstreamSignal = configuredSignal(
+            "test:upstream-signal",
+            upstreamBlock.blockId,
+            listOf(FixedBlockSignalDependency(downstreamSignal.signalId, 6.0))
+        )
+        val worldRuntime = SimpleSignalsWorldRuntime(worldId)
+        worldRuntime.initializeDefinitions(
+            topology,
+            SimpleSignalsWorldDefinitions(
+                worldId,
+                1L,
+                emptyList(),
+                emptyList(),
+                listOf(upstreamBlock, downstreamBlock),
+                listOf(upstreamSignal, downstreamSignal)
+            )
+        )
+        val occupancy = worldRuntime.initializeSectionOccupancy()
+        val epochRuntime = epochRuntime(requireNotNull(occupancy.source))
+
+        epochRuntime.process(frame(1L, listOf(RailInterval(railId, 4.5, 5.5))))
+        val clear = requireNotNull(occupancy.signalSnapshot())
+        assertEquals(30.0, clear.availableOutput(downstreamSignal.signalId).speedLimitMetersPerSecond)
+        assertEquals("private/open", clear.availableOutput(upstreamSignal.signalId).modelVariant)
+
+        epochRuntime.process(frame(2L, listOf(RailInterval(railId, 7.0, 8.0))))
+        val occupied = requireNotNull(occupancy.signalSnapshot())
+        assertEquals("private/occupied", occupied.availableOutput(downstreamSignal.signalId).modelVariant)
+        assertEquals(8.0, occupied.availableOutput(upstreamSignal.signalId).speedLimitMetersPerSecond)
+        assertEquals("private/approach", occupied.availableOutput(upstreamSignal.signalId).modelVariant)
     }
 
     @Test
@@ -390,6 +442,29 @@ class SectionOccupancyRuntimeTest {
 
     private fun SectionSignalSnapshot.availableOutput(signalId: String): SectionSignalOutput =
         (states.getValue(signalId) as SectionSignalState.Available).output
+
+    private fun configuredSignal(
+        signalId: String,
+        blockId: String,
+        downstream: List<FixedBlockSignalDependency> = emptyList()
+    ) = FixedBlockSignalDefinition(
+        signalId,
+        1L,
+        blockId,
+        200.0,
+        ConfiguredSignalOutput(0.0, "private/occupied"),
+        listOf(
+            FixedBlockSignalClearLevel(
+                0.0,
+                ConfiguredSignalOutput(8.0, "private/approach")
+            ),
+            FixedBlockSignalClearLevel(
+                20.0,
+                ConfiguredSignalOutput(30.0, "private/open")
+            )
+        ),
+        downstream
+    )
 
     private fun frame(
         epoch: Long,

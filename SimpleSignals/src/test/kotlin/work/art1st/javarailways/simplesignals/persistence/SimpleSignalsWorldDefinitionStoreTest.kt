@@ -10,6 +10,10 @@ import org.junit.jupiter.api.io.TempDir
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
+import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDependency
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
@@ -30,9 +34,54 @@ class SimpleSignalsWorldDefinitionStoreTest {
         assertEquals(ViewDirection.BA, roundTrip.regions.single().boundaries[1].insideFacing)
         assertEquals(3, roundTrip.routeTables.single().routes.single().traversals.size)
         assertEquals(emptyList<FixedBlockDefinition>(), roundTrip.fixedBlocks)
+        assertEquals(emptyList<FixedBlockSignalDefinition>(), roundTrip.fixedBlockSignals)
         assertTrue(encoded.contains("\"fixedBlocks\": []"))
+        assertTrue(encoded.contains("\"fixedBlockSignals\": []"))
         assertFalse(encoded.contains("interior"))
         assertFalse(encoded.contains("topologyRevision"))
+    }
+
+    @Test
+    fun `fixed-block signals round trip within schema one`() {
+        val block = FixedBlockDefinition(
+            "simplesignals:block",
+            3L,
+            listOf(FixedBlockTraversal(ENTRY_RAIL, ViewDirection.AB, 2.0, 10.0))
+        )
+        val signal = FixedBlockSignalDefinition(
+            "simplesignals:signal",
+            2L,
+            block.blockId,
+            320.0,
+            ConfiguredSignalOutput(0.0, "occupied/custom"),
+            listOf(
+                FixedBlockSignalClearLevel(
+                    0.0,
+                    ConfiguredSignalOutput(12.5, "clear/restrictive")
+                ),
+                FixedBlockSignalClearLevel(
+                    20.0,
+                    ConfiguredSignalOutput(33.0, "clear/permissive")
+                )
+            ),
+            listOf(FixedBlockSignalDependency("simplesignals:next-signal", 180.0))
+        )
+        val definitions = SimpleSignalsWorldDefinitions(
+            WORLD_ID,
+            11L,
+            emptyList(),
+            emptyList(),
+            listOf(block),
+            listOf(signal)
+        )
+
+        val encoded = SimpleSignalsWorldDefinitionsCodec.encode(definitions)
+        val decoded = SimpleSignalsWorldDefinitionsCodec.decode(encoded, WORLD_ID)
+
+        assertEquals(definitions, decoded)
+        assertTrue(encoded.contains("\"schemaVersion\": 1"))
+        assertTrue(encoded.contains("\"inspectionDistanceMeters\": 320.0"))
+        assertTrue(encoded.contains("\"modelVariant\": \"clear/permissive\""))
     }
 
     @Test

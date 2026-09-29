@@ -118,9 +118,11 @@ baseline and changed occupants plus directed ENTER/LEFT crossings in the coheren
 The plugin maps changed area IDs to immutable section observations containing the block identity,
 definition revision, compiled length and conservative occupants. Before the first baseline the
 snapshot is unknown, and an unchanged epoch does not invoke plugin code or replace the snapshot.
-Injected fixed-block rules can now map this state plus downstream outputs to an opaque model variant and speed; changed outputs invalidate only
+Fixed-block rules map this state plus downstream outputs to an opaque model variant and speed; changed outputs invalidate only
 the same source's current route declarations, whose complete active set produces route-position speed restrictions through SimpleATO's existing
-most-restrictive pipeline. Production still installs no concrete rule bindings. Protection regions join the same private read
+most-restrictive pipeline. The first production provider is configured in the world definition: occupied output is explicit, while an empty block
+chooses the highest configured clear level whose downstream-speed threshold is satisfied by the minimum published downstream limit. Speeds,
+level count and model variants remain configuration data rather than a hard-coded national vocabulary. Protection regions join the same private read
 surface only when concrete interlocking rules need them, because a branching region has no useful
 single physical length.
 

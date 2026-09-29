@@ -9,8 +9,8 @@ JavaRailways 主 JAR 的组成部分，也不能复制、shadow 或直接导入�
 当前已建立部署边界、严格current-model世界定义sidecar、保护区域领域核心、固定保护进路表和固定闭塞定义的低频编译器，
 以及把存档编译结果原子发布到实际world runtime。固定闭塞还把已编译Basic监测区接入host physics epoch，发布
 plugin-local immutable section occupancy snapshot，并以同一exact frozen-route matcher建立资源贡献与inspection authority floor；
-已建立plugin-local信号规则执行边界、灯色/限速输出快照及其列车限制投影，但尚未提供具体规则、渲染、命令或JS/YAML接口，
-不得把 foundation 描述为可用信号系统。
+已建立plugin-local信号规则执行边界、灯色/限速输出快照及其列车限制投影，并提供第一个由world definition配置的固定闭塞规则；
+尚未提供保护区域联锁规则、渲染、命令或JS/YAML接口，不得把 foundation 描述为完整可用信号系统。
 
 ## 工作方式
 
@@ -24,7 +24,7 @@ Paper 先启用 JavaRailways
   -> 缺少任一能力则 onEnable 失败，不安装部分 world state
   -> 对已经加载的world读取自己的definition primary/backup sidecar
   -> missing使用内存中的revision 0空定义，损坏则安装拒绝新寻路的fail-closed source
-  -> 取得host的exact immutable topology root并完整编译region/table/fixed-block candidate
+  -> 取得host的exact immutable topology root并完整编译region/table/fixed-block/signal candidate
   -> 编译成功后才注册一个route-planning source并发布local runtime
   -> 后续WorldLoad在host完成注册后重复上述流程；WorldUnload丢弃local runtime
 ```
@@ -49,14 +49,15 @@ unload/reload先删除local runtime，再创建新runtime与binding，不能复�
 
 每个world使用带`schemaVersion = 1`的独立文件：
 `<plugin dataFolder>/worlds/<world UUID>-definitions.json`。current document只保存`worldId`、
-`definitionRevision`、保护区域及其有向边界、固定进路表、每条进路完整的有向traversal，以及固定闭塞的完整有向traversal。
-`fixedBlocks`是schema 1的additive字段并有明确empty default，因此不升级独立sidecar版本。identity使用稳定namespaced ID与
+`definitionRevision`、保护区域及其有向边界、固定进路表、每条进路完整的有向traversal、固定闭塞的完整有向traversal，以及
+固定闭塞信号的配置输出/依赖。`fixedBlocks`和`fixedBlockSignals`都是schema 1的additive字段并有明确empty default，因此不升级
+独立sidecar版本。identity使用稳定namespaced ID与
 canonical UUID字符串；位置统一保存canonical AB metres，方向使用`ViewDirection`。派生interior、rail reverse index、occupancy
 geometry、topology revision和编译后的Basic restriction都是可丢弃缓存，禁止写入sidecar。
 
 codec固定`encodeDefaults = true`和`ignoreUnknownKeys = false`。未知字段、非version 1、非canonical UUID、文件world ID与
 加载world不符或domain invariant失败均拒绝；runtime不包含旧格式reader、upcaster或兼容分支。decode边界把DTO一次转换为
-当前`ProtectionRegionDefinition`/`ProtectionRouteTableDefinition`/`FixedBlockDefinition`，业务编译器不处理磁盘版本。
+当前`ProtectionRegionDefinition`/`ProtectionRouteTableDefinition`/`FixedBlockDefinition`/`FixedBlockSignalDefinition`，业务编译器不处理磁盘版本。
 
 读取顺序是primary再到同目录`.bak`：两者都不存在返回`Missing`；primary无效而backup有效时保留损坏primary、使用backup并
 返回可记录的candidate诊断；存在的candidate全部无效返回`Corrupted`，不能回退为空定义或覆盖原文件。写入在同目录
@@ -187,7 +188,7 @@ frozen-route dependency阻止，因此retained inspection binding不会在运行
 
 ## 定义编辑事务
 
-插件内部唯一的definition patch入口在一个事务中接受region/table/fixed-block的upsert与remove，并要求调用方提交
+插件内部唯一的definition patch入口在一个事务中接受region/table/fixed-block/fixed-block-signal的upsert与remove，并要求调用方提交
 `expectedDefinitionRevision`。空patch、整体无变化、重复操作、同ID同时upsert/remove、删除不存在对象以及revision冲突均在
 取得host permit前拒绝；成功revision严格增加1。保留的region、table和block各自也必须保持revision单调，同revision改变内容或revision
 倒退都属于validation failure。
@@ -201,7 +202,7 @@ permit取得后再次要求`currentTopology(worldId)`与prepared root是同一�
 旧primary有效性检查、temporary write与backup staging。commit在runtime lock内先复核base publication未变化，再只以同目录
 atomic rename提交primary；rename成功后执行一次volatile swap。callback返回后才轮换backup并清理staging。permit覆盖prepare与swap并在
 所有返回路径关闭。
-revision/patch/validation、host conflict/stale、persistence和world unavailable使用不同typed result；host拒绝时保留原始
+retained signal同样要求revision单调；signal引用和DAG也在取得permit前随完整candidate编译。revision/patch/validation、host conflict/stale、persistence和world unavailable使用不同typed result；host拒绝时保留原始
 `TopologyEditDecision`及blocker diagnostics。任一步失败都保留旧publication；save在替换primary前只写staging文件，替换primary
 是唯一commit point，之后backup rotation只作best-effort recovery维护，不能把已提交primary误报为失败。
 
@@ -259,7 +260,38 @@ controlled block声明ID并随`SignalEpochResult`返回；SimpleATO只在当前�
 完整active block声明集合交回`FixedBlockInspectionSource`。该source从同一原子section/signal snapshot读取每个block入口输出，生成
 入口route metre上的`RouteSpeedRestriction`；`Available`使用规则给出的任意有限非负速度，`Unavailable`使用0，`modelVariant`不进入
 ATO。列车通过入口导致active集合移除该声明时，source发布新的完整快照并清除已越过的限制。没有配置rule binding的block仍保留
-整段authority floor与资源申请，但不会凭空产生速度规则。生产安装目前仍传入空rule binding集合，因此本接线尚无具体制式策略。
+整段authority floor与资源申请，但不会凭空产生速度规则。
+
+## 具体固定闭塞规则
+
+当前production provider由`FixedBlockSignalDefinition`配置，不在Kotlin中写死灯色名称或速度表。每个定义保存稳定namespaced
+`signalId`、单调`revision`、唯一`controlledBlockId`、非负有限`inspectionDistanceMeters`、一个`occupiedOutput`、至少一个
+`clearLevel`及零个或多个带距离的`downstreamSignal`引用。output只包含有限非负`speedLimitMetersPerSecond`和非空但不透明的
+`modelVariant`。clear level按`minimumDownstreamSpeedMetersPerSecond`严格递增，第一项必须为0，从而让任意合法下游限速都有结果。
+
+world definition prepare会在publication前完成以下编译：验证signal ID与controlled block一一对应、block及downstream signal引用
+存在、每个signal内部dependency不重复，并把section/provider依赖交给既有`SectionSignalRuleRuntime`做完整DAG检查。任一引用、revision、
+阈值或cycle非法都会拒绝整份candidate，旧publication与存档不变。编译后的binding和inspection distance map与region/table/block
+catalog一起放入同一个immutable `SimpleSignalsRuntimePublication`；production world install直接使用这里的rule runtime，不再安装空规则。
+
+一次规则执行只做如下选择：本block有occupant时直接返回配置的`occupiedOutput`；本block空闲时取所有已发布下游signal限速的最小值，
+再返回threshold不大于该值的最后一个clear level；没有下游依赖时把下游限速视为正无穷，选择最后一个clear level。下游
+`Unavailable`不进入这段算法，由通用runtime把当前signal也发布为`Unavailable`和0限速。该算法因此不解释`modelVariant`，也不从模型名
+反查速度。定义阶段排序、引用检查和确定性DAG编译为`O((S + D) log S)`；单个被触发signal扫描其声明的下游输出和档位表，成本为
+`O(d + l)`，整个update wave仍只与实际到达的signal/dependency/level有关，不增加world tick或`trains x signals`扫描。
+
+`inspectionDistanceMeters`只决定SimpleATO何时激活该block声明，不改变动态制动曲线或Basic授权。binding provider先捕获一个fixed-block
+snapshot，再要求distance lookup仍属于同一个outer publication；若在线定义commit恰好切换了publication，本次binding fail-close，不能
+把旧几何与新距离拼接。signal定义的在线增删改与block几何变更一样预编译新的section runtime，并通过现有host原子source replacement
+提交；signal-only edit不创建第二套事件队列、catalog或revision token。
+
+Good case：空闲block按最严格下游限速选择配置档位，输出变化只向上游传播。Base case：没有下游的末端signal选最后一个clear level；
+没有signal定义的block仍只执行资源/authority floor。Bad case：引用不存在的block/signal、一个block两个signal、cycle或首个threshold
+非0均在load/authoring时拒绝，不把缺配置解释成许可。测试必须覆盖schema-1 empty default和round-trip、占用/下游阈值选择、末端选择、
+未知引用/cycle、一致publication读取、production安装非空binding，以及signal patch的原子保存与orphan block删除拒绝。
+
+Wrong：按`modelVariant`字符串在runtime中硬编码速度，或每tick遍历所有signal重算。Correct：定义显式提供速度和不透明模型名，低频路径
+编译依赖图，物理/下游变化只触发受影响的有向wave。
 
 ## 依赖与打包不变量
 
@@ -296,6 +328,8 @@ git diff --check
 固定闭塞测试必须覆盖多rail AB/BA、连续性与非法道岔transition、重复ID、revision/root stale、失败publication原子性、与保护区域
 正长度interior重叠拒绝但边界相接允许、reverse index、
 occupancy boundary方向/几何、schema-1 empty default/round-trip/严格非法输入，以及runtime patch/persistence/affected-rail整合。
+具体固定闭塞信号测试还必须覆盖配置输出不被runtime解释、占用优先、下游最小限速阈值选择、末端无依赖、inspection distance、
+未知block/signal引用、重复controlled block、cycle、production binding安装以及signal patch的持久化和原子source替换。
 world runtime测试还必须覆盖空启动、非空table改变Basic实际选路、candidate失败保留旧pair、topology变化到显式republish之间
 fail-close，以及同UUID reload得到新binding。持久化测试必须覆盖固定current fixture round-trip、严格未知字段/version/world ID、
 primary损坏时backup恢复、恢复后写入不以坏primary覆盖最后有效backup、双损坏保留原文件、写入backup轮转、loaded definition在

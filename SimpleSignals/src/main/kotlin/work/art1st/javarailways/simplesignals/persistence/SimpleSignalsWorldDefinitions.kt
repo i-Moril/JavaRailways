@@ -11,6 +11,10 @@ import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTraversal
+import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDependency
 import java.util.UUID
 
 /** Current in-memory definition document. Derived topology and compiled restrictions are not stored. */
@@ -20,20 +24,23 @@ internal data class SimpleSignalsWorldDefinitions private constructor(
     val definitionRevision: Long,
     val regions: List<ProtectionRegionDefinition>,
     val routeTables: List<ProtectionRouteTableDefinition>,
-    val fixedBlocks: List<FixedBlockDefinition>
+    val fixedBlocks: List<FixedBlockDefinition>,
+    val fixedBlockSignals: List<FixedBlockSignalDefinition>
 ) {
     constructor(
         worldId: UUID,
         definitionRevision: Long,
         regions: Collection<ProtectionRegionDefinition>,
         routeTables: Collection<ProtectionRouteTableDefinition>,
-        fixedBlocks: Collection<FixedBlockDefinition> = emptyList()
+        fixedBlocks: Collection<FixedBlockDefinition> = emptyList(),
+        fixedBlockSignals: Collection<FixedBlockSignalDefinition> = emptyList()
     ) : this(
         worldId,
         definitionRevision,
         java.util.List.copyOf(regions),
         java.util.List.copyOf(routeTables),
-        java.util.List.copyOf(fixedBlocks)
+        java.util.List.copyOf(fixedBlocks),
+        java.util.List.copyOf(fixedBlockSignals)
     )
 
     init {
@@ -44,6 +51,7 @@ internal data class SimpleSignalsWorldDefinitions private constructor(
         fun empty(worldId: UUID) = SimpleSignalsWorldDefinitions(
             worldId,
             0L,
+            emptyList(),
             emptyList(),
             emptyList(),
             emptyList()
@@ -58,7 +66,8 @@ private data class SimpleSignalsWorldDefinitionsFileV1(
     val definitionRevision: Long,
     val protectionRegions: List<SavedProtectionRegionV1>,
     val protectionRouteTables: List<SavedProtectionRouteTableV1>,
-    val fixedBlocks: List<SavedFixedBlockV1> = emptyList()
+    val fixedBlocks: List<SavedFixedBlockV1> = emptyList(),
+    val fixedBlockSignals: List<SavedFixedBlockSignalV1> = emptyList()
 )
 
 @Serializable
@@ -116,6 +125,35 @@ private data class SavedFixedBlockTraversalV1(
     val upperAbMeters: Double
 )
 
+@Serializable
+private data class SavedFixedBlockSignalV1(
+    val signalId: String,
+    val revision: Long,
+    val controlledBlockId: String,
+    val inspectionDistanceMeters: Double,
+    val occupiedOutput: SavedSignalOutputV1,
+    val clearLevels: List<SavedFixedBlockSignalClearLevelV1>,
+    val downstreamSignals: List<SavedFixedBlockSignalDependencyV1>
+)
+
+@Serializable
+private data class SavedSignalOutputV1(
+    val speedLimitMetersPerSecond: Double,
+    val modelVariant: String
+)
+
+@Serializable
+private data class SavedFixedBlockSignalClearLevelV1(
+    val minimumDownstreamSpeedMetersPerSecond: Double,
+    val output: SavedSignalOutputV1
+)
+
+@Serializable
+private data class SavedFixedBlockSignalDependencyV1(
+    val signalId: String,
+    val distanceMeters: Double
+)
+
 /** Strict codec for the independently versioned SimpleSignals world-definition sidecar. */
 internal object SimpleSignalsWorldDefinitionsCodec {
     const val CURRENT_FORMAT_VERSION = 1
@@ -146,7 +184,8 @@ internal object SimpleSignalsWorldDefinitionsCodec {
             file.definitionRevision,
             file.protectionRegions.map { it.restore() },
             file.protectionRouteTables.map { it.restore() },
-            file.fixedBlocks.map { it.restore() }
+            file.fixedBlocks.map { it.restore() },
+            file.fixedBlockSignals.map { it.restore() }
         )
     }
 
@@ -204,7 +243,33 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                     )
                 }
             )
+        },
+        fixedBlockSignals.map { signal ->
+            SavedFixedBlockSignalV1(
+                signal.signalId,
+                signal.revision,
+                signal.controlledBlockId,
+                signal.inspectionDistanceMeters,
+                signal.occupiedOutput.saved(),
+                signal.clearLevels.map { level ->
+                    SavedFixedBlockSignalClearLevelV1(
+                        level.minimumDownstreamSpeedMetersPerSecond,
+                        level.output.saved()
+                    )
+                },
+                signal.downstreamSignals.map { downstream ->
+                    SavedFixedBlockSignalDependencyV1(
+                        downstream.signalId,
+                        downstream.distanceMeters
+                    )
+                }
+            )
         }
+    )
+
+    private fun ConfiguredSignalOutput.saved() = SavedSignalOutputV1(
+        speedLimitMetersPerSecond,
+        modelVariant
     )
 
     private fun SavedProtectionRegionV1.restore() = ProtectionRegionDefinition(
@@ -261,6 +326,28 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                 traversal.upperAbMeters
             )
         }
+    )
+
+    private fun SavedFixedBlockSignalV1.restore() = FixedBlockSignalDefinition(
+        signalId,
+        revision,
+        controlledBlockId,
+        inspectionDistanceMeters,
+        occupiedOutput.restore(),
+        clearLevels.map { level ->
+            FixedBlockSignalClearLevel(
+                level.minimumDownstreamSpeedMetersPerSecond,
+                level.output.restore()
+            )
+        },
+        downstreamSignals.map { downstream ->
+            FixedBlockSignalDependency(downstream.signalId, downstream.distanceMeters)
+        }
+    )
+
+    private fun SavedSignalOutputV1.restore() = ConfiguredSignalOutput(
+        speedLimitMetersPerSecond,
+        modelVariant
     )
 
     private fun parseCanonicalUuid(value: String, field: String): UUID {

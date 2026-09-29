@@ -144,6 +144,10 @@ timeout、generation token、持久化或Bukkit调度，也不拥有Basic的tail
 
 车辆跟随、运营停车点、未获准进路、固定闭塞、信号限速、临时限速和线路限速都产生不可变 constraint candidates，随后由现有 ATO/ATP 控制骨架做一次最严格结果归约。MA 是该共享约束状态的输出/诊断视图，不是与 `FollowConstraint` 并行的第二套扫描器或控制器。
 
+Basic准入来源与信号插件来源进入同一个`ConstraintManager`，没有任何来源拥有“放行”特权。首次Basic grant提交前，准入client的0 m
+`MovementAuthorityRestriction`会压住插件已经发布的任意正限速；grant提交后，插件限速仍只能与该authority及其他ATO/ATP约束取最小值。
+插件snapshot若不再匹配当前world、topology或frozen route，适配器把该来源替换为零速`DepartureHoldConstraint`，不能沿用或解释为许可。
+
 每个 controlled train 在一个成功 physics epoch 中最多执行一次前方路线 perception。区间、车辆和信号插件从这次扫描及 world-level 索引读取数据；任何策略都不得为了自己的信号显示或资源判断再做一次完整路线遍历。Basic 的 grant/denial 作为候选输入，不在 SimpleATO 中复制资源冲突计算。
 
 Dispatcher 的滚动资源授权复用这次 perception 已有的距离，不维护第二个前视距离，也不重新扫描路线。首次申请的绝对边界为“冻结路线中的当前车头位置 + perception 距离”；已有 grant 时，仅当剩余授权距离降到现有 route-allocation trigger 后才计算下一边界，并截断到冻结路线末端。pending 期间不发出第二个请求。这个判断只读取路线总长、车头进度和 admission client 的 committed/pending 状态，时间与额外空间均为 `O(1)`；重试时机、拓扑变化后的重新选路和跨 mission 生命周期仍由 Dispatcher 负责。

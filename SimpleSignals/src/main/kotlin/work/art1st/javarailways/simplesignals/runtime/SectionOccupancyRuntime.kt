@@ -96,9 +96,7 @@ internal class SectionOccupancyRuntime private constructor(
 
     fun signalFor(section: SectionRef): PublishedSectionSignal? {
         val signalId = signalRules?.signalIdFor(section) ?: return null
-        val snapshot = checkNotNull(latest?.signals) {
-            "signal $signalId has not received its first physical baseline"
-        }
+        val snapshot = latest?.signals ?: return null
         return PublishedSectionSignal(snapshot.stamp, snapshot.states.getValue(signalId))
     }
 

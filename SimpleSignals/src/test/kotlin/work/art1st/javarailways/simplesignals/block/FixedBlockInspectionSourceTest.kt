@@ -21,10 +21,15 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublic
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
+import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.region.lineTopologyState
+import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntime
 import work.art1st.javarailways.simplesignals.runtime.PublishedSectionSignal
 import work.art1st.javarailways.simplesignals.runtime.SectionSignalOutput
 import work.art1st.javarailways.simplesignals.runtime.SectionSignalState
+import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import java.lang.reflect.Proxy
 import java.util.UUID
 
@@ -175,6 +180,109 @@ class FixedBlockInspectionSourceTest {
 
         runtime.update(stamp(3L), routeBinding, 3.0, 3.0, 20.0, 1.0, perception)
         assertEquals(0, publications.last().restrictions.size)
+    }
+
+    @Test
+    fun `configured signal without a published baseline applies zero speed at its entry`() {
+        val block = FixedBlockDefinition(
+            "test:signal-block",
+            1L,
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 9.0))
+        )
+        val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0))
+        val worldRuntime = SimpleSignalsWorldRuntime(worldId)
+        worldRuntime.initializeDefinitions(
+            topology,
+            SimpleSignalsWorldDefinitions(
+                worldId,
+                1L,
+                emptyList(),
+                emptyList(),
+                listOf(block),
+                listOf(
+                    FixedBlockSignalDefinition(
+                        "test:signal",
+                        1L,
+                        block.blockId,
+                        0.0,
+                        ConfiguredSignalOutput(0.0, "private/occupied"),
+                        listOf(
+                            FixedBlockSignalClearLevel(
+                                0.0,
+                                ConfiguredSignalOutput(20.0, "private/open")
+                            )
+                        ),
+                        emptyList()
+                    )
+                )
+            )
+        )
+        worldRuntime.initializeSectionOccupancy()
+        val publications = arrayListOf<TrainRestrictionSnapshot>()
+        val runtime = InspectionRuntime(
+            publisher = { publication ->
+                publications += publication
+                TrainRestrictionPublicationResult(
+                    TrainRestrictionPublicationStatus.ACCEPTED,
+                    publication.revision
+                )
+            },
+            sourceUnavailable = { _, _, failure -> throw failure }
+        )
+        runtime.replaceSources(listOf(worldRuntime.fixedBlockInspectionSource))
+        runtime.synchronizeRoute(stamp(), "train", route)
+
+        runtime.update(
+            stamp(),
+            FrozenRouteBinding.from(route),
+            0.0,
+            3.0,
+            20.0,
+            1.0,
+            perception(route)
+        )
+
+        val restriction = publications.single().restrictions.single() as RouteSpeedRestriction
+        assertEquals(block.blockId, restriction.restrictionId)
+        assertEquals(2.0, restriction.routeDistanceMeters, 0.0)
+        assertEquals(0.0, restriction.maximumSpeedMetersPerSecond, 0.0)
+    }
+
+    @Test
+    fun `block without a configured signal adds no speed restriction`() {
+        val block = FixedBlockDefinition(
+            "test:resource-only-block",
+            1L,
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 9.0))
+        )
+        val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0))
+        val publications = arrayListOf<TrainRestrictionSnapshot>()
+        val runtime = InspectionRuntime(
+            publisher = { publication ->
+                publications += publication
+                TrainRestrictionPublicationResult(
+                    TrainRestrictionPublicationStatus.ACCEPTED,
+                    publication.revision
+                )
+            },
+            sourceUnavailable = { _, _, failure -> throw failure }
+        )
+        runtime.replaceSources(
+            listOf(FixedBlockInspectionSource(snapshot = { snapshot(block) }).source)
+        )
+        runtime.synchronizeRoute(stamp(), "train", route)
+
+        runtime.update(
+            stamp(),
+            FrozenRouteBinding.from(route),
+            0.0,
+            3.0,
+            20.0,
+            1.0,
+            perception(route)
+        )
+
+        assertEquals(0, publications.single().restrictions.size)
     }
 
     private fun snapshot(block: FixedBlockDefinition): FixedBlockReadSnapshot =

@@ -17,6 +17,9 @@ internal class CompiledFixedBlockSignals private constructor(
     fun inspectionLeadTimeSeconds(blockId: String): Double =
         inspectionLeadTimeByBlockId[blockId] ?: 0.0
 
+    fun hasSignalForBlock(blockId: String): Boolean =
+        inspectionLeadTimeByBlockId.containsKey(blockId)
+
     companion object {
         fun compile(
             definitions: Collection<FixedBlockSignalDefinition>,

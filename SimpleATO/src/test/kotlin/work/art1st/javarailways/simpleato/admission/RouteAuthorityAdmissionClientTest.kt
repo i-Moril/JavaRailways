@@ -31,6 +31,7 @@ import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simpleato.api.restriction.MovementAuthorityRestriction
+import work.art1st.javarailways.simpleato.api.restriction.RouteSpeedRestriction
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
@@ -416,6 +417,49 @@ class RouteAuthorityAdmissionClientTest {
         val constraints = manager.snapshot().values.flatten()
         assertEquals(40.0, constraints.filterIsInstance<MovementAuthorityConstraint>()
             .single().remainingDistanceMeters)
+        assertEquals(0.0, manager.permittedSpeedMetersPerSecond(0.0, 30.0, AtoSafetyProfile()))
+    }
+
+    @Test
+    fun `permissive plugin output cannot widen authority before grant or after its route becomes stale`() {
+        val manager = ConstraintManager()
+        val adapter = TrainRestrictionConstraintAdapter("train", manager)
+        val integrated = client(service, adapter::publish)
+        val pendingHandle = RouteAdmissionTestFixtures.handle()
+        val committed = grant(60.0)
+        service.onRequest = { RouteAdmissionResult.Pending(pendingHandle, null) }
+        service.onProgress = { RouteAdmissionResult.Granted(committed) }
+        adapter.publish(
+            TrainRestrictionSnapshot(
+                sourceId = "simplesignals:fixed-block-signals",
+                revision = 0L,
+                trainId = "train",
+                observationStamp = stamp,
+                route = FrozenRouteBinding.from(route),
+                restrictions = listOf(RouteSpeedRestriction("simplesignals:block/main", 0.0, 8.0))
+            )
+        )
+
+        integrated.request(60.0)
+        adapter.apply(stamp, FrozenRouteBinding.from(route), 0.0)
+        assertEquals(0.0, manager.permittedSpeedMetersPerSecond(0.0, 30.0, AtoSafetyProfile()))
+
+        integrated.progress()
+        adapter.apply(stamp, FrozenRouteBinding.from(route), 0.0)
+        assertEquals(8.0, manager.permittedSpeedMetersPerSecond(0.0, 30.0, AtoSafetyProfile()))
+
+        val otherRoute = route(routeId = "simpleato:route/replanned", revision = 3L)
+        adapter.publish(
+            TrainRestrictionSnapshot(
+                sourceId = "simplesignals:fixed-block-signals",
+                revision = 1L,
+                trainId = "train",
+                observationStamp = stamp,
+                route = FrozenRouteBinding.from(otherRoute),
+                restrictions = listOf(RouteSpeedRestriction("simplesignals:block/main", 0.0, 20.0))
+            )
+        )
+        adapter.apply(stamp, FrozenRouteBinding.from(route), 0.0)
         assertEquals(0.0, manager.permittedSpeedMetersPerSecond(0.0, 30.0, AtoSafetyProfile()))
     }
 

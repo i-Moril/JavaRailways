@@ -15,6 +15,7 @@ internal const val FIXED_BLOCK_SIGNAL_SOURCE_ID = "simplesignals:fixed-block-sig
 internal class FixedBlockInspectionSource(
     private val snapshot: () -> FixedBlockReadSnapshot,
     private val signalState: (String) -> PublishedSectionSignal? = { null },
+    private val hasConfiguredSignal: (String) -> Boolean = { false },
     private val inspectionLeadTimeSeconds: (FixedBlockReadSnapshot, String) -> Double = { _, _ -> 0.0 }
 ) {
     private val nextRevision = AtomicLong(0L)
@@ -50,21 +51,25 @@ internal class FixedBlockInspectionSource(
         updateHandler = { input ->
             val revision = nextRevision.getAndUpdate { current -> Math.addExact(current, 1L) }
             val restrictions = input.activeDeclarations.mapNotNull { declaration ->
-                val published = signalState(declaration.declarationId) ?: return@mapNotNull null
-                require(published.stamp.worldId == input.observationStamp.worldId) {
-                    "fixed-block signal ${declaration.declarationId} belongs to another world"
-                }
-                require(published.stamp.topologyRevision == input.observationStamp.topologyRevision) {
-                    "fixed-block signal ${declaration.declarationId} uses stale topology"
-                }
-                require(published.stamp.physicsEpoch <= input.observationStamp.physicsEpoch) {
-                    "fixed-block signal ${declaration.declarationId} is newer than the inspection observation"
+                val published = signalState(declaration.declarationId)
+                if (published != null) {
+                    require(published.stamp.worldId == input.observationStamp.worldId) {
+                        "fixed-block signal ${declaration.declarationId} belongs to another world"
+                    }
+                    require(published.stamp.topologyRevision == input.observationStamp.topologyRevision) {
+                        "fixed-block signal ${declaration.declarationId} uses stale topology"
+                    }
+                    require(published.stamp.physicsEpoch <= input.observationStamp.physicsEpoch) {
+                        "fixed-block signal ${declaration.declarationId} is newer than the inspection observation"
+                    }
+                } else if (!hasConfiguredSignal(declaration.declarationId)) {
+                    return@mapNotNull null
                 }
                 RouteSpeedRestriction(
                     restrictionId = declaration.declarationId,
                     routeDistanceMeters = declaration.triggerRouteDistanceMeters,
                     maximumSpeedMetersPerSecond =
-                        published.state.effectiveSpeedLimitMetersPerSecond
+                        published?.state?.effectiveSpeedLimitMetersPerSecond ?: 0.0
                 )
             }
             listOf(

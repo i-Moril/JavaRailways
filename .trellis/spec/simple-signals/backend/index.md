@@ -290,13 +290,17 @@ snapshot，再要求lead-time lookup仍属于同一个outer publication；若在
 把旧几何与新时间拼接。signal定义的在线增删改与block几何变更一样预编译新的section runtime，并通过现有host原子source replacement
 提交；signal-only edit不创建第二套事件队列、catalog或revision token。
 
+编译结果另外保留“该block是否配置signal”的存在性，不能用lead time是否大于0推断，因为0秒也是合法配置。active声明读取不到已配置
+signal的首个published baseline时，inspection source在入口发布0 m/s限制；只有确实没有signal定义的resource-only block才不附加
+速度限制。已有状态仍必须匹配world/topology且不得来自未来physics epoch。这样初始缺失状态不会形成短暂许可，也不增加轮询或tick扫描。
+
 该字段仍属于未发布的开发中schema-1合同，因此当前模型直接以`inspectionLeadTimeSeconds`取代早期分支上的距离字段；不增加
 runtime兼容alias或无实际发行版本对应的中间schema。需要保留的开发服数据应在启用前通过一次性迁移修正。
 
 Good case：空闲block按最严格下游限速选择配置档位，输出变化只向上游传播。Base case：没有下游的末端signal选最后一个clear level；
-没有signal定义的block仍只执行资源/authority floor。Bad case：引用不存在的block/signal、一个block两个signal、cycle或首个threshold
+没有signal定义的block仍只执行资源/authority floor；已配置signal尚无baseline时入口限速为0。Bad case：引用不存在的block/signal、一个block两个signal、cycle或首个threshold
 非0均在load/authoring时拒绝，不把缺配置解释成许可。测试必须覆盖schema-1 empty default和round-trip、占用/下游阈值选择、末端选择、
-未知引用/cycle、一致publication读取、production安装非空binding，以及signal patch的原子保存与orphan block删除拒绝。
+未知引用/cycle、一致publication读取、配置零lead time与未配置block的区分、缺baseline的零速、production安装非空binding，以及signal patch的原子保存与orphan block删除拒绝。
 
 Wrong：按`modelVariant`字符串在runtime中硬编码速度，或每tick遍历所有signal重算。Correct：定义显式提供速度和不透明模型名，低频路径
 编译依赖图，物理/下游变化只触发受影响的有向wave。

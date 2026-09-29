@@ -59,7 +59,7 @@ Current extraction progress:
   rail/turnout/diamond physical resource and its existing atomic claim/release lifecycle.
 - [ ] Add concrete flank/approach resources when the first interlocking rule requires them; do not invent generic placeholders.
 - [x] Keep region identity non-exclusive by default; one connected four-gate region publishes two rail-disjoint route macros, Basic admits both physical footprints concurrently, and an overlapping request is denied by the actual rail/turnout footprint rather than a region token.
-- [ ] Derive permissive aspects only from a committed Basic grant and valid SimpleATO authority; missing or stale plugin state remains restrictive.
+- [x] Derive permissive aspects only from a committed Basic grant and valid SimpleATO authority. The shared constraint pipeline keeps the initial/pending Basic authority at 0 m despite permissive plugin speed, applies plugin output only as a tighter post-grant limit, fails stale route bindings closed, and distinguishes an unconfigured block from a configured signal whose missing baseline publishes 0 m/s.
 - [x] Hold each contributed fixed-block identity to its last matched exit and use the existing host cursor/release/extension lifecycle;
   do not create a plugin release queue.
 - [ ] Verify the unified owner-unregister gate rejects planned disable while plugin resources remain active and forced disable retains committed claims/dependencies while stalling only affected worlds.
@@ -136,7 +136,7 @@ Current extraction progress:
 - [x] Resource tests cover mandatory Basic physical floor, valid additions, omitted/invalid additions, disjoint paths and atomic conflict denial.
 - [ ] Fixed/moving transition tests cover whole next block versus exact post-exit boundary and sufficient train-tail clearance.
 - [ ] Reactive tests cover inspection lead-time cache invalidation, host time-to-distance and braking calculations, affected-only dependency propagation and idle unchanged state.
-- [ ] Constraint tests prove plugin output only tightens authority/speed and stale/exceptional state fails restrictive.
+- [x] Constraint tests prove plugin output only tightens authority/speed and stale/exceptional state fails restrictive.
 - [ ] Lifecycle tests cover enable/disable, missing capability, world unload/reload, live-grant recovery and rendering cleanup.
 - [ ] Persistence tests use fixed current-model fixtures plus corruption/orphan cases. Add a legacy fixture only for a separately approved sidecar migration support window.
 - [ ] Timetable tests cover audit diagnostics, atomic applied-plan dependency apply/replace, draining and edit blocking without treating dependencies as train claims.

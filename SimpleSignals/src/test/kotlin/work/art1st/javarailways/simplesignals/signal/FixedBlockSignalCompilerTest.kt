@@ -1,9 +1,22 @@
 package work.art1st.javarailways.simplesignals.signal
 
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class FixedBlockSignalCompilerTest {
+    @Test
+    fun `configured zero lead time remains distinct from an unconfigured block`() {
+        val compiled = CompiledFixedBlockSignals.compile(
+            listOf(definition("test:signal", "test:configured-block", inspectionLeadTime = 0.0)),
+            listOf("test:configured-block", "test:resource-only-block")
+        )
+
+        assertTrue(compiled.hasSignalForBlock("test:configured-block"))
+        assertFalse(compiled.hasSignalForBlock("test:resource-only-block"))
+    }
+
     @Test
     fun `definition rejects incomplete clear tables and invalid inspection lead time`() {
         assertThrows(IllegalArgumentException::class.java) {
@@ -89,12 +102,13 @@ class FixedBlockSignalCompilerTest {
     private fun definition(
         signalId: String,
         blockId: String,
-        downstream: List<FixedBlockSignalDependency> = emptyList()
+        downstream: List<FixedBlockSignalDependency> = emptyList(),
+        inspectionLeadTime: Double = 450.0
     ) = FixedBlockSignalDefinition(
         signalId,
         1L,
         blockId,
-        450.0,
+        inspectionLeadTime,
         ConfiguredSignalOutput(0.0, "occupied/private"),
         listOf(
             FixedBlockSignalClearLevel(

@@ -185,13 +185,14 @@ region为`[5m, 25m]`，当前冻结路线上的block为`[25m, 30m]`。trigger为
 - route在region内部结束时binding失败；
 - 空region/block publication产生空binding；
 - 唯一直接block把floor从region exit抬到block exit；
-- 同点冲突block definitions使binding失败。
-
-继续扩展本合同前应补充：
-
+- 同点冲突block definitions使binding失败；
 - entry差值恰在`Curve.TOLERANCE`内时匹配，超过容差时保持region exit；
 - reverse route上的直接fixed-block successor；
 - topology root或definition revision不一致时无部分声明；
+- plugin内整合测试证明inspection扩大的边界会让既有fixed-block contributor产出对应block token。
+
+继续扩展本合同前应补充：
+
 - 集成测试证明扩大后的同一次Basic admission同时包含物理footprint与block token，任一冲突不发布更远grant。
 
 ## 10. 迁移、未决事项与 Wrong / Correct

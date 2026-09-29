@@ -1,24 +1,34 @@
 package work.art1st.javarailways.simplesignals.region
 
+import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.RouteBoundary
+import work.art1st.javarailways.basic.api.route.RouteResourceIntent
+import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simpleato.api.inspection.InspectionBindingInput
+import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
+import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_RESOURCE_TYPE
 import work.art1st.javarailways.simplesignals.block.FixedBlockCatalog
 import work.art1st.javarailways.simplesignals.block.FixedBlockCatalogStatus
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
+import work.art1st.javarailways.simplesignals.block.FixedBlockRouteResourcePolicy
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
+import java.lang.reflect.Proxy
 import java.util.UUID
 
 class ProtectionRegionInspectionSourceTest {
@@ -59,16 +69,7 @@ class ProtectionRegionInspectionSourceTest {
             0.0
         )
 
-        val runtime = InspectionRuntime(
-            publisher = { publication ->
-                TrainRestrictionPublicationResult(
-                    TrainRestrictionPublicationStatus.ACCEPTED,
-                    publication.revision
-                )
-            },
-            sourceUnavailable = { _, _, failure -> throw failure }
-        )
-        runtime.replaceSources(listOf(source))
+        val runtime = inspectionRuntime(source)
         runtime.synchronizeRoute(stamp, "train", route)
         val frozen = FrozenRouteBinding.from(route)
 
@@ -134,7 +135,170 @@ class ProtectionRegionInspectionSourceTest {
     }
 
     @Test
-    fun `multiple fixed blocks beginning at the region exit reject an ambiguous binding`() {
+    fun `successor matching uses route tolerance without crossing a real gap`() {
+        val withinTolerance = FixedBlockDefinition(
+            "test:block/within-tolerance",
+            1L,
+            listOf(
+                FixedBlockTraversal(
+                    east,
+                    ViewDirection.AB,
+                    5.0 + Curve.TOLERANCE,
+                    10.0
+                )
+            )
+        )
+        val beyondTolerance = FixedBlockDefinition(
+            "test:block/beyond-tolerance",
+            1L,
+            listOf(
+                FixedBlockTraversal(
+                    east,
+                    ViewDirection.AB,
+                    5.0 + Curve.TOLERANCE * 2.0,
+                    10.0
+                )
+            )
+        )
+
+        val matched = source(listOf(withinTolerance)).bindingProvider.bind(
+            InspectionBindingInput(stamp, "train", forwardRoute())
+        ).declarations.single()
+        val separated = source(listOf(beyondTolerance)).bindingProvider.bind(
+            InspectionBindingInput(stamp, "train", forwardRoute())
+        ).declarations.single()
+
+        assertEquals(
+            30.0,
+            requireNotNull(matched.minimumRequestedAuthorityEndRouteDistanceMeters),
+            0.0
+        )
+        assertEquals(
+            25.0,
+            requireNotNull(separated.minimumRequestedAuthorityEndRouteDistanceMeters),
+            0.0
+        )
+    }
+
+    @Test
+    fun `reverse route extends through the fixed block after the reversed region exit`() {
+        val reverseRoute = RouteSnapshot(
+            "test:route/reverse-successor",
+            1L,
+            topology.revision,
+            listOf(
+                segment(east, ViewDirection.BA, 0.0, 10.0),
+                segment(middle, ViewDirection.BA, 0.0, 10.0),
+                segment(west, ViewDirection.BA, 0.0, 10.0)
+            )
+        )
+        val reverseBlock = FixedBlockDefinition(
+            "test:block/west-reverse",
+            1L,
+            listOf(FixedBlockTraversal(west, ViewDirection.BA, 0.0, 5.0))
+        )
+
+        val declaration = source(listOf(reverseBlock)).bindingProvider.bind(
+            InspectionBindingInput(stamp, "train", reverseRoute)
+        ).declarations.single()
+
+        assertEquals(east, declaration.railId)
+        assertEquals(ViewDirection.BA, declaration.facing)
+        assertEquals(5.0, declaration.triggerRouteDistanceMeters, 0.0)
+        assertEquals(
+            30.0,
+            requireNotNull(declaration.minimumRequestedAuthorityEndRouteDistanceMeters),
+            0.0
+        )
+    }
+
+    @Test
+    fun `region and block snapshots must share one topology root and definition revision`() {
+        val sameValueTopology = topologyState(
+            revision = topology.revision,
+            railIds = listOf(west, middle, east, branchWest, branchEast),
+            connections = listOf(
+                endpoint(west, RailEndpoint.B) to endpoint(middle, RailEndpoint.A),
+                endpoint(west, RailEndpoint.B) to endpoint(branchWest, RailEndpoint.A),
+                endpoint(middle, RailEndpoint.B) to endpoint(east, RailEndpoint.A),
+                endpoint(middle, RailEndpoint.B) to endpoint(branchEast, RailEndpoint.A)
+            )
+        )
+        val capturedRegions = regionSnapshot()
+        val otherRootBlocks = fixedBlockCatalog(3L, emptyList(), sameValueTopology)
+        val otherRevisionBlocks = fixedBlockCatalog(4L, emptyList())
+
+        val topologyFailure = assertThrows(IllegalStateException::class.java) {
+            ProtectionRegionInspectionSource(
+                { capturedRegions },
+                { otherRootBlocks.snapshot(sameValueTopology) }
+            ).source.bindingProvider.bind(InspectionBindingInput(stamp, "train", forwardRoute()))
+        }
+        val revisionFailure = assertThrows(IllegalStateException::class.java) {
+            ProtectionRegionInspectionSource(
+                { capturedRegions },
+                { otherRevisionBlocks.snapshot(topology) }
+            ).source.bindingProvider.bind(InspectionBindingInput(stamp, "train", forwardRoute()))
+        }
+
+        assertEquals(
+            "protection regions and fixed blocks were captured from different topology roots",
+            topologyFailure.message
+        )
+        assertEquals(
+            "protection regions and fixed blocks were captured from different definition revisions",
+            revisionFailure.message
+        )
+    }
+
+    @Test
+    fun `expanded region boundary feeds the existing fixed-block resource contributor`() {
+        val worldId = UUID.randomUUID()
+        val route = forwardRoute()
+        val block = FixedBlockDefinition(
+            "test:block/east-resource",
+            1L,
+            listOf(FixedBlockTraversal(east, ViewDirection.AB, 5.0, 10.0))
+        )
+        val blockSnapshot = fixedBlockCatalog(3L, listOf(block)).snapshot(topology)
+        val source = ProtectionRegionInspectionSource(
+            { regionSnapshot() },
+            { blockSnapshot }
+        ).source
+        val runtime = inspectionRuntime(source)
+        val worldStamp = RailwayStateStamp(worldId.toString(), 1L, topology.revision)
+        runtime.synchronizeRoute(worldStamp, "train", route)
+        val adjusted = runtime.adjustRequestedAuthorityBoundary(
+            "train",
+            FrozenRouteBinding.from(route),
+            RouteBoundary(5.1)
+        )
+        val policy = FixedBlockRouteResourcePolicy(plugin("SimpleSignals")) { candidateWorld ->
+            blockSnapshot.takeIf { candidateWorld == worldId }
+        }
+
+        val contribution = policy.contribute(
+            worldId,
+            RouteResourceIntent(
+                "test:region-block-request",
+                InfrastructureOwner("test:train", 1L),
+                "train",
+                worldStamp,
+                route,
+                adjusted
+            )
+        ).single()
+
+        assertEquals(RouteBoundary(30.0), adjusted)
+        assertEquals(
+            StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId),
+            contribution.resource
+        )
+        assertEquals(RouteBoundary(30.0), contribution.releaseAfterTailPasses)
+    }
+
+    @Test
+    fun `multiple fixed blocks beginning at the region exit reject conflicting definitions`() {
         val first = FixedBlockDefinition(
             "test:block/east-one",
             1L,
@@ -193,26 +357,55 @@ class ProtectionRegionInspectionSourceTest {
 
     private fun source(blocks: Collection<FixedBlockDefinition> = emptyList()) =
         ProtectionRegionInspectionSource(
-            {
-                val catalog = ProtectionRegionCatalog()
-                assertEquals(
-                    ProtectionRegionCatalogStatus.PUBLISHED,
-                    catalog.publish(topology, 3L, listOf(region())).status
-                )
-                requireNotNull(catalog.compilationSnapshot())
-            },
+            { regionSnapshot() },
             { fixedBlockCatalog(3L, blocks).snapshot(topology) }
         ).source
 
+    private fun regionSnapshot(
+        definitionRevision: Long = 3L,
+        topologyState: TopologyState = topology
+    ): ProtectionRegionCompilationSnapshot {
+        val catalog = ProtectionRegionCatalog()
+        assertEquals(
+            ProtectionRegionCatalogStatus.PUBLISHED,
+            catalog.publish(topologyState, definitionRevision, listOf(region())).status
+        )
+        return requireNotNull(catalog.compilationSnapshot())
+    }
+
     private fun fixedBlockCatalog(
         definitionRevision: Long,
-        blocks: Collection<FixedBlockDefinition>
+        blocks: Collection<FixedBlockDefinition>,
+        topologyState: TopologyState = topology
     ) = FixedBlockCatalog().also { catalog ->
         assertEquals(
             FixedBlockCatalogStatus.PUBLISHED,
-            catalog.publish(topology, definitionRevision, blocks).status
+            catalog.publish(topologyState, definitionRevision, blocks).status
         )
     }
+
+    private fun inspectionRuntime(source: InspectionSource) = InspectionRuntime(
+        publisher = { publication ->
+            TrainRestrictionPublicationResult(
+                TrainRestrictionPublicationStatus.ACCEPTED,
+                publication.revision
+            )
+        },
+        sourceUnavailable = { _, _, failure -> throw failure }
+    ).also { it.replaceSources(listOf(source)) }
+
+    private fun plugin(name: String): Plugin = Plugin::class.java.cast(
+        Proxy.newProxyInstance(Plugin::class.java.classLoader, arrayOf(Plugin::class.java)) {
+                proxy, method, arguments ->
+            when (method.name) {
+                "isEnabled" -> true
+                "getName", "toString" -> name
+                "hashCode" -> System.identityHashCode(proxy)
+                "equals" -> proxy === arguments?.singleOrNull()
+                else -> throw UnsupportedOperationException(method.name)
+            }
+        }
+    )
 
     private fun forwardRoute() = RouteSnapshot(
         "test:route/forward",

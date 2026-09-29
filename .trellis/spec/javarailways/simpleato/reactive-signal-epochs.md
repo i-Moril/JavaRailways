@@ -4,7 +4,7 @@
 
 状态：`CURRENT`的平台无关运行时及Bukkit source注册接缝。触发：修改`SignalEpochSource`、`SignalEpochRuntime`、监测区变化到restriction publication的数据流，或Core railway epoch composition。
 
-SimpleATO拥有一次完整physics epoch内的source路由、返回值校验、restriction发布及到controller的production传递。具体信号插件拥有固定闭塞、保护区域、联锁、下游依赖传播和aspect规则；Basic只派生监测区物理变化；Core只提供同步epoch边界。本契约包含运行期完整source集合的原子替换以及Bukkit对外注册/禁用生命周期，但不包含显示、inspection-distance缓存或通用依赖图。
+SimpleATO拥有一次完整physics epoch内的source路由、返回值校验、restriction发布及到controller的production传递。具体信号插件拥有固定闭塞、保护区域、联锁、下游依赖传播和aspect规则；Basic只派生监测区物理变化；Core只提供同步epoch边界。本契约包含运行期完整source集合的原子替换以及Bukkit对外注册/禁用生命周期，但不包含显示、inspection lead-time缓存或通用依赖图。
 
 ## 正常主流程
 
@@ -81,7 +81,7 @@ Bukkit通过`SignalEpochSourceService`按`(plugin owner, world UUID)`安装完�
 - inspection invalidation在完整结果校验后按source顺序发布，且只唤醒同source当前binding中的声明；
 - source/input/result collection defensive copy。
 
-尚未完成：具体插件的信号依赖传播、制式策略和呈现。Host inspection-distance声明编译、缓存与激活调度已在Stage 1完成。
+尚未完成：具体插件的信号依赖传播、制式策略和呈现。Host inspection lead-time声明编译、缓存与激活调度已在Stage 1完成。
 Immutable revisioned presentation、per-object latest-only Bukkit/Folia dispatch与具体模型应用均由具体信号插件负责；
 `SimpleATOBukkit`只适配SimpleATO自身的平台功能，Stage 1也不为尚无消费者的需求增加临时presentation API。
 出现真实跨插件平台需求后才能单独评审host public service。上述Stage 2具体策略和呈现工作完成前，不得声称完整信号系统已经生产可用。

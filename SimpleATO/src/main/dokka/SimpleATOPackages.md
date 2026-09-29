@@ -33,7 +33,7 @@ SimpleATO拥有的Depot/StablingPoint、RollingStockRecord、occupancy/reservati
 
 # Package work.art1st.javarailways.simpleato.api.inspection
 
-外部信号系统注册不可变`InspectionSource`；host在选定production route后把exact train/`RouteSnapshot`交给binding provider，插件返回该路线的完整资源检查声明，不自行猜测路线。每份新binding先执行一次完整snapshot baseline；此后只有完整active声明集合变化或其中声明dirty时才调用，且每次向插件提供完整active集合。声明包含稳定身份、具体轨道/方向、路线内触发位置和提前检查距离；当前速度、动态制动距离、激活状态和共享perception由SimpleATO运行时负责。
+外部信号系统注册不可变`InspectionSource`；host在选定production route后把exact train/`RouteSnapshot`交给binding provider，插件返回该路线的完整资源检查声明，不自行猜测路线。每份新binding先执行一次完整snapshot baseline；此后只有完整active声明集合变化或其中声明dirty时才调用，且每次向插件提供完整active集合。声明包含稳定身份、具体轨道/方向、路线内触发位置和提前检查时间；SimpleATO按当前速度、加速度与最高速度换算激活距离，并负责动态制动距离、激活状态和共享perception。
 
 # Package work.art1st.javarailways.simpleato.api.restriction
 

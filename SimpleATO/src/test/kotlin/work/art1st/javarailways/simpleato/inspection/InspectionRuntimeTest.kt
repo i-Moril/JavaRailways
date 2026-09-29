@@ -68,7 +68,7 @@ class InspectionRuntimeTest {
             inputs
         )
         assertEquals(listOf(1L, 2L, 3L), publications.map(TrainRestrictionSnapshot::revision))
-        assertEquals(80.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(80.0, runtime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
     }
 
     @Test
@@ -87,7 +87,7 @@ class InspectionRuntimeTest {
         }
 
         assertEquals(false, runtime.hasBindings("train"))
-        assertEquals(0.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(0.0, runtime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
     }
 
     @Test
@@ -238,7 +238,7 @@ class InspectionRuntimeTest {
 
         assertEquals(route, receivedRoute)
         assertEquals(80.0, maximum, 0.0)
-        assertEquals(80.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(80.0, runtime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
     }
 
     @Test
@@ -278,7 +278,7 @@ class InspectionRuntimeTest {
         }
         runtime.synchronizeRoute(stamp, "train", route)
 
-        assertEquals(80.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(80.0, runtime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
     }
 
     @Test
@@ -310,7 +310,7 @@ class InspectionRuntimeTest {
             runtime.replaceSources(listOf(source))
         }
 
-        assertEquals(0.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(0.0, runtime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
         assertEquals(1, unavailable.size)
         assertTrue(unavailable.single().contains("before another physics epoch"))
     }
@@ -328,7 +328,7 @@ class InspectionRuntimeTest {
             runtime.replaceSources(emptyList())
         }
 
-        assertEquals(80.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(80.0, runtime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
         assertEquals(1, unavailable.size)
     }
 
@@ -342,7 +342,7 @@ class InspectionRuntimeTest {
 
         runtime.retainTrains(emptySet())
 
-        assertEquals(0.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(0.0, runtime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
         assertEquals(false, runtime.hasBindings("train"))
     }
 
@@ -367,6 +367,22 @@ class InspectionRuntimeTest {
         runtime.replaceSources(listOf(source(binding, handler)))
         runtime.synchronizeRoute(stamp, binding.trainId, route)
     }
+
+    private fun InspectionRuntime.update(
+        observationStamp: RailwayStateStamp,
+        currentRoute: FrozenRouteBinding,
+        routeProgressMeters: Double,
+        dynamicLookaheadMeters: Double,
+        perception: PerceptionSnapshot
+    ) = update(
+        observationStamp,
+        currentRoute,
+        routeProgressMeters,
+        dynamicLookaheadMeters,
+        maximumSpeedMetersPerSecond = 20.0,
+        accelerationMetersPerSecondSquared = 1.0,
+        perception
+    )
 
     private fun source(
         binding: InspectionDeclarationBinding,

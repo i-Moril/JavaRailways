@@ -10,12 +10,12 @@ import work.art1st.javarailways.simplesignals.runtime.SectionSignalRuleRuntime
 /** Immutable concrete rule set compiled together with one world-definition publication. */
 internal class CompiledFixedBlockSignals private constructor(
     val ruleRuntime: SectionSignalRuleRuntime?,
-    inspectionDistanceByBlockId: Map<String, Double>
+    inspectionLeadTimeByBlockId: Map<String, Double>
 ) {
-    private val inspectionDistanceByBlockId = java.util.Map.copyOf(inspectionDistanceByBlockId)
+    private val inspectionLeadTimeByBlockId = java.util.Map.copyOf(inspectionLeadTimeByBlockId)
 
-    fun inspectionDistanceMeters(blockId: String): Double =
-        inspectionDistanceByBlockId[blockId] ?: 0.0
+    fun inspectionLeadTimeSeconds(blockId: String): Double =
+        inspectionLeadTimeByBlockId[blockId] ?: 0.0
 
     companion object {
         fun compile(
@@ -62,7 +62,7 @@ internal class CompiledFixedBlockSignals private constructor(
             return CompiledFixedBlockSignals(
                 runtime,
                 copiedDefinitions.associate {
-                    it.controlledBlockId to it.inspectionDistanceMeters
+                    it.controlledBlockId to it.inspectionLeadTimeSeconds
                 }
             )
         }

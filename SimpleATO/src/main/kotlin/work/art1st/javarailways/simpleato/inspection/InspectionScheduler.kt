@@ -11,7 +11,7 @@ import kotlin.math.max
 /** Validated immutable declarations for one exact train and frozen route binding. */
 internal class CompiledInspectionBinding private constructor(
     val binding: InspectionDeclarationBinding,
-    val maximumDeclaredInspectionDistanceMeters: Double,
+    val maximumDeclaredInspectionLeadTimeSeconds: Double,
     val authorityRequestFloors: List<AuthorityRequestFloor>,
     private val declarationsByTriggerDistance: List<InspectionDeclaration>,
     private val declarationIds: Set<String>
@@ -79,7 +79,7 @@ internal class CompiledInspectionBinding private constructor(
 
             return CompiledInspectionBinding(
                 binding,
-                binding.declarations.maxOfOrNull(InspectionDeclaration::inspectionDistanceMeters) ?: 0.0,
+                binding.declarations.maxOfOrNull(InspectionDeclaration::inspectionLeadTimeSeconds) ?: 0.0,
                 java.util.List.copyOf(binding.declarations.mapNotNull { declaration ->
                     declaration.minimumRequestedAuthorityEndRouteDistanceMeters?.let { requestEnd ->
                         AuthorityRequestFloor(
@@ -154,8 +154,8 @@ internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
     private val dirtyDeclarationIds = hashSetOf<String>()
     private var retryPending = false
 
-    val maximumDeclaredInspectionDistanceMeters: Double
-        get() = binding.maximumDeclaredInspectionDistanceMeters
+    val maximumDeclaredInspectionLeadTimeSeconds: Double
+        get() = binding.maximumDeclaredInspectionLeadTimeSeconds
 
     fun replaceBinding(replacement: CompiledInspectionBinding) {
         binding = replacement
@@ -176,7 +176,10 @@ internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
 
     fun updatesFor(
         currentHeadRouteDistanceMeters: Double,
-        dynamicLookaheadMeters: Double
+        dynamicLookaheadMeters: Double,
+        currentSpeedMetersPerSecond: Double,
+        maximumSpeedMetersPerSecond: Double,
+        accelerationMetersPerSecondSquared: Double
     ): List<InspectionDeclaration>? {
         require(currentHeadRouteDistanceMeters.isFinite() &&
             currentHeadRouteDistanceMeters >= 0.0 &&
@@ -185,7 +188,15 @@ internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
         require(dynamicLookaheadMeters.isFinite() && dynamicLookaheadMeters >= 0.0) {
             "dynamicLookaheadMeters must be finite and non-negative"
         }
-        val maximumActivationDistance = max(maximumDeclaredInspectionDistanceMeters, dynamicLookaheadMeters)
+        val maximumActivationDistance = max(
+            reachableDistanceMeters(
+                currentSpeedMetersPerSecond,
+                maximumSpeedMetersPerSecond,
+                accelerationMetersPerSecondSquared,
+                maximumDeclaredInspectionLeadTimeSeconds
+            ),
+            dynamicLookaheadMeters
+        )
         val visibleEndRouteDistance = minOf(
             binding.binding.route.totalLengthMeters,
             currentHeadRouteDistanceMeters + maximumActivationDistance
@@ -194,7 +205,15 @@ internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
         binding.declarationsBetween(currentHeadRouteDistanceMeters, visibleEndRouteDistance)
             .forEach { declaration ->
                 val distance = declaration.triggerRouteDistanceMeters - currentHeadRouteDistanceMeters
-                val threshold = max(declaration.inspectionDistanceMeters, dynamicLookaheadMeters)
+                val threshold = max(
+                    reachableDistanceMeters(
+                        currentSpeedMetersPerSecond,
+                        maximumSpeedMetersPerSecond,
+                        accelerationMetersPerSecondSquared,
+                        declaration.inspectionLeadTimeSeconds
+                    ),
+                    dynamicLookaheadMeters
+                )
                 if (distance <= threshold) {
                     visible[declaration.declarationId] = declaration
                 }
@@ -210,6 +229,40 @@ internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
         retryPending = false
         return if (shouldUpdate) visible.values.toList() else null
     }
+}
+
+/** Conservative forward distance reachable within one signal preparation interval. */
+internal fun reachableDistanceMeters(
+    currentSpeedMetersPerSecond: Double,
+    maximumSpeedMetersPerSecond: Double,
+    accelerationMetersPerSecondSquared: Double,
+    leadTimeSeconds: Double
+): Double {
+    require(currentSpeedMetersPerSecond.isFinite() && currentSpeedMetersPerSecond >= 0.0) {
+        "currentSpeedMetersPerSecond must be finite and non-negative"
+    }
+    require(maximumSpeedMetersPerSecond.isFinite() && maximumSpeedMetersPerSecond >= 0.0) {
+        "maximumSpeedMetersPerSecond must be finite and non-negative"
+    }
+    require(accelerationMetersPerSecondSquared.isFinite() && accelerationMetersPerSecondSquared > 0.0) {
+        "accelerationMetersPerSecondSquared must be finite and positive"
+    }
+    require(leadTimeSeconds.isFinite() && leadTimeSeconds >= 0.0) {
+        "leadTimeSeconds must be finite and non-negative"
+    }
+    val speedCeiling = max(currentSpeedMetersPerSecond, maximumSpeedMetersPerSecond)
+    val accelerationSeconds = (speedCeiling - currentSpeedMetersPerSecond) /
+        accelerationMetersPerSecondSquared
+    val distance = if (leadTimeSeconds <= accelerationSeconds) {
+        currentSpeedMetersPerSecond * leadTimeSeconds +
+            0.5 * accelerationMetersPerSecondSquared * leadTimeSeconds * leadTimeSeconds
+    } else {
+        val accelerationDistance = currentSpeedMetersPerSecond * accelerationSeconds +
+            0.5 * accelerationMetersPerSecondSquared * accelerationSeconds * accelerationSeconds
+        accelerationDistance + speedCeiling * (leadTimeSeconds - accelerationSeconds)
+    }
+    require(distance.isFinite()) { "inspection lead-time distance must be finite" }
+    return distance
 }
 
 private data class RouteOccurrence(

@@ -179,7 +179,7 @@ internal class IsolatedTimetableSimulationFactory(
                                 gravity
                             ),
                             safety,
-                            inspectionRuntime::maximumDeclaredDistanceMeters
+                            inspectionRuntime::maximumDeclaredLeadTimeSeconds
                         )
                     }
                 )

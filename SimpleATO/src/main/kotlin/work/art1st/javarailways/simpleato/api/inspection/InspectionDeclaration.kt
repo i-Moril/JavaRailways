@@ -17,7 +17,8 @@ import java.util.UUID
  * @property railId persistent rail UUID containing the trigger
  * @property facing direction in which the train reaches the trigger
  * @property triggerRouteDistanceMeters absolute trigger position from the frozen-route start
- * @property inspectionDistanceMeters non-negative plugin-declared lead distance in metres
+ * @property inspectionLeadTimeSeconds non-negative plugin-declared preparation time in seconds;
+ * SimpleATO converts it to a train-specific distance from current motion capabilities
  * @property minimumRequestedAuthorityEndRouteDistanceMeters optional route-local request floor;
  * once a nominal request crosses this declaration's trigger, SimpleATO asks Basic for at least
  * this boundary. Basic remains authoritative and may deny the larger request.
@@ -27,7 +28,7 @@ data class InspectionDeclaration(
     val railId: UUID,
     val facing: ViewDirection,
     val triggerRouteDistanceMeters: Double,
-    val inspectionDistanceMeters: Double,
+    val inspectionLeadTimeSeconds: Double,
     val minimumRequestedAuthorityEndRouteDistanceMeters: Double? = null
 ) {
     init {
@@ -37,8 +38,8 @@ data class InspectionDeclaration(
         require(triggerRouteDistanceMeters.isFinite() && triggerRouteDistanceMeters >= 0.0) {
             "triggerRouteDistanceMeters must be finite and non-negative"
         }
-        require(inspectionDistanceMeters.isFinite() && inspectionDistanceMeters >= 0.0) {
-            "inspectionDistanceMeters must be finite and non-negative"
+        require(inspectionLeadTimeSeconds.isFinite() && inspectionLeadTimeSeconds >= 0.0) {
+            "inspectionLeadTimeSeconds must be finite and non-negative"
         }
         minimumRequestedAuthorityEndRouteDistanceMeters?.let { requestEnd ->
             require(requestEnd.isFinite() && requestEnd >= triggerRouteDistanceMeters) {
@@ -53,7 +54,7 @@ data class InspectionDeclaration(
  *
  * The signal plugin computes this value only when its definition, the frozen route, or the train's
  * low-frequency capability profile changes. Current speed is intentionally absent: SimpleATO owns
- * the dynamic stopping lookahead used at activation time.
+ * the per-tick conversion from lead time to reachable distance and the stopping lookahead.
  *
  * @property sourceId stable namespaced signal-policy source
  * @property trainId stable target train identity

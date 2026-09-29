@@ -73,13 +73,13 @@ class SimpleATOTest {
 
         assertEquals(52.0, fixture.ato.inspectionDynamicLookaheadMeters(10.0), 1.0e-12)
         assertEquals(62.0, fixture.ato.routePerceptionHorizonMeters(), 1.0e-12)
-        assertEquals(62.0, fixture.ato.routePerceptionHorizonMeters(50.0), 1.0e-12)
-        assertEquals(150.0, fixture.ato.routePerceptionHorizonMeters(150.0), 1.0e-12)
+        assertEquals(62.0, fixture.ato.routePerceptionHorizonMeters(5.0), 1.0e-12)
+        assertEquals(150.0, fixture.ato.routePerceptionHorizonMeters(15.0), 1.0e-12)
     }
 
     @Test
     fun `physics scan reads the published inspection maximum`() {
-        var inspectionMaximum = 150.0
+        var inspectionMaximum = 15.0
         val fixture = fixture("inspection-perception-horizon") { inspectionMaximum }
 
         tickAndPublish(fixture.ato, 50.0)
@@ -90,7 +90,7 @@ class SimpleATOTest {
             1.0e-12
         )
 
-        inspectionMaximum = 200.0
+        inspectionMaximum = 20.0
         tickAndPublish(fixture.ato, 50.0)
         assertEquals(200.0, fixture.ato.publishedState.perceptionHorizonMeters, 1.0e-12)
         assertEquals(
@@ -511,7 +511,7 @@ class SimpleATOTest {
     private fun fixture(
         id: String,
         railLengthMeters: Double = 500.0,
-        inspectionMaximumDistanceMeters: (String) -> Double = { 0.0 }
+        inspectionMaximumLeadTimeSeconds: (String) -> Double = { 0.0 }
     ): Fixture {
         val world = createTestWorld()
         val rail = createStraightRailFromSegments(
@@ -527,7 +527,7 @@ class SimpleATOTest {
             world = world,
             actuator = KinematicTrainActuator(10.0, profile),
             safetyProfile = profile,
-            inspectionMaximumDistanceMeters = inspectionMaximumDistanceMeters
+            inspectionMaximumLeadTimeSeconds = inspectionMaximumLeadTimeSeconds
         )
         train.setController(ato)
         return Fixture(world, train, ato, coordinator, data)

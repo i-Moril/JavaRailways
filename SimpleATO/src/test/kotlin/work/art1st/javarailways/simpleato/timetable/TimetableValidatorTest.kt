@@ -295,7 +295,7 @@ class TimetableValidatorTest {
                     owningWorld,
                     KinematicTrainActuator(8.0, profile),
                     profile,
-                    inspectionRuntime::maximumDeclaredDistanceMeters
+                    inspectionRuntime::maximumDeclaredLeadTimeSeconds
                 )
             }
         )

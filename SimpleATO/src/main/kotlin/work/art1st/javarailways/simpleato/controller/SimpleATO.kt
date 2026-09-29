@@ -108,7 +108,7 @@ class SimpleATO(
     world: World,
     actuator: TrainActuator,
     safetyProfile: AtoSafetyProfile = AtoSafetyProfile(),
-    private val inspectionMaximumDistanceMeters: (String) -> Double
+    private val inspectionMaximumLeadTimeSeconds: (String) -> Double
 ) : AbstractATO(train, world, actuator, safetyProfile, world.simpleAtoWorldData.atoCoordinator) {
     private sealed interface Command {
         data class SetSpeedLimit(val key: String, val speed: Double) : Command
@@ -379,18 +379,34 @@ class SimpleATO(
      * second route look-ahead independently from the ATO scan.
      */
     internal fun routePerceptionHorizonMeters(
-        maximumDeclaredInspectionDistanceMeters: Double = inspectionMaximumDistanceMeters(train.id)
+        maximumDeclaredInspectionLeadTimeSeconds: Double =
+            inspectionMaximumLeadTimeSeconds(train.id)
     ): Double {
-        require(maximumDeclaredInspectionDistanceMeters.isFinite() &&
-            maximumDeclaredInspectionDistanceMeters >= 0.0
-        ) { "maximumDeclaredInspectionDistanceMeters must be finite and non-negative" }
         val controllerHorizon = brakingDistance(
             actuator.maximumSpeedMetersPerSecond,
             safetyProfile.serviceDecelerationMetersPerSecondSquared
         ) + actuator.maximumSpeedMetersPerSecond * safetyProfile.reactionTimeSeconds +
             safetyProfile.safetyDistanceMeters + ROUTE_PERCEPTION_MARGIN_METERS
-        return maxOf(controllerHorizon, maximumDeclaredInspectionDistanceMeters)
+        return maxOf(
+            controllerHorizon,
+            inspectionLeadHorizonMeters(maximumDeclaredInspectionLeadTimeSeconds)
+        )
     }
+
+    internal fun inspectionLeadHorizonMeters(leadTimeSeconds: Double): Double {
+        require(leadTimeSeconds.isFinite() && leadTimeSeconds >= 0.0) {
+            "leadTimeSeconds must be finite and non-negative"
+        }
+        return (actuator.maximumSpeedMetersPerSecond * leadTimeSeconds).also { distance ->
+            require(distance.isFinite()) { "inspection lead-time horizon must be finite" }
+        }
+    }
+
+    internal val inspectionMaximumSpeedMetersPerSecond: Double
+        get() = actuator.maximumSpeedMetersPerSecond
+
+    internal val inspectionAccelerationMetersPerSecondSquared: Double
+        get() = safetyProfile.accelerationMetersPerSecondSquared
 
     fun isStopped(speedMetersPerSecond: Double): Boolean {
         require(speedMetersPerSecond.isFinite() && speedMetersPerSecond >= 0.0)

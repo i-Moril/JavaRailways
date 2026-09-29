@@ -242,7 +242,7 @@ class TimetableDispatcherSharedAdmissionTest {
                         railId = segment.railId,
                         facing = segment.facing,
                         triggerRouteDistanceMeters = 100.0,
-                        inspectionDistanceMeters = 300.0
+                        inspectionLeadTimeSeconds = 30.0
                     ))
                 )
             },
@@ -293,7 +293,7 @@ class TimetableDispatcherSharedAdmissionTest {
                         railId = segment.railId,
                         facing = segment.facing,
                         triggerRouteDistanceMeters = 0.0,
-                        inspectionDistanceMeters = 0.0,
+                        inspectionLeadTimeSeconds = 0.0,
                         minimumRequestedAuthorityEndRouteDistanceMeters = input.route.totalLengthMeters
                     ))
                 )
@@ -761,7 +761,7 @@ class TimetableDispatcherSharedAdmissionTest {
                     selectedWorld,
                     KinematicTrainActuator(10.0, profile),
                     profile,
-                    inspectionRuntime::maximumDeclaredDistanceMeters
+                    inspectionRuntime::maximumDeclaredLeadTimeSeconds
                 )
             }
         )

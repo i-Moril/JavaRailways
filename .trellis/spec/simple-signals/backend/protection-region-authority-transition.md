@@ -110,7 +110,7 @@ InspectionDeclaration(
     railId: UUID,
     facing: ViewDirection,
     triggerRouteDistanceMeters: Double,
-    inspectionDistanceMeters: Double,
+    inspectionLeadTimeSeconds: Double,
     minimumRequestedAuthorityEndRouteDistanceMeters: Double?
 )
 ```

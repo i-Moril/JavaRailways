@@ -58,7 +58,7 @@ internal class ProtectionRegionInspectionSource(
                         railId = window.entry.position.railId,
                         facing = window.entry.position.facing,
                         triggerRouteDistanceMeters = window.entry.routeDistanceMeters,
-                        inspectionDistanceMeters = 0.0,
+                        inspectionLeadTimeSeconds = 0.0,
                         minimumRequestedAuthorityEndRouteDistanceMeters =
                             successor?.exitRouteDistanceMeters
                                 ?: window.exit.routeDistanceMeters

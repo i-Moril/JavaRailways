@@ -60,7 +60,7 @@ class InspectionRuntime(
     private val activeRoutesByTrain = linkedMapOf<String, ActiveRoute>()
 
     @Volatile
-    private var maximumDistancesByTrain: Map<String, Double> = emptyMap()
+    private var maximumLeadTimesByTrain: Map<String, Double> = emptyMap()
 
     @Volatile
     private var authorityRequestFloorsByTrain: Map<String, CompiledAuthorityRequestFloors> = emptyMap()
@@ -127,7 +127,7 @@ class InspectionRuntime(
         val current = activeRoutesByTrain[trainId]
         if (current?.route == route && sessionsByTrain[trainId]?.keys == sourcesById.keys) {
             activeRoutesByTrain[trainId] = activeRoute
-            return maximumDeclaredDistanceMeters(trainId)
+            return maximumDeclaredLeadTimeSeconds(trainId)
         }
         val compiled = try {
             compileSessions(trainId, activeRoute, sourcesById, sessionsByTrain[trainId])
@@ -138,7 +138,7 @@ class InspectionRuntime(
         activeRoutesByTrain[trainId] = activeRoute
         if (compiled.isEmpty()) sessionsByTrain.remove(trainId) else sessionsByTrain[trainId] = compiled
         publishCompiledViews()
-        return maximumDeclaredDistanceMeters(trainId)
+        return maximumDeclaredLeadTimeSeconds(trainId)
     }
 
     /** Marks matching declarations in every current train binding for one signal source. */
@@ -150,10 +150,10 @@ class InspectionRuntime(
         }
     }
 
-    /** Thread-safe immutable maximum-distance view used by the physics controller. */
-    fun maximumDeclaredDistanceMeters(trainId: String): Double {
+    /** Thread-safe immutable maximum lead-time view used to size the shared perception scan. */
+    fun maximumDeclaredLeadTimeSeconds(trainId: String): Double {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
-        return maximumDistancesByTrain[trainId] ?: 0.0
+        return maximumLeadTimesByTrain[trainId] ?: 0.0
     }
 
     /** Applies precompiled route-local request floors without invoking a signal plugin callback. */
@@ -199,6 +199,8 @@ class InspectionRuntime(
         currentRoute: FrozenRouteBinding,
         routeProgressMeters: Double,
         dynamicLookaheadMeters: Double,
+        maximumSpeedMetersPerSecond: Double,
+        accelerationMetersPerSecondSquared: Double,
         perception: PerceptionSnapshot
     ) {
         val trainId = perception.train.trainId
@@ -228,7 +230,10 @@ class InspectionRuntime(
             try {
                 val activeDeclarations = session.scheduler.updatesFor(
                     routeProgressMeters,
-                    dynamicLookaheadMeters
+                    dynamicLookaheadMeters,
+                    perception.train.speedMetersPerSecond,
+                    maximumSpeedMetersPerSecond,
+                    accelerationMetersPerSecondSquared
                 )
                 if (activeDeclarations == null && !session.baselinePending) return@forEach
                 val input = InspectionUpdateInput.create(
@@ -378,8 +383,10 @@ class InspectionRuntime(
     }
 
     private fun publishCompiledViews() {
-        maximumDistancesByTrain = sessionsByTrain.mapValues { (_, bySource) ->
-            bySource.values.maxOfOrNull { it.scheduler.maximumDeclaredInspectionDistanceMeters } ?: 0.0
+        maximumLeadTimesByTrain = sessionsByTrain.mapValues { (_, bySource) ->
+            bySource.values.maxOfOrNull {
+                it.scheduler.maximumDeclaredInspectionLeadTimeSeconds
+            } ?: 0.0
         }.toMap()
         authorityRequestFloorsByTrain = sessionsByTrain.mapNotNull { (trainId, bySource) ->
             if (bySource.isEmpty()) return@mapNotNull null

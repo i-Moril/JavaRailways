@@ -2018,7 +2018,7 @@ class TimetableDispatcherTest {
                     world,
                     KinematicTrainActuator(10.0, profile),
                     profile,
-                    inspectionRuntime::maximumDeclaredDistanceMeters
+                    inspectionRuntime::maximumDeclaredLeadTimeSeconds
                 )
             }
         )

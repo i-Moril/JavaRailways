@@ -2917,7 +2917,7 @@ class TimetableDispatcher(
                 routeLengthMeters = candidate.route.selection.route.totalLengthMeters,
                 headProgressMeters = routeProgress,
                 perceptionHorizonMeters = run.ato.routePerceptionHorizonMeters(
-                    inspectionRuntime.maximumDeclaredDistanceMeters(run.train.id)
+                    inspectionRuntime.maximumDeclaredLeadTimeSeconds(run.train.id)
                 ),
                 extensionTriggerMeters = run.ato.routeAllocationTriggerDistanceMeters(allocationTiming),
                 admissionState = client.state
@@ -3076,7 +3076,7 @@ class TimetableDispatcher(
                 activeRoute.missionRevision,
                 signalRestrictionSnapshots
             )
-            val maximumInspectionDistance = inspectionRuntime.synchronizeRoute(
+            val maximumInspectionLeadTime = inspectionRuntime.synchronizeRoute(
                 observation.stamp,
                 run.train.id,
                 route
@@ -3087,7 +3087,7 @@ class TimetableDispatcher(
                 }
                 val perception = published.perception ?: return false
                 if (published.perceptionHorizonMeters + POSITION_TOLERANCE_METERS <
-                    maximumInspectionDistance
+                    run.ato.inspectionLeadHorizonMeters(maximumInspectionLeadTime)
                 ) return false
                 inspectionRuntime.update(
                     observationStamp = observation.stamp,
@@ -3096,6 +3096,9 @@ class TimetableDispatcher(
                     dynamicLookaheadMeters = run.ato.inspectionDynamicLookaheadMeters(
                         snapshot.speedMetersPerSecond
                     ),
+                    maximumSpeedMetersPerSecond = run.ato.inspectionMaximumSpeedMetersPerSecond,
+                    accelerationMetersPerSecondSquared =
+                        run.ato.inspectionAccelerationMetersPerSecondSquared,
                     perception = perception
                 )
             }

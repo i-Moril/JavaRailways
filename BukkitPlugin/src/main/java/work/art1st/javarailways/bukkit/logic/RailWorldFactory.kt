@@ -179,7 +179,7 @@ object RailWorldFactory {
                     world,
                     HandleTrainActuator(train, trainProfile, carProfiles, gravity),
                     profile,
-                    inspectionRuntime::maximumDeclaredDistanceMeters
+                    inspectionRuntime::maximumDeclaredLeadTimeSeconds
                 )
             }
         )

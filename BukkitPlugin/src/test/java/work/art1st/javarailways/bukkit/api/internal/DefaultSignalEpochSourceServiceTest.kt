@@ -269,7 +269,7 @@ class DefaultSignalEpochSourceServiceTest {
         )
 
         assertEquals(0, epochCalls)
-        assertEquals(80.0, inspectionRuntime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(80.0, inspectionRuntime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
         assertThrows(IllegalArgumentException::class.java) {
             service.replaceRoutePlanningSources(
                 otherOwner,
@@ -344,7 +344,7 @@ class DefaultSignalEpochSourceServiceTest {
         service.removeWorld(worldId)
         service.removeWorld(worldId)
 
-        assertEquals(0.0, inspectionRuntime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(0.0, inspectionRuntime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
         assertThrows(IllegalStateException::class.java) {
             service.replaceSources(owner, worldId, listOf(source("test:main", 0.0) {}))
         }
@@ -422,13 +422,13 @@ class DefaultSignalEpochSourceServiceTest {
             route
         )
         assertEquals(FrozenRouteBinding.from(route), boundRoute)
-        assertEquals(80.0, inspectionRuntime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(80.0, inspectionRuntime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
         assertEquals(emptyList<String>(), unavailable)
 
         assertThrows(IllegalStateException::class.java) {
             service.replaceInspectionSources(owner, worldId, listOf(inspectionSource()))
         }
-        assertEquals(80.0, inspectionRuntime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(80.0, inspectionRuntime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
         assertEquals(1, unavailable.size)
         assertEquals(1, stalls.size)
     }
@@ -476,7 +476,7 @@ class DefaultSignalEpochSourceServiceTest {
 
         assertEquals(1, stalls.size)
         assertEquals(true, stalls.single().contains("active inspection binding"))
-        assertEquals(0.0, inspectionRuntime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(0.0, inspectionRuntime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
     }
 
     @Test
@@ -506,7 +506,7 @@ class DefaultSignalEpochSourceServiceTest {
         epochRuntime.process(frame(2L))
 
         assertEquals(1, epochCallbacks)
-        assertEquals(80.0, inspectionRuntime.maximumDeclaredDistanceMeters("train"), 0.0)
+        assertEquals(80.0, inspectionRuntime.maximumDeclaredLeadTimeSeconds("train"), 0.0)
         assertEquals(emptyList<String>(), stalls)
     }
 

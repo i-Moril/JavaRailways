@@ -26,7 +26,8 @@ SimpleATO同时拥有`AbstractATO`、mission、constraint与world Stall coordina
 
 Mission、constraint和station-call的mutable集合都只存在于该controller实例，不在
 `SimpleATOWorldData`或Basic创建第二份镜像。每列车每tick的route/perception扫描仍为线性；controller只从world-local
-inspection runtime读取一个thread-safe immutable per-train最大声明距离，并把它并入原有horizon，不持有第二份冻结路线状态。
+inspection runtime读取一个thread-safe immutable per-train最大声明提前时间；controller按最高速度转换为保守距离并并入原有
+horizon，不持有第二份冻结路线状态。
 成功publication把本次`PerceptionSnapshot`和实际horizon与train/controller state一起原子发布。production Dispatcher
 复用该perception规划滚动授权与inspection update，不增加第二次路线扫描。Dispatcher不维护第二套route allocator；生产环境与
 隔离仿真都通过Basic的同一个route-admission runtime申请、准备、授权并按车尾释放资源。

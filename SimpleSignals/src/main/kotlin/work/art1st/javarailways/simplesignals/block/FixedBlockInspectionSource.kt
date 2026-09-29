@@ -15,7 +15,7 @@ internal const val FIXED_BLOCK_SIGNAL_SOURCE_ID = "simplesignals:fixed-block-sig
 internal class FixedBlockInspectionSource(
     private val snapshot: () -> FixedBlockReadSnapshot,
     private val signalState: (String) -> PublishedSectionSignal? = { null },
-    private val inspectionDistanceMeters: (FixedBlockReadSnapshot, String) -> Double = { _, _ -> 0.0 }
+    private val inspectionLeadTimeSeconds: (FixedBlockReadSnapshot, String) -> Double = { _, _ -> 0.0 }
 ) {
     private val nextRevision = AtomicLong(0L)
 
@@ -41,7 +41,7 @@ internal class FixedBlockInspectionSource(
                         railId = entry.railId,
                         facing = entry.facing,
                         triggerRouteDistanceMeters = window.entryRouteDistanceMeters,
-                        inspectionDistanceMeters = inspectionDistanceMeters(captured, window.blockId),
+                        inspectionLeadTimeSeconds = inspectionLeadTimeSeconds(captured, window.blockId),
                         minimumRequestedAuthorityEndRouteDistanceMeters = window.exitRouteDistanceMeters
                     )
                 }

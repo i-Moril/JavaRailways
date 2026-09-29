@@ -52,7 +52,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
             "simplesignals:signal",
             2L,
             block.blockId,
-            320.0,
+            12.0,
             ConfiguredSignalOutput(0.0, "occupied/custom"),
             listOf(
                 FixedBlockSignalClearLevel(
@@ -80,7 +80,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
 
         assertEquals(definitions, decoded)
         assertTrue(encoded.contains("\"schemaVersion\": 1"))
-        assertTrue(encoded.contains("\"inspectionDistanceMeters\": 320.0"))
+        assertTrue(encoded.contains("\"inspectionLeadTimeSeconds\": 12.0"))
         assertTrue(encoded.contains("\"modelVariant\": \"clear/permissive\""))
     }
 

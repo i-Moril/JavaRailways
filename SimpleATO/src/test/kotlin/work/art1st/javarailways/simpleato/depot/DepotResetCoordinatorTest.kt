@@ -81,7 +81,7 @@ class DepotResetCoordinatorTest {
                     trainWorld,
                     KinematicTrainActuator(10.0, profile),
                     profile,
-                    inspectionRuntime::maximumDeclaredDistanceMeters
+                    inspectionRuntime::maximumDeclaredLeadTimeSeconds
                 )
             }
         )

@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test
 
 class FixedBlockSignalCompilerTest {
     @Test
-    fun `definition rejects incomplete clear tables and invalid inspection distance`() {
+    fun `definition rejects incomplete clear tables and invalid inspection lead time`() {
         assertThrows(IllegalArgumentException::class.java) {
             FixedBlockSignalDefinition(
                 "test:signal",

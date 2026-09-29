@@ -313,7 +313,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             segment.getRailId(),
             segment.getFacing(),
             80.0,
-            150.0,
+            12.0,
             null
         );
         return new InspectionDeclarationBinding(

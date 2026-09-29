@@ -56,7 +56,7 @@ internal data class FixedBlockSignalDefinition private constructor(
     val signalId: String,
     val revision: Long,
     val controlledBlockId: String,
-    val inspectionDistanceMeters: Double,
+    val inspectionLeadTimeSeconds: Double,
     val occupiedOutput: ConfiguredSignalOutput,
     val clearLevels: List<FixedBlockSignalClearLevel>,
     val downstreamSignals: List<FixedBlockSignalDependency>
@@ -65,7 +65,7 @@ internal data class FixedBlockSignalDefinition private constructor(
         signalId: String,
         revision: Long,
         controlledBlockId: String,
-        inspectionDistanceMeters: Double,
+        inspectionLeadTimeSeconds: Double,
         occupiedOutput: ConfiguredSignalOutput,
         clearLevels: Collection<FixedBlockSignalClearLevel>,
         downstreamSignals: Collection<FixedBlockSignalDependency> = emptyList()
@@ -73,7 +73,7 @@ internal data class FixedBlockSignalDefinition private constructor(
         signalId,
         revision,
         controlledBlockId,
-        inspectionDistanceMeters,
+        inspectionLeadTimeSeconds,
         occupiedOutput,
         java.util.List.copyOf(clearLevels),
         java.util.List.copyOf(downstreamSignals)
@@ -85,8 +85,8 @@ internal data class FixedBlockSignalDefinition private constructor(
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(controlledBlockId)) {
             "controlledBlockId must be namespaced"
         }
-        require(inspectionDistanceMeters.isFinite() && inspectionDistanceMeters >= 0.0) {
-            "inspection distance must be finite and non-negative"
+        require(inspectionLeadTimeSeconds.isFinite() && inspectionLeadTimeSeconds >= 0.0) {
+            "inspection lead time must be finite and non-negative"
         }
         require(clearLevels.isNotEmpty()) { "fixed-block signal must define at least one clear level" }
         require(clearLevels.first().minimumDownstreamSpeedMetersPerSecond == 0.0) {

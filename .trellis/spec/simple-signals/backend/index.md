@@ -265,13 +265,13 @@ ATO。列车通过入口导致active集合移除该声明时，source发布新�
 ## 具体固定闭塞规则
 
 当前production provider由`FixedBlockSignalDefinition`配置，不在Kotlin中写死灯色名称或速度表。每个定义保存稳定namespaced
-`signalId`、单调`revision`、唯一`controlledBlockId`、非负有限`inspectionDistanceMeters`、一个`occupiedOutput`、至少一个
+`signalId`、单调`revision`、唯一`controlledBlockId`、非负有限`inspectionLeadTimeSeconds`、一个`occupiedOutput`、至少一个
 `clearLevel`及零个或多个带距离的`downstreamSignal`引用。output只包含有限非负`speedLimitMetersPerSecond`和非空但不透明的
 `modelVariant`。clear level按`minimumDownstreamSpeedMetersPerSecond`严格递增，第一项必须为0，从而让任意合法下游限速都有结果。
 
 world definition prepare会在publication前完成以下编译：验证signal ID与controlled block一一对应、block及downstream signal引用
 存在、每个signal内部dependency不重复，并把section/provider依赖交给既有`SectionSignalRuleRuntime`做完整DAG检查。任一引用、revision、
-阈值或cycle非法都会拒绝整份candidate，旧publication与存档不变。编译后的binding和inspection distance map与region/table/block
+阈值或cycle非法都会拒绝整份candidate，旧publication与存档不变。编译后的binding和inspection lead-time map与region/table/block
 catalog一起放入同一个immutable `SimpleSignalsRuntimePublication`；production world install直接使用这里的rule runtime，不再安装空规则。
 
 一次规则执行只做如下选择：本block有occupant时直接返回配置的`occupiedOutput`；本block空闲时取所有已发布下游signal限速的最小值，
@@ -280,10 +280,14 @@ catalog一起放入同一个immutable `SimpleSignalsRuntimePublication`；produc
 反查速度。定义阶段排序、引用检查和确定性DAG编译为`O((S + D) log S)`；单个被触发signal扫描其声明的下游输出和档位表，成本为
 `O(d + l)`，整个update wave仍只与实际到达的signal/dependency/level有关，不增加world tick或`trains x signals`扫描。
 
-`inspectionDistanceMeters`只决定SimpleATO何时激活该block声明，不改变动态制动曲线或Basic授权。binding provider先捕获一个fixed-block
-snapshot，再要求distance lookup仍属于同一个outer publication；若在线定义commit恰好切换了publication，本次binding fail-close，不能
-把旧几何与新距离拼接。signal定义的在线增删改与block几何变更一样预编译新的section runtime，并通过现有host原子source replacement
+`inspectionLeadTimeSeconds`只声明信号需要提前多少时间准备，不改变动态制动曲线或Basic授权。SimpleATO按当前速度、ATO加速度和
+最高速度把时间换算成每列车的激活距离；即使列车当前静止，也会按可加速到达的距离提前激活。binding provider先捕获一个fixed-block
+snapshot，再要求lead-time lookup仍属于同一个outer publication；若在线定义commit恰好切换了publication，本次binding fail-close，不能
+把旧几何与新时间拼接。signal定义的在线增删改与block几何变更一样预编译新的section runtime，并通过现有host原子source replacement
 提交；signal-only edit不创建第二套事件队列、catalog或revision token。
+
+该字段仍属于未发布的开发中schema-1合同，因此当前模型直接以`inspectionLeadTimeSeconds`取代早期分支上的距离字段；不增加
+runtime兼容alias或无实际发行版本对应的中间schema。需要保留的开发服数据应在启用前通过一次性迁移修正。
 
 Good case：空闲block按最严格下游限速选择配置档位，输出变化只向上游传播。Base case：没有下游的末端signal选最后一个clear level；
 没有signal定义的block仍只执行资源/authority floor。Bad case：引用不存在的block/signal、一个block两个signal、cycle或首个threshold
@@ -328,7 +332,7 @@ git diff --check
 固定闭塞测试必须覆盖多rail AB/BA、连续性与非法道岔transition、重复ID、revision/root stale、失败publication原子性、与保护区域
 正长度interior重叠拒绝但边界相接允许、reverse index、
 occupancy boundary方向/几何、schema-1 empty default/round-trip/严格非法输入，以及runtime patch/persistence/affected-rail整合。
-具体固定闭塞信号测试还必须覆盖配置输出不被runtime解释、占用优先、下游最小限速阈值选择、末端无依赖、inspection distance、
+具体固定闭塞信号测试还必须覆盖配置输出不被runtime解释、占用优先、下游最小限速阈值选择、末端无依赖、inspection lead time、
 未知block/signal引用、重复controlled block、cycle、production binding安装以及signal patch的持久化和原子source替换。
 world runtime测试还必须覆盖空启动、非空table改变Basic实际选路、candidate失败保留旧pair、topology变化到显式republish之间
 fail-close，以及同UUID reload得到新binding。持久化测试必须覆盖固定current fixture round-trip、严格未知字段/version/world ID、

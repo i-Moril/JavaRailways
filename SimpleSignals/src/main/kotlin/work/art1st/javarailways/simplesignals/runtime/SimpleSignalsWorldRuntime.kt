@@ -169,7 +169,7 @@ internal class SimpleSignalsWorldRuntime(
     val fixedBlockInspectionSource = FixedBlockInspectionSource(
         ::fixedBlockSnapshot,
         ::fixedBlockSignal,
-        ::fixedBlockInspectionDistance
+        ::fixedBlockInspectionLeadTime
     ).source
 
     val protectionRegionInspectionSource = ProtectionRegionInspectionSource(
@@ -243,7 +243,7 @@ internal class SimpleSignalsWorldRuntime(
             "section occupancy is not initialized for world $worldId"
         }.signalFor(SectionRef(SectionKind.FIXED_BLOCK, blockId))
 
-    private fun fixedBlockInspectionDistance(
+    private fun fixedBlockInspectionLeadTime(
         blockSnapshot: FixedBlockReadSnapshot,
         blockId: String
     ): Double {
@@ -253,7 +253,7 @@ internal class SimpleSignalsWorldRuntime(
         check(captured.fixedBlocks.snapshot(captured.topology) === blockSnapshot) {
             "fixed-block publication changed while compiling an inspection binding"
         }
-        return captured.fixedBlockSignals.inspectionDistanceMeters(blockId)
+        return captured.fixedBlockSignals.inspectionLeadTimeSeconds(blockId)
     }
 
     fun prepareDefinitions(

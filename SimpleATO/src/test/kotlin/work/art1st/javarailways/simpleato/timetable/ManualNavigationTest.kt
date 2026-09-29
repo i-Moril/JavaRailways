@@ -84,7 +84,7 @@ class ManualNavigationTest {
                     world,
                     KinematicTrainActuator(8.0, profile),
                     profile,
-                    inspectionRuntime::maximumDeclaredDistanceMeters
+                    inspectionRuntime::maximumDeclaredLeadTimeSeconds
                 )
             }
         )

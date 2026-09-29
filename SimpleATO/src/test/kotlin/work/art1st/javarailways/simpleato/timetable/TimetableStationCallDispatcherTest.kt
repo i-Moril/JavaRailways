@@ -884,7 +884,7 @@ class TimetableStationCallDispatcherTest {
                     owningWorld,
                     KinematicTrainActuator(8.0, profile),
                     profile,
-                    inspectionRuntime::maximumDeclaredDistanceMeters
+                    inspectionRuntime::maximumDeclaredLeadTimeSeconds
                 )
             }
         )
@@ -986,7 +986,7 @@ class TimetableStationCallDispatcherTest {
                     owningWorld,
                     KinematicTrainActuator(8.0, profile),
                     profile,
-                    inspectionRuntime::maximumDeclaredDistanceMeters
+                    inspectionRuntime::maximumDeclaredLeadTimeSeconds
                 )
             }
         )
@@ -1122,7 +1122,7 @@ class TimetableStationCallDispatcherTest {
                     owningWorld,
                     KinematicTrainActuator(8.0, profile),
                     profile,
-                    inspectionRuntime::maximumDeclaredDistanceMeters
+                    inspectionRuntime::maximumDeclaredLeadTimeSeconds
                 )
             }
         )

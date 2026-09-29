@@ -130,7 +130,7 @@ private data class SavedFixedBlockSignalV1(
     val signalId: String,
     val revision: Long,
     val controlledBlockId: String,
-    val inspectionDistanceMeters: Double,
+    val inspectionLeadTimeSeconds: Double,
     val occupiedOutput: SavedSignalOutputV1,
     val clearLevels: List<SavedFixedBlockSignalClearLevelV1>,
     val downstreamSignals: List<SavedFixedBlockSignalDependencyV1>
@@ -249,7 +249,7 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                 signal.signalId,
                 signal.revision,
                 signal.controlledBlockId,
-                signal.inspectionDistanceMeters,
+                signal.inspectionLeadTimeSeconds,
                 signal.occupiedOutput.saved(),
                 signal.clearLevels.map { level ->
                     SavedFixedBlockSignalClearLevelV1(
@@ -332,7 +332,7 @@ internal object SimpleSignalsWorldDefinitionsCodec {
         signalId,
         revision,
         controlledBlockId,
-        inspectionDistanceMeters,
+        inspectionLeadTimeSeconds,
         occupiedOutput.restore(),
         clearLevels.map { level ->
             FixedBlockSignalClearLevel(

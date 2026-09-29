@@ -52,8 +52,8 @@ class FixedBlockInspectionSourceTest {
 
         val binding = FixedBlockInspectionSource(
             snapshot = { snapshot },
-            inspectionDistanceMeters = { _, blockId ->
-                if (blockId == block.blockId) 275.0 else 0.0
+            inspectionLeadTimeSeconds = { _, blockId ->
+                if (blockId == block.blockId) 12.0 else 0.0
             }
         ).source.bindingProvider.bind(
             InspectionBindingInput(stamp(), "train", route)
@@ -64,7 +64,7 @@ class FixedBlockInspectionSourceTest {
         assertEquals(first, declaration.railId)
         assertEquals(ViewDirection.AB, declaration.facing)
         assertEquals(2.0, declaration.triggerRouteDistanceMeters, 1.0e-9)
-        assertEquals(275.0, declaration.inspectionDistanceMeters, 0.0)
+        assertEquals(12.0, declaration.inspectionLeadTimeSeconds, 0.0)
         assertEquals(18.0, requireNotNull(declaration.minimumRequestedAuthorityEndRouteDistanceMeters), 1.0e-9)
 
         val policy = FixedBlockRouteResourcePolicy(plugin()) { snapshot }
@@ -158,7 +158,7 @@ class FixedBlockInspectionSourceTest {
         val routeBinding = FrozenRouteBinding.from(route)
         val perception = perception(route)
 
-        runtime.update(stamp(1L), routeBinding, 0.0, 3.0, perception)
+        runtime.update(stamp(1L), routeBinding, 0.0, 3.0, 20.0, 1.0, perception)
         val proceed = publications.last().restrictions.single() as RouteSpeedRestriction
         assertEquals(block.blockId, proceed.restrictionId)
         assertEquals(2.0, proceed.routeDistanceMeters, 0.0)
@@ -169,11 +169,11 @@ class FixedBlockInspectionSourceTest {
             SectionSignalState.Unavailable("configured rule failed")
         )
         runtime.markDirty(FIXED_BLOCK_SIGNAL_SOURCE_ID, listOf(block.blockId))
-        runtime.update(stamp(2L), routeBinding, 0.0, 3.0, perception)
+        runtime.update(stamp(2L), routeBinding, 0.0, 3.0, 20.0, 1.0, perception)
         val unavailable = publications.last().restrictions.single() as RouteSpeedRestriction
         assertEquals(0.0, unavailable.maximumSpeedMetersPerSecond, 0.0)
 
-        runtime.update(stamp(3L), routeBinding, 3.0, 3.0, perception)
+        runtime.update(stamp(3L), routeBinding, 3.0, 3.0, 20.0, 1.0, perception)
         assertEquals(0, publications.last().restrictions.size)
     }
 

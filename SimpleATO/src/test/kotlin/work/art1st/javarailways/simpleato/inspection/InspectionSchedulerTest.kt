@@ -47,13 +47,13 @@ class InspectionSchedulerTest {
     }
 
     @Test
-    fun `compiler validates exact route and occurrence while caching maximum distance`() {
+    fun `compiler validates exact route and occurrence while caching maximum lead time`() {
         val compiled = compile(
             declaration("test:first", firstRail, ViewDirection.AB, 50.0, 30.0),
             declaration("test:repeated", firstRail, ViewDirection.AB, 250.0, 100.0)
         )
 
-        assertEquals(100.0, compiled.maximumDeclaredInspectionDistanceMeters, 0.0)
+        assertEquals(100.0, compiled.maximumDeclaredInspectionLeadTimeSeconds, 0.0)
         assertEquals(
             listOf("test:first", "test:repeated"),
             compiled.declarationsBetween(0.0, 300.0).map { it.declarationId }
@@ -87,7 +87,7 @@ class InspectionSchedulerTest {
     }
 
     @Test
-    fun `dynamic braking lookahead can activate beyond the plugin distance`() {
+    fun `dynamic braking lookahead can activate beyond the plugin lead time`() {
         val scheduler = scheduler(
             declaration("test:dynamic", secondRail, ViewDirection.BA, 150.0, 10.0)
         )
@@ -95,6 +95,26 @@ class InspectionSchedulerTest {
         val updates = scheduler.updatesFor(100.0, 60.0)
 
         assertEquals(listOf("test:dynamic"), requireNotNull(updates).map { it.declarationId })
+    }
+
+    @Test
+    fun `lead time converts current motion into a train specific activation distance`() {
+        assertEquals(8.0, reachableDistanceMeters(0.0, 20.0, 1.0, 4.0), 1.0e-12)
+        assertEquals(48.0, reachableDistanceMeters(10.0, 20.0, 1.0, 4.0), 1.0e-12)
+        assertEquals(250.0, reachableDistanceMeters(0.0, 10.0, 1.0, 30.0), 1.0e-12)
+    }
+
+    @Test
+    fun `stopped train activates before acceleration can reach the trigger`() {
+        val scheduler = scheduler(
+            declaration("test:starting", secondRail, ViewDirection.BA, 150.0, 4.0)
+        )
+
+        assertEquals(
+            listOf("test:starting"),
+            requireNotNull(scheduler.updatesFor(142.0, 0.0, 0.0, 20.0, 1.0))
+                .map { it.declarationId }
+        )
     }
 
     @Test
@@ -189,8 +209,19 @@ class InspectionSchedulerTest {
         railId: UUID,
         facing: ViewDirection,
         triggerDistance: Double,
-        inspectionDistance: Double
-    ) = InspectionDeclaration(id, railId, facing, triggerDistance, inspectionDistance)
+        inspectionLeadTime: Double
+    ) = InspectionDeclaration(id, railId, facing, triggerDistance, inspectionLeadTime)
+
+    private fun InspectionScheduler.updatesFor(
+        currentHeadRouteDistanceMeters: Double,
+        dynamicLookaheadMeters: Double
+    ) = updatesFor(
+        currentHeadRouteDistanceMeters,
+        dynamicLookaheadMeters,
+        currentSpeedMetersPerSecond = 1.0,
+        maximumSpeedMetersPerSecond = 1.0,
+        accelerationMetersPerSecondSquared = 1.0
+    )
 
     private fun segment(railId: UUID, facing: ViewDirection) =
         RouteSegmentSnapshot(railId, facing, 0.0, 100.0)

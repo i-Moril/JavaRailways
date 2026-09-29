@@ -223,8 +223,9 @@ candidates = declarations.binaryRange(
 for each declaration in candidates:
   distance = declaration.triggerRouteMetres - currentHeadRouteMetres
   threshold = max(declaration.declaredInspectionDistance, dynamicLookahead)
-  if distance <= threshold and (newlyActive or explicitlyDirty):
-    scheduleUpdate(declaration, immutableObservation, perception)
+active = candidates.filter(distance <= threshold)
+if active != previousActive or any(active is explicitlyDirty):
+  scheduleUpdate(completeActiveSet, immutableObservation, perception)
 ```
 
 `perception`同时供车辆、轨道物体、运营停车点、既有constraint provider和插件更新使用；声明激活只查询排序后的绝对路线坐标，
@@ -237,13 +238,14 @@ for each declaration in candidates:
 当前速度变化只重算`dynamicLookahead`，不执行插件编译。占用、claim/grant或下游信号状态等运行变化由具体信号插件自己的
 反向索引转换为“哪些稳定声明已dirty”；SimpleATO只记录并调度这些ID，不复制其依赖图。
 
-声明首次进入有效检查范围时激活一次。此后只有显式dirty、完整binding替换或重新进入才调度该声明的`update(train)`语义；
-距离正常变化而输入未变时保持`IDLE`。离开范围只删除激活标记，不凭空撤销插件已经提交的资源或restriction；它们继续遵守
-各自的Basic grant/tail-release或SimpleATO restriction revision生命周期。
+声明首次进入有效检查范围时激活一次。此后只有显式dirty、完整binding替换、进入或离开范围才调度来源；距离正常变化而完整
+active集合未变时保持`IDLE`。每次调用收到当前完整active声明集合，而不是增量列表，并必须返回一个完整restriction snapshot；
+最后一个声明离开时集合为空，插件用新的空restriction snapshot清除已经越过的route-local信号限制。Basic资源仍只按其
+grant/tail-release生命周期释放，不能因检查范围变化而撤销。
 
-每份新编译binding在第一次使用时另有一次baseline update；此时声明列表可以为空，但插件必须发布一个绑定新路线的完整snapshot，
+每份新编译binding在第一次使用时另有一次baseline update；此时active声明集合可以为空，但插件必须发布一个绑定新路线的完整snapshot，
 即使其中restriction为空。这样旧路线snapshot不会因新路线暂时没有声明进入范围而留下fail-close hold。baseline成功后仍只按新激活或
-显式dirty更新，不转为每tick回调。
+离开、显式dirty更新，不转为每tick回调。
 
 如果当前应存在的来源没有可验证的完整binding、binding与route/profile revision不符、dirty后的更新失败，或更新结果未能绑定
 当前world/topology/route，SimpleATO必须在该来源上保持或安装零authority/零速限制，直到新的完整结果成功提交。失效期间不能

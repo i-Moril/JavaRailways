@@ -232,17 +232,22 @@ class SignalEpochRuntimeTest {
     @Test
     fun `all handler output is validated before first publication`() {
         val published = mutableListOf<TrainRestrictionSnapshot>()
+        val invalidated = mutableListOf<String>()
         lateinit var currentFrame: RailwayWorldFrameSnapshot
         val runtime = SignalEpochRuntime(
             worldId = "world",
             publisher = TrainRestrictionPublisher { snapshot ->
                 published += snapshot
                 accepted(snapshot)
-            }
+            },
+            invalidateInspectionDeclarations = { sourceId, _ -> invalidated += sourceId }
         ).also { runtime ->
             runtime.replaceSources(listOf(
                 source("test:first", area(firstAreaId, 10.0, 20.0)) {
-                    SignalEpochResult(listOf(restriction("test:first", currentFrame)))
+                    SignalEpochResult(
+                        listOf(restriction("test:first", currentFrame)),
+                        listOf("test:first-signal")
+                    )
                 },
                 source("test:second", area(secondAreaId, 50.0, 60.0)) {
                     SignalEpochResult(listOf(restriction("test:wrong", currentFrame)))
@@ -253,6 +258,38 @@ class SignalEpochRuntimeTest {
 
         assertThrows(IllegalArgumentException::class.java) { runtime.process(currentFrame) }
         assertEquals(emptyList<TrainRestrictionSnapshot>(), published)
+        assertEquals(emptyList<String>(), invalidated)
+    }
+
+    @Test
+    fun `inspection invalidations publish in stable source order after validation`() {
+        val invalidated = mutableListOf<Pair<String, Set<String>>>()
+        val runtime = SignalEpochRuntime(
+            worldId = "world",
+            publisher = TrainRestrictionPublisher(::accepted),
+            invalidateInspectionDeclarations = { sourceId, declarationIds ->
+                invalidated += sourceId to declarationIds
+            }
+        ).also { runtime ->
+            runtime.replaceSources(listOf(
+                source("test:second", area(secondAreaId, 50.0, 60.0)) {
+                    SignalEpochResult(emptyList(), listOf("test:second-signal"))
+                },
+                source("test:first", area(firstAreaId, 10.0, 20.0)) {
+                    SignalEpochResult(emptyList(), listOf("test:first-b", "test:first-a"))
+                }
+            ))
+        }
+
+        runtime.process(frame(1L, occupied = emptyList()))
+
+        assertEquals(
+            listOf(
+                "test:first" to setOf("test:first-b", "test:first-a"),
+                "test:second" to setOf("test:second-signal")
+            ),
+            invalidated
+        )
     }
 
     @Test
@@ -400,6 +437,7 @@ class SignalEpochRuntimeTest {
         val definitions = mutableListOf(area(firstAreaId, 10.0, 20.0))
         val currentFrame = frame(1L, occupied = emptyList())
         val snapshots = mutableListOf(restriction("test:first", currentFrame))
+        val declarationIds = mutableListOf("test:signal")
         var callbackListWasImmutable = false
         val source = SignalEpochSource("test:first", definitions) { input ->
             assertThrows(UnsupportedOperationException::class.java) {
@@ -410,11 +448,13 @@ class SignalEpochRuntimeTest {
             SignalEpochResult.empty()
         }
         definitions.clear()
-        val result = SignalEpochResult(snapshots)
+        val result = SignalEpochResult(snapshots, declarationIds)
         snapshots.clear()
+        declarationIds.clear()
 
         assertEquals(1, source.areas.size)
         assertEquals(1, result.publications.size)
+        assertEquals(setOf("test:signal"), result.invalidatedInspectionDeclarationIds)
         runtime(listOf(source)).process(currentFrame)
         assertEquals(true, callbackListWasImmutable)
     }

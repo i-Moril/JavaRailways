@@ -230,7 +230,12 @@ class IsolatedTimetableSimulationFactoryTest {
         val worldId = atoCoordinator.worldId
         val restrictions = TrainRestrictionSnapshotStore(worldId)
         val inspection = InspectionRuntime(restrictions) { _, _, failure -> throw failure }
-        val signalEpoch = SignalEpochRuntime(worldId, restrictions, restrictions::completeEpoch)
+        val signalEpoch = SignalEpochRuntime(
+            worldId,
+            restrictions,
+            restrictions::completeEpoch,
+            inspection::markDirty
+        )
         val dispatcher = TimetableDispatcher(
             TimetableRouteAdmissionContextProvider { null },
             restrictions,

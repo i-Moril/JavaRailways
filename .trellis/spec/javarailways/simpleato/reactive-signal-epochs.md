@@ -16,6 +16,7 @@ Core捕获一个尚未公开的RailwayWorldFrameSnapshot
   → 每个source同步处理自己的完整update子集
   → host先校验全部source结果
   → 按sourceId、trainId确定顺序发布到world-local immutable snapshot store
+  → 将每个source返回的inspection declaration invalidation标记到同ID的当前列车binding
   → 所有publication ACCEPTED后记录本次completed observation stamp
   → callback返回，Core才发布world frame并完成exact ticket
   → 下一次physics tick中controller读取该store
@@ -29,7 +30,8 @@ Core捕获一个尚未公开的RailwayWorldFrameSnapshot
 
 - `SignalEpochSource(sourceId, areas, handler)`：一个已安装source snapshot中的immutable binding；`sourceId`使用与restriction相同的namespaced语法，source至少拥有一个area，area ID在整个snapshot唯一。
 - `SignalEpochInput(observation, areaUpdates)`：immutable value；updates只包含该source拥有且本epoch baseline/changed的area。
-- `SignalEpochResult(publications)`：完整immutable snapshot publications集合；空result表示本epoch没有restriction变化，不表示撤销旧限制。
+- `SignalEpochResult(publications, invalidatedInspectionDeclarationIds)`：完整immutable snapshot publications与同source ID下需要
+  重算的inspection声明ID；空result表示本epoch两者均无变化，不表示撤销旧限制。
 - `TrainRestrictionPublisher.publish(snapshot)`：平台无关publication seam；只有`ACCEPTED`允许epoch继续。
 
 撤销必须发布同`(sourceId,trainId)`流内更高revision且`restrictions=[]`的完整`TrainRestrictionSnapshot`。这复用现有revision contract，不增加nullable、隐式超时或“没有返回即清除”。所有public collection在构造时复制，callback只能读取。
@@ -43,7 +45,11 @@ runtime在任何publisher调用前先收集并校验本epoch全部handler结果�
 3. `trainId`必须仍在该observation中；
 4. 一个source result对同一train最多包含一个完整snapshot。
 
-通过后按`sourceId`、`trainId`排序发布，使相同静态binding和输入得到相同side-effect顺序。handler抛错、返回值非法、publisher抛错或返回非`ACCEPTED`都会向Core抛出；Core不发布候选world frame并Stall。已通过校验不保证多个publisher调用具备事务rollback：较早调用接受的完整replacement可能已经改变、甚至显式清空该来源旧限制，但任何后续失败都会在下一个physics epoch开始前永久Stall当前coordinator，因此这次部分publication不能驱动车辆继续运动。这里不增加一套rollback或两阶段publisher协议。
+通过后按`sourceId`、`trainId`排序发布restriction，再按source ID顺序把invalidation交给inspection runtime，使相同静态binding和输入
+得到相同side-effect顺序。invalidation只作用于同ID inspection source已有binding中实际存在的声明；不相关路线和未激活声明不执行
+插件代码。handler抛错、返回值非法、publisher或invalidation失败都会向Core抛出；Core不发布候选world frame并Stall。已通过校验不保证
+多个side effect具备事务rollback：较早接受的完整replacement或dirty标记可能已经改变，但任何后续失败都会在下一个physics epoch
+开始前永久Stall当前coordinator，因此部分结果不能驱动车辆继续运动。这里不增加rollback或两阶段协议。
 
 ## 表示、复杂度与线程
 
@@ -51,7 +57,7 @@ runtime以空source state启动。`replaceSources`先完整复制、排序、验
 
 `TrainRestrictionSnapshotStore`是每world一个的value-only交接点，不查找、注册或保留live train/controller。一次成功publication只对应列车的concurrent-map entry内替换`sourceId`，并原子公布新的immutable per-train list；不复制其他列车的值。旧reader仍持有完整旧快照，新reader按source ID稳定顺序获得最新快照。所有publication成功后才清理离场列车并推进completed stamp。写入成本为`O(S_train log S_train)`；controller查找为`O(1)`并线性处理该列车的source数。
 
-每个epoch将Core frame投影一次并为`T`列车建立一次live-ID集合；非空source state只对Basic返回的`U`个更新做owner分组。host线性查看该epoch捕获的`S`个source以保持稳定调用顺序，但只有其中`D`个dirty source执行callback。若返回`R`个snapshot，host额外成本为`O(T + U + S + R log R)`；每个active controller再以`O(S_train)`重编译自己的source限制，不扫描所有列车×所有area，也不重跑路线perception。area几何查询复杂度归Basic监测区契约。source替换的编译成本只发生在配置变化时，不进入每tick热路径。
+每个epoch将Core frame投影一次并为`T`列车建立一次live-ID集合；非空source state只对Basic返回的`U`个更新做owner分组。host线性查看该epoch捕获的`S`个source以保持稳定调用顺序，但只有其中`D`个dirty source执行callback。若返回`R`个snapshot和`I`个声明invalidation，host发布阶段为`O(R log R + I)`；inspection runtime只遍历该source当前的`B`个列车binding并做hash membership，标记成本为`O(B × I)`，不调用插件规则。每个active controller再以`O(S_train)`重编译自己的source限制。整个过程不扫描所有列车×所有area、不遍历完整路线，也不重跑perception；area几何查询复杂度归Basic监测区契约。source替换的编译成本只发生在配置变化时，不进入每tick热路径。
 
 `process`只由Core serialized physics coordinator调用，不并发重入；handler必须同步返回且不得调用Bukkit、阻塞I/O或把安全工作异步延后。Dispatcher只在route建立/延长时绑定冻结route与Mission progress的映射，不参与逐epoch限制执行。epoch N写入的snapshot和completed stamp由controller在epoch N+1规划运动前直接消费，因此Bukkit主线程停顿不会使旧限制继续驱动车辆。source替换可来自另一线程，但生产adapter仍须先等待当前physics epoch结束再允许插件卸载或废弃callback owner；volatile snapshot只保证epoch内一致性，不替代插件lifecycle barrier。具体插件内部可以根据B变化同步重算A；host当前不建立通用fixed-point依赖图。
 
@@ -72,6 +78,7 @@ Bukkit通过`SignalEpochSourceService`按`(plugin owner, world UUID)`安装完�
 - 同epochENTER+LEFT一次完整到达owner，非owner不调用；
 - wrong source/stamp、missing/duplicate train在任何publication前拒绝；
 - publisher非ACCEPTED与handler exception向Core传播；
+- inspection invalidation在完整结果校验后按source顺序发布，且只唤醒同source当前binding中的声明；
 - source/input/result collection defensive copy。
 
 尚未完成：具体插件的信号依赖传播、制式策略和呈现。Host inspection-distance声明编译、缓存与激活调度已在Stage 1完成。

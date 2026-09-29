@@ -33,13 +33,4 @@ public interface InspectionSourceService {
         UUID worldId,
         Collection<InspectionSource> sources
     );
-
-    /** Marks declarations in the current complete source/train binding for the next in-range update. */
-    void markInspectionDeclarationsDirty(
-        Plugin pluginOwner,
-        UUID worldId,
-        String sourceId,
-        String trainId,
-        Collection<String> declarationIds
-    );
 }

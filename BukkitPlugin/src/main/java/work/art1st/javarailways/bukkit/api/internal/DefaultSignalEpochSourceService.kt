@@ -216,31 +216,6 @@ internal class DefaultSignalEpochSourceService :
         }
     }
 
-    override fun markInspectionDeclarationsDirty(
-        pluginOwner: Plugin,
-        worldId: UUID,
-        sourceId: String,
-        trainId: String,
-        declarationIds: Collection<String>
-    ) = BukkitThreadGuardBridge.runInSimulationContext {
-        check(pluginOwner.isEnabled) {
-            "Cannot dirty inspection declarations for disabled plugin ${pluginOwner.name}"
-        }
-        synchronized(lock) {
-            requireNoAtomicCommitReentry()
-            check(!closed) { "InspectionSourceService is closed" }
-            val world = checkNotNull(worlds[worldId]) {
-                "Railway world is not registered: $worldId"
-            }
-            val owner = sourcesByWorld[worldId].orEmpty()
-                .firstOrNull { it.owner === pluginOwner }
-            check(owner?.inspectionSources?.any { it.sourceId == sourceId } == true) {
-                "Inspection source $sourceId is not owned by ${pluginOwner.name} in world $worldId"
-            }
-            world.inspectionRuntime.markDirty(sourceId, trainId, java.util.List.copyOf(declarationIds))
-        }
-    }
-
     fun requireOwnerUnused(pluginOwner: Plugin) {
         synchronized(lock) {
             requireNoAtomicCommitReentry()

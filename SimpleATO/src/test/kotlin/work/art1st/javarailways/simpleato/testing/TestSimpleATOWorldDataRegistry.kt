@@ -52,7 +52,12 @@ internal object TestSimpleATOWorldDataRegistry {
             publisher = restrictions,
             sourceUnavailable = { _, _, failure -> throw failure }
         )
-        val signalEpoch = SignalEpochRuntime(worldId, restrictions, restrictions::completeEpoch)
+        val signalEpoch = SignalEpochRuntime(
+            worldId,
+            restrictions,
+            restrictions::completeEpoch,
+            inspection::markDirty
+        )
         val dispatcher = TimetableDispatcher(
             routeAdmissionContextProvider = UnavailableRouteAdmissionTestContext,
             signalRestrictionSnapshots = restrictions,

@@ -152,6 +152,7 @@ internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
     private var binding = initialBinding
     private val activeDeclarationIds = hashSetOf<String>()
     private val dirtyDeclarationIds = hashSetOf<String>()
+    private var retryPending = false
 
     val maximumDeclaredInspectionDistanceMeters: Double
         get() = binding.maximumDeclaredInspectionDistanceMeters
@@ -160,19 +161,23 @@ internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
         binding = replacement
         activeDeclarationIds.clear()
         dirtyDeclarationIds.clear()
+        retryPending = false
     }
 
-    fun markDirty(declarationIds: Collection<String>) {
-        require(declarationIds.all(binding::containsDeclaration)) {
-            "dirty declaration IDs must belong to the current binding"
-        }
-        dirtyDeclarationIds += declarationIds
+    /** Marks only declarations present on this route; unrelated source declarations are ignored. */
+    fun markPresentDirty(declarationIds: Collection<String>) {
+        dirtyDeclarationIds += declarationIds.filter(binding::containsDeclaration)
+    }
+
+    /** Retries the last complete active-set publication, including an empty deactivation. */
+    fun retry() {
+        retryPending = true
     }
 
     fun updatesFor(
         currentHeadRouteDistanceMeters: Double,
         dynamicLookaheadMeters: Double
-    ): List<InspectionDeclaration> {
+    ): List<InspectionDeclaration>? {
         require(currentHeadRouteDistanceMeters.isFinite() &&
             currentHeadRouteDistanceMeters >= 0.0 &&
             currentHeadRouteDistanceMeters <= binding.binding.route.totalLengthMeters
@@ -195,14 +200,15 @@ internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
                 }
             }
 
-        val updates = visible.values.filter { declaration ->
-            declaration.declarationId !in activeDeclarationIds ||
-                declaration.declarationId in dirtyDeclarationIds
-        }
-        activeDeclarationIds.retainAll(visible.keys)
-        activeDeclarationIds += visible.keys
-        dirtyDeclarationIds.removeAll(updates.mapTo(hashSetOf()) { it.declarationId })
-        return updates
+        val visibleIds = visible.keys
+        val activeSetChanged = activeDeclarationIds != visibleIds
+        val activeWasInvalidated = visibleIds.any(dirtyDeclarationIds::contains)
+        val shouldUpdate = activeSetChanged || activeWasInvalidated || retryPending
+        activeDeclarationIds.clear()
+        activeDeclarationIds += visibleIds
+        dirtyDeclarationIds.clear()
+        retryPending = false
+        return if (shouldUpdate) visible.values.toList() else null
     }
 }
 

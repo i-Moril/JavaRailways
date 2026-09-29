@@ -2,6 +2,7 @@ package work.art1st.javarailways.simpleato.inspection
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
@@ -82,7 +83,7 @@ class InspectionSchedulerTest {
 
         val updates = scheduler.updatesFor(160.0, 40.0)
 
-        assertEquals(listOf("test:repeated"), updates.map { it.declarationId })
+        assertEquals(listOf("test:repeated"), requireNotNull(updates).map { it.declarationId })
     }
 
     @Test
@@ -93,7 +94,7 @@ class InspectionSchedulerTest {
 
         val updates = scheduler.updatesFor(100.0, 60.0)
 
-        assertEquals(listOf("test:dynamic"), updates.map { it.declarationId })
+        assertEquals(listOf("test:dynamic"), requireNotNull(updates).map { it.declarationId })
     }
 
     @Test
@@ -101,11 +102,14 @@ class InspectionSchedulerTest {
         val scheduler = scheduler(
             declaration("test:idle", secondRail, ViewDirection.BA, 150.0, 60.0)
         )
-        assertEquals(1, scheduler.updatesFor(100.0, 0.0).size)
-        assertEquals(emptyList<InspectionDeclaration>(), scheduler.updatesFor(110.0, 0.0))
-        scheduler.markDirty(listOf("test:idle"))
-        assertEquals(listOf("test:idle"), scheduler.updatesFor(120.0, 0.0).map { it.declarationId })
-        assertEquals(emptyList<InspectionDeclaration>(), scheduler.updatesFor(125.0, 0.0))
+        assertEquals(1, requireNotNull(scheduler.updatesFor(100.0, 0.0)).size)
+        assertNull(scheduler.updatesFor(110.0, 0.0))
+        scheduler.markPresentDirty(listOf("test:idle"))
+        assertEquals(
+            listOf("test:idle"),
+            requireNotNull(scheduler.updatesFor(120.0, 0.0)).map { it.declarationId }
+        )
+        assertNull(scheduler.updatesFor(125.0, 0.0))
     }
 
     @Test
@@ -113,10 +117,13 @@ class InspectionSchedulerTest {
         val scheduler = scheduler(
             declaration("test:later", secondRail, ViewDirection.BA, 150.0, 20.0)
         )
-        scheduler.markDirty(listOf("test:later"))
+        scheduler.markPresentDirty(listOf("test:later"))
 
-        assertEquals(emptyList<InspectionDeclaration>(), scheduler.updatesFor(100.0, 0.0))
-        assertEquals(listOf("test:later"), scheduler.updatesFor(135.0, 0.0).map { it.declarationId })
+        assertNull(scheduler.updatesFor(100.0, 0.0))
+        assertEquals(
+            listOf("test:later"),
+            requireNotNull(scheduler.updatesFor(135.0, 0.0)).map { it.declarationId }
+        )
     }
 
     @Test
@@ -124,20 +131,19 @@ class InspectionSchedulerTest {
         val scheduler = scheduler(
             declaration("test:reenter", firstRail, ViewDirection.AB, 50.0, 20.0)
         )
-        assertEquals(1, scheduler.updatesFor(35.0, 0.0).size)
-        assertEquals(0, scheduler.updatesFor(0.0, 0.0).size)
-        assertEquals(1, scheduler.updatesFor(35.0, 0.0).size)
+        assertEquals(1, requireNotNull(scheduler.updatesFor(35.0, 0.0)).size)
+        assertEquals(0, requireNotNull(scheduler.updatesFor(0.0, 0.0)).size)
+        assertEquals(1, requireNotNull(scheduler.updatesFor(35.0, 0.0)).size)
     }
 
     @Test
-    fun `binding replacement resets activation without accepting unknown dirty IDs`() {
+    fun `binding replacement resets activation while unrelated source invalidations are ignored`() {
         val scheduler = scheduler(
             declaration("test:first", firstRail, ViewDirection.AB, 50.0, 20.0)
         )
-        assertEquals(1, scheduler.updatesFor(35.0, 0.0).size)
-        assertThrows(IllegalArgumentException::class.java) {
-            scheduler.markDirty(listOf("test:missing"))
-        }
+        assertEquals(1, requireNotNull(scheduler.updatesFor(35.0, 0.0)).size)
+        scheduler.markPresentDirty(listOf("test:missing"))
+        assertNull(scheduler.updatesFor(35.0, 0.0))
 
         scheduler.replaceBinding(
             compile(declaration("test:replacement", firstRail, ViewDirection.AB, 50.0, 20.0))
@@ -145,7 +151,7 @@ class InspectionSchedulerTest {
 
         assertEquals(
             listOf("test:replacement"),
-            scheduler.updatesFor(35.0, 0.0).map { it.declarationId }
+            requireNotNull(scheduler.updatesFor(35.0, 0.0)).map { it.declarationId }
         )
     }
 
@@ -159,7 +165,7 @@ class InspectionSchedulerTest {
 
         assertEquals(
             listOf("test:long"),
-            scheduler.updatesFor(100.0, 0.0).map { it.declarationId }
+            requireNotNull(scheduler.updatesFor(100.0, 0.0)).map { it.declarationId }
         )
     }
 

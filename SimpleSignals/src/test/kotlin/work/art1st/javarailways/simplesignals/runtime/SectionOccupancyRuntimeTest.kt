@@ -211,7 +211,8 @@ class SectionOccupancyRuntimeTest {
                 }
             )
         )
-        val epochRuntime = epochRuntime(requireNotNull(occupancy.source))
+        val invalidations = arrayListOf<Pair<String, Set<String>>>()
+        val epochRuntime = epochRuntime(requireNotNull(occupancy.source), invalidations)
 
         epochRuntime.process(frame(1L, listOf(RailInterval(railId, 4.5, 5.5))))
         val baseline = requireNotNull(occupancy.signalSnapshot())
@@ -223,11 +224,19 @@ class SectionOccupancyRuntimeTest {
         assertEquals("YG", baseline.availableOutput("test:second-signal").modelVariant)
         assertEquals("mirror/YG", baseline.availableOutput("test:first-signal").modelVariant)
         assertEquals(setOf("test:first-signal", "test:second-signal"), baseline.changedSignalIds)
+        assertEquals(
+            listOf(
+                SECTION_OCCUPANCY_SOURCE_ID to
+                    setOf(firstBlock.blockId, secondBlock.blockId)
+            ),
+            invalidations
+        )
 
         calls.clear()
         epochRuntime.process(frame(2L, listOf(RailInterval(railId, 4.5, 5.5))))
         assertSame(baseline, occupancy.signalSnapshot())
         assertEquals(emptyList<String>(), calls)
+        assertEquals(1, invalidations.size)
 
         epochRuntime.process(frame(3L, listOf(RailInterval(railId, 7.0, 8.0))))
         val occupied = requireNotNull(occupancy.signalSnapshot())
@@ -239,24 +248,69 @@ class SectionOccupancyRuntimeTest {
         assertEquals("custom-stop", occupied.availableOutput("test:second-signal").modelVariant)
         assertEquals("mirror/custom-stop", occupied.availableOutput("test:first-signal").modelVariant)
         assertEquals(setOf("test:first-signal", "test:second-signal"), occupied.changedSignalIds)
+        assertEquals(
+            SECTION_OCCUPANCY_SOURCE_ID to setOf(firstBlock.blockId, secondBlock.blockId),
+            invalidations.last()
+        )
+        assertEquals(2, invalidations.size)
         assertThrows(UnsupportedOperationException::class.java) {
             (occupied.states as MutableMap<*, *>).clear()
         }
     }
 
     @Test
-    fun `rule failure replaces stale permissive state and propagates unavailable without invoking consumers`() {
+    fun `one fixed block accepts only one controlling signal rule`() {
         val section = SectionRef(SectionKind.FIXED_BLOCK, block.blockId)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            SectionSignalRuleRuntime.compile(
+                listOf(section),
+                listOf(
+                    SectionSignalRuleBinding("test:first-signal", section, emptyList()) {
+                        SectionSignalOutput(10.0, "first")
+                    },
+                    SectionSignalRuleBinding("test:second-signal", section, emptyList()) {
+                        SectionSignalOutput(20.0, "second")
+                    }
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `rule failure replaces stale permissive state and propagates unavailable without invoking consumers`() {
+        val upstreamBlock = FixedBlockDefinition(
+            "test:upstream-block",
+            1L,
+            listOf(FixedBlockTraversal(railId, ViewDirection.AB, 0.0, 4.0))
+        )
+        val downstreamBlock = FixedBlockDefinition(
+            "test:downstream-block",
+            1L,
+            listOf(FixedBlockTraversal(railId, ViewDirection.AB, 6.0, 10.0))
+        )
+        val upstreamSection = SectionRef(SectionKind.FIXED_BLOCK, upstreamBlock.blockId)
+        val downstreamSection = SectionRef(SectionKind.FIXED_BLOCK, downstreamBlock.blockId)
         var shouldFail = false
         var consumerCalls = 0
         val worldRuntime = SimpleSignalsWorldRuntime(worldId)
         worldRuntime.initializeDefinitions(
             topology,
-            SimpleSignalsWorldDefinitions(worldId, 1L, emptyList(), emptyList(), listOf(block))
+            SimpleSignalsWorldDefinitions(
+                worldId,
+                1L,
+                emptyList(),
+                emptyList(),
+                listOf(upstreamBlock, downstreamBlock)
+            )
         )
         val occupancy = worldRuntime.initializeSectionOccupancy(
             listOf(
-                SectionSignalRuleBinding("test:downstream-signal", section, emptyList()) { input ->
+                SectionSignalRuleBinding(
+                    "test:downstream-signal",
+                    downstreamSection,
+                    emptyList()
+                ) { input ->
                     if (shouldFail) error("configured rule failed")
                     SectionSignalOutput(
                         if (input.controlledSection.occupants.isEmpty()) 31.0 else 4.0,
@@ -265,7 +319,7 @@ class SectionOccupancyRuntimeTest {
                 },
                 SectionSignalRuleBinding(
                     "test:upstream-signal",
-                    section,
+                    upstreamSection,
                     listOf(DownstreamSignalDependency("test:downstream-signal", 6.0))
                 ) { input ->
                     consumerCalls++
@@ -274,7 +328,7 @@ class SectionOccupancyRuntimeTest {
             )
         )
         val epochRuntime = epochRuntime(requireNotNull(occupancy.source))
-        epochRuntime.process(frame(1L, listOf(RailInterval(railId, 0.0, 1.0))))
+        epochRuntime.process(frame(1L, listOf(RailInterval(railId, 4.5, 5.5))))
         val baselineSignals = requireNotNull(occupancy.signalSnapshot())
         assertEquals(
             31.0,
@@ -283,7 +337,7 @@ class SectionOccupancyRuntimeTest {
         assertEquals(1, consumerCalls)
 
         shouldFail = true
-        epochRuntime.process(frame(2L, listOf(RailInterval(railId, 3.0, 4.0))))
+        epochRuntime.process(frame(2L, listOf(RailInterval(railId, 7.0, 8.0))))
 
         val unavailable = requireNotNull(occupancy.signalSnapshot())
         val downstream = unavailable.states.getValue("test:downstream-signal") as
@@ -317,14 +371,20 @@ class SectionOccupancyRuntimeTest {
         }
     }
 
-    private fun epochRuntime(source: work.art1st.javarailways.simpleato.api.signal.SignalEpochSource) =
+    private fun epochRuntime(
+        source: work.art1st.javarailways.simpleato.api.signal.SignalEpochSource,
+        invalidations: MutableList<Pair<String, Set<String>>> = arrayListOf()
+    ) =
         SignalEpochRuntime(
-            worldId.toString(),
-            TrainRestrictionPublisher { snapshot ->
+            worldId = worldId.toString(),
+            publisher = TrainRestrictionPublisher { snapshot ->
                 TrainRestrictionPublicationResult(
                     TrainRestrictionPublicationStatus.ACCEPTED,
                     snapshot.revision
                 )
+            },
+            invalidateInspectionDeclarations = { sourceId, declarationIds ->
+                invalidations += sourceId to declarationIds
             }
         ).also { it.replaceSources(listOf(source)) }
 

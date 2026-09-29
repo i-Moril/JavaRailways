@@ -37,10 +37,10 @@ unload/reload and do not assume that a reused world UUID revives an old binding.
 The fixture installs SimpleATO's platform-neutral `InspectionSource`. Its binding provider receives
 the exact host-selected train and `RouteSnapshot`; add-ons must not reconstruct that route from a
 separate observation. The provider returns one complete immutable `InspectionDeclarationBinding`.
-SimpleATO owns activation and invokes the handler only for newly active or explicitly dirty
-declarations, using its existing perception scan and dynamic braking lookahead. A newly compiled
-binding also receives one baseline callback, possibly with an empty declaration list; it must publish
-one complete snapshot bound to the new route, even when that snapshot contains no restrictions.
+SimpleATO owns activation and invokes the handler only when the complete active declaration set
+changes or one active declaration is invalidated, using its existing perception scan and dynamic
+braking lookahead. Every callback receives the complete active set and must publish one complete
+snapshot; a newly compiled binding also receives a baseline callback, possibly with an empty set.
 
 ## Runtime flow
 
@@ -55,7 +55,8 @@ one complete snapshot bound to the new route, even when that snapshot contains n
    empty replacement clears only this owner's epoch sources after retained restrictions are
    withdrawn; it preserves inspection, route-planning and infrastructure ownership.
 5. Install a complete `InspectionSource` set. The host invokes each provider only after selecting an
-   exact production route; publish dependency changes through `markInspectionDeclarationsDirty`.
+   exact production route. A same-ID `SignalEpochSource` returns changed declaration IDs with its
+   epoch result, and the host invalidates only matching current bindings without a Bukkit callback.
 6. Install a complete route-planning source set when the plugin restricts path choice. Each source
    compiles neutral forbidden spans or complete atomic paths from one supplied topology snapshot;
    it is not called from Dijkstra and does not edit the physical graph.
@@ -69,8 +70,8 @@ one complete snapshot bound to the new route, even when that snapshot contains n
 
 `SignalEpochSource` callbacks run inside the serialized railway epoch. They must not call Bukkit,
 perform blocking I/O, defer safety work asynchronously or mutate live Core/Basic objects. An empty
-`SignalEpochResult` means "no restriction changed"; withdrawing an existing restriction requires a
-higher-revision snapshot whose restriction list is empty.
+`SignalEpochResult` means "no restriction or inspection declaration changed"; withdrawing an
+existing restriction requires a higher-revision snapshot whose restriction list is empty.
 
 Inspection binding and update callbacks follow the same serialized, non-blocking rule. A new or
 changed inspection source cannot be installed permissively while a train already owns a live route:

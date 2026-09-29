@@ -37,7 +37,7 @@ import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBind
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
-import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_INSPECTION_SOURCE_ID
+import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_SIGNAL_SOURCE_ID
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
@@ -287,7 +287,6 @@ class SimpleSignalsWorldRuntimeManagerTest {
                         java.util.List.copyOf(arguments[2] as Collection<InspectionSource>)
                     Unit
                 }
-                "markInspectionDeclarationsDirty" -> Unit
                 else -> throw UnsupportedOperationException(method.name)
             }
         }
@@ -303,7 +302,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
 
         assertEquals(
-            listOf(FIXED_BLOCK_INSPECTION_SOURCE_ID),
+            listOf(FIXED_BLOCK_SIGNAL_SOURCE_ID),
             registered.getValue(fixture.worldId).map(InspectionSource::sourceId)
         )
     }
@@ -344,7 +343,6 @@ class SimpleSignalsWorldRuntimeManagerTest {
                     }
                     Unit
                 }
-                "markInspectionDeclarationsDirty" -> Unit
                 else -> throw UnsupportedOperationException(method.name)
             }
         }
@@ -1400,7 +1398,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         private fun inspectionSources(): InspectionSourceService =
             proxy(InspectionSourceService::class.java) { method, _ ->
                 when (method.name) {
-                    "replaceInspectionSources", "markInspectionDeclarationsDirty" -> Unit
+                    "replaceInspectionSources" -> Unit
                     else -> throw UnsupportedOperationException(method.name)
                 }
             }

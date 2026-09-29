@@ -31,7 +31,7 @@ Current extraction progress:
 - [x] Add owner/world-scoped route-planning source registration through the existing Bukkit signal owner registry. Compile one stable source snapshot once per immutable-topology query, combine it deterministically with operating directions, and reuse the unified owner unregister/world lifecycle without a second token framework.
 - [x] Migrate Mission, Station, Line, Timetable and the Bukkit route diagnostic to one SimpleATO immutable-topology planning seam, preserve precomputed timetable routes and typed direction failures, then delete the live-`RailView` planner and compiler.
 - [ ] Integrate concrete signal sources with the existing SimpleATO inspection declarations, single shared perception scan and dynamic braking-distance comparison; do not build another inspection runtime. Fixed blocks now compile their route-local authority floors through the existing inspection binding; dynamic signal restriction output remains.
-- [ ] Wire `SimpleSignals` through the existing namespaced most-restrictive restriction pipeline; plugin output cannot widen Basic grants or existing ATO/ATP limits.
+- [x] Wire injected `SimpleSignals` fixed-block rule output through the existing namespaced most-restrictive restriction pipeline; signal-epoch invalidation marks only current same-source inspection bindings, each callback publishes from the complete active declaration set, and plugin output cannot widen Basic grants or existing ATO/ATP limits. Production concrete rule bindings remain a separate item below.
 
 ## Deliverable 2: SimpleSignals foundation
 

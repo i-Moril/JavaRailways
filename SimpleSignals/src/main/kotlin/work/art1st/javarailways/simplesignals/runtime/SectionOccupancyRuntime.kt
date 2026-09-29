@@ -6,8 +6,9 @@ import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochInput
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
+import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_SIGNAL_SOURCE_ID
 
-internal const val SECTION_OCCUPANCY_SOURCE_ID = "simplesignals:section-occupancy"
+internal const val SECTION_OCCUPANCY_SOURCE_ID = FIXED_BLOCK_SIGNAL_SOURCE_ID
 
 internal enum class SectionKind {
     FIXED_BLOCK
@@ -93,6 +94,14 @@ internal class SectionOccupancyRuntime private constructor(
 
     fun signalSnapshot(): SectionSignalSnapshot? = latest?.signals
 
+    fun signalFor(section: SectionRef): PublishedSectionSignal? {
+        val signalId = signalRules?.signalIdFor(section) ?: return null
+        val snapshot = checkNotNull(latest?.signals) {
+            "signal $signalId has not received its first physical baseline"
+        }
+        return PublishedSectionSignal(snapshot.stamp, snapshot.states.getValue(signalId))
+    }
+
     private fun update(input: SignalEpochInput): SignalEpochResult {
         val previous = latest
         val observations = previous?.occupancy?.sections?.toMutableMap() ?: linkedMapOf()
@@ -125,7 +134,10 @@ internal class SectionOccupancyRuntime private constructor(
         val occupancy = SectionOccupancySnapshot(input.observation.stamp, observations, changed, crossings)
         val signals = signalRules?.evaluate(previous?.signals, occupancy)
         latest = PublishedState(occupancy, signals)
-        return SignalEpochResult.empty()
+        return SignalEpochResult(
+            emptyList(),
+            signals?.let(signalRules::invalidatedDeclarationIds).orEmpty()
+        )
     }
 
     private data class Binding(

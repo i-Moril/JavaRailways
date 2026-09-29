@@ -48,22 +48,26 @@ class InspectionRuntimeTest {
     )
 
     @Test
-    fun `newly active and dirty declarations dispatch without unchanged callbacks`() {
+    fun `active set changes and source invalidation dispatch complete snapshots without unchanged callbacks`() {
         val publications = arrayListOf<TrainRestrictionSnapshot>()
         val inputs = arrayListOf<List<String>>()
         val runtime = runtime(publications = publications)
         bind(runtime, binding()) { input ->
-            inputs += input.declarations.map(InspectionDeclaration::declarationId)
+            inputs += input.activeDeclarations.map(InspectionDeclaration::declarationId)
             listOf(snapshot(input.observationStamp, revision = inputs.size.toLong()))
         }
 
         runtime.update(stamp, routeBinding, 50.0, 0.0, perception)
         runtime.update(stamp, routeBinding, 55.0, 0.0, perception)
-        runtime.markDirty("test:source", "train", listOf("test:signal"))
+        runtime.markDirty("test:source", listOf("test:signal", "test:not-on-this-route"))
         runtime.update(stamp, routeBinding, 60.0, 0.0, perception)
+        runtime.update(stamp, routeBinding, 101.0, 0.0, perception)
 
-        assertEquals(listOf(listOf("test:signal"), listOf("test:signal")), inputs)
-        assertEquals(listOf(1L, 2L), publications.map(TrainRestrictionSnapshot::revision))
+        assertEquals(
+            listOf(listOf("test:signal"), listOf("test:signal"), emptyList()),
+            inputs
+        )
+        assertEquals(listOf(1L, 2L, 3L), publications.map(TrainRestrictionSnapshot::revision))
         assertEquals(80.0, runtime.maximumDeclaredDistanceMeters("train"), 0.0)
     }
 
@@ -252,7 +256,7 @@ class InspectionRuntimeTest {
         )
         bind(runtime, emptyBinding) { input ->
             callbacks++
-            assertEquals(emptyList<InspectionDeclaration>(), input.declarations)
+            assertEquals(emptyList<InspectionDeclaration>(), input.activeDeclarations)
             listOf(snapshot(input.observationStamp, callbacks.toLong()))
         }
 

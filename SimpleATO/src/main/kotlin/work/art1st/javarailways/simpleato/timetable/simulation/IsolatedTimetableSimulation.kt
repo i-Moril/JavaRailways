@@ -268,12 +268,13 @@ class IsolatedTimetableSimulationWorld private constructor(
                         routeAdmissionHost = admission
                         val worldId = atoCoordinator.worldId
                         val signalRestrictions = TrainRestrictionSnapshotStore(worldId)
-                        val signalEpochRuntime = SignalEpochRuntime(
-                            worldId,
-                            signalRestrictions,
-                            signalRestrictions::completeEpoch
-                        )
                         val inspectionRuntime = InspectionRuntime(signalRestrictions) { _, _, _ -> }
+                        val signalEpochRuntime = SignalEpochRuntime(
+                            worldId = worldId,
+                            publisher = signalRestrictions,
+                            completeEpoch = signalRestrictions::completeEpoch,
+                            invalidateInspectionDeclarations = inspectionRuntime::markDirty
+                        )
                         physics.registerRailwayEpochProcessor(signalEpochRuntime)
                         isolatedWorld.registerExtensionData(
                             SimpleATOPlugin.INSTANCE,

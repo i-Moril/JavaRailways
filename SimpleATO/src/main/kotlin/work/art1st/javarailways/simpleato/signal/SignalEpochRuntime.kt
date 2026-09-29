@@ -22,7 +22,8 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 class SignalEpochRuntime(
     private val worldId: String,
     private val publisher: TrainRestrictionPublisher,
-    private val completeEpoch: (RailwayStateStamp, Set<String>) -> Unit = { _, _ -> }
+    private val completeEpoch: (RailwayStateStamp, Set<String>) -> Unit = { _, _ -> },
+    private val invalidateInspectionDeclarations: (String, Set<String>) -> Unit = { _, _ -> }
 ) : RailwayEpochProcessor {
     @Volatile
     private var state = SourceState.create(emptyList())
@@ -64,6 +65,7 @@ class SignalEpochRuntime(
 
         val observation = RailwayObservation.fromCore(worldId, frame)
         val validated = ArrayList<TrainRestrictionSnapshot>()
+        val invalidations = linkedMapOf<String, Set<String>>()
 
         val areaBatch = current.occupancyEngine.consume(observation)
         val updatesBySource = areaBatch.updates.groupBy { update ->
@@ -75,6 +77,9 @@ class SignalEpochRuntime(
             val result = source.handler.update(SignalEpochInput.create(observation, updates))
             validateResult(source, observation, liveTrainIds, result.publications)
             validated += result.publications
+            if (result.invalidatedInspectionDeclarationIds.isNotEmpty()) {
+                invalidations[source.sourceId] = result.invalidatedInspectionDeclarationIds
+            }
         }
 
         validated.sortedWith(compareBy(TrainRestrictionSnapshot::sourceId, TrainRestrictionSnapshot::trainId))
@@ -84,6 +89,7 @@ class SignalEpochRuntime(
                     "restriction publication for ${snapshot.sourceId}/${snapshot.trainId} was ${result.status}"
                 }
             }
+        invalidations.forEach(invalidateInspectionDeclarations)
         completeEpoch(stamp, java.util.Set.copyOf(liveTrainIds))
     }
 

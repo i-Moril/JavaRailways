@@ -123,6 +123,12 @@ internal class SectionSignalSnapshot(
     )
 }
 
+/** One rule state published with the physical observation that produced it. */
+internal data class PublishedSectionSignal(
+    val stamp: RailwayStateStamp,
+    val state: SectionSignalState
+)
+
 /**
  * Evaluates configured section signals through the precompiled one-way invalidation graph.
  *
@@ -133,8 +139,16 @@ internal class SectionSignalSnapshot(
  */
 internal class SectionSignalRuleRuntime private constructor(
     private val bindingsBySignal: Map<String, SectionSignalRuleBinding>,
+    private val signalIdBySection: Map<SectionRef, String>,
     private val graph: OneWayInvalidationGraph<RuleNode>
 ) {
+    fun signalIdFor(section: SectionRef): String? = signalIdBySection[section]
+
+    fun invalidatedDeclarationIds(snapshot: SectionSignalSnapshot): Set<String> =
+        snapshot.changedSignalIds.mapTo(sortedSetOf()) { signalId ->
+            bindingsBySignal.getValue(signalId).controlledSection.id
+        }
+
     fun evaluate(
         previous: SectionSignalSnapshot?,
         occupancy: SectionOccupancySnapshot
@@ -225,6 +239,10 @@ internal class SectionSignalRuleRuntime private constructor(
             val sectionsSet = sections.toSet()
             val bindingsBySignal = bindings.associateBy(SectionSignalRuleBinding::signalId)
             require(bindingsBySignal.size == bindings.size) { "signal rule IDs must be unique" }
+            val signalIdBySection = bindings.associate { it.controlledSection to it.signalId }
+            require(signalIdBySection.size == bindings.size) {
+                "one section may be controlled by only one signal rule binding"
+            }
             bindings.forEach { binding ->
                 require(binding.controlledSection in sectionsSet) {
                     "signal ${binding.signalId} controls an unknown section ${binding.controlledSection}"
@@ -260,6 +278,7 @@ internal class SectionSignalRuleRuntime private constructor(
             }
             return SectionSignalRuleRuntime(
                 java.util.Collections.unmodifiableMap(bindingsBySignal.toSortedMap()),
+                java.util.Collections.unmodifiableMap(signalIdBySection.toSortedMap()),
                 OneWayInvalidationGraph.compile(nodes, dependencies)
             )
         }

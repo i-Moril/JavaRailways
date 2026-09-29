@@ -102,8 +102,8 @@ canonical AB coordinates, discovers only blocks indexed by rails on that route, 
 each complete directed block traversal. Authority ending at the entry contributes nothing; authority entering but not reaching the
 exit is rejected; complete traversal contributes one stable block resource held until the tail passes the route-local exit. More than
 one complete occurrence of the same block in one authority prefix is rejected as an ambiguous route. Basic independently adds the physical rail,
-turnout and diamond floor and atomically claims the union. This does not yet choose a farther authority boundary for ATO or produce
-signal aspects.
+turnout and diamond floor and atomically claims the union. This does not yet choose a farther protection-region transition boundary or install
+concrete signal-system rules.
 
 The first common live section slice now covers fixed-block occupancy only. On world installation,
 SimpleSignals groups every compiled block area into one host `SignalEpochSource`; Basic derives the
@@ -111,7 +111,9 @@ baseline and changed occupants plus directed ENTER/LEFT crossings in the coheren
 The plugin maps changed area IDs to immutable section observations containing the block identity,
 definition revision, compiled length and conservative occupants. Before the first baseline the
 snapshot is unknown, and an unchanged epoch does not invoke plugin code or replace the snapshot.
-This source emits no speed/authority restriction yet. Protection regions join the same private read
+Injected fixed-block rules can now map this state plus downstream outputs to an opaque model variant and speed; changed outputs invalidate only
+the same source's current route declarations, whose complete active set produces route-position speed restrictions through SimpleATO's existing
+most-restrictive pipeline. Production still installs no concrete rule bindings. Protection regions join the same private read
 surface only when concrete interlocking rules need them, because a branching region has no useful
 single physical length.
 

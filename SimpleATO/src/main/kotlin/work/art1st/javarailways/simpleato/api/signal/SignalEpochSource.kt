@@ -47,25 +47,39 @@ data class SignalEpochInput private constructor(
 /**
  * Immutable output from one source invocation.
  *
- * An empty collection means that this source has no restriction change to publish. Clearing an
- * existing restriction stream requires an explicit higher-revision empty
+ * Empty publications mean that this source has no restriction replacement to publish; an empty
+ * invalidation set means that no same-source inspection declaration changed. Clearing an existing
+ * restriction stream requires an explicit higher-revision empty
  * [TrainRestrictionSnapshot], not an empty epoch result.
  *
  * @property publications complete restriction snapshots to publish after whole-batch validation
+ * @property invalidatedInspectionDeclarationIds declarations in the inspection source with the
+ * same [SignalEpochSource.sourceId] whose active train bindings must be recomputed before control
  */
 @ConsistentCopyVisibility
 data class SignalEpochResult private constructor(
-    val publications: List<TrainRestrictionSnapshot>
+    val publications: List<TrainRestrictionSnapshot>,
+    val invalidatedInspectionDeclarationIds: Set<String>
 ) {
-    constructor(publications: Collection<TrainRestrictionSnapshot>) : this(
-        Collections.unmodifiableList(ArrayList(publications))
+    constructor(
+        publications: Collection<TrainRestrictionSnapshot>,
+        invalidatedInspectionDeclarationIds: Collection<String> = emptyList()
+    ) : this(
+        Collections.unmodifiableList(ArrayList(publications)),
+        Collections.unmodifiableSet(LinkedHashSet(invalidatedInspectionDeclarationIds))
     )
 
-    /** Factory for the common no-publication result. */
+    init {
+        require(
+            invalidatedInspectionDeclarationIds.all(NAMESPACED_SIMPLE_ATO_ID::matches)
+        ) { "invalidated inspection declaration IDs must be namespaced" }
+    }
+
+    /** Factory for the common no-change result. */
     companion object {
-        /** Returns an immutable result that publishes no restriction changes. */
+        /** Returns an immutable result with neither restriction nor inspection changes. */
         @JvmStatic
-        fun empty(): SignalEpochResult = SignalEpochResult(emptyList())
+        fun empty(): SignalEpochResult = SignalEpochResult(emptyList(), emptyList())
     }
 }
 

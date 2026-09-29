@@ -155,7 +155,10 @@ internal class SimpleSignalsWorldRuntime(
         }
     )
 
-    val fixedBlockInspectionSource = FixedBlockInspectionSource(::fixedBlockSnapshot).source
+    val fixedBlockInspectionSource = FixedBlockInspectionSource(
+        ::fixedBlockSnapshot,
+        ::fixedBlockSignal
+    ).source
 
     fun currentDefinitions(): SimpleSignalsWorldDefinitions = synchronized(lock) {
         checkNotNull(state.publication) { "SimpleSignals definitions have not been published for world $worldId" }
@@ -197,6 +200,11 @@ internal class SimpleSignalsWorldRuntime(
     fun sectionOccupancySnapshot(): SectionOccupancySnapshot? = state.sectionOccupancy?.snapshot()
 
     fun sectionSignalSnapshot(): SectionSignalSnapshot? = state.sectionOccupancy?.signalSnapshot()
+
+    private fun fixedBlockSignal(blockId: String): PublishedSectionSignal? =
+        checkNotNull(state.sectionOccupancy) {
+            "section occupancy is not initialized for world $worldId"
+        }.signalFor(SectionRef(SectionKind.FIXED_BLOCK, blockId))
 
     fun prepareDefinitions(
         topology: TopologyState,

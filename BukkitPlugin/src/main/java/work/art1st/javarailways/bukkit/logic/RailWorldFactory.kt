@@ -184,9 +184,10 @@ object RailWorldFactory {
             }
         )
         val signalEpochRuntime = SignalEpochRuntime(
-            bukkitWorld.uid.toString(),
-            signalRestrictions,
-            signalRestrictions::completeEpoch
+            worldId = bukkitWorld.uid.toString(),
+            publisher = signalRestrictions,
+            completeEpoch = signalRestrictions::completeEpoch,
+            invalidateInspectionDeclarations = inspectionRuntime::markDirty
         )
         physicsCoordinator.registerRailwayEpochProcessor(signalEpochRuntime)
         coreWorld.registerExtensionData(

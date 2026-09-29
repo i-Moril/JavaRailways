@@ -9,7 +9,7 @@ JavaRailways 主 JAR 的组成部分，也不能复制、shadow 或直接导入�
 当前已建立部署边界、严格current-model世界定义sidecar、保护区域领域核心、固定保护进路表和固定闭塞定义的低频编译器，
 以及把存档编译结果原子发布到实际world runtime。固定闭塞还把已编译Basic监测区接入host physics epoch，发布
 plugin-local immutable section occupancy snapshot，并以同一exact frozen-route matcher建立资源贡献与inspection authority floor；
-已建立plugin-local信号规则执行边界和灯色/限速输出快照，但尚未提供具体规则、渲染、命令、JS/YAML接口或列车限制投影，
+已建立plugin-local信号规则执行边界、灯色/限速输出快照及其列车限制投影，但尚未提供具体规则、渲染、命令或JS/YAML接口，
 不得把 foundation 描述为可用信号系统。
 
 ## 工作方式
@@ -131,9 +131,12 @@ interval合并），route-local候选发现为`O(R+K log K)`，其中`R`是route
 后续common section observation只消费已编译length/geometry/snapshot，不重新解析定义。
 
 world install会把全部固定闭塞的已编译occupancy geometry组成一个
-`simplesignals:section-occupancy` source；没有固定闭塞时以owner-scoped empty replacement明确清空该类source，不创建占位监测区。
+`simplesignals:fixed-block-signals` source；同一个source ID也用于对应的inspection binding，使规则输出可直接失效当前列车binding中的
+block声明，而不经过Bukkit回调或插件自建列车索引。没有固定闭塞时以owner-scoped empty replacement明确清空该类source，不创建占位监测区。
 Basic在同一physics epoch完成occupant和ENTER/LEFT推导，SimpleSignals callback只把changed area ID映射回fixed-block section并原子发布
-不可变occupancy snapshot，输出始终为空restriction。首次callback必须为全部block建立baseline；此前snapshot为unknown而不是空占用。
+不可变occupancy与规则结果snapshot。规则输出本身不在epoch callback里按列车生成restriction；它只返回发生变化的block ID，SimpleATO在
+下一次受影响列车的既有controller update中，把完整active block集合投影为入口处限速restriction。首次callback必须为全部block建立
+baseline；此前snapshot为unknown而不是空占用。没有配置规则的block不产生额外限速，仍由既有资源授权约束进入。
 后续occupant/crossing不变时host不会调用callback，snapshot对象保持不变。因此没有新tick loop，也没有
 `all trains x all blocks`扫描。保护区域尚未加入这个common read surface；等具体联锁规则需要时复用同一接口，不提前虚构全局长度语义。
 
@@ -240,8 +243,15 @@ section callback先建立完整occupancy candidate，再在临时signal-state ma
 state同时发布occupancy和signal snapshot。相同输出不继续传播。rule抛错或返回非法output时，对应signal变成`Unavailable(reason)`，
 其宿主安全限速为0且没有伪造model variant；任一下游unavailable会跳过consumer rule并继续传播unavailable，因此旧permissive输出
 不会在失效后留存。首次baseline必须为全部binding建立Available或Unavailable状态；未收到首个physical baseline以前仍没有signal
-snapshot。当前输出尚未投影为每列车SimpleATO restriction，也没有处理“只有active turnout发生变化而area不变”的source唤醒；二者
-必须分别通过既有inspection/restriction seam和一次单独评审的signal-epoch触发扩展完成，不能由本runtime自行轮询。
+snapshot。规则输出到每列车SimpleATO restriction的投影已经接通；“只有active turnout发生变化而area不变”的source唤醒仍须通过
+一次单独评审的signal-epoch触发扩展完成，不能由本runtime自行轮询。
+
+固定闭塞的area source与inspection source使用同一个`simplesignals:fixed-block-signals`身份。规则wave把实际变化signal映射为其
+controlled block声明ID并随`SignalEpochResult`返回；SimpleATO只在当前路线binding中标记存在的声明，下一次controller计算把当前
+完整active block声明集合交回`FixedBlockInspectionSource`。该source从同一原子section/signal snapshot读取每个block入口输出，生成
+入口route metre上的`RouteSpeedRestriction`；`Available`使用规则给出的任意有限非负速度，`Unavailable`使用0，`modelVariant`不进入
+ATO。列车通过入口导致active集合移除该声明时，source发布新的完整快照并清除已越过的限制。没有配置rule binding的block仍保留
+整段authority floor与资源申请，但不会凭空产生速度规则。生产安装目前仍传入空rule binding集合，因此本接线尚无具体制式策略。
 
 ## 依赖与打包不变量
 

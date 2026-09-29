@@ -41,8 +41,9 @@ fun interface InspectionBindingProvider {
  *
  * [bindingProvider] is called only for a new train/route binding or an atomic source replacement;
  * current speed is intentionally absent from its input. [updateHandler] receives one baseline call
- * for each new binding, then only newly active or explicitly dirtied declarations, always with the
- * controller's existing perception snapshot.
+ * for each new binding, then runs only when the complete active declaration set changes or one of
+ * those declarations is invalidated. Every call receives that complete set plus the controller's
+ * existing perception snapshot.
  */
 data class InspectionSource(
     val sourceId: String,

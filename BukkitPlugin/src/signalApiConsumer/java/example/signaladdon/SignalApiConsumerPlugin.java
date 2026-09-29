@@ -171,7 +171,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                         Objects.requireNonNull(input.getObservationStamp());
                         Objects.requireNonNull(input.getRoute());
                         Objects.requireNonNull(input.getPerception());
-                        Objects.requireNonNull(input.getDeclarations());
+                        Objects.requireNonNull(input.getActiveDeclarations());
                         return List.of(new TrainRestrictionSnapshot(
                             "example.signaladdon:main",
                             inspectionRevision.incrementAndGet(),
@@ -240,7 +240,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                 Objects.requireNonNull(input.getObservationStamp());
                 Objects.requireNonNull(input.getRoute());
                 Objects.requireNonNull(input.getPerception());
-                Objects.requireNonNull(input.getDeclarations());
+                Objects.requireNonNull(input.getActiveDeclarations());
                 return List.of(new TrainRestrictionSnapshot(
                     "example.signaladdon:main",
                     exampleInspectionRevision.incrementAndGet(),
@@ -347,7 +347,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             input -> {
                 Objects.requireNonNull(input.getObservation());
                 Objects.requireNonNull(input.getAreaUpdates());
-                return new SignalEpochResult(List.of());
+                return SignalEpochResult.empty();
             }
         );
         TrainRestrictionPublisher publisher = snapshot -> new TrainRestrictionPublicationResult(

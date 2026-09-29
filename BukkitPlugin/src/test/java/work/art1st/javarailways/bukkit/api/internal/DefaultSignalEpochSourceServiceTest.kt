@@ -364,11 +364,10 @@ class DefaultSignalEpochSourceServiceTest {
     }
 
     @Test
-    fun `inspection service binds the host route and authenticates dirty declarations`() {
+    fun `inspection service binds the host route and rejects unsafe live replacement`() {
         val service = DefaultSignalEpochSourceService()
         val worldId = UUID.randomUUID()
         val owner = plugin("inspection")
-        val otherOwner = plugin("other")
         val unavailable = mutableListOf<String>()
         val stalls = mutableListOf<String>()
         val inspectionRuntime = inspectionRuntime { sourceId, trainId, failure ->
@@ -422,25 +421,8 @@ class DefaultSignalEpochSourceServiceTest {
             "train",
             route
         )
-        service.markInspectionDeclarationsDirty(
-            owner,
-            worldId,
-            "test:inspection",
-            "train",
-            listOf("test:signal")
-        )
-
         assertEquals(FrozenRouteBinding.from(route), boundRoute)
         assertEquals(80.0, inspectionRuntime.maximumDeclaredDistanceMeters("train"), 0.0)
-        assertThrows(IllegalStateException::class.java) {
-            service.markInspectionDeclarationsDirty(
-                otherOwner,
-                worldId,
-                "test:inspection",
-                "train",
-                listOf("test:signal")
-            )
-        }
         assertEquals(emptyList<String>(), unavailable)
 
         assertThrows(IllegalStateException::class.java) {

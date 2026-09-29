@@ -7,33 +7,32 @@ import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import java.util.Collections
 
 /**
- * Synchronous update callback for declarations that became active or were explicitly dirtied.
+ * Synchronous update callback for the current complete active declaration set.
  *
  * The callback runs on the serialized railway owner. It must return before the next physics epoch,
  * must not call Bukkit or blocking I/O, and must not defer safety work asynchronously. An empty
- * collection means that a normal declaration update publishes no restriction change; the first
- * baseline invocation for a new binding must instead return exactly one snapshot. Clearing an
- * existing restriction still requires a newer complete snapshot with an empty restriction list.
+ * Every invocation must return exactly one complete replacement snapshot. Clearing an existing
+ * restriction therefore uses a newer snapshot with an empty restriction list.
  */
 fun interface InspectionUpdateHandler {
-    /** Computes zero or one complete restriction snapshot for this source and train. */
+    /** Computes exactly one complete restriction snapshot for this source and train. */
     fun update(input: InspectionUpdateInput): Collection<TrainRestrictionSnapshot>
 }
 
 /**
  * Immutable route-local context for one inspection-source update.
  *
- * [declarations] contains only declarations newly active at [routeProgressMeters] or explicitly
- * dirtied since their previous successful dispatch. It is empty exactly for the first baseline
- * update of a newly compiled binding; that callback must publish one complete snapshot for the new
- * route, even when the snapshot contains no restrictions. [perception] is the controller's existing
- * shared forward perception; the inspection runtime never performs another route scan.
+ * [activeDeclarations] is the complete set currently inside its inspection horizon. The callback
+ * runs only for the first binding baseline, when that complete set changes, or when an active
+ * declaration is invalidated. The list may be empty for a baseline or after the final declaration
+ * leaves the horizon. [perception] is the controller's existing shared forward perception; the
+ * inspection runtime never performs another route scan.
  *
  * @property observationStamp coherent world state used for any returned restriction snapshot
  * @property route active frozen route to which declarations and returned restrictions are bound
  * @property routeProgressMeters current train-head position measured from the frozen route start
  * @property perception controller's already-computed immutable forward perception
- * @property declarations immutable declarations requiring this update, or empty for binding baseline
+ * @property activeDeclarations immutable complete active declaration set
  */
 @ConsistentCopyVisibility
 data class InspectionUpdateInput private constructor(
@@ -41,7 +40,7 @@ data class InspectionUpdateInput private constructor(
     val route: FrozenRouteBinding,
     val routeProgressMeters: Double,
     val perception: PerceptionSnapshot,
-    val declarations: List<InspectionDeclaration>
+    val activeDeclarations: List<InspectionDeclaration>
 ) {
     init {
         require(routeProgressMeters.isFinite() && routeProgressMeters >= 0.0 &&
@@ -61,13 +60,13 @@ data class InspectionUpdateInput private constructor(
             route: FrozenRouteBinding,
             routeProgressMeters: Double,
             perception: PerceptionSnapshot,
-            declarations: Collection<InspectionDeclaration>
+            activeDeclarations: Collection<InspectionDeclaration>
         ): InspectionUpdateInput = InspectionUpdateInput(
             observationStamp,
             route,
             routeProgressMeters,
             perception,
-            Collections.unmodifiableList(ArrayList(declarations))
+            Collections.unmodifiableList(ArrayList(activeDeclarations))
         )
     }
 }

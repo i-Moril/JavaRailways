@@ -52,8 +52,7 @@ class InspectionRuntime(
     private data class PendingUpdate(
         val key: BindingKey,
         val session: Session,
-        val declarations: List<InspectionDeclaration>,
-        val publication: TrainRestrictionSnapshot?
+        val publication: TrainRestrictionSnapshot
     )
 
     private val sessionsByTrain = linkedMapOf<String, TreeMap<String, Session>>()
@@ -142,14 +141,13 @@ class InspectionRuntime(
         return maximumDeclaredDistanceMeters(trainId)
     }
 
-    /** Marks declarations from the current complete binding for their next in-range update. */
-    fun markDirty(sourceId: String, trainId: String, declarationIds: Collection<String>) {
+    /** Marks matching declarations in every current train binding for one signal source. */
+    fun markDirty(sourceId: String, declarationIds: Collection<String>) {
         require(sourceId.isNotBlank()) { "sourceId must not be blank" }
-        require(trainId.isNotBlank()) { "trainId must not be blank" }
-        val session = requireNotNull(sessionsByTrain[trainId]?.get(sourceId)) {
-            "inspection binding does not exist for $sourceId/$trainId"
+        if (declarationIds.isEmpty()) return
+        sessionsByTrain.values.forEach { sessions ->
+            sessions[sourceId]?.scheduler?.markPresentDirty(declarationIds)
         }
-        session.scheduler.markDirty(declarationIds)
     }
 
     /** Thread-safe immutable maximum-distance view used by the physics controller. */
@@ -190,8 +188,8 @@ class InspectionRuntime(
     }
 
     /**
-     * Dispatches binding baselines, newly active declarations and dirty declarations in stable
-     * source order.
+     * Dispatches binding baselines and changed or invalidated complete active sets in stable source
+     * order.
      *
      * All callback results are validated before the first publication. Any failure notifies the
      * fail-closed owner for the affected source and is then rethrown to the serialized caller.
@@ -227,37 +225,35 @@ class InspectionRuntime(
 
         val pending = ArrayList<PendingUpdate>()
         trainSessions.forEach { (key, session) ->
-            var declarations = emptyList<InspectionDeclaration>()
             try {
-                declarations = session.scheduler.updatesFor(routeProgressMeters, dynamicLookaheadMeters)
-                if (declarations.isEmpty() && !session.baselinePending) return@forEach
+                val activeDeclarations = session.scheduler.updatesFor(
+                    routeProgressMeters,
+                    dynamicLookaheadMeters
+                )
+                if (activeDeclarations == null && !session.baselinePending) return@forEach
                 val input = InspectionUpdateInput.create(
                     observationStamp,
                     currentRoute,
                     routeProgressMeters,
                     perception,
-                    declarations
+                    activeDeclarations.orEmpty()
                 )
                 val publications = java.util.List.copyOf(session.handler.update(input))
                 validatePublications(key, observationStamp, currentRoute, publications)
-                require(!session.baselinePending || publications.size == 1) {
-                    "inspection source ${key.sourceId} must publish one complete baseline snapshot " +
-                        "for ${key.trainId}"
+                require(publications.size == 1) {
+                    "inspection source ${key.sourceId} must publish one complete snapshot for " +
+                        key.trainId
                 }
-                pending += PendingUpdate(key, session, declarations, publications.singleOrNull())
+                pending += PendingUpdate(key, session, publications.single())
             } catch (failure: Exception) {
                 pending.forEach(::requeue)
-                if (declarations.isNotEmpty()) {
-                    session.scheduler.markDirty(
-                        declarations.map(InspectionDeclaration::declarationId)
-                    )
-                }
+                session.scheduler.retry()
                 failSource(key, failure)
             }
         }
 
         pending.forEachIndexed { index, update ->
-            val snapshot = update.publication ?: return@forEachIndexed
+            val snapshot = update.publication
             try {
                 val result = publisher.publish(snapshot)
                 check(result.status == TrainRestrictionPublicationStatus.ACCEPTED) {
@@ -341,9 +337,7 @@ class InspectionRuntime(
         }
     }
 
-    private fun requeue(update: PendingUpdate) = update.session.scheduler.markDirty(
-        update.declarations.map(InspectionDeclaration::declarationId)
-    )
+    private fun requeue(update: PendingUpdate) = update.session.scheduler.retry()
 
     private fun compileSessions(
         trainId: String,

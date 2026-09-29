@@ -76,19 +76,11 @@ best-effort把staged旧primary轮转为`.bak`。commit point之后的backup/clea
 - route matcher 只投影冻结路线一次，再通过 rail reverse index 把 occurrence 分发给实际候选 region；它把 facing-local segment 坐标转换为 canonical AB，要求每个 region 只有一个连续 entry-to-exit interval，并派生 route-metre window。成本包含路线 occurrence、索引命中、候选区域的 interior slices 以及交集排序，而不是 `regions × full route`；
 - matcher 不搜索路径，也不复制 Basic 的结构连续性/turnout legality 校验。Basic 在资源申请时仍独立验证同一冻结路线并编译不可删除的物理资源底线。
 
-route-window 只描述 region entry/exit，不保存后继区间。inspection binding会在同一条冻结路线的route-local windows中处理一个
-明确特例：若region exit与唯一一个fixed-block entry位于同一route metre，则把该region声明的最低授权终点抬到该block exit；没有
-直接后继时仍停在region exit，出现多个同点后继则fail closed。它不递归追逐后续block，也不改变region model。移动闭塞边界及更远
-净空策略仍属于后续plugin policy，不复制旧Basic `exitClearance`单窗口合同。
-
-world runtime稳定注册`simplesignals:protection-regions` inspection source。binding provider捕获一次上述immutable compilation snapshot，
-只投影host已经选择的exact frozen route；每个完整window形成`trigger=entry`的声明，其minimum end为region exit或上述唯一直接
-fixed-block successor的exit。nominal authority未越过entry时不申请区域，严格越过后至少把同一次Basic请求抬到该minimum end；
-Basic随后从扩大后的同一冻结路线前缀独立推导rail、turnout和
-diamond资源。插件不提交region ID整区锁，因此本步骤不会把一整个咽喉强制互斥。部分进入、部分离开、同一区域重复经过或过期topology
-在binding编译时拒绝，不能形成部分授权。region和fixed-block snapshot还必须来自同一topology root与definition revision，避免一次
-binding混合两次publication。当前floor防止授权终点落在区域内部，并覆盖唯一直接fixed-block successor；列车尾完全越过exit及
-moving-block精确边界仍由后续策略决定，不能把该minimum end误称为通用完整净空终点。
+route-window只描述region entry/exit，不保存后继区间。world runtime通过稳定的
+`simplesignals:protection-regions` inspection source把完整window编译成route-local authority floor；若当前exact frozen route上
+唯一直接fixed-block successor与exit同点，则同一次floor延伸到该block exit。分叉已由冻结路线消解，多个同点匹配表示block定义
+冲突而非正常候选。完整工作模型、二分查找、错误语义、复杂度与测试合同见
+[保护区域到固定闭塞的授权衔接合同](protection-region-authority-transition.md)。moving-block精确边界和通用tail clearance仍未冻结。
 
 ## 固定保护进路表
 
@@ -190,10 +182,8 @@ binding provider复用同一publication reverse index和exact frozen-route match
 继续做独立完整性验证，Basic仍可拒绝且只有Basic grant能扩大实际authority。定义patch的旧、新affected-rail permit会被active
 frozen-route dependency阻止，因此retained inspection binding不会在运行中失效；不相交、非运营轨道仍可在线编辑。
 
-保护区域inspection binding会额外对同一冻结路线执行一次fixed-block matcher，以识别exit处唯一直接后继。该工作仅在路线创建或
-替换binding时执行；block windows已经按entry排序，每个region通过二分查找同点容差窗口，因此总复杂度为上述matcher成本加
-`O(W log K + M)`，其中`W`为region window数、`M`为实际同点候选数。它不进入每tick perception或信号wave。这里接受一次低频
-重复匹配，避免为消除它引入跨source cache及其publication生命周期。
+保护区域到直接fixed-block successor的低频衔接复用上述matcher，但不共享跨source cache；具体原因和复杂度见
+[保护区域到固定闭塞的授权衔接合同](protection-region-authority-transition.md#7-性能复杂度与退化行为)。
 
 ## 定义编辑事务
 

@@ -84,13 +84,12 @@ For a protection-region entry, the plugin:
 
 Basic independently derives every traversed rail, turnout and diamond resource over that range. The plugin cannot delete them. A region ID is not automatically claimed as one exclusive token; conflicts come from overlapping physical resources and explicit additions. This allows two disjoint paths within a large throat when the plugin policy and actual conflict resources permit it.
 
-The current runtime slice implements the bounded route-local part of that decision: one stable SimpleSignals inspection
-source captures immutable region and fixed-block indexes from the same publication, matches the exact host-selected frozen
-route and compiles every complete region window into an entry-triggered minimum authority end. The end is normally the
-region exit; when exactly one fixed block begins at that same route coordinate it becomes the block exit. Multiple immediate
-successors are rejected rather than guessed, and the binding does not recursively follow later blocks. This prevents one
-Basic request from ending inside the region or its unique immediate fixed-block successor while Basic still derives and
-claims the physical route prefix. It deliberately does not claim the region identity or yet choose a moving-block boundary.
+The current runtime slice compiles each complete region window into an entry-triggered minimum authority end. The end is
+normally the region exit; when the exact frozen route contains one directly adjacent fixed block it becomes that block's
+exit. A route fork has already been resolved by the frozen route, so multiple same-coordinate matches mean conflicting
+block definitions rather than alternative branches. The binding does not recursively follow later blocks, does not claim
+the region identity and does not yet choose a moving-block boundary. The executable mechanism and failure contract live in
+the owner spec: [protection-region authority transition](../../spec/simple-signals/backend/protection-region-authority-transition.md).
 
 Basic either claims the complete union or none. A confirmed Basic grant is necessary but not alone sufficient for a permissive signal: the plugin may apply a stricter speed/stop, and SimpleATO takes the most restrictive result with following, operational stops and infrastructure limits.
 
@@ -141,12 +140,10 @@ interior before its single publication swap. A shared cut point is allowed. This
 it is never repeated per tick. The foundation deliberately leaves fixed-block-to-fixed-block overlap unspecified until the
 semantics of opposite-direction definitions are frozen.
 
-When the protection-region exit coincides with exactly one fixed-block entry, the inspection compiler extends the same
-requested authority through that block. The block's ordinary resource contributor then adds its token from the expanded
-prefix, so physical route resources and the block token remain one atomic Basic request. When the exit leads into
-moving-block territory, later plugin policy may choose an exact frozen-route boundary based on SimpleATO braking/following
-state. The region object stores no successor and does not recursively call one; this is a route-local join performed only
-while binding the frozen route.
+The protection-region to fixed-block transition follows the
+[owner code-spec](../../spec/simple-signals/backend/protection-region-authority-transition.md): it joins route-local windows
+only after the exact route is frozen and feeds one expanded prefix to Basic's atomic admission. Moving-block territory remains
+a later plugin-policy boundary; the region object stores no successor and does not recursively call one.
 
 ### Inspection and reactive updates
 

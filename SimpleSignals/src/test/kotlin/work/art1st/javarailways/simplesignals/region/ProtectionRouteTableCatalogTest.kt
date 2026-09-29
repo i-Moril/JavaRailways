@@ -58,6 +58,103 @@ class ProtectionRouteTableCatalogTest {
     }
 
     @Test
+    fun `one region may publish physically disjoint routes without a region resource`() {
+        val upperEntry = rail(11)
+        val upperCore = rail(12)
+        val upperExit = rail(13)
+        val lowerEntry = rail(14)
+        val lowerCore = rail(15)
+        val lowerExit = rail(16)
+        val connector = rail(17)
+        val topology = topologyState(
+            revision = 42L,
+            railIds = listOf(
+                upperEntry, upperCore, upperExit,
+                lowerEntry, lowerCore, lowerExit,
+                connector
+            ),
+            connections = listOf(
+                endpoint(upperEntry, RailEndpoint.B) to endpoint(upperCore, RailEndpoint.A),
+                endpoint(upperCore, RailEndpoint.B) to endpoint(upperExit, RailEndpoint.A),
+                endpoint(upperCore, RailEndpoint.B) to endpoint(connector, RailEndpoint.A),
+                endpoint(lowerEntry, RailEndpoint.B) to endpoint(lowerCore, RailEndpoint.A),
+                endpoint(lowerCore, RailEndpoint.B) to endpoint(lowerExit, RailEndpoint.A),
+                endpoint(lowerCore, RailEndpoint.B) to endpoint(connector, RailEndpoint.B)
+            )
+        )
+        val region = ProtectionRegionDefinition(
+            regionId = "test:disjoint-throat",
+            revision = 1L,
+            boundaries = listOf(
+                boundary("test:upper-entry", upperEntry, ViewDirection.AB),
+                boundary("test:upper-exit", upperExit, ViewDirection.BA),
+                boundary("test:lower-entry", lowerEntry, ViewDirection.AB),
+                boundary("test:lower-exit", lowerExit, ViewDirection.BA)
+            )
+        )
+        val regions = ProtectionRegionCatalog()
+        assertEquals(
+            ProtectionRegionCatalogStatus.PUBLISHED,
+            regions.publish(topology, 1L, listOf(region)).status
+        )
+        val route = { id: String, entryId: String, exitId: String, rails: List<UUID> ->
+            ProtectionRouteDefinition(
+                routeId = id,
+                entryBoundaryId = entryId,
+                exitBoundaryId = exitId,
+                traversals = listOf(
+                    ProtectionRouteTraversal(rails[0], ViewDirection.AB, 5.0, 10.0),
+                    ProtectionRouteTraversal(rails[1], ViewDirection.AB, 0.0, 10.0),
+                    ProtectionRouteTraversal(rails[2], ViewDirection.AB, 0.0, 5.0)
+                )
+            )
+        }
+        val tables = ProtectionRouteTableCatalog(regions)
+        assertEquals(
+            ProtectionRouteTableCatalogStatus.PUBLISHED,
+            tables.publish(
+                1L,
+                listOf(
+                    ProtectionRouteTableDefinition(
+                        tableId = "test:disjoint-throat-table",
+                        revision = 1L,
+                        regionId = region.regionId,
+                        regionRevision = region.revision,
+                        routes = listOf(
+                            route(
+                                "test:upper",
+                                "test:upper-entry",
+                                "test:upper-exit",
+                                listOf(upperEntry, upperCore, upperExit)
+                            ),
+                            route(
+                                "test:lower",
+                                "test:lower-entry",
+                                "test:lower-exit",
+                                listOf(lowerEntry, lowerCore, lowerExit)
+                            )
+                        )
+                    )
+                )
+            ).status
+        )
+
+        val replacement = tables.restrictionSource.restrictions(topology).pathReplacements.single()
+        val pathRailSets = replacement.permittedPaths.map { path ->
+            path.spans.mapTo(linkedSetOf(), DirectedRailSpan::railId)
+        }
+
+        assertEquals(2, pathRailSets.size)
+        assertTrue(pathRailSets[0].intersect(pathRailSets[1]).isEmpty())
+        // PathReplacement deliberately carries only physical traversals. A region ID is policy
+        // metadata, not an exclusive Basic resource shared by both paths.
+        assertEquals(
+            setOf(upperEntry, upperCore, upperExit, lowerEntry, lowerCore, lowerExit),
+            pathRailSets.flatten().toSet()
+        )
+    }
+
+    @Test
     fun `search cannot assemble an unlisted hybrid from two permitted routes`() {
         val fixture = fixture()
         val tables = publishedTables(fixture, listOf(fixture.upperRoute(), fixture.lowerRoute()))
@@ -167,6 +264,15 @@ class ProtectionRouteTableCatalogTest {
             tables.publish(1L, listOf(fixture.table(1L, routes))).status
         )
     }
+
+    private fun boundary(
+        boundaryId: String,
+        railId: UUID,
+        facing: ViewDirection
+    ) = ProtectionBoundaryDefinition(
+        boundaryId,
+        RailPositionSnapshot(railId, facing, 5.0)
+    )
 
     private fun fixture(): Fixture {
         val fixture = Fixture(

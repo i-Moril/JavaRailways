@@ -102,6 +102,10 @@ revision绑定一个region ID及其revision；每条带稳定ID的route声明ent
 多条route，但搜索不能把route A的前半段与route B的后半段拼成表外进路。未定义table的region不产生replacement，
 本批次不会把“存在保护区域”隐式解释成固定进路限制。
 
+一个region也可以有多组gate，并发布互不共享物理traversal的完整route。`PathReplacement`只携带这些物理路径，
+不携带region资源身份；准入时Basic分别从最终所选路径推导rail/turnout/diamond底线。因此两条实际footprint互不
+重叠的进路可以并存，重叠进路则由真实物理资源或插件明确添加的资源拒绝，不能把region ID默认变成整区互斥锁。
+
 所有table先全部验证和编译，成功后才原子替换cached restriction snapshot；失败保留旧snapshot。source callback
 只做`O(1)`的region publication与topology root/revision一致性检查，然后返回已缓存的Basic中立
 `RoutePlanningRestrictions`；不在Dijkstra或tick内解析region/table。设table route的总traversal数为`P`，

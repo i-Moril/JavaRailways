@@ -58,12 +58,12 @@ Current extraction progress:
 - [x] Submit fixed-block tokens only as additive resources through the host contributor; rely on Basic to derive every
   rail/turnout/diamond physical resource and its existing atomic claim/release lifecycle.
 - [ ] Add concrete flank/approach resources when the first interlocking rule requires them; do not invent generic placeholders.
-- [ ] Keep region identity non-exclusive by default; test disjoint paths through one throat and conflicts from actual shared/additional resources.
+- [x] Keep region identity non-exclusive by default; one connected four-gate region publishes two rail-disjoint route macros, Basic admits both physical footprints concurrently, and an overlapping request is denied by the actual rail/turnout footprint rather than a region token.
 - [ ] Derive permissive aspects only from a committed Basic grant and valid SimpleATO authority; missing or stale plugin state remains restrictive.
 - [x] Hold each contributed fixed-block identity to its last matched exit and use the existing host cursor/release/extension lifecycle;
   do not create a plugin release queue.
 - [ ] Verify the unified owner-unregister gate rejects planned disable while plugin resources remain active and forced disable retains committed claims/dependencies while stalling only affected worlds.
-- [ ] Integrate route-bound diamonds for conflict/inspection without cross-line continuation or selectable state.
+- [x] Integrate route-bound diamonds for conflict/inspection without cross-line continuation or selectable state. End-to-end admission proves both crossing rails derive one Basic diamond identity, conflict while held, and permit the other route after tail release; route validation still rejects crossing-line continuation and the crossing creates no turnout state.
 
 ## Reactive signal state and customization
 
@@ -133,7 +133,7 @@ Current extraction progress:
 - [ ] Module-boundary tests prove Basic, SimpleATO, SimpleATOBukkit and `SimpleSignals` have one owner per state and valid dependency direction.
 - [ ] Packaging checks for the independently installed `SimpleSignals` plugin prove it has its own descriptor/JAR, compile-only host dependencies and no shadowed host classes; embedded `SimpleATOBukkit` needs no separate deployable-artifact verification.
 - [ ] Region tests cover simple turnout, multi-turnout throat, leak, ambiguity, direction, topology invalidation and unsupported overlap.
-- [ ] Resource tests cover mandatory Basic physical floor, valid additions, omitted/invalid additions, disjoint paths and atomic conflict denial.
+- [x] Resource tests cover mandatory Basic physical floor, valid additions, omitted/invalid additions, disjoint paths and atomic conflict denial.
 - [ ] Fixed/moving transition tests cover whole next block versus exact post-exit boundary and sufficient train-tail clearance.
 - [ ] Reactive tests cover inspection lead-time cache invalidation, host time-to-distance and braking calculations, affected-only dependency propagation and idle unchanged state.
 - [ ] Constraint tests prove plugin output only tightens authority/speed and stale/exceptional state fails restrictive.

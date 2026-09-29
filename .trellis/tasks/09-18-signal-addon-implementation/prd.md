@@ -76,13 +76,13 @@ The result must prove that protection regions and fixed blocks are optional poli
 - [ ] Protection-region/fixed-block classes, persistence and authoring are absent from Basic's target API and owned by `SimpleSignals`.
 - [ ] One region protects both a simple turnout and a multi-turnout throat without internal per-turnout stop boundaries.
 - [ ] Region validation rejects leaks, ambiguity, bad gate direction and unsupported overlap outside the runtime tick.
-- [ ] Basic still inserts every traversed rail, turnout and diamond resource when the plugin supplies no or incomplete additions.
+- [x] Basic still inserts every traversed rail, turnout and diamond resource when the plugin supplies no or incomplete additions.
 - [ ] Plugin-added flank/approach/block resources join the same atomic claim; denial leaves no partial ownership or wider authority.
-- [ ] Disjoint route footprints through one region may coexist when policy allows; overlapping rail/conflict/additional resources cannot.
+- [x] Disjoint route footprints through one region may coexist when policy allows; overlapping rail/conflict/additional resources cannot.
 - [ ] Fixed-block, protection-region and moving-block transitions choose their authority boundary in the signal/ATO layer without a Basic contributor closure.
 - [ ] ATO stops before an unavailable grant and applies plugin speed limits/model variants only as stricter outputs.
 - [ ] Unchanged signal state does not execute every signal script/update every tick; dependency changes propagate to affected upstream resources.
-- [ ] Diamond crossings prevent conflicting passages without cross-line routing or runtime geometry scans.
+- [x] Diamond crossings prevent conflicting passages without cross-line routing or runtime geometry scans.
 - [ ] Disable, failure, world unload/reload and stale-state tests prove authority never widens and live claims are not dropped beneath trains.
 - [ ] Timetable apply/replace/unapply and draft/draining tests prove atomic applied-plan dependency replacement, edit blocking and separation from transient live claims/occupancy waits.
 - [ ] A deliberately paused signal-definition commit cannot delay another railway world or an

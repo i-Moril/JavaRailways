@@ -435,6 +435,8 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 - Route projection covers AB/BA, zero/one/multiple turnouts, loops and route-bound diamonds with deterministic identities.
 - An intent with every contributor returning empty still produces the complete mandatory physical footprint.
 - Neither caller nor contributor can remove/replace a derived rail, turnout or diamond resource.
+- End-to-end admission on the two rails of one at-grade crossing must derive the same Basic diamond identity: the second claim conflicts while the first holds it, tail release permits later acquisition, and the crossing still creates neither a route continuation nor a selectable turnout.
+- Two selected routes whose physical and contributed footprints are disjoint may hold grants concurrently even when an external signalling policy groups them in one region; an overlapping request must report the actual rail/turnout/diamond/additional resource, never an implicit region token.
 - Valid contributions join the same atomic footprint; contributor failure, unknown/unauthorized resources and conflicts leave no partial claim.
 - Occupancy geometry and preparation/release metadata never become alternate claim sets.
 - Immediate and delayed preparation publish no grant before `READY`; unsafe failure retains the safest claim.

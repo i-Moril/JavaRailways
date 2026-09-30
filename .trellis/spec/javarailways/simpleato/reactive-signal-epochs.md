@@ -21,7 +21,9 @@ Core捕获一个尚未公开的RailwayWorldFrameSnapshot
   → 将每个source返回的inspection declaration invalidation标记到同ID的当前列车binding
   → 所有publication ACCEPTED后记录本次completed observation stamp
   → callback返回，Core才发布world frame并完成exact ticket
-  → 下一次physics tick中controller读取该store
+  → 下一次physics tick中controller用自己的单次perception消费inspection dirty标记
+  → 本列车callback投影完整active声明集、发布最新入口限制
+  → controller读取该store
   → 用Dispatcher预先绑定的冻结route和controller当前投影progress更新唯一adapter
   → 同一个constraint manager计算本次运动
 ```
@@ -51,8 +53,9 @@ runtime在任何publisher调用前先收集并校验本epoch全部handler结果�
 4. 一个source result对同一train最多包含一个完整snapshot。
 
 通过后按`sourceId`、`trainId`排序发布restriction，再按source ID顺序把invalidation交给inspection runtime，使相同静态binding和输入
-得到相同side-effect顺序。invalidation只作用于同ID inspection source已有binding中实际存在的声明；不相关路线和未激活声明不执行
-插件代码。handler抛错、返回值非法、publisher或invalidation失败都会向Core抛出；Core不发布候选world frame并Stall。已通过校验不保证
+得到相同side-effect顺序。invalidation只交接同ID inspection source已有binding中实际存在的声明；不在signal epoch内修改
+controller自己的激活scheduler。不相关路线和未激活声明不执行
+插件代码。signal handler抛错、返回值非法、publisher或invalidation失败都会向Core抛出；Core不发布候选world frame并Stall。已通过校验不保证
 多个side effect具备事务rollback：较早接受的完整replacement或dirty标记可能已经改变，但任何后续失败都会在下一个physics epoch
 开始前永久Stall当前coordinator，因此部分结果不能驱动车辆继续运动。这里不增加rollback或两阶段协议。
 
@@ -82,14 +85,14 @@ host复用本epoch已经建立的live train ID集合；成员变化时按缓存�
 
 `TrainRestrictionSnapshotStore`是每world一个的value-only交接点，不查找、注册或保留live train/controller。一次成功publication只对应列车的concurrent-map entry内替换`sourceId`，并原子公布新的immutable per-train list；不复制其他列车的值。旧reader仍持有完整旧快照，新reader按source ID稳定顺序获得最新快照。所有publication成功后才清理离场列车并推进completed stamp。写入成本为`O(S_train log S_train)`；controller查找为`O(1)`并线性处理该列车的source数。
 
-每个epoch将Core frame投影一次并为`T`列车建立一次live-ID集合；非空source state只对Basic返回的`U`个更新做owner分组。host线性查看该epoch捕获的`S`个source以保持稳定调用顺序，但只有其中`D`个dirty source执行callback。若返回`R`个snapshot和`I`个声明invalidation，host发布阶段为`O(R log R + I)`；inspection runtime只遍历该source当前的`B`个列车binding并做hash membership，标记成本为`O(B × I)`，不调用插件规则。每个active controller再以`O(S_train)`重编译自己的source限制。整个过程不扫描所有列车×所有area、不遍历完整路线，也不重跑perception；area几何查询复杂度归Basic监测区契约。source替换的编译成本只发生在配置变化时，不进入每tick热路径。
+每个epoch将Core frame投影一次并为`T`列车建立一次live-ID集合；非空source state只对Basic返回的`U`个更新做owner分组。host线性查看该epoch捕获的`S`个source以保持稳定调用顺序，但只有其中`D`个dirty source执行callback。若返回`R`个snapshot和`I`个声明invalidation，host发布阶段为`O(R log R + I)`；inspection runtime查看当前per-train编译view，在有该source的binding内用hash membership过滤声明并合并去重标记，不调用插件规则。单次失效交接为`O(T + B × (I + J))`，`B`为实际含该source的binding数，`J`为每份binding已保留的dirty ID数；`J`最多为该binding声明数，不保存事件历史。编译view保留稳定source顺序的hash map，source查找平均`O(1)`。每个active controller再处理自己的激活候选和`S_train`个限制来源，复杂度归inspection owner契约。整个过程不扫描所有列车×所有area、不遍历完整路线，也不重跑perception；area几何查询复杂度归Basic监测区契约。source替换的编译成本只发生在配置变化时，不进入每tick热路径。
 
 selection revision未变时continuation检查为`O(1)`；变化时比较`W`个已注册entry并只为实际变化的entry构造update，成本`O(W)`。这不扫描Core的全部turnout ports，也不把物理分支语义放入SimpleATO。
 
 准入交接写入平均`O(1)`；普通epoch消费`A`个变化owner，只遍历其已缓存的相关source，不扫描全部owner或冻结路线。
 首次baseline复制当前owner集合；每个新冻结路线的兴趣编译成本是segments数加实际rail索引命中数，发生在路线换绑而非每次车尾释放。
 
-`process`只由Core serialized physics coordinator调用，不并发重入；handler必须同步返回且不得调用Bukkit、阻塞I/O或把安全工作异步延后。Dispatcher只在route建立/延长时绑定冻结route与Mission progress的映射，不参与逐epoch限制执行。epoch N写入的snapshot和completed stamp由controller在epoch N+1规划运动前直接消费，因此Bukkit主线程停顿不会使旧限制继续驱动车辆。source替换可来自另一线程，但生产adapter仍须先等待当前physics epoch结束再允许插件卸载或废弃callback owner；volatile snapshot只保证epoch内一致性，不替代插件lifecycle barrier。具体插件内部可以根据B变化同步重算A；host当前不建立通用fixed-point依赖图。
+`process`只由Core serialized physics coordinator调用，不并发重入；signal handler必须同步返回且不得调用Bukkit、阻塞I/O或把安全工作异步延后。Dispatcher只在route建立/延长时编译声明并绑定冻结route与Mission progress的映射，不参与逐epoch限制执行。epoch N写入的snapshot、inspection invalidation和completed stamp由controller在epoch N+1规划运动前直接消费：各列车维护自己的inspection激活状态，投影callback可以并发，不能在其中重跑共享规则。具体交接、baseline和线程合同见[inspection owner契约](./operational-routing-and-authority.md#343-缓存失效与响应式更新)。因此Bukkit主线程停顿不会使旧限制继续驱动车辆。source替换可来自另一线程，但生产adapter仍须先等待当前physics epoch结束再允许插件卸载或废弃callback owner；volatile snapshot只保证epoch内一致性，不替代插件lifecycle barrier。具体插件内部可以根据B变化同步重算A；host当前不建立通用fixed-point依赖图。
 
 Bukkit通过`SignalEpochSourceService`按`(plugin owner, world UUID)`安装完整source集合。普通`replaceSources`是no-op commit callback的简化入口；需要把插件definition publication/sidecar与area geometry一起提交时使用`replaceSourcesAtomically`。host在同一个simulation lock内先检查plugin/world、removed source的retained restrictions、跨owner identity，并把所有owner的候选全集交给同一个runtime完整编译；这些步骤任一失败都不调用commit callback。callback失败则旧runtime state和owner sets均保持不变；callback成功后只用预构造对象替换runtime引用与owner-set引用，physics epoch不得在callback与安装之间穿插。callback不得重入同一个host signal service或等待需要simulation lock的任务；重入会在其他source类别或owner记录发生变化前被拒绝。source/area冲突不会部分生效。replacement删除部分source ID前，会低频检查该source保留的所有列车流是否已经显式发布更高revision且`restrictions=[]`，不能把“以后不再callback”误当成撤销旧限制。完整owner删除不接受空replacement，而是和基础资源一起通过`InfrastructureResourceService.unregisterOwner`执行：所有检查通过后才移除两侧注册；无关列车和空restriction流不构成占用。每个成功epoch复用已经构造的live train ID集合清理已离开世界的列车流；失败epoch在Stall前不执行这项清理。强制插件禁用无法继续调用其代码，因此host从下一epoch快照删除失效callback；只有该source仍保留非空restriction的world才由既有Stall owner fail-close，单纯安装但IDLE的source不会使世界停运。世界卸载和JavaRailways自身关闭属于正常销毁，不触发故障恢复协议。world reload是新的runtime binding，旧UUID不会自动复活旧source集合。
 

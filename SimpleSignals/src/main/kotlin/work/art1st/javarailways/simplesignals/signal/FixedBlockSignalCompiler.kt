@@ -22,6 +22,7 @@ import kotlin.math.abs
 /** Immutable concrete rule set compiled together with one world-definition publication. */
 internal class CompiledFixedBlockSignals private constructor(
     val ruleRuntime: SectionSignalRuleRuntime?,
+    val bindings: List<SectionSignalRuleBinding>,
     inspectionLeadTimeByBlockId: Map<String, Double>
 ) {
     private val inspectionLeadTimeByBlockId = java.util.Map.copyOf(inspectionLeadTimeByBlockId)
@@ -35,7 +36,9 @@ internal class CompiledFixedBlockSignals private constructor(
     companion object {
         fun compile(
             definitions: Collection<FixedBlockSignalDefinition>,
-            fixedBlocks: FixedBlockReadSnapshot
+            fixedBlocks: FixedBlockReadSnapshot,
+            externalSignalGeometry: Map<String, CompiledFixedBlock> = emptyMap(),
+            compileRuntime: Boolean = true
         ): CompiledFixedBlockSignals {
             val copiedDefinitions = java.util.List.copyOf(definitions.sortedBy { it.signalId })
             val blocksById = fixedBlocks.blocksById
@@ -52,7 +55,9 @@ internal class CompiledFixedBlockSignals private constructor(
                     definition.signalId,
                     SectionRef(SectionKind.FIXED_BLOCK, definition.controlledBlockId),
                     definition.downstreamSignals.map { dependency ->
-                        val downstreamSignal = requireNotNull(definitionsBySignal[dependency.signalId]) {
+                        val downstreamGeometry = definitionsBySignal[dependency.signalId]?.let {
+                            blocksById.getValue(it.controlledBlockId)
+                        } ?: requireNotNull(externalSignalGeometry[dependency.signalId]) {
                             "signal ${definition.signalId} depends on unknown signal " +
                                 dependency.signalId
                         }
@@ -60,7 +65,7 @@ internal class CompiledFixedBlockSignals private constructor(
                             definition.signalId,
                             dependency,
                             sourceBlock,
-                            blocksById.getValue(downstreamSignal.controlledBlockId),
+                            downstreamGeometry,
                             fixedBlocks
                         )
                         DownstreamSignalDependency(
@@ -84,18 +89,19 @@ internal class CompiledFixedBlockSignals private constructor(
                 }
             }
             val sections = blocksById.keys.sorted().map { SectionRef(SectionKind.FIXED_BLOCK, it) }
-            val runtime = bindings.takeIf { it.isNotEmpty() }?.let {
+            val runtime = bindings.takeIf { it.isNotEmpty() && compileRuntime }?.let {
                 SectionSignalRuleRuntime.compile(sections, it)
             }
             return CompiledFixedBlockSignals(
                 runtime,
+                java.util.List.copyOf(bindings),
                 copiedDefinitions.associate {
                     it.controlledBlockId to it.inspectionLeadTimeSeconds
                 }
             )
         }
 
-        private fun compileDownstreamPath(
+        fun compileDownstreamPath(
             sourceSignalId: String,
             dependency: FixedBlockSignalDependency,
             sourceBlock: CompiledFixedBlock,
@@ -201,7 +207,7 @@ internal class CompiledFixedBlockSignals private constructor(
             }
         }
 
-        private data class CompiledDownstreamPath(
+        internal data class CompiledDownstreamPath(
             val distanceMeters: Double,
             val requiredContinuations: List<RequiredActiveContinuation>
         )

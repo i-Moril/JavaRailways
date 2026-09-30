@@ -4,6 +4,7 @@ import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.simplesignals.region.SIMPLE_SIGNALS_NAMESPACED_ID
+import work.art1st.javarailways.simplesignals.signal.CompiledProtectionRoute
 
 /** Validated rule output; model variants are opaque to the Java/Kotlin runtime. */
 internal data class SectionSignalOutput(
@@ -58,7 +59,8 @@ internal class SectionSignalRuleInput(
     val stamp: RailwayStateStamp,
     val signalId: String,
     val controlledSection: SectionOccupancyObservation,
-    downstreamSignals: Collection<DownstreamSignalView>
+    downstreamSignals: Collection<DownstreamSignalView>,
+    val preparedRoute: CompiledProtectionRoute? = null
 ) {
     val downstreamSignals: List<DownstreamSignalView> = java.util.List.copyOf(downstreamSignals)
 }
@@ -73,16 +75,18 @@ internal fun interface SectionSignalRule {
 internal data class DownstreamSignalDependency private constructor(
     val signalId: String,
     val distanceMeters: Double,
-    val requiredContinuations: List<RequiredActiveContinuation> = emptyList()
+    val requiredContinuations: List<RequiredActiveContinuation> = emptyList(),
+    val protectionRouteId: String? = null
 ) {
     constructor(
         signalId: String,
         distanceMeters: Double,
-        requiredContinuations: Collection<RequiredActiveContinuation> = emptyList()
+        requiredContinuations: Collection<RequiredActiveContinuation> = emptyList(),
+        protectionRouteId: String? = null
     ) : this(
         signalId,
         distanceMeters,
-        java.util.List.copyOf(requiredContinuations)
+        java.util.List.copyOf(requiredContinuations), protectionRouteId
     )
 
     init {
@@ -118,8 +122,19 @@ internal class SectionSignalRuleBinding(
     val signalId: String,
     val controlledSection: SectionRef,
     downstreamSignals: Collection<DownstreamSignalDependency>,
+    val observedSections: Collection<SectionRef> = listOf(controlledSection),
+    val entryBoundaryId: String? = null,
+    val preparedRoutesBySection: Map<SectionRef, CompiledProtectionRoute> = emptyMap(),
+    val declarationId: String = work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclarationId(controlledSection.id),
+    val continuationEntries: Collection<RailEndpointRef> = emptyList(),
+    val unreadyOutput: SectionSignalOutput? = null,
     val rule: SectionSignalRule
 ) {
+    constructor(signalId: String, controlledSection: SectionRef,
+        downstreamSignals: Collection<DownstreamSignalDependency>, rule: SectionSignalRule
+    ) : this(signalId, controlledSection, downstreamSignals, listOf(controlledSection),
+        null, emptyMap(), work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclarationId(controlledSection.id),
+        emptyList(), null, rule)
     val downstreamSignals: List<DownstreamSignalDependency> = java.util.List.copyOf(
         downstreamSignals.sortedWith(
             compareBy(DownstreamSignalDependency::distanceMeters, DownstreamSignalDependency::signalId)
@@ -128,7 +143,7 @@ internal class SectionSignalRuleBinding(
 
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalId)) { "signalId must be namespaced" }
-        require(this.downstreamSignals.map(DownstreamSignalDependency::signalId).distinct().size ==
+        require(this.downstreamSignals.map { it.signalId to it.protectionRouteId }.distinct().size ==
             this.downstreamSignals.size
         ) {
             "downstream signal IDs must be unique within one rule binding"
@@ -140,8 +155,11 @@ internal class SectionSignalRuleBinding(
 internal class SectionSignalSnapshot(
     val stamp: RailwayStateStamp,
     states: Map<String, SectionSignalState>,
-    changedSignalIds: Collection<String>
+    changedSignalIds: Collection<String>,
+    resolvedSectionsBySignal: Map<String, SectionRef?> = emptyMap()
 ) {
+    val resolvedSectionsBySignal: Map<String, SectionRef?> = java.util.Collections.unmodifiableMap(
+        resolvedSectionsBySignal.toSortedMap())
     val states: Map<String, SectionSignalState> = java.util.Collections.unmodifiableMap(
         states.toSortedMap()
     )
@@ -169,9 +187,10 @@ internal class SectionSignalRuleRuntime private constructor(
     private val signalIdBySection: Map<SectionRef, String>,
     private val graph: OneWayInvalidationGraph<RuleNode>
 ) {
+    private val knownEntries = bindingsBySignal.values.mapNotNull { it.entryBoundaryId }.toSet()
     val watchedContinuationEntries: Set<RailEndpointRef> = java.util.Collections.unmodifiableSet(
         bindingsBySignal.values.flatMapTo(sortedSetOf()) { binding ->
-            binding.downstreamSignals.flatMap { dependency ->
+            binding.continuationEntries + binding.downstreamSignals.flatMap { dependency ->
                 dependency.requiredContinuations.map(RequiredActiveContinuation::entry)
             }
         }
@@ -181,20 +200,25 @@ internal class SectionSignalRuleRuntime private constructor(
 
     fun invalidatedDeclarationIds(snapshot: SectionSignalSnapshot): Set<String> =
         snapshot.changedSignalIds.mapTo(sortedSetOf()) { signalId ->
-            bindingsBySignal.getValue(signalId).controlledSection.id
+            bindingsBySignal.getValue(signalId).declarationId
         }
 
     fun evaluate(
         previous: SectionSignalSnapshot?,
         occupancy: SectionOccupancySnapshot,
         activeContinuations: ActiveRailContinuationsSnapshot,
-        changedContinuationEntries: Collection<RailEndpointRef>
+        changedContinuationEntries: Collection<RailEndpointRef>,
+        changedEntries: Collection<String> = emptyList(),
+        resolveSection: (SectionSignalRuleBinding) -> SectionRef? = { it.controlledSection }
     ): SectionSignalSnapshot {
         val candidateStates = previous?.states?.toMutableMap() ?: linkedMapOf()
+        val resolvedSections = previous?.resolvedSectionsBySignal?.toMutableMap() ?: linkedMapOf()
         val changedOutputs = linkedSetOf<String>()
         val changedProviders = buildList {
             occupancy.changedSections.mapTo(this, RuleNode::section)
-            changedContinuationEntries.mapTo(this, RuleNode::continuation)
+            changedContinuationEntries.filter { it in watchedContinuationEntries }.mapTo(this, RuleNode::continuation)
+            changedEntries.filter { it in knownEntries }
+                .mapTo(this, RuleNode::entry)
         }
 
         graph.propagate(changedProviders) { node ->
@@ -202,21 +226,37 @@ internal class SectionSignalRuleRuntime private constructor(
                 "only signal nodes may consume invalidation updates"
             }
             val binding = bindingsBySignal.getValue(node.identity)
-            val controlledSection = occupancy.sections.getValue(binding.controlledSection)
+            val section = resolveSection(binding)
+            val previousSection = resolvedSections.put(binding.signalId, section)
+            val controlledSection = section?.let(occupancy.sections::get)
+            val preparedRoute = section?.let(binding.preparedRoutesBySection::get)
             val activeDownstream = binding.downstreamSignals.filter { dependency ->
+                (dependency.protectionRouteId == null ||
+                    dependency.protectionRouteId == preparedRoute?.definition?.routeId) &&
                 dependency.requiredContinuations.all { required ->
                     activeContinuations.selectedContinuation(required.entry) == required.selectedExit
                 }
             }
+            if (previous != null && binding.preparedRoutesBySection.isNotEmpty() &&
+                previousSection == section &&
+                section !in occupancy.changedSections &&
+                activeDownstream.none { it.signalId in changedOutputs } &&
+                binding.downstreamSignals.filter { it.protectionRouteId == null ||
+                    it.protectionRouteId == preparedRoute?.definition?.routeId }.none { dependency ->
+                    dependency.requiredContinuations.any { it.entry in changedContinuationEntries } }
+            ) return@propagate false
             val downstreamStates = activeDownstream.map { dependency ->
-                dependency to checkNotNull(candidateStates[dependency.signalId]) {
-                    "downstream signal ${dependency.signalId} has no baseline state"
-                }
+                dependency to (candidateStates[dependency.signalId] ?:
+                    SectionSignalState.Unavailable("downstream signal has no baseline state"))
             }
             val unavailableDownstream = downstreamStates.firstOrNull { (_, state) ->
                 state is SectionSignalState.Unavailable
             }
-            val next = if (binding.downstreamSignals.isNotEmpty() && activeDownstream.isEmpty()) {
+            val next = if (controlledSection == null) {
+                binding.unreadyOutput?.let(SectionSignalState::Available) ?:
+                    SectionSignalState.Unavailable("protection route is unavailable or unready")
+            } else if (binding.downstreamSignals.any { it.protectionRouteId == null ||
+                it.protectionRouteId == preparedRoute?.definition?.routeId } && activeDownstream.isEmpty()) {
                 SectionSignalState.Unavailable("no configured downstream path is active")
             } else if (unavailableDownstream != null) {
                 SectionSignalState.Unavailable(
@@ -236,7 +276,8 @@ internal class SectionSignalRuleRuntime private constructor(
                                         dependency.distanceMeters,
                                         (state as SectionSignalState.Available).output
                                     )
-                                }
+                                },
+                                preparedRoute
                             )
                         )
                     )
@@ -254,13 +295,14 @@ internal class SectionSignalRuleRuntime private constructor(
         require(candidateStates.size == bindingsBySignal.size) {
             "first signal rule update must establish every configured signal state"
         }
-        return SectionSignalSnapshot(occupancy.stamp, candidateStates, changedOutputs)
+        return SectionSignalSnapshot(occupancy.stamp, candidateStates, changedOutputs, resolvedSections)
     }
 
     private enum class RuleNodeKind {
         SECTION,
         CONTINUATION,
-        SIGNAL
+        SIGNAL,
+        ENTRY
     }
 
     private data class RuleNode(
@@ -278,6 +320,7 @@ internal class SectionSignalRuleRuntime private constructor(
                 RuleNode(RuleNodeKind.CONTINUATION, entry.toString())
 
             fun signal(signalId: String): RuleNode = RuleNode(RuleNodeKind.SIGNAL, signalId)
+            fun entry(entryId: String): RuleNode = RuleNode(RuleNodeKind.ENTRY, entryId)
         }
     }
 
@@ -290,12 +333,13 @@ internal class SectionSignalRuleRuntime private constructor(
             val sectionsSet = sections.toSet()
             val bindingsBySignal = bindings.associateBy(SectionSignalRuleBinding::signalId)
             require(bindingsBySignal.size == bindings.size) { "signal rule IDs must be unique" }
-            val signalIdBySection = bindings.associate { it.controlledSection to it.signalId }
-            require(signalIdBySection.size == bindings.size) {
+            val sectionBindings = bindings.filter { it.preparedRoutesBySection.isEmpty() }
+            val signalIdBySection = sectionBindings.associate { it.controlledSection to it.signalId }
+            require(signalIdBySection.size == sectionBindings.size) {
                 "one section may be controlled by only one signal rule binding"
             }
             bindings.forEach { binding ->
-                require(binding.controlledSection in sectionsSet) {
+                require(binding.observedSections.all { it in sectionsSet }) {
                     "signal ${binding.signalId} controls an unknown section ${binding.controlledSection}"
                 }
                 binding.downstreamSignals.forEach { downstream ->
@@ -308,20 +352,25 @@ internal class SectionSignalRuleRuntime private constructor(
             val nodes = buildList {
                 sectionsSet.mapTo(this, RuleNode::section)
                 bindings.flatMapTo(linkedSetOf()) { binding ->
-                    binding.downstreamSignals.flatMap { dependency ->
+                    binding.continuationEntries + binding.downstreamSignals.flatMap { dependency ->
                         dependency.requiredContinuations.map(RequiredActiveContinuation::entry)
                     }
                 }.mapTo(this, RuleNode::continuation)
                 bindingsBySignal.keys.mapTo(this, RuleNode::signal)
+                bindings.mapNotNull { it.entryBoundaryId }.distinct().mapTo(this, RuleNode::entry)
             }
             val dependencies = buildSet {
                 bindings.forEach { binding ->
-                    add(
+                    binding.observedSections.forEach { section -> add(
                         InvalidationDependency(
-                            RuleNode.section(binding.controlledSection),
+                            RuleNode.section(section),
                             RuleNode.signal(binding.signalId)
                         )
-                    )
+                    ) }
+                    binding.entryBoundaryId?.let { entry -> add(InvalidationDependency(
+                        RuleNode.entry(entry), RuleNode.signal(binding.signalId))) }
+                    binding.continuationEntries.forEach { entry -> add(InvalidationDependency(
+                        RuleNode.continuation(entry), RuleNode.signal(binding.signalId))) }
                     binding.downstreamSignals.forEach { downstream ->
                         add(
                             InvalidationDependency(

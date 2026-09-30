@@ -315,6 +315,10 @@ class TimetableDispatcherSharedAdmissionTest {
         fixture.start()
         fixture.dispatch()
 
+        assertTrue(fixture.service.intents.isEmpty())
+        fixture.tickAto()
+        fixture.dispatch()
+
         val intent = fixture.service.intents.single()
         assertEquals(intent.route.totalLengthMeters,
             intent.desiredAuthority.distanceFromRouteStartMeters, 1.0e-9)

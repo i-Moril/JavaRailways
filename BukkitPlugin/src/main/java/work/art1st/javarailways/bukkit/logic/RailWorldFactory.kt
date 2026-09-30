@@ -123,7 +123,7 @@ object RailWorldFactory {
             TimetableRouteAdmissionContext(observation, admission)
         }
         val signalRestrictions = TrainRestrictionSnapshotStore(bukkitWorld.uid.toString())
-        // Dispatcher owns rich train/route failure reporting for synchronous update failures.
+        // Controller failures use AbstractATO's coordinator report; Dispatcher reports binding failures.
         // Bukkit service-time source changes use DefaultSignalEpochSourceService.stallWorld.
         val inspectionRuntime = InspectionRuntime(signalRestrictions) { _, _, _ -> }
         val infrastructureDependencyService = object : InfrastructureDependencyService {

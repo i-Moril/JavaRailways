@@ -65,6 +65,7 @@ import work.art1st.javarailways.core.physics.train.TrainEnd
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionConstraintAdapter
+import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -90,7 +91,8 @@ data class SimpleAtoPublishedState(
     val preparedReverseRevision: Long,
     val runtimeDiagnostics: SimpleAtoRuntimeDiagnostics,
     val currentMission: AtoMission?,
-    val currentStationCall: ResolvedStationCall?
+    val currentStationCall: ResolvedStationCall?,
+    val inspectedRoute: FrozenRouteBinding?
 )
 
 private data class SimpleAtoControllerPublishedState(
@@ -99,7 +101,8 @@ private data class SimpleAtoControllerPublishedState(
     val preparedReverseRevision: Long,
     val runtimeDiagnostics: SimpleAtoRuntimeDiagnostics,
     val currentMission: AtoMission?,
-    val currentStationCall: ResolvedStationCall?
+    val currentStationCall: ResolvedStationCall?,
+    val inspectedRoute: FrozenRouteBinding?
 )
 
 /** Automatic controller with line-speed, fixed-stop, following, and external restrictive signal inputs. */
@@ -141,7 +144,8 @@ class SimpleATO(
         val missionRevision: Long,
         val headDistanceFromRouteStartMeters: Double,
         val missionHeadProgressAtSelectionMeters: Double,
-        val signalSnapshots: TrainRestrictionSnapshotProvider
+        val signalSnapshots: TrainRestrictionSnapshotProvider,
+        val inspectionBinding: InspectionRuntime.TrainBinding
     )
 
     private data class Observed(
@@ -170,6 +174,8 @@ class SimpleATO(
     private val pendingStationNotifications = ArrayList<StationCallNotification>()
     private val constraintManager = ConstraintManager()
     private val trainRestrictionAdapter = TrainRestrictionConstraintAdapter(train.id, constraintManager)
+    private var trainInspection: InspectionRuntime.TrainInspection? = null
+    private var inspectedRoute: FrozenRouteBinding? = null
     private val speedLimits = LinkedHashMap<String, Double>()
     private val stopTargets = LinkedHashMap<String, StopTarget>()
     private var activeInfrastructureLimitMetersPerSecond: Double? = null
@@ -215,7 +221,8 @@ class SimpleATO(
                 preparedReverseRevision = controller.preparedReverseRevision,
                 runtimeDiagnostics = controller.runtimeDiagnostics,
                 currentMission = controller.currentMission,
-                currentStationCall = controller.currentStationCall
+                currentStationCall = controller.currentStationCall,
+                inspectedRoute = controller.inspectedRoute
             )
         }
 
@@ -234,7 +241,8 @@ class SimpleATO(
         observationStamp: RailwayStateStamp,
         route: FrozenMissionRoute,
         missionRevision: Long,
-        signalSnapshots: TrainRestrictionSnapshotProvider
+        signalSnapshots: TrainRestrictionSnapshotProvider,
+        inspectionBinding: InspectionRuntime.TrainBinding = world.simpleAtoWorldData.inspectionRuntime.bindingFor(train.id)
     ) {
         restrictionRoute = RestrictionRoute(
             observationStamp = observationStamp,
@@ -242,7 +250,8 @@ class SimpleATO(
             missionRevision = missionRevision,
             headDistanceFromRouteStartMeters = route.headDistanceFromRouteStartMeters,
             missionHeadProgressAtSelectionMeters = route.missionHeadProgressAtSelectionMeters,
-            signalSnapshots = signalSnapshots
+            signalSnapshots = signalSnapshots,
+            inspectionBinding = inspectionBinding
         )
     }
 
@@ -575,7 +584,11 @@ class SimpleATO(
     override fun plan(deltaTimeSeconds: Double): ControlDemand {
         perceptionEpoch++
         missionProgressMeters += lastTravelDistanceMeters
-        val scan = scanRouteAndObjects()
+        val restriction = restrictionRoute
+        val scan = scanRouteAndObjects(routePerceptionHorizonMeters(
+            restriction?.inspectionBinding?.maximumDeclaredLeadTimeSeconds
+                ?: inspectionMaximumLeadTimeSeconds(train.id)
+        ))
         missionRouteLayout?.let { layout ->
             missionProjectedProgressMeters = requireNotNull(
                 layout.project(scan.perception.train.head, missionProjectedProgressMeters)
@@ -587,7 +600,7 @@ class SimpleATO(
         currentSegments = scan.segments
         activeBrakingEnvelope = actuator.brakingEnvelope(buildBrakingGradeSegments(scan.segments))
 
-        updateTrainRestrictions()
+        updateTrainRestrictions(scan.perception, restriction)
         synchronizeInfrastructureLimitWithHead()
         processSpeedLimitTransitions(scan)
         updateBuiltInConstraints(scan)
@@ -614,18 +627,11 @@ class SimpleATO(
      * Pulls signal values and recompiles every external restriction before this Tick plans motion.
      * The previous completed signal epoch is therefore consumed without waiting for Bukkit.
      */
-    private fun updateTrainRestrictions() {
-        val route = restrictionRoute ?: return
+    private fun updateTrainRestrictions(perception: PerceptionSnapshot, route: RestrictionRoute?) {
+        if (route == null) return
         val currentStamp = route.signalSnapshots.completedObservationStamp()
             ?.takeIf { it.physicsEpoch >= route.observationStamp.physicsEpoch }
             ?: route.observationStamp
-        route.signalSnapshots.snapshotsFor(train.id).forEach { snapshot ->
-            val result = trainRestrictionAdapter.publish(snapshot)
-            check(result.acceptedRevision == snapshot.revision) {
-                "signal restriction ${snapshot.sourceId}/${snapshot.revision} for " +
-                    "${snapshot.trainId} was ${result.status}"
-            }
-        }
         val routeProgress = if (activeMission?.revision == route.missionRevision) {
             val missionProgress = requireNotNull(missionProjectedProgressMeters) {
                 "active Mission has no projected progress for its frozen restriction route"
@@ -635,6 +641,22 @@ class SimpleATO(
                 .coerceIn(0.0, route.binding.totalLengthMeters)
         } else {
             route.binding.totalLengthMeters
+        }
+        val inspection = trainInspection?.takeIf { it.runtime === route.inspectionBinding.runtime }
+            ?: route.inspectionBinding.runtime.createTrainInspection(train.id).also { trainInspection = it }
+        inspection.update(
+            currentStamp, route.binding, routeProgress,
+            inspectionDynamicLookaheadMeters(perception.train.speedMetersPerSecond),
+            inspectionMaximumSpeedMetersPerSecond, inspectionAccelerationMetersPerSecondSquared,
+            perception, route.inspectionBinding
+        )
+        inspectedRoute = route.binding
+        route.signalSnapshots.snapshotsFor(train.id).forEach { snapshot ->
+            val result = trainRestrictionAdapter.publish(snapshot)
+            check(result.acceptedRevision == snapshot.revision) {
+                "signal restriction ${snapshot.sourceId}/${snapshot.revision} for " +
+                    "${snapshot.trainId} was ${result.status}"
+            }
         }
         trainRestrictionAdapter.apply(currentStamp, route.binding, routeProgress)
     }
@@ -950,11 +972,10 @@ class SimpleATO(
             }
     }
 
-    private fun scanRouteAndObjects(): ScanResult {
+    private fun scanRouteAndObjects(horizon: Double): ScanResult {
         val topology = world.topologyState
         val head = train.headLocation as? RailLocationWithFacing
             ?: error("SimpleATO requires a facing-aware train head location")
-        val horizon = routePerceptionHorizonMeters()
         val segments = head.peekCurve(horizon).toList()
         check(segments.isNotEmpty()) { "SimpleATO cannot build a route from the train head" }
 
@@ -1114,7 +1135,8 @@ class SimpleATO(
             constraints = java.util.List.copyOf(activeRuntimeDiagnostics.constraints)
         ),
         currentMission = activeMission,
-        currentStationCall = activeCurrentStationCall
+        currentStationCall = activeCurrentStationCall,
+        inspectedRoute = inspectedRoute
     )
 
     override fun afterPhysicsStatePublished() {
@@ -1149,7 +1171,8 @@ class SimpleATO(
             preparedReverseRevision = 0L,
             runtimeDiagnostics = INITIAL_RUNTIME_DIAGNOSTICS,
             currentMission = null,
-            currentStationCall = null
+            currentStationCall = null,
+            inspectedRoute = null
         )
         val LINE_SPEED_OWNER = ConstraintOwner(ConstraintOwnerType.SYSTEM_SAFETY, "basic:line-speed")
         val ROUTE_END_OWNER = ConstraintOwner(ConstraintOwnerType.SYSTEM_SAFETY, "basic:route-end")

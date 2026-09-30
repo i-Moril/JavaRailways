@@ -31,6 +31,7 @@ import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionPub
 import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
+import work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclarationId
 import java.lang.reflect.Proxy
 import java.util.UUID
 
@@ -66,7 +67,7 @@ class FixedBlockInspectionSourceTest {
         )
         val declaration = binding.declarations.single()
 
-        assertEquals(block.blockId, declaration.declarationId)
+        assertEquals(fixedBlockSignalDeclarationId(block.blockId), declaration.declarationId)
         assertEquals(first, declaration.railId)
         assertEquals(ViewDirection.AB, declaration.facing)
         assertEquals(2.0, declaration.triggerRouteDistanceMeters, 1.0e-9)
@@ -163,10 +164,11 @@ class FixedBlockInspectionSourceTest {
         runtime.synchronizeRoute(stamp(1L), "train", route)
         val routeBinding = FrozenRouteBinding.from(route)
         val perception = perception(route)
+        val trainInspection = runtime.createTrainInspection("train")
 
-        runtime.update(stamp(1L), routeBinding, 0.0, 3.0, 20.0, 1.0, perception)
+        trainInspection.update(stamp(1L), routeBinding, 0.0, 3.0, 20.0, 1.0, perception)
         val proceed = publications.last().restrictions.single() as RouteSpeedRestriction
-        assertEquals(block.blockId, proceed.restrictionId)
+        assertEquals(fixedBlockSignalDeclarationId(block.blockId), proceed.restrictionId)
         assertEquals(2.0, proceed.routeDistanceMeters, 0.0)
         assertEquals(17.5, proceed.maximumSpeedMetersPerSecond, 0.0)
 
@@ -174,12 +176,12 @@ class FixedBlockInspectionSourceTest {
             stamp(2L),
             SectionSignalState.Unavailable("configured rule failed")
         )
-        runtime.markDirty(FIXED_BLOCK_SIGNAL_SOURCE_ID, listOf(block.blockId))
-        runtime.update(stamp(2L), routeBinding, 0.0, 3.0, 20.0, 1.0, perception)
+        runtime.markDirty(FIXED_BLOCK_SIGNAL_SOURCE_ID, listOf(fixedBlockSignalDeclarationId(block.blockId)))
+        trainInspection.update(stamp(2L), routeBinding, 0.0, 3.0, 20.0, 1.0, perception)
         val unavailable = publications.last().restrictions.single() as RouteSpeedRestriction
         assertEquals(0.0, unavailable.maximumSpeedMetersPerSecond, 0.0)
 
-        runtime.update(stamp(3L), routeBinding, 3.0, 3.0, 20.0, 1.0, perception)
+        trainInspection.update(stamp(3L), routeBinding, 3.0, 3.0, 20.0, 1.0, perception)
         assertEquals(0, publications.last().restrictions.size)
     }
 
@@ -233,7 +235,7 @@ class FixedBlockInspectionSourceTest {
         runtime.replaceSources(listOf(worldRuntime.fixedBlockInspectionSource))
         runtime.synchronizeRoute(stamp(), "train", route)
 
-        runtime.update(
+        runtime.createTrainInspection("train").update(
             stamp(),
             FrozenRouteBinding.from(route),
             0.0,
@@ -244,7 +246,7 @@ class FixedBlockInspectionSourceTest {
         )
 
         val restriction = publications.single().restrictions.single() as RouteSpeedRestriction
-        assertEquals(block.blockId, restriction.restrictionId)
+        assertEquals(fixedBlockSignalDeclarationId(block.blockId), restriction.restrictionId)
         assertEquals(2.0, restriction.routeDistanceMeters, 0.0)
         assertEquals(0.0, restriction.maximumSpeedMetersPerSecond, 0.0)
     }
@@ -273,7 +275,7 @@ class FixedBlockInspectionSourceTest {
         )
         runtime.synchronizeRoute(stamp(), "train", route)
 
-        runtime.update(
+        runtime.createTrainInspection("train").update(
             stamp(),
             FrozenRouteBinding.from(route),
             0.0,

@@ -9,8 +9,11 @@ import java.util.Collections
 /**
  * Synchronous update callback for the current complete active declaration set.
  *
- * The callback runs on the serialized railway owner. It must return before the next physics epoch,
- * must not call Bukkit or blocking I/O, and must not defer safety work asynchronously. An empty
+ * The callback runs in this train's physics control calculation before motion is planned. Different
+ * trains may invoke the same handler concurrently. Read only immutable published policy/state and
+ * use thread-safe per-train publication revisions; do not access Bukkit, mutable Dispatcher state,
+ * perform blocking I/O or defer safety work asynchronously. Shared signal rules belong in the
+ * serial signal epoch; this callback projects their published values onto one frozen route.
  * Every invocation must return exactly one complete replacement snapshot. Clearing an existing
  * restriction therefore uses a newer snapshot with an empty restriction list.
  */

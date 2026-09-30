@@ -14,12 +14,14 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublis
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import java.util.TreeMap
+import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Serialized platform-neutral owner of compiled inspection bindings and activation state.
+ * Railway-owner compiler and publisher of inspection bindings.
  *
- * Source replacement, dirty publication, update dispatch and removal must run on the same railway
- * owner; this class deliberately adds no second executor, retry loop or plugin registry.
+ * Lifecycle operations publish immutable compiled views. Each controller owns its [TrainInspection]
+ * activation state; no lifecycle operation mutates a physics scheduler. Signal epochs run after
+ * train workers join and hand off only the bounded set of invalidated declaration IDs.
  */
 class InspectionRuntime(
     private val publisher: TrainRestrictionPublisher,
@@ -27,11 +29,17 @@ class InspectionRuntime(
 ) {
     private data class BindingKey(val sourceId: String, val trainId: String)
 
-    private data class Session(
+    internal data class CompiledSourceBinding(
         val compiled: CompiledInspectionBinding,
-        val scheduler: InspectionScheduler,
         val handler: InspectionUpdateHandler,
-        val source: InspectionSource,
+        val source: InspectionSource
+    ) {
+        val invalidations = AtomicReference<Set<String>>(emptySet())
+    }
+
+    private data class PhysicsSession(
+        val definition: CompiledSourceBinding,
+        val scheduler: InspectionScheduler = InspectionScheduler(definition.compiled),
         var baselinePending: Boolean = true
     )
 
@@ -51,16 +59,27 @@ class InspectionRuntime(
 
     private data class PendingUpdate(
         val key: BindingKey,
-        val session: Session,
+        val session: PhysicsSession,
         val publication: TrainRestrictionSnapshot
     )
 
-    private val sessionsByTrain = linkedMapOf<String, TreeMap<String, Session>>()
+    private val compiledBindingsByTrain = linkedMapOf<String, TreeMap<String, CompiledSourceBinding>>()
     private var sourcesById = sortedMapOf<String, InspectionSource>()
     private val activeRoutesByTrain = linkedMapOf<String, ActiveRoute>()
 
     @Volatile
-    private var maximumLeadTimesByTrain: Map<String, Double> = emptyMap()
+    private var publishedBindingsByTrain: Map<String, TrainBinding> = emptyMap()
+
+    /** Compiled definitions captured together with the controller's frozen-route mapping. */
+    inner class TrainBinding internal constructor(internal val definitions: Map<String, CompiledSourceBinding>) {
+        internal val runtime: InspectionRuntime get() = this@InspectionRuntime
+        val maximumDeclaredLeadTimeSeconds: Double = definitions.values.maxOfOrNull {
+            it.compiled.maximumDeclaredInspectionLeadTimeSeconds
+        } ?: 0.0
+    }
+
+    fun bindingFor(trainId: String): TrainBinding =
+        publishedBindingsByTrain[trainId] ?: TrainBinding(emptyMap())
 
     @Volatile
     private var authorityRequestFloorsByTrain: Map<String, CompiledAuthorityRequestFloors> = emptyMap()
@@ -78,14 +97,14 @@ class InspectionRuntime(
                 "inspection source IDs must be unique"
             }
         }
-        val candidateSessions = linkedMapOf<String, TreeMap<String, Session>>()
+        val candidateSessions = linkedMapOf<String, TreeMap<String, CompiledSourceBinding>>()
         try {
             activeRoutesByTrain.forEach { (trainId, activeRoute) ->
-                candidateSessions[trainId] = compileSessions(
+                candidateSessions[trainId] = compileBindings(
                     trainId,
                     activeRoute,
                     candidateSources,
-                    sessionsByTrain[trainId]
+                    compiledBindingsByTrain[trainId]
                 )
             }
         } catch (failure: BindingCompilationFailure) {
@@ -93,7 +112,7 @@ class InspectionRuntime(
             throw failure
         }
         val unsafeChanges = activeRoutesByTrain.keys.flatMap { trainId ->
-            val current = sessionsByTrain[trainId].orEmpty()
+            val current = compiledBindingsByTrain[trainId].orEmpty()
             val candidate = candidateSessions[trainId].orEmpty()
             (current.keys + candidate.keys).mapNotNull { sourceId ->
                 if (current[sourceId]?.source === candidate[sourceId]?.source) null
@@ -109,8 +128,8 @@ class InspectionRuntime(
             throw failure
         }
         sourcesById = candidateSources
-        sessionsByTrain.clear()
-        sessionsByTrain.putAll(candidateSessions)
+        compiledBindingsByTrain.clear()
+        compiledBindingsByTrain.putAll(candidateSessions)
         publishCompiledViews()
     }
 
@@ -125,18 +144,18 @@ class InspectionRuntime(
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         val activeRoute = ActiveRoute(observationStamp, route)
         val current = activeRoutesByTrain[trainId]
-        if (current?.route == route && sessionsByTrain[trainId]?.keys == sourcesById.keys) {
+        if (current?.route == route && compiledBindingsByTrain[trainId]?.keys == sourcesById.keys) {
             activeRoutesByTrain[trainId] = activeRoute
             return maximumDeclaredLeadTimeSeconds(trainId)
         }
         val compiled = try {
-            compileSessions(trainId, activeRoute, sourcesById, sessionsByTrain[trainId])
+            compileBindings(trainId, activeRoute, sourcesById, compiledBindingsByTrain[trainId])
         } catch (failure: BindingCompilationFailure) {
             notifyUnavailable(failure.key, failure)
             throw failure
         }
         activeRoutesByTrain[trainId] = activeRoute
-        if (compiled.isEmpty()) sessionsByTrain.remove(trainId) else sessionsByTrain[trainId] = compiled
+        if (compiled.isEmpty()) compiledBindingsByTrain.remove(trainId) else compiledBindingsByTrain[trainId] = compiled
         publishCompiledViews()
         return maximumDeclaredLeadTimeSeconds(trainId)
     }
@@ -145,15 +164,20 @@ class InspectionRuntime(
     fun markDirty(sourceId: String, declarationIds: Collection<String>) {
         require(sourceId.isNotBlank()) { "sourceId must not be blank" }
         if (declarationIds.isEmpty()) return
-        sessionsByTrain.values.forEach { sessions ->
-            sessions[sourceId]?.scheduler?.markPresentDirty(declarationIds)
+        publishedBindingsByTrain.values.forEach { binding ->
+            binding.definitions[sourceId]?.let { session ->
+                val present = declarationIds.filter(session.compiled::containsDeclaration)
+                if (present.isNotEmpty()) {
+                    session.invalidations.updateAndGet { it + present }
+                }
+            }
         }
     }
 
     /** Thread-safe immutable maximum lead-time view used to size the shared perception scan. */
     fun maximumDeclaredLeadTimeSeconds(trainId: String): Double {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
-        return maximumLeadTimesByTrain[trainId] ?: 0.0
+        return publishedBindingsByTrain[trainId]?.maximumDeclaredLeadTimeSeconds ?: 0.0
     }
 
     /** Applies precompiled route-local request floors without invoking a signal plugin callback. */
@@ -170,7 +194,7 @@ class InspectionRuntime(
 
     fun hasBindings(trainId: String): Boolean {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
-        return sessionsByTrain[trainId]?.isNotEmpty() == true
+        return compiledBindingsByTrain[trainId]?.isNotEmpty() == true
     }
 
     /** Low-frequency lifecycle query used to distinguish idle config rejection from live failure. */
@@ -179,7 +203,7 @@ class InspectionRuntime(
     /** Stable diagnostics for lifecycle checks; this does not expose sessions or callbacks. */
     fun activeBindings(sourceIds: Set<String>): List<String> {
         if (sourceIds.isEmpty()) return emptyList()
-        return sessionsByTrain.entries.flatMap { (trainId, sessions) ->
+        return compiledBindingsByTrain.entries.flatMap { (trainId, sessions) ->
             sessions.keys.asSequence()
                 .filter(sourceIds::contains)
                 .map { sourceId -> "$trainId/$sourceId" }
@@ -187,101 +211,128 @@ class InspectionRuntime(
         }.sorted()
     }
 
+    /** Creates state owned exclusively by this train's controller/physics worker. */
+    fun createTrainInspection(trainId: String): TrainInspection {
+        require(trainId.isNotBlank()) { "trainId must not be blank" }
+        return TrainInspection(trainId)
+    }
+
     /**
-     * Dispatches binding baselines and changed or invalidated complete active sets in stable source
-     * order.
-     *
-     * All callback results are validated before the first publication. Any failure notifies the
-     * fail-closed owner for the affected source and is then rethrown to the serialized caller.
+     * Consumes compiled bindings and invalidations before motion planning, using the existing scan.
+     * Different trains may invoke their handlers concurrently. Results for one train validate before
+     * its first publication; failures notify the existing fail-closed owner and abort control.
      */
-    fun update(
-        observationStamp: RailwayStateStamp,
-        currentRoute: FrozenRouteBinding,
-        routeProgressMeters: Double,
-        dynamicLookaheadMeters: Double,
-        maximumSpeedMetersPerSecond: Double,
-        accelerationMetersPerSecondSquared: Double,
-        perception: PerceptionSnapshot
-    ) {
-        val trainId = perception.train.trainId
-        val trainSessions = sessionsByTrain[trainId].orEmpty().entries
-            .map { (sourceId, session) -> BindingKey(sourceId, trainId) to session }
-        if (trainSessions.isEmpty()) return
+    inner class TrainInspection internal constructor(private val trainId: String) {
+        internal val runtime: InspectionRuntime get() = this@InspectionRuntime
+        private var sessions: List<PhysicsSession> = emptyList()
 
-        val staleSessions = trainSessions.filter { (_, session) ->
-            session.compiled.binding.route != currentRoute
-        }
-        if (staleSessions.isNotEmpty()) {
-            val failure = IllegalStateException(
-                "inspection binding does not match the current frozen route"
-            )
-            staleSessions.forEach { (key, _) -> notifyUnavailable(key, failure) }
-            throw failure
-        }
-        require(observationStamp.topologyRevision == currentRoute.topologyRevision) {
-            "observation and route must use the same topology revision"
-        }
-        require(perception.route.topologyRevision == currentRoute.topologyRevision) {
-            "perception and route must use the same topology revision"
-        }
-
-        val pending = ArrayList<PendingUpdate>()
-        trainSessions.forEach { (key, session) ->
-            try {
-                val activeDeclarations = session.scheduler.updatesFor(
-                    routeProgressMeters,
-                    dynamicLookaheadMeters,
-                    perception.train.speedMetersPerSecond,
-                    maximumSpeedMetersPerSecond,
-                    accelerationMetersPerSecondSquared
-                )
-                if (activeDeclarations == null && !session.baselinePending) return@forEach
-                val input = InspectionUpdateInput.create(
-                    observationStamp,
-                    currentRoute,
-                    routeProgressMeters,
-                    perception,
-                    activeDeclarations.orEmpty()
-                )
-                val publications = java.util.List.copyOf(session.handler.update(input))
-                validatePublications(key, observationStamp, currentRoute, publications)
-                require(publications.size == 1) {
-                    "inspection source ${key.sourceId} must publish one complete snapshot for " +
-                        key.trainId
-                }
-                pending += PendingUpdate(key, session, publications.single())
-            } catch (failure: Exception) {
-                pending.forEach(::requeue)
-                session.scheduler.retry()
-                failSource(key, failure)
+        fun update(
+            observationStamp: RailwayStateStamp,
+            currentRoute: FrozenRouteBinding,
+            routeProgressMeters: Double,
+            dynamicLookaheadMeters: Double,
+            maximumSpeedMetersPerSecond: Double,
+            accelerationMetersPerSecondSquared: Double,
+            perception: PerceptionSnapshot,
+            binding: TrainBinding = bindingFor(trainId)
+        ) {
+            require(perception.train.trainId == trainId) { "inspection perception belongs to another train" }
+            // A controller captures route + compiled definitions in one publication. A route append
+            // must not mix its old mapping with newly published world definitions. Teardown, however,
+            // discards the worker's state without calling a removed source.
+            val current = publishedBindingsByTrain[trainId]?.definitions.orEmpty()
+            val definitions = binding.definitions.values.filter { captured ->
+                current[captured.source.sourceId]?.source === captured.source
             }
-        }
-
-        pending.forEachIndexed { index, update ->
-            val snapshot = update.publication
-            try {
-                val result = publisher.publish(snapshot)
-                check(result.status == TrainRestrictionPublicationStatus.ACCEPTED) {
-                    "restriction publication for ${snapshot.sourceId}/${snapshot.trainId} was ${result.status}"
+            if (definitions.size != sessions.size || definitions.indices.any {
+                    definitions[it] !== sessions[it].definition
+                }) {
+                // Lifecycle only swaps definitions. Scheduler/baseline reset happens on this worker.
+                val existingBySource = sessions.associateBy { it.definition.source.sourceId }
+                sessions = definitions.map { definition ->
+                    existingBySource[definition.source.sourceId]
+                        ?.takeIf { it.definition === definition } ?: PhysicsSession(definition)
                 }
-                update.session.baselinePending = false
-            } catch (failure: Exception) {
-                pending.subList(index, pending.size).forEach(::requeue)
-                failSource(update.key, failure)
+            }
+            val trainSessions = sessions.map { BindingKey(it.definition.source.sourceId, trainId) to it }
+            if (trainSessions.isEmpty()) return
+
+            val staleSessions = trainSessions.filter { (_, session) ->
+                session.definition.compiled.binding.route != currentRoute
+            }
+            if (staleSessions.isNotEmpty()) {
+                val failure = IllegalStateException(
+                    "inspection binding does not match the current frozen route"
+                )
+                staleSessions.forEach { (key, _) -> notifyUnavailable(key, failure) }
+                throw failure
+            }
+            require(observationStamp.topologyRevision == currentRoute.topologyRevision) {
+                "observation and route must use the same topology revision"
+            }
+            require(perception.route.topologyRevision == currentRoute.topologyRevision) {
+                "perception and route must use the same topology revision"
+            }
+
+            val pending = ArrayList<PendingUpdate>()
+            trainSessions.forEach { (key, session) ->
+                try {
+                    session.scheduler.markPresentDirty(session.definition.invalidations.getAndSet(emptySet()))
+                    val activeDeclarations = session.scheduler.updatesFor(
+                        routeProgressMeters,
+                        dynamicLookaheadMeters,
+                        perception.train.speedMetersPerSecond,
+                        maximumSpeedMetersPerSecond,
+                        accelerationMetersPerSecondSquared
+                    )
+                    if (activeDeclarations == null && !session.baselinePending) return@forEach
+                    val input = InspectionUpdateInput.create(
+                        observationStamp,
+                        currentRoute,
+                        routeProgressMeters,
+                        perception,
+                        activeDeclarations.orEmpty()
+                    )
+                    val publications = java.util.List.copyOf(session.definition.handler.update(input))
+                    validatePublications(key, observationStamp, currentRoute, publications)
+                    require(publications.size == 1) {
+                        "inspection source ${key.sourceId} must publish one complete snapshot for " +
+                            key.trainId
+                    }
+                    pending += PendingUpdate(key, session, publications.single())
+                } catch (failure: Exception) {
+                    pending.forEach(::requeue)
+                    session.scheduler.retry()
+                    failSource(key, failure)
+                }
+            }
+
+            pending.forEachIndexed { index, update ->
+                val snapshot = update.publication
+                try {
+                    val result = publisher.publish(snapshot)
+                    check(result.status == TrainRestrictionPublicationStatus.ACCEPTED) {
+                        "restriction publication for ${snapshot.sourceId}/${snapshot.trainId} was ${result.status}"
+                    }
+                    update.session.baselinePending = false
+                } catch (failure: Exception) {
+                    pending.subList(index, pending.size).forEach(::requeue)
+                    failSource(update.key, failure)
+                }
             }
         }
     }
 
     fun removeTrain(trainId: String) {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
-        sessionsByTrain.remove(trainId)
+        compiledBindingsByTrain.remove(trainId)
         activeRoutesByTrain.remove(trainId)
         publishCompiledViews()
     }
 
     fun removeSource(sourceId: String) {
         require(sourceId.isNotBlank()) { "sourceId must not be blank" }
-        sessionsByTrain.entries.removeIf { (_, bySource) ->
+        compiledBindingsByTrain.entries.removeIf { (_, bySource) ->
             bySource.remove(sourceId)
             bySource.isEmpty()
         }
@@ -291,7 +342,7 @@ class InspectionRuntime(
 
     /** World teardown only: discards all callbacks and route-local state without an unload stall. */
     fun clear() {
-        sessionsByTrain.clear()
+        compiledBindingsByTrain.clear()
         activeRoutesByTrain.clear()
         sourcesById.clear()
         publishCompiledViews()
@@ -299,7 +350,7 @@ class InspectionRuntime(
 
     /** Removes sessions for trains whose production route lifecycle has ended. */
     fun retainTrains(trainIds: Set<String>) {
-        sessionsByTrain.keys.removeIf { it !in trainIds }
+        compiledBindingsByTrain.keys.removeIf { it !in trainIds }
         activeRoutesByTrain.keys.removeIf { it !in trainIds }
         publishCompiledViews()
     }
@@ -344,14 +395,14 @@ class InspectionRuntime(
 
     private fun requeue(update: PendingUpdate) = update.session.scheduler.retry()
 
-    private fun compileSessions(
+    private fun compileBindings(
         trainId: String,
         activeRoute: ActiveRoute,
         sources: Map<String, InspectionSource>,
-        current: Map<String, Session>?
-    ): TreeMap<String, Session> {
+        current: Map<String, CompiledSourceBinding>?
+    ): TreeMap<String, CompiledSourceBinding> {
         val routeBinding = FrozenRouteBinding.from(activeRoute.route)
-        val compiled = TreeMap<String, Session>()
+        val compiled = TreeMap<String, CompiledSourceBinding>()
         sources.forEach { (sourceId, source) ->
             val existing = current?.get(sourceId)
             if (existing?.source === source && existing.compiled.binding.route == routeBinding) {
@@ -369,9 +420,8 @@ class InspectionRuntime(
                     "inspection source $sourceId returned binding for ${binding.trainId}"
                 }
                 val compiledBinding = CompiledInspectionBinding.compile(binding, activeRoute.route)
-                compiled[sourceId] = Session(
+                compiled[sourceId] = CompiledSourceBinding(
                     compiledBinding,
-                    InspectionScheduler(compiledBinding),
                     source.updateHandler,
                     source
                 )
@@ -383,12 +433,10 @@ class InspectionRuntime(
     }
 
     private fun publishCompiledViews() {
-        maximumLeadTimesByTrain = sessionsByTrain.mapValues { (_, bySource) ->
-            bySource.values.maxOfOrNull {
-                it.scheduler.maximumDeclaredInspectionLeadTimeSeconds
-            } ?: 0.0
+        publishedBindingsByTrain = compiledBindingsByTrain.mapValues { (_, bySource) ->
+            TrainBinding(java.util.Collections.unmodifiableMap(LinkedHashMap(bySource)))
         }.toMap()
-        authorityRequestFloorsByTrain = sessionsByTrain.mapNotNull { (trainId, bySource) ->
+        authorityRequestFloorsByTrain = compiledBindingsByTrain.mapNotNull { (trainId, bySource) ->
             if (bySource.isEmpty()) return@mapNotNull null
             val routes = bySource.values.map { it.compiled.binding.route }.distinct()
             check(routes.size == 1) { "inspection sources for one train must bind one frozen route" }

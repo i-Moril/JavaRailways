@@ -33,6 +33,7 @@ import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalContinuationRequirement
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDependency
+import work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclarationId
 import java.util.UUID
 
 class SectionOccupancyRuntimeTest {
@@ -240,7 +241,7 @@ class SectionOccupancyRuntimeTest {
         assertEquals("private/approach", switched.availableOutput(upstreamSignal.signalId).modelVariant)
         assertEquals(setOf(upstreamSignal.signalId), switched.changedSignalIds)
         assertEquals(
-            listOf(SECTION_OCCUPANCY_SOURCE_ID to setOf(upstreamBlock.blockId)),
+            listOf(SECTION_OCCUPANCY_SOURCE_ID to setOf(fixedBlockSignalDeclarationId(upstreamBlock.blockId))),
             invalidations
         )
 
@@ -409,7 +410,7 @@ class SectionOccupancyRuntimeTest {
         assertEquals(
             listOf(
                 SECTION_OCCUPANCY_SOURCE_ID to
-                    setOf(firstBlock.blockId, secondBlock.blockId)
+                    setOf(fixedBlockSignalDeclarationId(firstBlock.blockId), fixedBlockSignalDeclarationId(secondBlock.blockId))
             ),
             invalidations
         )
@@ -431,7 +432,7 @@ class SectionOccupancyRuntimeTest {
         assertEquals("mirror/custom-stop", occupied.availableOutput("test:first-signal").modelVariant)
         assertEquals(setOf("test:first-signal", "test:second-signal"), occupied.changedSignalIds)
         assertEquals(
-            SECTION_OCCUPANCY_SOURCE_ID to setOf(firstBlock.blockId, secondBlock.blockId),
+            SECTION_OCCUPANCY_SOURCE_ID to setOf(fixedBlockSignalDeclarationId(firstBlock.blockId), fixedBlockSignalDeclarationId(secondBlock.blockId)),
             invalidations.last()
         )
         assertEquals(2, invalidations.size)

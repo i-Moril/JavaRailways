@@ -21,8 +21,14 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublic
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicLong
 
 class InspectionRuntimeTest {
+    private val trainInspections = mutableMapOf<InspectionRuntime, InspectionRuntime.TrainInspection>()
     private val railId = UUID.nameUUIDFromBytes("inspection-runtime".toByteArray())
     private val route = RouteSnapshot(
         "test:route/inspection-runtime",
@@ -346,6 +352,96 @@ class InspectionRuntimeTest {
         assertEquals(false, runtime.hasBindings("train"))
     }
 
+    @Test
+    fun `two physics workers project concurrently and consume dirty sets independently`() {
+        val entered = CountDownLatch(2)
+        val revisions = AtomicLong()
+        val calls = ConcurrentLinkedQueue<String>()
+        val runtime = InspectionRuntime(
+            publisher = { value ->
+                TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, value.revision)
+            },
+            sourceUnavailable = { _, _, _ -> }
+        )
+        runtime.replaceSources(listOf(InspectionSource("test:source", { input ->
+            InspectionDeclarationBinding("test:source", input.trainId, routeBinding, 1L, 1L,
+                binding().declarations)
+        }, { input ->
+            entered.countDown()
+            check(entered.await(5L, TimeUnit.SECONDS)) { "inspection callbacks were serialized across trains" }
+            val trainId = input.perception.train.trainId
+            calls += trainId
+            listOf(TrainRestrictionSnapshot("test:source", revisions.incrementAndGet(), trainId,
+                input.observationStamp, input.route, emptyList()))
+        })))
+        val workers = listOf("train", "second").associateWith { trainId ->
+            runtime.synchronizeRoute(stamp, trainId, route)
+            runtime.createTrainInspection(trainId)
+        }
+        fun update(trainId: String) = workers.getValue(trainId).update(
+            stamp, routeBinding, 50.0, 0.0, 20.0, 1.0,
+            PerceptionSnapshot(perception.epoch, perception.train.copy(trainId = trainId), route, emptyList())
+        )
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val futures = workers.keys.map { trainId -> executor.submit { update(trainId) } }
+            futures.forEach { it.get(10L, TimeUnit.SECONDS) }
+            runtime.markDirty("test:source", listOf("test:signal"))
+            update("second")
+            update("second")
+            update("train")
+            assertEquals(2, calls.count { it == "second" })
+            assertEquals(2, calls.count { it == "train" })
+
+            runtime.removeTrain("train")
+            update("train")
+            runtime.markDirty("test:source", listOf("test:signal"))
+            update("second")
+            assertEquals(2, calls.count { it == "train" })
+            assertEquals(3, calls.count { it == "second" })
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `captured route survives binding publication then replacement reversal and reset establish baselines`() {
+        val calls = arrayListOf<FrozenRouteBinding>()
+        val runtime = runtime()
+        runtime.replaceSources(listOf(InspectionSource("test:source", { input ->
+            InspectionDeclarationBinding("test:source", input.trainId, FrozenRouteBinding.from(input.route),
+                1L, 1L, listOf(InspectionDeclaration("test:signal", railId,
+                    input.route.segments.single().facing, 100.0, 80.0)))
+        }, { input ->
+            calls += input.route
+            listOf(TrainRestrictionSnapshot("test:source", calls.size.toLong(), "train",
+                input.observationStamp, input.route, emptyList()))
+        })))
+        runtime.synchronizeRoute(stamp, "train", route)
+        val worker = runtime.createTrainInspection("train")
+        val captured = runtime.bindingFor("train")
+        worker.update(stamp, routeBinding, 50.0, 0.0, 20.0, 1.0, perception, captured)
+        val reversed = RouteSnapshot(route.routeId, 2L, route.topologyRevision,
+            listOf(RouteSegmentSnapshot(railId, ViewDirection.BA, 0.0, 200.0)))
+        runtime.synchronizeRoute(stamp, "train", reversed)
+        // A worker already in the old control calculation can finish before the route mapping swap.
+        worker.update(stamp, routeBinding, 50.0, 0.0, 20.0, 1.0, perception, captured)
+        assertEquals(listOf(routeBinding), calls)
+        val reverseBinding = FrozenRouteBinding.from(reversed)
+        val reversedPerception = PerceptionSnapshot(perception.epoch, perception.train, reversed, emptyList())
+        worker.update(stamp, reverseBinding, 50.0, 0.0, 20.0, 1.0, reversedPerception)
+        assertEquals(listOf(routeBinding, reverseBinding), calls)
+
+        runtime.removeTrain("train")
+        worker.update(stamp, reverseBinding, 50.0, 0.0, 20.0, 1.0, reversedPerception)
+        runtime.synchronizeRoute(stamp, "train", reversed)
+        worker.update(stamp, reverseBinding, 50.0, 0.0, 20.0, 1.0, reversedPerception)
+        assertEquals(listOf(routeBinding, reverseBinding, reverseBinding), calls)
+        runtime.clear()
+        worker.update(stamp, reverseBinding, 50.0, 0.0, 20.0, 1.0, reversedPerception)
+        assertEquals(3, calls.size)
+    }
+
     private fun runtime(
         publications: MutableList<TrainRestrictionSnapshot> = arrayListOf(),
         unavailable: MutableList<String> = arrayListOf()
@@ -374,7 +470,7 @@ class InspectionRuntimeTest {
         routeProgressMeters: Double,
         dynamicLookaheadMeters: Double,
         perception: PerceptionSnapshot
-    ) = update(
+    ) = trainInspections.getOrPut(this) { createTrainInspection("train") }.update(
         observationStamp,
         currentRoute,
         routeProgressMeters,

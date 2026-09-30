@@ -2978,7 +2978,8 @@ class TimetableDispatcher(
         runtime: MissionRuntime,
         context: FrozenRouteSelectionContext
     ): AdmissionRoute? {
-        run.admittedRoute?.takeIf { it.missionRevision == runtime.mission.revision }?.let {
+        (run.admittedRoute?.takeIf { it.missionRevision == runtime.mission.revision }
+            ?: run.admissionCandidate?.takeIf { it.missionRevision == runtime.mission.revision })?.let {
             val stamp = context.observation.stamp
             val committed = it.route.selection
             if (stamp.worldId != committed.observationStamp.worldId ||
@@ -2990,7 +2991,6 @@ class TimetableDispatcher(
             }
             return it.withObservation(stamp)
         }
-        run.admissionCandidate?.takeIf { it.missionRevision == runtime.mission.revision }?.let { return it }
 
         val result = if (run.admittedRoute == null) {
             FrozenMissionRouteAssembler.assemble(
@@ -3069,38 +3069,28 @@ class TimetableDispatcher(
         val activeRoute = routeOverride ?: run.admittedRoute ?: run.admissionCandidate ?: return true
         try {
             val route = activeRoute.route.selection.route
-            val routeProgress = activeRoute.progressFor(runtime)
-            run.ato.bindTrainRestrictionRoute(
-                observation.stamp,
-                activeRoute.route,
-                activeRoute.missionRevision,
-                signalRestrictionSnapshots
-            )
             val maximumInspectionLeadTime = inspectionRuntime.synchronizeRoute(
                 observation.stamp,
                 run.train.id,
                 route
             )
-            if (inspectionRuntime.hasBindings(run.train.id)) {
+            run.ato.bindTrainRestrictionRoute(
+                observation.stamp,
+                activeRoute.route,
+                activeRoute.missionRevision,
+                signalRestrictionSnapshots,
+                inspectionRuntime.bindingFor(run.train.id)
+            )
+            if (inspectionRuntime.hasBindings(run.train.id) &&
+                run.controlMode == TimetableControlMode.AUTOMATIC
+            ) {
                 val published = checkNotNull(run.lastPublishedAtoState) {
-                    "inspection update requires the dispatcher-captured physics publication"
+                    "inspection readiness requires the dispatcher-captured physics publication"
                 }
-                val perception = published.perception ?: return false
+                if (published.inspectedRoute != FrozenRouteBinding.from(route)) return false
                 if (published.perceptionHorizonMeters + POSITION_TOLERANCE_METERS <
                     run.ato.inspectionLeadHorizonMeters(maximumInspectionLeadTime)
                 ) return false
-                inspectionRuntime.update(
-                    observationStamp = observation.stamp,
-                    currentRoute = FrozenRouteBinding.from(route),
-                    routeProgressMeters = routeProgress,
-                    dynamicLookaheadMeters = run.ato.inspectionDynamicLookaheadMeters(
-                        snapshot.speedMetersPerSecond
-                    ),
-                    maximumSpeedMetersPerSecond = run.ato.inspectionMaximumSpeedMetersPerSecond,
-                    accelerationMetersPerSecondSquared =
-                        run.ato.inspectionAccelerationMetersPerSecondSquared,
-                    perception = perception
-                )
             }
             return true
         } catch (failure: Exception) {

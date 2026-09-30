@@ -31,6 +31,9 @@ import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinit
 import work.art1st.javarailways.simplesignals.signal.CompiledFixedBlockSignals
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionIndex
+import work.art1st.javarailways.simplesignals.signal.CompiledProtectionSignals
+import work.art1st.javarailways.simplesignals.signal.ProtectionSignalDefinition
+import work.art1st.javarailways.simplesignals.signal.RouteIndicatorDefinition
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionSource
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStore
@@ -61,7 +64,11 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
     val upsertFixedBlocks: List<FixedBlockDefinition>,
     val removeFixedBlockIds: List<String>,
     val upsertFixedBlockSignals: List<FixedBlockSignalDefinition>,
-    val removeFixedBlockSignalIds: List<String>
+    val removeFixedBlockSignalIds: List<String>,
+    val upsertProtectionSignals: List<ProtectionSignalDefinition>,
+    val removeProtectionSignalIds: List<String>,
+    val upsertRouteIndicators: List<RouteIndicatorDefinition>,
+    val removeRouteIndicatorIds: List<String>
 ) {
     constructor(
         upsertRegions: Collection<ProtectionRegionDefinition> = emptyList(),
@@ -71,7 +78,11 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
         upsertFixedBlocks: Collection<FixedBlockDefinition> = emptyList(),
         removeFixedBlockIds: Collection<String> = emptyList(),
         upsertFixedBlockSignals: Collection<FixedBlockSignalDefinition> = emptyList(),
-        removeFixedBlockSignalIds: Collection<String> = emptyList()
+        removeFixedBlockSignalIds: Collection<String> = emptyList(),
+        upsertProtectionSignals: Collection<ProtectionSignalDefinition> = emptyList(),
+        removeProtectionSignalIds: Collection<String> = emptyList(),
+        upsertRouteIndicators: Collection<RouteIndicatorDefinition> = emptyList(),
+        removeRouteIndicatorIds: Collection<String> = emptyList()
     ) : this(
         java.util.List.copyOf(upsertRegions),
         java.util.List.copyOf(removeRegionIds),
@@ -80,7 +91,9 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
         java.util.List.copyOf(upsertFixedBlocks),
         java.util.List.copyOf(removeFixedBlockIds),
         java.util.List.copyOf(upsertFixedBlockSignals),
-        java.util.List.copyOf(removeFixedBlockSignalIds)
+        java.util.List.copyOf(removeFixedBlockSignalIds),
+        java.util.List.copyOf(upsertProtectionSignals), java.util.List.copyOf(removeProtectionSignalIds),
+        java.util.List.copyOf(upsertRouteIndicators), java.util.List.copyOf(removeRouteIndicatorIds)
     )
 }
 
@@ -136,7 +149,8 @@ internal class SimpleSignalsRuntimePublication(
     val routeTables: ProtectionRouteTableCatalog,
     val routeSelection: ProtectionRouteSelectionIndex,
     val fixedBlocks: FixedBlockCatalog,
-    val fixedBlockSignals: CompiledFixedBlockSignals
+    val fixedBlockSignals: CompiledFixedBlockSignals,
+    val protectionSignals: CompiledProtectionSignals
 )
 
 /**
@@ -172,7 +186,10 @@ internal class SimpleSignalsWorldRuntime(
         ::fixedBlockSnapshot,
         ::fixedBlockSignal,
         ::hasConfiguredFixedBlockSignal,
-        ::fixedBlockInspectionLeadTime
+        ::fixedBlockInspectionLeadTime,
+        ::protectionDeviceDeclarations,
+        ::protectionDeviceSignal,
+        { id -> state.publication?.protectionSignals?.signalIdsByDeclaration?.containsKey(id) == true }
     ).source
 
     val protectionRegionInspectionSource = ProtectionRegionInspectionSource(
@@ -241,7 +258,37 @@ internal class SimpleSignalsWorldRuntime(
 
     fun sectionSignalSnapshot(): SectionSignalSnapshot? = state.sectionOccupancy?.signalSnapshot()
 
-    fun protectionRouteSelectionSnapshot() = state.sectionOccupancy?.protectionRouteSelection?.snapshot()
+    fun protectionRouteSelectionSnapshot() = state.sectionOccupancy?.selectionSnapshot()
+
+    fun routeIndicatorStates() = state.sectionOccupancy?.indicators().orEmpty()
+
+    private fun protectionDeviceSignal(id: String): PublishedSectionSignal? {
+        val captured = state
+        val signalId = captured.publication?.protectionSignals?.signalIdsByDeclaration?.get(id) ?: return null
+        val signals = captured.sectionOccupancy?.signalSnapshot() ?: return null
+        return signals.states[signalId]?.let { PublishedSectionSignal(signals.stamp, it) }
+    }
+
+    private fun protectionDeviceDeclarations(blockSnapshot: FixedBlockReadSnapshot,
+        route: work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot):
+        List<work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration> {
+        val captured = state
+        val publication = checkNotNull(captured.publication)
+        check(publication.fixedBlocks.snapshot(publication.topology) === blockSnapshot) {
+            "signal publication changed while compiling device declarations"
+        }
+        val devices = publication.protectionSignals
+        if (devices.definitionsById.isEmpty()) return emptyList()
+        val selector = checkNotNull(captured.sectionOccupancy).protectionRouteSelection
+        val windows = selector.deviceRouteWindows(route)
+        return windows.flatMap { window -> devices.signalIdsByRoute[window.routeId].orEmpty().map { id ->
+            val definition = devices.definitionsById.getValue(id)
+            val entry = devices.routes.routesById.getValue(window.routeId).definition.traversals.first()
+            work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration(
+                work.art1st.javarailways.simplesignals.signal.protectionSignalDeclarationId(id), entry.railId, entry.facing,
+                window.entryMeters, definition.inspectionLeadTimeSeconds, window.floorMeters)
+        } }
+    }
 
     private fun fixedBlockSignal(blockId: String): PublishedSectionSignal? =
         checkNotNull(state.sectionOccupancy) {
@@ -285,7 +332,9 @@ internal class SimpleSignalsWorldRuntime(
             copiedRegions,
             copiedTables,
             copiedBlocks,
-            copiedSignals
+            copiedSignals,
+            definitions.protectionSignals.sortedBy { it.signalId },
+            definitions.routeIndicators.sortedBy { it.indicatorId }
         )
         val current = state.publication
         if (current != null && definitions.definitionRevision < current.definitions.definitionRevision) {
@@ -316,6 +365,10 @@ internal class SimpleSignalsWorldRuntime(
         )?.let {
             return@synchronized preparationRejected(it)
         }
+        retainedDeviceRevisionFailure(current?.definitions?.protectionSignals.orEmpty(), copiedDefinitions.protectionSignals,
+            { it.signalId }, { it.revision })?.let { return@synchronized preparationRejected(it) }
+        retainedDeviceRevisionFailure(current?.definitions?.routeIndicators.orEmpty(), copiedDefinitions.routeIndicators,
+            { it.indicatorId }, { it.revision })?.let { return@synchronized preparationRejected(it) }
         if (current != null && current.topology === topology &&
             copiedDefinitions == current.definitions
         ) {
@@ -353,11 +406,10 @@ internal class SimpleSignalsWorldRuntime(
         if (blockResult.status == FixedBlockCatalogStatus.REJECTED) {
             return@synchronized preparationRejected(blockResult.diagnostics.map { it.detail })
         }
-        val candidateSignals = try {
-            CompiledFixedBlockSignals.compile(
-                copiedSignals,
-                candidateBlocks.snapshot(topology)
-            )
+        val (candidateSignals, candidateProtectionSignals) = try {
+            CompiledProtectionSignals.compile(topology, definitions.definitionRevision,
+                candidateRouteSelection, candidateBlocks.snapshot(topology), copiedSignals,
+                copiedDefinitions.protectionSignals, copiedDefinitions.routeIndicators)
         } catch (failure: IllegalArgumentException) {
             return@synchronized preparationRejected(
                 failure.message ?: "fixed-block signals could not be compiled"
@@ -372,7 +424,7 @@ internal class SimpleSignalsWorldRuntime(
             copiedRegions,
             copiedTables,
             copiedBlocks
-        )
+        ) + copiedDefinitions.routeIndicators.map { it.position.railId }
         val candidate = SimpleSignalsRuntimePublication(
             topology,
             copiedDefinitions,
@@ -381,7 +433,8 @@ internal class SimpleSignalsWorldRuntime(
             candidateTables,
             candidateRouteSelection,
             candidateBlocks,
-            candidateSignals
+            candidateSignals,
+            candidateProtectionSignals
         )
         SimpleSignalsDefinitionPreparationResult.Prepared(
             SimpleSignalsPreparedDefinitions(
@@ -459,6 +512,16 @@ internal class SimpleSignalsWorldRuntime(
             block.traversals.mapTo(result) { it.railId }
         }
         return java.util.Set.copyOf(result)
+    }
+
+    private fun <T> retainedDeviceRevisionFailure(previous: Collection<T>, candidate: Collection<T>,
+        id: (T) -> String, revision: (T) -> Long): String? {
+        val old = previous.associateBy(id)
+        candidate.forEach { next -> old[id(next)]?.let { retained ->
+            if (revision(next) < revision(retained) || revision(next) == revision(retained) && next != retained)
+                return "device ${id(next)} changed without advancing its revision"
+        } }
+        return null
     }
 
     private fun validateRetainedRegionRevisions(
@@ -820,6 +883,8 @@ internal class SimpleSignalsWorldRuntimeManager(
                 candidate.routeTables != current.routeTables ||
             candidate.fixedBlocks != current.fixedBlocks ||
                 candidate.fixedBlockSignals != current.fixedBlockSignals ||
+                candidate.protectionSignals != current.protectionSignals ||
+                candidate.routeIndicators != current.routeIndicators ||
                 topology !== runtime.currentTopology()
         val prepared = when (val preparation = runtime.prepareDefinitions(topology, candidate)) {
             SimpleSignalsDefinitionPreparationResult.Unchanged -> return@synchronized authoringResult(
@@ -1039,10 +1104,16 @@ internal class SimpleSignalsWorldRuntimeManager(
             current.fixedBlockSignals.map { it.signalId }.toSet(),
             diagnostics
         )
+        validatePatchIdentities("protection signal", patch.upsertProtectionSignals.map { it.signalId },
+            patch.removeProtectionSignalIds, current.protectionSignals.map { it.signalId }.toSet(), diagnostics)
+        validatePatchIdentities("route indicator", patch.upsertRouteIndicators.map { it.indicatorId },
+            patch.removeRouteIndicatorIds, current.routeIndicators.map { it.indicatorId }.toSet(), diagnostics)
         if (patch.upsertRegions.isEmpty() && patch.removeRegionIds.isEmpty() &&
             patch.upsertRouteTables.isEmpty() && patch.removeRouteTableIds.isEmpty() &&
             patch.upsertFixedBlocks.isEmpty() && patch.removeFixedBlockIds.isEmpty() &&
-            patch.upsertFixedBlockSignals.isEmpty() && patch.removeFixedBlockSignalIds.isEmpty()
+            patch.upsertFixedBlockSignals.isEmpty() && patch.removeFixedBlockSignalIds.isEmpty() &&
+            patch.upsertProtectionSignals.isEmpty() && patch.removeProtectionSignalIds.isEmpty() &&
+            patch.upsertRouteIndicators.isEmpty() && patch.removeRouteIndicatorIds.isEmpty()
         ) {
             diagnostics += "definition patch is empty"
         }
@@ -1064,18 +1135,27 @@ internal class SimpleSignalsWorldRuntimeManager(
         }
         patch.removeFixedBlockSignalIds.forEach(fixedBlockSignals::remove)
         patch.upsertFixedBlockSignals.forEach { fixedBlockSignals[it.signalId] = it }
+        val protectionSignals = current.protectionSignals.associateByTo(linkedMapOf()) { it.signalId }
+        patch.removeProtectionSignalIds.forEach(protectionSignals::remove)
+        patch.upsertProtectionSignals.forEach { protectionSignals[it.signalId] = it }
+        val indicators = current.routeIndicators.associateByTo(linkedMapOf()) { it.indicatorId }
+        patch.removeRouteIndicatorIds.forEach(indicators::remove)
+        patch.upsertRouteIndicators.forEach { indicators[it.indicatorId] = it }
         val candidate = SimpleSignalsWorldDefinitions(
             current.worldId,
             nextRevision,
             regions.values.sortedBy { it.regionId },
             tables.values.sortedBy { it.tableId },
             fixedBlocks.values.sortedBy { it.blockId },
-            fixedBlockSignals.values.sortedBy { it.signalId }
+            fixedBlockSignals.values.sortedBy { it.signalId },
+            protectionSignals.values.sortedBy { it.signalId }, indicators.values.sortedBy { it.indicatorId }
         )
         if (candidate.regions == current.regions &&
             candidate.routeTables == current.routeTables &&
             candidate.fixedBlocks == current.fixedBlocks &&
-            candidate.fixedBlockSignals == current.fixedBlockSignals
+            candidate.fixedBlockSignals == current.fixedBlockSignals &&
+            candidate.protectionSignals == current.protectionSignals &&
+            candidate.routeIndicators == current.routeIndicators
         ) {
             return PatchApplication.Rejected(
                 listOf("definition patch does not change the current definitions")

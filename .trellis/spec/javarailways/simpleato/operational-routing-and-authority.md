@@ -267,30 +267,44 @@ grant/tail-release生命周期释放，不能因检查范围变化而撤销。
 具体信号插件可以在Java/Kotlin中实现完整规则，并自行选择JS、YAML或其他配置层。SimpleATO只提供检查调度与最严格限制归约，
 不规定所有插件必须共用一个JS运行时。
 
-当前平台无关`InspectionRuntime`为每个`(sourceId, trainId)`保留一份编译binding、激活/dirty状态和同步handler。
-完整binding替换先离线编译，成功后才替换旧session；非法替换不改变旧session。一次update按source ID稳定顺序查询scheduler，
-把同一source本次新激活或dirty的声明合并为一个`InspectionUpdateInput`，并复用controller已经完成的`PerceptionSnapshot`。
+当前平台无关`InspectionRuntime`在serialized railway owner上为每个`(sourceId, trainId)`编译binding及同步handler，
+通过不可变per-train view发布；各controller自己的`TrainInspection`独占激活scheduler及baseline状态。
+完整binding替换先离线编译，成功后才发布候选；非法替换不改变旧binding。Dispatcher把捕获的compiled view与已有
+冻结route/Mission坐标映射放进同一个不可变controller binding，以一次volatile publication交接；不得分别读取“最新路线”和
+“最新声明”组成一次控制输入。正向append/rebase时，已开始的worker可完成其捕获的旧binding；下一次控制计算再消费新组。
+一次update按source ID稳定顺序查询scheduler，把同一source本次新激活或dirty的声明合并为一个`InspectionUpdateInput`，
+复用controller本次`PerceptionSnapshot`，并在`MinimumConstraintPlanner`前发布/应用完整结果。
 handler每次必须返回恰好一个该source/列车的完整`TrainRestrictionSnapshot`，不增加第二种restriction结果模型；即使当前没有
 restriction，baseline、激活集合变化和最后一个声明离开仍返回更高revision的空restriction snapshot，以明确替换旧值。
 
 runtime在首次publisher side effect前验证本批全部callback输出的source、train、observation stamp和frozen route。回调异常、
-过期binding、非法输出或publisher拒绝都会先通知注入的fail-closed owner，再向serialized caller抛出；尚未成功发布的声明重新
-变为dirty，不会因失败丢失更新。source/train删除只丢弃对应session，不释放Basic claim，也不隐式撤销restriction。该runtime
+过期binding、非法输出或publisher拒绝都会先通知注入的source-unavailable callback，再向该列车控制计算抛出；
+production update的异常由既有`AbstractATO`/world coordinator捕获并Stall，compile/bind异常仍由Dispatcher处理。
+尚未成功发布的声明重新
+变为dirty，不会因失败丢失更新。source/train删除只发布移除后的compiled view；下一次worker自行丢弃对应scheduler，
+不会由main thread改写物理状态。删除不释放Basic claim，也不隐式撤销restriction。该runtime
 不创建线程、重试器、Bukkit registry或持久化状态。
+
+signal epoch在Core已join全部train workers后只合并当前binding内实际存在的dirty声明ID；集合最多包含该binding的声明数，
+重复变化去重，不保存事件历史。下一次worker消费标记并更新自己的scheduler。不同列车的`InspectionUpdateHandler`可并发，
+callback只读不可变策略/信号publication，并使用thread-safe的列车输出revision；不能访问Bukkit、mutable Dispatcher或共享规则图。
+共享信号规则仍只在serialized signal epoch执行。普通逐tick激活查询为`O(log D + K)`（排序声明数`D`、候选`K`），
+source层迭代和restriction归约另按本列车实际source/限制数计；没有第二次perception、寻路或全世界规则执行。
 
 production world在创建`SignalEpochRuntime`和restriction store时同时创建一个`InspectionRuntime`。Bukkit公开的
 `InspectionSourceService`与`SignalEpochSourceService`共用同一个内部plugin/world owner registry，统一走
 `InfrastructureResourceService.unregisterOwner`、forced disable、world unload与host shutdown生命周期。Dispatcher维护exact
-active route并调用provider；controller只跨线程读取runtime发布的immutable per-train最大距离，不复制route identity或第二套
-route生命周期。新binding可能扩大horizon时，Dispatcher在controller发布覆盖该最大值的新physics perception前保持
-`WAITING_ROUTE`，且在此之前不请求、progress或扩大Basic authority；下一epoch仍只执行controller原有一次`peekCurve`。
-随后Dispatcher用同一published controller state中的perception、当前冻结路线head progress和host动态制动lookahead同步调用
-inspection update，并把返回snapshot写入既有world `TrainRestrictionSnapshotStore`，再经唯一restriction adapter应用。
+active route并调用provider；controller消费同一已发布route mapping里的compiled view，不创建第二套route生命周期。
+新binding的Basic申请/推进/扩权先等待controller publication已经确认该exact route完成检查，且physics perception覆盖
+最大声明提前时间；等待期间保持`WAITING_ROUTE`。下一epoch仍只执行controller原有一次`peekCurve`。
+运行中的inspection update由controller用本次Mission投影进度、动态制动lookahead和同一感知直接执行，
+把结果写入既有world `TrainRestrictionSnapshotStore`，再经唯一restriction adapter应用，不需要Dispatcher推进。
+首次检查成功但输出0仍允许资源申请；限速不得被错误地当成“检查尚未完成”。
 
 活动路线期间新增、删除或替换source会改变既有安全策略，不能靠旧perception或旧permission无缝切换。当前host没有安全的
 同epoch quiesce/refresh协议，因此普通replacement在离线编译候选后经现有world coordinator立即Stall并保留旧全集；forced
-plugin loss先Stall受影响world再删除失效callback。train结束删除对应session，world unload/host shutdown直接清空world-local
-binding，不添加retry、持久化、兼容或第二次扫描。
+plugin loss先Stall受影响world再删除失效callback。train结束撤销对应compiled binding；controller下一次执行时丢弃自己的
+scheduler。world unload/host shutdown清空world-local binding，不添加retry、持久化、兼容或第二次扫描。
 
 ## 4. 接口与数据合同
 

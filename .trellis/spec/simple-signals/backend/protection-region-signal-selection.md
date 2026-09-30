@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围与 owner
 
-- 状态：`CURRENT/PARTIAL`。Basic 当前准入变化、默认进路持久化/冲突校验、共享入口选择运行时已经存在；三种设备的配置、规则和呈现仍未实现。
+- 状态：`CURRENT/PARTIAL`。Basic 当前准入变化、默认进路持久化/冲突校验、共享入口选择及三种设备的后端配置/状态计算已经存在；模型呈现和 JS/YAML 加载尚未实现。
 - SimpleSignals 拥有保护区域、固定进路、默认进路配置、信号规则和显示设备；Basic 拥有物理资源准入、设备准备、claim 和 committed grant；SimpleATO 只合并最终限制，不识别具体信号或进路类型。
 - 非目标：不把保护区域类型加入 Basic/SimpleATO，不创建整区独占 token，不规定国家制式灯色，不让显示设备产生行车授权，也不让插件从道岔状态猜出未配置的默认进路。
 
@@ -15,6 +15,15 @@
 3. **进路显示器**只显示共享选择结果中的进路身份，不产生限速或授权。日本式进路表示机和进路预告机使用同一抽象；玩家把设备放在所需位置并选择不同模型，不在后端增加“预告”类型。
 
 固定进路信号和当前信号产生受验证的有限非负速度限制及不透明 model variant。进路显示器只产生显示 variant；不得用无限速度或占位速度伪装成信号限制。
+
+`ProtectionSignalDefinition.kind`为稳定的`FIXED_ROUTE`或`CURRENT_ENTRY`，`bindingId`分别指向固定进路或有向入口。
+定义还保存`inspectionLeadTimeSeconds`、速度必须为0的`unavailableOutput`、`occupiedOutput`、按下游速度阈值选择的
+`clearLevels`及下游依赖。灯色名称和具体速度全部来自配置，Kotlin只执行输入校验及阈值选择。
+`RouteIndicatorDefinition`保存入口ID、玩家指定的轨道位置、无进路variant及route-to-variant映射，不包含任何速度字段。
+
+固定进路信号不跟随当前入口的选路：即使当前入口选择B，它仍检查自己绑定的A的占用、实际道岔方向和出口下游。
+A有自己的准入请求时等待A完整ready；A没有请求时只要求A物理开通。显示允许信号也不替代Basic资源授权。
+当前信号则读取共享选择，仅使用被选进路的占用和下游依赖。未选支路的下游不可用不应把当前信号拉成0。
 
 ## 3. 默认进路
 
@@ -43,7 +52,7 @@
 
 请求进路的 route identity 一旦被选中，信号不得在准备期间暂时回显默认进路：
 
-- 当前区域未完整授权时：保留请求进路身份，`routeReady=false`，未来设备规则必须保持限制；
+- 当前区域未完整授权时：保留请求进路身份，`routeReady=false`，设备输出配置的0速度限制；
 - Basic全程请求状态为`PREPARING`不等于每个历史区域都未准备。申请更远后缀时，旧committed authority仍可覆盖当前区域floor，沿途道岔正确则该入口仍ready；
 - `GRANTED`：只有 committed authority 覆盖该保护区域要求的完整 floor，且实际 active continuations 已与请求进路一致，才能运行正常进路规则；
 - 请求失败/结束或全部资源释放：Basic 不再发布该请求；某区域的出口已经由成功释放事件证明车尾通过时，选择器先移除该入口关联，不必等待整条冻结路线结束。跨越更长范围的资源仍由Basic保留，不会因选择变更被释放；
@@ -68,9 +77,10 @@ SelectedProtectionRoute
 这是已实现的plugin-internal值，不是宿主公开API。`available=false`表示不能证明唯一、当前的选择，不能作为允许状态。
 `routeReady` 表示该来源要求的物理条件已经满足：请求来源需要 grant 与道岔一致，默认来源只需要道岔一致。
 `requestState`按本区域floor是否已被committed authority覆盖计算，不照抄正在准备更远资源的全程state。
-信号规则另外读取本进路占用和下游输出；显示器只读取route identity/source并映射为模型，这些设备消费仍属后续实现。
+信号规则另外读取本进路占用和下游输出；显示器只读取route identity/source并映射为模型。
 
-同一份选择结果保证主信号与进路显示器不会在一个 epoch 中显示不同进路。设备放置距离不改变其依赖：远处的进路预告机仍显式绑定同一个入口选择源，通过 latest-only Bukkit/Folia 呈现桥更新模型，不要求沿轨道重新查找目标信号。
+同一份选择结果保证主信号与进路显示器不会在一个 epoch 中显示不同进路。设备放置距离不改变其依赖：远处的进路预告机仍显式绑定同一个入口选择源，不要求沿轨道重新查找目标信号。
+当前只保存可供呈现消费的状态；latest-only Bukkit/Folia模型更新属于后续批次，不能把后端snapshot描述为已经渲染到世界。
 
 ## 7. Basic 准入观测边界
 
@@ -110,9 +120,37 @@ Basic对剩余资源的排他校验独立继续生效，默认进路永远不能
 - 同一个入口出现多个当前owner时`available=false`；topology/world不一致时同样不可用。物理拓扑变化的baseline必须检查所有入口，包括没有道岔的单轨进路。
 - 列车从物理frame消失时，host按已有准入兴趣反查唤醒相关选择器；请求分支不可用，不偷偷回落默认，也不等待Bukkit完成下一次车尾检查。
 - 未变化的选择保留旧publication，不构造新的选择快照。当前实现复制入口map的成本是每次实际选择变化`O(E)`，不是每tick；新路线匹配是低频缓存建立成本，道岔检查按被选进路实际要求数计。
-- 后续设备接入仍须编译route-specific occupancy geometry及显示器绑定；只有占用/下游依赖变化才运行对应规则，不在本批创建这些未消费的索引。
+- 每条已配置固定进路拥有`PROTECTION_ROUTE`监测范围，复用现有轨道区间几何编译和Basic占用观测；它不因此成为固定闭塞资源。
+  候选进路允许共享前缀或重叠，几何不参与真实固定闭塞与保护区域的不重叠校验。占用某条独立支路不会给另一条不相交进路虚构占用。
+- production由一个`SectionOccupancyRuntime`回调依次处理同一epoch的入口选择、区间占用及混合信号依赖图。
+  固定闭塞和保护信号共用一张无环单向图，不靠两个callback的执行顺序交换结果，也不增加fixed-point求解器。
+- 同一有向入口可绑定多台设备；入口/区间/道岔变化通过预编译反向索引找到消费者。当前信号的候选路径依赖在编译时确定，
+  运行时只激活已选进路的依赖；输出相同则停止向依赖它的信号传播。
+- **入口被影响不等于共享选择值改变。** 本次selector实际处理的dirty入口必须作为规则图种子；仅显示器使用selection值变化集。
+  固定进路信号检查自己的请求及物理状态，可能在current selection对象完全不变时从ready变为unready。
+  root cause是将共享选择的相等性误当作所有设备输入的相等性（隐式假设＋组合覆盖缺失），不是需要增加全局轮询。
+  回归必须保持current selection对象不变，改变同入口请求owner集合，断言固定信号由允许转0、且无关信号和显示器不被重复更新。
+- 两类限速设备共用`simplesignals:fixed-block-signals`epoch/inspection source身份。变化的保护信号失效自己的设备声明ID，
+  既有ATO inspection流程把最新有效速度投影到入口路线坐标，不为显示器创建声明或限速。
+  signal epoch只标记变化；controller在下一次物理控制计算中复用本次感知，更新自己的inspection激活状态、
+  投影完整active声明集合并在planner前应用restriction，不等待Dispatcher。不同列车的投影callback可并发，
+  只读已发布的信号快照；共享规则图仍在串行signal epoch执行。必须用停掉Dispatcher后的真实控制测试验证，不能用直接发布restriction的测试代替。
+  首个baseline前及无法证明ready时为0，但inspection资源申请仍正常进行；不能形成“0速度所以永远不申请”的循环。
+- 同一source内的声明ID按类别派生：固定闭塞使用`simplesignals:fixed-block/<namespace>/<path>`，
+  保护信号使用`simplesignals:protection-signal/<namespace>/<path>`（将作者ID的唯一冒号换为斜杠，完整保留namespace/path）。
+  映射集中在`SignalInspectionIdentity.kt`。这只是inspection内部身份映射，不改变作者ID或资源ID。
+  两类定义可合法使用相同作者ID；失效通知、声明绑定和状态读取必须使用同一映射，不能混用作者ID。
+- 显示器结果与occupancy/signals放入同一个不可变publication，callback结束才一次替换。
+  不得在规则执行前提前发布新显示器结果，也不增加另一套显示revision或rollback协议。
+- 设本次传播到达`A`个图节点、`D`条依赖边，图执行沿用`O((A+D) log A)`。
+  这不等于整个callback只需该成本：不可变section/signal快照仍需复制并排序全量map，成本约`O(N log N)`，其中`N`为监测区/信号数；
+  显示器选择实际改变时复制显示器map，成本`O(I)`。这些是变化回调上的既有publication成本，不是每tick执行全部规则，当前未做大规模性能基准。
 
 ## 9. 校验和测试
+
+正常案例：入口默认开通A，A及下游空闲；当前信号按配置输出，显示器显示A，但没有claim被默认进路占用。
+切换案例：列车请求B，准备时当前信号0、显示器B；完整授权和实际道岔一致后才使用B规则；固定进路A设备始终检查A。
+错误案例：未知route/signal引用、混合依赖cycle、非法variant/速度在prepare拒绝，旧定义和运行时不变；运行中观测失效保持0，不能复用旧允许结果。
 
 - 多条物理不冲突默认进路可同时开通，并分别驱动不同入口的当前信号。
 - 默认集合中共享排他资源、要求同一道岔处于不同状态或以其他方式不能同时成立的进路整批拒绝。
@@ -125,6 +163,13 @@ Basic对剩余资源的排他校验独立继续生效，默认进路永远不能
 - 固定进路信号不受其他进路的选择变化影响，只在其固定进路状态变化时更新。
 - 当前信号与任意距离放置的多个显示器读取同一 selection revision 并始终显示相同 route identity。
 - stale topology、grant/道岔不一致、多个无法唯一裁决的当前请求和缺少 baseline 全部 fail-close。
+- 混合固定闭塞/保护信号依赖的cycle和未知引用在load/prepare拒绝；不把错误拖到tick内再重试。
+- schema 1新增`protectionSignals`/`routeIndicators`有明确empty default；保存/恢复、在线patch和source原子替换必须覆盖三种设备。
+  这些additive字段不升级存档版本，不添加旧开发接口的runtime兼容层。
+
+当前回归入口是`ProtectionSignalDevicesTest`、`SimpleSignalsWorldRuntimeManagerTest`及`ProtectionSignalControllerHandoffTest`。
+最后一个组合真实Basic准入、SignalEpochRuntime、Dispatcher和SimpleATO控制器：Dispatcher建立路线/授权后停止推进，
+验证信号从允许变0以及恢复时，下一次控制计算仍更新入口限速；另验证初始0仍可申请及和其他运营限速取最小值。
 
 ## 10. Wrong / Correct
 

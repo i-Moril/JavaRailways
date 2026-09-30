@@ -18,6 +18,9 @@ import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalContinuationRequirement
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDependency
+import work.art1st.javarailways.simplesignals.signal.ProtectionSignalDefinition
+import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
+import work.art1st.javarailways.simplesignals.signal.RouteIndicatorDefinition
 import java.util.UUID
 
 /** Current in-memory definition document. Derived topology and compiled restrictions are not stored. */
@@ -28,7 +31,9 @@ internal data class SimpleSignalsWorldDefinitions private constructor(
     val regions: List<ProtectionRegionDefinition>,
     val routeTables: List<ProtectionRouteTableDefinition>,
     val fixedBlocks: List<FixedBlockDefinition>,
-    val fixedBlockSignals: List<FixedBlockSignalDefinition>
+    val fixedBlockSignals: List<FixedBlockSignalDefinition>,
+    val protectionSignals: List<ProtectionSignalDefinition>,
+    val routeIndicators: List<RouteIndicatorDefinition>
 ) {
     constructor(
         worldId: UUID,
@@ -36,14 +41,17 @@ internal data class SimpleSignalsWorldDefinitions private constructor(
         regions: Collection<ProtectionRegionDefinition>,
         routeTables: Collection<ProtectionRouteTableDefinition>,
         fixedBlocks: Collection<FixedBlockDefinition> = emptyList(),
-        fixedBlockSignals: Collection<FixedBlockSignalDefinition> = emptyList()
+        fixedBlockSignals: Collection<FixedBlockSignalDefinition> = emptyList(),
+        protectionSignals: Collection<ProtectionSignalDefinition> = emptyList(),
+        routeIndicators: Collection<RouteIndicatorDefinition> = emptyList()
     ) : this(
         worldId,
         definitionRevision,
         java.util.List.copyOf(regions),
         java.util.List.copyOf(routeTables),
         java.util.List.copyOf(fixedBlocks),
-        java.util.List.copyOf(fixedBlockSignals)
+        java.util.List.copyOf(fixedBlockSignals),
+        java.util.List.copyOf(protectionSignals), java.util.List.copyOf(routeIndicators)
     )
 
     init {
@@ -70,7 +78,9 @@ private data class SimpleSignalsWorldDefinitionsFileV1(
     val protectionRegions: List<SavedProtectionRegionV1>,
     val protectionRouteTables: List<SavedProtectionRouteTableV1>,
     val fixedBlocks: List<SavedFixedBlockV1> = emptyList(),
-    val fixedBlockSignals: List<SavedFixedBlockSignalV1> = emptyList()
+    val fixedBlockSignals: List<SavedFixedBlockSignalV1> = emptyList(),
+    val protectionSignals: List<SavedProtectionSignal> = emptyList(),
+    val routeIndicators: List<SavedRouteIndicator> = emptyList()
 )
 
 @Serializable
@@ -166,6 +176,22 @@ private data class SavedFixedBlockSignalContinuationRequirementV1(
     val selectedExitEndpoint: RailEndpoint
 )
 
+@Serializable
+private data class SavedProtectionSignal(
+    val signalId: String, val revision: Long, val kind: ProtectionSignalKind, val bindingId: String,
+    val inspectionLeadTimeSeconds: Double, val unavailableOutput: SavedSignalOutputV1,
+    val occupiedOutput: SavedSignalOutputV1, val clearLevels: List<SavedFixedBlockSignalClearLevelV1>,
+    val downstreamSignals: List<SavedFixedBlockSignalDependencyV1> = emptyList(),
+    val downstreamSignalsByRouteId: Map<String, List<SavedFixedBlockSignalDependencyV1>> = emptyMap()
+)
+
+@Serializable
+private data class SavedRouteIndicator(
+    val indicatorId: String, val revision: Long, val entryBoundaryId: String,
+    val railId: String, val facing: ViewDirection, val arcLengthInAbMeters: Double,
+    val noRouteModelVariant: String, val modelVariantsByRouteId: Map<String, String>
+)
+
 /** Strict codec for the independently versioned SimpleSignals world-definition sidecar. */
 internal object SimpleSignalsWorldDefinitionsCodec {
     const val CURRENT_FORMAT_VERSION = 1
@@ -197,7 +223,18 @@ internal object SimpleSignalsWorldDefinitionsCodec {
             file.protectionRegions.map { it.restore() },
             file.protectionRouteTables.map { it.restore() },
             file.fixedBlocks.map { it.restore() },
-            file.fixedBlockSignals.map { it.restore() }
+            file.fixedBlockSignals.map { it.restore() },
+            file.protectionSignals.map { signal -> ProtectionSignalDefinition(signal.signalId, signal.revision,
+                signal.kind, signal.bindingId, signal.inspectionLeadTimeSeconds, signal.unavailableOutput.restore(),
+                signal.occupiedOutput.restore(), signal.clearLevels.map {
+                    FixedBlockSignalClearLevel(it.minimumDownstreamSpeedMetersPerSecond, it.output.restore())
+                }, signal.downstreamSignals.map { it.restoreDependency(signal.signalId) },
+                signal.downstreamSignalsByRouteId.mapValues { (_, dependencies) ->
+                    dependencies.map { it.restoreDependency(signal.signalId) }
+                }) },
+            file.routeIndicators.map { RouteIndicatorDefinition(it.indicatorId, it.revision, it.entryBoundaryId,
+                RailPositionSnapshot(parseCanonicalUuid(it.railId, "indicator railId"), it.facing, it.arcLengthInAbMeters),
+                it.noRouteModelVariant, it.modelVariantsByRouteId) }
         )
     }
 
@@ -284,8 +321,26 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                     )
                 }
             )
-        }
+        },
+        protectionSignals.map { signal -> SavedProtectionSignal(signal.signalId, signal.revision, signal.kind,
+            signal.bindingId, signal.inspectionLeadTimeSeconds, signal.unavailableOutput.saved(),
+            signal.occupiedOutput.saved(), signal.clearLevels.map {
+                SavedFixedBlockSignalClearLevelV1(it.minimumDownstreamSpeedMetersPerSecond, it.output.saved())
+            }, signal.downstreamSignals.map { it.savedDependency() },
+            signal.downstreamSignalsByRouteId.mapValues { (_, dependencies) -> dependencies.map { it.savedDependency() } }) },
+        routeIndicators.map { SavedRouteIndicator(it.indicatorId, it.revision, it.entryBoundaryId,
+            it.position.railId.toString(), it.position.facing, it.position.arcLengthInAbMeters,
+            it.noRouteModelVariant, it.modelVariantsByRouteId) }
     )
+
+    private fun FixedBlockSignalDependency.savedDependency() = SavedFixedBlockSignalDependencyV1(signalId,
+        requiredContinuations.map { SavedFixedBlockSignalContinuationRequirementV1(it.entry.railId.toString(),
+            it.entry.endpoint, it.selectedExit.railId.toString(), it.selectedExit.endpoint) })
+
+    private fun SavedFixedBlockSignalDependencyV1.restoreDependency(owner: String) = FixedBlockSignalDependency(signalId,
+        requiredContinuations.map { FixedBlockSignalContinuationRequirement(
+            RailEndpointRef(parseCanonicalUuid(it.entryRailId, "signal $owner entry railId"), it.entryEndpoint),
+            RailEndpointRef(parseCanonicalUuid(it.selectedExitRailId, "signal $owner exit railId"), it.selectedExitEndpoint)) })
 
     private fun ConfiguredSignalOutput.saved() = SavedSignalOutputV1(
         speedLimitMetersPerSecond,

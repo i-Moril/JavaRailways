@@ -12,7 +12,8 @@ import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionRun
 internal const val SECTION_OCCUPANCY_SOURCE_ID = FIXED_BLOCK_SIGNAL_SOURCE_ID
 
 internal enum class SectionKind {
-    FIXED_BLOCK
+    FIXED_BLOCK,
+    PROTECTION_ROUTE
 }
 
 internal data class SectionRef(
@@ -64,38 +65,45 @@ internal class SectionOccupancySnapshot(
 }
 
 /**
- * Converts one compiled fixed-block publication into one host occupancy source.
+ * Converts the shared fixed-block/protection-device publication into one host epoch source.
  *
- * Basic performs the rail-local occupancy/crossing work once per physical epoch. This class only
- * maps changed area IDs back to SimpleSignals section IDs and atomically publishes immutable state;
- * it owns no tick loop, world lookup, aspect or restriction policy.
+ * Basic performs the rail-local occupancy/crossing work once per physical epoch. This class maps
+ * changed areas, selections and continuations to configured rules, then atomically publishes
+ * occupancy, signal and indicator state. It owns no tick loop or world lookup.
  */
 internal class SectionOccupancyRuntime private constructor(
     private val bindingsByArea: Map<RailObjectRef, Binding>,
     private val signalRules: SectionSignalRuleRuntime?,
-    val protectionRouteSelection: ProtectionRouteSelectionRuntime
+    val protectionRouteSelection: ProtectionRouteSelectionRuntime,
+    private val protectionSignals: work.art1st.javarailways.simplesignals.signal.CompiledProtectionSignals
 ) {
     private data class PublishedState(
         val occupancy: SectionOccupancySnapshot,
-        val signals: SectionSignalSnapshot?
+        val signals: SectionSignalSnapshot?,
+        val selection: work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionSnapshot?,
+        val indicators: Map<String, work.art1st.javarailways.simplesignals.signal.RouteIndicatorState>
     )
 
     @Volatile
     private var latest: PublishedState? = null
 
-    val source: SignalEpochSource? = if (bindingsByArea.isEmpty()) {
+    fun indicators() = latest?.indicators.orEmpty()
+    fun selectionSnapshot() = latest?.selection
+
+    val source: SignalEpochSource? = if (bindingsByArea.isEmpty() && protectionRouteSelection.source == null) {
         null
     } else {
         SignalEpochSource(
             SECTION_OCCUPANCY_SOURCE_ID,
             bindingsByArea.entries.sortedBy { it.key.toString() }.map { it.value.area },
-            signalRules?.watchedContinuationEntries.orEmpty()
+            signalRules?.watchedContinuationEntries.orEmpty() + protectionRouteSelection.watchedContinuationEntries,
+            protectionRouteSelection.watchedAdmissionRailIds
         ) { input -> update(input) }
     }
 
     fun snapshot(): SectionOccupancySnapshot? = latest?.occupancy
 
-    val sources: List<SignalEpochSource> = listOfNotNull(source, protectionRouteSelection.source)
+    val sources: List<SignalEpochSource> = listOfNotNull(source)
 
     fun signalSnapshot(): SectionSignalSnapshot? = latest?.signals
 
@@ -107,6 +115,21 @@ internal class SectionOccupancyRuntime private constructor(
 
     private fun update(input: SignalEpochInput): SignalEpochResult {
         val previous = latest
+        val oldSelection = protectionRouteSelection.snapshot()
+        protectionRouteSelection.update(input)
+        val selection = protectionRouteSelection.snapshot()
+        val changedEntries = if (selection !== oldSelection) selection?.changedEntries.orEmpty() else emptySet()
+        var indicatorStates = previous?.indicators.orEmpty()
+        if (changedEntries.isNotEmpty()) {
+            val next = indicatorStates.toMutableMap()
+            changedEntries.flatMap { protectionSignals.indicatorsByEntry[it].orEmpty() }.forEach { indicator ->
+                val selected = selection!!.selections.getValue(indicator.entryBoundaryId)
+                next[indicator.indicatorId] = work.art1st.javarailways.simplesignals.signal.RouteIndicatorState(
+                    selected, selected.routeId?.takeIf { selected.available }?.let(indicator.modelVariantsByRouteId::getValue)
+                        ?: indicator.noRouteModelVariant)
+            }
+            indicatorStates = java.util.Map.copyOf(next)
+        }
         val observations = previous?.occupancy?.sections?.toMutableMap() ?: linkedMapOf()
         val changed = linkedSetOf<SectionRef>()
         val crossings = linkedMapOf<SectionRef, List<RailwayOccupancyCrossing>>()
@@ -139,9 +162,19 @@ internal class SectionOccupancyRuntime private constructor(
             previous?.signals,
             occupancy,
             input.observation.activeContinuations,
-            input.continuationUpdates.map { it.entry }
-        )
-        latest = PublishedState(occupancy, signals)
+            input.continuationUpdates.map { it.entry },
+            protectionRouteSelection.evaluatedEntryIds
+        ) { binding ->
+            val definition = protectionSignals.definitionsById[binding.signalId]
+            if (definition == null) binding.controlledSection else when (definition.kind) {
+                work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind.FIXED_ROUTE ->
+                    binding.controlledSection.takeIf { protectionRouteSelection.fixedRouteReady(definition.bindingId, input) }
+                work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind.CURRENT_ENTRY ->
+                    selection?.selections?.get(definition.bindingId)?.takeIf { it.available && it.routeReady }
+                        ?.routeId?.let(protectionSignals::routeSection)
+            }
+        }
+        latest = PublishedState(occupancy, signals, selection, indicatorStates)
         return SignalEpochResult(
             emptyList(),
             signals?.let(signalRules::invalidatedDeclarationIds).orEmpty()
@@ -157,7 +190,7 @@ internal class SectionOccupancyRuntime private constructor(
 
     companion object {
         fun from(publication: SimpleSignalsRuntimePublication): SectionOccupancyRuntime =
-            from(publication, publication.fixedBlockSignals.ruleRuntime)
+            from(publication, publication.protectionSignals.ruleRuntime)
 
         fun from(
             publication: SimpleSignalsRuntimePublication,
@@ -168,6 +201,8 @@ internal class SectionOccupancyRuntime private constructor(
                 SectionSignalRuleRuntime.compile(
                     publication.fixedBlocks.snapshot(publication.topology).blocksById.keys.map {
                         SectionRef(SectionKind.FIXED_BLOCK, it)
+                    } + publication.protectionSignals.routeGeometry.blocksById.keys.map {
+                        SectionRef(SectionKind.PROTECTION_ROUTE, it)
                     },
                     java.util.List.copyOf(rules)
                 )
@@ -191,8 +226,19 @@ internal class SectionOccupancyRuntime private constructor(
                     "duplicate SimpleSignals occupancy area ${binding.area.areaId}"
                 }
             }
+            publication.protectionSignals.routeGeometry.blocksById.toSortedMap().forEach { (routeId, route) ->
+                if (publication.protectionSignals.routeIdsBySignal.values.none { routeId in it }) return@forEach
+                val original = route.occupancyArea
+                val area = work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition.create(
+                    RailObjectRef("simplesignals", "protection-route/${routeId.replace(':', '/')}"),
+                    original.definitionRevision, original.topologyRevision, original.intervals, original.boundaries)
+                val binding = Binding(SectionRef(SectionKind.PROTECTION_ROUTE, routeId),
+                    original.definitionRevision, route.lengthMeters, area)
+                check(bindings.putIfAbsent(area.areaId, binding) == null)
+            }
             val copiedBindings = java.util.Map.copyOf(bindings)
-            return SectionOccupancyRuntime(copiedBindings, signalRules, ProtectionRouteSelectionRuntime(publication))
+            return SectionOccupancyRuntime(copiedBindings, signalRules, ProtectionRouteSelectionRuntime(publication),
+                publication.protectionSignals)
         }
     }
 }

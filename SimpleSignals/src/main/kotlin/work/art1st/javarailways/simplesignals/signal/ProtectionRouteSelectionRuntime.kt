@@ -73,10 +73,15 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
     )
     private data class Request(val snapshot: ActiveRouteAdmissionSnapshot, val binding: Binding)
     private val requests = linkedMapOf<InfrastructureOwner, Request>()
+    private var liveTrainIds: Set<String> = emptySet()
     // Direct entry memberships keep an unrelated admission change from scanning every live request.
     private val ownersByEntry = entries.associateWith { linkedSetOf<InfrastructureOwner>() }
 
     @Volatile private var latest: ProtectionRouteSelectionSnapshot? = null
+
+    /** Callback-local rule seeds; ownership can alter fixed readiness without changing selection. */
+    var evaluatedEntryIds: Set<String> = emptySet()
+        private set
 
     val source: SignalEpochSource? = if (entries.isEmpty()) null else SignalEpochSource(
         PROTECTION_ROUTE_SELECTION_SOURCE_ID, emptyList(), entriesByContinuation.keys, entriesByRail.keys
@@ -84,7 +89,7 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
 
     fun snapshot(): ProtectionRouteSelectionSnapshot? = latest
 
-    private fun update(input: SignalEpochInput): SignalEpochResult {
+    fun update(input: SignalEpochInput): SignalEpochResult {
         val previous = latest
         val dirty = linkedSetOf<String>()
         if (previous == null || input.topologyBaseline) dirty += entries
@@ -106,6 +111,7 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
         var selections: MutableMap<String, SelectedProtectionRoute>? = if (previous == null) linkedMapOf() else null
         val changed = linkedSetOf<String>()
         val liveTrains = input.observation.trains.mapTo(hashSetOf()) { it.trainId }
+        liveTrainIds = liveTrains
         dirty.forEach { entry ->
             val selected = select(entry, input, liveTrains)
             if (selected != (selections?.get(entry) ?: previous?.selections?.get(entry))) {
@@ -114,11 +120,41 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
                 changed += entry
             }
         }
+        evaluatedEntryIds = java.util.Set.copyOf(dirty)
         // No new presentation revision when only an unrelated suffix changes.
         if (changed.isNotEmpty() || previous == null) {
             latest = ProtectionRouteSelectionSnapshot(input.observation.stamp, checkNotNull(selections), changed)
         }
         return SignalEpochResult.empty()
+    }
+
+    val watchedContinuationEntries get() = entriesByContinuation.keys
+    val watchedAdmissionRailIds get() = entriesByRail.keys
+
+    /** Fixed-route devices never substitute the current-entry route for their authored route. */
+    fun fixedRouteReady(routeId: String, input: SignalEpochInput): Boolean {
+        val route = index.routesById.getValue(routeId)
+        if (input.observation.stamp.worldId != publication.definitions.worldId.toString() ||
+            input.observation.stamp.topologyRevision != index.topology.revision ||
+            !route.isPhysicallyOpen(input.observation.activeContinuations)) return false
+        val owners = ownersByEntry.getValue(route.definition.entryBoundaryId)
+        if (owners.size > 1) return false
+        val request = owners.singleOrNull()?.let(requests::get) ?: return true
+        if (route.definition.entryBoundaryId in request.binding.invalidEntries) return false
+        val match = request.binding.matches.singleOrNull { it.route.definition.routeId == routeId }
+            ?: return true
+        return request.snapshot.trainId in liveTrainIds &&
+            (request.snapshot.committedAuthority?.distanceFromRouteStartMeters ?: -1.0) >=
+            match.floorMeters - Curve.TOLERANCE
+    }
+
+    internal data class DeviceRouteWindow(val routeId: String, val entryMeters: Double, val floorMeters: Double)
+
+    /** Low-frequency frozen-route binding uses the same exact matcher as the entry selector. */
+    fun deviceRouteWindows(route: RouteSnapshot): List<DeviceRouteWindow> {
+        val binding = compileBinding(route)
+        require(binding.invalidEntries.isEmpty()) { "protection device route does not match an authored route" }
+        return binding.matches.map { DeviceRouteWindow(it.route.definition.routeId, it.entryMeters, it.floorMeters) }
     }
 
     private fun removeMembership(owner: InfrastructureOwner, request: Request, dirty: MutableSet<String>) {

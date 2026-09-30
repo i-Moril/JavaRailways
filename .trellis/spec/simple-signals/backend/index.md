@@ -10,7 +10,8 @@ JavaRailways 主 JAR 的组成部分，也不能复制、shadow 或直接导入�
 以及把存档编译结果原子发布到实际world runtime。固定闭塞还把已编译Basic监测区接入host physics epoch，发布
 plugin-local immutable section occupancy snapshot，并以同一exact frozen-route matcher建立资源贡献与inspection authority floor；
 已建立plugin-local信号规则执行边界、灯色/限速输出快照及其列车限制投影，并提供第一个由world definition配置的固定闭塞规则；
-尚未提供保护区域联锁规则、渲染、命令或JS/YAML接口，不得把 foundation 描述为完整可用信号系统。
+现已提供保护区域固定进路信号、当前入口信号和presentation-only进路显示器的后端配置/规则；
+尚未提供模型渲染、命令或JS/YAML加载接口，不得把 foundation 描述为玩家可直接使用的完整信号系统。
 
 ## 工作方式
 
@@ -50,14 +51,16 @@ unload/reload先删除local runtime，再创建新runtime与binding，不能复�
 每个world使用带`schemaVersion = 1`的独立文件：
 `<plugin dataFolder>/worlds/<world UUID>-definitions.json`。current document只保存`worldId`、
 `definitionRevision`、保护区域及其有向边界、固定进路表、每条进路完整的有向traversal、固定闭塞的完整有向traversal，以及
-固定闭塞信号的配置输出/依赖。`fixedBlocks`和`fixedBlockSignals`都是schema 1的additive字段并有明确empty default，因此不升级
+固定闭塞/保护信号的配置输出/依赖和进路显示器的绑定、位置与variant映射。
+`fixedBlocks`、`fixedBlockSignals`、`protectionSignals`和`routeIndicators`都是schema 1的additive字段并有明确empty default，因此不升级
 独立sidecar版本。identity使用稳定namespaced ID与
 canonical UUID字符串；位置统一保存canonical AB metres，方向使用`ViewDirection`。派生interior、rail reverse index、occupancy
 geometry、topology revision和编译后的Basic restriction都是可丢弃缓存，禁止写入sidecar。
 
 codec固定`encodeDefaults = true`和`ignoreUnknownKeys = false`。未知字段、非version 1、非canonical UUID、文件world ID与
 加载world不符或domain invariant失败均拒绝；runtime不包含旧格式reader、upcaster或兼容分支。decode边界把DTO一次转换为
-当前`ProtectionRegionDefinition`/`ProtectionRouteTableDefinition`/`FixedBlockDefinition`/`FixedBlockSignalDefinition`，业务编译器不处理磁盘版本。
+当前`ProtectionRegionDefinition`/`ProtectionRouteTableDefinition`/`FixedBlockDefinition`/`FixedBlockSignalDefinition`/
+`ProtectionSignalDefinition`/`RouteIndicatorDefinition`，业务编译器不处理磁盘版本。
 
 读取顺序是primary再到同目录`.bak`：两者都不存在返回`Missing`；primary无效而backup有效时保留损坏primary、使用backup并
 返回可记录的candidate诊断；存在的candidate全部无效返回`Corrupted`，不能回退为空定义或覆盖原文件。写入在同目录
@@ -86,8 +89,8 @@ route-window只描述region entry/exit，不保存后继区间。world runtime�
 保护区域信号不能使用一个全区occupancy bit。当前已能在definition publication时保存/编译默认进路集合，拒绝共享rail、道岔或
 菱形交叉物理footprint的默认组合，并预编译每条默认进路所需的active-continuation查询；它不创建claim。
 当前已接入Basic准入变化和道岔变化，以缓存的冻结路线窗口和完整授权floor产生共享入口选择；正在准备更远资源不撤销旧区域ready，
-车尾通过旧区域后移除其入口请求关联，仍持有的长资源继续由Basic保护。后续仍需按既有固定进路编译route-specific occupancy条件，并提供
-固定进路信号、当前信号和presentation-only进路显示器。当前信号只按“当前列车请求、已配置且道岔实际开通的默认进路、无进路”
+车尾通过旧区域后移除其入口请求关联，仍持有的长资源继续由Basic保护。每条固定进路编译自己的occupancy geometry，
+固定进路信号、当前信号和presentation-only进路显示器消费同一epoch的状态。当前信号只按“当前列车请求、已配置且道岔实际开通的默认进路、无进路”
 选择；默认进路集合必须能够同时成立，但不创建claim或要求grant。进路表示机与进路预告机复用同一显示抽象，玩家只需绑定同一个
 入口选择源并在所需距离放置不同模型。完整优先级、失败语义、复杂度、测试点及Basic准入变化交接边界见
 [保护区域信号与进路显示合同](protection-region-signal-selection.md)。
@@ -148,16 +151,17 @@ publication同时建立`rail UUID -> block IDs`反向索引。给定冻结路线
 interval合并），route-local候选发现为`O(R+K log K)`，其中`R`是route segment数、`K`是唯一候选数。这些工作均不进入physics tick；
 后续common section observation只消费已编译length/geometry/snapshot，不重新解析定义。
 
-world install会把全部固定闭塞的已编译occupancy geometry组成一个
+world install会把全部固定闭塞和保护进路的已编译occupancy geometry组成一个
 `simplesignals:fixed-block-signals` source；同一个source ID也用于对应的inspection binding，使规则输出可直接失效当前列车binding中的
-block声明，而不经过Bukkit回调或插件自建列车索引。没有固定闭塞时以owner-scoped empty replacement明确清空该类source，不创建占位监测区。
-Basic在同一physics epoch完成occupant和ENTER/LEFT推导，SimpleSignals callback只把changed area ID映射回fixed-block section并原子发布
-不可变occupancy与规则结果snapshot。规则输出本身不在epoch callback里按列车生成restriction；它只返回发生变化的block ID，SimpleATO在
-下一次受影响列车的既有controller update中，把完整active block集合投影为入口处限速restriction。首次callback必须为全部block建立
+block/保护信号声明，而不经过Bukkit回调或插件自建列车索引。没有区间观测或入口选择需要时以owner-scoped empty replacement明确清空该类source，不创建占位监测区。
+Basic在同一physics epoch完成occupant和ENTER/LEFT推导，SimpleSignals单个callback先更新入口选择，再将changed area ID映射回
+FIXED_BLOCK或PROTECTION_ROUTE section，并计算共用单向图上的规则。规则输出本身不在epoch callback里按列车生成restriction；它只返回发生变化的声明ID，SimpleATO在
+下一次列车物理控制计算中，把完整active声明集合投影为入口处限速restriction，并在同一控制计算的planner前应用。
+Dispatcher只负责低频声明编译/路线绑定和资源申请，不再执行inspection update。各列车拥有独立激活状态；
+不同列车的投影callback可并发，必须只读本插件已发布的不可变信号结果，不能重新执行共享依赖图或调用Bukkit。首次callback必须为全部block建立
 baseline；此前snapshot为unknown而不是空占用。没有配置规则的block不产生额外限速，仍由既有资源授权约束进入。
 后续occupant/crossing不变时host不会调用callback，snapshot对象保持不变。因此没有新tick loop，也没有
-`all trains x all blocks`扫描。保护区域当前只接入冻结路线inspection/authority floor，尚未加入这个common occupancy read surface；
-等具体联锁规则需要时复用适合分支区域的观测，不提前虚构全局长度语义。
+`all trains x all blocks`扫描。保护区域按每条固定进路接入同一common occupancy read surface，不使用整区占用标志或虚构整个分支区域的单一长度。
 
 同一world candidate完整编译后、outer publication替换前，runtime还会用已编译interval检查fixed block与所有保护区域的正长度interior
 重叠；大于`Curve.TOLERANCE`的交集拒绝整批candidate，只有共用边界点允许。失败不取得edit permit、不写盘且保留旧publication。
@@ -201,15 +205,16 @@ frozen-route dependency阻止，因此retained inspection binding不会在运行
 
 ## 定义编辑事务
 
-插件内部唯一的definition patch入口在一个事务中接受region/table/fixed-block/fixed-block-signal的upsert与remove，并要求调用方提交
+插件内部唯一的definition patch入口在一个事务中接受region/table/fixed-block/fixed-block-signal/protection-signal/route-indicator的upsert与remove，并要求调用方提交
 `expectedDefinitionRevision`。空patch、整体无变化、重复操作、同ID同时upsert/remove、删除不存在对象以及revision冲突均在
 取得host permit前拒绝；成功revision严格增加1。保留的region、table和block各自也必须保持revision单调，同revision改变内容或revision
 倒退都属于validation failure。
 
 runtime先用fresh catalog完整编译candidate而不修改live publication。prepared value绑定base publication对象身份、exact
 `TopologyState` root、完整候选定义及解析后的affected rail IDs；后者包含region boundary、derived interior、route和block traversal。
-manager以旧、新affected rail ID并集申请既有`InfrastructureResourceService.acquireEditPermit`，不创建第二套锁，也不把permit扩大到
-不相关轨道。permit owner为`simplesignals:definitions/<world UUID>`，owner revision等于新的definition revision。
+manager以旧、新整份publication的affected rail ID并集申请既有`InfrastructureResourceService.acquireEditPermit`，不创建第二套锁。
+当前范围包含该world全部已配置定义涉及的轨道，而非仅本patch改变的对象，可能保守地拒绝不相关的编辑；精确影响集是待修项。
+permit owner为`simplesignals:definitions/<world UUID>`，owner revision等于新的definition revision。
 
 permit取得后再次要求`currentTopology(worldId)`与prepared root是同一对象。store在进入publication callback前完成JSON encode、
 旧primary有效性检查、temporary write与backup staging。commit在runtime lock内先复核base publication未变化，再只以同目录
@@ -219,7 +224,7 @@ retained signal同样要求revision单调；signal引用和DAG也在取得permit
 `TopologyEditDecision`及blocker diagnostics。任一步失败都保留旧publication；save在替换primary前只写staging文件，替换primary
 是唯一commit point，之后backup rotation只作best-effort recovery维护，不能把已提交primary误报为失败。
 
-fixed-block增删/改形或exact topology root变化时，runtime先完整编译candidate definition与新的
+region/table/block/两类signal/indicator定义变化或exact topology root变化时，runtime先完整编译candidate definition与新的
 `SectionOccupancyRuntime`，再以旧/新affected rails并集取得既有edit permit。permit拒绝发生在写盘和source callback前。
 permit成功后通过host `replaceSourcesAtomically`提交：host先验证/编译所有owner的candidate source全集并检查retained restriction，
 但不取得跨world simulation lock。已开始的epoch保留其捕获的旧immutable source，下一epoch才读取replacement并建立新baseline。
@@ -227,8 +232,8 @@ callback在runtime lock内复核base publication，以staged primary rename作�
 rename前返回typed stale。然后用一个预构造的
 `RuntimeState`引用同时替换definition publication和section occupancy runtime；callback成功后host只安装已经
 编译好的area source state。任何host prevalidation失败都不调用save，save或base commit失败则host保留旧source；没有rollback token、
-占位area或可被physics观察到的错配窗口。删除最后一个block使用empty epoch-source replacement，只清除此类别而保留同owner的
-route-planning source。region/table-only且exact root未变化时不重建相同fixed-block geometry，继续使用既有save+publication路径。
+占位area或可被physics观察到的错配窗口。删除最后一个block后，如果仍有保护信号或入口选择则保留统一epoch source；
+全部观测和选择都删除时使用empty replacement，只清除此类别而保留同owner的route-planning source。
 
 authoring是低频路径：patch map操作为`O(D)`。设fixed-block traversal总数为`T`、合并后interval数为`F`，跨section检查实际比较
 `H`个rail-local候选，则完整candidate编译为`O(V+E+S+P log Q+T log T+S log S+F log S+H)`；affected-rail并集与写盘为定义规模线性。
@@ -267,9 +272,9 @@ state同时发布occupancy和signal snapshot。相同输出不继续传播。rul
 不会在失效后留存。首次baseline必须为全部binding建立Available或Unavailable状态；未收到首个physical baseline以前仍没有signal
 snapshot。规则输出到每列车SimpleATO restriction的投影已经接通。编译结果另外把实际依赖的turnout entry注册到同signal-epoch source；只有active continuation变化时，SimpleATO才以同epoch immutable snapshot唤醒source，不轮询mutable turnout或增加第二条事件队列。
 
-固定闭塞的area source与inspection source使用同一个`simplesignals:fixed-block-signals`身份。规则wave把实际变化signal映射为其
-controlled block声明ID并随`SignalEpochResult`返回；SimpleATO只在当前路线binding中标记存在的声明，下一次controller计算把当前
-完整active block声明集合交回`FixedBlockInspectionSource`。该source从同一原子section/signal snapshot读取每个block入口输出，生成
+固定闭塞和保护信号的area source与inspection source使用同一个`simplesignals:fixed-block-signals`身份。规则wave把实际变化signal映射为其
+按类别派生的固定闭塞或保护信号设备声明ID并随`SignalEpochResult`返回（内部映射见保护信号合同）；SimpleATO只在当前路线binding中标记存在的声明，下一次inspection update把当前
+完整active声明集合交回inspection source。该source从同一原子section/signal snapshot读取每个入口输出，生成
 入口route metre上的`RouteSpeedRestriction`；`Available`使用规则给出的任意有限非负速度，`Unavailable`使用0，`modelVariant`不进入
 ATO。列车通过入口导致active集合移除该声明时，source发布新的完整快照并清除已越过的限制。没有配置rule binding的block仍保留
 整段authority floor与资源申请，但不会凭空产生速度规则。

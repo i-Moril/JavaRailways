@@ -39,7 +39,7 @@ SimpleATO 已选择并冻结 RouteSnapshot
 
 - `ProtectionRegionRouteWindow`保存当前路线 occurrence 上的entry/exit绝对route metres。
 - `FixedBlockRouteWindow`保存有向block与当前路线交集的entry/exit绝对route metres；路线端点允许位于block内部。
-  `enteredAtBoundary`区分真正经过入口与从block内部起步，后者不应重新检查已经位于车后的入口信号。
+  `enteredAtBoundary`区分真正经过入口与从block内部起步；只有前者生成fixed-block入口检查声明，后者仍参与资源匹配而不伪造入口。
 - 两者都是针对同一个`RouteSnapshot`的派生结果，不写入sidecar。
 - fixed-block matcher输出按`entryRouteDistanceMeters`、再按`blockId`排序。
 

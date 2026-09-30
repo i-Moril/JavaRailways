@@ -203,15 +203,21 @@ binding provider复用同一publication reverse index和exact frozen-route match
 `trigger=entry, minimumRequestedAuthorityEnd=exit`。SimpleATO只看到中立route-local floor；nominal请求未越过entry或已经
 到达exit时不变，进入block后才向前抬到exit，重叠window按有序单向扫描连锁。随后上述contributor收到完整authority prefix并
 继续做路线交集验证，Basic仍可拒绝且只有Basic grant能扩大实际authority。运营路线在block内部结束时，floor止于该路线终点，
-不为了“持有整个闭塞”把列车授权到站台以外。路线在block内部开始时，window的`enteredAtBoundary=false`；source用实际路线首rail/facing
-创建`simplesignals:inside-block/<namespace>/<path>` authority-only声明，仍申请资源但不投影已经位于车后、可能因本车占用变红的入口信号。
-真实入口仍使用正常设备声明、提前时间和限速，不能普遍忽略红灯。这个私有声明身份不改变作者ID、block资源ID或sidecar格式。
+不为了“持有整个闭塞”把列车授权到站台以外。资源交集起点不是信号位置：`FixedBlockInspectionSource`仅为
+`enteredAtBoundary=true`的window生成真实入口声明，使用作者的入口rail/facing、入口route metre、提前时间和authority floor。
+路线从block内部开始时，`enteredAtBoundary=false`，不生成入口声明或入口floor；既有contributor仍按资源交集提交整个block token，
+已有claim与车尾释放队列照常保留/延长，不依赖一个虚构信号。后续block的真实入口仍正常产生声明与限制。
+真实入口若位于完整冻结路线中但已经被车头越过，既有`InspectionScheduler.declarationsBetween(head, head + horizon)`自然排除它；
+不新增车后信号handler、不使用特殊声明ID或每tick的block状态特判，也不移动冻结路线原点或重建已有资源队列。
+真实前方入口的红灯/缺baseline仍产生0速度限制。没有改变作者ID、block资源ID、host API或sidecar格式。
 定义patch的旧、新affected-rail permit会被active
 frozen-route dependency阻止，因此retained inspection binding不会在运行中失效；不相交、非运营轨道仍可在线编辑。
 
 Good/Base：block为`[100m,300m]`、运营停车点在`200m`，取得block token而authority止于`200m`；下一段任务延长同一授权与释放位置。
-从block内部站台起步只有authority floor，不在路线起点伪造入口红灯。Bad：非路线端点处中途离开block定义的有向路径仍拒绝；
-既有单路线重复经过限制必须明确报告，不能宣称已支持多圈或完整回库。测试须覆盖内部起止、入口零交集、真实入口缺baseline仍为0、
+从block内部站台起步没有伪造入口声明/floor，资源申请仍有效；真实入口在路线中但位于车头后时由已有前视筛选排除。
+Bad：非路线端点处中途离开block定义的有向路径仍拒绝；把裁剪后的资源交集起点当作入口信号位置也错误。
+既有单路线重复经过限制必须明确报告，不能宣称已支持多圈或完整回库。测试须覆盖内部起止、内部起点无声明/无floor、
+已越过真实入口不读取信号、后续真实入口照常激活、入口零交集、真实前方入口缺baseline仍为0、
 停车保留token、延长后车尾释放，以及已释放历史block在之后的申请中不被重新取得。
 
 当前block资源匹配仍按作者的有向traversal。折返时反向定义可能要求未持有的新token，旧方向token也可能失去新的路线释放证据；

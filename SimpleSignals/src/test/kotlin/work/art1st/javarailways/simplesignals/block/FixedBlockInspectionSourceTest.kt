@@ -2,7 +2,6 @@ package work.art1st.javarailways.simplesignals.block
 
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
@@ -127,14 +126,17 @@ class FixedBlockInspectionSourceTest {
     }
 
     @Test
-    fun `starting within a block retains its floor without reading the red entry signal`() {
+    fun `starting within a block creates no entrance declaration or floor but still contributes its token`() {
         val block = FixedBlockDefinition("test:station", 1L,
             listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 9.0)))
         val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 5.0, 10.0))
         val publications = arrayListOf<TrainRestrictionSnapshot>()
         val source = FixedBlockInspectionSource(snapshot = { snapshot(block) },
             signalState = { error("entrance signal behind the occupant must not be read") },
-            hasConfiguredSignal = { true }).source
+            hasConfiguredSignal = { true },
+            inspectionLeadTimeSeconds = { _, _ -> error("there is no entrance to prepare") }).source
+        assertEquals(emptyList<Any>(), source.bindingProvider.bind(
+            InspectionBindingInput(stamp(), "train", route)).declarations)
         val runtime = InspectionRuntime(
             publisher = { publication ->
                 publications += publication
@@ -143,9 +145,78 @@ class FixedBlockInspectionSourceTest {
         runtime.replaceSources(listOf(source))
         runtime.synchronizeRoute(stamp(), "train", route)
         val binding = FrozenRouteBinding.from(route)
-        assertEquals(RouteBoundary(4.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(1.0)))
+        assertEquals(RouteBoundary(1.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(1.0)))
         runtime.createTrainInspection("train").update(stamp(), binding, 0.0, 3.0, 20.0, 1.0, perception(route))
         assertEquals(emptyList<Any>(), publications.single().restrictions)
+        assertEquals(block.blockId, FixedBlockRouteResourcePolicy(plugin()) { snapshot(block) }
+            .contribute(worldId, intent(route, 1.0)).single().resource.resourceId)
+    }
+
+    @Test
+    fun `tail before real entrance and head after it naturally excludes the passed red signal`() {
+        val block = FixedBlockDefinition("test:passed-entry", 1L,
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 9.0)))
+        val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0))
+        val source = FixedBlockInspectionSource(snapshot = { snapshot(block) },
+            signalState = { error("signal behind the head must not be inspected") },
+            hasConfiguredSignal = { true }).source
+        val declaration = source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", route))
+            .declarations.single()
+        assertEquals(fixedBlockSignalDeclarationId(block.blockId), declaration.declarationId)
+        assertEquals(2.0, declaration.triggerRouteDistanceMeters)
+        assertEquals(9.0, declaration.minimumRequestedAuthorityEndRouteDistanceMeters)
+        val publications = arrayListOf<TrainRestrictionSnapshot>()
+        val runtime = InspectionRuntime(
+            publisher = { publication ->
+                publications += publication
+                TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, publication.revision)
+            }, sourceUnavailable = { _, _, failure -> throw failure })
+        runtime.replaceSources(listOf(source))
+        runtime.synchronizeRoute(stamp(), "train", route)
+        runtime.createTrainInspection("train").update(stamp(), FrozenRouteBinding.from(route),
+            5.0, 3.0, 20.0, 1.0, perception(route, headAbMeters = 5.0))
+        assertEquals(emptyList<Any>(), publications.single().restrictions)
+    }
+
+    @Test
+    fun `real entrance after an internal start block still supplies floor and red limit`() {
+        val internal = FixedBlockDefinition("test:internal", 1L,
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 9.0)))
+        val future = FixedBlockDefinition("test:future", 1L,
+            listOf(FixedBlockTraversal(second, ViewDirection.AB, 2.0, 8.0)))
+        val snapshot = snapshot(internal, future)
+        val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 5.0, 10.0),
+            RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0))
+        val source = FixedBlockInspectionSource(snapshot = { snapshot }, signalState = { id ->
+            assertEquals(future.blockId, id, "internal start must not read the rear entry signal")
+            PublishedSectionSignal(stamp(), SectionSignalState.Available(SectionSignalOutput(0.0, "custom-red")))
+        }, hasConfiguredSignal = { true }, inspectionLeadTimeSeconds = { _, id ->
+            assertEquals(future.blockId, id)
+            12.0
+        }).source
+        val declaration = source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", route))
+            .declarations.single()
+        assertEquals(fixedBlockSignalDeclarationId(future.blockId), declaration.declarationId)
+        assertEquals(second, declaration.railId)
+        assertEquals(7.0, declaration.triggerRouteDistanceMeters)
+        assertEquals(12.0, declaration.inspectionLeadTimeSeconds)
+        assertEquals(13.0, declaration.minimumRequestedAuthorityEndRouteDistanceMeters)
+        val publications = arrayListOf<TrainRestrictionSnapshot>()
+        val runtime = InspectionRuntime(
+            publisher = { publication ->
+                publications += publication
+                TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, publication.revision)
+            }, sourceUnavailable = { _, _, failure -> throw failure })
+        runtime.replaceSources(listOf(source))
+        runtime.synchronizeRoute(stamp(), "train", route)
+        val binding = FrozenRouteBinding.from(route)
+        assertEquals(RouteBoundary(1.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(1.0)))
+        assertEquals(RouteBoundary(13.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(7.1)))
+        runtime.createTrainInspection("train").update(stamp(), binding, 0.0, 10.0, 20.0, 1.0,
+            perception(route, headAbMeters = 5.0, tailAbMeters = 5.0))
+        val restriction = publications.single().restrictions.single() as RouteSpeedRestriction
+        assertEquals(7.0, restriction.routeDistanceMeters)
+        assertEquals(0.0, restriction.maximumSpeedMetersPerSecond)
     }
 
     @Test
@@ -392,10 +463,10 @@ class FixedBlockInspectionSourceTest {
         )
     )
 
-    private fun snapshot(block: FixedBlockDefinition): FixedBlockReadSnapshot =
+    private fun snapshot(vararg blocks: FixedBlockDefinition): FixedBlockReadSnapshot =
         FixedBlockCatalog().also { catalog ->
             assertEquals(FixedBlockCatalogStatus.PUBLISHED,
-                catalog.publish(topology, 1L, listOf(block)).status)
+                catalog.publish(topology, 1L, blocks.asList()).status)
         }.snapshot(topology)
 
     private fun route(vararg segments: RouteSegmentSnapshot) = RouteSnapshot(
@@ -408,7 +479,7 @@ class FixedBlockInspectionSourceTest {
     private fun stamp(epoch: Long = 1L) =
         RailwayStateStamp(worldId.toString(), epoch, topology.revision)
 
-    private fun perception(route: RouteSnapshot) = PerceptionSnapshot(
+    private fun perception(route: RouteSnapshot, headAbMeters: Double = 0.0, tailAbMeters: Double = 0.0) = PerceptionSnapshot(
         1L,
         TrainSnapshot(
             "train",
@@ -416,8 +487,8 @@ class FixedBlockInspectionSourceTest {
             0.0,
             false,
             1,
-            RailPositionSnapshot(first, ViewDirection.AB, 0.0),
-            RailPositionSnapshot(first, ViewDirection.AB, 0.0)
+            RailPositionSnapshot(first, ViewDirection.AB, headAbMeters),
+            RailPositionSnapshot(first, ViewDirection.AB, tailAbMeters)
         ),
         route,
         emptyList()

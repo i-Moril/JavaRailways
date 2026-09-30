@@ -109,6 +109,9 @@ canonical AB coordinates, discovers only blocks indexed by rails on that route, 
 each directed block traversal. A route may start or stop inside a block; a platform does not have to coincide with a block boundary.
 Whole-block resource ownership is separate from movement authority: a train may hold the token while its authority ends at an internal stop.
 The current partial-block batch keeps one stable block identity and extends its release position through the existing grant queue.
+Signal declarations represent actual authored entrances, not clipped resource-overlap starts. Internal starts create no entrance declaration/floor;
+the existing head-forward inspection scheduler excludes real entrances already behind the head. Resource contribution and held claims remain independent,
+so this simplification requires no change to Basic's frozen-route origin, first bootstrap, incremental request range or release queue.
 Repeated visits with distinct route positions but the same resource identity remain a reviewed target, not a completed runtime capability:
 the single-visit matcher rejection remains until inspection declarations, invalidation and region selection can represent every visit correctly.
 Basic already retains resources and rebuilds the route coordinate at stopped reversal, but directional block-token correspondence is unresolved;

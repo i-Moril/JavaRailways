@@ -5,6 +5,8 @@ import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_RESOURCE_TYPE
 import work.art1st.javarailways.simplesignals.block.FixedBlockRouteResourcePolicy
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStore
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntimeManager
+import work.art1st.javarailways.simplesignals.command.SimpleSignalsAdminCommand
+import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsDefinitionDrafts
 
 /** Bukkit lifecycle owner for the independently installed SimpleSignals add-on. */
 class SimpleSignalsPlugin : JavaPlugin() {
@@ -39,6 +41,8 @@ class SimpleSignalsPlugin : JavaPlugin() {
         server.worlds.forEach(listener::installAlreadyLoaded)
         hostServices = services
         worldRuntimes = runtimes
+        checkNotNull(getCommand("simplesignals")) { "SimpleSignals command descriptor is missing" }
+            .setExecutor(SimpleSignalsAdminCommand(this, runtimes, SimpleSignalsDefinitionDrafts(dataFolder.toPath())))
         logger.info("SimpleSignals enabled")
     }
 

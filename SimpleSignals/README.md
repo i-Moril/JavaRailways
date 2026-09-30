@@ -45,11 +45,35 @@ Dispatcher 只负责绑定路线、编译声明及申请资源。各列车独自
 许可范围从实际改变的定义出发，同时检查旧、新位置和可能受影响的上游信号；无依赖关系的其他运营线路不参与本次检查。
 修改保护区域或进路表时仍保护整个相关区域，以及紧接出口的闭塞；不会把当前未开放的支路视为不受影响。
 
+## 管理员编辑流程
+
+权限为 `simplesignals.admin`（默认 OP），玩家和控制台均可使用。world 参数是已加载世界的名称或 UUID。
+
+```text
+/simplesignals inspect world
+/simplesignals export world station
+/simplesignals validate world station
+/simplesignals apply world station
+```
+
+`export` 写出 `plugins/SimpleSignals/drafts/station.json`，目标已存在时拒绝覆盖。
+在导出后编辑这份草稿，再 `validate`，最后 `apply`；不要直接修改运行中的 `worlds/` 正式存档。
+草稿是完整定义集合，删掉一个既有对象即申请删除它，不是只合并所写字段。
+
+保留草稿的全局 `definitionRevision` 不变，它表示导出基线；修改既有对象时提高该对象自己的 `revision`。
+修改区域 revision 后，相应进路表的区域引用 revision 也必须匹配。对象身份、速度、模型 variant 与坐标格式沿用现有 JSON。
+apply 成功后插件自动把全局 revision 增加 1；原草稿再次 apply 会因基线过期而被拒绝。
+
+`validate` 只检查定义、引用、拓扑和规则，不写正式文件、不占用资源，也不保证 apply 时线路仍可编辑。
+正式 apply 重新检查，并在被阻挡时显示 owner、revision 和冲突范围。编译、读写文件和正式应用都在异步线程执行。
+无变化草稿不是 reload 命令；本批不提供损坏世界重置或强制覆盖。
+
 ## 尚未完成
 
-目前没有玩家建造命令/工具、Bukkit 模型渲染或 JS/YAML 加载器。
+目前没有交互式建造 Wand、Bukkit 模型渲染或 JS/YAML 加载器。
 进路显示器已有位置、模型映射和后端状态，不代表世界中已出现实体模型。
 这仍是开发中的后端，不是已完成的玩家可用信号系统。
 
 实现契约见[保护区域信号与进路显示合同](../.trellis/spec/simple-signals/backend/protection-region-signal-selection.md)。
 在线编辑范围的计算见[定义编辑影响合同](../.trellis/spec/simple-signals/backend/definition-edit-impact.md)。
+命令和草稿规则见[管理命令合同](../.trellis/spec/simple-signals/backend/authoring-commands.md)。

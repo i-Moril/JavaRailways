@@ -73,10 +73,340 @@ import java.lang.reflect.Proxy
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
+import work.art1st.javarailways.simplesignals.command.SimpleSignalsAdminCommand
+import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsDefinitionDrafts
+import work.art1st.javarailways.simplesignals.persistence.definitionDraftPatch
+import net.kyori.adventure.text.Component
+import org.bukkit.command.Command
+import org.bukkit.command.CommandSender
+import org.bukkit.command.ConsoleCommandSender
+import org.bukkit.command.BlockCommandSender
+import org.bukkit.entity.Player
+import org.bukkit.Server
+import org.bukkit.World
+import io.papermc.paper.threadedregions.scheduler.AsyncScheduler
+import io.papermc.paper.threadedregions.scheduler.EntityScheduler
+import io.papermc.paper.threadedregions.scheduler.GlobalRegionScheduler
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask
+import java.util.function.Consumer
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class SimpleSignalsWorldRuntimeManagerTest {
     @TempDir
     lateinit var directory: Path
+
+    @Test
+    fun `strict full JSON draft creates updates and deletes all six definition kinds through one manager transaction`() {
+        val fixture = Fixture()
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val definitions = store()
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources)
+        manager.install(fixture.worldId)
+        val runtime = manager.authoringRuntime(fixture.worldId)!!
+        val drafts = SimpleSignalsDefinitionDrafts(directory)
+        fun document(baseline: Long, revision: Long): SimpleSignalsWorldDefinitions {
+            val stop = ConfiguredSignalOutput(0.0, "stop")
+            val levels = listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(12.0, "clear")))
+            val region = ProtectionRegionDefinition(fixture.region.regionId, revision, fixture.region.boundaries)
+            return SimpleSignalsWorldDefinitions(fixture.worldId, baseline, listOf(region),
+                listOf(fixture.table(revision, fixture.upperRoute(), regionRevision = revision)),
+                listOf(FixedBlockDefinition("test:block", revision, listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)))),
+                listOf(FixedBlockSignalDefinition("test:fixed", revision, "test:block", 0.0, stop, levels)),
+                listOf(ProtectionSignalDefinition("test:protection", revision, ProtectionSignalKind.FIXED_ROUTE,
+                    "test:upper", 0.0, stop, stop, levels)),
+                listOf(RouteIndicatorDefinition("test:indicator", revision, "test:entry",
+                    RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.0), "none", mapOf("test:upper" to "upper"))))
+        }
+        listOf(document(0, 1), document(1, 2), SimpleSignalsWorldDefinitions(fixture.worldId, 2, emptyList(), emptyList())).forEachIndexed { index, document ->
+            drafts.export("step-$index", document)
+            val decoded = drafts.read("step-$index", fixture.worldId)
+            val result = manager.applyDefinitionPatch(fixture.worldId, decoded.definitionRevision,
+                definitionDraftPatch(runtime.currentDefinitions(), decoded), runtime)
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, result.status, result.diagnostics.toString())
+            assertEquals(index.toLong() + 1, runtime.currentDefinitions().definitionRevision)
+            assertEquals(result.definitions, (definitions.load(fixture.worldId) as work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+        }
+        assertEquals(3, infrastructure.permitAcquisitionCount)
+        assertEquals(3, infrastructure.permitCloseCount)
+        assertTrue(runtime.currentDefinitions().fixedBlocks.isEmpty())
+        assertTrue(sources.sources.getValue(fixture.worldId).isEmpty())
+    }
+
+    @Test
+    fun `draft validation shares candidate checks without permit disk or source changes`() {
+        val fixture = Fixture()
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val definitions = store()
+        val sources = CapturingSignalEpochSourceService()
+        val planning = CapturingRoutePlanningService()
+        val manager = runtimeManager(plugin(), infrastructure.service, planning, definitions, sources)
+        manager.install(fixture.worldId)
+        val runtime = manager.authoringRuntime(fixture.worldId)!!
+        val publication = runtime.authoringPublication()
+        val oldSources = sources.sources.getValue(fixture.worldId)
+        val target = SimpleSignalsWorldDefinitions(fixture.worldId, 0, listOf(fixture.region),
+            listOf(fixture.table(1, fixture.upperRoute())))
+        val patch = definitionDraftPatch(publication.definitions, target)
+        val valid = manager.validateDefinitionPatch(fixture.worldId, 0, patch, runtime)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATED, valid.status, valid.diagnostics.toString())
+        assertTrue(valid.affectedRailIds.contains(fixture.entry))
+        assertEquals(1, valid.definitions!!.definitionRevision)
+        val invalid = SimpleSignalsDefinitionPatch(upsertRouteTables = listOf(fixture.table(1, fixture.upperRoute())))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
+            manager.validateDefinitionPatch(fixture.worldId, 0, invalid, runtime).status)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
+            manager.applyDefinitionPatch(fixture.worldId, 0, invalid, runtime).status)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.PATCH_REJECTED,
+            manager.validateDefinitionPatch(fixture.worldId, 0, definitionDraftPatch(publication.definitions, publication.definitions)).status)
+        assertEquals(0, infrastructure.permitAcquisitionCount)
+        assertFalse(Files.exists(definitions.primaryFile(fixture.worldId)))
+        assertSame(publication, runtime.authoringPublication())
+        assertSame(oldSources, sources.sources.getValue(fixture.worldId))
+        assertEquals(1, planning.replacementCount)
+
+        val applied = manager.applyDefinitionPatch(fixture.worldId, 0, patch, runtime)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, applied.status)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED,
+            manager.applyDefinitionPatch(fixture.worldId, target.definitionRevision, patch, runtime).status)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED,
+            manager.validateDefinitionPatch(fixture.worldId, target.definitionRevision, patch, runtime).status)
+        val captured = runtime
+        manager.remove(fixture.worldId)
+        manager.install(fixture.worldId)
+        assertNotSame(captured, manager.authoringRuntime(fixture.worldId))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
+            manager.applyDefinitionPatch(fixture.worldId, 1, patch, captured).status)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
+            manager.validateDefinitionPatch(fixture.worldId, 1, patch, captured).status)
+    }
+
+    @Test
+    fun `authoring snapshots do not wait on worker publication and disable prevents final commit`() {
+        val fixture = Fixture()
+        var enabled = true
+        val owner = proxy(Plugin::class.java) { method, _ -> when (method.name) {
+            "isEnabled" -> enabled
+            else -> throw UnsupportedOperationException(method.name)
+        } }
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(owner, infrastructure.service, CapturingRoutePlanningService(), store(), sources)
+        manager.install(fixture.worldId)
+        val runtime = manager.authoringRuntime(fixture.worldId)!!
+        val before = runtime.authoringPublication()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        sources.beforeCommitAction = { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
+        val patch = SimpleSignalsDefinitionPatch(upsertRegions = listOf(fixture.region))
+        val edit = CompletableFuture.supplyAsync { manager.applyDefinitionPatch(fixture.worldId, 0, patch, runtime) }
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val lookup = CompletableFuture.supplyAsync { manager.authoringRuntime(fixture.worldId)!!.authoringPublication() }
+            assertSame(before, lookup.get(1, TimeUnit.SECONDS))
+            enabled = false
+        } finally { release.countDown() }
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE, edit.get(5, TimeUnit.SECONDS).status)
+        assertSame(before, runtime.authoringPublication())
+        assertFalse(Files.exists(store().primaryFile(fixture.worldId)))
+        assertEquals(1, infrastructure.permitCloseCount)
+    }
+
+    @Test
+    fun `commands parse permissions explicit world drafts and discard queued disabled or reloaded edits`() {
+        val fixture = Fixture()
+        val definitions = store()
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, signalSources())
+        manager.install(fixture.worldId)
+        val drafts = SimpleSignalsDefinitionDrafts(directory)
+        val draft = SimpleSignalsWorldDefinitions(fixture.worldId, 0, listOf(fixture.region), emptyList())
+        drafts.export("edit", draft)
+        var enabled = true
+        val tasks = mutableListOf<() -> Unit>()
+        val replies = mutableListOf<Pair<CommandSender, Component>>()
+        val command = SimpleSignalsAdminCommand(plugin(), manager, drafts, { enabled },
+            { if (it == "world" || it == fixture.worldId.toString()) fixture.worldId else null },
+            { tasks += it }, { sender, message -> replies += sender to message })
+        val console = commandSender(ConsoleCommandSender::class.java, true)
+        val player = commandSender(Player::class.java, true)
+        val blockMessages = mutableListOf<Component>()
+        val block = proxy(BlockCommandSender::class.java) { method, args ->
+            check(method.name == "sendMessage"); blockMessages += args!!.last() as Component; Unit
+        }
+        command.onCommand(block, testCommand(), "simplesignals", arrayOf("apply", "world", "edit"))
+        assertTrue(blockMessages.single().toString().contains("player or console"))
+        assertTrue(tasks.isEmpty())
+        assertTrue(replies.isEmpty())
+        command.onCommand(commandSender(Player::class.java, false), testCommand(), "simplesignals", arrayOf("apply", "world", "edit"))
+        assertTrue(replies.last().second.toString().contains("missing permission"))
+        command.onCommand(player, testCommand(), "simplesignals", arrayOf("inspect"))
+        command.onCommand(player, testCommand(), "simplesignals", arrayOf("apply", "world", "../bad"))
+        command.onCommand(console, testCommand(), "simplesignals", arrayOf("inspect", "missing"))
+        assertTrue(tasks.isEmpty())
+        listOf(console, player).forEach { sender ->
+            command.onCommand(sender, testCommand(), "simplesignals", arrayOf("inspect", fixture.worldId.toString()))
+            tasks.removeAt(0).invoke()
+            assertSame(sender, replies.last().first)
+            assertTrue(replies.last().second.toString().contains("definitionRevision=0"))
+        }
+        command.onCommand(console, testCommand(), "simplesignals", arrayOf("validate", "world", "edit"))
+        tasks.removeAt(0).invoke()
+        assertTrue(replies.last().second.toString().contains("VALIDATED"))
+        assertTrue(replies.last().second.toString().contains("create=1"))
+        assertEquals(0, infrastructure.permitAcquisitionCount)
+        assertFalse(Files.exists(definitions.primaryFile(fixture.worldId)))
+        command.onCommand(console, testCommand(), "simplesignals", arrayOf("apply", "world", "edit"))
+        enabled = false
+        val count = replies.size
+        tasks.removeAt(0).invoke()
+        assertEquals(count, replies.size)
+        assertEquals(0, infrastructure.permitAcquisitionCount)
+        enabled = true
+        command.onCommand(console, testCommand(), "simplesignals", arrayOf("apply", "world", "edit"))
+        manager.remove(fixture.worldId)
+        manager.install(fixture.worldId)
+        tasks.removeAt(0).invoke()
+        assertTrue(replies.last().second.toString().contains("WORLD_UNAVAILABLE"))
+        assertEquals(0, infrastructure.permitAcquisitionCount)
+        command.onCommand(console, testCommand(), "simplesignals", arrayOf("apply", "world", "edit"))
+        tasks.removeAt(0).invoke()
+        assertTrue(replies.last().second.toString().contains("APPLIED"))
+        command.onCommand(console, testCommand(), "simplesignals", arrayOf("apply", "world", "edit"))
+        tasks.removeAt(0).invoke()
+        assertTrue(replies.last().second.toString().contains("REVISION_REJECTED"))
+        assertEquals(1, infrastructure.permitAcquisitionCount)
+        assertEquals(draft, drafts.read("edit", fixture.worldId))
+    }
+
+    @Test
+    fun `native Paper worker and player or console reply schedulers preserve ownership and retired replies drop`() {
+        val fixture = Fixture()
+        val manager = runtimeManager(plugin(), MutableTopologyService(fixture.currentTopology).service,
+            CapturingRoutePlanningService(), store(), signalSources())
+        manager.install(fixture.worldId)
+        val async = mutableListOf<Consumer<ScheduledTask>>()
+        val global = mutableListOf<Consumer<ScheduledTask>>()
+        val entity = mutableListOf<Consumer<ScheduledTask>>()
+        val messages = mutableListOf<Component>()
+        var online = true
+        var enabled = true
+        val asyncScheduler = proxy(AsyncScheduler::class.java) { method, args ->
+            check(method.name == "runNow"); @Suppress("UNCHECKED_CAST") async.add(args!![1] as Consumer<ScheduledTask>); null
+        }
+        val globalScheduler = proxy(GlobalRegionScheduler::class.java) { method, args ->
+            check(method.name == "run"); @Suppress("UNCHECKED_CAST") global.add(args!![1] as Consumer<ScheduledTask>); null
+        }
+        val entityScheduler = proxy(EntityScheduler::class.java) { method, args ->
+            check(method.name == "run"); @Suppress("UNCHECKED_CAST") entity.add(args!![1] as Consumer<ScheduledTask>); null
+        }
+        val world = proxy(World::class.java) { method, _ -> check(method.name == "getUID"); fixture.worldId }
+        val server = proxy(Server::class.java) { method, args -> when (method.name) {
+            "getAsyncScheduler" -> asyncScheduler
+            "getGlobalRegionScheduler" -> globalScheduler
+            "getWorld" -> if (args!![0] == "world" || args[0] == fixture.worldId) world else null
+            else -> throw UnsupportedOperationException(method.name)
+        } }
+        val owner = proxy(Plugin::class.java) { method, _ -> when (method.name) {
+            "isEnabled" -> enabled
+            "getServer" -> server
+            else -> throw UnsupportedOperationException(method.name)
+        } }
+        val player = proxy(Player::class.java) { method, args -> when (method.name) {
+            "hasPermission" -> true
+            "getScheduler" -> entityScheduler
+            "isOnline" -> online
+            "sendMessage" -> { messages += args!!.last() as Component; Unit }
+            else -> throw UnsupportedOperationException(method.name)
+        } }
+        val console = proxy(ConsoleCommandSender::class.java) { method, args -> when (method.name) {
+            "hasPermission" -> true
+            "sendMessage" -> { messages += args!!.last() as Component; Unit }
+            else -> throw UnsupportedOperationException(method.name)
+        } }
+        val task = proxy(ScheduledTask::class.java) { _, _ -> null }
+        val command = SimpleSignalsAdminCommand(owner, manager, SimpleSignalsDefinitionDrafts(directory))
+        command.onCommand(player, testCommand(), "simplesignals", arrayOf("export", "world", "native"))
+        assertFalse(Files.exists(directory.resolve("drafts/native.json")))
+        assertTrue(entity.isEmpty())
+        async.removeAt(0).accept(task)
+        assertTrue(Files.exists(directory.resolve("drafts/native.json")))
+        assertTrue(messages.isEmpty())
+        entity.removeAt(0).accept(task)
+        assertTrue(messages.single().toString().contains("Exported"))
+        command.onCommand(console, testCommand(), "simplesignals", arrayOf("inspect", fixture.worldId.toString()))
+        async.removeAt(0).accept(task)
+        assertEquals(1, messages.size)
+        global.removeAt(0).accept(task)
+        assertEquals(2, messages.size)
+        command.onCommand(player, testCommand(), "simplesignals", arrayOf("inspect", "world"))
+        async.removeAt(0).accept(task)
+        online = false
+        entity.removeAt(0).accept(task)
+        assertEquals(2, messages.size)
+        command.onCommand(console, testCommand(), "simplesignals", arrayOf("apply", "world", "native"))
+        enabled = false
+        async.removeAt(0).accept(task)
+        assertEquals(0L, manager.authoringRuntime(fixture.worldId)!!.currentDefinitions().definitionRevision)
+        assertTrue(global.isEmpty())
+    }
+
+    @Test
+    fun `blocker command diagnostics include original kind owner revision and overlap`() {
+        val rail = UUID(0, 1)
+        val node = work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey(
+            listOf(endpoint(rail, RailEndpoint.A)))
+        val resource = work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource(
+            "test:resource", "test:signal")
+        val decision = TopologyEditDecision(TopologyEditStatus.CONFLICT, listOf(TopologyEditBlocker(
+            TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, InfrastructureOwner("test:timetable", 22),
+            TopologyEditOverlap(setOf(rail), setOf(node), setOf(resource)))), "rail is protected")
+        val text = SimpleSignalsAdminCommand.formatResult(SimpleSignalsDefinitionAuthoringResult(
+            SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, editDecision = decision, diagnostics = listOf(decision.detail)))
+        assertTrue(text.contains("INFRASTRUCTURE_DEPENDENCY"))
+        assertTrue(text.contains("test:timetable"))
+        assertTrue(text.contains("revision=22"))
+        assertTrue(text.contains(rail.toString()))
+        assertTrue(text.contains(node.toString()))
+        assertTrue(text.contains(resource.typeId))
+        assertTrue(text.contains(resource.resourceId))
+    }
+
+    @Test
+    fun `large authoring results retain full typed impact but bound command reply previews`() {
+        val rails = (1L..1000L).map { UUID(0, it) }.toSet()
+        val validated = SimpleSignalsDefinitionAuthoringResult(
+            SimpleSignalsDefinitionAuthoringStatus.VALIDATED, affectedRailIds = rails)
+        val validationText = SimpleSignalsAdminCommand.formatResult(validated)
+        assertTrue(validationText.contains("count=1000"))
+        assertTrue(validationText.contains("992 omitted"))
+        assertTrue(validationText.length < 1000)
+        assertEquals(1000, validated.affectedRailIds.size)
+
+        val blockers = (1L..20L).map { revision -> TopologyEditBlocker(
+            TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, InfrastructureOwner("test:owner", revision),
+            TopologyEditOverlap(rails, emptySet(), emptySet())) }
+        val rejected = SimpleSignalsDefinitionAuthoringResult(
+            SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED,
+            editDecision = TopologyEditDecision(TopologyEditStatus.CONFLICT, blockers),
+            diagnostics = List(20) { "x".repeat(1000) })
+        val rejectionText = SimpleSignalsAdminCommand.formatResult(rejected)
+        assertTrue(rejectionText.contains("12 blockers omitted"))
+        assertTrue(rejectionText.contains("12 diagnostics omitted"))
+        assertTrue(rejectionText.length < 8000)
+        assertEquals(20, rejected.editDecision!!.blockers.size)
+        assertEquals(1000, rejected.editDecision!!.blockers.first().overlap.railIds.size)
+    }
+
+    private fun <T : CommandSender> commandSender(type: Class<T>, permitted: Boolean): T = proxy(type) { method, _ ->
+        check(method.name == "hasPermission"); permitted
+    }
+
+    private fun testCommand(): Command = object : Command("simplesignals") {
+        override fun execute(sender: CommandSender, label: String, args: Array<out String>) = true
+    }
 
     @Test
     fun `disjoint local edits succeed with real applied dependency and live claim elsewhere`() {

@@ -11,7 +11,8 @@ JavaRailways 主 JAR 的组成部分，也不能复制、shadow 或直接导入�
 plugin-local immutable section occupancy snapshot，并以同一exact frozen-route matcher建立资源贡献与inspection authority floor；
 已建立plugin-local信号规则执行边界、灯色/限速输出快照及其列车限制投影，并提供第一个由world definition配置的固定闭塞规则；
 现已提供保护区域固定进路信号、当前入口信号和presentation-only进路显示器的后端配置/规则；
-尚未提供模型渲染、命令或JS/YAML加载接口，不得把 foundation 描述为玩家可直接使用的完整信号系统。
+已提供独立管理员 inspect/export/validate/apply 命令及 current-JSON 草稿工作流；
+尚未提供交互式 Wand、模型渲染或JS/YAML加载接口，不得把 foundation 描述为完整建造/呈现系统。
 
 ## 工作方式
 
@@ -240,9 +241,12 @@ authoring是低频路径：patch map操作为`O(D)`。设fixed-block traversal�
 `H`个rail-local候选，则完整candidate编译为`O(V+E+S+P log Q+T log T+S log S+F log S+H)`；写盘为定义规模线性。
 本次编辑影响查询的结构可达遍历、派生值比较和几何收集成本另见[影响合同](definition-edit-impact.md#7-性能复杂度与退化)。
 这些规模相关的编译、encode、validation和ordinary write必须在async authoring worker；最终commit只允许exact root/base检查、
-already-staged atomic rename与immutable reference swap。route callback仍只读取一次volatile publication和cached restrictions。当前只建立plugin-local事务 seam，尚无RailObjectWand、命令、
-inspect/dry-run UI或拓扑迁移工具。`applyDefinitionPatch`以`ThreadGuard.ensureOffMainThread`拒绝错误的owner-thread调用；未来Wand/command必须先
-dispatch worker，不能依赖调用约定而省略这一断言。
+already-staged atomic rename与immutable reference swap。route callback仍只读取一次volatile publication和cached restrictions。
+当前 SimpleSignals 命令接到同一事务，纯 validate 复用候选构造/编译但不取得许可、不写盘、不替换 source；
+草稿保留导出基线，正式 apply 重新检查并推进 revision。完整流程、内部接口、文件和线程规则见
+[管理命令与定义草稿](authoring-commands.md)。交互式 RailObjectWand 与拓扑迁移工具仍未提供。
+`applyDefinitionPatch`和纯 validation 均以`ThreadGuard.ensureOffMainThread`拒绝错误的owner-thread调用；命令已使用 async worker，
+未来 Wand 必须保持同一边界，不能依赖调用约定而省略这一断言。
 
 ## 已评审的响应式方向与已完成前置观测
 

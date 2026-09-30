@@ -181,6 +181,11 @@ during epoch processing. This completes the prerequisite for turnout-aware depen
 
 The plugin owns its signal models, renderer handles, RailObjectWand mode, commands, permissions and optional JS/YAML format. Rendering consumes immutable state snapshots and updates only when the model variant or visible state changes. Bukkit/Folia target ownership, latest-only dispatch and cleanup are handled in the plugin's own adapter code, unless a separately reviewed generic host API is introduced later.
 
+The first admin authoring batch exposes plugin-owned inspect/export/validate/apply commands over an isolated current-JSON
+draft. It reuses the existing patch transaction; pure validation reserves nothing and cannot guarantee future edit availability.
+Command, revision, file and scheduler semantics live in the [owner contract](../../spec/simple-signals/backend/authoring-commands.md).
+Guided Wand interaction and model rendering remain separate batches.
+
 There is no host-wide `return "YG"` contract and the Java/Kotlin runtime does not contain a fixed aspect/speed table. It accepts a validated non-negative finite speed limit plus an opaque non-blank model variant selected by the installed rule. A plugin-local customization API may expose operations such as `setSpeedLimit(...)` and `setModelVariant(...)`, but the exact names, budgets and available observations are frozen in a later review. Rule failure publishes an unavailable state whose host safety limit is zero without inventing a model variant.
 
 ## Timetable apply and editing

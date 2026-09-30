@@ -78,6 +78,14 @@ bukkitPluginYaml {
     depend.add('JavaRailways')
     libraries.add('org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.3.0')
     libraries.add('org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.9.0')
+    commands.register('simplesignals') {
+        description.set('Inspect, export, validate and apply SimpleSignals definition drafts')
+        permission.set('simplesignals.admin')
+    }
+    permissions.register('simplesignals.admin') {
+        description.set('Allows administering SimpleSignals definitions')
+        getDefault().set(xyz.jpenilla.resourcefactory.bukkit.Permission.Default.OP)
+    }
 }
 
 def pluginJar = tasks.named('jar', Jar)
@@ -103,6 +111,8 @@ def verifyPluginJar = tasks.register('verifyPluginJar') {
             'api-version: 1.21.11',
             'JavaRailways',
             'folia-supported: true',
+            'simplesignals:',
+            'simplesignals.admin:',
             'org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.9.0'
         ].each { requiredText ->
             if (!descriptor.contains(requiredText)) {

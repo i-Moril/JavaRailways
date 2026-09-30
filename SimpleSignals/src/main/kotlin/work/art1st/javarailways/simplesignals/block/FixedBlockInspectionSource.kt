@@ -42,11 +42,15 @@ internal class FixedBlockInspectionSource(
                 trainProfileRevision = 0L,
                 declarations = windows.map { window ->
                     val block = captured.blocksById.getValue(window.blockId)
-                    val entry = block.traversals.first()
+                    val entryRail = if (window.enteredAtBoundary) block.traversals.first().railId
+                        else input.route.segments.first().railId
+                    val entryFacing = if (window.enteredAtBoundary) block.traversals.first().facing
+                        else input.route.segments.first().facing
                     InspectionDeclaration(
-                        declarationId = fixedBlockSignalDeclarationId(window.blockId),
-                        railId = entry.railId,
-                        facing = entry.facing,
+                        declarationId = if (window.enteredAtBoundary) fixedBlockSignalDeclarationId(window.blockId)
+                            else insideBlockAuthorityDeclarationId(window.blockId),
+                        railId = entryRail,
+                        facing = entryFacing,
                         triggerRouteDistanceMeters = window.entryRouteDistanceMeters,
                         inspectionLeadTimeSeconds = inspectionLeadTimeSeconds(captured, window.blockId),
                         minimumRequestedAuthorityEndRouteDistanceMeters = window.exitRouteDistanceMeters
@@ -57,6 +61,9 @@ internal class FixedBlockInspectionSource(
         updateHandler = { input ->
             val revision = nextRevision.getAndUpdate { current -> Math.addExact(current, 1L) }
             val restrictions = input.activeDeclarations.mapNotNull { declaration ->
+                // Starting at a station inside the block needs its token/authority floor, not the
+                // entrance signal now behind the train (which may be red because of this train).
+                if (declaration.declarationId.startsWith(INSIDE_BLOCK_AUTHORITY_PREFIX)) return@mapNotNull null
                 val protection = hasConfiguredProtectionSignal(declaration.declarationId)
                 val blockId = if (protection) null else blockIdFromSignalDeclaration(declaration.declarationId)
                 val published = if (protection) protectionSignalState(declaration.declarationId)
@@ -94,3 +101,7 @@ internal class FixedBlockInspectionSource(
         }
     )
 }
+
+private const val INSIDE_BLOCK_AUTHORITY_PREFIX = "simplesignals:inside-block/"
+private fun insideBlockAuthorityDeclarationId(blockId: String): String =
+    INSIDE_BLOCK_AUTHORITY_PREFIX + blockId.replace(':', '/')

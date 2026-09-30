@@ -76,7 +76,7 @@ SimpleATO's existing shared perception and inspection scheduler report which ind
 
 For a protection-region entry, the plugin:
 
-1. matches the frozen route to one valid entry, one exit and one continuous interior traversal;
+1. matches each visit on the frozen route to a valid entry, exit and continuous interior traversal; repeated visits do not become different physical resources;
 2. proves the requested boundary is far enough for the authoritative train tail to clear the plugin's exit condition;
 3. chooses any farther territory required by its own policy—such as a whole following fixed block or an exact moving-block boundary;
 4. adds plugin-owned resources such as flank protection, approach locking or block tokens;
@@ -106,11 +106,15 @@ Protection-region observation remains a later batch.
 Fixed-block route admission now uses one plugin-owned `simplesignals:fixed-block` resource type and the existing host
 provider/contributor seam. On each new or extended admission, SimpleSignals projects the frozen route once into route metres plus
 canonical AB coordinates, discovers only blocks indexed by rails on that route, and matches the requested authority prefix against
-each complete directed block traversal. Authority ending at the entry contributes nothing; authority entering but not reaching the
-exit is rejected; complete traversal contributes one stable block resource held until the tail passes the route-local exit. More than
-one complete occurrence of the same block in one authority prefix is rejected as an ambiguous route. Basic independently adds the physical rail,
-turnout and diamond floor and atomically claims the union. This does not yet choose a farther protection-region transition boundary or install
-concrete signal-system rules.
+each directed block traversal. A route may start or stop inside a block; a platform does not have to coincide with a block boundary.
+Whole-block resource ownership is separate from movement authority: a train may hold the token while its authority ends at an internal stop.
+The current partial-block batch keeps one stable block identity and extends its release position through the existing grant queue.
+Repeated visits with distinct route positions but the same resource identity remain a reviewed target, not a completed runtime capability:
+the single-visit matcher rejection remains until inspection declarations, invalidation and region selection can represent every visit correctly.
+Basic already retains resources and rebuilds the route coordinate at stopped reversal, but directional block-token correspondence is unresolved;
+the return-to-depot signal/resource integration must not be described as complete. Basic independently adds the physical rail, turnout and diamond
+floor and atomically claims the union. The exact current matching, authority and release bounds belong in the SimpleSignals owner spec;
+only the complete-block-only rejection is removed in this batch.
 
 The first common live section slice now covers fixed-block occupancy only. On world installation,
 SimpleSignals groups every compiled block area into one host `SignalEpochSource`; Basic derives the
@@ -190,7 +194,7 @@ There is no host-wide `return "YG"` contract and the Java/Kotlin runtime does no
 
 ## Timetable apply and editing
 
-SimpleATO already compiles selected automatic timetable routes into immutable candidates before service start and installs the host's static applied-plan dependencies before clocks become visible. Stage 2 asks every required signal plugin to validate those selected routes against one topology, timetable, train-assignment and plugin-definition revision. Structural faults are accumulated as actionable diagnostics; transient occupancy/live claim conflicts are not apply failures, and the plugin does not repeat pathfinding.
+SimpleATO already compiles selected automatic timetable routes into immutable candidates before service start and installs the host's static applied-plan dependencies before clocks become visible. Stage 2 reuses signal-plugin route matching/binding for those selected routes and collects the corresponding definition/resource edit dependencies in the same preparation. It does not add a separate signal-audit framework or repeat configuration validation already completed at authoring time. Transient red aspects, occupancy and live claim conflicts are waits rather than apply failures; partial fixed-block traversal and repeat visits are not intrinsically invalid, and the plugin does not repeat pathfinding.
 
 After rechecking revisions, SimpleATO extends the existing atomic declaration of exact rail/node/runtime-resource edit dependencies with referenced SimpleSignals resources and installs the applied plan. Replacement atomically replaces the complete declaration. Unapply enters `DRAINING`, stops new departures/grants and removes dependencies only after live runs/claims clear or explicit administrative recovery succeeds. These non-exclusive edit dependencies are not train resource claims.
 

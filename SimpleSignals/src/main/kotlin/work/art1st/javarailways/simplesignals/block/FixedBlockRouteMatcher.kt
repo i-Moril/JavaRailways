@@ -12,7 +12,9 @@ import kotlin.math.min
 internal data class FixedBlockRouteWindow(
     val blockId: String,
     val entryRouteDistanceMeters: Double,
-    val exitRouteDistanceMeters: Double
+    val exitRouteDistanceMeters: Double,
+    /** False when the operational route begins inside the block, past its entry signal. */
+    val enteredAtBoundary: Boolean = true
 )
 
 internal sealed interface FixedBlockAuthorityMatchResult {
@@ -22,7 +24,7 @@ internal sealed interface FixedBlockAuthorityMatchResult {
 
 /**
  * Matches only the requested authority prefix against directed fixed-block traversals.
- * A positive prefix intersection must contain the whole block; stopping inside a block is rejected.
+ * Operational route endpoints may lie inside a block. Interior path discontinuities still reject.
  */
 internal object FixedBlockRouteMatcher {
     /** Matches every fixed block reached by the complete exact frozen route. */
@@ -54,16 +56,19 @@ internal object FixedBlockRouteMatcher {
         val candidates = snapshot.candidates(projection.occurrencesByRail.keys)
         val windows = ArrayList<FixedBlockRouteWindow>()
         for (block in candidates) {
-            val pieces = overlapPieces(block, projection.occurrencesByRail, authorityEndRouteMeters)
+            // Match the full operating route before clipping to the requested authority. Otherwise a
+            // rolling request ending inside a block looks indistinguishable from a broken path.
+            val pieces = overlapPieces(block, projection.occurrencesByRail, route.totalLengthMeters)
             if (pieces.isEmpty()) continue
             val runs = mergeContiguousPieces(pieces)
             val complete = runs.filter { run ->
-                run.blockStartMeters <= Curve.TOLERANCE &&
-                    block.lengthMeters - run.blockEndMeters <= Curve.TOLERANCE
+                (run.blockStartMeters <= Curve.TOLERANCE || run.routeStartMeters <= Curve.TOLERANCE) &&
+                    (block.lengthMeters - run.blockEndMeters <= Curve.TOLERANCE ||
+                        route.totalLengthMeters - run.routeEndMeters <= Curve.TOLERANCE)
             }
             if (complete.size != runs.size) {
                 return FixedBlockAuthorityMatchResult.Rejected(
-                    "authority ending at $authorityEndRouteMeters metres partially traverses fixed block " +
+                    "route leaves the directed traversal of fixed block " +
                         block.definition.blockId
                 )
             }
@@ -73,10 +78,12 @@ internal object FixedBlockRouteMatcher {
                 )
             }
             val run = complete.single()
+            if (run.routeStartMeters >= authorityEndRouteMeters - Curve.TOLERANCE) continue
             windows += FixedBlockRouteWindow(
                 block.definition.blockId,
                 run.routeStartMeters,
-                run.routeEndMeters
+                min(run.routeEndMeters, authorityEndRouteMeters),
+                enteredAtBoundary = run.blockStartMeters <= Curve.TOLERANCE
             )
         }
         return FixedBlockAuthorityMatchResult.Matched(

@@ -59,6 +59,61 @@ class RouteResourceAdmissionEngineTest {
     private val admissionUpdates = arrayListOf<ActiveRouteAdmissionUpdate>()
 
     @Test
+    fun `extension ignores validated historical contributions instead of reacquiring cleared tokens`() {
+        val service = service()
+        val requester = Any()
+        val frozen = route(1L, listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0)))
+        val contribution = ContributedRouteResource(block, RouteBoundary(20.0))
+        val original = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(route = frozen, contributions = listOf(contribution)))).grant
+        observation = observation(8L, train("first", 25.0, 26.0, 8L))
+        service.consumeObservation(observation)
+        assertTrue(registry.claimSnapshots().isEmpty())
+
+        var validations = 0
+        additionValidation = { validations++; null }
+        val extended = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(route = frozen, authority = 40.0,
+                contributions = listOf(contribution)))).grant
+        assertSame(original.grantId, extended.grantId)
+        assertEquals(1, validations)
+        assertEquals(listOf(RailIntervalResource(railId, 20.0, 40.0)),
+            registry.claimSnapshots().single().footprint.resources)
+
+        val before = registry.claimSnapshots()
+        additionValidation = { RouteAdmissionFailure(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "owner denied") }
+        val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.request(requester, intent(route = frozen, authority = 60.0,
+                contributions = listOf(contribution))))
+        assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, rejected.failure.code)
+        assertEquals(before, registry.claimSnapshots())
+
+        additionValidation = { null }
+        val duplicate = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.request(requester, intent(route = frozen, authority = 60.0,
+                contributions = listOf(contribution, contribution))))
+        assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, duplicate.failure.code)
+        assertEquals(before, registry.claimSnapshots())
+    }
+
+    @Test
+    fun `historical contribution cannot shorten a still held token`() {
+        val service = service()
+        val requester = Any()
+        val frozen = route(1L, listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0)))
+        service.request(requester, intent(route = frozen, authority = 40.0,
+            contributions = listOf(ContributedRouteResource(block, RouteBoundary(40.0)))))
+        observation = observation(8L, train("first", 25.0, 26.0, 8L))
+        service.consumeObservation(observation)
+        val before = registry.claimSnapshots()
+        val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.request(requester, intent(route = frozen, authority = 60.0,
+                contributions = listOf(ContributedRouteResource(block, RouteBoundary(20.0))))))
+        assertEquals(RouteAdmissionFailureCode.INVALID_BOUNDARY, rejected.failure.code)
+        assertEquals(before, registry.claimSnapshots())
+    }
+
+    @Test
     fun `admission changes are published once and release proves only a tail lower bound`() {
         val ticket = MutableTicket()
         var starts = 0

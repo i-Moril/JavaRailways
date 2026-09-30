@@ -181,10 +181,14 @@ segment从facing-local metres转换为canonical AB起终点，并保留单调rou
 复用。随后用publication的`rail UUID -> block IDs`反向索引取得候选，而不是扫描全部block。对每个候选，把相同rail/facing的route
 occurrence与authoritative block traversal求正长度交集，并同时记录block-local与route-local区间；两个坐标都连续的piece才会合并。
 
-只检查本次`desiredAuthority`前缀：authority恰好停在entry不申请block；一旦与有向block产生正长度交集，合并结果必须完整覆盖
-block-local `[0, length]`，否则整个contribution失败。完整window产生
+matcher先在完整冻结路线中合并候选block交集，再按本次`desiredAuthority`裁剪结果，不能把滚动申请在block内结束误判为路线断裂。
+路线可以在block内部开始或结束，包括位于block内的站台；局部交集的缺失entry必须对应路线起点，缺失exit必须对应路线终点。
+若路线在中途偏离定义的有向block traversal则仍拒绝。authority恰好停在entry不申请block；产生正长度交集时，window产生
 `ContributedRouteResource(StableInfrastructureResource("simplesignals:fixed-block", blockId), exitRouteBoundary)`。
-同一block在一个authority prefix中出现多个完整window时视为路线有歧义并拒绝；当前不为理论上的多圈环线引入跨圈资源生命周期。
+`exitRouteBoundary`为本次已授权交集的末端，不能超过请求终点；整个block token的持有与物理行车授权距离是两件事。
+在block内停车时车尾无法越过该末端，因此token保持；继续申请时，同一token在既有host队列中延长到新的交集末端，直到车尾实际离开。
+同一block在完整冻结路线中出现多个独立window仍是当前实现限制，不是运营禁止规则；完整支持需要同步route-occurrence声明、
+信号失效路由和宿主物理资源准备，不能只删除matcher拒绝分支。折返前后两段运营路线不等于同一冻结路线绕圈，不能因此拒绝整个回库任务。
 不同block独立加入同一个union；Basic仍自行编译不可删除的rail/turnout/diamond物理底线并原子claim。
 
 匹配失败、stale topology、缺world runtime或provider validation失败均发生在registry mutation前。在线definition patch继续持有旧、新
@@ -195,11 +199,23 @@ world→runtime map，使准入热路径不等待authoring持有的manager lock�
 设冻结route occurrence数为`R`、命中的唯一block数为`K`、候选block traversal与同rail route occurrence形成的实际比较数为`I`。
 projection与rail分组为`O(R)`，候选去重/稳定排序为`O(R + K log K)`，交集和window合并为`O(I log I)`；没有block时为`O(1)`返回empty。
 这些成本只在授权申请/延长发生，不进入每tick occupancy source。world runtime另注册一个稳定fixed-block inspection source：
-binding provider复用同一publication reverse index和exact frozen-route matcher，把每个完整block window编译成
+binding provider复用同一publication reverse index和exact frozen-route matcher，把每个block window编译成
 `trigger=entry, minimumRequestedAuthorityEnd=exit`。SimpleATO只看到中立route-local floor；nominal请求未越过entry或已经
 到达exit时不变，进入block后才向前抬到exit，重叠window按有序单向扫描连锁。随后上述contributor收到完整authority prefix并
-继续做独立完整性验证，Basic仍可拒绝且只有Basic grant能扩大实际authority。定义patch的旧、新affected-rail permit会被active
+继续做路线交集验证，Basic仍可拒绝且只有Basic grant能扩大实际authority。运营路线在block内部结束时，floor止于该路线终点，
+不为了“持有整个闭塞”把列车授权到站台以外。路线在block内部开始时，window的`enteredAtBoundary=false`；source用实际路线首rail/facing
+创建`simplesignals:inside-block/<namespace>/<path>` authority-only声明，仍申请资源但不投影已经位于车后、可能因本车占用变红的入口信号。
+真实入口仍使用正常设备声明、提前时间和限速，不能普遍忽略红灯。这个私有声明身份不改变作者ID、block资源ID或sidecar格式。
+定义patch的旧、新affected-rail permit会被active
 frozen-route dependency阻止，因此retained inspection binding不会在运行中失效；不相交、非运营轨道仍可在线编辑。
+
+Good/Base：block为`[100m,300m]`、运营停车点在`200m`，取得block token而authority止于`200m`；下一段任务延长同一授权与释放位置。
+从block内部站台起步只有authority floor，不在路线起点伪造入口红灯。Bad：非路线端点处中途离开block定义的有向路径仍拒绝；
+既有单路线重复经过限制必须明确报告，不能宣称已支持多圈或完整回库。测试须覆盖内部起止、入口零交集、真实入口缺baseline仍为0、
+停车保留token、延长后车尾释放，以及已释放历史block在之后的申请中不被重新取得。
+
+当前block资源匹配仍按作者的有向traversal。折返时反向定义可能要求未持有的新token，旧方向token也可能失去新的路线释放证据；
+把资源改为双向物理范围匹配可解决这一身份衔接，但会改变资源语义，必须先评审，不能在本批次静默引入alias、schema迁移或generic rebase协议。
 
 保护区域到直接fixed-block successor的低频衔接复用上述matcher，但不共享跨source cache；具体原因和复杂度见
 [保护区域到固定闭塞的授权衔接合同](protection-region-authority-transition.md#7-性能复杂度与退化行为)。

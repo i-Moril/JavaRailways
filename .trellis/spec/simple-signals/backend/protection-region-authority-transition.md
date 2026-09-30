@@ -19,10 +19,10 @@
 ```text
 SimpleATO 已选择并冻结 RouteSnapshot
   -> ProtectionRegionInspectionSource 捕获 region + fixed-block immutable snapshots
-  -> SimpleSignals 分别匹配完整 region windows 与完整 fixed-block windows
+  -> SimpleSignals 分别匹配完整 region windows 与 fixed-block 路线交集 windows
   -> 对每个 region exit 查找同 route-metre 的 fixed-block entry
        0 个：minimum authority end = region exit
-       1 个：minimum authority end = fixed-block exit
+       1 个：minimum authority end = fixed-block 与运营路线交集的末端
        多个：定义冲突，binding fail closed
   -> SimpleATO 在 nominal request 严格越过 region entry 后应用 minimum end
   -> Basic 以扩大后的同一 frozen-route prefix 编译物理资源底线
@@ -38,7 +38,8 @@ SimpleATO 已选择并冻结 RouteSnapshot
 ### 3.1 输入表示
 
 - `ProtectionRegionRouteWindow`保存当前路线 occurrence 上的entry/exit绝对route metres。
-- `FixedBlockRouteWindow`保存一个完整有向block occurrence的entry/exit绝对route metres。
+- `FixedBlockRouteWindow`保存有向block与当前路线交集的entry/exit绝对route metres；路线端点允许位于block内部。
+  `enteredAtBoundary`区分真正经过入口与从block内部起步，后者不应重新检查已经位于车后的入口信号。
 - 两者都是针对同一个`RouteSnapshot`的派生结果，不写入sidecar。
 - fixed-block matcher输出按`entryRouteDistanceMeters`、再按`blockId`排序。
 
@@ -79,14 +80,19 @@ binding保留最后一道防御性fail-close检查。
 ```text
 declarationId = regionId
 trigger = region entry
-inspectionDistance = 0m
+inspectionLeadTimeSeconds = 0s
 minimumRequestedAuthorityEnd = successor?.exit ?: region exit
 ```
 
 这不是直接grant。SimpleATO只在nominal request严格越过trigger后抬高requested boundary；Basic仍可拒绝。
-扩大后的prefix随后进入既有`FixedBlockRouteResourcePolicy`，由它独立验证完整block并加入
+扩大后的prefix随后进入既有`FixedBlockRouteResourcePolicy`，由它独立匹配block交集并加入
 `resourceType=simplesignals:fixed-block, resourceId=<blockId>`资源。Basic再加入不可删除的rail、turnout和
 diamond资源并原子处理union。
+
+后继block可以包含运营停车点。若冻结路线在block内部结束，successor window的exit是该路线终点，
+floor不能超过它；列车仍申请整个block token，并在停车期间保留，后续申请通过既有队列延长释放位置。
+“申请整个闭塞资源”不等于“必须取得到闭塞物理出口的行车授权”。保护区域本身仍要求完整入口到出口，
+本规则不允许在咽喉保护区域内部停车。
 
 衔接只处理一个直接后继，不递归连接第二个fixed block。后续普通fixed-block declarations可按自己的入口
 继续抬高未来请求；region source不得自己遍历一条block链。
@@ -135,7 +141,8 @@ InspectionDeclaration(
 - region/block snapshot不是同一topology root → binding失败，无声明、无资源mutation。
 - region/block definition revision不同 → binding失败，防止混合publication。
 - route不能完整进入并离开命中的region → region matcher拒绝binding。
-- route与fixed block只有部分正长度交集 → fixed-block matcher拒绝binding。
+- route起点/终点位于fixed block内部 → 合法，window裁剪到路线端点，floor不越过运营终点。
+- route在非端点处偏离fixed block定义的有向路径 → fixed-block matcher拒绝binding。
 - region exit没有同点block entry → 合法，floor保持region exit。
 - region exit恰有一个同点block entry → 合法，floor使用block exit。
 - region exit匹配多个block entries → fixed-block定义冲突，binding fail closed；这不是道岔分支选择。
@@ -171,6 +178,11 @@ region为`[5m, 25m]`，当前冻结路线上的block为`[25m, 30m]`。trigger为
 
 没有fixed block，或block从`26m`才开始。minimum end保持`25m`；不得跨越间隙猜测moving-block策略。
 
+### Good：后继闭塞内部的站台
+
+region为`[5m,25m]`，block从`25m`延伸到路线终点以外，站台运营目标为`30m`。minimum end为`30m`，
+同一次申请包含区域物理资源与整个block token；停车不释放仍被列车占用的token，也不扩大授权到站台以外。
+
 ### Bad：冲突定义
 
 两个同方向block都从`25m`开始并沿当前冻结路线延伸。它们不是道岔两条可选支路，而是重叠定义；binding拒绝，
@@ -185,6 +197,7 @@ region为`[5m, 25m]`，当前冻结路线上的block为`[25m, 30m]`。trigger为
 - route在region内部结束时binding失败；
 - 空region/block publication产生空binding；
 - 唯一直接block把floor从region exit抬到block exit；
+- 路线终点位于直接后继block内部时，floor只抬到运营终点，contributor仍产生block token；
 - 同点冲突block definitions使binding失败；
 - entry差值恰在`Curve.TOLERANCE`内时匹配，超过容差时保持region exit；
 - reverse route上的直接fixed-block successor；

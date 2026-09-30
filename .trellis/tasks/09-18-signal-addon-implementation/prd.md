@@ -46,6 +46,8 @@ The result must prove that protection regions and fixed blocks are optional poli
 - For a protection-region entry, request enough frozen-route range for the train to leave the region and satisfy the plugin's exit policy. If the following territory is a fixed block, the plugin may require that whole block; in moving-block territory it may choose an exact route boundary. Basic does not make this policy choice.
 - A region ID must not be an exclusive whole-region lock by default. Physical path/conflict resources and explicit flank/approach resources determine conflicts, allowing disjoint paths through one throat when the concrete policy permits it.
 - Implement fixed blocks as plugin-owned authority/resource policy. Protection regions and blocks may expose a common plugin-local section observation API, but Basic and SimpleATO do not own or persist that abstraction.
+- Allow an operational route to start or stop inside a fixed block, including a platform inside that block. Holding the whole block resource does not require granting movement to its physical exit; stopping or finishing a mission must not release a block still occupied by the train.
+- Do not reject a timetable operation merely because it visits the same block or protection region more than once. Stopped reversal separates forward and return traversal coordinates while retaining occupied resources; separate visits within a frozen route keep distinct positions but reuse the same physical resource identity.
 - Derive every permissive aspect from a confirmed Basic grant plus current SimpleATO authority. Plugin output can only keep or tighten speed/authority; missing, stale, corrupt or disabled state is restrictive.
 - Use SimpleATO's existing shared route perception, inspection scheduler and reviewed declaration contract while keeping dynamic braking distance host-owned per tick. Do not invoke unchanged signal policy every tick, add a second forward scan or move the concrete plugin's downstream dependency graph into SimpleATO.
 - Do not add a second per-train route scanner, world-wide per-signal tick loop or `allTrains × allSignals` lookup.
@@ -54,7 +56,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 ### C. Timetable, editing and persistence
 
-- Extend the existing selected-route timetable compilation before apply with required signal-plugin health, definitions, references and route-policy validity for the assigned train envelope; do not perform another path search in the plugin.
+- Reuse the existing signal-plugin route matching/binding during selected-route timetable compilation before apply and collect its exact edit dependencies. Do not add a parallel signal-audit framework, repeat authoring-time validation, perform another path search, or reject transient red aspects/occupancy/resource waits as an invalid timetable.
 - Extend the existing atomic applied-plan dependency declaration with the signal plugin's exact referenced runtime resource IDs. Draft save/dry-run publishes no dependencies; draining unapply blocks new work and removes dependencies only after live grants clear.
 - Route every covered topology, region, block, signal and operational-object edit through the common edit guard with owner/revision diagnostics.
 - Store each plugin's data in its own independently versioned sidecar using stable namespaced IDs, rail UUIDs, canonical AB positions/directions and explicit references.

@@ -135,6 +135,20 @@ class ProtectionRegionInspectionSourceTest {
     }
 
     @Test
+    fun `station inside immediate successor clamps region floor to operational route end`() {
+        val block = FixedBlockDefinition("test:block/station", 1L,
+            listOf(FixedBlockTraversal(east, ViewDirection.AB, 5.0, 10.0)))
+        val route = RouteSnapshot("test:route/station", 1L, topology.revision, listOf(
+            segment(west, ViewDirection.AB, 0.0, 10.0),
+            segment(middle, ViewDirection.AB, 0.0, 10.0),
+            segment(east, ViewDirection.AB, 0.0, 7.0)
+        ))
+        val declaration = source(listOf(block)).bindingProvider.bind(
+            InspectionBindingInput(stamp, "train", route)).declarations.single()
+        assertEquals(27.0, declaration.minimumRequestedAuthorityEndRouteDistanceMeters)
+    }
+
+    @Test
     fun `successor matching uses route tolerance without crossing a real gap`() {
         val withinTolerance = FixedBlockDefinition(
             "test:block/within-tolerance",

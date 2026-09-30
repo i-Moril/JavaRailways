@@ -62,6 +62,12 @@ The union is unique by exact resource identity and is committed once. Occupancy 
 
 当前纯合并步骤接收宿主收集并复制的contribution batch，而不是公开ATO intent中的字段。宿主先收集所有contributor结果，再从已编译的物理footprint复制资源身份与释放元数据，逐项调用world-local资源owner的无副作用校验函数；任一项失败直接返回typed rejection，不触碰registry。新身份追加到唯一footprint；若身份已在物理底线中，只取原释放边界与附加边界的较大值，禁止附加准备覆盖物理准备。最后按车尾清除位置排序唯一释放队列。时间与临时空间随物理footprint及本次contribution总量线性增长（排序释放队列除外）。
 
+contributor看到完整请求前缀，因此延长时可能再次返回车尾已经通过的历史附加资源。engine先检查重复身份、请求释放范围及资源owner许可，
+再用既有释放控制器的accepted tail progress过滤“不在当前持有集合且释放点已经通过”的附加项，不重新claim历史token。
+仍在持有集合的资源绝不通过这个分支丢弃，仍执行不得缩短释放点/修改准备参数的检查；尚在车尾前方的资源仍正常申请。
+该过滤只在显式准入申请时执行，复用当前持有map与既有cursor，不建立历史资源表、第二个队列或信号领域特判。
+已经过去的非法provider、重复项或越过请求终点的释放点仍拒绝，不能借“历史”绕过认证和boundary校验。
+
 当前Basic内部申请由`RouteResourceAdmissionEngine`拥有：读取一份当前observation和同revision的拓扑root。没有route state时，投影调用方冻结路线并编译`[0, desiredAuthority]`物理范围，先确认路线从权威车尾开始；已有route state时，核对申请身份与路线，只编译已提交authority至新boundary的suffix。普通停车点后的下一段任务可以把新traversal严格追加到已经完整授权的旧路线末端：旧segments必须逐项保持不变、route ID/topology/owner/train不变，并使用operating-route自身的更高revision；其他route变化仍拒绝。两种增长方式共用后续资源校验、占用查询、registry reservation、设备准备与结果流程。宿主构造world owner时绑定附加资源校验；请求本身不能替换该函数。registry mutation使用宿主持有的token，不使用发起申请的插件token；插件退出不能直接删除列车仍持有的资源。准备票据未READY时只返回同一pending handle，不扩大grant或切换route binding；READY时重新读取最新完整observation，要求拓扑仍为原root、物理车尾仍符合已提交前缀，且该观测中的申请范围没有其他列车。正常跨越physics epoch时，grant与释放控制器绑定通过复核的新stamp；复核失败时不能发布旧授权，也不能把已准备的设备擅自视为安全中止，而是保留claim并stall。资源handler明确报告安全中止时才撤销本次新增claim。附加资源提供者异常按`INVALID_CONTRIBUTION`拒绝。Bukkit现已把这个owner绑定为world-local、认证过调用方身份的`RouteResourceAdmissionService`；生产Dispatcher/SimpleATO caller迁移仍待后续批次。
 
 ### 3.3 申请、准备和释放
@@ -453,6 +459,7 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 - **Good**：the first request waits for a device with `committedGrant = null`; on `READY`, the route state installs its first grant and release queue using the already-established cursor.
 - **Good**：after all committed resources have been tail-released, another request along the same frozen route reacquires a farther suffix without inventing a second route cursor.
 - **Good**：an ordinary stop retains the last claimed interval, then appends the next forward mission under the same grant/cursor; pending or rejected preparation keeps the old route binding.
+- **Good**：a signal-plugin block token is retained while stopping inside that block; continuation extends its release point, and a later full-prefix contribution for an already tail-cleared block is validated but not reacquired.
 - **Good**：a stopped reversal freezes release, keeps the exact claim and grant ID, then places a new cursor at the reversed tail and recalculates old-resource release points without reacquisition.
 - **Bad**：SimpleATO constructs a protection-region ID, preparation kind or signal-system-specific argument.
 - **Bad**：an initial safe abort leaves an owner permanently busy with an empty route state, or a later safe abort deletes an earlier committed grant.
@@ -476,6 +483,7 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 - Delayed `READY` on a newer safe epoch rebinds the grant stamp; changed topology root, missing/moved train tail or newly occupied route publishes no grant and retains the claim under Stall.
 - Two pending attempts cannot publish a grant after either one has stalled the world; the second claim stays retained and the Stall callback fires once.
 - Tail release and same-route extension retain the existing cursor, release only a contiguous eligible prefix and never shorten plugin-specified holds.
+- Extension filters only non-held contributions whose release boundary has passed the accepted tail cursor; held resources remain protected, while malformed/duplicate/unauthorized historical contributions still reject without registry mutation.
 - Pending extension may defer an already-held identity while other old resources release; READY commits the new hold and delta before widening the same grant, while safe abort restores the old hold and releases it if the accepted tail has passed. An emptied old queue can reacquire the next suffix without creating a new grant ID.
 - Many sequential single-resource releases preserve the remaining claim order and owner; snapshots taken before shrink/append/rollback stay detached, while pending append forbids delta release and permits old-prefix shrink.
 - Plugin disable/reload tests prove existing grants remain fail-closed and releasable without executing plugin policy again.

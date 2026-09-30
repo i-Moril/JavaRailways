@@ -61,14 +61,60 @@ class FixedBlockRouteResourcePolicyTest {
     }
 
     @Test
-    fun `authority ending at entry does not claim block while a partial traversal fails closed`() {
+    fun `authority ending at entry does not claim block while entering claims its whole identity`() {
         assertTrue(policy.contribute(worldId, intent(2.0)).isEmpty())
+        val contribution = policy.contribute(worldId, intent(12.0)).single()
+        assertEquals(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId), contribution.resource)
+        assertEquals(RouteBoundary(12.0), contribution.releaseAfterTailPasses)
+    }
 
-        val failure = assertThrows(IllegalStateException::class.java) {
-            policy.contribute(worldId, intent(12.0))
-        }
+    @Test
+    fun `operating route may start and stop inside a multi rail fixed block`() {
+        val stationRoute = route(listOf(
+            RouteSegmentSnapshot(first, ViewDirection.AB, 5.0, 10.0),
+            RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 4.0)
+        ))
+        val match = FixedBlockRouteMatcher.matchRoute(snapshot, stationRoute) as FixedBlockAuthorityMatchResult.Matched
+        assertEquals(FixedBlockRouteWindow(block.blockId, 0.0, 9.0, enteredAtBoundary = false), match.windows.single())
+        assertEquals(RouteBoundary(9.0), policy.contribute(worldId, intent(9.0, stationRoute))
+            .single().releaseAfterTailPasses)
+    }
 
-        assertTrue(failure.message.orEmpty().contains("partially traverses fixed block test:block"))
+    @Test
+    fun `reverse facing station route keeps directed geometry and allows partial endpoints`() {
+        val reverse = FixedBlockDefinition("test:reverse-station", 1L, listOf(
+            FixedBlockTraversal(second, ViewDirection.BA, 0.0, 10.0),
+            FixedBlockTraversal(first, ViewDirection.BA, 2.0, 10.0)
+        ))
+        val reverseSnapshot = FixedBlockCatalog().also {
+            assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(topology, 1L, listOf(reverse)).status)
+        }.snapshot(topology)
+        val stationRoute = route(listOf(
+            RouteSegmentSnapshot(second, ViewDirection.BA, 4.0, 10.0),
+            RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 5.0)
+        ))
+        val windows = (FixedBlockRouteMatcher.matchRoute(reverseSnapshot, stationRoute)
+            as FixedBlockAuthorityMatchResult.Matched).windows
+        assertEquals(FixedBlockRouteWindow(reverse.blockId, 0.0, 11.0, false), windows.single())
+    }
+
+    @Test
+    fun `leaving a block by a different branch is not a legal clipped station endpoint`() {
+        val branch = UUID(0L, 3L)
+        val fork = topologyState(8L, listOf(first, second, branch), listOf(
+            endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A),
+            endpoint(first, RailEndpoint.B) to endpoint(branch, RailEndpoint.A)
+        ))
+        val forkSnapshot = FixedBlockCatalog().also {
+            assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(fork, 1L, listOf(block)).status)
+        }.snapshot(fork)
+        val branchRoute = RouteSnapshot("test:branch-route", 1L, fork.revision, listOf(
+            RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
+            RouteSegmentSnapshot(branch, ViewDirection.AB, 0.0, 10.0)
+        ))
+        val result = FixedBlockRouteMatcher.matchAuthority(forkSnapshot, branchRoute, 6.0)
+        assertTrue(result is FixedBlockAuthorityMatchResult.Rejected)
+        assertTrue((result as FixedBlockAuthorityMatchResult.Rejected).detail.contains("leaves the directed traversal"))
     }
 
     @Test

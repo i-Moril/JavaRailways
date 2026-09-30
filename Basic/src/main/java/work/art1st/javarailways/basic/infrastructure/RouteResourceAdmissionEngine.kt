@@ -317,6 +317,9 @@ internal class RouteResourceAdmissionEngine(
         }
         val contributionOwnerByResource = LinkedHashMap<StableInfrastructureResource, Any>()
         val contributions = ArrayList<ContributedRouteResource>(authenticatedContributions.size)
+        val release = existing?.tailRelease
+        val held = release?.remainingEntries?.associateBy(ResolvedTailReleaseEntry::resource).orEmpty()
+        val acceptedTailProgress = release?.acceptedTailProgressMeters
         for ((contributor, contribution) in authenticatedContributions) {
             if (contribution.releaseAfterTailPasses.distanceFromRouteStartMeters > newFrontier) {
                 return rejected(RouteAdmissionFailureCode.INVALID_BOUNDARY,
@@ -326,10 +329,22 @@ internal class RouteResourceAdmissionEngine(
                 return rejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
                     "duplicate contributed resource ${contribution.resource.typeId}/${contribution.resource.resourceId}")
             }
+            // Contributors see the complete requested prefix, including resources already cleared
+            // behind this route's tail. Validate those values, but do not reacquire their identities.
+            if (contribution.resource !in held && acceptedTailProgress != null &&
+                contribution.releaseAfterTailPasses.distanceFromRouteStartMeters <= acceptedTailProgress
+            ) {
+                val failure = try {
+                    validateContribution(contributor, contribution)
+                } catch (failure: Exception) {
+                    return rejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+                        "resource owner validation failed: ${failure.message ?: failure.javaClass.simpleName}")
+                }
+                if (failure != null) return RouteAdmissionResult.Rejected(failure)
+                continue
+            }
             contributions += contribution
         }
-        val release = existing?.tailRelease
-        val held = release?.remainingEntries?.associateBy(ResolvedTailReleaseEntry::resource).orEmpty()
         for (contribution in contributions) {
             val previous = held[contribution.resource] ?: continue
             if (contribution.releaseAfterTailPasses.distanceFromRouteStartMeters < previous.tailClearRouteMeters) {

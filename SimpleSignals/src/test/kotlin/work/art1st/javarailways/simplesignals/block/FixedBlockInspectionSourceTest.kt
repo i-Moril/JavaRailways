@@ -110,7 +110,7 @@ class FixedBlockInspectionSourceTest {
     }
 
     @Test
-    fun `route ending inside a fixed block rejects binding`() {
+    fun `route ending at a station inside a fixed block clamps the floor to the stop`() {
         val block = FixedBlockDefinition(
             "test:block",
             1L,
@@ -119,11 +119,33 @@ class FixedBlockInspectionSourceTest {
         val snapshot = snapshot(block)
         val partial = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 5.0))
 
-        assertThrows(IllegalStateException::class.java) {
-            FixedBlockInspectionSource(snapshot = { snapshot }).source.bindingProvider.bind(
+        val declaration = FixedBlockInspectionSource(snapshot = { snapshot }).source.bindingProvider.bind(
                 InspectionBindingInput(stamp(), "train", partial)
-            )
-        }
+            ).declarations.single()
+        assertEquals(2.0, declaration.triggerRouteDistanceMeters)
+        assertEquals(5.0, declaration.minimumRequestedAuthorityEndRouteDistanceMeters)
+    }
+
+    @Test
+    fun `starting within a block retains its floor without reading the red entry signal`() {
+        val block = FixedBlockDefinition("test:station", 1L,
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 9.0)))
+        val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 5.0, 10.0))
+        val publications = arrayListOf<TrainRestrictionSnapshot>()
+        val source = FixedBlockInspectionSource(snapshot = { snapshot(block) },
+            signalState = { error("entrance signal behind the occupant must not be read") },
+            hasConfiguredSignal = { true }).source
+        val runtime = InspectionRuntime(
+            publisher = { publication ->
+                publications += publication
+                TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, publication.revision)
+            }, sourceUnavailable = { _, _, failure -> throw failure })
+        runtime.replaceSources(listOf(source))
+        runtime.synchronizeRoute(stamp(), "train", route)
+        val binding = FrozenRouteBinding.from(route)
+        assertEquals(RouteBoundary(4.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(1.0)))
+        runtime.createTrainInspection("train").update(stamp(), binding, 0.0, 3.0, 20.0, 1.0, perception(route))
+        assertEquals(emptyList<Any>(), publications.single().restrictions)
     }
 
     @Test

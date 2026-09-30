@@ -35,15 +35,53 @@ class InspectionSchedulerTest {
 
         assertEquals(listOf("test:first"), binding.declarations.map { it.declarationId })
         assertNotSame(declarations, binding.declarations)
+        assertEquals(2, binding(listOf(
+                declaration("test:duplicate", firstRail, ViewDirection.AB, 50.0, 10.0),
+                declaration("test:duplicate", secondRail, ViewDirection.BA, 150.0, 10.0)
+            )).declarations.size)
         assertThrows(IllegalArgumentException::class.java) {
             binding(listOf(
                 declaration("test:duplicate", firstRail, ViewDirection.AB, 50.0, 10.0),
-                declaration("test:duplicate", secondRail, ViewDirection.BA, 150.0, 10.0)
+                declaration("test:duplicate", firstRail, ViewDirection.AB, 50.0, 20.0)
+            ))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            binding(listOf(
+                declaration("test:zero", firstRail, ViewDirection.AB, 0.0, 10.0),
+                declaration("test:zero", firstRail, ViewDirection.AB, -0.0, 10.0)
             ))
         }
         assertThrows(IllegalArgumentException::class.java) {
             declaration("not-namespaced", firstRail, ViewDirection.AB, 50.0, 10.0)
         }
+    }
+
+    @Test
+    fun `stable identity invalidation wakes all active visits and passing nearer visit changes active set`() {
+        val scheduler = scheduler(
+            declaration("test:signal", firstRail, ViewDirection.AB, 50.0, 0.0),
+            declaration("test:signal", firstRail, ViewDirection.AB, 250.0, 0.0)
+        )
+        assertEquals(listOf(50.0, 250.0), requireNotNull(scheduler.updatesFor(0.0, 300.0))
+            .map { it.triggerRouteDistanceMeters })
+        assertNull(scheduler.updatesFor(10.0, 300.0))
+        scheduler.markPresentDirty(listOf("test:signal"))
+        assertEquals(listOf(50.0, 250.0), requireNotNull(scheduler.updatesFor(10.0, 300.0))
+            .map { it.triggerRouteDistanceMeters })
+        assertEquals(listOf(250.0), requireNotNull(scheduler.updatesFor(60.0, 300.0))
+            .map { it.triggerRouteDistanceMeters })
+        assertNull(scheduler.updatesFor(70.0, 300.0))
+    }
+
+    @Test
+    fun `replacement by later visit updates even when stable active identity stays the same`() {
+        val scheduler = scheduler(
+            declaration("test:signal", firstRail, ViewDirection.AB, 50.0, 0.0),
+            declaration("test:signal", firstRail, ViewDirection.AB, 250.0, 0.0)
+        )
+        assertEquals(50.0, requireNotNull(scheduler.updatesFor(0.0, 60.0)).single().triggerRouteDistanceMeters)
+        assertEquals(250.0, requireNotNull(scheduler.updatesFor(200.0, 60.0)).single().triggerRouteDistanceMeters)
+        assertNull(scheduler.updatesFor(210.0, 60.0))
     }
 
     @Test

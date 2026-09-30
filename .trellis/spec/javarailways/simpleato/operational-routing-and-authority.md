@@ -194,6 +194,8 @@ production route；host在Dispatcher选定exact `RouteSnapshot`后调用source b
 - 可选的最小请求终点：nominal authority严格越过本声明触发点后，请求边界至少到达该route-metre；
 - 插件定义revision和列车低频能力revision。
 
+同一`InspectionDeclarationBinding`内以`(declarationId, triggerRouteDistanceMeters)`判定唯一性：同一稳定信号/资源ID可以在
+不同路线米数出现，重复的同ID同位置仍拒绝（`-0.0`与`0.0`表示同一位置）。不增加visit ID或持久化字段。
 同一rail在环线或折返路线中可以重复出现，因此不能只用rail UUID定位声明。编译器先用路线累计距离二分定位声明的唯一
 segment occurrence，并以声明携带的rail UUID和AB/BA方向做一次交叉验证；随后只需按occurrence-specific绝对触发米数排序声明，
 并保存声明提前时间的最大值。空声明集的最大值为0。插件原子替换完整binding，SimpleATO不逐项拼接来自不同route/profile revision的声明。
@@ -251,6 +253,8 @@ if active != previousActive or any(active is explicitlyDirty):
 当前速度变化只重算`dynamicLookahead`，不执行插件编译。占用、claim/grant或下游信号状态等运行变化由具体信号插件自己的
 反向索引转换为“哪些稳定声明已dirty”；SimpleATO只记录并调度这些ID，不复制其依赖图。
 
+scheduler保留当前激活的不可变声明值，而不是只保留ID集合；同ID的两次经过都能进入完整active集合，经过第一处而剩下
+第二处时也必须触发更新。dirty集合仍使用稳定ID，一次失效唤醒该ID当前激活的所有声明，不引入失效转发索引或第二套缓存。
 声明首次进入有效检查范围时激活一次。此后只有显式dirty、完整binding替换、进入或离开范围才调度来源；距离正常变化而完整
 active集合未变时保持`IDLE`。每次调用收到当前完整active声明集合，而不是增量列表，并必须返回一个完整restriction snapshot；
 最后一个声明离开时集合为空，插件用新的空restriction snapshot清除已经越过的route-local信号限制。Basic资源仍只按其
@@ -371,6 +375,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 
 - Good：列车去往运营停车点，SimpleATO 选择一条包含道岔和 diamond 的 traversal；Basic 从同一 topology root 验证并收集资源，SimpleATO 从 grant 生成唯一 authority constraint。
 - Good：保护区域出口后的列车净空进入固定闭塞；信号插件的route-decision层选择包含所需固定区间的boundary与addition，Basic只推导物理底线并原子claim最终union，region对象本身不递归查询后继。
+- Good：同一信号在路线100m与800m分别产生声明；两处独立激活，稳定ID失效仍通知两处，经过100m后剩下800m会触发完整更新。
 - Base：纯直线移动闭塞路线没有plugin-controlled resource；Basic仍claim所申请范围的mandatory rail intervals，SimpleATO再用车辆、停车和速度constraint限制列车。
 - Bad：SimpleATO 同时提交 route 与自己猜测的 turnout/diamond footprint；两份事实可能漂移，必须只提交 route。
 - Bad：每个信号脚本重新遍历前方路线和所有列车；必须消费一次 perception 与索引化 section observation。
@@ -391,6 +396,8 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 - inspection scheduling：插件只在route/profile/definition变化时编译完整不可变声明；最大声明提前时间按最高速度扩展现有单次
   perception，当前速度下的可达距离与动态制动距离每tick由host计算；编译期occurrence验证、绝对路线坐标激活、首次激活、
   显式dirty、IDLE和stale fail-close均有独立断言。
+- repeated inspection：同ID不同触发位置可绑定，同ID同位置（含正负零）拒绝；两次经过同时active、稳定ID dirty后完整回调、
+  第一处退出而第二处仍active时调度更新，以及未变集合保持IDLE。restriction snapshot仍要求restriction ID唯一，具体插件负责合法归约。
 - inspection runtime：完整binding替换失败保留旧session；多个source的callback结果在首次publication前完成校验；callback、
   validation或publisher失败通知fail-closed owner且未发布工作保持dirty；source/train移除不触碰Basic claim或伪造restriction撤销。
 - control pipeline：车辆、停车、信号和 grant candidates 只做一次 perception，并归约到最严格 speed/authority。

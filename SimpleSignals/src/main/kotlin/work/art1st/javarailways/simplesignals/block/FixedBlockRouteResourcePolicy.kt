@@ -52,11 +52,15 @@ internal class FixedBlockRouteResourcePolicy(
             is FixedBlockAuthorityMatchResult.Matched -> match.windows
             is FixedBlockAuthorityMatchResult.Rejected -> error(match.detail)
         }
+        val lastExitByBlock = linkedMapOf<String, Double>()
+        windows.forEach { window ->
+            lastExitByBlock.merge(window.blockId, window.exitRouteDistanceMeters, ::maxOf)
+        }
         return java.util.List.copyOf(
-            windows.map { window ->
+            lastExitByBlock.map { (blockId, lastExit) ->
                 ContributedRouteResource(
-                    StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, window.blockId),
-                    RouteBoundary(window.exitRouteDistanceMeters)
+                    StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, blockId),
+                    RouteBoundary(lastExit)
                 )
             }
         )

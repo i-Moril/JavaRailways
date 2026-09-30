@@ -56,7 +56,16 @@ internal class FixedBlockInspectionSource(
         },
         updateHandler = { input ->
             val revision = nextRevision.getAndUpdate { current -> Math.addExact(current, 1L) }
-            val restrictions = input.activeDeclarations.mapNotNull { declaration ->
+            // One physical signal can occur repeatedly on a frozen route. Its shared state needs
+            // one restriction at the nearest active occurrence, not duplicate restriction IDs.
+            val nearestById = linkedMapOf<String, InspectionDeclaration>()
+            input.activeDeclarations.forEach { declaration ->
+                val previous = nearestById[declaration.declarationId]
+                if (previous == null || declaration.triggerRouteDistanceMeters < previous.triggerRouteDistanceMeters) {
+                    nearestById[declaration.declarationId] = declaration
+                }
+            }
+            val restrictions = nearestById.values.mapNotNull { declaration ->
                 val protection = hasConfiguredProtectionSignal(declaration.declarationId)
                 val blockId = if (protection) null else blockIdFromSignalDeclaration(declaration.declarationId)
                 val published = if (protection) protectionSignalState(declaration.declarationId)

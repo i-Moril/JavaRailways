@@ -72,19 +72,15 @@ internal object FixedBlockRouteMatcher {
                         block.definition.blockId
                 )
             }
-            if (complete.size > 1) {
-                return FixedBlockAuthorityMatchResult.Rejected(
-                    "authority traverses fixed block ${block.definition.blockId} more than once"
+            for (run in complete) {
+                if (run.routeStartMeters >= authorityEndRouteMeters - Curve.TOLERANCE) continue
+                windows += FixedBlockRouteWindow(
+                    block.definition.blockId,
+                    run.routeStartMeters,
+                    min(run.routeEndMeters, authorityEndRouteMeters),
+                    enteredAtBoundary = run.blockStartMeters <= Curve.TOLERANCE
                 )
             }
-            val run = complete.single()
-            if (run.routeStartMeters >= authorityEndRouteMeters - Curve.TOLERANCE) continue
-            windows += FixedBlockRouteWindow(
-                block.definition.blockId,
-                run.routeStartMeters,
-                min(run.routeEndMeters, authorityEndRouteMeters),
-                enteredAtBoundary = run.blockStartMeters <= Curve.TOLERANCE
-            )
         }
         return FixedBlockAuthorityMatchResult.Matched(
             java.util.List.copyOf(

@@ -112,12 +112,16 @@ The current partial-block batch keeps one stable block identity and extends its 
 Signal declarations represent actual authored entrances, not clipped resource-overlap starts. Internal starts create no entrance declaration/floor;
 the existing head-forward inspection scheduler excludes real entrances already behind the head. Resource contribution and held claims remain independent,
 so this simplification requires no change to Basic's frozen-route origin, first bootstrap, incremental request range or release queue.
-Repeated visits with distinct route positions but the same resource identity remain a reviewed target, not a completed runtime capability:
-the single-visit matcher rejection remains until inspection declarations, invalidation and region selection can represent every visit correctly.
+The reviewed repeated-fixed-block batch distinguishes inspection visits by stable declaration ID plus route trigger position, while dirty
+notifications keep the stable ID. Each visit retains its own entry floor; the concrete fixed-block source projects the nearest active visit
+to one restriction per signal. Resource contributions coalesce only windows covered by the current requested prefix, using the original
+block token and the latest covered exit. No occurrence-specific resource ID, public field or second release queue is introduced.
+Repeated complete-region selection and Basic's repeated turnout/diamond preparation remain separate work; this batch must not claim
+full repeated-device or return-to-depot support merely because fixed-block matching and neutral inspection can represent repeated visits.
 Basic already retains resources and rebuilds the route coordinate at stopped reversal, but directional block-token correspondence is unresolved;
 the return-to-depot signal/resource integration must not be described as complete. Basic independently adds the physical rail, turnout and diamond
 floor and atomically claims the union. The exact current matching, authority and release bounds belong in the SimpleSignals owner spec;
-only the complete-block-only rejection is removed in this batch.
+the current partial-endpoint and repeated-fixed-block behavior is recorded there without claiming repeated-device preparation is complete.
 
 The first common live section slice now covers fixed-block occupancy only. On world installation,
 SimpleSignals groups every compiled block area into one host `SignalEpochSource`; Basic derives the

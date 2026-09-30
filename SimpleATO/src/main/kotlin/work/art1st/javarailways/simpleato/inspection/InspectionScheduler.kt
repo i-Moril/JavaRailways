@@ -150,7 +150,7 @@ internal class CompiledInspectionBinding private constructor(
  */
 internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
     private var binding = initialBinding
-    private val activeDeclarationIds = hashSetOf<String>()
+    private val activeDeclarations = hashSetOf<InspectionDeclaration>()
     private val dirtyDeclarationIds = hashSetOf<String>()
     private var retryPending = false
 
@@ -159,7 +159,7 @@ internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
 
     fun replaceBinding(replacement: CompiledInspectionBinding) {
         binding = replacement
-        activeDeclarationIds.clear()
+        activeDeclarations.clear()
         dirtyDeclarationIds.clear()
         retryPending = false
     }
@@ -201,7 +201,7 @@ internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
             binding.binding.route.totalLengthMeters,
             currentHeadRouteDistanceMeters + maximumActivationDistance
         )
-        val visible = linkedMapOf<String, InspectionDeclaration>()
+        val visible = arrayListOf<InspectionDeclaration>()
         binding.declarationsBetween(currentHeadRouteDistanceMeters, visibleEndRouteDistance)
             .forEach { declaration ->
                 val distance = declaration.triggerRouteDistanceMeters - currentHeadRouteDistanceMeters
@@ -215,19 +215,19 @@ internal class InspectionScheduler(initialBinding: CompiledInspectionBinding) {
                     dynamicLookaheadMeters
                 )
                 if (distance <= threshold) {
-                    visible[declaration.declarationId] = declaration
+                    visible += declaration
                 }
             }
 
-        val visibleIds = visible.keys
-        val activeSetChanged = activeDeclarationIds != visibleIds
-        val activeWasInvalidated = visibleIds.any(dirtyDeclarationIds::contains)
+        val visibleSet = visible.toSet()
+        val activeSetChanged = activeDeclarations != visibleSet
+        val activeWasInvalidated = visible.any { it.declarationId in dirtyDeclarationIds }
         val shouldUpdate = activeSetChanged || activeWasInvalidated || retryPending
-        activeDeclarationIds.clear()
-        activeDeclarationIds += visibleIds
+        activeDeclarations.clear()
+        activeDeclarations += visibleSet
         dirtyDeclarationIds.clear()
         retryPending = false
-        return if (shouldUpdate) visible.values.toList() else null
+        return if (shouldUpdate) visible else null
     }
 }
 

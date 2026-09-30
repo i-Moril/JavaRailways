@@ -25,6 +25,8 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
+import work.art1st.javarailways.core.physics.train.createLoopRailFromSegments
+import work.art1st.javarailways.core.physics.train.getViewsInOrder
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import java.lang.reflect.Proxy
@@ -32,6 +34,88 @@ import java.util.UUID
 
 /** Real Basic claims and cursor release, using the concrete plugin contributor. */
 class FixedBlockStopContinuationTest {
+    @Test
+    fun `degree two loop extends same token to second visit and releases after last tail clearance`() {
+        val world = createTestWorld()
+        val firstRail = createLoopRailFromSegments(world, PrimeCurveGenerator.buildCircle(20.0, 4))
+        val views = getViewsInOrder(firstRail, true)
+        assertEquals(4, views.size)
+        val topology = world.topologyState
+        val worldId = UUID.randomUUID()
+        val plugin = Plugin::class.java.cast(Proxy.newProxyInstance(Plugin::class.java.classLoader,
+            arrayOf(Plugin::class.java)) { proxy, method, arguments ->
+            when (method.name) {
+                "isEnabled" -> true
+                "getName", "toString" -> "SimpleSignals"
+                "hashCode" -> System.identityHashCode(proxy)
+                "equals" -> proxy === arguments?.singleOrNull()
+                else -> throw UnsupportedOperationException(method.name)
+            }
+        })
+        val block = FixedBlockDefinition("test:loop-block", 1L,
+            listOf(FixedBlockTraversal(firstRail.id, ViewDirection.AB, 2.0, 8.0)))
+        val snapshot = FixedBlockCatalog().also {
+            assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(topology, 1L, listOf(block)).status)
+        }.snapshot(topology)
+        val policy = FixedBlockRouteResourcePolicy(plugin) { snapshot }
+        val token = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)
+        val railIds = views.map { it.rail.id }.toSet()
+        val registry = InfrastructureCoordinationRegistry({ topology.revision }, { resource ->
+            resource == token || resource is RailIntervalResource && resource.railId in railIds
+        })
+        fun observe(epoch: Long, railIndex: Int, tail: Double) = RailwayObservation.fromCore(worldId.toString(),
+            RailwayWorldFrameSnapshot.create(epoch, topology.revision, listOf(TrainFrameSnapshot.create(
+                "train", "Train", epoch, epoch, 0.0, false, false, emptyList(),
+                RailPositionSnapshot(views[railIndex].rail.id, ViewDirection.AB, tail + 1.0),
+                RailPositionSnapshot(views[railIndex].rail.id, ViewDirection.AB, tail),
+                listOf(RailInterval(views[railIndex].rail.id, tail, tail + 1.0)),
+                emptyList(), emptyList(), emptyList(), emptyList()
+            )), ActiveRailContinuationsSnapshot.empty(topology.revision)))
+        var observation = observe(1L, 0, 0.0)
+        val runtime = RouteResourceAdmissionRuntime.create(worldId.toString(), world, registry, Any(),
+            { observation }, { intent -> policy.contribute(worldId, intent).map { plugin to it } },
+            { _, contribution -> policy.validateRouteContribution(plugin, worldId, contribution.resource.resourceId,
+                contribution.preparation)?.let { work.art1st.javarailways.basic.api.route.RouteAdmissionFailure(it, "invalid") } },
+            { _, _ -> null }) { _, failure -> throw failure }
+        val requester = Any()
+        val segments = (views + views.first()).map {
+            RouteSegmentSnapshot(it.rail.id, ViewDirection.AB, 0.0, it.curve.totalArcLength)
+        }
+        val route = RouteSnapshot("test:loop-route", 1L, topology.revision, segments)
+        val circumference = views.sumOf { it.curve.totalArcLength }
+        fun intent(authority: Double) = RouteResourceIntent("test:request", InfrastructureOwner("test:owner", 1L),
+            "train", observation.stamp, route, RouteBoundary(authority))
+        fun held() = registry.claimSnapshots().flatMap { it.footprint.resources }.toSet()
+        fun advance(epoch: Long, railIndex: Int, tail: Double) {
+            observation = observe(epoch, railIndex, tail)
+            runtime.consumeObservation(observation)
+        }
+        try {
+            val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+                runtime.request(requester, intent(8.0))).grant
+            assertTrue(token in held())
+            val extensionIntent = intent(circumference + 10.0)
+            assertEquals(circumference + 8.0, policy.contribute(worldId, extensionIntent).single()
+                .releaseAfterTailPasses.distanceFromRouteStartMeters, 1e-6)
+            val extended = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+                runtime.request(requester, extensionIntent)).grant
+            assertSame(first.grantId, extended.grantId)
+            assertEquals(1, held().count { it == token })
+
+            advance(2L, 0, 9.0)
+            assertTrue(token in held(), "the first traversal cannot release the token reserved for the second")
+            for (index in 1 until views.size) advance(index + 2L, index, 5.0)
+            advance(6L, 0, 7.0)
+            assertTrue(token in held(), "the second head has reached the exit but its tail has not")
+            advance(7L, 0, 9.0)
+            assertFalse(token in held(), "the shared token releases after the final traversal's tail clears")
+        } finally {
+            runtime.close()
+            world.physicsCoordinator.close()
+            (world.tickManager as? AutoCloseable)?.close()
+        }
+    }
+
     @Test
     fun `stop inside block retains token and forward continuation releases only after tail clears exit`() {
         val world = createTestWorld()

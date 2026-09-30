@@ -156,11 +156,12 @@ InspectionDeclaration(
 - `R`为冻结路线occurrence数；
 - `K`为路线reverse index命中的唯一fixed block数；
 - `I`为候选block traversal与同rail route occurrence的实际比较数；
+- `B`为输出的fixed-block windows数（同一block可有多次经过）；
 - `W`为命中的region window数；
 - `M`为所有exit容差窗口中的实际同点候选数。
 
 fixed-block matcher成本为`O(R + K log K + I log I)`；每个region对排序结果做一次lower-bound，衔接成本为
-`O(W log K + M)`。region matcher保留自己的route projection与reverse-index成本。当前允许region source和
+`O(W log B + M)`。region matcher保留自己的route projection与reverse-index成本。当前允许region source和
 fixed-block source在低频binding阶段分别执行一次fixed-block匹配；不为消除这次重复引入跨source cache、共享
 publication token或失效协议。
 

@@ -187,8 +187,11 @@ matcher先在完整冻结路线中合并候选block交集，再按本次`desired
 `ContributedRouteResource(StableInfrastructureResource("simplesignals:fixed-block", blockId), exitRouteBoundary)`。
 `exitRouteBoundary`为本次已授权交集的末端，不能超过请求终点；整个block token的持有与物理行车授权距离是两件事。
 在block内停车时车尾无法越过该末端，因此token保持；继续申请时，同一token在既有host队列中延长到新的交集末端，直到车尾实际离开。
-同一block在完整冻结路线中出现多个独立window仍是当前实现限制，不是运营禁止规则；完整支持需要同步route-occurrence声明、
-信号失效路由和宿主物理资源准备，不能只删除matcher拒绝分支。折返前后两段运营路线不等于同一冻结路线绕圈，不能因此拒绝整个回库任务。
+同一block在完整冻结路线中可以产生多个合法window；每次经过仍须满足完整有向路径或只在路线端点裁剪，不能借重复经过
+放宽中途偏离检查。contributor用block ID合并本次authority prefix内的windows，每个token只提交一次，释放boundary取已覆盖
+window的最大exit；未申请的未来经过不得抬高释放点。Basic沿用原claim/extension/tail-release队列，不创建visit资源或插件释放队列。
+这只完成固定闭塞与中立inspection的重复位置表达；保护区域入口选择及Basic重复turnout/diamond准备仍未完成。
+折返前后两段运营路线不等于同一冻结路线绕圈，不能因此拒绝整个回库任务，也不能宣称完整回库资源衔接已实现。
 不同block独立加入同一个union；Basic仍自行编译不可删除的rail/turnout/diamond物理底线并原子claim。
 
 匹配失败、stale topology、缺world runtime或provider validation失败均发生在registry mutation前。在线definition patch继续持有旧、新
@@ -209,14 +212,23 @@ binding provider复用同一publication reverse index和exact frozen-route match
 已有claim与车尾释放队列照常保留/延长，不依赖一个虚构信号。后续block的真实入口仍正常产生声明与限制。
 真实入口若位于完整冻结路线中但已经被车头越过，既有`InspectionScheduler.declarationsBetween(head, head + horizon)`自然排除它；
 不新增车后信号handler、不使用特殊声明ID或每tick的block状态特判，也不移动冻结路线原点或重建已有资源队列。
-真实前方入口的红灯/缺baseline仍产生0速度限制。没有改变作者ID、block资源ID、host API或sidecar格式。
+真实前方入口的红灯/缺baseline仍产生0速度限制。没有改变作者ID、block资源ID、host API字段或sidecar格式。
+同一真实入口在路线不同位置重复出现时，source保留每次经过的稳定声明ID、trigger和authority floor。SimpleATO按
+`(ID, trigger)`区分声明，稳定ID的信号失效同时作用于当前active的各次经过。update handler对同ID的active声明做单次线性归约，
+只在最近的入口位置发布该信号的唯一restriction，读取一次共享信号状态；车头通过后，激活集合变化使下一入口接管。
+这只适用于本source对同一物理信号发布共享状态的语义，不把“最近一次”规定为所有第三方插件的通用限制归约策略。
+`TrainRestrictionSnapshot`的restriction ID唯一性不变，不用route-position字符串伪造新的物理信号身份。
+设本次匹配`W_b`个block windows、当前active声明`A`个，资源合并为`O(W_b)`，最近入口归约为`O(A)`；
+host的二分激活查询仍为`O(log D + K_a)`，`D`为完整声明数、`K_a`为前视候选数，不增加tick路线扫描或信号规则重算。
 定义patch的旧、新affected-rail permit会被active
 frozen-route dependency阻止，因此retained inspection binding不会在运行中失效；不相交、非运营轨道仍可在线编辑。
 
 Good/Base：block为`[100m,300m]`、运营停车点在`200m`，取得block token而authority止于`200m`；下一段任务延长同一授权与释放位置。
 从block内部站台起步没有伪造入口声明/floor，资源申请仍有效；真实入口在路线中但位于车头后时由已有前视筛选排除。
 Bad：非路线端点处中途离开block定义的有向路径仍拒绝；把裁剪后的资源交集起点当作入口信号位置也错误。
-既有单路线重复经过限制必须明确报告，不能宣称已支持多圈或完整回库。测试须覆盖内部起止、内部起点无声明/无floor、
+保护区域和重复设备准备限制必须明确报告，不能宣称完整多圈进路或回库已经支持。测试须覆盖同一block多次合法window、
+请求prefix只产生一个稳定token/最新已覆盖释放点、每次真实入口的floor、最近active入口投影、通过后切换及stable-ID失效、
+degree-2物理环线上的真实Basic申请/延长/车尾释放，并覆盖内部起止、内部起点无声明/无floor、
 已越过真实入口不读取信号、后续真实入口照常激活、入口零交集、真实前方入口缺baseline仍为0、
 停车保留token、延长后车尾释放，以及已释放历史block在之后的申请中不被重新取得。
 

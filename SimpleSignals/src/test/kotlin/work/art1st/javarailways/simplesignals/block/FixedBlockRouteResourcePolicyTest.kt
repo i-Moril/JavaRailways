@@ -179,7 +179,7 @@ class FixedBlockRouteResourcePolicyTest {
     }
 
     @Test
-    fun `one authority may not traverse the same fixed block twice`() {
+    fun `repeated visits contribute one stable token held to last requested exit`() {
         val third = UUID(0L, 3L)
         val loopTopology = topologyState(
             8L,
@@ -222,11 +222,17 @@ class FixedBlockRouteResourcePolicyTest {
             RouteBoundary(38.0)
         )
 
-        val failure = assertThrows(IllegalStateException::class.java) {
-            loopPolicy.contribute(worldId, loopIntent)
-        }
-
-        assertTrue(failure.message.orEmpty().contains("more than once"))
+        val identity = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, loopBlock.blockId)
+        val both = loopPolicy.contribute(worldId, loopIntent).single()
+        assertEquals(identity, both.resource)
+        assertEquals(RouteBoundary(38.0), both.releaseAfterTailPasses)
+        val firstOnly = loopPolicy.contribute(worldId, loopIntent.copy(desiredAuthority = RouteBoundary(20.0))).single()
+        assertEquals(identity, firstOnly.resource)
+        assertEquals(RouteBoundary(8.0), firstOnly.releaseAfterTailPasses)
+        assertEquals(RouteBoundary(34.0), loopPolicy.contribute(worldId,
+            loopIntent.copy(desiredAuthority = RouteBoundary(34.0))).single().releaseAfterTailPasses)
+        assertEquals(RouteBoundary(8.0), loopPolicy.contribute(worldId,
+            loopIntent.copy(desiredAuthority = RouteBoundary(32.0))).single().releaseAfterTailPasses)
     }
 
     @Test

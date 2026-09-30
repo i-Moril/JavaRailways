@@ -13,7 +13,8 @@ import java.util.UUID
  * [railId] and [facing] let the host verify that occurrence once when compiling the binding.
  * Runtime activation uses the validated absolute route coordinate and does not scan the route again.
  *
- * @property declarationId stable namespaced resource or signal identity within one source
+ * @property declarationId stable namespaced resource or signal identity within one source;
+ * the same identity may occur at distinct trigger positions on one frozen route
  * @property railId persistent rail UUID containing the trigger
  * @property facing direction in which the train reaches the trigger
  * @property triggerRouteDistanceMeters absolute trigger position from the frozen-route start
@@ -93,8 +94,11 @@ data class InspectionDeclarationBinding private constructor(
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         require(definitionRevision >= 0L) { "definitionRevision must be non-negative" }
         require(trainProfileRevision >= 0L) { "trainProfileRevision must be non-negative" }
-        require(declarations.map(InspectionDeclaration::declarationId).distinct().size == declarations.size) {
-            "declaration IDs must be unique within one binding"
+        require(declarations.map { declaration ->
+            declaration.declarationId to if (declaration.triggerRouteDistanceMeters == 0.0) 0.0
+                else declaration.triggerRouteDistanceMeters
+        }.distinct().size == declarations.size) {
+            "declaration identity and trigger position must be unique within one binding"
         }
         declarations.forEach { declaration ->
             require(declaration.triggerRouteDistanceMeters <= route.totalLengthMeters) {

@@ -22,6 +22,9 @@ import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.region.lineTopologyState
+import work.art1st.javarailways.simplesignals.region.topologyState
+import work.art1st.javarailways.simplesignals.region.endpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntime
 import work.art1st.javarailways.simplesignals.runtime.PublishedSectionSignal
 import work.art1st.javarailways.simplesignals.runtime.SectionSignalOutput
@@ -39,6 +42,60 @@ class FixedBlockInspectionSourceTest {
     private val first = UUID(0L, 1L)
     private val second = UUID(0L, 2L)
     private val topology = lineTopologyState(7L, first, second)
+
+    @Test
+    fun `repeated entrance uses stable invalidation and nearest active restriction with separate floors`() {
+        val third = UUID(0L, 3L)
+        val loop = topologyState(7L, listOf(first, second, third), listOf(
+            endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A),
+            endpoint(second, RailEndpoint.B) to endpoint(third, RailEndpoint.A),
+            endpoint(third, RailEndpoint.B) to endpoint(first, RailEndpoint.A)))
+        val block = FixedBlockDefinition("test:loop", 1L,
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)))
+        val snapshot = FixedBlockCatalog().also {
+            assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(loop, 1L, listOf(block)).status)
+        }.snapshot(loop)
+        val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
+            RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0),
+            RouteSegmentSnapshot(third, ViewDirection.AB, 0.0, 10.0),
+            RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0))
+        var signal: PublishedSectionSignal? = null
+        val source = FixedBlockInspectionSource({ snapshot }, { signal }, { true }).source
+        val declarations = source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", route)).declarations
+        assertEquals(listOf(2.0, 32.0), declarations.map { it.triggerRouteDistanceMeters })
+        assertEquals(listOf(8.0, 38.0), declarations.map { it.minimumRequestedAuthorityEndRouteDistanceMeters })
+        assertEquals(setOf(fixedBlockSignalDeclarationId(block.blockId)), declarations.map { it.declarationId }.toSet())
+        val publications = arrayListOf<TrainRestrictionSnapshot>()
+        val runtime = InspectionRuntime({ publication ->
+            publications += publication
+            TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, publication.revision)
+        }) { _, _, failure -> throw failure }
+        runtime.replaceSources(listOf(source))
+        runtime.synchronizeRoute(stamp(), "train", route)
+        val binding = FrozenRouteBinding.from(route)
+        assertEquals(RouteBoundary(8.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(3.0)))
+        assertEquals(RouteBoundary(38.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(33.0)))
+        val inspection = runtime.createTrainInspection("train")
+        fun update(epoch: Long, head: Double) = inspection.update(stamp(epoch), binding, head,
+            40.0, 20.0, 1.0, perception(route))
+        fun restriction() = publications.last().restrictions.single() as RouteSpeedRestriction
+        update(1L, 0.0)
+        assertEquals(2.0, restriction().routeDistanceMeters)
+        assertEquals(0.0, restriction().maximumSpeedMetersPerSecond, "missing baseline stays red")
+        signal = PublishedSectionSignal(stamp(2L), SectionSignalState.Available(SectionSignalOutput(9.5, "custom-open")))
+        runtime.markDirty(FIXED_BLOCK_SIGNAL_SOURCE_ID, listOf(fixedBlockSignalDeclarationId(block.blockId)))
+        update(2L, 0.0)
+        assertEquals(9.5, restriction().maximumSpeedMetersPerSecond)
+        update(2L, 3.0)
+        assertEquals(32.0, restriction().routeDistanceMeters)
+        signal = PublishedSectionSignal(stamp(3L), SectionSignalState.Available(SectionSignalOutput(0.0, "custom-red")))
+        runtime.markDirty(FIXED_BLOCK_SIGNAL_SOURCE_ID, listOf(fixedBlockSignalDeclarationId(block.blockId)))
+        update(3L, 3.0)
+        assertEquals(32.0, restriction().routeDistanceMeters)
+        assertEquals(0.0, restriction().maximumSpeedMetersPerSecond)
+        update(4L, 33.0)
+        assertEquals(emptyList<Any>(), publications.last().restrictions)
+    }
 
     @Test
     fun `multi rail AB block binds one entry floor and produces a complete contribution`() {

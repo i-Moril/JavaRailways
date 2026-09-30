@@ -1,0 +1,129 @@
+package work.art1st.javarailways.simplesignals.runtime
+
+import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
+import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
+import java.util.UUID
+import kotlin.math.abs
+
+/** Worker-only impact of authored changes and their compiled policy consumers in both snapshots. */
+internal object SimpleSignalsDefinitionEditImpact {
+    fun railIds(
+        previous: SimpleSignalsRuntimePublication?, candidate: SimpleSignalsRuntimePublication
+    ): Set<UUID> {
+        val old = previous?.definitions ?: SimpleSignalsWorldDefinitions.empty(candidate.definitions.worldId)
+        val next = candidate.definitions
+        fun <T> changed(before: List<T>, after: List<T>, id: (T) -> String): Set<String> {
+            val beforeById = before.associateBy(id)
+            val afterById = after.associateBy(id)
+            return (beforeById.keys + afterById.keys).filterTo(linkedSetOf()) {
+                beforeById[it] != afterById[it]
+            }
+        }
+        val regions = changed(old.regions, next.regions) { it.regionId }.toMutableSet()
+        val tables = changed(old.routeTables, next.routeTables) { it.tableId }.toMutableSet()
+        val blocks = changed(old.fixedBlocks, next.fixedBlocks) { it.blockId }.toMutableSet()
+        val signals = (changed(old.fixedBlockSignals, next.fixedBlockSignals) { it.signalId } +
+            changed(old.protectionSignals, next.protectionSignals) { it.signalId }).toMutableSet()
+        val indicators = changed(old.routeIndicators, next.routeIndicators) { it.indicatorId }
+        if (previous != null && previous.topology !== candidate.topology) {
+            // Compare disposable compiled values, excluding revision-local IDs and callback identity.
+            // An unrelated topology publication alone must not make all definitions edited.
+            val oldRegions = checkNotNull(previous.regions.compilationSnapshot()).regionsById
+            checkNotNull(candidate.regions.compilationSnapshot()).regionsById.forEach { (id, region) ->
+                if (oldRegions[id]?.interior != region.interior) regions += id
+            }
+            val oldBlocks = previous.fixedBlocks.snapshot(previous.topology).blocksById
+            candidate.fixedBlocks.snapshot(candidate.topology).blocksById.forEach { (id, block) ->
+                if (oldBlocks[id]?.traversals != block.traversals || oldBlocks[id]?.lengthMeters != block.lengthMeters)
+                    blocks += id
+            }
+            candidate.routeSelection.routesById.forEach { (id, route) ->
+                if (previous.routeSelection.routesById[id]?.requiredContinuations != route.requiredContinuations)
+                    tables += route.tableId
+            }
+            val oldBindings = (previous.fixedBlockSignals.bindings + previous.protectionSignals.bindings)
+                .associateBy { it.signalId }
+            (candidate.fixedBlockSignals.bindings + candidate.protectionSignals.bindings).forEach { binding ->
+                val before = oldBindings[binding.signalId]
+                if (before == null || before.downstreamSignals != binding.downstreamSignals ||
+                    before.observedSections != binding.observedSections ||
+                    before.continuationEntries != binding.continuationEntries)
+                    signals += binding.signalId
+            }
+        }
+        val result = linkedSetOf<UUID>()
+        listOfNotNull(previous, candidate).forEach { publication ->
+            collect(publication, regions, tables, blocks, signals, indicators, result)
+        }
+        return java.util.Set.copyOf(result)
+    }
+
+    private fun collect(
+        publication: SimpleSignalsRuntimePublication,
+        changedRegions: Set<String>, changedTables: Set<String>, changedBlocks: Set<String>,
+        changedSignals: Set<String>, changedIndicators: Set<String>, rails: MutableSet<UUID>
+    ) {
+        val definitions = publication.definitions
+        val blockSnapshot = publication.fixedBlocks.snapshot(publication.topology)
+        val regionSnapshot = checkNotNull(publication.regions.compilationSnapshot())
+        val sections = linkedSetOf<SectionRef>()
+        val entries = linkedSetOf<String>()
+        val regions = changedRegions.toMutableSet()
+        definitions.routeTables.filter { it.tableId in changedTables }.mapTo(regions) { it.regionId }
+        val editedBlocks = blockSnapshot.blocksById.values.filter { it.definition.blockId in changedBlocks }
+        editedBlocks.forEach { block ->
+            block.traversals.mapTo(rails) { it.railId }
+            sections += SectionRef(SectionKind.FIXED_BLOCK, block.definition.blockId)
+        }
+
+        // Region cuts are strictly inside a rail. A direct successor starts at that exact directed
+        // cut; topology neighbours or a block across a positive gap are not successor candidates.
+        val blocksByEntryRail = blockSnapshot.blocksById.values.groupBy { it.traversals.first().railId }
+        fun successors(region: ProtectionRegionDefinition) =
+            region.boundaries.flatMap { boundary ->
+                blocksByEntryRail[boundary.position.railId].orEmpty().filter { block ->
+                    val start = block.traversals.first()
+                    start.facing != boundary.insideFacing &&
+                        abs(start.travelStartAbMeters - boundary.position.arcLengthInAbMeters) <= Curve.TOLERANCE
+                }
+            }
+        definitions.regions.forEach { region ->
+            val successors = successors(region)
+            if (successors.any { it.definition.blockId in changedBlocks }) regions += region.regionId
+            if (region.regionId in regions) {
+                region.boundaries.mapTo(rails) { it.position.railId }
+                regionSnapshot.regionsById.getValue(region.regionId).interior.mapTo(rails) { it.railId }
+                successors.forEach { block -> block.traversals.mapTo(rails) { it.railId } }
+            }
+        }
+        publication.routeSelection.routesById.values.filter { it.regionId in regions }.forEach { route ->
+            route.definition.traversals.mapTo(rails) { it.railId }
+            sections += SectionRef(SectionKind.PROTECTION_ROUTE, route.definition.routeId)
+            entries += route.definition.entryBoundaryId
+        }
+
+        publication.protectionSignals.ruleRuntime?.affectedBindings(sections, changedSignals, entries)
+            .orEmpty().forEach { binding ->
+                binding.observedSections.forEach { section ->
+                    when (section.kind) {
+                        SectionKind.FIXED_BLOCK -> blockSnapshot.blocksById.getValue(section.id)
+                            .traversals.mapTo(rails) { it.railId }
+                        SectionKind.PROTECTION_ROUTE -> publication.routeSelection.routesById.getValue(section.id)
+                            .definition.traversals.mapTo(rails) { it.railId }
+                    }
+                }
+                binding.downstreamSignals.forEach { rails += it.affectedRailIds }
+            }
+
+        // Indicators consume entry selection only. Their edits protect placement and explicit
+        // binding geometry, but do not seed the speed-rule dependency graph.
+        val routesByEntry = publication.routeSelection.routesById.values.groupBy { it.definition.entryBoundaryId }
+        definitions.routeIndicators.filter { it.indicatorId in changedIndicators || it.entryBoundaryId in entries }
+            .forEach { indicator ->
+                rails += indicator.position.railId
+                routesByEntry[indicator.entryBoundaryId].orEmpty()
+                    .forEach { it.definition.traversals.mapTo(rails) { traversal -> traversal.railId } }
+            }
+    }
+}

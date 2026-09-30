@@ -127,9 +127,11 @@ surface only when concrete interlocking rules need them, because a branching reg
 single physical length.
 
 Live fixed-block geometry editing now uses the host's low-frequency atomic source replacement. The
-plugin compiles the full candidate first and acquires the existing edit permit over old plus new
-affected rails. Inside one simulation barrier the host prevalidates the complete source union, then a
-SimpleSignals callback rechecks the exact topology root, saves the sidecar and swaps one prebuilt runtime-state reference containing both the
+plugin compiles the full candidate first and acquires the existing edit permit over the changed definitions' old/new geometry
+and structural dependency consumers; unrelated definitions do not enlarge the permit. The impact contract lives in
+[the owner spec](../../spec/simple-signals/backend/definition-edit-impact.md). Without acquiring a cross-world simulation lock,
+the host prevalidates the complete source union, then a
+SimpleSignals callback rechecks the exact topology root, commits the staged sidecar and swaps one prebuilt runtime-state reference containing both the
 definition publication and section occupancy runtime; the host finally installs the already compiled
 area state. Host prevalidation never invokes the callback, while callback failure preserves the old
 source and publication. Deleting the final block installs an empty epoch-source set without removing

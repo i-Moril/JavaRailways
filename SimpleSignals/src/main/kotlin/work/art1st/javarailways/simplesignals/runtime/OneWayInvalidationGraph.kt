@@ -29,6 +29,20 @@ internal class OneWayInvalidationGraph<N : Comparable<N>> private constructor(
     private val consumersByProvider: Map<N, List<N>>,
     private val topologicalIndex: Map<N, Int>
 ) {
+    /** Structural edit reachability, independent of current outputs or active branch selection. */
+    fun reachableConsumers(providers: Collection<N>): Set<N> {
+        require(providers.all(nodes::contains)) { "providers must belong to the compiled graph" }
+        val reached = linkedSetOf<N>()
+        val pending = ArrayDeque<N>()
+        providers.forEach { if (reached.add(it)) pending.addLast(it) }
+        while (pending.isNotEmpty()) {
+            consumersByProvider[pending.removeFirst()].orEmpty().forEach {
+                if (reached.add(it)) pending.addLast(it)
+            }
+        }
+        return reached
+    }
+
     fun propagate(
         changedProviders: Collection<N>,
         recompute: (N) -> Boolean

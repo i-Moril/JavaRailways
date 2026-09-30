@@ -137,14 +137,12 @@ internal class SimpleSignalsPreparedDefinitions internal constructor(
     internal val candidatePublication: SimpleSignalsRuntimePublication,
     val topology: TopologyState,
     val definitions: SimpleSignalsWorldDefinitions,
-    val baseAffectedRailIds: Set<UUID>,
     val affectedRailIds: Set<UUID>
 )
 
 internal class SimpleSignalsRuntimePublication(
     val topology: TopologyState,
     val definitions: SimpleSignalsWorldDefinitions,
-    val affectedRailIds: Set<UUID>,
     val regions: ProtectionRegionCatalog,
     val routeTables: ProtectionRouteTableCatalog,
     val routeSelection: ProtectionRouteSelectionIndex,
@@ -419,16 +417,9 @@ internal class SimpleSignalsWorldRuntime(
             return@synchronized preparationRejected(diagnostic)
         }
 
-        val affectedRailIds = affectedRailIds(
-            candidateRegions,
-            copiedRegions,
-            copiedTables,
-            copiedBlocks
-        ) + copiedDefinitions.routeIndicators.map { it.position.railId }
         val candidate = SimpleSignalsRuntimePublication(
             topology,
             copiedDefinitions,
-            affectedRailIds,
             candidateRegions,
             candidateTables,
             candidateRouteSelection,
@@ -443,8 +434,7 @@ internal class SimpleSignalsWorldRuntime(
                 candidate,
                 topology,
                 copiedDefinitions,
-                current?.affectedRailIds.orEmpty(),
-                affectedRailIds
+                SimpleSignalsDefinitionEditImpact.railIds(current, candidate)
             )
         )
     }
@@ -488,30 +478,6 @@ internal class SimpleSignalsWorldRuntime(
                 )
             }
         }
-    }
-
-    private fun affectedRailIds(
-        regions: ProtectionRegionCatalog,
-        regionDefinitions: Collection<ProtectionRegionDefinition>,
-        routeTables: Collection<ProtectionRouteTableDefinition>,
-        fixedBlocks: Collection<FixedBlockDefinition>
-    ): Set<UUID> {
-        val result = linkedSetOf<UUID>()
-        regionDefinitions.flatMapTo(result) { region ->
-            region.boundaries.map { it.position.railId }
-        }
-        regions.compilationSnapshot()?.regionsById?.values?.forEach { region ->
-            region.interior.mapTo(result) { it.railId }
-        }
-        routeTables.forEach { table ->
-            table.routes.forEach { route ->
-                route.traversals.mapTo(result) { it.railId }
-            }
-        }
-        fixedBlocks.forEach { block ->
-            block.traversals.mapTo(result) { it.railId }
-        }
-        return java.util.Set.copyOf(result)
     }
 
     private fun <T> retainedDeviceRevisionFailure(previous: Collection<T>, candidate: Collection<T>,
@@ -897,10 +863,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             )
             is SimpleSignalsDefinitionPreparationResult.Prepared -> preparation.value
         }
-        val impactRailIds = linkedSetOf<UUID>().apply {
-            addAll(prepared.baseAffectedRailIds)
-            addAll(prepared.affectedRailIds)
-        }
+        val impactRailIds = prepared.affectedRailIds
         if (impactRailIds.isEmpty()) {
             return@synchronized authoringResult(
                 SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,

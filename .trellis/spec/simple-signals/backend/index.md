@@ -211,9 +211,10 @@ frozen-route dependency阻止，因此retained inspection binding不会在运行
 倒退都属于validation failure。
 
 runtime先用fresh catalog完整编译candidate而不修改live publication。prepared value绑定base publication对象身份、exact
-`TopologyState` root、完整候选定义及解析后的affected rail IDs；后者包含region boundary、derived interior、route和block traversal。
-manager以旧、新整份publication的affected rail ID并集申请既有`InfrastructureResourceService.acquireEditPermit`，不创建第二套锁。
-当前范围包含该world全部已配置定义涉及的轨道，而非仅本patch改变的对象，可能保守地拒绝不相关的编辑；精确影响集是待修项。
+`TopologyState` root、完整候选定义及本次编辑的affected rail IDs。
+manager以实际改变的定义、旧/新几何和结构依赖消费者的影响并集申请既有`InfrastructureResourceService.acquireEditPermit`，不创建第二套锁。
+不能以整份publication代替本次编辑范围，也不能用当前灯色或道岔选择剪枝；具体算法、边界与测试见
+[定义编辑影响合同](definition-edit-impact.md)。
 permit owner为`simplesignals:definitions/<world UUID>`，owner revision等于新的definition revision。
 
 permit取得后再次要求`currentTopology(worldId)`与prepared root是同一对象。store在进入publication callback前完成JSON encode、
@@ -225,7 +226,7 @@ retained signal同样要求revision单调；signal引用和DAG也在取得permit
 是唯一commit point，之后backup rotation只作best-effort recovery维护，不能把已提交primary误报为失败。
 
 region/table/block/两类signal/indicator定义变化或exact topology root变化时，runtime先完整编译candidate definition与新的
-`SectionOccupancyRuntime`，再以旧/新affected rails并集取得既有edit permit。permit拒绝发生在写盘和source callback前。
+`SectionOccupancyRuntime`，再以本次编辑的旧/新影响并集取得既有edit permit。permit拒绝发生在写盘和source callback前。
 permit成功后通过host `replaceSourcesAtomically`提交：host先验证/编译所有owner的candidate source全集并检查retained restriction，
 但不取得跨world simulation lock。已开始的epoch保留其捕获的旧immutable source，下一epoch才读取replacement并建立新baseline。
 callback在runtime lock内复核base publication，以staged primary rename作为pre-commit，并重读exact topology root；root已变化则在
@@ -236,7 +237,8 @@ rename前返回typed stale。然后用一个预构造的
 全部观测和选择都删除时使用empty replacement，只清除此类别而保留同owner的route-planning source。
 
 authoring是低频路径：patch map操作为`O(D)`。设fixed-block traversal总数为`T`、合并后interval数为`F`，跨section检查实际比较
-`H`个rail-local候选，则完整candidate编译为`O(V+E+S+P log Q+T log T+S log S+F log S+H)`；affected-rail并集与写盘为定义规模线性。
+`H`个rail-local候选，则完整candidate编译为`O(V+E+S+P log Q+T log T+S log S+F log S+H)`；写盘为定义规模线性。
+本次编辑影响查询的结构可达遍历、派生值比较和几何收集成本另见[影响合同](definition-edit-impact.md#7-性能复杂度与退化)。
 这些规模相关的编译、encode、validation和ordinary write必须在async authoring worker；最终commit只允许exact root/base检查、
 already-staged atomic rename与immutable reference swap。route callback仍只读取一次volatile publication和cached restrictions。当前只建立plugin-local事务 seam，尚无RailObjectWand、命令、
 inspect/dry-run UI或拓扑迁移工具。`applyDefinitionPatch`以`ThreadGuard.ensureOffMainThread`拒绝错误的owner-thread调用；未来Wand/command必须先

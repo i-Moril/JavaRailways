@@ -6,6 +6,13 @@ import org.junit.jupiter.api.Test
 
 class OneWayInvalidationGraphTest {
     @Test
+    fun `definition reachability includes providers and every consumer without output pruning`() {
+        val graph = OneWayInvalidationGraph.compile(listOf("b", "a", "before-a", "other"), listOf(
+            InvalidationDependency("b", "a"), InvalidationDependency("a", "before-a")))
+        assertEquals(setOf("b", "a", "before-a"), graph.reachableConsumers(listOf("b", "a")))
+    }
+
+    @Test
     fun `unchanged output stops propagation before the next upstream consumer`() {
         val graph = OneWayInvalidationGraph.compile(
             listOf("block-b", "signal-a", "signal-before-a"),

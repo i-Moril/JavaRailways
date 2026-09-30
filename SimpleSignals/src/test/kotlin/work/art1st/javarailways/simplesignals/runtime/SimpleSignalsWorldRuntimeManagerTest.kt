@@ -13,6 +13,14 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import work.art1st.javarailways.basic.route.OperationalRouteLocation
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
+import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditBlocker
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditBlockerKind
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditDecision
@@ -29,6 +37,8 @@ import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSource
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
@@ -36,6 +46,8 @@ import work.art1st.javarailways.core.util.IsolatedMainThreadMarker
 import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
+import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
+import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_SIGNAL_SOURCE_ID
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
@@ -52,6 +64,8 @@ import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefi
 import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDependency
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalContinuationRequirement
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
 import work.art1st.javarailways.simplesignals.signal.RouteIndicatorDefinition
@@ -63,6 +77,263 @@ import java.util.UUID
 class SimpleSignalsWorldRuntimeManagerTest {
     @TempDir
     lateinit var directory: Path
+
+    @Test
+    fun `disjoint local edits succeed with real applied dependency and live claim elsewhere`() {
+        val fixture = Fixture()
+        val localRail = UUID(0L, 99L)
+        val topology = fixture.topology(41L, listOf(localRail))
+        var currentTopology = topology
+        val registry = editRegistry { currentTopology }
+        val infrastructure = MutableTopologyService(topology, registry)
+        val definitions = store()
+        val local = FixedBlockDefinition("test:local", 1, listOf(FixedBlockTraversal(localRail, ViewDirection.AB, 0.0, 4.0)))
+        fun localSignal(revision: Long, speed: Double) = FixedBlockSignalDefinition("test:local-signal", revision,
+            local.blockId, 0.0, ConfiguredSignalOutput(0.0, "occupied"),
+            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(speed, "clear"))))
+        definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            listOf(fixture.region), listOf(fixture.table(1, fixture.upperRoute())), listOf(local), listOf(localSignal(1, 12.0))))
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        protect(registry, topology, fixture.upperIn, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
+        protect(registry, topology, fixture.lowerIn, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM)
+
+        val edited = FixedBlockDefinition(local.blockId, 2, listOf(FixedBlockTraversal(localRail, ViewDirection.AB, 1.0, 5.0)))
+        val applied = manager.applyDefinitionPatch(fixture.worldId, 1, SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(edited)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, applied.status, applied.diagnostics.toString())
+        assertEquals(setOf(localRail), infrastructure.lastEditRequest!!.impact.railIds)
+        val primary = Files.readString(definitions.primaryFile(fixture.worldId))
+        val retained = sources.sources.getValue(fixture.worldId)
+        val tableEdit = manager.applyDefinitionPatch(fixture.worldId, 2,
+            SimpleSignalsDefinitionPatch(upsertRouteTables = listOf(fixture.table(2, fixture.lowerRoute()))))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, tableEdit.status)
+        assertEquals(setOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM),
+            tableEdit.editDecision!!.blockers.map { it.kind }.toSet())
+        assertEquals(primary, Files.readString(definitions.primaryFile(fixture.worldId)))
+        assertSame(retained, sources.sources.getValue(fixture.worldId))
+        assertEquals(1, infrastructure.permitCloseCount)
+        val signalEdited = manager.applyDefinitionPatch(fixture.worldId, 2,
+            SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(localSignal(2, 6.0))))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, signalEdited.status)
+        assertEquals(setOf(localRail), infrastructure.lastEditRequest!!.impact.railIds)
+        // A fresh exact root with equivalent policy geometry (e.g. unrelated track construction)
+        // must not bring the operated region back into this local edit's permit.
+        currentTopology = fixture.topology(42L, listOf(localRail, UUID(0, 100)))
+        infrastructure.topology = currentTopology
+        val afterTopology = manager.applyDefinitionPatch(fixture.worldId, 3,
+            SimpleSignalsDefinitionPatch(removeFixedBlockIds = listOf(local.blockId),
+                removeFixedBlockSignalIds = listOf("test:local-signal")))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, afterTopology.status, afterTopology.diagnostics.toString())
+        assertEquals(setOf(localRail), infrastructure.lastEditRequest!!.impact.railIds)
+    }
+
+    @Test
+    fun `downstream edit and removal protect transitive upstream rules and connector geometry`() {
+        val rails = (1L..4L).map { UUID(0L, it) }
+        val topology = topologyState(41L, rails, rails.zipWithNext().map { (a, b) ->
+            endpoint(a, RailEndpoint.B) to endpoint(b, RailEndpoint.A) })
+        val worldId = UUID.randomUUID()
+        val blocks = listOf(0, 2, 3).map { index -> FixedBlockDefinition("test:block-$index", 1,
+            listOf(FixedBlockTraversal(rails[index], ViewDirection.AB, 0.0, 5.0))) }
+        fun signal(index: Int, revision: Long = 1, downstream: Int? = null) = FixedBlockSignalDefinition(
+            "test:signal-$index", revision, "test:block-$index", 0.0, ConfiguredSignalOutput(0.0, "occupied"),
+            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(12.0, "clear"))),
+            downstream?.let { listOf(FixedBlockSignalDependency("test:signal-$it")) }.orEmpty())
+        val definitions = store()
+        definitions.save(worldId, SimpleSignalsWorldDefinitions(worldId, 1, emptyList(), emptyList(), blocks,
+            listOf(signal(0, downstream = 2), signal(2, downstream = 3), signal(3))))
+        val registry = editRegistry(topology)
+        val infrastructure = MutableTopologyService(topology, registry)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(worldId).status)
+        val before = Files.readString(definitions.primaryFile(worldId))
+        val retained = sources.sources.getValue(worldId)
+        protect(registry, topology, rails[0], TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
+        val downstreamEdit = manager.applyDefinitionPatch(worldId, 1,
+            SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(signal(3, 2))))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, downstreamEdit.status)
+        assertEquals(rails.toSet(), infrastructure.lastEditRequest!!.impact.railIds)
+        assertEquals(setOf(rails[0]), downstreamEdit.editDecision!!.blockers.single().overlap.railIds)
+        // Delete the old downstream node and its old edge in one valid candidate. Old reachability
+        // must still protect the retained upstream signal even though that edge has disappeared.
+        val deleted = manager.applyDefinitionPatch(worldId, 1, SimpleSignalsDefinitionPatch(
+            upsertFixedBlockSignals = listOf(signal(2, 2)), removeFixedBlockSignalIds = listOf("test:signal-3"),
+            removeFixedBlockIds = listOf("test:block-3")))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, deleted.status)
+        assertEquals(before, Files.readString(definitions.primaryFile(worldId)))
+        assertSame(retained, sources.sources.getValue(worldId))
+    }
+
+    @Test
+    fun `moved block protects old and new rail for dependencies and claims`() {
+        listOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM).forEach { kind ->
+            listOf(0, 1).forEach { protectedIndex ->
+                val worldId = UUID.randomUUID()
+                val rails = listOf(UUID(0, 1), UUID(0, 2))
+                val topology = topologyState(41, rails, emptyList())
+                val initial = FixedBlockDefinition("test:moved", 1, listOf(FixedBlockTraversal(rails[0], ViewDirection.AB, 0.0, 5.0)))
+                val definitions = store()
+                definitions.save(worldId, SimpleSignalsWorldDefinitions(worldId, 1, emptyList(), emptyList(), listOf(initial)))
+                val registry = editRegistry(topology)
+                val infrastructure = MutableTopologyService(topology, registry)
+                val sources = CapturingSignalEpochSourceService()
+                val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources)
+                assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(worldId).status)
+                protect(registry, topology, rails[protectedIndex], kind)
+                val before = Files.readString(definitions.primaryFile(worldId))
+                val retained = sources.sources.getValue(worldId)
+                val moved = FixedBlockDefinition(initial.blockId, 2, listOf(FixedBlockTraversal(rails[1], ViewDirection.AB, 0.0, 5.0)))
+                val blocked = manager.applyDefinitionPatch(worldId, 1, SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(moved)))
+                assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, blocked.status)
+                assertEquals(kind, blocked.editDecision!!.blockers.single().kind)
+                assertEquals(rails.toSet(), infrastructure.lastEditRequest!!.impact.railIds)
+                assertEquals(before, Files.readString(definitions.primaryFile(worldId)))
+                assertSame(retained, sources.sources.getValue(worldId))
+            }
+        }
+    }
+
+    @Test
+    fun `successor block exit edit protects upstream region authority even without a signal rule`() {
+        val fixture = Fixture()
+        val registry = editRegistry(fixture.currentTopology)
+        val infrastructure = MutableTopologyService(fixture.currentTopology, registry)
+        val successor = FixedBlockDefinition("test:successor", 1,
+            listOf(FixedBlockTraversal(fixture.exit, ViewDirection.AB, 5.0, 9.0)))
+        val definitions = store()
+        definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            listOf(fixture.region), listOf(fixture.table(1, fixture.upperRoute())), listOf(successor)))
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        protect(registry, fixture.currentTopology, fixture.upperIn, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
+        val before = Files.readString(definitions.primaryFile(fixture.worldId))
+        val retained = sources.sources.getValue(fixture.worldId)
+        val changed = FixedBlockDefinition(successor.blockId, 2,
+            listOf(FixedBlockTraversal(fixture.exit, ViewDirection.AB, 5.0, 8.0)))
+        listOf(SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(changed)),
+            SimpleSignalsDefinitionPatch(removeFixedBlockIds = listOf(successor.blockId))).forEach { patch ->
+            val blocked = manager.applyDefinitionPatch(fixture.worldId, 1, patch)
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, blocked.status)
+            assertTrue(fixture.upperIn in infrastructure.lastEditRequest!!.impact.railIds)
+            assertEquals(before, Files.readString(definitions.primaryFile(fixture.worldId)))
+            assertSame(retained, sources.sources.getValue(fixture.worldId))
+        }
+    }
+
+    private fun editRegistry(topology: TopologyState) = editRegistry { topology }
+
+    @Test
+    fun `indicator edit protects old new placement and explicit entry binding without unrelated regions`() {
+        val fixture = Fixture()
+        val bindingRail = UUID(0, 91)
+        val oldPlacement = UUID(0, 92)
+        val newPlacement = UUID(0, 93)
+        val newBindingRail = UUID(0, 94)
+        val topology = fixture.topology(41, listOf(bindingRail, oldPlacement, newPlacement, newBindingRail))
+        val localRegion = ProtectionRegionDefinition("test:local-region", 1, listOf(
+            ProtectionBoundaryDefinition("test:local-entry", RailPositionSnapshot(bindingRail, ViewDirection.AB, 2.0)),
+            ProtectionBoundaryDefinition("test:local-exit", RailPositionSnapshot(bindingRail, ViewDirection.BA, 8.0))))
+        val localRoute = ProtectionRouteDefinition("test:local-route", "test:local-entry", "test:local-exit",
+            listOf(ProtectionRouteTraversal(bindingRail, ViewDirection.AB, 2.0, 8.0)))
+        val localTable = ProtectionRouteTableDefinition("test:local-table", 1, localRegion.regionId, 1, listOf(localRoute))
+        val newRegion = ProtectionRegionDefinition("test:new-region", 1, listOf(
+            ProtectionBoundaryDefinition("test:new-entry", RailPositionSnapshot(newBindingRail, ViewDirection.AB, 2.0)),
+            ProtectionBoundaryDefinition("test:new-exit", RailPositionSnapshot(newBindingRail, ViewDirection.BA, 8.0))))
+        val newRoute = ProtectionRouteDefinition("test:new-route", "test:new-entry", "test:new-exit",
+            listOf(ProtectionRouteTraversal(newBindingRail, ViewDirection.AB, 2.0, 8.0)))
+        val newTable = ProtectionRouteTableDefinition("test:new-table", 1, newRegion.regionId, 1, listOf(newRoute))
+        fun indicator(revision: Long, placement: UUID, route: ProtectionRouteDefinition = localRoute) =
+            RouteIndicatorDefinition("test:local-indicator", revision,
+                route.entryBoundaryId, RailPositionSnapshot(placement, ViewDirection.AB, 1.0), "none",
+                mapOf(route.routeId to "local"))
+        val definitions = store()
+        definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            listOf(fixture.region, localRegion, newRegion), listOf(fixture.table(1, fixture.upperRoute()), localTable, newTable),
+            routeIndicators = listOf(indicator(1, oldPlacement))))
+        val registry = editRegistry(topology)
+        val infrastructure = MutableTopologyService(topology, registry)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        protect(registry, topology, fixture.upperIn, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
+        val moved = manager.applyDefinitionPatch(fixture.worldId, 1,
+            SimpleSignalsDefinitionPatch(upsertRouteIndicators = listOf(indicator(2, newPlacement, newRoute))))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, moved.status, moved.diagnostics.toString())
+        assertEquals(setOf(bindingRail, newBindingRail, oldPlacement, newPlacement), infrastructure.lastEditRequest!!.impact.railIds)
+
+        protect(registry, topology, newBindingRail, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM)
+        val before = Files.readString(definitions.primaryFile(fixture.worldId))
+        val retained = sources.sources.getValue(fixture.worldId)
+        val removed = manager.applyDefinitionPatch(fixture.worldId, 2,
+            SimpleSignalsDefinitionPatch(removeRouteIndicatorIds = listOf("test:local-indicator")))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, removed.status)
+        assertEquals(TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM, removed.editDecision!!.blockers.single().kind)
+        assertEquals(before, Files.readString(definitions.primaryFile(fixture.worldId)))
+        assertSame(retained, sources.sources.getValue(fixture.worldId))
+    }
+
+    @Test
+    fun `currently inactive downstream branch still protects the operating upstream signal`() {
+        val fixture = Fixture()
+        val topology = fixture.currentTopology
+        val blocks = listOf("source" to fixture.entry, "upper" to fixture.upperIn, "lower" to fixture.lowerIn)
+            .map { (name, rail) -> FixedBlockDefinition("test:$name-block", 1,
+                listOf(FixedBlockTraversal(rail, ViewDirection.AB, 0.0, 5.0))) }
+        fun signal(name: String, revision: Long = 1, dependencies: List<FixedBlockSignalDependency> = emptyList()) =
+            FixedBlockSignalDefinition("test:$name-signal", revision, "test:$name-block", 0.0,
+                ConfiguredSignalOutput(0.0, "occupied"),
+                listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(12.0, "clear"))), dependencies)
+        val entry = endpoint(fixture.entry, RailEndpoint.B)
+        val dependencies = listOf("upper" to fixture.upperIn, "lower" to fixture.lowerIn).map { (name, rail) ->
+            FixedBlockSignalDependency("test:$name-signal", listOf(FixedBlockSignalContinuationRequirement(
+                entry, endpoint(rail, RailEndpoint.A)))) }
+        val definitions = store()
+        definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1, emptyList(), emptyList(), blocks,
+            listOf(signal("source", dependencies = dependencies), signal("upper"), signal("lower"))))
+        val registry = editRegistry(topology)
+        val infrastructure = MutableTopologyService(topology, registry)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val epoch = SignalEpochRuntime(fixture.worldId.toString(), TrainRestrictionSnapshotStore(fixture.worldId.toString()))
+        epoch.replaceSources(sources.sources.getValue(fixture.worldId))
+        val active = ActiveRailContinuationsSnapshot.create(topology.revision, 1,
+            mapOf(entry to endpoint(fixture.upperIn, RailEndpoint.A)))
+        epoch.process(RailwayWorldFrameSnapshot.create(1, topology.revision, emptyList(), active))
+        assertEquals(endpoint(fixture.upperIn, RailEndpoint.A), active.selectedContinuation(entry))
+        protect(registry, topology, fixture.entry, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
+        val before = Files.readString(definitions.primaryFile(fixture.worldId))
+        val retained = sources.sources.getValue(fixture.worldId)
+        val blocked = manager.applyDefinitionPatch(fixture.worldId, 1,
+            SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(signal("lower", 2))))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, blocked.status, blocked.diagnostics.toString())
+        assertEquals(setOf(fixture.entry), blocked.editDecision!!.blockers.single().overlap.railIds)
+        assertTrue(fixture.lowerIn in infrastructure.lastEditRequest!!.impact.railIds)
+        assertEquals(before, Files.readString(definitions.primaryFile(fixture.worldId)))
+        assertSame(retained, sources.sources.getValue(fixture.worldId))
+    }
+
+    private fun editRegistry(topology: () -> TopologyState) = InfrastructureCoordinationRegistry(
+        { topology().revision }, { it is RailIntervalResource && it.railId in topology().railProjection },
+        { it in topology().railProjection })
+
+    private fun protect(registry: InfrastructureCoordinationRegistry, topology: TopologyState,
+        rail: UUID, kind: TopologyEditBlockerKind
+    ) {
+        val owner = InfrastructureOwner("test:operator/$rail", 1)
+        when (kind) {
+            TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY -> assertEquals(InfrastructureDependencyMutationStatus.APPLIED,
+                registry.setInfrastructureDependencies(Any(), InfrastructureDependencyRequest(topology.revision, owner,
+                    InfrastructureDependencies(setOf(rail), emptySet(), emptySet()))).status)
+            TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM -> assertEquals(InfrastructureMutationStatus.ACQUIRED,
+                registry.acquireClaim(Any(), InfrastructureClaimRequest(topology.revision, owner,
+                    InfrastructureFootprint(listOf(RailIntervalResource(rail, 0.0, 5.0))))).status)
+            else -> error("unsupported test blocker")
+        }
+    }
 
     @Test
     fun `online three device patch persists atomically validates revisions and removes without orphaning`() {
@@ -1350,7 +1621,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
     private fun store() = SimpleSignalsWorldDefinitionStore(directory.toFile())
 
-    private class MutableTopologyService(initial: TopologyState?) {
+    private class MutableTopologyService(initial: TopologyState?, private val registry: InfrastructureCoordinationRegistry? = null) {
+        private val registryOwner = Any()
         var topology: TopologyState? = initial
         var nextEditDecision = TopologyEditDecision(TopologyEditStatus.GRANTED)
         var afterPermitGranted: () -> Unit = {}
@@ -1367,8 +1639,10 @@ class SimpleSignalsWorldRuntimeManagerTest {
                 "acquireEditPermit" -> {
                     permitAcquisitionCount++
                     lastEditRequest = arguments!![2] as TopologyEditRequest
-                    if (!nextEditDecision.successful) {
-                        InfrastructureEditPermitResult.denied(nextEditDecision)
+                    val registryPermit = registry?.acquireEditPermit(registryOwner, lastEditRequest!!)
+                    val decision = registryPermit?.decision ?: nextEditDecision
+                    if (!decision.successful) {
+                        InfrastructureEditPermitResult.denied(decision)
                     } else {
                         val owner = lastEditRequest!!.owner
                         val permit = object : InfrastructureEditPermit {
@@ -1378,11 +1652,12 @@ class SimpleSignalsWorldRuntimeManagerTest {
                                 if (!closed) {
                                     closed = true
                                     permitCloseCount++
+                                    registryPermit?.let { check(registry.releaseEditPermit(registryOwner, it.id)) }
                                 }
                             }
                         }
                         afterPermitGranted()
-                        InfrastructureEditPermitResult.granted(nextEditDecision, permit)
+                        InfrastructureEditPermitResult.granted(decision, permit)
                     }
                 }
                 else -> throw UnsupportedOperationException(method.name)
@@ -1469,9 +1744,9 @@ class SimpleSignalsWorldRuntimeManagerTest {
             )
         )
 
-        fun topology(revision: Long): TopologyState = topologyState(
+        fun topology(revision: Long, extraRails: List<UUID> = emptyList()): TopologyState = topologyState(
             revision,
-            listOf(entry, upperIn, lowerIn, upperOut, lowerOut, exit),
+            listOf(entry, upperIn, lowerIn, upperOut, lowerOut, exit) + extraRails,
             listOf(
                 endpoint(entry, RailEndpoint.B) to endpoint(upperIn, RailEndpoint.A),
                 endpoint(entry, RailEndpoint.B) to endpoint(lowerIn, RailEndpoint.A),

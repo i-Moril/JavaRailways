@@ -71,7 +71,8 @@ internal class CompiledFixedBlockSignals private constructor(
                         DownstreamSignalDependency(
                             dependency.signalId,
                             path.distanceMeters,
-                            path.requiredContinuations
+                            path.requiredContinuations,
+                            affectedRailIds = path.affectedRailIds
                         )
                     }
                 ) { input ->
@@ -127,6 +128,7 @@ internal class CompiledFixedBlockSignals private constructor(
             var state = PathState.fromEnd(sourceBlock.traversals.last())
             var distance = sourceBlock.lengthMeters
             val visited = linkedSetOf(state.directedRail())
+            val affectedRailIds = sourceBlock.traversals.mapTo(linkedSetOf()) { it.railId }
             val target = downstreamBlock.traversals.first()
 
             while (!state.reaches(target)) {
@@ -157,6 +159,7 @@ internal class CompiledFixedBlockSignals private constructor(
                 }
                 val nextRail = fixedBlocks.routeTopology.rails.getValue(selectedExit.railId)
                 state = PathState.entering(selectedExit, nextRail.lengthMeters)
+                affectedRailIds += state.railId
                 require(visited.add(state.directedRail())) {
                     "signal $sourceSignalId path to ${dependency.signalId} contains a cycle"
                 }
@@ -175,7 +178,8 @@ internal class CompiledFixedBlockSignals private constructor(
             }
             return CompiledDownstreamPath(
                 distance,
-                java.util.List.copyOf(distinctConditions)
+                java.util.List.copyOf(distinctConditions),
+                java.util.Set.copyOf(affectedRailIds)
             )
         }
 
@@ -209,7 +213,8 @@ internal class CompiledFixedBlockSignals private constructor(
 
         internal data class CompiledDownstreamPath(
             val distanceMeters: Double,
-            val requiredContinuations: List<RequiredActiveContinuation>
+            val requiredContinuations: List<RequiredActiveContinuation>,
+            val affectedRailIds: Set<UUID>
         )
 
         private data class DirectedRail(val railId: UUID, val facing: ViewDirection)

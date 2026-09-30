@@ -76,7 +76,7 @@ internal class CompiledProtectionSignals private constructor(
                             geometry.blocksById.getValue(routeId), target,
                             if (blocks.blocksById.isEmpty()) geometry else blocks)
                         DownstreamSignalDependency(dependency.signalId, path.distanceMeters,
-                            path.requiredContinuations, routeId)
+                            path.requiredContinuations, routeId, path.affectedRailIds)
                     }
                 }
                 SectionSignalRuleBinding(signal.signalId, prepared.keys.first(), dependencies,

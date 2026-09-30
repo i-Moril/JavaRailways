@@ -76,17 +76,20 @@ internal data class DownstreamSignalDependency private constructor(
     val signalId: String,
     val distanceMeters: Double,
     val requiredContinuations: List<RequiredActiveContinuation> = emptyList(),
-    val protectionRouteId: String? = null
+    val protectionRouteId: String? = null,
+    val affectedRailIds: Set<java.util.UUID> = emptySet()
 ) {
     constructor(
         signalId: String,
         distanceMeters: Double,
         requiredContinuations: Collection<RequiredActiveContinuation> = emptyList(),
-        protectionRouteId: String? = null
+        protectionRouteId: String? = null,
+        affectedRailIds: Collection<java.util.UUID> = emptySet()
     ) : this(
         signalId,
         distanceMeters,
-        java.util.List.copyOf(requiredContinuations), protectionRouteId
+        java.util.List.copyOf(requiredContinuations), protectionRouteId,
+        java.util.Set.copyOf(affectedRailIds)
     )
 
     init {
@@ -197,6 +200,19 @@ internal class SectionSignalRuleRuntime private constructor(
     )
 
     fun signalIdFor(section: SectionRef): String? = signalIdBySection[section]
+
+    /** Definition changes follow every compiled dependency, including currently inactive paths. */
+    fun affectedBindings(
+        sections: Collection<SectionRef>, signalIds: Collection<String>, entries: Collection<String>
+    ): List<SectionSignalRuleBinding> {
+        val seeds = buildList {
+            sections.forEach { add(RuleNode.section(it)) }
+            signalIds.filter(bindingsBySignal::containsKey).forEach { add(RuleNode.signal(it)) }
+            entries.filter(knownEntries::contains).forEach { add(RuleNode.entry(it)) }
+        }
+        return graph.reachableConsumers(seeds).filter { it.kind == RuleNodeKind.SIGNAL }
+            .map { bindingsBySignal.getValue(it.identity) }
+    }
 
     fun invalidatedDeclarationIds(snapshot: SectionSignalSnapshot): Set<String> =
         snapshot.changedSignalIds.mapTo(sortedSetOf()) { signalId ->

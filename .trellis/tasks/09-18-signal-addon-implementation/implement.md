@@ -98,7 +98,7 @@ Current extraction progress:
 
 ## Cross-cutting online edit latency
 
-- [ ] Narrow `SimpleSignalsWorldRuntimeManager.applyDefinitionPatch` edit-permit impact: it currently unions the old/new whole-publication `affectedRailIds`, so unrelated operated regions can block a local signal/indicator edit. Preserve safe dependency protection while deriving the edited definitions' real impact (including affected upstream signal consumers); do not simply drop dependency rails. This is a pre-existing conservative refusal, not a simulation-lock stall.
+- [x] Narrow `SimpleSignalsWorldRuntimeManager.applyDefinitionPatch` edit-permit impact to changed old/new definitions, compiled geometry and structural dependency consumers, including connector paths and region/successor-block authority floors. Unrelated topology-root replacement compares existing derived values instead of treating every definition as edited. Reuse the existing permit/save/source transaction; retain whole-related-region and rail-granular protection. Owner contract: [definition edit impact](../../spec/simple-signals/backend/definition-edit-impact.md). Final offline gate: `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava :SimpleSignals:jar`; 150 SimpleSignals tests passed, zero failures/errors/skips, artifact and Java consumer checks passed.
 
 - [x] Remove cross-world simulation-lock ownership from online signal source replacement and Basic
   edit-permit acquisition. A blocked commit callback must not prevent an old immutable signal epoch

@@ -84,10 +84,12 @@ route-window只描述region entry/exit，不保存后继区间。world runtime�
 [保护区域到固定闭塞的授权衔接合同](protection-region-authority-transition.md)。moving-block精确边界和通用tail clearance仍未冻结。
 
 保护区域信号不能使用一个全区occupancy bit。当前已能在definition publication时保存/编译默认进路集合，拒绝共享rail、道岔或
-菱形交叉物理footprint的默认组合，并把每条默认进路预编译为常数次active-continuation查询；它不创建claim。目标合同继续按既有固定进路编译route-specific occupancy/resource/turnout条件，并提供
+菱形交叉物理footprint的默认组合，并预编译每条默认进路所需的active-continuation查询；它不创建claim。
+当前已接入Basic准入变化和道岔变化，以缓存的冻结路线窗口和完整授权floor产生共享入口选择；正在准备更远资源不撤销旧区域ready，
+车尾通过旧区域后移除其入口请求关联，仍持有的长资源继续由Basic保护。后续仍需按既有固定进路编译route-specific occupancy条件，并提供
 固定进路信号、当前信号和presentation-only进路显示器。当前信号只按“当前列车请求、已配置且道岔实际开通的默认进路、无进路”
 选择；默认进路集合必须能够同时成立，但不创建claim或要求grant。进路表示机与进路预告机复用同一显示抽象，玩家只需绑定同一个
-入口选择源并在所需距离放置不同模型。完整优先级、失败语义、复杂度、测试点和仍需冻结的Basic准入观测seam见
+入口选择源并在所需距离放置不同模型。完整优先级、失败语义、复杂度、测试点及Basic准入变化交接边界见
 [保护区域信号与进路显示合同](protection-region-signal-selection.md)。
 
 ## 固定保护进路表

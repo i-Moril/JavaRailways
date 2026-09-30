@@ -352,9 +352,22 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         var source = new SignalEpochSource(
             "example.signaladdon:main",
             List.of(area),
+            List.of(),
+            List.of(railId),
             input -> {
                 Objects.requireNonNull(input.getObservation());
                 Objects.requireNonNull(input.getAreaUpdates());
+                Objects.requireNonNull(input.getAdmissionUpdates());
+                input.getAdmissionUpdates().forEach(update -> {
+                    Objects.requireNonNull(update.getOwner());
+                    if (update.getCurrent() != null) {
+                        var admission = update.getCurrent();
+                        Objects.requireNonNull(admission.getRequestedAuthority());
+                        if (admission.getReleasedThroughRouteMeters() < 0.0) {
+                            throw new IllegalStateException("invalid released tail lower bound");
+                        }
+                    }
+                });
                 return SignalEpochResult.empty();
             }
         );

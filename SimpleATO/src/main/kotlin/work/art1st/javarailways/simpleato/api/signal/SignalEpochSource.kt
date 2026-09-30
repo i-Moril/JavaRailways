@@ -3,10 +3,12 @@ package work.art1st.javarailways.simpleato.api.signal
 import work.art1st.javarailways.basic.api.observation.RailwayAreaOccupancyUpdate
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.simpleato.api.NAMESPACED_SIMPLE_ATO_ID
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import java.util.Collections
+import java.util.UUID
 
 /**
  * Synchronous Java/Kotlin signal-system callback for one completed railway epoch.
@@ -45,17 +47,24 @@ data class SignalRailContinuationUpdate(
 data class SignalEpochInput private constructor(
     val observation: RailwayObservation,
     val areaUpdates: List<RailwayAreaOccupancyUpdate>,
-    val continuationUpdates: List<SignalRailContinuationUpdate>
+    val continuationUpdates: List<SignalRailContinuationUpdate>,
+    val admissionUpdates: List<ActiveRouteAdmissionUpdate>,
+    /** True on a new source baseline or a changed physical topology, even with no watched updates. */
+    val topologyBaseline: Boolean
 ) {
     internal companion object {
         fun create(
             observation: RailwayObservation,
             areaUpdates: Collection<RailwayAreaOccupancyUpdate>,
-            continuationUpdates: Collection<SignalRailContinuationUpdate>
+            continuationUpdates: Collection<SignalRailContinuationUpdate>,
+            admissionUpdates: Collection<ActiveRouteAdmissionUpdate> = emptyList(),
+            topologyBaseline: Boolean = false
         ): SignalEpochInput = SignalEpochInput(
             observation,
             Collections.unmodifiableList(ArrayList(areaUpdates)),
-            Collections.unmodifiableList(ArrayList(continuationUpdates))
+            Collections.unmodifiableList(ArrayList(continuationUpdates)),
+            Collections.unmodifiableList(ArrayList(admissionUpdates)),
+            topologyBaseline
         )
     }
 }
@@ -119,6 +128,8 @@ data class SignalEpochSource private constructor(
     val sourceId: String,
     val areas: List<RailwayOccupancyAreaDefinition>,
     val watchedContinuationEntries: Set<RailEndpointRef>,
+    /** Route admission changes touching these rails wake this source; no policy meaning is host-owned. */
+    val watchedAdmissionRailIds: Set<UUID>,
     val handler: SignalEpochHandler
 ) {
     constructor(
@@ -132,17 +143,26 @@ data class SignalEpochSource private constructor(
         areas: Collection<RailwayOccupancyAreaDefinition>,
         watchedContinuationEntries: Collection<RailEndpointRef>,
         handler: SignalEpochHandler
+    ) : this(sourceId, areas, watchedContinuationEntries, emptyList(), handler)
+
+    constructor(
+        sourceId: String,
+        areas: Collection<RailwayOccupancyAreaDefinition>,
+        watchedContinuationEntries: Collection<RailEndpointRef>,
+        watchedAdmissionRailIds: Collection<UUID>,
+        handler: SignalEpochHandler
     ) : this(
         sourceId,
         Collections.unmodifiableList(ArrayList(areas)),
         Collections.unmodifiableSet(LinkedHashSet(watchedContinuationEntries.sorted())),
+        Collections.unmodifiableSet(LinkedHashSet(watchedAdmissionRailIds.sorted())),
         handler
     )
 
     init {
         require(NAMESPACED_SIMPLE_ATO_ID.matches(sourceId)) { "sourceId must be namespaced" }
-        require(areas.isNotEmpty() || watchedContinuationEntries.isNotEmpty()) {
-            "signal epoch source must own a monitored area or watch a rail continuation"
+        require(areas.isNotEmpty() || watchedContinuationEntries.isNotEmpty() || watchedAdmissionRailIds.isNotEmpty()) {
+            "signal epoch source must declare a monitored area, continuation or admission rail"
         }
         require(areas.map(RailwayOccupancyAreaDefinition::areaId).distinct().size == areas.size) {
             "signal epoch source must not contain duplicate area IDs"

@@ -241,6 +241,8 @@ internal class SimpleSignalsWorldRuntime(
 
     fun sectionSignalSnapshot(): SectionSignalSnapshot? = state.sectionOccupancy?.signalSnapshot()
 
+    fun protectionRouteSelectionSnapshot() = state.sectionOccupancy?.protectionRouteSelection?.snapshot()
+
     private fun fixedBlockSignal(blockId: String): PublishedSectionSignal? =
         checkNotNull(state.sectionOccupancy) {
             "section occupancy is not initialized for world $worldId"
@@ -705,7 +707,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             signalEpochSources.replaceSources(
                 plugin,
                 worldId,
-                listOfNotNull(sectionOccupancy.source)
+                sectionOccupancy.sources
             )
         } catch (failure: Exception) {
             return@synchronized unavailable(
@@ -814,6 +816,8 @@ internal class SimpleSignalsWorldRuntimeManager(
             )
         }
         val replaceSectionOccupancy =
+            candidate.regions != current.regions ||
+                candidate.routeTables != current.routeTables ||
             candidate.fixedBlocks != current.fixedBlocks ||
                 candidate.fixedBlockSignals != current.fixedBlockSignals ||
                 topology !== runtime.currentTopology()
@@ -910,7 +914,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                         signalEpochSources.replaceSourcesAtomically(
                             plugin,
                             worldId,
-                            listOfNotNull(candidateOccupancy.source)
+                            candidateOccupancy.sources
                         ) {
                             callbackStarted = true
                             val commitTopology = try {

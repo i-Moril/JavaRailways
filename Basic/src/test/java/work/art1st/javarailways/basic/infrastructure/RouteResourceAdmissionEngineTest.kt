@@ -7,6 +7,7 @@ import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket as Inf
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -18,6 +19,7 @@ import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionState
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
@@ -54,6 +56,42 @@ class RouteResourceAdmissionEngineTest {
         assertEquals(RouteBoundResourceCatalogUpdate.Published, it.publish(topology, emptyList()))
     }
     private var additionValidation: (ContributedRouteResource) -> RouteAdmissionFailure? = { null }
+    private val admissionUpdates = arrayListOf<ActiveRouteAdmissionUpdate>()
+
+    @Test
+    fun `admission changes are published once and release proves only a tail lower bound`() {
+        val ticket = MutableTicket()
+        var starts = 0
+        val service = service(InfrastructurePreparationActuator {
+            InfrastructurePreparationStart.Accepted(if (starts++ == 0)
+                MutableTicket(InfrastructurePreparationState.READY) else ticket)
+        })
+        val requester = Any()
+        val frozen = route(1L, listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0)))
+        service.request(requester, intent(route = frozen))
+        assertEquals(1, admissionUpdates.size)
+        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
+            service.request(requester, intent(authority = 60.0, route = frozen)))
+        assertEquals(RouteBoundary(20.0), admissionUpdates.last().current?.committedAuthority)
+        assertEquals(ActiveRouteAdmissionState.PREPARING, admissionUpdates.last().current?.state)
+        service.progress(requester, pending.handle)
+        assertEquals(2, admissionUpdates.size)
+        ticket.state = InfrastructurePreparationState.READY
+        service.progress(requester, pending.handle)
+        assertEquals(3, admissionUpdates.size)
+        observation = observation(8L, train("first", 25.0, 26.0, 8L))
+        service.consumeObservation(observation)
+        val released = requireNotNull(admissionUpdates.last().current)
+        assertEquals(20.0, released.releasedThroughRouteMeters)
+        assertEquals(listOf(RailIntervalResource(railId, 20.0, 60.0)), registry.claimSnapshots().single().footprint.resources)
+        observation = observation(9L, train("first", 26.0, 27.0, 9L))
+        service.consumeObservation(observation)
+        assertEquals(4, admissionUpdates.size)
+        observation = observation(10L, train("first", 61.0, 62.0, 10L))
+        service.consumeObservation(observation)
+        assertNull(admissionUpdates.last().current)
+        assertTrue(service.activeAdmissions().isEmpty())
+    }
 
     @Test
     fun `active admission snapshots are stable immutable and omit terminal attempts`() {
@@ -1179,7 +1217,8 @@ class RouteResourceAdmissionEngineTest {
         "world", registry, hostClaimOwner, { topology }, { observation }, catalog,
         { _, contribution -> additionValidation(contribution) }, actuator,
         { _, _ -> error("unexpected world stall") },
-        ::authenticatedContributions
+        ::authenticatedContributions,
+        admissionUpdates::add
     )
 
     private fun intent(

@@ -7,6 +7,7 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochInput
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_SIGNAL_SOURCE_ID
+import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionRuntime
 
 internal const val SECTION_OCCUPANCY_SOURCE_ID = FIXED_BLOCK_SIGNAL_SOURCE_ID
 
@@ -71,7 +72,8 @@ internal class SectionOccupancySnapshot(
  */
 internal class SectionOccupancyRuntime private constructor(
     private val bindingsByArea: Map<RailObjectRef, Binding>,
-    private val signalRules: SectionSignalRuleRuntime?
+    private val signalRules: SectionSignalRuleRuntime?,
+    val protectionRouteSelection: ProtectionRouteSelectionRuntime
 ) {
     private data class PublishedState(
         val occupancy: SectionOccupancySnapshot,
@@ -92,6 +94,8 @@ internal class SectionOccupancyRuntime private constructor(
     }
 
     fun snapshot(): SectionOccupancySnapshot? = latest?.occupancy
+
+    val sources: List<SignalEpochSource> = listOfNotNull(source, protectionRouteSelection.source)
 
     fun signalSnapshot(): SectionSignalSnapshot? = latest?.signals
 
@@ -188,7 +192,7 @@ internal class SectionOccupancyRuntime private constructor(
                 }
             }
             val copiedBindings = java.util.Map.copyOf(bindings)
-            return SectionOccupancyRuntime(copiedBindings, signalRules)
+            return SectionOccupancyRuntime(copiedBindings, signalRules, ProtectionRouteSelectionRuntime(publication))
         }
     }
 }

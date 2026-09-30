@@ -72,6 +72,20 @@ class LiveClaimTailReleaseTest {
     }
 
     @Test
+    fun `released tail lower bound does not free an overlapping longer held resource`() {
+        val short = interval(0.0, 20.0)
+        val long = interval(0.0, 60.0)
+        val fixture = fixture(listOf(entry(short, 20.0), entry(long, 60.0)))
+        fixture.release.advance(25.0)
+        assertEquals(20.0, fixture.release.releasedThroughRouteMeters)
+        assertEquals(listOf(long), fixture.singleClaim().footprint.resources)
+        val competing = fixture.registry.acquireClaim(Any(), InfrastructureClaimRequest(
+            8L, InfrastructureOwner("test:competing", 1L), InfrastructureFootprint(listOf(interval(5.0, 15.0)))))
+        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, competing.status)
+        assertEquals(listOf(long), fixture.singleClaim().footprint.resources)
+    }
+
+    @Test
     fun `all resources release once and completed calls are idempotent`() {
         val resource = interval(0.0, 10.0)
         val fixture = fixture(listOf(entry(resource, 10.0)))

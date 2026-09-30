@@ -16,8 +16,10 @@ enum class ActiveRouteAdmissionState {
  * Immutable, process-local observation of one active route admission.
  *
  * [route] is the exact frozen route currently being prepared or held by the committed grant. A
- * preparing admission deliberately has no [committedAuthority], even when it extends an older
- * grant: consumers must keep the requested range restrictive until Basic publishes the new grant.
+ * preparing extension retains its previous [committedAuthority]: only the new requested suffix
+ * remains ungranted. [releasedThroughRouteMeters] advances only after Basic successfully releases
+ * a resource queue prefix. It is a proven lower bound on the train tail, not a statement that every
+ * resource overlapping that earlier route range has been released; long held resources remain claimed.
  * [requestedAuthority] bounds the part of the frozen route addressed by this admission, so a
  * consumer must not treat later infrastructure on the same route as requested. Rejected and
  * otherwise terminal attempts are not represented by this value.
@@ -32,7 +34,8 @@ data class ActiveRouteAdmissionSnapshot(
     val route: RouteSnapshot,
     val state: ActiveRouteAdmissionState,
     val requestedAuthority: RouteBoundary,
-    val committedAuthority: RouteBoundary?
+    val committedAuthority: RouteBoundary?,
+    val releasedThroughRouteMeters: Double = 0.0
 ) {
     init {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
@@ -40,9 +43,7 @@ data class ActiveRouteAdmissionSnapshot(
             "requested authority must not exceed the frozen route"
         }
         when (state) {
-            ActiveRouteAdmissionState.PREPARING -> require(committedAuthority == null) {
-                "a preparing admission must not expose committed authority"
-            }
+            ActiveRouteAdmissionState.PREPARING -> Unit
 
             ActiveRouteAdmissionState.GRANTED -> require(committedAuthority != null) {
                 "a granted admission must expose committed authority"
@@ -53,5 +54,16 @@ data class ActiveRouteAdmissionSnapshot(
                 committedAuthority.distanceFromRouteStartMeters <=
                 requestedAuthority.distanceFromRouteStartMeters
         ) { "committed authority must not exceed requested authority" }
+        require(releasedThroughRouteMeters.isFinite() && releasedThroughRouteMeters >= 0.0) {
+            "released route prefix must be finite and non-negative"
+        }
     }
+}
+
+/** Latest value for one logical owner; null means that owner no longer has an active admission. */
+data class ActiveRouteAdmissionUpdate(
+    val owner: InfrastructureOwner,
+    val current: ActiveRouteAdmissionSnapshot?
+) {
+    init { require(current == null || current.owner == owner) { "admission update owner mismatch" } }
 }

@@ -182,7 +182,8 @@ class WorldManager internal constructor(
                         .turnoutSafetyDefaults.lockingDistanceMeters,
                     stallWorld = { reason, failure ->
                         stallWorldRuntime(bukkitWorld, railWorld, reason, failure)
-                    }
+                    },
+                    publishAdmissionUpdate = railWorld.simpleAtoWorldData.signalEpochRuntime::publishAdmissionUpdate
                 )
                 splitRuntime?.simpleAto()?.restore(railWorld)
                 val simpleAtoData = railWorld.simpleAtoWorldData

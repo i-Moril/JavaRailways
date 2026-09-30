@@ -7,6 +7,13 @@ import work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefini
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyBoundary
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyCrossingKind
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionState
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
+import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
@@ -35,6 +42,73 @@ class SignalEpochRuntimeTest {
     private val railId = UUID.nameUUIDFromBytes("signal-epoch-rail".toByteArray())
     private val firstAreaId = RailObjectRef("test", "first-area")
     private val secondAreaId = RailObjectRef("test", "second-area")
+
+    @Test
+    fun `admission only source receives baseline latest owner change and old route removal`() {
+        val otherRail = UUID.nameUUIDFromBytes("other-admission-rail".toByteArray())
+        val received = linkedMapOf<String, MutableList<List<ActiveRouteAdmissionUpdate>>>()
+        fun watching(id: String, rail: UUID) = SignalEpochSource(id, emptyList(), emptyList(), listOf(rail)) { input ->
+            assertThrows(UnsupportedOperationException::class.java) { (input.admissionUpdates as MutableList).clear() }
+            received.getOrPut(id, ::arrayListOf) += input.admissionUpdates
+            SignalEpochResult.empty()
+        }
+        val first = watching("test:first", railId)
+        val second = watching("test:second", otherRail)
+        val runtime = runtime(listOf(first, second))
+        runtime.process(frame(1L, emptyList()))
+        assertEquals(1, received.getValue("test:first").size)
+        assertEquals(1, received.getValue("test:second").size)
+        val owner = InfrastructureOwner("test:admission", 1L)
+        val route = RouteSnapshot("test:route", 1L, 7L, listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0)))
+        fun admission(route: RouteSnapshot, end: Double) = ActiveRouteAdmissionSnapshot(owner, "train", route,
+            ActiveRouteAdmissionState.GRANTED, RouteBoundary(end), RouteBoundary(end))
+        runtime.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 20.0)))
+        runtime.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 40.0)))
+        runtime.process(frame(2L, emptyList()))
+        assertEquals(2, received.getValue("test:first").size)
+        assertEquals(RouteBoundary(40.0), received.getValue("test:first").last().single().current?.committedAuthority)
+        assertEquals(1, received.getValue("test:second").size)
+        runtime.process(frame(3L, emptyList()))
+        assertEquals(2, received.getValue("test:first").size)
+        val rebased = RouteSnapshot("test:route", 2L, 7L, listOf(RouteSegmentSnapshot(otherRail, ViewDirection.BA, 0.0, 100.0)))
+        runtime.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(rebased, 30.0)))
+        runtime.process(frame(4L, emptyList()))
+        assertEquals(3, received.getValue("test:first").size)
+        assertEquals(2, received.getValue("test:second").size)
+        runtime.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, null))
+        runtime.process(frame(5L, emptyList()))
+        assertEquals(3, received.getValue("test:first").size)
+        assertEquals(null, received.getValue("test:second").last().single().current)
+        runtime.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 50.0)))
+        runtime.replaceSources(listOf(first))
+        runtime.process(frame(6L, emptyList()))
+        assertEquals(RouteBoundary(50.0), received.getValue("test:first").last().single().current?.committedAuthority)
+    }
+
+    @Test
+    fun `replacement baseline retains first watched route for coalesced change and removal`() {
+        val otherRail = UUID.nameUUIDFromBytes("replacement-admission-rail".toByteArray())
+        val received = arrayListOf<List<ActiveRouteAdmissionUpdate>>()
+        val source = SignalEpochSource("test:replacement", emptyList(), emptyList(), listOf(railId)) {
+            received += it.admissionUpdates
+            SignalEpochResult.empty()
+        }
+        val runtime = runtime(listOf(source))
+        val owner = InfrastructureOwner("test:admission", 1L)
+        fun admission(rail: UUID) = ActiveRouteAdmissionSnapshot(owner, "train",
+            RouteSnapshot("test:route", 1L, 7L,
+                listOf(RouteSegmentSnapshot(rail, ViewDirection.AB, 0.0, 100.0))),
+            ActiveRouteAdmissionState.GRANTED, RouteBoundary(20.0), RouteBoundary(20.0))
+        runtime.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(railId)))
+        runtime.process(frame(1L, emptyList()))
+        runtime.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(otherRail)))
+        runtime.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, null))
+        runtime.replaceSources(listOf(source))
+        runtime.process(frame(2L, emptyList()))
+        assertEquals(listOf(ActiveRouteAdmissionUpdate(owner, null)), received.last())
+        runtime.process(frame(3L, emptyList()))
+        assertEquals(2, received.size)
+    }
 
     @Test
     fun `empty runtime stays idle until sources are installed`() {

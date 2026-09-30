@@ -958,7 +958,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
-    fun `same topology route table edit reuses fixed block monitoring geometry`() {
+    fun `same topology route table edit atomically refreshes selection with unchanged fixed block geometry`() {
         val fixture = Fixture()
         val infrastructure = MutableTopologyService(fixture.currentTopology)
         val store = store()
@@ -982,7 +982,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             plugin(), infrastructure.service, CapturingRoutePlanningService(), store, signalSources
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
-        val retainedSource = signalSources.sources.getValue(fixture.worldId).single()
+        val retainedSource = signalSources.sources.getValue(fixture.worldId).single { it.sourceId == SECTION_OCCUPANCY_SOURCE_ID }
 
         val applied = manager.applyDefinitionPatch(
             fixture.worldId,
@@ -993,8 +993,10 @@ class SimpleSignalsWorldRuntimeManagerTest {
         )
 
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, applied.status)
-        assertSame(retainedSource, signalSources.sources.getValue(fixture.worldId).single())
-        assertEquals(1, signalSources.atomicCommitCount)
+        val installed = signalSources.sources.getValue(fixture.worldId)
+        assertEquals(retainedSource.areas, installed.single { it.sourceId == SECTION_OCCUPANCY_SOURCE_ID }.areas)
+        assertEquals(2, installed.size)
+        assertEquals(2, signalSources.atomicCommitCount)
         assertEquals(1, infrastructure.permitCloseCount)
     }
 
@@ -1129,7 +1131,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             signalSources
         )
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
-        val initialSource = signalSources.sources.getValue(fixture.worldId).single()
+        val initialSource = signalSources.sources.getValue(fixture.worldId).single { it.sourceId == SECTION_OCCUPANCY_SOURCE_ID }
 
         // The revision is deliberately equal: source geometry is bound to the root object, not only
         // to a numeric topology revision.
@@ -1143,7 +1145,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         )
 
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, applied.status)
-        assertNotSame(initialSource, signalSources.sources.getValue(fixture.worldId).single())
+        assertNotSame(initialSource, signalSources.sources.getValue(fixture.worldId).single { it.sourceId == SECTION_OCCUPANCY_SOURCE_ID })
         assertEquals(2, signalSources.atomicCommitCount)
         assertEquals(1, infrastructure.permitAcquisitionCount)
         assertTrue(storedBefore != Files.readString(store.primaryFile(fixture.worldId)))

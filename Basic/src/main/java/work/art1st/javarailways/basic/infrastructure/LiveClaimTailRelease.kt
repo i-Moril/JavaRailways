@@ -70,6 +70,7 @@ internal class LiveClaimTailRelease(
     private var headIndex = 0
     private var committedQueueTail: ResolvedTailReleaseEntry = queue.entries.last()
     private var maximumProgress: Double? = null
+    private var releasedPrefixMeters = 0.0
     private var terminalFailure: LiveClaimTailReleaseResult.FailedClosed? = null
     // Only one same-route extension may be pending. Its already-held resources remain in this
     // queue, but are placed after ordinary entries until READY or a proven safe abort.
@@ -84,6 +85,10 @@ internal class LiveClaimTailRelease(
 
     val maximumAcceptedTailRouteProgressMeters: Double?
         get() = synchronized(lock) { maximumProgress }
+
+    /** Last successful release boundary: a proven tail lower bound, not complete range clearance. */
+    val releasedThroughRouteMeters: Double
+        get() = synchronized(lock) { releasedPrefixMeters }
 
     val resourceQueueEmpty: Boolean
         get() = synchronized(lock) { remainingQueue == null }
@@ -277,6 +282,7 @@ internal class LiveClaimTailRelease(
             }
 
             maximumProgress = authoritativeTailRouteProgressMeters
+            releasedPrefixMeters = maxOf(releasedPrefixMeters, entries[nextHead - 1].tailClearRouteMeters)
             if (queueCompleted) {
                 remainingQueue = null
                 headIndex = 0

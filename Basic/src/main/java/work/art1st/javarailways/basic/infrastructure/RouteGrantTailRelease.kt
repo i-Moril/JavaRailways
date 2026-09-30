@@ -76,6 +76,9 @@ internal class RouteGrantTailRelease(
     val acceptedTailProgressMeters: Double?
         get() = synchronized(lock) { claimRelease.maximumAcceptedTailRouteProgressMeters }
 
+    val releasedThroughRouteMeters: Double
+        get() = synchronized(lock) { claimRelease.releasedThroughRouteMeters }
+
     @MainThread
     fun validateExtendedHolds(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
         check(terminalFailure == null)

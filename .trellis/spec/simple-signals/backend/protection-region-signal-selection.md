@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围与 owner
 
-- 状态：`CURRENT/PARTIAL`。Basic 当前准入观测、默认进路持久化和低频编译/冲突校验已经存在；请求/默认合并、三种设备和呈现仍未实现。
+- 状态：`CURRENT/PARTIAL`。Basic 当前准入变化、默认进路持久化/冲突校验、共享入口选择运行时已经存在；三种设备的配置、规则和呈现仍未实现。
 - SimpleSignals 拥有保护区域、固定进路、默认进路配置、信号规则和显示设备；Basic 拥有物理资源准入、设备准备、claim 和 committed grant；SimpleATO 只合并最终限制，不识别具体信号或进路类型。
 - 非目标：不把保护区域类型加入 Basic/SimpleATO，不创建整区独占 token，不规定国家制式灯色，不让显示设备产生行车授权，也不让插件从道岔状态猜出未配置的默认进路。
 
@@ -43,27 +43,32 @@
 
 请求进路的 route identity 一旦被选中，信号不得在准备期间暂时回显默认进路：
 
-- `PREPARING`：显示请求进路的准备中/限制模型，速度为0；
+- 当前区域未完整授权时：保留请求进路身份，`routeReady=false`，未来设备规则必须保持限制；
+- Basic全程请求状态为`PREPARING`不等于每个历史区域都未准备。申请更远后缀时，旧committed authority仍可覆盖当前区域floor，沿途道岔正确则该入口仍ready；
 - `GRANTED`：只有 committed authority 覆盖该保护区域要求的完整 floor，且实际 active continuations 已与请求进路一致，才能运行正常进路规则；
-- 请求失败、结束或授权释放：Basic 不再发布该请求；下一次选择直接重新考虑默认进路，不锁存失败原因或旧请求状态；
+- 请求失败/结束或全部资源释放：Basic 不再发布该请求；某区域的出口已经由成功释放事件证明车尾通过时，选择器先移除该入口关联，不必等待整条冻结路线结束。跨越更长范围的资源仍由Basic保留，不会因选择变更被释放；
 - grant 与实际道岔方向不一致、topology stale 或观测缺失：fail-close，速度为0。
 
 默认进路与请求进路的差别只在授权要求：默认进路无需 grant，只检查道岔；请求进路必须等待 Basic 完成原子资源授权和设备准备。两者被选中后都可以把本进路占用及出口下游状态交给相同的插件规则决定最终模型和附加限速。
 
 ## 6. 共享状态与输出边界
 
-SimpleSignals 每个 signal epoch 为一个入口只产生一个不可变的选择结果，当前信号及所有绑定该入口的进路显示器共同读取它：
+`ProtectionRouteSelectionRuntime`在相关变化发生的signal epoch，为每个dirty入口产生一个不可变选择结果，供未来当前信号及所有绑定该入口的进路显示器共同读取：
 
 ```text
 SelectedProtectionRoute
-  entryId
+  entryBoundaryId
   source: REQUEST | DEFAULT | NONE
   routeId?
-  requestPhase?
+  requestState?
   routeReady
+  available
 ```
 
-这是概念模型，不是已批准的公开 API 签名。`routeReady` 表示该来源要求的物理条件已经满足：请求来源需要 grant 与道岔一致，默认来源只需要道岔一致。信号规则另外读取本进路占用和下游输出；显示器只读取 route identity/source 并映射为模型。
+这是已实现的plugin-internal值，不是宿主公开API。`available=false`表示不能证明唯一、当前的选择，不能作为允许状态。
+`routeReady` 表示该来源要求的物理条件已经满足：请求来源需要 grant 与道岔一致，默认来源只需要道岔一致。
+`requestState`按本区域floor是否已被committed authority覆盖计算，不照抄正在准备更远资源的全程state。
+信号规则另外读取本进路占用和下游输出；显示器只读取route identity/source并映射为模型，这些设备消费仍属后续实现。
 
 同一份选择结果保证主信号与进路显示器不会在一个 epoch 中显示不同进路。设备放置距离不改变其依赖：远处的进路预告机仍显式绑定同一个入口选择源，通过 latest-only Bukkit/Folia 呈现桥更新模型，不要求沿轨道重新查找目标信号。
 
@@ -71,7 +76,8 @@ SelectedProtectionRoute
 
 现有 `InfrastructureResourceService.liveClaims()` 只是 owner/footprint 诊断，缺少 train、冻结 route、请求阶段及 desired/committed authority，不能解析 owner 字符串反推进路。
 
-实现前需要冻结一个 Basic-owned、value-only 的当前准入观测 seam，使 SimpleSignals 能在 signal epoch 中确定某个入口是否有唯一生效请求及其阶段。概念信息包括：
+Basic提供value-only的`ActiveRouteAdmissionSnapshot`及`ActiveRouteAdmissionUpdate`，经宿主signal epoch输入到达SimpleSignals。
+共享选择器不在physics线程调用Bukkit service，也不从claim owner字符串反推进路。信息包括：
 
 ```text
 ActiveRouteAdmission
@@ -79,18 +85,32 @@ ActiveRouteAdmission
   state: PREPARING | GRANTED
   requested authority end
   committed authority end?
+  releasedThroughRouteMeters
 ```
 
 正式接口不暴露 mutable registry、live train/world 对象，也不要求信号插件重新寻路。默认进路分支不读取此 seam 的 grant；只有存在当前请求时才使用准入信息。
 `requested authority end`限定本次申请实际覆盖的冻结路线前缀；不能因为完整route plan还包含后续保护区域，就把尚未申请的后续入口当成当前请求。
 
+第一次冻结路线到达时，选择器复用区域/固定闭塞matcher和有向route projector，把区域窗口与同入口、出口、完整有向path的
+已配置固定进路匹配，并缓存该窗口的完整authority floor。floor复用inspection的计算：区域出口，或同点唯一直接固定闭塞后继的出口。
+这不是重新寻路；匹配失败或多解标记入口不可用，不任意选择进路。相同route对象的后续授权/释放变化复用缓存。
+
+入口关联只对requested authority已越过入口、且释放事件证明的车尾下界尚未通过出口的窗口成立。
+`releasedThroughRouteMeters`不是“之前的所有资源都已释放”；它只用于撤销已经被物理车尾通过的入口请求关联。
+Basic对剩余资源的排他校验独立继续生效，默认进路永远不能代替列车grant。
+
 ## 8. 响应式更新与复杂度
 
-- 定义发布时编译 entry-to-routes、default routes、turnout-entry-to-selection-source、resource-to-route、route-specific occupancy geometry 和显示器绑定；不在 tick 内遍历保护区域图。
+- 当前定义发布时编译entry-to-routes、default routes、rail-to-entry和turnout-entry-to-entry反向索引；不在tick内遍历保护区域图。
+- 请求第一次换绑路线才计算匹配窗口/floor。维护entry-to-request-owner集合；请求变化只更新旧/新关联入口，不遍历所有列车的请求。
 - 请求状态变化只唤醒对应入口；默认进路所需 active continuation 变化只唤醒引用该道岔的入口；选择输出未变化时停止向当前信号和显示器传播。
 - 占用或下游输出变化只运行依赖对应已选进路的信号规则；进路显示器不因无关占用变化执行。
 - 不允许 `all trains x all regions`、每 tick `liveClaims()` 轮询、重新寻路或根据显示器放置位置进行轨道扫描。
 - admission provider 或观测异常时请求分支退化为限制状态；不得悄悄回落到默认进路掩盖请求状态丢失。
+- 同一个入口出现多个当前owner时`available=false`；topology/world不一致时同样不可用。物理拓扑变化的baseline必须检查所有入口，包括没有道岔的单轨进路。
+- 列车从物理frame消失时，host按已有准入兴趣反查唤醒相关选择器；请求分支不可用，不偷偷回落默认，也不等待Bukkit完成下一次车尾检查。
+- 未变化的选择保留旧publication，不构造新的选择快照。当前实现复制入口map的成本是每次实际选择变化`O(E)`，不是每tick；新路线匹配是低频缓存建立成本，道岔检查按被选进路实际要求数计。
+- 后续设备接入仍须编译route-specific occupancy geometry及显示器绑定；只有占用/下游依赖变化才运行对应规则，不在本批创建这些未消费的索引。
 
 ## 9. 校验和测试
 
@@ -100,6 +120,8 @@ ActiveRouteAdmission
 - 无请求但默认进路任一道岔不正确：当前信号红灯/0，显示器无进路；不选择恰好匹配的非默认进路。
 - 请求出现后立即覆盖默认 route identity；准备中保持0；完整 grant 且道岔一致后才进入正常规则。
 - 请求结束后重新评估默认进路；不锁存请求模型或旧 permissive 输出。
+- 申请更远后缀期间，已完整授权且道岔正确的旧区域保持ready；车尾通过旧区域后恢复默认选择但不释放仍持有的长资源。
+- 冻结路线虽含未来区域，但requested authority尚未到达其入口时，不压住那个入口的默认选择。
 - 固定进路信号不受其他进路的选择变化影响，只在其固定进路状态变化时更新。
 - 当前信号与任意距离放置的多个显示器读取同一 selection revision 并始终显示相同 route identity。
 - stale topology、grant/道岔不一致、多个无法唯一裁决的当前请求和缺少 baseline 全部 fail-close。

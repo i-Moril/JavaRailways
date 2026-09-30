@@ -19,6 +19,7 @@ import work.art1st.javarailways.basic.api.infrastructure.TopologyEditDecision
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
@@ -104,6 +105,7 @@ internal class DefaultInfrastructureResourceService(
         latestObservation: () -> RailwayObservation?,
         awaitCurrentPhysics: () -> Unit,
         turnoutLockingDistanceMeters: Double,
+        publishAdmissionUpdate: (ActiveRouteAdmissionUpdate) -> Unit = {},
         stallWorld: (String, Exception) -> Unit
     ) = BukkitThreadGuardBridge.runInSimulationContext {
         val runtime = synchronized(lock) {
@@ -130,7 +132,8 @@ internal class DefaultInfrastructureResourceService(
             resolveContributedPreparation = { resource, descriptor ->
                 resolveContributedPreparation(worldId, resource, descriptor)
             },
-            stallWorld = stallWorld
+            stallWorld = stallWorld,
+            publishAdmissionUpdate = publishAdmissionUpdate
         )
         val manualTurnoutSelection = ManualTurnoutSelectionRuntime(
             world,

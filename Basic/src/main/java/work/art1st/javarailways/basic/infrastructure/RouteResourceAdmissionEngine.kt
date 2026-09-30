@@ -11,6 +11,7 @@ import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureRes
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionState
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.RouteAdmissionBlocker
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
@@ -44,7 +45,8 @@ internal class RouteResourceAdmissionEngine(
     private val validateContribution: (Any, ContributedRouteResource) -> RouteAdmissionFailure?,
     private val preparationActuator: InfrastructurePreparationActuator,
     private val stallWorld: (String, Exception) -> Unit,
-    private val collectContributions: (RouteResourceIntent) -> List<Pair<Any, ContributedRouteResource>> = { emptyList() }
+    private val collectContributions: (RouteResourceIntent) -> List<Pair<Any, ContributedRouteResource>> = { emptyList() },
+    private val publishAdmissionUpdate: (ActiveRouteAdmissionUpdate) -> Unit = {}
 ) {
     private val physicalCompiler = PhysicalRouteResourceCompiler(routeBoundResources)
     private val pending = LinkedHashMap<RouteAdmissionHandle, PendingRequest>()
@@ -71,7 +73,8 @@ internal class RouteResourceAdmissionEngine(
         var controlledResources: Set<StableInfrastructureResource>,
         val preparationsByResource: MutableMap<InfrastructureResource, InfrastructurePreparationRequirement>,
         var pendingHandle: RouteAdmissionHandle? = null,
-        var reversalFromTrainState: Boolean? = null
+        var reversalFromTrainState: Boolean? = null,
+        var publishedAdmission: ActiveRouteAdmissionSnapshot? = null
     )
 
     private data class ReservedDelta(
@@ -471,6 +474,7 @@ internal class RouteResourceAdmissionEngine(
             pending.remove(handle)
             terminal[handle] = TerminalRequest(requester, result)
         }
+        publishAdmission(attempt.route)
         return result
     }
 
@@ -724,6 +728,7 @@ internal class RouteResourceAdmissionEngine(
         compiled.preparations.forEach { route.preparationsByResource[it.resource] = it }
         route.committedGrant = grant
         route.reversalFromTrainState = null
+        publishAdmission(route)
         return RouteGrantReversalResult.Accepted(grant)
     }
 
@@ -737,6 +742,7 @@ internal class RouteResourceAdmissionEngine(
             if (route.committedGrant == null) continue
             if (route.reversalFromTrainState != null) continue
             val update = checkNotNull(route.tailRelease).consume(observation.stamp, trains[route.trainId])
+            publishAdmission(route)
             updates += update
             if (update is RouteGrantTailReleaseUpdate.FailedClosed) break
         }
@@ -751,6 +757,7 @@ internal class RouteResourceAdmissionEngine(
             !checkNotNull(route.tailRelease).resourceQueueEmpty
         ) return false
         routes.remove(route.owner.ownerId)
+        publishAdmission(route)
         return true
     }
 
@@ -796,31 +803,29 @@ internal class RouteResourceAdmissionEngine(
      */
     @MainThread
     fun activeAdmissions(): List<ActiveRouteAdmissionSnapshot> {
-        val snapshots = routes.values.mapNotNull { route ->
-            val activePending = route.pendingHandle?.let(pending::get)
-            if (activePending != null) {
-                ActiveRouteAdmissionSnapshot(
-                    route.owner,
-                    route.trainId,
-                    activePending.intent.route,
-                    ActiveRouteAdmissionState.PREPARING,
-                    activePending.intent.desiredAuthority,
-                    null
-                )
-            } else {
-                route.committedGrant?.let { grant ->
-                    ActiveRouteAdmissionSnapshot(
-                        route.owner,
-                        route.trainId,
-                        route.projection.route,
-                        ActiveRouteAdmissionState.GRANTED,
-                        grant.committedAuthority,
-                        grant.committedAuthority
-                    )
-                }
-            }
-        }
+        val snapshots = routes.values.mapNotNull(::admissionSnapshot)
         return Collections.unmodifiableList(ArrayList(snapshots))
+    }
+
+    private fun admissionSnapshot(route: RouteState): ActiveRouteAdmissionSnapshot? {
+        if (routes[route.owner.ownerId] !== route) return null
+        val activePending = route.pendingHandle?.let(pending::get)
+        val grant = route.committedGrant
+        if (activePending == null && (grant == null || route.tailRelease?.resourceQueueEmpty == true)) return null
+        return ActiveRouteAdmissionSnapshot(
+            route.owner, route.trainId, activePending?.intent?.route ?: route.projection.route,
+            if (activePending == null) ActiveRouteAdmissionState.GRANTED else ActiveRouteAdmissionState.PREPARING,
+            activePending?.intent?.desiredAuthority ?: checkNotNull(grant).committedAuthority,
+            grant?.committedAuthority,
+            route.tailRelease?.releasedThroughRouteMeters ?: 0.0
+        )
+    }
+
+    private fun publishAdmission(route: RouteState) {
+        val snapshot = admissionSnapshot(route)
+        if (snapshot == route.publishedAdmission) return
+        route.publishedAdmission = snapshot
+        publishAdmissionUpdate(ActiveRouteAdmissionUpdate(route.owner, snapshot))
     }
 
     /** Contributor membership is frozen while any route state may request another suffix. */
@@ -852,7 +857,8 @@ internal class RouteResourceAdmissionEngine(
     @MainThread
     fun discardInactiveRequester(requester: Any): Boolean {
         if (requesterActivity(requester).isNotEmpty()) return false
-        routes.values.removeIf { it.requester === requester }
+        val removed = routes.values.filter { it.requester === requester }
+        removed.forEach { routes.remove(it.owner.ownerId); publishAdmission(it) }
         terminal.entries.removeIf { it.value.requester === requester }
         return true
     }

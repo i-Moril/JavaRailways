@@ -146,7 +146,13 @@ data class ActiveRouteAdmissionSnapshot(
     val route: RouteSnapshot,
     val state: ActiveRouteAdmissionState, // PREPARING | GRANTED
     val requestedAuthority: RouteBoundary,
-    val committedAuthority: RouteBoundary?
+    val committedAuthority: RouteBoundary?,
+    val releasedThroughRouteMeters: Double = 0.0
+)
+
+data class ActiveRouteAdmissionUpdate(
+    val owner: InfrastructureOwner,
+    val current: ActiveRouteAdmissionSnapshot? // null表示此owner不再有当前准入状态
 )
 
 enum class RouteAdmissionFailureCode {
@@ -158,10 +164,19 @@ enum class RouteAdmissionFailureCode {
 ```
 
 `InfrastructureResourceService.activeRouteAdmissions(worldId)`从同一个world-local engine返回按logical owner稳定排序的
-不可变当前观测。它直接读取真实pending/committed route state，不解析claim owner字符串；`PREPARING`不暴露旧grant边界，
-`GRANTED`必须带committed boundary，失败/结束的尝试不保留。`requestedAuthority`限定本次请求覆盖的路线前缀，调用方不能把
+不可变当前观测。它直接读取真实pending/committed route state，不解析claim owner字符串；`PREPARING`仍保留已经提交的旧grant边界，
+不能把正在准备的后缀误当成旧前缀失去授权。`GRANTED`必须带committed boundary，失败/结束的尝试不保留。`requestedAuthority`限定本次请求覆盖的路线前缀，调用方不能把
 同一完整route中更远但尚未申请的基础设施视为当前请求。返回值不含handle、grant ID、requester、registry或live train/world，
 只用于process-local只读消费，没有持久化或重启语义。
+
+`releasedThroughRouteMeters`记录成功完成registry shrink后已移除队列前缀的最远释放位置：它是成功释放事件证明的
+车尾进度下界，不是原始车尾坐标，也不表示此前所有重叠资源都已释放。较长资源仍可保留，Basic继续拒绝与其冲突的新申请。
+不在此API新增安全余量策略；资源仍保持到各自已编译的释放位置，尚未移除的队列项不能推进这个值。
+路线折返重建释放队列时，该位置重新从新路线起点计量。
+
+宿主可在绑定engine时提供`publishAdmissionUpdate`接收器。每个owner仅在不可变当前值实际变化时发布，
+空状态发布`current=null`。宿主把它交给现有signal epoch runtime，不让插件在physics callback中调用Bukkit service或轮询完整列表。
+读列表仍是低频诊断接口；变化发布不扫描其他owner，也不引入第二套claim registry。
 
 `requestId` 是 namespaced caller correlation ID，没有 retry/persistence 语义。`owner` 是logical
 route/grant owner及其non-negative plan revision；Bukkit/service binding在字段外提供认证过的platform owner，

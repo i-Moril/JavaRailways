@@ -52,7 +52,6 @@ internal class ProtectionRegionInspectionSource(
                 definitionRevision = capturedRegions.definitionRevision,
                 trainProfileRevision = 0L,
                 declarations = regionWindows.map { window ->
-                    val successor = immediateSuccessor(window, blockWindows)
                     InspectionDeclaration(
                         declarationId = window.regionId,
                         railId = window.entry.position.railId,
@@ -60,8 +59,7 @@ internal class ProtectionRegionInspectionSource(
                         triggerRouteDistanceMeters = window.entry.routeDistanceMeters,
                         inspectionLeadTimeSeconds = 0.0,
                         minimumRequestedAuthorityEndRouteDistanceMeters =
-                            successor?.exitRouteDistanceMeters
-                                ?: window.exit.routeDistanceMeters
+                            protectionRegionAuthorityFloor(window, blockWindows)
                     )
                 }
             )
@@ -81,11 +79,13 @@ internal class ProtectionRegionInspectionSource(
         }
     )
 
-    /** Finds the tolerance window in the already entry-sorted fixed-block result. */
-    private fun immediateSuccessor(
+}
+
+/** Shared exact floor used by inspection and by read-only signal readiness. */
+internal fun protectionRegionAuthorityFloor(
         region: ProtectionRegionRouteWindow,
         blocks: List<FixedBlockRouteWindow>
-    ): FixedBlockRouteWindow? {
+    ): Double {
         val exit = region.exit.routeDistanceMeters
         var low = 0
         var high = blocks.size
@@ -99,7 +99,7 @@ internal class ProtectionRegionInspectionSource(
         }
         val successor = blocks.getOrNull(low)
             ?.takeIf { it.entryRouteDistanceMeters <= exit + Curve.TOLERANCE }
-            ?: return null
+            ?: return region.exit.routeDistanceMeters
         val competing = blocks.getOrNull(low + 1)
             ?.takeIf { it.entryRouteDistanceMeters <= exit + Curve.TOLERANCE }
         if (competing != null) {
@@ -108,6 +108,5 @@ internal class ProtectionRegionInspectionSource(
                     "at route distance $exit: ${successor.blockId}, ${competing.blockId}"
             )
         }
-        return successor
+        return successor.exitRouteDistanceMeters
     }
-}

@@ -2,6 +2,7 @@ package work.art1st.javarailways.basic.infrastructure
 
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
@@ -176,6 +177,7 @@ class RouteResourceAdmissionRuntime private constructor(
                 StableInfrastructureResource,
                 ResourcePreparationDescriptor
             ) -> (() -> ResourcePreparationTicket)?,
+            publishAdmissionUpdate: (ActiveRouteAdmissionUpdate) -> Unit = {},
             stallWorld: (String, Exception) -> Unit
         ): RouteResourceAdmissionRuntime {
             val topology = world.topologyState
@@ -193,7 +195,8 @@ class RouteResourceAdmissionRuntime private constructor(
                     world,
                     resolveContributedPreparation
                 ),
-                stallWorld = stallWorld
+                stallWorld = stallWorld,
+                publishAdmissionUpdate = publishAdmissionUpdate
             )
             return RouteResourceAdmissionRuntime({ world.topologyState }, catalog, engine, topology)
         }

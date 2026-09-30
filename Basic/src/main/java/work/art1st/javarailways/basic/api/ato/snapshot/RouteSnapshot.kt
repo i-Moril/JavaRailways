@@ -52,8 +52,7 @@ data class RouteSnapshot private constructor(
         require(topologyRevision >= 0L) { "RouteSnapshot topologyRevision must be non-negative" }
     }
 
-    val totalLengthMeters: Double
-        get() = segments.sumOf(RouteSegmentSnapshot::lengthMeters)
+    val totalLengthMeters: Double = segments.sumOf(RouteSegmentSnapshot::lengthMeters)
 
     private companion object {
         fun immutableCopy(source: Collection<RouteSegmentSnapshot>): List<RouteSegmentSnapshot> =

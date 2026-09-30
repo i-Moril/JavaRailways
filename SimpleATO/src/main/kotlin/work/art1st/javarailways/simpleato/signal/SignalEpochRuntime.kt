@@ -3,6 +3,8 @@ package work.art1st.javarailways.simpleato.signal
 import work.art1st.javarailways.basic.api.observation.RailwayAreaOccupancyEngine
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.core.api.physics.RailwayEpochProcessor
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
@@ -30,6 +32,35 @@ class SignalEpochRuntime(
 ) : RailwayEpochProcessor {
     @Volatile
     private var state = SourceState.create(emptyList())
+
+    // Only detached values cross from simulation admission to the physics epoch. Repeated changes
+    // before the next epoch replace one owner entry; an idle epoch takes no snapshot of all owners.
+    private val admissionLock = Any()
+    private val activeAdmissions = linkedMapOf<InfrastructureOwner, ActiveRouteAdmissionUpdate>()
+    private data class AdmissionChange(
+        val update: ActiveRouteAdmissionUpdate,
+        // Kept only until this latest change is consumed, so a replacement baseline can route a removal.
+        val previous: ActiveRouteAdmissionUpdate? = null
+    )
+    private var changedAdmissions = linkedMapOf<InfrastructureOwner, AdmissionChange>()
+
+    fun publishAdmissionUpdate(update: ActiveRouteAdmissionUpdate) = synchronized(admissionLock) {
+        val pendingChange = changedAdmissions[update.owner]
+        val previous = if (pendingChange == null) activeAdmissions[update.owner] else pendingChange.previous
+        if (update.current == null) activeAdmissions.remove(update.owner)
+        else activeAdmissions[update.owner] = update
+        changedAdmissions[update.owner] = AdmissionChange(update, previous)
+    }
+
+    private fun takeAdmissionUpdates(baseline: Boolean): List<AdmissionChange> =
+        synchronized(admissionLock) {
+            val values = if (baseline) {
+                val current = activeAdmissions.mapValuesTo(linkedMapOf()) { (_, update) -> AdmissionChange(update) }
+                changedAdmissions.forEach { (owner, change) -> current[owner] = change }
+                current.values
+            } else changedAdmissions.values
+            java.util.List.copyOf(values).also { changedAdmissions = linkedMapOf() }
+        }
 
     init {
         require(worldId.isNotBlank()) { "worldId must not be blank" }
@@ -69,6 +100,11 @@ class SignalEpochRuntime(
         val observation = RailwayObservation.fromCore(worldId, frame)
         val validated = ArrayList<TrainRestrictionSnapshot>()
         val invalidations = linkedMapOf<String, Set<String>>()
+        val topologyBaseline = current.previousTopologyRevision != observation.stamp.topologyRevision
+        val admissionUpdatesBySource = current.consumeAdmissionUpdates(
+            takeAdmissionUpdates(current.previousTopologyRevision == null), liveTrainIds
+        )
+        current.previousTopologyRevision = observation.stamp.topologyRevision
 
         val areaBatch = current.occupancyEngine.consume(observation)
         val updatesBySource = areaBatch.updates.groupBy { update ->
@@ -80,9 +116,12 @@ class SignalEpochRuntime(
         current.sources.forEach { source ->
             val updates = updatesBySource[source.sourceId].orEmpty()
             val continuationUpdates = continuationUpdatesBySource[source.sourceId].orEmpty()
-            if (updates.isEmpty() && continuationUpdates.isEmpty()) return@forEach
+            val admissionUpdates = admissionUpdatesBySource[source.sourceId].orEmpty()
+            if (updates.isEmpty() && continuationUpdates.isEmpty() && admissionUpdates.isEmpty() &&
+                !topologyBaseline
+            ) return@forEach
             val result = source.handler.update(
-                SignalEpochInput.create(observation, updates, continuationUpdates)
+                SignalEpochInput.create(observation, updates, continuationUpdates, admissionUpdates, topologyBaseline)
             )
             validateResult(source, observation, liveTrainIds, result.publications)
             validated += result.publications
@@ -128,9 +167,71 @@ class SignalEpochRuntime(
         val sources: List<SignalEpochSource>,
         val ownerByArea: Map<RailObjectRef, String>,
         val occupancyEngine: RailwayAreaOccupancyEngine,
-        private val ownersByContinuationEntry: Map<RailEndpointRef, Set<String>>
+        private val ownersByContinuationEntry: Map<RailEndpointRef, Set<String>>,
+        private val ownersByAdmissionRail: Map<java.util.UUID, Set<String>>
     ) {
+        var previousTopologyRevision: Long? = null
         private var previousContinuations: ActiveRailContinuationsSnapshot? = null
+        private data class AdmissionInterest(
+            val update: ActiveRouteAdmissionUpdate,
+            val sourceIds: Set<String>
+        ) {
+            val snapshot get() = checkNotNull(update.current)
+        }
+        private val admissionInterests = hashMapOf<InfrastructureOwner, AdmissionInterest>()
+        private val admissionOwnersByTrain = hashMapOf<String, MutableSet<InfrastructureOwner>>()
+        private var previousLiveTrainIds: Set<String>? = null
+
+        fun consumeAdmissionUpdates(
+            updates: List<AdmissionChange>, liveTrainIds: Set<String>
+        ): Map<String, List<ActiveRouteAdmissionUpdate>> {
+            val bySource = linkedMapOf<String, MutableMap<InfrastructureOwner, ActiveRouteAdmissionUpdate>>()
+            updates.forEach { change ->
+                val update = change.update
+                val previous = admissionInterests[update.owner] ?: change.previous?.let { old ->
+                    AdmissionInterest(old, checkNotNull(old.current).route.segments.flatMapTo(linkedSetOf()) {
+                        ownersByAdmissionRail[it.railId].orEmpty()
+                    })
+                }
+                previous?.let { old ->
+                    admissionOwnersByTrain[old.snapshot.trainId]?.let { owners ->
+                        owners.remove(update.owner)
+                        if (owners.isEmpty()) admissionOwnersByTrain.remove(old.snapshot.trainId)
+                    }
+                }
+                val route = update.current?.route
+                val interest = when {
+                    route == null -> null
+                    previous?.snapshot?.route === route -> previous.copy(update = update)
+                    else -> AdmissionInterest(update, route.segments.flatMapTo(linkedSetOf()) {
+                        ownersByAdmissionRail[it.railId].orEmpty()
+                    })
+                }
+                if (interest == null) admissionInterests.remove(update.owner)
+                else {
+                    admissionInterests[update.owner] = interest
+                    admissionOwnersByTrain.getOrPut(interest.snapshot.trainId, ::linkedSetOf) += update.owner
+                }
+                val targets = previous?.sourceIds.orEmpty() + interest?.sourceIds.orEmpty()
+                targets.forEach { sourceId ->
+                    bySource.getOrPut(sourceId, ::linkedMapOf)[update.owner] = update
+                }
+            }
+            val previousLive = previousLiveTrainIds
+            if (previousLive != null && previousLive != liveTrainIds) {
+                val changedTrains = (previousLive - liveTrainIds) + (liveTrainIds - previousLive)
+                changedTrains.forEach { trainId ->
+                    admissionOwnersByTrain[trainId].orEmpty().forEach { owner ->
+                        val interest = admissionInterests.getValue(owner)
+                        interest.sourceIds.forEach { sourceId ->
+                            bySource.getOrPut(sourceId, ::linkedMapOf)[owner] = interest.update
+                        }
+                    }
+                }
+            }
+            previousLiveTrainIds = liveTrainIds
+            return bySource.mapValues { java.util.List.copyOf(it.value.values) }
+        }
 
         fun consumeContinuationUpdates(
             current: ActiveRailContinuationsSnapshot
@@ -169,6 +270,7 @@ class SignalEpochRuntime(
                 }
                 val areaOwners = linkedMapOf<RailObjectRef, String>()
                 val continuationOwners = linkedMapOf<RailEndpointRef, MutableSet<String>>()
+                val admissionOwners = linkedMapOf<java.util.UUID, MutableSet<String>>()
                 ordered.forEach { source ->
                     source.areas.forEach { area ->
                         require(areaOwners.putIfAbsent(area.areaId, source.sourceId) == null) {
@@ -177,6 +279,9 @@ class SignalEpochRuntime(
                     }
                     source.watchedContinuationEntries.forEach { entry ->
                         continuationOwners.getOrPut(entry, ::sortedSetOf) += source.sourceId
+                    }
+                    source.watchedAdmissionRailIds.forEach { rail ->
+                        admissionOwners.getOrPut(rail, ::sortedSetOf) += source.sourceId
                     }
                 }
                 return SourceState(
@@ -191,7 +296,8 @@ class SignalEpochRuntime(
                                 )
                             }
                         }
-                    )
+                    ),
+                    java.util.Map.copyOf(admissionOwners.mapValues { java.util.Set.copyOf(it.value) })
                 )
             }
         }

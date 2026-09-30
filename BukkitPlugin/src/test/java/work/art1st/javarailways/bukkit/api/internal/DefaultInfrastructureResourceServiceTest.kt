@@ -27,6 +27,7 @@ import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionState
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot
@@ -74,6 +75,8 @@ import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBind
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.routing.RoutePlanningRestrictionRuntime
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
+import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
+import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult
 import java.lang.reflect.Proxy
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
@@ -641,6 +644,16 @@ class DefaultInfrastructureResourceServiceTest {
         var contributionCalls = 0
         val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
         val observation = routeObservation(worldId, topology.revision, 1L, railId, 0.0, 1.0)
+        val changes = arrayListOf<List<ActiveRouteAdmissionUpdate>>()
+        val epochRuntime = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
+            TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
+        }).also { epoch ->
+            epoch.replaceSources(listOf(SignalEpochSource("test:admission-observation", emptyList(), emptyList(), listOf(railId)) {
+                changes += it.admissionUpdates
+                SignalEpochResult.empty()
+            }))
+        }
+        epochRuntime.process(routeFrame(topology.revision, 1L, railId, 0.0, 1.0))
         service.registerResourceProvider(
             providerOwner,
             resource.typeId,
@@ -687,7 +700,8 @@ class DefaultInfrastructureResourceServiceTest {
                 claimed is StableInfrastructureResource && service.stableResourceExists(worldId, claimed)
         }
         service.attachInfrastructureRuntime(
-            worldId, TestWorld(topology), { observation }, {}, 5.0
+            worldId, TestWorld(topology), { observation }, {}, 5.0,
+            publishAdmissionUpdate = epochRuntime::publishAdmissionUpdate
         ) { reason, failure ->
             throw IllegalStateException("unexpected stall: $reason", failure)
         }
@@ -711,6 +725,8 @@ class DefaultInfrastructureResourceServiceTest {
         assertTrue(attemptId != null)
         assertEquals(1, service.liveClaims(worldId).size)
         val preparing = service.activeRouteAdmissions(worldId).single()
+        epochRuntime.process(routeFrame(topology.revision, 2L, railId, 0.0, 1.0))
+        assertEquals(preparing, changes.last().single().current)
         assertEquals(intent.owner, preparing.owner)
         assertEquals(intent.trainId, preparing.trainId)
         assertEquals(intent.route, preparing.route)
@@ -722,6 +738,10 @@ class DefaultInfrastructureResourceServiceTest {
         assertInstanceOf(RouteAdmissionResult.Granted::class.java, admission.progress(pending.handle))
         assertEquals(1, contributionCalls)
         val granted = service.activeRouteAdmissions(worldId).single()
+        epochRuntime.process(routeFrame(topology.revision, 3L, railId, 0.0, 1.0))
+        assertEquals(granted, changes.last().single().current)
+        epochRuntime.process(routeFrame(topology.revision, 4L, railId, 0.0, 1.0))
+        assertEquals(3, changes.size) // baseline, request, ready; no polling on unchanged epoch
         assertEquals(intent.route, granted.route)
         assertEquals(ActiveRouteAdmissionState.GRANTED, granted.state)
         assertEquals(intent.desiredAuthority, granted.requestedAuthority)
@@ -1274,7 +1294,16 @@ class DefaultInfrastructureResourceServiceTest {
         railId: UUID,
         tail: Double,
         head: Double
-    ): RailwayObservation {
+    ): RailwayObservation = RailwayObservation.fromCore(worldId.toString(),
+        routeFrame(topologyRevision, epoch, railId, tail, head))
+
+    private fun routeFrame(
+        topologyRevision: Long,
+        epoch: Long,
+        railId: UUID,
+        tail: Double,
+        head: Double
+    ): RailwayWorldFrameSnapshot {
         val train = TrainFrameSnapshot.create(
             trainId = "train",
             trainName = "train",
@@ -1292,14 +1321,11 @@ class DefaultInfrastructureResourceServiceTest {
             headTraversal = emptyList(),
             tailTraversal = emptyList()
         )
-        return RailwayObservation.fromCore(
-            worldId.toString(),
-            RailwayWorldFrameSnapshot.create(
+        return RailwayWorldFrameSnapshot.create(
                 epoch,
                 topologyRevision,
                 listOf(train),
                 ActiveRailContinuationsSnapshot.empty(topologyRevision)
-            )
         )
     }
 

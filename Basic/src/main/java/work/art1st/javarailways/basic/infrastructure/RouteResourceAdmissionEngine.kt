@@ -9,6 +9,8 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionState
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.RouteAdmissionBlocker
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
@@ -24,6 +26,7 @@ import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.util.annotation.MainThread
+import java.util.Collections
 
 /**
  * Internal route-admission owner for one world. Production world/catalog binding and authenticated
@@ -785,6 +788,39 @@ internal class RouteResourceAdmissionEngine(
             val activity = routeActivity(route, claimed.size) ?: return@mapNotNull null
             activity.copy(resourceTypeIds = matchingTypes)
         }
+    }
+
+    /**
+     * Returns a detached, owner-ordered view of requests that are still preparing or granted.
+     * Terminal attempts are absent even when their opaque handle remains weakly inspectable.
+     */
+    @MainThread
+    fun activeAdmissions(): List<ActiveRouteAdmissionSnapshot> {
+        val snapshots = routes.values.mapNotNull { route ->
+            val activePending = route.pendingHandle?.let(pending::get)
+            if (activePending != null) {
+                ActiveRouteAdmissionSnapshot(
+                    route.owner,
+                    route.trainId,
+                    activePending.intent.route,
+                    ActiveRouteAdmissionState.PREPARING,
+                    activePending.intent.desiredAuthority,
+                    null
+                )
+            } else {
+                route.committedGrant?.let { grant ->
+                    ActiveRouteAdmissionSnapshot(
+                        route.owner,
+                        route.trainId,
+                        route.projection.route,
+                        ActiveRouteAdmissionState.GRANTED,
+                        grant.committedAuthority,
+                        grant.committedAuthority
+                    )
+                }
+            }
+        }
+        return Collections.unmodifiableList(ArrayList(snapshots))
     }
 
     /** Contributor membership is frozen while any route state may request another suffix. */

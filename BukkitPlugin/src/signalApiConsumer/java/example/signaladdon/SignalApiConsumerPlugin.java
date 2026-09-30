@@ -32,6 +32,7 @@ import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor;
 import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot;
 import work.art1st.javarailways.basic.api.route.ResourcePreparationState;
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket;
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionState;
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult;
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode;
 import work.art1st.javarailways.basic.api.route.RouteBoundary;
@@ -233,6 +234,13 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             // Independent add-ons receive an authenticated, world-bound admission service. The
             // fixture builds a request but does not submit its synthetic random route at runtime.
             var routeAdmission = services.infrastructure().routeAdmission(this, worldId);
+            services.infrastructure().activeRouteAdmissions(worldId).forEach(active -> {
+                Objects.requireNonNull(active.getRoute());
+                Objects.requireNonNull(active.getRequestedAuthority());
+                if (active.getState() == ActiveRouteAdmissionState.GRANTED) {
+                    Objects.requireNonNull(active.getCommittedAuthority());
+                }
+            });
             var routeIntent = routeIntentExample(observation.getStamp());
             var inspectionDeclarations = inspectionDeclarationsExample("example-train", routeIntent.getRoute());
             var exampleInspectionRevision = new AtomicLong();

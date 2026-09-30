@@ -9,6 +9,7 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest;
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionResult;
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest;
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot;
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService;
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState;
 
@@ -136,6 +137,25 @@ public interface InfrastructureResourceService {
 
     /** Read-only diagnostics for claims created by the protected route-resource service. */
     List<InfrastructureClaimSnapshot> liveClaims(UUID worldId);
+
+    /**
+     * Returns immutable value snapshots of routes currently preparing or holding a committed grant.
+     *
+     * <p>The host reads the world-local admission owner inside the serialized railway simulation
+     * context. Callers should capture this list once per signal update, rather than once per signal
+     * device. Results are ordered by logical infrastructure owner and are safe to retain after the
+     * call; they contain no live registry, train, world, handle, or grant object. Every entry
+     * exposes the boundary addressed by that request. A preparing entry has no committed authority;
+     * a granted entry exposes its committed route boundary. Rejected and terminal attempts are
+     * absent.</p>
+     *
+     * <p>World unload and host shutdown invalidate future reads but do not mutate values already
+     * returned. These process-local observations have no persistence or restart meaning.</p>
+     *
+     * @throws IllegalStateException if this service is closed or route admission is not attached
+     *                               for the requested world
+     */
+    List<ActiveRouteAdmissionSnapshot> activeRouteAdmissions(UUID worldId);
 
     /**
      * Prepares this plugin instance for a planned disable by removing its infrastructure

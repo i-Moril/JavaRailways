@@ -30,6 +30,7 @@ import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableCatalog
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
 import work.art1st.javarailways.simplesignals.signal.CompiledFixedBlockSignals
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
+import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionIndex
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionSource
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStore
@@ -133,6 +134,7 @@ internal class SimpleSignalsRuntimePublication(
     val affectedRailIds: Set<UUID>,
     val regions: ProtectionRegionCatalog,
     val routeTables: ProtectionRouteTableCatalog,
+    val routeSelection: ProtectionRouteSelectionIndex,
     val fixedBlocks: FixedBlockCatalog,
     val fixedBlockSignals: CompiledFixedBlockSignals
 )
@@ -332,6 +334,13 @@ internal class SimpleSignalsWorldRuntime(
         if (tableResult.status == ProtectionRouteTableCatalogStatus.REJECTED) {
             return@synchronized preparationRejected(tableResult.diagnostics.map { it.detail })
         }
+        val candidateRouteSelection = try {
+            ProtectionRouteSelectionIndex.compile(topology, copiedTables)
+        } catch (failure: IllegalArgumentException) {
+            return@synchronized preparationRejected(
+                failure.message ?: "protection-route selection could not be compiled"
+            )
+        }
 
         val candidateBlocks = FixedBlockCatalog()
         val blockResult = candidateBlocks.publish(
@@ -368,6 +377,7 @@ internal class SimpleSignalsWorldRuntime(
             affectedRailIds,
             candidateRegions,
             candidateTables,
+            candidateRouteSelection,
             candidateBlocks,
             candidateSignals
         )

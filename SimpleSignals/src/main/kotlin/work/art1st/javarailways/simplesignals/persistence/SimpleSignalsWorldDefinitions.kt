@@ -94,7 +94,8 @@ private data class SavedProtectionRouteTableV1(
     val revision: Long,
     val regionId: String,
     val regionRevision: Long,
-    val routes: List<SavedProtectionRouteV1>
+    val routes: List<SavedProtectionRouteV1>,
+    val defaultRouteIds: List<String> = emptyList()
 )
 
 @Serializable
@@ -238,7 +239,8 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                             )
                         }
                     )
-                }
+                },
+                table.defaultRouteIds
             )
         },
         fixedBlocks.map { block ->
@@ -327,7 +329,8 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                     )
                 }
             )
-        }
+        },
+        defaultRouteIds
     )
 
     private fun SavedFixedBlockV1.restore() = FixedBlockDefinition(

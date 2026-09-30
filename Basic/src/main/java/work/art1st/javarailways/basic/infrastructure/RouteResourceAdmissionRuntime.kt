@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.infrastructure
 
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
@@ -90,6 +91,11 @@ class RouteResourceAdmissionRuntime private constructor(
     @MainThread
     fun providerActivity(typeIds: Set<String>): List<RouteAdmissionRequesterActivity> =
         if (closed) emptyList() else engine.providerActivity(typeIds)
+
+    /** Detached current admissions in stable logical-owner order. */
+    @MainThread
+    fun activeAdmissions(): List<ActiveRouteAdmissionSnapshot> =
+        if (closed) emptyList() else engine.activeAdmissions()
 
     /** True until every route using the currently installed contributor set has ended. */
     @MainThread

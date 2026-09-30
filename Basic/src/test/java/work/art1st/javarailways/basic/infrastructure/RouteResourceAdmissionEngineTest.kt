@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
@@ -16,6 +17,7 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionState
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
@@ -52,6 +54,68 @@ class RouteResourceAdmissionEngineTest {
         assertEquals(RouteBoundResourceCatalogUpdate.Published, it.publish(topology, emptyList()))
     }
     private var additionValidation: (ContributedRouteResource) -> RouteAdmissionFailure? = { null }
+
+    @Test
+    fun `active admission snapshots are stable immutable and omit terminal attempts`() {
+        observation = observation(
+            7L,
+            train("first", 0.0, 1.0, 7L),
+            train("second", 40.0, 41.0, 7L)
+        )
+        val laterOwnerTicket = MutableTicket()
+        val earlierOwnerTicket = MutableTicket()
+        var starts = 0
+        var stalls = 0
+        val service = RouteResourceAdmissionEngine(
+            "world", registry, hostClaimOwner, { topology }, { observation }, catalog,
+            { _, _ -> null },
+            InfrastructurePreparationActuator {
+                InfrastructurePreparationStart.Accepted(
+                    if (starts++ == 0) laterOwnerTicket else earlierOwnerTicket
+                )
+            },
+            { _, _ -> stalls++ }
+        )
+        val laterRequester = Any()
+        val earlierRequester = Any()
+        val later = assertInstanceOf(
+            RouteAdmissionResult.Pending::class.java,
+            service.request(laterRequester, intent(ownerId = "test:route/z", trainId = "first"))
+        )
+        val earlier = assertInstanceOf(
+            RouteAdmissionResult.Pending::class.java,
+            service.request(
+                earlierRequester,
+                intent(ownerId = "test:route/a", trainId = "second", routeStart = 40.0)
+            )
+        )
+
+        val preparing = service.activeAdmissions()
+        assertEquals(listOf("test:route/a", "test:route/z"), preparing.map { it.owner.ownerId })
+        assertTrue(preparing.all { it.state == ActiveRouteAdmissionState.PREPARING })
+        assertTrue(preparing.all { it.requestedAuthority == RouteBoundary(20.0) })
+        assertTrue(preparing.all { it.committedAuthority == null })
+        assertThrows(UnsupportedOperationException::class.java) {
+            (preparing as MutableList).clear()
+        }
+
+        earlierOwnerTicket.state = InfrastructurePreparationState.READY
+        assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.progress(earlierRequester, earlier.handle))
+        val mixed = service.activeAdmissions()
+        assertEquals(ActiveRouteAdmissionState.GRANTED, mixed[0].state)
+        assertEquals(RouteBoundary(20.0), mixed[0].requestedAuthority)
+        assertEquals(RouteBoundary(20.0), mixed[0].committedAuthority)
+        assertEquals(ActiveRouteAdmissionState.PREPARING, mixed[1].state)
+
+        laterOwnerTicket.state = InfrastructurePreparationState.UNSAFE
+        assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.progress(laterRequester, later.handle))
+        val afterTerminalFailure = service.activeAdmissions()
+        assertEquals(listOf("test:route/a"), afterTerminalFailure.map { it.owner.ownerId })
+        assertEquals(ActiveRouteAdmissionState.GRANTED, afterTerminalFailure.single().state)
+        assertEquals(1, stalls)
+    }
 
     @Test
     fun `stopped reversal keeps the grant and claim while rebuilding release from the new tail`() {

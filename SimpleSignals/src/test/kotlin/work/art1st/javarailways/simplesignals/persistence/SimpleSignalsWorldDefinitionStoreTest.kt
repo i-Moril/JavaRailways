@@ -12,6 +12,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
+import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
 import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalContinuationRequirement
@@ -36,12 +37,43 @@ class SimpleSignalsWorldDefinitionStoreTest {
         assertEquals("simplesignals:test-region", roundTrip.regions.single().regionId)
         assertEquals(ViewDirection.BA, roundTrip.regions.single().boundaries[1].insideFacing)
         assertEquals(3, roundTrip.routeTables.single().routes.single().traversals.size)
+        assertEquals(emptyList<String>(), roundTrip.routeTables.single().defaultRouteIds)
         assertEquals(emptyList<FixedBlockDefinition>(), roundTrip.fixedBlocks)
         assertEquals(emptyList<FixedBlockSignalDefinition>(), roundTrip.fixedBlockSignals)
         assertTrue(encoded.contains("\"fixedBlocks\": []"))
         assertTrue(encoded.contains("\"fixedBlockSignals\": []"))
+        assertTrue(encoded.contains("\"defaultRouteIds\": []"))
         assertFalse(encoded.contains("interior"))
         assertFalse(encoded.contains("topologyRevision"))
+    }
+
+    @Test
+    fun `configured default protection routes round trip within schema one`() {
+        val decoded = SimpleSignalsWorldDefinitionsCodec.decode(CURRENT_FIXTURE, WORLD_ID)
+        val table = decoded.routeTables.single()
+        val definitions = SimpleSignalsWorldDefinitions(
+            decoded.worldId,
+            decoded.definitionRevision,
+            decoded.regions,
+            listOf(
+                ProtectionRouteTableDefinition(
+                    table.tableId,
+                    table.revision,
+                    table.regionId,
+                    table.regionRevision,
+                    table.routes,
+                    listOf(table.routes.single().routeId)
+                )
+            )
+        )
+
+        val encoded = SimpleSignalsWorldDefinitionsCodec.encode(definitions)
+        val roundTrip = SimpleSignalsWorldDefinitionsCodec.decode(encoded, WORLD_ID)
+
+        assertEquals(definitions, roundTrip)
+        assertTrue(encoded.contains("\"defaultRouteIds\": ["))
+        assertTrue(encoded.contains("\"simplesignals:test-route\""))
+        assertTrue(encoded.contains("\"schemaVersion\": 1"))
     }
 
     @Test

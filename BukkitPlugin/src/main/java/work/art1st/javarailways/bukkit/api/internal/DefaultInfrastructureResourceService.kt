@@ -18,6 +18,7 @@ import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditDecision
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
@@ -541,6 +542,17 @@ internal class DefaultInfrastructureResourceService(
 
     override fun liveClaims(worldId: UUID): List<InfrastructureClaimSnapshot> =
         registry(worldId)?.claimSnapshots().orEmpty()
+
+    override fun activeRouteAdmissions(worldId: UUID): List<ActiveRouteAdmissionSnapshot> =
+        BukkitThreadGuardBridge.runInSimulationContext {
+            val admission = synchronized(lock) {
+                check(!closed) { "InfrastructureResourceService is closed" }
+                checkNotNull(worlds[worldId]?.routeAdmission) {
+                    "Route admission is not attached for world $worldId"
+                }
+            }
+            admission.activeAdmissions()
+        }
 
     override fun unregisterOwner(pluginOwner: Plugin) {
         BukkitThreadGuardBridge.runInSimulationContext {

@@ -140,6 +140,15 @@ interface RouteResourceAdmissionService {
     fun endGrant(grantId: RouteGrantId): Boolean
 }
 
+data class ActiveRouteAdmissionSnapshot(
+    val owner: InfrastructureOwner,
+    val trainId: String,
+    val route: RouteSnapshot,
+    val state: ActiveRouteAdmissionState, // PREPARING | GRANTED
+    val requestedAuthority: RouteBoundary,
+    val committedAuthority: RouteBoundary?
+)
+
 enum class RouteAdmissionFailureCode {
     WORLD_UNAVAILABLE, OWNER_MISMATCH, STALE_OBSERVATION, TRAIN_NOT_FOUND,
     STALE_TOPOLOGY, INVALID_ROUTE, INVALID_BOUNDARY, INVALID_INFRASTRUCTURE,
@@ -147,6 +156,12 @@ enum class RouteAdmissionFailureCode {
     ROUTE_STATE_MISMATCH, REQUEST_BUSY, PREPARATION_ABORTED_SAFE, WORLD_STALLED
 }
 ```
+
+`InfrastructureResourceService.activeRouteAdmissions(worldId)`从同一个world-local engine返回按logical owner稳定排序的
+不可变当前观测。它直接读取真实pending/committed route state，不解析claim owner字符串；`PREPARING`不暴露旧grant边界，
+`GRANTED`必须带committed boundary，失败/结束的尝试不保留。`requestedAuthority`限定本次请求覆盖的路线前缀，调用方不能把
+同一完整route中更远但尚未申请的基础设施视为当前请求。返回值不含handle、grant ID、requester、registry或live train/world，
+只用于process-local只读消费，没有持久化或重启语义。
 
 `requestId` 是 namespaced caller correlation ID，没有 retry/persistence 语义。`owner` 是logical
 route/grant owner及其non-negative plan revision；Bukkit/service binding在字段外提供认证过的platform owner，

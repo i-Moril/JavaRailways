@@ -26,6 +26,7 @@ import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionState
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot
@@ -709,10 +710,28 @@ class DefaultInfrastructureResourceServiceTest {
         assertEquals(1, contributionCalls)
         assertTrue(attemptId != null)
         assertEquals(1, service.liveClaims(worldId).size)
+        val preparing = service.activeRouteAdmissions(worldId).single()
+        assertEquals(intent.owner, preparing.owner)
+        assertEquals(intent.trainId, preparing.trainId)
+        assertEquals(intent.route, preparing.route)
+        assertEquals(ActiveRouteAdmissionState.PREPARING, preparing.state)
+        assertEquals(intent.desiredAuthority, preparing.requestedAuthority)
+        assertEquals(null, preparing.committedAuthority)
         ticket.state = ResourcePreparationState.READY
 
         assertInstanceOf(RouteAdmissionResult.Granted::class.java, admission.progress(pending.handle))
         assertEquals(1, contributionCalls)
+        val granted = service.activeRouteAdmissions(worldId).single()
+        assertEquals(intent.route, granted.route)
+        assertEquals(ActiveRouteAdmissionState.GRANTED, granted.state)
+        assertEquals(intent.desiredAuthority, granted.requestedAuthority)
+        assertEquals(intent.desiredAuthority, granted.committedAuthority)
+
+        service.removeWorld(worldId)
+        assertThrows(IllegalStateException::class.java) {
+            service.activeRouteAdmissions(worldId)
+        }
+        service.close()
     }
 
     @Test

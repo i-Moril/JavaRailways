@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围与 owner
 
-- 状态：`TARGET/DESIGN`。保护区域、固定进路表、route-local authority floor 和 Basic 原子准入已经存在；本合同冻结尚未实现的保护区域信号选择与进路显示语义。
+- 状态：`CURRENT/PARTIAL`。Basic 当前准入观测、默认进路持久化和低频编译/冲突校验已经存在；请求/默认合并、三种设备和呈现仍未实现。
 - SimpleSignals 拥有保护区域、固定进路、默认进路配置、信号规则和显示设备；Basic 拥有物理资源准入、设备准备、claim 和 committed grant；SimpleATO 只合并最终限制，不识别具体信号或进路类型。
 - 非目标：不把保护区域类型加入 Basic/SimpleATO，不创建整区独占 token，不规定国家制式灯色，不让显示设备产生行车授权，也不让插件从道岔状态猜出未配置的默认进路。
 
@@ -77,10 +77,12 @@ SelectedProtectionRoute
 ActiveRouteAdmission
   frozen route identity/revision
   state: PREPARING | GRANTED
+  requested authority end
   committed authority end?
 ```
 
 正式接口不暴露 mutable registry、live train/world 对象，也不要求信号插件重新寻路。默认进路分支不读取此 seam 的 grant；只有存在当前请求时才使用准入信息。
+`requested authority end`限定本次申请实际覆盖的冻结路线前缀；不能因为完整route plan还包含后续保护区域，就把尚未申请的后续入口当成当前请求。
 
 ## 8. 响应式更新与复杂度
 

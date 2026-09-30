@@ -147,6 +147,16 @@ The protection-region to fixed-block transition follows the
 only after the exact route is frozen and feeds one expanded prefix to Basic's atomic admission. Moving-block territory remains
 a later plugin-policy boundary; the region object stores no successor and does not recursively call one.
 
+Protection-region signal selection follows the separate
+[signal and route-display owner contract](../../spec/simple-signals/backend/protection-region-signal-selection.md). One region does not expose a
+single occupancy bit: each authored fixed route has its own occupancy/resource/turnout projection. A region may configure several mutually
+compatible default routes. They create no claim and require no grant; without a train request, a current signal selects only its configured
+default route and only while all route turnouts physically agree. An active request has higher priority and remains restrictive until Basic
+publishes a grant covering the complete region floor. With neither source the current signal is red. Fixed-route signals bypass this selector,
+while presentation-only route indicators and distant route previews share the selected-route snapshot and differ only by player placement and
+model. The existing diagnostic-only claim list does not contain enough train/route/request information, so the request branch first requires a
+reviewed immutable Basic admission observation rather than parsing owner IDs or polling the registry.
+
 ### Inspection and reactive updates
 
 Stage 2 consumes the reviewed declaration, single-scan, activation and fail-closed contract from

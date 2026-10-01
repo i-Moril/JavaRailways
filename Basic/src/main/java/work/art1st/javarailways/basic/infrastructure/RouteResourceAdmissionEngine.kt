@@ -287,10 +287,13 @@ internal class RouteResourceAdmissionEngine(
             !appendsRoute -> existing.routeProgressPath
             else -> CompiledRouteProgressPath.compile(projection)
         }
+        val release = existing?.tailRelease
+        val held = release?.remainingEntries?.associateBy(ResolvedTailReleaseEntry::resource).orEmpty()
         val physicalResult = physicalCompiler.compile(
             projection, PhysicalRouteRange(oldFrontier, newFrontier,
                 includeTurnoutAtStart = existing == null || appendsRoute),
-            progressPath
+            progressPath,
+            held.keys
         )
         val physical = when (physicalResult) {
             is PhysicalRouteCompilation.Compiled -> physicalResult.admission
@@ -318,12 +321,6 @@ internal class RouteResourceAdmissionEngine(
         }
         val contributionOwnerByResource = LinkedHashMap<StableInfrastructureResource, Any>()
         val contributions = ArrayList<ContributedRouteResource>(authenticatedContributions.size)
-        val release = existing?.tailRelease
-        val held = release?.remainingEntries?.associateBy(ResolvedTailReleaseEntry::resource).orEmpty()
-        if (physical.preparations.any { it is ResolvedTurnoutSelection && it.resource in held }) {
-            return rejected(RouteAdmissionFailureCode.REQUEST_BUSY,
-                "the previous turnout use must be tail-released before requesting it again")
-        }
         val acceptedTailProgress = release?.acceptedTailProgressMeters
         for ((contributor, contribution) in authenticatedContributions) {
             if (contribution.releaseAfterTailPasses.distanceFromRouteStartMeters > newFrontier) {

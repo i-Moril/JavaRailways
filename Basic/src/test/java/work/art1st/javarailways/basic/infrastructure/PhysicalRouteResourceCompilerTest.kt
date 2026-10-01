@@ -3,6 +3,7 @@ package work.art1st.javarailways.basic.infrastructure
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
@@ -22,6 +23,56 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import java.util.UUID
 
 class PhysicalRouteResourceCompilerTest {
+    @Test
+    fun `held same target use caps before earliest blocker rather than later duplicate and clamps to start`() {
+        val stem = UUID(0L, 61L)
+        val outbound = UUID(0L, 62L)
+        val returning = UUID(0L, 63L)
+        val branch = UUID(0L, 64L)
+        val topology = topologyState(7L, listOf(stem, outbound, returning, branch), listOf(
+            endpoint(stem, RailEndpoint.B) to endpoint(outbound, RailEndpoint.A),
+            endpoint(stem, RailEndpoint.B) to endpoint(branch, RailEndpoint.A),
+            endpoint(outbound, RailEndpoint.B) to endpoint(returning, RailEndpoint.A),
+            endpoint(returning, RailEndpoint.B) to endpoint(stem, RailEndpoint.A)
+        ))
+        val route = RouteSnapshot("test:same-target-loop", 1L, topology.revision,
+            List(3) { listOf(stem, outbound, returning) }.flatten().map {
+                RouteSegmentSnapshot(it, ViewDirection.AB, 0.0, 10.0)
+            })
+        val projection = assertInstanceOf(TopologyRouteProjectionResult.Projected::class.java,
+            TopologyRouteProjector.project(route, topology)).route
+        val first = projection.turnoutTraversals.first()
+        assertTrue(projection.turnoutTraversals.all {
+            it.resource == first.resource && it.fromPort == first.fromPort && it.toPort == first.toPort
+        })
+        val catalog = RouteBoundResourceCatalog { topology }
+        catalog.publish(topology, emptyList())
+        val compiler = PhysicalRouteResourceCompiler(catalog)
+        val laterDuplicate = assertInstanceOf(PhysicalRouteCompilation.Rejected::class.java,
+            compiler.compile(projection, PhysicalRouteRange(20.0, 90.0)))
+        assertEquals(70.0 - 2.0 * Curve.TOLERANCE, laterDuplicate.retryAtOrBeforeMeters)
+        val blocked = assertInstanceOf(PhysicalRouteCompilation.Rejected::class.java,
+            compiler.compile(projection, PhysicalRouteRange(20.0, 90.0), heldResources = setOf(first.resource)))
+        assertEquals(PhysicalRouteCompilationRejection.REQUEST_RANGE_TOO_LONG, blocked.reason)
+        val ceiling = 40.0 - 2.0 * Curve.TOLERANCE
+        assertEquals(ceiling, blocked.retryAtOrBeforeMeters)
+        val prefix = assertInstanceOf(PhysicalRouteCompilation.Compiled::class.java,
+            compiler.compile(projection, PhysicalRouteRange(20.0, ceiling), heldResources = setOf(first.resource)))
+        assertTrue(prefix.admission.preparations.isEmpty())
+        val start = 40.0 - Curve.TOLERANCE
+        val clamped = assertInstanceOf(PhysicalRouteCompilation.Rejected::class.java,
+            compiler.compile(projection, PhysicalRouteRange(start, 50.0), heldResources = setOf(first.resource)))
+        assertEquals(start, clamped.retryAtOrBeforeMeters)
+        val endWithinTolerance = assertInstanceOf(PhysicalRouteCompilation.Rejected::class.java,
+            compiler.compile(projection, PhysicalRouteRange(20.0, 40.0 - Curve.TOLERANCE),
+                heldResources = setOf(first.resource)))
+        assertEquals(ceiling, endWithinTolerance.retryAtOrBeforeMeters)
+        val ordinarySuffix = assertInstanceOf(PhysicalRouteCompilation.Compiled::class.java,
+            compiler.compile(projection, PhysicalRouteRange(40.0, 50.0, includeTurnoutAtStart = false),
+                heldResources = setOf(first.resource)))
+        assertTrue(ordinarySuffix.admission.preparations.isEmpty())
+    }
+
     @Test
     fun `physical floor compiles rails turnouts and diamond without a protection region`() {
         val revision = 7L

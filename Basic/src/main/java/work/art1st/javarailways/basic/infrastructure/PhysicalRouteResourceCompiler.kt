@@ -56,7 +56,8 @@ internal class PhysicalRouteResourceCompiler(
     fun compile(
         projection: ProjectedTopologyRoute,
         range: PhysicalRouteRange,
-        retainedProgressPath: CompiledRouteProgressPath? = null
+        retainedProgressPath: CompiledRouteProgressPath? = null,
+        heldResources: Set<InfrastructureResource> = emptySet()
     ): PhysicalRouteCompilation {
         val routeEnd = projection.occurrences.lastOrNull()?.routeEndMeters
             ?: return invalid("projected route has no occurrences")
@@ -78,7 +79,8 @@ internal class PhysicalRouteResourceCompiler(
             projection,
             range,
             hits,
-            retainedProgressPath
+            retainedProgressPath,
+            heldResources
         )
     }
 
@@ -87,7 +89,8 @@ internal class PhysicalRouteResourceCompiler(
         projection: ProjectedTopologyRoute,
         range: PhysicalRouteRange,
         routeBoundHits: List<RouteBoundResourceHit>,
-        retainedProgressPath: CompiledRouteProgressPath? = null
+        retainedProgressPath: CompiledRouteProgressPath? = null,
+        heldResources: Set<InfrastructureResource> = emptySet()
     ): PhysicalRouteCompilation {
         val routeEnd = projection.occurrences.lastOrNull()?.routeEndMeters
             ?: return invalid("projected route has no occurrences")
@@ -109,16 +112,18 @@ internal class PhysicalRouteResourceCompiler(
                 traversal.routeDistanceMeters > range.startRouteMeters + Curve.TOLERANCE
             }) && traversal.routeDistanceMeters <= range.endRouteMeters + Curve.TOLERANCE
         }
-        val turnoutResources = relevantTurnouts.map(ProjectedTurnoutTraversal::resource)
         val seenTurnouts = HashSet<StableInfrastructureResource>()
-        val repeatedTurnout = relevantTurnouts.firstOrNull { !seenTurnouts.add(it.resource) }
-        if (repeatedTurnout != null) return PhysicalRouteCompilation.Rejected(
+        val blockedTurnout = relevantTurnouts.firstOrNull {
+            it.resource in heldResources || !seenTurnouts.add(it.resource)
+        }
+        if (blockedTurnout != null) return PhysicalRouteCompilation.Rejected(
             PhysicalRouteCompilationRejection.REQUEST_RANGE_TOO_LONG,
-            "request must stop before the next use of turnout ${repeatedTurnout.resource.resourceId}",
+            "request must stop before the next use of turnout ${blockedTurnout.resource.resourceId}",
             // Both compiler range ends and turnout-start tests use Curve.TOLERANCE. nextDown alone
             // would still include this device, so leave an explicit two-tolerance gap.
-            (repeatedTurnout.routeDistanceMeters - 2.0 * Curve.TOLERANCE).coerceAtLeast(range.startRouteMeters)
+            (blockedTurnout.routeDistanceMeters - 2.0 * Curve.TOLERANCE).coerceAtLeast(range.startRouteMeters)
         )
+        val turnoutResources = relevantTurnouts.map(ProjectedTurnoutTraversal::resource)
         val controlledResources = turnoutResources + routeBoundHits.map(RouteBoundResourceHit::resource)
 
         val selectedRouteIntervals = routeIntervals(

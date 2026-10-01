@@ -33,6 +33,8 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
@@ -57,6 +59,57 @@ class RouteResourceAdmissionEngineTest {
     }
     private var additionValidation: (ContributedRouteResource) -> RouteAdmissionFailure? = { null }
     private val admissionUpdates = arrayListOf<ActiveRouteAdmissionUpdate>()
+
+    @Test
+    fun `held same target turnout returns useful ceiling before later within request repeat`() {
+        val outbound = UUID(0L, 102L)
+        val returning = UUID(0L, 103L)
+        val branch = UUID(0L, 104L)
+        topology = topologyState(7L, listOf(railId, outbound, returning, branch), listOf(
+            endpoint(railId, RailEndpoint.B) to endpoint(outbound, RailEndpoint.A),
+            endpoint(railId, RailEndpoint.B) to endpoint(branch, RailEndpoint.A),
+            endpoint(outbound, RailEndpoint.B) to endpoint(returning, RailEndpoint.A),
+            endpoint(returning, RailEndpoint.B) to endpoint(railId, RailEndpoint.A)
+        ))
+        observation = observation(7L, train("first", 0.0, 1.0, 7L))
+        val frozen = route(1L, List(3) { listOf(railId, outbound, returning) }.flatten().map {
+            RouteSegmentSnapshot(it, ViewDirection.AB, 0.0, 10.0)
+        })
+        val projection = assertInstanceOf(TopologyRouteProjectionResult.Projected::class.java,
+            TopologyRouteProjector.project(frozen, topology)).route
+        val traversals = projection.turnoutTraversals
+        assertTrue(traversals.all {
+            it.fromPort == traversals.first().fromPort && it.toPort == traversals.first().toPort
+        })
+        val loopRegistry = InfrastructureCoordinationRegistry({ topology.revision }, { true })
+        val loopCatalog = RouteBoundResourceCatalog { topology }
+        loopCatalog.publish(topology, emptyList())
+        val preparations = arrayListOf<List<InfrastructurePreparationRequirement>>()
+        val service = RouteResourceAdmissionEngine(
+            "world", loopRegistry, hostClaimOwner, { topology }, { observation }, loopCatalog,
+            { _, _ -> null }, InfrastructurePreparationActuator {
+                preparations += it.toList()
+                InfrastructurePreparationStart.Accepted(MutableTicket(InfrastructurePreparationState.READY))
+            }, { _, _ -> error("must not stall") }
+        )
+        val requester = Any()
+        val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(route = frozen, authority = 11.0))).grant
+        val before = loopRegistry.claimSnapshots()
+        val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.request(requester, intent(route = frozen, authority = 90.0)))
+        assertEquals(RouteAdmissionFailureCode.REQUEST_RANGE_TOO_LONG, rejected.failure.code)
+        val ceiling = RouteBoundary(40.0 - 2.0 * Curve.TOLERANCE)
+        assertEquals(ceiling, rejected.failure.retryAtOrBefore)
+        assertEquals(before, loopRegistry.claimSnapshots())
+        assertEquals(1, preparations.size)
+        val prefix = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(route = frozen, authority = ceiling.distanceFromRouteStartMeters))).grant
+        assertSame(first.grantId, prefix.grantId)
+        assertEquals(ceiling, prefix.committedAuthority)
+        assertTrue(preparations.last().isEmpty())
+        assertTrue(loopRegistry.claimSnapshots().single().footprint.resources.contains(traversals.first().resource))
+    }
 
     @Test
     fun `extension ignores validated historical contributions instead of reacquiring cleared tokens`() {

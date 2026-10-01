@@ -170,7 +170,7 @@ while presentation-only route indicators and distant route previews share the se
 model. The existing diagnostic-only claim list does not contain enough train/route/request information, so the request branch first requires a
 reviewed immutable Basic admission observation rather than parsing owner IDs or polling the registry.
 
-### Reviewed bulb-line traversal batch (CURRENT, verified)
+### Reviewed bulb-line traversal batch (CURRENT, follow-up audit fixes)
 
 A bulb line is a continuous route, not a stopped reversal. The same turnout may therefore require
 different selections at two route positions. Preserve its physical identity and the existing host
@@ -186,15 +186,27 @@ occurrence-specific resource identity or persisted field is introduced. The owne
 [SimpleATO request floors](../../spec/javarailways/simpleato/operational-routing-and-authority.md) and
 [protection selection](../../spec/simple-signals/backend/protection-region-signal-selection.md).
 
-Live unrelated definition replacement carries established clearance facts for unchanged region/route
-bindings inside the existing atomic installation callback. Candidate workers do not read mutable
-selector state. A genuinely cold baseline with ambiguous repeated visits remains restrictive; it
-cannot infer which visit is current from equal physical coordinates.
+The independent follow-up audit reproduced a short-grant deadlock when a later request crosses a
+still-held turnout. The approved correction uses the same neutral retry ceiling for both repeated
+uses within one request and a future use held by the preceding traversal. This permits authority to
+grow before the blocked use while retaining the first claim. No SimpleATO runtime branch is needed.
+
+Live unrelated definition replacement currently copies established clearance facts for unchanged
+region/route bindings, but correctness remains TARGET: the audit reproduced an old-epoch update
+after the copy and a real LEFT crossing lost by the replacement baseline. Fixing these requires a
+world-local coherent signal-phase handoff and occupancy continuity for unchanged geometry; this is
+deferred to the next batch, not part of the turnout-prefix correction. A genuinely cold baseline
+with ambiguous repeated visits must remain restrictive and cannot infer the visit from equal
+physical coordinates.
 
 Focused runtime tests plus Dispatcher wiring regressions passed. The final offline affected-module
 gate passed with 1363 tests in 252 suites: 1356 passed, 7 existing skips, zero failures/errors.
 Java consumer compilation, plugin JAR isolation and diff checking passed. The real Core turnout
 test drives coherent physical observations; no Minecraft/Folia end-to-end smoke was performed.
+Those historical passing tests did not cover the three independently reproduced audit cases above.
+The held-turnout prefix correction subsequently passed 99 focused tests and the offline affected-module
+gate (1366 tests reported, 1359 passed, 7 existing skips, no failures/errors; Core/WebUI results up-to-date).
+The two replacement handoff/first-frame cases remain uncorrected and explicitly pending.
 
 ### Inspection and reactive updates
 

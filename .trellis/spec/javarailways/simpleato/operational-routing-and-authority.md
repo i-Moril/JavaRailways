@@ -211,7 +211,9 @@ segment occurrence，并以声明携带的rail UUID和AB/BA方向做一次交叉
 只有这个边界晚于现有committed authority且足以覆盖当前车头，才允许至多一次本地exact-boundary重试；否则沿用既有等待策略。
 该回退仅在过长申请被拒绝时执行：对已有`D`个floor最多倒序检查一次，时间`O(D)`、额外空间`O(1)`；普通tick不增加扫描。
 SimpleATO不解析提示中不存在的道岔或保护区域类型，不新增寻路、设备清单、资源释放队列或每tick插件回调。
-Basic等待上一遍道岔释放的`REQUEST_BUSY`同样不扩大旧授权；真正的第二次准备仍走既有pending handle。
+Basic也对“下一遍道岔使用仍被上一遍持有”的申请返回相同上限，复用本段回退和重试，不增加SimpleATO分支；
+其判定见[Basic合同3.4](../basic/route-resource-admission.md#34-连续灯泡线与分次道岔使用)。真正已有pending请求的`REQUEST_BUSY`
+仍按原等待策略处理；下一遍设备准备仍走既有pending handle。
 
 职责固定为：
 

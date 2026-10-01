@@ -87,15 +87,17 @@ Basic treats the submitted authority boundary exactly. It does not infer a stopp
 ### 3.4 连续灯泡线与分次道岔使用
 
 灯泡线没有停车折返，不重置冻结路线、grant或车尾游标。完整路线允许多次经过同一道岔，但一次物理申请范围只准备一次该道岔。
-编译器按路线顺序发现第二次使用时，在任何claim/准备之前返回`REQUEST_RANGE_TOO_LONG`，并给出
-`retryAtOrBefore`：第二次道岔位置减去`2 * Curve.TOLERANCE`。这个数值间隔只避免端点容差把第二次使用仍纳入申请，
+编译器按路线顺序检查本次经过的道岔：若身份已在该grant的剩余释放队列中，或已在本次范围出现，则在任何claim/准备之前
+返回`REQUEST_RANGE_TOO_LONG`，并给出`retryAtOrBefore`：最早受阻道岔位置减去`2 * Curve.TOLERANCE`，不早于本次范围起点。
+这个数值间隔只避免端点容差把受阻使用仍纳入申请，
 不是信号停车余量；`nextDown`不足以避开现有`end + tolerance`判断。
 
 Basic不擅自缩短grant。调用方可提交一个不超过提示的新exact boundary；SimpleATO还必须用已有检查声明的floor把它退到
 不能被截断的区间入口外，Basic本身不认识保护区域。若没有能够增长的安全前缀，保持原授权并等待，不越过入口或强行切换设备。
 
 后续申请不再查询“整条路线曾用过哪些设备”的累计集合，而只查询既有释放队列中的当前持有身份。
-旧使用仍持有时，申请返回`REQUEST_BUSY`且没有新claim或设备动作；车尾完成原释放后，同一稳定道岔身份可以重新claim，
+旧使用仍持有时，同样返回上述上限，允许先申请到下一次道岔使用之前；不能只返回无位置提示的`REQUEST_BUSY`，
+否则旧授权太短时列车无法前进到足以释放第一次占用的位置。车尾完成原释放后，同一稳定道岔身份可以重新claim，
 按第二次所需状态启动原有准备handler，全部READY才扩大同一grant。这适用于相同和不同目标；不为同目标另造跨次数保持策略。
 菱形交叉没有待切换状态，允许合并持有到本次已请求范围中最后一次通过，不增加第二份准备票据。
 
@@ -437,7 +439,7 @@ preparation只在claim之后开始，并遵循第6节的retained-claim failure�
 | train differs, or route changes anything except a strict forward append at the fully authorized old end | `ROUTE_STATE_MISMATCH`/`INVALID_BOUNDARY` | no new reservation |
 | the active route state already has a pending request | `REQUEST_BUSY` | no new reservation |
 | one requested range includes the same turnout twice | `REQUEST_RANGE_TOO_LONG` plus exact retry ceiling | no claim or preparation |
-| the next turnout use is still held from the preceding traversal | `REQUEST_BUSY` | retain old claim and grant; no new preparation |
+| the next turnout use is still held from the preceding traversal | `REQUEST_RANGE_TOO_LONG` plus exact retry ceiling | retain old claim and grant; no new claim or preparation |
 | all validation passes | claim union, then prepare | one atomic claim |
 | preparation still running | `Pending` | claim/reservation retained; no grant |
 | preparation proves safe abort | typed denial | only this request/delta is removed |
@@ -473,8 +475,9 @@ Observation dispatch builds one train-ID lookup only when at least one live gran
 
 一次延长申请可读取该grant尚未释放的`H`个身份，把新增资源与已持有资源按exact identity分开；只有开始延长、完成或安全中止时才对剩余队列排序，成本为`O(H log H)`，不是每tick成本。按logical owner ID直接定位live grant，不为每列车延长遍历所有live grants。正常无pending extension时，前述车尾逐项释放仍从队首推进，不因这一功能退化为每次重建整个队列。
 
-分次道岔检测在已有物理编译遍历中用身份set发现重复，额外时间与空间均为本次道岔数线性；实际持有查询复用本次申请已经建立的
-`remainingEntries` map。没有每tick全路线重复检测、历史设备表或新的释放控制器。过长申请在claim前拒绝；调用方的有界重试至多增加一次申请编译。
+分次道岔检测在已有物理编译遍历中同时查询当前持有身份和发现本次范围重复，额外时间与空间均为本次道岔数线性；
+实际持有查询复用本次申请已经建立的`remainingEntries` map的key view，不复制另一份历史集合或再遍历准备项。
+没有每tick全路线重复检测、历史设备表或新的释放控制器。过长申请在claim前拒绝；调用方的有界重试至多增加一次申请编译。
 
 折返是停车边界上的一次性低频操作。新body route只编译一次；已持有rail interval按rail建立排序索引，每个route occurrence二分定位第一个可能重叠项并只扫描实际候选，stable identity按map查找，最后对`H`个新释放项排序。因此成本为`O(R log H + K + H log H)`，其中`K`是实际区间重叠数；正常physics tick不承担该重建成本。
 
@@ -492,7 +495,9 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 - **Good**：a signal-plugin block token is retained while stopping inside that block; continuation extends its release point, and a later full-prefix contribution for an already tail-cleared block is validated but not reacquired.
 - **Good**：a stopped reversal freezes release, keeps the exact claim and grant ID, then places a new cursor at the reversed tail and recalculates old-resource release points without reacquisition.
 - **Good**：a bulb line first receives an exact prefix before its second turnout traversal; after the first tail clearance, the same turnout is claimed and prepared for the return traversal under the same grant.
+- **Good**：an initial grant ends shortly after the first turnout; while that use remains held, a retry can grow authority up to just before the second use, allowing the tail to clear the first.
 - **Bad**：one long request prepares both turnout selections, or a historical-device set rejects reuse even after physical release.
+- **Bad**：a held future turnout rejects every oversized extension with only `REQUEST_BUSY`, trapping the train at an old short grant despite available safe track ahead.
 - **Bad**：SimpleATO constructs a protection-region ID, preparation kind or signal-system-specific argument.
 - **Bad**：an initial safe abort leaves an owner permanently busy with an empty route state, or a later safe abort deletes an earlier committed grant.
 - **Bad**：each tail-clear event reconstructs an immutable footprint of every still-held resource; a long route then pays quadratic cumulative release work.
@@ -502,7 +507,7 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 ## 9. 必需测试与断言点
 
 - Route projection covers AB/BA, zero/one/multiple turnouts, loops and route-bound diamonds with deterministic identities.
-- Bulb-line tests cover an initially oversized request and exact retry ceiling, no mutation on rejection, first tail clearance, waiting without switching while still held, second asynchronous preparation and unchanged grant identity. A competing train must still be denied while the physical resource is held. Repeat-diamond tests retain one identity through the last requested crossing.
+- Bulb-line tests cover an initially oversized request and exact retry ceiling, no mutation on rejection, first tail clearance, second asynchronous preparation and unchanged grant identity. Start one rolling case with the first grant only shortly past the first turnout: while that use remains held, an oversized extension must return a ceiling and its exact safe-prefix retry must succeed without switching or releasing the turnout. A ceiling that cannot grow authority leaves the old grant unchanged; a genuinely pending request remains `REQUEST_BUSY`. A competing train must still be denied while the physical resource is held. Repeat-diamond tests retain one identity through the last requested crossing.
 - An intent with every contributor returning empty still produces the complete mandatory physical footprint.
 - Neither caller nor contributor can remove/replace a derived rail, turnout or diamond resource.
 - End-to-end admission on the two rails of one at-grade crossing must derive the same Basic diamond identity: the second claim conflicts while the first holds it, tail release permits later acquisition, and the crossing still creates neither a route continuation nor a selectable turnout.

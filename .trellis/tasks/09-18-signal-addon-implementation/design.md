@@ -243,7 +243,9 @@ SimpleSignals 自己负责信号模型包、模型操作对象、RailObjectWand 
 [主插件接口草稿](../../spec/bukkit-plugin/backend/model-presentation-api.md)描述按 ID 查询轨道曲线、
 构造普通模型、安排目标线程更新和清理实体；[信号模型绑定草稿](../../spec/simple-signals/backend/model-presentation.md)
 描述 SimpleSignals 如何解析模型包、计算摆放位置、映射外观，并在完整信号结果可见后提交显示变化。
-两份文档都还没有对应实现。具体数据类型、信号包配置和摆放格式需要先审查；SimpleATOBukkit 不参与这条流程。
+目前已经实现按 UUID 查询不可变轨道曲线，以及主插件内部复用现有部件定义的普通模型构造入口。
+完整的公开模型显示服务和 SimpleSignals 模型绑定仍未实现；公开数据类型、信号包配置和摆放格式需要先审查。
+SimpleATOBukkit 不参与这条流程。
 
 第一批管理员编辑功能已经提供 inspect/export/validate/apply 命令，操作独立的当前格式 JSON 草稿，
 复用既有配置修改事务。单独验证不会预留资源，因此不能保证后来真正应用时仍允许编辑。

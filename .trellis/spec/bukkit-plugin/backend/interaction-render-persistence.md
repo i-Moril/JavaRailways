@@ -126,6 +126,12 @@ SimpleSignals 已提出复用主插件模型系统的需求；[通用模型 API 
 待审查的接口方案。当前七个公开服务尚无这个能力，不能把草稿描述成已注册的服务。
 信号插件仍负责模型包、外观映射和摆放配置，不直接调用主插件的内部工具类。
 
+已实现的 `RailTargetService.findCurve(worldId, railId)` 复用这七个服务中的既有选轨服务。
+它通过加载时维护的世界 UUID 索引和 Core 的线程安全轨道查询，返回 canonical AB 不可变曲线；
+可以在工作线程调用，缺轨道返回空、世界未加载或已开始卸载时明确失败。取得的旧曲线仍可读取，
+但不是当前线路存在性或授权的证明。内部 `ModelTreeBuilder.buildModel` 不属于附属插件 API；
+不为它公开 `CompositeModel` 或模型管理器。
+
 `InfrastructureResourceService.currentTopology(worldId)`只暴露该world runtime当前发布的exact immutable
 `TopologyState` root，不暴露mutable `World`。插件必须把派生index与该root对象身份绑定；结构编辑发布新root后由插件在
 低频publication入口显式重编译，不能在route callback里临时重建。未注册、损坏而未加载或已经unload的railway world直接

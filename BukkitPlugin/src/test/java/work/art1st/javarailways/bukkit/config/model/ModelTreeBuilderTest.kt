@@ -1,0 +1,127 @@
+package work.art1st.javarailways.bukkit.config.model
+
+import org.bukkit.Location
+import org.bukkit.entity.Player
+import org.bukkit.inventory.ItemStack
+import org.bukkit.util.Transformation
+import org.joml.Quaterniond
+import org.joml.Vector3d
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import work.art1st.javarailways.bukkit.render.backend.DisplayVisual
+import work.art1st.javarailways.bukkit.render.model.AbstractModel
+import work.art1st.javarailways.bukkit.render.model.CompactTransform
+import work.art1st.javarailways.bukkit.render.model.CompositeModel
+import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.physics.train.createTestWorld
+
+class ModelTreeBuilderTest {
+    @Test
+    fun `ordinary model resolves imported and inline hierarchy with local transforms and animation`() = withWorld { world ->
+        val child = PartDefinition(
+            "shared/child", PartType.DUMMY,
+            offset = Vec3Config(x = 1.0),
+            rotation = Vec3Config(z = 30.0),
+            animations = listOf(PartAnimationConfig("shape", keyframes = listOf(
+                PartAnimationKeyframeConfig(0.0, "base"),
+                PartAnimationKeyframeConfig(1.0, "raised", offset = Vec3Config(y = 2.0))
+            )))
+        )
+        val inline = PartDefinition("shared/group", PartType.DUMMY, parts = listOf(
+            PartRefEntry.import("child", Vec3Config(y = 3.0), Vec3Config(z = 60.0))
+        ))
+        val root = PartDefinition("ordinary/root", PartType.DUMMY, offset = Vec3Config(x = 4.0), parts = listOf(
+            PartRefEntry(inline.name, offset = Vec3Config(z = 5.0), inline = inline)
+        ))
+        val registry = SnapshotPartRegistry(mapOf(root.name to root, child.name to child))
+        val roots = mutableListOf<Location>()
+        val builder = ModelTreeBuilder(world, registry) { location ->
+            roots += location.clone()
+            RecordingRoot()
+        }
+        val anchor = Location(null, 100.0, 64.0, 200.0)
+        val model = builder.buildModel(listOf(PartRefEntry.import("root", Vec3Config(x = 2.0))), "ordinary", anchor)
+        try {
+            val nodes = nodes(model)
+            assertEquals(3, nodes.size)
+            assertTrue(nodes.all { it is DummyModel })
+            assertSame(nodes[1], nodes[0].attachedModels.single())
+            assertSame(nodes[2], nodes[1].attachedModels.single())
+            assertEquals(Vector3d(6.0, 0.0, 0.0), nodes[0].state.localTransform.position)
+            assertEquals(Vector3d(0.0, 0.0, 5.0), nodes[1].state.localTransform.position)
+            assertEquals(Vector3d(1.0, 3.0, 0.0), nodes[2].state.localTransform.position)
+            assertTrue(Quaterniond().rotateZ(Math.PI / 2).equals(nodes[2].state.localTransform.rotation, 1e-9))
+            assertEquals(listOf(anchor), roots)
+            assertTrue(model.setAnimationScenes(mapOf("shape" to "raised")))
+            assertEquals(mapOf("shape" to "raised"), model.collectHeldAnimationScenes())
+            nodes[0].updateState(CompactTransform(), CompactTransform(), Vector3d())
+            assertEquals(Vector3d(7.0, 5.0, 5.0), nodes[2].state.position)
+        } finally {
+            model.destroy()
+        }
+    }
+
+    @Test
+    fun `car body keeps its hierarchy separate from live bogie offset and wheel assembly`() = withWorld { world ->
+        val body = PartDefinition("train/body", PartType.DUMMY, offset = Vec3Config(y = 1.0))
+        val bogie = PartDefinition("train/bogie", PartType.DUMMY)
+        val wheel = PartDefinition("train/wheel", PartType.DUMMY, offset = Vec3Config(z = 2.0))
+        val registry = SnapshotPartRegistry(listOf(body, bogie, wheel).associateBy { it.name })
+        val roots = mutableListOf<Location>()
+        val builder = ModelTreeBuilder(world, registry) { location ->
+            roots += location.clone()
+            RecordingRoot()
+        }
+        val bogieDef = BogieDefinition(
+            offset = Vec3Config(0.5, -0.5, 8.0),
+            parts = listOf(PartRefEntry.import("bogie")),
+            wheelParts = listOf(PartRefEntry.import("wheel"))
+        )
+        val carDef = CarDefinition("train/car", bodyParts = listOf(PartRefEntry.import("body")), bogies = listOf(bogieDef))
+        val bodyAnchor = Location(null, 100.0, 65.0, 200.0)
+        val bogieAnchor = Location(null, 100.0, 64.0, 208.0)
+        val carModel = builder.buildCarBody(carDef, bodyAnchor)
+        val bogieModel = builder.buildBogie(bogieDef, "train", bogieAnchor)
+        try {
+            assertEquals(1, nodes(carModel).size, "body construction must not attach bogies")
+            assertEquals(Vector3d(0.0, 1.0, 0.0), nodes(carModel).single().state.localTransform.position)
+            val bogieNodes = nodes(bogieModel)
+            assertEquals(3, bogieNodes.size)
+            assertEquals(2, bogieNodes[0].attachedModels.size)
+            assertEquals(Vector3d(0.5, -0.5, 0.0), bogieNodes[0].state.localTransform.position,
+                "live bogie location already includes the longitudinal offset")
+            assertEquals(Vector3d(0.0, 0.0, 2.0), bogieNodes[2].state.localTransform.position)
+            assertEquals(listOf(bodyAnchor, bogieAnchor), roots)
+        } finally {
+            carModel.destroy()
+            bogieModel.destroy()
+        }
+    }
+
+    private fun nodes(model: CompositeModel): List<AbstractModel> = buildList {
+        model.forEachModelRecursive { add(it) }
+    }
+
+    private fun withWorld(block: (CoreWorld) -> Unit) {
+        val world = createTestWorld()
+        try {
+            block(world)
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    private class RecordingRoot : DisplayVisual {
+        override fun showTo(player: Player) = Unit
+        override fun hideFrom(player: Player) = Unit
+        override fun teleport(location: Location) = Unit
+        override fun setTransformation(transformation: Transformation) = Unit
+        override fun setItemStack(itemStack: ItemStack) = Unit
+        override fun setBrightness(blockLight: Int, skyLight: Int) = Unit
+        override fun addPassenger(passenger: DisplayVisual): Boolean = true
+        override fun destroy() = Unit
+    }
+}

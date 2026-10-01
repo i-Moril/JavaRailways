@@ -1,10 +1,6 @@
-{"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "Independent add-on service, rendering, authoring, and persistence conventions"}
-{"file": "ai_tasks/signal_system_next_steps.md", "reason": "Historical signal-system analysis to reconcile with current code"}
-{"file": ".trellis/spec/javarailways/simpleato/operational-routing-and-authority.md", "reason": "Existing SimpleATO route, inspection, restriction, and Stage 2 ownership contracts"}
-{"file": ".trellis/spec/javarailways/simpleato/reactive-signal-epochs.md", "reason": "Completed Stage 1 signal-epoch publication and fail-closed timing contract"}
-{"file": ".trellis/spec/javarailways/simpleato/persistence.md", "reason": "SimpleATO persistence boundary to preserve while moving operational state"}
-{"file": ".trellis/spec/javarailways/basic/route-resource-admission.md", "reason": "Host physical floor, contributed resources, claim lifecycle, and owner unload gate"}
-{"file": ".trellis/spec/javarailways/basic/railway-area-occupancy.md", "reason": "Generic Basic occupancy events available to concrete signal systems"}
-{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "Addon lifecycle, owner unregister, forced disable, Folia, and simulation ownership"}
-{"file": ".trellis/spec/bukkit-plugin/backend/model-presentation-api.md", "reason": "TARGET draft only: neutral construction/geometry/presentation; review proposed signatures before implementation"}
-{"file": ".trellis/spec/simple-signals/backend/model-presentation.md", "reason": "TARGET signal-owned package/placement/mapping and change-only publication flow; no renderer exists yet"}
+{"file": ".trellis/spec/bukkit-plugin/backend/index.md", "reason": "Current batch edits only Bukkit public geometry lookup and internal model construction"}
+{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "Loaded-world lookup lifecycle and Bukkit/Folia thread ownership"}
+{"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "Public addon boundary and existing model/backend behavior to preserve"}
+{"file": ".trellis/spec/bukkit-plugin/backend/model-presentation-api.md", "reason": "Foundation batch only; full presentation types and service remain draft"}
+{"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "Consume existing immutable canonical AB curve without geometry changes"}
+{"file": ".trellis/spec/javarailways/core/testing.md", "reason": "Reuse Core fixture and close test runtime resources"}

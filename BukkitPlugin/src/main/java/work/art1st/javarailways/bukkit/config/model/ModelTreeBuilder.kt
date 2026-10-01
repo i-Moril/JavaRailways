@@ -51,17 +51,22 @@ class DummyModel internal constructor(
  * PlatformModel (for collision platforms), and DummyModel (for transform
  * grouping nodes).
  */
-class ModelTreeBuilder(
+class ModelTreeBuilder internal constructor(
     private val world: World,
-    private val partRegistry: PartResolver
+    private val partRegistry: PartResolver,
+    private val rootVisualFactory: ((Location) -> DisplayVisual)?
 ) {
+    constructor(world: World, partRegistry: PartResolver) : this(world, partRegistry, null)
+
     private val bukkitWorld
         get() = world.bukkitWorldData.bukkitWorld
 
-    // Root location used as spawn anchor for display entities,
-    // ensuring they start near the player instead of at (0,0,0).
-    private var rootLocation: Location = Location(null, 0.0, 0.0, 0.0)
-    private var ownerCar: Car? = null
+    /** Internal ordinary construction entry; no car definition or bogie assembly is required. */
+    internal fun buildModel(
+        parts: List<PartRefEntry>,
+        namespace: String,
+        rootLocation: Location
+    ): CompositeModel = buildComposite(buildPartList(parts, namespace, rootLocation, null), rootLocation)
 
     /**
      * Build the car body model tree at the given root location.
@@ -72,18 +77,8 @@ class ModelTreeBuilder(
         rootLocation: Location,
         ownerCar: Car? = null
     ): CompositeModel {
-        this.rootLocation = rootLocation
-        this.ownerCar = ownerCar
-
-        val bodyModels = buildPartList(carDef.bodyParts, carDef.namespace)
-
-        val rootVisual = createRootVisual(rootLocation)
-
-        return CompositeModel(
-            world = world,
-            models = bodyModels,
-            rootVisual = rootVisual
-        )
+        val bodyModels = buildPartList(carDef.bodyParts, carDef.namespace, rootLocation, ownerCar)
+        return buildComposite(bodyModels, rootLocation)
     }
 
     /**
@@ -95,19 +90,12 @@ class ModelTreeBuilder(
         namespace: String,
         rootLocation: Location
     ): CompositeModel {
-        this.rootLocation = rootLocation
-        this.ownerCar = null
-
-        val bogieModel = buildBogieGroup(bogieDef, namespace, includeLongitudinalOffset = false)
-
-        val rootVisual = createRootVisual(rootLocation)
-
-        return CompositeModel(
-            world = world,
-            models = listOf(bogieModel),
-            rootVisual = rootVisual
-        )
+        val bogieModel = buildBogieGroup(bogieDef, namespace, rootLocation, includeLongitudinalOffset = false)
+        return buildComposite(listOf(bogieModel), rootLocation)
     }
+
+    private fun buildComposite(models: List<AbstractModel>, rootLocation: Location): CompositeModel =
+        CompositeModel(world, models, rootVisualFactory?.invoke(rootLocation) ?: createRootVisual(rootLocation))
 
     /**
      * Build a bogie group node - creates a DummyModel with bogie parts as children.
@@ -117,6 +105,7 @@ class ModelTreeBuilder(
     private fun buildBogieGroup(
         bogieDef: BogieDefinition,
         namespace: String,
+        rootLocation: Location,
         includeLongitudinalOffset: Boolean
     ): DummyModel {
         val bogieOffset = bogieDef.offset
@@ -133,7 +122,7 @@ class ModelTreeBuilder(
 
         // Combine bogie parts and wheel parts
         val allBogiePartRefs = bogieDef.parts + bogieDef.wheelParts
-        val children = buildPartList(allBogiePartRefs, namespace)
+        val children = buildPartList(allBogiePartRefs, namespace, rootLocation, null)
 
         return DummyModel(
             world = world,
@@ -146,14 +135,24 @@ class ModelTreeBuilder(
     /**
      * Build models from a list of part references.
      */
-    private fun buildPartList(entries: List<PartRefEntry>, namespace: String): List<AbstractModel> {
-        return entries.map { entry -> buildPart(entry, namespace) }
+    private fun buildPartList(
+        entries: List<PartRefEntry>,
+        namespace: String,
+        rootLocation: Location,
+        ownerCar: Car?
+    ): List<AbstractModel> {
+        return entries.map { entry -> buildPart(entry, namespace, rootLocation, ownerCar) }
     }
 
     /**
      * Build a single part model tree from a part reference entry.
      */
-    private fun buildPart(entry: PartRefEntry, namespace: String): AbstractModel {
+    private fun buildPart(
+        entry: PartRefEntry,
+        namespace: String,
+        rootLocation: Location,
+        ownerCar: Car?
+    ): AbstractModel {
         val def: PartDefinition
         val entryOffset: Vec3Config
         val entryRotation: Vec3Config
@@ -200,9 +199,9 @@ class ModelTreeBuilder(
             CompactTransform(position = position, rotation = rotation, scale = scaleVec)
         )
 
-        val children = buildPartList(def.parts, childNamespace)
+        val children = buildPartList(def.parts, childNamespace, rootLocation, ownerCar)
         val animations = def.animations.toRuntimeAnimationMap()
-        // Spawn entities at the car's root location so they start near the player,
+        // Spawn entities at the model's root location so they start near the player,
         // not at world origin. DisplayModel.updateState will teleport them to exact positions.
         val spawnLoc = rootLocation.clone()
 

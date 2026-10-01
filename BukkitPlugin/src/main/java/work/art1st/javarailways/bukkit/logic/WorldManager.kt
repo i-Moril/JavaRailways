@@ -43,6 +43,7 @@ import work.art1st.javarailways.core.api.util.tick.Synchronizable
 import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.core.util.ThreadGuard
 import java.util.ArrayDeque
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -60,8 +61,12 @@ class WorldManager internal constructor(
     val railWorlds: MutableMap<BukkitWorld, World> = ConcurrentHashMap(),
     private val observationService: DefaultRailwayObservationService? = null,
     private val infrastructureResourceService: DefaultInfrastructureResourceService? = null,
-    private val signalEpochSourceService: DefaultSignalEpochSourceService? = null
+    private val signalEpochSourceService: DefaultSignalEpochSourceService? = null,
+    private val loadedWorlds: LoadedRailWorldRegistry = LoadedRailWorldRegistry(railWorlds)
 ) : Listener {
+    /** Value-only lookup: no Bukkit access, owner dispatch or cross-world simulation lock. */
+    internal fun loadedRailWorld(worldId: UUID): World? = loadedWorlds.find(worldId)
+
     private var serverTickIndex: Long = 0L
     private val unloadingWorlds: MutableSet<BukkitWorld> = ConcurrentHashMap.newKeySet()
     private var tickTask: ScheduledTask? = null
@@ -90,6 +95,7 @@ class WorldManager internal constructor(
 
     fun stop() {
         stopping = true
+        loadedWorlds.clearLookup()
         unloadingWorlds.addAll(railWorlds.keys)
         tickTask?.cancel()
         tickTask = null
@@ -98,6 +104,7 @@ class WorldManager internal constructor(
     }
 
     fun finishStopping() {
+        loadedWorlds.clearLookup()
         snapshotWrites.forEach { (world, write) ->
             try {
                 write.get()
@@ -216,8 +223,9 @@ class WorldManager internal constructor(
                 markSkippedPersistedTrains(bukkitWorld, railWorld, restoredTrains)
             }
             (railWorld as? CoreWorld)?.physicsCoordinator?.start()
-            railWorlds[bukkitWorld] = railWorld
+            loadedWorlds.publish(bukkitWorld, railWorld)
         } catch (failure: Exception) {
+            loadedWorlds.withdraw(bukkitWorld)
             signalEpochSourceService?.removeWorld(bukkitWorld.uid)
             infrastructureResourceService?.removeWorld(bukkitWorld.uid)
             observationService?.removeWorld(bukkitWorld.uid)
@@ -310,6 +318,7 @@ class WorldManager internal constructor(
     fun unregisterRailWorld(bukkitWorld: BukkitWorld) {
         ThreadGuard.ensureMainThread("WorldManager.unregisterRailWorld")
         unloadingWorlds.add(bukkitWorld)
+        loadedWorlds.withdraw(bukkitWorld)
         railWorlds[bukkitWorld]?.let { rw ->
             val coreWorld = rw as? CoreWorld
             try {
@@ -670,5 +679,29 @@ class WorldManager internal constructor(
         while (recentServerTickMetrics.size > 200) {
             recentServerTickMetrics.removeFirst()
         }
+    }
+}
+
+/** Maintained only at world load/unload; the existing Bukkit-key map remains the lifecycle owner. */
+internal class LoadedRailWorldRegistry(private val railWorlds: MutableMap<BukkitWorld, World>) {
+    private val byId = ConcurrentHashMap<UUID, World>()
+
+    init {
+        railWorlds.forEach { (bukkitWorld, railWorld) -> byId[bukkitWorld.uid] = railWorld }
+    }
+
+    fun find(worldId: UUID): World? = byId[worldId]
+
+    fun publish(bukkitWorld: BukkitWorld, railWorld: World) {
+        railWorlds[bukkitWorld] = railWorld
+        byId[bukkitWorld.uid] = railWorld
+    }
+
+    fun withdraw(bukkitWorld: BukkitWorld) {
+        railWorlds[bukkitWorld]?.let { byId.remove(bukkitWorld.uid, it) }
+    }
+
+    fun clearLookup() {
+        byId.clear()
     }
 }

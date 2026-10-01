@@ -17,18 +17,16 @@ import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
 import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService
 import java.lang.reflect.Proxy
-import java.util.Optional
-import java.util.concurrent.CompletableFuture
+import work.art1st.javarailways.bukkit.logic.WorldManager
 import java.util.logging.Logger
 
 class JavaRailwaysServiceRegistrationTest {
     @Test
-    fun `production registrar exposes all six public services through Bukkit discovery`() = withBukkitServer {
+    fun `production registrar exposes all seven public services through Bukkit discovery`() = withBukkitServer {
         val manager = SimpleServicesManager()
         val owner = plugin("JavaRailways")
-        val railTargets = RailTargetService { _, _, _ ->
-            CompletableFuture.completedFuture(Optional.empty())
-        }
+        val worldManager = WorldManager()
+        val railTargets = BukkitRailTargetService({ worldManager }, { error("No player query in this test") })
         val playerOperations = DefaultPlayerOperationService(Logger.getLogger("service-registration-test"))
         val observations = DefaultRailwayObservationService(Logger.getLogger("service-registration-test"))
         val signalSources = DefaultSignalEpochSourceService()
@@ -70,6 +68,8 @@ class JavaRailwaysServiceRegistrationTest {
             signalSources.close()
             observations.close()
             playerOperations.clear()
+            worldManager.stop()
+            worldManager.finishStopping()
         }
     }
 

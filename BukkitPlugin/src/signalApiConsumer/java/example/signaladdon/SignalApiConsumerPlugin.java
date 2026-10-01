@@ -48,6 +48,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailInterval;
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef;
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot;
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection;
+import work.art1st.javarailways.core.api.physics.curve.Curve;
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration;
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBinding;
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource;
@@ -83,6 +84,17 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
     private InfrastructureOwner infrastructureDependencyOwner;
     private boolean infrastructureDependenciesInstalled;
     private final AtomicLong inspectionRevision = new AtomicLong();
+
+    /** Call during placement preparation, including on a worker; s is canonical AB metres. */
+    public Curve.Point sampleRail(UUID railId, double arcLengthInAbMeters) {
+        var curve = services.railTargets().findCurve(worldId, railId)
+            .orElseThrow(() -> new IllegalArgumentException("Missing rail " + railId));
+        if (!Double.isFinite(arcLengthInAbMeters) || arcLengthInAbMeters < 0.0 ||
+            arcLengthInAbMeters > curve.getTotalArcLength()) {
+            throw new IllegalArgumentException("Rail position is outside the curve");
+        }
+        return curve.getPointAt(arcLengthInAbMeters);
+    }
 
     @Override
     public void onEnable() {

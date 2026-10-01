@@ -42,6 +42,22 @@ changes or one active declaration is invalidated, using its existing perception 
 braking lookahead. Every callback receives the complete active set and must publish one complete
 snapshot; a newly compiled binding also receives a baseline callback, possibly with an empty set.
 
+## Rail geometry lookup
+
+`RailTargetService.findCurve(worldId, railId)` returns the existing immutable `PrimeCurve` without
+exposing a live world or rail object. It can be called off the Bukkit owning thread. A missing rail
+returns an empty `Optional`; an unregistered, unloading or stopped world throws `IllegalStateException`.
+
+Arc positions are metres from the rail's A endpoint toward B. Sample with `curve.getPointAt(s)`;
+BA travel reverses the facing direction, not the curve's stored coordinates. The fixture's `sampleRail`
+method demonstrates this public lookup and range checks. Lookup uses two ID maps and the Core world's
+local topology read lock; it does not scan rails, search for a nearest point or perform pathfinding.
+
+A retained curve remains readable after rail deletion or world unload, but does not prove that the
+rail still exists or authorizes movement. A lookup already in progress during unload may return that
+old immutable curve. The internal ordinary-model builder is not yet an add-on API; the complete
+public model presentation service remains pending.
+
 ## Runtime flow
 
 1. Read one `RailwayObservation` and retain its complete `RailwayStateStamp`; do not combine a train

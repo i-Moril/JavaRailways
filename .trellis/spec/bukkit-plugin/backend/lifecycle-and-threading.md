@@ -110,6 +110,23 @@ wake physics + generic preTick
 不能用各自的旧快照覆盖对方。若Core/player提交在文件发布后失败，仍持有edit permit时原子恢复旧primary，随后异步清理staging并释放writer slot。
 正常准备和比较成本为`O(render record count)`且不阻塞physics/owner，owner publish/rollback只包含文件身份检查、rename和cache引用替换。
 
+### 在线编辑并发验证边界
+
+`RailWandTopologyEditPlanTest`在真实Core轨道准备的curve采样处以latch暂停worker，
+同时让另一world的真实`PhysicsCoordinator`和`ManualController`完成两个确定性epoch。
+必须从成功ticket之后的公开`latestWorldFrame`断言列车位置前移，而不能用线程存活、
+锁外read或手工构造的frame代替物理推进。采样暂停期间、完整candidate准备后但提交前，
+编辑world均保持原root和rail inventory；正常提交才发布新rail与明确连接。
+另一个测试在准备后故意改变root，断言stale commit拒绝且mutation closure未执行，
+保留此次故意编辑后的准确root/inventory，而不是错误地要求回到准备前状态。
+
+这些准备阶段测试与Core已有的`CoreWorldRailTopologyTransactionTest`暂停真实提交时另一world完成epoch的测试互补。
+signal source的旧epoch/下一epoch交接和edit permit不等待全局simulation lock，分别由
+`DefaultSignalEpochSourceServiceTest`、`DefaultInfrastructureResourceServiceTest`与
+SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重复添加测试。
+这组证据覆盖production准备/提交/物理边界，不等于玩家操作到Folia调度器的完整smoke，
+也不是规模负载下的延迟基准；无新增生产线程、接口、revision或兼容路径。
+
 ## 世界 lifecycle
 
 - world load 的 split snapshot `Missing` 可创建新 world；`Corrupted` 禁用该 world 的 JavaRailways 功能并要求修复，不能当空世界覆盖。

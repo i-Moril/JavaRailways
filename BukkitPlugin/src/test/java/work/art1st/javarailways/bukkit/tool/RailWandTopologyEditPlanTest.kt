@@ -5,17 +5,135 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.basic.controller.ManualController
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.di.NoOpWorldParentContext
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl
 import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
+import work.art1st.javarailways.core.util.TickManagerImpl
+import work.art1st.javarailways.core.api.util.annotation.Heavy
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.stream.Stream
 
 class RailWandTopologyEditPlanTest {
+    @Test
+    fun `paused track preparation stays unpublished while another world advances a moving train`() =
+        delayedTrackPreparation(staleBeforeCommit = false)
+
+    @Test
+    fun `delayed track candidate rejects stale owner commit without changing the current topology`() =
+        delayedTrackPreparation(staleBeforeCommit = true)
+
+    @OptIn(Heavy::class)
+    private fun delayedTrackPreparation(staleBeforeCommit: Boolean) {
+        val editedWorld = createTestWorld()
+        val otherWorld = CoreWorld.createEmpty(
+            TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), System.currentTimeMillis()),
+            NoOpWorldParentContext,
+            PhysicsCoordinator(1, automaticFallback = false)
+        )
+        val workers = Executors.newFixedThreadPool(2)
+        val samplingEntered = CountDownLatch(1)
+        val releaseSampling = CountDownLatch(1)
+        try {
+            val existing = editedWorld.createRailForTest(straightCurve(0.0, 10.0))
+            val baseRoot = editedWorld.topologyState
+            val runningRail = otherWorld.createRailForTest(straightCurve(0.0, 100.0))
+            val train = createTrainWithConfig("other-world-moving", runningRail, otherWorld, listOf(10.0))
+            val origin = train.publishedFrame.head.arcLengthInAbMeters
+            train.setController(ManualController(train, otherWorld).also { it.setThrottle(1.0) })
+            otherWorld.physicsCoordinator.start()
+            val geometry = straightCurve(10.0, 20.0)
+            // Suspend the real preparation's geometry sampling, not a lock-free callback proxy.
+            val delayedGeometry = object : PrimeCurve by geometry {
+                override fun stream(): Stream<Curve.Point> {
+                    samplingEntered.countDown()
+                    check(releaseSampling.await(10, TimeUnit.SECONDS)) { "timed out releasing track geometry preparation" }
+                    return geometry.stream()
+                }
+            }
+            val preparation = workers.submit(Callable {
+                val batch = editedWorld.prepareRailCreation(delayedGeometry)
+                val connections = RailWandExplicitConnections.capture(editedWorld, batch, addedConnections = listOf(
+                    RailEndpointRef(existing.id, RailEndpoint.B) to
+                        RailEndpointRef(batch.creations.single().railId, RailEndpoint.A)))
+                batch to RailWandTopologyEditPlan.capturePreparedExplicitConnections(editedWorld, batch, connections)
+            })
+            assertTrue(samplingEntered.await(5, TimeUnit.SECONDS))
+            assertFalse(preparation.isDone)
+
+            val frame = workers.submit(Callable {
+                // Manual control publishes acceleration first; movement reads that prior epoch's speed.
+                otherWorld.physicsCoordinator.stepSimulation(200.0).await()
+                val completed = otherWorld.physicsCoordinator.stepSimulation(200.0).await()
+                otherWorld.latestWorldFrame().also { assertEquals(completed.epoch, it.physicsEpoch) }
+            }).get(5, TimeUnit.SECONDS)
+
+            assertEquals(2L, frame.physicsEpoch)
+            assertEquals(otherWorld.topologyState.revision, frame.topologyRevision)
+            val publishedTrain = frame.trains.single()
+            assertEquals(train.id, publishedTrain.trainId)
+            assertEquals(0.4, publishedTrain.speedMetersPerSecond, 1.0e-9)
+            assertEquals(origin + 0.04, publishedTrain.head.arcLengthInAbMeters, 1.0e-9)
+            assertFalse(preparation.isDone, "other-world physics must finish while sampling is still paused")
+            assertSame(baseRoot, editedWorld.topologyState)
+            assertEquals(listOf(existing), editedWorld.allRails.toList())
+            releaseSampling.countDown()
+            val (batch, plan) = preparation.get(5, TimeUnit.SECONDS)
+            val createdId = batch.creations.single().railId
+            assertSame(baseRoot, editedWorld.topologyState)
+            assertEquals(null, editedWorld.getRail(createdId), "fully prepared candidate is still not published")
+            var actionEntered = false
+            val apply = {
+                actionEntered = true
+                val installed = editedWorld.installPreparedRails(batch)
+                plan.applyExplicitConnections(editedWorld, installed)
+            }
+            if (staleBeforeCommit) {
+                // This intentional intervening edit is allowed; only the stale operation must be inert.
+                editedWorld.createRailForTest(straightCurve(30.0, 40.0))
+                val currentRoot = editedWorld.topologyState
+                val currentRails = editedWorld.allRails.toList()
+                assertFalse(plan.isCurrent(editedWorld))
+                assertThrows(IllegalStateException::class.java) { plan.commitTopology(editedWorld, apply) }
+                assertFalse(actionEntered)
+                assertSame(currentRoot, editedWorld.topologyState)
+                assertEquals(currentRails, editedWorld.allRails.toList())
+                assertEquals(null, editedWorld.getRail(createdId))
+            } else {
+                plan.commitTopology(editedWorld, apply)
+                assertTrue(actionEntered)
+                assertEquals(baseRoot.revision + 1L, editedWorld.topologyState.revision)
+                assertEquals(setOf(existing.id, createdId), editedWorld.allRails.map { it.id }.toSet())
+                assertSame(editedWorld.getRail(createdId)!!.viewAB, existing.viewAB.activeRail)
+            }
+        } finally {
+            releaseSampling.countDown()
+            editedWorld.physicsCoordinator.close()
+            otherWorld.physicsCoordinator.close()
+            workers.shutdownNow()
+            try {
+                assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS), "track-test workers did not terminate")
+            } finally {
+                (editedWorld.tickManager as AutoCloseable).close()
+                (otherWorld.tickManager as AutoCloseable).close()
+            }
+        }
+    }
+
     @Test
     fun `rail scoped mutation contains only explicitly edited rails`() {
         val world = createTestWorld()

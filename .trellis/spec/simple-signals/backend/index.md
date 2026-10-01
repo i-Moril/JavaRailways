@@ -247,11 +247,18 @@ degree-2物理环线上的真实Basic申请/延长/车尾释放，并覆盖内�
 区间内部站台起终点允许，重复经过的同一block身份去重；未配置信号、当前红灯或占用不改变这份静态依赖。
 保护区域没有额外exclusive token，仍由所选进路的物理依赖保护。
 
+保护区域inspection source也实现同一回调，但返回空resource集合；它捕获一个完整immutable publication并复用
+`ProtectionRouteBindingCompiler`。每次命中的region必须完整从作者边界进入和离开，直接后继fixed block必须唯一；
+若该region配置了route table，窗口还必须唯一匹配同region、entry、exit和完整有向path的表内进路。
+没有table的region合法，重复完整经过也合法。当前红灯、占用、active turnout、准入状态和缺少signal baseline均不参与应用检查。
+异常使应用在clock/初始定位发布前失败；回调不创建binding、claim、restriction或selector状态。
+
 SimpleATO在时刻表生效前合入已有applied-plan声明，不调用列车binding/update、不产生resource claim。
 本回调复用已有route matcher及rail反向索引；它只在应用/恢复准备执行，成本等于一次完整已选路线匹配加身份集合构造，
 不新增逐tick扫描或第二套匹配缓存。host收集、失败原子性与生命周期见
 [静态资源依赖合同](../../javarailways/simpleato/operational-routing-and-authority.md#35-已选时刻表路线的静态资源依赖)。
-测试须证明资源身份精确、partial/repeated路线正确、空catalog过期拒绝，以及静态依赖能阻止真实编辑但不阻止运行claim。
+测试须证明资源身份精确、partial/repeated路线正确、空catalog过期拒绝、table path唯一匹配，
+以及静态依赖能阻止真实编辑但不阻止运行claim；保护区域首次/替换失败还须证明clock、初始位置和旧依赖原子性。
 本功能没有持久化变更或兼容路径。
 
 ## 定义编辑事务

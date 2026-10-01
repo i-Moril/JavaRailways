@@ -12,15 +12,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochInput
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
-import work.art1st.javarailways.simplesignals.block.FixedBlockAuthorityMatchResult
-import work.art1st.javarailways.simplesignals.block.FixedBlockRouteMatcher
-import work.art1st.javarailways.simplesignals.region.ProtectionRegionRouteMatchResult
-import work.art1st.javarailways.simplesignals.region.ProtectionRouteTraversal
-import work.art1st.javarailways.simplesignals.region.protectionRegionAuthorityFloor
-import work.art1st.javarailways.simplesignals.route.DirectedRouteProjectionResult
-import work.art1st.javarailways.simplesignals.route.DirectedRouteProjector
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsRuntimePublication
-import kotlin.math.abs
 
 internal const val PROTECTION_ROUTE_SELECTION_SOURCE_ID = "simplesignals:protection-route-selection"
 
@@ -53,7 +45,6 @@ internal class ProtectionRouteSelectionSnapshot(
 internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSignalsRuntimePublication) {
     private val index = publication.routeSelection
     private val entries = index.routesById.values.mapTo(sortedSetOf()) { it.definition.entryBoundaryId }
-    private val routesByEntry = index.routesById.values.groupBy { it.definition.entryBoundaryId }
     private val entriesByRail = index.routesById.values.flatMap { route ->
         route.definition.traversals.map { it.railId to route.definition.entryBoundaryId }
     }.groupBy({ it.first }, { it.second }).mapValues { java.util.Set.copyOf(it.value) }
@@ -274,68 +265,17 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
     private fun compileBinding(route: RouteSnapshot): Binding {
         val relatedEntries = route.segments.flatMapTo(linkedSetOf()) { entriesByRail[it.railId].orEmpty() }
         fun invalid() = Binding(route, emptyList(), java.util.Set.copyOf(relatedEntries))
-        val regions = checkNotNull(publication.regions.compilationSnapshot())
-        val windows = when (val match = regions.match(route)) {
-            is ProtectionRegionRouteMatchResult.Matched -> match.windows
-            is ProtectionRegionRouteMatchResult.Rejected -> return invalid()
+        val compiled = try {
+            publication.routeBindingCompiler.compile(route)
+        } catch (_: IllegalStateException) {
+            return invalid()
         }
-        val blocks = when (val match = FixedBlockRouteMatcher.matchRoute(publication.fixedBlocks.snapshot(publication.topology), route)) {
-            is FixedBlockAuthorityMatchResult.Matched -> match.windows
-            is FixedBlockAuthorityMatchResult.Rejected -> return invalid()
-        }
-        val projection = when (val projected = DirectedRouteProjector.project(route, regions.derivedTopology)) {
-            is DirectedRouteProjectionResult.Projected -> projected.route
-            is DirectedRouteProjectionResult.Rejected -> return invalid()
-        }
-        val matched = arrayListOf<Match>()
-        val invalid = linkedSetOf<String>()
-        windows.forEach { window ->
-            if (window.entry.boundaryId !in entries) return@forEach
-            val occurrences = projection.occurrences
-            var low = 0
-            var high = occurrences.size
-            while (low < high) {
-                val middle = (low + high) ushr 1
-                if (occurrences[middle].routeEndMeters <= window.entry.routeDistanceMeters) low = middle + 1
-                else high = middle
+        val matched = compiled.windows.mapNotNull { match ->
+            match.tableRoute?.let { selected ->
+                Match(selected, match.region.entry.routeDistanceMeters, match.region.exit.routeDistanceMeters, match.floorMeters)
             }
-            val path = arrayListOf<ProtectionRouteTraversal>()
-            while (low < occurrences.size && occurrences[low].routeStartMeters < window.exit.routeDistanceMeters) {
-                val occurrence = occurrences[low++]
-                val start = maxOf(occurrence.routeStartMeters, window.entry.routeDistanceMeters)
-                val end = minOf(occurrence.routeEndMeters, window.exit.routeDistanceMeters)
-                if (end - start > Curve.TOLERANCE) {
-                    val first = occurrence.canonicalAt(start); val last = occurrence.canonicalAt(end)
-                    path += ProtectionRouteTraversal(occurrence.railId, occurrence.facing, minOf(first, last), maxOf(first, last))
-                }
-            }
-            val candidates = routesByEntry[window.entry.boundaryId].orEmpty().filter { candidate ->
-                candidate.regionId == window.regionId && candidate.definition.exitBoundaryId == window.exit.boundaryId &&
-                    samePath(candidate.definition.traversals, path)
-            }
-            val selected = candidates.singleOrNull()
-            if (selected == null) invalid += window.entry.boundaryId
-            else matched += Match(selected, window.entry.routeDistanceMeters, window.exit.routeDistanceMeters,
-                protectionRegionAuthorityFloor(window, blocks))
         }
-        return Binding(route, java.util.List.copyOf(matched), java.util.Set.copyOf(invalid))
-    }
-
-    private fun samePath(first: List<ProtectionRouteTraversal>, second: List<ProtectionRouteTraversal>): Boolean {
-        fun merge(path: List<ProtectionRouteTraversal>): List<ProtectionRouteTraversal> {
-            val result = arrayListOf<ProtectionRouteTraversal>()
-            path.forEach { part ->
-                val previous = result.lastOrNull()
-                if (previous != null && previous.railId == part.railId && previous.facing == part.facing &&
-                    abs(previous.travelEndAbMeters - part.travelStartAbMeters) <= Curve.TOLERANCE
-                ) result[result.lastIndex] = previous.copy(lowerAbMeters = minOf(previous.lowerAbMeters, part.lowerAbMeters),
-                    upperAbMeters = maxOf(previous.upperAbMeters, part.upperAbMeters))
-                else result += part
-            }
-            return result
-        }
-        val a = merge(first); val b = merge(second)
-        return a.size == b.size && a.zip(b).all { (x, y) -> x.railId == y.railId && x.facing == y.facing &&
-            abs(x.lowerAbMeters - y.lowerAbMeters) <= Curve.TOLERANCE && abs(x.upperAbMeters - y.upperAbMeters) <= Curve.TOLERANCE }
+        return Binding(route, java.util.List.copyOf(matched),
+            java.util.Set.copyOf(compiled.invalidEntries.filter { it in entries }))
     }
 }

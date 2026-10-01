@@ -255,7 +255,8 @@ Reviewed implementation seam: the existing `InspectionSource` may provide a pure
 identities from already selected routes without binding a train, inventing an observation stamp or
 executing a signal update. SimpleSignals reuses `FixedBlockRouteMatcher.matchRoute` and returns its
 registered fixed-block identities, including internal starts/stops and repeated visits; protection regions
-do not gain an artificial resource identity. Dispatcher first installs a non-exclusive union of the new
+reuse one publication-owned route-binding compiler to validate complete windows and optional authored route tables,
+then return no artificial region resource identity. Dispatcher first installs a non-exclusive union of the new
 physical route dependencies and the previous plan's complete dependencies, then collects current plugin
 resources and atomically replaces that guard with the final declaration. Callback/topology/identity
 failures restore the previous declaration (or remove the first-apply guard) before publishing clocks;

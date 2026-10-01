@@ -156,6 +156,7 @@ internal class SimpleSignalsRuntimePublication(
     val protectionSignals: CompiledProtectionSignals,
     previous: SimpleSignalsRuntimePublication? = null
 ) {
+    val routeBindingCompiler = work.art1st.javarailways.simplesignals.signal.ProtectionRouteBindingCompiler(this)
     // Canonical immutable route references are reused only across exact unchanged geometry.
     // Compilation never reads an epoch's mutable request or clearance state.
     private val regionsById = definitions.regions.associateBy { it.regionId }
@@ -209,8 +210,7 @@ internal class SimpleSignalsWorldRuntime(
     ).source
 
     val protectionRegionInspectionSource = ProtectionRegionInspectionSource(
-        ::protectionRegionSnapshot,
-        ::fixedBlockSnapshot
+        ::authoringPublication
     ).source
 
     fun currentDefinitions(): SimpleSignalsWorldDefinitions =

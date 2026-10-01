@@ -105,6 +105,11 @@ ActiveRouteAdmission
 已配置固定进路匹配，并缓存该窗口的完整authority floor。floor复用inspection的计算：区域出口，或同点唯一直接固定闭塞后继的出口。
 这不是重新寻路；匹配失败或多解标记入口不可用，不任意选择进路。相同route对象的后续授权/释放变化复用缓存。
 
+上述步骤由publication-owned `ProtectionRouteBindingCompiler`统一实现，inspection binding及时刻表静态检查也调用同一实现。
+compiler只返回不可变窗口、floor、匹配的canonical compiled route及诊断，不保存request/clearance。selector仍只把
+自己已编译索引中相关的entry加入`invalidEntries`，避免把其他region或未知entry带入运行期owner map；既有binding缓存、
+prefix append与清除事实交接不变。没有route table的region可用于授权floor，但不属于当前信号的可选固定进路。
+
 入口关联只对requested authority已越过入口、且释放事件证明的车尾下界尚未通过出口的窗口成立。
 `releasedThroughRouteMeters`不是“之前的所有资源都已释放”；它只用于撤销已经被物理车尾通过的入口请求关联。
 Basic对剩余资源的排他校验独立继续生效，默认进路永远不能代替列车grant。
@@ -130,7 +135,7 @@ candidate worker只比较不可变拓扑、区域定义和compiled route；未�
 ## 8. 响应式更新与复杂度
 
 - 当前定义发布时编译entry-to-routes、default routes、rail-to-entry和turnout-entry-to-entry反向索引；不在tick内遍历保护区域图。
-- 请求第一次换绑路线才计算匹配窗口/floor。维护entry-to-request-owner集合；请求变化只更新旧/新关联入口，不遍历所有列车的请求。
+- 请求第一次换绑路线才调用共用compiler计算匹配窗口/floor；相同route对象复用结果。维护entry-to-request-owner集合；请求变化只更新旧/新关联入口，不遍历所有列车的请求。
 - 请求状态变化只唤醒对应入口；默认进路所需 active continuation 变化只唤醒引用该道岔的入口；选择输出未变化时停止向当前信号和显示器传播。
 - 真实出口LEFT通过area-to-route和train-to-owner现有请求索引只更新相关请求；不为每tick发布车尾进度、不扫描所有列车或查询live claims。相同冻结route的更新不重新比较完整segments，只有真正append/换绑才检查前缀。
 - 占用或下游输出变化只运行依赖对应已选进路的信号规则；进路显示器不因无关占用变化执行。

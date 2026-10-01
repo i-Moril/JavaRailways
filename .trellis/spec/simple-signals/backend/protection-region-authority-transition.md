@@ -18,8 +18,8 @@
 
 ```text
 SimpleATO 已选择并冻结 RouteSnapshot
-  -> ProtectionRegionInspectionSource 捕获 region + fixed-block immutable snapshots
-  -> SimpleSignals 分别匹配完整 region windows 与 fixed-block 路线交集 windows
+  -> ProtectionRegionInspectionSource 捕获一个 SimpleSignalsRuntimePublication
+  -> publication-owned ProtectionRouteBindingCompiler 匹配完整 region windows、table route 与 fixed-block windows
   -> 对每个 region exit 查找同 route-metre 的 fixed-block entry
        0 个：minimum authority end = region exit
        1 个：minimum authority end = fixed-block 与运营路线交集的末端
@@ -43,15 +43,23 @@ SimpleATO 已选择并冻结 RouteSnapshot
   `enteredAtBoundary`区分真正经过入口与从block内部起步；只有前者生成fixed-block入口检查声明，后者仍参与资源匹配而不伪造入口。
 - 两者都是针对同一个`RouteSnapshot`的派生结果，不写入sidecar。
 - fixed-block matcher输出按`entryRouteDistanceMeters`、再按`blockId`排序。
+- publication包含固定进路表时，每个region window还必须唯一匹配同region、entry、exit及标准化有向path的
+  `CompiledProtectionRoute`；没有表的region只验证完整穿越，不强制作者建立固定进路表。
 
 ### 3.2 快照一致性
 
-binding provider各捕获一次`ProtectionRegionCompilationSnapshot`和`FixedBlockReadSnapshot`。二者必须：
+`ProtectionRegionInspectionSource`每次binding或静态时刻表检查只捕获一次完整
+`SimpleSignalsRuntimePublication`。publication-owned compiler随后取得其中的region、block及route-selection快照；它们必须：
 
 1. 引用同一个exact immutable `TopologyState`对象；仅revision数值相同不够；
 2. 使用相同的world definition revision。
+3. 输入route的topology revision等于publication topology revision；即使region/block/table全为空也不能跳过。
 
-任一条件不成立即拒绝binding，不能把两次publication拼进一个列车合同。
+任一条件不成立即拒绝，不能把两次publication拼进一个列车合同。
+
+同一个compiler供运行期selector、inspection binding和时刻表静态检查使用。运行期selector把异常或表内进路不唯一
+映射为已知相关入口的不可用binding，继续沿用现有fail-close选择；静态检查则直接失败，使时刻表在clock和初始定位
+发布前拒绝。二者不重复寻路，也不读取占用、灯色、active turnout、列车或请求状态。
 
 ### 3.3 直接后继查找
 
@@ -104,9 +112,11 @@ floor不能超过它；列车仍申请整个block token，并在停车期间保�
 
 ```kotlin
 ProtectionRegionInspectionSource(
-    regionSnapshot: () -> ProtectionRegionCompilationSnapshot,
-    fixedBlockSnapshot: () -> FixedBlockReadSnapshot
+    publication: () -> SimpleSignalsRuntimePublication
 )
+
+SimpleSignalsRuntimePublication.routeBindingCompiler
+    .compile(route: RouteSnapshot): ProtectionRouteBindingMatch
 ```
 
 跨模块输出复用SimpleATO现有公开值，不新增region专用API：
@@ -137,6 +147,8 @@ InspectionDeclaration(
 - region ID默认不成为独占资源；冲突由实际物理资源和明确的插件附加资源表达。
 - update handler当前不产生速度restriction；本source只提供route-local authority floor。
 - 任一异常都在Basic registry mutation前终止binding，不能留下部分claim。
+- `routeInfrastructureDependencies`复用相同compiler做应用前检查并返回空resource集合；region没有默认exclusive token。
+  它不建立inspection binding、不运行update handler，也不发布restriction或修改selector。
 
 ## 6. 校验与错误矩阵
 
@@ -163,7 +175,8 @@ InspectionDeclaration(
 - `M`为所有exit容差窗口中的实际同点候选数。
 
 fixed-block matcher成本为`O(R + K log K + I log I)`；每个region对排序结果做一次lower-bound，衔接成本为
-`O(W log B + M)`。region matcher保留自己的route projection与reverse-index成本。当前允许region source和
+`O(W log B + M)`。存在固定进路表时，共用compiler另投影一次route，并仅在对应entry索引中比较候选path；
+设实际比较的候选traversal总数为`P`，增加`O(R + P)`。region matcher保留自己的route projection与reverse-index成本。当前允许region source和
 fixed-block source在低频binding阶段分别执行一次fixed-block匹配；不为消除这次重复引入跨source cache、共享
 publication token或失效协议。
 
@@ -207,6 +220,9 @@ region为`[5m,25m]`，block从`25m`延伸到路线终点以外，站台运营目
 - reverse route上的直接fixed-block successor；
 - topology root或definition revision不一致时无部分声明；
 - plugin内整合测试证明inspection扩大的边界会让既有fixed-block contributor产出对应block token。
+- 时刻表静态检查中，无table完整穿越成功且不产生resource；内部起止、同点后继冲突、stale空catalog失败。
+- 有table时，唯一表内路径与重复完整经过成功；缺失或重复匹配失败，但缺少signal/occupancy baseline不影响结果。
+- 真实Dispatcher组合证明首次/替换失败均发生在clock与初始定位之前，替换恢复旧完整依赖且不产生claim/binding/output。
 
 继续扩展本合同前应补充：
 

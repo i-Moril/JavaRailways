@@ -6,10 +6,8 @@ import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.core.api.physics.curve.Curve
-import work.art1st.javarailways.simplesignals.block.FixedBlockAuthorityMatchResult
-import work.art1st.javarailways.simplesignals.block.FixedBlockReadSnapshot
-import work.art1st.javarailways.simplesignals.block.FixedBlockRouteMatcher
 import work.art1st.javarailways.simplesignals.block.FixedBlockRouteWindow
+import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsRuntimePublication
 import java.util.concurrent.atomic.AtomicLong
 
 internal const val PROTECTION_REGION_INSPECTION_SOURCE_ID =
@@ -17,41 +15,24 @@ internal const val PROTECTION_REGION_INSPECTION_SOURCE_ID =
 
 /** Compiles complete protection-region crossings into route-local authority floors. */
 internal class ProtectionRegionInspectionSource(
-    private val regionSnapshot: () -> ProtectionRegionCompilationSnapshot,
-    private val fixedBlockSnapshot: () -> FixedBlockReadSnapshot
+    private val publication: () -> SimpleSignalsRuntimePublication
 ) {
     private val nextRevision = AtomicLong(0L)
 
     val source = InspectionSource(
         sourceId = PROTECTION_REGION_INSPECTION_SOURCE_ID,
         bindingProvider = { input ->
-            val capturedRegions = regionSnapshot()
-            val capturedBlocks = fixedBlockSnapshot()
-            check(capturedRegions.topology === capturedBlocks.topology) {
-                "protection regions and fixed blocks were captured from different topology roots"
-            }
-            check(capturedRegions.definitionRevision == capturedBlocks.definitionRevision) {
-                "protection regions and fixed blocks were captured from different definition revisions"
-            }
-            val regionWindows = when (val matched = capturedRegions.match(input.route)) {
-                is ProtectionRegionRouteMatchResult.Matched -> matched.windows
-                is ProtectionRegionRouteMatchResult.Rejected -> error(
-                    matched.diagnostics.joinToString { it.detail }
-                )
-            }
-            val blockWindows = when (
-                val matched = FixedBlockRouteMatcher.matchRoute(capturedBlocks, input.route)
-            ) {
-                is FixedBlockAuthorityMatchResult.Matched -> matched.windows
-                is FixedBlockAuthorityMatchResult.Rejected -> error(matched.detail)
-            }
+            val captured = publication()
+            val matched = captured.routeBindingCompiler.compile(input.route)
+            check(matched.diagnostics.isEmpty()) { matched.diagnostics.joinToString() }
             InspectionDeclarationBinding(
                 sourceId = PROTECTION_REGION_INSPECTION_SOURCE_ID,
                 trainId = input.trainId,
                 route = FrozenRouteBinding.from(input.route),
-                definitionRevision = capturedRegions.definitionRevision,
+                definitionRevision = captured.definitions.definitionRevision,
                 trainProfileRevision = 0L,
-                declarations = regionWindows.map { window ->
+                declarations = matched.windows.map { match ->
+                    val window = match.region
                     InspectionDeclaration(
                         declarationId = window.regionId,
                         railId = window.entry.position.railId,
@@ -59,7 +40,7 @@ internal class ProtectionRegionInspectionSource(
                         triggerRouteDistanceMeters = window.entry.routeDistanceMeters,
                         inspectionLeadTimeSeconds = 0.0,
                         minimumRequestedAuthorityEndRouteDistanceMeters =
-                            protectionRegionAuthorityFloor(window, blockWindows)
+                            match.floorMeters
                     )
                 }
             )
@@ -76,6 +57,11 @@ internal class ProtectionRegionInspectionSource(
                     restrictions = emptyList()
                 )
             )
+        },
+        routeInfrastructureDependencies = { route ->
+            val matched = publication().routeBindingCompiler.compile(route)
+            check(matched.diagnostics.isEmpty()) { matched.diagnostics.joinToString() }
+            emptyList()
         }
     )
 

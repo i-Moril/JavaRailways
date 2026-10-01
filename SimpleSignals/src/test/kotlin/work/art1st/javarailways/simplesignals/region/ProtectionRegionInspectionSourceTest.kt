@@ -3,6 +3,9 @@ package work.art1st.javarailways.simplesignals.region
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
@@ -28,6 +31,9 @@ import work.art1st.javarailways.simplesignals.block.FixedBlockCatalogStatus
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockRouteResourcePolicy
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
+import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
+import work.art1st.javarailways.simplesignals.runtime.*
+import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionRuntime
 import java.lang.reflect.Proxy
 import java.util.UUID
 
@@ -238,25 +244,23 @@ class ProtectionRegionInspectionSourceTest {
                 endpoint(middle, RailEndpoint.B) to endpoint(branchEast, RailEndpoint.A)
             )
         )
-        val capturedRegions = regionSnapshot()
+        val captured = publication()
         val otherRootBlocks = fixedBlockCatalog(3L, emptyList(), sameValueTopology)
         val otherRevisionBlocks = fixedBlockCatalog(4L, emptyList())
 
         val topologyFailure = assertThrows(IllegalStateException::class.java) {
             ProtectionRegionInspectionSource(
-                { capturedRegions },
-                { otherRootBlocks.snapshot(sameValueTopology) }
+                { withBlocks(captured, otherRootBlocks) }
             ).source.bindingProvider.bind(InspectionBindingInput(stamp, "train", forwardRoute()))
         }
         val revisionFailure = assertThrows(IllegalStateException::class.java) {
             ProtectionRegionInspectionSource(
-                { capturedRegions },
-                { otherRevisionBlocks.snapshot(topology) }
+                { withBlocks(captured, otherRevisionBlocks) }
             ).source.bindingProvider.bind(InspectionBindingInput(stamp, "train", forwardRoute()))
         }
 
         assertEquals(
-            "protection regions and fixed blocks were captured from different topology roots",
+            "fixed-block publication is stale for topology ${topology.revision}",
             topologyFailure.message
         )
         assertEquals(
@@ -274,11 +278,9 @@ class ProtectionRegionInspectionSourceTest {
             1L,
             listOf(FixedBlockTraversal(east, ViewDirection.AB, 5.0, 10.0))
         )
-        val blockSnapshot = fixedBlockCatalog(3L, listOf(block)).snapshot(topology)
-        val source = ProtectionRegionInspectionSource(
-            { regionSnapshot() },
-            { blockSnapshot }
-        ).source
+        val captured = publication(listOf(block))
+        val blockSnapshot = captured.fixedBlocks.snapshot(topology)
+        val source = ProtectionRegionInspectionSource { captured }.source
         val runtime = inspectionRuntime(source)
         val worldStamp = RailwayStateStamp(worldId.toString(), 1L, topology.revision)
         runtime.synchronizeRoute(worldStamp, "train", route)
@@ -350,16 +352,7 @@ class ProtectionRegionInspectionSourceTest {
 
     @Test
     fun `empty region publication produces an empty binding`() {
-        val catalog = ProtectionRegionCatalog()
-        assertEquals(
-            ProtectionRegionCatalogStatus.PUBLISHED,
-            catalog.publish(topology, 0L, emptyList()).status
-        )
-        val blocks = fixedBlockCatalog(0L, emptyList())
-        val source = ProtectionRegionInspectionSource(
-            { requireNotNull(catalog.compilationSnapshot()) },
-            { blocks.snapshot(topology) }
-        ).source
+        val source = ProtectionRegionInspectionSource { publication(regions = emptyList(), revision = 0L) }.source
 
         val binding = source.bindingProvider.bind(
             InspectionBindingInput(stamp, "train", forwardRoute())
@@ -369,23 +362,91 @@ class ProtectionRegionInspectionSourceTest {
         assertEquals(0L, binding.definitionRevision)
     }
 
-    private fun source(blocks: Collection<FixedBlockDefinition> = emptyList()) =
-        ProtectionRegionInspectionSource(
-            { regionSnapshot() },
-            { fixedBlockCatalog(3L, blocks).snapshot(topology) }
-        ).source
-
-    private fun regionSnapshot(
-        definitionRevision: Long = 3L,
-        topologyState: TopologyState = topology
-    ): ProtectionRegionCompilationSnapshot {
-        val catalog = ProtectionRegionCatalog()
-        assertEquals(
-            ProtectionRegionCatalogStatus.PUBLISHED,
-            catalog.publish(topologyState, definitionRevision, listOf(region())).status
-        )
-        return requireNotNull(catalog.compilationSnapshot())
+    @Test
+    fun `static complete crossing without table has no resources bindings restrictions or selector changes`() {
+        val captured = publication()
+        var captures = 0
+        val source = ProtectionRegionInspectionSource { captures++; captured }.source
+        val runtime = inspectionRuntime(source)
+        val selector = ProtectionRouteSelectionRuntime(captured)
+        assertTrue(runtime.collectRouteInfrastructureDependencies(listOf(forwardRoute())).isEmpty())
+        assertEquals(1, captures)
+        assertFalse(runtime.hasActiveRoutes())
+        assertTrue(runtime.activeBindings(setOf(source.sourceId)).isEmpty())
+        assertNull(selector.snapshot())
     }
+
+    @Test
+    fun `static preflight rejects internal endpoints and conflicting successor floors`() {
+        val partial = RouteSnapshot("test:partial", 1L, topology.revision,
+            listOf(segment(west, ViewDirection.AB, 0.0, 10.0), segment(middle, ViewDirection.AB, 0.0, 5.0)))
+        assertThrows(IllegalStateException::class.java) { source().routeInfrastructureDependencies.dependencies(partial) }
+        val blocks = listOf("test:one", "test:two").map { id ->
+            FixedBlockDefinition(id, 1L, listOf(FixedBlockTraversal(east, ViewDirection.AB, 5.0, 10.0)))
+        }
+        val failure = assertThrows(IllegalStateException::class.java) {
+            source(blocks).routeInfrastructureDependencies.dependencies(forwardRoute())
+        }
+        assertTrue(failure.message!!.contains("multiple fixed-block successors"))
+    }
+
+    @Test
+    fun `static empty catalogs still reject stale route revision`() {
+        val captured = publication(regions = emptyList(), revision = 0L)
+        val source = ProtectionRegionInspectionSource { captured }.source
+        val stale = RouteSnapshot("test:stale", 1L, topology.revision + 1L, forwardRoute().segments)
+        assertThrows(IllegalStateException::class.java) { source.routeInfrastructureDependencies.dependencies(stale) }
+    }
+
+    @Test
+    fun `static table matching works without signals and rejects missing or ambiguous authored paths`() {
+        val path = listOf(ProtectionRouteTraversal(west, ViewDirection.AB, 5.0, 10.0),
+            ProtectionRouteTraversal(middle, ViewDirection.AB, 0.0, 10.0),
+            ProtectionRouteTraversal(east, ViewDirection.AB, 0.0, 5.0))
+        val first = ProtectionRouteDefinition("test:forward", "test:boundary/west", "test:boundary/east", path)
+        fun table(routes: List<ProtectionRouteDefinition>) = ProtectionRouteTableDefinition("test:table", 1L,
+            region().regionId, region().revision, routes)
+        val captured = publication(tables = listOf(table(listOf(first))))
+        val source = ProtectionRegionInspectionSource { captured }.source
+        val selector = ProtectionRouteSelectionRuntime(captured)
+        assertTrue(source.routeInfrastructureDependencies.dependencies(forwardRoute()).isEmpty())
+        assertNull(selector.snapshot())
+        val reverse = RouteSnapshot("test:reverse", 1L, topology.revision, listOf(
+            segment(east, ViewDirection.BA, 0.0, 10.0), segment(middle, ViewDirection.BA, 0.0, 10.0),
+            segment(west, ViewDirection.BA, 0.0, 10.0)))
+        val missing = assertThrows(IllegalStateException::class.java) { source.routeInfrastructureDependencies.dependencies(reverse) }
+        assertTrue(missing.message!!.contains("0 matching authored table routes"))
+        val second = ProtectionRouteDefinition("test:duplicate-path", first.entryBoundaryId, first.exitBoundaryId, path)
+        val ambiguous = ProtectionRegionInspectionSource { publication(tables = listOf(table(listOf(first, second)))) }.source
+        val failure = assertThrows(IllegalStateException::class.java) {
+            ambiguous.routeInfrastructureDependencies.dependencies(forwardRoute())
+        }
+        assertTrue(failure.message!!.contains("2 matching authored table routes"))
+        assertThrows(IllegalStateException::class.java) {
+            ambiguous.bindingProvider.bind(InspectionBindingInput(stamp, "train", forwardRoute()))
+        }
+    }
+
+    private fun source(blocks: Collection<FixedBlockDefinition> = emptyList()) =
+        ProtectionRegionInspectionSource { publication(blocks) }.source
+
+    private fun publication(
+        blocks: Collection<FixedBlockDefinition> = emptyList(),
+        regions: List<ProtectionRegionDefinition> = listOf(region()),
+        tables: List<ProtectionRouteTableDefinition> = emptyList(),
+        revision: Long = 3L
+    ): SimpleSignalsRuntimePublication {
+        val worldId = UUID.randomUUID()
+        val runtime = SimpleSignalsWorldRuntime(worldId)
+        val result = runtime.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, revision,
+            regions, tables, blocks.toList()))
+        assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, result.status, result.toString())
+        return runtime.authoringPublication()
+    }
+
+    private fun withBlocks(captured: SimpleSignalsRuntimePublication, blocks: FixedBlockCatalog) =
+        SimpleSignalsRuntimePublication(captured.topology, captured.definitions, captured.regions,
+            captured.routeTables, captured.routeSelection, blocks, captured.fixedBlockSignals, captured.protectionSignals)
 
     private fun fixedBlockCatalog(
         definitionRevision: Long,

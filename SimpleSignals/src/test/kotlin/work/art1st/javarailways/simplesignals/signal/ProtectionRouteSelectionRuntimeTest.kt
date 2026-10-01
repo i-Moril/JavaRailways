@@ -52,6 +52,31 @@ class ProtectionRouteSelectionRuntimeTest {
     private val owner = InfrastructureOwner("test:owner", 1L)
 
     @Test
+    fun `static preparation accepts repeated complete table visits without any live baseline`() {
+        val connector = UUID(0, 904)
+        val loop = topologyState(7L, listOf(trunk, first, second, connector), listOf(
+            endpoint(trunk, RailEndpoint.B) to endpoint(first, RailEndpoint.A),
+            endpoint(trunk, RailEndpoint.B) to endpoint(second, RailEndpoint.A),
+            endpoint(first, RailEndpoint.B) to endpoint(connector, RailEndpoint.A),
+            endpoint(connector, RailEndpoint.B) to endpoint(trunk, RailEndpoint.A)))
+        val world = SimpleSignalsWorldRuntime(worldId)
+        assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
+            world.initializeDefinitions(loop, SimpleSignalsWorldDefinitions(worldId, 1L, listOf(region),
+                listOf(ProtectionRouteTableDefinition("test:table", 1L, region.regionId, 1L,
+                    listOf(defaultRoute, requestedRoute))))).status)
+        val route = RouteSnapshot("test:repeated", 1L, loop.revision,
+            listOf(trunk, first, connector, trunk, first).map { RouteSegmentSnapshot(it, ViewDirection.AB, 0.0, 10.0) })
+        val selector = ProtectionRouteSelectionRuntime(world.authoringPublication())
+        val before = selector.snapshot()
+        assertTrue(world.protectionRegionInspectionSource.routeInfrastructureDependencies.dependencies(route).isEmpty())
+        val matched = world.authoringPublication().routeBindingCompiler.compile(route)
+        assertEquals(listOf(5.0, 35.0), matched.windows.map { it.region.entry.routeDistanceMeters })
+        assertEquals(listOf(defaultRoute.routeId, defaultRoute.routeId), matched.windows.map { it.tableRoute?.definition?.routeId })
+        assertSame(before, selector.snapshot())
+        assertNull(world.protectionRouteSelectionSnapshot())
+    }
+
+    @Test
     fun `physical exit advances repeated selection despite retained resources and survives append`() {
         val connector = UUID(0, 904)
         val unrelated = UUID(0, 905)

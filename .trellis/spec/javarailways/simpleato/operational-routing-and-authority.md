@@ -320,6 +320,56 @@ active route并调用provider；controller消费同一已发布route mapping里�
 plugin loss先Stall受影响world再删除失效callback。train结束撤销对应compiled binding；controller下一次执行时丢弃自己的
 scheduler。world unload/host shutdown清空world-local binding，不添加retry、持久化、兼容或第二次扫描。
 
+### 3.5 已选时刻表路线的静态资源依赖
+
+CURRENT；owner为SimpleATO应用流程与信号插件的资源匹配回调。本批采用先保护、后匹配的顺序，
+修复独立复核发现的“收集后、安装前可完成定义编辑”空档；不扩展到保护区域/进路表的配置校验。
+顺序已由确定性的真实registry/插件匹配与Dispatcher回归共同验证，不等同于live Folia并发验证。
+
+`InspectionSource`通过可选的`InspectionRouteDependencyProvider`声明自己在已选路线中引用的资源：
+
+```kotlin
+fun interface InspectionRouteDependencyProvider {
+    fun dependencies(route: RouteSnapshot): Collection<StableInfrastructureResource>
+}
+// InspectionSource.routeInfrastructureDependencies；不提供额外资源的source返回空集合。
+fun InspectionRuntime.collectRouteInfrastructureDependencies(
+    routes: Collection<RouteSnapshot>
+): Set<StableInfrastructureResource>
+```
+
+这是现有source注册生命周期中的只读能力，不建立第二个registry。输入来自时刻表validation已经选定的路线，
+不包含live train、当前速度或虚构的observation stamp。回调同步运行于时刻表准备的串行owner，必须有界、
+无副作用、不调用Bukkit或source service，也不执行inspection binding/update或再次寻路。
+插件复用自己的route matcher，只返回真实注册的stable resource identity；SimpleATO不识别闭塞、保护区域类型。
+
+`compileAndInstallAppliedPlan`只编译一次Basic物理依赖，先以同一稳定owner和更高revision安装
+“新路线物理依赖＋旧计划完整依赖”的非独占并集。这个值立即进入既有applied-plan账本，
+不能安装后忘记其owner。随后调用当前source匹配并收集资源，再以该owner的下一revision原子替换为
+新路线的最终依赖；若最终依赖已经等于并集，则直接复用已安装值，不再提交相同内容。
+SimpleSignals的block编辑影响包含完整旧、新轨道，因此保护生效后不能改动匹配涉及的block。
+在保护之前已完成的编辑则由当前matcher重新读取，不沿用保护前收集的结果。
+
+它只防编辑，不创建claim、grant、inspection session或限速输出；其他列车仍可以申请这些资源。
+source抛错、拓扑变化或最终安装拒绝，在clock/initial positions发布前复用`rollbackAppliedPlan`：
+首次应用删除临时依赖，替换应用用更高revision恢复旧依赖并保留旧clock。恢复失败时保留账本中的已安装保护，
+走既有`InfrastructureDependencyFailure`安全停止，不删除保护或丢失cleanup身份。
+Basic继续验证资源存在性并拒绝与编辑许可相交的安装；暂态红灯或占用不作为配置错误。
+初始定位失败、checkpoint恢复、替换和drain删除继续复用原有applied-plan生命周期；草稿保存/dry-run不调用安装。
+
+设有`Q`条已选路线、`S`个已注册source，插件匹配总成本为`M`，返回身份总数为`K`。
+收集成本为`O(Q*S + M + K)`，用一次防御性复制发布去重集合；不缓存第二份路线，不进入每tick行车路径。
+依赖并集构造另按旧、新引用数线性；常规应用至多比原流程增加一次原有registry安装成本，
+最终依赖与并集相等时只安装一次；失败恢复仍复用原有操作。
+不扩大registry临界区去执行插件匹配，不增加全世界锁、generation token或热路径检查。
+Good：路线从闭塞内部站台起步或重复经过同一闭塞，依赖仍包含该闭塞一次；
+Bad：为了取得静态依赖先启动一个假列车binding或申请资源。
+必需测试：去重、集合不可变、无绑定/更新副作用、回调失败保留旧依赖与clock、
+无信号配置时仍保护闭塞，以及真实registry允许claim但拒绝编辑该resource。
+还须覆盖保护前已完成的编辑被当前matcher拒绝、保护后的编辑被许可拒绝、替换期旧资源仍受保护、
+首次失败清除临时保护、最终安装拒绝恢复旧计划，以及恢复失败仍保留可诊断/清理的保护身份。
+不新增持久化字段、schema版本或旧构造器兼容路径。
+
 ## 4. 接口与数据合同
 
 SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`；需要信号插件策略时，它把同一冻结路线与

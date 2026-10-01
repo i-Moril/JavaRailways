@@ -239,6 +239,21 @@ degree-2物理环线上的真实Basic申请/延长/车尾释放，并覆盖内�
 保护区域到直接fixed-block successor的低频衔接复用上述matcher，但不共享跨source cache；具体原因和复杂度见
 [保护区域到固定闭塞的授权衔接合同](protection-region-authority-transition.md#7-性能复杂度与退化行为)。
 
+## 时刻表静态资源依赖
+
+现有固定闭塞inspection source实现`routeInfrastructureDependencies`，从一份不可变block snapshot读取
+`FixedBlockRouteMatcher.matchRoute`结果，返回实际注册的`StableInfrastructureResource("simplesignals:fixed-block", blockId)`。
+先核对snapshot与route的topology revision，即使block集合为空也不能跳过该校验。
+区间内部站台起终点允许，重复经过的同一block身份去重；未配置信号、当前红灯或占用不改变这份静态依赖。
+保护区域没有额外exclusive token，仍由所选进路的物理依赖保护。
+
+SimpleATO在时刻表生效前合入已有applied-plan声明，不调用列车binding/update、不产生resource claim。
+本回调复用已有route matcher及rail反向索引；它只在应用/恢复准备执行，成本等于一次完整已选路线匹配加身份集合构造，
+不新增逐tick扫描或第二套匹配缓存。host收集、失败原子性与生命周期见
+[静态资源依赖合同](../../javarailways/simpleato/operational-routing-and-authority.md#35-已选时刻表路线的静态资源依赖)。
+测试须证明资源身份精确、partial/repeated路线正确、空catalog过期拒绝，以及静态依赖能阻止真实编辑但不阻止运行claim。
+本功能没有持久化变更或兼容路径。
+
 ## 定义编辑事务
 
 插件内部唯一的definition patch入口在一个事务中接受region/table/fixed-block/fixed-block-signal/protection-signal/route-indicator的upsert与remove，并要求调用方提交
@@ -247,7 +262,7 @@ degree-2物理环线上的真实Basic申请/延长/车尾释放，并覆盖内�
 倒退都属于validation failure。
 
 runtime先用fresh catalog完整编译candidate而不修改live publication。prepared value绑定base publication对象身份、exact
-`TopologyState` root、完整候选定义及本次编辑的affected rail IDs。
+`TopologyState` root、完整候选定义及本次编辑的host `TopologyEditImpact`（轨道与已发布block资源）。
 manager以实际改变的定义、旧/新几何和结构依赖消费者的影响并集申请既有`InfrastructureResourceService.acquireEditPermit`，不创建第二套锁。
 不能以整份publication代替本次编辑范围，也不能用当前灯色或道岔选择剪枝；具体算法、边界与测试见
 [定义编辑影响合同](definition-edit-impact.md)。

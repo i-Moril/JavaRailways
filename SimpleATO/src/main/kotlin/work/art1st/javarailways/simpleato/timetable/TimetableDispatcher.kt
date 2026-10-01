@@ -384,9 +384,11 @@ class TimetableDispatcher(
             val plan = when (val result = compileAndInstallAppliedPlan(world, timetableId, null)) {
                 is AppliedPlanInstallResult.Installed -> result.plan
                 is AppliedPlanInstallResult.Rejected -> {
-                    val rollbackFailures = installed.asReversed().mapNotNull { (_, applied) ->
-                        infrastructureDependencyService.remove(applied.owner).takeUnless { it.successful }?.let {
-                            "${applied.owner.ownerId}: ${it.status}${it.detail.takeIf(String::isNotBlank)?.let { detail -> ": $detail" }.orEmpty()}"
+                    val rollbackFailures = installed.asReversed().mapNotNull { (id, applied) ->
+                        rollbackAppliedPlan(id, applied, null)?.let { failure ->
+                            stallTimetableRuntime(world, TimetableServiceRunId(id, "<applied-plan>"),
+                                "InfrastructureDependencyFailure", "checkpoint dependency rollback failed: $failure")
+                            "${applied.owner.ownerId}: $failure"
                         }
                     }
                     return TimetableCheckpointRestoreResult.Rejected(buildString {
@@ -4033,7 +4035,7 @@ class TimetableDispatcher(
                 topologyRevision = topology.revision
             )
         }
-        val dependencies = when (
+        val physicalDependencies = when (
             val compiled = PhysicalRouteDependencyCompiler.compile(topology, snapshots)
         ) {
             is PhysicalRouteDependencyCompilation.Compiled -> compiled.dependencies
@@ -4059,21 +4061,67 @@ class TimetableDispatcher(
                 "topology changed while compiling applied timetable '$timetableId'"
             )
         }
-        val owner = InfrastructureOwner(
+        val guardOwner = InfrastructureOwner(
             "simpleato:timetable/${timetableOwnerToken(timetableId)}",
             nextAppliedPlanRevision(previous?.owner?.revision)
         )
-        val result = infrastructureDependencyService.set(
-            InfrastructureDependencyRequest(topology.revision, owner, dependencies)
+        val guardDependencies = if (previous == null) physicalDependencies else InfrastructureDependencies(
+            physicalDependencies.railIds + previous.dependencies.railIds,
+            physicalDependencies.topologyNodeKeys + previous.dependencies.topologyNodeKeys,
+            physicalDependencies.resourceIds + previous.dependencies.resourceIds
         )
-        return if (result.successful) {
-            AppliedPlanInstallResult.Installed(AppliedTimetablePlan(owner, dependencies))
-        } else {
-            AppliedPlanInstallResult.Rejected(buildString {
+        val guardResult = infrastructureDependencyService.set(
+            InfrastructureDependencyRequest(topology.revision, guardOwner, guardDependencies)
+        )
+        if (!guardResult.successful) {
+            return AppliedPlanInstallResult.Rejected(buildString {
+                append("could not guard applied timetable '$timetableId': ${guardResult.status}")
+                if (guardResult.detail.isNotBlank()) append(": ${guardResult.detail}")
+            })
+        }
+        val guard = AppliedTimetablePlan(guardOwner, guardDependencies)
+        appliedTimetablePlans[timetableId] = guard
+        fun rejectGuardedPlan(reason: String): AppliedPlanInstallResult.Rejected {
+            val rollbackFailure = rollbackAppliedPlan(timetableId, guard, previous)
+            if (rollbackFailure != null) {
+                // The registry still holds the union; retain its exact owner for cleanup/recovery.
+                stallTimetableRuntime(world, TimetableServiceRunId(timetableId, "<applied-plan>"),
+                    "InfrastructureDependencyFailure", "applied dependency rollback failed: $rollbackFailure")
+            }
+            return AppliedPlanInstallResult.Rejected(reason +
+                (rollbackFailure?.let { "; applied dependency rollback failed: $it" } ?: ""))
+        }
+        val signalResources = try {
+            inspectionRuntime.collectRouteInfrastructureDependencies(snapshots)
+        } catch (failure: Exception) {
+            return rejectGuardedPlan("could not compile applied timetable '$timetableId': " +
+                (failure.message ?: failure.javaClass.name))
+        }
+        val dependencies = if (signalResources.isEmpty()) physicalDependencies else InfrastructureDependencies(
+            physicalDependencies.railIds,
+            physicalDependencies.topologyNodeKeys,
+            physicalDependencies.resourceIds + signalResources
+        )
+        if (world.topologyState !== topology) {
+            return rejectGuardedPlan("topology changed while compiling applied timetable '$timetableId'")
+        }
+        if (dependencies == guardDependencies) return AppliedPlanInstallResult.Installed(guard)
+        val owner = InfrastructureOwner(guardOwner.ownerId, nextAppliedPlanRevision(guardOwner.revision))
+        val result = try {
+            infrastructureDependencyService.set(InfrastructureDependencyRequest(topology.revision, owner, dependencies))
+        } catch (failure: Exception) {
+            return rejectGuardedPlan("could not install applied timetable '$timetableId': " +
+                (failure.message ?: failure.javaClass.name))
+        }
+        if (!result.successful) {
+            return rejectGuardedPlan(buildString {
                 append("could not install applied timetable '$timetableId': ${result.status}")
                 if (result.detail.isNotBlank()) append(": ${result.detail}")
             })
         }
+        val installed = AppliedTimetablePlan(owner, dependencies)
+        appliedTimetablePlans[timetableId] = installed
+        return AppliedPlanInstallResult.Installed(installed)
     }
 
     private fun rollbackAppliedPlan(
@@ -4083,7 +4131,12 @@ class TimetableDispatcher(
     ): String? {
         if (previous == null) {
             if (installed == null) return null
-            val removed = infrastructureDependencyService.remove(installed.owner)
+            val removed = try {
+                infrastructureDependencyService.remove(installed.owner)
+            } catch (failure: Exception) {
+                return failure.message ?: failure.javaClass.name
+            }
+            if (removed.successful) appliedTimetablePlans.remove(timetableId)
             return removed.takeUnless { it.successful }?.let {
                 "${it.status}${it.detail.takeIf(String::isNotBlank)?.let { detail -> ": $detail" }.orEmpty()}"
             }
@@ -4092,13 +4145,17 @@ class TimetableDispatcher(
             previous.owner.ownerId,
             nextAppliedPlanRevision(installed?.owner?.revision ?: previous.owner.revision)
         )
-        val restored = infrastructureDependencyService.set(
-            InfrastructureDependencyRequest(
-                checkNotNull(boundWorld).topologyState.revision,
-                restoredOwner,
-                previous.dependencies
+        val restored = try {
+            infrastructureDependencyService.set(
+                InfrastructureDependencyRequest(
+                    checkNotNull(boundWorld).topologyState.revision,
+                    restoredOwner,
+                    previous.dependencies
+                )
             )
-        )
+        } catch (failure: Exception) {
+            return failure.message ?: failure.javaClass.name
+        }
         if (!restored.successful) {
             return "${restored.status}${restored.detail.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty()}"
         }

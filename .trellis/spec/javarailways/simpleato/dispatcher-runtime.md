@@ -19,10 +19,17 @@ fun startService(world: World, timetableId: String, serviceId: String): Timetabl
 
 来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt`。
 
-`beginTimetable`先validation和blocking-run check，然后把validation已经得到的全部物理route交给Basic编译，并通过
-world-local `InfrastructureDependencyService`原子安装完整rail/node/resource dependency；只有安装成功后才执行atomic initial
+`beginTimetable`先validation和blocking-run check，然后把validation已经得到的全部物理route交给Basic编译，
+先通过world-local `InfrastructureDependencyService`安装新物理路线与旧计划完整依赖的非独占并集，
+再通过同一world的`InspectionRuntime.collectRouteInfrastructureDependencies`收集插件引用的注册资源，
+最后以同一稳定owner、更高revision原子替换为新计划完整rail/node/resource dependency
+（与已安装并集相等时直接复用）；只有最终安装成功后才执行atomic initial
 positions并发布shared epoch。dependency失败不发布clock；initial-position失败则删除新声明，replacement场景以更高的
-runtime owner revision恢复旧声明。这个步骤不再次寻路。`scheduleInitialCycle`只能紧随begin，manual activation不自动启动。
+runtime owner revision恢复旧声明。收集或最终安装失败也复用这个恢复流程；已安装保护必须先记入账本，
+恢复失败则保留其身份并使用既有基础设施错误停止路径。这个步骤不再次寻路。
+`scheduleInitialCycle`只能紧随begin，manual activation不自动启动。
+静态收集不调用列车inspection bind/update，不检查当前灯色或占用，不产生claim；其接口、复杂度和失败合同见
+[静态资源依赖](./operational-routing-and-authority.md#35-已选时刻表路线的静态资源依赖)。
 scheduled/conditional cycles按period recurrence；`WAIT_UNTIL_TRUE`只保留该cycle，不阻塞其他service/clock；`SKIP_CYCLE`跳过。
 
 每个timetable使用由其ID确定性生成的稳定owner ID；revision只是在当前world runtime内单调递增的mutation序号，不是

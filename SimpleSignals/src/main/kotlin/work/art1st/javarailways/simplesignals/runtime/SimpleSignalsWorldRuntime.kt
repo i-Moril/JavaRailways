@@ -140,8 +140,10 @@ internal class SimpleSignalsPreparedDefinitions internal constructor(
     internal val candidatePublication: SimpleSignalsRuntimePublication,
     val topology: TopologyState,
     val definitions: SimpleSignalsWorldDefinitions,
-    val affectedRailIds: Set<UUID>
-)
+    val editImpact: TopologyEditImpact?
+) {
+    val affectedRailIds: Set<UUID> get() = editImpact?.railIds.orEmpty()
+}
 
 internal class SimpleSignalsRuntimePublication(
     val topology: TopologyState,
@@ -454,7 +456,7 @@ internal class SimpleSignalsWorldRuntime(
                 candidate,
                 topology,
                 copiedDefinitions,
-                SimpleSignalsDefinitionEditImpact.railIds(current, candidate)
+                SimpleSignalsDefinitionEditImpact.impact(current, candidate)
             )
         )
     }
@@ -934,7 +936,6 @@ internal class SimpleSignalsWorldRuntimeManager(
         }
         val topology = prepared.topology
         val nextRevision = prepared.definitions.definitionRevision
-        val impactRailIds = prepared.affectedRailIds
         val permitResult = try {
             infrastructure.acquireEditPermit(
                 plugin,
@@ -942,7 +943,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                 TopologyEditRequest(
                     topology.revision,
                     InfrastructureOwner("simplesignals:definitions/$worldId", nextRevision),
-                    TopologyEditImpact(impactRailIds, emptySet(), emptySet())
+                    checkNotNull(prepared.editImpact)
                 )
             )
         } catch (failure: Exception) {

@@ -19,6 +19,9 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependenc
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditBlocker
@@ -49,6 +52,8 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
+import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_RESOURCE_TYPE
+import work.art1st.javarailways.simplesignals.block.FixedBlockRouteResourcePolicy
 import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_SIGNAL_SOURCE_ID
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition
@@ -647,7 +652,10 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     private fun editRegistry(topology: () -> TopologyState) = InfrastructureCoordinationRegistry(
-        { topology().revision }, { it is RailIntervalResource && it.railId in topology().railProjection },
+        { topology().revision }, {
+            it is RailIntervalResource && it.railId in topology().railProjection ||
+                it is StableInfrastructureResource && it.typeId == FIXED_BLOCK_RESOURCE_TYPE
+        },
         { it in topology().railProjection })
 
     private fun protect(registry: InfrastructureCoordinationRegistry, topology: TopologyState,
@@ -1822,6 +1830,85 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(1, installed.size)
         assertEquals(2, signalSources.atomicCommitCount)
         assertEquals(1, infrastructure.permitCloseCount)
+    }
+
+    @Test
+    fun `selected partial block resource dependency guards real edits without claiming or blocking unrelated blocks`() {
+        val fixture = Fixture()
+        val unrelatedRail = UUID(0L, 20L)
+        val topology = fixture.topology(41L, listOf(unrelatedRail))
+        val selected = FixedBlockDefinition("test:selected", 1L,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0)))
+        val unrelated = FixedBlockDefinition("test:unrelated", 1L,
+            listOf(FixedBlockTraversal(unrelatedRail, ViewDirection.AB, 0.0, 5.0)))
+        val store = store()
+        store.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1L,
+            emptyList(), emptyList(), listOf(selected, unrelated)))
+        val plugin = plugin()
+        var runtime: SimpleSignalsWorldRuntime? = null
+        val provider = FixedBlockRouteResourcePolicy(plugin) { runtime?.fixedBlockSnapshot() }
+        val registry = InfrastructureCoordinationRegistry({ topology.revision }, { resource ->
+            when (resource) {
+                is RailIntervalResource -> resource.railId in topology.railProjection
+                is StableInfrastructureResource -> resource.typeId == FIXED_BLOCK_RESOURCE_TYPE &&
+                    provider.exists(fixture.worldId, resource.resourceId)
+            }
+        }, { it in topology.railProjection })
+        val infrastructure = MutableTopologyService(topology, registry)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin, infrastructure.service, CapturingRoutePlanningService(), store, sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val installedRuntime = checkNotNull(manager.authoringRuntime(fixture.worldId))
+        runtime = installedRuntime
+        val route = RouteSnapshot("test:selected-timetable", 0L, topology.revision,
+            listOf(RouteSegmentSnapshot(fixture.entry, ViewDirection.AB, 1.0, 3.0)))
+        val resources = installedRuntime.fixedBlockInspectionSource.routeInfrastructureDependencies.dependencies(route)
+        val token = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, selected.blockId)
+        assertEquals(setOf(token), resources.toSet())
+        val owner = InfrastructureOwner("test:applied-timetable", 1L)
+        val planOwner = Any()
+        assertEquals(InfrastructureDependencyMutationStatus.APPLIED,
+            registry.setInfrastructureDependencies(planOwner, InfrastructureDependencyRequest(topology.revision, owner,
+                InfrastructureDependencies(emptySet(), emptySet(), resources))).status)
+        assertTrue(registry.claimSnapshots().isEmpty(), "edit dependencies acquire no train resources")
+
+        // A dependency must also coexist with the actual train resource claim.
+        val trainOwner = Any()
+        val claim = InfrastructureOwner("test:train", 1L)
+        assertEquals(InfrastructureMutationStatus.ACQUIRED,
+            registry.acquireClaim(trainOwner, InfrastructureClaimRequest(topology.revision, claim,
+                InfrastructureFootprint(listOf(token)))).status)
+        assertEquals(InfrastructureMutationStatus.RELEASED, registry.releaseClaim(trainOwner, claim).status)
+
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
+            manager.applyDefinitionPatch(fixture.worldId, 1L,
+                SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(
+                    FixedBlockDefinition(unrelated.blockId, 2L, unrelated.traversals)))).status)
+        val before = installedRuntime.currentDefinitions()
+        val primary = Files.readString(store.primaryFile(fixture.worldId))
+        val installedSources = sources.sources.getValue(fixture.worldId)
+        listOf(
+            SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(
+                FixedBlockDefinition(selected.blockId, 2L, selected.traversals))),
+            SimpleSignalsDefinitionPatch(removeFixedBlockIds = setOf(selected.blockId))
+        ).forEach { patch ->
+            val blocked = manager.applyDefinitionPatch(fixture.worldId, 2L, patch)
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, blocked.status, blocked.diagnostics.toString())
+            val blocker = blocked.editDecision!!.blockers.single()
+            assertEquals(owner, blocker.owner)
+            assertEquals(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, blocker.kind)
+            assertTrue(blocker.overlap.railIds.isEmpty(), "this regression requires the exact resource guard")
+            assertEquals(setOf(token), blocker.overlap.resourceIds)
+            assertSame(before, installedRuntime.currentDefinitions())
+            assertSame(installedSources, sources.sources.getValue(fixture.worldId))
+            assertEquals(primary, Files.readString(store.primaryFile(fixture.worldId)))
+        }
+        assertEquals(InfrastructureDependencyMutationStatus.REMOVED,
+            registry.removeInfrastructureDependencies(planOwner, owner).status)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
+            manager.applyDefinitionPatch(fixture.worldId, 2L,
+                SimpleSignalsDefinitionPatch(removeFixedBlockIds = setOf(selected.blockId))).status)
+        assertTrue(registry.claimSnapshots().isEmpty())
     }
 
     @Test

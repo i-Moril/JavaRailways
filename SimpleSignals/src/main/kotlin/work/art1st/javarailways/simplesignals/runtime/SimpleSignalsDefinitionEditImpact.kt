@@ -1,6 +1,9 @@
 package work.art1st.javarailways.simplesignals.runtime
 
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
 import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_RESOURCE_TYPE
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
 import java.util.UUID
@@ -8,9 +11,9 @@ import kotlin.math.abs
 
 /** Worker-only impact of authored changes and their compiled policy consumers in both snapshots. */
 internal object SimpleSignalsDefinitionEditImpact {
-    fun railIds(
+    fun impact(
         previous: SimpleSignalsRuntimePublication?, candidate: SimpleSignalsRuntimePublication
-    ): Set<UUID> {
+    ): TopologyEditImpact? {
         val old = previous?.definitions ?: SimpleSignalsWorldDefinitions.empty(candidate.definitions.worldId)
         val next = candidate.definitions
         fun <T> changed(before: List<T>, after: List<T>, id: (T) -> String): Set<String> {
@@ -56,7 +59,14 @@ internal object SimpleSignalsDefinitionEditImpact {
         listOfNotNull(previous, candidate).forEach { publication ->
             collect(publication, regions, tables, blocks, signals, indicators, result)
         }
-        return java.util.Set.copyOf(result)
+        // Only published identities exist in the host provider. New blocks are protected through
+        // their exact rail impact until publication; updates/deletions also protect the old token.
+        val oldBlockIds = old.fixedBlocks.mapTo(hashSetOf()) { it.blockId }
+        val resources = blocks.filter { it in oldBlockIds }.map {
+            StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, it)
+        }
+        return if (result.isEmpty() && resources.isEmpty()) null else
+            TopologyEditImpact(result, emptySet(), resources)
     }
 
     private fun collect(

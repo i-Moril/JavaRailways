@@ -181,7 +181,8 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                             input.getRoute(),
                             List.of()
                         ));
-                    }
+                    },
+                    route -> List.of(new StableInfrastructureResource("example.signaladdon:signal", "home"))
                 ))
             );
             services.routePlanningSources().replaceRoutePlanningSources(

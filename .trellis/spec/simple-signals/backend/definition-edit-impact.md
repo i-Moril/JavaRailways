@@ -9,7 +9,7 @@ CURRENT；owner 为 SimpleSignals。解决在线编辑许可误包含同世界�
 ## 2. 模块工作方式
 
 `applyDefinitionPatch` 在 worker 上校验 patch/revision，完整编译候选 publication，计算旧、新状态的编辑影响，
-再向现有 `InfrastructureResourceService.acquireEditPermit` 提交 rail IDs。
+再向现有 `InfrastructureResourceService.acquireEditPermit` 提交 rail IDs 和变更涉及的已发布闭塞资源身份。
 Basic 判断这些轨道是否涉及已应用时刻表、列车占用或其他编辑。拒绝则不写盘、不替换 source。
 通过后沿用 staged save 和原子 source/publication 提交流程。
 
@@ -22,6 +22,9 @@ Basic 判断这些轨道是否涉及已应用时刻表、列车占用或其他�
 无关在建轨道导致 root 换代，不等于所有信号定义都被编辑。
 
 - block 改变：包含完整 block traversal，并以其 section 作为依赖传播起点。
+  同时提交旧 publication 中存在的 `StableInfrastructureResource("simplesignals:fixed-block", blockId)`，
+  覆盖更新、删除和拓扑派生变化。
+  新建 block 尚未被provider注册为可用身份，因此只提交旧、新轨道影响；不能把不存在的资源交给许可校验。
 - region/table 改变：包含相关区域边界、内部和进路；进路 section 与入口选择作为传播起点。
 - region 与直接后继 block 互相影响准入 floor；变更 block 时不能遗漏前驱 region，变更 region/table 时不能遗漏直接后继 block。
 - signal 改变：包含其受控 section 和所有结构上可受影响的消费者。
@@ -33,8 +36,9 @@ Basic 判断这些轨道是否涉及已应用时刻表、列车占用或其他�
 
 ## 4. 接口与单位
 
-内部入口：`SimpleSignalsDefinitionEditImpact.railIds(previous, candidate): Set<UUID>`。
-`SimpleSignalsPreparedDefinitions.affectedRailIds` 表示本次编辑影响，不再表示整份世界定义的轨道全集。
+内部入口：`SimpleSignalsDefinitionEditImpact.impact(previous, candidate): TopologyEditImpact?`。
+没有任何轨道或资源影响（如空世界初始publication）时返回null；实际patch在取得许可前必须有非空影响。
+`SimpleSignalsPreparedDefinitions.editImpact`保存现有host影响值，`affectedRailIds`只投影其中轨道集合供诊断。
 `OneWayInvalidationGraph.reachableConsumers(providers)` 包含起点及所有结构可达消费者。
 `SectionSignalRuleRuntime.affectedBindings(sections, signalIds, entries)` 将这些起点映射为受影响的信号 bindings。
 轨道身份使用 Core rail UUID；不把 rail/node 改成新的 SimpleSignals 资源。
@@ -84,6 +88,8 @@ Bad：B 是 A 的下游依赖，或 B 是 A 保护区域出口后的直接闭塞
 - 旧、新路径、删除和位置移动均覆盖；block、region、table、signal、indicator 均有断言。
 - 固定进路信号和当前信号分别删除：使用实际 Basic registry 的静态依赖、动态 claim 阻挡；
   拒绝不改变磁盘、publication、source，解除阻挡后同一删除成功。
+- 仅声明某个已存在block资源的静态依赖时，实际manager更新/删除该block也必须被拒绝；
+  不相关block仍可编辑，新建block不因尚不存在的资源身份被许可误拒绝。
 - 无关在建轨道替换 topology root 后，局部编辑仍不被另一条运营线路阻挡。
 - 当前输出不变、当前支路未开放仍收集结构依赖。
 - 保留 revision、非法候选、许可后 root 变化、保存失败和阻塞提交的既有原子性测试。

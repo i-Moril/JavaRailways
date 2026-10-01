@@ -8,6 +8,7 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapsh
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simplesignals.runtime.PublishedSectionSignal
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclarationId
 import work.art1st.javarailways.simplesignals.signal.blockIdFromSignalDeclaration
 import java.util.concurrent.atomic.AtomicLong
@@ -30,10 +31,7 @@ internal class FixedBlockInspectionSource(
         sourceId = FIXED_BLOCK_SIGNAL_SOURCE_ID,
         bindingProvider = { input ->
             val captured = snapshot()
-            val windows = when (val matched = FixedBlockRouteMatcher.matchRoute(captured, input.route)) {
-                is FixedBlockAuthorityMatchResult.Matched -> matched.windows
-                is FixedBlockAuthorityMatchResult.Rejected -> error(matched.detail)
-            }
+            val windows = matchRoute(captured, input.route)
             InspectionDeclarationBinding(
                 sourceId = FIXED_BLOCK_SIGNAL_SOURCE_ID,
                 trainId = input.trainId,
@@ -53,6 +51,12 @@ internal class FixedBlockInspectionSource(
                     )
                 } + protectionDeclarations(captured, input.route)
             )
+        },
+        routeInfrastructureDependencies = { route ->
+            val captured = snapshot()
+            java.util.Set.copyOf(matchRoute(captured, route).map { window ->
+                StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, window.blockId)
+            })
         },
         updateHandler = { input ->
             val revision = nextRevision.getAndUpdate { current -> Math.addExact(current, 1L) }
@@ -102,4 +106,14 @@ internal class FixedBlockInspectionSource(
             )
         }
     )
+
+    private fun matchRoute(captured: FixedBlockReadSnapshot, route: RouteSnapshot): List<FixedBlockRouteWindow> {
+        check(captured.topology.revision == route.topologyRevision) {
+            "fixed-block definitions use stale topology for route ${route.routeId}"
+        }
+        return when (val matched = FixedBlockRouteMatcher.matchRoute(captured, route)) {
+            is FixedBlockAuthorityMatchResult.Matched -> matched.windows
+            is FixedBlockAuthorityMatchResult.Rejected -> error(matched.detail)
+        }
+    }
 }

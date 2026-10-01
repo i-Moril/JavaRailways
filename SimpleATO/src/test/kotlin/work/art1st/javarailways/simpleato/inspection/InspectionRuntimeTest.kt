@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
@@ -28,6 +29,49 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicLong
 
 class InspectionRuntimeTest {
+    @Test
+    fun `selected route dependencies use current sources without train bindings or publications`() {
+        val publications = arrayListOf<TrainRestrictionSnapshot>()
+        val runtime = runtime(publications)
+        val token = StableInfrastructureResource("test:block", "selected")
+        val returned = arrayListOf(token, token)
+        val calls = arrayListOf<String>()
+        fun dependencySource(id: String) = InspectionSource(id,
+            { error("static routes must not bind a train") },
+            { error("static routes must not inspect live state") },
+            { selected -> calls += "$id/${selected.routeId}"; returned })
+        runtime.replaceSources(listOf(dependencySource("test:z"), dependencySource("test:a")))
+        val selected = listOf(route, RouteSnapshot("test:another", route.revision, route.topologyRevision, route.segments))
+
+        val resources = runtime.collectRouteInfrastructureDependencies(selected)
+
+        assertEquals(setOf(token), resources)
+        assertEquals(listOf("test:a/${route.routeId}", "test:a/test:another",
+            "test:z/${route.routeId}", "test:z/test:another"), calls)
+        returned.clear()
+        assertEquals(setOf(token), resources)
+        assertTrue(publications.isEmpty())
+        assertEquals(false, runtime.hasBindings("train"))
+        assertThrows(UnsupportedOperationException::class.java) { (resources as MutableSet).clear() }
+        runtime.removeSource("test:a")
+        runtime.removeSource("test:z")
+        assertTrue(runtime.collectRouteInfrastructureDependencies(selected).isEmpty())
+    }
+
+    @Test
+    fun `selected route dependency failure includes source and route without changing bindings`() {
+        val runtime = runtime()
+        runtime.replaceSources(listOf(InspectionSource("test:broken", { binding() }, { emptyList() },
+            { error("stale definitions") })))
+        val failure = assertThrows(IllegalArgumentException::class.java) {
+            runtime.collectRouteInfrastructureDependencies(listOf(route))
+        }
+        assertTrue(failure.message!!.contains("test:broken"))
+        assertTrue(failure.message!!.contains(route.routeId))
+        assertTrue(failure.message!!.contains("stale definitions"))
+        assertEquals(false, runtime.hasBindings("train"))
+    }
+
     private val trainInspections = mutableMapOf<InspectionRuntime, InspectionRuntime.TrainInspection>()
     private val railId = UUID.nameUUIDFromBytes("inspection-runtime".toByteArray())
     private val route = RouteSnapshot(

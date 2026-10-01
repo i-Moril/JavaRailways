@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
@@ -38,6 +39,11 @@ import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.api.timetable.*
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
+import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.timetable.*
 import work.art1st.javarailways.basic.controller.ManualController
 import work.art1st.javarailways.simpleato.controller.SimpleATO
@@ -57,8 +63,140 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
 import work.art1st.javarailways.core.util.ThreadGuard
 import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
+import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
 
 class TimetableDispatcherTest {
+    @Test
+    fun `apply merges plugin resources and failed replacement keeps old dependencies and clock`() {
+        val world = createTestWorld().also(worlds::add)
+        val data = BasicWorldData()
+        TestSimpleATOWorldDataRegistry.register(world, data)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(50.0, 1))
+        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+        val origin = train.head.location.arcLength
+        data.wayPoints.add(WayPoint("A", "A", rail.id, origin))
+        data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 20.0))
+        world.simpleAtoWorldData.timetables.add(timetable("tt-signal", "s1", train.id, "A", "B"))
+        val token = StableInfrastructureResource("test:block", "selected")
+        val replacement = StableInfrastructureResource("test:block", "replacement")
+        var resources = listOf(token)
+        var fail = false
+        val plans = RecordingInfrastructureDependencyService()
+        val inspection = emptyInspectionRuntime()
+        inspection.replaceSources(listOf(InspectionSource("test:signals",
+            { error("must not create train bindings on apply") },
+            { error("must not read live signal state on apply") },
+            { selected ->
+                assertEquals(world.topologyState.revision, selected.topologyRevision)
+                assertEquals(setOf(rail.id), selected.segments.map { it.railId }.toSet())
+                assertEquals(setOf(rail.id), plans.applied.values.single().dependencies.railIds,
+                    "physical dependencies must already protect matching")
+                if (fail) assertEquals(setOf(token), plans.applied.values.single().dependencies.resourceIds,
+                    "the guard retains the previous signal resources")
+                if (fail) error("stale block definitions")
+                resources
+            })))
+        val dispatcher = dispatcher(plans, inspection)
+        assertTrue(TimetableValidator(world).validate(world.simpleAtoWorldData.timetables["tt-signal"]!!).isSuccess)
+        assertTrue(plans.applied.isEmpty(), "draft storage publishes no dependencies")
+        assertTrue(dispatcher.beginTimetable(world, "tt-signal") is TimetableEpochStartResult.Started)
+        val installed = plans.applied.values.single()
+        assertEquals(setOf(rail.id), installed.dependencies.railIds)
+        assertEquals(setOf(token), installed.dependencies.resourceIds)
+
+        fail = true
+        val rejected = dispatcher.beginTimetable(world, "tt-signal") as TimetableEpochStartResult.Failure
+        assertTrue(rejected.reason.contains("test:signals"))
+        assertEquals(installed.dependencies, plans.applied.values.single().dependencies)
+        assertTrue(plans.applied.values.single().owner.revision > installed.owner.revision)
+        assertEquals(4, plans.mutations.size)
+        assertTrue(dispatcher.scheduleInitialCycle("tt-signal"), "failed replacement retains old clock")
+
+        fail = false
+        resources = listOf(replacement)
+        assertTrue(dispatcher.beginTimetable(world, "tt-signal") is TimetableEpochStartResult.Started)
+        assertEquals(setOf(replacement), plans.applied.values.single().dependencies.resourceIds)
+        assertTrue(plans.applied.values.single().owner.revision > installed.owner.revision)
+        assertTrue(dispatcher.stopFutureCycles("tt-signal"))
+        assertTrue(plans.applied.isEmpty())
+    }
+
+    @Test
+    fun `guarded apply failures restore prior dependencies or clear first apply and retain failed rollback protection`() {
+        for (previous in listOf(false, true)) for (cause in listOf("collect", "final", "rollback", "initial")) {
+            val world = createTestWorld().also(worlds::add)
+            val data = BasicWorldData()
+            TestSimpleATOWorldDataRegistry.register(world, data)
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(50.0, 1))
+            val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
+            val origin = train.head.location.arcLength
+            data.wayPoints.add(WayPoint("A", "A", rail.id, origin))
+            data.wayPoints.add(WayPoint("B", "B", rail.id, origin + 20.0))
+            val timetable = timetable("guarded", "s1", train.id, "A", "B").copy(
+                initialPositions = if (cause == "initial") listOf(TimetableInitialPosition(
+                    TimetableObjectSelector.Regex(train.name), TimetableObjectSelector.Regex("A"))) else emptyList())
+            world.simpleAtoWorldData.timetables.add(timetable)
+            val oldToken = StableInfrastructureResource("test:block", "old")
+            val nextToken = StableInfrastructureResource("test:block", "next")
+            val plans = RecordingInfrastructureDependencyService()
+            var failing = false
+            var setCalls = 0
+            val service = object : InfrastructureDependencyService {
+                override fun set(request: InfrastructureDependencyRequest): InfrastructureDependencyMutationResult {
+                    setCalls++
+                    if (failing && setCalls == 2 && cause in listOf("final", "rollback")) {
+                        return InfrastructureDependencyMutationResult(InfrastructureDependencyMutationStatus.EDIT_IN_PROGRESS,
+                            "injected $cause failure")
+                    }
+                    val result = plans.set(request)
+                    if (failing && setCalls == 2 && cause == "initial") train.setController(ManualController(train, world))
+                    return result
+                }
+                override fun remove(owner: InfrastructureOwner): InfrastructureDependencyMutationResult =
+                    if (failing && cause == "rollback")
+                        InfrastructureDependencyMutationResult(InfrastructureDependencyMutationStatus.SERVICE_CLOSED)
+                    else plans.remove(owner)
+            }
+            val inspection = emptyInspectionRuntime()
+            inspection.replaceSources(listOf(InspectionSource("test:signals", { error("no live binding") },
+                { error("no live inspection") }, {
+                    val guard = plans.applied.values.single()
+                    assertEquals(setOf(rail.id), guard.dependencies.railIds)
+                    assertEquals(if (failing && previous) setOf(oldToken) else emptySet(), guard.dependencies.resourceIds)
+                    if (failing && cause in listOf("collect", "rollback")) error("collection failed")
+                    listOf(if (failing) nextToken else oldToken)
+                })))
+            val dispatcher = dispatcher(service, inspection)
+            if (previous) assertTrue(dispatcher.beginTimetable(world, "guarded") is TimetableEpochStartResult.Started)
+            val old = plans.applied.values.singleOrNull()
+            val oldClocks = dispatcher.saveCheckpoint().clocks
+            setCalls = 0
+            failing = true
+
+            val result = dispatcher.beginTimetable(world, "guarded")
+
+            assertTrue(result is TimetableEpochStartResult.Failure, "$previous/$cause: $result")
+            assertEquals(oldClocks, dispatcher.saveCheckpoint().clocks)
+            if (cause == "rollback") {
+                assertTrue(world.simpleAtoWorldData.atoCoordinator.isStalled)
+                val guard = plans.applied.values.single()
+                assertEquals(setOf(rail.id), guard.dependencies.railIds)
+                assertEquals(if (previous) setOf(oldToken) else emptySet(), guard.dependencies.resourceIds)
+                assertThrows(IllegalStateException::class.java) {
+                    dispatcher.restoreCheckpoint(world, SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList()))
+                }
+                dispatcher.tick(world)
+                assertSame(guard, plans.applied.values.single(), "stalled ticks must keep the tracked guard")
+            } else if (old == null) {
+                assertTrue(plans.applied.isEmpty(), "$cause must clear first-apply protection")
+            } else {
+                assertEquals(old.dependencies, plans.applied.values.single().dependencies)
+                assertTrue(plans.applied.values.single().owner.revision > old.owner.revision)
+            }
+            assertEquals(cause in listOf("rollback", "initial"), world.simpleAtoWorldData.atoCoordinator.isStalled)
+        }
+    }
+
     @Test
     fun `timetable without known routes applies without creating an empty dependency`() {
         val world = createTestWorld().also(worlds::add)
@@ -2002,10 +2140,10 @@ class TimetableDispatcherTest {
     }
 
     private fun dispatcher(
-        infrastructureDependencyService: InfrastructureDependencyService = acceptingInfrastructureDependencyService()
+        infrastructureDependencyService: InfrastructureDependencyService = acceptingInfrastructureDependencyService(),
+        inspectionRuntime: InspectionRuntime = emptyInspectionRuntime()
     ): TimetableDispatcher {
         var boundWorld: CoreWorld? = null
-        val inspectionRuntime = emptyInspectionRuntime()
         return TimetableDispatcher(
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { boundWorld },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,

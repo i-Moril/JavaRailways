@@ -2,11 +2,13 @@ package work.art1st.javarailways.simplesignals.block
 
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
@@ -38,6 +40,27 @@ import java.lang.reflect.Proxy
 import java.util.UUID
 
 class FixedBlockInspectionSourceTest {
+    @Test
+    fun `static dependencies include internal block overlap without an entrance signal`() {
+        val block = FixedBlockDefinition("test:inside", 1L,
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)))
+        val snapshot = FixedBlockCatalog().also { it.publish(topology, 1L, listOf(block)) }.snapshot(topology)
+        val source = FixedBlockInspectionSource({ snapshot }, { error("must not read signal state") }).source
+        val partial = route(RouteSegmentSnapshot(first, ViewDirection.AB, 4.0, 6.0))
+        assertEquals(setOf(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)),
+            source.routeInfrastructureDependencies.dependencies(partial).toSet())
+        assertEquals(emptyList<Any>(), source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", partial)).declarations)
+    }
+
+    @Test
+    fun `empty block index still rejects stale selected route topology`() {
+        val snapshot = FixedBlockCatalog().also { it.publish(topology, 1L, emptyList()) }.snapshot(topology)
+        val source = FixedBlockInspectionSource({ snapshot }).source
+        val stale = RouteSnapshot("test:stale", 0L, 8L,
+            listOf(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0)))
+        assertThrows(IllegalStateException::class.java) { source.routeInfrastructureDependencies.dependencies(stale) }
+    }
+
     private val worldId = UUID.randomUUID()
     private val first = UUID(0L, 1L)
     private val second = UUID(0L, 2L)
@@ -61,6 +84,9 @@ class FixedBlockInspectionSourceTest {
             RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0))
         var signal: PublishedSectionSignal? = null
         val source = FixedBlockInspectionSource({ snapshot }, { signal }, { true }).source
+        assertEquals(setOf(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)),
+            source.routeInfrastructureDependencies.dependencies(route).toSet(),
+            "repeat visits reference one physical token even before any signal baseline")
         val declarations = source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", route)).declarations
         assertEquals(listOf(2.0, 32.0), declarations.map { it.triggerRouteDistanceMeters })
         assertEquals(listOf(8.0, 38.0), declarations.map { it.minimumRequestedAuthorityEndRouteDistanceMeters })

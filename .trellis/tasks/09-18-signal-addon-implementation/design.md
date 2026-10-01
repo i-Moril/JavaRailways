@@ -249,6 +249,29 @@ There is no host-wide `return "YG"` contract and the Java/Kotlin runtime does no
 
 SimpleATO already compiles selected automatic timetable routes into immutable candidates before service start and installs the host's static applied-plan dependencies before clocks become visible. Stage 2 reuses signal-plugin route matching/binding for those selected routes and collects the corresponding definition/resource edit dependencies in the same preparation. It does not add a separate signal-audit framework or repeat configuration validation already completed at authoring time. Transient red aspects, occupancy and live claim conflicts are waits rather than apply failures; partial fixed-block traversal and repeat visits are not intrinsically invalid, and the plugin does not repeat pathfinding.
 
+Reviewed implementation seam: the existing `InspectionSource` may provide a pure
+`routeInfrastructureDependencies: (RouteSnapshot) -> Collection<StableInfrastructureResource>` callback
+(empty for sources without additional resources). `InspectionRuntime` collects and deduplicates these
+identities from already selected routes without binding a train, inventing an observation stamp or
+executing a signal update. SimpleSignals reuses `FixedBlockRouteMatcher.matchRoute` and returns its
+registered fixed-block identities, including internal starts/stops and repeated visits; protection regions
+do not gain an artificial resource identity. Dispatcher first installs a non-exclusive union of the new
+physical route dependencies and the previous plan's complete dependencies, then collects current plugin
+resources and atomically replaces that guard with the final declaration. Callback/topology/identity
+failures restore the previous declaration (or remove the first-apply guard) before publishing clocks;
+the existing registry validates identities and arbitrates
+against overlapping edit permits. No extra registry, claim, persistence field or compatibility constructor
+is introduced. Exact owner contracts and tests are recorded in the SimpleATO and SimpleSignals specs.
+
+Reviewed ordering correction: asynchronous edits can finish between an unprotected collection and
+installation without changing token identity or topology revision. The user approved establishing
+selected-route protection before final matching, retaining old dependencies during replacement and
+restoring them on failure. Reuse the existing registry and rollback bookkeeping, not generation tokens,
+claims or a second lock service. Keep the installed guard tracked if restoration fails and use the
+existing infrastructure-failure safety path. Deterministic Dispatcher + real matcher/registry regressions
+verify both edit orderings and checkpoint restore; injected failures cover first/replacement recovery.
+An identical final declaration reuses the installed guard. Live Folia thread scheduling remains unverified.
+
 After rechecking revisions, SimpleATO extends the existing atomic declaration of exact rail/node/runtime-resource edit dependencies with referenced SimpleSignals resources and installs the applied plan. Replacement atomically replaces the complete declaration. Unapply enters `DRAINING`, stops new departures/grants and removes dependencies only after live runs/claims clear or explicit administrative recovery succeeds. These non-exclusive edit dependencies are not train resource claims.
 
 Plugin definitions and operational objects referenced by an applied timetable are represented by their owning plugin's stable runtime-resource IDs in the dependency declaration. Editors submit the exact affected rail/node/resource identities to the common host edit permit before mutating topology, regions, blocks, signals or referenced operational objects.

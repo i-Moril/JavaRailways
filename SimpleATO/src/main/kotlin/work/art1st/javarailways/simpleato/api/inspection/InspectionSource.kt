@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simpleato.api.inspection
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.simpleato.api.NAMESPACED_SIMPLE_ATO_ID
 
@@ -37,6 +38,17 @@ fun interface InspectionBindingProvider {
 }
 
 /**
+ * Collects exact registered runtime resource identities referenced by a selected timetable route.
+ *
+ * This pure, bounded callback reads an immutable definition/index publication and verifies its
+ * topology binding. It neither requires a live train nor inspects occupancy, signal aspects or
+ * claims. Returned identities are non-exclusive edit dependencies, not route resource requests.
+ */
+fun interface InspectionRouteDependencyProvider {
+    fun dependencies(route: RouteSnapshot): Collection<StableInfrastructureResource>
+}
+
+/**
  * One independently implemented inspection source.
  *
  * [bindingProvider] is called only for a new train/route binding or an atomic source replacement;
@@ -48,7 +60,9 @@ fun interface InspectionBindingProvider {
 data class InspectionSource(
     val sourceId: String,
     val bindingProvider: InspectionBindingProvider,
-    val updateHandler: InspectionUpdateHandler
+    val updateHandler: InspectionUpdateHandler,
+    val routeInfrastructureDependencies: InspectionRouteDependencyProvider =
+        InspectionRouteDependencyProvider { emptyList() }
 ) {
     init {
         require(NAMESPACED_SIMPLE_ATO_ID.matches(sourceId)) { "sourceId must be namespaced" }

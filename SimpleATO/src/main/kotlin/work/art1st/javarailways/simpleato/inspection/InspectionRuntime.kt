@@ -2,6 +2,7 @@ package work.art1st.javarailways.simpleato.inspection
 
 import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration
@@ -66,6 +67,28 @@ class InspectionRuntime(
     private val compiledBindingsByTrain = linkedMapOf<String, TreeMap<String, CompiledSourceBinding>>()
     private var sourcesById = sortedMapOf<String, InspectionSource>()
     private val activeRoutesByTrain = linkedMapOf<String, ActiveRoute>()
+
+    /** Collects static edit references without creating train bindings or publishing restrictions. */
+    fun collectRouteInfrastructureDependencies(
+        routes: Collection<RouteSnapshot>
+    ): Set<StableInfrastructureResource> {
+        val sources = sourcesById
+        val resources = linkedSetOf<StableInfrastructureResource>()
+        sources.values.forEach { source ->
+            routes.forEach { route ->
+                try {
+                    resources.addAll(source.routeInfrastructureDependencies.dependencies(route))
+                } catch (failure: Exception) {
+                    throw IllegalArgumentException(
+                        "inspection source ${source.sourceId} could not collect dependencies for " +
+                            "route ${route.routeId}: ${failure.message ?: failure.javaClass.name}",
+                        failure
+                    )
+                }
+            }
+        }
+        return java.util.Collections.unmodifiableSet(resources)
+    }
 
     @Volatile
     private var publishedBindingsByTrain: Map<String, TrainBinding> = emptyMap()

@@ -87,7 +87,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - [x] Unchanged signal state does not execute every signal script/update every tick; dependency changes propagate to affected upstream resources.
 - [x] Diamond crossings prevent conflicting passages without cross-line routing or runtime geometry scans.
 - [x] Disable, failure, world unload/reload and stale-state tests prove authority never widens and live claims are not dropped beneath trains.
-- [ ] Timetable apply/replace/unapply and draft/draining tests prove atomic applied-plan dependency replacement, edit blocking and separation from transient live claims/occupancy waits.
+- [x] Timetable apply/replace/unapply and draft/draining tests prove atomic applied-plan dependency replacement, edit blocking and separation from transient live claims/occupancy waits. The lifecycle regressions use real Basic dependency/edit permits with scripted admission completion; physical tail release and live Folia validation are not established by those fixtures.
 - [ ] A deliberately paused signal-definition commit cannot delay another railway world or an
   already-running physics epoch; old epochs finish with the old immutable source and the next epoch
   establishes the new baseline.

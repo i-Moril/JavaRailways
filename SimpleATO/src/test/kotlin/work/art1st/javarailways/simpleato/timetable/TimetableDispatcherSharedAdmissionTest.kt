@@ -8,6 +8,12 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
+import work.art1st.javarailways.basic.api.infrastructure.*
+import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
+import work.art1st.javarailways.simpleato.persistence.SavedTimetableClockV1
+import work.art1st.javarailways.simpleato.persistence.SavedActiveRunCheckpointV1
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
@@ -126,6 +132,157 @@ class TimetableDispatcherSharedAdmissionTest {
 
         assertEquals(1, fixture.service.intents.size)
         assertEquals(1, fixture.dependencies.mutations.size)
+    }
+
+    @Test
+    fun `draining preserves plan edits through pending and terminal tail-held admission until end succeeds`() {
+        // Admission outcomes are scripted; edit protection below uses the real Basic registry.
+        // endResult=true represents Basic confirming tail release, not a physical-release simulation.
+        val block = StableInfrastructureResource("simplesignals:fixed-block", "test:planned-block")
+        for (pendingInitially in listOf(false, true)) {
+            val fixture = fixture(inspectionSources = listOf(staticBlockSource(block)), realEditGuards = true)
+            val registry = checkNotNull(fixture.editRegistry)
+            val pending = RouteAdmissionTestFixtures.handle()
+            var finishPreparation = !pendingInitially
+            fixture.service.onRequest = { intent ->
+                if (finishPreparation) fixture.service.grant(intent) else RouteAdmissionResult.Pending(pending, null)
+            }
+            fixture.service.onProgress = { handle ->
+                assertSame(pending, handle)
+                if (finishPreparation) fixture.service.grant(fixture.service.intents.single())
+                else RouteAdmissionResult.Pending(pending, null)
+            }
+            assertTrue(fixture.dispatcher.beginTimetable(fixture.world, "tt") is TimetableEpochStartResult.Started)
+            val applied = registry.dependencySnapshots().single()
+            assertEquals(setOf(fixture.rail.id), applied.dependencies.railIds)
+            assertEquals(setOf(block), applied.dependencies.resourceIds)
+            fixture.start()
+            fixture.dispatch()
+            for (ignored in 0 until 20) {
+                if (fixture.service.intents.isNotEmpty()) break
+                fixture.tickAto()
+                fixture.dispatch()
+            }
+            assertEquals(1, fixture.service.intents.size, fixture.status().toString())
+            assertEquals(!pendingInitially, fixture.status().routeGrantActive)
+            assertTrue(fixture.dispatcher.stopFutureCycles("tt"))
+            assertTrue(fixture.dispatcher.saveCheckpoint().clocks.isEmpty())
+            assertFalse(fixture.dispatcher.scheduleInitialCycle("tt"))
+            assertTrue(registry.dependencySnapshots().any { it == applied })
+            assertEquals(TopologyEditStatus.CONFLICT, fixture.editDecision(TopologyEditImpact(emptyList(), emptyList(), listOf(block))))
+            assertEquals(TopologyEditStatus.CONFLICT, fixture.editDecision(TopologyEditImpact(listOf(fixture.rail.id), emptyList(), emptyList())))
+            assertTrue(fixture.dispatcher.stopService(fixture.world, TimetableServiceRunId("tt", "service")))
+            for (ignored in 0 until 200) {
+                if (fixture.status().state == TimetableServiceRunState.STOPPED) break
+                fixture.tickAto()
+                fixture.dispatch()
+            }
+            assertEquals(TimetableServiceRunState.STOPPED, fixture.status().state,
+                "pending=$pendingInitially speed=${fixture.train.speed} " +
+                    "stall=${fixture.world.simpleAtoWorldData.atoCoordinator.lastStall?.message}")
+            fixture.dispatch()
+            assertTrue(registry.dependencySnapshots().any { it == applied })
+            if (pendingInitially) {
+                assertFalse(fixture.status().routeGrantActive)
+                assertTrue(fixture.dispatcher.beginTimetable(fixture.world, "tt") is TimetableEpochStartResult.Failure)
+                assertThrows(IllegalStateException::class.java) { fixture.dispatcher.forceDiscardTimetable(fixture.world, "tt") }
+                assertTrue(registry.dependencySnapshots().any { it == applied })
+            }
+            finishPreparation = true
+            fixture.dispatch()
+            assertTrue(fixture.status().routeGrantActive)
+            assertTrue(registry.dependencySnapshots().any { it == applied })
+            val rejected = fixture.dispatcher.beginTimetable(fixture.world, "tt")
+            assertTrue(rejected is TimetableEpochStartResult.Failure, rejected.toString())
+            assertThrows(IllegalStateException::class.java) { fixture.dispatcher.forceDiscardTimetable(fixture.world, "tt") }
+            assertTrue(registry.dependencySnapshots().any { it == applied })
+            assertTrue(fixture.dispatcher.saveCheckpoint().clocks.isEmpty())
+            assertEquals(1, fixture.service.intents.size)
+
+            fixture.service.endResult = true
+            fixture.dispatch()
+
+            assertFalse(fixture.status().routeGrantActive)
+            assertTrue(registry.dependencySnapshots().isEmpty())
+            assertEquals(TopologyEditStatus.GRANTED, fixture.editDecision(TopologyEditImpact(emptyList(), emptyList(), listOf(block))))
+            assertEquals(TopologyEditStatus.GRANTED, fixture.editDecision(TopologyEditImpact(listOf(fixture.rail.id), emptyList(), emptyList())))
+            repeat(24_001) { fixture.dispatch() }
+            assertEquals(1, fixture.dispatcher.statuses().size, "drained timetable must not depart in a later automatic cycle")
+            assertEquals(0L, fixture.status().cycleIndex)
+            assertEquals(1, fixture.service.intents.size)
+            assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        }
+    }
+
+    @Test
+    fun `drain dependency removal denial retains protection and stalls without retrying operational work`() {
+        val block = StableInfrastructureResource("simplesignals:fixed-block", "test:planned-block")
+        val fixture = fixture(inspectionSources = listOf(staticBlockSource(block)), realEditGuards = true)
+        val registry = checkNotNull(fixture.editRegistry)
+        assertTrue(fixture.dispatcher.beginTimetable(fixture.world, "tt") is TimetableEpochStartResult.Started)
+        val applied = registry.dependencySnapshots().single()
+        fixture.dependencies.removeFailure = InfrastructureDependencyMutationResult(
+            InfrastructureDependencyMutationStatus.SERVICE_CLOSED, "test dependency service closed")
+
+        assertTrue(fixture.dispatcher.stopFutureCycles("tt"))
+
+        assertEquals(listOf(applied), registry.dependencySnapshots())
+        assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+        assertEquals("InfrastructureDependencyFailure", fixture.world.simpleAtoWorldData.atoCoordinator.lastStall?.errorType)
+        assertEquals(TopologyEditStatus.CONFLICT, fixture.editDecision(TopologyEditImpact(emptyList(), emptyList(), listOf(block))))
+        assertThrows(IllegalStateException::class.java) {
+            fixture.dispatcher.restoreCheckpoint(fixture.world,
+                SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList()))
+        }
+        repeat(5) { fixture.dispatch() }
+        assertEquals(listOf(applied), registry.dependencySnapshots())
+        assertTrue(fixture.service.intents.isEmpty())
+    }
+
+    @Test
+    fun `stopped recovered clock retains exact plan until explicit recovery discard without recreating admission`() {
+        val block = StableInfrastructureResource("simplesignals:fixed-block", "test:planned-block")
+        val fixture = fixture(inspectionSources = listOf(staticBlockSource(block)), realEditGuards = true)
+        val registry = checkNotNull(fixture.editRegistry)
+        val saved = SavedDispatcherV1(1, 500L, 3L,
+            listOf(SavedTimetableClockV1("tt", 0L, 24_000L, 1L, emptySet(), emptyMap())),
+            listOf(SavedActiveRunCheckpointV1("tt", "service", 0L, fixture.train.id, 2,
+                "A", "B", "RUNNING", 500L, 0L)))
+        assertEquals(TimetableCheckpointRestoreResult.Restored, fixture.dispatcher.restoreCheckpoint(fixture.world, saved))
+        val applied = registry.dependencySnapshots().single()
+        assertEquals(setOf(fixture.rail.id), applied.dependencies.railIds)
+        assertEquals(setOf(block), applied.dependencies.resourceIds)
+        assertEquals(setOf("service"), fixture.dispatcher.saveCheckpoint().clocks.single().disabledServiceIds)
+
+        assertTrue(fixture.dispatcher.stopFutureCycles("tt"))
+        repeat(5) { fixture.dispatch() }
+
+        assertTrue(fixture.dispatcher.saveCheckpoint().clocks.isEmpty())
+        assertEquals(saved.runs, fixture.dispatcher.recoveryRequiredRuns())
+        assertEquals(listOf(applied), registry.dependencySnapshots())
+        assertEquals(TopologyEditStatus.CONFLICT, fixture.editDecision(TopologyEditImpact(emptyList(), emptyList(), listOf(block))))
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertTrue(fixture.service.intents.isEmpty())
+        assertTrue(fixture.dispatcher.statuses().isEmpty())
+        assertEquals(null, fixture.train.controller)
+
+        assertEquals(1, fixture.dispatcher.forceDiscardTimetable(fixture.world, "tt"))
+
+        assertTrue(fixture.dispatcher.recoveryRequiredRuns().isEmpty())
+        assertTrue(registry.dependencySnapshots().isEmpty())
+        assertEquals(TopologyEditStatus.GRANTED, fixture.editDecision(TopologyEditImpact(emptyList(), emptyList(), listOf(block))))
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    // A neutral resource-identity source, not the SimpleSignals matcher (covered in its own module).
+    private fun staticBlockSource(block: StableInfrastructureResource): InspectionSource {
+        var revision = 0L
+        return InspectionSource("test:static-block",
+            { input -> InspectionDeclarationBinding("test:static-block", input.trainId, FrozenRouteBinding.from(input.route),
+                1L, 0L, emptyList()) },
+            { input -> listOf(TrainRestrictionSnapshot("test:static-block", revision++, input.perception.train.trainId,
+                input.observationStamp, input.route, emptyList())) },
+            { listOf(block) })
     }
 
     @Test
@@ -868,7 +1025,8 @@ class TimetableDispatcherSharedAdmissionTest {
 
     private fun fixture(
         withOrdinaryStop: Boolean = false,
-        inspectionSources: List<InspectionSource> = emptyList()
+        inspectionSources: List<InspectionSource> = emptyList(),
+        realEditGuards: Boolean = false
     ): Fixture {
         val world = createTestWorld().also(worlds::add)
         val coordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
@@ -901,6 +1059,26 @@ class TimetableDispatcherSharedAdmissionTest {
         ))
         val service = FakeAdmissionService()
         val dependencies = RecordingInfrastructureDependencyService()
+        val registry = if (realEditGuards) InfrastructureCoordinationRegistry(world::topologyRevision,
+            { resource -> when (resource) {
+                is RailIntervalResource -> world.getRail(resource.railId) != null
+                is StableInfrastructureResource -> resource.typeId == "simplesignals:fixed-block" &&
+                    resource.resourceId == "test:planned-block"
+            } }, { world.getRail(it) != null }, { world.topologyState.structuralNodeWithPorts(it.ports) != null }) else null
+        val requester = Any()
+        val dependencyService = if (registry == null) dependencies else object : InfrastructureDependencyService {
+            override fun set(request: InfrastructureDependencyRequest): InfrastructureDependencyMutationResult {
+                val result = registry.setInfrastructureDependencies(requester, request)
+                if (result.successful) dependencies.set(request)
+                return result
+            }
+            override fun remove(owner: InfrastructureOwner): InfrastructureDependencyMutationResult {
+                dependencies.removeFailure?.let { return it }
+                val result = registry.removeInfrastructureDependencies(requester, owner)
+                if (result.successful) dependencies.remove(owner)
+                return result
+            }
+        }
         val signalRestrictions = TrainRestrictionSnapshotStore(WORLD_ID)
         lateinit var fixture: Fixture
         val dispatcher = sharedDispatcher(
@@ -909,11 +1087,11 @@ class TimetableDispatcherSharedAdmissionTest {
                 TimetableRouteAdmissionContext(fixture.observation(), service)
             },
             signalRestrictions,
-            dependencies
+            dependencyService
         ) { inspectionRuntime ->
             inspectionRuntime.replaceSources(inspectionSources)
         }
-        fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions, dependencies)
+        fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions, dependencies, registry)
         return fixture
     }
 
@@ -960,7 +1138,8 @@ class TimetableDispatcherSharedAdmissionTest {
         val dispatcher: TimetableDispatcher,
         val service: FakeAdmissionService,
         val signalRestrictions: TrainRestrictionSnapshotStore,
-        val dependencies: RecordingInfrastructureDependencyService
+        val dependencies: RecordingInfrastructureDependencyService,
+        val editRegistry: InfrastructureCoordinationRegistry? = null
     ) {
         var epoch = 0L
         var providerCalls = 0
@@ -988,6 +1167,15 @@ class TimetableDispatcherSharedAdmissionTest {
 
         fun status(): TimetableServiceRunSnapshot =
             checkNotNull(dispatcher.status(TimetableServiceRunId("tt", "service")))
+
+        fun editDecision(impact: TopologyEditImpact): TopologyEditStatus {
+            val registry = checkNotNull(editRegistry)
+            val editor = Any()
+            val permit = registry.acquireEditPermit(editor,
+                TopologyEditRequest(world.topologyState.revision, InfrastructureOwner("test:editor", 1L), impact))
+            try { return permit.decision.status }
+            finally { registry.releaseEditPermit(editor, permit.id) }
+        }
 
         fun observation(): RailwayObservation {
             val nextEpoch = ++epoch

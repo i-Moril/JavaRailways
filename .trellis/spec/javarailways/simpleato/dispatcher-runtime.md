@@ -40,6 +40,27 @@ drain时删除。checkpoint restore先从当前timetable定义重新validation�
 必须在Basic world registry attach后调用SimpleATO restore；隔离仿真使用同一registry语义。直接的ad-hoc/manual
 `startService`不等同于“应用完整时刻表”，不在这条静态dependency生命周期内。
 
+### 停止自动发车与解除编辑保护
+
+`stopFutureCycles(timetableId)`删除自动发车clock，不删除已启动车次，也不释放列车资源。
+`releaseDrainedAppliedPlans`复用已有状态判断，不引入独立的draining状态机：
+
+```text
+没有该时刻表的clock
+且没有该时刻表的recoveryRequiredRuns
+且其所有run均canBeReplaced
+  -> 调用dependency service.remove(准确的owner/revision)
+  -> 仅成功后删除Dispatcher记录
+```
+
+因此，`COMPLETED`但仍持有Basic授权的列车继续阻止计划替换和强制删除；
+`forceDiscardTimetable`不能用来绕过live admission。没有新自动发车，不等于禁止显式人工恢复/启动。
+若删除静态依赖返回失败，保留Dispatcher与registry中的保护，并进入已有基础设施错误停止路径，
+不能先删本地记录再假定编辑已安全。checkpoint恢复的旧车次只作为待人工处理记录，
+即使其clock已停止也继续保留静态依赖，直到显式清理该记录。
+
+这些判断只读已有clock/run/recovery状态，不重新寻路、不重新收集插件资源，也不新增资源队列。
+
 Run state token包含WAITING_MISSION/TIME/ROUTE、RUNNING、WAITING_BERTH、station door+dwell states、STORING/HALTING/REVERSING/WAITING_EXTENSION_ACTION、manual states、STOPPED/COMPLETED/FAILED。Private实现可重构，以下gates不可移除。
 
 ## Transition矩阵
@@ -112,6 +133,8 @@ fun tick(world: World) {
 - `TimetableExtensionRegistryTest.kt` + Dispatcher action tests（SimpleATO）：condition unavailable/error、start once/ticket。
 - `DispatcherSnapshotTest.kt`：dependency先恢复、active checkpoint→recovery required/disabled，以及失败时无partial clock。
 - `TimetableDispatcherSharedAdmissionTest.kt`：production automatic/manual mode、pending、跨epoch retry/extension、ordinary-stop append、stored-run transfer和stale topology。
+- 同一SharedAdmission测试覆盖停止自动发车后的pending/已授权分支：terminal但Basic尚未确认结束时，准确的rail/resource依赖仍阻止真实Basic编辑许可，替换/强制删除也不能清除它；确认结束后才解除保护，跨完整发车周期仍不自动启动。另覆盖dependency删除失败后的保护保留/停运、checkpoint待恢复记录在clock删除后继续保护并仅由显式清理解除。
+  这里的准入返回由测试控制，静态资源source只提供一个中立身份，不能将其描述成真实物理车尾释放或SimpleSignals完整匹配测试；实际插件匹配/编辑组合见SimpleSignals模块的`FixedBlockTimetableDependencyTest`与`ProtectionRegionTimetableDependencyTest`。
 
 ```bash
 ./gradlew :SimpleATO:test --tests '*TimetableDispatcherTest' \

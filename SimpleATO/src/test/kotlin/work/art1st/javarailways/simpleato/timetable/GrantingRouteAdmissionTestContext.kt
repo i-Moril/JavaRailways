@@ -165,6 +165,7 @@ internal class RecordingInfrastructureDependencyService : InfrastructureDependen
     val applied = LinkedHashMap<String, InfrastructureDependencyRequest>()
     val mutations = ArrayList<InfrastructureDependencyRequest>()
     var setFailure: InfrastructureDependencyMutationResult? = null
+    var removeFailure: InfrastructureDependencyMutationResult? = null
 
     override fun set(request: InfrastructureDependencyRequest): InfrastructureDependencyMutationResult {
         setFailure?.let { return it }
@@ -177,6 +178,7 @@ internal class RecordingInfrastructureDependencyService : InfrastructureDependen
     }
 
     override fun remove(owner: InfrastructureOwner): InfrastructureDependencyMutationResult {
+        removeFailure?.let { return it }
         val existing = applied[owner.ownerId]
             ?: return InfrastructureDependencyMutationResult(
                 InfrastructureDependencyMutationStatus.OWNER_REVISION_CONFLICT

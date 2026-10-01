@@ -236,14 +236,24 @@ during epoch processing. This completes the prerequisite for turnout-aware depen
 
 ### Rendering and customization
 
-The plugin owns its signal models, renderer handles, RailObjectWand mode, commands, permissions and optional JS/YAML format. Rendering consumes immutable state snapshots and updates only when the model variant or visible state changes. The reviewed next direction is to reuse host model machinery through a neutral public API rather than duplicate a renderer or fake a train model. The [host contract draft](../../spec/bukkit-plugin/backend/model-presentation-api.md) owns geometry lookup, generic construction, target scheduling and visual cleanup; the [signal binding draft](../../spec/simple-signals/backend/model-presentation.md) owns package/placement/variant mapping and coherent publication consumption. Both are TARGET drafts, not implemented services. Exact value types and signal package/placement format require review before implementation; SimpleATOBukkit remains uninvolved.
+SimpleSignals 自己负责信号模型包、模型操作对象、RailObjectWand 模式、命令、权限，以及可选的 JS/YAML 配置。
+显示侧读取不可变的信号结果，只在外观或摆放状态变化时更新模型。下一步拟通过通用公开接口复用主插件的模型系统，
+不另写一套渲染器，也不把信号模型伪装成列车。
 
-The first admin authoring batch exposes plugin-owned inspect/export/validate/apply commands over an isolated current-JSON
-draft. It reuses the existing patch transaction; pure validation reserves nothing and cannot guarantee future edit availability.
-Command, revision, file and scheduler semantics live in the [owner contract](../../spec/simple-signals/backend/authoring-commands.md).
-Guided Wand interaction and model rendering remain separate batches.
+[主插件接口草稿](../../spec/bukkit-plugin/backend/model-presentation-api.md)描述按 ID 查询轨道曲线、
+构造普通模型、安排目标线程更新和清理实体；[信号模型绑定草稿](../../spec/simple-signals/backend/model-presentation.md)
+描述 SimpleSignals 如何解析模型包、计算摆放位置、映射外观，并在完整信号结果可见后提交显示变化。
+两份文档都还没有对应实现。具体数据类型、信号包配置和摆放格式需要先审查；SimpleATOBukkit 不参与这条流程。
 
-There is no host-wide `return "YG"` contract and the Java/Kotlin runtime does not contain a fixed aspect/speed table. It accepts a validated non-negative finite speed limit plus an opaque non-blank model variant selected by the installed rule. A plugin-local customization API may expose operations such as `setSpeedLimit(...)` and `setModelVariant(...)`, but the exact names, budgets and available observations are frozen in a later review. Rule failure publishes an unavailable state whose host safety limit is zero without inventing a model variant.
+第一批管理员编辑功能已经提供 inspect/export/validate/apply 命令，操作独立的当前格式 JSON 草稿，
+复用既有配置修改事务。单独验证不会预留资源，因此不能保证后来真正应用时仍允许编辑。
+命令、版本、文件和线程行为见[编辑命令契约](../../spec/simple-signals/backend/authoring-commands.md)。
+交互式 Wand 和模型显示仍分批实现。
+
+主插件不规定 `return "YG"` 这样的规则接口，Java/Kotlin 代码也不写死灯色与速度的对应表。
+规则提供经过校验的非负有限限速值；外观名称不能为空，也不能只包含空白字符。插件自己的自定义接口可以提供
+`setSpeedLimit(...)`、`setModelVariant(...)` 等操作，但具体名称、执行预算和可读取信息仍需后续审查。
+规则失败时发布不可用状态，对应的安全限速为零，不自动编造一个外观名称。
 
 ## Timetable apply and editing
 

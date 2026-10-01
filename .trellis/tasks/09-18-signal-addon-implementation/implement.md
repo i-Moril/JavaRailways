@@ -104,12 +104,12 @@ Current extraction progress:
 - [ ] Finish the remaining editor integration through the common edit permit; guided authoring remains separate below.
   - [x] Existing SimpleSignals six-kind definition patches use the common permit, and the admin apply command already displays the original blocker kind, owner/revision and rail/node/resource overlap with bounded output. `SimpleSignalsWorldRuntimeManagerTest` covers exact diagnostic content and truncation; do not add another formatter or mark that command UI as unimplemented. Contract: [authoring commands](../../spec/simple-signals/backend/authoring-commands.md).
 - [ ] Add guided RailObjectWand interaction for create/edit/delete/inspect/validate; the admin JSON command workflow is complete above. Topology-format migration and its recovery points remain owned by the separate 09-24 migration task, not runtime command compatibility.
-- [ ] Add plugin-owned aspect/model rendering in `SimpleSignals`, with target-aware latest-only scheduling, change-only
-  updates, stale-revision rejection and idempotent world/plugin cleanup. Use a host platform API only if a concrete
-  cross-plugin requirement is reviewed first; do not route rendering through `SimpleATOBukkit`.
-  - [x] Write source-grounded TARGET drafts for neutral model construction/presentation, by-ID immutable rail geometry and signal-owned binding/publication flow. Drafts include pseudocode, complexity and required tests; signatures/value types remain proposals pending review, not runtime completion.
-  - [ ] After contract review, extract the ordinary model construction path and expose geometry/presentation services, retaining existing train/bogie paths and testing a public Java consumer.
-  - [ ] Freeze signal package/placement/unavailable-display configuration, implement bindings and change-only publication consumption, then verify real model rendering and world/plugin cleanup.
+- [ ] 在 `SimpleSignals` 接入信号模型显示：把实体操作安排到目标线程，只更新实际变化并保留最新待显示状态，
+  丢弃旧显示序号，世界卸载或插件停用时可重复安全清理。复用主插件平台 API 前先审查具体跨插件需求，
+  不通过 `SimpleATOBukkit` 转发显示。
+  - [x] 根据当前代码编写模型与轨道定位接口草稿，以及信号状态到模型的处理流程；包含伪代码、复杂度和必需测试。接口与数据类型仍待审查，不能据此认定渲染功能已完成。
+  - [ ] 契约审查后，提取普通模型构造入口，提供曲线查询和模型显示服务；保留现有车体/转向架流程，用独立 Java 调用示例验证公开接口。
+  - [ ] 确定信号模型包、摆放信息和状态不可用时的显示配置，接入只处理显示变化的更新流程，再验证实际画面、世界卸载和插件停用时的清理。
 
 ## Cross-cutting online edit latency
 

@@ -1,98 +1,134 @@
-# 信号模型绑定与更新
+# SimpleSignals 如何把信号状态显示成模型
 
-## 1. 状态、范围、触发条件与 owner
+## 1. 这份设计负责什么
 
-`TARGET / DESIGN DRAFT`，没有 renderer 实现。SimpleSignals 拥有模型包、物理摆放、variant 映射与
-handle 生命周期；宿主中立能力按[通用模型 API 草图](../../bukkit-plugin/backend/model-presentation-api.md)
-审查后实现。本文不把 SimpleATOBukkit 变成信号呈现桥，也不改变资源/规则 owner。
+本文是尚未实现的设计草稿（`TARGET / DESIGN DRAFT`），当前没有信号模型渲染功能。
+它描述 SimpleSignals 如何连接自己的信号状态与模型，而不是重新定义进路、限速或资源管理。
 
-## 2. 模块工作方式
+SimpleSignals 负责模型包、摆放位置、外观映射，以及何时创建或关闭模型。
+主插件提供通用的构造和显示能力，见[通用模型 API 草图](../../bukkit-plugin/backend/model-presentation-api.md)。
+这些能力仍需审查和实现，SimpleATOBukkit 不负责转发信号画面。
 
-加载/建造时配置 `device -> model package + rail position + local placement + variant mapping`，
-验证后解析轨道几何并创建 handle。现有信号 runtime 发布完整安全状态后，把确实改变的可见值
-交给 handle；宿主异步收敛画面。灯色/速度仍由规则产生，宿主只看位置与动画场景。
+## 2. 从配置到显示的完整流程
 
-逻辑信号入口和模型实际位置不同：预告机可放远处，平台信号可有局部偏移。现有 fixed-block /
-protection signal 没有物理摆放字段；route indicator 已有 rail position，但也缺模型绑定，不能
-假装这些字段已实现。
+1. 玩家为一个信号设备选择模型包、轨道位置、朝向和局部偏移，并配置不同外观对应的模型场景。
+2. 加载或编辑配置时，SimpleSignals 检查引用，计算世界坐标和旋转，再取得操作模型的 `ModelHandle`。
+3. 信号系统完成一次状态计算后，SimpleSignals 读取完整结果，找出外观确实变化的设备。
+4. 对这些设备提交新的模型状态。主插件在正确的 Minecraft 线程上应用显示变化，不阻塞信号计算。
+5. 设备删除、世界卸载或插件停用时，关闭相应模型。
 
-## 3. 内部机制与关键算法
+信号控制的入口位置，不一定是模型实际摆放的位置。例如，进路预告机可以放在远处，
+站台信号机可以放在轨道侧面。不能只根据逻辑入口就假定已经有了模型摆放配置。
+目前固定闭塞信号和保护区域信号还没有物理摆放字段；进路显示器虽有轨道位置，也还没有模型绑定配置。
 
-- 摆放使用 rail UUID、canonical AB metres 和 facing；模型包拥有局部偏移/姿态策略。
-  低频取得 immutable curve 并采样，缓存世界 transform。相关轨道/摆放编辑使它失效并重新解析。
-- opaque `modelVariant` 映射为完整 `animationName -> sceneName` 选择，例如模型包中的
-  `lamp -> green`；宿主不理解 G/YG/Y/R，也不能从 scene 反推出速度。
-- 在 `SectionOccupancyRuntime` 的 coherent latest publication 后发出纯值通知；不在提交前把
-  部分 selection/signals/indicators 交给 renderer，也不在 safety callback 访问 Bukkit。
-- signal 使用已有 changed IDs；indicator 使用已有 entry reverse index 找候选。再比较实际
-  variant/transform：只改速度或选择元数据而画面相同则不提交，不扫描全部 devices。
-- definition 增删改、初始加载、reload/unload 同样驱动呈现 owner；不是只等列车进入/离开事件。
-  旧 runtime 的通知只允许写自己的 handles，binding 替换先关闭旧 handle，不得污染新对象。
+## 3. 哪些机制避免重复计算和错误显示
 
-## 4. 接口、数据与单位
+### 摆放位置只在需要时计算
 
-以下为内部流程伪代码，不是公开签名或新增持久化 DTO：
+位置采用轨道 UUID、沿 A 到 B 从 A 端量起的距离（米），以及模型朝向。
+SimpleSignals 根据配置决定侧向/高度偏移和是否跟随轨道倾斜，读取不可变曲线后计算世界位置与旋转。
+结果可以缓存；只有相关轨道或摆放配置被编辑时才重新计算，不每 tick 重定位全部信号机。
+
+### 外观名由信号插件解释
+
+规则输出的 `modelVariant` 是外观名称。SimpleSignals 将它映射为完整的“动画名 → 场景名”选择，
+例如 `lamp -> green`。主插件不理解 G/YG/Y/R 的铁路含义，也不根据模型场景反推限速。
+
+### 使用完整状态，而不是一半新、一半旧的结果
+
+`SectionOccupancyRuntime` 先把区间占用、信号输出、进路选择和显示器状态一起替换为新的完整结果，
+然后才发出显示通知。这就是这里所说的“发布”：新结果成为读者当前可见的结果，不是网络发送。
+显示侧不能提前读取部分新结果，也不能在信号计算回调中操作 Bukkit 实体。
+
+### 只检查受影响的设备
+
+普通信号使用已有的变化 ID 列表。进路显示器使用已有的“入口 → 相关显示器”索引查找候选。
+再比较这些设备的实际外观、位置和旋转；只改限速或进路附带信息而画面不变时，不提交显示更新。
+因此不需要每次遍历全部设备。
+
+配置增删改、初始加载和世界重载也要触发显示处理，不能只等待列车进入或离开区间。
+配置替换时先关闭旧模型。即使旧状态计算的回调稍后才完成，它也只能访问已经关闭的旧操作对象，
+不能覆盖新模型。
+
+## 4. 内部处理步骤和数据约定
+
+下面是流程说明，不是已经存在的函数，也不是新增的存档结构：
 
 ```text
-prepare(binding, modelPackage):
-    validate rail position / model references / complete variant mappings
-    curve = host.railTargets.findCurve(worldId, railId)
-    point = curve.getPointAt(canonicalAbMetres)
-    transform = applyConfiguredPlacement(point, facing, localPlacement)
-    return resolved binding + immutable model definition + transform
+准备模型绑定：
+    检查轨道位置、模型引用和外观映射
+    按世界 UUID 和轨道 UUID 取得曲线
+    按 A 端起算的弧长取得轨道上的点
+    根据朝向和摆放配置计算世界位置与旋转
+    保存解析后的绑定、模型定义和位置结果
 
-onCoherentPublication(published, candidateDeviceIds):
-    for each bound candidate:
-        state = published.stateFor(candidate)
-        scenes = binding.resolveVariantOrConfiguredUnavailable(state)
-        if scenes and transform equal last submitted visible value: continue
-        handle.submit(next visual revision, transform, scenes)
+信号系统发布完整结果后：
+    遍历本次可能受影响且已配置模型的设备
+    读取设备的新状态，选择对应模型场景
+    若场景、位置和旋转与上次提交相同，跳过
+    否则增加该模型的显示序号，提交位置、旋转和场景
 
-onRemoveOrUnload(binding):
-    binding.handle.close()
+设备删除或世界卸载：
+    关闭该设备的模型操作对象
 ```
 
-正常状态使用规则的 variant；`Unavailable` 没有虚构 variant，模型绑定必须显式配置不可用时的
-画面策略。具体策略/包格式下一批审查；不能硬编码 R，也不能默认为最后一个放行画面。
-绑定可以是可选呈现：未配置模型的后端信号仍工作；一旦配置绑定，则不允许缺资源引用后静默伪装成功。
+正常状态使用规则给出的外观名称。规则的 `Unavailable` 表示无法提供有效信号状态，
+它没有一个自动附带的模型外观。因此模型绑定需要显式配置这时如何显示；具体策略和包格式留待下一批审查。
+不能在代码中一律写死 R，也不能默认为继续保留最后一个放行画面。
 
-## 5. 不变量、生命周期、线程与版本
+模型绑定是可选的：没有配置模型的信号仍能执行后端规则。但如果配置了模型，引用缺失时必须明确报错，
+不能静默替换成占位模型并声称配置成功。
 
-呈现不能提高/降低安全授权，不能阻塞信号 epoch。模型加载/解析是 worker 低频工作；后续 owner
-安装必须确认其 binding/world 仍有效。model handle 的显示 revision 不写存档、不参与资源身份。
-插件正常卸载仍经过既有 Basic owner gate；gate 成功后清理显示，强制停用按既有安全行为处理。
-资源 cleanup 与实体 cleanup 不是同一个操作。
+## 5. 线程和清理规则
 
-## 6. 校验与失败
+显示不改变行车授权，也不能阻塞信号计算周期。模型加载和解析在工作线程上完成；结果安装前
+还要确认对应的配置和世界仍有效，避免把编辑前的结果装回去。
+模型内部的显示序号只用于舍弃旧画面，不写存档，也不是资源的身份。
 
-缺 rail/越界位置/未知模型/未知正常 variant mapping：拒绝该绑定，保留可诊断原因；既有安全规则
-不因此获得放行。规则 unavailable 走显式显示策略。backend/owner 调度失败只报呈现故障并清理部分
-实体，不从 safety callback 回抛。服务器不声称验证客户端资源包是否已安装。
+插件正常停用时，先经过 Basic 既有的资源占用检查，允许停用后再清理显示。
+强制停用仍按已有安全规则处理。删除模型实体与释放列车资源是两个不同操作，不能用前者代替后者。
 
-## 7. 性能与退化
+## 6. 配置或显示失败时怎么办
 
-准备：每个绑定一次 ID 查找、`O(log N)` 弧长采样和模型解析；不按 tick 重定位全部信号。
-发布：`O(C + M)`，C 是已有变化/反向索引命中的候选数，M 是这些候选实际比较的场景映射大小；
-真正显示工作仅针对改变的模型。宿主 per-handle latest-only 允许合并旧画面，不合并安全事件。
-慢渲染只让画面滞后；加载和大量建造的实际成本必须测试，不能仅靠队列有界声称无卡顿。
+找不到轨道、位置超出轨道长度、模型不存在、正常外观缺少映射，都应拒绝这次模型绑定并记录具体原因。
+这些错误不能改变既有行车授权，更不能让列车因此获得放行。
 
-## 8. Good / Base / Bad
+规则状态不可用时，使用显式配置的显示策略。实体创建或线程调度失败时，报告显示故障并清理已创建部分，
+不能把显示错误抛回信号计算回调。服务器也不能声称已经确认客户端资源包安装正确。
 
-- Good：当前进路变化得到不同 variant，映射到真实 multipart 资源模型；预告机共享逻辑源但独立摆放。
-- Base：限速改变但 variant 未变，控制立即读新限制，实体不更新。
-- Bad：definition 已替换而旧 callback 才完成；旧 binding 关闭，旧通知不能覆盖新模型。
+## 7. 性能开销在哪里
 
-## 9. 必需测试
+准备每个模型时，进行一次轨道 ID 查询、一次 `O(log N)` 弧长采样和模型解析；
+N 是轨道曲线的采样点数。这不是每 tick 执行的流程。
 
-覆盖初始状态、variant 改变、速度-only no-op、indicator 元数据-only no-op、不可用显示策略、绑定
-增删改、旧 callback、unload/reload 和卸载清理；断言安全输出不受呈现失败影响。模型映射/AB-BA
-摆放用纯值测试，公开 host service 用独立 Java consumer 验证，真实渲染做 Folia smoke。
+处理一次信号结果时，成本为 `O(C + M)`：C 是变化列表或入口索引找到的候选设备数，
+M 是比较这些设备场景映射所需的总条目数。只有实际改变外观、位置或旋转的模型才产生实体更新。
+主插件可以合并尚未显示的旧画面，但不能合并或丢弃信号系统必须处理的安全事件。
 
-## 10. 未决事项与 Wrong / Correct
+显示慢只让画面暂时落后，不让物理等待。大量加载或建造时的实际成本仍要测试，
+不能因为更新队列有上限就声称所有操作都不会卡顿。
 
-本批不修改世界 sidecar/schema。新增可选绑定时先审查默认值与实际独立持久化边界，不为未完成
-实现连升版本，也不为开发中草图增加兼容 reader。包配置、不可用策略、倾斜/偏移与交互建造字段
-下一批确定；普通物品单灯占位不能当作完整模型系统。
+## 8. 具体使用情形
 
-- Wrong：每 tick 遍历全世界信号，硬编码 modelVariant 与颜色，或让 SimpleATOBukkit 转发显示。
-- Correct：SimpleSignals 解释自己的映射，只提交变更纯值；宿主只负责中立模型构造和目标线程应用。
+- **进路变化：** 规则给出新的外观名称，SimpleSignals 选择模型包中的对应场景，更新真实的多部件模型。
+  进路预告机可以读取同一个逻辑源，但独立配置摆放位置。
+- **只有限速变化：** 列车控制读取新限制；如果模型外观没变，不更新实体。
+- **设备配置被替换：** 先关闭旧模型。旧回调后来完成，也不能覆盖新配置的画面。
+
+## 9. 实现时必须验证什么
+
+- 初始显示、外观变化、不可用状态，以及增删改模型绑定，都得到配置要求的结果。
+- 只改速度或显示器附带信息，而外观不变时，不产生实体更新。
+- 旧回调、世界卸载/重载和插件停用不会留下或重新创建旧模型。
+- 显示失败不影响信号安全输出；AB/BA 摆放与外观映射通过不依赖实体的计算测试。
+- 用独立 Java 调用示例验证公开接口，另在实际 Folia 服务器中检查模型和资源包的显示效果。
+
+## 10. 本批不改变什么，下一批还要确定什么
+
+本批不改世界存档格式。以后增加可选模型绑定时，先检查字段默认值和它所属的独立存档格式，
+不因为分批实现就连续升级版本，也不为开发中的接口草稿增加旧格式兼容代码。
+模型包配置、状态不可用时的显示策略、倾斜/偏移规则和交互建造字段，在下一批确定。
+
+实现中不要每 tick 扫描全世界信号，不要在通用模型代码里写死灯色，也不要通过 SimpleATOBukkit 转发显示。
+由 SimpleSignals 解释外观映射、提交变化后的模型数据，主插件只负责普通模型的构造与线程调度。
+用一个普通物品充当单灯占位，不能算完成了这里要求的模型系统。

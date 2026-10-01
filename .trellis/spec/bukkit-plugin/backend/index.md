@@ -18,7 +18,7 @@
 | --- | --- |
 | [Lifecycle 与线程归属](./lifecycle-and-threading.md) | composition root、world tick、Folia scheduler、shutdown |
 | [交互、渲染与持久化](./interaction-render-persistence.md) | Cloud/Wand/Dialog、backend/model、add-on API、snapshot/sidecar |
-| [通用模型呈现与轨道查询草图](./model-presentation-api.md) | TARGET：普通部件构造、immutable geometry lookup、latest-only handle；尚未实现 |
+| [通用模型显示与轨道定位 API](./model-presentation-api.md) | 尚未实现的草稿：复用普通部件构造、按 ID 查询曲线、只保留最新待显示状态 |
 
 ## 核心规则
 

@@ -14,8 +14,8 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 已提供独立管理员 inspect/export/validate/apply 命令及 current-JSON 草稿工作流；
 尚未提供交互式 Wand、模型渲染或JS/YAML加载接口，不得把 foundation 描述为完整建造/呈现系统。
 
-下一批呈现的 `TARGET / DESIGN DRAFT` 见[信号模型绑定与更新](model-presentation.md)：复用待审查的
-宿主通用模型能力，模型包/位置/variant 映射归本插件；该草图不是当前可调用的 API。
+下一批模型显示方案见[信号状态如何显示成模型](model-presentation.md)。方案拟复用主插件的通用模型能力，
+SimpleSignals 自己负责模型包、摆放位置和外观映射。它仍是待审查的设计草稿，不是当前可调用的 API。
 
 ## 工作方式
 

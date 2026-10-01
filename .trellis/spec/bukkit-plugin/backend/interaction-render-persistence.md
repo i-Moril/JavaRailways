@@ -122,9 +122,9 @@ worker的record比较、JSON编码、旧文件复制均为`O(render record count
 Folia dispatch和具体aspect/model应用都由具体信号插件负责。现有`BukkitPlugin`内部latest-only helper只服务主插件自身
 的车辆画面与platform commit，不是`SimpleATOBukkit`或附属插件API；出现真实跨插件需求后再评审通用platform service。
 
-SimpleSignals 模型呈现已提出具体跨插件需求；[通用模型 API 草图](model-presentation-api.md)记录下一批
-TARGET review。当前七个 service 尚无该能力，不得把草图描述成已注册 service；不改变信号插件对
-模型包/variant/摆放的所有权，也不公开宿主内部 helper。
+SimpleSignals 已提出复用主插件模型系统的需求；[通用模型 API 草图](model-presentation-api.md)记录
+待审查的接口方案。当前七个公开服务尚无这个能力，不能把草稿描述成已注册的服务。
+信号插件仍负责模型包、外观映射和摆放配置，不直接调用主插件的内部工具类。
 
 `InfrastructureResourceService.currentTopology(worldId)`只暴露该world runtime当前发布的exact immutable
 `TopologyState` root，不暴露mutable `World`。插件必须把派生index与该root对象身份绑定；结构编辑发布新root后由插件在

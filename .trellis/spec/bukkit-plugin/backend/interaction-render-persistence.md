@@ -122,6 +122,10 @@ worker的record比较、JSON编码、旧文件复制均为`O(render record count
 Folia dispatch和具体aspect/model应用都由具体信号插件负责。现有`BukkitPlugin`内部latest-only helper只服务主插件自身
 的车辆画面与platform commit，不是`SimpleATOBukkit`或附属插件API；出现真实跨插件需求后再评审通用platform service。
 
+SimpleSignals 模型呈现已提出具体跨插件需求；[通用模型 API 草图](model-presentation-api.md)记录下一批
+TARGET review。当前七个 service 尚无该能力，不得把草图描述成已注册 service；不改变信号插件对
+模型包/variant/摆放的所有权，也不公开宿主内部 helper。
+
 `InfrastructureResourceService.currentTopology(worldId)`只暴露该world runtime当前发布的exact immutable
 `TopologyState` root，不暴露mutable `World`。插件必须把派生index与该root对象身份绑定；结构编辑发布新root后由插件在
 低频publication入口显式重编译，不能在route callback里临时重建。未注册、损坏而未加载或已经unload的railway world直接

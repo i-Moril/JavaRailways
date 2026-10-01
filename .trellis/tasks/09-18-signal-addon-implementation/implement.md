@@ -107,6 +107,9 @@ Current extraction progress:
 - [ ] Add plugin-owned aspect/model rendering in `SimpleSignals`, with target-aware latest-only scheduling, change-only
   updates, stale-revision rejection and idempotent world/plugin cleanup. Use a host platform API only if a concrete
   cross-plugin requirement is reviewed first; do not route rendering through `SimpleATOBukkit`.
+  - [x] Write source-grounded TARGET drafts for neutral model construction/presentation, by-ID immutable rail geometry and signal-owned binding/publication flow. Drafts include pseudocode, complexity and required tests; signatures/value types remain proposals pending review, not runtime completion.
+  - [ ] After contract review, extract the ordinary model construction path and expose geometry/presentation services, retaining existing train/bogie paths and testing a public Java consumer.
+  - [ ] Freeze signal package/placement/unavailable-display configuration, implement bindings and change-only publication consumption, then verify real model rendering and world/plugin cleanup.
 
 ## Cross-cutting online edit latency
 

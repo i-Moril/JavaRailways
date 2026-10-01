@@ -6,3 +6,5 @@
 {"file": ".trellis/spec/javarailways/basic/route-resource-admission.md", "reason": "Host physical floor, contributed resources, claim lifecycle, and owner unload gate"}
 {"file": ".trellis/spec/javarailways/basic/railway-area-occupancy.md", "reason": "Generic Basic occupancy events available to concrete signal systems"}
 {"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "Addon lifecycle, owner unregister, forced disable, Folia, and simulation ownership"}
+{"file": ".trellis/spec/bukkit-plugin/backend/model-presentation-api.md", "reason": "TARGET draft only: neutral construction/geometry/presentation; review proposed signatures before implementation"}
+{"file": ".trellis/spec/simple-signals/backend/model-presentation.md", "reason": "TARGET signal-owned package/placement/mapping and change-only publication flow; no renderer exists yet"}

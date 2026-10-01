@@ -236,7 +236,7 @@ during epoch processing. This completes the prerequisite for turnout-aware depen
 
 ### Rendering and customization
 
-The plugin owns its signal models, renderer handles, RailObjectWand mode, commands, permissions and optional JS/YAML format. Rendering consumes immutable state snapshots and updates only when the model variant or visible state changes. Bukkit/Folia target ownership, latest-only dispatch and cleanup are handled in the plugin's own adapter code, unless a separately reviewed generic host API is introduced later.
+The plugin owns its signal models, renderer handles, RailObjectWand mode, commands, permissions and optional JS/YAML format. Rendering consumes immutable state snapshots and updates only when the model variant or visible state changes. The reviewed next direction is to reuse host model machinery through a neutral public API rather than duplicate a renderer or fake a train model. The [host contract draft](../../spec/bukkit-plugin/backend/model-presentation-api.md) owns geometry lookup, generic construction, target scheduling and visual cleanup; the [signal binding draft](../../spec/simple-signals/backend/model-presentation.md) owns package/placement/variant mapping and coherent publication consumption. Both are TARGET drafts, not implemented services. Exact value types and signal package/placement format require review before implementation; SimpleATOBukkit remains uninvolved.
 
 The first admin authoring batch exposes plugin-owned inspect/export/validate/apply commands over an isolated current-JSON
 draft. It reuses the existing patch transaction; pure validation reserves nothing and cannot guarantee future edit availability.

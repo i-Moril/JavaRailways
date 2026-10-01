@@ -4,3 +4,5 @@
 {"file": ".trellis/spec/javarailways/basic/route-resource-admission.md", "reason": "Check that concrete policy only adds validated resources and cannot weaken the Basic physical floor"}
 {"file": ".trellis/spec/javarailways/basic/railway-area-occupancy.md", "reason": "Check fixed-block occupancy integration without imposing signal policy on Basic"}
 {"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "Check separate packaging, latest-only presentation, authoring, and sidecar persistence"}
+{"file": ".trellis/spec/bukkit-plugin/backend/model-presentation-api.md", "reason": "Verify TARGET/current separation, neutral API boundaries, reuse and non-blocking visual lifecycle"}
+{"file": ".trellis/spec/simple-signals/backend/model-presentation.md", "reason": "Verify signal-owned mapping/placement, coherent change-only consumption and remaining review gates"}

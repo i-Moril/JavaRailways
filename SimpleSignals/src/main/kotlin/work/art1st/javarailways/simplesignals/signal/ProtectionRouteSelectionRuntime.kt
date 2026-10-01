@@ -54,7 +54,6 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
     private val index = publication.routeSelection
     private val entries = index.routesById.values.mapTo(sortedSetOf()) { it.definition.entryBoundaryId }
     private val routesByEntry = index.routesById.values.groupBy { it.definition.entryBoundaryId }
-    private val regionsById = publication.definitions.regions.associateBy { it.regionId }
     private val entriesByRail = index.routesById.values.flatMap { route ->
         route.definition.traversals.map { it.railId to route.definition.entryBoundaryId }
     }.groupBy({ it.first }, { it.second }).mapValues { java.util.Set.copyOf(it.value) }
@@ -105,19 +104,17 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
 
     fun snapshot(): ProtectionRouteSelectionSnapshot? = latest
 
-    /** Called only inside the existing atomic source-replacement barrier, never by edit workers. */
+    /** Called by the first new signal callback after the world's last old callback has finished. */
     fun retainClearanceFrom(previous: ProtectionRouteSelectionRuntime) {
         check(requests.isEmpty())
         if (index.topology !== previous.index.topology) return
         fun retain(owner: InfrastructureOwner, clearance: Clearance) {
             if (clearance.binding.invalidEntries.isNotEmpty() || clearance.binding.matches.any {
-                index.routesById[it.route.definition.routeId] != it.route ||
-                    regionsById[it.route.regionId] != previous.regionsById[it.route.regionId]
+                publication.clearanceRoutesById[it.route.definition.routeId] !==
+                    previous.publication.clearanceRoutesById[it.route.definition.routeId]
             }) return
             retainedClearances[owner] = clearance
         }
-        // Consecutive edits can precede the next host baseline: carry its unconsumed facts too.
-        previous.retainedClearances.forEach { (owner, clearance) -> retain(owner, clearance) }
         previous.requests.forEach { (owner, old) ->
             retain(owner, Clearance(old.binding, old.clearedThroughMeters, old.clearanceKnown))
         }

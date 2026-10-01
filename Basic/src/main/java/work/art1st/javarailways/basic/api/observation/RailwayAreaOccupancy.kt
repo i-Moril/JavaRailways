@@ -171,12 +171,21 @@ class RailwayAreaOccupancyBatch(
  *
  * The caller must feed exactly one coherent [RailwayObservation] per consecutive physics epoch.
  * This engine owns no signalling, block, interlocking, resource-claim, or restriction policy.
- * Replacing definitions resets its baseline; the next [consume] reports every new definition with
- * its current occupants and no fabricated crossing.
+ * A prepared replacement reports every definition on its first [consume]. Exact unchanged
+ * geometry retains physical continuity; new geometry establishes a baseline without crossings.
  */
 interface RailwayAreaOccupancyEngine {
-    /** Atomically replaces all plugin-owned geometry and resets the next observation to baseline. */
-    fun replaceDefinitions(definitions: Collection<RailwayOccupancyAreaDefinition>)
+    /**
+     * Compiles an independent replacement off the observation path without reading mutable state.
+     * Exact area identity, topology revision, intervals and directed boundary identities preserve
+     * continuity; definition revision alone does not reset it. New/changed areas start fresh.
+     *
+     * The caller serializes all [consume] calls across this engine and its replacements on one
+     * world-local owner. Preparation may overlap an old consume; publication needs no wait. The
+     * first replacement observation must follow the retained cells' world/epoch exactly. Engines
+     * share only retained physical state, not callbacks, policy or a replacement history.
+     */
+    fun prepareReplacement(definitions: Collection<RailwayOccupancyAreaDefinition>): RailwayAreaOccupancyEngine
 
     /** Derives changed/baselined areas from exactly the next coherent observation. */
     fun consume(observation: RailwayObservation): RailwayAreaOccupancyBatch

@@ -61,7 +61,7 @@ controller自己的激活scheduler。不相关路线和未激活声明不执行
 
 ## 表示、复杂度与线程
 
-runtime以空source state启动。`replaceSources`先完整复制、排序、验证source/area唯一性并建立新的`areaId → sourceId` map和Basic rail-local occupancy index；全部成功后才用一次volatile写替换state，失败保留旧state。低频配置事务使用同一编译路径的`replaceSourcesAtomically`：完整candidate先编译，随后执行调用方commit callback，callback抛错时不替换state，成功后只做已经编译好的引用写入。每个`process`开头只捕获一次state，因此并发替换不会把两个集合混入同一epoch；新state第一次消费的frame建立自己的baseline。空state不投影完整observation、不运行occupancy engine或source callback，只从Core frame读取stamp和live train ID并提交completed boundary，供controller证明自己消费的是上一成功physics epoch。
+runtime以空source state启动。`replaceSources`先完整复制、排序、验证source/area唯一性并建立新的`areaId → sourceId` map和Basic rail-local occupancy index；全部成功后才用一次volatile写替换state，失败保留旧state。低频配置事务使用同一编译路径的`replaceSourcesAtomically`：完整candidate先编译，随后执行调用方commit callback，callback抛错时不替换state，成功后只做已经编译好的引用写入。candidate通过现有occupancy engine的`prepareReplacement`接续未变区域物理记录；不在commit callback或physics路径比较几何/构建索引。每个`process`开头只捕获一次state，因此并发替换不会把两个集合混入同一epoch；新state首次仍建立完整source baseline，但其未变区域可以同时带真实crossings。新/变更区域保持冷baseline，具体同一记录的串行与stamp规则归[Basic占用合同](../basic/railway-area-occupancy.md)。空state不投影完整observation、不运行occupancy engine或source callback，只从Core frame读取stamp和live train ID并提交completed boundary，供controller证明自己消费的是上一成功physics epoch。
 
 同一candidate还预编译`watched entry → source IDs`反向索引并复制排序后的entry集合。source替换会丢弃旧continuation baseline，下一epoch为新source snapshot提供完整watched-entry baseline；已开始epoch仍只使用自己捕获的旧state。
 
@@ -94,7 +94,7 @@ selection revision未变时continuation检查为`O(1)`；变化时比较`W`个�
 
 `process`只由Core serialized physics coordinator调用，不并发重入；signal handler必须同步返回且不得调用Bukkit、阻塞I/O或把安全工作异步延后。Dispatcher只在route建立/延长时编译声明并绑定冻结route与Mission progress的映射，不参与逐epoch限制执行。epoch N写入的snapshot、inspection invalidation和completed stamp由controller在epoch N+1规划运动前直接消费：各列车维护自己的inspection激活状态，投影callback可以并发，不能在其中重跑共享规则。具体交接、baseline和线程合同见[inspection owner契约](./operational-routing-and-authority.md#343-缓存失效与响应式更新)。因此Bukkit主线程停顿不会使旧限制继续驱动车辆。source替换可来自另一线程，但生产adapter仍须先等待当前physics epoch结束再允许插件卸载或废弃callback owner；volatile snapshot只保证epoch内一致性，不替代插件lifecycle barrier。具体插件内部可以根据B变化同步重算A；host当前不建立通用fixed-point依赖图。
 
-Bukkit通过`SignalEpochSourceService`按`(plugin owner, world UUID)`安装完整source集合。普通`replaceSources`是no-op commit callback的简化入口；需要把插件definition publication/sidecar与area geometry一起提交时使用`replaceSourcesAtomically`。host在同一个simulation lock内先检查plugin/world、removed source的retained restrictions、跨owner identity，并把所有owner的候选全集交给同一个runtime完整编译；这些步骤任一失败都不调用commit callback。callback失败则旧runtime state和owner sets均保持不变；callback成功后只用预构造对象替换runtime引用与owner-set引用，physics epoch不得在callback与安装之间穿插。callback不得重入同一个host signal service或等待需要simulation lock的任务；重入会在其他source类别或owner记录发生变化前被拒绝。source/area冲突不会部分生效。replacement删除部分source ID前，会低频检查该source保留的所有列车流是否已经显式发布更高revision且`restrictions=[]`，不能把“以后不再callback”误当成撤销旧限制。完整owner删除不接受空replacement，而是和基础资源一起通过`InfrastructureResourceService.unregisterOwner`执行：所有检查通过后才移除两侧注册；无关列车和空restriction流不构成占用。每个成功epoch复用已经构造的live train ID集合清理已离开世界的列车流；失败epoch在Stall前不执行这项清理。强制插件禁用无法继续调用其代码，因此host从下一epoch快照删除失效callback；只有该source仍保留非空restriction的world才由既有Stall owner fail-close，单纯安装但IDLE的source不会使世界停运。世界卸载和JavaRailways自身关闭属于正常销毁，不触发故障恢复协议。world reload是新的runtime binding，旧UUID不会自动复活旧source集合。
+Bukkit通过`SignalEpochSourceService`按`(plugin owner, world UUID)`安装完整source集合。普通`replaceSources`是no-op commit callback的简化入口；需要把插件definition publication/sidecar与area geometry一起提交时使用`replaceSourcesAtomically`。host只用配置service锁检查plugin/world、removed source的retained restrictions、跨owner identity，并把所有owner的候选全集交给同一个runtime完整编译，不取得跨world simulation lock，也不让`process`等待commit callback；这些步骤任一失败都不调用callback。callback失败则旧runtime state和owner sets均保持不变；callback成功后只用预构造对象替换runtime引用与owner-set引用。旧epoch即使在callback期间或安装以后结束，也始终使用自己捕获的旧state；下一epoch捕获新state。插件可变状态的交接必须在其串行signal callback内完成，不能把service锁当作physics barrier。callback不得重入同一个host signal service或等待Bukkit/physics任务；重入会在其他source类别或owner记录发生变化前被拒绝。source/area冲突不会部分生效。replacement删除部分source ID前，会低频检查该source保留的所有列车流是否已经显式发布更高revision且`restrictions=[]`，不能把“以后不再callback”误当成撤销旧限制。完整owner删除不接受空replacement，而是和基础资源一起通过`InfrastructureResourceService.unregisterOwner`执行：所有检查通过后才移除两侧注册；无关列车和空restriction流不构成占用。每个成功epoch复用已经构造的live train ID集合清理已离开世界的列车流；失败epoch在Stall前不执行这项清理。强制插件禁用无法继续调用其代码，因此host从下一epoch快照删除失效callback；只有该source仍保留非空restriction的world才由既有Stall owner fail-close，单纯安装但IDLE的source不会使世界停运。世界卸载和JavaRailways自身关闭属于正常销毁，不触发故障恢复协议。world reload是新的runtime binding，旧UUID不会自动复活旧source集合。
 
 ## Good / Base / Bad
 
@@ -121,6 +121,8 @@ Bukkit通过`SignalEpochSourceService`按`(plugin owner, world UUID)`安装完�
 - 同owner多次变化合并、请求移除/换轨唤醒旧兴趣、同路线车尾更新不重新扫描segments；
 - 无新的准入/道岔变化且Bukkit尚未消费观测时，物理frame中的列车消失仍唤醒其准入关注者；
 - topology变化唤醒无道岔source，并撤销过期进路选择。
+- prepare/commit期间旧epoch继续完成；同一未变area的首个replacement baseline包含真实LEFT和最新occupants，仍对全部source建立baseline。
+- 连续多次replacement在下次process前完成时，接续当前物理记录而非复制早期值；callback失败保持旧source；配置事务不阻塞旧epoch或其他world。
 
 尚未完成：具体插件的信号依赖传播、制式策略和呈现。Host inspection lead-time声明编译、缓存与激活调度已在Stage 1完成。
 Immutable revisioned presentation、per-object latest-only Bukkit/Folia dispatch与具体模型应用均由具体信号插件负责；

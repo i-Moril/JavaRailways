@@ -78,6 +78,18 @@ internal class SectionOccupancyRuntime private constructor(
     val protectionRouteSelection: ProtectionRouteSelectionRuntime,
     private val protectionSignals: work.art1st.javarailways.simplesignals.signal.CompiledProtectionSignals
 ) {
+    /** Accessed only by the world's serialized signal callbacks; never forms a predecessor chain. */
+    internal class EpochContinuity {
+        var lastProcessed: SectionOccupancyRuntime? = null
+    }
+
+    private var epochContinuity: EpochContinuity? = null
+
+    fun attachEpochContinuity(continuity: EpochContinuity) {
+        check(epochContinuity == null || epochContinuity === continuity)
+        epochContinuity = continuity
+    }
+
     private data class PublishedState(
         val occupancy: SectionOccupancySnapshot,
         val signals: SectionSignalSnapshot?,
@@ -116,6 +128,11 @@ internal class SectionOccupancyRuntime private constructor(
 
     private fun update(input: SignalEpochInput): SignalEpochResult {
         val previous = latest
+        if (previous == null) {
+            epochContinuity?.lastProcessed?.takeIf { it !== this }?.let { completed ->
+                protectionRouteSelection.retainClearanceFrom(completed.protectionRouteSelection)
+            }
+        }
         val oldSelection = protectionRouteSelection.snapshot()
         protectionRouteSelection.update(input)
         val selection = protectionRouteSelection.snapshot()
@@ -176,6 +193,7 @@ internal class SectionOccupancyRuntime private constructor(
             }
         }
         latest = PublishedState(occupancy, signals, selection, indicatorStates)
+        epochContinuity?.lastProcessed = this
         return SignalEpochResult(
             emptyList(),
             signals?.let(signalRules::invalidatedDeclarationIds).orEmpty()

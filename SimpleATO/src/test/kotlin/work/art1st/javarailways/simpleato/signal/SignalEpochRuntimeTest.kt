@@ -44,6 +44,33 @@ class SignalEpochRuntimeTest {
     private val secondAreaId = RailObjectRef("test", "second-area")
 
     @Test
+    fun `replacement baseline includes unchanged area crossings and full new area baseline then idles`() {
+        val received = mutableListOf<work.art1st.javarailways.simpleato.api.signal.SignalEpochInput>()
+        val definition = area(firstAreaId, 10.0, 20.0)
+        val runtime = runtime(listOf(source("test:first", definition) {
+            received += it
+            SignalEpochResult.empty()
+        }))
+        runtime.process(frame(1L, listOf(RailInterval(railId, 15.0, 16.0))))
+        val replacement = SignalEpochSource("test:first", listOf(definition, area(secondAreaId, 10.0, 20.0))) {
+            received += it
+            SignalEpochResult.empty()
+        }
+        runtime.replaceSources(listOf(replacement))
+        runtime.replaceSources(listOf(replacement))
+        runtime.process(frame(2L, listOf(RailInterval(railId, 21.0, 22.0)),
+            tailTraversal = listOf(RailTraversalSegmentSnapshot(railId, ViewDirection.AB, 16.0, 22.0))))
+        val baseline = received.last()
+        assertEquals(true, baseline.topologyBaseline)
+        assertEquals(2, baseline.areaUpdates.size)
+        assertEquals(listOf(RailwayOccupancyCrossingKind.LEFT),
+            baseline.areaUpdates.single { it.areaId == firstAreaId }.crossings.map { it.kind })
+        assertEquals(emptyList<Any>(), baseline.areaUpdates.single { it.areaId == secondAreaId }.crossings)
+        runtime.process(frame(3L, listOf(RailInterval(railId, 21.0, 22.0))))
+        assertEquals(2, received.size)
+    }
+
+    @Test
     fun `admission only source receives baseline latest owner change and old route removal`() {
         val otherRail = UUID.nameUUIDFromBytes("other-admission-rail".toByteArray())
         val received = linkedMapOf<String, MutableList<List<ActiveRouteAdmissionUpdate>>>()

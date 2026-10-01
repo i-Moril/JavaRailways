@@ -117,8 +117,12 @@ Basic对剩余资源的排他校验独立继续生效，默认进路永远不能
 一个单调清除位置，再更新相关入口关联。空occupancy baseline、车头越过出口或另一列车LEFT都不能产生这种证明。
 配对LEFT时只按这个清除位置寻找对应经过，不能先用本epoch已更新的资源释放位置过滤：释放通知与LEFT可能同tick到达，
 否则会把第一次LEFT误配给第二次经过。冷source baseline若包含多次尚不能区分的经过，保持限制状态；物理坐标相同不能证明是第几圈。
-在线定义替换不是冷启动：在既有原子安装回调内，内部交接拓扑、区域及固定进路定义未变的请求清除记录。
-候选编译worker不读取这份可变状态；有实际定义变化的binding不能盲目继承。无关定义编辑不能让正在行车的重复进路遗失历史。
+在线定义替换不是冷启动，但原子安装回调不与physics串行，不能在其中复制请求清除记录。
+每world只保留最后实际处理过signal callback的section runtime引用；候选首次callback在同一串行physics线程，先从该已完成runtime交接清除事实，再处理本帧准入/真实LEFT。因此旧epoch晚于编辑commit结束时，其最后更新也不会丢失。
+candidate worker只比较不可变拓扑、区域定义和compiled route；未变route复用其canonical compiled reference，首次交接按引用验证匹配，不在physics路径递归比较完整几何。
+连续未消费编辑只传递这份不可变route引用映射并共享一个last-processed引用，不串起候选runtime链。有实际定义变化的binding不能盲目继承，折返仍重置。
+宿主新baseline还必须接续未变Basic监测区的占用记录并带上本帧真实crossings；只交接selector而丢掉首帧LEFT仍会错误保留第一次ready。
+候选编译worker不读取可变清除状态；新baseline以前，已有inspection声明仍通过缺少新规则baseline而限制为0。无关定义编辑不能让正在行车的重复进路遗失历史。
 这个位置不是资源授权或第二个释放游标，既不调用registry也不释放资源；它只决定信号参考哪次经过。
 相同route对象的准入变化复用原缓存；严格prefix append保留已有清除事实，折返新坐标则重置。原路线已清除的window仍保留在
 不可变binding中，但不会重新成为当前入口请求。没有历史LEFT证据时不能根据空占用猜测跳到下一次经过；只允许已证实的下界移除旧window。
@@ -177,6 +181,9 @@ Basic对剩余资源的排他校验独立继续生效，默认进路永远不能
 - 冻结路线虽含未来区域，但requested authority尚未到达其入口时，不压住那个入口的默认选择。
 - 同一region/有向入口重复经过时，真实tail LEFT使第一次退出选择，第二次按自己的请求floor判断ready；固定进路设备不得因同ID多次匹配而跳过READY检查。长资源仍held、空baseline、其他列车LEFT、append及折返均有独立断言。
 - 无关定义在线替换保留重复经过的清除记录；真正冷baseline仍不可按物理坐标猜测经过次数。资源释放与第一次LEFT同epoch时，第二次经过不能被误清除。
+- 暂停编辑commit，让旧captured epoch处理第一次LEFT后再完成替换：新baseline必须选择第二次未完整授权的经过，不能回到第一次ready。
+- 首个replacement frame自身跨越第一次出口：真实Basic tracker/host输入必须保留LEFT，selector在该帧移到第二次；新/变更几何不伪造LEFT。
+- 多次无关编辑发生在下次callback前、交接callback失败、拓扑/区域/route真正改变及新baseline前inspection0限制有独立断言。
 - 固定进路信号不受其他进路的选择变化影响，只在其固定进路状态变化时更新。
 - 当前信号与任意距离放置的多个显示器读取同一 selection revision 并始终显示相同 route identity。
 - stale topology、grant/道岔不一致、多个无法唯一裁决的当前请求和缺少 baseline 全部 fail-close。

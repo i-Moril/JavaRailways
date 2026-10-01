@@ -25,36 +25,38 @@ import kotlin.math.min
  * baselines, changed occupants or real boundary crossings.
  */
 internal class RailwayAreaOccupancyTracker(
-    definitions: Collection<RailwayOccupancyAreaDefinition>
+    definitions: Collection<RailwayOccupancyAreaDefinition>,
+    previous: RailwayAreaOccupancyTracker? = null
 ) : RailwayAreaOccupancyEngine {
-    private var compiled = CompiledDefinitions.create(definitions)
+    private val compiled = CompiledDefinitions.create(definitions)
     private var lastStamp: RailwayStateStamp? = null
-    private var occupantsByArea: Map<RailObjectRef, Set<String>> = emptyMap()
-
-    /** Replaces geometry atomically; the next observation establishes a fresh baseline. */
-    override fun replaceDefinitions(definitions: Collection<RailwayOccupancyAreaDefinition>) {
-        compiled = CompiledDefinitions.create(definitions)
-        lastStamp = null
-        occupantsByArea = emptyMap()
+    // Geometry matching touches only immutable definitions. Mutable cells are used exclusively by
+    // serialized consumes, including an old epoch that finishes after replacement preparation.
+    private class AreaState {
+        var stamp: RailwayStateStamp? = null
+        var occupants: Set<String> = emptySet()
     }
+    private val statesByArea: Map<RailObjectRef, AreaState> = compiled.definitions.associate { definition ->
+        val oldDefinition = previous?.compiled?.definitionsById?.get(definition.areaId)
+        val retained = oldDefinition != null &&
+            definition.topologyRevision == oldDefinition.topologyRevision &&
+            definition.intervals == oldDefinition.intervals && definition.boundaries == oldDefinition.boundaries
+        definition.areaId to if (retained) previous.statesByArea.getValue(definition.areaId) else AreaState()
+    }
+
+    override fun prepareReplacement(definitions: Collection<RailwayOccupancyAreaDefinition>): RailwayAreaOccupancyEngine =
+        RailwayAreaOccupancyTracker(definitions, this)
 
     /** Consumes exactly the next completed physics epoch. */
     override fun consume(observation: RailwayObservation): RailwayAreaOccupancyBatch {
         validateStamp(observation.stamp)
-        val previousStamp = lastStamp
-        if (previousStamp != null) {
-            require(observation.stamp.worldId == previousStamp.worldId) {
-                "occupancy observation world changed from ${previousStamp.worldId} to ${observation.stamp.worldId}"
-            }
-            require(observation.stamp.physicsEpoch == previousStamp.physicsEpoch + 1L) {
-                "occupancy observation epoch must follow ${previousStamp.physicsEpoch}: ${observation.stamp.physicsEpoch}"
-            }
+        lastStamp?.let { validateContinuation(it, observation.stamp) }
+        if (lastStamp == null) {
+            statesByArea.values.forEach { state -> state.stamp?.let { validateContinuation(it, observation.stamp) } }
         }
         val actualOccupants = compiled.currentOccupants(observation)
-        if (previousStamp == null) return publishBaseline(observation, actualOccupants)
-
         val workingOccupants = compiled.definitions.associate { definition ->
-            definition.areaId to occupantsByArea.getOrDefault(definition.areaId, emptySet()).toMutableSet()
+            definition.areaId to statesByArea.getValue(definition.areaId).occupants.toMutableSet()
         }
         val crossingsByArea = compiled.definitions.associate { definition ->
             definition.areaId to mutableListOf<RailwayOccupancyCrossing>()
@@ -62,7 +64,8 @@ internal class RailwayAreaOccupancyTracker(
 
         // RailwayObservation already guarantees stable train-ID order.
         observation.trains.forEach { train ->
-            compiled.crossingsFor(train.headTraversal, train.tailTraversal).forEach { candidate ->
+            compiled.crossingsFor(train.headTraversal, train.tailTraversal).forEach candidateLoop@{ candidate ->
+                if (statesByArea.getValue(candidate.areaId).stamp == null) return@candidateLoop
                 val occupants = workingOccupants.getValue(candidate.areaId)
                 val changed = when (candidate.kind) {
                     RailwayOccupancyCrossingKind.ENTER -> occupants.add(train.trainId)
@@ -81,10 +84,10 @@ internal class RailwayAreaOccupancyTracker(
 
         val updates = compiled.definitions.mapNotNull { definition ->
             val areaId = definition.areaId
-            val previous = occupantsByArea.getOrDefault(areaId, emptySet())
+            val previous = statesByArea.getValue(areaId).occupants
             val current = actualOccupants.getValue(areaId)
             val crossings = crossingsByArea.getValue(areaId)
-            if (previous == current && crossings.isEmpty()) {
+            if (lastStamp != null && previous == current && crossings.isEmpty()) {
                 null
             } else {
                 RailwayAreaOccupancyUpdate(
@@ -96,28 +99,21 @@ internal class RailwayAreaOccupancyTracker(
             }
         }
 
-        occupantsByArea = actualOccupants
+        statesByArea.forEach { (areaId, state) ->
+            state.occupants = actualOccupants.getValue(areaId)
+            state.stamp = observation.stamp
+        }
         lastStamp = observation.stamp
         return RailwayAreaOccupancyBatch(observation.stamp, updates)
     }
 
-    private fun publishBaseline(
-        observation: RailwayObservation,
-        actualOccupants: Map<RailObjectRef, Set<String>>
-    ): RailwayAreaOccupancyBatch {
-        occupantsByArea = actualOccupants
-        lastStamp = observation.stamp
-        return RailwayAreaOccupancyBatch(
-            observation.stamp,
-            compiled.definitions.map { definition ->
-                RailwayAreaOccupancyUpdate(
-                    definition.areaId,
-                    definition.definitionRevision,
-                    actualOccupants.getValue(definition.areaId),
-                    emptyList()
-                )
-            }
-        )
+    private fun validateContinuation(previous: RailwayStateStamp, current: RailwayStateStamp) {
+        require(current.worldId == previous.worldId) {
+            "occupancy observation world changed from ${previous.worldId} to ${current.worldId}"
+        }
+        require(current.physicsEpoch == previous.physicsEpoch + 1L) {
+            "occupancy observation epoch must follow ${previous.physicsEpoch}: ${current.physicsEpoch}"
+        }
     }
 
     private fun validateStamp(stamp: RailwayStateStamp) {
@@ -138,6 +134,7 @@ internal class RailwayAreaOccupancyTracker(
         private val boundariesByRail: Map<UUID, List<IndexedBoundary>>,
         private val intervalIndex: AreaIntervalIndex
     ) {
+        val definitionsById = definitions.associateBy { it.areaId }
         fun currentOccupants(observation: RailwayObservation): Map<RailObjectRef, Set<String>> {
             val occupants = definitions.associate { it.areaId to linkedSetOf<String>() }
             observation.trains.forEach { train ->

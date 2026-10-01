@@ -272,6 +272,11 @@ rename前返回typed stale。然后用一个预构造的
 占位area或可被physics观察到的错配窗口。删除最后一个block后，如果仍有保护信号或入口选择则保留统一epoch source；
 全部观测和选择都删除时使用empty replacement，只清除此类别而保留同owner的route-planning source。
 
+无关编辑的可变清除记录不在commit callback复制：新section runtime首次串行signal callback才从world-local最后实际处理的runtime接续。
+Basic对未变area保留占用连续性，使这份完整新baseline同时携带真实ENTER/LEFT；新/变更area不补造事件。
+geometry/route相等比较在worker完成，不保留历史runtime链。机制和边界分别归
+[Basic占用合同](../../javarailways/basic/railway-area-occupancy.md)和[保护信号合同](protection-region-signal-selection.md#7-basic-准入观测边界)。
+
 authoring是低频路径：patch map操作为`O(D)`。设fixed-block traversal总数为`T`、合并后interval数为`F`，跨section检查实际比较
 `H`个rail-local候选，则完整candidate编译为`O(V+E+S+P log Q+T log T+S log S+F log S+H)`；写盘为定义规模线性。
 本次编辑影响查询的结构可达遍历、派生值比较和几何收集成本另见[影响合同](definition-edit-impact.md#7-性能复杂度与退化)。

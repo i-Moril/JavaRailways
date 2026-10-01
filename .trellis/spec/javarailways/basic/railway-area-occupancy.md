@@ -22,7 +22,13 @@ tail表示保守安全车尾。未来近似实现可延后其位置和`LEFT`，�
 
 ## 派生算法与时序
 
-公开`RailwayAreaOccupancyEngine`由一个world-local串行owner调用；工厂防御性复制定义，并由internal tracker实现。它只接受同world、拓扑匹配且physics epoch严格连续的observation。替换整组定义会原子重建索引并让下一帧成为新baseline；baseline发布当前occupants但不伪造穿越事件。接口不公开索引、mutable tracker状态或信号策略。
+公开`RailwayAreaOccupancyEngine`由一个world-local串行owner调用；工厂防御性复制定义，并由internal tracker实现。它只接受同world、拓扑匹配且physics epoch严格连续的observation。
+
+`create(definitions)`建立独立冷引擎。`prepareReplacement(definitions): RailwayAreaOccupancyEngine`在编辑worker上完整编译另一份几何和索引，旧引擎继续处理已捕获的epoch，调用方成功提交后才切换到候选。不存在就地修改旧引擎的`replaceDefinitions`接口或兼容转发。
+候选只对area ID、topology revision、轨道区间和完整有向边界均未变的区域接续原物理记录；definition revision不是几何，单独变化不丢失记录。
+未变区域共享其占用/已消费stamp的状态单元，而不是在prepare时复制可变值。因此prepare之后、旧epoch最后产生的ENTER/LEFT也能成为新引擎的前帧事实。
+新引擎首次消费仍发布所有区域的完整baseline，但未变区域同时保留该帧真实crossings；新建或几何变化区域只发布当前occupants，不猜测此前经过。
+旧、新引擎的consume必须在同一world physics owner上串行，不能并发或对同一记录重复消费一个epoch。准备只访问不可变几何及状态单元引用，不读取可变occupants，不等待physics，也不保留前任引擎链。接口不公开索引、mutable tracker状态或信号策略。
 
 每个正常epoch：
 
@@ -45,6 +51,8 @@ tail表示保守安全车尾。未来近似实现可延后其位置和`LEFT`，�
 
 设本epoch列车placement interval数为`P`、traversal segment数为`S`、区间命中数为`K`、同一列车的边界候选数为`C`，查询成本约为`O((P+S) log I + K + C log C)`，其中`I`是相关rail上的定义数；最后一项用于合并head与安全车尾的真实运动顺序。没有`所有列车 × 所有区域`全扫描，也不每tick执行插件脚本。
 
+replacement的几何相等比较和新索引编译只在worker执行；同area通过map定位旧几何，比较成本按实际interval/boundary数量计，不额外做区域两两比较。普通consume沿用既有区域归约；只新增每区域常数次状态/stamp访问，不增加路线扫描、事件队列或跨world锁。连续替换共享状态单元而非链接旧引擎，内存不随未消费编辑次数累计历史。
+
 ## 失败与禁止行为
 
 - topology revision不匹配、world改变或epoch跳号：拒绝该observation，不推进baseline；
@@ -62,6 +70,15 @@ tail表示保守安全车尾。未来近似实现可延后其位置和`LEFT`，�
 - 瞬移、生成、删除改变occupants但不伪造crossing；
 - 定义defensive copy，拒绝拓扑不匹配与epoch缺口。
 - public engine factory可在不导入Basic internal package的情况下建立baseline；batch/update collection不可修改。
+- replacement在prepare之后旧epoch仍推进占用时，下一帧从其最新记录继续；首次完整baseline保留真实LEFT及同帧ENTER+LEFT。
+- 新建、删后重建、边界/方向/拓扑变化区域不继承旧记录；只改definition revision的相同几何保留连续性；world变化或epoch缺口仍拒绝。
+- 连续多次prepare/发布不保留引擎链；未变化epoch继续返回空batch。
+
+## 迁移与禁止的替代方案
+
+当前是开发期公开接口替换，删除无调用方的就地`replaceDefinitions`，不提供旧接口兼容；存档格式不变。
+Wrong：把所有replacement当作冷启动而丢掉该帧真实LEFT，或在编辑worker复制可变occupants。
+Correct：worker准备不可变几何，未变区域接续同一串行物理记录；新/变更区域建立真正的冷baseline。
 
 ```bash
 ./gradlew :Core:test --tests '*CoreTrainPublicationBoundaryTest'

@@ -27,6 +27,86 @@ class RailwayAreaOccupancyTrackerTest {
     private val exitId = RailObjectRef("test", "exit")
 
     @Test
+    fun `removing and readding an area before consume establishes fresh physical baseline`() {
+        val definition = area(listOf(RailInterval(firstRail, 10.0, 20.0)), listOf(
+            boundary(entryId, firstRail, ViewDirection.AB, 10.0),
+            boundary(exitId, firstRail, ViewDirection.BA, 20.0)))
+        val old = RailwayAreaOccupancyEngine.create(listOf(definition))
+        old.consume(observation(1L, occupied = listOf(RailInterval(firstRail, 15.0, 16.0))))
+        val replacement = old.prepareReplacement(emptyList()).prepareReplacement(listOf(definition))
+        assertEquals(emptyList<Any>(), replacement.consume(observation(2L,
+            tailTraversal = listOf(RailTraversalSegmentSnapshot(firstRail, ViewDirection.AB, 16.0, 22.0))))
+            .updates.single().crossings)
+    }
+
+    @Test
+    fun `prepared replacement receives old epoch clearance and first frame ENTER LEFT for unchanged geometry`() {
+        val definition = area(listOf(RailInterval(firstRail, 10.0, 20.0)), listOf(
+            boundary(entryId, firstRail, ViewDirection.AB, 10.0),
+            boundary(exitId, firstRail, ViewDirection.BA, 20.0)))
+        val old = RailwayAreaOccupancyEngine.create(listOf(definition))
+        old.consume(observation(1L, occupied = listOf(RailInterval(firstRail, 15.0, 16.0))))
+        val newArea = RailwayOccupancyAreaDefinition.create(RailObjectRef("test", "new"), 1L, 7L,
+            definition.intervals, definition.boundaries)
+        val revised = RailwayOccupancyAreaDefinition.create(areaId, 4L, 7L,
+            definition.intervals, definition.boundaries)
+        val replacement = old.prepareReplacement(listOf(revised, newArea))
+        val latest = replacement.prepareReplacement(listOf(revised, newArea))
+        // Old consume may finish after both candidate engines have already compiled.
+        assertEquals(RailwayOccupancyCrossingKind.LEFT, old.consume(observation(2L,
+            occupied = listOf(RailInterval(firstRail, 21.0, 22.0)),
+            tailTraversal = listOf(RailTraversalSegmentSnapshot(firstRail, ViewDirection.AB, 16.0, 22.0))))
+            .updates.single().crossings.single().kind)
+        val passage = listOf(RailTraversalSegmentSnapshot(firstRail, ViewDirection.AB, 0.0, 30.0))
+        val baseline = latest.consume(observation(3L, occupied = listOf(RailInterval(firstRail, 30.0, 31.0)),
+            headTraversal = passage, tailTraversal = passage))
+        assertEquals(2, baseline.updates.size)
+        val continued = baseline.updates.single { it.areaId == areaId }
+        assertEquals(4L, continued.definitionRevision)
+        assertEquals(listOf(RailwayOccupancyCrossingKind.ENTER, RailwayOccupancyCrossingKind.LEFT),
+            continued.crossings.map { it.kind })
+        assertEquals(emptyList<Any>(), baseline.updates.single { it.areaId == newArea.areaId }.crossings)
+        assertEquals(emptyList<Any>(), latest.consume(observation(4L,
+            occupied = listOf(RailInterval(firstRail, 30.0, 31.0)))).updates)
+    }
+
+    @Test
+    fun `replacement first tail exit is retained only for exact unchanged boundary identity and topology`() {
+        val definition = area(listOf(RailInterval(firstRail, 10.0, 20.0)), listOf(
+            boundary(entryId, firstRail, ViewDirection.AB, 10.0),
+            boundary(exitId, firstRail, ViewDirection.BA, 20.0)))
+        val old = RailwayAreaOccupancyEngine.create(listOf(definition))
+        old.consume(observation(1L, occupied = listOf(RailInterval(firstRail, 15.0, 16.0))))
+        val crossing = listOf(RailTraversalSegmentSnapshot(firstRail, ViewDirection.AB, 16.0, 22.0))
+        val changedBoundary = RailwayOccupancyAreaDefinition.create(areaId, 4L, 7L, definition.intervals,
+            listOf(definition.boundaries.first(), boundary(RailObjectRef("test", "different-exit"),
+                firstRail, ViewDirection.BA, 20.0)))
+        val changed = old.prepareReplacement(listOf(changedBoundary))
+        assertEquals(emptyList<Any>(), changed.consume(observation(2L, tailTraversal = crossing))
+            .updates.single().crossings)
+        val changedTopology = RailwayOccupancyAreaDefinition.create(areaId, 4L, 8L,
+            definition.intervals, definition.boundaries)
+        val reset = old.prepareReplacement(listOf(changedTopology))
+        assertEquals(emptyList<Any>(), reset.consume(observation(2L, topologyRevision = 8L,
+            tailTraversal = crossing)).updates.single().crossings)
+        val continued = old.prepareReplacement(listOf(definition))
+        assertEquals(RailwayOccupancyCrossingKind.LEFT,
+            continued.consume(observation(2L, tailTraversal = crossing)).updates.single().crossings.single().kind)
+    }
+
+    @Test
+    fun `replacement rejects retained epoch gap and world mismatch without advancing continuity`() {
+        val definition = area(listOf(RailInterval(firstRail, 10.0, 20.0)), listOf(
+            boundary(entryId, firstRail, ViewDirection.AB, 10.0)))
+        val old = RailwayAreaOccupancyEngine.create(listOf(definition))
+        old.consume(observation(1L))
+        val replacement = old.prepareReplacement(listOf(definition))
+        assertThrows(IllegalArgumentException::class.java) { replacement.consume(observation(3L)) }
+        assertThrows(IllegalArgumentException::class.java) { replacement.consume(observation(2L, worldId = "other")) }
+        assertEquals(1, replacement.consume(observation(2L)).updates.size)
+    }
+
+    @Test
     fun `complete multi-rail passage emits ENTER then LEFT with rail-local directions`() {
         val tracker = RailwayAreaOccupancyTracker(
             listOf(
@@ -271,7 +351,8 @@ class RailwayAreaOccupancyTrackerTest {
         },
         headTraversal: List<RailTraversalSegmentSnapshot> = emptyList(),
         tailTraversal: List<RailTraversalSegmentSnapshot> = emptyList(),
-        includeTrain: Boolean = true
+        includeTrain: Boolean = true,
+        worldId: String = "world"
     ): RailwayObservation {
         val frames = if (includeTrain) {
             val position = occupied.firstOrNull()?.let {
@@ -300,7 +381,7 @@ class RailwayAreaOccupancyTrackerTest {
             emptyList()
         }
         return RailwayObservation.fromCore(
-            "world",
+            worldId,
             RailwayWorldFrameSnapshot.create(
                 epoch,
                 topologyRevision,

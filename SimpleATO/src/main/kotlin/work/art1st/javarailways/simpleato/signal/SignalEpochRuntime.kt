@@ -77,13 +77,14 @@ class SignalEpochRuntime(
 
     /**
      * Compiles a complete source state before [commitAction], then installs it only after the
-     * callback returns successfully. The caller owns serialization with [process].
+     * callback returns successfully. Replacements are serialized by the caller; [process] may
+     * finish its captured old state concurrently, without waiting for the commit callback.
      */
     fun replaceSourcesAtomically(
         sources: Collection<SignalEpochSource>,
         commitAction: () -> Unit
     ) {
-        val candidate = SourceState.create(sources)
+        val candidate = SourceState.create(sources, state.occupancyEngine)
         commitAction()
         state = candidate
     }
@@ -263,7 +264,10 @@ class SignalEpochRuntime(
         }
 
         companion object {
-            fun create(sources: Collection<SignalEpochSource>): SourceState {
+            fun create(
+                sources: Collection<SignalEpochSource>,
+                previousOccupancy: RailwayAreaOccupancyEngine? = null
+            ): SourceState {
                 val ordered = java.util.List.copyOf(sources.sortedBy(SignalEpochSource::sourceId))
                 require(ordered.map(SignalEpochSource::sourceId).distinct().size == ordered.size) {
                     "signal source IDs must be unique"
@@ -287,7 +291,9 @@ class SignalEpochRuntime(
                 return SourceState(
                     ordered,
                     java.util.Map.copyOf(areaOwners),
-                    RailwayAreaOccupancyEngine.create(ordered.flatMap(SignalEpochSource::areas)),
+                    ordered.flatMap(SignalEpochSource::areas).let { areas ->
+                        previousOccupancy?.prepareReplacement(areas) ?: RailwayAreaOccupancyEngine.create(areas)
+                    },
                     java.util.Collections.unmodifiableMap(
                         LinkedHashMap<RailEndpointRef, Set<String>>().also { copied ->
                             continuationOwners.toSortedMap().forEach { (entry, owners) ->

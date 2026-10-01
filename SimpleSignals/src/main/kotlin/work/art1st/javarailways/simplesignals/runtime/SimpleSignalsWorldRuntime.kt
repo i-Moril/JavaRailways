@@ -32,6 +32,7 @@ import work.art1st.javarailways.simplesignals.signal.CompiledFixedBlockSignals
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionIndex
 import work.art1st.javarailways.simplesignals.signal.CompiledProtectionSignals
+import work.art1st.javarailways.simplesignals.signal.CompiledProtectionRoute
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.RouteIndicatorDefinition
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult
@@ -150,8 +151,20 @@ internal class SimpleSignalsRuntimePublication(
     val routeSelection: ProtectionRouteSelectionIndex,
     val fixedBlocks: FixedBlockCatalog,
     val fixedBlockSignals: CompiledFixedBlockSignals,
-    val protectionSignals: CompiledProtectionSignals
-)
+    val protectionSignals: CompiledProtectionSignals,
+    previous: SimpleSignalsRuntimePublication? = null
+) {
+    // Canonical immutable route references are reused only across exact unchanged geometry.
+    // Compilation never reads an epoch's mutable request or clearance state.
+    private val regionsById = definitions.regions.associateBy { it.regionId }
+    val clearanceRoutesById: Map<String, CompiledProtectionRoute> =
+        routeSelection.routesById.mapValues { (id, route) ->
+            if (previous != null && topology === previous.topology &&
+                route == previous.routeSelection.routesById[id] &&
+                regionsById[route.regionId] == previous.regionsById[route.regionId]
+            ) previous.clearanceRoutesById.getValue(id) else route
+        }
+}
 
 /**
  * One plugin-owned runtime for one exact host world load.
@@ -169,6 +182,7 @@ internal class SimpleSignalsWorldRuntime(
     )
 
     private val lock = Any()
+    private val sectionEpochContinuity = SectionOccupancyRuntime.EpochContinuity()
 
     @Volatile
     private var state = RuntimeState(null, null)
@@ -251,7 +265,10 @@ internal class SimpleSignalsWorldRuntime(
         } else {
             SectionOccupancyRuntime.from(publication, signalRuleBindings)
         }
-        occupancy.also { state = RuntimeState(current.publication, it) }
+        occupancy.also {
+            it.attachEpochContinuity(sectionEpochContinuity)
+            state = RuntimeState(current.publication, it)
+        }
     }
 
     fun sectionOccupancySnapshot(): SectionOccupancySnapshot? = state.sectionOccupancy?.snapshot()
@@ -427,7 +444,8 @@ internal class SimpleSignalsWorldRuntime(
             candidateRouteSelection,
             candidateBlocks,
             candidateSignals,
-            candidateProtectionSignals
+            candidateProtectionSignals,
+            current
         )
         SimpleSignalsDefinitionPreparationResult.Prepared(
             SimpleSignalsPreparedDefinitions(
@@ -453,16 +471,12 @@ internal class SimpleSignalsWorldRuntime(
         if (current.publication !== prepared.basePublication) {
             return@synchronized SimpleSignalsDefinitionCommitStatus.STALE_BASE
         }
-        if (replacementSectionOccupancy != null && current.sectionOccupancy != null) {
-            replacementSectionOccupancy.protectionRouteSelection.retainClearanceFrom(
-                current.sectionOccupancy.protectionRouteSelection
-            )
-        }
         val candidateState = RuntimeState(
             prepared.candidatePublication,
             replacementSectionOccupancy ?: current.sectionOccupancy
         )
         beforeCommit()
+        replacementSectionOccupancy?.attachEpochContinuity(sectionEpochContinuity)
         state = candidateState
         SimpleSignalsDefinitionCommitStatus.COMMITTED
     }

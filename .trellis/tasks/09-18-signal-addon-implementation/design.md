@@ -191,13 +191,17 @@ still-held turnout. The approved correction uses the same neutral retry ceiling 
 uses within one request and a future use held by the preceding traversal. This permits authority to
 grow before the blocked use while retaining the first claim. No SimpleATO runtime branch is needed.
 
-Live unrelated definition replacement currently copies established clearance facts for unchanged
-region/route bindings, but correctness remains TARGET: the audit reproduced an old-epoch update
-after the copy and a real LEFT crossing lost by the replacement baseline. Fixing these requires a
-world-local coherent signal-phase handoff and occupancy continuity for unchanged geometry; this is
-deferred to the next batch, not part of the turnout-prefix correction. A genuinely cold baseline
-with ambiguous repeated visits must remain restrictive and cannot infer the visit from equal
-physical coordinates.
+The subsequent replacement correction prepares independent Basic geometry while retaining physical
+continuity for unchanged areas, and moves the plugin's unchanged-clearance handoff from edit commit
+to the first serialized new signal callback. Old captured callbacks may finish without waiting for
+the commit; the new full source baseline preserves real movement events for unchanged geometry.
+One world-local last-processed section reference and worker-canonicalized unchanged route references
+avoid replacement chains or copying mutable progress on edit workers. The owner mechanisms belong
+in [Basic occupancy](../../spec/javarailways/basic/railway-area-occupancy.md),
+[signal epochs](../../spec/javarailways/simpleato/reactive-signal-epochs.md) and
+[protection selection](../../spec/simple-signals/backend/protection-region-signal-selection.md).
+A genuinely cold or changed baseline remains restrictive and cannot infer a visit from equal
+physical coordinates. This batch does not change storage, national rules, grants or resource release.
 
 Focused runtime tests plus Dispatcher wiring regressions passed. The final offline affected-module
 gate passed with 1363 tests in 252 suites: 1356 passed, 7 existing skips, zero failures/errors.
@@ -206,7 +210,11 @@ test drives coherent physical observations; no Minecraft/Folia end-to-end smoke 
 Those historical passing tests did not cover the three independently reproduced audit cases above.
 The held-turnout prefix correction subsequently passed 99 focused tests and the offline affected-module
 gate (1366 tests reported, 1359 passed, 7 existing skips, no failures/errors; Core/WebUI results up-to-date).
-The two replacement handoff/first-frame cases remain uncorrected and explicitly pending.
+The replacement correction passed independent review and production-class composition regressions
+for both handoff orderings, first-frame LEFT, repeated edits, changed geometry and failed commit.
+The final offline affected-module gate reports 1377 tests in 253 suites, 1370 passed, 7 existing skips,
+no failures/errors; Core/WebUI reports were up-to-date. Java consumer compilation and plugin JAR
+isolation passed. Constructed physical frames/admission values are not a live Folia smoke test.
 
 ### Inspection and reactive updates
 

@@ -28,7 +28,8 @@ internal data class PhysicalRouteRange(
 
 internal enum class PhysicalRouteCompilationRejection {
     STALE_TOPOLOGY,
-    INVALID_ROUTE
+    INVALID_ROUTE,
+    REQUEST_RANGE_TOO_LONG
 }
 
 internal sealed interface PhysicalRouteCompilation {
@@ -39,7 +40,8 @@ internal sealed interface PhysicalRouteCompilation {
 
     data class Rejected(
         val reason: PhysicalRouteCompilationRejection,
-        val detail: String
+        val detail: String,
+        val retryAtOrBeforeMeters: Double? = null
     ) : PhysicalRouteCompilation
 }
 
@@ -54,7 +56,6 @@ internal class PhysicalRouteResourceCompiler(
     fun compile(
         projection: ProjectedTopologyRoute,
         range: PhysicalRouteRange,
-        previouslyCommittedControlledResources: Set<StableInfrastructureResource> = emptySet(),
         retainedProgressPath: CompiledRouteProgressPath? = null
     ): PhysicalRouteCompilation {
         val routeEnd = projection.occurrences.lastOrNull()?.routeEndMeters
@@ -77,7 +78,6 @@ internal class PhysicalRouteResourceCompiler(
             projection,
             range,
             hits,
-            previouslyCommittedControlledResources,
             retainedProgressPath
         )
     }
@@ -87,7 +87,6 @@ internal class PhysicalRouteResourceCompiler(
         projection: ProjectedTopologyRoute,
         range: PhysicalRouteRange,
         routeBoundHits: List<RouteBoundResourceHit>,
-        previouslyCommittedControlledResources: Set<StableInfrastructureResource> = emptySet(),
         retainedProgressPath: CompiledRouteProgressPath? = null
     ): PhysicalRouteCompilation {
         val routeEnd = projection.occurrences.lastOrNull()?.routeEndMeters
@@ -111,16 +110,16 @@ internal class PhysicalRouteResourceCompiler(
             }) && traversal.routeDistanceMeters <= range.endRouteMeters + Curve.TOLERANCE
         }
         val turnoutResources = relevantTurnouts.map(ProjectedTurnoutTraversal::resource)
-        if (turnoutResources.distinct().size != turnoutResources.size) {
-            return invalid("physical route traverses the same turnout resource more than once")
-        }
+        val seenTurnouts = HashSet<StableInfrastructureResource>()
+        val repeatedTurnout = relevantTurnouts.firstOrNull { !seenTurnouts.add(it.resource) }
+        if (repeatedTurnout != null) return PhysicalRouteCompilation.Rejected(
+            PhysicalRouteCompilationRejection.REQUEST_RANGE_TOO_LONG,
+            "request must stop before the next use of turnout ${repeatedTurnout.resource.resourceId}",
+            // Both compiler range ends and turnout-start tests use Curve.TOLERANCE. nextDown alone
+            // would still include this device, so leave an explicit two-tolerance gap.
+            (repeatedTurnout.routeDistanceMeters - 2.0 * Curve.TOLERANCE).coerceAtLeast(range.startRouteMeters)
+        )
         val controlledResources = turnoutResources + routeBoundHits.map(RouteBoundResourceHit::resource)
-        val repeatedControlled = controlledResources.firstOrNull {
-            it in previouslyCommittedControlledResources
-        }
-        if (repeatedControlled != null) {
-            return invalid("rolling extension repeats controlled resource ${repeatedControlled.resourceId}")
-        }
 
         val selectedRouteIntervals = routeIntervals(
             projection.occurrences,

@@ -8,6 +8,7 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_SIGNAL_SOURCE_ID
 import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionRuntime
+import work.art1st.javarailways.simplesignals.signal.protectionRouteAreaId
 
 internal const val SECTION_OCCUPANCY_SOURCE_ID = FIXED_BLOCK_SIGNAL_SOURCE_ID
 
@@ -227,10 +228,9 @@ internal class SectionOccupancyRuntime private constructor(
                 }
             }
             publication.protectionSignals.routeGeometry.blocksById.toSortedMap().forEach { (routeId, route) ->
-                if (publication.protectionSignals.routeIdsBySignal.values.none { routeId in it }) return@forEach
                 val original = route.occupancyArea
                 val area = work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition.create(
-                    RailObjectRef("simplesignals", "protection-route/${routeId.replace(':', '/')}"),
+                    protectionRouteAreaId(routeId),
                     original.definitionRevision, original.topologyRevision, original.intervals, original.boundaries)
                 val binding = Binding(SectionRef(SectionKind.PROTECTION_ROUTE, routeId),
                     original.definitionRevision, route.lengthMeters, area)

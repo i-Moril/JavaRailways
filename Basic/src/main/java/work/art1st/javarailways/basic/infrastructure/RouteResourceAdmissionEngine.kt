@@ -18,6 +18,7 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
+import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.basic.api.route.RouteGrantId
 import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteGrantSnapshot
@@ -70,7 +71,6 @@ internal class RouteResourceAdmissionEngine(
         var routeProgressPath: CompiledRouteProgressPath,
         var committedGrant: RouteGrantSnapshot? = null,
         var tailRelease: RouteGrantTailRelease? = null,
-        var controlledResources: Set<StableInfrastructureResource>,
         val preparationsByResource: MutableMap<InfrastructureResource, InfrastructurePreparationRequirement>,
         var pendingHandle: RouteAdmissionHandle? = null,
         var reversalFromTrainState: Boolean? = null,
@@ -89,7 +89,6 @@ internal class RouteResourceAdmissionEngine(
         val route: RouteState,
         val compiled: CompiledRouteAdmission,
         val deltaEntries: List<ResolvedTailReleaseEntry>,
-        val newlyControlledResources: Set<StableInfrastructureResource>,
         val candidateProjection: ProjectedTopologyRoute,
         val appendsRoute: Boolean,
         val topologyRoot: TopologyState,
@@ -157,7 +156,6 @@ internal class RouteResourceAdmissionEngine(
                         }
                         checkNotNull(route.tailRelease).installExtendedSuffix(deltaEntries)
                     }
-                    route.controlledResources += newlyControlledResources
                     compiled.preparations.forEach { route.preparationsByResource[it.resource] = it }
                     val grant = oldGrant?.copy(
                         routeId = intent.route.routeId,
@@ -292,15 +290,18 @@ internal class RouteResourceAdmissionEngine(
         val physicalResult = physicalCompiler.compile(
             projection, PhysicalRouteRange(oldFrontier, newFrontier,
                 includeTurnoutAtStart = existing == null || appendsRoute),
-            existing?.controlledResources ?: emptySet(), progressPath
+            progressPath
         )
         val physical = when (physicalResult) {
             is PhysicalRouteCompilation.Compiled -> physicalResult.admission
-            is PhysicalRouteCompilation.Rejected -> return rejected(
-                if (physicalResult.reason == PhysicalRouteCompilationRejection.STALE_TOPOLOGY)
-                    RouteAdmissionFailureCode.STALE_TOPOLOGY else RouteAdmissionFailureCode.INVALID_ROUTE,
-                physicalResult.detail
-            )
+            is PhysicalRouteCompilation.Rejected -> return RouteAdmissionResult.Rejected(RouteAdmissionFailure(
+                when (physicalResult.reason) {
+                    PhysicalRouteCompilationRejection.STALE_TOPOLOGY -> RouteAdmissionFailureCode.STALE_TOPOLOGY
+                    PhysicalRouteCompilationRejection.INVALID_ROUTE -> RouteAdmissionFailureCode.INVALID_ROUTE
+                    PhysicalRouteCompilationRejection.REQUEST_RANGE_TOO_LONG -> RouteAdmissionFailureCode.REQUEST_RANGE_TOO_LONG
+                }, physicalResult.detail,
+                retryAtOrBefore = physicalResult.retryAtOrBeforeMeters?.let(::RouteBoundary)
+            ))
         }
         val initialCursor = if (existing == null) {
             val initialized = physical.routeProgressPath.initializeCursor(train.tail)
@@ -319,6 +320,10 @@ internal class RouteResourceAdmissionEngine(
         val contributions = ArrayList<ContributedRouteResource>(authenticatedContributions.size)
         val release = existing?.tailRelease
         val held = release?.remainingEntries?.associateBy(ResolvedTailReleaseEntry::resource).orEmpty()
+        if (physical.preparations.any { it is ResolvedTurnoutSelection && it.resource in held }) {
+            return rejected(RouteAdmissionFailureCode.REQUEST_BUSY,
+                "the previous turnout use must be tail-released before requesting it again")
+        }
         val acceptedTailProgress = release?.acceptedTailProgressMeters
         for ((contributor, contribution) in authenticatedContributions) {
             if (contribution.releaseAfterTailPasses.distanceFromRouteStartMeters > newFrontier) {
@@ -425,7 +430,7 @@ internal class RouteResourceAdmissionEngine(
         ) return mapMutation(reservation.result)
         val route = existing ?: RouteState(
             requester, intent.owner, intent.trainId, projection, checkNotNull(initialCursor),
-            physical.routeProgressPath, controlledResources = emptySet(),
+            physical.routeProgressPath,
             preparationsByResource = LinkedHashMap()
         ).also { routes[intent.owner.ownerId] = it }
         if (release != null) {
@@ -465,7 +470,7 @@ internal class RouteResourceAdmissionEngine(
         val handle = RouteAdmissionHandle()
         route.pendingHandle = handle
         pending[handle] = PendingRequest(handle, intent, route, compiled, deltaEntries,
-            physicalResult.controlledResources, projection, appendsRoute, topology,
+            projection, appendsRoute, topology,
             reservation, (started as InfrastructurePreparationStart.Accepted).ticket)
         return progress(requester, handle)
     }
@@ -611,8 +616,7 @@ internal class RouteResourceAdmissionEngine(
         }
         val physicalResult = physicalCompiler.compile(
             projection,
-            PhysicalRouteRange(0.0, bodyEnd),
-            previouslyCommittedControlledResources = emptySet()
+            PhysicalRouteRange(0.0, bodyEnd)
         )
         val physical = when (physicalResult) {
             is PhysicalRouteCompilation.Compiled -> physicalResult.admission
@@ -738,7 +742,6 @@ internal class RouteResourceAdmissionEngine(
         route.cursor = initialized.cursor
         route.routeProgressPath = physical.routeProgressPath
         route.tailRelease = newTailRelease
-        route.controlledResources = physicalResult.controlledResources
         route.preparationsByResource.clear()
         compiled.preparations.forEach { route.preparationsByResource[it.resource] = it }
         route.committedGrant = grant

@@ -42,6 +42,20 @@ internal class CompiledAuthorityRequestFloors private constructor(
         return if (adjusted == nominal) nominalBoundary else RouteBoundary(adjusted)
     }
 
+    /** Retreats an exact retry ceiling to an entrance instead of stopping inside an atomic window. */
+    fun limitTo(currentRoute: FrozenRouteBinding, ceiling: RouteBoundary): RouteBoundary {
+        require(currentRoute == route) { "authority request floors do not match the current frozen route" }
+        var end = ceiling.distanceFromRouteStartMeters
+        require(end <= route.totalLengthMeters) { "retry ceiling exceeds the frozen route" }
+        // This path runs only on a rejected overlong request, not in the inspection/tick hot path.
+        // Walking backwards also closes overlapping floors without a second graph or retry loop.
+        for (index in lowerBoundTrigger(end) - 1 downTo 0) {
+            val floor = floors[index]
+            if (floor.minimumEndRouteDistanceMeters > end + EPSILON_METERS) end = floor.triggerRouteDistanceMeters
+        }
+        return RouteBoundary(end)
+    }
+
     private fun lowerBoundTrigger(boundaryMeters: Double): Int {
         var low = 0
         var high = floors.size

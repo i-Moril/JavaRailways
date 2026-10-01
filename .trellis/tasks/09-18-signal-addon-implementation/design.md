@@ -116,12 +116,12 @@ The reviewed repeated-fixed-block batch distinguishes inspection visits by stabl
 notifications keep the stable ID. Each visit retains its own entry floor; the concrete fixed-block source projects the nearest active visit
 to one restriction per signal. Resource contributions coalesce only windows covered by the current requested prefix, using the original
 block token and the latest covered exit. No occurrence-specific resource ID, public field or second release queue is introduced.
-Repeated complete-region selection and Basic's repeated turnout/diamond preparation remain separate work; this batch must not claim
-full repeated-device or return-to-depot support merely because fixed-block matching and neutral inspection can represent repeated visits.
+Repeated complete-region selection and Basic's repeated turnout/diamond handling are covered by the bulb-line batch below;
+fixed-block matching alone must not be presented as proof of that device lifecycle or return-to-depot support.
 Basic already retains resources and rebuilds the route coordinate at stopped reversal, but directional block-token correspondence is unresolved;
 the return-to-depot signal/resource integration must not be described as complete. Basic independently adds the physical rail, turnout and diamond
 floor and atomically claims the union. The exact current matching, authority and release bounds belong in the SimpleSignals owner spec;
-the current partial-endpoint and repeated-fixed-block behavior is recorded there without claiming repeated-device preparation is complete.
+the current partial-endpoint, repeated-fixed-block and continuous bulb-line behavior is recorded in the respective owner contracts.
 
 The first common live section slice now covers fixed-block occupancy only. On world installation,
 SimpleSignals groups every compiled block area into one host `SignalEpochSource`; Basic derives the
@@ -169,6 +169,32 @@ publishes a grant covering the complete region floor. With neither source the cu
 while presentation-only route indicators and distant route previews share the selected-route snapshot and differ only by player placement and
 model. The existing diagnostic-only claim list does not contain enough train/route/request information, so the request branch first requires a
 reviewed immutable Basic admission observation rather than parsing owner IDs or polling the registry.
+
+### Reviewed bulb-line traversal batch (CURRENT, verified)
+
+A bulb line is a continuous route, not a stopped reversal. The same turnout may therefore require
+different selections at two route positions. Preserve its physical identity and the existing host
+claim/release lifecycle: clear the first use before claiming and preparing the next. An initial
+lookahead that reaches both uses must not leave the train waiting before it can clear the first.
+Basic may reject with one optional neutral safe retry boundary; it must not silently shorten an
+exact-boundary request or interpret a protection region. SimpleATO uses its compiled request floors
+to retreat that boundary outside any indivisible traversal, then makes at most one local retry.
+Protection windows remain occurrence-local, while the shared entry selector uses existing directed
+tail-LEFT boundary facts to finish a visit. No second resource queue, per-tick progress stream,
+occurrence-specific resource identity or persisted field is introduced. The owner contracts are
+[Basic admission](../../spec/javarailways/basic/route-resource-admission.md),
+[SimpleATO request floors](../../spec/javarailways/simpleato/operational-routing-and-authority.md) and
+[protection selection](../../spec/simple-signals/backend/protection-region-signal-selection.md).
+
+Live unrelated definition replacement carries established clearance facts for unchanged region/route
+bindings inside the existing atomic installation callback. Candidate workers do not read mutable
+selector state. A genuinely cold baseline with ambiguous repeated visits remains restrictive; it
+cannot infer which visit is current from equal physical coordinates.
+
+Focused runtime tests plus Dispatcher wiring regressions passed. The final offline affected-module
+gate passed with 1363 tests in 252 suites: 1356 passed, 7 existing skips, zero failures/errors.
+Java consumer compilation, plugin JAR isolation and diff checking passed. The real Core turnout
+test drives coherent physical observations; no Minecraft/Folia end-to-end smoke was performed.
 
 ### Inspection and reactive updates
 

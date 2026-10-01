@@ -2827,7 +2827,7 @@ class TimetableDispatcher(
         val existingClient = run.admissionClient
         val candidate: AdmissionRoute
         val client: RouteAuthorityAdmissionClient
-        val result: RouteAdmissionResult
+        var result: RouteAdmissionResult
         if (existingClient?.state?.pending == true) {
             client = existingClient
             candidate = checkNotNull(run.admissionCandidate) {
@@ -2933,6 +2933,19 @@ class TimetableDispatcher(
                 nominalDesired
             )
             result = client.request(candidate.route.selection, desired)
+            if (result is RouteAdmissionResult.Rejected) {
+                val ceiling = result.failure.retryAtOrBefore
+                if (ceiling != null) {
+                    val retry = inspectionRuntime.limitRequestedAuthorityBoundary(
+                        run.train.id, FrozenRouteBinding.from(candidate.route.selection.route), ceiling
+                    )
+                    if (retry.distanceFromRouteStartMeters > routeProgress &&
+                        retry.distanceFromRouteStartMeters >
+                        (client.state.committedAuthority?.distanceFromRouteStartMeters ?: 0.0) &&
+                        retry.distanceFromRouteStartMeters < desired.distanceFromRouteStartMeters
+                    ) result = client.request(candidate.route.selection, retry)
+                }
+            }
         }
 
         when (result) {
@@ -3032,6 +3045,8 @@ class TimetableDispatcher(
             RouteAdmissionFailureCode.STALE_OBSERVATION,
             RouteAdmissionFailureCode.PHYSICALLY_OCCUPIED,
             RouteAdmissionFailureCode.RESOURCE_CONFLICT,
+            RouteAdmissionFailureCode.REQUEST_BUSY,
+            RouteAdmissionFailureCode.REQUEST_RANGE_TOO_LONG,
             RouteAdmissionFailureCode.PREPARATION_ABORTED_SAFE -> {
                 run.nextAdmissionAttemptTick = dispatcherTick +
                     world.basicWorldData.turnoutSafetyDefaults.retryTicks

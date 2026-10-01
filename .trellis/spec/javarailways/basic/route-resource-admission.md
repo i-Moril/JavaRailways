@@ -45,7 +45,7 @@ This derived set is the **mandatory physical footprint**. The request cannot rep
 
 Route-bound catalog publication is all-or-nothing for one exact`TopologyState`root. For an`AtGradeRailCrossing`, Basic derives one`javarailways:diamond`identity from the ordered rail UUID pair and exact AB crossing-position bits, then creates one positive anchor on each rail by extending the independent`DIAMOND_ANCHOR_HALF_LENGTH_METERS=5 mm`around the crossing and clipping to that rail's projection. The short anchor is an interval-query marker, not the Core geometry-detection tolerance or a signalling protection distance. Both traversal sides therefore resolve the same identity and occupancy geometry; unrelated topology revisions preserve it when rail UUIDs and crossing positions are unchanged.
 
-The catalog validates all anchors, builds one start-sorted interval index per rail and stores prefix maximum endpoints. Querying one route occurrence binary-searches the first prefix that can overlap, scans only candidates whose starts remain within range, converts matches back to route metres and merges adjacent hits of the same identity. Leaving and later re-entering one resource is rejected. Runtime publication also builds an O(1) set of Basic-owned turnout/diamond identities for registry existence checks; external provider lookup remains reserved for plugin-owned types. This mapping/index work happens once per topology root, while admissions only perform indexed lookups.
+The catalog validates all anchors, builds one start-sorted interval index per rail and stores prefix maximum endpoints. Querying one route occurrence binary-searches the first prefix that can overlap, scans only candidates whose starts remain within range, converts matches back to route metres and merges adjacent hits of the same identity. Separate visits remain separate route-position hits; they do not create new physical identities. A no-preparation diamond can appear repeatedly in one request: the unique identity remains held through its last requested clearance point. Runtime publication also builds an O(1) set of Basic-owned turnout/diamond identities for registry existence checks; external provider lookup remains reserved for plugin-owned types. This mapping/index work happens once per topology root, while admissions only perform indexed lookups.
 
 ### 3.2 插件附加资源
 
@@ -83,6 +83,24 @@ The same request operation also grows an existing grant along that route. Basic 
 A stopped reversal uses an explicit two-step boundary instead of the append operation. `suspendReleaseForReversal` first freezes only tail release while retaining the same grant and complete registry claim. After Core publishes the changed train direction, `rebaseAfterReversal` requires a new route beginning at the authoritative new tail and a desired boundary equal to the observed head. Basic compiles that body range, requires every mandatory and contributed resource to be covered by the already-held claim, and performs no registry acquisition. It then replaces the route-relative cursor and rebuilds one release entry for every retained identity: an unchanged rail interval keeps its exact old identity even if only part overlaps the reversed body, its boundary is the final new-route overlap, and identities with no new-route evidence receive boundary 0. Only after all validation succeeds does Basic publish the new route binding and resume release under the same grant ID. Failure leaves release suspended and every resource held.
 
 Basic treats the submitted authority boundary exactly. It does not infer a stopping overlap from ATO tolerance, timetable semantics or train type. The signalling/timetable caller must keep its operational stop target far enough before the requested authority end when an overlap is required; a reversed body extending outside the retained claim is rejected rather than covered retroactively.
+
+### 3.4 连续灯泡线与分次道岔使用
+
+灯泡线没有停车折返，不重置冻结路线、grant或车尾游标。完整路线允许多次经过同一道岔，但一次物理申请范围只准备一次该道岔。
+编译器按路线顺序发现第二次使用时，在任何claim/准备之前返回`REQUEST_RANGE_TOO_LONG`，并给出
+`retryAtOrBefore`：第二次道岔位置减去`2 * Curve.TOLERANCE`。这个数值间隔只避免端点容差把第二次使用仍纳入申请，
+不是信号停车余量；`nextDown`不足以避开现有`end + tolerance`判断。
+
+Basic不擅自缩短grant。调用方可提交一个不超过提示的新exact boundary；SimpleATO还必须用已有检查声明的floor把它退到
+不能被截断的区间入口外，Basic本身不认识保护区域。若没有能够增长的安全前缀，保持原授权并等待，不越过入口或强行切换设备。
+
+后续申请不再查询“整条路线曾用过哪些设备”的累计集合，而只查询既有释放队列中的当前持有身份。
+旧使用仍持有时，申请返回`REQUEST_BUSY`且没有新claim或设备动作；车尾完成原释放后，同一稳定道岔身份可以重新claim，
+按第二次所需状态启动原有准备handler，全部READY才扩大同一grant。这适用于相同和不同目标；不为同目标另造跨次数保持策略。
+菱形交叉没有待切换状态，允许合并持有到本次已请求范围中最后一次通过，不增加第二份准备票据。
+
+区间过短、停车位置或列车长度使旧使用无法清除时，等待本身不能证明该路线可运行；不得用提前切换、释放仍占用资源或
+伪装折返来“解决”几何上不足的净空。灯泡线闭塞/方向身份与具体信号策略仍由信号插件负责。
 
 ## 4. 冻结的公开请求合同
 
@@ -165,9 +183,14 @@ enum class RouteAdmissionFailureCode {
     WORLD_UNAVAILABLE, OWNER_MISMATCH, STALE_OBSERVATION, TRAIN_NOT_FOUND,
     STALE_TOPOLOGY, INVALID_ROUTE, INVALID_BOUNDARY, INVALID_INFRASTRUCTURE,
     INVALID_CONTRIBUTION, INVALID_PREPARATION, PHYSICALLY_OCCUPIED, RESOURCE_CONFLICT,
-    ROUTE_STATE_MISMATCH, REQUEST_BUSY, PREPARATION_ABORTED_SAFE, WORLD_STALLED
+    ROUTE_STATE_MISMATCH, REQUEST_BUSY, REQUEST_RANGE_TOO_LONG,
+    PREPARATION_ABORTED_SAFE, WORLD_STALLED
 }
+
 ```
+
+`RouteAdmissionFailure.retryAtOrBefore: RouteBoundary?`只随`REQUEST_RANGE_TOO_LONG`出现；该code必须带值，其他code禁止带值。
+提示属于被拒绝intent的route metres，不是authority。constructor另有原有`code`、`detail`和防御性复制的`blockers`。
 
 `InfrastructureResourceService.activeRouteAdmissions(worldId)`从同一个world-local engine返回按logical owner稳定排序的
 不可变当前观测。它直接读取真实pending/committed route state，不解析claim owner字符串；`PREPARING`仍保留已经提交的旧grant边界，
@@ -332,7 +355,9 @@ disabled后不得再调用该plugin的ticket。timeout、duration、ticket persi
 cleanup。未知、未清空或不属于该认证service binding的grant返回false。
 
 `RouteAdmissionFailure`必须携带上面一个稳定code、非空诊断detail，以及仅在占用/冲突时出现的immutable blocker
-identity列表；不得用exception class作为公开错误类型。`progress`只读取一个由同一service产生的opaque handle，
+identity列表；不得用exception class作为公开错误类型。`REQUEST_RANGE_TOO_LONG`另外必须携带一个`retryAtOrBefore`，
+其他code不得携带；它是同一个被拒绝intent路线上的安全申请上限，不是grant、pending handle或持久化恢复字段。
+`progress`只读取一个由同一service产生的opaque handle，
 未完成时返回带**同一个handle**的`Pending`，完成后返回`Granted/Rejected`终态；调用方保留handle期间重复读取终态幂等，
 不重放request或再执行provider。完成的handle不由world service永久强引用；调用方不再保留时，其终态缓存可被回收。handle是进程内runtime
 能力，不持久化，也不模拟网络丢包/retry。
@@ -411,6 +436,8 @@ preparation只在claim之后开始，并遵循第6节的retained-claim failure�
 | authenticated requester or logical owner differs from the active route state | `OWNER_MISMATCH` | no new reservation |
 | train differs, or route changes anything except a strict forward append at the fully authorized old end | `ROUTE_STATE_MISMATCH`/`INVALID_BOUNDARY` | no new reservation |
 | the active route state already has a pending request | `REQUEST_BUSY` | no new reservation |
+| one requested range includes the same turnout twice | `REQUEST_RANGE_TOO_LONG` plus exact retry ceiling | no claim or preparation |
+| the next turnout use is still held from the preceding traversal | `REQUEST_BUSY` | retain old claim and grant; no new preparation |
 | all validation passes | claim union, then prepare | one atomic claim |
 | preparation still running | `Pending` | claim/reservation retained; no grant |
 | preparation proves safe abort | typed denial | only this request/delta is removed |
@@ -446,6 +473,9 @@ Observation dispatch builds one train-ID lookup only when at least one live gran
 
 一次延长申请可读取该grant尚未释放的`H`个身份，把新增资源与已持有资源按exact identity分开；只有开始延长、完成或安全中止时才对剩余队列排序，成本为`O(H log H)`，不是每tick成本。按logical owner ID直接定位live grant，不为每列车延长遍历所有live grants。正常无pending extension时，前述车尾逐项释放仍从队首推进，不因这一功能退化为每次重建整个队列。
 
+分次道岔检测在已有物理编译遍历中用身份set发现重复，额外时间与空间均为本次道岔数线性；实际持有查询复用本次申请已经建立的
+`remainingEntries` map。没有每tick全路线重复检测、历史设备表或新的释放控制器。过长申请在claim前拒绝；调用方的有界重试至多增加一次申请编译。
+
 折返是停车边界上的一次性低频操作。新body route只编译一次；已持有rail interval按rail建立排序索引，每个route occurrence二分定位第一个可能重叠项并只扫描实际候选，stable identity按map查找，最后对`H`个新释放项排序。因此成本为`O(R log H + K + H log H)`，其中`K`是实际区间重叠数；正常physics tick不承担该重建成本。
 
 Unchanged state performs no request compilation by itself. SimpleATO/resource inspection decides when a request is needed. Missing indexes, stale revisions or resource-handler failure fail closed; Basic must not fall back to a live-world full scan that silently grants authority.
@@ -461,6 +491,8 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 - **Good**：an ordinary stop retains the last claimed interval, then appends the next forward mission under the same grant/cursor; pending or rejected preparation keeps the old route binding.
 - **Good**：a signal-plugin block token is retained while stopping inside that block; continuation extends its release point, and a later full-prefix contribution for an already tail-cleared block is validated but not reacquired.
 - **Good**：a stopped reversal freezes release, keeps the exact claim and grant ID, then places a new cursor at the reversed tail and recalculates old-resource release points without reacquisition.
+- **Good**：a bulb line first receives an exact prefix before its second turnout traversal; after the first tail clearance, the same turnout is claimed and prepared for the return traversal under the same grant.
+- **Bad**：one long request prepares both turnout selections, or a historical-device set rejects reuse even after physical release.
 - **Bad**：SimpleATO constructs a protection-region ID, preparation kind or signal-system-specific argument.
 - **Bad**：an initial safe abort leaves an owner permanently busy with an empty route state, or a later safe abort deletes an earlier committed grant.
 - **Bad**：each tail-clear event reconstructs an immutable footprint of every still-held resource; a long route then pays quadratic cumulative release work.
@@ -470,6 +502,7 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 ## 9. 必需测试与断言点
 
 - Route projection covers AB/BA, zero/one/multiple turnouts, loops and route-bound diamonds with deterministic identities.
+- Bulb-line tests cover an initially oversized request and exact retry ceiling, no mutation on rejection, first tail clearance, waiting without switching while still held, second asynchronous preparation and unchanged grant identity. A competing train must still be denied while the physical resource is held. Repeat-diamond tests retain one identity through the last requested crossing.
 - An intent with every contributor returning empty still produces the complete mandatory physical footprint.
 - Neither caller nor contributor can remove/replace a derived rail, turnout or diamond resource.
 - End-to-end admission on the two rails of one at-grade crossing must derive the same Basic diamond identity: the second claim conflicts while the first holds it, tail release permits later acquisition, and the crossing still creates neither a route continuation nor a selectable turnout.

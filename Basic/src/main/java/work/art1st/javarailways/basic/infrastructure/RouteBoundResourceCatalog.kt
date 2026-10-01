@@ -124,11 +124,8 @@ internal class RouteBoundResourceCatalog(
                     )
                 }
         }
-        val merged = mergeOrRejectReentry(rawHits)
-        val result = when (merged) {
-            is MergedHits.Invalid -> RouteBoundResourceQuery.InvalidRoute(merged.detail)
-            is MergedHits.Valid -> RouteBoundResourceQuery.Complete(merged.hits)
-        }
+        val merged = mergeHits(rawHits)
+        val result = RouteBoundResourceQuery.Complete(merged)
         if (published !== snapshot || topologyState() !== currentTopology) {
             return RouteBoundResourceQuery.StaleTopology(
                 "route-bound resource catalog or topology changed during query"
@@ -200,11 +197,11 @@ internal class RouteBoundResourceCatalog(
         )
     }
 
-    private fun mergeOrRejectReentry(rawHits: List<RouteBoundResourceHit>): MergedHits {
+    private fun mergeHits(rawHits: List<RouteBoundResourceHit>): List<RouteBoundResourceHit> {
         val merged = ArrayList<RouteBoundResourceHit>()
         rawHits.groupBy(RouteBoundResourceHit::resource)
             .toSortedMap(compareBy(StableInfrastructureResource::typeId, StableInfrastructureResource::resourceId))
-            .forEach { (resource, resourceHits) ->
+            .forEach { (_, resourceHits) ->
                 var current: RouteBoundResourceHit? = null
                 resourceHits.sortedBy(RouteBoundResourceHit::routeStartMeters).forEach { hit ->
                     val previous = current
@@ -213,14 +210,13 @@ internal class RouteBoundResourceCatalog(
                     } else if (hit.routeStartMeters <= previous.routeEndMeters + Curve.TOLERANCE) {
                         current = previous.copy(routeEndMeters = max(previous.routeEndMeters, hit.routeEndMeters))
                     } else {
-                        return MergedHits.Invalid(
-                            "route leaves and later re-enters controlled resource $resource"
-                        )
+                        merged += previous
+                        current = hit
                     }
                 }
                 current?.let(merged::add)
             }
-        return MergedHits.Valid(java.util.List.copyOf(merged))
+        return java.util.List.copyOf(merged)
     }
 
     private fun ProjectedRouteOccurrence.canonicalAt(routeMeters: Double): Double {
@@ -275,11 +271,6 @@ internal class RouteBoundResourceCatalog(
             }
             return matches
         }
-    }
-
-    private sealed interface MergedHits {
-        data class Valid(val hits: List<RouteBoundResourceHit>) : MergedHits
-        data class Invalid(val detail: String) : MergedHits
     }
 
     private sealed interface SnapshotBuild {

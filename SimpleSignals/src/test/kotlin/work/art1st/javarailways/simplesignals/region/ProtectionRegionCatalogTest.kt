@@ -216,12 +216,12 @@ class ProtectionRegionCatalogTest {
     }
 
     @Test
-    fun `one frozen route cannot traverse the same region twice`() {
+    fun `one frozen route keeps separate complete region visits`() {
         val catalog = ProtectionRegionCatalog()
         catalog.publish(topology, 3L, listOf(throatRegion()))
 
-        val rejected = assertInstanceOf(
-            ProtectionRegionRouteMatchResult.Rejected::class.java,
+        val matched = assertInstanceOf(
+            ProtectionRegionRouteMatchResult.Matched::class.java,
             catalog.match(
                 RouteSnapshot(
                     "test:route/repeated",
@@ -239,10 +239,8 @@ class ProtectionRegionCatalogTest {
             )
         )
 
-        assertEquals(
-            ProtectionRegionValidationCode.AMBIGUOUS_TRAVERSAL,
-            rejected.diagnostics.single().code
-        )
+        assertEquals(2, matched.windows.size)
+        assertEquals(1, matched.windows.map { it.regionId }.distinct().size)
     }
 
     private fun throatRegion() = ProtectionRegionDefinition(

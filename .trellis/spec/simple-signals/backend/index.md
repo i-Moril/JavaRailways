@@ -78,7 +78,7 @@ best-effort把staged旧primary轮转为`.bak`。commit point之后的backup/clea
 - `ProtectionRegionCatalog.publish` 捕获一个不可变 `TopologyState` root 和 plugin definition revision，先完整派生候选 snapshot，全部通过后才原子替换；失败保留旧 snapshot；
 - graph resolver 在边界处分割临时 rail segments，从第一个 inward half-edge 做 BFS，验证所有 inward half-edge 同属一个连通内部、outside 不会绕路重连，并拒绝正长度区域重叠；
 - published snapshot 保存 disposable interior slices、region lookup 和 rail-to-region reverse index。create/update/load publication 会先以 `O(V+E)` 派生拓扑，再为每个定义解析连通内部并检查区域两两重叠；这些工作不进入 Tick；
-- route matcher 只投影冻结路线一次，再通过 rail reverse index 把 occurrence 分发给实际候选 region；它把 facing-local segment 坐标转换为 canonical AB，要求每个 region 只有一个连续 entry-to-exit interval，并派生 route-metre window。成本包含路线 occurrence、索引命中、候选区域的 interior slices 以及交集排序，而不是 `regions × full route`；
+- route matcher 只投影冻结路线一次，再通过 rail reverse index 把 occurrence 分发给实际候选 region；它把 facing-local segment 坐标转换为 canonical AB，逐次验证完整连续 entry-to-exit interval，并派生独立 route-metre windows。一个region可以在同路线中重复经过；缺失任一次entry/exit仍拒绝。成本包含路线 occurrence、索引命中、候选区域的 interior slices 以及交集排序，而不是 `regions × full route`；
 - matcher 不搜索路径，也不复制 Basic 的结构连续性/turnout legality 校验。Basic 在资源申请时仍独立验证同一冻结路线并编译不可删除的物理资源底线。
 
 route-window只描述region entry/exit，不保存后继区间。world runtime通过稳定的
@@ -190,7 +190,8 @@ matcher先在完整冻结路线中合并候选block交集，再按本次`desired
 同一block在完整冻结路线中可以产生多个合法window；每次经过仍须满足完整有向路径或只在路线端点裁剪，不能借重复经过
 放宽中途偏离检查。contributor用block ID合并本次authority prefix内的windows，每个token只提交一次，释放boundary取已覆盖
 window的最大exit；未申请的未来经过不得抬高释放点。Basic沿用原claim/extension/tail-release队列，不创建visit资源或插件释放队列。
-这只完成固定闭塞与中立inspection的重复位置表达；保护区域入口选择及Basic重复turnout/diamond准备仍未完成。
+连续灯泡线另外允许多次完整region window，入口选择复用真实车尾LEFT证据。Basic把重复turnout拆成分次exact申请，
+前一次仍持有时不切换，释放后重新准备；过长前视的通用重试上限由SimpleATO依已有floor退到入口外。
 折返前后两段运营路线不等于同一冻结路线绕圈，不能因此拒绝整个回库任务，也不能宣称完整回库资源衔接已实现。
 不同block独立加入同一个union；Basic仍自行编译不可删除的rail/turnout/diamond物理底线并原子claim。
 
@@ -226,7 +227,7 @@ frozen-route dependency阻止，因此retained inspection binding不会在运行
 Good/Base：block为`[100m,300m]`、运营停车点在`200m`，取得block token而authority止于`200m`；下一段任务延长同一授权与释放位置。
 从block内部站台起步没有伪造入口声明/floor，资源申请仍有效；真实入口在路线中但位于车头后时由已有前视筛选排除。
 Bad：非路线端点处中途离开block定义的有向路径仍拒绝；把裁剪后的资源交集起点当作入口信号位置也错误。
-保护区域和重复设备准备限制必须明确报告，不能宣称完整多圈进路或回库已经支持。测试须覆盖同一block多次合法window、
+连续灯泡线与停车折返须分别验证，不能因degree-2闭塞环线测试通过就宣称带道岔路线也正确。测试须覆盖同一block多次合法window、
 请求prefix只产生一个稳定token/最新已覆盖释放点、每次真实入口的floor、最近active入口投影、通过后切换及stable-ID失效、
 degree-2物理环线上的真实Basic申请/延长/车尾释放，并覆盖内部起止、内部起点无声明/无floor、
 已越过真实入口不读取信号、后续真实入口照常激活、入口零交集、真实前方入口缺baseline仍为0、

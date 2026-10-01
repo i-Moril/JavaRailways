@@ -197,6 +197,11 @@ class InspectionRuntime(
         return compiledBindingsByTrain[trainId]?.isNotEmpty() == true
     }
 
+    /** A Basic retry hint is only usable after preserving every compiled atomic request window. */
+    fun limitRequestedAuthorityBoundary(
+        trainId: String, currentRoute: FrozenRouteBinding, ceiling: RouteBoundary
+    ): RouteBoundary = authorityRequestFloorsByTrain[trainId]?.limitTo(currentRoute, ceiling) ?: ceiling
+
     /** Low-frequency lifecycle query used to distinguish idle config rejection from live failure. */
     fun hasActiveRoutes(): Boolean = activeRoutesByTrain.isNotEmpty()
 

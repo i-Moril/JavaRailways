@@ -453,6 +453,11 @@ internal class SimpleSignalsWorldRuntime(
         if (current.publication !== prepared.basePublication) {
             return@synchronized SimpleSignalsDefinitionCommitStatus.STALE_BASE
         }
+        if (replacementSectionOccupancy != null && current.sectionOccupancy != null) {
+            replacementSectionOccupancy.protectionRouteSelection.retainClearanceFrom(
+                current.sectionOccupancy.protectionRouteSelection
+            )
+        }
         val candidateState = RuntimeState(
             prepared.candidatePublication,
             replacementSectionOccupancy ?: current.sectionOccupancy

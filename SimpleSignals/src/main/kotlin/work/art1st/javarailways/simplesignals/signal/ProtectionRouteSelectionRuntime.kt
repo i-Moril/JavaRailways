@@ -3,10 +3,12 @@ package work.art1st.javarailways.simplesignals.signal
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
+import work.art1st.javarailways.basic.api.observation.RailwayOccupancyCrossingKind
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionState
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochInput
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
@@ -21,6 +23,9 @@ import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsRuntimePublic
 import kotlin.math.abs
 
 internal const val PROTECTION_ROUTE_SELECTION_SOURCE_ID = "simplesignals:protection-route-selection"
+
+internal fun protectionRouteAreaId(routeId: String) =
+    RailObjectRef("simplesignals", "protection-route/${routeId.replace(':', '/')}")
 
 internal enum class ProtectionRouteSelectionSource { REQUEST, DEFAULT, NONE }
 
@@ -49,6 +54,7 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
     private val index = publication.routeSelection
     private val entries = index.routesById.values.mapTo(sortedSetOf()) { it.definition.entryBoundaryId }
     private val routesByEntry = index.routesById.values.groupBy { it.definition.entryBoundaryId }
+    private val regionsById = publication.definitions.regions.associateBy { it.regionId }
     private val entriesByRail = index.routesById.values.flatMap { route ->
         route.definition.traversals.map { it.railId to route.definition.entryBoundaryId }
     }.groupBy({ it.first }, { it.second }).mapValues { java.util.Set.copyOf(it.value) }
@@ -71,8 +77,18 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
         val matches: List<Match>,
         val invalidEntries: Set<String>
     )
-    private data class Request(val snapshot: ActiveRouteAdmissionSnapshot, val binding: Binding)
+    private data class Request(
+        val snapshot: ActiveRouteAdmissionSnapshot, val binding: Binding,
+        var clearedThroughMeters: Double = 0.0,
+        val clearanceKnown: Boolean = true
+    )
     private val requests = linkedMapOf<InfrastructureOwner, Request>()
+    private data class Clearance(val binding: Binding, val meters: Double, val known: Boolean)
+    private val retainedClearances = linkedMapOf<InfrastructureOwner, Clearance>()
+    private val ownersByTrain = linkedMapOf<String, MutableSet<InfrastructureOwner>>()
+    private val routeIdsByArea = publication.protectionSignals.routeGeometry.blocksById.keys.associateBy {
+        protectionRouteAreaId(it)
+    }
     private var liveTrainIds: Set<String> = emptySet()
     // Direct entry memberships keep an unrelated admission change from scanning every live request.
     private val ownersByEntry = entries.associateWith { linkedSetOf<InfrastructureOwner>() }
@@ -89,6 +105,24 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
 
     fun snapshot(): ProtectionRouteSelectionSnapshot? = latest
 
+    /** Called only inside the existing atomic source-replacement barrier, never by edit workers. */
+    fun retainClearanceFrom(previous: ProtectionRouteSelectionRuntime) {
+        check(requests.isEmpty())
+        if (index.topology !== previous.index.topology) return
+        fun retain(owner: InfrastructureOwner, clearance: Clearance) {
+            if (clearance.binding.invalidEntries.isNotEmpty() || clearance.binding.matches.any {
+                index.routesById[it.route.definition.routeId] != it.route ||
+                    regionsById[it.route.regionId] != previous.regionsById[it.route.regionId]
+            }) return
+            retainedClearances[owner] = clearance
+        }
+        // Consecutive edits can precede the next host baseline: carry its unconsumed facts too.
+        previous.retainedClearances.forEach { (owner, clearance) -> retain(owner, clearance) }
+        previous.requests.forEach { (owner, old) ->
+            retain(owner, Clearance(old.binding, old.clearedThroughMeters, old.clearanceKnown))
+        }
+    }
+
     fun update(input: SignalEpochInput): SignalEpochResult {
         val previous = latest
         val dirty = linkedSetOf<String>()
@@ -96,17 +130,58 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
         input.continuationUpdates.forEach { dirty += entriesByContinuation[it.entry].orEmpty() }
         input.admissionUpdates.forEach { update ->
             val old = requests.remove(update.owner)
-            old?.let { removeMembership(update.owner, it, dirty) }
+            val retained = retainedClearances.remove(update.owner)
+            old?.let {
+                removeMembership(update.owner, it, dirty)
+                ownersByTrain[it.snapshot.trainId]?.let { owners ->
+                    owners.remove(update.owner)
+                    if (owners.isEmpty()) ownersByTrain.remove(it.snapshot.trainId)
+                }
+            }
             update.current?.let { snapshot ->
                 val binding = if (old?.binding?.route === snapshot.route) old.binding else compileBinding(snapshot.route)
                 if (binding.matches.isEmpty() && binding.invalidEntries.isEmpty()) return@let
-                val request = Request(snapshot, binding)
+                val previousRoute = old?.snapshot?.route ?: retained?.binding?.route
+                val preservesPrefix = previousRoute === snapshot.route ||
+                    previousRoute != null && snapshot.route.routeId == previousRoute.routeId &&
+                    snapshot.route.segments.size >= previousRoute.segments.size &&
+                    snapshot.route.segments.take(previousRoute.segments.size) == previousRoute.segments
+                val ambiguousBaseline = old == null && !preservesPrefix && input.topologyBaseline && binding.matches.filter {
+                    snapshot.requestedAuthority.distanceFromRouteStartMeters > it.entryMeters + Curve.TOLERANCE &&
+                        snapshot.releasedThroughRouteMeters < it.exitMeters - Curve.TOLERANCE
+                }.groupBy { it.route.regionId }.any { it.value.size > 1 }
+                val request = Request(snapshot, binding,
+                    if (preservesPrefix) old?.clearedThroughMeters ?: retained!!.meters else 0.0,
+                    if (preservesPrefix) old?.clearanceKnown ?: retained!!.known else !ambiguousBaseline)
                 requests[update.owner] = request
+                ownersByTrain.getOrPut(snapshot.trainId, ::linkedSetOf) += update.owner
                 activeEntries(request).forEach { entry ->
                     ownersByEntry.getValue(entry) += update.owner
                     dirty += entry
                 }
             }
+        }
+        // The fresh host baseline supplies all current owners; do not retain ended-owner history.
+        retainedClearances.clear()
+        input.areaUpdates.forEach { area ->
+            val routeId = routeIdsByArea[area.areaId] ?: return@forEach
+            val exitBoundary = publication.protectionSignals.routeGeometry.blocksById.getValue(routeId)
+                .occupancyArea.boundaries.last().boundaryId
+            area.crossings.filter { it.kind == RailwayOccupancyCrossingKind.LEFT && it.boundaryId == exitBoundary }
+                .forEach { crossing ->
+                    ownersByTrain[crossing.trainId].orEmpty().forEach ownerLoop@{ owner ->
+                        val request = requests.getValue(owner)
+                        if (!request.clearanceKnown) return@ownerLoop
+                        val visit = request.binding.matches.firstOrNull {
+                            it.route.definition.routeId == routeId &&
+                                request.snapshot.requestedAuthority.distanceFromRouteStartMeters > it.entryMeters + Curve.TOLERANCE &&
+                                request.clearedThroughMeters < it.exitMeters - Curve.TOLERANCE
+                        } ?: return@ownerLoop
+                        removeMembership(owner, request, dirty)
+                        request.clearedThroughMeters = maxOf(request.clearedThroughMeters, visit.exitMeters)
+                        activeEntries(request).forEach { entry -> ownersByEntry.getValue(entry) += owner; dirty += entry }
+                    }
+                }
         }
         var selections: MutableMap<String, SelectedProtectionRoute>? = if (previous == null) linkedMapOf() else null
         val changed = linkedSetOf<String>()
@@ -140,8 +215,10 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
         val owners = ownersByEntry.getValue(route.definition.entryBoundaryId)
         if (owners.size > 1) return false
         val request = owners.singleOrNull()?.let(requests::get) ?: return true
+        if (!request.clearanceKnown) return false
         if (route.definition.entryBoundaryId in request.binding.invalidEntries) return false
-        val match = request.binding.matches.singleOrNull { it.route.definition.routeId == routeId }
+        val match = currentMatch(request, route.definition.entryBoundaryId)
+            ?.takeIf { it.route.definition.routeId == routeId }
             ?: return true
         return request.snapshot.trainId in liveTrainIds &&
             (request.snapshot.committedAuthority?.distanceFromRouteStartMeters ?: -1.0) >=
@@ -162,10 +239,14 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
     }
 
     private fun activeEntries(request: Request): Set<String> = request.binding.invalidEntries +
-        request.binding.matches.filter { match ->
+        request.binding.matches.filter { match -> activeMatch(request, match) }.map { it.route.definition.entryBoundaryId }
+
+    private fun activeMatch(request: Request, match: Match): Boolean =
             request.snapshot.requestedAuthority.distanceFromRouteStartMeters > match.entryMeters + Curve.TOLERANCE &&
-                request.snapshot.releasedThroughRouteMeters < match.exitMeters - Curve.TOLERANCE
-        }.map { it.route.definition.entryBoundaryId }
+                maxOf(request.snapshot.releasedThroughRouteMeters, request.clearedThroughMeters) < match.exitMeters - Curve.TOLERANCE
+
+    private fun currentMatch(request: Request, entry: String): Match? =
+        request.binding.matches.firstOrNull { it.route.definition.entryBoundaryId == entry && activeMatch(request, it) }
 
     private fun select(entry: String, input: SignalEpochInput, liveTrains: Set<String>): SelectedProtectionRoute {
         if (input.observation.stamp.worldId != publication.definitions.worldId.toString() ||
@@ -176,8 +257,8 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
         if (owners.size > 1) return SelectedProtectionRoute(entry, ProtectionRouteSelectionSource.REQUEST, available = false)
         owners.singleOrNull()?.let { owner ->
             val request = requests.getValue(owner)
-            val match = request.binding.matches.singleOrNull { it.route.definition.entryBoundaryId == entry }
-            if (entry in request.binding.invalidEntries || match == null || request.snapshot.trainId !in liveTrains) {
+            val match = currentMatch(request, entry)
+            if (!request.clearanceKnown || entry in request.binding.invalidEntries || match == null || request.snapshot.trainId !in liveTrains) {
                 return SelectedProtectionRoute(entry, ProtectionRouteSelectionSource.REQUEST, available = false)
             }
             val granted = (request.snapshot.committedAuthority?.distanceFromRouteStartMeters ?: -1.0) >=

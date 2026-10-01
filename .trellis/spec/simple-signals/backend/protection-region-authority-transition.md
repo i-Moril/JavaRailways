@@ -38,6 +38,7 @@ SimpleATO 已选择并冻结 RouteSnapshot
 ### 3.1 输入表示
 
 - `ProtectionRegionRouteWindow`保存当前路线 occurrence 上的entry/exit绝对route metres。
+- 同一保护区域可产生多个独立完整window；逐个验证有向入口、连续内部与出口，按entry route metre排序。重复window不创建新region或resource身份，内部停车仍拒绝。
 - `FixedBlockRouteWindow`保存有向block与当前路线交集的entry/exit绝对route metres；路线端点允许位于block内部。
   `enteredAtBoundary`区分真正经过入口与从block内部起步；只有前者生成fixed-block入口检查声明，后者仍参与资源匹配而不伪造入口。
 - 两者都是针对同一个`RouteSnapshot`的派生结果，不写入sidecar。
@@ -132,6 +133,7 @@ InspectionDeclaration(
 - binding保存完整replacement declarations，不在运行中增量修改某一个region。
 - active frozen-route dependency与edit permit阻止相关定义在binding存活期间被无保护地编辑。
 - region definition不保存successor；topology或definition变化后重新绑定并重新派生。
+- 灯泡线的每次经过分别产生原region ID与不同trigger的声明，复用已存在的`(ID, trigger)`唯一性。Basic的过长道岔申请提示必须经SimpleATO通用floor回退，不能把保护区域内部当作可停车的重试终点。
 - region ID默认不成为独占资源；冲突由实际物理资源和明确的插件附加资源表达。
 - update handler当前不产生速度restriction；本source只提供route-local authority floor。
 - 任一异常都在Basic registry mutation前终止binding，不能留下部分claim。
@@ -194,6 +196,7 @@ region为`[5m,25m]`，block从`25m`延伸到路线终点以外，站台运营目
 当前回归必须保持：
 
 - 完整region crossing在无block时产生entry-to-exit floor；
+- 同一region的多次完整穿越分别产生window和floor；缺失任一次入口/出口仍拒绝，不用重复ID掩盖断裂。
 - reverse crossing保留路线方向和反向gate；
 - route在region内部结束时binding失败；
 - 空region/block publication产生空binding；

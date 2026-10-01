@@ -45,7 +45,11 @@ internal class CompiledProtectionSignals private constructor(
                 signal.signalId to candidates.map { it.definition.routeId }.sorted()
             }
             val geometryCatalog = FixedBlockCatalog()
-            val observedRouteIds = routeIdsBySignal.values.flatten().toSortedSet()
+            val indicatorEntries = indicators.mapTo(hashSetOf()) { it.entryBoundaryId }
+            val observedRouteIds = routeIdsBySignal.values.flatten().toSortedSet().also { ids ->
+                routes.routesById.values.filter { it.definition.entryBoundaryId in indicatorEntries }
+                    .forEach { ids += it.definition.routeId }
+            }
             val geometryResult = geometryCatalog.publish(topology, revision, observedRouteIds.map { id ->
                 val route = routes.routesById.getValue(id)
                 FixedBlockDefinition(id, revision, route.definition.traversals.map {

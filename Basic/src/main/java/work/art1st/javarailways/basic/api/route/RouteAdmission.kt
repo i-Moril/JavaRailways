@@ -70,6 +70,7 @@ enum class RouteAdmissionFailureCode {
     RESOURCE_CONFLICT,
     ROUTE_STATE_MISMATCH,
     REQUEST_BUSY,
+    REQUEST_RANGE_TOO_LONG,
     PREPARATION_ABORTED_SAFE,
     WORLD_STALLED
 }
@@ -108,16 +109,22 @@ sealed interface RouteAdmissionBlocker {
 data class RouteAdmissionFailure private constructor(
     val code: RouteAdmissionFailureCode,
     val detail: String,
-    val blockers: List<RouteAdmissionBlocker>
+    val blockers: List<RouteAdmissionBlocker>,
+    /** Optional exact request ceiling; no resources were acquired by this rejected request. */
+    val retryAtOrBefore: RouteBoundary?
 ) {
     constructor(
         code: RouteAdmissionFailureCode,
         detail: String,
-        blockers: Collection<RouteAdmissionBlocker> = emptyList()
-    ) : this(code, detail, immutableBlockers(blockers))
+        blockers: Collection<RouteAdmissionBlocker> = emptyList(),
+        retryAtOrBefore: RouteBoundary? = null
+    ) : this(code, detail, immutableBlockers(blockers), retryAtOrBefore)
 
     init {
         require(detail.isNotBlank()) { "detail must not be blank" }
+        require((code == RouteAdmissionFailureCode.REQUEST_RANGE_TOO_LONG) == (retryAtOrBefore != null)) {
+            "only REQUEST_RANGE_TOO_LONG requires an exact retry ceiling"
+        }
         when (code) {
             RouteAdmissionFailureCode.PHYSICALLY_OCCUPIED -> {
                 require(blockers.isNotEmpty()) {

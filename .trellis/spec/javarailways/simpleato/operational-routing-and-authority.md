@@ -205,6 +205,14 @@ segment occurrence，并以声明携带的rail UUID和AB/BA方向做一次交叉
 初始最远终点，再向前单调扫过因抬高边界而新越过的重叠窗口；相邻窗口入口恰好等于当前终点时不连锁。因此请求一次
 成本为`O(log D + k)`，`D`为声明数、`k`为本次实际跨过的后续要求数；没有第二次路线扫描或每tick插件回调。
 
+灯泡线过长申请可被Basic以`REQUEST_RANGE_TOO_LONG`及中立`retryAtOrBefore`拒绝。Dispatcher不得把该提示直接当成授权，
+也不得原样重跑原请求。它用同一份compiled request floors把上限向后退：若某个已进入的声明要求的终点超过上限，
+将上限退回该声明入口；重复处理受影响floor，直到新边界不会截断任何声明要求。入口恰好等于边界时不触发floor。
+只有这个边界晚于现有committed authority且足以覆盖当前车头，才允许至多一次本地exact-boundary重试；否则沿用既有等待策略。
+该回退仅在过长申请被拒绝时执行：对已有`D`个floor最多倒序检查一次，时间`O(D)`、额外空间`O(1)`；普通tick不增加扫描。
+SimpleATO不解析提示中不存在的道岔或保护区域类型，不新增寻路、设备清单、资源释放队列或每tick插件回调。
+Basic等待上一遍道岔释放的`REQUEST_BUSY`同样不扩大旧授权；真正的第二次准备仍走既有pending handle。
+
 职责固定为：
 
 - SimpleATO拥有binding、激活状态、动态制动数学和现有单次route perception；
@@ -392,6 +400,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 - rolling extension：只沿同一frozen route或经Basic验证的严格正向append发出更远boundary；同一grant最多一个pending handle，期间旧资源继续释放且
   pending/denied不扩大authority，修改旧前缀/topology/plan走replan。折返独立证明暂停释放、同grant rebase和新head零剩余authority。client lookahead policy用独立策略测试，
   复用controller既有perception horizon，并在剩余authority到达既有route-allocation trigger时申请下一段；不另设扫描距离。
+- bulb line：首次前视覆盖两次道岔使用时，按Basic提示退回完整区间入口外；相交floor必须连锁回退，不能截断保护进路。重试至多一次，无法推进时等待；普通申请仍无额外路线扫描或道岔类型分支。
 - signal-plugin integration：固定闭塞、保护区域和移动闭塞插件结果都只能收紧限制；附加资源只增加Basic最终union，不能删除物理底线。
 - inspection scheduling：插件只在route/profile/definition变化时编译完整不可变声明；最大声明提前时间按最高速度扩展现有单次
   perception，当前速度下的可达距离与动态制动距离每tick由host计算；编译期occurrence验证、绝对路线坐标激活、首次激活、

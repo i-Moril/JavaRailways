@@ -92,7 +92,7 @@ class RouteBoundResourceCatalogTest {
     }
 
     @Test
-    fun `leaving and later re-entering one resource is rejected`() {
+    fun `separate visits keep one stable identity and separate route spans`() {
         val first = rail(1)
         val middle = rail(2)
         val last = rail(3)
@@ -109,9 +109,14 @@ class RouteBoundResourceCatalogTest {
             segment(last, ViewDirection.AB)
         )
 
-        val rejected = assertInstanceOf(RouteBoundResourceQuery.InvalidRoute::class.java, catalog.query(route))
-
-        assertTrue(rejected.detail.contains("leaves and later re-enters"))
+        val queried = assertInstanceOf(RouteBoundResourceQuery.Complete::class.java, catalog.query(route))
+        assertEquals(2, queried.hits.size)
+        assertEquals(1, queried.hits.map { it.resource }.distinct().size)
+        val compiled = assertInstanceOf(PhysicalRouteCompilation.Compiled::class.java,
+            PhysicalRouteResourceCompiler(catalog).compile(route, PhysicalRouteRange(0.0, 30.0)))
+        assertEquals(1, compiled.admission.resources.resources.count { it == diamond })
+        assertTrue(compiled.admission.preparations.isEmpty())
+        assertEquals(28.0, compiled.admission.tailReleaseEntries.single { it.resource == diamond }.tailClearRouteMeters)
     }
 
     @Test

@@ -109,18 +109,33 @@ ActiveRouteAdmission
 `releasedThroughRouteMeters`不是“之前的所有资源都已释放”；它只用于撤销已经被物理车尾通过的入口请求关联。
 Basic对剩余资源的排他校验独立继续生效，默认进路永远不能代替列车grant。
 
+同一路线允许多次经过同一region/入口。matcher输出每次完整有向穿越；selector对一个入口选择**最早尚未清除且已经请求**的window，
+先选window再判断固定route ID，不能先按固定route ID过滤而误用后面的授权状态。每次经过仍有自己的entry/exit/floor。
+
+仅用`releasedThroughRouteMeters`会在长资源保留时滞后。因此selector还消费统一epoch source已有的固定进路监测区更新：
+只有本列车真实的`LEFT`且boundary等于该进路出口，才能证明其当前经过已经清除。以该window的exit route metre推进请求内
+一个单调清除位置，再更新相关入口关联。空occupancy baseline、车头越过出口或另一列车LEFT都不能产生这种证明。
+配对LEFT时只按这个清除位置寻找对应经过，不能先用本epoch已更新的资源释放位置过滤：释放通知与LEFT可能同tick到达，
+否则会把第一次LEFT误配给第二次经过。冷source baseline若包含多次尚不能区分的经过，保持限制状态；物理坐标相同不能证明是第几圈。
+在线定义替换不是冷启动：在既有原子安装回调内，内部交接拓扑、区域及固定进路定义未变的请求清除记录。
+候选编译worker不读取这份可变状态；有实际定义变化的binding不能盲目继承。无关定义编辑不能让正在行车的重复进路遗失历史。
+这个位置不是资源授权或第二个释放游标，既不调用registry也不释放资源；它只决定信号参考哪次经过。
+相同route对象的准入变化复用原缓存；严格prefix append保留已有清除事实，折返新坐标则重置。原路线已清除的window仍保留在
+不可变binding中，但不会重新成为当前入口请求。没有历史LEFT证据时不能根据空占用猜测跳到下一次经过；只允许已证实的下界移除旧window。
+
 ## 8. 响应式更新与复杂度
 
 - 当前定义发布时编译entry-to-routes、default routes、rail-to-entry和turnout-entry-to-entry反向索引；不在tick内遍历保护区域图。
 - 请求第一次换绑路线才计算匹配窗口/floor。维护entry-to-request-owner集合；请求变化只更新旧/新关联入口，不遍历所有列车的请求。
 - 请求状态变化只唤醒对应入口；默认进路所需 active continuation 变化只唤醒引用该道岔的入口；选择输出未变化时停止向当前信号和显示器传播。
+- 真实出口LEFT通过area-to-route和train-to-owner现有请求索引只更新相关请求；不为每tick发布车尾进度、不扫描所有列车或查询live claims。相同冻结route的更新不重新比较完整segments，只有真正append/换绑才检查前缀。
 - 占用或下游输出变化只运行依赖对应已选进路的信号规则；进路显示器不因无关占用变化执行。
 - 不允许 `all trains x all regions`、每 tick `liveClaims()` 轮询、重新寻路或根据显示器放置位置进行轨道扫描。
 - admission provider 或观测异常时请求分支退化为限制状态；不得悄悄回落到默认进路掩盖请求状态丢失。
 - 同一个入口出现多个当前owner时`available=false`；topology/world不一致时同样不可用。物理拓扑变化的baseline必须检查所有入口，包括没有道岔的单轨进路。
 - 列车从物理frame消失时，host按已有准入兴趣反查唤醒相关选择器；请求分支不可用，不偷偷回落默认，也不等待Bukkit完成下一次车尾检查。
 - 未变化的选择保留旧publication，不构造新的选择快照。当前实现复制入口map的成本是每次实际选择变化`O(E)`，不是每tick；新路线匹配是低频缓存建立成本，道岔检查按被选进路实际要求数计。
-- 每条已配置固定进路拥有`PROTECTION_ROUTE`监测范围，复用现有轨道区间几何编译和Basic占用观测；它不因此成为固定闭塞资源。
+- 被信号或进路显示器引用的固定进路拥有`PROTECTION_ROUTE`监测范围，复用现有轨道区间几何编译和Basic占用观测；它不因此成为固定闭塞资源。
   候选进路允许共享前缀或重叠，几何不参与真实固定闭塞与保护区域的不重叠校验。占用某条独立支路不会给另一条不相交进路虚构占用。
 - production由一个`SectionOccupancyRuntime`回调依次处理同一epoch的入口选择、区间占用及混合信号依赖图。
   固定闭塞和保护信号共用一张无环单向图，不靠两个callback的执行顺序交换结果，也不增加fixed-point求解器。
@@ -160,6 +175,8 @@ Basic对剩余资源的排他校验独立继续生效，默认进路永远不能
 - 请求结束后重新评估默认进路；不锁存请求模型或旧 permissive 输出。
 - 申请更远后缀期间，已完整授权且道岔正确的旧区域保持ready；车尾通过旧区域后恢复默认选择但不释放仍持有的长资源。
 - 冻结路线虽含未来区域，但requested authority尚未到达其入口时，不压住那个入口的默认选择。
+- 同一region/有向入口重复经过时，真实tail LEFT使第一次退出选择，第二次按自己的请求floor判断ready；固定进路设备不得因同ID多次匹配而跳过READY检查。长资源仍held、空baseline、其他列车LEFT、append及折返均有独立断言。
+- 无关定义在线替换保留重复经过的清除记录；真正冷baseline仍不可按物理坐标猜测经过次数。资源释放与第一次LEFT同epoch时，第二次经过不能被误清除。
 - 固定进路信号不受其他进路的选择变化影响，只在其固定进路状态变化时更新。
 - 当前信号与任意距离放置的多个显示器读取同一 selection revision 并始终显示相同 route identity。
 - stale topology、grant/道岔不一致、多个无法唯一裁决的当前请求和缺少 baseline 全部 fail-close。

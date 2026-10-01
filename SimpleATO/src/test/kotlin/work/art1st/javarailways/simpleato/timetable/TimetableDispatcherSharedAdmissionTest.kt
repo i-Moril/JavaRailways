@@ -31,6 +31,7 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependenc
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
+import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.basic.api.route.RouteAdmissionTestFixtures
 import work.art1st.javarailways.basic.api.route.RouteGrantId
 import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
@@ -322,6 +323,176 @@ class TimetableDispatcherSharedAdmissionTest {
         val intent = fixture.service.intents.single()
         assertEquals(intent.route.totalLengthMeters,
             intent.desiredAuthority.distanceFromRouteStartMeters, 1.0e-9)
+    }
+
+    // These are production Dispatcher-composition tests with scripted Basic results, not proofs
+    // of bulb-line physical admission. Basic's real-world loop tests cover that separately.
+    @Test
+    fun `overlong request retreats before atomic region and retries exactly once`() {
+        val fixture = fixture(inspectionSources = listOf(atomicRequestFloor()))
+        fixture.service.onRequest = { intent ->
+            if (fixture.service.intents.size == 1) overlongRequest(70.0)
+            else fixture.service.grant(intent)
+        }
+
+        fixture.start()
+        fixture.dispatch()
+        assertTrue(fixture.service.intents.isEmpty())
+        fixture.tickAto()
+        fixture.dispatch()
+
+        val intents = fixture.service.intents
+        assertEquals(2, intents.size)
+        assertEquals(intents.first().route.totalLengthMeters,
+            intents.first().desiredAuthority.distanceFromRouteStartMeters, 1.0e-9)
+        assertEquals(40.0, intents.last().desiredAuthority.distanceFromRouteStartMeters, 1.0e-9)
+        assertEquals(intents.first().route, intents.last().route)
+        assertEquals(intents.first().observationStamp, intents.last().observationStamp)
+        assertEquals(40.0, fixture.service.grants.single().committedAuthority.distanceFromRouteStartMeters)
+        assertEquals(TimetableServiceRunState.RUNNING, fixture.status().state)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test
+    fun `second overlong rejection does not start a third local retry`() {
+        val fixture = fixture(inspectionSources = listOf(atomicRequestFloor()))
+        fixture.service.onRequest = {
+            if (fixture.service.intents.size == 1) overlongRequest(70.0) else overlongRequest(30.0)
+        }
+
+        fixture.start()
+        fixture.dispatch()
+        fixture.tickAto()
+        fixture.dispatch()
+
+        assertEquals(listOf(fixture.service.intents.first().route.totalLengthMeters, 40.0),
+            fixture.service.intents.map { it.desiredAuthority.distanceFromRouteStartMeters })
+        assertEquals(TimetableServiceRunState.WAITING_ROUTE, fixture.status().state)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test
+    fun `unusable request ceiling waits without resubmitting or granting authority`() {
+        val fixture = fixture(inspectionSources = listOf(atomicRequestFloor()))
+        fixture.service.onRequest = { overlongRequest(0.0) }
+
+        fixture.start()
+        fixture.dispatch()
+        fixture.tickAto()
+        fixture.dispatch()
+        fixture.dispatch()
+        fixture.tickAto()
+
+        assertEquals(1, fixture.service.intents.size)
+        assertTrue(fixture.service.grants.isEmpty())
+        assertEquals(TimetableServiceRunState.WAITING_ROUTE, fixture.status().state)
+        assertEquals(0.0, fixture.ato.runtimeDiagnostics.permittedSpeedMetersPerSecond, 1.0e-9)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test
+    fun `pending shortened first request keeps zero authority and progresses only its handle`() {
+        val fixture = fixture(inspectionSources = listOf(atomicRequestFloor()))
+        val handle = RouteAdmissionTestFixtures.handle()
+        fixture.service.onRequest = {
+            if (fixture.service.intents.size == 1) overlongRequest(70.0)
+            else RouteAdmissionResult.Pending(handle, null)
+        }
+        fixture.service.onProgress = {
+            assertSame(handle, it)
+            RouteAdmissionResult.Pending(handle, null)
+        }
+
+        fixture.start()
+        fixture.dispatch()
+        fixture.tickAto()
+        fixture.dispatch()
+        fixture.tickAto()
+        fixture.dispatch()
+
+        assertEquals(2, fixture.service.intents.size)
+        assertEquals(40.0, fixture.service.intents.last().desiredAuthority.distanceFromRouteStartMeters)
+        assertEquals(listOf(handle), fixture.service.progressed)
+        assertTrue(fixture.service.grants.isEmpty())
+        assertEquals(0.0, fixture.ato.runtimeDiagnostics.permittedSpeedMetersPerSecond, 1.0e-9)
+        assertEquals(TimetableServiceRunState.WAITING_ROUTE, fixture.status().state)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    @Test
+    fun `pending shortened extension retains prior authority without granting its hint`() {
+        val fixture = fixture(inspectionSources = listOf(atomicRequestFloor()))
+        val handle = RouteAdmissionTestFixtures.handle()
+        fixture.service.onRequest = { intent ->
+            when (fixture.service.intents.size) {
+                1 -> overlongRequest(70.0)
+                2 -> fixture.service.grant(intent)
+                3 -> overlongRequest(140.0)
+                4 -> RouteAdmissionResult.Pending(handle, fixture.service.grants.single())
+                else -> error("unexpected request during preparation")
+            }
+        }
+        fixture.service.onProgress = {
+            assertSame(handle, it)
+            RouteAdmissionResult.Pending(handle, fixture.service.grants.single())
+        }
+
+        fixture.start()
+        fixture.dispatch()
+        fixture.tickAto()
+        fixture.dispatch()
+        val routeStart = fixture.train.tail.location.arcLength
+        for (ignored in 0 until 400) {
+            if (fixture.service.intents.size == 4) break
+            fixture.tickAto()
+            fixture.dispatch()
+        }
+        assertEquals(4, fixture.service.intents.size, fixture.status().toString())
+        assertEquals(140.0, fixture.service.intents.last().desiredAuthority.distanceFromRouteStartMeters)
+        assertEquals(40.0, fixture.service.grants.single().committedAuthority.distanceFromRouteStartMeters)
+
+        // Without further Dispatcher progress the controller must still stop at the old grant,
+        // not the retry hint or the prepared request boundary.
+        repeat(400) { fixture.tickAto() }
+        assertTrue(fixture.train.head.location.arcLength <= routeStart + 40.0 + profile.stopToleranceMeters)
+        assertEquals(0.0, fixture.train.speed, 1.0e-6)
+        fixture.dispatch()
+        assertEquals(4, fixture.service.intents.size)
+        assertEquals(listOf(handle), fixture.service.progressed)
+        assertEquals(TimetableServiceRunState.WAITING_ROUTE, fixture.status().state)
+        assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+    }
+
+    private fun overlongRequest(ceilingMeters: Double) = RouteAdmissionResult.Rejected(
+        RouteAdmissionFailure(RouteAdmissionFailureCode.REQUEST_RANGE_TOO_LONG,
+            "scripted Basic request ceiling", retryAtOrBefore = RouteBoundary(ceilingMeters))
+    )
+
+    private fun atomicRequestFloor(): InspectionSource {
+        var revision = 0L
+        return InspectionSource(
+            sourceId = "test:atomic-request-floor",
+            bindingProvider = { input ->
+                val segment = input.route.segments.first()
+                InspectionDeclarationBinding(
+                    sourceId = "test:atomic-request-floor", trainId = input.trainId,
+                    route = FrozenRouteBinding.from(input.route), definitionRevision = 1L,
+                    trainProfileRevision = 1L, declarations = listOf(InspectionDeclaration(
+                        declarationId = "test:region-entry", railId = segment.railId,
+                        facing = segment.facing, triggerRouteDistanceMeters = 40.0,
+                        inspectionLeadTimeSeconds = 30.0,
+                        minimumRequestedAuthorityEndRouteDistanceMeters = 100.0
+                    ))
+                )
+            },
+            updateHandler = { input ->
+                listOf(TrainRestrictionSnapshot(
+                    sourceId = "test:atomic-request-floor", revision = revision++,
+                    trainId = input.perception.train.trainId, observationStamp = input.observationStamp,
+                    route = input.route, restrictions = emptyList()
+                ))
+            }
+        )
     }
 
     @Test

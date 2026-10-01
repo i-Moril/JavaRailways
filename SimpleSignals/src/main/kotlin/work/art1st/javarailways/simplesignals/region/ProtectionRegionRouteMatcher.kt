@@ -14,7 +14,7 @@ import kotlin.math.min
 
 internal sealed interface RegionRouteMatch {
     data object NotTraversed : RegionRouteMatch
-    data class Matched(val window: ProtectionRegionRouteWindow) : RegionRouteMatch
+    data class Matched(val windows: List<ProtectionRegionRouteWindow>) : RegionRouteMatch
     data class Rejected(val diagnostic: ProtectionRegionDiagnostic) : RegionRouteMatch
 }
 
@@ -23,8 +23,8 @@ internal sealed interface RegionRouteMatch {
  *
  * This code performs no path search and does not try to duplicate Basic's structural route
  * validation. It only converts the route's facing-local segment coordinates through the captured
- * topology rail lengths, intersects them with the derived interior, and identifies one entry and
- * one exit boundary. Basic independently validates the same route before any resource claim.
+ * topology rail lengths, intersects them with the derived interior, and identifies each complete
+ * entry/exit visit. Basic independently validates the same route before any resource claim.
  */
 internal object ProtectionRegionRouteMatcher {
     fun matchIndexed(
@@ -61,7 +61,7 @@ internal object ProtectionRegionRouteMatcher {
         for ((regionId, relevantOccurrences) in occurrencesByRegion) {
             val region = regionsById.getValue(regionId)
             when (val result = match(region, relevantOccurrences)) {
-                is RegionRouteMatch.Matched -> windows += result.window
+                is RegionRouteMatch.Matched -> windows += result.windows
                 RegionRouteMatch.NotTraversed -> Unit
                 is RegionRouteMatch.Rejected -> diagnostics += result.diagnostic
             }
@@ -80,34 +80,22 @@ internal object ProtectionRegionRouteMatcher {
     ): RegionRouteMatch {
         val intervals = interiorIntervals(region, occurrences)
         if (intervals.isEmpty()) return RegionRouteMatch.NotTraversed
-        if (intervals.size != 1) {
-            return rejected(
-                region,
-                ProtectionRegionValidationCode.AMBIGUOUS_TRAVERSAL,
-                "route traverses region ${region.definition.regionId} ${intervals.size} times"
-            )
-        }
-        val interval = intervals.single()
-        val entry = boundaryAt(region, occurrences, interval.startMeters, entering = true)
-            ?: return rejected(
-                region,
-                ProtectionRegionValidationCode.INVALID_ROUTE,
-                "route enters region ${region.definition.regionId} without one matching authored boundary"
-            )
-        val exit = boundaryAt(region, occurrences, interval.endMeters, entering = false)
-            ?: return rejected(
-                region,
-                ProtectionRegionValidationCode.INVALID_ROUTE,
-                "route exits region ${region.definition.regionId} without one matching authored boundary"
-            )
-        return RegionRouteMatch.Matched(
-            ProtectionRegionRouteWindow(
+        val windows = ArrayList<ProtectionRegionRouteWindow>(intervals.size)
+        for (interval in intervals) {
+            val entry = boundaryAt(region, occurrences, interval.startMeters, entering = true)
+                ?: return rejected(region, ProtectionRegionValidationCode.INVALID_ROUTE,
+                    "route enters region ${region.definition.regionId} without one matching authored boundary")
+            val exit = boundaryAt(region, occurrences, interval.endMeters, entering = false)
+                ?: return rejected(region, ProtectionRegionValidationCode.INVALID_ROUTE,
+                    "route exits region ${region.definition.regionId} without one matching authored boundary")
+            windows += ProtectionRegionRouteWindow(
                 regionId = region.definition.regionId,
                 regionRevision = region.definition.revision,
                 entry = entry,
                 exit = exit
             )
-        )
+        }
+        return RegionRouteMatch.Matched(java.util.List.copyOf(windows))
     }
 
     private fun boundaryAt(

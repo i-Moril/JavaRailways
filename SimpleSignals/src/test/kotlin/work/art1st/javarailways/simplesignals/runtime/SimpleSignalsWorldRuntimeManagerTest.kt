@@ -652,18 +652,146 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
     private fun protect(registry: InfrastructureCoordinationRegistry, topology: TopologyState,
         rail: UUID, kind: TopologyEditBlockerKind
-    ) {
+    ): () -> Unit {
+        val platformOwner = Any()
         val owner = InfrastructureOwner("test:operator/$rail", 1)
         when (kind) {
             TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY -> assertEquals(InfrastructureDependencyMutationStatus.APPLIED,
-                registry.setInfrastructureDependencies(Any(), InfrastructureDependencyRequest(topology.revision, owner,
+                registry.setInfrastructureDependencies(platformOwner, InfrastructureDependencyRequest(topology.revision, owner,
                     InfrastructureDependencies(setOf(rail), emptySet(), emptySet()))).status)
             TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM -> assertEquals(InfrastructureMutationStatus.ACQUIRED,
-                registry.acquireClaim(Any(), InfrastructureClaimRequest(topology.revision, owner,
+                registry.acquireClaim(platformOwner, InfrastructureClaimRequest(topology.revision, owner,
                     InfrastructureFootprint(listOf(RailIntervalResource(rail, 0.0, 5.0))))).status)
             else -> error("unsupported test blocker")
         }
+        return {
+            when (kind) {
+                TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY -> assertEquals(InfrastructureDependencyMutationStatus.REMOVED,
+                    registry.removeInfrastructureDependencies(platformOwner, owner).status)
+                TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM -> assertEquals(InfrastructureMutationStatus.RELEASED,
+                    registry.releaseClaim(platformOwner, owner).status)
+            }
+        }
     }
+
+    @Test
+    fun `fixed route signal deletion is blocked by real static route dependency until release`() {
+        assertProtectionSignalDeletionBlocked(ProtectionSignalKind.FIXED_ROUTE, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
+    }
+
+    @Test
+    fun `current entry signal deletion is blocked by real static route dependency until release`() {
+        assertProtectionSignalDeletionBlocked(ProtectionSignalKind.CURRENT_ENTRY, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
+    }
+
+    @Test
+    fun `fixed route signal deletion is blocked by real live claim until release`() {
+        assertProtectionSignalDeletionBlocked(ProtectionSignalKind.FIXED_ROUTE, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM)
+    }
+
+    @Test
+    fun `current entry signal deletion is blocked by real live claim until release`() {
+        assertProtectionSignalDeletionBlocked(ProtectionSignalKind.CURRENT_ENTRY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM)
+    }
+
+    private fun assertProtectionSignalDeletionBlocked(kind: ProtectionSignalKind, blockerKind: TopologyEditBlockerKind) {
+        val fixture = Fixture()
+        val topology = fixture.currentTopology
+        val signal = protectionSignal(kind, fixture.upperRoute())
+        val definitions = store()
+        definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            listOf(fixture.region), listOf(fixture.table(1, fixture.upperRoute())), protectionSignals = listOf(signal)))
+        val registry = editRegistry(topology)
+        val infrastructure = MutableTopologyService(topology, registry)
+        val sources = CapturingSignalEpochSourceService()
+        val planning = CapturingRoutePlanningService()
+        val manager = runtimeManager(plugin(), infrastructure.service, planning, definitions, sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val runtime = manager.authoringRuntime(fixture.worldId)!!
+        val publication = runtime.authoringPublication()
+        val retainedSources = sources.sources.getValue(fixture.worldId)
+        val retainedPlanning = planning.single(fixture.worldId).source.restrictions(topology)
+        val primary = Files.readString(definitions.primaryFile(fixture.worldId))
+        val commitCount = sources.atomicCommitCount
+        // Protect an interior rail of the controlled route, away from the entrance signal.
+        val release = protect(registry, topology, fixture.upperIn, blockerKind)
+        val patch = SimpleSignalsDefinitionPatch(removeProtectionSignalIds = listOf(signal.signalId))
+
+        val blocked = manager.applyDefinitionPatch(fixture.worldId, 1, patch)
+
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, blocked.status, blocked.diagnostics.toString())
+        assertEquals(TopologyEditStatus.CONFLICT, blocked.editDecision!!.status)
+        val blocker = blocked.editDecision.blockers.single()
+        assertEquals(blockerKind, blocker.kind)
+        assertEquals(InfrastructureOwner("test:operator/${fixture.upperIn}", 1), blocker.owner)
+        assertEquals(setOf(fixture.upperIn), blocker.overlap.railIds)
+        assertTrue(fixture.upperIn in infrastructure.lastEditRequest!!.impact.railIds)
+        assertEquals(primary, Files.readString(definitions.primaryFile(fixture.worldId)))
+        assertSame(publication, runtime.authoringPublication())
+        assertSame(retainedSources, sources.sources.getValue(fixture.worldId))
+        assertSame(retainedPlanning, planning.single(fixture.worldId).source.restrictions(topology))
+        assertEquals(commitCount, sources.atomicCommitCount)
+        assertEquals(0, infrastructure.permitCloseCount)
+
+        release()
+        val removed = manager.applyDefinitionPatch(fixture.worldId, 1, patch)
+
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, removed.status, removed.diagnostics.toString())
+        assertEquals(2L, removed.definitions!!.definitionRevision)
+        assertTrue(removed.definitions.protectionSignals.isEmpty())
+        assertEquals(publication.definitions.regions, removed.definitions.regions)
+        assertEquals(publication.definitions.routeTables, removed.definitions.routeTables)
+        assertEquals(removed.definitions,
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionsCodec.decode(
+                Files.readString(definitions.primaryFile(fixture.worldId)), fixture.worldId))
+        assertNotSame(publication, runtime.authoringPublication())
+        assertNotSame(retainedSources, sources.sources.getValue(fixture.worldId))
+        assertEquals(commitCount + 1, sources.atomicCommitCount)
+        assertEquals(1, infrastructure.permitCloseCount)
+    }
+
+    @Test
+    fun `unrelated static route dependency and live claim allow local protection signal deletion`() {
+        ProtectionSignalKind.entries.forEach { kind ->
+            val fixture = Fixture()
+            val localRail = UUID(0, 99)
+            val topology = fixture.topology(41, listOf(localRail))
+            val localRegion = ProtectionRegionDefinition("test:local-region", 1, listOf(
+                ProtectionBoundaryDefinition("test:local-entry", RailPositionSnapshot(localRail, ViewDirection.AB, 2.0)),
+                ProtectionBoundaryDefinition("test:local-exit", RailPositionSnapshot(localRail, ViewDirection.BA, 8.0))))
+            val localRoute = ProtectionRouteDefinition("test:local-route", "test:local-entry", "test:local-exit",
+                listOf(ProtectionRouteTraversal(localRail, ViewDirection.AB, 2.0, 8.0)))
+            val localTable = ProtectionRouteTableDefinition("test:local-table", 1, localRegion.regionId, 1, listOf(localRoute))
+            val signal = protectionSignal(kind, localRoute)
+            val definitions = store()
+            definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+                listOf(fixture.region, localRegion), listOf(fixture.table(1, fixture.upperRoute()), localTable),
+                protectionSignals = listOf(signal)))
+            val registry = editRegistry(topology)
+            val infrastructure = MutableTopologyService(topology, registry)
+            val sources = CapturingSignalEpochSourceService()
+            val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources)
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+            val releaseDependency = protect(registry, topology, fixture.upperIn, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
+            val releaseClaim = protect(registry, topology, fixture.lowerIn, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM)
+
+            val removed = manager.applyDefinitionPatch(fixture.worldId, 1,
+                SimpleSignalsDefinitionPatch(removeProtectionSignalIds = listOf(signal.signalId)))
+
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, removed.status, "$kind: ${removed.diagnostics}")
+            assertTrue(removed.definitions!!.protectionSignals.isEmpty())
+            assertEquals(setOf(localRail), infrastructure.lastEditRequest!!.impact.railIds)
+            assertEquals(1, infrastructure.permitCloseCount)
+            releaseClaim()
+            releaseDependency()
+        }
+    }
+
+    private fun protectionSignal(kind: ProtectionSignalKind, route: ProtectionRouteDefinition) = ProtectionSignalDefinition(
+        "test:protection-signal", 1, kind,
+        if (kind == ProtectionSignalKind.FIXED_ROUTE) route.routeId else route.entryBoundaryId,
+        0.0, ConfiguredSignalOutput(0.0, "none"), ConfiguredSignalOutput(0.0, "occupied"),
+        listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(17.0, "clear"))))
 
     @Test
     fun `online three device patch persists atomically validates revisions and removes without orphaning`() {

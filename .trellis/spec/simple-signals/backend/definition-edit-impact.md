@@ -43,6 +43,12 @@ Basic 判断这些轨道是否涉及已应用时刻表、列车占用或其他�
 
 影响收集只读取已编译 publication，不修改共享信号状态、不调用 Bukkit、不申请列车资源。
 旧、新结果都必须检查；删除后的对象不能因候选中不存在而失去保护。
+删除保护信号时，旧 publication 中的 signal binding 仍是影响收集起点，必须包含其受控进路轨道。
+正常 Dispatcher 路径先 `FrozenRouteEditProtection.protect` 再绑定 inspection；结束时先
+`InspectionRuntime.removeTrain` 再解除路线编辑保护。因此相关检查仍有效时，删除必须返回 `EDIT_BLOCKED`，
+不能依赖删除后识别旧 declaration 的兼容分支。物理 worker 对已捕获 binding 仍核对当前 source 身份，
+`removeTrain` 后的下一次检查更新过滤掉已移除的检查。此结论限于上述正常生命周期与统一编辑许可，
+不代替其他调用方的生命周期合同，也不是已在执行回调的取消机制。
 完整候选仍绑定 exact topology root；许可后 root 变化须在保存前拒绝。
 计算在异步 authoring 路径，不进入物理 tick 或逐列车信号计算。
 不改变持久化字段与 schema，也不增加兼容分支。
@@ -76,6 +82,8 @@ Bad：B 是 A 的下游依赖，或 B 是 A 保护区域出口后的直接闭塞
 - 实际 runtime manager 配合 Basic registry：无关静态运营依赖和动态 claim 不阻挡编辑。
 - 被编辑轨道或间接受影响的上游轨道受保护：拒绝且磁盘、publication、source 不变。
 - 旧、新路径、删除和位置移动均覆盖；block、region、table、signal、indicator 均有断言。
+- 固定进路信号和当前信号分别删除：使用实际 Basic registry 的静态依赖、动态 claim 阻挡；
+  拒绝不改变磁盘、publication、source，解除阻挡后同一删除成功。
 - 无关在建轨道替换 topology root 后，局部编辑仍不被另一条运营线路阻挡。
 - 当前输出不变、当前支路未开放仍收集结构依赖。
 - 保留 revision、非法候选、许可后 root 变化、保存失败和阻塞提交的既有原子性测试。

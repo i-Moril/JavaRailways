@@ -74,6 +74,29 @@ apply 成功后插件自动把全局 revision 增加 1；原草稿再次 apply �
 进路显示器已有位置、模型映射和后端状态，不代表世界中已出现实体模型。
 这仍是开发中的后端，不是已完成的玩家可用信号系统。
 
+### 模型默认显示（已确认的设计，尚未实现）
+
+SimpleSignals 模型包需要显式提供 `default`，用于初始尚无信号结果或信号状态不可用时的显示。
+这项要求不适用于主插件通用模型、列车模型或其他附属插件；内部 `Unavailable` 信号状态也不改名。
+有正常结果时使用其 `modelVariant` 指定的外观，名称拼错或映射缺失应报错，不静默改用默认外观。
+
+例如，假设模型已定义 `lamp` 动画及 `dark/red/green` 场景，建议的配置片段为：
+
+```yaml
+default:
+  lamp: dark
+variants:
+  stop:
+    lamp: red
+  proceed:
+    lamp: green
+```
+
+这些名称没有内置灯色或速度含义。每个映射都是完整选择，不是叠加到 `default` 上的增量；
+作者也可以用 `default: {}` 明确选择模型基础外观。
+以上仅为配置片段草案，不能作为现有插件可加载的完整模型包；包入口、部件文件和摆放格式仍待确定。
+完整行为及测试要求见[信号模型显示契约](../.trellis/spec/simple-signals/backend/model-presentation.md)。
+
 实现契约见[保护区域信号与进路显示合同](../.trellis/spec/simple-signals/backend/protection-region-signal-selection.md)。
 在线编辑范围的计算见[定义编辑影响合同](../.trellis/spec/simple-signals/backend/definition-edit-impact.md)。
 命令和草稿规则见[管理命令合同](../.trellis/spec/simple-signals/backend/authoring-commands.md)。

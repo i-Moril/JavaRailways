@@ -237,20 +237,22 @@ during epoch processing. This completes the prerequisite for turnout-aware depen
 ### Rendering and customization
 
 SimpleSignals 自己负责信号模型包、模型操作对象、RailObjectWand 模式、命令、权限，以及可选的 JS/YAML 配置。
-显示侧读取不可变的信号结果，只在外观或摆放状态变化时更新模型。下一步拟通过通用公开接口复用主插件的模型系统，
+显示侧读取不可变的信号结果，只在外观或摆放状态变化时更新模型。显示绑定将通过已实现的通用公开接口复用主插件的模型系统，
 不另写一套渲染器，也不把信号模型伪装成列车。
 
-[主插件接口草稿](../../spec/bukkit-plugin/backend/model-presentation-api.md)描述按 ID 查询轨道曲线、
+[主插件模型契约](../../spec/bukkit-plugin/backend/model-presentation-api.md)描述按 ID 查询轨道曲线、
 构造普通模型、安排目标线程更新和清理实体；[信号模型绑定草稿](../../spec/simple-signals/backend/model-presentation.md)
 描述 SimpleSignals 如何解析模型包、计算摆放位置、映射外观，并在完整信号结果可见后提交显示变化。
-目前已经实现按 UUID 查询不可变轨道曲线、公开不可变普通模型定义，以及主插件内部的构造和完整场景应用。
-完整的公开模型显示服务和 SimpleSignals 模型绑定仍未实现；信号包配置和摆放格式需要先审查。
+目前已经实现按 UUID 查询不可变轨道曲线、公开不可变普通模型定义、内部构造和完整场景应用，
+以及公开 `ModelPresentationService`、`ModelHandle`、目标线程调度和清理完成通知。
+SimpleSignals 模型绑定仍未实现；信号包配置和摆放格式需要先审查。用户已确认该插件模型包的 `default` 规则，
+选择语义和配置片段统一放在信号模型契约，不改变宿主模型定义或内部 `Unavailable` 信号状态。
 SimpleATOBukkit 不参与这条流程。
 
 普通模型值契约已经审查并实现：附属插件展开模型包，主插件只消费不可变的容器/物品树，
 以完整场景选择恢复或替换外观。创建时建立动画/场景索引，提交前完成全部校验，再更新旧、新命中部件的并集。
 具体变换、动画匹配、复位、资源键和零插值规则只在上述主插件契约中定义。
-本批不改变旧列车动画或包格式；内部普通入口需要调用方处于正确的目标线程，不代表跨插件显示服务已经完成。
+本批不改变旧列车动画或包格式；附属插件使用公开 handle 提交值，由主插件调度，不能直接调用内部普通入口。
 
 第一批管理员编辑功能已经提供 inspect/export/validate/apply 命令，操作独立的当前格式 JSON 草稿，
 复用既有配置修改事务。单独验证不会预留资源，因此不能保证后来真正应用时仍允许编辑。

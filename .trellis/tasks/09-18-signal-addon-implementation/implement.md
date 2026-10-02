@@ -114,7 +114,8 @@ Current extraction progress:
   - [x] 提供 `ModelHandle` 与第八个公开服务 `ModelPresentationService`：复用 `ModelPose`、创建时建立的场景索引、既有最新状态调度和附近玩家索引。提交只保存值；实体工作不持有提交锁，根位置变化先在旧所属线程删除再到新位置重建。接入实际服务注册、插件停用、世界撤回/同 UUID 重载和 Java consumer，不公开内部模型管理器，不保留草稿兼容。本批不接 SimpleSignals 模型包或信号绑定。
     - 卸载顺序已获用户确认：先卸载附属插件并完成其模型清理，再卸载主插件。`closeOwner` 返回非阻塞完成结果，也统计已经单独关闭但尚未删除的模型；删除失败仍可观察，不把 `onDisable` 返回或排入队列当成清理成功。没有新增卸载管理器。完整规则见[主插件模型契约](../../spec/bukkit-plugin/backend/model-presentation-api.md)。
     - 独立审查修复删除结果误判、玩家可见列表的删除竞争，以及登记玩家显示失败后的引用清理；无剩余阻塞。最终离线 Bukkit gate 实际执行 82 suites / 331 tests（服务 15 项），零失败/错误/跳过，Java consumer 编译、主插件 shadowJar 打包通过；TunnelBridgeBuilder 编译通过并复用既有测试结果。测试连接真实 service/builder/玩家索引和 Paper ItemStack，使用可控调度与记录后端；不证明 live Folia、客户端资源包或完整世界加载保存。真实平台 smoke 仍待后续验证。
-  - [ ] 确定信号模型包、摆放信息和状态不可用时的显示配置，接入只处理显示变化的更新流程，再验证实际画面、世界卸载和插件停用时的清理。
+  - [x] 明确信号模型包的 `default` 契约及配置片段：仅 SimpleSignals 模型包必填，初始缺状态或 `Unavailable` 时使用，未知明确外观仍报错；内部状态名称和宿主 API 不变。同步 README、需求与显示契约，并修正设计文档中主插件显示服务尚未完成的旧描述。本项仅完成文档，不表示已有包加载或信号实体。
+  - [ ] 确定完整信号模型包和摆放格式，接入只处理显示变化的更新流程，再验证实际画面、世界卸载和插件停用时的清理。
 
 ## Cross-cutting online edit latency
 

@@ -1,6 +1,4 @@
-{"file": ".trellis/spec/bukkit-plugin/backend/index.md", "reason": "Current batch provides public ordinary-model presentation service with Bukkit composition and tests"}
-{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "Reuse target-aware dispatch, exact world-instance lifecycle, owner disable and host shutdown; no simulation waits"}
-{"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "Public addon boundary and existing model/backend behavior to preserve"}
-{"file": ".trellis/spec/bukkit-plugin/backend/model-presentation-api.md", "reason": "Implement create/submit/close, immutable revisioned state, latest-only dispatch, validation and cleanup on the approved model values"}
-{"file": ".trellis/tasks/09-18-signal-addon-implementation/research/public-model-definition-contract.md", "reason": "Reuse completed ordinary values and exact scene/reset mechanism without adding old package compatibility or timed playback"}
-{"file": ".trellis/spec/javarailways/core/testing.md", "reason": "Reuse Core fixture and close test runtime resources"}
+{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Placement-only batch: plugin-local ownership, public imports, independent JAR and scoped quality gate"}
+{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Approved rail/world placement, copied preset parameters, axes, tilt and rotation; no loader, persistence or live binding"}
+{"file":".trellis/spec/bukkit-plugin/backend/model-presentation-api.md","reason":"Reuse immutable ModelPose without changing host API or importing host implementation"}
+{"file":".trellis/spec/javarailways/core/testing.md","reason":"Real public immutable curves, independent expected geometry, no world or tick lifecycle needed"}

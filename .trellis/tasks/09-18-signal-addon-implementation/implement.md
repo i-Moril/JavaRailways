@@ -115,6 +115,9 @@ Current extraction progress:
     - 卸载顺序已获用户确认：先卸载附属插件并完成其模型清理，再卸载主插件。`closeOwner` 返回非阻塞完成结果，也统计已经单独关闭但尚未删除的模型；删除失败仍可观察，不把 `onDisable` 返回或排入队列当成清理成功。没有新增卸载管理器。完整规则见[主插件模型契约](../../spec/bukkit-plugin/backend/model-presentation-api.md)。
     - 独立审查修复删除结果误判、玩家可见列表的删除竞争，以及登记玩家显示失败后的引用清理；无剩余阻塞。最终离线 Bukkit gate 实际执行 82 suites / 331 tests（服务 15 项），零失败/错误/跳过，Java consumer 编译、主插件 shadowJar 打包通过；TunnelBridgeBuilder 编译通过并复用既有测试结果。测试连接真实 service/builder/玩家索引和 Paper ItemStack，使用可控调度与记录后端；不证明 live Folia、客户端资源包或完整世界加载保存。真实平台 smoke 仍待后续验证。
   - [x] 明确信号模型包的 `default` 契约及配置片段：仅 SimpleSignals 模型包必填，初始缺状态或 `Unavailable` 时使用，未知明确外观仍报错；内部状态名称和宿主 API 不变。同步 README、需求与显示契约，并修正设计文档中主插件显示服务尚未完成的旧描述。本项仅完成文档，不表示已有包加载或信号实体。
+  - [x] 确认并记录两种摆放方式、方向相关偏移、模型默认/玩家选择的倾斜规则，以及预设选择时复制为独立实例参数的语义。改变附着方向保留偏移值重算位置，原地旋转不移动摆放点；本项仅完成设计讨论和文档。
+  - [x] 实现 SimpleSignals 的预设应用与纯摆放计算：两个源码文件复用 `RailPositionSnapshot`、`ModelPose` 和公开曲线，完成方向相关偏移、倾斜/竖直参照与位置独立的局部旋转；预设选择时复制参数，不增加动态继承或深拷贝模型树。两个测试文件使用真实曲线与独立推导的轴向期望验证 AB/BA、组合坡度/超高、局部旋转、实例独立性、重新应用、地面摆放及非法数值，新增 16 项全部通过。独立审查无阻塞或明显过度设计。
+    - 最终离线 gate：`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava`，排除 `:WebUI:installFrontend` 和 `:WebUI:buildFrontend`。25 suites / 211 tests 全部通过，零失败/错误/跳过；模块测试、插件 JAR 隔离校验和 Java consumer 编译实际执行。复用本机 JDK25 与缓存 Gradle9.5，未修改 wrapper；首次 focused 构建意外触发既有前端依赖任务，无 WebUI tracked 改动，后续显式排除。不涉及加载器、存档、Wand、缓存/调度器或生产绑定，未做 live Folia/客户端显示验证。
   - [ ] 确定完整信号模型包和摆放格式，接入只处理显示变化的更新流程，再验证实际画面、世界卸载和插件停用时的清理。
 
 ## Cross-cutting online edit latency

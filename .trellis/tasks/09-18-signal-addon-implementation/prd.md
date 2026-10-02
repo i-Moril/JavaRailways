@@ -39,7 +39,6 @@ The result must prove that protection regions and fixed blocks are optional poli
 - Depend on JavaRailways/SimpleATO public contracts at compile time and host services at runtime; do not shadow host classes.
 - Own its fixed-block definitions, protection-region boundaries/interiors, interlocking policy, signal definitions/aspects, renderer state, authoring and optional script/configuration runtime.
 - Publish model/aspect changes as immutable per-object presentation revisions. The adapter may skip obsolete pending visual revisions but must converge to the newest value without delaying the railway safety epoch.
-- SimpleSignals model packages must explicitly define `default` for initial missing signal state or `Unavailable`; an unknown explicit model variant remains a configuration error. This is plugin-local presentation policy, not a new requirement on host/train/rail models; the signal safety state keeps its existing name and semantics. Details belong to the [model presentation contract](../../spec/simple-signals/backend/model-presentation.md).
 - Migrate the current protection-region domain code out of Basic: definition, catalog, graph-cut/interior derivation, route-window matching, authoring validation, persistence and diagnostics. Reuse Basic topology/resource APIs instead of copying the physical graph or claim registry.
 - Allow one player-authored region to protect a simple turnout or a complete station throat. Do not synthesize one stop/protection boundary per turnout.
 - At authoring/update time, cut the immutable directed topology at region gates, derive the selected bounded interior and reject leaks, ambiguity, invalid directions and unsupported overlap. Cache/index the result by topology and plugin-definition revision; do not flood-fill each tick.
@@ -55,6 +54,17 @@ The result must prove that protection regions and fixed blocks are optional poli
 - Do not add a second per-train route scanner, world-wide per-signal tick loop or `allTrains × allSignals` lookup.
 - Support diamond conflicts through Basic's route-bound physical resources without treating a diamond as a switch or topology continuation.
 - Release resources through the host grant/cursor lifecycle. Planned plugin disable must first remove its applied-plan dependencies and then pass the single owner-unregister gate; the gate rejects disable while that owner still has pending requests, live claims, referenced resource types, active inspection bindings or non-empty restrictions. If Bukkit has already forced the plugin off, the host removes dead callbacks, retains claims/dependencies and stalls only affected worlds instead of widening authority.
+
+#### Model presentation and placement
+
+These behaviors are approved; preset application and placement calculation are implemented and tested,
+but SimpleSignals rendering is not wired yet. The owning [model presentation contract](../../spec/simple-signals/backend/model-presentation.md)
+distinguishes the completed calculation components from the remaining package/binding work.
+
+- SimpleSignals model packages must explicitly define `default` for initial missing signal state or `Unavailable`; an unknown explicit model variant remains a configuration error. This is plugin-local presentation policy, not a new requirement on host/train/rail models; the signal safety state keeps its existing name and semantics.
+- Support rail-attached and ground/world-position placement. Rail coordinates retain their AB/BA direction to interpret offsets; ground placement uses a world pose without rail offsets. Placement and named left/right presets are independent of signal aspect variants and logical control boundaries.
+- A future Wand can edit per-device offsets, rail coordinates and direction. Changing attachment direction retains offset values and recomputes placement; rotating the model in place preserves its placement point.
+- Models may default to following rail slope/cant and players may override that choice, with world-upright as the fallback. Selecting a preset copies the effective offset, rotation and tilt choice into independent instance parameters. Later preset edits/removal do not move existing devices; adopting new parameters requires explicitly reapplying a preset. Do not add runtime field-inheritance tracking.
 
 ### C. Timetable, editing and persistence
 
@@ -76,6 +86,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - [ ] `SimpleATO` contains the platform-neutral operational stack and Basic has no production owner for the migrated state.
 - [ ] `SimpleATOBukkit` is a separate Gradle source/test module embedded in the JavaRailways main plugin JAR, has no independent Bukkit descriptor/lifecycle, and does not become the owner of any concrete signalling system.
 - [ ] Signal presentation is applied through target-aware latest-only dispatch: an unchanged or superseded model revision creates no replay backlog and cannot delay logical signal evaluation.
+- [x] Placement tests prove directed rail offsets, model/player tilt selection, in-place rotation and ground placement without a rail lookup. Existing instance parameters survive preset changes, with explicit reapplication adopting the new values; calculation creates no entities or signalling side effects.
 - [ ] The `SimpleSignals` JAR installs beside the host, is absent from host JARs and imports only documented public contracts.
 - [ ] Protection-region/fixed-block classes, persistence and authoring are absent from Basic's target API and owned by `SimpleSignals`.
 - [ ] One region protects both a simple turnout and a multi-turnout throat without internal per-turnout stop boundaries.
@@ -116,8 +127,11 @@ The result must prove that protection regions and fixed blocks are optional poli
 ## Deferred decisions
 
 - Exact plugin-local JS/YAML API, script budget and model-variant vocabulary. These are reviewed after the Java/Kotlin safety/runtime boundary exists.
+- Complete signal model-package files, placement persistence and Wand UI. These are outside the proposed first pure placement-calculation batch; no temporary disk format is required for that batch.
 - Guided/shunting workflow details and WebUI packaging.
 
 ## Blocking open questions
 
 None for the route-restriction foundation. Sources compile immutable neutral contributions before search; no plugin callback is evaluated during graph expansion. Owner/world registration now shares the existing signal lifecycle, and the plugin restores its strict current-model route-table sidecar before publishing the compiled source; invalid persisted policy leaves a rejecting source installed. Authoring and runtime route/resource policy remain later reviewable batches.
+
+The approved first calculation-only placement batch is complete. Package loading, persistence and live signal/model binding remain outside this batch and require their own review.

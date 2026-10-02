@@ -122,15 +122,19 @@ worker的record比较、JSON编码、旧文件复制均为`O(render record count
 Folia dispatch和具体aspect/model应用都由具体信号插件负责。现有`BukkitPlugin`内部latest-only helper只服务主插件自身
 的车辆画面与platform commit，不是`SimpleATOBukkit`或附属插件API；出现真实跨插件需求后再评审通用platform service。
 
-SimpleSignals 已提出复用主插件模型系统的需求；[通用模型 API 草图](model-presentation-api.md)记录
-待审查的接口方案。当前七个公开服务尚无这个能力，不能把草稿描述成已注册的服务。
+SimpleSignals 已提出复用主插件模型系统的需求；[通用模型 API 契约](model-presentation-api.md)区分
+已有公开值类型和后续服务草稿。当前七个公开服务尚无模型显示服务，不能把草稿描述成已注册的服务。
 信号插件仍负责模型包、外观映射和摆放配置，不直接调用主插件的内部工具类。
 
 已实现的 `RailTargetService.findCurve(worldId, railId)` 复用这七个服务中的既有选轨服务。
 它通过加载时维护的世界 UUID 索引和 Core 的线程安全轨道查询，返回 canonical AB 不可变曲线；
 可以在工作线程调用，缺轨道返回空、世界未加载或已开始卸载时明确失败。取得的旧曲线仍可读取，
-但不是当前线路存在性或授权的证明。内部 `ModelTreeBuilder.buildModel` 不属于附属插件 API；
-不为它公开 `CompositeModel` 或模型管理器。
+但不是当前线路存在性或授权的证明。`api.model` 已公开不可变的普通模型树、姿态、缩放、完整物品外观和动画帧；
+定义先校验，列表复制为只读集合，不包含列车、可变 ItemStack 或模型包读取回调。
+内部 `ModelTreeBuilder.buildModel(ModelDefinition, Location)` 复用部件树和渲染后端，
+`OrdinaryModel` 完整选择场景、恢复基础外观，且不启动列车动画 tick。它们仍不是附属插件可直接调用的显示 API；
+不为此公开 `CompositeModel` 或模型管理器。普通模型使用零插值，列车保持三 tick；
+旧部件引用/命名空间普通入口已删除，不增加草稿兼容路径。
 
 `InfrastructureResourceService.currentTopology(worldId)`只暴露该world runtime当前发布的exact immutable
 `TopologyState` root，不暴露mutable `World`。插件必须把派生index与该root对象身份绑定；结构编辑发布新root后由插件在

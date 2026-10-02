@@ -47,7 +47,7 @@ class NativeDisplayRenderBackend(
     }
 }
 
-private class NativeDisplayVisual(
+internal class NativeDisplayVisual(
     private val plugin: Plugin,
     private val entity: Display
 ) : DisplayVisual {
@@ -76,6 +76,10 @@ private class NativeDisplayVisual(
     override fun setBrightness(blockLight: Int, skyLight: Int) {
         packDisplayBrightness(blockLight, skyLight)
         if (!destroyed) entity.brightness = Display.Brightness(blockLight, skyLight)
+    }
+
+    override fun clearBrightness() {
+        if (!destroyed) entity.brightness = null
     }
 
     override fun addPassenger(passenger: DisplayVisual): Boolean {

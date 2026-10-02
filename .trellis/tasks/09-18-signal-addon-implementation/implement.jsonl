@@ -1,6 +1,6 @@
-{"file": ".trellis/spec/bukkit-plugin/backend/index.md", "reason": "Current batch edits only Bukkit public geometry lookup and internal model construction"}
-{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "Loaded-world lookup lifecycle and Bukkit/Folia thread ownership"}
+{"file": ".trellis/spec/bukkit-plugin/backend/index.md", "reason": "Current batch implements public immutable ordinary-model values and internal complete scene application only"}
+{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "Model entity work must remain on target threads; no handle dispatch or lifecycle service in this batch"}
 {"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "Public addon boundary and existing model/backend behavior to preserve"}
-{"file": ".trellis/spec/bukkit-plugin/backend/model-presentation-api.md", "reason": "Foundation batch only; full presentation types and service remain draft"}
-{"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "Consume existing immutable canonical AB curve without geometry changes"}
+{"file": ".trellis/spec/bukkit-plugin/backend/model-presentation-api.md", "reason": "User approved neutral container/item tree, complete scene reset and zero ordinary-model interpolation; full service remains later"}
+{"file": ".trellis/tasks/09-18-signal-addon-implementation/research/public-model-definition-contract.md", "reason": "Source-backed transform, scene, namespace and brightness behavior; avoid legacy train/config or playback leaks"}
 {"file": ".trellis/spec/javarailways/core/testing.md", "reason": "Reuse Core fixture and close test runtime resources"}

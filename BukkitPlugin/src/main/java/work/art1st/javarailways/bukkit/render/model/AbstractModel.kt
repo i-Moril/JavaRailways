@@ -3,6 +3,7 @@ package work.art1st.javarailways.bukkit.render.model
 import org.bukkit.Location
 import org.bukkit.entity.Player
 import org.joml.Vector3dc
+import work.art1st.javarailways.bukkit.api.model.ModelAnimation
 import work.art1st.javarailways.bukkit.render.Animation
 import work.art1st.javarailways.bukkit.render.AnimationDisplayState
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
@@ -115,6 +116,11 @@ abstract class AbstractModel(
             applied = child.setAnimationScene(animationName, sceneName) || applied
         }
         return applied
+    }
+
+    /** Exact held frame for the ordinary path; null restores the local baseline without playback. */
+    internal open fun holdOrdinaryScene(frame: ModelAnimation.Frame?) {
+        heldAnimationTransform = frame?.pose()?.toCompactTransform(frame.scale())
     }
 
     private fun startAnimation(animationName: String, active: Animation.ActiveAnimation) {

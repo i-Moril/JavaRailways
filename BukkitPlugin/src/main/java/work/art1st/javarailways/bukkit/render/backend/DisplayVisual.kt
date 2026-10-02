@@ -29,6 +29,8 @@ interface DisplayVisual {
     fun setTransformation(transformation: Transformation)
     fun setItemStack(itemStack: ItemStack)
     fun setBrightness(blockLight: Int, skyLight: Int)
+    /** Remove the override so the client uses natural world light. */
+    fun clearBrightness()
     fun addPassenger(passenger: DisplayVisual): Boolean
     fun destroy()
 }

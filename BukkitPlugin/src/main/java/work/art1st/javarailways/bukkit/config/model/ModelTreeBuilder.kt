@@ -12,6 +12,8 @@ import org.joml.Quaternionf
 import org.joml.Vector3d
 import org.joml.Vector3f
 import work.art1st.javarailways.bukkit.BukkitPlugin
+import work.art1st.javarailways.bukkit.api.model.ModelDefinition
+import work.art1st.javarailways.bukkit.api.model.ModelPart
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
 import work.art1st.javarailways.bukkit.render.model.AbstractModel
 import work.art1st.javarailways.bukkit.render.model.CompactTransform
@@ -19,9 +21,13 @@ import work.art1st.javarailways.bukkit.render.model.CompositeModel
 import work.art1st.javarailways.bukkit.render.model.DisplayModel
 import work.art1st.javarailways.bukkit.render.model.InteractionModel
 import work.art1st.javarailways.bukkit.render.model.ModelState
+import work.art1st.javarailways.bukkit.render.model.OrdinaryModel
+import work.art1st.javarailways.bukkit.render.model.toCompactTransform
+import work.art1st.javarailways.bukkit.render.model.toItemStack
 import work.art1st.javarailways.bukkit.render.model.PlatformModel
 import work.art1st.javarailways.bukkit.render.model.SeatModel
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisual
+import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackend
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisualContent
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisualDescriptor
 import work.art1st.javarailways.bukkit.render.backend.displayViewRangeForDistance
@@ -53,20 +59,49 @@ class DummyModel internal constructor(
  */
 class ModelTreeBuilder internal constructor(
     private val world: World,
-    private val partRegistry: PartResolver,
-    private val rootVisualFactory: ((Location) -> DisplayVisual)?
+    private val partRegistry: PartResolver?,
+    private val rootVisualFactory: ((Location) -> DisplayVisual)?,
+    private val backend: DisplayRenderBackend?,
+    private val viewRange: Float?
 ) {
-    constructor(world: World, partRegistry: PartResolver) : this(world, partRegistry, null)
+    constructor(world: World, partRegistry: PartResolver) : this(world, partRegistry, null, null, null)
+
+    internal constructor(world: World, partRegistry: PartResolver, rootVisualFactory: (Location) -> DisplayVisual) :
+        this(world, partRegistry, rootVisualFactory, null, null)
+
+    internal constructor(world: World, backend: DisplayRenderBackend, viewRange: Float) :
+        this(world, null, null, backend, viewRange)
 
     private val bukkitWorld
         get() = world.bukkitWorldData.bukkitWorld
 
-    /** Internal ordinary construction entry; no car definition or bogie assembly is required. */
-    internal fun buildModel(
-        parts: List<PartRefEntry>,
-        namespace: String,
-        rootLocation: Location
-    ): CompositeModel = buildComposite(buildPartList(parts, namespace, rootLocation, null), rootLocation)
+    /** Consume validated pre-expanded values, with zero smoothing and no train/config dependencies. */
+    internal fun buildModel(definition: ModelDefinition, rootLocation: Location): OrdinaryModel {
+        require(rootLocation.world != null) { "Ordinary model root must belong to a Bukkit world" }
+        val bindings = mutableListOf<OrdinaryModel.Binding>()
+        fun buildNode(part: ModelPart, path: String): AbstractModel {
+            val model = when (part) {
+                is ModelPart.Group -> DummyModel(
+                    world, ModelState(part.pose().toCompactTransform()),
+                    part.children().mapIndexed { index, child -> buildNode(child, "$path/$index") }, emptyMap()
+                )
+                is ModelPart.Item -> {
+                    val item = part.appearance().toItemStack()
+                    val visual = createDisplayVisual(rootLocation.clone(), item, 0, 0)
+                    part.appearance().brightness()?.let { visual.setBrightness(it.block(), it.sky()) }
+                    DisplayModel(
+                        world, ModelState(part.pose().toCompactTransform(part.scale())), emptyList(), emptyMap(),
+                        visual, item, part.appearance()
+                    )
+                }
+            }
+            bindings += OrdinaryModel.Binding(model, path, part)
+            return model
+        }
+        val models = definition.parts().mapIndexed { index, part -> buildNode(part, "$index") }
+        val root = createDisplayVisual(rootLocation.clone(), ItemStack.of(Material.AIR), 0, 0)
+        return OrdinaryModel(CompositeModel(world, models, root, rootLocation.world), bindings)
+    }
 
     /**
      * Build the car body model tree at the given root location.
@@ -166,7 +201,7 @@ class ModelTreeBuilder internal constructor(
             childNamespace = def.namespace
         } else {
             // Imported reference: resolve from the package registry.
-            val resolved = partRegistry.resolve(entry.name, namespace)
+            val resolved = requireNotNull(partRegistry) { "Config construction requires a part resolver" }.resolve(entry.name, namespace)
             def = resolved.resolved
             entryOffset = entry.offset
             entryRotation = entry.rotation
@@ -269,7 +304,7 @@ class ModelTreeBuilder internal constructor(
 
     private fun createRootVisual(location: Location): DisplayVisual = createDisplayVisual(
         location = location,
-        itemStack = ItemStack(Material.AIR),
+        itemStack = ItemStack.of(Material.AIR),
         interpolationDuration = TRAIN_ROOT_INTERPOLATION_TICKS,
         teleportDuration = TRAIN_ROOT_TELEPORT_TICKS
     )
@@ -287,13 +322,13 @@ class ModelTreeBuilder internal constructor(
         interpolationDuration: Int,
         teleportDuration: Int
     ): DisplayVisual {
-        return BukkitPlugin.INSTANCE.displayRenderBackend.create(
-            bukkitWorld,
+        return (backend ?: BukkitPlugin.INSTANCE.displayRenderBackend).create(
+            if (backend != null) requireNotNull(location.world) { "Display location must belong to a Bukkit world" } else bukkitWorld,
             DisplayVisualDescriptor(
                 location = location,
                 content = DisplayVisualContent.Item(itemStack),
                 transformation = Transformation(Vector3f(), Quaternionf(), Vector3f(1f), Quaternionf()),
-                viewRange = displayViewRangeForDistance(
+                viewRange = viewRange ?: displayViewRangeForDistance(
                     BukkitPlugin.INSTANCE.javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks
                 ),
                 interpolationDuration = interpolationDuration,

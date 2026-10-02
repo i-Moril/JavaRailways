@@ -1,6 +1,7 @@
 package example.signaladdon;
 
 import org.bukkit.Server;
+import org.bukkit.Material;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService;
@@ -15,6 +16,12 @@ import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContribut
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService;
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService;
 import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService;
+import work.art1st.javarailways.bukkit.api.model.ItemAppearance;
+import work.art1st.javarailways.bukkit.api.model.ModelAnimation;
+import work.art1st.javarailways.bukkit.api.model.ModelDefinition;
+import work.art1st.javarailways.bukkit.api.model.ModelPart;
+import work.art1st.javarailways.bukkit.api.model.ModelPose;
+import work.art1st.javarailways.bukkit.api.model.ModelScale;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
@@ -76,6 +83,20 @@ import java.util.function.Function;
  * BukkitPlugin implementation packages.</p>
  */
 public final class SignalApiConsumerPlugin extends JavaPlugin {
+    /** Value-only construction proof; the later presentation service is not registered yet. */
+    public ModelDefinition ordinaryModelDefinition() {
+        var lamp = new ItemAppearance(Material.PAPER, "example.signaladdon:signals/lamp", 42,
+            new ItemAppearance.Brightness(15, 15));
+        var animation = new ModelAnimation("Lamp", List.of(
+            new ModelAnimation.Frame(0.0, "Base", ModelPose.IDENTITY, ModelScale.UNIT, null),
+            new ModelAnimation.Frame(1.0, "Shown", new ModelPose(0, 1, 0, 0, 0, 0, 1),
+                ModelScale.UNIT, lamp)
+        ));
+        var item = new ModelPart.Item(ModelPose.IDENTITY, ModelScale.UNIT,
+            new ItemAppearance(Material.PAPER, null, null, null), List.of(animation));
+        return new ModelDefinition(List.of(new ModelPart.Group(ModelPose.IDENTITY, List.of(item), List.of())));
+    }
+
     private Services services;
     private RailwayObservationSubscription observationSubscription;
     private InfrastructureResourceProviderRegistration resourceProviderRegistration;

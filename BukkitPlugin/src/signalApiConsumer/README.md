@@ -58,6 +58,20 @@ rail still exists or authorizes movement. A lookup already in progress during un
 old immutable curve. The internal ordinary-model builder is not yet an add-on API; the complete
 public model presentation service remains pending.
 
+## Ordinary model definitions
+
+The `api.model` package exposes immutable `ModelDefinition`, `ModelPart.Group`/`Item`, `ModelPose`,
+`ModelScale`, `ItemAppearance` and `ModelAnimation` values. `ordinaryModelDefinition()` demonstrates
+constructing a pre-expanded item/group tree and exact scene frames using only public types; this
+is compile-time evidence, not a renderer invocation. Lists are defensively copied and constructors
+reject invalid numeric values, item keys, frame times and ambiguous scene declarations.
+
+Scene selection uses exact animation and scene names. The host's internal ordinary path applies a
+complete selection, including restoration of baseline transforms, item components and natural
+brightness when a scene is no longer selected. It does not load packages or start train animations.
+There is no public `ModelHandle` or presentation service yet: add-ons can prepare these values, but
+must not call the internal builder or model manager to display them.
+
 ## Runtime flow
 
 1. Read one `RailwayObservation` and retain its complete `RailwayStateStamp`; do not combine a train

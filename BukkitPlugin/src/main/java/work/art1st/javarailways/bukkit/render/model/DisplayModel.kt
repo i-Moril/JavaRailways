@@ -11,6 +11,8 @@ import org.joml.Quaternionf
 import org.joml.Vector3dc
 import org.joml.Vector3f
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
+import work.art1st.javarailways.bukkit.api.model.ItemAppearance
+import work.art1st.javarailways.bukkit.api.model.ModelAnimation
 import work.art1st.javarailways.bukkit.render.Animation
 import work.art1st.javarailways.bukkit.render.AnimationDisplayState
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisual
@@ -23,11 +25,14 @@ class DisplayModel internal constructor(
     attachedModels: Collection<AbstractModel>,
     animation: Map<String, Animation>,
     private val visual: DisplayVisual,
-    initialItemStack: ItemStack
+    initialItemStack: ItemStack,
+    private val ordinaryBaseline: ItemAppearance? = null
 ) : AbstractModel(world, state, attachedModels, animation) {
     private var lastDisplayState: AnimationDisplayState? = null
     private var currentItemStack: ItemStack = initialItemStack.clone()
     private var mountedToRoot: Boolean = false
+    private var ordinaryAppearance = ordinaryBaseline
+    private var lastOrdinaryAppearance = ordinaryBaseline
 
     fun mountTo(parent: DisplayVisual) {
         mountedToRoot = parent.addPassenger(visual)
@@ -55,7 +60,28 @@ class DisplayModel internal constructor(
                 )
             )
         }
-        applyDisplayState(currentDisplayState)
+        if (ordinaryBaseline != null) applyOrdinaryAppearance() else applyDisplayState(currentDisplayState)
+    }
+
+    internal override fun holdOrdinaryScene(frame: ModelAnimation.Frame?) {
+        super.holdOrdinaryScene(frame)
+        ordinaryAppearance = frame?.appearance() ?: ordinaryBaseline
+    }
+
+    private fun applyOrdinaryAppearance() {
+        val appearance = ordinaryAppearance ?: return
+        if (appearance == lastOrdinaryAppearance) return
+        val previous = lastOrdinaryAppearance
+        if (previous == null || appearance.material() != previous.material() || appearance.itemModelKey() != previous.itemModelKey() ||
+            appearance.customModelData() != previous.customModelData()) {
+            currentItemStack = appearance.toItemStack()
+            visual.setItemStack(currentItemStack)
+        }
+        val brightness = appearance.brightness()
+        if (brightness != previous?.brightness()) {
+            if (brightness == null) visual.clearBrightness() else visual.setBrightness(brightness.block(), brightness.sky())
+        }
+        lastOrdinaryAppearance = appearance
     }
 
     override fun showVisualsTo(player: Player) {

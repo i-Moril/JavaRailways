@@ -133,6 +133,15 @@ private class EntityLibDisplayVisual(
         }
     }
 
+    override fun clearBrightness() {
+        if (!destroyed) {
+            val meta = entity.entityMeta as AbstractDisplayMeta
+            // EntityLib's AbstractDisplayMeta uses -1 for the absent protocol override.
+            meta.setBrightnessOverride(-1)
+            queueMetadata(meta)
+        }
+    }
+
     override fun addPassenger(passenger: DisplayVisual): Boolean {
         if (destroyed) return false
         val packetPassenger = passenger as? EntityLibDisplayVisual

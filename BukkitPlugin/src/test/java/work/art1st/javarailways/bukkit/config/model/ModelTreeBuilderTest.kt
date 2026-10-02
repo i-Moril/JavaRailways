@@ -1,6 +1,7 @@
 package work.art1st.javarailways.bukkit.config.model
 
 import org.bukkit.Location
+import org.bukkit.Material
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Transformation
@@ -10,16 +11,50 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackend
+import work.art1st.javarailways.bukkit.render.backend.DisplayVisualContent
+import work.art1st.javarailways.bukkit.render.backend.DisplayVisualDescriptor
+import work.art1st.javarailways.bukkit.render.model.ModelRuntimeTestSupport
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisual
 import work.art1st.javarailways.bukkit.render.model.AbstractModel
 import work.art1st.javarailways.bukkit.render.model.CompactTransform
 import work.art1st.javarailways.bukkit.render.model.CompositeModel
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.train.createTestWorld
+import java.lang.reflect.Proxy
 
 class ModelTreeBuilderTest {
     @Test
-    fun `ordinary model resolves imported and inline hierarchy with local transforms and animation`() = withWorld { world ->
+    fun `car and bogie roots and items retain three tick smoothing and legacy item keys`() = withWorld { world ->
+        ModelRuntimeTestSupport.bootstrap()
+        val part = PartDefinition("train/body", PartType.ITEM_DISPLAY, item = PartItemConfig("paper", "train/body", 42))
+        val registry = SnapshotPartRegistry(mapOf(part.name to part))
+        val descriptors = mutableListOf<DisplayVisualDescriptor>()
+        val backend = object : DisplayRenderBackend {
+            override fun create(world: org.bukkit.World, descriptor: DisplayVisualDescriptor): DisplayVisual {
+                descriptors += descriptor
+                return RecordingRoot()
+            }
+        }
+        val bukkitWorld = Proxy.newProxyInstance(org.bukkit.World::class.java.classLoader, arrayOf(org.bukkit.World::class.java)) { _, method, _ ->
+            if (method.name == "toString") "TrainModelTestWorld" else error("Unexpected call: ${method.name}")
+        } as org.bukkit.World
+        val builder = ModelTreeBuilder(world, registry, null, backend, 1f)
+        val anchor = Location(bukkitWorld, 100.0, 64.0, 200.0)
+        val refs = listOf(PartRefEntry.import("body"))
+        val car = builder.buildCarBody(CarDefinition("train/car", bodyParts = refs), anchor)
+        val bogie = builder.buildBogie(BogieDefinition(parts = refs), "train", anchor)
+        try {
+            assertEquals(4, descriptors.size)
+            assertTrue(descriptors.all { it.interpolationDuration == 3 && it.teleportDuration == 3 })
+            val item = (descriptors.first().content as DisplayVisualContent.Item).itemStack
+            assertEquals(Material.PAPER, item.type)
+            assertEquals(net.kyori.adventure.key.Key.key("minecraft:train/body"), item.getData(io.papermc.paper.datacomponent.DataComponentTypes.ITEM_MODEL))
+        } finally { car.destroy(); bogie.destroy() }
+    }
+
+    @Test
+    fun `car body resolves imported and inline hierarchy with local transforms and animation`() = withWorld { world ->
         val child = PartDefinition(
             "shared/child", PartType.DUMMY,
             offset = Vec3Config(x = 1.0),
@@ -42,7 +77,7 @@ class ModelTreeBuilderTest {
             RecordingRoot()
         }
         val anchor = Location(null, 100.0, 64.0, 200.0)
-        val model = builder.buildModel(listOf(PartRefEntry.import("root", Vec3Config(x = 2.0))), "ordinary", anchor)
+        val model = builder.buildCarBody(CarDefinition("ordinary/car", bodyParts = listOf(PartRefEntry.import("root", Vec3Config(x = 2.0)))), anchor)
         try {
             val nodes = nodes(model)
             assertEquals(3, nodes.size)
@@ -121,6 +156,7 @@ class ModelTreeBuilderTest {
         override fun setTransformation(transformation: Transformation) = Unit
         override fun setItemStack(itemStack: ItemStack) = Unit
         override fun setBrightness(blockLight: Int, skyLight: Int) = Unit
+        override fun clearBrightness() = Unit
         override fun addPassenger(passenger: DisplayVisual): Boolean = true
         override fun destroy() = Unit
     }

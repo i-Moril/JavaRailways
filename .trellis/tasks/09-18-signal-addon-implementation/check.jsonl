@@ -1,6 +1,6 @@
 {"file": ".trellis/spec/bukkit-plugin/backend/index.md", "reason": "Focused Bukkit runtime/API verification commands and boundaries"}
-{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "Verify world lookup cleanup, unload/reload and correct target threads"}
+{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "Verify model operations remain target-thread work and no premature service/lifecycle implementation"}
 {"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "Verify addon API isolation and unchanged train render behavior"}
-{"file": ".trellis/spec/bukkit-plugin/backend/model-presentation-api.md", "reason": "Check implemented foundation separately from unimplemented presentation draft"}
-{"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "Verify canonical AB lookup, retained immutable curve and no spatial rescan"}
+{"file": ".trellis/spec/bukkit-plugin/backend/model-presentation-api.md", "reason": "Verify immutable values, whole-selection validation, exact scenes, appearance reset, namespace and interpolation constraints"}
+{"file": ".trellis/tasks/09-18-signal-addon-implementation/research/public-model-definition-contract.md", "reason": "Verify actual private model/backend reuse and regression boundaries without broadening train playback or package loading"}
 {"file": ".trellis/spec/javarailways/core/testing.md", "reason": "Check fixture reuse, deterministic assertions and complete cleanup"}

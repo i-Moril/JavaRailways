@@ -17,6 +17,7 @@ class CompositeModel internal constructor(
     private val rootVisual: DisplayVisual,
     private val targetWorld: org.bukkit.World? = null
 ) : Destroyable {
+    internal val affinityEntity get() = rootVisual.affinityEntity
     init {
         forEachModelRecursive {
             if (it is DisplayModel) it.mountTo(rootVisual)

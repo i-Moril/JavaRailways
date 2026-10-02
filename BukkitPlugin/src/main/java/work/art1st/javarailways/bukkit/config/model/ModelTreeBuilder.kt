@@ -22,6 +22,8 @@ import work.art1st.javarailways.bukkit.render.model.DisplayModel
 import work.art1st.javarailways.bukkit.render.model.InteractionModel
 import work.art1st.javarailways.bukkit.render.model.ModelState
 import work.art1st.javarailways.bukkit.render.model.OrdinaryModel
+import work.art1st.javarailways.bukkit.render.model.OrdinarySceneIndex
+import work.art1st.javarailways.bukkit.render.backend.DisplayCleanupException
 import work.art1st.javarailways.bukkit.render.model.toCompactTransform
 import work.art1st.javarailways.bukkit.render.model.toItemStack
 import work.art1st.javarailways.bukkit.render.model.PlatformModel
@@ -76,9 +78,14 @@ class ModelTreeBuilder internal constructor(
         get() = world.bukkitWorldData.bukkitWorld
 
     /** Consume validated pre-expanded values, with zero smoothing and no train/config dependencies. */
-    internal fun buildModel(definition: ModelDefinition, rootLocation: Location): OrdinaryModel {
+    internal fun buildModel(
+        definition: ModelDefinition,
+        rootLocation: Location,
+        sceneIndex: OrdinarySceneIndex = OrdinarySceneIndex(definition)
+    ): OrdinaryModel {
         require(rootLocation.world != null) { "Ordinary model root must belong to a Bukkit world" }
         val bindings = mutableListOf<OrdinaryModel.Binding>()
+        val createdVisuals = mutableListOf<DisplayVisual>()
         fun buildNode(part: ModelPart, path: String): AbstractModel {
             val model = when (part) {
                 is ModelPart.Group -> DummyModel(
@@ -87,7 +94,7 @@ class ModelTreeBuilder internal constructor(
                 )
                 is ModelPart.Item -> {
                     val item = part.appearance().toItemStack()
-                    val visual = createDisplayVisual(rootLocation.clone(), item, 0, 0)
+                    val visual = createDisplayVisual(rootLocation.clone(), item, 0, 0).also(createdVisuals::add)
                     part.appearance().brightness()?.let { visual.setBrightness(it.block(), it.sky()) }
                     DisplayModel(
                         world, ModelState(part.pose().toCompactTransform(part.scale())), emptyList(), emptyMap(),
@@ -98,9 +105,18 @@ class ModelTreeBuilder internal constructor(
             bindings += OrdinaryModel.Binding(model, path, part)
             return model
         }
-        val models = definition.parts().mapIndexed { index, part -> buildNode(part, "$index") }
-        val root = createDisplayVisual(rootLocation.clone(), ItemStack.of(Material.AIR), 0, 0)
-        return OrdinaryModel(CompositeModel(world, models, root, rootLocation.world), bindings)
+        try {
+            val models = definition.parts().mapIndexed { index, part -> buildNode(part, "$index") }
+            val root = createDisplayVisual(rootLocation.clone(), ItemStack.of(Material.AIR), 0, 0).also(createdVisuals::add)
+            return OrdinaryModel(CompositeModel(world, models, root, rootLocation.world), bindings, sceneIndex, createdVisuals.toList())
+        } catch (failure: Throwable) {
+            var cleanupFailed = false
+            createdVisuals.asReversed().forEach { visual ->
+                try { visual.destroy() } catch (cleanup: Throwable) { failure.addSuppressed(cleanup); cleanupFailed = true }
+            }
+            if (cleanupFailed) throw DisplayCleanupException(failure)
+            throw failure
+        }
     }
 
     /**

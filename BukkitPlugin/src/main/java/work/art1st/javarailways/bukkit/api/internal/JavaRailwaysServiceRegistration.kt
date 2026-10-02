@@ -7,6 +7,7 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
+import work.art1st.javarailways.bukkit.api.model.ModelPresentationService
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
 import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService
@@ -21,10 +22,12 @@ internal fun ServicesManager.registerJavaRailwaysServices(
     infrastructure: InfrastructureResourceService,
     signalSources: SignalEpochSourceService,
     inspectionSources: InspectionSourceService,
-    routePlanningSources: RoutePlanningRestrictionSourceService
+    routePlanningSources: RoutePlanningRestrictionSourceService,
+    modelPresentations: ModelPresentationService
 ) {
     register(RailTargetService::class.java, railTargets, owner, ServicePriority.Normal)
     register(PlayerOperationService::class.java, playerOperations, owner, ServicePriority.Normal)
+    register(ModelPresentationService::class.java, modelPresentations, owner, ServicePriority.Normal)
     register(RailwayObservationService::class.java, observations, owner, ServicePriority.Normal)
     register(InfrastructureResourceService::class.java, infrastructure, owner, ServicePriority.Normal)
     register(SignalEpochSourceService::class.java, signalSources, owner, ServicePriority.Normal)

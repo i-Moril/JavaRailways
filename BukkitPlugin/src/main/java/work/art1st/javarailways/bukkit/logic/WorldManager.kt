@@ -17,6 +17,7 @@ import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
 import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.internal.DefaultSignalEpochSourceService
+import work.art1st.javarailways.bukkit.api.internal.DefaultModelPresentationService
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.bukkit.debug.AbnormalTrainMarker
@@ -62,7 +63,8 @@ class WorldManager internal constructor(
     private val observationService: DefaultRailwayObservationService? = null,
     private val infrastructureResourceService: DefaultInfrastructureResourceService? = null,
     private val signalEpochSourceService: DefaultSignalEpochSourceService? = null,
-    private val loadedWorlds: LoadedRailWorldRegistry = LoadedRailWorldRegistry(railWorlds)
+    private val loadedWorlds: LoadedRailWorldRegistry = LoadedRailWorldRegistry(railWorlds),
+    private val modelPresentationService: DefaultModelPresentationService? = null
 ) : Listener {
     /** Value-only lookup: no Bukkit access, owner dispatch or cross-world simulation lock. */
     internal fun loadedRailWorld(worldId: UUID): World? = loadedWorlds.find(worldId)
@@ -96,6 +98,7 @@ class WorldManager internal constructor(
     fun stop() {
         stopping = true
         loadedWorlds.clearLookup()
+        railWorlds.keys.toList().forEach { modelPresentationService?.removeWorld(it.uid, it) }
         unloadingWorlds.addAll(railWorlds.keys)
         tickTask?.cancel()
         tickTask = null
@@ -224,8 +227,10 @@ class WorldManager internal constructor(
             }
             (railWorld as? CoreWorld)?.physicsCoordinator?.start()
             loadedWorlds.publish(bukkitWorld, railWorld)
+            modelPresentationService?.registerWorld(bukkitWorld.uid, bukkitWorld, railWorld, railWorld.renderChunkManager)
         } catch (failure: Exception) {
             loadedWorlds.withdraw(bukkitWorld)
+            modelPresentationService?.removeWorld(bukkitWorld.uid, bukkitWorld)
             signalEpochSourceService?.removeWorld(bukkitWorld.uid)
             infrastructureResourceService?.removeWorld(bukkitWorld.uid)
             observationService?.removeWorld(bukkitWorld.uid)
@@ -319,6 +324,7 @@ class WorldManager internal constructor(
         ThreadGuard.ensureMainThread("WorldManager.unregisterRailWorld")
         unloadingWorlds.add(bukkitWorld)
         loadedWorlds.withdraw(bukkitWorld)
+        modelPresentationService?.removeWorld(bukkitWorld.uid, bukkitWorld)
         railWorlds[bukkitWorld]?.let { rw ->
             val coreWorld = rw as? CoreWorld
             try {

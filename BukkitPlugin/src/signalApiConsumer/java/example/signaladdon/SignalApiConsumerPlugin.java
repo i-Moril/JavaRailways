@@ -22,6 +22,9 @@ import work.art1st.javarailways.bukkit.api.model.ModelDefinition;
 import work.art1st.javarailways.bukkit.api.model.ModelPart;
 import work.art1st.javarailways.bukkit.api.model.ModelPose;
 import work.art1st.javarailways.bukkit.api.model.ModelScale;
+import work.art1st.javarailways.bukkit.api.model.ModelPresentation;
+import work.art1st.javarailways.bukkit.api.model.ModelPresentationService;
+import work.art1st.javarailways.bukkit.api.model.ModelHandle;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
@@ -70,9 +73,11 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult;
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 
 /**
@@ -83,7 +88,7 @@ import java.util.function.Function;
  * BukkitPlugin implementation packages.</p>
  */
 public final class SignalApiConsumerPlugin extends JavaPlugin {
-    /** Value-only construction proof; the later presentation service is not registered yet. */
+    /** Model packages are expanded by the add-on before reaching the ordinary presentation API. */
     public ModelDefinition ordinaryModelDefinition() {
         var lamp = new ItemAppearance(Material.PAPER, "example.signaladdon:signals/lamp", 42,
             new ItemAppearance.Brightness(15, 15));
@@ -98,6 +103,8 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
     }
 
     private Services services;
+    private ModelHandle ordinaryModel;
+    private CompletionStage<Void> modelCleanup;
     private RailwayObservationSubscription observationSubscription;
     private InfrastructureResourceProviderRegistration resourceProviderRegistration;
     private RouteResourceContributorRegistration routeContributorRegistration;
@@ -115,6 +122,24 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             throw new IllegalArgumentException("Rail position is outside the curve");
         }
         return curve.getPointAt(arcLengthInAbMeters);
+    }
+
+    /** Value-only submission; completion of entity updates is deliberately asynchronous. */
+    public void presentOrdinaryModel(long revision, ModelPose pose) {
+        if (ordinaryModel == null) {
+            ordinaryModel = services.models().create(this, worldId, "home-display", ordinaryModelDefinition());
+        }
+        ordinaryModel.submit(new ModelPresentation(revision, pose, Map.of("Lamp", "Shown")));
+    }
+
+    /** Stop this add-on's producers first, then observe this stage before disabling JavaRailways. */
+    public CompletionStage<Void> closeModelsBeforeHostDisable() {
+        if (ordinaryModel != null) {
+            ordinaryModel.close();
+            ordinaryModel = null;
+        }
+        modelCleanup = services.models().closeOwner(this);
+        return modelCleanup;
     }
 
     @Override
@@ -319,6 +344,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             observationSubscription = null;
         }
         if (services != null) {
+            closeModelsBeforeHostDisable();
             services.infrastructure().unregisterOwner(this);
             routeContributorRegistration = null;
             resourceProviderRegistration = null;
@@ -459,6 +485,10 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             Objects.requireNonNull(
                 serviceManager.load(RoutePlanningRestrictionSourceService.class),
                 "JavaRailways did not register RoutePlanningRestrictionSourceService"
+            ),
+            Objects.requireNonNull(
+                serviceManager.load(ModelPresentationService.class),
+                "JavaRailways did not register ModelPresentationService"
             )
         );
     }
@@ -470,7 +500,8 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         InfrastructureResourceService infrastructure,
         SignalEpochSourceService signalSources,
         InspectionSourceService inspectionSources,
-        RoutePlanningRestrictionSourceService routePlanningSources
+        RoutePlanningRestrictionSourceService routePlanningSources,
+        ModelPresentationService models
     ) {
         Services {
             Objects.requireNonNull(railTargets, "railTargets");
@@ -480,6 +511,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             Objects.requireNonNull(signalSources, "signalSources");
             Objects.requireNonNull(inspectionSources, "inspectionSources");
             Objects.requireNonNull(routePlanningSources, "routePlanningSources");
+            Objects.requireNonNull(models, "models");
         }
     }
 }

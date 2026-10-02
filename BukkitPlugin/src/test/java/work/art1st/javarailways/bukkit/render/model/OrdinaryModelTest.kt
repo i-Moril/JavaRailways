@@ -23,6 +23,29 @@ import java.lang.reflect.Proxy
 
 class OrdinaryModelTest {
     @Test
+    fun `construction failures clean every returned visual including a failed root mount`() {
+        for (failCreate in listOf(2, 3, null)) {
+            val world = createTestWorld()
+            val backend = RecordingBackend(failCreate = failCreate, failMount = failCreate == null)
+            val bukkitWorld = Proxy.newProxyInstance(BukkitWorld::class.java.classLoader, arrayOf(BukkitWorld::class.java)) { _, method, _ ->
+                when (method.name) { "toString" -> "PartialModelWorld"; else -> error("Unexpected call ${method.name}") }
+            } as BukkitWorld
+            try {
+                assertThrows(IllegalStateException::class.java) {
+                    ModelTreeBuilder(world, backend, 1.0f).buildModel(
+                        ModelDefinition(listOf(item(), item())), Location(bukkitWorld, 0.0, 64.0, 0.0)
+                    )
+                }
+                assertTrue(backend.visuals.isNotEmpty())
+                assertTrue(backend.visuals.all { it.destroyCalls == 1 }, "all partially created visuals must be released exactly once")
+            } finally {
+                world.physicsCoordinator.close()
+                (world.tickManager as AutoCloseable).close()
+            }
+        }
+    }
+
+    @Test
     fun `container local pose and overlay compose through root with leaf-only scale and zero smoothing`() {
         val half = Math.sqrt(0.5)
         val groupAnimation = ModelAnimation("Group", listOf(
@@ -244,7 +267,7 @@ class OrdinaryModelTest {
         }
     }
 
-    private class RecordingBackend : DisplayRenderBackend {
+    private class RecordingBackend(val failCreate: Int? = null, val failMount: Boolean = false) : DisplayRenderBackend {
         val descriptors = mutableListOf<DisplayVisualDescriptor>()
         val visuals = mutableListOf<RecordingVisual>()
         val root get() = visuals.last()
@@ -253,17 +276,19 @@ class OrdinaryModelTest {
         override fun create(world: BukkitWorld, descriptor: DisplayVisualDescriptor): DisplayVisual {
             assertSame(world, descriptor.location.world)
             descriptors += descriptor
-            return RecordingVisual((descriptor.content as DisplayVisualContent.Item).itemStack.clone()).also { visuals += it }
+            check(descriptors.size != failCreate) { "Scripted backend creation failure" }
+            return RecordingVisual((descriptor.content as DisplayVisualContent.Item).itemStack.clone(), failMount).also { visuals += it }
         }
     }
 
-    private class RecordingVisual(@JvmField var itemStack: ItemStack?) : DisplayVisual {
+    private class RecordingVisual(@JvmField var itemStack: ItemStack?, val failMount: Boolean = false) : DisplayVisual {
         @JvmField var transformation: Transformation? = null
         var lastLocation: Location? = null
         var brightness: ItemAppearance.Brightness? = null
         var transformationCalls = 0
         var clearBrightnessCalls = 0
         var calls = 0
+        var destroyCalls = 0
         override fun showTo(player: Player) { calls++ }
         override fun hideFrom(player: Player) { calls++ }
         override fun teleport(location: Location) { lastLocation = location.clone(); calls++ }
@@ -271,8 +296,8 @@ class OrdinaryModelTest {
         override fun setItemStack(itemStack: ItemStack) { this.itemStack = itemStack.clone(); calls++ }
         override fun setBrightness(blockLight: Int, skyLight: Int) { brightness = ItemAppearance.Brightness(blockLight, skyLight); calls++ }
         override fun clearBrightness() { brightness = null; clearBrightnessCalls++; calls++ }
-        override fun addPassenger(passenger: DisplayVisual): Boolean = true
-        override fun destroy() { calls++ }
+        override fun addPassenger(passenger: DisplayVisual): Boolean { check(!failMount) { "Scripted mount failure" }; return true }
+        override fun destroy() { destroyCalls++; calls++ }
     }
 
     companion object {

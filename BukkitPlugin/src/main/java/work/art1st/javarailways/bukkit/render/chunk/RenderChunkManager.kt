@@ -18,6 +18,7 @@ import work.art1st.javarailways.bukkit.extension.rail.renderer
 import work.art1st.javarailways.bukkit.extension.train.renderer
 import work.art1st.javarailways.bukkit.render.asVector3d
 import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
+import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.render.Renderable
 import work.art1st.javarailways.core.api.render.Vector3Snapshot
@@ -33,7 +34,12 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class RenderChunkManager(
     world: World,
-    private val renderableObjects: ConcurrentMap<RenderChunk, MutableSet<Renderable>> = ConcurrentHashMap()
+    private val renderableObjects: ConcurrentMap<RenderChunk, MutableSet<Renderable>> = ConcurrentHashMap(),
+    private val dispatcher: PlatformDispatcher = BukkitPlugin.INSTANCE.platformDispatcher,
+    private val playerLookup: (UUID) -> Player? = Bukkit::getPlayer,
+    private val settingsFor: (Player) -> ViewDistanceSettings = { it.railViewDistanceSettings },
+    registerListener: (Listener) -> Unit = { Bukkit.getPluginManager().registerEvents(it, BukkitPlugin.INSTANCE) },
+    initialPlayers: Collection<Player> = Bukkit.getOnlinePlayers().toList()
 ) : Listener {
     val world: World by WeakReferenceWrapper(world)
     private val visibleByPlayer: ConcurrentMap<UUID, MutableSet<Renderable>> = ConcurrentHashMap()
@@ -49,16 +55,18 @@ class RenderChunkManager(
     private val authoritativePassengerRefreshes = AtomicLong()
 
     init {
-        Bukkit.getPluginManager().registerEvents(this, BukkitPlugin.INSTANCE)
+        registerListener(this)
+        // Seed once per world load; later joins/moves and model changes use the existing reverse index.
+        initialPlayers.forEach { player -> dispatcher.runForEntity(player, action = { refreshPlayer(player, force = true) }) }
     }
 
     fun close() {
         visibleByPlayer.keys.toList().forEach { playerId ->
-            val player = Bukkit.getPlayer(playerId)
+            val player = playerLookup(playerId)
             if (player == null) {
                 visibleByPlayer.remove(playerId)
             } else {
-                BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(player, action = { clearPlayer(player) })
+                dispatcher.runForEntity(player, action = { clearPlayer(player) })
             }
         }
         pendingAudienceUpdates.clear()
@@ -111,7 +119,7 @@ class RenderChunkManager(
     fun onPlayerTeleport(event: PlayerTeleportEvent) {
         BukkitThreadOwnership.ensureEntity(event.player, "RenderChunkManager.onPlayerTeleport")
         if (event.from.world != world && event.to.world != world) return
-        BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(event.player, 1L, action = {
+        dispatcher.runForEntityLater(event.player, 1L, action = {
             if (event.player.world == world) refreshPlayer(event.player, force = true) else clearPlayer(event.player)
         })
     }
@@ -140,7 +148,7 @@ class RenderChunkManager(
         }
         val location = player.location
         val position = location.asVector3d()
-        val settings = player.railViewDistanceSettings
+        val settings = settingsFor(player)
         val chunk = RenderChunk(position)
         val previous = refreshStateByPlayer[player.uniqueId]
         if (!force && previous != null && previous.chunk == chunk &&
@@ -186,10 +194,20 @@ class RenderChunkManager(
         if (visible) {
             val renderables = visibleByPlayer.computeIfAbsent(player.uniqueId) { ConcurrentHashMap.newKeySet() }
             audienceIndex.markVisible(player.uniqueId, renderable)
-            if (renderables.add(renderable)) {
-                dispatchSendTo(renderable, player)
-            } else if (refreshExisting) {
-                dispatchRefreshFor(renderable, player)
+            val added = renderables.add(renderable)
+            // A drain may have captured its update immediately before remove. Register first, then
+            // recheck publication: either we undo here, or a later withdraw sees this installed entry.
+            try {
+                if (renderable is OrdinaryModelRenderable && !renderable.isPublished) return
+                if (added) {
+                    dispatchSendTo(renderable, player)
+                } else if (refreshExisting) {
+                    dispatchRefreshFor(renderable, player)
+                }
+            } finally {
+                if (renderable is OrdinaryModelRenderable && !renderable.isPublished) {
+                    setVisible(player, renderable, visible = false)
+                }
             }
             return
         }
@@ -217,6 +235,7 @@ class RenderChunkManager(
 
     private fun dispatchSendTo(renderable: Renderable, player: Player) {
         when (renderable) {
+            is OrdinaryModelRenderable -> renderable.showTo(player)
             is Car -> renderable.renderer.sendTo(player)
             is RailArcVisualSegment -> renderable.renderer.sendTo(player)
         }
@@ -224,6 +243,7 @@ class RenderChunkManager(
 
     private fun dispatchHideFrom(renderable: Renderable, player: Player) {
         when (renderable) {
+            is OrdinaryModelRenderable -> renderable.hideFrom(player)
             is Car -> renderable.renderer.hideFrom(player)
             is RailArcVisualSegment -> renderable.renderer.hideFrom(player)
         }
@@ -251,9 +271,9 @@ class RenderChunkManager(
         pendingAudienceUpdates.values.forEach { it.updates.remove(renderable) }
         val playerIds = audienceIndex.removeRenderable(renderable)
         playerIds.forEach { playerId ->
-            val player = Bukkit.getPlayer(playerId)
+            val player = playerLookup(playerId)
             if (player != null) {
-                BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(player, action = {
+                dispatcher.runForEntity(player, action = {
                     setVisible(player, renderable, visible = false)
                 })
             } else {
@@ -306,13 +326,13 @@ class RenderChunkManager(
     }
 
     private fun scheduleAudienceDrain(playerId: UUID, pending: PendingAudienceUpdates) {
-        val player = Bukkit.getPlayer(playerId)
+        val player = playerLookup(playerId)
         if (player == null) {
             discardPendingAudienceUpdates(playerId, pending)
             return
         }
         scheduledDrains.incrementAndGet()
-        val task = BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(
+        val task = dispatcher.runForEntityLater(
             entity = player,
             delayTicks = 1L,
             action = { drainAudienceUpdates(player, pending) },
@@ -328,7 +348,7 @@ class RenderChunkManager(
             return
         }
         val playerPosition = player.location.asVector3d()
-        val radius = player.railViewDistanceSettings.viewDistance
+        val radius = settingsFor(player).viewDistance
         val radiusSq = radius * radius
         pending.updates.forEach { (renderable, position) ->
             if (pending.updates.remove(renderable, position)) {
@@ -375,6 +395,7 @@ class RenderChunkManager(
         processedUpdates = processedUpdates.get(),
         authoritativePassengerRefreshRequests = authoritativePassengerRefreshRequests.get(),
         authoritativePassengerRefreshes = authoritativePassengerRefreshes.get(),
+        visibleEntries = visibleByPlayer.values.sumOf { it.size },
         pendingPlayers = pendingAudienceUpdates.count { (_, pending) ->
             pending.scheduled.get() || pending.updates.isNotEmpty()
         }
@@ -387,6 +408,7 @@ class RenderChunkManager(
         val processedUpdates: Long,
         val authoritativePassengerRefreshRequests: Long,
         val authoritativePassengerRefreshes: Long,
+        val visibleEntries: Int,
         val pendingPlayers: Int
     )
 

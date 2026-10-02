@@ -23,6 +23,8 @@ sealed interface DisplayVisualContent {
 }
 
 interface DisplayVisual {
+    /** Internal renderer affinity; packet visuals have no server entity. */
+    val affinityEntity: org.bukkit.entity.Entity? get() = null
     fun showTo(player: Player)
     fun hideFrom(player: Player)
     fun teleport(location: Location)

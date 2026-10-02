@@ -51,12 +51,16 @@ internal class NativeDisplayVisual(
     private val plugin: Plugin,
     private val entity: Display
 ) : DisplayVisual {
+    override val affinityEntity get() = entity
+    @Volatile
     private var destroyed = false
 
+    @Synchronized
     override fun showTo(player: Player) {
         if (!destroyed) player.showEntity(plugin, entity)
     }
 
+    @Synchronized
     override fun hideFrom(player: Player) {
         if (!destroyed) player.hideEntity(plugin, entity)
     }
@@ -92,6 +96,7 @@ internal class NativeDisplayVisual(
         return entity.addPassenger(nativePassenger.entity)
     }
 
+    @Synchronized
     override fun destroy() {
         if (destroyed) return
         destroyed = true

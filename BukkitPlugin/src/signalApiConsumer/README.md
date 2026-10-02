@@ -29,7 +29,8 @@ when a required service is absent. The fixture currently proves these services:
   declaration publication;
 - `RoutePlanningRestrictionSourceService`: owner/world-scoped route-table and traversal restrictions
   compiled once before immutable-topology search;
-- `RailTargetService` and `PlayerOperationService`: lower-level Bukkit interaction capabilities.
+- `RailTargetService` and `PlayerOperationService`: lower-level Bukkit interaction capabilities;
+- `ModelPresentationService`: ordinary model creation, latest-state submission and asynchronous cleanup.
 
 The returned services are host-owned. Do not retain a world-bound admission service across world
 unload/reload and do not assume that a reused world UUID revives an old binding.
@@ -55,8 +56,8 @@ local topology read lock; it does not scan rails, search for a nearest point or 
 
 A retained curve remains readable after rail deletion or world unload, but does not prove that the
 rail still exists or authorizes movement. A lookup already in progress during unload may return that
-old immutable curve. The internal ordinary-model builder is not yet an add-on API; the complete
-public model presentation service remains pending.
+old immutable curve. Use the public model presentation service to display a model; the internal
+ordinary-model builder is not an add-on API.
 
 ## Ordinary model definitions
 
@@ -69,8 +70,15 @@ reject invalid numeric values, item keys, frame times and ambiguous scene declar
 Scene selection uses exact animation and scene names. The host's internal ordinary path applies a
 complete selection, including restoration of baseline transforms, item components and natural
 brightness when a scene is no longer selected. It does not load packages or start train animations.
-There is no public `ModelHandle` or presentation service yet: add-ons can prepare these values, but
-must not call the internal builder or model manager to display them.
+Use `ModelPresentationService.create(owner, worldId, objectId, definition)` to obtain a `ModelHandle`.
+Creation only registers the model; the first valid `submit(new ModelPresentation(...))` schedules
+entity creation. Submission supplies one complete pose and animation-scene map with a nonnegative,
+increasing per-handle revision. Invalid selections are rejected without replacing valid pending state;
+older or equal revisions and closed handles do not revive old models. Submission never waits for rendering.
+
+The host merges pending display states and uses its existing nearby-viewer index. Moving the root
+position deletes the old model on its owning thread, then builds at the new position; add-ons do not
+teleport or mutate native display entities themselves. `close()` is idempotent and schedules deletion.
 
 ## Runtime flow
 
@@ -130,6 +138,19 @@ removal. Do not close provider/contributor registrations first as an attempted u
 `SignalEpochSourceService` intentionally has no owner-unregister method, and an empty source
 replacement is not a second plugin-unload path.
 
+### Unload add-ons before JavaRailways
+
+Stop producing model updates, then call `ModelPresentationService.closeOwner(plugin)`. Its
+`CompletionStage<Void>` includes models already closed individually but still awaiting entity deletion.
+Observe successful completion before disabling JavaRailways. Do not block a physics or region thread
+with `join()` or `get()`, and do not create new models while preparing to unload.
+
+Add-ons must unload before the host. Their disable event requests model cleanup automatically, but
+returning from `onDisable` does not prove queued region-thread deletions have finished. Plugin dependency
+ordering alone does not provide this completion guarantee. Once the host is disabled, its scheduler
+cannot be relied upon to delete models. Bypassing the required order must be diagnosed, not reported
+as successful cleanup. This display lifecycle does not release train claims or bypass the resource gate above.
+
 ## Forced disable and failures
 
 `PluginDisableEvent` cannot be cancelled. If an add-on disappears without completing the normal
@@ -143,9 +164,8 @@ stalls rather than widening authority.
 
 ## Presentation boundary
 
-The Stage 1 host API does not define signal aspects, model variants or a Bukkit rendering queue.
-Immutable revisioned presentation, per-object latest-only Folia dispatch and model application
-belong to the concrete signal-system plugin. The existing JavaRailways latest-only helper is an
-internal host rendering mechanism, not a `SimpleATOBukkit` or add-on API. If concrete add-ons later
-need a shared host platform service, that contract must be reviewed and exposed from the public
-`bukkit.api` boundary. Safety callbacks must not perform presentation work directly.
+Signal aspects, model-variant interpretation, packages and placement configuration belong to the
+concrete signal-system plugin. The public host model service only handles ordinary immutable model
+values, latest-state scheduling, nearby viewers and cleanup. Its scheduling helpers and model manager
+remain private; SimpleATOBukkit is not a presentation intermediary. Safety callbacks may submit values
+but must not perform entity operations or wait for rendering.

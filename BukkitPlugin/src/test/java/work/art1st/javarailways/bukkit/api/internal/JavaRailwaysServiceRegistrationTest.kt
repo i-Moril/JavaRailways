@@ -13,6 +13,11 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
+import work.art1st.javarailways.bukkit.api.model.ModelPresentationService
+import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackend
+import work.art1st.javarailways.bukkit.render.backend.DisplayVisualDescriptor
+import work.art1st.javarailways.bukkit.render.backend.DisplayVisual
+import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
 import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService
@@ -22,7 +27,7 @@ import java.util.logging.Logger
 
 class JavaRailwaysServiceRegistrationTest {
     @Test
-    fun `production registrar exposes all seven public services through Bukkit discovery`() = withBukkitServer {
+    fun `production registrar exposes all eight public services through Bukkit discovery`() = BukkitServiceTestSupport.withServer {
         val manager = SimpleServicesManager()
         val owner = plugin("JavaRailways")
         val worldManager = WorldManager()
@@ -31,6 +36,12 @@ class JavaRailwaysServiceRegistrationTest {
         val observations = DefaultRailwayObservationService(Logger.getLogger("service-registration-test"))
         val signalSources = DefaultSignalEpochSourceService()
         val infrastructure = DefaultInfrastructureResourceService(signalSources)
+        val dispatcher = Proxy.newProxyInstance(PlatformDispatcher::class.java.classLoader, arrayOf(PlatformDispatcher::class.java)) {
+            _, method, _ -> error("Registrar must not dispatch ${method.name}")
+        } as PlatformDispatcher
+        val models = DefaultModelPresentationService(owner, dispatcher, object : DisplayRenderBackend {
+            override fun create(world: org.bukkit.World, descriptor: DisplayVisualDescriptor): DisplayVisual = error("Registrar must not create models")
+        }, 1.0f, Logger.getLogger("service-registration-test"))
         try {
             manager.registerJavaRailwaysServices(
                 owner,
@@ -40,11 +51,13 @@ class JavaRailwaysServiceRegistrationTest {
                 infrastructure,
                 signalSources,
                 signalSources,
-                signalSources
+                signalSources,
+                models
             )
 
             assertSame(railTargets, manager.load(RailTargetService::class.java))
             assertSame(playerOperations, manager.load(PlayerOperationService::class.java))
+            assertSame(models, manager.load(ModelPresentationService::class.java))
             assertSame(observations, manager.load(RailwayObservationService::class.java))
             assertSame(infrastructure, manager.load(InfrastructureResourceService::class.java))
             assertSame(signalSources, manager.load(SignalEpochSourceService::class.java))
@@ -53,51 +66,25 @@ class JavaRailwaysServiceRegistrationTest {
                 signalSources,
                 manager.load(RoutePlanningRestrictionSourceService::class.java)
             )
-            assertEquals(7, manager.getRegistrations(owner).size)
+            assertEquals(8, manager.getRegistrations(owner).size)
 
             manager.unregisterAll(owner)
             assertNull(manager.load(RailTargetService::class.java))
             assertNull(manager.load(PlayerOperationService::class.java))
+            assertNull(manager.load(ModelPresentationService::class.java))
             assertNull(manager.load(RailwayObservationService::class.java))
             assertNull(manager.load(InfrastructureResourceService::class.java))
             assertNull(manager.load(SignalEpochSourceService::class.java))
             assertNull(manager.load(InspectionSourceService::class.java))
             assertNull(manager.load(RoutePlanningRestrictionSourceService::class.java))
         } finally {
+            models.close()
             infrastructure.close()
             signalSources.close()
             observations.close()
             playerOperations.clear()
             worldManager.stop()
             worldManager.finishStopping()
-        }
-    }
-
-    private fun <T> withBukkitServer(block: () -> T): T = synchronized(Bukkit::class.java) {
-        val serverField = Bukkit::class.java.getDeclaredField("server").also { it.isAccessible = true }
-        val previous = serverField.get(null)
-        val pluginManager = Proxy.newProxyInstance(
-            PluginManager::class.java.classLoader,
-            arrayOf(PluginManager::class.java)
-        ) { _, method, _ -> primitiveDefault(method.returnType) } as PluginManager
-        val logger = Logger.getLogger("service-registration-test")
-        val server = Proxy.newProxyInstance(
-            Server::class.java.classLoader,
-            arrayOf(Server::class.java)
-        ) { _, method, _ ->
-            when (method.name) {
-                "getPluginManager" -> pluginManager
-                "getLogger" -> logger
-                "getName" -> "TestServer"
-                "getVersion", "getBukkitVersion" -> "test"
-                else -> primitiveDefault(method.returnType)
-            }
-        } as Server
-        serverField.set(null, server)
-        try {
-            block()
-        } finally {
-            serverField.set(null, previous)
         }
     }
 

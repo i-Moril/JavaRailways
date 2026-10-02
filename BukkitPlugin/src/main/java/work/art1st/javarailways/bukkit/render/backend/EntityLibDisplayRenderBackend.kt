@@ -40,10 +40,18 @@ class EntityLibDisplayRenderBackend : DisplayRenderBackend {
             }
         }
 
-        check(wrapper.spawn(SpigotConversionUtil.fromBukkitLocation(descriptor.location))) {
-            "EntityLib refused to spawn a newly-created display visual"
+        try {
+            check(wrapper.spawn(SpigotConversionUtil.fromBukkitLocation(descriptor.location))) {
+                "EntityLib refused to spawn a newly-created display visual"
+            }
+            return EntityLibDisplayVisual(wrapper)
+        } catch (failure: Throwable) {
+            try { wrapper.remove() } catch (cleanup: Throwable) {
+                failure.addSuppressed(cleanup)
+                throw DisplayCleanupException(failure)
+            }
+            throw failure
         }
-        return EntityLibDisplayVisual(wrapper)
     }
 
     private fun configureCommon(meta: AbstractDisplayMeta, descriptor: DisplayVisualDescriptor) {
@@ -69,16 +77,19 @@ class EntityLibDisplayRenderBackend : DisplayRenderBackend {
 private class EntityLibDisplayVisual(
     private val entity: WrapperEntity
 ) : DisplayVisual {
+    @Volatile
     private var destroyed = false
 
     init {
         entity.entityMeta.setNotifyAboutChanges(false)
     }
 
+    @Synchronized
     override fun showTo(player: Player) {
         if (!destroyed) entity.addViewer(player.uniqueId)
     }
 
+    @Synchronized
     override fun hideFrom(player: Player) {
         if (!destroyed) entity.removeViewer(player.uniqueId)
     }
@@ -153,6 +164,7 @@ private class EntityLibDisplayVisual(
         return true
     }
 
+    @Synchronized
     override fun destroy() {
         if (destroyed) return
         destroyed = true

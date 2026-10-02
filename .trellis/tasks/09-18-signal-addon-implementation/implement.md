@@ -111,7 +111,9 @@ Current extraction progress:
   - [x] 提供按世界/轨道 UUID 查询不可变曲线的公开接口，并提取接收现有部件定义的内部普通模型入口；保留车体/转向架流程。这批不开放完整模型显示服务。查询复用 UUID 世界索引和 Core 世界局部读锁，不扫描世界轨道、不调用 Bukkit 调度；构造复用既有递归部件逻辑，根位置和车体 owner 改为显式参数，避免构造器复用时保留上次车体状态。独立审查未发现阻塞问题。离线验证：Bukkit 77 suites / 296 tests、TunnelBridgeBuilder 8 suites / 31 tests，零失败、错误或跳过；公开 Java consumer 编译与主插件 shadowJar 打包通过。回归覆盖真实 service/Core/世界索引组合和替身模型树，不证明完整世界加载保存、驾驶座交互或真实 Folia 实体显示。
   - [x] 根据实际部件/动画源码补充普通模型值契约提案：已展开的不可变容器/物品树、完整场景选择、同名动画广播与冲突拒绝、基础外观复位、完整资源键和普通模型零插值；记录原有残留外观、单动画槽、命名空间和缩放限制。该批只有文档与研究，实现由下一项跟踪。
   - [x] 实现公开不可变普通模型定义、校验与内部完整场景应用，包含基础外观复位、完整命名空间和普通模型零插值；独立 Java 调用示例验证值类型。保留列车入口及三 tick 平滑，删除未使用的旧配置普通入口，不实施旧 YAML 包迁移或时间轴播放修复。实现机制和证据边界见[主插件模型契约](../../spec/bukkit-plugin/backend/model-presentation-api.md)。独立审查无阻塞，补充 AIR 场景构造/恢复回归；最终离线 Bukkit gate 实际执行 80 suites / 313 tests，零失败、错误或跳过，Java consumer 编译通过。TunnelBridgeBuilder 回归复用既有 8 suites / 31 tests 通过结果，主插件 shadowJar 打包和公开模型类入包检查通过。普通模型使用真实 Paper ItemStack 与记录后端，Native 使用真实 adapter/替身实体，EntityLib 仅验证真实元数据自然光语义，尚未验证 Folia 客户端画面。
-  - [ ] 再提供 `ModelHandle` 与公开显示服务，安排目标线程更新和清理；不公开主插件内部模型管理器，不兼容草稿类型。
+  - [x] 提供 `ModelHandle` 与第八个公开服务 `ModelPresentationService`：复用 `ModelPose`、创建时建立的场景索引、既有最新状态调度和附近玩家索引。提交只保存值；实体工作不持有提交锁，根位置变化先在旧所属线程删除再到新位置重建。接入实际服务注册、插件停用、世界撤回/同 UUID 重载和 Java consumer，不公开内部模型管理器，不保留草稿兼容。本批不接 SimpleSignals 模型包或信号绑定。
+    - 卸载顺序已获用户确认：先卸载附属插件并完成其模型清理，再卸载主插件。`closeOwner` 返回非阻塞完成结果，也统计已经单独关闭但尚未删除的模型；删除失败仍可观察，不把 `onDisable` 返回或排入队列当成清理成功。没有新增卸载管理器。完整规则见[主插件模型契约](../../spec/bukkit-plugin/backend/model-presentation-api.md)。
+    - 独立审查修复删除结果误判、玩家可见列表的删除竞争，以及登记玩家显示失败后的引用清理；无剩余阻塞。最终离线 Bukkit gate 实际执行 82 suites / 331 tests（服务 15 项），零失败/错误/跳过，Java consumer 编译、主插件 shadowJar 打包通过；TunnelBridgeBuilder 编译通过并复用既有测试结果。测试连接真实 service/builder/玩家索引和 Paper ItemStack，使用可控调度与记录后端；不证明 live Folia、客户端资源包或完整世界加载保存。真实平台 smoke 仍待后续验证。
   - [ ] 确定信号模型包、摆放信息和状态不可用时的显示配置，接入只处理显示变化的更新流程，再验证实际画面、世界卸载和插件停用时的清理。
 
 ## Cross-cutting online edit latency

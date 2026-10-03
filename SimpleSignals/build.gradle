@@ -72,6 +72,13 @@ tasks.withType(Test).configureEach {
     useJUnitPlatform()
 }
 
+// Test the shipped demo directly, without a second copy of its YAML or client assets.
+tasks.named('processTestResources') {
+    from('examples/jr-four-light') {
+        into('examples/jr-four-light')
+    }
+}
+
 bukkitPluginYaml {
     name = 'SimpleSignals'
     main = 'work.art1st.javarailways.simplesignals.SimpleSignalsPlugin'

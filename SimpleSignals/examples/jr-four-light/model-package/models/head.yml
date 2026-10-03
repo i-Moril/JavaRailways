@@ -1,0 +1,16 @@
+parts:
+  - import: head
+default:
+  lamp: stop
+variants:
+  stop: {lamp: stop}
+  caution: {lamp: caution}
+  slow: {lamp: slow}
+  proceed: {lamp: proceed}
+rail-placement:
+  follow-rail-tilt: false
+  presets:
+    left:
+      offset: {z: -2.0}
+    right:
+      offset: {z: 2.0}

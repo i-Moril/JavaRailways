@@ -101,6 +101,12 @@ variants:
 完整示例位于 [demo_signals](src/test/resources/model-packages/demo_signals/manifest.yml)。设备摆放存档另行确定。
 完整行为及测试要求见[信号模型显示契约](../.trellis/spec/simple-signals/backend/model-presentation.md)。
 
+另有包含实际网格和贴图的 [JR 四灯式灯头 demo](examples/jr-four-light/README.md)，
+使用用户提供的模型，分别配置停止、注意、减速、进行四种外观。
+示例分为服务器模型包和客户端资源包；不会替换普通纸张，也不包含立柱或速度规则。
+默认显示选择停止外观，但不改变信号后端的限速与资源授权。
+目前可由加载器和测试读取，尚不能通过插件命令直接生成信号实体；安装说明明确区分已准备的文件与待接入的显示功能。
+
 ### 模型摆放（计算已实现，尚未接入游戏显示）
 
 同一模型支持轨道附着和地面摆放。轨道附着保存从 A 端起算的距离及 AB/BA 方向，偏移的前后左右按

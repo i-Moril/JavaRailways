@@ -121,6 +121,8 @@ Current extraction progress:
   - [x] 按已批准的[模型包格式](../../spec/simple-signals/backend/model-packages.md)实现完整目录加载：三个源码文件读取多个模型、展开包内共享/内联部件，生成现有不可变模型定义、完整默认/普通外观及已解析预设。静态场景不要求时间字段，导入参数与列车同义且内联偏移仅应用一次；未知字段/null/重复键/别名/对象标签、非法路径与引用、循环及场景冲突均定位文件和字段后拒绝。五文件固定示例与 27 项回归通过。
     - 独立审查修正共享嵌套链逐层重复校验：先展开全部定义，再仅从共享根校验整棵树；用有序集合记录循环路径。补充未使用的嵌套错误、独立场景命名空间和调用方嵌套 Map 修改隔离回归，无剩余阻塞。测试通过仅测试依赖复用宿主已有 Paper 注册表初始化，不改变生产依赖或 JAR 内容。
     - 最终离线 gate：`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava`，排除既有 WebUI 前端安装/构建。26 suites / 238 tests 全部通过，零失败/错误/跳过；模块全量测试与插件 JAR 隔离检查实际执行，Java consumer 编译任务通过且复用未变输入缓存。源码 510 行、加载测试 592 行及五份 YAML；无包自动发现、设备存档、生产显示绑定、实体或 live Folia 验证。
+  - [x] 将用户提供的 JR 四灯式灯头整理为[实际 demo](../../../SimpleSignals/examples/jr-four-light/README.md)：服务器模型包配置四种完整外观和左右预设，客户端资源包提供现代物品定义、四份网格与共用贴图，不覆盖普通纸张、不包含立柱或速度规则。demo 网格仅整体下移16个模型单位，并用部件偏移补偿；逆平移后的 JSON 与原始文件一致，PNG 逐字节一致，原模型工作区未修改。三项回归读取同一份分发文件，验证整包加载、资源引用/元素坐标、真实1.21.11资源包元数据，以及 AB/BA 安装朝向；不证明生产绑定或真实客户端显示。
+    - 独立复核无剩余问题，三项 focused 测试实际重跑通过。最终离线 `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava` 为27 suites / 241 tests，零失败/错误/跳过；模块全量测试和插件 JAR 隔离检查实际执行，Java consumer 编译复用未变输入缓存。只新增示例资产、测试资源接线、165行测试与文档，无生产逻辑或存档版本变化。
   - [ ] 确定设备模型引用和摆放存档格式，接入只处理显示变化的更新流程，再验证实际画面、世界卸载和插件停用时的清理。
 
 ## Cross-cutting online edit latency

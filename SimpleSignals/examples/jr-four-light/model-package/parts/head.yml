@@ -1,0 +1,20 @@
+type: item_display
+# Client copies translate geometry down 16 model units; NONE centers it at (8,8,8).
+# +1.5m restores the lamp-head base to the attachment height, without adding a mast.
+offset: {y: 1.5}
+# Source lamp faces -Z. +90 degrees around Y makes it face approaching trains (-X).
+rotation: {y: 90.0}
+item:
+  type: PAPER
+  item-model: jr:four_light_signal_stop
+animations:
+  - name: lamp
+    scenes:
+      stop:
+        item: {type: PAPER, item-model: jr:four_light_signal_stop}
+      caution:
+        item: {type: PAPER, item-model: jr:four_light_signal_caution}
+      slow:
+        item: {type: PAPER, item-model: jr:four_light_signal_slow}
+      proceed:
+        item: {type: PAPER, item-model: jr:four_light_signal_proceed}

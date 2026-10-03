@@ -241,19 +241,19 @@ SimpleSignals 自己负责信号模型包、模型操作对象、RailObjectWand 
 不另写一套渲染器，也不把信号模型伪装成列车。
 
 [主插件模型契约](../../spec/bukkit-plugin/backend/model-presentation-api.md)描述按 ID 查询轨道曲线、
-构造普通模型、安排目标线程更新和清理实体；[信号模型绑定草稿](../../spec/simple-signals/backend/model-presentation.md)
+构造普通模型、安排目标线程更新和清理实体；[信号模型绑定合同](../../spec/simple-signals/backend/model-presentation.md)
 描述 SimpleSignals 如何解析模型包、计算摆放位置、映射外观，并在完整信号结果可见后提交显示变化。
 目前已经实现按 UUID 查询不可变轨道曲线、公开不可变普通模型定义、内部构造和完整场景应用，
 以及公开 `ModelPresentationService`、`ModelHandle`、目标线程调度和清理完成通知。
-SimpleSignals 模型绑定仍未实现。用户已确认 `default`、轨道附着/地面摆放、方向相关偏移，以及选择预设时
+SimpleSignals 已接通目录发现、设备创建、完整信号状态到显示变化，以及卸载清理。用户已确认 `default`、轨道附着/地面摆放、方向相关偏移，以及选择预设时
 复制为独立实例参数的规则；具体语义统一放在信号模型契约，不改变宿主模型定义或内部 `Unavailable` 状态。
 首批已完成无文件读取、无实体操作的预设应用和摆放计算，输出既有 `ModelPose`，并通过真实曲线测试。
 完整信号包已按[模型包契约](../../spec/simple-signals/backend/model-packages.md)实现目录加载与校验；
 设备磁盘字段已批准：三类设备共用可选的模型引用与轨道/地面摆放，删除显示器的重复位置字段，
 复用已有定义编译、revision、编辑许可及 sidecar 事务。具体形状、校验和测试只在信号模型契约维护。
 用户已批准直接修正尚未发布的 schema 1，不保留旧草稿字段或人为增加中间版本；
-任意柱高等模型实例参数推迟，未来使用独立于灯色的字段。生产绑定仍待后续，包加载和设备存档
-完成也不等于信号模型已在游戏内显示。
+任意柱高等模型实例参数推迟，未来使用独立于灯色的字段。生产绑定的离线服务调用测试
+不等于真实 Folia/客户端显示验证已经完成。
 SimpleATOBukkit 不参与这条流程。
 
 普通模型值契约已经审查并实现：附属插件展开模型包，主插件只消费不可变的容器/物品树，
@@ -264,7 +264,7 @@ SimpleATOBukkit 不参与这条流程。
 第一批管理员编辑功能已经提供 inspect/export/validate/apply 命令，操作独立的当前格式 JSON 草稿，
 复用既有配置修改事务。单独验证不会预留资源，因此不能保证后来真正应用时仍允许编辑。
 命令、版本、文件和线程行为见[编辑命令契约](../../spec/simple-signals/backend/authoring-commands.md)。
-交互式 Wand 和模型显示仍分批实现。
+交互式 Wand 与真实平台显示验证仍为后续批次。
 
 主插件不规定 `return "YG"` 这样的规则接口，Java/Kotlin 代码也不写死灯色与速度的对应表。
 规则提供经过校验的非负有限限速值；外观名称不能为空，也不能只包含空白字符。插件自己的自定义接口可以提供

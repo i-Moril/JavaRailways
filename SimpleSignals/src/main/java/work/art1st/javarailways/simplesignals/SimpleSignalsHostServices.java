@@ -6,6 +6,8 @@ import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService;
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService;
 import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService;
+import work.art1st.javarailways.bukkit.api.rail.RailTargetService;
+import work.art1st.javarailways.bukkit.api.model.ModelPresentationService;
 
 import java.util.Objects;
 import java.util.function.Function;
@@ -16,7 +18,9 @@ record SimpleSignalsHostServices(
     InfrastructureResourceService infrastructure,
     SignalEpochSourceService signalEpochSources,
     InspectionSourceService inspectionSources,
-    RoutePlanningRestrictionSourceService routePlanningSources
+    RoutePlanningRestrictionSourceService routePlanningSources,
+    RailTargetService railTargets,
+    ModelPresentationService models
 ) {
     SimpleSignalsHostServices {
         Objects.requireNonNull(observations, "observations");
@@ -24,6 +28,8 @@ record SimpleSignalsHostServices(
         Objects.requireNonNull(signalEpochSources, "signalEpochSources");
         Objects.requireNonNull(inspectionSources, "inspectionSources");
         Objects.requireNonNull(routePlanningSources, "routePlanningSources");
+        Objects.requireNonNull(railTargets, "railTargets");
+        Objects.requireNonNull(models, "models");
     }
 
     static SimpleSignalsHostServices load(ServicesManager servicesManager) {
@@ -38,7 +44,9 @@ record SimpleSignalsHostServices(
             require(lookup, InfrastructureResourceService.class),
             require(lookup, SignalEpochSourceService.class),
             require(lookup, InspectionSourceService.class),
-            require(lookup, RoutePlanningRestrictionSourceService.class)
+            require(lookup, RoutePlanningRestrictionSourceService.class),
+            require(lookup, RailTargetService.class),
+            require(lookup, ModelPresentationService.class)
         );
     }
 

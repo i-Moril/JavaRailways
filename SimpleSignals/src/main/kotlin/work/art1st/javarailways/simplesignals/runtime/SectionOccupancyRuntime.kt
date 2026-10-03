@@ -9,6 +9,7 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_SIGNAL_SOURCE_ID
 import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionRuntime
 import work.art1st.javarailways.simplesignals.signal.protectionRouteAreaId
+import work.art1st.javarailways.simplesignals.presentation.SignalModelBinding
 
 internal const val SECTION_OCCUPANCY_SOURCE_ID = FIXED_BLOCK_SIGNAL_SOURCE_ID
 
@@ -90,7 +91,7 @@ internal class SectionOccupancyRuntime private constructor(
         epochContinuity = continuity
     }
 
-    private data class PublishedState(
+    internal data class PublishedState(
         val occupancy: SectionOccupancySnapshot,
         val signals: SectionSignalSnapshot?,
         val selection: work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionSnapshot?,
@@ -99,6 +100,13 @@ internal class SectionOccupancyRuntime private constructor(
 
     @Volatile
     private var latest: PublishedState? = null
+
+    @Volatile private var modelBinding: SignalModelBinding? = null
+
+    /** Worker attachment precedes catch-up; callbacks always consume this complete publication. */
+    fun attachModelBinding(binding: SignalModelBinding) { modelBinding = binding }
+
+    fun presentationSnapshot(): PublishedState? = latest
 
     fun indicators() = latest?.indicators.orEmpty()
     fun selectionSnapshot() = latest?.selection
@@ -138,9 +146,11 @@ internal class SectionOccupancyRuntime private constructor(
         val selection = protectionRouteSelection.snapshot()
         val changedEntries = if (selection !== oldSelection) selection?.changedEntries.orEmpty() else emptySet()
         var indicatorStates = previous?.indicators.orEmpty()
+        val changedIndicatorIds = mutableListOf<String>()
         if (changedEntries.isNotEmpty()) {
             val next = indicatorStates.toMutableMap()
             changedEntries.flatMap { protectionSignals.indicatorsByEntry[it].orEmpty() }.forEach { indicator ->
+                changedIndicatorIds += indicator.indicatorId
                 val selected = selection!!.selections.getValue(indicator.entryBoundaryId)
                 next[indicator.indicatorId] = work.art1st.javarailways.simplesignals.signal.RouteIndicatorState(
                     selected, selected.routeId?.takeIf { selected.available }?.let(indicator.modelVariantsByRouteId::getValue)
@@ -192,8 +202,10 @@ internal class SectionOccupancyRuntime private constructor(
                         ?.routeId?.let(protectionSignals::routeSection)
             }
         }
-        latest = PublishedState(occupancy, signals, selection, indicatorStates)
+        val published = PublishedState(occupancy, signals, selection, indicatorStates)
+        latest = published
         epochContinuity?.lastProcessed = this
+        modelBinding?.published(published, signals?.changedSignalIds.orEmpty(), changedIndicatorIds)
         return SignalEpochResult(
             emptyList(),
             signals?.let(signalRules::invalidatedDeclarationIds).orEmpty()

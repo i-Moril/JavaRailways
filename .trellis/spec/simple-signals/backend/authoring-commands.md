@@ -3,7 +3,8 @@
 ## 1. 状态、范围与所有权
 
 CURRENT。SimpleSignals 拥有命令、草稿文件和用户消息；原有 world manager 仍是定义修改的唯一入口。
-本批提供管理员 JSON 编辑工作流，不包含 Wand、模型渲染、脚本加载、世界格式迁移或新的 host service。
+本合同负责管理员 JSON 编辑工作流，不包含 Wand、脚本加载或世界格式迁移。
+模型配置准备与显示生命周期由[模型显示合同](model-presentation.md)负责，命令复用同一个候选事务。
 
 ## 2. 模块工作方式
 
@@ -20,7 +21,8 @@ apply 把草稿与当前定义按 ID 比较，交给已有 patch 事务取得编
 这不是重新安装 world，不绕过原有删除引用、revision 单调、拓扑、依赖和编辑许可检查。
 草稿是完整文档，省略既有对象表示删除，不是部分 merge；帮助和 validate 摘要必须说明并显示新增/修改/删除数量。
 
-validate 与 apply 共享候选构造及编译机制，但 validate 不取得临时编辑许可，不写正式文件，不调用 source replacement。
+validate 与 apply 共享候选构造及编译机制；配置模型时还解析已加载的模型、校验所有可能输出的
+外观名并计算摆放姿态，但 validate 不创建模型 handle，不取得临时编辑许可，不写正式文件，不调用 source replacement。
 它返回候选合法性及受影响轨道，不承诺 apply 时的动态占用、其他编辑或版本仍不变。
 查看入口读取已发布 immutable state，不等待 worker 保存时持有的 manager 锁。
 
@@ -58,6 +60,8 @@ world unload/reload 不得让捕获的旧工作落到相同 UUID 的新 runtime�
 - 不支持的 sender：在当前命令线程有限回复并拒绝，不排队 worker/global task。
 - 草稿缺失、非普通文件、路径逃逸、错误 world/schema/未知字段：不调用 apply。
 - expected revision 过期、无变化或 candidate 非法：原 typed failure，磁盘/source 不变。
+- 模型包未准备好、加载失败、模型/外观不存在或定位失败：`VALIDATION_REJECTED`；
+  不创建模型，不改变原配置与显示。不带模型的候选可继续使用；移除坏引用无需先修复坏模型。
 - 编辑被运营依赖、列车 claim 或其他编辑阻挡：显示原 blocker kind、owner、revision 和 overlap。
 - 用户消息每类 identity 至多显示 8 个排序样本；blocker/diagnostic 也至多显示 8 条，标明总数及省略数量。
   每项文本保留最多 256 字符前缀加省略标记，result 诊断正文保留最多 8192 字符前缀加省略标记；增删改摘要在正文之后。
@@ -73,11 +77,11 @@ export/read 为 JSON 文档规模线性；validate/apply 的完整编译和影�
 平台线程只做参数与标识捕获、异步调度和有限用户消息，不做世界扫描，不等待 worker future。
 运行时列车/信号逻辑不读取 drafts 目录。
 
-## 8. Good / Base / Bad
+## 8. 具体使用情形
 
-Good：export 当前定义，编辑对象并提升其 revision，validate 后 apply 成功，正式文件与 runtime 同步。
-Base：validate 时合法，随后运营路线开始使用相关轨道；apply 被拒绝，不能以验证结果强行提交。
-Bad：草稿基线已过期、删除仍被引用的 block、路径指向正式存档；必须拒绝，不自动合并或覆盖。
+正常编辑：export 当前定义，编辑对象并提升其 revision，validate 后 apply 成功，正式文件与 runtime 同步。
+线路状态后来改变：validate 时合法，随后运营路线开始使用相关轨道；apply 被拒绝，不能以验证结果强行提交。
+非法草稿：基线已过期、删除仍被引用的 block、路径指向正式存档；必须拒绝，不自动合并或覆盖。
 
 ## 9. 必需测试
 
@@ -89,7 +93,7 @@ export current codec、已有草稿不覆盖、非法路径/符号链接、严�
 ## 10. 迁移、未决事项与 Wrong / Correct
 
 无 schema 升级、旧格式 reader 或兼容 alias。命令只是现有 current model 的作者入口。
-Wand、具体模型、脚本与更友好的表单仍为后续批次。
+Wand、脚本与更友好的表单仍为后续批次；具体模型绑定见其 owner 合同。
 
 Wrong：修改正式 JSON 后调用 install/reload，或 validate 临时占用资源后宣称 apply 已获准。
 Correct：编辑独立草稿，以基线版本提交 ID diff，经唯一 patch 事务执行最终检查。

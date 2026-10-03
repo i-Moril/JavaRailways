@@ -39,6 +39,15 @@ import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefi
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionSource
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStore
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
+import work.art1st.javarailways.simplesignals.presentation.LoadedPackageModel
+import work.art1st.javarailways.simplesignals.presentation.PreparedSignalModels
+import work.art1st.javarailways.simplesignals.presentation.SignalModelBinding
+import work.art1st.javarailways.simplesignals.presentation.SimpleSignalsModelPackages
+import work.art1st.javarailways.bukkit.api.model.ModelPresentationService
+import work.art1st.javarailways.bukkit.api.rail.RailTargetService
+import java.nio.file.Path
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
 import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
@@ -181,14 +190,53 @@ internal class SimpleSignalsWorldRuntime(
 ) {
     private data class RuntimeState(
         val publication: SimpleSignalsRuntimePublication?,
-        val sectionOccupancy: SectionOccupancyRuntime?
+        val sectionOccupancy: SectionOccupancyRuntime?,
+        val models: SignalModelBinding? = null
     )
 
     private val lock = Any()
     private val sectionEpochContinuity = SectionOccupancyRuntime.EpochContinuity()
+    private val modelLifecycleLock = Any()
+    private var allocatedModels: SignalModelBinding? = null
+
+    @Volatile var closed = false
+        private set
 
     @Volatile
     private var state = RuntimeState(null, null)
+
+    fun retire() {
+        closed = true
+        state.models?.retire()
+    }
+
+    fun currentModels(): SignalModelBinding? = state.models
+
+    fun attachModels(publication: SimpleSignalsRuntimePublication, models: SignalModelBinding): Boolean = synchronized(lock) {
+        val captured = state
+        if (closed || captured.publication !== publication || captured.models != null) return@synchronized false
+        checkNotNull(captured.sectionOccupancy).attachModelBinding(models)
+        state = RuntimeState(publication, captured.sectionOccupancy, models)
+        true
+    }
+
+    /** This monitor is used only by lifecycle workers, never by a safety/publication callback. */
+    fun startModels(models: SignalModelBinding) = synchronized(modelLifecycleLock) {
+        if (closed || state.models !== models) {
+            models.close()
+        } else {
+            if (allocatedModels === models) return@synchronized
+            allocatedModels?.takeIf { it !== models }?.close()
+            allocatedModels = models
+            models.start({ !closed && state.models === models },
+                { state.sectionOccupancy?.presentationSnapshot() })
+        }
+    }
+
+    fun closeModels() = synchronized(modelLifecycleLock) {
+        allocatedModels?.close()
+        allocatedModels = null
+    }
 
     val routePlanningBinding = RoutePlanningRestrictionBinding(
         PROTECTION_ROUTE_SOURCE_ID,
@@ -464,21 +512,24 @@ internal class SimpleSignalsWorldRuntime(
     fun commitPrepared(
         prepared: SimpleSignalsPreparedDefinitions,
         replacementSectionOccupancy: SectionOccupancyRuntime? = null,
+        replacementModels: SignalModelBinding? = null,
         beforeCommit: () -> Unit = {}
     ): SimpleSignalsDefinitionCommitStatus = synchronized(lock) {
         require(prepared.runtime === this) {
             "prepared SimpleSignals definitions belong to another world runtime"
         }
         val current = state
-        if (current.publication !== prepared.basePublication) {
+        if (closed || current.publication !== prepared.basePublication) {
             return@synchronized SimpleSignalsDefinitionCommitStatus.STALE_BASE
         }
         val candidateState = RuntimeState(
             prepared.candidatePublication,
-            replacementSectionOccupancy ?: current.sectionOccupancy
+            replacementSectionOccupancy ?: current.sectionOccupancy,
+            if (replacementSectionOccupancy == null) current.models else replacementModels
         )
         beforeCommit()
         replacementSectionOccupancy?.attachEpochContinuity(sectionEpochContinuity)
+        if (replacementSectionOccupancy != null) current.models?.retire()
         state = candidateState
         SimpleSignalsDefinitionCommitStatus.COMMITTED
     }
@@ -675,13 +726,103 @@ internal class SimpleSignalsWorldRuntimeManager(
     private val routePlanningSources: RoutePlanningRestrictionSourceService,
     private val definitions: SimpleSignalsWorldDefinitionStore,
     private val signalEpochSources: SignalEpochSourceService,
-    private val inspectionSources: InspectionSourceService
+    private val inspectionSources: InspectionSourceService,
+    private val railTargets: RailTargetService,
+    private val modelPresentation: ModelPresentationService,
+    private val modelWorker: (() -> Unit) -> Unit = { action -> CompletableFuture.runAsync(action) },
+    private val modelFailure: (String, Throwable) -> Unit = { _, _ -> }
 ) {
     private val lock = Any()
     private val runtimes = linkedMapOf<UUID, SimpleSignalsWorldRuntime>()
 
     @Volatile
     private var runtimeReadView: Map<UUID, SimpleSignalsWorldRuntime> = emptyMap()
+
+    @Volatile private var closed = false
+    @Volatile private var modelPackages: Map<String, LoadedPackageModel>? = null
+    @Volatile private var modelPackageFailure: Throwable? = null
+
+    /** Called once on the enable-time Paper worker, independently of safety-world installation. */
+    fun loadModelPackages(directory: Path) {
+        ThreadGuard.ensureOffMainThread("SimpleSignals model package preparation")
+        if (closed) return
+        val prepared = try {
+            SimpleSignalsModelPackages.load(directory)
+        } catch (failure: Exception) {
+            modelPackageFailure = failure
+            reportModelFailure("SimpleSignals rendering unavailable: model packages could not be loaded from $directory", failure)
+            return
+        }
+        val worlds = synchronized(lock) {
+            if (closed) return
+            check(modelPackages == null) { "SimpleSignals model packages are already prepared" }
+            modelPackages = prepared
+            runtimes.values.toList()
+        }
+        worlds.forEach(::attachModels)
+    }
+
+    private fun prepareModels(publication: SimpleSignalsRuntimePublication): PreparedSignalModels {
+        val definitions = publication.definitions
+        val configured = definitions.fixedBlockSignals.any { it.model != null } ||
+            definitions.protectionSignals.any { it.model != null } || definitions.routeIndicators.any { it.model != null }
+        val packages = modelPackages ?: if (!configured) emptyMap() else {
+            throw IllegalArgumentException("SimpleSignals rendering unavailable: " +
+                (modelPackageFailure?.message ?: "model packages are still being prepared"))
+        }
+        return PreparedSignalModels.prepare(definitions, packages, railTargets)
+    }
+
+    private fun modelBinding(publication: SimpleSignalsRuntimePublication, models: PreparedSignalModels): SignalModelBinding =
+        SignalModelBinding(plugin, publication.definitions.worldId, publication.topology.revision,
+            models, modelPresentation, ::reportModelFailure)
+
+    private fun reportModelFailure(context: String, failure: Throwable) {
+        try { modelFailure(context, failure) } catch (_: Exception) { }
+    }
+
+    /** Reprepare only when this captured world's publication changed during its initial attachment. */
+    private fun attachModels(runtime: SimpleSignalsWorldRuntime) {
+        while (!closed && !runtime.closed && runtimeReadView[runtime.worldId] === runtime && runtime.currentModels() == null) {
+            val publication = runtime.authoringPublication()
+            val binding = try {
+                modelBinding(publication, prepareModels(publication))
+            } catch (failure: Exception) {
+                // A concurrent edit may have removed the invalid configuration; catch up to that exact publication.
+                if (runtime.authoringPublication() !== publication) continue
+                reportModelFailure("SimpleSignals rendering unavailable for world ${runtime.worldId}", failure)
+                return
+            }
+            val attached = try {
+                synchronized(lock) {
+                    if (closed || runtime.closed || runtimeReadView[runtime.worldId] !== runtime) false else {
+                        check(infrastructure.currentTopology(runtime.worldId) === publication.topology) {
+                            "topology root changed before model attachment"
+                        }
+                        runtime.attachModels(publication, binding)
+                    }
+                }
+            } catch (failure: Exception) {
+                binding.retire()
+                reportModelFailure("SimpleSignals rendering unavailable for world ${runtime.worldId}", failure)
+                return
+            }
+            if (attached) {
+                runtime.startModels(binding)
+                return
+            }
+            binding.retire()
+            if (runtime.authoringPublication() === publication) return
+        }
+    }
+
+    private fun scheduleModels(runtime: SimpleSignalsWorldRuntime) {
+        if (modelPackages != null && !closed) {
+            try { modelWorker { attachModels(runtime) } } catch (failure: Exception) {
+                reportModelFailure("SimpleSignals rendering unavailable for world ${runtime.worldId}", failure)
+            }
+        }
+    }
 
     /** Hot-path lookup used by the resource provider/contributor without waiting for authoring I/O. */
     fun fixedBlockSnapshot(worldId: UUID): FixedBlockReadSnapshot? =
@@ -690,7 +831,10 @@ internal class SimpleSignalsWorldRuntimeManager(
     /** Captures the existing world-load identity without waiting for worker I/O. */
     fun authoringRuntime(worldId: UUID): SimpleSignalsWorldRuntime? = runtimeReadView[worldId]
 
-    fun install(worldId: UUID): SimpleSignalsWorldInstallResult = synchronized(lock) {
+    fun install(worldId: UUID): SimpleSignalsWorldInstallResult {
+        val result = synchronized(lock) {
+        if (closed) return@synchronized SimpleSignalsWorldInstallResult(SimpleSignalsWorldInstallStatus.UNAVAILABLE,
+            "SimpleSignals is disabled")
         if (worldId in runtimes) {
             return@synchronized SimpleSignalsWorldInstallResult(
                 SimpleSignalsWorldInstallStatus.ALREADY_INSTALLED
@@ -804,20 +948,33 @@ internal class SimpleSignalsWorldRuntimeManager(
             definitionSource = loaded.source,
             diagnostics = loaded.diagnostics
         )
+        }
+        if (result.status == SimpleSignalsWorldInstallStatus.INSTALLED) runtimeReadView[worldId]?.let(::scheduleModels)
+        return result
     }
 
     fun remove(worldId: UUID) {
-        synchronized(lock) {
-            runtimes.remove(worldId)
+        val removed = synchronized(lock) {
+            val removed = runtimes.remove(worldId)
+            removed?.retire()
             publishRuntimeReadView()
+            removed
         }
+        removed?.let { CompletableFuture.runAsync { it.closeModels() } }
     }
 
-    fun clearLocal() {
-        synchronized(lock) {
+    fun clearLocal(): CompletionStage<Void> {
+        val removed = synchronized(lock) {
+            closed = true
+            val removed = runtimes.values.toList()
+            removed.forEach(SimpleSignalsWorldRuntime::retire)
             runtimes.clear()
             publishRuntimeReadView()
+            removed
         }
+        // Host handles are thread-safe. This continuation survives cancellation of disabled-owner Paper tasks.
+        return CompletableFuture.runAsync { removed.forEach(SimpleSignalsWorldRuntime::closeModels) }
+            .thenCompose { modelPresentation.closeOwner(plugin) }
     }
 
     private fun publishRuntimeReadView() {
@@ -902,11 +1059,17 @@ internal class SimpleSignalsWorldRuntimeManager(
         }
         return when (val preparation = prepareDefinitionPatch(runtime, expectedDefinitionRevision, patch)) {
             is PatchPreparation.Rejected -> preparation.result
-            is PatchPreparation.Ready -> SimpleSignalsDefinitionAuthoringResult(
-                SimpleSignalsDefinitionAuthoringStatus.VALIDATED,
-                definitions = preparation.value.definitions,
-                affectedRailIds = preparation.value.affectedRailIds
-            )
+            is PatchPreparation.Ready -> try {
+                prepareModels(preparation.value.candidatePublication)
+                SimpleSignalsDefinitionAuthoringResult(
+                    SimpleSignalsDefinitionAuthoringStatus.VALIDATED,
+                    definitions = preparation.value.definitions,
+                    affectedRailIds = preparation.value.affectedRailIds
+                )
+            } catch (failure: Exception) {
+                authoringResult(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
+                    "model configuration was rejected: ${describe(failure)}")
+            }
         }
     }
 
@@ -921,19 +1084,33 @@ internal class SimpleSignalsWorldRuntimeManager(
         expectedRuntime: SimpleSignalsWorldRuntime? = null
     ): SimpleSignalsDefinitionAuthoringResult {
         ThreadGuard.ensureOffMainThread("SimpleSignals definition authoring preparation")
-        return synchronized(lock) {
-        val runtime = runtimes[worldId] ?: return@synchronized authoringResult(
+        val runtime = runtimeReadView[worldId] ?: return authoringResult(
             SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
             "SimpleSignals world runtime is not installed: $worldId"
         )
         if (expectedRuntime != null && (runtime !== expectedRuntime || !plugin.isEnabled)) {
-            return@synchronized authoringResult(SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
+            return authoringResult(SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
                 "captured world runtime is no longer available or plugin is disabled")
         }
         val prepared = when (val preparation = prepareDefinitionPatch(runtime, expectedDefinitionRevision, patch)) {
             is PatchPreparation.Ready -> preparation.value
-            is PatchPreparation.Rejected -> return@synchronized preparation.result
+            is PatchPreparation.Rejected -> return preparation.result
         }
+        val candidateModels = try {
+            modelBinding(prepared.candidatePublication, prepareModels(prepared.candidatePublication))
+        } catch (failure: Exception) {
+            return authoringResult(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
+                "model configuration was rejected: ${describe(failure)}")
+        }
+        val candidateOccupancy = SectionOccupancyRuntime.from(prepared.candidatePublication)
+        candidateOccupancy.attachModelBinding(candidateModels)
+        val result = synchronized(lock) {
+        if (closed || runtime.closed || runtimes[worldId] !== runtime) return@synchronized authoringResult(
+            SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
+            "captured world runtime is no longer available or plugin is disabled")
+        if (runtime.authoringPublication() !== prepared.basePublication) return@synchronized authoringResult(
+            SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED,
+            "definitions changed before the prepared edit could be committed")
         val topology = prepared.topology
         val nextRevision = prepared.definitions.definitionRevision
         val permitResult = try {
@@ -1000,9 +1177,6 @@ internal class SimpleSignalsWorldRuntimeManager(
                 var staleBase = false
                 var staleTopologyDuringCommit = false
                 var topologyUnavailableDuringCommit = false
-                val candidateOccupancy = SectionOccupancyRuntime.from(
-                    prepared.candidatePublication
-                )
                 try {
                     signalEpochSources.replaceSourcesAtomically(
                         plugin,
@@ -1026,7 +1200,8 @@ internal class SimpleSignalsWorldRuntimeManager(
                         }
                         val committed = runtime.commitPrepared(
                             prepared,
-                            candidateOccupancy
+                            candidateOccupancy,
+                            candidateModels
                         ) {
                             stagedSave.commitPrimary()
                         }
@@ -1081,6 +1256,10 @@ internal class SimpleSignalsWorldRuntimeManager(
             permit.close()
         }
         }
+        if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED) {
+            runtime.startModels(candidateModels)
+        } else candidateModels.retire()
+        return result
     }
 
     private fun applyPatch(

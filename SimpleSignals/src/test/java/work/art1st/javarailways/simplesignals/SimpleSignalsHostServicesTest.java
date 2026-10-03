@@ -6,6 +6,8 @@ import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService;
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService;
 import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService;
+import work.art1st.javarailways.bukkit.api.rail.RailTargetService;
+import work.art1st.javarailways.bukkit.api.model.ModelPresentationService;
 
 import java.lang.reflect.Proxy;
 import java.util.HashMap;
@@ -30,6 +32,8 @@ class SimpleSignalsHostServicesTest {
             registered.get(RoutePlanningRestrictionSourceService.class),
             services.routePlanningSources()
         );
+        assertSame(registered.get(RailTargetService.class), services.railTargets());
+        assertSame(registered.get(ModelPresentationService.class), services.models());
     }
 
     @Test
@@ -57,6 +61,8 @@ class SimpleSignalsHostServicesTest {
             RoutePlanningRestrictionSourceService.class,
             proxy(RoutePlanningRestrictionSourceService.class)
         );
+        services.put(RailTargetService.class, proxy(RailTargetService.class));
+        services.put(ModelPresentationService.class, proxy(ModelPresentationService.class));
         return services;
     }
 

@@ -126,6 +126,9 @@ Current extraction progress:
   - [x] 实现设备模型/摆放存档：三类设备复用可选模型配置、rail/ground 摆放和当前 sidecar；删除显示器重复位置，接入原有候选校验及旧、新轨道编辑许可，包括结构消费者的模型附着轨道。用户明确批准直接修正未发布 schema 1；不增加兼容字段或模型实例参数占位。具体合同见[信号模型契约](../../spec/simple-signals/backend/model-presentation.md)。固定 JSON 与实际 encode/decode 验证格式和值；manager 回归使用真实 Basic registry 验证缺轨道/越界/revision 拒绝、两类编辑 blocker、旧/新位置、ground 逻辑保护和失败原子性。
     - 首轮离线 focused gate 为 7 suites / 98 tests；独立复核无缺陷或明显过度设计，实际重跑 codec/manager 的 55 项测试通过。最终 `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava`（排除既有 WebUI 前端安装/构建）为 28 suites / 248 tests，零失败/错误/跳过；模块全量测试及 JAR 隔离检查实际执行，Java consumer 编译复用未变输入缓存。`git diff --check` 通过；不改主插件 API/构建依赖，不验证包存在性、生产绑定、Wand、任意模型参数或 live Folia 画面。
   - [ ] 接入只处理显示变化的更新流程，验证实际画面、世界卸载和插件停用时的清理。设备存档不能代替生产绑定及真实 Folia 验证。
+    - [x] 异步发现目录模型包，接通生产创建、完整信号结果到变化提交、定义替换及卸载清理。validate 只做纯准备，handle 在成功提交后创建；显示故障不回滚安全定义。无新格式、兼容、Wand、实例参数或热重载。详细机制与测试由[模型显示合同](../../spec/simple-signals/backend/model-presentation.md#生产接线与编辑边界)维护。初次离线 gate 为71项；独立复核修复多模型创建被新配置取代时误报显示故障，并以先失败后通过的回归确认。独立重新执行绑定12、manager58、服务发现2，共72项，零失败/错误/跳过；无剩余范围内问题。
+      - 最终离线 `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava`（排除既有 WebUI 前端安装/构建）实际执行模块全量测试、插件 JAR 隔离检查与 Java consumer 编译。29 suites / 267 tests，零失败/错误/跳过，`git diff --check` 通过。主插件/各模块仅作为构建依赖编译，未修改其源码或构建配置；已有 JDK 自动探测、deprecated API、JLine/JOML 等警告不在本批修复。Stage 2 保持进行中。
+    - [ ] 真实 Folia/客户端画面验证；记录式服务和受控调度不能代替实际实体显示。
 
 ## Cross-cutting online edit latency
 

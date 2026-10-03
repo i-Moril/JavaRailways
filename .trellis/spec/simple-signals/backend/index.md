@@ -12,13 +12,15 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 已建立plugin-local信号规则执行边界、灯色/限速输出快照及其列车限制投影，并提供第一个由world definition配置的固定闭塞规则；
 现已提供保护区域固定进路信号、当前入口信号和presentation-only进路显示器的后端配置/规则；
 已提供独立管理员 inspect/export/validate/apply 命令及 current-JSON 草稿工作流；
-尚未提供交互式 Wand、模型渲染或信号规则的 JS/YAML 接口，不得把 foundation 描述为完整建造/呈现系统。
+尚未提供交互式 Wand 或信号规则的 JS/YAML 接口；模型显示接线已提供，但真实 Folia/客户端画面
+仍待验证，不得把 foundation 描述为完整建造/呈现系统。
 
 模型显示方案见[信号状态如何显示成模型](model-presentation.md)。SimpleSignals 已提供私有的预设应用和
 轨道附着/地面摆放计算，复用公开曲线和值类型，输出 `ModelPose`；方向、倾斜与原地旋转已通过真实曲线测试。
 [模型包加载器](model-packages.md)已实现：在工作线程准备阶段读取目录、展开包内部件、校验命名场景和完整外观映射，
-返回不可变普通模型与摆放预设。设备模型/摆放存档按已批准合同接入现有定义事务；尚未实现包自动发现、Wand 和信号到实体的绑定；
-加载与计算完成不代表游戏里已经显示模型，也不是新增的宿主公开 API。
+返回不可变普通模型与摆放预设。设备模型/摆放存档接入现有定义事务；插件启用时异步发现模型包，
+通过宿主已有的轨道定位和模型显示服务创建模型、提交信号变化、清理失效绑定。
+完整接线、初始化并发和错误边界由模型显示合同维护；本批不新增宿主 API，也不实现 Wand。
 
 ## 工作方式
 
@@ -35,10 +37,12 @@ Paper 先启用 JavaRailways
   -> 取得host的exact immutable topology root并完整编译region/table/fixed-block/signal candidate
   -> 编译成功后才注册一个route-planning source并发布local runtime
   -> 后续WorldLoad在host完成注册后重复上述流程；WorldUnload丢弃local runtime
+  -> 显示包在另一个工作线程准备，不阻塞后端世界安装；准备后异步为当前世界定义绑定模型
 ```
 
 当前要求的能力是 coherent observation、通用 infrastructure/resource、signal epoch source、
-inspection source和route-planning restriction source五个 service。插件 descriptor 的 `depend: [JavaRailways]` 确保加载顺序；
+inspection source、route-planning restriction source、rail target 和 model presentation 七个 service。
+插件 descriptor 的 `depend: [JavaRailways]` 确保加载顺序；
 `api-version` 声明 Bukkit API 目标。宿主目前没有独立的数值化 signal API version，因此不能伪造
 字符串版本比较；实际 capability gate 是所需 service 类型能否全部发现。后续若宿主引入明确的
 capability descriptor，再在同一公开边界检查。
@@ -297,7 +301,9 @@ permit成功后通过host `replaceSourcesAtomically`提交：host先验证/编�
 但不取得跨world simulation lock。已开始的epoch保留其捕获的旧immutable source，下一epoch才读取replacement并建立新baseline。
 callback在runtime lock内复核base publication，以staged primary rename作为pre-commit，并重读exact topology root；root已变化则在
 rename前返回typed stale。然后用一个预构造的
-`RuntimeState`引用同时替换definition publication和section occupancy runtime；callback成功后host只安装已经
+`RuntimeState`引用同时替换definition publication、section occupancy runtime和模型绑定；旧模型绑定失效，
+handle关闭与新模型创建在提交锁外执行，具体合同见[模型显示](model-presentation.md#生产接线与编辑边界)。
+callback成功后host只安装已经
 编译好的area source state。任何host prevalidation失败都不调用save，save或base commit失败则host保留旧source；没有rollback token、
 占位area或可被physics观察到的错配窗口。删除最后一个block后，如果仍有保护信号或入口选择则保留统一epoch source；
 全部观测和选择都删除时使用empty replacement，只清除此类别而保留同owner的route-planning source。
@@ -403,7 +409,9 @@ Wrong：按`modelVariant`字符串在runtime中硬编码速度，或每tick遍�
 - Kotlin stdlib 由 Paper descriptor 的 library declaration 提供；仍不得打入插件 JAR。
 - 插件只有 `SimpleSignalsPlugin` 一个 `JavaPlugin` lifecycle owner。
 - 普通 `jar` 就是部署 artifact；不使用 shadowJar，也不把宿主 classes 打入该 JAR。
-- 当前 `onDisable` 只丢弃plugin-local runtime map；Bukkit已经强制禁用时由host现有`PluginDisableEvent`路径删除失效
+- 当前 `onDisable` 使本地 runtime/显示绑定失效，异步关闭模型并观察 host `closeOwner` 完成结果；
+  `modelCleanupCompletion()` 返回同一完成结果，不在停用回调等待实体操作。
+  Bukkit已经强制禁用时由host现有`PluginDisableEvent`路径删除失效
   planning callback。尚未实现planned-disable UI/state machine；未来正常停用仍必须先移除infrastructure dependency并调用
   宿主唯一owner-unregister gate，不能新增第二套卸载协议。
 

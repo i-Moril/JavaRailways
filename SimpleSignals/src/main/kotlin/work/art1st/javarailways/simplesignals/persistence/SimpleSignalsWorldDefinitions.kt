@@ -18,6 +18,7 @@ import work.art1st.javarailways.simplesignals.region.ProtectionRouteDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTraversal
 import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
+import work.art1st.javarailways.simplesignals.signal.AttachedSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalContinuationRequirement
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
@@ -37,7 +38,8 @@ internal data class SimpleSignalsWorldDefinitions private constructor(
     val fixedBlocks: List<FixedBlockDefinition>,
     val fixedBlockSignals: List<FixedBlockSignalDefinition>,
     val protectionSignals: List<ProtectionSignalDefinition>,
-    val routeIndicators: List<RouteIndicatorDefinition>
+    val routeIndicators: List<RouteIndicatorDefinition>,
+    val attachedSignals: List<AttachedSignalDefinition>
 ) {
     constructor(
         worldId: UUID,
@@ -47,7 +49,8 @@ internal data class SimpleSignalsWorldDefinitions private constructor(
         fixedBlocks: Collection<FixedBlockDefinition> = emptyList(),
         fixedBlockSignals: Collection<FixedBlockSignalDefinition> = emptyList(),
         protectionSignals: Collection<ProtectionSignalDefinition> = emptyList(),
-        routeIndicators: Collection<RouteIndicatorDefinition> = emptyList()
+        routeIndicators: Collection<RouteIndicatorDefinition> = emptyList(),
+        attachedSignals: Collection<AttachedSignalDefinition> = emptyList()
     ) : this(
         worldId,
         definitionRevision,
@@ -55,7 +58,8 @@ internal data class SimpleSignalsWorldDefinitions private constructor(
         java.util.List.copyOf(routeTables),
         java.util.List.copyOf(fixedBlocks),
         java.util.List.copyOf(fixedBlockSignals),
-        java.util.List.copyOf(protectionSignals), java.util.List.copyOf(routeIndicators)
+        java.util.List.copyOf(protectionSignals), java.util.List.copyOf(routeIndicators),
+        java.util.List.copyOf(attachedSignals)
     )
 
     init {
@@ -84,7 +88,8 @@ private data class SimpleSignalsWorldDefinitionsFileV1(
     val fixedBlocks: List<SavedFixedBlockV1> = emptyList(),
     val fixedBlockSignals: List<SavedFixedBlockSignalV1> = emptyList(),
     val protectionSignals: List<SavedProtectionSignal> = emptyList(),
-    val routeIndicators: List<SavedRouteIndicator> = emptyList()
+    val routeIndicators: List<SavedRouteIndicator> = emptyList(),
+    val attachedSignals: List<SavedAttachedSignal> = emptyList()
 )
 
 @Serializable
@@ -199,6 +204,14 @@ private data class SavedRouteIndicator(
 )
 
 @Serializable
+private data class SavedAttachedSignal(
+    val signalId: String,
+    val revision: Long,
+    val primarySignalId: String,
+    val model: SavedDeviceModel
+)
+
+@Serializable
 private data class SavedDeviceModel(val modelId: String, val placement: SavedModelPlacement)
 
 @Serializable
@@ -272,7 +285,9 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                     dependencies.map { it.restoreDependency(signal.signalId) }
                 }, signal.model?.restore(signal.signalId)) },
             file.routeIndicators.map { RouteIndicatorDefinition(it.indicatorId, it.revision, it.entryBoundaryId,
-                it.noRouteModelVariant, it.modelVariantsByRouteId, it.model?.restore(it.indicatorId)) }
+                it.noRouteModelVariant, it.modelVariantsByRouteId, it.model?.restore(it.indicatorId)) },
+            file.attachedSignals.map { AttachedSignalDefinition(it.signalId, it.revision, it.primarySignalId,
+                it.model.restore(it.signalId)) }
         )
     }
 
@@ -369,7 +384,8 @@ internal object SimpleSignalsWorldDefinitionsCodec {
             signal.downstreamSignalsByRouteId.mapValues { (_, dependencies) -> dependencies.map { it.savedDependency() } },
             signal.model?.saved()) },
         routeIndicators.map { SavedRouteIndicator(it.indicatorId, it.revision, it.entryBoundaryId,
-            it.noRouteModelVariant, it.modelVariantsByRouteId, it.model?.saved()) }
+            it.noRouteModelVariant, it.modelVariantsByRouteId, it.model?.saved()) },
+        attachedSignals.map { SavedAttachedSignal(it.signalId, it.revision, it.primarySignalId, it.model.saved()) }
     )
 
     private fun DeviceModelDefinition.saved() = SavedDeviceModel(modelId, when (val value = placement) {

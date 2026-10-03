@@ -70,9 +70,11 @@ internal fun definitionDraftPatch(
     val fixedSignals = diff(current.fixedBlockSignals, draft.fixedBlockSignals) { it.signalId }
     val protectionSignals = diff(current.protectionSignals, draft.protectionSignals) { it.signalId }
     val indicators = diff(current.routeIndicators, draft.routeIndicators) { it.indicatorId }
+    val attached = diff(current.attachedSignals, draft.attachedSignals) { it.signalId }
     return SimpleSignalsDefinitionPatch(regions.first, regions.second, tables.first, tables.second,
         blocks.first, blocks.second, fixedSignals.first, fixedSignals.second,
-        protectionSignals.first, protectionSignals.second, indicators.first, indicators.second)
+        protectionSignals.first, protectionSignals.second, indicators.first, indicators.second,
+        attached.first, attached.second)
 }
 
 internal fun definitionDraftSummary(current: SimpleSignalsWorldDefinitions, draft: SimpleSignalsWorldDefinitions): String {
@@ -83,6 +85,7 @@ internal fun definitionDraftSummary(current: SimpleSignalsWorldDefinitions, draf
         value.fixedBlockSignals.forEach { put("fixed-signal/${it.signalId}", it) }
         value.protectionSignals.forEach { put("protection-signal/${it.signalId}", it) }
         value.routeIndicators.forEach { put("indicator/${it.indicatorId}", it) }
+        value.attachedSignals.forEach { put("attached-signal/${it.signalId}", it) }
     }
     val old = ids(current)
     val next = ids(draft)

@@ -64,7 +64,7 @@ class SimpleSignalsDefinitionDraftsTest {
         assertEquals(original, Files.readString(directory.resolve("drafts/source.json")))
     }
 
-    @Test fun `all six definition kinds produce exact create update delete diff and reject duplicates`() {
+    @Test fun `all seven definition kinds produce exact create update delete diff and reject duplicates`() {
         val original = document("old", 1)
         val changed = document("old", 2)
         val created = document("new", 1)
@@ -78,13 +78,15 @@ class SimpleSignalsDefinitionDraftsTest {
         assertEquals(changed.fixedBlockSignals + created.fixedBlockSignals, patch.upsertFixedBlockSignals)
         assertEquals(changed.protectionSignals + created.protectionSignals, patch.upsertProtectionSignals)
         assertEquals(changed.routeIndicators + created.routeIndicators, patch.upsertRouteIndicators)
+        assertEquals(changed.attachedSignals + created.attachedSignals, patch.upsertAttachedSignals)
         assertEquals(deleted.regions.map { it.regionId }, patch.removeRegionIds)
         assertEquals(deleted.routeTables.map { it.tableId }, patch.removeRouteTableIds)
         assertEquals(deleted.fixedBlocks.map { it.blockId }, patch.removeFixedBlockIds)
         assertEquals(deleted.fixedBlockSignals.map { it.signalId }, patch.removeFixedBlockSignalIds)
         assertEquals(deleted.protectionSignals.map { it.signalId }, patch.removeProtectionSignalIds)
         assertEquals(deleted.routeIndicators.map { it.indicatorId }, patch.removeRouteIndicatorIds)
-        assertTrue(definitionDraftSummary(before, after).startsWith("create=6, update=6, delete=6"))
+        assertEquals(deleted.attachedSignals.map { it.signalId }, patch.removeAttachedSignalIds)
+        assertTrue(definitionDraftSummary(before, after).startsWith("create=7, update=7, delete=7"))
         assertTrue(definitionDraftPatch(original, original).upsertRegions.isEmpty())
         val duplicateDocuments = listOf(
             SimpleSignalsWorldDefinitions(world, 7, original.regions + original.regions, original.routeTables,
@@ -98,7 +100,10 @@ class SimpleSignalsDefinitionDraftsTest {
             SimpleSignalsWorldDefinitions(world, 7, original.regions, original.routeTables,
                 original.fixedBlocks, original.fixedBlockSignals, original.protectionSignals + original.protectionSignals, original.routeIndicators),
             SimpleSignalsWorldDefinitions(world, 7, original.regions, original.routeTables,
-                original.fixedBlocks, original.fixedBlockSignals, original.protectionSignals, original.routeIndicators + original.routeIndicators))
+                original.fixedBlocks, original.fixedBlockSignals, original.protectionSignals, original.routeIndicators + original.routeIndicators),
+            SimpleSignalsWorldDefinitions(world, 7, original.regions, original.routeTables,
+                original.fixedBlocks, original.fixedBlockSignals, original.protectionSignals, original.routeIndicators,
+                original.attachedSignals + original.attachedSignals))
         duplicateDocuments.forEach { duplicate ->
             assertThrows(IllegalArgumentException::class.java) { definitionDraftPatch(original, duplicate) }
         }
@@ -106,7 +111,8 @@ class SimpleSignalsDefinitionDraftsTest {
 
     private fun combine(a: SimpleSignalsWorldDefinitions, b: SimpleSignalsWorldDefinitions) = SimpleSignalsWorldDefinitions(
         world, 7, a.regions + b.regions, a.routeTables + b.routeTables, a.fixedBlocks + b.fixedBlocks,
-        a.fixedBlockSignals + b.fixedBlockSignals, a.protectionSignals + b.protectionSignals, a.routeIndicators + b.routeIndicators)
+        a.fixedBlockSignals + b.fixedBlockSignals, a.protectionSignals + b.protectionSignals, a.routeIndicators + b.routeIndicators,
+        a.attachedSignals + b.attachedSignals)
 
     private fun document(suffix: String, revision: Long): SimpleSignalsWorldDefinitions {
         val stop = ConfiguredSignalOutput(0.0, "stop")
@@ -124,6 +130,8 @@ class SimpleSignalsDefinitionDraftsTest {
                 route.routeId, 0.0, stop, stop, levels)),
             listOf(RouteIndicatorDefinition("test:indicator-$suffix", revision, "test:entry-$suffix",
                 "none", mapOf(route.routeId to "selected"), DeviceModelDefinition("test:indicator",
-                    ModelPlacement.RailAttached(RailPositionSnapshot(rail, ViewDirection.AB, 1.0))))))
+                    ModelPlacement.RailAttached(RailPositionSnapshot(rail, ViewDirection.AB, 1.0))))),
+            listOf(AttachedSignalDefinition("test:attached-$suffix", revision, "test:fixed-$suffix",
+                DeviceModelDefinition("test:head", ModelPlacement.Ground(work.art1st.javarailways.bukkit.api.model.ModelPose.IDENTITY)))))
     }
 }

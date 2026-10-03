@@ -15,7 +15,7 @@ Basic 判断这些轨道是否涉及已应用时刻表、列车占用或其他�
 
 ## 3. 内部机制
 
-按稳定 ID 比较各类旧、新定义，取得实际改变的 region、table、block、signal、indicator。
+按稳定 ID 比较各类旧、新定义，取得实际改变的 region、table、block、signal、indicator、attached signal。
 分别在旧 publication 和候选 publication 收集影响，最后取并集，覆盖删除、移动和依赖改绑。
 如果 topology root 已更新，还比较已有的区域内部、标准化 block traversal/长度、进路所需道岔连接和信号依赖路径。
 只把实际改变的派生值加入起点；排除 revision-local 标识与 callback 对象身份。
@@ -29,8 +29,10 @@ Basic 判断这些轨道是否涉及已应用时刻表、列车占用或其他�
 - region 与直接后继 block 互相影响准入 floor；变更 block 时不能遗漏前驱 region，变更 region/table 时不能遗漏直接后继 block。
 - signal 改变：包含其受控 section 和所有结构上可受影响的消费者。
 - indicator 改变：包含旧、新放置轨道和绑定入口的进路，不把仅显示模型的设备当作限速提供者。
+- attached signal 改变：包含旧、新放置轨道及各自主信号绑定的区间或进路；改绑时同时保护两个主信号的逻辑范围。
+  主信号受到编辑影响时，也包含其附属设备的放置轨道。仅编辑附属显示不把主信号或其上游消费者加入规则传播起点。
 
-三类设备的 rail 模型摆放都通过同一影响收集加入附着轨道；ground 或未配置模型不增加显示轨道。
+主信号、进路显示器和附属信号机的 rail 模型摆放都通过同一影响收集加入附着轨道；ground 或未配置模型不增加显示轨道。
 从 A 移到 B 必须在旧、新 publication 分别取得 A 与 B；改成地面摆放仍包含旧附着轨道及原逻辑绑定。
 受影响的结构消费者也收集自己的 rail 摆放，不按当前灯色或是否已经创建实体剪枝。
 模型字段不产生新的运行资源身份；完整序列化规则归[模型显示合同](model-presentation.md)。
@@ -90,7 +92,9 @@ Bad：B 是 A 的下游依赖，或 B 是 A 保护区域出口后的直接闭塞
 
 - 实际 runtime manager 配合 Basic registry：无关静态运营依赖和动态 claim 不阻挡编辑。
 - 被编辑轨道或间接受影响的上游轨道受保护：拒绝且磁盘、publication、source 不变。
-- 旧、新路径、删除和位置移动均覆盖；block、region、table、signal、indicator 均有断言。
+- 旧、新路径、删除和位置移动均覆盖；block、region、table、signal、indicator、attached signal 均有断言。
+- 附属设备改绑同时覆盖旧、新主信号区间；只改附属显示不保护无关上游规则。
+  主信号变更仍保护相关附属摆放轨道，不因它们位于另一条轨道而遗漏。
 - 固定进路信号和当前信号分别删除：使用实际 Basic registry 的静态依赖、动态 claim 阻挡；
   拒绝不改变磁盘、publication、source，解除阻挡后同一删除成功。
 - 仅声明某个已存在block资源的静态依赖时，实际manager更新/删除该block也必须被拒绝；

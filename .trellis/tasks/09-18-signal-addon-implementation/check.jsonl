@@ -1,5 +1,5 @@
 {"file":".trellis/spec/simple-signals/backend/index.md","reason":"Production binding: existing runtime publication/source transaction and lock-free safety readers"}
-{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Verify per-device create/close counts, retained revisions/pose, partial failure and old callback fencing"}
+{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Verify attached-signal reference/variant validation, persistence/admin/edit protection, changed-only fan-out, no extra safety work and retained handles"}
 {"file":".trellis/spec/simple-signals/backend/model-packages.md","reason":"Discover directories once per enable; immutable lookup, no ZIP or hot reload"}
 {"file":".trellis/spec/simple-signals/backend/authoring-commands.md","reason":"Validate without handles or writes; apply preserves original transaction"}
 {"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Preserve old/new placement and logical protection"}

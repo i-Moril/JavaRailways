@@ -15,7 +15,7 @@ apply 把草稿与当前定义按 ID 比较，交给已有 patch 事务取得编
 
 ## 3. 内部机制与算法
 
-六类定义分别按稳定 ID 建表：region、table、fixed block、fixed-block signal、protection signal、route indicator。
+七类定义分别按稳定 ID 建表：region、table、fixed block、fixed-block signal、protection signal、route indicator、attached signal。
 建表前明确拒绝重复 ID，不能让 `associateBy` 隐藏非法定义。
 新增和内容不同的对象产生 upsert；只在原定义中存在的对象产生 remove；完全相同的对象不产生操作。
 这不是重新安装 world，不绕过原有删除引用、revision 单调、拓扑、依赖和编辑许可检查。
@@ -28,7 +28,7 @@ validate 与 apply 共享候选构造及编译机制；配置模型时还解析�
 
 ## 4. 命令、文件与单位
 
-- `/simplesignals inspect <world>`：定义版本、各类对象及运行状态摘要。
+- `/simplesignals inspect <world>`：定义版本、各类对象（包括附属信号机数量）及运行状态摘要。
 - `/simplesignals export <world> <draft>`：写 `<dataFolder>/drafts/<draft>.json`；目标存在则拒绝，不静默覆盖。
 - `/simplesignals validate <world> <draft>`：只验证草稿。
 - `/simplesignals apply <world> <draft>`：正式应用。
@@ -38,6 +38,9 @@ draft stem 匹配 `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`，不接受绝对路径、目
 JSON 使用原有严格 schema 1 codec，不创建第二种 patch 磁盘格式。
 草稿 `definitionRevision` 是 export 时的基线，即 expected revision；apply 成功由原事务增加 1。
 修改既有对象仍必须提高该对象 revision；字段单位与 current definitions 一致，速度为 m/s、位置为 canonical AB m、提前时间为 s。
+附属信号机与其他定义一起 export、diff、validate 和 apply；它自己的模型、摆放或主信号引用变化时，
+提高它自己的 revision。删除仍被引用的主信号会使候选非法；可在同一草稿中删除或改绑所有附属设备。
+附属关系与模型校验详见[模型显示合同](model-presentation.md#主信号与附属信号机)。
 
 内部 `authoringRuntime(worldId)` 从已发布 read view 取得现有 runtime 身份；`authoringPublication()` 一次捕获定义与编译 topology。
 `validateDefinitionPatch(worldId, expectedDefinitionRevision, patch, expectedRuntime?)` 与 apply 使用同一个准备函数。
@@ -87,7 +90,8 @@ export/read 为 JSON 文档规模线性；validate/apply 的完整编译和影�
 
 命令注册、权限、玩家/控制台 world 参数；worker 与正确 target 回复；禁用与 world reload 的排队任务。
 export current codec、已有草稿不覆盖、非法路径/符号链接、严格 decode/world 检查。
-六类 ID diff 的新增/更新/删除及无变化；revision stale；validate 成功/失败均无许可、磁盘和 source mutation。
+七类 ID diff 的新增/更新/删除及无变化；附属引用改绑、删除主信号和组合删除；revision stale；
+validate 成功/失败均无许可、磁盘和 source mutation。
 实际 apply 复用编辑保护及原子提交，并展示 owner/revision diagnostics。
 
 ## 10. 迁移、未决事项与 Wrong / Correct

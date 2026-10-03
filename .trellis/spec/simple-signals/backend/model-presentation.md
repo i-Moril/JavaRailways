@@ -136,6 +136,48 @@ DeviceModelDefinition(modelId: String, placement: ModelPlacement)
 读取固定 current JSON 验证格式和值；manager 回归连接真实 Basic registry，验证四种设备行为
 （保护信号分别覆盖固定进路与当前入口），不把替身 source 或 Paper 环境当成实际客户端显示。
 
+### 主信号与附属信号机
+
+CURRENT。已实现后端主从关系，不包含 Wand、测距、样式编辑界面或轨道标记。普通信号和保护信号仍负责计算限速与外观；
+附属信号机只读取指定主信号已经发布的外观结果。中继信号机使用同一关系，不新增规则、检查声明、区间资源或停车点。
+单线的双向入口匹配和多闭塞方向协调不属于本批；两端共用物理资源也不意味着必须共用显示结果。
+
+新增私有定义与同一世界文档字段：
+
+```kotlin
+AttachedSignalDefinition(
+    signalId: String,
+    revision: Long,
+    primarySignalId: String,
+    model: DeviceModelDefinition
+)
+SimpleSignalsWorldDefinitions.attachedSignals: List<AttachedSignalDefinition> // 缺省为空
+```
+
+附属 ID、主信号引用采用现有 namespaced ID 校验，revision 沿用现有单调规则。附属设备必须有模型，
+复用现有 rail/ground 摆放；主信号可以没有模型。直接引用当前世界的固定闭塞信号或保护信号，
+不接受附属信号、进路显示器或不存在的 ID 作为主信号，因此无需引入主从图或循环求解器。
+附属设备 ID 不得重复或与普通信号、保护信号、显示器 ID 冲突。
+每个附属模型必须能够表达主信号配置的全部外观；场景映射属于该模型，可以与主模型不同。
+初始缺结果和不可用状态仍使用各自模型的 `default`。
+
+准备时建立“主信号 ID → 显示设备列表”，主信号自身有模型时也放入列表。加载/编辑按定义规模线性建立索引，
+保存不可变列表；共享模型与规则结果，不复制模型树或执行第二次占用检查。变化通知只查发生变化的主信号对应列表，
+因此一次更新成本取决于变化的主信号及其相关设备数量，不遍历无关信号。初始画面仍按模型数线性提交一次。
+
+附属模型使用独立稳定显示身份 `attached-signal/<signalId>`，复用世界级 handle 保留和旧回调隔离机制。
+移动、增删、换模型或改绑主信号都经过已有完整候选、编辑许可、save/source/publication 事务；
+编辑影响包含旧、新模型附着轨道和旧、新主信号的逻辑控制范围。仅修改一个附属设备不重建其他模型，
+主信号配置变化则重新校验其附属模型所需外观。删除仍被引用的主信号拒绝整份候选，
+可在同一 patch 中删除其全部附属设备；失败不改磁盘、source 或当前模型。
+
+磁盘只新增默认空的 `attachedSignals` 列表及上述四个字段，仍写 schema 1；这是有明确默认值的新增能力，
+不增加旧开发格式 reader、alias 或中间版本。现有 export/validate/apply/diff/inspect 路径一并识别附属设备。
+必需回归包括固定 JSON 缺省/round-trip、非法引用和重复 ID、无模型主信号带多台附属、
+主信号变化/不可用/default 传播、外观不变不提交、主从设备数量不改变规则/检查/资源数量、
+改绑/移动后的 handle 保留、旧新编辑保护、删除引用拒绝和同批删除成功，以及卸载/旧回调清理。
+这些测试仍是离线服务与后端验证，不证明实际 Folia 客户端画面。
+
 ### 已实现的摆放计算边界
 
 以下计算能力已经实现，不包含包加载器、存档字段或 Wand 命令。

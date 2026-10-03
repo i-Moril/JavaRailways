@@ -84,7 +84,7 @@ internal class SimpleSignalsAdminCommand(
                         "topologyRevision=${publication.topology.revision}; regions=${current.regions.size}, " +
                         "tables=${current.routeTables.size}, blocks=${current.fixedBlocks.size}, " +
                         "fixedBlockSignals=${current.fixedBlockSignals.size}, protectionSignals=${current.protectionSignals.size}, " +
-                        "routeIndicators=${current.routeIndicators.size}")
+                        "routeIndicators=${current.routeIndicators.size}, attachedSignals=${current.attachedSignals.size}")
                     "export" -> {
                         drafts.export(stem!!, current)
                         respond("Exported drafts/$stem.json for $worldId at baseline ${current.definitionRevision}. " +

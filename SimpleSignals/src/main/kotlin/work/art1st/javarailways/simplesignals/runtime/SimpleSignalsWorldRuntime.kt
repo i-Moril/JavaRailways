@@ -29,6 +29,7 @@ import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableCatalog
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableCatalogStatus
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
 import work.art1st.javarailways.simplesignals.signal.CompiledFixedBlockSignals
+import work.art1st.javarailways.simplesignals.signal.AttachedSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionIndex
 import work.art1st.javarailways.simplesignals.signal.CompiledProtectionSignals
@@ -79,7 +80,9 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
     val upsertProtectionSignals: List<ProtectionSignalDefinition>,
     val removeProtectionSignalIds: List<String>,
     val upsertRouteIndicators: List<RouteIndicatorDefinition>,
-    val removeRouteIndicatorIds: List<String>
+    val removeRouteIndicatorIds: List<String>,
+    val upsertAttachedSignals: List<AttachedSignalDefinition>,
+    val removeAttachedSignalIds: List<String>
 ) {
     constructor(
         upsertRegions: Collection<ProtectionRegionDefinition> = emptyList(),
@@ -93,7 +96,9 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
         upsertProtectionSignals: Collection<ProtectionSignalDefinition> = emptyList(),
         removeProtectionSignalIds: Collection<String> = emptyList(),
         upsertRouteIndicators: Collection<RouteIndicatorDefinition> = emptyList(),
-        removeRouteIndicatorIds: Collection<String> = emptyList()
+        removeRouteIndicatorIds: Collection<String> = emptyList(),
+        upsertAttachedSignals: Collection<AttachedSignalDefinition> = emptyList(),
+        removeAttachedSignalIds: Collection<String> = emptyList()
     ) : this(
         java.util.List.copyOf(upsertRegions),
         java.util.List.copyOf(removeRegionIds),
@@ -104,7 +109,8 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
         java.util.List.copyOf(upsertFixedBlockSignals),
         java.util.List.copyOf(removeFixedBlockSignalIds),
         java.util.List.copyOf(upsertProtectionSignals), java.util.List.copyOf(removeProtectionSignalIds),
-        java.util.List.copyOf(upsertRouteIndicators), java.util.List.copyOf(removeRouteIndicatorIds)
+        java.util.List.copyOf(upsertRouteIndicators), java.util.List.copyOf(removeRouteIndicatorIds),
+        java.util.List.copyOf(upsertAttachedSignals), java.util.List.copyOf(removeAttachedSignalIds)
     )
 }
 
@@ -400,7 +406,8 @@ internal class SimpleSignalsWorldRuntime(
             copiedBlocks,
             copiedSignals,
             definitions.protectionSignals.sortedBy { it.signalId },
-            definitions.routeIndicators.sortedBy { it.indicatorId }
+            definitions.routeIndicators.sortedBy { it.indicatorId },
+            definitions.attachedSignals.sortedBy { it.signalId }
         )
         val current = state.publication
         if (current != null && definitions.definitionRevision < current.definitions.definitionRevision) {
@@ -435,6 +442,8 @@ internal class SimpleSignalsWorldRuntime(
             { it.signalId }, { it.revision })?.let { return@synchronized preparationRejected(it) }
         retainedDeviceRevisionFailure(current?.definitions?.routeIndicators.orEmpty(), copiedDefinitions.routeIndicators,
             { it.indicatorId }, { it.revision })?.let { return@synchronized preparationRejected(it) }
+        retainedDeviceRevisionFailure(current?.definitions?.attachedSignals.orEmpty(), copiedDefinitions.attachedSignals,
+            { it.signalId }, { it.revision })?.let { return@synchronized preparationRejected(it) }
         if (current != null && current.topology === topology &&
             copiedDefinitions == current.definitions
         ) {
@@ -473,6 +482,19 @@ internal class SimpleSignalsWorldRuntime(
             return@synchronized preparationRejected(blockResult.diagnostics.map { it.detail })
         }
         val (candidateSignals, candidateProtectionSignals) = try {
+            val primaryIds = copiedSignals.mapTo(hashSetOf()) { it.signalId }
+            copiedDefinitions.protectionSignals.mapTo(primaryIds) { it.signalId }
+            val deviceIds = primaryIds + copiedDefinitions.routeIndicators.map { it.indicatorId }
+            val attachedIds = hashSetOf<String>()
+            copiedDefinitions.attachedSignals.forEach { attached ->
+                require(attachedIds.add(attached.signalId) && attached.signalId !in deviceIds) {
+                    "attached signal ${attached.signalId} has a duplicate device ID"
+                }
+                require(attached.primarySignalId in primaryIds) {
+                    "attached signal ${attached.signalId} binds unknown primary signal ${attached.primarySignalId}"
+                }
+                attached.model.validatePlacement(topology, attached.signalId)
+            }
             CompiledProtectionSignals.compile(topology, definitions.definitionRevision,
                 candidateRouteSelection, candidateBlocks.snapshot(topology), copiedSignals,
                 copiedDefinitions.protectionSignals, copiedDefinitions.routeIndicators)
@@ -767,7 +789,8 @@ internal class SimpleSignalsWorldRuntimeManager(
         previous: PreparedSignalModels? = null): PreparedSignalModels {
         val definitions = publication.definitions
         val configured = definitions.fixedBlockSignals.any { it.model != null } ||
-            definitions.protectionSignals.any { it.model != null } || definitions.routeIndicators.any { it.model != null }
+            definitions.protectionSignals.any { it.model != null } || definitions.routeIndicators.any { it.model != null } ||
+            definitions.attachedSignals.isNotEmpty()
         val packages = modelPackages ?: if (!configured) emptyMap() else {
             throw IllegalArgumentException("SimpleSignals rendering unavailable: " +
                 (modelPackageFailure?.message ?: "model packages are still being prepared"))
@@ -1304,12 +1327,15 @@ internal class SimpleSignalsWorldRuntimeManager(
             patch.removeProtectionSignalIds, current.protectionSignals.map { it.signalId }.toSet(), diagnostics)
         validatePatchIdentities("route indicator", patch.upsertRouteIndicators.map { it.indicatorId },
             patch.removeRouteIndicatorIds, current.routeIndicators.map { it.indicatorId }.toSet(), diagnostics)
+        validatePatchIdentities("attached signal", patch.upsertAttachedSignals.map { it.signalId },
+            patch.removeAttachedSignalIds, current.attachedSignals.map { it.signalId }.toSet(), diagnostics)
         if (patch.upsertRegions.isEmpty() && patch.removeRegionIds.isEmpty() &&
             patch.upsertRouteTables.isEmpty() && patch.removeRouteTableIds.isEmpty() &&
             patch.upsertFixedBlocks.isEmpty() && patch.removeFixedBlockIds.isEmpty() &&
             patch.upsertFixedBlockSignals.isEmpty() && patch.removeFixedBlockSignalIds.isEmpty() &&
             patch.upsertProtectionSignals.isEmpty() && patch.removeProtectionSignalIds.isEmpty() &&
-            patch.upsertRouteIndicators.isEmpty() && patch.removeRouteIndicatorIds.isEmpty()
+            patch.upsertRouteIndicators.isEmpty() && patch.removeRouteIndicatorIds.isEmpty() &&
+            patch.upsertAttachedSignals.isEmpty() && patch.removeAttachedSignalIds.isEmpty()
         ) {
             diagnostics += "definition patch is empty"
         }
@@ -1337,6 +1363,9 @@ internal class SimpleSignalsWorldRuntimeManager(
         val indicators = current.routeIndicators.associateByTo(linkedMapOf()) { it.indicatorId }
         patch.removeRouteIndicatorIds.forEach(indicators::remove)
         patch.upsertRouteIndicators.forEach { indicators[it.indicatorId] = it }
+        val attachedSignals = current.attachedSignals.associateByTo(linkedMapOf()) { it.signalId }
+        patch.removeAttachedSignalIds.forEach(attachedSignals::remove)
+        patch.upsertAttachedSignals.forEach { attachedSignals[it.signalId] = it }
         val candidate = SimpleSignalsWorldDefinitions(
             current.worldId,
             nextRevision,
@@ -1344,14 +1373,15 @@ internal class SimpleSignalsWorldRuntimeManager(
             tables.values.sortedBy { it.tableId },
             fixedBlocks.values.sortedBy { it.blockId },
             fixedBlockSignals.values.sortedBy { it.signalId },
-            protectionSignals.values.sortedBy { it.signalId }, indicators.values.sortedBy { it.indicatorId }
+            protectionSignals.values.sortedBy { it.signalId }, indicators.values.sortedBy { it.indicatorId },
+            attachedSignals.values.sortedBy { it.signalId }
         )
         if (candidate.regions == current.regions &&
             candidate.routeTables == current.routeTables &&
             candidate.fixedBlocks == current.fixedBlocks &&
             candidate.fixedBlockSignals == current.fixedBlockSignals &&
             candidate.protectionSignals == current.protectionSignals &&
-            candidate.routeIndicators == current.routeIndicators
+            candidate.routeIndicators == current.routeIndicators && candidate.attachedSignals == current.attachedSignals
         ) {
             return PatchApplication.Rejected(
                 listOf("definition patch does not change the current definitions")

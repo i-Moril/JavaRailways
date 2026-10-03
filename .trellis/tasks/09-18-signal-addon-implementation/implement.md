@@ -95,6 +95,19 @@ Current extraction progress:
 
 ## Timetable, authoring and rendering
 
+- [x] 本批实现主信号/附属信号机后端：附属定义、默认空集合存档、已有 patch/draft/inspect 接入、
+  直接主信号引用及模型校验、旧新逻辑/摆放编辑保护，以及变化主信号到显示设备的预编译索引。
+  复用现有 handle 保留、原子发布和清理，不新增信号规则、检查声明或资源。精确合同见
+  [模型显示](../../spec/simple-signals/backend/model-presentation.md#主信号与附属信号机)。
+  工具、测距、样式编辑界面、轨道可视化和单线运行扩展不在本批。
+  聚焦门禁已通过：5 类 94 项（附属存档 4、原设备存档 4、草稿 4、显示绑定 18、world manager 64），
+  零失败/错误/跳过；生产与测试代码编译通过。真实 Folia/客户端显示未验证。
+  - [x] 独立审查未发现范围内问题，无需修补代码。最终 offline gate：
+    `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava`，排除既有 WebUI 前端安装/构建；
+    30 类 283 项测试零失败/错误/跳过，test 与插件 JAR 校验实际执行，编译与 Java consumer 为 UP-TO-DATE。
+    `git diff --check` 通过；日志位于 `SimpleSignals/build/attached-signal-check.log`。
+    沙盒首次启动未能加载 Gradle 本地库；在获准的构建环境重试后通过，没有改动依赖、构建文件或业务代码。
+
 - [x] Close the reviewed collection/install race by protecting new physical routes plus old complete dependencies before current matching. Real Dispatcher + SimpleSignals matcher/publication + Basic registry composition verifies completed edits before the guard, denied edits after matching and checkpoint restore; injected first/replacement failures verify cleanup, restoration and failed-restoration retention/stall. This is deterministic ordering coverage, not live Folia scheduling/persistence-transaction coverage.
 - [x] Reuse signal-plugin route matching/binding in existing selected-route timetable preparation and collect exact dependencies. Do not create a separate signal-audit layer, repeat authoring-time checks or pathfind again; transient red/occupancy waits, partial fixed-block traversal and repeated visits are not automatic apply failures.
   - [x] Fixed-block static matching reuses the existing matcher and registered token identities; partial internal starts/stops and repeated visits remain allowed, without live bind/update or another pathfinding pass.

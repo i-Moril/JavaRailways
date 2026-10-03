@@ -79,13 +79,13 @@ class SignalModelBindingTest {
             RailPositionSnapshot(railId, ViewDirection.BA, 10.0), ModelPose(0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 1.0)))
         val prepared = PreparedSignalModels.prepare(definitions(configuration), models, rails, topology)
         assertEquals(1, curveQueries)
-        assertEquals(10.0, prepared.signals.getValue("test:first").pose.x())
-        assertEquals(-2.0, prepared.signals.getValue("test:first").pose.z())
+        assertEquals(10.0, prepared.signals.getValue("test:first").single().pose.x())
+        assertEquals(-2.0, prepared.signals.getValue("test:first").single().pose.z())
         val ground = ModelPose(9.0, 64.0, -3.0, 0.0, 0.0, 0.0, 1.0)
         val demo = ModelPackageLoader.load(Path.of(requireNotNull(javaClass.getResource("/examples/jr-four-light/model-package")).toURI()))
         val preparedGround = PreparedSignalModels.prepare(definitions(DeviceModelDefinition("jr_four_light:head",
             ModelPlacement.Ground(ground))), demo.models, rails, topology)
-        assertSame(ground, preparedGround.signals.getValue("test:first").pose)
+        assertSame(ground, preparedGround.signals.getValue("test:first").single().pose)
         assertEquals(1, curveQueries)
     }
 
@@ -149,6 +149,101 @@ class SignalModelBindingTest {
     }
 
     @Test
+    fun `unmodeled primary fans one rule output only to related independent attached models`() {
+        var fail = false
+        var speed = 12.0
+        val base = definitions(null, two = true)
+        val first = AttachedSignalDefinition("test:repeat-one", 1, "test:first", model())
+        val second = AttachedSignalDefinition("test:repeat-two", 1, "test:first", DeviceModelDefinition(
+            "demo_signals:wall", ModelPlacement.Ground(ModelPose(9.0, 64.0, 3.0, 0.0, 0.0, 0.0, 1.0))))
+        val unrelated = AttachedSignalDefinition("test:repeat-other", 1, "test:second", model())
+        val configured = withAttached(base, listOf(first, second, unrelated))
+        var evaluations = 0
+        val f = fixture(definitionOverride = configured, rule = {
+            evaluations++
+            if (fail) error("unavailable primary")
+            SectionSignalOutput(speed, "proceed")
+        })
+        val baseline = SimpleSignalsWorldRuntime(worldId).also { it.initializeDefinitions(topology, base) }
+        val publication = f.world.authoringPublication()
+        assertEquals(baseline.authoringPublication().fixedBlockSignals.bindings.size, publication.fixedBlockSignals.bindings.size)
+        assertEquals(baseline.fixedBlockSnapshot().blocksById.keys, f.world.fixedBlockSnapshot().blocksById.keys)
+        assertEquals(2, publication.fixedBlockSignals.bindings.size)
+        assertEquals(3, f.binding.prepared.signals.values.sumOf { it.size })
+        assertThrows(UnsupportedOperationException::class.java) {
+            (f.binding.prepared.signals.getValue("test:first") as MutableList).clear()
+        }
+        f.start()
+        assertEquals(setOf("attached-signal/test:repeat-one", "attached-signal/test:repeat-two",
+            "attached-signal/test:repeat-other"), f.service.handles.map { it.id }.toSet())
+        assertTrue(f.service.handles.all { it.submissions.single().animationScenes() == mapOf("lamp" to "dark") })
+        f.process(1, false)
+        assertEquals(2, evaluations, "one evaluation per logical signal, independent of displays")
+        val own = f.service.byId("attached-signal/test:repeat-one")
+        val otherModel = f.service.byId("attached-signal/test:repeat-two")
+        val otherPrimary = f.service.byId("attached-signal/test:repeat-other")
+        assertEquals(9.0, otherModel.submissions.last().transform().x())
+        assertEquals(0.0, own.submissions.last().transform().x())
+        speed = 3.0
+        f.process(2, true)
+        assertEquals(setOf("test:first"), f.world.sectionSignalSnapshot()!!.changedSignalIds)
+        assertTrue(f.service.handles.all { it.submissions.size == 2 }, "same variant produces no display submissions")
+        fail = true
+        f.process(3, false)
+        assertEquals(mapOf("lamp" to "dark"), own.submissions.last().animationScenes())
+        assertEquals(mapOf("lamp" to "dark"), otherModel.submissions.last().animationScenes())
+        assertEquals(2, otherPrimary.submissions.size)
+        assertEquals(0.0, f.world.sectionSignalSnapshot()!!.states.getValue("test:first").effectiveSpeedLimitMetersPerSecond)
+        fail = false
+        f.process(4, true)
+        assertEquals(mapOf("lamp" to "green"), own.submissions.last().animationScenes())
+        assertEquals(mapOf("lamp" to "green"), otherModel.submissions.last().animationScenes())
+        assertEquals(2, otherPrimary.submissions.size)
+        assertEquals(0, curveQueries)
+        assertTrue(f.errors.isEmpty())
+    }
+
+    @Test
+    fun `attachment rebind and movement retain handles while old callbacks and cleanup cannot revive them`() {
+        val base = definitions(model(), two = true)
+        val attached = AttachedSignalDefinition("test:repeater", 1, "test:first", model())
+        val f = fixture(definitionOverride = withAttached(base, listOf(attached)))
+        f.start()
+        f.process(1, false)
+        val original = f.service.byId("attached-signal/test:repeater")
+        val primary = f.service.byId("fixed-block-signal/test:first")
+        val second = f.service.byId("fixed-block-signal/test:second")
+        val moved = attached.copy(revision = 2, primarySignalId = "test:second", model = DeviceModelDefinition(
+            "demo_signals:home", ModelPlacement.Ground(ModelPose(8.0, 2.0, 4.0, 0.0, 0.0, 0.0, 1.0))))
+        val replacement = replace(f, withAttached(base, listOf(moved), revision = 2))
+        f.world.startModels()
+        assertEquals(3, f.service.handles.size)
+        assertSame(original, f.service.byId(original.id))
+        assertSame(primary, f.service.byId(primary.id))
+        assertSame(second, f.service.byId(second.id))
+        assertEquals(8.0, original.submissions.last().transform().x())
+        val stamp = RailwayStateStamp(worldId.toString(), 2, topology.revision)
+        val state = SectionOccupancyRuntime.PublishedState(
+            SectionOccupancySnapshot(stamp, emptyMap(), emptyList(), emptyMap()),
+            SectionSignalSnapshot(stamp, mapOf(
+                "test:first" to SectionSignalState.Available(SectionSignalOutput(12.0, "proceed")),
+                "test:second" to SectionSignalState.Available(SectionSignalOutput(0.0, "stop"))),
+                listOf("test:second")), null, emptyMap())
+        replacement.published(state, listOf("test:second"), emptyList())
+        assertEquals(mapOf("lamp" to "red"), original.submissions.last().animationScenes())
+        val submissions = original.submissions.size
+        f.binding.published(published(99, "proceed"), listOf("test:first"), emptyList())
+        assertEquals(submissions, original.submissions.size)
+        assertEquals((0L until submissions.toLong()).toList(), original.submissions.map { it.revision() })
+        f.world.retire()
+        f.world.closeModels()
+        f.world.closeModels()
+        replacement.published(published(100, "proceed"), listOf("test:second"), emptyList())
+        assertEquals(submissions, original.submissions.size)
+        assertTrue(f.service.handles.all { it.closeCalls == 1 })
+    }
+
+    @Test
     fun `real protection devices and indexed indicator use explicit noRoute and suppress selection-info-only updates`() {
         val branch = UUID(0, 882)
         val topology = topologyState(8, listOf(railId, branch), listOf(
@@ -169,7 +264,10 @@ class SignalModelBindingTest {
                 ProtectionSignalDefinition("test:current", 1, ProtectionSignalKind.CURRENT_ENTRY, "test:entry", 0.0,
                     stop, stop, levels, model = model())),
             routeIndicators = listOf(RouteIndicatorDefinition("test:indicator", 1, "test:entry", "stop",
-                mapOf(route.routeId to "proceed"), model())))
+                mapOf(route.routeId to "proceed"), model())),
+            attachedSignals = listOf(AttachedSignalDefinition("test:current-repeater", 1, "test:current",
+                DeviceModelDefinition("demo_signals:wall", ModelPlacement.Ground(ModelPose.IDENTITY))),
+                AttachedSignalDefinition("test:fixed-repeater", 1, "test:fixed", model())))
         val world = SimpleSignalsWorldRuntime(worldId)
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, world.initializeDefinitions(topology, definitions).status)
         val occupancy = world.initializeSectionOccupancy()
@@ -193,6 +291,7 @@ class SignalModelBindingTest {
         val indicator = service.byId("route-indicator/test:indicator")
         assertEquals(mapOf("lamp" to "red"), indicator.submissions.last().animationScenes())
         assertEquals(mapOf("lamp" to "red"), service.byId("protection-signal/test:current").submissions.last().animationScenes())
+        assertEquals(mapOf("lamp" to "red"), service.byId("attached-signal/test:current-repeater").submissions.last().animationScenes())
         val frozen = RouteSnapshot("test:mission", 1, topology.revision, listOf(
             RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 10.0),
             RouteSegmentSnapshot(branch, ViewDirection.AB, 0.0, 10.0)))
@@ -210,6 +309,8 @@ class SignalModelBindingTest {
         assertEquals(count, indicator.submissions.size)
         assertEquals(mapOf("lamp" to "green"), service.byId("protection-signal/test:current").submissions.last().animationScenes())
         assertEquals(mapOf("lamp" to "green"), service.byId("protection-signal/test:fixed").submissions.last().animationScenes())
+        assertEquals(mapOf("lamp" to "green"), service.byId("attached-signal/test:current-repeater").submissions.last().animationScenes())
+        assertEquals(mapOf("lamp" to "green"), service.byId("attached-signal/test:fixed-repeater").submissions.last().animationScenes())
         assertTrue(errors.isEmpty())
     }
 
@@ -475,7 +576,7 @@ class SignalModelBindingTest {
 
     private fun model() = DeviceModelDefinition("demo_signals:home", ModelPlacement.Ground(ModelPose.IDENTITY))
 
-    private fun definitions(model: DeviceModelDefinition, two: Boolean = false, revision: Long = 1): SimpleSignalsWorldDefinitions {
+    private fun definitions(model: DeviceModelDefinition?, two: Boolean = false, revision: Long = 1): SimpleSignalsWorldDefinitions {
         val blocks = listOf(FixedBlockDefinition("test:first-block", 1,
             listOf(FixedBlockTraversal(railId, ViewDirection.AB, 2.0, 4.0)))) + if (two) listOf(FixedBlockDefinition("test:second-block", 1,
             listOf(FixedBlockTraversal(railId, ViewDirection.AB, 6.0, 8.0)))) else emptyList()
@@ -492,8 +593,9 @@ class SignalModelBindingTest {
         report ?: { context, _ -> errors += context }, world.modelHandles)
 
     private fun fixture(two: Boolean = false, rule: ((SectionSignalRuleInput) -> SectionSignalOutput)? = null,
-        report: ((String, Throwable) -> Unit)? = null): Fixture {
-        val definitions = definitions(model(), two)
+        report: ((String, Throwable) -> Unit)? = null,
+        definitionOverride: SimpleSignalsWorldDefinitions? = null): Fixture {
+        val definitions = definitionOverride ?: definitions(model(), two)
         val world = SimpleSignalsWorldRuntime(worldId)
         world.initializeDefinitions(topology, definitions)
         val occupancy = if (rule == null) world.initializeSectionOccupancy() else world.initializeSectionOccupancy(
@@ -508,6 +610,10 @@ class SignalModelBindingTest {
         epoch.replaceSources(occupancy.sources)
         return Fixture(world, occupancy, service, binding, errors, epoch)
     }
+
+    private fun withAttached(base: SimpleSignalsWorldDefinitions, attached: List<AttachedSignalDefinition>,
+        revision: Long = base.definitionRevision) = SimpleSignalsWorldDefinitions(worldId, revision, base.regions,
+        base.routeTables, base.fixedBlocks, base.fixedBlockSignals, base.protectionSignals, base.routeIndicators, attached)
 
     private inner class Fixture(val world: SimpleSignalsWorldRuntime, val occupancy: SectionOccupancyRuntime,
         val service: RecordingModels, val binding: SignalModelBinding, val errors: MutableList<String>, val epoch: SignalEpochRuntime) {

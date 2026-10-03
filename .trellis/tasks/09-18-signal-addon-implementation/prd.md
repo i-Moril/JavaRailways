@@ -57,9 +57,10 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 #### Model presentation and placement
 
-These behaviors are approved; preset application and placement calculation are implemented and tested,
-but SimpleSignals rendering is not wired yet. The owning [model presentation contract](../../spec/simple-signals/backend/model-presentation.md)
-distinguishes the completed calculation components from the remaining package/binding work.
+These behaviors are approved. Package loading, placement persistence, production signal/model binding,
+per-device handle retention and unload cleanup are implemented and verified offline. Real Folia/client
+presentation remains unverified. The owning [model presentation contract](../../spec/simple-signals/backend/model-presentation.md)
+defines the implemented flow and its verification boundary.
 
 - SimpleSignals model packages must explicitly define `default` for initial missing signal state or `Unavailable`; an unknown explicit model variant remains a configuration error. This is plugin-local presentation policy, not a new requirement on host/train/rail models; the signal safety state keeps its existing name and semantics.
 - Support rail-attached and ground/world-position placement. Rail coordinates retain their AB/BA direction to interpret offsets; ground placement uses a world pose without rail offsets. Placement and named left/right presets are independent of signal aspect variants and logical control boundaries.
@@ -68,6 +69,45 @@ distinguishes the completed calculation components from the remaining package/bi
 - The approved [model-package format](../../spec/simple-signals/backend/model-packages.md) provides multiple models and local shared parts. Static scenes are named without author time fields; imports merge offsets and Euler angles as train imports do, while explicit containers provide hierarchical assembly. Load and validate the whole package into immutable host values outside the signal tick.
 - All three device kinds use one optional model reference plus rail/ground placement. Backend-only devices need no display position; remove the route indicator's duplicate standalone position. Reuse the current sidecar and authoring transaction, with old/new attachment rails included in the existing edit permit. The user explicitly approved correcting the unpublished schema-1 draft without intermediate versions or old-field aliases; the exact current shape belongs in the model presentation contract.
 - Arbitrary model instance parameters such as mast height are deferred. Later they must be separate from signal aspect `modelVariant`; do not reserve empty fields or add parameter evaluation now. Static model IDs can distinguish preconfigured heights in the meantime.
+
+#### Guided authoring and measurement
+
+The following player-facing requirements are confirmed. The user deferred tools, measurement,
+style-editing UI and track overlays to the next batch. The current approved implementation batch is
+only the backend primary/attached-signal relationship described in the
+[model presentation contract](../../spec/simple-signals/backend/model-presentation.md#主信号与附属信号机).
+Other interaction/API choices remain under discussion and do not authorize tool implementation:
+
+- Create a directed fixed block by selecting its entry and exit. Also allow continuing construction
+  from an existing fixed block, rather than requiring the player to manually select the shared boundary again.
+- Allow manually adding a signal associated with an existing fixed block or protection region,
+  independently of creating that section. Do not force every placement to create another section.
+- An added signal machine references a selected primary logical signal associated with that section and reuses its result,
+  rather than creating another signal rule or running another occupancy/downstream scan. Repeaters
+  also belong to the primary signal. Each display keeps its own model, style, position and facing;
+  a repeater's display position is not automatically another train-control boundary.
+- Support the user's single-track example of two signal machines displaying the same signal.
+  The first-batch scope of controlling entry from both ends remains to be confirmed: current
+  fixed-block route matching and inspection declarations are directed, so adding a reverse-facing
+  display alone does not control reverse entry. Shared presentation and bidirectional admission
+  must not be treated as the same capability.
+- Provide a separate measurement tool showing both the straight-line distance and the along-track
+  distance between two selected rail positions. Path choice at branches must be discussed rather than silently assumed.
+- Like RailWand, allow editing the tool's default signal style for future placement and editing the style
+  of an already placed signal. Default-setting changes must not silently restyle existing devices;
+  existing per-device placement/preset-copy behavior remains applicable.
+
+Two further UX topics remain open: protection-region route authoring and device binding, and clearer
+editor visualization. User-proposed visualization candidates are directed `▴` TextDisplays colored
+by speed limit, dedicated resource-pack items for stopping points/anchors, and differently colored
+TextDisplay bars for fixed-block extents. These are proposals, not a frozen rendering/API design.
+Multiple displays now have confirmed shared-output semantics. This does not require every entrance
+signal on a physical section to share one result. The current directed matcher and one-rule-per-section
+runtime are implementation limits, not permanent constraints on bidirectional blocks. A bidirectional
+physical block must use the same resource identity from both ends; reuse Basic's existing arbitration
+and tail-release lifecycle rather than adding another direction lock for a single block. The authoring
+scope for bidirectional entrances remains open. These extension boundaries are recorded in the
+[owner spec](../../spec/simple-signals/backend/index.md#后续单线支持的边界目标尚未实现).
 
 ### C. Timetable, editing and persistence
 
@@ -90,6 +130,11 @@ distinguishes the completed calculation components from the remaining package/bi
 - [ ] `SimpleATOBukkit` is a separate Gradle source/test module embedded in the JavaRailways main plugin JAR, has no independent Bukkit descriptor/lifecycle, and does not become the owner of any concrete signalling system.
 - [ ] Signal presentation is applied through target-aware latest-only dispatch: an unchanged or superseded model revision creates no replay backlog and cannot delay logical signal evaluation.
 - [x] Placement tests prove directed rail offsets, model/player tilt selection, in-place rotation and ground placement without a rail lookup. Existing instance parameters survive preset changes, with explicit reapplication adopting the new values; calculation creates no entities or signalling side effects.
+- [ ] Guided creation selects entry/exit and can continue from an existing block; manual signal placement selects an existing block/region without creating another section.
+- [x] Additional signal machines and repeaters reference their primary signal and reuse its output without duplicating signal evaluation, creating another block resource, or adding a control boundary at every display position.
+- [x] Attached devices round-trip in the existing sidecar and admin workflow, reject invalid/orphan references atomically, update only related models, and retain unaffected handles through edits and unload cleanup; verified offline, not on a live Folia/client.
+- [ ] The separate rail measurement tool reports straight-line and along-track distances for the selected positions/path without modifying infrastructure or acquiring train resources.
+- [ ] Tool defaults affect future signal placement, while instance-style editing changes only the selected device and preserves the existing logical control binding.
 - [ ] The `SimpleSignals` JAR installs beside the host, is absent from host JARs and imports only documented public contracts.
 - [ ] Protection-region/fixed-block classes, persistence and authoring are absent from Basic's target API and owned by `SimpleSignals`.
 - [ ] One region protects both a simple turnout and a multi-turnout throat without internal per-turnout stop boundaries.
@@ -121,6 +166,9 @@ distinguishes the completed calculation components from the remaining package/bi
 - Certification-grade communication, redundant control channels or train-integrity proving.
 - Permanent runtime compatibility for arbitrary pre-release Basic/Signal data.
 - Final WebUI module ownership during the extraction and first reference-plugin batches.
+- Multi-block single-track direction coordination is explicitly deferred to [TODO.md](../../../TODO.md).
+  Following capacity, direction switching and integration with resource admission must be discussed
+  later; do not add placeholder group state, a scheduling framework or persistence fields now.
 
 ## Dependency
 
@@ -130,11 +178,17 @@ distinguishes the completed calculation components from the remaining package/bi
 ## Deferred decisions
 
 - Exact plugin-local JS/YAML API, script budget and model-variant vocabulary. These are reviewed after the Java/Kotlin safety/runtime boundary exists.
-- Production signal/model binding, guided Wand UI and arbitrary model instance parameters. Package loading is complete and device placement persistence is approved for the current batch; neither completes entity rendering.
+- Guided authoring interaction/API, measurement path selection, bidirectional fixed-block entry scope,
+  protection-region route/device editing and editor visualization. Confirmed player-facing requirements are recorded above;
+  these unresolved details must be reviewed before the authoring implementation batch.
+- Arbitrary model instance parameters. Production model binding is complete offline; actual Folia/client presentation remains to be verified.
 - Guided/shunting workflow details and WebUI packaging.
 
 ## Blocking open questions
 
 None for the route-restriction foundation. Sources compile immutable neutral contributions before search; no plugin callback is evaluated during graph expansion. Owner/world registration now shares the existing signal lifecycle, and the plugin restores its strict current-model route-table sidecar before publishing the compiled source; invalid persisted policy leaves a rejecting source installed. Authoring and runtime route/resource policy remain later reviewable batches.
 
-Calculation-only placement, package loading and the real JR four-light demo are complete. Device model/placement persistence is approved for the current batch; live signal/model binding and Wand interaction remain later work.
+Placement, package loading, the JR four-light demo, device persistence and production model binding
+are complete offline. The backend primary/attached-signal relationship is implemented and verified offline. Tools, measurement,
+style-editing UI and track visualization are explicitly deferred to the next batch; bidirectional
+fixed-block entry and protection-region authoring remain separate scope decisions.

@@ -75,6 +75,7 @@ import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalContinuatio
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
 import work.art1st.javarailways.simplesignals.signal.RouteIndicatorDefinition
+import work.art1st.javarailways.simplesignals.signal.AttachedSignalDefinition
 import work.art1st.javarailways.bukkit.api.model.ModelPose
 import work.art1st.javarailways.bukkit.api.model.ModelHandle
 import work.art1st.javarailways.bukkit.api.model.ModelPresentationService
@@ -114,6 +115,294 @@ import java.util.concurrent.TimeUnit
 class SimpleSignalsWorldRuntimeManagerTest {
     @TempDir
     lateinit var directory: Path
+
+    @Test
+    fun `attached references collisions revision and orphan deletion reject before mutation while combined edits succeed`() {
+        val fixture = Fixture()
+        val seed = deviceModelDefinitions(fixture, "fixed-route", null)
+        val stop = ConfiguredSignalOutput(0.0, "stop")
+        val fixed = FixedBlockSignalDefinition("test:fixed", 1, "test:block", 0.0, stop,
+            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(12.0, "proceed"))))
+        val indicator = RouteIndicatorDefinition("test:indicator", 1, "test:entry", "stop",
+            mapOf(fixture.upperRoute().routeId to "proceed"))
+        val attached = AttachedSignalDefinition("test:attached", 1, fixed.signalId, railModel(fixture.entry))
+        val initial = SimpleSignalsWorldDefinitions(fixture.worldId, 1, seed.regions, seed.routeTables,
+            seed.fixedBlocks, listOf(fixed), seed.protectionSignals, listOf(indicator), listOf(attached))
+        val store = store()
+        store.save(fixture.worldId, initial)
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val sources = CapturingSignalEpochSourceService()
+        val planning = CapturingRoutePlanningService()
+        val models = RecordingModels()
+        var queries = 0
+        val delegate = fixtureRailTargets()
+        val rails = proxy(RailTargetService::class.java) { _, args ->
+            queries++
+            delegate.findCurve(args!![0] as UUID, args[1] as UUID)
+        }
+        val manager = runtimeManager(plugin(), infrastructure.service, planning, store, sources,
+            railTargets = rails, modelPresentation = models)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val runtime = manager.authoringRuntime(fixture.worldId)!!
+        val previous = runtime.authoringPublication()
+        val disk = Files.readString(store.primaryFile(fixture.worldId))
+        val source = sources.sources.getValue(fixture.worldId)
+        val handle = models.handles.single()
+        val invalid = listOf("test:unknown", attached.signalId, indicator.indicatorId).map {
+            attached.copy(revision = 2, primarySignalId = it)
+        } + listOf(fixed.signalId, seed.protectionSignals.single().signalId, indicator.indicatorId).map {
+            attached.copy(signalId = it, revision = 2)
+        } + attached.copy(model = DeviceModelDefinition("demo_signals:wall", ModelPlacement.Ground(ModelPose.IDENTITY))) +
+            attached.copy(revision = 0)
+        invalid.forEach { definition ->
+            val rejected = manager.applyDefinitionPatch(fixture.worldId, 1,
+                SimpleSignalsDefinitionPatch(upsertAttachedSignals = listOf(definition)))
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED, rejected.status, rejected.diagnostics.toString())
+        }
+        val badVariant = FixedBlockSignalDefinition(fixed.signalId, 2, fixed.controlledBlockId, 0.0,
+            ConfiguredSignalOutput(0.0, "missing-variant"), fixed.clearLevels)
+        val rejectedVariant = manager.applyDefinitionPatch(fixture.worldId, 1,
+            SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(badVariant)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED, rejectedVariant.status)
+        assertTrue(rejectedVariant.diagnostics.any { it.contains(attached.signalId) && it.contains("missing-variant") })
+        assertEquals(1, queries, "cached attachment pose still validates every primary variant")
+        listOf(SimpleSignalsDefinitionPatch(upsertAttachedSignals = listOf(attached, attached)),
+            SimpleSignalsDefinitionPatch(upsertAttachedSignals = listOf(attached), removeAttachedSignalIds = listOf(attached.signalId)),
+            SimpleSignalsDefinitionPatch(removeAttachedSignalIds = listOf("test:missing")),
+            SimpleSignalsDefinitionPatch(upsertAttachedSignals = listOf(attached))).forEach { patch ->
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.PATCH_REJECTED,
+                manager.applyDefinitionPatch(fixture.worldId, 1, patch).status)
+        }
+        val duplicate = withAttachments(initial, listOf(attached, attached), 2)
+        assertInstanceOf(SimpleSignalsDefinitionPreparationResult.Rejected::class.java,
+            runtime.prepareDefinitions(fixture.currentTopology, duplicate))
+        val orphan = manager.applyDefinitionPatch(fixture.worldId, 1,
+            SimpleSignalsDefinitionPatch(removeFixedBlockSignalIds = listOf(fixed.signalId)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED, orphan.status)
+        assertSame(previous, runtime.authoringPublication())
+        assertEquals(disk, Files.readString(store.primaryFile(fixture.worldId)))
+        assertSame(source, sources.sources.getValue(fixture.worldId))
+        assertEquals(0, infrastructure.permitAcquisitionCount)
+        assertSame(handle, models.handles.single())
+        assertEquals(0, handle.closeCalls)
+        val rebound = manager.applyDefinitionPatch(fixture.worldId, 1, SimpleSignalsDefinitionPatch(
+            removeFixedBlockSignalIds = listOf(fixed.signalId), upsertAttachedSignals = listOf(
+                attached.copy(revision = 2, primarySignalId = seed.protectionSignals.single().signalId))))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, rebound.status, rebound.diagnostics.toString())
+        assertSame(handle, models.handles.single())
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
+            manager.applyDefinitionPatch(fixture.worldId, 2, SimpleSignalsDefinitionPatch(
+                removeProtectionSignalIds = listOf(seed.protectionSignals.single().signalId))).status)
+        val removed = manager.applyDefinitionPatch(fixture.worldId, 2, SimpleSignalsDefinitionPatch(
+            removeProtectionSignalIds = listOf(seed.protectionSignals.single().signalId),
+            removeAttachedSignalIds = listOf(attached.signalId)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, removed.status)
+        assertTrue(removed.definitions!!.attachedSignals.isEmpty())
+        assertEquals(1, handle.closeCalls)
+    }
+
+    @Test
+    fun `attachment rebind protects both placement rails and old block plus new protection territory`() {
+        listOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM).forEach { kind ->
+            (0..3).forEach { protectedIndex ->
+                val fixture = Fixture()
+                val oldLogical = UUID(0, 90)
+                val oldPlacement = UUID(0, 91)
+                val newPlacement = UUID(0, 92)
+                val unrelated = UUID(0, 93)
+                val topology = fixture.topology(41, listOf(oldLogical, oldPlacement, newPlacement, unrelated))
+                val base = deviceModelDefinitions(fixture, "fixed-route", null)
+                val fixed = FixedBlockSignalDefinition("test:old-primary", 1, "test:old-block", 0.0,
+                    ConfiguredSignalOutput(0.0, "stop"),
+                    listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(12.0, "proceed"))))
+                val attached = AttachedSignalDefinition("test:attached", 1, fixed.signalId, railModel(oldPlacement))
+                val initial = SimpleSignalsWorldDefinitions(fixture.worldId, 1, base.regions, base.routeTables,
+                    base.fixedBlocks + FixedBlockDefinition("test:old-block", 1,
+                        listOf(FixedBlockTraversal(oldLogical, ViewDirection.AB, 0.0, 4.0))),
+                    listOf(fixed), base.protectionSignals, attachedSignals = listOf(attached))
+                val store = store()
+                store.save(fixture.worldId, initial)
+                val registry = editRegistry(topology)
+                val infrastructure = MutableTopologyService(topology, registry)
+                val sources = CapturingSignalEpochSourceService()
+                val models = RecordingModels()
+                val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), store,
+                    sources, modelPresentation = models)
+                assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+                val runtime = manager.authoringRuntime(fixture.worldId)!!
+                val publication = runtime.authoringPublication()
+                val disk = Files.readString(store.primaryFile(fixture.worldId))
+                val source = sources.sources.getValue(fixture.worldId)
+                val handle = models.handles.single()
+                protect(registry, topology, unrelated, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
+                val protected = listOf(oldPlacement, newPlacement, oldLogical, fixture.upperIn)[protectedIndex]
+                val release = protect(registry, topology, protected, kind)
+                val moved = attached.copy(revision = 2, primarySignalId = base.protectionSignals.single().signalId,
+                    model = railModel(newPlacement, 2.0))
+                val patch = SimpleSignalsDefinitionPatch(upsertAttachedSignals = listOf(moved))
+                val expected = setOf(oldPlacement, newPlacement, oldLogical) + deviceLogicalRails(fixture, "fixed-route")
+                val blocked = manager.applyDefinitionPatch(fixture.worldId, 1, patch)
+                assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, blocked.status, blocked.diagnostics.toString())
+                assertEquals(expected, infrastructure.lastEditRequest!!.impact.railIds)
+                assertEquals(kind, blocked.editDecision!!.blockers.single().kind)
+                assertSame(publication, runtime.authoringPublication())
+                assertEquals(disk, Files.readString(store.primaryFile(fixture.worldId)))
+                assertSame(source, sources.sources.getValue(fixture.worldId))
+                assertSame(handle, models.handles.single())
+                release()
+                assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
+                    manager.applyDefinitionPatch(fixture.worldId, 1, patch).status)
+                assertEquals(expected, infrastructure.lastEditRequest!!.impact.railIds)
+                assertSame(handle, models.handles.single())
+                assertEquals(2.0, handle.submissions.last().transform().x())
+                assertEquals(0, handle.closeCalls)
+            }
+        }
+    }
+
+    @Test
+    fun `display only edits omit upstream consumers while primary edits protect dependent attached placement`() {
+        val fixture = Fixture()
+        val placement = UUID(0, 91)
+        val upstreamDisplay = UUID(0, 92)
+        val topology = topologyState(41, listOf(fixture.entry, fixture.exit, placement, upstreamDisplay), listOf(
+            endpoint(fixture.entry, RailEndpoint.B) to endpoint(fixture.exit, RailEndpoint.A)))
+        val blocks = listOf("upstream" to fixture.entry, "primary" to fixture.exit).map { (name, rail) ->
+            FixedBlockDefinition("test:$name-block", 1, listOf(FixedBlockTraversal(rail, ViewDirection.AB, 0.0, 4.0)))
+        }
+        fun signal(name: String, revision: Long = 1) = FixedBlockSignalDefinition("test:$name", revision,
+            "test:$name-block", 0.0, ConfiguredSignalOutput(0.0, "stop"),
+            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(12.0, "proceed"))),
+            if (name == "upstream") listOf(FixedBlockSignalDependency("test:primary")) else emptyList())
+        val attached = AttachedSignalDefinition("test:attached", 1, "test:primary", railModel(placement))
+        val unrelated = AttachedSignalDefinition("test:upstream-display", 1, "test:upstream", railModel(upstreamDisplay))
+        val store = store()
+        store.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1, emptyList(), emptyList(), blocks,
+            listOf(signal("primary"), signal("upstream")), attachedSignals = listOf(attached, unrelated)))
+        val registry = editRegistry(topology)
+        val infrastructure = MutableTopologyService(topology, registry)
+        val models = RecordingModels()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), store,
+            CapturingSignalEpochSourceService(), modelPresentation = models)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val handle = models.byId("attached-signal/test:attached")
+        val other = models.byId("attached-signal/test:upstream-display")
+        val releaseUpstream = protect(registry, topology, fixture.entry, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
+        val releaseOther = protect(registry, topology, upstreamDisplay, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM)
+        val moved = attached.copy(revision = 2, model = railModel(placement, 2.0))
+        val applied = manager.applyDefinitionPatch(fixture.worldId, 1, SimpleSignalsDefinitionPatch(upsertAttachedSignals = listOf(moved)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, applied.status, applied.diagnostics.toString())
+        assertEquals(setOf(placement, fixture.exit), infrastructure.lastEditRequest!!.impact.railIds)
+        assertSame(handle, models.byId(handle.id))
+        assertSame(other, models.byId(other.id))
+        releaseUpstream()
+        releaseOther()
+        val release = protect(registry, topology, placement, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
+        val blocked = manager.applyDefinitionPatch(fixture.worldId, 2,
+            SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(signal("primary", 2))))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, blocked.status)
+        assertEquals(setOf(placement, upstreamDisplay, fixture.entry, fixture.exit), infrastructure.lastEditRequest!!.impact.railIds)
+        assertEquals(setOf(placement), blocked.editDecision!!.blockers.single().overlap.railIds)
+        release()
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, manager.applyDefinitionPatch(fixture.worldId, 2,
+            SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(signal("primary", 2)))).status)
+        assertEquals(2, models.handles.size)
+        assertTrue(models.handles.all { it.closeCalls == 0 })
+    }
+
+    @Test
+    fun `attachment source persistence and stale commit failures preserve disk publication sources and handles`() {
+        listOf("source", "persistence", "topology").forEach { failure ->
+            val fixture = Fixture()
+            val initial = deviceModelDefinitions(fixture, "attached-fixed", railModel(fixture.entry))
+            store().save(fixture.worldId, initial)
+            var failSave = false
+            val store = SimpleSignalsWorldDefinitionStore(directory.toFile()) {
+                if (failSave) throw java.io.IOException("injected attachment save failure")
+            }
+            val infrastructure = MutableTopologyService(fixture.currentTopology)
+            val sources = CapturingSignalEpochSourceService()
+            val models = RecordingModels()
+            val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), store,
+                sources, modelPresentation = models)
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+            val runtime = manager.authoringRuntime(fixture.worldId)!!
+            val publication = runtime.authoringPublication()
+            val disk = Files.readString(store.primaryFile(fixture.worldId))
+            val source = sources.sources.getValue(fixture.worldId)
+            val handle = models.handles.single()
+            val submissions = handle.submissions.size
+            when (failure) {
+                "source" -> sources.nextPrevalidationFailure = IllegalArgumentException("injected source failure")
+                "persistence" -> failSave = true
+                "topology" -> sources.beforeCommitAction = { infrastructure.topology = fixture.topology(42) }
+            }
+            val result = manager.applyDefinitionPatch(fixture.worldId, 1, SimpleSignalsDefinitionPatch(
+                upsertAttachedSignals = listOf(initial.attachedSignals.single().copy(revision = 2,
+                    model = railModel(fixture.entry, 2.0)))))
+            val expected = when (failure) {
+                "source" -> SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED
+                "persistence" -> SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED
+                else -> SimpleSignalsDefinitionAuthoringStatus.STALE_TOPOLOGY
+            }
+            assertEquals(expected, result.status, result.diagnostics.toString())
+            assertSame(publication, runtime.authoringPublication())
+            assertEquals(disk, Files.readString(store.primaryFile(fixture.worldId)))
+            assertSame(source, sources.sources.getValue(fixture.worldId))
+            assertSame(handle, models.handles.single())
+            assertEquals(submissions, handle.submissions.size)
+            assertEquals(0, handle.closeCalls)
+            assertEquals(1, infrastructure.permitCloseCount)
+        }
+    }
+
+    @Test
+    fun `admin inspect export validate and apply include attached CRUD without validation allocations`() {
+        val fixture = Fixture()
+        val store = store()
+        val initial = deviceModelDefinitions(fixture, "fixed", null)
+        store.save(fixture.worldId, initial)
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val sources = CapturingSignalEpochSourceService()
+        val models = RecordingModels()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), store,
+            sources, modelPresentation = models)
+        manager.install(fixture.worldId)
+        val drafts = SimpleSignalsDefinitionDrafts(directory)
+        val attached = AttachedSignalDefinition("test:attached", 1, "test:device", railModel(fixture.entry))
+        val candidate = withAttachments(initial, listOf(attached))
+        drafts.export("attached", candidate)
+        val replies = mutableListOf<Component>()
+        val command = SimpleSignalsAdminCommand(plugin(), manager, drafts, { true }, { fixture.worldId },
+            { it() }, { _, message -> replies += message })
+        val sender = commandSender(ConsoleCommandSender::class.java, true)
+        fun run(operation: String, draft: String? = null) {
+            val args = listOfNotNull(operation, "world", draft).toTypedArray()
+            command.onCommand(sender, testCommand(), "simplesignals", args)
+        }
+        run("validate", "attached")
+        assertTrue(replies.last().toString().contains("VALIDATED"))
+        assertTrue(replies.last().toString().contains("create=1"))
+        assertEquals(0, infrastructure.permitAcquisitionCount)
+        assertTrue(models.handles.isEmpty())
+        assertEquals(1, sources.atomicCommitCount)
+        run("apply", "attached")
+        assertTrue(replies.last().toString().contains("APPLIED"))
+        run("inspect")
+        assertTrue(replies.last().toString().contains("attachedSignals=1"))
+        run("export", "current")
+        val exported = drafts.read("current", fixture.worldId)
+        assertEquals(listOf(attached), exported.attachedSignals)
+        drafts.export("remove", withAttachments(exported, emptyList()))
+        run("apply", "remove")
+        assertTrue(replies.last().toString().contains("delete=1"))
+        assertTrue(replies.last().toString().contains("APPLIED"))
+        assertEquals(1, models.handles.single().closeCalls)
+    }
+
+    private fun withAttachments(base: SimpleSignalsWorldDefinitions, attached: List<AttachedSignalDefinition>,
+        revision: Long = base.definitionRevision) = SimpleSignalsWorldDefinitions(base.worldId, revision, base.regions,
+        base.routeTables, base.fixedBlocks, base.fixedBlockSignals, base.protectionSignals, base.routeIndicators, attached)
 
     @Test
     fun `committed device edits retain public handles and placement cache while reconciling only changed models`() {
@@ -947,7 +1236,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
     @Test
     fun `all device model candidates reject missing and out of bounds rails and unchanged revisions atomically`() {
-        listOf("fixed", "fixed-route", "current-entry", "indicator").forEach { kind ->
+        listOf("fixed", "fixed-route", "current-entry", "indicator", "attached-fixed", "attached-fixed-route", "attached-current-entry").forEach { kind ->
             val fixture = Fixture()
             val infrastructure = MutableTopologyService(fixture.currentTopology)
             val definitions = store()
@@ -990,7 +1279,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
     @Test
     fun `model moves on every device protect both attachments with real dependencies and claims`() {
-        listOf("fixed", "fixed-route", "current-entry", "indicator").forEach { kind ->
+        listOf("fixed", "fixed-route", "current-entry", "indicator", "attached-fixed", "attached-fixed-route", "attached-current-entry").forEach { kind ->
             listOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM).forEach { blockerKind ->
                 listOf(0, 1).forEach { protectedIndex ->
                     val fixture = Fixture()
@@ -1034,7 +1323,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
     @Test
     fun `ground model edits keep every device logical protection and omit unrelated rails`() {
-        listOf("fixed", "fixed-route", "current-entry", "indicator").forEach { kind ->
+        listOf("fixed", "fixed-route", "current-entry", "indicator", "attached-fixed", "attached-fixed-route", "attached-current-entry").forEach { kind ->
             val fixture = Fixture()
             val unrelated = UUID(0, 93)
             val topology = fixture.topology(41, listOf(unrelated))
@@ -1054,7 +1343,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             val retainedSources = sources.sources.getValue(fixture.worldId)
             val primary = Files.readString(definitions.primaryFile(fixture.worldId))
             protect(registry, topology, unrelated, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
-            val logicalRail = if (kind == "fixed") fixture.entry else fixture.upperIn
+            val logicalRail = if (kind.removePrefix("attached-") == "fixed") fixture.entry else fixture.upperIn
             val release = protect(registry, topology, logicalRail, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM)
             val patch = definitionDraftPatch(initial, candidate)
             val blocked = manager.applyDefinitionPatch(fixture.worldId, 1, patch)
@@ -1073,23 +1362,30 @@ class SimpleSignalsWorldRuntimeManagerTest {
     private fun railModel(rail: UUID, at: Double = 0.0) = DeviceModelDefinition("demo_signals:home",
         ModelPlacement.RailAttached(RailPositionSnapshot(rail, ViewDirection.BA, at)))
 
-    private fun deviceLogicalRails(fixture: Fixture, kind: String) = if (kind == "fixed") setOf(fixture.entry)
+    private fun deviceLogicalRails(fixture: Fixture, kind: String) = if (kind.removePrefix("attached-") == "fixed") setOf(fixture.entry)
         else fixture.upperRoute().traversals.mapTo(linkedSetOf()) { it.railId }
 
     private fun deviceModelDefinitions(fixture: Fixture, kind: String, model: DeviceModelDefinition?, revision: Long = 1): SimpleSignalsWorldDefinitions {
         val stop = ConfiguredSignalOutput(0.0, "stop")
         val levels = listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(12.0, "proceed")))
         val route = fixture.upperRoute()
+        val attached = kind.startsWith("attached-")
+        val logicalKind = kind.removePrefix("attached-")
+        val primaryId = if (attached) "test:primary" else "test:device"
+        val primaryRevision = if (attached) 1 else revision
+        val primaryModel = if (attached) null else model
         return SimpleSignalsWorldDefinitions(fixture.worldId, 1, listOf(fixture.region),
             listOf(fixture.table(1, route)), listOf(FixedBlockDefinition("test:block", 1,
                 listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)))),
-            fixedBlockSignals = if (kind == "fixed") listOf(FixedBlockSignalDefinition("test:device", revision,
-                "test:block", 0.0, stop, levels, model = model)) else emptyList(),
-            protectionSignals = if (kind == "fixed-route" || kind == "current-entry") listOf(ProtectionSignalDefinition(
-                "test:device", revision, if (kind == "fixed-route") ProtectionSignalKind.FIXED_ROUTE else ProtectionSignalKind.CURRENT_ENTRY,
-                if (kind == "fixed-route") route.routeId else route.entryBoundaryId, 0.0, stop, stop, levels, model = model)) else emptyList(),
+            fixedBlockSignals = if (logicalKind == "fixed") listOf(FixedBlockSignalDefinition(primaryId, primaryRevision,
+                "test:block", 0.0, stop, levels, model = primaryModel)) else emptyList(),
+            protectionSignals = if (logicalKind == "fixed-route" || logicalKind == "current-entry") listOf(ProtectionSignalDefinition(
+                primaryId, primaryRevision, if (logicalKind == "fixed-route") ProtectionSignalKind.FIXED_ROUTE else ProtectionSignalKind.CURRENT_ENTRY,
+                if (logicalKind == "fixed-route") route.routeId else route.entryBoundaryId, 0.0, stop, stop, levels, model = primaryModel)) else emptyList(),
             routeIndicators = if (kind == "indicator") listOf(RouteIndicatorDefinition("test:device", revision,
-                route.entryBoundaryId, "stop", mapOf(route.routeId to "proceed"), model)) else emptyList())
+                route.entryBoundaryId, "stop", mapOf(route.routeId to "proceed"), model)) else emptyList(),
+            attachedSignals = if (attached) listOf(AttachedSignalDefinition("test:device", revision, primaryId,
+                requireNotNull(model))) else emptyList())
     }
 
     @Test

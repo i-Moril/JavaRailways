@@ -30,6 +30,7 @@ internal object SimpleSignalsDefinitionEditImpact {
         val signals = (changed(old.fixedBlockSignals, next.fixedBlockSignals) { it.signalId } +
             changed(old.protectionSignals, next.protectionSignals) { it.signalId }).toMutableSet()
         val indicators = changed(old.routeIndicators, next.routeIndicators) { it.indicatorId }
+        val attached = changed(old.attachedSignals, next.attachedSignals) { it.signalId }
         if (previous != null && previous.topology !== candidate.topology) {
             // Compare disposable compiled values, excluding revision-local IDs and callback identity.
             // An unrelated topology publication alone must not make all definitions edited.
@@ -58,7 +59,7 @@ internal object SimpleSignalsDefinitionEditImpact {
         }
         val result = linkedSetOf<UUID>()
         listOfNotNull(previous, candidate).forEach { publication ->
-            collect(publication, regions, tables, blocks, signals, indicators, result)
+            collect(publication, regions, tables, blocks, signals, indicators, attached, result)
         }
         // Only published identities exist in the host provider. New blocks are protected through
         // their exact rail impact until publication; updates/deletions also protect the old token.
@@ -73,7 +74,8 @@ internal object SimpleSignalsDefinitionEditImpact {
     private fun collect(
         publication: SimpleSignalsRuntimePublication,
         changedRegions: Set<String>, changedTables: Set<String>, changedBlocks: Set<String>,
-        changedSignals: Set<String>, changedIndicators: Set<String>, rails: MutableSet<UUID>
+        changedSignals: Set<String>, changedIndicators: Set<String>, changedAttached: Set<String>,
+        rails: MutableSet<UUID>
     ) {
         val definitions = publication.definitions
         val blockSnapshot = publication.fixedBlocks.snapshot(publication.topology)
@@ -116,20 +118,35 @@ internal object SimpleSignalsDefinitionEditImpact {
 
         val modelsBySignal = definitions.fixedBlockSignals.associate { it.signalId to it.model } +
             definitions.protectionSignals.associate { it.signalId to it.model }
-        publication.protectionSignals.ruleRuntime?.affectedBindings(sections, changedSignals, entries)
-            .orEmpty().forEach { binding ->
-                (modelsBySignal[binding.signalId]?.placement as? ModelPlacement.RailAttached)
-                    ?.let { rails += it.position.railId }
-                binding.observedSections.forEach { section ->
-                    when (section.kind) {
-                        SectionKind.FIXED_BLOCK -> blockSnapshot.blocksById.getValue(section.id)
-                            .traversals.mapTo(rails) { it.railId }
-                        SectionKind.PROTECTION_ROUTE -> publication.routeSelection.routesById.getValue(section.id)
-                            .definition.traversals.mapTo(rails) { it.railId }
-                    }
-                }
-                binding.downstreamSignals.forEach { rails += it.affectedRailIds }
+        fun collectSections(observed: Collection<SectionRef>) = observed.forEach { section ->
+            when (section.kind) {
+                SectionKind.FIXED_BLOCK -> blockSnapshot.blocksById.getValue(section.id)
+                    .traversals.mapTo(rails) { it.railId }
+                SectionKind.PROTECTION_ROUTE -> publication.routeSelection.routesById.getValue(section.id)
+                    .definition.traversals.mapTo(rails) { it.railId }
             }
+        }
+        val affectedBindings = publication.protectionSignals.ruleRuntime
+            ?.affectedBindings(sections, changedSignals, entries).orEmpty()
+        affectedBindings.forEach { binding ->
+            (modelsBySignal[binding.signalId]?.placement as? ModelPlacement.RailAttached)
+                ?.let { rails += it.position.railId }
+            collectSections(binding.observedSections)
+            binding.downstreamSignals.forEach { rails += it.affectedRailIds }
+        }
+
+        // Display edits protect their primary's controlled territory without seeding rule consumers.
+        // Conversely, a changed logical signal also protects every display consuming its output.
+        val affectedSignalIds = affectedBindings.mapTo(hashSetOf()) { it.signalId }
+        val bindingsBySignal = (publication.fixedBlockSignals.bindings + publication.protectionSignals.bindings)
+            .associateBy { it.signalId }
+        definitions.attachedSignals.forEach { attached ->
+            if (attached.signalId in changedAttached || attached.primarySignalId in affectedSignalIds) {
+                (attached.model.placement as? ModelPlacement.RailAttached)?.let { rails += it.position.railId }
+                if (attached.signalId in changedAttached)
+                    collectSections(bindingsBySignal.getValue(attached.primarySignalId).observedSections)
+            }
+        }
 
         // Indicators consume entry selection only. Their edits protect placement and explicit
         // binding geometry, but do not seed the speed-rule dependency graph.

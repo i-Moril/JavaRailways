@@ -1,0 +1,4 @@
+type: item_display
+item:
+  type: PAPER
+  item-model: demo_signals:signal/mast

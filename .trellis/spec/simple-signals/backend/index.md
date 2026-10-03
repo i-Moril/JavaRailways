@@ -12,11 +12,13 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 已建立plugin-local信号规则执行边界、灯色/限速输出快照及其列车限制投影，并提供第一个由world definition配置的固定闭塞规则；
 现已提供保护区域固定进路信号、当前入口信号和presentation-only进路显示器的后端配置/规则；
 已提供独立管理员 inspect/export/validate/apply 命令及 current-JSON 草稿工作流；
-尚未提供交互式 Wand、模型渲染或JS/YAML加载接口，不得把 foundation 描述为完整建造/呈现系统。
+尚未提供交互式 Wand、模型渲染或信号规则的 JS/YAML 接口，不得把 foundation 描述为完整建造/呈现系统。
 
 模型显示方案见[信号状态如何显示成模型](model-presentation.md)。SimpleSignals 已提供私有的预设应用和
 轨道附着/地面摆放计算，复用公开曲线和值类型，输出 `ModelPose`；方向、倾斜与原地旋转已通过真实曲线测试。
-完整模型包、存档、Wand 和信号到实体的绑定仍未实现；这些私有计算组件不是新增的宿主公开 API。
+[模型包加载器](model-packages.md)已实现：在工作线程准备阶段读取目录、展开包内部件、校验命名场景和完整外观映射，
+返回不可变普通模型与摆放预设。尚未实现包自动发现、设备存档、Wand 和信号到实体的绑定；
+加载与计算完成不代表游戏里已经显示模型，也不是新增的宿主公开 API。
 
 ## 工作方式
 

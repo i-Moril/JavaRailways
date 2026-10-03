@@ -1,4 +1,5 @@
-{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Placement-only batch: plugin-local ownership, public imports, independent JAR and scoped quality gate"}
-{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Approved rail/world placement, copied preset parameters, axes, tilt and rotation; no loader, persistence or live binding"}
-{"file":".trellis/spec/bukkit-plugin/backend/model-presentation-api.md","reason":"Reuse immutable ModelPose without changing host API or importing host implementation"}
-{"file":".trellis/spec/javarailways/core/testing.md","reason":"Real public immutable curves, independent expected geometry, no world or tick lifecycle needed"}
+{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Model-package batch: plugin-local ownership, public imports, separate JAR and scoped quality gate"}
+{"file":".trellis/spec/simple-signals/backend/model-packages.md","reason":"Approved directory/YAML contract, named static scenes, train-compatible import merging, complete appearance and strict validation"}
+{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Approved default and instance-independent presets; loader does not create entities or install live bindings"}
+{"file":".trellis/spec/bukkit-plugin/backend/model-presentation-api.md","reason":"Reuse public immutable model trees, scenes and item appearance without importing host internals"}
+{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"One package boundary/version; no developer-format aliases or runtime compatibility"}

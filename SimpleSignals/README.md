@@ -70,17 +70,18 @@ apply 成功后插件自动把全局 revision 增加 1；原草稿再次 apply �
 
 ## 尚未完成
 
-目前没有交互式建造 Wand、Bukkit 模型渲染或 JS/YAML 加载器。
+目前没有交互式建造 Wand、Bukkit 模型渲染或信号规则的 JS/YAML 接口。
+模型包的 YAML 目录加载器已经实现，但尚未接入插件启动发现和设备显示绑定。
 进路显示器已有位置、模型映射和后端状态，不代表世界中已出现实体模型。
 这仍是开发中的后端，不是已完成的玩家可用信号系统。
 
-### 模型默认显示（已确认的设计，尚未实现）
+### 模型包与默认显示（加载已实现，显示绑定未实现）
 
 SimpleSignals 模型包需要显式提供 `default`，用于初始尚无信号结果或信号状态不可用时的显示。
 这项要求不适用于主插件通用模型、列车模型或其他附属插件；内部 `Unavailable` 信号状态也不改名。
 有正常结果时使用其 `modelVariant` 指定的外观，名称拼错或映射缺失应报错，不静默改用默认外观。
 
-例如，假设模型已定义 `lamp` 动画及 `dark/red/green` 场景，建议的配置片段为：
+例如，模型已定义 `lamp` 及 `dark/red/green` 命名场景时，外观映射写为：
 
 ```yaml
 default:
@@ -94,7 +95,10 @@ variants:
 
 这些名称没有内置灯色或速度含义。每个映射都是完整选择，不是叠加到 `default` 上的增量；
 作者也可以用 `default: {}` 明确选择模型基础外观。
-以上仅为配置片段草案，不能作为现有插件可加载的完整模型包；包入口、部件文件和摆放格式仍待确定。
+以上是外观映射片段；完整包还需入口和部件文件，见已实现的[模型包格式与加载](../.trellis/spec/simple-signals/backend/model-packages.md)。
+加载器支持多个模型、包内共享/内联部件、命名静态场景、完整外观校验和左右摆放预设。
+场景无需时间字段，导入参数沿用列车的合并语义。读取返回不可变结果，后续外观名称查询不访问文件。
+完整示例位于 [demo_signals](src/test/resources/model-packages/demo_signals/manifest.yml)。设备摆放存档另行确定。
 完整行为及测试要求见[信号模型显示契约](../.trellis/spec/simple-signals/backend/model-presentation.md)。
 
 ### 模型摆放（计算已实现，尚未接入游戏显示）
@@ -109,7 +113,7 @@ variants:
 未来的 Wand 可以修改实例的轨道坐标和偏移。改变附着方向会按原偏移重新定位；只旋转模型则保持
 摆放点不变。摆放预设与表示灯色等外观的 `modelVariant` 无关，切换灯色不会改变位置。
 目前已实现预设应用和纯位置/旋转计算，使用现有曲线及主插件的 `ModelPose`，并通过真实曲线测试。
-完整包格式、加载、存档、Wand 和生产信号模型绑定仍是后续工作，尚不会在世界中生成实体。
+模型包格式和加载已经完成；设备存档、Wand 和生产信号模型绑定仍是后续工作，尚不会在世界中生成实体。
 
 实现契约见[保护区域信号与进路显示合同](../.trellis/spec/simple-signals/backend/protection-region-signal-selection.md)。
 在线编辑范围的计算见[定义编辑影响合同](../.trellis/spec/simple-signals/backend/definition-edit-impact.md)。

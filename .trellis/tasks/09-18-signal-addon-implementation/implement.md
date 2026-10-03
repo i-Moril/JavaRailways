@@ -118,7 +118,10 @@ Current extraction progress:
   - [x] 确认并记录两种摆放方式、方向相关偏移、模型默认/玩家选择的倾斜规则，以及预设选择时复制为独立实例参数的语义。改变附着方向保留偏移值重算位置，原地旋转不移动摆放点；本项仅完成设计讨论和文档。
   - [x] 实现 SimpleSignals 的预设应用与纯摆放计算：两个源码文件复用 `RailPositionSnapshot`、`ModelPose` 和公开曲线，完成方向相关偏移、倾斜/竖直参照与位置独立的局部旋转；预设选择时复制参数，不增加动态继承或深拷贝模型树。两个测试文件使用真实曲线与独立推导的轴向期望验证 AB/BA、组合坡度/超高、局部旋转、实例独立性、重新应用、地面摆放及非法数值，新增 16 项全部通过。独立审查无阻塞或明显过度设计。
     - 最终离线 gate：`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava`，排除 `:WebUI:installFrontend` 和 `:WebUI:buildFrontend`。25 suites / 211 tests 全部通过，零失败/错误/跳过；模块测试、插件 JAR 隔离校验和 Java consumer 编译实际执行。复用本机 JDK25 与缓存 Gradle9.5，未修改 wrapper；首次 focused 构建意外触发既有前端依赖任务，无 WebUI tracked 改动，后续显式排除。不涉及加载器、存档、Wand、缓存/调度器或生产绑定，未做 live Folia/客户端显示验证。
-  - [ ] 确定完整信号模型包和摆放格式，接入只处理显示变化的更新流程，再验证实际画面、世界卸载和插件停用时的清理。
+  - [x] 按已批准的[模型包格式](../../spec/simple-signals/backend/model-packages.md)实现完整目录加载：三个源码文件读取多个模型、展开包内共享/内联部件，生成现有不可变模型定义、完整默认/普通外观及已解析预设。静态场景不要求时间字段，导入参数与列车同义且内联偏移仅应用一次；未知字段/null/重复键/别名/对象标签、非法路径与引用、循环及场景冲突均定位文件和字段后拒绝。五文件固定示例与 27 项回归通过。
+    - 独立审查修正共享嵌套链逐层重复校验：先展开全部定义，再仅从共享根校验整棵树；用有序集合记录循环路径。补充未使用的嵌套错误、独立场景命名空间和调用方嵌套 Map 修改隔离回归，无剩余阻塞。测试通过仅测试依赖复用宿主已有 Paper 注册表初始化，不改变生产依赖或 JAR 内容。
+    - 最终离线 gate：`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava`，排除既有 WebUI 前端安装/构建。26 suites / 238 tests 全部通过，零失败/错误/跳过；模块全量测试与插件 JAR 隔离检查实际执行，Java consumer 编译任务通过且复用未变输入缓存。源码 510 行、加载测试 592 行及五份 YAML；无包自动发现、设备存档、生产显示绑定、实体或 live Folia 验证。
+  - [ ] 确定设备模型引用和摆放存档格式，接入只处理显示变化的更新流程，再验证实际画面、世界卸载和插件停用时的清理。
 
 ## Cross-cutting online edit latency
 

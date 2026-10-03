@@ -65,6 +65,7 @@ distinguishes the completed calculation components from the remaining package/bi
 - Support rail-attached and ground/world-position placement. Rail coordinates retain their AB/BA direction to interpret offsets; ground placement uses a world pose without rail offsets. Placement and named left/right presets are independent of signal aspect variants and logical control boundaries.
 - A future Wand can edit per-device offsets, rail coordinates and direction. Changing attachment direction retains offset values and recomputes placement; rotating the model in place preserves its placement point.
 - Models may default to following rail slope/cant and players may override that choice, with world-upright as the fallback. Selecting a preset copies the effective offset, rotation and tilt choice into independent instance parameters. Later preset edits/removal do not move existing devices; adopting new parameters requires explicitly reapplying a preset. Do not add runtime field-inheritance tracking.
+- The approved [model-package format](../../spec/simple-signals/backend/model-packages.md) provides multiple models and local shared parts. Static scenes are named without author time fields; imports merge offsets and Euler angles as train imports do, while explicit containers provide hierarchical assembly. Load and validate the whole package into immutable host values outside the signal tick.
 
 ### C. Timetable, editing and persistence
 

@@ -1,0 +1,18 @@
+type: item_display
+item:
+  type: PAPER
+  item-model: demo_signals:signal/head_dark
+animations:
+  - name: lamp
+    scenes:
+      dark: {}
+      red:
+        item:
+          type: PAPER
+          item-model: demo_signals:signal/head_red
+          brightness: {block: 15, sky: 15}
+      green:
+        item:
+          type: PAPER
+          item-model: demo_signals:signal/head_green
+          brightness: {block: 15, sky: 15}

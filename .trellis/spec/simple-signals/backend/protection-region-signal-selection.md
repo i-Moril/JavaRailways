@@ -19,7 +19,9 @@
 `ProtectionSignalDefinition.kind`为稳定的`FIXED_ROUTE`或`CURRENT_ENTRY`，`bindingId`分别指向固定进路或有向入口。
 定义还保存`inspectionLeadTimeSeconds`、速度必须为0的`unavailableOutput`、`occupiedOutput`、按下游速度阈值选择的
 `clearLevels`及下游依赖。灯色名称和具体速度全部来自配置，Kotlin只执行输入校验及阈值选择。
-`RouteIndicatorDefinition`保存入口ID、玩家指定的轨道位置、无进路variant及route-to-variant映射，不包含任何速度字段。
+`RouteIndicatorDefinition`保存入口ID、无进路variant及route-to-variant映射，不包含任何速度字段。
+三类设备共用可选模型/摆放配置，轨道或地面位置不改变逻辑入口；具体存档与校验归
+[模型显示合同](model-presentation.md)，不保留显示器原有的第二份轨道坐标。
 
 固定进路信号不跟随当前入口的选路：即使当前入口选择B，它仍检查自己绑定的A的占用、实际道岔方向和出口下游。
 A有自己的准入请求时等待A完整ready；A没有请求时只要求A物理开通。显示允许信号也不替代Basic资源授权。

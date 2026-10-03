@@ -40,6 +40,39 @@ Dispatcher 只负责绑定路线、编译声明及申请资源。各列车独自
 `protectionSignals`、`routeIndicators` 等新增列表缺省为空，不为增加这些字段升级版本。
 定义只保存作者输入；占用、入口选择、依赖索引和授权结果都不写入存档。
 
+固定闭塞信号、保护区域信号和进路显示器都可配置同一种可选 `model`。它保存模型引用与摆放参数，
+不包含模型树，也不改变信号的逻辑入口。缺省或 `null` 表示只运行后端。
+设备存档可由现有 export/validate/apply 工作流编辑；还没有生产模型绑定，保存不会生成实体。
+
+例如，使用 demo 灯头，在轨道 BA 方向的右侧 2 米摆放：
+
+```json
+"model": {
+  "modelId": "jr_four_light:head",
+  "placement": {
+    "kind": "rail",
+    "railId": "00000000-0000-0000-0000-000000000001",
+    "arcLengthInAbMeters": 12.0,
+    "facing": "BA",
+    "adjustment": {
+      "x": 0.0, "y": 0.0, "z": 2.0,
+      "rotationX": 0.0, "rotationY": 0.0, "rotationZ": 0.0, "rotationW": 1.0
+    },
+    "followRailTilt": false
+  }
+}
+```
+
+这是设备内部字段片段，示例 UUID 必须换成该世界的真实轨道。弧长仍从 A 端起算；方向决定偏移的前后左右。
+`adjustment` 可省略为零偏移/单位旋转，`followRailTilt` 可省略为 `false`。
+地面摆放改为 `"placement": {"kind": "ground", "pose": {...}}`，`pose` 使用同样七个分量保存世界位置与旋转，
+不接受轨道字段。世界取外层 `worldId`，旋转使用单位四元数，不是度制角度。
+
+摆放存档保存已经选定的参数，不保存预设名称；修改包内预设不会追溯移动设备。
+模型 ID 的语法和轨道引用/范围会被检查，模型包是否存在及是否提供相应外观要等生产绑定接入后检查。
+用户已批准直接修正未发布的 schema 1，显示器旧的顶层轨道位置字段删除，不保留别名或自动转换。
+柱高等任意模型实例参数以后单独设计，不与灯色 `modelVariant` 混用；目前可用预先配置的不同模型 ID 区分。
+
 在线编辑先完整验证候选，再用现有编辑许可检查轨道是否正在被运营路线或列车使用。
 验证或保存失败保留原状态；成功时一起替换定义和运行时信号来源，不冻结其他世界。
 许可范围从实际改变的定义出发，同时检查旧、新位置和可能受影响的上游信号；无依赖关系的其他运营线路不参与本次检查。
@@ -72,7 +105,7 @@ apply 成功后插件自动把全局 revision 增加 1；原草稿再次 apply �
 
 目前没有交互式建造 Wand、Bukkit 模型渲染或信号规则的 JS/YAML 接口。
 模型包的 YAML 目录加载器已经实现，但尚未接入插件启动发现和设备显示绑定。
-进路显示器已有位置、模型映射和后端状态，不代表世界中已出现实体模型。
+三类设备的模型引用和摆放存档不代表世界中已出现实体模型。
 这仍是开发中的后端，不是已完成的玩家可用信号系统。
 
 ### 模型包与默认显示（加载已实现，显示绑定未实现）
@@ -98,7 +131,7 @@ variants:
 以上是外观映射片段；完整包还需入口和部件文件，见已实现的[模型包格式与加载](../.trellis/spec/simple-signals/backend/model-packages.md)。
 加载器支持多个模型、包内共享/内联部件、命名静态场景、完整外观校验和左右摆放预设。
 场景无需时间字段，导入参数沿用列车的合并语义。读取返回不可变结果，后续外观名称查询不访问文件。
-完整示例位于 [demo_signals](src/test/resources/model-packages/demo_signals/manifest.yml)。设备摆放存档另行确定。
+完整示例位于 [demo_signals](src/test/resources/model-packages/demo_signals/manifest.yml)。设备摆放存档见上文。
 完整行为及测试要求见[信号模型显示契约](../.trellis/spec/simple-signals/backend/model-presentation.md)。
 
 另有包含实际网格和贴图的 [JR 四灯式灯头 demo](examples/jr-four-light/README.md)，
@@ -119,7 +152,7 @@ variants:
 未来的 Wand 可以修改实例的轨道坐标和偏移。改变附着方向会按原偏移重新定位；只旋转模型则保持
 摆放点不变。摆放预设与表示灯色等外观的 `modelVariant` 无关，切换灯色不会改变位置。
 目前已实现预设应用和纯位置/旋转计算，使用现有曲线及主插件的 `ModelPose`，并通过真实曲线测试。
-模型包格式和加载已经完成；设备存档、Wand 和生产信号模型绑定仍是后续工作，尚不会在世界中生成实体。
+模型包格式、加载和设备存档已经完成；Wand 和生产信号模型绑定仍是后续工作，尚不会在世界中生成实体。
 
 实现契约见[保护区域信号与进路显示合同](../.trellis/spec/simple-signals/backend/protection-region-signal-selection.md)。
 在线编辑范围的计算见[定义编辑影响合同](../.trellis/spec/simple-signals/backend/definition-edit-impact.md)。

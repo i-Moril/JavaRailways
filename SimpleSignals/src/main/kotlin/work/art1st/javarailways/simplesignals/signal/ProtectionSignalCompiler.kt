@@ -31,6 +31,7 @@ internal class CompiledProtectionSignals private constructor(
                 "signal identities must be unique across device kinds"
             }
             val routeIdsBySignal = signals.associate { signal ->
+                signal.model?.validatePlacement(topology, signal.signalId)
                 val candidates = when (signal.kind) {
                     ProtectionSignalKind.FIXED_ROUTE -> listOf(requireNotNull(routes.routesById[signal.bindingId]) {
                         "signal ${signal.signalId} binds unknown route ${signal.bindingId}"
@@ -105,17 +106,12 @@ internal class CompiledProtectionSignals private constructor(
                 "device identities must be unique"
             }
             indicators.forEach { indicator ->
+                indicator.model?.validatePlacement(topology, indicator.indicatorId)
                 val entryRoutes = routes.routesById.values.filter { it.definition.entryBoundaryId == indicator.entryBoundaryId }
                 require(entryRoutes.isNotEmpty()) { "indicator ${indicator.indicatorId} binds unknown entry" }
                 require(indicator.modelVariantsByRouteId.keys == entryRoutes.map { it.definition.routeId }.toSet()) {
                     "indicator ${indicator.indicatorId} must configure exactly its entry routes"
                 }
-                val rail = requireNotNull(topology.railProjection[indicator.position.railId]) {
-                    "indicator ${indicator.indicatorId} references missing rail"
-                }
-                val length = rail.maxOf { maxOf(it.railStartAbMeters, it.railEndAbMeters) }
-                require(indicator.position.arcLengthInAbMeters.isFinite() &&
-                    indicator.position.arcLengthInAbMeters in 0.0..length) { "indicator placement is outside rail" }
             }
             val allBindings = compiledFixed.bindings + bindings
             val sections = blocks.blocksById.keys.map { SectionRef(SectionKind.FIXED_BLOCK, it) } +

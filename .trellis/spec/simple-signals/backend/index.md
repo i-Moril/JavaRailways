@@ -17,7 +17,7 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 模型显示方案见[信号状态如何显示成模型](model-presentation.md)。SimpleSignals 已提供私有的预设应用和
 轨道附着/地面摆放计算，复用公开曲线和值类型，输出 `ModelPose`；方向、倾斜与原地旋转已通过真实曲线测试。
 [模型包加载器](model-packages.md)已实现：在工作线程准备阶段读取目录、展开包内部件、校验命名场景和完整外观映射，
-返回不可变普通模型与摆放预设。尚未实现包自动发现、设备存档、Wand 和信号到实体的绑定；
+返回不可变普通模型与摆放预设。设备模型/摆放存档按已批准合同接入现有定义事务；尚未实现包自动发现、Wand 和信号到实体的绑定；
 加载与计算完成不代表游戏里已经显示模型，也不是新增的宿主公开 API。
 
 ## 工作方式
@@ -58,7 +58,9 @@ unload/reload先删除local runtime，再创建新runtime与binding，不能复�
 每个world使用带`schemaVersion = 1`的独立文件：
 `<plugin dataFolder>/worlds/<world UUID>-definitions.json`。current document只保存`worldId`、
 `definitionRevision`、保护区域及其有向边界、固定进路表、每条进路完整的有向traversal、固定闭塞的完整有向traversal，以及
-固定闭塞/保护信号的配置输出/依赖和进路显示器的绑定、位置与variant映射。
+固定闭塞/保护信号的配置输出/依赖和进路显示器的入口绑定与variant映射。
+三类设备共用可选模型引用及 rail/ground 摆放，字段、校验和用户批准的未发布 schema-1 修正规则只在
+[模型显示合同](model-presentation.md)维护；显示器不再保留重复的顶层轨道位置。
 `fixedBlocks`、`fixedBlockSignals`、`protectionSignals`和`routeIndicators`都是schema 1的additive字段并有明确empty default，因此不升级
 独立sidecar版本。identity使用稳定namespaced ID与
 canonical UUID字符串；位置统一保存canonical AB metres，方向使用`ViewDirection`。派生interior、rail reverse index、occupancy

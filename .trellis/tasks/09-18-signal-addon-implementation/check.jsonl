@@ -1,5 +1,5 @@
-{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Model-package batch: plugin-local ownership, public imports, separate JAR and scoped quality gate"}
-{"file":".trellis/spec/simple-signals/backend/model-packages.md","reason":"Verify approved package contract, complete outputs, named scenes, merging, failures, complexity and no redundant runtime framework"}
-{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Default/variant separation and resolved copied presets remain plugin-local"}
+{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Device persistence batch: existing candidate/revision/edit transaction, ownership and packaging"}
+{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Verify optional models, rail/ground current shape, strict values and explicitly deferred production binding/instance parameters"}
+{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Review old/new attachment permits, preserved logical dependencies and failure atomicity"}
 {"file":".trellis/spec/bukkit-plugin/backend/model-presentation-api.md","reason":"Public model constructor invariants, full appearance reset and scene conflicts; no host internals"}
-{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"No extra versioning or unapproved compatibility aliases"}
+{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"User-approved unpublished schema 1 correction; no intermediate versions or compatibility adapters"}

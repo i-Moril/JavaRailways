@@ -1,5 +1,5 @@
-{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Model-package batch: plugin-local ownership, public imports, separate JAR and scoped quality gate"}
-{"file":".trellis/spec/simple-signals/backend/model-packages.md","reason":"Approved directory/YAML contract, named static scenes, train-compatible import merging, complete appearance and strict validation"}
-{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Approved default and instance-independent presets; loader does not create entities or install live bindings"}
+{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Device persistence batch: existing definition candidate, revision, scoped edit transaction and independent JAR"}
+{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Approved optional model and stable rail/ground shapes; unpublished schema 1 correction, no compatibility or instance parameters"}
+{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Preserve logical and structural impact, add old/new rail placements without unrelated rails"}
 {"file":".trellis/spec/bukkit-plugin/backend/model-presentation-api.md","reason":"Reuse public immutable model trees, scenes and item appearance without importing host internals"}
-{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"One package boundary/version; no developer-format aliases or runtime compatibility"}
+{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"One world boundary; user explicitly approved correcting unpublished schema 1 without legacy aliases or upcasters"}

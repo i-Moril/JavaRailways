@@ -7,6 +7,8 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
+import work.art1st.javarailways.simplesignals.presentation.DeviceModelDefinition
+import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
 import work.art1st.javarailways.simplesignals.region.*
 import work.art1st.javarailways.simplesignals.signal.*
 import java.nio.file.Files
@@ -121,6 +123,7 @@ class SimpleSignalsDefinitionDraftsTest {
             listOf(ProtectionSignalDefinition("test:protection-$suffix", revision, ProtectionSignalKind.FIXED_ROUTE,
                 route.routeId, 0.0, stop, stop, levels)),
             listOf(RouteIndicatorDefinition("test:indicator-$suffix", revision, "test:entry-$suffix",
-                RailPositionSnapshot(rail, ViewDirection.AB, 1.0), "none", mapOf(route.routeId to "selected"))))
+                "none", mapOf(route.routeId to "selected"), DeviceModelDefinition("test:indicator",
+                    ModelPlacement.RailAttached(RailPositionSnapshot(rail, ViewDirection.AB, 1.0))))))
     }
 }

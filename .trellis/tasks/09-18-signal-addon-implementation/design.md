@@ -51,7 +51,7 @@ presence, while frozen routes, claims and applied-plan dependencies retain their
 
 Conceptual shapes, not frozen public Java names:
 
-- `SignalDefinition`: stable ID, directed rail position, model/style and plugin policy reference.
+- `SignalDefinition`: stable ID, logical section/entry binding, optional model reference and rail/ground placement, plus plugin policy configuration. Display placement does not replace the logical entrance.
 - `RegionBoundary`: stable ID, canonical rail position, direction and entry/exit role.
 - `ProtectionRegion`: stable ID, boundary set and definition revision; its disposable resolved snapshot additionally records the topology revision.
 - `FixedBlock`: stable ID/revision and one complete ordered directed physical traversal; its length,
@@ -249,7 +249,11 @@ SimpleSignals 模型绑定仍未实现。用户已确认 `default`、轨道附�
 复制为独立实例参数的规则；具体语义统一放在信号模型契约，不改变宿主模型定义或内部 `Unavailable` 状态。
 首批已完成无文件读取、无实体操作的预设应用和摆放计算，输出既有 `ModelPose`，并通过真实曲线测试。
 完整信号包已按[模型包契约](../../spec/simple-signals/backend/model-packages.md)实现目录加载与校验；
-设备磁盘字段和绑定流程仍待后续审查，包加载完成也不等于信号模型已在游戏内显示。
+设备磁盘字段已批准：三类设备共用可选的模型引用与轨道/地面摆放，删除显示器的重复位置字段，
+复用已有定义编译、revision、编辑许可及 sidecar 事务。具体形状、校验和测试只在信号模型契约维护。
+用户已批准直接修正尚未发布的 schema 1，不保留旧草稿字段或人为增加中间版本；
+任意柱高等模型实例参数推迟，未来使用独立于灯色的字段。生产绑定仍待后续，包加载和设备存档
+完成也不等于信号模型已在游戏内显示。
 SimpleATOBukkit 不参与这条流程。
 
 普通模型值契约已经审查并实现：附属插件展开模型包，主插件只消费不可变的容器/物品树，

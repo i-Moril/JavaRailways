@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals.signal
 
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.simplesignals.presentation.DeviceModelDefinition
 import work.art1st.javarailways.simplesignals.region.SIMPLE_SIGNALS_NAMESPACED_ID
 
 /** One configured signal presentation and the speed limit it contributes. */
@@ -76,7 +77,8 @@ internal data class FixedBlockSignalDefinition private constructor(
     val inspectionLeadTimeSeconds: Double,
     val occupiedOutput: ConfiguredSignalOutput,
     val clearLevels: List<FixedBlockSignalClearLevel>,
-    val downstreamSignals: List<FixedBlockSignalDependency>
+    val downstreamSignals: List<FixedBlockSignalDependency>,
+    val model: DeviceModelDefinition?
 ) {
     constructor(
         signalId: String,
@@ -85,7 +87,8 @@ internal data class FixedBlockSignalDefinition private constructor(
         inspectionLeadTimeSeconds: Double,
         occupiedOutput: ConfiguredSignalOutput,
         clearLevels: Collection<FixedBlockSignalClearLevel>,
-        downstreamSignals: Collection<FixedBlockSignalDependency> = emptyList()
+        downstreamSignals: Collection<FixedBlockSignalDependency> = emptyList(),
+        model: DeviceModelDefinition? = null
     ) : this(
         signalId,
         revision,
@@ -93,7 +96,8 @@ internal data class FixedBlockSignalDefinition private constructor(
         inspectionLeadTimeSeconds,
         occupiedOutput,
         java.util.List.copyOf(clearLevels),
-        java.util.List.copyOf(downstreamSignals)
+        java.util.List.copyOf(downstreamSignals),
+        model
     )
 
     init {

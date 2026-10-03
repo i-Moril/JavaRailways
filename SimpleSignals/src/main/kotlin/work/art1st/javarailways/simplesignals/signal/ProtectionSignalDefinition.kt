@@ -1,6 +1,6 @@
 package work.art1st.javarailways.simplesignals.signal
 
-import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.simplesignals.presentation.DeviceModelDefinition
 import work.art1st.javarailways.simplesignals.region.SIMPLE_SIGNALS_NAMESPACED_ID
 
 @kotlinx.serialization.Serializable
@@ -18,16 +18,18 @@ internal data class ProtectionSignalDefinition private constructor(
     val occupiedOutput: ConfiguredSignalOutput,
     val clearLevels: List<FixedBlockSignalClearLevel>,
     val downstreamSignals: List<FixedBlockSignalDependency>,
-    val downstreamSignalsByRouteId: Map<String, List<FixedBlockSignalDependency>>
+    val downstreamSignalsByRouteId: Map<String, List<FixedBlockSignalDependency>>,
+    val model: DeviceModelDefinition?
 ) {
     constructor(signalId: String, revision: Long, kind: ProtectionSignalKind, bindingId: String,
         inspectionLeadTimeSeconds: Double, unavailableOutput: ConfiguredSignalOutput,
         occupiedOutput: ConfiguredSignalOutput, clearLevels: Collection<FixedBlockSignalClearLevel>,
         downstreamSignals: Collection<FixedBlockSignalDependency> = emptyList(),
-        downstreamSignalsByRouteId: Map<String, List<FixedBlockSignalDependency>> = emptyMap()
+        downstreamSignalsByRouteId: Map<String, List<FixedBlockSignalDependency>> = emptyMap(),
+        model: DeviceModelDefinition? = null
     ) : this(signalId, revision, kind, bindingId, inspectionLeadTimeSeconds, unavailableOutput,
         occupiedOutput, java.util.List.copyOf(clearLevels), java.util.List.copyOf(downstreamSignals),
-        java.util.Map.copyOf(downstreamSignalsByRouteId.mapValues { java.util.List.copyOf(it.value) }))
+        java.util.Map.copyOf(downstreamSignalsByRouteId.mapValues { java.util.List.copyOf(it.value) }), model)
 
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(bindingId)) { "protection bindingId must be namespaced" }
@@ -44,15 +46,15 @@ internal data class RouteIndicatorDefinition private constructor(
     val indicatorId: String,
     val revision: Long,
     val entryBoundaryId: String,
-    val position: RailPositionSnapshot,
     val noRouteModelVariant: String,
-    val modelVariantsByRouteId: java.util.SortedMap<String, String>
+    val modelVariantsByRouteId: java.util.SortedMap<String, String>,
+    val model: DeviceModelDefinition?
 ) {
     constructor(indicatorId: String, revision: Long, entryBoundaryId: String,
-        position: RailPositionSnapshot, noRouteModelVariant: String,
-        modelVariantsByRouteId: Map<String, String>
-    ) : this(indicatorId, revision, entryBoundaryId, position, noRouteModelVariant,
-        java.util.Collections.unmodifiableSortedMap(modelVariantsByRouteId.toSortedMap()))
+        noRouteModelVariant: String, modelVariantsByRouteId: Map<String, String>,
+        model: DeviceModelDefinition? = null
+    ) : this(indicatorId, revision, entryBoundaryId, noRouteModelVariant,
+        java.util.Collections.unmodifiableSortedMap(modelVariantsByRouteId.toSortedMap()), model)
 
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(indicatorId)) { "indicatorId must be namespaced" }

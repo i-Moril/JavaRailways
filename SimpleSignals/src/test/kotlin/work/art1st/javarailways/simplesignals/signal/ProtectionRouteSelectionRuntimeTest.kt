@@ -98,7 +98,7 @@ class ProtectionRouteSelectionRuntimeTest {
                     tableRoutes, listOf(defaultRoute.routeId))),
                 protectionSignals = if (indicatorOnly) emptyList() else listOf(signal),
                 routeIndicators = if (indicatorOnly) listOf(RouteIndicatorDefinition("test:indicator", 1L,
-                    "test:entry", RailPositionSnapshot(trunk, ViewDirection.AB, 0.0), "none",
+                    "test:entry", "none",
                     mapOf(defaultRoute.routeId to "first", requestedRoute.routeId to "second"))) else emptyList())
             val world = SimpleSignalsWorldRuntime(worldId)
             val initialized = world.initializeDefinitions(loopTopology, definitions)

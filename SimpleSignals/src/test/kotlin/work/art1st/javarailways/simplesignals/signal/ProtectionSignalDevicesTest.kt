@@ -17,6 +17,8 @@ import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.simplesignals.block.*
 import work.art1st.javarailways.simplesignals.persistence.*
 import work.art1st.javarailways.simplesignals.region.*
+import work.art1st.javarailways.simplesignals.presentation.DeviceModelDefinition
+import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
 import work.art1st.javarailways.simplesignals.runtime.*
 import java.util.UUID
 
@@ -185,7 +187,7 @@ class ProtectionSignalDevicesTest {
         val original = indicators.first()
         val rejectedIndicator = f.world.prepareDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 2,
             old.regions, old.routeTables, routeIndicators = listOf(RouteIndicatorDefinition(original.indicatorId,
-                2, "test:unknown", original.position, original.noRouteModelVariant, original.modelVariantsByRouteId))))
+                2, "test:unknown", original.noRouteModelVariant, original.modelVariantsByRouteId, original.model))))
         assertInstanceOf(SimpleSignalsDefinitionPreparationResult.Rejected::class.java, rejectedIndicator)
         assertSame(old, f.world.currentDefinitions())
     }
@@ -372,7 +374,8 @@ class ProtectionSignalDevicesTest {
     private fun levels() = listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(8.0, "private/approach")),
         FixedBlockSignalClearLevel(10.0, ConfiguredSignalOutput(30.0, "private/clear")))
     private fun indicator(id: String, at: Double) = RouteIndicatorDefinition(id, 1, "test:entry",
-        RailPositionSnapshot(trunk, ViewDirection.AB, at), "opaque/none", mapOf("test:a" to "opaque/a", "test:b" to "opaque/b"))
+        "opaque/none", mapOf("test:a" to "opaque/a", "test:b" to "opaque/b"),
+        DeviceModelDefinition("test:indicator", ModelPlacement.RailAttached(RailPositionSnapshot(trunk, ViewDirection.AB, at))))
     private fun authoredRoute(id: String, rail: UUID, exit: String) = ProtectionRouteDefinition(id, "test:entry", exit,
         listOf(ProtectionRouteTraversal(trunk, ViewDirection.AB, 5.0, 10.0),
             ProtectionRouteTraversal(rail, ViewDirection.AB, 0.0, 5.0)))

@@ -43,6 +43,7 @@ internal class CompiledFixedBlockSignals private constructor(
             val copiedDefinitions = java.util.List.copyOf(definitions.sortedBy { it.signalId })
             val blocksById = fixedBlocks.blocksById
             copiedDefinitions.forEach { definition ->
+                definition.model?.validatePlacement(fixedBlocks.topology, definition.signalId)
                 require(definition.controlledBlockId in blocksById) {
                     "signal ${definition.signalId} controls unknown fixed block " +
                         definition.controlledBlockId

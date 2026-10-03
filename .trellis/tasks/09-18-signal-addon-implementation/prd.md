@@ -66,6 +66,8 @@ distinguishes the completed calculation components from the remaining package/bi
 - A future Wand can edit per-device offsets, rail coordinates and direction. Changing attachment direction retains offset values and recomputes placement; rotating the model in place preserves its placement point.
 - Models may default to following rail slope/cant and players may override that choice, with world-upright as the fallback. Selecting a preset copies the effective offset, rotation and tilt choice into independent instance parameters. Later preset edits/removal do not move existing devices; adopting new parameters requires explicitly reapplying a preset. Do not add runtime field-inheritance tracking.
 - The approved [model-package format](../../spec/simple-signals/backend/model-packages.md) provides multiple models and local shared parts. Static scenes are named without author time fields; imports merge offsets and Euler angles as train imports do, while explicit containers provide hierarchical assembly. Load and validate the whole package into immutable host values outside the signal tick.
+- All three device kinds use one optional model reference plus rail/ground placement. Backend-only devices need no display position; remove the route indicator's duplicate standalone position. Reuse the current sidecar and authoring transaction, with old/new attachment rails included in the existing edit permit. The user explicitly approved correcting the unpublished schema-1 draft without intermediate versions or old-field aliases; the exact current shape belongs in the model presentation contract.
+- Arbitrary model instance parameters such as mast height are deferred. Later they must be separate from signal aspect `modelVariant`; do not reserve empty fields or add parameter evaluation now. Static model IDs can distinguish preconfigured heights in the meantime.
 
 ### C. Timetable, editing and persistence
 
@@ -128,11 +130,11 @@ distinguishes the completed calculation components from the remaining package/bi
 ## Deferred decisions
 
 - Exact plugin-local JS/YAML API, script budget and model-variant vocabulary. These are reviewed after the Java/Kotlin safety/runtime boundary exists.
-- Complete signal model-package files, placement persistence and Wand UI. These are outside the proposed first pure placement-calculation batch; no temporary disk format is required for that batch.
+- Production signal/model binding, guided Wand UI and arbitrary model instance parameters. Package loading is complete and device placement persistence is approved for the current batch; neither completes entity rendering.
 - Guided/shunting workflow details and WebUI packaging.
 
 ## Blocking open questions
 
 None for the route-restriction foundation. Sources compile immutable neutral contributions before search; no plugin callback is evaluated during graph expansion. Owner/world registration now shares the existing signal lifecycle, and the plugin restores its strict current-model route-table sidecar before publishing the compiled source; invalid persisted policy leaves a rejecting source installed. Authoring and runtime route/resource policy remain later reviewable batches.
 
-The approved first calculation-only placement batch is complete. Package loading, persistence and live signal/model binding remain outside this batch and require their own review.
+Calculation-only placement, package loading and the real JR four-light demo are complete. Device model/placement persistence is approved for the current batch; live signal/model binding and Wand interaction remain later work.

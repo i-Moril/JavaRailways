@@ -123,7 +123,9 @@ Current extraction progress:
     - 最终离线 gate：`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava`，排除既有 WebUI 前端安装/构建。26 suites / 238 tests 全部通过，零失败/错误/跳过；模块全量测试与插件 JAR 隔离检查实际执行，Java consumer 编译任务通过且复用未变输入缓存。源码 510 行、加载测试 592 行及五份 YAML；无包自动发现、设备存档、生产显示绑定、实体或 live Folia 验证。
   - [x] 将用户提供的 JR 四灯式灯头整理为[实际 demo](../../../SimpleSignals/examples/jr-four-light/README.md)：服务器模型包配置四种完整外观和左右预设，客户端资源包提供现代物品定义、四份网格与共用贴图，不覆盖普通纸张、不包含立柱或速度规则。demo 网格仅整体下移16个模型单位，并用部件偏移补偿；逆平移后的 JSON 与原始文件一致，PNG 逐字节一致，原模型工作区未修改。三项回归读取同一份分发文件，验证整包加载、资源引用/元素坐标、真实1.21.11资源包元数据，以及 AB/BA 安装朝向；不证明生产绑定或真实客户端显示。
     - 独立复核无剩余问题，三项 focused 测试实际重跑通过。最终离线 `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava` 为27 suites / 241 tests，零失败/错误/跳过；模块全量测试和插件 JAR 隔离检查实际执行，Java consumer 编译复用未变输入缓存。只新增示例资产、测试资源接线、165行测试与文档，无生产逻辑或存档版本变化。
-  - [ ] 确定设备模型引用和摆放存档格式，接入只处理显示变化的更新流程，再验证实际画面、世界卸载和插件停用时的清理。
+  - [x] 实现设备模型/摆放存档：三类设备复用可选模型配置、rail/ground 摆放和当前 sidecar；删除显示器重复位置，接入原有候选校验及旧、新轨道编辑许可，包括结构消费者的模型附着轨道。用户明确批准直接修正未发布 schema 1；不增加兼容字段或模型实例参数占位。具体合同见[信号模型契约](../../spec/simple-signals/backend/model-presentation.md)。固定 JSON 与实际 encode/decode 验证格式和值；manager 回归使用真实 Basic registry 验证缺轨道/越界/revision 拒绝、两类编辑 blocker、旧/新位置、ground 逻辑保护和失败原子性。
+    - 首轮离线 focused gate 为 7 suites / 98 tests；独立复核无缺陷或明显过度设计，实际重跑 codec/manager 的 55 项测试通过。最终 `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava`（排除既有 WebUI 前端安装/构建）为 28 suites / 248 tests，零失败/错误/跳过；模块全量测试及 JAR 隔离检查实际执行，Java consumer 编译复用未变输入缓存。`git diff --check` 通过；不改主插件 API/构建依赖，不验证包存在性、生产绑定、Wand、任意模型参数或 live Folia 画面。
+  - [ ] 接入只处理显示变化的更新流程，验证实际画面、世界卸载和插件停用时的清理。设备存档不能代替生产绑定及真实 Folia 验证。
 
 ## Cross-cutting online edit latency
 

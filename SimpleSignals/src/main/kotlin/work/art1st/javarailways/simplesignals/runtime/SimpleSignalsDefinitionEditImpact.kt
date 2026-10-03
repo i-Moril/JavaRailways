@@ -5,6 +5,7 @@ import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_RESOURCE_TYPE
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
+import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
 import java.util.UUID
 import kotlin.math.abs
@@ -113,8 +114,12 @@ internal object SimpleSignalsDefinitionEditImpact {
             entries += route.definition.entryBoundaryId
         }
 
+        val modelsBySignal = definitions.fixedBlockSignals.associate { it.signalId to it.model } +
+            definitions.protectionSignals.associate { it.signalId to it.model }
         publication.protectionSignals.ruleRuntime?.affectedBindings(sections, changedSignals, entries)
             .orEmpty().forEach { binding ->
+                (modelsBySignal[binding.signalId]?.placement as? ModelPlacement.RailAttached)
+                    ?.let { rails += it.position.railId }
                 binding.observedSections.forEach { section ->
                     when (section.kind) {
                         SectionKind.FIXED_BLOCK -> blockSnapshot.blocksById.getValue(section.id)
@@ -131,7 +136,8 @@ internal object SimpleSignalsDefinitionEditImpact {
         val routesByEntry = publication.routeSelection.routesById.values.groupBy { it.definition.entryBoundaryId }
         definitions.routeIndicators.filter { it.indicatorId in changedIndicators || it.entryBoundaryId in entries }
             .forEach { indicator ->
-                rails += indicator.position.railId
+                (indicator.model?.placement as? ModelPlacement.RailAttached)
+                    ?.let { rails += it.position.railId }
                 routesByEntry[indicator.entryBoundaryId].orEmpty()
                     .forEach { it.definition.traversals.mapTo(rails) { traversal -> traversal.railId } }
             }

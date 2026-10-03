@@ -301,8 +301,9 @@ permit成功后通过host `replaceSourcesAtomically`提交：host先验证/编�
 但不取得跨world simulation lock。已开始的epoch保留其捕获的旧immutable source，下一epoch才读取replacement并建立新baseline。
 callback在runtime lock内复核base publication，以staged primary rename作为pre-commit，并重读exact topology root；root已变化则在
 rename前返回typed stale。然后用一个预构造的
-`RuntimeState`引用同时替换definition publication、section occupancy runtime和模型绑定；旧模型绑定失效，
-handle关闭与新模型创建在提交锁外执行，具体合同见[模型显示](model-presentation.md#生产接线与编辑边界)。
+`RuntimeState`引用同时替换definition publication、section occupancy runtime和逻辑显示绑定；旧绑定失效，
+世界内实际模型对象持续保留，只有增删或换模型才在提交锁外创建/关闭，位置变化提交新姿态。
+保留对象的显示序号不重置；具体合同见[模型显示](model-presentation.md#生产接线与编辑边界)。
 callback成功后host只安装已经
 编译好的area source state。任何host prevalidation失败都不调用save，save或base commit失败则host保留旧source；没有rollback token、
 占位area或可被physics观察到的错配窗口。删除最后一个block后，如果仍有保护信号或入口选择则保留统一epoch source；

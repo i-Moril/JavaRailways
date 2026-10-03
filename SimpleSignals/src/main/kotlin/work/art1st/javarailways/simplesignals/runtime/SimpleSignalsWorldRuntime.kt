@@ -42,6 +42,7 @@ import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefi
 import work.art1st.javarailways.simplesignals.presentation.LoadedPackageModel
 import work.art1st.javarailways.simplesignals.presentation.PreparedSignalModels
 import work.art1st.javarailways.simplesignals.presentation.SignalModelBinding
+import work.art1st.javarailways.simplesignals.presentation.SignalModelHandles
 import work.art1st.javarailways.simplesignals.presentation.SimpleSignalsModelPackages
 import work.art1st.javarailways.bukkit.api.model.ModelPresentationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
@@ -197,7 +198,7 @@ internal class SimpleSignalsWorldRuntime(
     private val lock = Any()
     private val sectionEpochContinuity = SectionOccupancyRuntime.EpochContinuity()
     private val modelLifecycleLock = Any()
-    private var allocatedModels: SignalModelBinding? = null
+    internal val modelHandles = SignalModelHandles()
 
     @Volatile var closed = false
         private set
@@ -207,7 +208,7 @@ internal class SimpleSignalsWorldRuntime(
 
     fun retire() {
         closed = true
-        state.models?.retire()
+        modelHandles.retire()
     }
 
     fun currentModels(): SignalModelBinding? = state.models
@@ -215,27 +216,25 @@ internal class SimpleSignalsWorldRuntime(
     fun attachModels(publication: SimpleSignalsRuntimePublication, models: SignalModelBinding): Boolean = synchronized(lock) {
         val captured = state
         if (closed || captured.publication !== publication || captured.models != null) return@synchronized false
+        check(models.handles === modelHandles)
         checkNotNull(captured.sectionOccupancy).attachModelBinding(models)
-        state = RuntimeState(publication, captured.sectionOccupancy, models)
+        models.publish { state = RuntimeState(publication, captured.sectionOccupancy, models) }
         true
     }
 
     /** This monitor is used only by lifecycle workers, never by a safety/publication callback. */
-    fun startModels(models: SignalModelBinding) = synchronized(modelLifecycleLock) {
-        if (closed || state.models !== models) {
-            models.close()
-        } else {
-            if (allocatedModels === models) return@synchronized
-            allocatedModels?.takeIf { it !== models }?.close()
-            allocatedModels = models
+    fun startModels() = synchronized(modelLifecycleLock) {
+        while (!closed) {
+            val models = state.models ?: return@synchronized
             models.start({ !closed && state.models === models },
                 { state.sectionOccupancy?.presentationSnapshot() })
+            if (state.models === models) return@synchronized
         }
     }
 
     fun closeModels() = synchronized(modelLifecycleLock) {
-        allocatedModels?.close()
-        allocatedModels = null
+        val binding = state.models
+        modelHandles.close { binding?.cleanupFailure(it) }
     }
 
     val routePlanningBinding = RoutePlanningRestrictionBinding(
@@ -527,10 +526,12 @@ internal class SimpleSignalsWorldRuntime(
             replacementSectionOccupancy ?: current.sectionOccupancy,
             if (replacementSectionOccupancy == null) current.models else replacementModels
         )
+        check(replacementModels == null || replacementModels.handles === modelHandles)
         beforeCommit()
         replacementSectionOccupancy?.attachEpochContinuity(sectionEpochContinuity)
-        if (replacementSectionOccupancy != null) current.models?.retire()
-        state = candidateState
+        if (replacementSectionOccupancy != null) {
+            modelHandles.publish(replacementModels) { state = candidateState }
+        } else state = candidateState
         SimpleSignalsDefinitionCommitStatus.COMMITTED
     }
 
@@ -762,7 +763,8 @@ internal class SimpleSignalsWorldRuntimeManager(
         worlds.forEach(::attachModels)
     }
 
-    private fun prepareModels(publication: SimpleSignalsRuntimePublication): PreparedSignalModels {
+    private fun prepareModels(publication: SimpleSignalsRuntimePublication,
+        previous: PreparedSignalModels? = null): PreparedSignalModels {
         val definitions = publication.definitions
         val configured = definitions.fixedBlockSignals.any { it.model != null } ||
             definitions.protectionSignals.any { it.model != null } || definitions.routeIndicators.any { it.model != null }
@@ -770,12 +772,13 @@ internal class SimpleSignalsWorldRuntimeManager(
             throw IllegalArgumentException("SimpleSignals rendering unavailable: " +
                 (modelPackageFailure?.message ?: "model packages are still being prepared"))
         }
-        return PreparedSignalModels.prepare(definitions, packages, railTargets)
+        return PreparedSignalModels.prepare(definitions, packages, railTargets, publication.topology, previous)
     }
 
-    private fun modelBinding(publication: SimpleSignalsRuntimePublication, models: PreparedSignalModels): SignalModelBinding =
+    private fun modelBinding(runtime: SimpleSignalsWorldRuntime, publication: SimpleSignalsRuntimePublication,
+        models: PreparedSignalModels): SignalModelBinding =
         SignalModelBinding(plugin, publication.definitions.worldId, publication.topology.revision,
-            models, modelPresentation, ::reportModelFailure)
+            models, modelPresentation, ::reportModelFailure, runtime.modelHandles)
 
     private fun reportModelFailure(context: String, failure: Throwable) {
         try { modelFailure(context, failure) } catch (_: Exception) { }
@@ -786,7 +789,7 @@ internal class SimpleSignalsWorldRuntimeManager(
         while (!closed && !runtime.closed && runtimeReadView[runtime.worldId] === runtime && runtime.currentModels() == null) {
             val publication = runtime.authoringPublication()
             val binding = try {
-                modelBinding(publication, prepareModels(publication))
+                modelBinding(runtime, publication, prepareModels(publication))
             } catch (failure: Exception) {
                 // A concurrent edit may have removed the invalid configuration; catch up to that exact publication.
                 if (runtime.authoringPublication() !== publication) continue
@@ -808,7 +811,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                 return
             }
             if (attached) {
-                runtime.startModels(binding)
+                runtime.startModels()
                 return
             }
             binding.retire()
@@ -1060,7 +1063,7 @@ internal class SimpleSignalsWorldRuntimeManager(
         return when (val preparation = prepareDefinitionPatch(runtime, expectedDefinitionRevision, patch)) {
             is PatchPreparation.Rejected -> preparation.result
             is PatchPreparation.Ready -> try {
-                prepareModels(preparation.value.candidatePublication)
+                prepareModels(preparation.value.candidatePublication, runtime.currentModels()?.prepared)
                 SimpleSignalsDefinitionAuthoringResult(
                     SimpleSignalsDefinitionAuthoringStatus.VALIDATED,
                     definitions = preparation.value.definitions,
@@ -1097,7 +1100,8 @@ internal class SimpleSignalsWorldRuntimeManager(
             is PatchPreparation.Rejected -> return preparation.result
         }
         val candidateModels = try {
-            modelBinding(prepared.candidatePublication, prepareModels(prepared.candidatePublication))
+            modelBinding(runtime, prepared.candidatePublication,
+                prepareModels(prepared.candidatePublication, runtime.currentModels()?.prepared))
         } catch (failure: Exception) {
             return authoringResult(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
                 "model configuration was rejected: ${describe(failure)}")
@@ -1257,7 +1261,7 @@ internal class SimpleSignalsWorldRuntimeManager(
         }
         }
         if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED) {
-            runtime.startModels(candidateModels)
+            runtime.startModels()
         } else candidateModels.retire()
         return result
     }

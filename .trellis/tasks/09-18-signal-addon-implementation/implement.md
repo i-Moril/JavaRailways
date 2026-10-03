@@ -128,6 +128,9 @@ Current extraction progress:
   - [ ] 接入只处理显示变化的更新流程，验证实际画面、世界卸载和插件停用时的清理。设备存档不能代替生产绑定及真实 Folia 验证。
     - [x] 异步发现目录模型包，接通生产创建、完整信号结果到变化提交、定义替换及卸载清理。validate 只做纯准备，handle 在成功提交后创建；显示故障不回滚安全定义。无新格式、兼容、Wand、实例参数或热重载。详细机制与测试由[模型显示合同](../../spec/simple-signals/backend/model-presentation.md#生产接线与编辑边界)维护。初次离线 gate 为71项；独立复核修复多模型创建被新配置取代时误报显示故障，并以先失败后通过的回归确认。独立重新执行绑定12、manager58、服务发现2，共72项，零失败/错误/跳过；无剩余范围内问题。
       - 最终离线 `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava`（排除既有 WebUI 前端安装/构建）实际执行模块全量测试、插件 JAR 隔离检查与 Java consumer 编译。29 suites / 267 tests，零失败/错误/跳过，`git diff --check` 通过。主插件/各模块仅作为构建依赖编译，未修改其源码或构建配置；已有 JDK 自动探测、deprecated API、JLine/JOML 等警告不在本批修复。Stage 2 保持进行中。
+    - [x] 将模型对象生命周期与配置替换分开：世界持续保存实际 handle、上次场景/姿态和显示序号，各配置只保存设备选择和已计算姿态。规则编辑保留模型，位置/旋转变化向原对象提交，只有增删或换模型执行创建/关闭。工作线程对照当前配置与实际对象，差异遍历和集合合并在短提交锁外执行；该锁阻止旧回调覆盖保留对象。相同摆放和精确拓扑根可复用姿态，但全部外观仍须校验。纯准备、原事务和卸载清理不改变；无新 API、schema、兼容、热重载或实例参数。详细机制归[模型显示合同](../../spec/simple-signals/backend/model-presentation.md#生产接线与编辑边界)。
+      - 回归直接记录 create/close 次数、对象身份、姿态和序号，覆盖规则编辑、移动/原地旋转、增删/换模型、无关定义编辑、同 revision 的不同拓扑根、部分失败/取消、反序启动，以及分别暂停旧计算与已开始的公开 submit。独立复核未发现生产缺陷，补齐缓存复用时非法外观拒绝且磁盘/source/permit/对象不变、原地旋转保留对象的断言。独立离线重跑绑定16、manager59、服务发现2，共77项，零失败/错误/跳过。
+      - 最终 `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava`（排除既有 WebUI 前端安装/构建）通过：29 suites / 272 tests，零失败/错误/跳过；模块全量测试、插件 JAR 隔离检查与 Java consumer 编译实际执行，`git diff --check` 通过。使用现有 JDK25/Gradle9.5 缓存，不改构建配置；测试日志移至 `SimpleSignals/build/signal-model-retention-test.log`。主插件和其他模块未改源码；已有 JDK 自动探测、JLine/JOML 与 Gradle 警告不在本批范围。Stage 2 保持进行中，真实 Folia/客户端画面仍未验证。
     - [ ] 真实 Folia/客户端画面验证；记录式服务和受控调度不能代替实际实体显示。
 
 ## Cross-cutting online edit latency

@@ -1,5 +1,5 @@
 {"file":".trellis/spec/simple-signals/backend/index.md","reason":"Production binding: existing runtime publication/source transaction and lock-free safety readers"}
-{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Pure prepare, changed-only display, stable handle identity, catch-up and lifecycle cleanup"}
+{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Approved per-device handle retention, cached placement, monotonic revisions and stale-callback fencing"}
 {"file":".trellis/spec/simple-signals/backend/model-packages.md","reason":"Discover directories once per enable; immutable lookup, no ZIP or hot reload"}
 {"file":".trellis/spec/simple-signals/backend/authoring-commands.md","reason":"Validate without handles or writes; apply preserves original transaction"}
 {"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Preserve old/new placement and logical protection"}

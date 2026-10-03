@@ -6,6 +6,7 @@ import work.art1st.javarailways.bukkit.api.model.ModelPose
 import work.art1st.javarailways.bukkit.api.model.ModelPresentation
 import work.art1st.javarailways.bukkit.api.model.ModelPresentationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.runtime.SectionOccupancyRuntime
 import work.art1st.javarailways.simplesignals.runtime.SectionSignalState
@@ -36,25 +37,31 @@ internal object SimpleSignalsModelPackages {
 /** Pure resolved values. Validation allocates no handles and submits no display state. */
 internal class PreparedSignalModels private constructor(
     internal val signals: Map<String, Device>,
-    internal val indicators: Map<String, Device>
+    internal val indicators: Map<String, Device>,
+    private val topology: TopologyState
 ) {
-    internal class Device(val objectId: String, val model: LoadedPackageModel, val pose: ModelPose)
+    internal class Device(val objectId: String, val model: LoadedPackageModel,
+        val configuration: DeviceModelDefinition, val pose: ModelPose)
 
     companion object {
         fun prepare(definitions: SimpleSignalsWorldDefinitions, models: Map<String, LoadedPackageModel>,
-            rails: RailTargetService): PreparedSignalModels {
+            rails: RailTargetService, topology: TopologyState,
+            previous: PreparedSignalModels? = null): PreparedSignalModels {
+            val reusable = previous?.takeIf { it.topology === topology }
+            val previousDevices = reusable?.let { (it.signals.values + it.indicators.values).associateBy(Device::objectId) }.orEmpty()
             fun device(kind: String, id: String, configuration: DeviceModelDefinition,
                 variants: Collection<String>): Device {
                 try {
                     val model = models[configuration.modelId]
                         ?: throw IllegalArgumentException("model '${configuration.modelId}' is missing")
                     variants.forEach(model::variant)
-                    val pose = when (val placement = configuration.placement) {
+                    val cached = previousDevices["$kind/$id"]?.takeIf { it.configuration == configuration }
+                    val pose = cached?.pose ?: when (val placement = configuration.placement) {
                         is ModelPlacement.Ground -> ModelPlacementCalculator.calculate(placement)
                         is ModelPlacement.RailAttached -> ModelPlacementCalculator.calculate(placement,
                             rails.findCurve(definitions.worldId, placement.position.railId).orElse(null))
                     }
-                    return Device("$kind/$id", model, pose)
+                    return Device("$kind/$id", model, configuration, pose)
                 } catch (failure: Exception) {
                     throw IllegalArgumentException("$kind $id: ${failure.message ?: failure.javaClass.simpleName}", failure)
                 }
@@ -74,71 +81,118 @@ internal class PreparedSignalModels private constructor(
                 indicators[definition.indicatorId] = device("route-indicator", definition.indicatorId, model,
                     listOf(definition.noRouteModelVariant) + definition.modelVariantsByRouteId.values)
             } }
-            return PreparedSignalModels(java.util.Map.copyOf(signals), java.util.Map.copyOf(indicators))
+            return PreparedSignalModels(java.util.Map.copyOf(signals), java.util.Map.copyOf(indicators), topology)
         }
     }
 }
 
-/**
- * One definition publication's display objects. Old callbacks retain this exact binding.
- * Retirement is a bounded flag change; allocation/cleanup belongs to the world lifecycle worker.
- */
+/** Handle state belongs to one world load, independently of definition publications. */
+internal class SignalModelHandles {
+    internal class Display(val device: PreparedSignalModels.Device, val handle: ModelHandle) {
+        var scenes: Map<String, String>? = null
+        var pose: ModelPose? = null
+        var revision = 0L
+    }
+
+    internal val submissionLock = Any()
+    internal var active: SignalModelBinding? = null
+    internal var allocated: Map<String, Display> = emptyMap()
+
+    /** Fences an already-running old submit before the bounded publication swap. */
+    fun publish(binding: SignalModelBinding?, publication: () -> Unit) = synchronized(submissionLock) {
+        active?.retire()
+        active = binding
+        publication()
+    }
+
+    fun retire() = synchronized(submissionLock) {
+        active?.retire()
+        active = null
+    }
+
+    /** Only the serialized world lifecycle worker closes the actual allocated collection. */
+    fun close(reportFailure: (Throwable) -> Unit) {
+        val removed = synchronized(submissionLock) {
+            retire()
+            allocated.also { allocated = emptyMap() }
+        }
+        removed.values.forEach {
+            try { it.handle.close() } catch (failure: Exception) { reportFailure(failure) }
+        }
+    }
+}
+
+/** Immutable publication selections/poses; old callbacks cannot use retained world handles. */
 internal class SignalModelBinding(
     private val plugin: Plugin,
     private val worldId: UUID,
     private val topologyRevision: Long,
-    private val prepared: PreparedSignalModels,
+    internal val prepared: PreparedSignalModels,
     private val service: ModelPresentationService,
-    private val reportFailure: (String, Throwable) -> Unit
+    private val reportFailure: (String, Throwable) -> Unit,
+    internal val handles: SignalModelHandles
 ) {
-    private class Display(val device: PreparedSignalModels.Device, val handle: ModelHandle) {
-        var scenes: Map<String, String>? = null
-        var revision = 0L
-    }
-
-    private val submissionLock = Any()
-    private var signals: Map<String, Display> = emptyMap()
-    private var indicators: Map<String, Display> = emptyMap()
     private var lastEpoch = -1L
     private var initialized = false
     @Volatile private var ready = false
     @Volatile private var retired = false
 
-    fun retire() { retired = true }
+    fun retire() = synchronized(handles.submissionLock) { retired = true }
 
-    /** Caller serializes close/create outside publication locks. No entity work is done here. */
+    fun publish(publication: () -> Unit) = handles.publish(this, publication)
+
+    /** Reconcile actual allocations; caller serializes this outside publication locks. */
     fun start(current: () -> Boolean, snapshot: () -> SectionOccupancyRuntime.PublishedState?) {
-        if (retired || !current()) return
+        if (retired || ready || !current()) return
+        val devices = (prepared.signals.values + prepared.indicators.values).associateBy { it.objectId }
+        val removed = handles.allocated.values.filter { display ->
+            val wanted = devices[display.device.objectId]
+            wanted == null || wanted.model.id != display.device.model.id ||
+                wanted.model.definition != display.device.model.definition
+        }
+        val removedIds = removed.mapTo(hashSetOf()) { it.device.objectId }
+        val retained = handles.allocated.filterKeys { it !in removedIds }
+        synchronized(handles.submissionLock) {
+            if (retired || !current() || handles.active !== this || ready) return
+            handles.allocated = retained
+        }
+        closeHandles(removed.map { it.handle })
         val created = mutableListOf<ModelHandle>()
         try {
-            fun create(devices: Map<String, PreparedSignalModels.Device>): Map<String, Display> {
-                val displays = linkedMapOf<String, Display>()
-                for ((id, device) in devices) {
-                    if (retired || !current()) {
-                        retire()
-                        return emptyMap()
-                    }
-                    val handle = service.create(plugin, worldId, device.objectId, device.model.definition)
+            val additions = linkedMapOf<String, SignalModelHandles.Display>()
+            for ((id, device) in devices) {
+                if (retired || !current()) break
+                if (id !in handles.allocated) {
+                    val handle = service.create(plugin, worldId, id, device.model.definition)
                     created += handle
-                    displays[id] = Display(device, handle)
+                    additions[id] = SignalModelHandles.Display(device, handle)
                 }
-                return displays
             }
-            signals = create(prepared.signals)
-            indicators = create(prepared.indicators)
-            if (retired || !current()) {
-                retire()
+            val candidate = retained + additions
+            val installed = synchronized(handles.submissionLock) {
+                if (retired || !current() || handles.active !== this) false else {
+                    handles.allocated = candidate
+                    ready = true
+                    true
+                }
+            }
+            if (!installed) {
                 closeHandles(created)
                 return
             }
-            ready = true
             // Attach precedes allocation. Latest complete state covers callbacks skipped before ready.
-            consume(snapshot(), signals.keys, indicators.keys)
+            consume(snapshot(), prepared.signals.keys, prepared.indicators.keys)
         } catch (failure: Exception) {
             val superseded = retired || !current()
-            retire()
+            // This also covers a catch-up snapshot failure after installation. Never leave
+            // closed additions in the shared collection, or discard unrelated retained handles.
+            synchronized(handles.submissionLock) { handles.allocated = retained }
             closeHandles(created)
-            if (!superseded) report("SimpleSignals rendering unavailable for world $worldId", failure)
+            if (!superseded) {
+                synchronized(handles.submissionLock) { if (handles.active === this) ready = true }
+                consume(snapshot(), prepared.signals.keys, prepared.indicators.keys)
+                report("SimpleSignals rendering unavailable for world $worldId", failure)
+            }
         }
     }
 
@@ -151,8 +205,9 @@ internal class SignalModelBinding(
     private fun consume(state: SectionOccupancyRuntime.PublishedState?,
         changedSignals: Collection<String>, changedIndicators: Collection<String>) {
         if (!ready || retired) return
-        synchronized(submissionLock) {
-            if (!ready || retired) return
+        val failures = mutableListOf<Pair<String, Throwable>>()
+        synchronized(handles.submissionLock) {
+            if (!ready || retired || handles.active !== this) return
             val stamp = state?.occupancy?.stamp
             if (stamp != null) {
                 if (stamp.worldId != worldId.toString() || stamp.topologyRevision != topologyRevision ||
@@ -161,33 +216,31 @@ internal class SignalModelBinding(
             } else if (lastEpoch >= 0) return
             // A partial live change can win the race with initial catch-up. Its complete state
             // must initialize unchanged devices too, once; later publications stay changed-only.
-            val signalIds = if (initialized) changedSignals else signals.keys
-            val indicatorIds = if (initialized) changedIndicators else indicators.keys
+            val signalIds = if (initialized) changedSignals else prepared.signals.keys
+            val indicatorIds = if (initialized) changedIndicators else prepared.indicators.keys
             initialized = true
-            fun submit(display: Display, variant: String?) {
+            fun submit(device: PreparedSignalModels.Device, variant: String?) {
                 if (retired) return
+                val display = handles.allocated[device.objectId] ?: return
                 try {
-                    val scenes = variant?.let(display.device.model::variant) ?: display.device.model.defaultScenes
-                    if (scenes == display.scenes) return
-                    display.handle.submit(ModelPresentation(display.revision++, display.device.pose, scenes))
+                    val scenes = variant?.let(device.model::variant) ?: device.model.defaultScenes
+                    if (scenes == display.scenes && device.pose == display.pose) return
+                    display.handle.submit(ModelPresentation(display.revision++, device.pose, scenes))
                     display.scenes = scenes
+                    display.pose = device.pose
                 } catch (failure: Exception) {
-                    report("SimpleSignals display ${display.device.objectId} in world $worldId failed", failure)
+                    failures += "SimpleSignals display ${device.objectId} in world $worldId failed" to failure
                 }
             }
-            signalIds.forEach { id -> signals[id]?.let { display ->
+            signalIds.forEach { id -> prepared.signals[id]?.let { device ->
                 val variant = (state?.signals?.states?.get(id) as? SectionSignalState.Available)?.output?.modelVariant
-                submit(display, variant)
+                submit(device, variant)
             } }
-            indicatorIds.forEach { id -> indicators[id]?.let { display ->
-                submit(display, state?.indicators?.get(id)?.modelVariant)
+            indicatorIds.forEach { id -> prepared.indicators[id]?.let { device ->
+                submit(device, state?.indicators?.get(id)?.modelVariant)
             } }
         }
-    }
-
-    fun close() {
-        retire()
-        closeHandles(signals.values.map { it.handle } + indicators.values.map { it.handle })
+        failures.forEach { (context, failure) -> report(context, failure) }
     }
 
     private fun closeHandles(handles: Collection<ModelHandle>) {
@@ -197,6 +250,8 @@ internal class SignalModelBinding(
             }
         }
     }
+
+    fun cleanupFailure(failure: Throwable) = report("SimpleSignals model cleanup failed in world $worldId", failure)
 
     private fun report(context: String, failure: Throwable) {
         // A reporting/scheduler failure is still a display failure, never a safety callback failure.

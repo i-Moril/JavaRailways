@@ -37,6 +37,8 @@ import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /** Production runtime/loader/placement composition with recording public handles, not live Folia. */
 class SignalModelBindingTest {
@@ -75,14 +77,14 @@ class SignalModelBindingTest {
     fun `real fixture and demo prepare endpoint pose while ground never queries rail and validation creates no handles`() {
         val configuration = DeviceModelDefinition("demo_signals:home", ModelPlacement.RailAttached(
             RailPositionSnapshot(railId, ViewDirection.BA, 10.0), ModelPose(0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 1.0)))
-        val prepared = PreparedSignalModels.prepare(definitions(configuration), models, rails)
+        val prepared = PreparedSignalModels.prepare(definitions(configuration), models, rails, topology)
         assertEquals(1, curveQueries)
         assertEquals(10.0, prepared.signals.getValue("test:first").pose.x())
         assertEquals(-2.0, prepared.signals.getValue("test:first").pose.z())
         val ground = ModelPose(9.0, 64.0, -3.0, 0.0, 0.0, 0.0, 1.0)
         val demo = ModelPackageLoader.load(Path.of(requireNotNull(javaClass.getResource("/examples/jr-four-light/model-package")).toURI()))
         val preparedGround = PreparedSignalModels.prepare(definitions(DeviceModelDefinition("jr_four_light:head",
-            ModelPlacement.Ground(ground))), demo.models, rails)
+            ModelPlacement.Ground(ground))), demo.models, rails, topology)
         assertSame(ground, preparedGround.signals.getValue("test:first").pose)
         assertEquals(1, curveQueries)
     }
@@ -97,10 +99,10 @@ class SignalModelBindingTest {
             signal.downstreamSignals, signal.model)
         val bad = SimpleSignalsWorldDefinitions(worldId, 1, emptyList(), emptyList(), definitions.fixedBlocks,
             listOf(badSignal))
-        val failure = assertThrows(IllegalArgumentException::class.java) { PreparedSignalModels.prepare(bad, models, rails) }
+        val failure = assertThrows(IllegalArgumentException::class.java) { PreparedSignalModels.prepare(bad, models, rails, topology) }
         assertTrue(failure.message!!.contains("test:first"))
         assertTrue(failure.message!!.contains("typo"))
-        assertThrows(IllegalArgumentException::class.java) { PreparedSignalModels.prepare(definitions, emptyMap(), rails) }
+        assertThrows(IllegalArgumentException::class.java) { PreparedSignalModels.prepare(definitions, emptyMap(), rails, topology) }
     }
 
     @Test
@@ -174,9 +176,9 @@ class SignalModelBindingTest {
         val service = RecordingModels()
         val errors = mutableListOf<String>()
         val binding = SignalModelBinding(plugin, worldId, topology.revision,
-            PreparedSignalModels.prepare(definitions, models, rails), service, { context, _ -> errors += context })
+            PreparedSignalModels.prepare(definitions, models, rails, topology), service, { context, _ -> errors += context }, world.modelHandles)
         assertTrue(world.attachModels(world.authoringPublication(), binding))
-        world.startModels(binding)
+        world.startModels()
         val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision) })
         epoch.replaceSources(occupancy.sources)
@@ -265,21 +267,21 @@ class SignalModelBindingTest {
         val prepared = (f.world.prepareDefinitions(topology, definitions(model(), two = true, revision = 2)) as
             SimpleSignalsDefinitionPreparationResult.Prepared).value
         val occupancy = SectionOccupancyRuntime.from(prepared.candidatePublication)
-        val replacement = binding(prepared.definitions, f.service, f.errors)
+        val replacement = binding(prepared.definitions, f.service, f.errors, f.world)
         occupancy.attachModelBinding(replacement)
         f.service.beforeCreate = {
             assertEquals(SimpleSignalsDefinitionCommitStatus.COMMITTED,
                 f.world.commitPrepared(prepared, occupancy, replacement))
+            f.service.beforeCreate = {}
         }
 
         f.start()
 
-        assertEquals(1, f.service.handles.size)
-        assertTrue(f.service.handles.single().closed)
-        assertTrue(f.service.handles.single().submissions.isEmpty())
+        assertEquals(3, f.service.handles.size)
+        assertTrue(f.service.handles.first().closed)
+        assertTrue(f.service.handles.first().submissions.isEmpty())
         assertTrue(f.errors.isEmpty(), f.errors.toString())
-        f.service.beforeCreate = {}
-        f.world.startModels(replacement)
+        f.world.startModels()
         assertEquals(3, f.service.handles.size)
         assertTrue(f.service.handles.drop(1).all { !it.closed && it.submissions.size == 1 })
         assertTrue(f.errors.isEmpty())
@@ -294,18 +296,19 @@ class SignalModelBindingTest {
             val prepared = (f.world.prepareDefinitions(topology, definitions(model(), revision = revision)) as
                 SimpleSignalsDefinitionPreparationResult.Prepared).value
             val occupancy = SectionOccupancyRuntime.from(prepared.candidatePublication)
-            val binding = binding(prepared.definitions, f.service, f.errors)
+            val binding = binding(prepared.definitions, f.service, f.errors, f.world)
             occupancy.attachModelBinding(binding)
             assertEquals(SimpleSignalsDefinitionCommitStatus.COMMITTED, f.world.commitPrepared(prepared, occupancy, binding))
             return binding
         }
         val first = replacement(2)
         val second = replacement(3)
-        f.world.startModels(second)
-        assertTrue(original.closed)
-        assertEquals(2, f.service.handles.size)
+        f.world.startModels()
+        assertFalse(original.closed)
+        assertEquals(1, f.service.handles.size)
         val current = f.service.handles.last()
-        f.world.startModels(first)
+        f.world.startModels()
+        first.start({ false }) { published(10, "proceed") }
         f.binding.published(f.occupancy.presentationSnapshot() ?: published(5, "proceed"), listOf("test:first"), emptyList())
         assertFalse(current.closed)
         assertEquals(1, current.submissions.size)
@@ -313,6 +316,154 @@ class SignalModelBindingTest {
         f.world.retire()
         f.world.closeModels()
         assertTrue(current.closed)
+    }
+
+    @Test
+    fun `old epoch callback already evaluating cannot repaint or close a retained handle after commit`() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val f = fixture(rule = {
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS))
+            SectionSignalOutput(12.0, "proceed")
+        })
+        f.start()
+        val handle = f.service.handles.single()
+        val oldCallback = CompletableFuture.runAsync { f.process(1, false) }
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        try {
+            val replacement = replace(f, definitions(model(), revision = 2))
+            f.world.startModels()
+            replacement.published(published(2, "stop"), listOf("test:first"), emptyList())
+            assertEquals(mapOf("lamp" to "red"), handle.submissions.last().animationScenes())
+        } finally { release.countDown() }
+        oldCallback.get(5, TimeUnit.SECONDS)
+        f.world.startModels()
+        f.binding.published(published(20, "proceed"), listOf("test:first"), emptyList())
+        assertEquals(1, f.service.handles.size)
+        assertFalse(handle.closed)
+        assertEquals(mapOf("lamp" to "red"), handle.submissions.last().animationScenes())
+        assertEquals(listOf(0L, 1L), handle.submissions.map { it.revision() })
+    }
+
+    @Test
+    fun `publication swap fences a public submit already in flight without replacing its handle`() {
+        val f = fixture()
+        f.start()
+        val handle = f.service.handles.single()
+        val submitting = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        handle.beforeSubmit = {
+            submitting.countDown()
+            check(release.await(5, TimeUnit.SECONDS))
+        }
+        val oldCallback = CompletableFuture.runAsync { f.process(1, true) }
+        assertTrue(submitting.await(5, TimeUnit.SECONDS))
+        val committing = CountDownLatch(1)
+        val commit = CompletableFuture.supplyAsync {
+            replace(f, definitions(model(), revision = 2), beforeCommit = { committing.countDown() })
+        }
+        try {
+            assertTrue(committing.await(5, TimeUnit.SECONDS))
+            assertFalse(commit.isDone, "publication must fence the old submit before reusing the handle")
+            assertEquals(1, f.service.handles.size)
+        } finally { release.countDown() }
+        oldCallback.get(5, TimeUnit.SECONDS)
+        val replacement = commit.get(5, TimeUnit.SECONDS)
+        handle.beforeSubmit = {}
+        f.world.startModels()
+        replacement.published(published(2, "proceed"), listOf("test:first"), emptyList())
+        f.binding.published(published(20, "stop"), listOf("test:first"), emptyList())
+        assertSame(handle, f.service.handles.single())
+        assertEquals(0, handle.closeCalls)
+        assertEquals(mapOf("lamp" to "green"), handle.submissions.last().animationScenes())
+        assertEquals((0L..3L).toList(), handle.submissions.map { it.revision() })
+    }
+
+    @Test
+    fun `failed or cancelled additions clean only new handles and retained devices keep working`() {
+        val f = fixture()
+        f.start()
+        val retained = f.service.handles.single()
+        val two = definitions(model(), two = true, revision = 2)
+        val thirdBlock = FixedBlockDefinition("test:third-block", 1,
+            listOf(FixedBlockTraversal(railId, ViewDirection.BA, 2.0, 4.0)))
+        val third = FixedBlockSignalDefinition("test:third", 1, thirdBlock.blockId, 0.0,
+            ConfiguredSignalOutput(0.0, "stop"),
+            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(12.0, "proceed"))), model = model())
+        val three = SimpleSignalsWorldDefinitions(worldId, 2, emptyList(), emptyList(), two.fixedBlocks + thirdBlock,
+            two.fixedBlockSignals + third)
+        val added = replace(f, three)
+        f.service.failCreate = 3
+        f.world.startModels()
+        assertEquals(2, f.service.handles.size)
+        assertEquals(0, retained.closeCalls)
+        assertEquals(1, f.service.handles.last().closeCalls)
+        added.published(published(1, "proceed"), listOf("test:first"), emptyList())
+        assertEquals(mapOf("lamp" to "green"), retained.submissions.last().animationScenes())
+        assertEquals(1, f.errors.size)
+
+        // A later committed edit can retry the missing additions. Supersede during create;
+        // the lifecycle worker must reconcile the final collection, preserving the first.
+        f.service.failCreate = -1
+        val again = SimpleSignalsWorldDefinitions(worldId, 3, emptyList(), emptyList(), three.fixedBlocks, three.fixedBlockSignals)
+        replace(f, again)
+        f.service.beforeCreate = {
+            f.service.beforeCreate = {}
+            replace(f, definitions(model(), revision = 4))
+        }
+        f.world.startModels()
+        assertTrue(f.service.handles.drop(1).all { it.closed })
+        assertEquals(0, retained.closeCalls)
+        assertSame(retained, f.service.byId(retained.id))
+        assertEquals(1, f.errors.size, "supersession is cancellation, not a rendering failure")
+        f.world.retire()
+        f.world.closeModels()
+        assertTrue(f.service.handles.all { it.closeCalls == 1 })
+    }
+
+    @Test
+    fun `same model identity with changed immutable tree replaces only the matching device`() {
+        val f = fixture(two = true)
+        f.start()
+        val first = f.service.byId("fixed-block-signal/test:first")
+        val oldSecond = f.service.byId("fixed-block-signal/test:second")
+        val previous = definitions(model(), two = true, revision = 2)
+        val second = previous.fixedBlockSignals[1]
+        val secondWall = FixedBlockSignalDefinition(second.signalId, 2, second.controlledBlockId, 0.0,
+            second.occupiedOutput, second.clearLevels, model = DeviceModelDefinition("demo_signals:wall", model().placement))
+        val mixed = SimpleSignalsWorldDefinitions(worldId, 2, emptyList(), emptyList(), previous.fixedBlocks,
+            listOf(previous.fixedBlockSignals[0], secondWall))
+        replace(f, mixed)
+        f.world.startModels()
+        assertTrue(oldSecond.closed)
+        val wall = f.service.byId(oldSecond.id)
+        val loaded = models
+        val home = loaded.getValue("demo_signals:home")
+        val altered = LoadedPackageModel(home.id, ModelDefinition(home.definition.parts() +
+            ModelPart.Group(ModelPose.IDENTITY, emptyList(), emptyList())), home.defaultScenes, home.variants,
+            home.followRailTilt, home.railPlacementPresets)
+        replace(f, SimpleSignalsWorldDefinitions(worldId, 3, emptyList(), emptyList(), mixed.fixedBlocks,
+            mixed.fixedBlockSignals), loaded + (home.id to altered))
+        f.world.startModels()
+        assertEquals(1, first.closeCalls)
+        assertNotSame(first, f.service.byId(first.id))
+        assertSame(wall, f.service.byId(wall.id))
+        assertEquals(0, wall.closeCalls)
+        assertEquals(4, f.service.handles.size)
+    }
+
+    private fun replace(f: Fixture, definitions: SimpleSignalsWorldDefinitions,
+        loaded: Map<String, LoadedPackageModel> = models, beforeCommit: () -> Unit = {}): SignalModelBinding {
+        val prepared = (f.world.prepareDefinitions(topology, definitions) as SimpleSignalsDefinitionPreparationResult.Prepared).value
+        val occupancy = SectionOccupancyRuntime.from(prepared.candidatePublication)
+        val binding = SignalModelBinding(plugin, worldId, topology.revision,
+            PreparedSignalModels.prepare(definitions, loaded, rails, topology), f.service,
+            { context, _ -> f.errors += context }, f.world.modelHandles)
+        occupancy.attachModelBinding(binding)
+        assertEquals(SimpleSignalsDefinitionCommitStatus.COMMITTED,
+            f.world.commitPrepared(prepared, occupancy, binding, beforeCommit))
+        return binding
     }
 
     private fun published(epoch: Long, variant: String): SectionOccupancyRuntime.PublishedState {
@@ -335,9 +486,10 @@ class SignalModelBindingTest {
     }
 
     private fun binding(definitions: SimpleSignalsWorldDefinitions, service: RecordingModels,
-        errors: MutableList<String>, report: ((String, Throwable) -> Unit)? = null) = SignalModelBinding(plugin, worldId,
-        topology.revision, PreparedSignalModels.prepare(definitions, models, rails), service,
-        report ?: { context, _ -> errors += context })
+        errors: MutableList<String>, world: SimpleSignalsWorldRuntime,
+        report: ((String, Throwable) -> Unit)? = null) = SignalModelBinding(plugin, worldId,
+        topology.revision, PreparedSignalModels.prepare(definitions, models, rails, topology), service,
+        report ?: { context, _ -> errors += context }, world.modelHandles)
 
     private fun fixture(two: Boolean = false, rule: ((SectionSignalRuleInput) -> SectionSignalOutput)? = null,
         report: ((String, Throwable) -> Unit)? = null): Fixture {
@@ -349,7 +501,7 @@ class SignalModelBindingTest {
                 original.controlledSection, emptyList()) { rule(it) } })
         val service = RecordingModels()
         val errors = mutableListOf<String>()
-        val binding = binding(definitions, service, errors, report)
+        val binding = binding(definitions, service, errors, world, report)
         assertTrue(world.attachModels(world.authoringPublication(), binding))
         val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision) })
@@ -359,7 +511,7 @@ class SignalModelBindingTest {
 
     private inner class Fixture(val world: SimpleSignalsWorldRuntime, val occupancy: SectionOccupancyRuntime,
         val service: RecordingModels, val binding: SignalModelBinding, val errors: MutableList<String>, val epoch: SignalEpochRuntime) {
-        fun start() = world.startModels(binding)
+        fun start() = world.startModels()
         fun process(number: Long, occupied: Boolean) {
             val position = RailPositionSnapshot(railId, ViewDirection.AB, 0.0)
             val intervals = listOf(RailInterval(railId, if (occupied) 2.5 else 0.0, if (occupied) 3.5 else 1.0))
@@ -375,12 +527,15 @@ class SignalModelBindingTest {
             val submissions = mutableListOf<ModelPresentation>()
             var closed = false
             var failSubmit = false
+            var closeCalls = 0
+            var beforeSubmit: () -> Unit = {}
             override fun submit(presentation: ModelPresentation) {
                 if (closed) return
                 if (failSubmit) error("submit failed")
+                beforeSubmit()
                 submissions += presentation
             }
-            override fun close() { closed = true }
+            override fun close() { closeCalls++; closed = true }
         }
         val handles = mutableListOf<Handle>()
         var failCreate = -1
@@ -396,7 +551,7 @@ class SignalModelBindingTest {
         fun byId(id: String) = handles.last { it.id == id }
         override fun closeOwner(owner: Plugin): CompletionStage<Void> {
             closeOwnerCalls++
-            handles.forEach(Handle::close)
+            handles.filterNot { it.closed }.forEach(Handle::close)
             return cleanup
         }
     }

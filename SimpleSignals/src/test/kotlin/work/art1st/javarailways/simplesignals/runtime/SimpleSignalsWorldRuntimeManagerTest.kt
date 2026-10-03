@@ -116,6 +116,154 @@ class SimpleSignalsWorldRuntimeManagerTest {
     lateinit var directory: Path
 
     @Test
+    fun `committed device edits retain public handles and placement cache while reconciling only changed models`() {
+        val fixture = Fixture()
+        val store = store()
+        val sources = CapturingSignalEpochSourceService()
+        val models = RecordingModels()
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        var queries = 0
+        val delegate = fixtureRailTargets()
+        val rails = proxy(RailTargetService::class.java) { method, arguments ->
+            check(method.name == "findCurve")
+            queries++
+            delegate.findCurve(arguments!![0] as UUID, arguments[1] as UUID)
+        }
+        val blocks = listOf(FixedBlockDefinition("test:first-block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0))),
+            FixedBlockDefinition("test:second-block", 1,
+                listOf(FixedBlockTraversal(fixture.exit, ViewDirection.AB, 6.0, 9.0))))
+        fun signal(id: String, revision: Long = 1, model: DeviceModelDefinition? = railModel(fixture.entry),
+            speed: Double = 12.0, variant: String = "proceed") = FixedBlockSignalDefinition("test:$id", revision,
+            "test:$id-block", 0.0, ConfiguredSignalOutput(0.0, "stop"),
+            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(speed, variant))), model = model)
+        val firstDefinition = signal("first")
+        val secondDefinition = signal("second", model = railModel(fixture.exit))
+        store.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1, emptyList(), emptyList(), blocks,
+            listOf(firstDefinition, secondDefinition)))
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), store,
+            sources, railTargets = rails, modelPresentation = models)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val runtime = manager.authoringRuntime(fixture.worldId)!!
+        val first = models.byId("fixed-block-signal/test:first")
+        val second = models.byId("fixed-block-signal/test:second")
+        val epoch = SignalEpochRuntime(fixture.worldId.toString(), TrainRestrictionSnapshotStore(fixture.worldId.toString()))
+        var number = 0L
+        fun baseline() {
+            epoch.replaceSources(sources.sources.getValue(fixture.worldId))
+            epoch.process(RailwayWorldFrameSnapshot.create(++number, fixture.currentTopology.revision,
+                emptyList(), ActiveRailContinuationsSnapshot.empty(fixture.currentTopology.revision)))
+        }
+        fun apply(signals: List<FixedBlockSignalDefinition>, editedBlocks: List<FixedBlockDefinition> = blocks) {
+            val current = runtime.currentDefinitions()
+            val target = SimpleSignalsWorldDefinitions(fixture.worldId, current.definitionRevision, emptyList(), emptyList(),
+                editedBlocks, signals)
+            val patch = definitionDraftPatch(current, target)
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATED,
+                manager.validateDefinitionPatch(fixture.worldId, current.definitionRevision, patch).status)
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
+                manager.applyDefinitionPatch(fixture.worldId, current.definitionRevision, patch).status)
+            baseline()
+        }
+        baseline()
+        assertEquals(2, queries)
+        val ruleEdit = signal("first", 2, firstDefinition.model, 3.0, "stop")
+        apply(listOf(ruleEdit, secondDefinition))
+        assertEquals(2, queries, "same exact topology and placement must not sample rails on rule edits or validate")
+        assertSame(first, models.byId(first.id))
+        assertSame(second, models.byId(second.id))
+        assertEquals(mapOf("lamp" to "red"), first.submissions.last().animationScenes())
+
+        val beforeInvalid = runtime.authoringPublication()
+        val beforeInvalidDisk = Files.readString(store.primaryFile(fixture.worldId))
+        val beforeInvalidSources = sources.sources.getValue(fixture.worldId)
+        val beforeInvalidPermits = infrastructure.permitAcquisitionCount
+        val invalidPatch = SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(
+            signal("first", 3, ruleEdit.model, 3.0, "missing-variant")))
+        for (result in listOf(
+            manager.validateDefinitionPatch(fixture.worldId, beforeInvalid.definitions.definitionRevision, invalidPatch),
+            manager.applyDefinitionPatch(fixture.worldId, beforeInvalid.definitions.definitionRevision, invalidPatch)
+        )) {
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED, result.status)
+            assertTrue(result.diagnostics.any { it.contains("missing-variant") })
+        }
+        assertEquals(2, queries, "pose cache reuse must still reject an invalid configured variant")
+        assertSame(beforeInvalid, runtime.authoringPublication())
+        assertEquals(beforeInvalidDisk, Files.readString(store.primaryFile(fixture.worldId)))
+        assertSame(beforeInvalidSources, sources.sources.getValue(fixture.worldId))
+        assertEquals(beforeInvalidPermits, infrastructure.permitAcquisitionCount)
+        assertEquals(2, models.handles.size)
+        assertTrue(models.handles.all { it.closeCalls == 0 })
+
+        val moved = signal("first", 3, railModel(fixture.entry, 2.0), 3.0, "stop")
+        apply(listOf(moved, secondDefinition))
+        assertEquals(4, queries, "validate and apply independently prepare the changed placement")
+        assertSame(first, models.byId(first.id))
+        assertEquals(2.0, first.submissions.last().transform().x())
+        assertSame(second, models.byId(second.id))
+        assertEquals(2, models.handles.size)
+        assertTrue(models.handles.all { it.closeCalls == 0 })
+
+        val beforeRotation = first.submissions.last()
+        val placement = moved.model!!.placement as ModelPlacement.RailAttached
+        val rotated = signal("first", 4, DeviceModelDefinition("demo_signals:home", placement.copy(
+            adjustment = ModelPose(0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0))), 3.0, "stop")
+        apply(listOf(rotated, secondDefinition))
+        val afterRotation = first.submissions.last()
+        assertEquals(6, queries, "rotation-only edits reprepare the pose on validate and apply")
+        assertSame(first, models.byId(first.id))
+        assertEquals(beforeRotation.transform().x(), afterRotation.transform().x())
+        assertEquals(beforeRotation.transform().y(), afterRotation.transform().y())
+        assertEquals(beforeRotation.transform().z(), afterRotation.transform().z())
+        val oldPose = beforeRotation.transform()
+        val newPose = afterRotation.transform()
+        assertEquals(0.0, kotlin.math.abs(oldPose.rotationX() * newPose.rotationX() +
+            oldPose.rotationY() * newPose.rotationY() + oldPose.rotationZ() * newPose.rotationZ() +
+            oldPose.rotationW() * newPose.rotationW()), 1e-12, "model rotates by 180 degrees in place")
+        assertEquals(beforeRotation.animationScenes(), afterRotation.animationScenes())
+        assertTrue(afterRotation.revision() > beforeRotation.revision())
+        assertSame(second, models.byId(second.id))
+        assertEquals(2, models.handles.size)
+        assertTrue(models.handles.all { it.closeCalls == 0 })
+
+        val thirdBlock = FixedBlockDefinition("test:third-block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 6.0, 8.0)))
+        val third = signal("third", model = DeviceModelDefinition("demo_signals:home", ModelPlacement.Ground(ModelPose.IDENTITY)))
+        apply(listOf(rotated, secondDefinition, third), blocks + thirdBlock)
+        assertEquals(3, models.handles.size)
+        val thirdHandle = models.byId("fixed-block-signal/test:third")
+        assertSame(first, models.byId(first.id))
+        assertSame(second, models.byId(second.id))
+        apply(listOf(rotated, secondDefinition), blocks + thirdBlock)
+        assertEquals(1, thirdHandle.closeCalls)
+        assertEquals(3, models.handles.size)
+
+        val different = signal("first", 5, DeviceModelDefinition("demo_signals:wall", rotated.model!!.placement), 3.0, "stop")
+        apply(listOf(different, secondDefinition), blocks + thirdBlock)
+        assertEquals(1, first.closeCalls)
+        assertNotSame(first, models.byId(first.id))
+        assertSame(second, models.byId(second.id))
+        assertEquals(0, second.closeCalls)
+        assertEquals(4, models.handles.size)
+        val replacement = models.byId(first.id)
+        apply(listOf(different, secondDefinition), blocks + FixedBlockDefinition(thirdBlock.blockId, 2, thirdBlock.traversals))
+        assertSame(replacement, models.byId(first.id))
+        assertSame(second, models.byId(second.id))
+        val beforeQueries = queries
+        infrastructure.topology = fixture.topology(fixture.currentTopology.revision)
+        apply(listOf(different, secondDefinition), blocks + FixedBlockDefinition(thirdBlock.blockId, 3, thirdBlock.traversals))
+        assertEquals(beforeQueries + 4, queries, "an equal-revision different topology root must reprepare both placements")
+        assertEquals(4, models.handles.size)
+        for (handle in listOf(first, second, replacement)) {
+            assertEquals(handle.submissions.indices.map(Int::toLong), handle.submissions.map { it.revision() })
+        }
+        val cleanup = manager.clearLocal().toCompletableFuture()
+        models.cleanup.complete(null)
+        cleanup.get(5, TimeUnit.SECONDS)
+        assertTrue(models.handles.all { it.closeCalls == 1 })
+    }
+
+    @Test
     fun `pure model validation allocates nothing and invalid model or rejected unrelated patch retains live display and disk`() {
         val fixture = Fixture()
         val store = store()

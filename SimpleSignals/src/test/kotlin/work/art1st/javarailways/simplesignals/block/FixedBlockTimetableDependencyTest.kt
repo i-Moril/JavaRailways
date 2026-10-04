@@ -37,7 +37,7 @@ import java.util.UUID
 @OptIn(ExtensionData::class)
 class FixedBlockTimetableDependencyTest {
     @Test
-    fun `completed block edit before physical guard is matched from current publication and rejects divergent route`() =
+    fun `completed direction edit before physical guard is matched from current publication and rejects reverse route`() =
         runEditOrdering(editBeforeGuard = true)
 
     @Test
@@ -62,15 +62,14 @@ class FixedBlockTimetableDependencyTest {
             val origin = train.head.location.arcLength
             val originalBlock = FixedBlockDefinition("test:block", 1L,
                 listOf(FixedBlockTraversal(entry.id, ViewDirection.AB, origin - 1.0, origin + 5.0)))
-            val divergentBlock = FixedBlockDefinition(originalBlock.blockId, 2L, listOf(
-                FixedBlockTraversal(entry.id, ViewDirection.AB, origin - 1.0, 40.0),
-                FixedBlockTraversal(lower.id, ViewDirection.AB, 0.0, 5.0)))
+            val reversedBlock = FixedBlockDefinition(originalBlock.blockId, 2L, listOf(
+                FixedBlockTraversal(entry.id, ViewDirection.BA, origin - 1.0, origin + 5.0)))
             val signals = signalWorldRuntime(worldId)
             assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
                 signals.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 1L,
                     emptyList(), emptyList(), listOf(originalBlock))).status)
             val preparedEdit = (signals.prepareDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 2L,
-                emptyList(), emptyList(), listOf(divergentBlock))) as SimpleSignalsDefinitionPreparationResult.Prepared).value
+                emptyList(), emptyList(), listOf(reversedBlock))) as SimpleSignalsDefinitionPreparationResult.Prepared).value
             val registry = InfrastructureCoordinationRegistry({ world.topologyState.revision }, { resource ->
                 when (resource) {
                     is RailIntervalResource -> world.getRail(resource.railId) != null
@@ -140,7 +139,7 @@ class FixedBlockTimetableDependencyTest {
                         emptySet(), emptyMap())), emptyList())))
             } else if (editBeforeGuard) {
                 val failed = assertInstanceOf(TimetableEpochStartResult.Failure::class.java, dispatcher.beginTimetable(world, "race"))
-                assertTrue(failed.reason.contains("route leaves the directed traversal of fixed block"), failed.reason)
+                assertTrue(failed.reason.contains("reverse admission is forbidden"), failed.reason)
                 assertFalse(dispatcher.scheduleInitialCycle("race"))
                 assertTrue(registry.dependencySnapshots().isEmpty())
                 assertEquals(2L, signals.currentDefinitions().definitionRevision)

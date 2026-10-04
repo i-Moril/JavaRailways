@@ -114,7 +114,7 @@ internal class SectionOccupancyRuntime private constructor(
     fun indicators() = latest?.indicators.orEmpty()
     fun selectionSnapshot() = latest?.selection
 
-    val source: SignalEpochSource? = if (bindingsByArea.isEmpty() && protectionRouteSelection.source == null) {
+    val source: SignalEpochSource? = if (bindingsByArea.isEmpty() && protectionRouteSelection.source == null && signalRules == null) {
         null
     } else {
         SignalEpochSource(
@@ -176,7 +176,7 @@ internal class SectionOccupancyRuntime private constructor(
                 check(input.observation.stamp.topologyRevision == blocks.topology.revision) { "fixed-block topology is stale" }
                 val disabled = directionPolicy.disabledBlocks(blocks, policyBlocks)
                 policyBlocks.associate { block -> block.definition.blockId to
-                    if (block.definition.blockId in disabled) SectionSignalState.Degraded(directionPolicy.disabledSpeedMetersPerSecond)
+                    if (block.definition.blockId in disabled) SectionSignalState.Unavailable("fixed-block operating directions disagree")
                     else null }
             } catch (failure: Exception) {
                 policyBlocks.associate { it.definition.blockId to SectionSignalState.Unavailable(

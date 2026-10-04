@@ -31,6 +31,7 @@ internal class ProtectionRouteBindingCompiler(private val publication: SimpleSig
     private val routesByEntry = publication.routeSelection.routesById.values.groupBy { it.definition.entryBoundaryId }
 
     fun compile(route: RouteSnapshot): ProtectionRouteBindingMatch {
+        publication.unavailableTerritory.requireUsable(route)
         val regions = checkNotNull(publication.regions.compilationSnapshot())
         val blocks = publication.fixedBlocks.snapshot(publication.topology)
         check(regions.topology === publication.topology && blocks.topology === publication.topology &&

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simplesignals.runtime
 
+import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+
 import work.art1st.javarailways.simplesignals.testing.fixedBlockPolicy
 
 import org.bukkit.plugin.Plugin
@@ -116,6 +118,135 @@ import java.util.concurrent.TimeUnit
 class SimpleSignalsWorldRuntimeManagerTest {
     @TempDir
     lateinit var directory: Path
+
+    @Test
+    fun `zero remaining region markers preserve models tables and local refusal through restart and repair`() {
+        val fixture = Fixture()
+        val store = store()
+        val initial = deviceModelDefinitions(fixture, "fixed-route", DeviceModelDefinition("demo_signals:home",
+            ModelPlacement.Ground(ModelPose.IDENTITY)))
+        store.save(fixture.worldId, initial)
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val sources = CapturingSignalEpochSourceService()
+        val models = RecordingModels()
+        val owner = plugin()
+        val manager = runtimeManager(owner, infrastructure.service, CapturingRoutePlanningService(), store, sources,
+            modelPresentation = models)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val runtime = manager.authoringRuntime(fixture.worldId)!!
+        val handle = models.handles.single()
+        val index = runtime.protectionRegionSnapshot().derivedTopology
+        val draft = ProtectionRegionDefinition(fixture.region.regionId, 2, fixture.region.boundaries, emptyList())
+        val result = manager.applyDefinitionPatch(fixture.worldId, 1, SimpleSignalsDefinitionPatch(upsertRegions = listOf(draft)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, result.status, result.diagnostics.toString())
+        assertEquals(initial.routeTables, runtime.currentDefinitions().routeTables)
+        assertEquals(initial.protectionSignals, runtime.currentDefinitions().protectionSignals)
+        assertSame(handle, models.handles.single())
+        assertEquals(0, handle.closeCalls)
+        assertSame(index, runtime.protectionRegionSnapshot().derivedTopology, "same-root edits reuse the topology index")
+        val inside = RouteSnapshot("test:inside", 1, fixture.currentTopology.revision,
+            listOf(RouteSegmentSnapshot(fixture.upperIn, ViewDirection.AB, 1.0, 9.0)))
+        val unrelated = RouteSnapshot("test:outside", 1, fixture.currentTopology.revision,
+            listOf(RouteSegmentSnapshot(fixture.exit, ViewDirection.AB, 6.0, 9.0)))
+        fun intent(route: RouteSnapshot) = work.art1st.javarailways.basic.api.route.RouteResourceIntent(
+            "test:request", InfrastructureOwner("test:direct", 1), "train",
+            work.art1st.javarailways.basic.api.observation.RailwayStateStamp(fixture.worldId.toString(), 1, fixture.currentTopology.revision),
+            route,
+            work.art1st.javarailways.basic.api.route.RouteBoundary(route.segments.sumOf { it.lengthMeters }))
+        val contributor = work.art1st.javarailways.simplesignals.block.FixedBlockRouteResourcePolicy(owner,
+            validateRouteAdmission = manager::validateRouteAdmission, snapshotForWorld = manager::fixedBlockSnapshot)
+        assertThrows(IllegalStateException::class.java) { contributor.contribute(fixture.worldId, intent(inside)) }
+        assertTrue(contributor.contribute(fixture.worldId, intent(unrelated)).isEmpty())
+        assertThrows(IllegalStateException::class.java) { runtime.protectionRegionInspectionSource.routeInfrastructureDependencies.dependencies(inside) }
+        assertTrue(runtime.protectionRegionInspectionSource.routeInfrastructureDependencies.dependencies(unrelated).isEmpty())
+        assertTrue(runtime.routePlanningBinding.source.restrictions(fixture.currentTopology).forbiddenTraversals.any { it.railId == fixture.upperIn })
+        val epochs = SignalEpochRuntime(fixture.worldId.toString(), { value ->
+            work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult(
+                work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus.ACCEPTED, value.revision) })
+        epochs.replaceSources(sources.sources.getValue(fixture.worldId))
+        epochs.process(RailwayWorldFrameSnapshot.create(1, fixture.currentTopology.revision, emptyList(),
+            ActiveRailContinuationsSnapshot.empty(fixture.currentTopology.revision)))
+        assertTrue(runtime.sectionSignalSnapshot()!!.states.getValue(initial.protectionSignals.single().signalId) is SectionSignalState.Unavailable)
+
+        manager.remove(fixture.worldId)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val reloaded = manager.authoringRuntime(fixture.worldId)!!
+        assertEquals(emptyList<ProtectionBoundaryDefinition>(), reloaded.currentDefinitions().regions.single().boundaryDraft)
+        assertEquals(fixture.region.boundaries, reloaded.currentDefinitions().regions.single().boundaries)
+        assertThrows(IllegalStateException::class.java) { manager.validateRouteAdmission(fixture.worldId, intent(inside)) }
+        val restored = ProtectionRegionDefinition(fixture.region.regionId, 3, fixture.region.boundaries)
+        val repair = manager.applyDefinitionPatch(fixture.worldId, 2, SimpleSignalsDefinitionPatch(upsertRegions = listOf(restored)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, repair.status, repair.diagnostics.toString())
+        assertTrue(reloaded.routePlanningBinding.source.restrictions(fixture.currentTopology).forbiddenTraversals.isEmpty())
+        assertEquals(setOf(fixture.upperRoute().routeId), reloaded.authoringPublication().routeSelection.routesById.keys)
+        assertEquals(initial.routeTables, reloaded.currentDefinitions().routeTables, "revalidation must not rewrite authored routes")
+    }
+
+    @Test
+    fun `pending boundary edits protect only changed positions and reject canceled or stale selections`() {
+        val fixture = Fixture()
+        val topology = fixture.currentTopology
+        val registry = editRegistry(topology)
+        val infrastructure = MutableTopologyService(topology, registry)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), store(), sources)
+        manager.install(fixture.worldId)
+        val first = ProtectionBoundaryDefinition("test:pending-first", RailPositionSnapshot(fixture.entry, ViewDirection.AB, 3.0))
+        val second = ProtectionBoundaryDefinition("test:pending-second", RailPositionSnapshot(fixture.exit, ViewDirection.BA, 7.0))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, manager.applyDefinitionPatch(fixture.worldId, 0,
+            SimpleSignalsDefinitionPatch(pendingProtectionBoundaries = listOf(first))).status)
+        protect(registry, topology, fixture.entry, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
+        val patch = SimpleSignalsDefinitionPatch(pendingProtectionBoundaries = listOf(first, second))
+        val added = manager.applyDefinitionPatch(fixture.worldId, 1, patch)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, added.status, added.diagnostics.toString())
+        assertEquals(setOf(fixture.exit), infrastructure.lastEditRequest!!.impact.railIds)
+        val runtime = manager.authoringRuntime(fixture.worldId)!!
+        assertTrue(runtime.currentDefinitions().regions.isEmpty())
+        assertTrue(runtime.protectionRegionSnapshot().derivedTopology.rails.isEmpty(),
+            "pending-only edits validate native rail projections without deriving the world graph")
+        val moved = ProtectionBoundaryDefinition(second.boundaryId, RailPositionSnapshot(fixture.exit, ViewDirection.BA, 8.0))
+        val canceled = SimpleSignalsDefinitionPatch(pendingProtectionBoundaries = listOf(first, moved))
+        var active = true
+        sources.beforeCommitAction = { active = false }
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
+            manager.applyDefinitionPatch(fixture.worldId, 2, canceled, runtime, topology) { active }.status)
+        assertEquals(listOf(first, second), runtime.currentDefinitions().pendingProtectionBoundaries)
+        sources.beforeCommitAction = {}
+        infrastructure.topology = fixture.topology(topology.revision + 1)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.STALE_TOPOLOGY,
+            manager.applyDefinitionPatch(fixture.worldId, 2, canceled, runtime, topology).status)
+        manager.remove(fixture.worldId)
+        manager.install(fixture.worldId)
+        assertEquals(listOf(first, second), manager.authoringRuntime(fixture.worldId)!!.currentDefinitions().pendingProtectionBoundaries)
+    }
+
+    @Test
+    fun `pending-only publication lazily derives a shared topology index for the first completed section`() {
+        val fixture = Fixture()
+        val runtime = signalWorldRuntime(fixture.worldId)
+        val pending = ProtectionBoundaryDefinition("test:pending", RailPositionSnapshot(fixture.exit, ViewDirection.BA, 7.0))
+        val seed = SimpleSignalsWorldDefinitions(fixture.worldId, 1, emptyList(), emptyList(),
+            pendingProtectionBoundaries = listOf(pending))
+        assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
+            runtime.initializeDefinitions(fixture.currentTopology, seed).status)
+        assertTrue(runtime.protectionRegionSnapshot().derivedTopology.rails.isEmpty())
+        val block = FixedBlockDefinition("test:block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 2.0)))
+        val next = SimpleSignalsWorldDefinitions(fixture.worldId, 2, emptyList(), emptyList(), listOf(block),
+            pendingProtectionBoundaries = listOf(pending))
+        val prepared = runtime.prepareDefinitions(fixture.currentTopology, next) as SimpleSignalsDefinitionPreparationResult.Prepared
+        assertEquals(SimpleSignalsDefinitionCommitStatus.COMMITTED, runtime.commitPrepared(prepared.value))
+        val index = runtime.protectionRegionSnapshot().derivedTopology
+        assertEquals(fixture.currentTopology.railProjection.keys, index.rails.keys)
+        assertSame(index, runtime.fixedBlockSnapshot().routeTopology)
+        val moved = ProtectionBoundaryDefinition(pending.boundaryId, RailPositionSnapshot(fixture.exit, ViewDirection.BA, 8.0))
+        val edit = runtime.prepareDefinitions(fixture.currentTopology, SimpleSignalsWorldDefinitions(fixture.worldId,
+            3, emptyList(), emptyList(), listOf(block), pendingProtectionBoundaries = listOf(moved))) as
+            SimpleSignalsDefinitionPreparationResult.Prepared
+        assertEquals(SimpleSignalsDefinitionCommitStatus.COMMITTED, runtime.commitPrepared(edit.value))
+        assertSame(index, runtime.protectionRegionSnapshot().derivedTopology)
+        assertSame(index, runtime.fixedBlockSnapshot().routeTopology)
+    }
 
     @Test
     fun `attached references collisions revision and orphan deletion reject before mutation while combined edits succeed`() {
@@ -1077,7 +1208,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertTrue(rejectionText.contains("12 diagnostics omitted"))
         assertTrue(rejectionText.length < 8000)
         assertEquals(20, rejected.editDecision!!.blockers.size)
-        assertEquals(1000, rejected.editDecision!!.blockers.first().overlap.railIds.size)
+        assertEquals(1000, rejected.editDecision.blockers.first().overlap.railIds.size)
     }
 
     private fun <T : CommandSender> commandSender(type: Class<T>, permitted: Boolean): T = proxy(type) { method, _ ->

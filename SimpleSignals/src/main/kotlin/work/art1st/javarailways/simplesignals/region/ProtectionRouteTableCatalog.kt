@@ -72,6 +72,10 @@ internal class ProtectionRouteTableCatalog(
     @Volatile
     private var snapshot: Snapshot? = null
 
+    /** Revalidated current geometry. Authored tables, including invalid old routes, remain in the world document. */
+    fun usableDefinitions(): List<ProtectionRouteTableDefinition> = snapshot?.usableDefinitions.orEmpty()
+    fun unavailableRegionIds(): Set<String> = snapshot?.unavailableRegionIds.orEmpty()
+
     val restrictionSource = RoutePlanningRestrictionSource { topology ->
         val captured = snapshot
             ?: error("fixed protection route tables have not been published")
@@ -159,9 +163,21 @@ internal class ProtectionRouteTableCatalog(
                 "protection regions must be published before fixed route tables"
             )
         val replacements = ArrayList<PathReplacement>(copiedDefinitions.size)
+        val usable = arrayListOf<ProtectionRouteTableDefinition>()
+        val unavailable = regionSnapshot.regionsById.values.filter { it.definition.boundaryDraft != null }
+            .mapTo(linkedSetOf()) { it.definition.regionId }
+        val routeIds = copiedDefinitions.flatMap { it.routes }.map { it.routeId }
+        if (routeIds.distinct().size != routeIds.size) return@synchronized rejected(
+            ProtectionRouteTableValidationCode.DUPLICATE_ROUTE_ID, "protection route IDs must be unique")
         for (definition in copiedDefinitions) {
+            if (definition.defaultRouteIds.any { id -> definition.routes.none { it.routeId == id } })
+                return@synchronized rejected(ProtectionRouteTableValidationCode.UNKNOWN_BOUNDARY,
+                    "table ${definition.tableId} references an unknown default route")
             when (val compiled = compile(definition, regionSnapshot)) {
-                is Compilation.Compiled -> replacements += compiled.replacement
+                is Compilation.Compiled -> {
+                    compiled.replacement?.let(replacements::add)
+                    compiled.usable?.let(usable::add) ?: unavailable.add(definition.regionId)
+                }
                 is Compilation.Rejected -> return@synchronized ProtectionRouteTableCatalogResult(
                     ProtectionRouteTableCatalogStatus.REJECTED,
                     listOf(compiled.diagnostic)
@@ -173,8 +189,13 @@ internal class ProtectionRouteTableCatalog(
             regionSnapshot = regionSnapshot,
             definitionRevision = definitionRevision,
             definitions = copiedDefinitions,
+            usableDefinitions = java.util.List.copyOf(usable),
+            unavailableRegionIds = java.util.Set.copyOf(unavailable),
             restrictions = RoutePlanningRestrictions(
                 topologyRevision = regionSnapshot.topology.revision,
+                forbiddenTraversals = unavailable.flatMap { id -> regionSnapshot.regionsById.getValue(id).interior.flatMap { slice ->
+                    ViewDirection.entries.map { DirectedRailSpan(slice.railId, it, slice.startAbMeters, slice.endAbMeters) }
+                } },
                 pathReplacements = replacements
             )
         )
@@ -197,7 +218,7 @@ internal class ProtectionRouteTableCatalog(
                 "route table ${table.tableId} references unknown region ${table.regionId}",
                 table
             )
-        if (table.regionRevision != region.definition.revision) {
+        if (table.regionRevision > region.definition.revision) {
             return rejectedCompilation(
                 ProtectionRouteTableValidationCode.STALE_REGION_REVISION,
                 "route table ${table.tableId} targets region revision ${table.regionRevision}; " +
@@ -205,6 +226,7 @@ internal class ProtectionRouteTableCatalog(
                 table
             )
         }
+        if (region.definition.boundaryDraft != null) return Compilation.Compiled(null, null)
         duplicate(table.routes, ProtectionRouteDefinition::routeId)?.let { routeId ->
             return rejectedCompilation(
                 ProtectionRouteTableValidationCode.DUPLICATE_ROUTE_ID,
@@ -215,6 +237,7 @@ internal class ProtectionRouteTableCatalog(
         }
 
         val paths = ArrayList<PhysicalTraversalPath>(table.routes.size)
+        val validRoutes = arrayListOf<ProtectionRouteDefinition>()
         val boundaries = region.definition.boundaries.associateBy(ProtectionBoundaryDefinition::boundaryId)
         val interiorByRail = region.interior.groupBy(ProtectionRegionInteriorSlice::railId)
         for (route in table.routes) {
@@ -228,8 +251,9 @@ internal class ProtectionRouteTableCatalog(
                     snapshot.derivedTopology
                 )
             ) {
-                is RouteCompilation.Compiled -> paths += compiled.path
-                is RouteCompilation.Rejected -> return Compilation.Rejected(compiled.diagnostic)
+                is RouteCompilation.Compiled -> { paths += compiled.path; validRoutes += route }
+                is RouteCompilation.Rejected -> if (table.regionRevision == region.definition.revision)
+                    return Compilation.Rejected(compiled.diagnostic)
             }
         }
         val replaced = region.interior.flatMap { slice ->
@@ -237,7 +261,10 @@ internal class ProtectionRouteTableCatalog(
                 DirectedRailSpan(slice.railId, facing, slice.startAbMeters, slice.endAbMeters)
             }
         }
-        return Compilation.Compiled(PathReplacement(replaced, paths))
+        val validIds = validRoutes.mapTo(hashSetOf()) { it.routeId }
+        return if (paths.isEmpty()) Compilation.Compiled(null, null) else Compilation.Compiled(
+            PathReplacement(replaced, paths), ProtectionRouteTableDefinition(table.tableId, table.revision,
+                table.regionId, region.definition.revision, validRoutes, table.defaultRouteIds.filter { it in validIds }))
     }
 
     private fun compile(
@@ -445,6 +472,8 @@ internal class ProtectionRouteTableCatalog(
         val regionSnapshot: ProtectionRegionCompilationSnapshot,
         val definitionRevision: Long,
         val definitions: List<ProtectionRouteTableDefinition>,
+        val usableDefinitions: List<ProtectionRouteTableDefinition>,
+        val unavailableRegionIds: Set<String>,
         val restrictions: RoutePlanningRestrictions
     ) {
         fun equivalentTo(other: Snapshot): Boolean =
@@ -454,7 +483,7 @@ internal class ProtectionRouteTableCatalog(
     }
 
     private sealed interface Compilation {
-        data class Compiled(val replacement: PathReplacement) : Compilation
+        data class Compiled(val replacement: PathReplacement?, val usable: ProtectionRouteTableDefinition?) : Compilation
         data class Rejected(val diagnostic: ProtectionRouteTableDiagnostic) : Compilation
     }
 

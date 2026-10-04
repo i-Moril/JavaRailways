@@ -3,6 +3,7 @@ package work.art1st.javarailways.simplesignals.signal
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simplesignals.block.*
 import work.art1st.javarailways.simplesignals.runtime.*
+import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
 
 /** Disposable route geometry only; these routes are never registered as fixed-block resources. */
 internal class CompiledProtectionSignals private constructor(
@@ -23,29 +24,38 @@ internal class CompiledProtectionSignals private constructor(
     companion object {
         fun compile(topology: TopologyState, revision: Long, routes: ProtectionRouteSelectionIndex,
             blocks: FixedBlockReadSnapshot, fixedSignals: Collection<FixedBlockSignalDefinition>,
-            signals: Collection<ProtectionSignalDefinition>, indicators: Collection<RouteIndicatorDefinition>
+            signals: Collection<ProtectionSignalDefinition>, indicators: Collection<RouteIndicatorDefinition>,
+            authoredTables: Collection<ProtectionRouteTableDefinition> = emptyList()
         ): Pair<CompiledFixedBlockSignals, CompiledProtectionSignals> {
             val byId = signals.associateBy { it.signalId }
             require(byId.size == signals.size) { "protection signal IDs must be unique" }
             require(byId.keys.none { id -> fixedSignals.any { it.signalId == id } }) {
                 "signal identities must be unique across device kinds"
             }
+            val authoredRoutes = authoredTables.flatMap { it.routes }.associateBy { it.routeId }
+            val authoredByEntry = authoredRoutes.values.groupBy { it.entryBoundaryId }
+            val usableByEntry = routes.routesById.values.groupBy { it.definition.entryBoundaryId }
             val routeIdsBySignal = signals.associate { signal ->
                 signal.model?.validatePlacement(topology, signal.signalId)
                 val candidates = when (signal.kind) {
-                    ProtectionSignalKind.FIXED_ROUTE -> listOf(requireNotNull(routes.routesById[signal.bindingId]) {
-                        "signal ${signal.signalId} binds unknown route ${signal.bindingId}"
-                    })
-                    ProtectionSignalKind.CURRENT_ENTRY -> routes.routesById.values.filter {
-                        it.definition.entryBoundaryId == signal.bindingId
-                    }.also { require(it.isNotEmpty()) { "signal ${signal.signalId} binds unknown entry ${signal.bindingId}" } }
+                    ProtectionSignalKind.FIXED_ROUTE -> listOfNotNull(routes.routesById[signal.bindingId]).also {
+                        require(it.isNotEmpty() || signal.bindingId in authoredRoutes) {
+                            "signal ${signal.signalId} binds unknown route ${signal.bindingId}"
+                        }
+                    }
+                    ProtectionSignalKind.CURRENT_ENTRY -> usableByEntry[signal.bindingId].orEmpty()
+                    .also { require(it.isNotEmpty() || signal.bindingId in authoredByEntry) {
+                        "signal ${signal.signalId} binds unknown entry ${signal.bindingId}" } }
                 }
-                require(signal.downstreamSignalsByRouteId.keys.all { id -> candidates.any { it.definition.routeId == id } }) {
+                require(signal.downstreamSignalsByRouteId.keys.all { id -> candidates.any { it.definition.routeId == id } ||
+                    authoredRoutes[id]?.let {
+                        (signal.kind == ProtectionSignalKind.FIXED_ROUTE && signal.bindingId == id ||
+                            signal.kind == ProtectionSignalKind.CURRENT_ENTRY && signal.bindingId == it.entryBoundaryId) } == true }) {
                     "signal ${signal.signalId} has dependencies for an unrelated route"
                 }
                 signal.signalId to candidates.map { it.definition.routeId }.sorted()
             }
-            val geometryCatalog = FixedBlockCatalog()
+            val geometryCatalog = FixedBlockCatalog(allowTurnoutGeometry = true)
             val indicatorEntries = indicators.mapTo(hashSetOf()) { it.entryBoundaryId }
             val observedRouteIds = routeIdsBySignal.values.flatten().toSortedSet().also { ids ->
                 routes.routesById.values.filter { it.definition.entryBoundaryId in indicatorEntries }
@@ -56,17 +66,33 @@ internal class CompiledProtectionSignals private constructor(
                 FixedBlockDefinition(id, revision, route.definition.traversals.map {
                     FixedBlockTraversal(it.railId, it.facing, it.lowerAbMeters, it.upperAbMeters)
                 })
-            })
+            }, blocks.routeTopology.takeIf { it.rails.isNotEmpty() || observedRouteIds.isEmpty() })
             require(geometryResult.status != FixedBlockCatalogStatus.REJECTED) {
                 geometryResult.diagnostics.joinToString { it.detail }
             }
             val geometry = geometryCatalog.snapshot(topology)
-            val signalGeometry = routeIdsBySignal.mapValues { (_, ids) -> geometry.blocksById.getValue(ids.first()) }
-            val compiledFixed = CompiledFixedBlockSignals.compile(fixedSignals, blocks, signalGeometry, false)
+            val signalGeometry = routeIdsBySignal.filterValues { it.isNotEmpty() }
+                .mapValues { (_, ids) -> geometry.blocksById.getValue(ids.first()) }
+            // A retained invalid binding remains a known zero-speed source, including its upstream consumers.
+            // Never erase a dependency and reinterpret its consumer as a permissive terminal signal.
+            val dependencies = fixedSignals.associate { it.signalId to it.downstreamSignals.map { dependency -> dependency.signalId } } +
+                signals.associate { it.signalId to (it.downstreamSignals + it.downstreamSignalsByRouteId.values.flatten()).map { dependency -> dependency.signalId } }
+            OneWayInvalidationGraph.compile(dependencies.keys, dependencies.flatMap { (consumer, providers) ->
+                providers.distinct().filter { it in dependencies }.map { InvalidationDependency(it, consumer) }
+            })
+            val unavailable = routeIdsBySignal.filterValues { it.isEmpty() }.keys.toMutableSet()
+            val consumers = dependencies.flatMap { (id, providers) -> providers.map { it to id } }.groupBy({ it.first }, { it.second })
+            val pending = java.util.ArrayDeque<String>()
+            pending.addAll(unavailable)
+            dependencies.forEach { (id, providers) -> if (providers.any { it !in dependencies } && unavailable.add(id)) pending += id }
+            while (pending.isNotEmpty()) consumers[pending.removeFirst()].orEmpty().forEach { id ->
+                if (unavailable.add(id)) pending += id
+            }
+            val compiledFixed = CompiledFixedBlockSignals.compile(fixedSignals, blocks, signalGeometry, false, unavailable)
             val allGeometry = signalGeometry + fixedSignals.associate {
                 it.signalId to blocks.blocksById.getValue(it.controlledBlockId)
             }
-            val bindings = signals.map { signal ->
+            val bindings = signals.filter { it.signalId !in unavailable }.map { signal ->
                 val candidateIds = routeIdsBySignal.getValue(signal.signalId)
                 val prepared = candidateIds.associate { id ->
                     SectionRef(SectionKind.PROTECTION_ROUTE, id) to routes.routesById.getValue(id)
@@ -102,21 +128,29 @@ internal class CompiledProtectionSignals private constructor(
                 }
             }
             val indicatorById = indicators.associateBy { it.indicatorId }
-            require(indicatorById.size == indicators.size && indicatorById.keys.none { it in allGeometry }) {
+            require(indicatorById.size == indicators.size && indicatorById.keys.none { it in dependencies }) {
                 "device identities must be unique"
             }
             indicators.forEach { indicator ->
                 indicator.model?.validatePlacement(topology, indicator.indicatorId)
-                val entryRoutes = routes.routesById.values.filter { it.definition.entryBoundaryId == indicator.entryBoundaryId }
-                require(entryRoutes.isNotEmpty()) { "indicator ${indicator.indicatorId} binds unknown entry" }
-                require(indicator.modelVariantsByRouteId.keys == entryRoutes.map { it.definition.routeId }.toSet()) {
+                val entryRoutes = usableByEntry[indicator.entryBoundaryId].orEmpty()
+                val authoredEntry = authoredByEntry[indicator.entryBoundaryId].orEmpty()
+                require(entryRoutes.isNotEmpty() || authoredEntry.isNotEmpty()) { "indicator ${indicator.indicatorId} binds unknown entry" }
+                require(indicator.modelVariantsByRouteId.keys == (if (authoredEntry.isNotEmpty()) authoredEntry.map { it.routeId }
+                    else entryRoutes.map { it.definition.routeId }).toSet()) {
                     "indicator ${indicator.indicatorId} must configure exactly its entry routes"
                 }
             }
             val allBindings = compiledFixed.bindings + bindings
             val sections = blocks.blocksById.keys.map { SectionRef(SectionKind.FIXED_BLOCK, it) } +
                 routes.routesById.keys.map { SectionRef(SectionKind.PROTECTION_ROUTE, it) }
-            val runtime = allBindings.takeIf { it.isNotEmpty() }?.let { SectionSignalRuleRuntime.compile(sections, it) }
+            val unavailableDeclarations = unavailable.associateWith { id ->
+                fixedSignals.firstOrNull { it.signalId == id }?.let { fixedBlockSignalDeclarationId(it.controlledBlockId) }
+                    ?: protectionSignalDeclarationId(id)
+            }
+            val runtime = if (allBindings.isEmpty() && unavailable.isEmpty()) null else
+                SectionSignalRuleRuntime.compile(sections, allBindings, unavailableDeclarations,
+                    fixedSignals.filter { it.signalId in unavailable }.associate { SectionRef(SectionKind.FIXED_BLOCK, it.controlledBlockId) to it.signalId })
             return compiledFixed to CompiledProtectionSignals(geometry, routes, java.util.Map.copyOf(byId),
                 java.util.Map.copyOf(indicatorById), java.util.Map.copyOf(routeIdsBySignal),
                 java.util.List.copyOf(bindings), runtime)

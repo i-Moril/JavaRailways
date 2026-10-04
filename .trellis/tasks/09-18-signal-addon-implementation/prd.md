@@ -116,8 +116,9 @@ style-editing UI and track overlays to the next batch. The backend primary/attac
 is complete offline. Bidirectional single-track single-block control is also implemented and verified offline,
 with two true entrances sharing one block token and one primary signal result; see the
 [bidirectional block contract](../../spec/simple-signals/backend/bidirectional-fixed-block.md).
-尚未决定的交互不阻塞已经确认的独立批次。用户已批准先实施独立道岔 Wand 并提交；
-本批边界和测试见 [道岔工具实施说明](research/turnout-wand-batch.md)。其他工具分批推进。
+尚未决定的交互不阻塞已经确认的独立批次。独立道岔 Wand 已提交；用户现已批准先实施
+闭塞与保护区域 Wand 的确定部分，见[本批边界和测试](research/section-wands-batch.md)。
+进路录制、信号机放置、测距和规则预设暂不包含在本批。
 
 下列操作由用户确认。
 它们取代上一轮名称输入、确认页面、单独连接模式以及创建闭塞时同时放置信号机的建议。
@@ -221,22 +222,22 @@ scope intentionally shares one result. These extension boundaries are recorded i
 - [ ] `SimpleATOBukkit` is a separate Gradle source/test module embedded in the JavaRailways main plugin JAR, has no independent Bukkit descriptor/lifecycle, and does not become the owner of any concrete signalling system.
 - [ ] Signal presentation is applied through target-aware latest-only dispatch: an unchanged or superseded model revision creates no replay backlog and cannot delay logical signal evaluation.
 - [x] Placement tests prove directed rail offsets, model/player tilt selection, in-place rotation and ground placement without a rail lookup. Existing instance parameters survive preset changes, with explicit reapplication adopting the new values; calculation creates no entities or signalling side effects.
-- [ ] 闭塞创建无名称输入、方向输入或确认页；成功后方向和两端朝向逐段自动推导，失败保留有效旧定义。
-- [ ] 闭塞路径经过道岔时拒绝，无论直向、侧向或运行方向；Wand 与定义导入使用同一约束，失败不截短区间或修改原定义。
-- [ ] 左键现有分界点可接续创建，选取两个相连分界点直接尝试生成区间，无单独连接模式。
+- [x] 闭塞创建无名称输入、方向输入或确认页；成功后方向和两端朝向逐段自动推导，失败保留有效旧定义。
+- [x] 闭塞路径经过道岔时拒绝，无论直向、侧向或运行方向；Wand 与定义导入使用同一约束，失败不截短区间或修改原定义。
+- [x] 左键现有分界点可接续创建，选取两个相连分界点直接尝试生成区间，无单独连接模式。
 - [ ] 分界点地面子模型可配置；独立信号Wand先绑定闭塞再放置，显示绑定状态且不重复创建逻辑区间。
 - [ ] 信号Wand按设备类型绑定入口、已录制进路或主信号机，统一右键放置，无须手填ID；附属设备仍复用主信号输出。
 - [x] 主插件提供独立道岔 Wand，玩家可切换未被占用锁定的道岔，复用现有手动选择接口并显示拒绝原因；成功操作不产生行车授权。
   已通过离线工具/命令及真实 Core/宿主服务组合测试，完整 Folia 交互仍待验证。
 - [ ] 录制前能看到真实连通路径、行进方向及出口；未连通时标出实际到达位置和原因。道岔切换更新预览，保存进路不随后续切换改变。
-- [ ] 删除模式支持删分界点及其相邻区间、只删区间，并清理不再使用的分界点；重合位置先删闭塞分界点，保护区域边界和区域保持不变。
-- [ ] 删除闭塞同时移除其逻辑信号和所有附属信号设备，不留下未绑定模型或损坏引用；无关区间和保护区域的设备保持不变。
-- [ ] 删除保护区域边界造成缺口时，保留区域身份、其余边界、进路表及设备，标记不可用；补齐后重新校验，恢复有效内容，失效进路或绑定保留待修改。
-- [ ] 保护区域边界和闭塞分界点可互相吸附；允许边界接触，但拒绝内部重叠、错误轨道吸附和受运营保护的修改。
-- [ ] 保护区域边界创建时记录指向内部的方向，无须额外选择内部位置；该交互不改变普通闭塞自动推导方向的规则。
-- [ ] 每次放置有向边界都自动尝试补全区域，无“完成”操作或预先选择旧区域的要求；补全旧区域保留身份和配置。识别在编辑时异步进行，未完成的边界不产生错误区域。
-- [ ] 未标记的轨道尽头不能完成区域；最大范围可配置，搜索超限及时停止并提示，不生成被截断的区域。
-- [ ] 最大范围按起始边界到最远位置的沿轨道距离检查；分支共享的前段计入各自距离，各支路长度不相加，弯曲线路不使用直线距离代替。
+- [x] 删除模式支持删分界点及其相邻区间、只删区间，并清理不再使用的分界点；重合位置先删闭塞分界点，保护区域边界和区域保持不变。
+- [x] 删除闭塞同时移除其逻辑信号和所有附属信号设备，不留下未绑定模型；无关区间和保护区域的设备配置保持不变。依赖被删信号的设备明确不可用，修复引用后恢复。
+- [x] 删除保护区域边界造成缺口时，保留区域身份、其余边界、进路表及设备，标记不可用；补齐后重新校验，恢复有效内容，失效进路或绑定保留待修改。
+- [x] 保护区域边界和闭塞分界点可互相吸附；允许边界接触，但拒绝内部重叠、错误轨道吸附和受运营保护的修改。
+- [x] 保护区域边界创建时记录指向内部的方向，无须额外选择内部位置；该交互不改变普通闭塞自动推导方向的规则。
+- [x] 每次放置有向边界都自动尝试补全区域，无“完成”操作或预先选择旧区域的要求；补全旧区域保留身份和配置。识别在编辑时异步进行，未完成的边界不产生错误区域。
+- [x] 未标记的轨道尽头不能完成区域；最大范围可配置，搜索超限及时停止并提示，不生成被截断的区域。
+- [x] 最大范围按起始边界到最远位置的沿轨道距离检查；分支共享的前段计入各自距离，各支路长度不相加，弯曲线路不使用直线距离代替。
 - [x] Additional signal machines and repeaters reference their primary signal and reuse its output without duplicating signal evaluation, creating another block resource, or adding a control boundary at every display position.
 - [x] Attached devices round-trip in the existing sidecar and admin workflow, reject invalid/orphan references atomically, update only related models, and retain unaffected handles through edits and unload cleanup; verified offline, not on a live Folia/client.
 - [x] A bidirectional single block matches the same physical path from both ends, produces actual entrance checks,
@@ -251,6 +252,7 @@ scope intentionally shares one result. These extension boundaries are recorded i
   block, and a bidirectional block requires all its rails to permit both directions. Mixed canonical
   AB/BA paths with matching per-rail policy remain valid.
 - [ ] 运营方向失配与结构失效统一禁止 ATO 驶入，保留区间和设备配置；不允许以低速或空资源贡献继续通行。
+  已完成方向失配及直接边界编辑缺口的禁行；任意轨道结构编辑后的自动局部失效/修复仍待完成。
   删除 `disabled-block-speed-kmh` 及失配专用的低速逻辑，覆盖正反向、多轨道和无模型/无信号规则的闭塞。
   已有资源仍按原生命周期保留和释放，手动驾驶行为不变；修复并校验通过后恢复可用。
 - [ ] The separate rail measurement tool reports straight-line and along-track distances for the selected positions/path without modifying infrastructure or acquiring train resources.

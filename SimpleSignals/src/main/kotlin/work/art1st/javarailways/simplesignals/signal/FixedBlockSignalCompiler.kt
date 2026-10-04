@@ -38,7 +38,8 @@ internal class CompiledFixedBlockSignals private constructor(
             definitions: Collection<FixedBlockSignalDefinition>,
             fixedBlocks: FixedBlockReadSnapshot,
             externalSignalGeometry: Map<String, CompiledFixedBlock> = emptyMap(),
-            compileRuntime: Boolean = true
+            compileRuntime: Boolean = true,
+            unavailableSignalIds: Set<String> = emptySet()
         ): CompiledFixedBlockSignals {
             val copiedDefinitions = java.util.List.copyOf(definitions.sortedBy { it.signalId })
             val blocksById = fixedBlocks.blocksById
@@ -50,7 +51,11 @@ internal class CompiledFixedBlockSignals private constructor(
                 }
             }
             val definitionsBySignal = copiedDefinitions.associateBy(FixedBlockSignalDefinition::signalId)
-            val bindings = copiedDefinitions.map { definition ->
+            require(definitionsBySignal.size == copiedDefinitions.size) { "fixed-block signal IDs must be unique" }
+            require(copiedDefinitions.map { it.controlledBlockId }.distinct().size == copiedDefinitions.size) {
+                "one block may only have one signal"
+            }
+            val bindings = copiedDefinitions.filter { it.signalId !in unavailableSignalIds }.map { definition ->
                 val sourceBlock = blocksById.getValue(definition.controlledBlockId)
                 SectionSignalRuleBinding(
                     definition.signalId,

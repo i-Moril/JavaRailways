@@ -17,6 +17,7 @@ internal const val FIXED_BLOCK_RESOURCE_TYPE = "simplesignals:fixed-block"
 internal class FixedBlockRouteResourcePolicy(
     private val plugin: Plugin,
     private val directionPolicyForWorld: (UUID) -> FixedBlockDirectionPolicy = { FixedBlockDirectionPolicy() },
+    private val validateRouteAdmission: (UUID, RouteResourceIntent) -> Unit = { _, _ -> },
     private val snapshotForWorld: (UUID) -> FixedBlockReadSnapshot?
 ) : InfrastructureResourceProvider, RouteResourceContributor {
     override fun exists(worldId: UUID, resourceId: String): Boolean =
@@ -41,6 +42,7 @@ internal class FixedBlockRouteResourcePolicy(
         require(intent.observationStamp.worldId == worldId.toString()) {
             "route intent belongs to world ${intent.observationStamp.worldId}, expected $worldId"
         }
+        validateRouteAdmission(worldId, intent)
         val snapshot = checkNotNull(snapshotForWorld(worldId)) {
             "SimpleSignals fixed-block runtime is unavailable for world $worldId"
         }

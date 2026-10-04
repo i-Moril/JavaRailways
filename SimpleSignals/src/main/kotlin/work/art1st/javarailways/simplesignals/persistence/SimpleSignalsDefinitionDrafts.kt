@@ -74,7 +74,7 @@ internal fun definitionDraftPatch(
     return SimpleSignalsDefinitionPatch(regions.first, regions.second, tables.first, tables.second,
         blocks.first, blocks.second, fixedSignals.first, fixedSignals.second,
         protectionSignals.first, protectionSignals.second, indicators.first, indicators.second,
-        attached.first, attached.second)
+        attached.first, attached.second, draft.pendingProtectionBoundaries.takeIf { it != current.pendingProtectionBoundaries })
 }
 
 internal fun definitionDraftSummary(current: SimpleSignalsWorldDefinitions, draft: SimpleSignalsWorldDefinitions): String {
@@ -86,6 +86,7 @@ internal fun definitionDraftSummary(current: SimpleSignalsWorldDefinitions, draf
         value.protectionSignals.forEach { put("protection-signal/${it.signalId}", it) }
         value.routeIndicators.forEach { put("indicator/${it.indicatorId}", it) }
         value.attachedSignals.forEach { put("attached-signal/${it.signalId}", it) }
+        value.pendingProtectionBoundaries.forEach { put("pending-boundary/${it.boundaryId}", it) }
     }
     val old = ids(current)
     val next = ids(draft)

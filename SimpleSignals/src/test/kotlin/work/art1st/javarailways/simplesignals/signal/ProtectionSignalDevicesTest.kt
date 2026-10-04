@@ -44,6 +44,44 @@ class ProtectionSignalDevicesTest {
     private val indicators = listOf(indicator("test:near", 2.0), indicator("test:distant", 0.0))
 
     @Test
+    fun `repair revalidates each retained route and leaves invalid devices unavailable across codec reload`() {
+        val branchSignal = signal("test:branch-b", ProtectionSignalKind.FIXED_ROUTE, routeB.routeId)
+        val initial = definitions(listOf(fixed, current, branchSignal))
+        val world = signalWorldRuntime(worldId)
+        assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, world.initializeDefinitions(topology, initial).status)
+        fun install(revision: Long, nextRegion: ProtectionRegionDefinition) {
+            val value = SimpleSignalsWorldDefinitions(worldId, revision, listOf(nextRegion), initial.routeTables,
+                protectionSignals = initial.protectionSignals, routeIndicators = initial.routeIndicators)
+            val prepared = world.prepareDefinitions(topology, value) as SimpleSignalsDefinitionPreparationResult.Prepared
+            world.commitPrepared(prepared.value)
+        }
+        install(2, ProtectionRegionDefinition(region.regionId, 2, region.boundaries,
+            region.boundaries.filter { it.boundaryId != "test:second-exit" }))
+        assertTrue(world.authoringPublication().routeSelection.routesById.isEmpty())
+        val repairedCuts = region.boundaries.map { if (it.boundaryId == "test:second-exit")
+            boundary(it.boundaryId, second, 6.0, ViewDirection.BA) else it }
+        install(3, ProtectionRegionDefinition(region.regionId, 3, repairedCuts))
+        assertEquals(setOf(routeA.routeId), world.authoringPublication().routeSelection.routesById.keys)
+        assertEquals(initial.routeTables, world.currentDefinitions().routeTables)
+        assertEquals(initial.protectionSignals.sortedBy { it.signalId }, world.currentDefinitions().protectionSignals)
+        val decoded = SimpleSignalsWorldDefinitionsCodec.decode(SimpleSignalsWorldDefinitionsCodec.encode(world.currentDefinitions()), worldId)
+        val reloaded = signalWorldRuntime(worldId)
+        assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, reloaded.initializeDefinitions(topology, decoded).status)
+        val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
+            TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
+        })
+        epoch.replaceSources(reloaded.initializeSectionOccupancy().sources)
+        epoch.process(frame(1, first))
+        assertEquals(30.0, speed(reloaded, fixed.signalId))
+        assertEquals(30.0, speed(reloaded, current.signalId))
+        assertInstanceOf(SectionSignalState.Unavailable::class.java, reloaded.sectionSignalSnapshot()!!.states.getValue(branchSignal.signalId))
+        assertTrue(reloaded.protectionRegionInspectionSource.routeInfrastructureDependencies.dependencies(mission(first)).isEmpty())
+        assertThrows(IllegalStateException::class.java) {
+            reloaded.protectionRegionInspectionSource.routeInfrastructureDependencies.dependencies(mission(second))
+        }
+    }
+
+    @Test
     fun `shared-prefix routes compile and fixed binding remains independent during requested selection`() {
         val f = runtime()
         f.epoch.process(frame(1, first))

@@ -58,6 +58,9 @@ internal object SimpleSignalsDefinitionEditImpact {
             }
         }
         val result = linkedSetOf<UUID>()
+        val changedPending = changed(old.pendingProtectionBoundaries, next.pendingProtectionBoundaries) { it.boundaryId }
+        (old.pendingProtectionBoundaries + next.pendingProtectionBoundaries).filter { it.boundaryId in changedPending }
+            .mapTo(result) { it.position.railId }
         listOfNotNull(previous, candidate).forEach { publication ->
             collect(publication, regions, tables, blocks, signals, indicators, attached, result)
         }
@@ -107,10 +110,20 @@ internal object SimpleSignalsDefinitionEditImpact {
             if (successors.any { it.definition.blockId in changedBlocks }) regions += region.regionId
             if (region.regionId in regions) {
                 region.boundaries.mapTo(rails) { it.position.railId }
+                region.effectiveBoundaries.mapTo(rails) { it.position.railId }
                 regionSnapshot.regionsById.getValue(region.regionId).interior.mapTo(rails) { it.railId }
                 successors.forEach { block -> block.traversals.mapTo(rails) { it.railId } }
             }
         }
+        // Unusable authored routes are still edit-protected configuration, even without a live rule binding.
+        val authoredRoutes = definitions.routeTables.flatMap { it.routes }.associateBy { it.routeId }
+        val authoredByEntry = authoredRoutes.values.groupBy { it.entryBoundaryId }
+        val changedRouteIds = definitions.routeTables.filter { it.regionId in regions }.flatMap { it.routes }
+            .mapTo(hashSetOf()) { it.routeId }
+        definitions.routeTables.filter { it.regionId in regions }.forEach { table -> table.routes.forEach { route ->
+            route.traversals.mapTo(rails) { it.railId }
+            entries += route.entryBoundaryId
+        } }
         publication.routeSelection.routesById.values.filter { it.regionId in regions }.forEach { route ->
             route.definition.traversals.mapTo(rails) { it.railId }
             sections += SectionRef(SectionKind.PROTECTION_ROUTE, route.definition.routeId)
@@ -138,14 +151,41 @@ internal object SimpleSignalsDefinitionEditImpact {
 
         // Display edits protect their primary's controlled territory without seeding rule consumers.
         // Conversely, a changed logical signal also protects every display consuming its output.
-        val affectedSignalIds = affectedBindings.mapTo(hashSetOf()) { it.signalId }
+        val affectedSignalIds = affectedBindings.mapTo(hashSetOf()) { it.signalId }.also { it += changedSignals }
+        definitions.protectionSignals.filter { signal ->
+            signal.bindingId in entries || signal.bindingId in changedRouteIds
+        }.mapTo(affectedSignalIds) { it.signalId }
+        val authoredDependencies = definitions.fixedBlockSignals.associate { it.signalId to it.downstreamSignals } +
+            definitions.protectionSignals.associate { it.signalId to (it.downstreamSignals + it.downstreamSignalsByRouteId.values.flatten()) }
+        val consumers = authoredDependencies.flatMap { (consumer, providers) -> providers.map { it.signalId to consumer } }
+            .groupBy({ it.first }, { it.second })
+        val pending = java.util.ArrayDeque(affectedSignalIds)
+        while (pending.isNotEmpty()) consumers[pending.removeFirst()].orEmpty().forEach {
+            if (affectedSignalIds.add(it)) pending += it
+        }
+        val fixedById = definitions.fixedBlockSignals.associateBy { it.signalId }
+        val protectionById = definitions.protectionSignals.associateBy { it.signalId }
+        val blocksById = definitions.fixedBlocks.associateBy { it.blockId }
+        fun collectAuthoredSignal(id: String) {
+            (modelsBySignal[id]?.placement as? ModelPlacement.RailAttached)?.let { rails += it.position.railId }
+            fixedById[id]?.let { signal ->
+                blocksById[signal.controlledBlockId]?.traversals?.mapTo(rails) { it.railId }
+            }
+            protectionById[id]?.let { signal ->
+                (listOfNotNull(authoredRoutes[signal.bindingId]) + authoredByEntry[signal.bindingId].orEmpty())
+                    .forEach { it.traversals.mapTo(rails) { traversal -> traversal.railId } }
+            }
+        }
+        affectedSignalIds.forEach(::collectAuthoredSignal)
         val bindingsBySignal = (publication.fixedBlockSignals.bindings + publication.protectionSignals.bindings)
             .associateBy { it.signalId }
         definitions.attachedSignals.forEach { attached ->
             if (attached.signalId in changedAttached || attached.primarySignalId in affectedSignalIds) {
                 (attached.model.placement as? ModelPlacement.RailAttached)?.let { rails += it.position.railId }
-                if (attached.signalId in changedAttached)
-                    collectSections(bindingsBySignal.getValue(attached.primarySignalId).observedSections)
+                if (attached.signalId in changedAttached) {
+                    bindingsBySignal[attached.primarySignalId]?.let { collectSections(it.observedSections) }
+                    collectAuthoredSignal(attached.primarySignalId)
+                }
             }
         }
 
@@ -158,6 +198,8 @@ internal object SimpleSignalsDefinitionEditImpact {
                     ?.let { rails += it.position.railId }
                 routesByEntry[indicator.entryBoundaryId].orEmpty()
                     .forEach { it.definition.traversals.mapTo(rails) { traversal -> traversal.railId } }
+                authoredByEntry[indicator.entryBoundaryId].orEmpty()
+                    .forEach { it.traversals.mapTo(rails) { traversal -> traversal.railId } }
             }
     }
 }

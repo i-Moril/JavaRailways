@@ -1,7 +1,8 @@
-{"file":".trellis/spec/bukkit-plugin/backend/index.md","reason":"Verify: Owner and quality gates for the new independent turnout Wand"}
-{"file":".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md","reason":"Verify: Reuse AbstractWand, Cloud routing, locales and strict per-item state; no new compatibility"}
-{"file":".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md","reason":"Verify: Player ownership and simulation serialization; no per-tick world scans"}
-{"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"Verify: Use existing guarded manual turnout service, no duplicate locks or grant model"}
-{"file":".trellis/spec/bukkit-plugin/backend/turnout-wand.md","reason":"Verify: New tool UX and documented safety, threading, transient state and performance match actual implementation"}
-{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Verify: New tool state does not justify world format changes or legacy paths"}
-{"file":".trellis/tasks/09-18-signal-addon-implementation/research/turnout-wand-batch.md","reason":"Verify: Current bounded approved batch; other Stage2 target requirements are not this implementation"}
+{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Verify SimpleSignals ownership and local safety publication"}
+{"file":".trellis/spec/simple-signals/backend/authoring-commands.md","reason":"Verify shared transaction, worker threading and runtime identity guards"}
+{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Verify affected edits remain local and protected"}
+{"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Verify direction consistency and replacement of low-speed fallback"}
+{"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"Review unnecessary new mechanisms"}
+{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"No speculative compatibility paths"}
+{"file":".trellis/tasks/09-18-signal-addon-implementation/research/section-wands-batch.md","reason":"Agreed Wand acceptance scope"}
+{"file":".trellis/spec/simple-signals/backend/section-authoring-wands.md","reason":"Verify actual tool gestures, local unavailable-state handling, geometry and lifecycle evidence"}

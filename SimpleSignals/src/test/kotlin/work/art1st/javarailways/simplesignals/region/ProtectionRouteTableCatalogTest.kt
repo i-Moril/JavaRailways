@@ -21,6 +21,26 @@ import java.util.UUID
 
 class ProtectionRouteTableCatalogTest {
     @Test
+    fun `incomplete region does not allow a table to target a future region revision`() {
+        val fixture = fixture()
+        val draft = ProtectionRegionDefinition(fixture.region.regionId, 2,
+            fixture.region.boundaries, emptyList())
+        assertEquals(ProtectionRegionCatalogStatus.PUBLISHED,
+            fixture.regions.publish(fixture.topology, 2, listOf(draft)).status)
+        val tables = ProtectionRouteTableCatalog(fixture.regions)
+        val retainedTable = fixture.table(1, listOf(fixture.upperRoute()))
+        val invalidTable = ProtectionRouteTableDefinition(retainedTable.tableId, 1,
+            retainedTable.regionId, 3, retainedTable.routes)
+        val rejected = tables.publish(2, listOf(invalidTable))
+        assertEquals(ProtectionRouteTableCatalogStatus.REJECTED, rejected.status)
+        assertEquals(ProtectionRouteTableValidationCode.STALE_REGION_REVISION, rejected.diagnostics.single().code)
+        assertEquals(ProtectionRouteTableCatalogStatus.PUBLISHED, tables.publish(2, listOf(retainedTable)).status)
+        assertTrue(tables.usableDefinitions().isEmpty())
+        assertEquals(setOf(draft.regionId), tables.unavailableRegionIds())
+        assertTrue(tables.restrictionSource.restrictions(fixture.topology).forbiddenTraversals.isNotEmpty())
+    }
+
+    @Test
     fun `one permitted complete path replaces every free path through the region`() {
         val fixture = fixture()
         val tables = publishedTables(fixture, listOf(fixture.upperRoute()))

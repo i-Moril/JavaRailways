@@ -52,13 +52,7 @@ internal class FixedBlockInspectionSource(
                         inspectionLeadTimeSeconds = inspectionLeadTimeSeconds(captured, window.blockId),
                         minimumRequestedAuthorityEndRouteDistanceMeters = window.exitRouteDistanceMeters
                     )
-                } + protectionDeclarations(captured, input.route),
-                speedRanges = windows.filter { it.blockId in disabled }.mapIndexed { index, window ->
-                    val id = fixedBlockSignalDeclarationId(window.blockId)
-                    work.art1st.javarailways.simpleato.api.inspection.InspectionSpeedRange(id,
-                        RouteSpeedRestriction("simplesignals:fixed-block-range/${window.blockId.replace(':', '/')}/$index", window.entryRouteDistanceMeters,
-                            directionPolicy.disabledSpeedMetersPerSecond, window.exitRouteDistanceMeters))
-                }
+                } + protectionDeclarations(captured, input.route)
             )
         },
         routeInfrastructureDependencies = { route ->
@@ -105,15 +99,6 @@ internal class FixedBlockInspectionSource(
                     maximumSpeedMetersPerSecond =
                         published?.state?.effectiveSpeedLimitMetersPerSecond ?: 0.0
                 )
-            } + input.speedRanges.map { range ->
-                val published = signalState(blockIdFromSignalDeclaration(range.declarationId))
-                val known = published != null && published.stamp.worldId == input.observationStamp.worldId &&
-                    published.stamp.topologyRevision == input.observationStamp.topologyRevision &&
-                    published.stamp.physicsEpoch <= input.observationStamp.physicsEpoch &&
-                    published.state is work.art1st.javarailways.simplesignals.runtime.SectionSignalState.Degraded
-                range.restriction.copy(maximumSpeedMetersPerSecond = if (known)
-                    minOf(range.restriction.maximumSpeedMetersPerSecond, published.state.effectiveSpeedLimitMetersPerSecond)
-                    else 0.0)
             }
             listOf(
                 TrainRestrictionSnapshot(

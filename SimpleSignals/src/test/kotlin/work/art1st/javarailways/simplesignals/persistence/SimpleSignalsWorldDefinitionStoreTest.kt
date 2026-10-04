@@ -62,11 +62,30 @@ class SimpleSignalsWorldDefinitionStoreTest {
         assertEquals(emptyList<String>(), roundTrip.routeTables.single().defaultRouteIds)
         assertEquals(emptyList<FixedBlockDefinition>(), roundTrip.fixedBlocks)
         assertEquals(emptyList<FixedBlockSignalDefinition>(), roundTrip.fixedBlockSignals)
+        assertTrue(roundTrip.pendingProtectionBoundaries.isEmpty())
+        assertEquals(null, roundTrip.regions.single().boundaryDraft)
         assertTrue(encoded.contains("\"fixedBlocks\": []"))
         assertTrue(encoded.contains("\"fixedBlockSignals\": []"))
         assertTrue(encoded.contains("\"defaultRouteIds\": []"))
         assertFalse(encoded.contains("interior"))
         assertFalse(encoded.contains("topologyRevision"))
+    }
+
+    @Test
+    fun `current codec preserves pending markers and empty boundary draft separately from accepted cuts`() {
+        val current = SimpleSignalsWorldDefinitionsCodec.decode(CURRENT_FIXTURE, WORLD_ID)
+        val region = current.regions.single()
+        val draft = work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition(
+            region.regionId, region.revision + 1, region.boundaries, emptyList())
+        val value = SimpleSignalsWorldDefinitions(WORLD_ID, 10, listOf(draft), current.routeTables,
+            pendingProtectionBoundaries = listOf(region.boundaries.first().copy(boundaryId = "test:pending")))
+        val text = SimpleSignalsWorldDefinitionsCodec.encode(value)
+        assertEquals(value, SimpleSignalsWorldDefinitionsCodec.decode(text, WORLD_ID))
+        assertTrue(text.contains("\"schemaVersion\": 1"))
+        assertTrue(text.contains("\"boundaryDraft\": []"))
+        assertFalse(text.contains("interior"))
+        assertTrue(value.regions.single().effectiveBoundaries.isEmpty())
+        assertEquals(region.boundaries, value.regions.single().boundaries)
     }
 
     @Test

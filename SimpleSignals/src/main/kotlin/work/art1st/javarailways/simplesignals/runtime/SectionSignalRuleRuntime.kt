@@ -37,10 +37,6 @@ internal sealed interface SectionSignalState {
             get() = 0.0
     }
 
-    /** A proven operating-direction mismatch, with a usable cap and no invented aspect. */
-    data class Degraded(override val effectiveSpeedLimitMetersPerSecond: Double) : SectionSignalState {
-        init { require(effectiveSpeedLimitMetersPerSecond.isFinite() && effectiveSpeedLimitMetersPerSecond > 0.0) }
-    }
 }
 
 /** One already-published downstream signal output at a compiled distance. */
@@ -197,7 +193,8 @@ internal data class PublishedSectionSignal(
 internal class SectionSignalRuleRuntime private constructor(
     private val bindingsBySignal: Map<String, SectionSignalRuleBinding>,
     private val signalIdBySection: Map<SectionRef, String>,
-    private val graph: OneWayInvalidationGraph<RuleNode>
+    private val graph: OneWayInvalidationGraph<RuleNode>,
+    private val unavailableDeclarations: Map<String, String>
 ) {
     private val knownEntries = bindingsBySignal.values.mapNotNull { it.entryBoundaryId }.toSet()
     val watchedContinuationEntries: Set<RailEndpointRef> = java.util.Collections.unmodifiableSet(
@@ -225,7 +222,7 @@ internal class SectionSignalRuleRuntime private constructor(
 
     fun invalidatedDeclarationIds(snapshot: SectionSignalSnapshot): Set<String> =
         snapshot.changedSignalIds.mapTo(sortedSetOf()) { signalId ->
-            bindingsBySignal.getValue(signalId).declarationId
+            bindingsBySignal[signalId]?.declarationId ?: unavailableDeclarations.getValue(signalId)
         }
 
     fun evaluate(
@@ -240,6 +237,10 @@ internal class SectionSignalRuleRuntime private constructor(
         val candidateStates = previous?.states?.toMutableMap() ?: linkedMapOf()
         val resolvedSections = previous?.resolvedSectionsBySignal?.toMutableMap() ?: linkedMapOf()
         val changedOutputs = linkedSetOf<String>()
+        if (previous == null) unavailableDeclarations.keys.forEach { id ->
+            candidateStates[id] = SectionSignalState.Unavailable("authored signal binding or dependency is unavailable")
+            changedOutputs += id
+        }
         val changedProviders = buildList {
             occupancy.changedSections.mapTo(this, RuleNode::section)
             changedContinuationEntries.filter { it in watchedContinuationEntries }.mapTo(this, RuleNode::continuation)
@@ -322,7 +323,7 @@ internal class SectionSignalRuleRuntime private constructor(
             changed
         }
 
-        require(candidateStates.size == bindingsBySignal.size) {
+        require(candidateStates.size == bindingsBySignal.size + unavailableDeclarations.size) {
             "first signal rule update must establish every configured signal state"
         }
         return SectionSignalSnapshot(occupancy.stamp, candidateStates, changedOutputs, resolvedSections)
@@ -357,17 +358,22 @@ internal class SectionSignalRuleRuntime private constructor(
     companion object {
         fun compile(
             sections: Collection<SectionRef>,
-            bindings: Collection<SectionSignalRuleBinding>
+            bindings: Collection<SectionSignalRuleBinding>,
+            unavailableDeclarations: Map<String, String> = emptyMap(),
+            unavailableSectionSignals: Map<SectionRef, String> = emptyMap()
         ): SectionSignalRuleRuntime {
             require(sections.toSet().size == sections.size) { "compiled sections must be unique" }
             val sectionsSet = sections.toSet()
             val bindingsBySignal = bindings.associateBy(SectionSignalRuleBinding::signalId)
             require(bindingsBySignal.size == bindings.size) { "signal rule IDs must be unique" }
+            require(bindingsBySignal.keys.none { it in unavailableDeclarations }) { "signal cannot be both usable and unavailable" }
             val sectionBindings = bindings.filter { it.preparedRoutesBySection.isEmpty() }
             val signalIdBySection = sectionBindings.associate { it.controlledSection to it.signalId }
             require(signalIdBySection.size == sectionBindings.size) {
                 "one section may be controlled by only one signal rule binding"
             }
+            require(unavailableSectionSignals.all { (section, signal) -> section in sectionsSet &&
+                signal in unavailableDeclarations && section !in signalIdBySection }) { "invalid unavailable section binding" }
             bindings.forEach { binding ->
                 require(binding.observedSections.all { it in sectionsSet }) {
                     "signal ${binding.signalId} controls an unknown section ${binding.controlledSection}"
@@ -421,8 +427,9 @@ internal class SectionSignalRuleRuntime private constructor(
             }
             return SectionSignalRuleRuntime(
                 java.util.Collections.unmodifiableMap(bindingsBySignal.toSortedMap()),
-                java.util.Collections.unmodifiableMap(signalIdBySection.toSortedMap()),
-                OneWayInvalidationGraph.compile(nodes, dependencies)
+                java.util.Collections.unmodifiableMap((signalIdBySection + unavailableSectionSignals).toSortedMap()),
+                OneWayInvalidationGraph.compile(nodes, dependencies),
+                java.util.Map.copyOf(unavailableDeclarations)
             )
         }
     }

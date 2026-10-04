@@ -82,7 +82,8 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
     val upsertRouteIndicators: List<RouteIndicatorDefinition>,
     val removeRouteIndicatorIds: List<String>,
     val upsertAttachedSignals: List<AttachedSignalDefinition>,
-    val removeAttachedSignalIds: List<String>
+    val removeAttachedSignalIds: List<String>,
+    val pendingProtectionBoundaries: List<work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition>?
 ) {
     constructor(
         upsertRegions: Collection<ProtectionRegionDefinition> = emptyList(),
@@ -98,7 +99,8 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
         upsertRouteIndicators: Collection<RouteIndicatorDefinition> = emptyList(),
         removeRouteIndicatorIds: Collection<String> = emptyList(),
         upsertAttachedSignals: Collection<AttachedSignalDefinition> = emptyList(),
-        removeAttachedSignalIds: Collection<String> = emptyList()
+        removeAttachedSignalIds: Collection<String> = emptyList(),
+        pendingProtectionBoundaries: Collection<work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition>? = null
     ) : this(
         java.util.List.copyOf(upsertRegions),
         java.util.List.copyOf(removeRegionIds),
@@ -110,7 +112,8 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
         java.util.List.copyOf(removeFixedBlockSignalIds),
         java.util.List.copyOf(upsertProtectionSignals), java.util.List.copyOf(removeProtectionSignalIds),
         java.util.List.copyOf(upsertRouteIndicators), java.util.List.copyOf(removeRouteIndicatorIds),
-        java.util.List.copyOf(upsertAttachedSignals), java.util.List.copyOf(removeAttachedSignalIds)
+        java.util.List.copyOf(upsertAttachedSignals), java.util.List.copyOf(removeAttachedSignalIds),
+        pendingProtectionBoundaries?.let { java.util.List.copyOf(it) }
     )
 }
 
@@ -173,6 +176,8 @@ internal class SimpleSignalsRuntimePublication(
     previous: SimpleSignalsRuntimePublication? = null,
     val directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy()
 ) {
+    val unavailableTerritory = work.art1st.javarailways.simplesignals.region.UnavailableProtectionTerritory(
+        checkNotNull(regions.compilationSnapshot()), routeTables.unavailableRegionIds())
     val routeBindingCompiler = work.art1st.javarailways.simplesignals.signal.ProtectionRouteBindingCompiler(this)
     // Canonical immutable route references are reused only across exact unchanged geometry.
     // Compilation never reads an epoch's mutable request or clearance state.
@@ -213,6 +218,8 @@ internal class SimpleSignalsWorldRuntime(
 
     @Volatile
     private var state = RuntimeState(null, null)
+    // One disposable exact-root derivation shared by all preparation catalogs, including pending clicks.
+    private var topologyIndex: work.art1st.javarailways.simplesignals.region.ProtectionRegionTopology? = null
 
     fun retire() {
         closed = true
@@ -410,7 +417,8 @@ internal class SimpleSignalsWorldRuntime(
             copiedSignals,
             definitions.protectionSignals.sortedBy { it.signalId },
             definitions.routeIndicators.sortedBy { it.indicatorId },
-            definitions.attachedSignals.sortedBy { it.signalId }
+            definitions.attachedSignals.sortedBy { it.signalId },
+            definitions.pendingProtectionBoundaries.sortedBy { it.boundaryId }
         )
         val current = state.publication
         if (current != null && definitions.definitionRevision < current.definitions.definitionRevision) {
@@ -454,10 +462,30 @@ internal class SimpleSignalsWorldRuntime(
         }
 
         val candidateRegions = ProtectionRegionCatalog()
+        val index = topologyIndex?.takeIf { it.topologyState === topology }
+            ?: if (copiedRegions.isEmpty() && copiedBlocks.isEmpty()) {
+                work.art1st.javarailways.simplesignals.region.ProtectionRegionTopology.empty(topology)
+            } else {
+                work.art1st.javarailways.simplesignals.region.ProtectionRegionTopology.derive(topology)
+                    .also { topologyIndex = it }
+            }
+        val placedBoundaries = copiedRegions.flatMap { it.effectiveBoundaries } + copiedDefinitions.pendingProtectionBoundaries
+        if (placedBoundaries.map { it.boundaryId }.distinct().size != placedBoundaries.size) {
+            return@synchronized preparationRejected("placed protection boundary IDs must be unique")
+        }
+        for (boundary in placedBoundaries) {
+            val rail = topology.railProjection[boundary.position.railId]?.singleOrNull()
+                ?: return@synchronized preparationRejected("boundary ${boundary.boundaryId} references missing rail")
+            if (boundary.position.arcLengthInAbMeters <= Curve.TOLERANCE ||
+                boundary.position.arcLengthInAbMeters >= maxOf(rail.railStartAbMeters, rail.railEndAbMeters) - Curve.TOLERANCE) {
+                return@synchronized preparationRejected("boundary ${boundary.boundaryId} must lie strictly inside its rail")
+            }
+        }
         val regionResult = candidateRegions.publish(
             topology,
             definitions.definitionRevision,
-            copiedRegions
+            copiedRegions,
+            index
         )
         if (regionResult.status == ProtectionRegionCatalogStatus.REJECTED) {
             return@synchronized preparationRejected(regionResult.diagnostics.map { it.detail })
@@ -468,7 +496,7 @@ internal class SimpleSignalsWorldRuntime(
             return@synchronized preparationRejected(tableResult.diagnostics.map { it.detail })
         }
         val candidateRouteSelection = try {
-            ProtectionRouteSelectionIndex.compile(topology, copiedTables)
+            ProtectionRouteSelectionIndex.compile(topology, candidateTables.usableDefinitions())
         } catch (failure: IllegalArgumentException) {
             return@synchronized preparationRejected(
                 failure.message ?: "protection-route selection could not be compiled"
@@ -479,7 +507,8 @@ internal class SimpleSignalsWorldRuntime(
         val blockResult = candidateBlocks.publish(
             topology,
             definitions.definitionRevision,
-            copiedBlocks
+            copiedBlocks,
+            index
         )
         if (blockResult.status == FixedBlockCatalogStatus.REJECTED) {
             return@synchronized preparationRejected(blockResult.diagnostics.map { it.detail })
@@ -500,7 +529,7 @@ internal class SimpleSignalsWorldRuntime(
             }
             CompiledProtectionSignals.compile(topology, definitions.definitionRevision,
                 candidateRouteSelection, candidateBlocks.snapshot(topology), copiedSignals,
-                copiedDefinitions.protectionSignals, copiedDefinitions.routeIndicators)
+                copiedDefinitions.protectionSignals, copiedDefinitions.routeIndicators, copiedTables)
         } catch (failure: IllegalArgumentException) {
             return@synchronized preparationRejected(
                 failure.message ?: "fixed-block signals could not be compiled"
@@ -757,8 +786,7 @@ internal class SimpleSignalsWorldRuntimeManager(
     private val railTargets: RailTargetService,
     private val modelPresentation: ModelPresentationService,
     private val modelWorker: (() -> Unit) -> Unit = { action -> CompletableFuture.runAsync(action) },
-    private val modelFailure: (String, Throwable) -> Unit = { _, _ -> },
-    private val disabledBlockSpeedMetersPerSecond: Double = 20.0 / 3.6
+    private val modelFailure: (String, Throwable) -> Unit = { _, _ -> }
 ) {
     private val lock = Any()
     private val runtimes = linkedMapOf<UUID, SimpleSignalsWorldRuntime>()
@@ -862,6 +890,12 @@ internal class SimpleSignalsWorldRuntimeManager(
     /** Captures the existing world-load identity without waiting for worker I/O. */
     fun authoringRuntime(worldId: UUID): SimpleSignalsWorldRuntime? = runtimeReadView[worldId]
 
+    fun validateRouteAdmission(worldId: UUID, intent: work.art1st.javarailways.basic.api.route.RouteResourceIntent) {
+        val publication = checkNotNull(runtimeReadView[worldId]) { "SimpleSignals world runtime is unavailable" }.authoringPublication()
+        check(infrastructure.currentTopology(worldId) === publication.topology) { "SimpleSignals topology is stale" }
+        publication.unavailableTerritory.requireUsable(intent.route, intent.desiredAuthority.distanceFromRouteStartMeters)
+    }
+
     fun install(worldId: UUID): SimpleSignalsWorldInstallResult {
         val result = synchronized(lock) {
         if (closed) return@synchronized SimpleSignalsWorldInstallResult(SimpleSignalsWorldInstallStatus.UNAVAILABLE,
@@ -918,7 +952,7 @@ internal class SimpleSignalsWorldRuntimeManager(
         }
 
         val runtime = SimpleSignalsWorldRuntime(worldId, work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(
-            { topology, rails -> infrastructure.operatingDirections(worldId, topology, rails) }, disabledBlockSpeedMetersPerSecond))
+            { topology, rails -> infrastructure.operatingDirections(worldId, topology, rails) }))
         val initial = try {
             runtime.initializeDefinitions(topology, loaded.definitions)
         } catch (failure: Exception) {
@@ -1021,7 +1055,8 @@ internal class SimpleSignalsWorldRuntimeManager(
     private fun prepareDefinitionPatch(
         runtime: SimpleSignalsWorldRuntime,
         expectedDefinitionRevision: Long,
-        patch: SimpleSignalsDefinitionPatch
+        patch: SimpleSignalsDefinitionPatch,
+        expectedTopology: TopologyState? = null
     ): PatchPreparation {
         val worldId = runtime.worldId
         val current = runtime.currentDefinitions()
@@ -1055,6 +1090,10 @@ internal class SimpleSignalsWorldRuntimeManager(
                 "current topology is unavailable: ${describe(failure)}"
             ))
         }
+        if (expectedTopology != null && topology !== expectedTopology) {
+            return PatchPreparation.Rejected(authoringResult(SimpleSignalsDefinitionAuthoringStatus.STALE_TOPOLOGY,
+                "topology changed after the authoring selection"))
+        }
         val prepared = when (val preparation = runtime.prepareDefinitions(topology, candidate)) {
             SimpleSignalsDefinitionPreparationResult.Unchanged -> return PatchPreparation.Rejected(authoringResult(
                 SimpleSignalsDefinitionAuthoringStatus.PATCH_REJECTED,
@@ -1081,7 +1120,8 @@ internal class SimpleSignalsWorldRuntimeManager(
         worldId: UUID,
         expectedDefinitionRevision: Long,
         patch: SimpleSignalsDefinitionPatch,
-        expectedRuntime: SimpleSignalsWorldRuntime? = null
+        expectedRuntime: SimpleSignalsWorldRuntime? = null,
+        expectedTopology: TopologyState? = null
     ): SimpleSignalsDefinitionAuthoringResult {
         ThreadGuard.ensureOffMainThread("SimpleSignals definition validation")
         val runtime = runtimeReadView[worldId]
@@ -1089,7 +1129,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             return authoringResult(SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
                 "captured world runtime is no longer available or plugin is disabled")
         }
-        return when (val preparation = prepareDefinitionPatch(runtime, expectedDefinitionRevision, patch)) {
+        return when (val preparation = prepareDefinitionPatch(runtime, expectedDefinitionRevision, patch, expectedTopology)) {
             is PatchPreparation.Rejected -> preparation.result
             is PatchPreparation.Ready -> try {
                 prepareModels(preparation.value.candidatePublication, runtime.currentModels()?.prepared)
@@ -1113,9 +1153,13 @@ internal class SimpleSignalsWorldRuntimeManager(
         worldId: UUID,
         expectedDefinitionRevision: Long,
         patch: SimpleSignalsDefinitionPatch,
-        expectedRuntime: SimpleSignalsWorldRuntime? = null
+        expectedRuntime: SimpleSignalsWorldRuntime? = null,
+        expectedTopology: TopologyState? = null,
+        authoringGuard: () -> Boolean = { true }
     ): SimpleSignalsDefinitionAuthoringResult {
         ThreadGuard.ensureOffMainThread("SimpleSignals definition authoring preparation")
+        if (!authoringGuard()) return authoringResult(SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
+            "authoring selection is no longer active")
         val runtime = runtimeReadView[worldId] ?: return authoringResult(
             SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
             "SimpleSignals world runtime is not installed: $worldId"
@@ -1124,7 +1168,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             return authoringResult(SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
                 "captured world runtime is no longer available or plugin is disabled")
         }
-        val prepared = when (val preparation = prepareDefinitionPatch(runtime, expectedDefinitionRevision, patch)) {
+        val prepared = when (val preparation = prepareDefinitionPatch(runtime, expectedDefinitionRevision, patch, expectedTopology)) {
             is PatchPreparation.Ready -> preparation.value
             is PatchPreparation.Rejected -> return preparation.result
         }
@@ -1217,7 +1261,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                         candidateOccupancy.sources
                     ) {
                         callbackStarted = true
-                        if (expectedRuntime != null && (!plugin.isEnabled || runtimeReadView[worldId] !== expectedRuntime)) {
+                        if (!authoringGuard() || expectedRuntime != null && (!plugin.isEnabled || runtimeReadView[worldId] !== expectedRuntime)) {
                             topologyUnavailableDuringCommit = true
                             error("captured world runtime is no longer available or plugin is disabled")
                         }
@@ -1236,6 +1280,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                             candidateOccupancy,
                             candidateModels
                         ) {
+                            check(authoringGuard()) { "authoring selection is no longer active" }
                             stagedSave.commitPrimary()
                         }
                         if (committed == SimpleSignalsDefinitionCommitStatus.STALE_BASE) {
@@ -1341,7 +1386,8 @@ internal class SimpleSignalsWorldRuntimeManager(
             patch.upsertFixedBlockSignals.isEmpty() && patch.removeFixedBlockSignalIds.isEmpty() &&
             patch.upsertProtectionSignals.isEmpty() && patch.removeProtectionSignalIds.isEmpty() &&
             patch.upsertRouteIndicators.isEmpty() && patch.removeRouteIndicatorIds.isEmpty() &&
-            patch.upsertAttachedSignals.isEmpty() && patch.removeAttachedSignalIds.isEmpty()
+            patch.upsertAttachedSignals.isEmpty() && patch.removeAttachedSignalIds.isEmpty() &&
+            patch.pendingProtectionBoundaries == null
         ) {
             diagnostics += "definition patch is empty"
         }
@@ -1380,14 +1426,16 @@ internal class SimpleSignalsWorldRuntimeManager(
             fixedBlocks.values.sortedBy { it.blockId },
             fixedBlockSignals.values.sortedBy { it.signalId },
             protectionSignals.values.sortedBy { it.signalId }, indicators.values.sortedBy { it.indicatorId },
-            attachedSignals.values.sortedBy { it.signalId }
+            attachedSignals.values.sortedBy { it.signalId },
+            (patch.pendingProtectionBoundaries ?: current.pendingProtectionBoundaries).sortedBy { it.boundaryId }
         )
         if (candidate.regions == current.regions &&
             candidate.routeTables == current.routeTables &&
             candidate.fixedBlocks == current.fixedBlocks &&
             candidate.fixedBlockSignals == current.fixedBlockSignals &&
             candidate.protectionSignals == current.protectionSignals &&
-            candidate.routeIndicators == current.routeIndicators && candidate.attachedSignals == current.attachedSignals
+            candidate.routeIndicators == current.routeIndicators && candidate.attachedSignals == current.attachedSignals &&
+            candidate.pendingProtectionBoundaries == current.pendingProtectionBoundaries
         ) {
             return PatchApplication.Rejected(
                 listOf("definition patch does not change the current definitions")

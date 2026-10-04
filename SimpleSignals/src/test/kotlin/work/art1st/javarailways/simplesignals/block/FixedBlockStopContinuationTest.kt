@@ -67,10 +67,15 @@ class FixedBlockStopContinuationTest {
             assertTrue(fixture.token in fixture.held())
             assertEquals(1, fixture.preparationStarts, "the same fixture actually prepares an accepted request")
             fixture.directions.put(fixture.first, null) // isolated policy/lifecycle evidence; production edits retain their guard
+            val refused = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                fixture.runtime.request(requester, fixture.intent("forward", forward, 115.0)))
+            assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, refused.failure.code)
+            assertTrue(fixture.token in fixture.held(), "refusal cannot erase a held token")
+            fixture.directions.put(fixture.first, ViewDirection.AB)
             val extension = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
                 fixture.runtime.request(requester, fixture.intent("forward", forward, 115.0))).grant
             assertSame(grant.grantId, extension.grantId)
-            assertTrue(fixture.token in fixture.held(), "the contributor omits new control but cannot erase a held token")
+            assertTrue(fixture.token in fixture.held(), "repaired admission extends the same held token")
             fixture.observe(3L, fixture.train("forward", 3L, fixture.first, 79.0, 89.0))
             assertTrue(fixture.token in fixture.held())
             fixture.observe(4L, fixture.train("forward", 4L, fixture.second, 5.0, 15.0))

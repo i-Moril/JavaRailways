@@ -41,6 +41,30 @@ import java.util.UUID
 
 class SectionOccupancyRuntimeTest {
     @Test
+    fun `deleted downstream configuration remains unavailable after reload and restores when provider returns`() {
+        val second = UUID.randomUUID()
+        val connected = lineTopologyState(topology.revision, railId, second)
+        val downstreamBlock = FixedBlockDefinition("test:downstream", 1L,
+            listOf(FixedBlockTraversal(second, ViewDirection.AB, 2.0, 8.0)))
+        val downstream = terminalSignal("test:downstream-signal", downstreamBlock.blockId, 30.0, "clear")
+        val upstream = configuredSignal("test:upstream-signal", block.blockId, listOf(FixedBlockSignalDependency(downstream.signalId)))
+        val removed = SimpleSignalsWorldDefinitions(worldId, 2, emptyList(), emptyList(), listOf(block), listOf(upstream))
+        val restored = SimpleSignalsWorldDefinitions(worldId, 3, emptyList(), emptyList(), listOf(block, downstreamBlock), listOf(upstream, downstream))
+        for ((definitions, expected) in listOf(removed to 0.0, restored to 30.0)) {
+            val decoded = work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionsCodec.decode(
+                work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionsCodec.encode(definitions), worldId)
+            val world = signalWorldRuntime(worldId)
+            assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, world.initializeDefinitions(connected, decoded).status)
+            val occupancy = world.initializeSectionOccupancy()
+            val epochs = epochRuntime(checkNotNull(occupancy.source))
+            epochs.process(emptyFrame(1, connected, ActiveRailContinuationsSnapshot.empty(connected.revision)))
+            assertEquals(expected, occupancy.signalSnapshot()!!.states.getValue(upstream.signalId).effectiveSpeedLimitMetersPerSecond)
+            assertEquals(upstream, world.currentDefinitions().fixedBlockSignals.first { it.signalId == upstream.signalId })
+            if (expected == 0.0) assertTrue(occupancy.signalSnapshot()!!.states.getValue(upstream.signalId) is SectionSignalState.Unavailable)
+        }
+    }
+
+    @Test
     fun `stale topology fails before control publication and definition replacement establishes a fresh baseline`() {
         var reads = 0
         val policy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy({ root, rails ->
@@ -57,7 +81,7 @@ class SectionOccupancyRuntimeTest {
         epochs.replaceSources(occupancy.sources)
         val section = SectionRef(SectionKind.FIXED_BLOCK, block.blockId)
         epochs.process(emptyFrame(1L, topology, ActiveRailContinuationsSnapshot.empty(topology.revision)))
-        assertTrue(occupancy.signalFor(section)!!.state is SectionSignalState.Degraded)
+        assertTrue(occupancy.signalFor(section)!!.state is SectionSignalState.Unavailable)
         val baseline = occupancy.presentationSnapshot()
 
         val replacementTopology = lineTopologyState(topology.revision + 1L, railId)
@@ -97,7 +121,7 @@ class SectionOccupancyRuntimeTest {
         val epochs = epochRuntime(checkNotNull(occupancy.source))
         epochs.process(emptyFrame(1L, topology, ActiveRailContinuationsSnapshot.empty(topology.revision)))
         val baseline = checkNotNull(occupancy.presentationSnapshot())
-        assertTrue(baseline.blockControls.getValue(block.blockId) is SectionSignalState.Degraded)
+        assertTrue(baseline.blockControls.getValue(block.blockId) is SectionSignalState.Unavailable)
         epochs.process(frame(2L, listOf(RailInterval(railId, 4.0, 5.0))))
         val updated = checkNotNull(occupancy.presentationSnapshot())
         assertNotSame(baseline.occupancy, updated.occupancy)
@@ -106,7 +130,7 @@ class SectionOccupancyRuntimeTest {
     }
 
     @Test
-    fun `direction wave publishes known degraded speed downstream and leaves unrelated or no-op writes idle`() {
+    fun `direction wave publishes unavailable downstream and leaves unrelated or no-op writes idle`() {
         val second = UUID.randomUUID()
         val connected = lineTopologyState(topology.revision, railId, second)
         val downstreamBlock = FixedBlockDefinition("test:downstream", 1L,
@@ -131,10 +155,10 @@ class SectionOccupancyRuntimeTest {
         fun nextFrame(epoch: Long) = emptyFrame(epoch, connected, ActiveRailContinuationsSnapshot.empty(connected.revision))
         epochs.process(nextFrame(1L))
         val baseline = checkNotNull(occupancy.signalSnapshot())
-        assertEquals(20.0 / 3.6, baseline.states.getValue(downstream.signalId).effectiveSpeedLimitMetersPerSecond)
-        assertTrue(baseline.states.getValue(downstream.signalId) is SectionSignalState.Degraded)
-        assertEquals(8.0, baseline.states.getValue(upstream.signalId).effectiveSpeedLimitMetersPerSecond,
-            "upstream consumes the known limit and remains usable")
+        assertEquals(0.0, baseline.states.getValue(downstream.signalId).effectiveSpeedLimitMetersPerSecond)
+        assertTrue(baseline.states.getValue(downstream.signalId) is SectionSignalState.Unavailable)
+        assertEquals(0.0, baseline.states.getValue(upstream.signalId).effectiveSpeedLimitMetersPerSecond,
+            "upstream preserves the unavailable dependency")
         assertEquals(listOf(setOf(railId, second)), subsets)
         assertEquals(baseline.stamp, occupancy.presentationSnapshot()!!.occupancy.stamp)
         directions.put(UUID.randomUUID(), ViewDirection.AB)

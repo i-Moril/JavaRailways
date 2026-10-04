@@ -7,6 +7,8 @@ import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefi
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntimeManager
 import work.art1st.javarailways.simplesignals.command.SimpleSignalsAdminCommand
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsDefinitionDrafts
+import work.art1st.javarailways.simplesignals.authoring.RuntimeSectionWandBackend
+import work.art1st.javarailways.simplesignals.authoring.SectionWandHandler
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 import java.util.logging.Level
@@ -15,6 +17,7 @@ import java.util.logging.Level
 class SimpleSignalsPlugin : JavaPlugin() {
     private var hostServices: SimpleSignalsHostServices? = null
     private var worldRuntimes: SimpleSignalsWorldRuntimeManager? = null
+    private var sectionWands: SectionWandHandler? = null
     private var modelCleanup: CompletionStage<Void> = CompletableFuture.completedFuture(null)
 
     /** Host shutdown must observe this result before disabling JavaRailways. Never block a region thread. */
@@ -22,7 +25,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
 
     override fun onEnable() {
         saveDefaultConfig()
-        val settings = SimpleSignalsConfig.from(config.get("disabled-block-speed-kmh"))
+        val settings = SimpleSignalsConfig.from(config.get("protection-region-max-distance-meters"))
         val services = SimpleSignalsHostServices.load(server.servicesManager)
         val runtimes = SimpleSignalsWorldRuntimeManager(
             this,
@@ -37,14 +40,12 @@ class SimpleSignalsPlugin : JavaPlugin() {
             { context, failure ->
                 // Signal callbacks only enqueue reporting; logger/Bukkit access happens on this worker.
                 CompletableFuture.runAsync { logger.log(Level.SEVERE, context, failure) }
-            },
-            settings.disabledBlockSpeedMetersPerSecond
+            }
         )
         val fixedBlocks = FixedBlockRouteResourcePolicy(this, { worldId ->
             work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(
-                { topology, rails -> services.infrastructure().operatingDirections(worldId, topology, rails) },
-                settings.disabledBlockSpeedMetersPerSecond)
-        }, runtimes::fixedBlockSnapshot)
+                { topology, rails -> services.infrastructure().operatingDirections(worldId, topology, rails) })
+        }, runtimes::validateRouteAdmission, runtimes::fixedBlockSnapshot)
         val providerRegistration = services.infrastructure().registerResourceProvider(
             this,
             FIXED_BLOCK_RESOURCE_TYPE,
@@ -65,12 +66,23 @@ class SimpleSignalsPlugin : JavaPlugin() {
         server.asyncScheduler.runNow(this) {
             if (isEnabled) runtimes.loadModelPackages(dataFolder.toPath().resolve("models"))
         }
+        val admin = SimpleSignalsAdminCommand(this, runtimes, SimpleSignalsDefinitionDrafts(dataFolder.toPath()))
+        val wands = SectionWandHandler(this,
+            RuntimeSectionWandBackend(runtimes, services.infrastructure(), settings.protectionRegionMaxDistanceMeters),
+            services.railTargets())
+        sectionWands = wands
+        server.pluginManager.registerEvents(wands, this)
         checkNotNull(getCommand("simplesignals")) { "SimpleSignals command descriptor is missing" }
-            .setExecutor(SimpleSignalsAdminCommand(this, runtimes, SimpleSignalsDefinitionDrafts(dataFolder.toPath())))
+            .setExecutor { sender, command, label, args ->
+                if (args.firstOrNull() == "wand") wands.onCommand(sender, command, label, args)
+                else admin.onCommand(sender, command, label, args)
+            }
         logger.info("SimpleSignals enabled")
     }
 
     override fun onDisable() {
+        sectionWands?.close()
+        sectionWands = null
         // Host PluginDisableEvent handling removes dead callbacks. Do not create a second unload gate.
         val services = hostServices
         modelCleanup = worldRuntimes?.clearLocal()

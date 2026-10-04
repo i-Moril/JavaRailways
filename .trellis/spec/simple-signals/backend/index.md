@@ -12,7 +12,7 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 已建立plugin-local信号规则执行边界、灯色/限速输出快照及其列车限制投影，并提供第一个由world definition配置的固定闭塞规则；
 现已提供保护区域固定进路信号、当前入口信号和presentation-only进路显示器的后端配置/规则；
 已提供独立管理员 inspect/export/validate/apply 命令及 current-JSON 草稿工作流；
-尚未提供交互式 Wand 或信号规则的 JS/YAML 接口；模型显示接线已提供，但真实 Folia/客户端画面
+现已接入[闭塞与保护区域 Wand](section-authoring-wands.md)；独立信号机工具及信号规则 JS/YAML 接口仍未提供。模型显示接线已提供，但真实 Folia/客户端画面
 仍待验证，不得把 foundation 描述为完整建造/呈现系统。
 
 模型显示方案见[信号状态如何显示成模型](model-presentation.md)。SimpleSignals 已提供私有的预设应用和
@@ -20,7 +20,7 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 [模型包加载器](model-packages.md)已实现：在工作线程准备阶段读取目录、展开包内部件、校验命名场景和完整外观映射，
 返回不可变普通模型与摆放预设。设备模型/摆放存档接入现有定义事务；插件启用时异步发现模型包，
 通过宿主已有的轨道定位和模型显示服务创建模型、提交信号变化、清理失效绑定。
-完整接线、初始化并发和错误边界由模型显示合同维护；本批不新增宿主 API，也不实现 Wand。
+完整接线、初始化并发和错误边界由模型显示合同维护；建造工具只消费公开宿主 API。
 附属信号机直接引用固定闭塞或保护区域的主信号，保存自己的模型和摆放，复用主信号输出；
 不增加规则、inspection 或资源。具体定义、更新索引和编辑影响见
 [主信号与附属信号机](model-presentation.md#主信号与附属信号机)。
@@ -87,6 +87,10 @@ best-effort把staged旧primary轮转为`.bak`。commit point之后的backup/clea
 
 ## 保护区域领域
 
+边界工具支持待补全边界和已有区域的未完成编辑：原完整边界用于重启后恢复局部禁行范围，
+`boundaryDraft` 保存当前放置的边界。区域、进路和设备配置保留，只有重新验证的部分可恢复运行。
+这些作者状态、修复和准入约束见[建造工具合同](section-authoring-wands.md)，并非任意坏拓扑的自动修复器。
+
 `region` package 只保存 SimpleSignals 自己的信号策略，不进入 Basic 公共 API：
 
 - authored definition 只保存 namespaced region/boundary ID、region revision 和有向 rail cut；不保存第二份权威子图；
@@ -120,11 +124,16 @@ revision绑定一个region ID及其revision；每条带稳定ID的route声明ent
 `ProtectionRouteTableCatalog.publish`捕获`ProtectionRegionCatalog`的一个不可变publication，在authoring/load
 路径完成以下工作：
 
-1. 验证table/route ID唯一、table revision单调且region引用/revision仍匹配；
+1. 验证table/route ID唯一、table revision单调且region存在，拒绝引用未来region revision；
 2. 验证route精确对齐入口/出口cut，从入口的inside facing开始，从出口的outside facing结束；
 3. 验证每段位于派生region interior内，相邻段在同一rail上连续或通过Core topology允许的有向continuation相连；
 4. 把该region的全部interior slice按AB和BA两个方向输出为一个`PathReplacement.replacedTraversals`，再把
    每条完整route输出为一个`PhysicalTraversalPath`。
+
+区域有 `boundaryDraft` 时保留整份作者表，但不使用其中进路，并以双向禁行范围阻止进入原区域。
+补齐后若表引用的是旧区域版本，则逐条重验，生成只包含有效进路的临时可用集合；作者表不被自动覆盖。
+一条有效进路也没有时仍禁止整个区域，不允许把空表理解为恢复自由通行。
+指向暂时无效进路/入口的信号设备保留定义与模型，发布不可用状态；丢失下游目标的信号及依赖它的信号同样不可用。
 
 因此Basic会删除区域内自由通行的query edge，只把每条完整route作为不可拆分macro加入查询。同一对gate可以有
 多条route，但搜索不能把route A的前半段与route B的后半段拼成表外进路。未定义table的region不产生replacement，
@@ -254,9 +263,9 @@ degree-2物理环线上的真实Basic申请/延长/车尾释放，并覆盖内�
 保护区域衔接和验证要求归[双向固定闭塞合同](bidirectional-fixed-block.md)，已完成离线验证。
 
 该合同还规定已接通的方向修正：逐段核对运营方向，有效单向闭塞明确拒绝反向申请；
-整条路径方向失配时保留定义与已有 claim，不新增正常 block token/floor，改为仅供 ATO 使用的持续区间限速，默认 20 km/h。
+整条路径方向失配时保留定义与已有 claim，但明确拒绝 ATO 绑定和资源申请，不再使用旧低速降级。
 公开方向子集由 Basic 唯一存储提供，相关修改沿既有 epoch 与 rail 索引唤醒；手动驾驶不变。
-未配置信号规则的 block 也能发布已知降级控制值，但缺物理 baseline 或未知故障仍为 0；
+未配置信号规则的 block 同样不能绕过拒绝；信号阶段把失配发布为有效速度 0 的不可用状态。
 这些控制值和占用/信号在同一个不可变 publication 中发布，机制不在本索引重复定义。
 
 ### 后续单线支持的边界（目标，尚未实现）
@@ -346,9 +355,9 @@ authoring是低频路径：patch map操作为`O(D)`。设fixed-block traversal�
 already-staged atomic rename与immutable reference swap。route callback仍只读取一次volatile publication和cached restrictions。
 当前 SimpleSignals 命令接到同一事务，纯 validate 复用候选构造/编译但不取得许可、不写盘、不替换 source；
 草稿保留导出基线，正式 apply 重新检查并推进 revision。完整流程、内部接口、文件和线程规则见
-[管理命令与定义草稿](authoring-commands.md)。交互式 RailObjectWand 与拓扑迁移工具仍未提供。
+[管理命令与定义草稿](authoring-commands.md)。闭塞/区域工具复用该事务，见[工具合同](section-authoring-wands.md)；拓扑迁移工具仍未提供。
 `applyDefinitionPatch`和纯 validation 均以`ThreadGuard.ensureOffMainThread`拒绝错误的owner-thread调用；命令已使用 async worker，
-未来 Wand 必须保持同一边界，不能依赖调用约定而省略这一断言。
+Wand 保持同一边界，不能依赖调用约定而省略这一断言。
 
 ## 已评审的响应式方向与已完成前置观测
 

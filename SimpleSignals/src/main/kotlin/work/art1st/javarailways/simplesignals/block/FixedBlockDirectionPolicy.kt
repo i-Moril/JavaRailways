@@ -9,15 +9,8 @@ import java.util.UUID
 internal class FixedBlockDirectionPolicy(
     private val read: (TopologyState, Collection<UUID>) -> RailOperatingDirections = { topology, rails ->
         RailOperatingDirections(topology, rails.associateWith { null })
-    },
-    val disabledSpeedMetersPerSecond: Double = 20.0 / 3.6
-) {
-    init {
-        require(disabledSpeedMetersPerSecond.isFinite() && disabledSpeedMetersPerSecond > 0.0) {
-            "disabled block speed must be finite and positive"
-        }
     }
-
+) {
     fun disabledBlocks(snapshot: FixedBlockReadSnapshot, blocks: Collection<CompiledFixedBlock>): Set<String> {
         if (blocks.isEmpty()) return emptySet()
         val rails = blocks.flatMapTo(linkedSetOf()) { block -> block.traversals.map { it.railId } }
@@ -34,12 +27,15 @@ internal class FixedBlockDirectionPolicy(
     }
 
     fun normalWindows(snapshot: FixedBlockReadSnapshot, windows: List<FixedBlockRouteWindow>, disabled: Set<String>):
-        List<FixedBlockRouteWindow> = windows.filter { window ->
-        if (window.blockId in disabled) false else {
+        List<FixedBlockRouteWindow> {
+        windows.forEach { window ->
+            check(window.blockId !in disabled) {
+                "ATO admission is forbidden by unavailable fixed block ${window.blockId}: operating directions disagree"
+            }
             check(!window.reversed || snapshot.blocksById.getValue(window.blockId).definition.bidirectional) {
                 "reverse admission is forbidden by active single-direction fixed block ${window.blockId}"
             }
-            true
         }
+        return windows
     }
 }

@@ -9,6 +9,8 @@ import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionTopology
 import java.util.UUID
@@ -27,7 +29,8 @@ internal enum class FixedBlockValidationCode {
     MISSING_RAIL,
     TRAVERSAL_OUTSIDE_RAIL,
     DUPLICATE_BOUNDARY_POSITION,
-    DISCONTINUOUS_PATH
+    DISCONTINUOUS_PATH,
+    TURNOUT_TRAVERSAL
 }
 
 internal data class FixedBlockDiagnostic(
@@ -109,7 +112,7 @@ internal class FixedBlockReadSnapshot internal constructor(
  * Compiles fixed-block definitions only on load/authoring and atomically publishes one immutable
  * topology-bound read snapshot. Runtime readers never validate or walk the complete catalog.
  */
-internal class FixedBlockCatalog {
+internal class FixedBlockCatalog(private val allowTurnoutGeometry: Boolean = false) {
     private val lock = Any()
 
     @Volatile
@@ -118,7 +121,8 @@ internal class FixedBlockCatalog {
     fun publish(
         topology: TopologyState,
         definitionRevision: Long,
-        definitions: Collection<FixedBlockDefinition>
+        definitions: Collection<FixedBlockDefinition>,
+        topologyIndex: ProtectionRegionTopology? = null
     ): FixedBlockCatalogResult = synchronized(lock) {
         require(definitionRevision >= 0L) { "definitionRevision must be non-negative" }
         val copiedDefinitions = java.util.List.copyOf(definitions.sortedBy { it.blockId })
@@ -170,7 +174,10 @@ internal class FixedBlockCatalog {
         }
 
         val derivedTopology = try {
-            if (copiedDefinitions.isEmpty()) {
+            if (topologyIndex != null) {
+                require(topologyIndex.topologyState === topology) { "block index targets a different topology root" }
+                topologyIndex
+            } else if (copiedDefinitions.isEmpty()) {
                 ProtectionRegionTopology.empty(topology)
             } else {
                 ProtectionRegionTopology.derive(topology)
@@ -260,6 +267,13 @@ internal class FixedBlockCatalog {
             )
         }
         compiledTraversals.zipWithNext().forEach { (current, next) ->
+            if (!allowTurnoutGeometry && current.railId != next.railId) {
+                val exit = if (current.facing == ViewDirection.AB) RailEndpoint.B else RailEndpoint.A
+                if (topology.topologyState.structuralNodeAt(RailEndpointRef(current.railId, exit)) is TopologyNode.Turnout) {
+                    return rejectedCompilation(FixedBlockValidationCode.TURNOUT_TRAVERSAL,
+                        "fixed block ${definition.blockId} must not traverse a turnout", definition, current.railId)
+                }
+            }
             if (!continuous(current, next, topology)) {
                 return rejectedCompilation(
                     FixedBlockValidationCode.DISCONTINUOUS_PATH,

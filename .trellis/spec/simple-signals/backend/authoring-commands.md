@@ -3,7 +3,7 @@
 ## 1. 状态、范围与所有权
 
 CURRENT。SimpleSignals 拥有命令、草稿文件和用户消息；原有 world manager 仍是定义修改的唯一入口。
-本合同负责管理员 JSON 编辑工作流，不包含 Wand、脚本加载或世界格式迁移。
+本合同负责管理员 JSON 编辑工作流；Wand 复用该事务，交互见[建造工具合同](section-authoring-wands.md)。不包含脚本加载或世界格式迁移。
 模型配置准备与显示生命周期由[模型显示合同](model-presentation.md)负责，命令复用同一个候选事务。
 
 ## 2. 模块工作方式
@@ -16,6 +16,7 @@ apply 把草稿与当前定义按 ID 比较，交给已有 patch 事务取得编
 ## 3. 内部机制与算法
 
 七类定义分别按稳定 ID 建表：region、table、fixed block、fixed-block signal、protection signal、route indicator、attached signal。
+待补全的 `pendingProtectionBoundaries` 列表变化另形成一次明确替换，仍经过同一保存与许可；区域未完成编辑保存在其 `boundaryDraft`。
 建表前明确拒绝重复 ID，不能让 `associateBy` 隐藏非法定义。
 新增和内容不同的对象产生 upsert；只在原定义中存在的对象产生 remove；完全相同的对象不产生操作。
 这不是重新安装 world，不绕过原有删除引用、revision 单调、拓扑、依赖和编辑许可检查。
@@ -97,7 +98,7 @@ validate 成功/失败均无许可、磁盘和 source mutation。
 ## 10. 迁移、未决事项与 Wrong / Correct
 
 无 schema 升级、旧格式 reader 或兼容 alias。命令只是现有 current model 的作者入口。
-Wand、脚本与更友好的表单仍为后续批次；具体模型绑定见其 owner 合同。
+闭塞/保护区域 Wand 已接到同一事务；独立信号机工具、脚本与更友好的表单仍为后续批次。具体模型绑定见其 owner 合同。
 
 Wrong：修改正式 JSON 后调用 install/reload，或 validate 临时占用资源后宣称 apply 已获准。
 Correct：编辑独立草稿，以基线版本提交 ID diff，经唯一 patch 事务执行最终检查。

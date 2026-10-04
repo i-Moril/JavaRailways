@@ -71,7 +71,8 @@ internal class ProtectionRegionCatalog {
     fun publish(
         topology: TopologyState,
         definitionRevision: Long,
-        definitions: Collection<ProtectionRegionDefinition>
+        definitions: Collection<ProtectionRegionDefinition>,
+        topologyIndex: ProtectionRegionTopology? = null
     ): ProtectionRegionCatalogResult = synchronized(lock) {
         require(definitionRevision >= 0L) { "definitionRevision must be non-negative" }
         val copiedDefinitions = java.util.List.copyOf(
@@ -105,7 +106,10 @@ internal class ProtectionRegionCatalog {
         }
 
         val derivedTopology = try {
-            if (copiedDefinitions.isEmpty()) {
+            if (topologyIndex != null) {
+                require(topologyIndex.topologyState === topology) { "region index targets a different topology root" }
+                topologyIndex
+            } else if (copiedDefinitions.isEmpty()) {
                 ProtectionRegionTopology.empty(topology)
             } else {
                 ProtectionRegionTopology.derive(topology)

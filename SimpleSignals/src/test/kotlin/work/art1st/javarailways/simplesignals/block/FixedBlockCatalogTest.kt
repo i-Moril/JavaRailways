@@ -22,6 +22,21 @@ class FixedBlockCatalogTest {
     private val second = rail(2)
 
     @Test
+    fun `authored blocks reject even a straight turnout while protection route geometry accepts it`() {
+        val branch = rail(3)
+        val topology = topologyState(7L, listOf(first, second, branch), listOf(
+            endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A),
+            endpoint(first, RailEndpoint.B) to endpoint(branch, RailEndpoint.A)))
+        val crossing = block("test:turnout", 1, listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
+            FixedBlockTraversal(second, ViewDirection.AB, 0.0, 8.0)))
+        val rejected = FixedBlockCatalog().publish(topology, 1, listOf(crossing))
+        assertEquals(FixedBlockCatalogStatus.REJECTED, rejected.status)
+        assertEquals(FixedBlockValidationCode.TURNOUT_TRAVERSAL, rejected.diagnostics.single().code)
+        assertEquals(FixedBlockCatalogStatus.PUBLISHED,
+            FixedBlockCatalog(allowTurnoutGeometry = true).publish(topology, 1, listOf(crossing)).status)
+    }
+
+    @Test
     fun `bidirectional compilation derives immutable reverse path without duplicating occupancy or index`() {
         val topology = lineTopologyState(7L, first, second)
         val traversals = listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
@@ -95,7 +110,7 @@ class FixedBlockCatalogTest {
     }
 
     @Test
-    fun `continuity follows legal turnout transitions rather than shared node membership`() {
+    fun `shared protection geometry continuity follows legal turnout transitions rather than node membership`() {
         val entry = rail(10)
         val selected = rail(11)
         val other = rail(12)
@@ -107,7 +122,7 @@ class FixedBlockCatalogTest {
                 endpoint(selected, RailEndpoint.A) to endpoint(other, RailEndpoint.A)
             )
         )
-        val catalog = FixedBlockCatalog()
+        val catalog = FixedBlockCatalog(allowTurnoutGeometry = true)
         val illegal = block(
             "test:illegal",
             1L,

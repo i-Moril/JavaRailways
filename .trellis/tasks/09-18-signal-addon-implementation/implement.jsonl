@@ -1,6 +1,8 @@
-{"file":".trellis/spec/bukkit-plugin/backend/index.md","reason":"Owner and quality gates for the new independent turnout Wand"}
-{"file":".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md","reason":"Reuse AbstractWand, Cloud routing, locales and strict per-item state; no new compatibility"}
-{"file":".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md","reason":"Player ownership and simulation serialization; no per-tick world scans"}
-{"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"Use existing guarded manual turnout service, no duplicate locks or grant model"}
-{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"New tool state does not justify world format changes or legacy paths"}
-{"file":".trellis/tasks/09-18-signal-addon-implementation/research/turnout-wand-batch.md","reason":"Current bounded approved batch; other Stage2 target requirements are not this implementation"}
+{"file":".trellis/spec/simple-signals/backend/index.md","reason":"SimpleSignals runtime and plugin isolation"}
+{"file":".trellis/spec/simple-signals/backend/authoring-commands.md","reason":"Reuse the worker-side definition transaction"}
+{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Preserve local edit scope and protection"}
+{"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Direction consistency and new refusal requirement"}
+{"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"No duplicate save, lock or resource lifecycle"}
+{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"No speculative compatibility"}
+{"file":".trellis/tasks/09-18-signal-addon-implementation/research/section-wands-batch.md","reason":"Current approved batch"}
+{"file":".trellis/spec/simple-signals/backend/section-authoring-wands.md","reason":"Tool behavior and local incomplete-region state contract"}

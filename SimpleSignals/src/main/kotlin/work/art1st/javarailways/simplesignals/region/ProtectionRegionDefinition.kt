@@ -24,13 +24,18 @@ internal data class ProtectionBoundaryDefinition(
 internal data class ProtectionRegionDefinition private constructor(
     val regionId: String,
     val revision: Long,
-    val boundaries: List<ProtectionBoundaryDefinition>
+    val boundaries: List<ProtectionBoundaryDefinition>,
+    val boundaryDraft: List<ProtectionBoundaryDefinition>?
 ) {
     constructor(
         regionId: String,
         revision: Long,
-        boundaries: Collection<ProtectionBoundaryDefinition>
-    ) : this(regionId, revision, java.util.List.copyOf(boundaries))
+        boundaries: Collection<ProtectionBoundaryDefinition>,
+        boundaryDraft: Collection<ProtectionBoundaryDefinition>? = null
+    ) : this(regionId, revision, java.util.List.copyOf(boundaries), boundaryDraft?.let { java.util.List.copyOf(it) })
+
+    /** Placed markers; accepted cuts remain available to reconstruct local protection after restart. */
+    val effectiveBoundaries: List<ProtectionBoundaryDefinition> get() = boundaryDraft ?: boundaries
 
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(regionId)) { "regionId must be namespaced" }
@@ -38,6 +43,9 @@ internal data class ProtectionRegionDefinition private constructor(
         require(boundaries.isNotEmpty()) { "protection region must have at least one boundary" }
         require(boundaries.map(ProtectionBoundaryDefinition::boundaryId).distinct().size == boundaries.size) {
             "protection-region boundary IDs must be unique"
+        }
+        require(effectiveBoundaries.map { it.boundaryId }.distinct().size == effectiveBoundaries.size) {
+            "draft boundary IDs must be unique"
         }
     }
 }

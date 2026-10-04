@@ -40,14 +40,14 @@ class FixedBlockRouteResourcePolicyTest {
         val contributor = FixedBlockRouteResourcePolicy(plugin, { policy }) { snapshot }
         val forward = route(listOf(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
             RouteSegmentSnapshot(second, ViewDirection.BA, 0.0, 10.0)))
-        assertTrue(contributor.contribute(worldId, intent(20.0, forward)).isEmpty(), "unset permits both and disables a single block")
+        assertThrows(IllegalStateException::class.java) { contributor.contribute(worldId, intent(20.0, forward)) }
         directions.put(first, ViewDirection.AB)
-        assertTrue(contributor.contribute(worldId, intent(5.0, forward)).isEmpty(), "a mismatch on a future rail disables the entire block")
+        assertThrows(IllegalStateException::class.java) { contributor.contribute(worldId, intent(5.0, forward)) }
         directions.put(second, ViewDirection.BA)
         assertEquals(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, definition.blockId), contributor.contribute(worldId, intent(5.0, forward)).single().resource)
         assertEquals(3, reads, "one coherent full-path subset per contribution")
         directions.put(second, ViewDirection.AB)
-        assertTrue(contributor.contribute(worldId, intent(5.0, forward)).isEmpty())
+        assertThrows(IllegalStateException::class.java) { contributor.contribute(worldId, intent(5.0, forward)) }
 
         val bidi = FixedBlockCatalog().also { it.publish(mixed, 1L, listOf(
             FixedBlockDefinition(definition.blockId, definition.revision, definition.traversals, true))) }.snapshot(mixed)
@@ -152,13 +152,13 @@ class FixedBlockRouteResourcePolicyTest {
     }
 
     @Test
-    fun `reverse traversal cannot use authority clipping to hide an interior branch departure`() {
+    fun `shared protection geometry reverse traversal cannot hide an interior branch departure`() {
         val branch = UUID(0L, 3L)
         val fork = topologyState(8L, listOf(first, second, branch), listOf(
             endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A),
             endpoint(first, RailEndpoint.B) to endpoint(branch, RailEndpoint.A)))
         val twoWay = FixedBlockDefinition(block.blockId, block.revision, block.traversals, true)
-        val forkSnapshot = FixedBlockCatalog().also {
+        val forkSnapshot = FixedBlockCatalog(allowTurnoutGeometry = true).also {
             assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(fork, 1L, listOf(twoWay)).status)
         }.snapshot(fork)
         val route = RouteSnapshot("test:reverse-branch", 1L, 8L, listOf(
@@ -221,13 +221,13 @@ class FixedBlockRouteResourcePolicyTest {
     }
 
     @Test
-    fun `leaving a block by a different branch is not a legal clipped station endpoint`() {
+    fun `shared protection geometry branch departure is not a legal clipped endpoint`() {
         val branch = UUID(0L, 3L)
         val fork = topologyState(8L, listOf(first, second, branch), listOf(
             endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A),
             endpoint(first, RailEndpoint.B) to endpoint(branch, RailEndpoint.A)
         ))
-        val forkSnapshot = FixedBlockCatalog().also {
+        val forkSnapshot = FixedBlockCatalog(allowTurnoutGeometry = true).also {
             assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(fork, 1L, listOf(block)).status)
         }.snapshot(fork)
         val branchRoute = RouteSnapshot("test:branch-route", 1L, fork.revision, listOf(

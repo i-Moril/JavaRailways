@@ -49,97 +49,28 @@ import java.util.UUID
 
 class FixedBlockInspectionSourceTest {
     @Test
-    fun `degraded range cannot collide with a normal signal whose authored ID contains the range suffix`() {
-        val degraded = FixedBlockDefinition("test:block", 1L,
-            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)))
-        val normal = FixedBlockDefinition("test:block/range/0", 1L,
-            listOf(FixedBlockTraversal(second, ViewDirection.AB, 2.0, 8.0)))
-        val captured = snapshot(degraded, normal)
-        val directions = work.art1st.javarailways.basic.rail.OperatingDirectionStore().also {
-            it.put(second, ViewDirection.AB)
-        }
-        val source = FixedBlockInspectionSource({ captured }, { id ->
-            PublishedSectionSignal(stamp(), if (id == degraded.blockId) SectionSignalState.Degraded(20.0 / 3.6)
-                else SectionSignalState.Available(SectionSignalOutput(10.0, "clear")))
-        }, { true }, directionPolicy = FixedBlockDirectionPolicy(directions::snapshot)).source
-        val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
-            RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0))
-        val publications = arrayListOf<TrainRestrictionSnapshot>()
-        val runtime = InspectionRuntime({ value ->
-            publications += value
-            TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, value.revision)
-        }, { _, _, failure -> throw failure })
-        runtime.replaceSources(listOf(source))
-        runtime.synchronizeRoute(stamp(), "train", route)
-        runtime.createTrainInspection("train").update(stamp(), FrozenRouteBinding.from(route),
-            0.0, 20.0, 20.0, 1.0, perception(route))
-        val restrictions = publications.single().restrictions
-        assertEquals(2, restrictions.size)
-        assertEquals(2, restrictions.map { it.restrictionId }.distinct().size)
-        assertEquals(setOf(20.0 / 3.6, 10.0), restrictions.map { (it as RouteSpeedRestriction).maximumSpeedMetersPerSecond }.toSet())
-    }
-
-    @Test
-    fun `resource-only mismatch retains bounded cap with no entrance until physical baseline proves degraded mode`() {
-        val block = FixedBlockDefinition("test:degraded", 1L, listOf(
+    fun `direction mismatch refuses forward reverse internal and repeated routes without a signal rule`() {
+        val block = FixedBlockDefinition("test:unavailable", 1L, listOf(
             FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
             FixedBlockTraversal(second, ViewDirection.AB, 0.0, 8.0)))
-        // Production semantics: no operating direction records means both, hence a single block mismatches.
-        val world = SimpleSignalsWorldRuntime(worldId)
-        world.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 1L, emptyList(), emptyList(), listOf(block)))
-        val occupancy = world.initializeSectionOccupancy()
+        val captured = snapshot(block)
+        val directions = work.art1st.javarailways.basic.rail.OperatingDirectionStore()
+        val source = FixedBlockInspectionSource({ captured }, directionPolicy = FixedBlockDirectionPolicy(directions::snapshot)).source
         val routes = listOf(
             route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0), RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0)),
             route(RouteSegmentSnapshot(first, ViewDirection.AB, 4.0, 10.0), RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0)),
             route(RouteSegmentSnapshot(second, ViewDirection.BA, 4.0, 10.0), RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0)))
-        routes.forEachIndexed { index, route ->
-            val binding = world.fixedBlockInspectionSource.bindingProvider.bind(InspectionBindingInput(stamp(), "train", route))
-            assertEquals(0, binding.declarations.size)
-            assertEquals(if (index == 0) 2.0 else 0.0, binding.speedRanges.single().restriction.routeDistanceMeters)
-            assertEquals(if (index == 0) 18.0 else 14.0, binding.speedRanges.single().restriction.endRouteDistanceMeters)
-            assertEquals(setOf(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)),
-                world.fixedBlockInspectionSource.routeInfrastructureDependencies.dependencies(route).toSet())
+        routes.forEach { route ->
+            assertThrows(IllegalStateException::class.java) { source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", route)) }
+            assertThrows(IllegalStateException::class.java) { source.routeInfrastructureDependencies.dependencies(route) }
         }
-        val route = routes[1]
-        val publications = arrayListOf<TrainRestrictionSnapshot>()
-        val inspections = InspectionRuntime({ value -> publications += value
-            TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, value.revision) }, { _, _, failure -> throw failure })
-        inspections.replaceSources(listOf(world.fixedBlockInspectionSource))
-        inspections.synchronizeRoute(stamp(), "train", route)
-        val worker = inspections.createTrainInspection("train")
-        fun update(head: Double, epoch: Long) = worker.update(stamp(epoch), FrozenRouteBinding.from(route),
-            head, 3.0, 20.0, 1.0, perception(route))
-        update(0.0, 1L)
-        assertEquals(0.0, (publications.single().restrictions.single() as RouteSpeedRestriction).maximumSpeedMetersPerSecond)
-        val epochs = SignalEpochRuntime(worldId.toString(), { value ->
-            TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, value.revision) },
-            invalidateInspectionDeclarations = inspections::markDirty)
-        epochs.replaceSources(occupancy.sources)
-        epochs.process(RailwayWorldFrameSnapshot.create(1L, topology.revision, emptyList(),
-            ActiveRailContinuationsSnapshot.empty(topology.revision)))
-        update(1.0, 2L)
-        val restriction = publications.last().restrictions.single() as RouteSpeedRestriction
-        assertEquals(20.0 / 3.6, restriction.maximumSpeedMetersPerSecond)
-        update(5.0, 3L)
-        update(14.1, 4L)
-        assertEquals(2, publications.size, "range lifetime does not require callbacks at passed entry or exit")
-        assertEquals(0.0, restriction.routeDistanceMeters)
-        assertEquals(14.0, restriction.endRouteDistanceMeters)
-    }
-
-    @Test
-    fun `active single reverse selected-route check fails and disabled repeated visits keep separate ranges`() {
-        val block = FixedBlockDefinition("test:single", 1L, listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)))
-        val captured = snapshot(block)
-        val directions = work.art1st.javarailways.basic.rail.OperatingDirectionStore()
         directions.put(first, ViewDirection.AB)
-        val policy = FixedBlockDirectionPolicy(directions::snapshot)
-        val source = FixedBlockInspectionSource({ captured }, directionPolicy = policy).source
-        val reverse = route(RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0))
-        assertThrows(IllegalStateException::class.java) { source.routeInfrastructureDependencies.dependencies(reverse) }
-        assertThrows(IllegalStateException::class.java) { source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", reverse)) }
-        directions.put(first, null)
-        assertEquals(1, source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", reverse)).speedRanges.size)
+        assertThrows(IllegalStateException::class.java) { source.routeInfrastructureDependencies.dependencies(routes.first()) }
+        directions.put(second, ViewDirection.AB)
+        val repaired = source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", routes.first()))
+        assertEquals(1, repaired.declarations.size)
+        assertEquals(0, repaired.speedRanges.size)
+        assertThrows(IllegalStateException::class.java) { source.routeInfrastructureDependencies.dependencies(routes.last()) }
 
         val third = UUID(0L, 3L)
         val loop = topologyState(topology.revision, listOf(first, second, third), listOf(
@@ -149,12 +80,10 @@ class FixedBlockInspectionSourceTest {
         val loopSnapshot = FixedBlockCatalog().also { it.publish(loop, 1L, listOf(block)) }.snapshot(loop)
         val repeated = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
             RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0), RouteSegmentSnapshot(third, ViewDirection.AB, 0.0, 10.0),
-            RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0))
-        val binding = FixedBlockInspectionSource({ loopSnapshot }, directionPolicy = policy).source
-            .bindingProvider.bind(InspectionBindingInput(stamp(), "train", repeated))
-        assertEquals(listOf(2.0 to 8.0, 32.0 to 38.0), binding.speedRanges.map {
-            it.restriction.routeDistanceMeters to it.restriction.endRouteDistanceMeters })
-        assertEquals(2, binding.speedRanges.map { it.restriction.restrictionId }.distinct().size)
+            RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0), RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0))
+        directions.put(second, null)
+        val repeatedSource = FixedBlockInspectionSource({ loopSnapshot }, directionPolicy = FixedBlockDirectionPolicy(directions::snapshot)).source
+        assertThrows(IllegalStateException::class.java) { repeatedSource.bindingProvider.bind(InspectionBindingInput(stamp(), "train", repeated)) }
     }
 
     @Test

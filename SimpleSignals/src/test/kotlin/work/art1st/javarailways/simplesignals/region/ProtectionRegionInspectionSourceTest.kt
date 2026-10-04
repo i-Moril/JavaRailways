@@ -159,16 +159,15 @@ class ProtectionRegionInspectionSourceTest {
     }
 
     @Test
-    fun `known disabled successor omits only its normal authority floor`() {
+    fun `known disabled successor refuses the frozen crossing instead of omitting its floor`() {
         val block = FixedBlockDefinition("test:block/east", 1L,
             listOf(FixedBlockTraversal(east, ViewDirection.AB, 5.0, 10.0)))
         val captured = publication(listOf(block), directionPolicy =
             work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy())
         val source = ProtectionRegionInspectionSource { captured }.source
-        val declaration = source.bindingProvider.bind(InspectionBindingInput(stamp, "train", forwardRoute()))
-            .declarations.single()
-        assertEquals(25.0, declaration.minimumRequestedAuthorityEndRouteDistanceMeters,
-            "the region keeps its own crossing floor but must not acquire the disabled successor normally")
+        assertThrows(IllegalStateException::class.java) {
+            source.bindingProvider.bind(InspectionBindingInput(stamp, "train", forwardRoute()))
+        }
         assertEquals(listOf(block), captured.definitions.fixedBlocks)
     }
 

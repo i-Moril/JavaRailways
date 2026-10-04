@@ -1,2 +1,2 @@
-# Persistent ATO cap for a whole fixed block with a known operating-direction mismatch.
-disabled-block-speed-kmh: 20.0
+# Maximum shortest along-track distance from a newly placed protection boundary to its farthest interior point.
+protection-region-max-distance-meters: 1000.0

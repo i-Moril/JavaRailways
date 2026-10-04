@@ -16,6 +16,8 @@ Basic 判断这些轨道是否涉及已应用时刻表、列车占用或其他�
 ## 3. 内部机制
 
 按稳定 ID 比较各类旧、新定义，取得实际改变的 region、table、block、signal、indicator、attached signal。
+待补全保护边界也按 boundary ID 比较，只把实际新增、删除或移动边界的旧、新轨道加入影响；
+不能因整个 pending 列表被替换，就保护所有未改变的边界轨道。
 分别在旧 publication 和候选 publication 收集影响，最后取并集，覆盖删除、移动和依赖改绑。
 如果 topology root 已更新，还比较已有的区域内部、标准化 block traversal/长度、进路所需道岔连接和信号依赖路径。
 只把实际改变的派生值加入起点；排除 revision-local 标识与 callback 对象身份。
@@ -26,6 +28,7 @@ Basic 判断这些轨道是否涉及已应用时刻表、列车占用或其他�
   覆盖更新、删除和拓扑派生变化。
   新建 block 尚未被provider注册为可用身份，因此只提交旧、新轨道影响；不能把不存在的资源交给许可校验。
 - region/table 改变：包含相关区域边界、内部和进路；进路 section 与入口选择作为传播起点。
+  区域有未完成边界编辑时，同时包含原完整边界与当前 `boundaryDraft` 的轨道；旧区域范围继续用于禁行和修复。
 - region 与直接后继 block 互相影响准入 floor；变更 block 时不能遗漏前驱 region，变更 region/table 时不能遗漏直接后继 block。
   双向 block 将两个已归一化的真实入口按轨道建表；反向入口也按位置和朝向匹配 region cut，
   开关变化在旧、新 publication 分别收集。具体方向语义见[双向固定闭塞](bidirectional-fixed-block.md)。
@@ -108,7 +111,7 @@ Bad：B 是 A 的下游依赖，或 B 是 A 保护区域出口后的直接闭塞
 ## 10. 迁移、未决事项与 Wrong / Correct
 
 无需存档迁移、公共服务升级或 runtime compatibility adapter。
-玩家命令、Wand、inspect/dry-run UI 是后续批次，本批只修复共同事务入口。
+管理员命令与闭塞/保护区域 Wand 已复用共同事务入口；其他交互仍按各自合同推进。
 
 Wrong：把整份 old/new publication 的所有轨道作为许可范围；或者只保护编辑对象所在轨道。
 Correct：从实际改变的对象出发，在旧、新编译状态中沿结构依赖收集影响，再复用现有许可。

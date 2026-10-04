@@ -77,6 +77,8 @@ Current extraction progress:
     没有live Folia/客户端或大规模性能验证；整体Stage2继续进行，其他未提交内容不纳入本批。
 
 - [ ] 落实用户修订的统一失效策略：运营方向失配与结构失效均禁止 ATO 驶入，保留区间、进路及设备配置。
+  - 已完成：方向失配明确拒绝 ATO、删除旧低速配置/分支；区域边界编辑不完整时局部禁行并保留配置，补齐后逐条验证。
+  - 仍待完成：任意轨道结构编辑导致旧区域/闭塞失效后的自动局部更新与修复；不能据本批边界编辑结果勾选整个目标。
   删除 `disabled-block-speed-kmh` 和仅为低速降级存在的逻辑，不增加兼容策略；按实际调用清理相关接口。
   复用原有方向读取、变化通知、路线校验和资源生命周期；验证正反向、多轨道、无信号规则的闭塞均不能绕过拒绝，
   修复后恢复、旧占用不丢失、无关区间及手动驾驶不受影响。契约目标见[双向固定闭塞合同](../../spec/simple-signals/backend/bidirectional-fixed-block.md)。
@@ -187,7 +189,17 @@ Current extraction progress:
 - [ ] Finish the remaining editor integration through the common edit permit; guided authoring remains separate below.
   - [x] Existing SimpleSignals six-kind definition patches use the common permit, and the admin apply command already displays the original blocker kind, owner/revision and rail/node/resource overlap with bounded output. `SimpleSignalsWorldRuntimeManagerTest` covers exact diagnostic content and truncation; do not add another formatter or mark that command UI as unimplemented. Contract: [authoring commands](../../spec/simple-signals/backend/authoring-commands.md).
 - [ ] Add guided RailObjectWand interaction for create/edit/delete/inspect/validate; the admin JSON command workflow is complete above. Topology-format migration and its recovery points remain owned by the separate 09-24 migration task, not runtime command compatibility.
-  - 当前获批批次仅实现下面的独立道岔工具，具体边界见[实施说明](research/turnout-wand-batch.md)。信号规则预设/模板推迟，不预留实现。
+  - 独立道岔工具已提交。闭塞与保护区域 Wand 的已确定交互已完成本批离线验证，见[实施说明](research/section-wands-batch.md)；进路录制、信号机放置、测距及信号规则预设/模板推迟，不预留实现。
+  - [x] SimpleSignals 提供 `/simplesignals wand block|region [create|delete]`。闭塞两点/旧点接续、自动方向、禁止道岔，独立删除模式；区域有向边界、吸附、限定轨道距离的自动补全与原区域修复。
+    领域操作只生成已有 patch，复用 worker 保存、原子 publication/source 替换和 Basic 编辑许可。空/仅待补全边界不扫描整图；第一次实际区间编译产生的拓扑索引按 exact root 复用。
+    世界存档新增默认空 `pendingProtectionBoundaries` 和区域默认 null `boundaryDraft`，不升 schema、不增加兼容或派生图存档。未完成区域保留原认可边界作为局部禁行依据，进路表/设备配置不丢失。
+    修复时旧表逐条重验；失效进路或丢失下游目标的设备结果不可用。禁止规划、绑定和直接准入绕过缺口；方向失配同样明确拒绝，旧资源继续原车尾释放。
+    复核修复了待补全边界编辑范围包含无关点、相邻轨道共同端点的零长度到达和删除关联、补放边界恢复身份、外部编辑过期选点等问题。
+    最终离线 `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava` 成功，34 套 / 345 项测试实际执行，零失败/错误/跳过；生产/测试 Kotlin 和 JAR 实际重建，JAR 隔离通过，未变 Java consumer 复用编译缓存。
+    使用缓存 JDK 25 / Gradle 9.5，`--offline -x :WebUI:installFrontend -x :WebUI:buildFrontend`。证据：`SimpleSignals/build/test-results/test/TEST-*.xml` 与 HTML test report。
+    新工具 33 项测试包括真实 Core 轨道与可控玩家/worker 调度；后端测试组合真实 Basic registry、方向存储和释放。不是 live Folia、客户端画面或大规模延迟基准。
+    `git diff --check` 与 16 项 curated context 校验通过；原大型 index 超过注入长度上限的警告仍在，所需专题契约已单独列入 manifests。
+    使用说明与契约已同步；地面子模型、可视化、信号机/测距工具、进路录制仍未完成。本批未修改 Core/Basic/ATO/宿主生产代码，Stage2 不归档。
   - [x] 主插件提供独立道岔 Wand：`/jr wand turnout`，左键来向、右键出口，复用现有 `selectTurnout` 和实际占用/资源冲突结果。
     根据命中弧长选择较近端点，只接受当前拓扑中的合法连接；成功/拒绝后重新读真实双侧选择，以局部短暂粒子和消息反馈。
     复用既有异步选轨和玩家调度；取消、换工具、换世界或换拓扑后旧查询结果不能扳动道岔。

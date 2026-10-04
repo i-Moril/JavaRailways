@@ -72,9 +72,10 @@ Stable persisted `kind/type` values represent capabilities; Java/Kotlin class na
 
 ### Protection-region authoring and indexing
 
-已确认的 Wand 目标（尚未实现）：每次放置有向边界都自动从内侧尝试识别完整区域，
+当前边界 Wand 每次放置有向边界都自动从内侧尝试识别完整区域，
 不要求预先选中区域或进入修复模式。补全旧区域时通过保留的边界关系识别原区域，沿用其身份与配置；
-定义暂时不完整时保留配置并禁止 ATO 驶入，恢复须重新校验。用户交互和搜索上限要求见 PRD。
+定义暂时不完整时保留配置并禁止 ATO 驶入，恢复须重新校验。工作方式、作者状态与搜索上限见
+[工具契约](../../spec/simple-signals/backend/section-authoring-wands.md)。此批不声称完成任意轨道结构改坏后的自动局部修复。
 
 On create/update/load, the plugin captures one immutable `TopologyState` root, cuts directed traversal at every declared boundary and flood-fills from the explicitly selected interior side. It rejects an unbounded escape, multiple candidate interiors, invalid facing, missing rail positions and unsupported overlap before publishing the new definition snapshot.
 
@@ -267,10 +268,13 @@ during epoch processing. This completes the prerequisite for turnout-aware depen
 
 ### Rendering and customization
 
-用户已批准先做独立道岔 Wand，作为后续录制当前进路的操作前提；信号规则预设/模板暂时搁置。
+独立道岔 Wand 已完成，作为后续录制当前进路的操作前提；信号规则预设/模板暂时搁置。
 工具由 BukkitPlugin 负责，复用现有 `InfrastructureResourceService.selectTurnout`，不移动或复制 Basic 的安全切换逻辑。
-本批只选择来向和出口、显示真实连接及拒绝原因；完整区域通路预览、录制与其他建造工具分批实现。
+该批只选择来向和出口、显示真实连接及拒绝原因；完整区域通路预览与录制仍未实施。
 边界和验证见[道岔工具实施说明](research/turnout-wand-batch.md)。
+
+当前批次优先完成 SimpleSignals 自有的闭塞和保护区域 Wand，直接复用已有定义事务。
+独立信号机放置、测距和规则预设不作为这两个工具的前置条件，见[本批实施边界](research/section-wands-batch.md)。
 
 SimpleSignals 自己负责信号模型包、模型操作对象、RailObjectWand 模式、命令、权限，以及可选的 JS/YAML 配置。
 显示侧读取不可变的信号结果，只在外观或摆放状态变化时更新模型。显示绑定将通过已实现的通用公开接口复用主插件的模型系统，

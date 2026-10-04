@@ -27,7 +27,7 @@ internal fun signalWorldRuntime(worldId: UUID): SimpleSignalsWorldRuntime {
 }
 
 internal fun fixedBlockPolicy(plugin: Plugin, snapshotForWorld: (UUID) -> FixedBlockReadSnapshot?): FixedBlockRouteResourcePolicy =
-    FixedBlockRouteResourcePolicy(plugin, { world -> authoredDirectionPolicy { checkNotNull(snapshotForWorld(world)) } }, snapshotForWorld)
+    FixedBlockRouteResourcePolicy(plugin, { world -> authoredDirectionPolicy { checkNotNull(snapshotForWorld(world)) } }, snapshotForWorld = snapshotForWorld)
 
 internal fun fixedBlockInspectionSource(
     snapshot: () -> FixedBlockReadSnapshot,

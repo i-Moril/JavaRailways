@@ -49,7 +49,34 @@ Current extraction progress:
 
 ## Route and resource integration
 
-- [x] 方向一致性与低速降级修正，完成一个可独立审查的三模块批次：
+- [x] 轨道公共方向归属 Basic，未部署存档直接修正；实现和独立验证完成：
+  直接移动稀疏存储、中立读取值与通用方向限制转换；接通寻路、宿主 API、线路编辑/撤销、持久化和信号更新，删除旧 owner。
+  Basic infrastructure保持format2并新增默认空方向列表；SimpleATO删除字段后保持format1。
+  更新当前固定fixture，已有历史metadata转换只更正输出owner，不新增旧方向转换、兼容reader或中间版本测试。
+  不实施09-24文件发现/dry-run/apply/自动升级全流程。
+  旧已完成方向迁移记录仍属历史基线；新机制见[方向契约](../../spec/javarailways/basic/operating-directions.md)。
+  - `BasicWorldData.operatingDirections` 是唯一稀疏存储；`OperatingDirectionStore`、只读 `RailOperatingDirections`、
+    中立 `OperatingDirectionOverlay`、方向编辑换算和 `SavedOperatingDirectionV1` 迁入 Basic。
+    SimpleATO 的旧类、字段和方向存档列表直接删除。Basic 纯搜索器仍只接收显式输入，没有新增搜索、兼容别名或双写。
+  - 生产和隔离世界先创建已有 `SignalEpochRuntime`，构造 Basic store 时传入它的普通变化回调。
+    保留相同值 no-op、锁内原子子集/轨道替换与锁外通知，没有 Basic→SimpleATO/Bukkit imports、新总线、监听生命周期或逐 tick 轮询。
+    SimpleATO 寻路、初始方向、线路编辑/撤销与宿主信号读取全部使用 Basic；闭塞和手动控制机制不改。
+  - Basic restore 在写入任何 Basic 数据之前检查非法 UUID、重复解析后 UUID 和缺失轨道引用；capture 拒绝孤儿记录。
+    固定 current split JSON 验证方向只写 Basic、格式仍为2/1，Destination/Line/revision、Core 与三个 runtime payload 保持相等。
+    独立复核补3项宿主读值回归，覆盖缺项/多项/错拓扑、读取中换拓扑与世界重载；针对性24项通过，无需生产修复。
+  - 最终串行离线门禁：`:Basic:test :SimpleATO:test :BukkitPlugin:test :SimpleSignals:check`
+    `:BukkitPlugin:compileSignalApiConsumerJava :WebUI:compileJava :WebUI:test`，
+    排除`:WebUI:installFrontend`和`:WebUI:buildFrontend`，缓存JDK25/Gradle9.5，无下载或构建配置修改。
+    Basic63套/381项（380通过、1既有跳过），SimpleATO44套/334通过，BukkitPlugin82套/336通过，
+    SimpleSignals31套/306通过，WebUI4套/11通过；总计224套/1368项，1367通过、零失败和错误。
+    唯一跳过是基线已有的`PathFinderTest$FindPathLoop`灯泡线测试，`@Disabled`未改变。
+  - 最终BukkitPlugin tests和`verifyPluginJar`实际执行，其余未变输入复用此前通过结果；Java consumer此前实际编译、最终复用缓存。
+    JAR和`javap`证明宿主方法返回Basic方向值，Basic包含迁入类，SimpleATO无旧owner类，SimpleSignals不夹带宿主类。
+    独立复核无剩余问题；`git diff --check`和10项curated上下文校验通过。
+    日志：`Basic/build/operating-direction-review-focused.log`、`Basic/build/operating-direction-review-final-gate.log`。
+    没有live Folia/客户端或大规模性能验证；整体Stage2继续进行，其他未提交内容不纳入本批。
+
+- [x] 历史基线 `8ff013f6` 的方向一致性与低速降级修正，完成一个可独立审查的三模块批次；下述存储归属已由本次 Basic 方案替代，闭塞行为不变：
   - SimpleATO 仍唯一持有运营方向。宿主公开接口一次读取相关轨道的完整方向子集；中央写入只通知实际变化轨道，
     沿用信号 epoch 的合并集合与轨道兴趣索引，无变化和无关编辑不唤醒相关来源，不轮询所有闭塞。
   - SimpleSignals 检查闭塞的每段 authored facing：单向要求每段仅允许该方向，双向要求每段均允许两向。

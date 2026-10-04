@@ -9,7 +9,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 ## Confirmed facts
 
 - Stage 1 is complete and archived. It provides the Basic physical-resource floor, plugin-contributed resources, one claim/preparation/grant lifecycle, suffix extension, tail release, compiled inspection bindings, namespaced restrictive outputs, applied-plan edit dependencies and one owner-level unload gate.
-- `SimpleATO` owns its controller, mission/constraint policy, world coordinator/diagnostics, frozen-route/authority client, inspection runtime, signal epoch runtime, restriction adapter, timetable dispatcher, manual navigation and SimpleATO runtime snapshot. The legacy `AtoProvider` registry/boundary switching path has been deleted; signal extensions use inspection plus namespaced restrictive outputs. Destination, Station, Depot, Line, Timetable and rolling-stock assignment also belong to SimpleATO; remaining extraction work is platform adaptation and the operating-direction authoring/persistence seam.
+- `SimpleATO` owns its controller, mission/constraint policy, world coordinator/diagnostics, frozen-route/authority client, inspection runtime, signal epoch runtime, restriction adapter, timetable dispatcher, manual navigation and SimpleATO runtime snapshot. The legacy `AtoProvider` registry/boundary switching path has been deleted; signal extensions use inspection plus namespaced restrictive outputs. Destination, Station, Depot, Line, Timetable and rolling-stock assignment also belong to SimpleATO. Basic owns public rail operating-direction authoring/storage/persistence; SimpleATO consumes that configuration rather than retaining a second owner.
 - `SimpleATOBukkit` now exists as an independent Gradle source/test module embedded into the JavaRailways main plugin JAR. It is not a second deployable Bukkit plugin and has no separate descriptor, `JavaPlugin` lifecycle or internal service-discovery hop.
 - Basic's transitional protection-region catalog, graph-cut resolver, route window and old admission seam have been removed. SimpleSignals now owns the definitions, graph cut, catalog/index and route-window matcher; generic topology projection, resource identities, claims, preparation and release remain in Basic.
 - Basic derives a non-removable physical footprint and allows signal plugins only to add validated resources or stricter holds/restrictions.
@@ -23,7 +23,10 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 ### A. SimpleATO module extraction
 
-- Move the remaining automated operating policy, operating direction, Destination, Station, Depot, Line, Timetable, rolling-stock assignment, operational route planning, timetable apply state and their persistence into platform-neutral `SimpleATO`.
+- Move the remaining automated operating policy, Destination, Station, Depot, Line, Timetable, rolling-stock assignment, operational route planning, timetable apply state and their persistence into platform-neutral `SimpleATO`.
+- 用户已批准新的方向归属：轨道长期允许运行方向由 Basic 保存，SimpleATO 与信号插件读取，取代原先的 SimpleATO 所有权。
+  用户确认格式从未部署，直接修正当前存档，Basic保持2、SimpleATO保持1，不新增旧方向格式兼容或搬迁转换。
+  具体机制见[方向契约](../../spec/javarailways/basic/operating-directions.md)。
 - Keep generic longitudinal dynamics, train-actuation primitives and physical safety floors shared with manual driving in Basic; do not move them merely because SimpleATO consumes them.
 - Keep generic graph algorithms and physical/resource validation in Basic; do not move concrete signalling policy into SimpleATO.
 - Keep `SimpleATOBukkit` as the Bukkit/Paper adapter module for platform behavior specifically owned by SimpleATO, such as startup wiring and ATO diagnostics/presentation. `BukkitPlugin` directly constructs/calls it and embeds it in the main plugin JAR; there is one deployable JavaRailways plugin and one Bukkit lifecycle. Generic host rendering/Folia scheduling remains in `BukkitPlugin`, while each independent signal plugin owns its signal presentation and may consume a separately reviewed public host platform API if one is needed.
@@ -82,7 +85,7 @@ recorded in [the implementation checklist](implement.md); live Folia/client vali
 - Existing claims must not disappear because normal block control is disabled. Reuse the current
   edit guards and grant/tail-release lifecycle; do not introduce a second resource owner or an
   ad-hoc release-on-disable path.
-- Operating directions remain owned by SimpleATO. SimpleSignals needs a neutral public read/change
+- Public rail operating directions are owned by Basic. SimpleSignals uses the neutral public read/change
   seam rather than importing private world state, duplicating that policy, or polling all blocks every tick.
 - The low-speed fallback is configurable and defaults to 20 km/h. It must constrain travel
   inside the entire mismatched block, not merely require that speed at its entry or exit.
@@ -162,6 +165,9 @@ scope intentionally shares one result. These extension boundaries are recorded i
   not permit an `O(world)` rebuild or blocking I/O on the Paper/Folia owner thread.
 
 ## Acceptance criteria
+
+- [x] 轨道公共方向及其中立 API、通用转换和基础设施存档归 Basic；SimpleATO 不再保留方向存储或转发兼容别名。
+  寻路结果、闭塞方向判断、降级限速、编辑保护和手动行为不变，直接修正未部署当前存档，不升版、不新增方向兼容路径。
 
 - [ ] `SimpleATO` contains the platform-neutral operational stack and Basic has no production owner for the migrated state.
 - [ ] `SimpleATOBukkit` is a separate Gradle source/test module embedded in the JavaRailways main plugin JAR, has no independent Bukkit descriptor/lifecycle, and does not become the owner of any concrete signalling system.

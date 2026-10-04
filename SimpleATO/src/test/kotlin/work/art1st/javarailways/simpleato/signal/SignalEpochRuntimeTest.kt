@@ -49,7 +49,10 @@ class SignalEpochRuntimeTest {
             SignalEpochResult.empty()
         }
         val runtime = runtime(listOf(source("test:first", railId), source("test:other", other)))
-        val store = work.art1st.javarailways.simpleato.routing.OperatingDirectionStore(runtime::publishOperatingDirectionChanges)
+        val basicData = work.art1st.javarailways.basic.BasicWorldData(
+            operatingDirections = work.art1st.javarailways.basic.rail.OperatingDirectionStore(runtime::publishOperatingDirectionChanges)
+        )
+        val store = basicData.operatingDirections
         runtime.process(frame(1L, emptyList()))
         store.put(railId, ViewDirection.AB)
         store.put(railId, ViewDirection.BA)

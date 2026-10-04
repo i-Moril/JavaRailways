@@ -2,6 +2,7 @@ package work.art1st.javarailways.simpleato.persistence
 
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -14,6 +15,8 @@ import work.art1st.javarailways.simpleato.api.depot.DepotStablingPoint
 import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotCodec
 import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
@@ -54,7 +57,11 @@ class SimpleATOInfrastructureSnapshotTest {
         val sourceRail = requireNotNull(source.getRail(
             source.simpleAtoWorldData.destinations["central@one"]!!.railId
         ))
-        source.simpleAtoWorldData.operatingDirections.put(sourceRail.id, ViewDirection.BA)
+        source.basicWorldData.operatingDirections.put(sourceRail.id, ViewDirection.BA)
+        val basicSnapshot = BasicInfrastructureSnapshotCodec.decode(BasicInfrastructureSnapshotCodec.encode(
+            BasicInfrastructureSnapshotV2.capture(source, 7L,
+                source.simpleAtoWorldData.destinations.all().mapTo(HashSet()) { it.id })
+        ))
 
         val snapshot = SimpleATOInfrastructureSnapshotCodec.decode(
             SimpleATOInfrastructureSnapshotCodec.encode(
@@ -65,12 +72,16 @@ class SimpleATOInfrastructureSnapshotTest {
         TestSimpleATOWorldDataRegistry.getOrCreate(restored)
         sourceRail.save().load(CoreRail.SavedRailV1.Dependency(restored))
 
+        basicSnapshot.restore(restored)
         snapshot.restore(restored)
 
         val restoredLines = restored.simpleAtoWorldData.lines.snapshot()
         assertEquals(7L, snapshot.infrastructureRevision)
+        assertEquals(2, basicSnapshot.formatVersion)
+        assertEquals(1, snapshot.formatVersion)
+        assertFalse(SimpleATOInfrastructureSnapshotCodec.encode(snapshot).contains("operatingDirections"))
         assertEquals(1L, restoredLines.revision)
-        assertEquals(ViewDirection.BA, restored.simpleAtoWorldData.operatingDirections[sourceRail.id])
+        assertEquals(ViewDirection.BA, restored.basicWorldData.operatingDirections[sourceRail.id])
         assertEquals(setOf("central@one", "south@one"),
             restored.simpleAtoWorldData.destinations.all().map { it.id }.toSet())
         assertEquals(setOf("central", "south"),
@@ -96,7 +107,6 @@ class SimpleATOInfrastructureSnapshotTest {
         val snapshot = SimpleATOInfrastructureSnapshotV1(
             formatVersion = SimpleATOInfrastructureSnapshotV1.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 1L,
-            operatingDirections = emptyList(),
             destinations = listOf(SavedOperationalDestinationV1.capture(
                 berth("central", 20.0, rail.id)
             )),
@@ -128,7 +138,6 @@ class SimpleATOInfrastructureSnapshotTest {
         val snapshot = SimpleATOInfrastructureSnapshotV1(
             formatVersion = SimpleATOInfrastructureSnapshotV1.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 1L,
-            operatingDirections = emptyList(),
             destinations = emptyList(),
             lines = emptyList(),
             lineRevision = 0L

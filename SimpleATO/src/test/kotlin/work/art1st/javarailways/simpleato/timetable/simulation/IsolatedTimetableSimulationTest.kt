@@ -190,12 +190,11 @@ class IsolatedTimetableSimulationTest {
                 revision,
                 emptyList(),
                 emptyList(),
-                emptyList(),
                 0L
             ),
             workerThreads = 2,
-            basicDataFactory = {
-                BasicWorldData()
+            basicDataFactory = { _, directionChanges ->
+                BasicWorldData(operatingDirections = work.art1st.javarailways.basic.rail.OperatingDirectionStore(directionChanges))
             },
             dispatcherFactory = {
                     _, routeAdmissionContextProvider, signalRestrictions, inspectionRuntime, infrastructureDependencyService ->

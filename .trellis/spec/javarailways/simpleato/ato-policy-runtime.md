@@ -10,8 +10,8 @@ SimpleATO是ATO mission、constraint与world Stall诊断的唯一owner。它拥�
 
 一次正常流程是：serialized owner解析WayPoint mission并生成完整legs → revision queue在physics boundary激活 → controller用一次
 route/perception scan生成车辆、停车、跟车、授权与外部restriction constraints → `MinimumConstraintPlanner`取最严格速度 → Basic actuator
-执行物理运动 → 成功epoch原子publication。resolver通过SimpleATO的`OperationalRoutePlanner`捕获一次不可变拓扑，合成运营方向与
-已注册的寻路限制，再调用一次Basic的拓扑寻路算法；SimpleATO负责目标、方向、mission连续性和选择结果，Basic算法不成为运营状态owner。
+执行物理运动 → 成功epoch原子publication。resolver通过SimpleATO的`OperationalRoutePlanner`捕获一次不可变拓扑，读取 Basic 公共轨道方向并合成
+已注册的寻路限制，再调用一次Basic的拓扑寻路算法；SimpleATO负责目标、车次行驶方向、mission连续性和选择结果，Basic算法不成为运营状态owner。
 
 ## World Stall与共享物理interlock
 

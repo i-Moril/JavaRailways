@@ -2,10 +2,10 @@
 
 ## 范围与 owner
 
-`SimpleATOInfrastructureSnapshotV1` 是 SimpleATO 第一个独立 infrastructure 持久化边界，保存稀疏的
-rail UUID→唯一许可`ViewDirection`、canonical Destination definitions、Line definitions 与`lineRevision`。
-缺少方向记录表示AB/BA都许可。它与最终 Basic infrastructure format 2 一起构成一次 ownership extraction；
-该独立边界从 V1 开始。
+`SimpleATOInfrastructureSnapshotV1` 是 SimpleATO 第一个独立 infrastructure 持久化边界，保存
+canonical Destination definitions、Line definitions 与`lineRevision`。
+轨道公共运行方向由 Basic 独立保存，SimpleATO document 不包含方向列表。
+它与最终 Basic infrastructure format 2 一起构成一次 ownership extraction；该独立边界从 V1 开始。
 Station、StationBerth、Depot stabling point和Basic WayPoint都是从Destination role原子materialize的投影，
 不单独持久化为第二个owner。Line 的业务 JSON shape沿用`SavedLineV1`，Destination沿用
 `SavedOperationalDestinationV1`。
@@ -48,12 +48,16 @@ ticket、队列或 controller。
 
 基础设施 migration boundary 只接受最后一个真实 source：outer `InfrastructureFileV1` +
 `BasicInfrastructureSnapshotV1`，其中没有 SimpleATO infrastructure document；它直接输出最终 V2/V2/V1 pair，
-一次迁移 Destination、Line 与 `allowedDirection`。如果 source Core 仍为 format 1，纯转换器也会把其嵌入 rail
+一次将 Destination、Line 交给 SimpleATO，将 `allowedDirection` 输出到 Basic 的稀疏方向列表。如果 source Core 仍为 format 1，纯转换器也会把其嵌入 rail
 metadata 拆到相同最终 owners；Core 与 Basic 同时声明 metadata 时拒绝，不猜测合并。
 
 当前只实现纯内存转换和 current target 严格复验；文件发现、dry-run、恢复点和 apply orchestration 属于独立
 09-24 世界格式迁移任务，不能由 runtime loader 或临时 Bukkit command 代替。不得加入 runtime fallback、nullable
 Dispatcher、双写或业务层版本分支。
+
+用户明确当前方向字段开发稿从未部署。本次删除 SimpleATO 中的方向列表并直接修正其 current fixture，
+仍保持 format 1；Basic format 2 增加默认空列表。正常 reader 不读取旧 SimpleATO 方向字段，
+不新增该未部署字段的迁移、兼容测试或 schema version。已有历史纯转换器只修正最终输出归属。
 
 外层`RuntimeFileV2`的root fields未改变，因此 ownership extraction 不升级 outer runtime；Basic runtime 的字段删除
 升级其最小边界，SimpleATO runtime 的默认空列表是同 V1 的兼容新增。旧 outer runtime V2 中 Basic V2 的

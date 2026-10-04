@@ -93,8 +93,8 @@ host复用本epoch已经建立的live train ID集合；成员变化时按缓存�
 
 selection revision未变时continuation检查为`O(1)`；变化时比较`W`个已注册entry并只为实际变化的entry构造update，成本`O(W)`。这不扫描Core的全部turnout ports，也不把物理分支语义放入SimpleATO。
 
-运营方向仍由 `OperatingDirectionStore` 唯一持有。中央写入点在释放存储锁后调用
-`publishOperatingDirectionChanges(railIds)`；相同值写入不通知。runtime 仅用短锁合并尚未消费的轨道 ID，
+公共运营方向由 Basic 的 `OperatingDirectionStore` 唯一持有。世界组合层将该存储的普通变化回调接到既有
+`publishOperatingDirectionChanges(railIds)`，Basic 不依赖本运行时；中央写入点在释放存储锁后通知，相同值写入不通知。runtime 仅用短锁合并尚未消费的轨道 ID，
 不保存每一次中间值或重放历史修改。每个 epoch 取出这一集合，通过候选安装时编译的
 `rail UUID → source IDs` 索引分发，再与该来源的占用、道岔和准入变化合并成一次回调。
 插件读取相关轨道时必须取得一次完整方向子集，不能逐段读取并拼成跨写入状态。

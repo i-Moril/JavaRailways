@@ -138,9 +138,12 @@ internal class IsolatedTimetableSimulationFactory(
             snapshot.basicInfrastructure,
             snapshot.simpleAtoInfrastructure,
             workerThreads,
-            basicDataFactory = { world ->
+            basicDataFactory = { world, directionChanges ->
                 world.tickManager.register(operationGateway)
-                BasicWorldData(turnoutSafetyDefaults = snapshot.turnoutSafetyDefaults)
+                BasicWorldData(
+                    turnoutSafetyDefaults = snapshot.turnoutSafetyDefaults,
+                    operatingDirections = work.art1st.javarailways.basic.rail.OperatingDirectionStore(directionChanges)
+                )
             },
             timetableExtensions = snapshot.timetableExtensions,
             dispatcherFactory = {

@@ -13,12 +13,15 @@ data class BasicInfrastructureSnapshotV2(
     val formatVersion: Int,
     val infrastructureRevision: Long,
     val wayPoints: List<SavedWayPointV1>,
-    val railMetadata: List<SavedRailInfrastructureMetadataV1> = emptyList()
+    val railMetadata: List<SavedRailInfrastructureMetadataV1> = emptyList(),
+    val operatingDirections: List<SavedOperatingDirectionV1> = emptyList()
 )
 ```
 
 Infrastructure format 2 是相对最后一个真实 Basic format 1 的一次 breaking transition：Destination/Line 被迁到
-SimpleATO 的第一个 infrastructure document，`allowedDirection`也从 Basic rail metadata 移到 SimpleATO。
+SimpleATO 的第一个 infrastructure document，旧 metadata 中的 `allowedDirection` 改由 Basic 独立稀疏方向列表保存。
+用户已明确这一开发稿从未部署，因此本次直接修正归属：Basic 保持 format 2，SimpleATO 保持 format 1 并删除方向字段。
+Basic 新列表有空列表默认值；不增加读取旧 SimpleATO 方向字段、搬迁转换或双写兼容。
 
 Runtime `BasicRuntimeSnapshotV3(formatVersion=3,infrastructureRevision,physicsEpoch)`只保留 split pairing 需要的
 revision/epoch，不包含运营 ledger、Timetable 或 Dispatcher。最后一个真实 Basic runtime format 2 同时保存
@@ -47,7 +50,7 @@ owners。正常 codec 只读取 current document。
 strict decode current
 → prevalidate all duplicate identities、cross-store collisions、rail/station/point/provider refs
 → require fresh target
-→ materialize Basic standalone WayPoints/metadata
+→ materialize Basic standalone WayPoints/metadata/public operating directions
 → materialize canonical SimpleATO Destinations及其Station/Depot/WayPoint投影
 → validate Line StationId references and materialize SimpleATO Lines
 → materialize SimpleATO RollingStock
@@ -62,6 +65,7 @@ strict decode current
 | unsupported/future/unknown field/invalid JSON | fail-fast | untouched |
 | orphan waypoint/metadata rail | fail before materialize | fresh |
 | duplicate waypoint/metadata或cross-store ID | fail before materialize | fresh |
+| 方向记录非法UUID、重复rail或指向缺失轨道 | fail before any Basic materialize | fresh |
 | SimpleATO Destination orphan/collision或Line missing Station | fail prevalidation | fresh SimpleATO stores与Basic投影 |
 | runtime duplicate train/orphan point | fail prevalidation | fresh |
 | Core/Basic/SimpleATO pair mismatch | outer load拒绝 | 不选partial file |
@@ -83,6 +87,11 @@ BasicInfrastructureSnapshotV2.capture(
 ```
 
 Basic只接受待排除的通用derived WayPoint identity，不查询或拥有Destination；SimpleATO snapshot单独保存canonical Destination。这保证operational stop不会以两份权威记录重复落盘。
+
+`SavedOperatingDirectionV1` 只保存轨道 UUID 和唯一许可 `ViewDirection`；没有记录表示两向许可。
+capture 从 `BasicWorldData.operatingDirections` 取得稀疏快照并拒绝孤儿记录。
+restore 在写入任何 WayPoint、metadata 或方向之前完整验证全部记录，再恢复到空方向存储；
+具体存储与通知机制见[轨道公共运行方向](./operating-directions.md)。
 
 ## 禁止实现
 

@@ -3080,7 +3080,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
                 "operatingDirections" -> {
                     @Suppress("UNCHECKED_CAST")
                     val rails = arguments!![2] as Collection<UUID>
-                    work.art1st.javarailways.simpleato.api.route.RailOperatingDirections(
+                    work.art1st.javarailways.basic.api.route.RailOperatingDirections(
                         arguments[1] as TopologyState, rails.associateWith { ViewDirection.AB })
                 }
                 "acquireEditPermit" -> {

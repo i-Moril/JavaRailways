@@ -212,7 +212,8 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         );
         services.observations().latest(worldId).ifPresent(observation -> {
             var topology = services.infrastructure().currentTopology(worldId);
-            var directionSubset = services.infrastructure().operatingDirections(worldId, topology, List.of());
+            work.art1st.javarailways.basic.api.route.RailOperatingDirections directionSubset =
+                services.infrastructure().operatingDirections(worldId, topology, List.of());
             directionSubset.getDirections(); // null facing means both; no host implementation imports
             if (topology.getRevision() != observation.getStamp().getTopologyRevision()) {
                 throw new IllegalStateException("Observation and topology root are not coherent");

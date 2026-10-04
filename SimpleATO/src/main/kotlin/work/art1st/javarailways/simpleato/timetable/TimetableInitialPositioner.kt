@@ -108,7 +108,7 @@ class TimetableInitialPositioner(private val world: World) {
         val rail = world.getRail(wayPoint.railId) as? CoreRail
             ?: error("waypoint ${wayPoint.id} references missing rail ${wayPoint.railId}")
         val direction = world.simpleAtoWorldData.destinations[wayPoint.id]?.approachDirection
-            ?: world.simpleAtoWorldData.operatingDirections[rail.id]
+            ?: world.basicWorldData.operatingDirections[rail.id]
             ?: ViewDirection.AB
         val arcInView = when (direction) {
             ViewDirection.AB -> wayPoint.arcLength

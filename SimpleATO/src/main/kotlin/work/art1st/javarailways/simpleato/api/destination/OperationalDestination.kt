@@ -440,7 +440,7 @@ class OperationalDestinationService(private val world: World) {
     ) {
         val rail = requireNotNull(world.getRail(destination.railId))
         val placementDirection = destination.approachDirection
-            ?: data.operatingDirections[rail.id]
+            ?: basicData.operatingDirections[rail.id]
             ?: ViewDirection.AB
         val view = rail.getView(placementDirection)
         val arcInView = when (placementDirection) {

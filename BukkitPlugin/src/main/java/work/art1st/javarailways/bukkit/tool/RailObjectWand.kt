@@ -23,7 +23,7 @@ import org.joml.Vector3d
 import org.joml.Vector3dc
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
-import work.art1st.javarailways.simpleato.routing.DirectionRestrictionResolver
+import work.art1st.javarailways.basic.rail.DirectionRestrictionResolver
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.DestinationRoleType
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
@@ -644,7 +644,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                     livePlayer.sendActionBar(Component.text("轨道已变化，请重试", NamedTextColor.RED))
                     return@supply
                 }
-                val directions = liveWorld.simpleAtoWorldData.operatingDirections
+                val directions = liveWorld.basicWorldData.operatingDirections
                 if (delete) {
                     if (directions[rail.id] == null) {
                         livePlayer.sendActionBar(Component.text("该轨道没有方向限制", NamedTextColor.GRAY))
@@ -716,7 +716,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             return
         }
         val coreWorld = getCoreWorld(player) ?: return
-        val directions = coreWorld.simpleAtoWorldData.operatingDirections
+        val directions = coreWorld.basicWorldData.operatingDirections
         val playerPosition = Vector3d(player.location.x, player.location.y, player.location.z)
         val previousVisible = visibleDirectionRails.getOrPut(player.uniqueId) { mutableSetOf() }
         val candidates = coreWorld.allRails.mapNotNull { rail ->

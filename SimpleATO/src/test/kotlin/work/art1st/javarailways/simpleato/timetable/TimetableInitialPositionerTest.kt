@@ -34,7 +34,7 @@ class TimetableInitialPositionerTest {
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
         )
-        world.simpleAtoWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
+        world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
         val train = createTrainWithConfig("uuid-1", rail, world, listOf(8.0), isLoop = false)
         world.renameTrain(train, "s100-1")
         world.basicWorldData.wayPoints.add(WayPoint("yard@1", "Yard 1", rail.id, 70.0))
@@ -72,7 +72,7 @@ class TimetableInitialPositionerTest {
             world,
             PrimeCurveGenerator.buildStraight(240.0, segmentCount = 1)
         )
-        world.simpleAtoWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
+        world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
         val first = createTrainWithConfig("uuid-1", rail, world, listOf(8.0), isLoop = false)
         val second = createTrainWithConfig("uuid-2", rail, world, listOf(8.0), isLoop = false)
         world.renameTrain(first, "s100-1")
@@ -120,7 +120,7 @@ class TimetableInitialPositionerTest {
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
         )
-        world.simpleAtoWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
+        world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
         val train = createTrainWithConfig("uuid-1", rail, world, listOf(8.0), isLoop = false)
         world.renameTrain(train, "s100-1")
         train.setController(object : TrainController(train, world) {})

@@ -158,7 +158,7 @@ class DefaultInfrastructureResourceServiceTest {
         val first = UUID.randomUUID()
         val second = UUID.randomUUID()
         val topology = buildTestTopology(7L, listOf(TestTopologyRail(first, 100.0), TestTopologyRail(second, 100.0)), emptyMap())
-        val store = work.art1st.javarailways.simpleato.routing.OperatingDirectionStore()
+        val store = work.art1st.javarailways.basic.rail.OperatingDirectionStore()
         var calls = 0
         service.registerWorld(worldId, { topology }, operatingDirections = { root, rails ->
             calls++
@@ -178,6 +178,81 @@ class DefaultInfrastructureResourceServiceTest {
         service.removeWorld(worldId)
         assertThrows(IllegalStateException::class.java) { service.operatingDirections(worldId, topology, listOf(first)) }
         service.close()
+    }
+
+    @Test
+    fun `direction read rejects incomplete extra and wrong-root provider subsets`() {
+        val service = DefaultInfrastructureResourceService()
+        val worldId = UUID.randomUUID()
+        val rails = List(3) { UUID.randomUUID() }
+        val topologyRails = rails.map { TestTopologyRail(it, 100.0) }
+        val topology = buildTestTopology(7L, topologyRails, emptyMap())
+        val otherRoot = buildTestTopology(7L, topologyRails, emptyMap())
+        val requested = rails.take(2)
+        val subsets = listOf(
+            work.art1st.javarailways.basic.api.route.RailOperatingDirections(topology, mapOf(rails[0] to null)),
+            work.art1st.javarailways.basic.api.route.RailOperatingDirections(topology, rails.associateWith { null }),
+            work.art1st.javarailways.basic.api.route.RailOperatingDirections(otherRoot, requested.associateWith { null })
+        )
+        var subset = subsets.first()
+        service.registerWorld(worldId, { topology }, operatingDirections = { _, _ -> subset }) { false }
+        try {
+            for (invalid in subsets) {
+                subset = invalid
+                assertThrows(IllegalStateException::class.java) {
+                    service.operatingDirections(worldId, topology, requested)
+                }
+                assertSame(topology, service.currentTopology(worldId))
+            }
+        } finally {
+            service.close()
+        }
+    }
+
+    @Test
+    fun `direction read rejects topology replacement during its store read`() {
+        val service = DefaultInfrastructureResourceService()
+        val worldId = UUID.randomUUID()
+        val railId = UUID.randomUUID()
+        val rails = listOf(TestTopologyRail(railId, 100.0))
+        val topology = buildTestTopology(7L, rails, emptyMap())
+        val replacement = buildTestTopology(8L, rails, emptyMap())
+        var current = topology
+        val store = work.art1st.javarailways.basic.rail.OperatingDirectionStore()
+        service.registerWorld(worldId, { current }, operatingDirections = { root, requested ->
+            store.snapshot(root, requested).also { current = replacement }
+        }) { false }
+        try {
+            assertThrows(IllegalStateException::class.java) {
+                service.operatingDirections(worldId, topology, listOf(railId))
+            }
+            assertSame(replacement, service.currentTopology(worldId))
+        } finally {
+            service.close()
+        }
+    }
+
+    @Test
+    fun `direction read rejects a reloaded world binding even with the same topology root`() {
+        val service = DefaultInfrastructureResourceService()
+        val worldId = UUID.randomUUID()
+        val railId = UUID.randomUUID()
+        val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
+        val store = work.art1st.javarailways.basic.rail.OperatingDirectionStore()
+        service.registerWorld(worldId, { topology }, operatingDirections = { root, requested ->
+            store.snapshot(root, requested).also {
+                service.removeWorld(worldId)
+                service.registerWorld(worldId, { topology }, operatingDirections = store::snapshot) { false }
+            }
+        }) { false }
+        try {
+            assertThrows(IllegalStateException::class.java) {
+                service.operatingDirections(worldId, topology, listOf(railId))
+            }
+            assertSame(topology, service.currentTopology(worldId))
+        } finally {
+            service.close()
+        }
     }
 
     @Test

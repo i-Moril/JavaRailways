@@ -3,7 +3,7 @@
 新增代码/API 前快速检查：
 
 - [ ] `rg` 搜索相似类名、函数名、配置 key、JSON 字段和错误消息。
-- [ ] 逻辑 owner 是否正确：physics → Core，运营/时刻表 → Basic，Paper/Folia → Bukkit，HTTP → WebUI backend，编辑投影 → frontend。
+- [ ] 逻辑 owner 是否正确：physics → Core，公共线路配置/通用资源 → Basic，运营/时刻表 → SimpleATO，具体信号规则 → 信号插件，Paper/Folia → Bukkit，HTTP → WebUI backend，编辑投影 → frontend。
 - [ ] 非 Core consumer 是否可使用 `core.api`/`basic.api`；缺能力时扩展最小 API，而不是导入 internal。
 - [ ] add-on 是否可通过 `bukkit.api` service 获取能力，而不是复制主插件实现。
 - [ ] 重复的是业务规则还是仅语法；只有共享 owner 清晰、存在多 consumer 或逻辑易错时才抽象。

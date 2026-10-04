@@ -217,7 +217,7 @@ class IsolatedTimetableSimulationWorld private constructor(
             basicInfrastructure: BasicInfrastructureSnapshotV2,
             simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV1,
             workerThreads: Int,
-            basicDataFactory: (CoreWorld) -> BasicWorldData,
+            basicDataFactory: (CoreWorld, (Set<java.util.UUID>) -> Unit) -> BasicWorldData,
             timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
             dispatcherFactory: (
                 CoreWorld,
@@ -257,16 +257,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                             physics
                         )
                     ).also { isolatedWorld ->
-                        val basicData = basicDataFactory(isolatedWorld)
-                        isolatedWorld.registerExtensionData(BasicPlugin.INSTANCE, basicData)
-                        basicInfrastructure.restore(isolatedWorld)
-                        val atoCoordinator = AtoWorldCoordinator(
-                            worldId = "isolated",
-                            safetyInterlock = basicData.safetyInterlock
-                        )
-                        val admission = IsolatedRouteAdmissionHost(isolatedWorld, atoCoordinator)
-                        routeAdmissionHost = admission
-                        val worldId = atoCoordinator.worldId
+                        val worldId = "isolated"
                         val signalRestrictions = TrainRestrictionSnapshotStore(worldId)
                         val inspectionRuntime = InspectionRuntime(signalRestrictions) { _, _, _ -> }
                         val signalEpochRuntime = SignalEpochRuntime(
@@ -275,6 +266,15 @@ class IsolatedTimetableSimulationWorld private constructor(
                             completeEpoch = signalRestrictions::completeEpoch,
                             invalidateInspectionDeclarations = inspectionRuntime::markDirty
                         )
+                        val basicData = basicDataFactory(isolatedWorld, signalEpochRuntime::publishOperatingDirectionChanges)
+                        isolatedWorld.registerExtensionData(BasicPlugin.INSTANCE, basicData)
+                        basicInfrastructure.restore(isolatedWorld)
+                        val atoCoordinator = AtoWorldCoordinator(
+                            worldId = worldId,
+                            safetyInterlock = basicData.safetyInterlock
+                        )
+                        val admission = IsolatedRouteAdmissionHost(isolatedWorld, atoCoordinator)
+                        routeAdmissionHost = admission
                         physics.registerRailwayEpochProcessor(signalEpochRuntime)
                         isolatedWorld.registerExtensionData(
                             SimpleATOPlugin.INSTANCE,

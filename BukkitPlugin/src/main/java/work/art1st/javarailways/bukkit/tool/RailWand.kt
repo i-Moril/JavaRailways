@@ -3759,12 +3759,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             val oldForRole = oldLane.firstOrNull {
                                 it.metadata.assembly?.role == newRail.metadata.assembly?.role
                             } ?: oldLane[minOf(segmentIndex, oldLane.lastIndex)]
-                            liveWorld.simpleAtoWorldData.operatingDirections[oldForRole.id]?.let {
+                            liveWorld.basicWorldData.operatingDirections[oldForRole.id]?.let {
                                 newRail.id to it
                             }
                         }
                     }.toMap()
-                    liveWorld.simpleAtoWorldData.operatingDirections.replaceRails(
+                    liveWorld.basicWorldData.operatingDirections.replaceRails(
                         removedRailIds = oldIds,
                         replacementDirections = replacementDirections
                     )
@@ -4352,7 +4352,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                                 undo.metadataRemovals,
                                 undo.metadataAdditions
                             )
-                            liveWorld.simpleAtoWorldData.operatingDirections.run {
+                            liveWorld.basicWorldData.operatingDirections.run {
                                 val inherited = this[railId]
                                 replaceRails(
                                     removedRailIds = listOf(railId),
@@ -4583,7 +4583,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             ))
                     return@supply
                 }
-                val operatingDirections = liveWorld.simpleAtoWorldData.operatingDirections
+                val operatingDirections = liveWorld.basicWorldData.operatingDirections
                 val beforeDirection = operatingDirections[livePair.first.id]
                 val afterDirection = operatingDirections[livePair.second.id]
                 if (beforeDirection != afterDirection) {
@@ -4884,7 +4884,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             RailVisualBootstrap.unregisterRail(railId)
             RailRenderMetaStore.removeRail(player.world, railId)
             coreWorld.basicWorldData.railMetadata.remove(railId)
-            coreWorld.simpleAtoWorldData.operatingDirections.put(railId, null)
+            coreWorld.basicWorldData.operatingDirections.put(railId, null)
             refreshAllAnchorsForPlayer(player)
             player.sendActionBar(RailWandI18n.component(
                 player,
@@ -4964,7 +4964,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             coreWorld.removeRail(target)
                             coreWorld.basicWorldData.railMetadata.remove(target.id)
                         }
-                        coreWorld.simpleAtoWorldData.operatingDirections.replaceRails(targetIds, emptyMap())
+                        coreWorld.basicWorldData.operatingDirections.replaceRails(targetIds, emptyMap())
                         undo.publishRenderSidecar()
                         val liveState = getState(livePlayer)
                         liveState.selectedRails.removeAll(targetIds)
@@ -5603,14 +5603,14 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         rails = normalizeRailWandUndoRails(rails).sortedBy { it.id },
         renderMetas = renderMetas.sortedBy { it.railId.toString() },
         railMetadata = railMetadata.toSortedMap(compareBy(UUID::toString)),
-        operatingDirections = coreWorld.simpleAtoWorldData.operatingDirections.entries()
+        operatingDirections = coreWorld.basicWorldData.operatingDirections.entries()
             .toSortedMap(compareBy(UUID::toString)),
         destinations = coreWorld.simpleAtoWorldData.destinations.all(),
         wayPoints = coreWorld.basicWorldData.wayPoints.all()
     )
 
     private fun migrateOperatingDirections(coreWorld: CoreWorld, oldToNew: Map<UUID, UUID>) {
-        val store = coreWorld.simpleAtoWorldData.operatingDirections
+        val store = coreWorld.basicWorldData.operatingDirections
         val grouped = oldToNew.entries.mapNotNull { (oldId, newId) ->
             store[oldId]?.let { newId to it }
         }.groupBy({ it.first }, { it.second })
@@ -5628,7 +5628,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         coreWorld: CoreWorld,
         target: Map<UUID, ViewDirection>
     ) {
-        val store = coreWorld.simpleAtoWorldData.operatingDirections
+        val store = coreWorld.basicWorldData.operatingDirections
         val current = store.entries()
         store.replaceRails(
             removedRailIds = current.keys + target.keys,
@@ -6018,10 +6018,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 removals = changedMetadataIds,
                 additions = target.railMetadata.filterKeys { it in changedMetadataIds }
             )
-            val currentDirections = coreWorld.simpleAtoWorldData.operatingDirections.entries()
+            val currentDirections = coreWorld.basicWorldData.operatingDirections.entries()
             val changedDirectionIds = (currentDirections.keys + target.operatingDirections.keys)
                 .filterTo(linkedSetOf()) { currentDirections[it] != target.operatingDirections[it] }
-            coreWorld.simpleAtoWorldData.operatingDirections.replaceRails(
+            coreWorld.basicWorldData.operatingDirections.replaceRails(
                 removedRailIds = changedDirectionIds,
                 replacementDirections = target.operatingDirections.filterKeys { it in changedDirectionIds }
             )

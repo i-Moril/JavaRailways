@@ -1,4 +1,4 @@
-package work.art1st.javarailways.simpleato.api.route
+package work.art1st.javarailways.basic.api.route
 
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState

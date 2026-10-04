@@ -29,7 +29,8 @@ class RailInfrastructureMetadataMigrationTest {
         assertEquals(listOf("standalone"), basic.wayPoints.map { it.id })
         assertEquals(30.0, basic.railMetadata.single().metadata.designSpeedMetersPerSecond)
         assertEquals(null, basic.railMetadata.single().metadata.operating.turnoutAtA)
-        assertEquals(ViewDirection.AB, simpleAto.operatingDirections.single().permittedDirection)
+        assertEquals(ViewDirection.AB, basic.operatingDirections.single().permittedDirection)
+        assertFalse(migrated.file.simpleAtoSnapshotJson.contains("operatingDirections"))
         assertEquals(listOf("central"), simpleAto.destinations.map { it.id })
         assertEquals(listOf("main"), simpleAto.lines.map { it.id })
         assertEquals(4L, simpleAto.lineRevision)
@@ -42,11 +43,10 @@ class RailInfrastructureMetadataMigrationTest {
             outerV1(legacyCoreWithMetadata(), legacyBasicWithoutMetadata())
         )
         val basic = BasicInfrastructureSnapshotCodec.decode(migrated.file.basicSnapshotJson)
-        val simpleAto = SimpleATOInfrastructureSnapshotCodec.decode(migrated.file.simpleAtoSnapshotJson)
 
         assertFalse(migrated.file.coreSnapshotJson.contains("\"metadata\""))
         assertEquals(20.0, basic.railMetadata.single().metadata.speedLimitMetersPerSecond)
-        assertEquals(ViewDirection.BA, simpleAto.operatingDirections.single().permittedDirection)
+        assertEquals(ViewDirection.BA, basic.operatingDirections.single().permittedDirection)
     }
 
     @Test

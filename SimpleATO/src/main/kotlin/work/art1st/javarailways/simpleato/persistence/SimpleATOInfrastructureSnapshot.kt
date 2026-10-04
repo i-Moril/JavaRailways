@@ -126,25 +126,11 @@ data class SavedLineV1(
     }
 }
 
-@Serializable
-data class SavedOperatingDirectionV1(
-    val railId: String,
-    val permittedDirection: ViewDirection
-) {
-    fun parsedRailId(): UUID = UUID.fromString(railId)
-
-    companion object {
-        fun capture(railId: UUID, direction: ViewDirection): SavedOperatingDirectionV1 =
-            SavedOperatingDirectionV1(railId.toString(), direction)
-    }
-}
-
 /** SimpleATO-owned operational destinations and lines restored after Basic infrastructure. */
 @Serializable
 data class SimpleATOInfrastructureSnapshotV1(
     val formatVersion: Int,
     val infrastructureRevision: Long,
-    val operatingDirections: List<SavedOperatingDirectionV1>,
     val destinations: List<SavedOperationalDestinationV1>,
     val lines: List<SavedLineV1>,
     val lineRevision: Long
@@ -155,15 +141,6 @@ data class SimpleATOInfrastructureSnapshotV1(
         }
         val restoredDestinations = destinations.map(SavedOperationalDestinationV1::restore)
         val restoredLines = lines.map(SavedLineV1::restore)
-        val duplicateDirectionRails = operatingDirections.groupingBy(SavedOperatingDirectionV1::railId)
-            .eachCount().filterValues { it > 1 }.keys
-        check(duplicateDirectionRails.isEmpty()) {
-            "SimpleATO infrastructure snapshot contains duplicate operating directions: " +
-                duplicateDirectionRails.joinToString()
-        }
-        val restoredDirections = operatingDirections.associate {
-            it.parsedRailId() to it.permittedDirection
-        }
         val duplicateDestinationIds = restoredDestinations
             .groupingBy(OperationalDestination::id).eachCount()
             .filterValues { it > 1 }
@@ -188,18 +165,12 @@ data class SimpleATOInfrastructureSnapshotV1(
         check(data.lines.snapshot().let { it.lines.isEmpty() && it.revision == 0L }) {
             "SimpleATO LineStore is not empty"
         }
-        check(data.operatingDirections.entries().isEmpty()) { "SimpleATO OperatingDirectionStore is not empty" }
         require(lineRevision >= 0L) { "SimpleATO line revision must be non-negative" }
 
         val missingRails = restoredDestinations.filter { world.getRail(it.railId) == null }
         check(missingRails.isEmpty()) {
             "SimpleATO infrastructure snapshot contains destinations on missing rails: " +
                 missingRails.joinToString { "${it.id}@${it.railId}" }
-        }
-        val missingDirectionRails = restoredDirections.keys.filter { world.getRail(it) == null }
-        check(missingDirectionRails.isEmpty()) {
-            "SimpleATO infrastructure snapshot contains operating directions for missing rails: " +
-                missingDirectionRails.joinToString()
         }
         val outOfRange = restoredDestinations.filter { destination ->
             val railLength = requireNotNull(world.getRail(destination.railId))
@@ -246,7 +217,6 @@ data class SimpleATOInfrastructureSnapshotV1(
         }
         val service = OperationalDestinationService(world)
         val materialized = ArrayList<OperationalDestination>(restoredDestinations.size)
-        data.operatingDirections.restore(restoredDirections)
         try {
             restoredDestinations.forEach { destination ->
                 service.register(destination)
@@ -257,7 +227,6 @@ data class SimpleATOInfrastructureSnapshotV1(
                 runCatching { service.remove(destination.id) }
                     .onFailure(failure::addSuppressed)
             }
-            data.operatingDirections.replaceRails(restoredDirections.keys, emptyMap())
             throw failure
         }
         data.lines.restore(restoredLines, lineRevision)
@@ -276,17 +245,9 @@ data class SimpleATOInfrastructureSnapshotV1(
                     missingRails.joinToString { "${it.id}@${it.railId}" }
             }
             val lineSnapshot = data.lines.snapshot()
-            val operatingDirections = data.operatingDirections.entries()
-            val orphanDirections = operatingDirections.keys.filter { world.getRail(it) == null }
-            check(orphanDirections.isEmpty()) {
-                "Cannot capture operating directions for missing rails: ${orphanDirections.joinToString()}"
-            }
             return SimpleATOInfrastructureSnapshotV1(
                 formatVersion = CURRENT_FORMAT_VERSION,
                 infrastructureRevision = infrastructureRevision,
-                operatingDirections = operatingDirections.entries
-                    .sortedBy { it.key }
-                    .map { (railId, direction) -> SavedOperatingDirectionV1.capture(railId, direction) },
                 destinations = destinations.map(SavedOperationalDestinationV1::capture),
                 lines = lineSnapshot.lines.map(SavedLineV1::capture),
                 lineRevision = lineSnapshot.revision

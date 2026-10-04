@@ -143,12 +143,12 @@ worker的record比较、JSON编码、旧文件复制均为`O(render record count
 抛出`IllegalStateException`。同UUID重新加载是新的root/binding，旧root可继续作为immutable value读取，但不能冒充新world。
 
 `InfrastructureResourceService.operatingDirections(worldId, topology, railIds): RailOperatingDirections`
-只读 SimpleATO 持有的运营方向，不取得资源或编辑许可。调用方传入该世界 exact current topology root 和所需 rail UUID 集合；
+只读 Basic 持有的公共运营方向，返回 Basic API 值，不取得资源或编辑许可。调用方传入该世界 exact current topology root 和所需 rail UUID 集合；
 返回值保留这个 root，并一次捕获对应的不可变 `directions: Map<UUID, ViewDirection?>`。
 每个请求轨道都有条目，值为 null 表示允许两向，非 null 表示仅允许该方向；缺轨道与世界不可用不能解释为 null。
 过期或不属于该世界的 root 拒绝；读取前后仍须是同一个当前 root。方向子集在同一个存储锁内读取，
 不会复制其他轨道的政策；时间和空间都是 O(U)，U 为本次请求的不同轨道数。
-worker 和信号回调都可读取这份值，不能从公开接口取得可写 store 或把 SimpleATO 的方向模型搬到 Basic。
+worker 和信号回调都可读取这份值，不能从公开接口取得可写 store、live World 或 SimpleATO 私有状态。
 
 ## Persistence 与配置
 

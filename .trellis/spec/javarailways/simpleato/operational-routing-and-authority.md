@@ -3,14 +3,14 @@
 ## 1. 状态、范围、触发条件与 Owner
 
 - **Status**：`TRANSITIONAL`；`SimpleATO` Gradle 模块已经拥有具体ATO、Destination、Station、Depot、Line、Timetable model/store/persistence、Dispatcher、统一immutable-topology运营选路/冻结路线、admission client、限制适配器与inspection scheduler/runtime，Bukkit production Dispatcher已接入Basic通用准入。共享ATO primitive仍在Basic；具体信号插件、其内部依赖传播与presentation仍是Stage 2目标。
-- **Owner**：SimpleATO 拥有运营路线选择、运行方向、任务/时刻表决策和列车保护约束合成。
+- **Owner**：SimpleATO 拥有运营路线选择、车次行驶方向、任务/时刻表决策和列车保护约束合成；轨道长期允许运行方向由 Basic 保存。
 - **Inputs**：Core 发布的不可变 `TopologyState` 与同 epoch 物理观察；SimpleATO 自己发布的运营 overlay/plan revision；Basic 的通用资源准入结果；已安装信号系统插件发布的资源检查与限制结果。
 - **Outputs**：一份绑定 topology revision 的冻结路线、资源准入请求，以及交给控制器的统一 authority/stop/speed constraint 结果。
 - **Non-goals**：本页不定义 Core 图构建、Basic 资源推导/claim、Bukkit 渲染、信号模型、JS API 或持久化 schema。
 
 触发：迁移或修改 ATO mission、route planning、运行方向、固定/移动闭塞选择、保护区域交互、时刻表 dispatch、MA/stop/speed constraint 合成。
 
-当前迁移状态：SimpleATO的运行方向编译成Basic中立的`forbiddenTraversals`；插件source通过共用
+当前选路流程：Basic 的公共方向配置通过 `OperatingDirectionOverlay` 编译成中立的`forbiddenTraversals`；插件source通过共用
 owner/world lifecycle注册，并与运行方向在每次查询前编译、确定性合并。Mission、Station、Line、Timetable、
 observation-based frozen route和Bukkit route diagnostic均经过同一个`OperationalRoutePlanner` planning seam；
 legacy live-`RailView` planner与二次live compiler已经删除。
@@ -45,11 +45,11 @@ SimpleATO增加类型分支。
 
 ### 3.1 运营 overlay 与选路
 
-运行方向、站台/停车点、线路和通用运营限速是SimpleATO拥有、并引用Core edge/rail slice的运营overlay，不是另一张可独立修改的物理连通图。固定闭塞、保护区域、信号边界和联锁表由具体信号系统插件拥有；SimpleATO只消费它们通过公共检查/限制接口给出的结果。路线起终点落在edge内部时，选路查询使用临时virtual split；不得为了站台或信号永久切分`TopologyState`。
+Basic 拥有轨道公共方向配置；SimpleATO 拥有站台/停车点、线路和通用运营限速等运营 overlay。它们引用Core edge/rail slice，不是另一张可独立修改的物理连通图。固定闭塞、保护区域、信号边界和联锁表由具体信号系统插件拥有；SimpleATO只消费它们通过公共检查/限制接口给出的结果。路线起终点落在edge内部时，选路查询使用临时virtual split；不得为了站台或信号永久切分`TopologyState`。
 
 选路输入固定为一个 topology root、一个运营 overlay/plan revision、列车属性和当前运营目标。算法只在 Core 声明的合法 continuation 中搜索，再按方向、线路、车辆能力、停站与计划约束过滤或计权。通用最短路实现可以来自共享算法包，但运营 cost、约束和候选选择由 SimpleATO 拥有。结果必须是一条明确的有向 traversal；不得只给目的地让 Basic 自行寻找可行路线。
 
-`SimpleATOWorldData.operatingDirections`是唯一可写owner：缺少rail UUID表示双向许可，存在记录表示只许可所存的单一`ViewDirection`。authoring、mission/station/line/timetable route search、初始定位fallback与持久化都读这一store；Basic planner只接收显式遍历谓词。split把一条记录复制给两个child，merge只接受相同记录，几何replacement/undo在同一RailWand transaction按UUID映射迁移。
+`BasicWorldData.operatingDirections` 是唯一可写 owner。authoring、mission/station/line/timetable route search 和初始定位都读取这份公共配置；SimpleATO 不保留方向成员或兼容别名，Basic planner 仍只接收显式限制。稀疏存储、split/merge/replacement/undo 和方向持久化规则见[Basic方向契约](../basic/operating-directions.md)。
 
 当前已实现的第一批内部选路器直接读取一次不可变`TopologyState`和从store取得的一份绑定相同topology revision的防御性复制overlay。它先用`railProjection`把起终点的stable rail UUID + canonical AB米位置解析为edge距离；起终点落在edge内部时只创建查询局部的部分edge traversal，不改写或复制published topology。随后以“到达结构节点的入口port”为Dijkstra状态，以实际edge米数为权重：turnout只展开`legalContinuations`允许的出口，loop anchor只允许从另一port继续，terminus不展开。每个方向的edge traversal还必须满足所经过物理rail的运行方向约束。相同距离的候选按固定起始方向、deterministic edge ID和port次序展开，因而相同输入得到相同路线。
 

@@ -172,7 +172,7 @@ class FixedBlockStopContinuationTest {
         private val snapshot = FixedBlockCatalog().also {
             assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(topology, 1L, listOf(block)).status)
         }.snapshot(topology)
-        val directions = work.art1st.javarailways.simpleato.routing.OperatingDirectionStore().also {
+        val directions = work.art1st.javarailways.basic.rail.OperatingDirectionStore().also {
             if (!bidirectional) it.put(first, ViewDirection.AB)
         }
         private val policy = FixedBlockRouteResourcePolicy(plugin, { FixedBlockDirectionPolicy(directions::snapshot) }) { snapshot }

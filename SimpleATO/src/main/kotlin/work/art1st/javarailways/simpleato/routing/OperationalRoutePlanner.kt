@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simpleato.routing
 
 import work.art1st.javarailways.basic.WayPoint
+import work.art1st.javarailways.basic.api.route.planning.OperatingDirectionOverlay
 import work.art1st.javarailways.basic.pathFinding.basicWorldData
 import work.art1st.javarailways.basic.route.ExpandedRoute
 import work.art1st.javarailways.basic.route.OperationalRouteLocation
@@ -49,7 +50,7 @@ class OperationalRoutePlanner(private val world: World) {
         val simpleAto = world.simpleAtoWorldData
         return when (val result = plan(
             topology = topology,
-            operatingDirections = simpleAto.operatingDirections.overlay(topology),
+            operatingDirections = world.basicWorldData.operatingDirections.overlay(topology),
             planningRestrictions = simpleAto.routePlanningRestrictions,
             start = OperationalRouteLocation(from.railId, from.arcLength),
             end = OperationalRouteLocation(to.railId, to.arcLength),

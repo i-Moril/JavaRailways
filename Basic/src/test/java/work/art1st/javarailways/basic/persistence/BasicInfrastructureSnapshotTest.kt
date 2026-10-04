@@ -19,8 +19,77 @@ import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import java.util.UUID
 
 class BasicInfrastructureSnapshotTest {
+    @Test
+    fun `current format 2 without directions defaults to both directions without a version change`() {
+        val snapshot = BasicInfrastructureSnapshotCodec.decode(
+            """{"formatVersion":2,"infrastructureRevision":7,"wayPoints":[],"railMetadata":[]}"""
+        )
+        assertEquals(2, snapshot.formatVersion)
+        assertTrue(snapshot.operatingDirections.isEmpty())
+        assertTrue(BasicInfrastructureSnapshotCodec.encode(snapshot).contains("\"operatingDirections\": []"))
+    }
+
+    @Test
+    fun `fixed current directions round trip and restore in a Basic standalone world`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
+        val snapshot = BasicInfrastructureSnapshotCodec.decode(
+            """{"formatVersion":2,"infrastructureRevision":7,"wayPoints":[],"railMetadata":[],
+                "operatingDirections":[{"railId":"${rail.id}","permittedDirection":"BA"}]}"""
+        )
+        snapshot.restore(world)
+        assertEquals(ViewDirection.BA, world.basicWorldData.operatingDirections[rail.id])
+        val captured = BasicInfrastructureSnapshotV2.capture(world, 7L, emptySet())
+        assertEquals(snapshot, BasicInfrastructureSnapshotCodec.decode(BasicInfrastructureSnapshotCodec.encode(captured)))
+    }
+
+    @Test
+    fun `invalid duplicate and orphan directions refuse all Basic materialization`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
+        val direction = SavedOperatingDirectionV1.capture(rail.id, ViewDirection.AB)
+        val base = BasicInfrastructureSnapshotV2(
+            2, 7L,
+            listOf(SavedWayPointV1("standalone", "Standalone", rail.id.toString(), 20.0)),
+            listOf(SavedRailInfrastructureMetadataV1.capture(rail.id, RailInfrastructureMetadata(designSpeedMetersPerSecond = 30.0)))
+        )
+        val invalidInputs = listOf(
+            listOf(direction.copy(railId = "invalid-uuid")),
+            listOf(direction, direction.copy(railId = rail.id.toString().uppercase())),
+            listOf(direction.copy(railId = UUID.randomUUID().toString()))
+        )
+        for (directions in invalidInputs) {
+            assertThrows(Exception::class.java) { base.copy(operatingDirections = directions).restore(world) }
+            assertTrue(world.basicWorldData.wayPoints.all().isEmpty())
+            assertTrue(world.basicWorldData.railMetadata.snapshot().isEmpty())
+            assertTrue(world.basicWorldData.operatingDirections.entries().isEmpty())
+        }
+        assertThrows(Exception::class.java) {
+            BasicInfrastructureSnapshotCodec.decode(
+                """{"formatVersion":2,"infrastructureRevision":7,"wayPoints":[],
+                    "operatingDirections":[{"railId":"${rail.id}","permittedDirection":"SIDEWAYS"}]}"""
+            )
+        }
+    }
+
+    @Test
+    fun `capture refuses orphan directions`() {
+        val world = createTestWorld().also(worlds::add)
+        TestBasicWorldDataRegistry.getOrCreate(world)
+        val missing = UUID.randomUUID()
+        world.basicWorldData.operatingDirections.put(missing, ViewDirection.AB)
+        val failure = assertThrows(IllegalStateException::class.java) {
+            BasicInfrastructureSnapshotV2.capture(world, 7L, emptySet())
+        }
+        assertTrue(failure.message.orEmpty().contains(missing.toString()))
+    }
+
     @Test
     fun `current Basic infrastructure rejects removed destination fields`() {
         assertThrows(Exception::class.java) {

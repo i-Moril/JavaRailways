@@ -12,7 +12,6 @@ import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegist
 import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
-import work.art1st.javarailways.simpleato.routing.OperatingDirectionStore
 import work.art1st.javarailways.simpleato.routing.RoutePlanningRestrictionRuntime
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
@@ -28,7 +27,6 @@ data class SimpleATOWorldData(
     private val sharedRailObjects: RailObjectStore,
     private val sharedSafetyInterlock: WorldSafetyInterlock,
     val destinations: OperationalDestinationStore = OperationalDestinationStore(),
-    val operatingDirections: OperatingDirectionStore = OperatingDirectionStore(signalEpochRuntime::publishOperatingDirectionChanges),
     val stations: StationStore = StationStore(sharedRailObjects),
     val depots: DepotStore = DepotStore(),
     val lines: LineStore = LineStore(),

@@ -84,7 +84,20 @@ object RailWorldFactory {
         val pluginDataFolder = plugin.dataFolder
         val physicsConfig = plugin.physicsConfig
         val safetyInterlock = WorldSafetyInterlock()
+        val signalRestrictions = TrainRestrictionSnapshotStore(bukkitWorld.uid.toString())
+        // Controller failures use AbstractATO's coordinator report; Dispatcher reports binding failures.
+        // Bukkit service-time source changes use DefaultSignalEpochSourceService.stallWorld.
+        val inspectionRuntime = InspectionRuntime(signalRestrictions) { _, _, _ -> }
+        val signalEpochRuntime = SignalEpochRuntime(
+            worldId = bukkitWorld.uid.toString(),
+            publisher = signalRestrictions,
+            completeEpoch = signalRestrictions::completeEpoch,
+            invalidateInspectionDeclarations = inspectionRuntime::markDirty
+        )
         val basicData = BasicWorldData(
+            operatingDirections = work.art1st.javarailways.basic.rail.OperatingDirectionStore(
+                signalEpochRuntime::publishOperatingDirectionChanges
+            ),
             safetyInterlock = safetyInterlock,
             turnoutSafetyDefaults = physicsConfig.turnoutSafety.let {
                 TurnoutSafetyDefaults(
@@ -122,10 +135,6 @@ object RailWorldFactory {
                     .also { boundRouteAdmission = it }
             TimetableRouteAdmissionContext(observation, admission)
         }
-        val signalRestrictions = TrainRestrictionSnapshotStore(bukkitWorld.uid.toString())
-        // Controller failures use AbstractATO's coordinator report; Dispatcher reports binding failures.
-        // Bukkit service-time source changes use DefaultSignalEpochSourceService.stallWorld.
-        val inspectionRuntime = InspectionRuntime(signalRestrictions) { _, _, _ -> }
         val infrastructureDependencyService = object : InfrastructureDependencyService {
             override fun set(request: work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest) =
                 plugin.infrastructureResourceService.setInfrastructureDependencies(
@@ -182,12 +191,6 @@ object RailWorldFactory {
                     inspectionRuntime::maximumDeclaredLeadTimeSeconds
                 )
             }
-        )
-        val signalEpochRuntime = SignalEpochRuntime(
-            worldId = bukkitWorld.uid.toString(),
-            publisher = signalRestrictions,
-            completeEpoch = signalRestrictions::completeEpoch,
-            invalidateInspectionDeclarations = inspectionRuntime::markDirty
         )
         physicsCoordinator.registerRailwayEpochProcessor(signalEpochRuntime)
         coreWorld.registerExtensionData(

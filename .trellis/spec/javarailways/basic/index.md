@@ -6,6 +6,9 @@
 
 ## 主题导航
 
+轨道公共运行方向已由 Basic 唯一保存；SimpleATO 和信号插件只消费这份公共配置。
+工作流程、稀疏存储与未部署存档修正见[轨道公共运行方向](./operating-directions.md)。
+
 | 文档 | 何时加载 | 唯一归属 |
 | --- | --- | --- |
 | [API 边界](./api-boundaries.md) | 改`basic.api.*`、Dokka、Core/Bukkit imports | 候选API与consumer边界 |
@@ -19,6 +22,7 @@
 | [train operations](./train-operations.md) | door/model/announcement adapter | request/ticket/cancel/completion |
 | [curve authoring](./curve-authoring.md) | Anchor/template/solver/measurement | stable token、SI单位、off-main build |
 | [rail infrastructure](./rail-infrastructure.md) | metadata、split/merge/turnout | metadata ownership与Core topology同步 |
+| [轨道公共运行方向](./operating-directions.md) | 改方向读写、选路限制转换、方向通知或存档 | Basic唯一方向存储与公共只读值 |
 | [speed 与 derail safety](./speed-and-derail-safety.md) | speed signal/geometry threshold/derail request | operating limit与worker→main safety |
 | [route planning](./route-planning.md) | immutable topology shortest path、neutral restrictions、progress | Basic纯图算法与SimpleATO统一生产seam |
 | [resource allocation](./resource-allocation.md) | turnout/section/berth locks/manual resource | atomic ownership与physical release |

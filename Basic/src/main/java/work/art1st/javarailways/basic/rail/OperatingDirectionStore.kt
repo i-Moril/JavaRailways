@@ -1,48 +1,15 @@
-package work.art1st.javarailways.simpleato.routing
+package work.art1st.javarailways.basic.rail
 
 import work.art1st.javarailways.core.api.physics.rail.RailView
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
-import work.art1st.javarailways.basic.api.route.planning.DirectedRailSpan
-import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
+import work.art1st.javarailways.basic.api.route.RailOperatingDirections
+import work.art1st.javarailways.basic.api.route.planning.OperatingDirectionOverlay
 import java.util.Collections
 import java.util.UUID
-import kotlin.math.abs
-
-/** Immutable SimpleATO policy snapshot bound to one topology revision. */
-internal class OperatingDirectionOverlay(
-    val topologyRevision: Long,
-    allowedDirections: Map<UUID, ViewDirection>
-) {
-    val allowedDirections: Map<UUID, ViewDirection> =
-        Collections.unmodifiableMap(LinkedHashMap(allowedDirections))
-
-    init {
-        require(topologyRevision >= 0L) { "topology revision must be non-negative" }
-    }
-
-    fun toRestrictions(topology: TopologyState): RoutePlanningRestrictions? {
-        if (topology.revision != topologyRevision) return null
-        val forbidden = ArrayList<DirectedRailSpan>(allowedDirections.size)
-        for ((railId, permitted) in allowedDirections.entries.sortedBy { it.key }) {
-            val projection = topology.railProjection[railId]?.singleOrNull() ?: return null
-            val railLength = abs(projection.railEndAbMeters - projection.railStartAbMeters)
-            forbidden += DirectedRailSpan(
-                railId = railId,
-                facing = when (permitted) {
-                    ViewDirection.AB -> ViewDirection.BA
-                    ViewDirection.BA -> ViewDirection.AB
-                },
-                lowerAbMeters = 0.0,
-                upperAbMeters = railLength
-            )
-        }
-        return RoutePlanningRestrictions(topology.revision, forbiddenTraversals = forbidden)
-    }
-}
 
 /**
- * SimpleATO-owned operating policy for physical rails.
+ * Basic-owned public operating directions for physical rails.
  *
  * An absent rail permits both directions. A stored entry permits only that one direction. Mutations
  * are serialized so authoring transactions can replace UUIDs without exposing a partially migrated
@@ -71,7 +38,7 @@ class OperatingDirectionStore(private val changed: (Set<UUID>) -> Unit = {}) {
 
     /** Captures only related rails together under the sole store lock. */
     fun snapshot(topology: TopologyState, railIds: Collection<UUID>) = synchronized(lock) {
-        work.art1st.javarailways.simpleato.api.route.RailOperatingDirections(
+        RailOperatingDirections(
             topology, railIds.associateWith { values[it] }
         )
     }
@@ -110,7 +77,7 @@ class OperatingDirectionStore(private val changed: (Set<UUID>) -> Unit = {}) {
         if (changes.isNotEmpty()) changed(changes)
     }
 
-    internal fun overlay(topology: TopologyState): OperatingDirectionOverlay = synchronized(lock) {
+    fun overlay(topology: TopologyState): OperatingDirectionOverlay = synchronized(lock) {
         OperatingDirectionOverlay(topology.revision, values)
     }
 }

@@ -24,7 +24,7 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.simpleato.persistence.SavedLineV1
-import work.art1st.javarailways.simpleato.persistence.SavedOperatingDirectionV1
+import work.art1st.javarailways.basic.persistence.SavedOperatingDirectionV1
 import work.art1st.javarailways.simpleato.persistence.SavedOperationalDestinationV1
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotCodec
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
@@ -66,12 +66,12 @@ object RailInfrastructureMetadataMigration {
             formatVersion = BasicInfrastructureSnapshotV2.CURRENT_FORMAT_VERSION,
             infrastructureRevision = outer.infrastructureRevision,
             wayPoints = basic.wayPoints,
-            railMetadata = split.metadata
+            railMetadata = split.metadata,
+            operatingDirections = split.directions
         )
         val currentSimpleAto = SimpleATOInfrastructureSnapshotV1(
             formatVersion = SimpleATOInfrastructureSnapshotV1.CURRENT_FORMAT_VERSION,
             infrastructureRevision = outer.infrastructureRevision,
-            operatingDirections = split.directions,
             destinations = basic.destinations,
             lines = basic.lines,
             lineRevision = basic.lineRevision

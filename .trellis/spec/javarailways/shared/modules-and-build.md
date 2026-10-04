@@ -7,7 +7,7 @@
 | 模块 | 主要职责 | 关键证据 |
 | --- | --- | --- |
 | `Core` | 平台无关物理、车辆、轨道、事件、Tick 与底层 API | `Core/src/main/java/work/art1st/javarailways/core/api/`、`Core/src/main/java/work/art1st/javarailways/core/physics/CoreWorld.kt` |
-| `Basic` | 曲线、通用寻路、安全与资源内核，以及自动/手动共用的actuation、制动包络和route/perception snapshot primitive；长期保留平台无关底层机制、通用图算法、拓扑/物理资源推导、资源仲裁、设备准备与释放 | `Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`、`Basic/src/main/java/work/art1st/javarailways/basic/api/` |
+| `Basic` | 曲线、公共轨道方向、通用寻路、安全与资源内核，以及自动/手动共用的actuation、制动包络和route/perception snapshot primitive；长期保留平台无关底层机制、通用图算法、拓扑/物理资源推导、资源仲裁、设备准备与释放 | `Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`、`Basic/src/main/java/work/art1st/javarailways/basic/api/` |
 | `SimpleATO` | 迁移中的平台无关运营模块；当前拥有Destination、Station、Depot/rolling-stock、Line、Timetable、Dispatcher、ATO安全参数/mission/constraint/coordinator、具体controller、手动导航、运营选路/准入client和限制归约 | `SimpleATO/build.gradle.kts`、`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/` |
 | `SimpleATOBukkit` | 独立源码/测试边界的Paper/Folia adapter library；由BukkitPlugin直接组合并嵌入同一主插件JAR，不具有第二个插件descriptor或lifecycle | `SimpleATOBukkit/build.gradle.kts`、`SimpleATOBukkitModule.kt` |
 | `SimpleSignals` | 独立安装的具体信号系统插件；当前拥有部署生命周期、host capability discovery、严格世界定义sidecar、保护区域定义/拓扑切割、固定保护进路表及planning runtime；authoring、固定闭塞与 rendering 后续实现 | `SimpleSignals/build.gradle`、`SimpleSignalsPlugin.kt`、`persistence/SimpleSignalsWorldDefinitionStore.kt`、`region/ProtectionRegionCatalog.kt` |
@@ -20,7 +20,11 @@
 
 `docs-site` 不在 Gradle `include` 中；它由 `.gitmodules` 声明为独立 Git submodule。
 
-`SimpleATO`已经进入`settings.gradle`，并已拥有Dispatcher、ATO mission/constraint/coordinator、具体controller、Destination、Station、Depot、Line、Timetable、运营冻结路线、通用准入client、信号限制与inspection runtime；旧`AtoProvider`切换机制已经删除，Basic仅保留共享物理actuation、安全包络、snapshot与通用resource primitive，所以ATO policy owner迁移已经完成。`SimpleATOBukkit`已建立为独立Gradle adapter library，并由`BukkitPlugin`直接调用、打入同一个JavaRailways JAR；它没有第二个Bukkit plugin descriptor、lifecycle或内部service-discovery跳转。首个独立信号系统插件`SimpleSignals`已建立独立JAR、descriptor、单一`JavaPlugin` lifecycle和host service capability gate，并已拥有严格世界定义sidecar、保护区域定义/图切割/catalog/index、固定保护进路表及按world注册的planning runtime；authoring、固定闭塞和运行期信号规则仍待后续批次。目标ownership是：`Basic`保留拓扑校验、不可删除的物理资源底线、通用资源仲裁、设备准备与释放；`SimpleATO`拥有ATO/ATP、运行方向、Destination/Station/Depot/Line/Timetable、运营寻路、资源检查调度和限制归约，目标合同见[SimpleATO规范](../simpleato/index.md)；`SimpleATOBukkit`只拥有SimpleATO自身的Bukkit适配；`SimpleSignals`拥有首套简易固定闭塞、保护区域、联锁、信号模型、authoring/rendering、持久化以及可选JS/YAML；其他独立信号系统插件不依赖其领域模型；`BukkitPlugin`是唯一JavaRailways主插件的composition root，并保留通用平台调度/渲染、RailWand、手动驾驶、world composition和其他底层平台能力。每一批迁移必须同时移动contract、实现、测试和composition，不得制造两个运行owner。
+`SimpleATO`已经进入`settings.gradle`，并已拥有Dispatcher、ATO mission/constraint/coordinator、具体controller、Destination、Station、Depot、Line、Timetable、运营冻结路线、通用准入client、信号限制与inspection runtime；旧`AtoProvider`切换机制已经删除，ATO policy owner迁移已经完成。Basic保留共享物理actuation、安全包络、snapshot、通用resource primitive及公共轨道方向配置。
+
+`SimpleATOBukkit`已建立为独立Gradle adapter library，并由`BukkitPlugin`直接调用、打入同一个JavaRailways JAR；它没有第二个Bukkit plugin descriptor、lifecycle或内部service-discovery跳转。首个独立信号系统插件`SimpleSignals`已建立独立JAR、descriptor、单一`JavaPlugin` lifecycle和host service capability gate；其具体完成状态见[信号模块索引](../../simple-signals/backend/index.md)，不以本页概括替代阶段验收。
+
+目标ownership是：`Basic`保存公共轨道方向，保留拓扑校验、不可删除的物理资源底线、通用资源仲裁、设备准备与释放；`SimpleATO`拥有ATO/ATP、Destination/Station/Depot/Line/Timetable、运营寻路、资源检查调度和限制归约，目标合同见[SimpleATO规范](../simpleato/index.md)；`SimpleATOBukkit`只拥有SimpleATO自身的Bukkit适配；`SimpleSignals`拥有首套简易固定闭塞、保护区域、联锁、信号模型、authoring/rendering、持久化以及可选JS/YAML；其他独立信号系统插件不依赖其领域模型；`BukkitPlugin`是唯一JavaRailways主插件的composition root，并保留通用平台调度/渲染、RailWand、手动驾驶、world composition和其他底层平台能力。每一批迁移必须同时移动contract、实现、测试和composition，不得制造两个运行owner。
 
 ## 依赖方向
 

@@ -34,7 +34,7 @@ class FixedBlockRouteResourcePolicyTest {
             FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
             FixedBlockTraversal(second, ViewDirection.BA, 2.0, 10.0)))
         val snapshot = FixedBlockCatalog().also { it.publish(mixed, 1L, listOf(definition)) }.snapshot(mixed)
-        val directions = work.art1st.javarailways.simpleato.routing.OperatingDirectionStore()
+        val directions = work.art1st.javarailways.basic.rail.OperatingDirectionStore()
         var reads = 0
         val policy = FixedBlockDirectionPolicy({ root, rails -> reads++; directions.snapshot(root, rails) })
         val contributor = FixedBlockRouteResourcePolicy(plugin, { policy }) { snapshot }

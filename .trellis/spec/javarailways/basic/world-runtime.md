@@ -16,11 +16,16 @@ data class BasicWorldData(
     val wayPoints: WayPointStore = WayPointStore(),
     val safetyInterlock: WorldSafetyInterlock = WorldSafetyInterlock(),
     val railObjects: RailObjectStore = RailObjectStore(),
+    val operatingDirections: OperatingDirectionStore = OperatingDirectionStore(),
     ...
 )
 ```
 
 来源：`Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`。
+
+轨道公共运行方向属于这个 Basic container，随世界创建和卸载，不随 ATO 任务销毁。
+方向写入的通用变化回调由世界组合层接到既有信号运行时，Basic 不反向依赖 SimpleATO；
+存储、读取和通知规则见[轨道公共运行方向](./operating-directions.md)。
 
 ATO coordinator、Destination/Station/Depot/Line/Timetable store、rolling-stock ledger、extension registry 与 Dispatcher 都不属于该container；`SimpleATOWorldData`是它们的唯一world-local owner。旧ATO provider registry已经删除。`WorldSafetyInterlock`只是Basic物理控制使用的通用fail-close latch，不携带ATO诊断。Basic不保存运营镜像store，也不反向查找SimpleATO。
 

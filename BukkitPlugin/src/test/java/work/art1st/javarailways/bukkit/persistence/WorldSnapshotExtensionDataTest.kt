@@ -1,20 +1,66 @@
 package work.art1st.javarailways.bukkit.persistence
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
+import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotCodec
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
+import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotCodec
+import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
+import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
+import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.bukkit.extension.train.SavedCarRenderState
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.train.SavedTrainV1
 
 class WorldSnapshotExtensionDataTest {
+    @Test
+    fun `fixed current split payloads write directions only in Basic and preserve all paired data`() {
+        val railId = "00000000-0000-0000-0000-000000000001"
+        val basic = BasicInfrastructureSnapshotCodec.decode("""
+            {"formatVersion":2,"infrastructureRevision":7,
+             "wayPoints":[{"id":"standalone","displayName":"Standalone","railId":"00000000-0000-0000-0000-000000000001","arcLengthInAbMeters":0.25}],
+             "railMetadata":[],
+             "operatingDirections":[{"railId":"00000000-0000-0000-0000-000000000001","permittedDirection":"BA"}]}
+        """.trimIndent())
+        val simpleAto = SimpleATOInfrastructureSnapshotCodec.decode("""
+            {"formatVersion":1,"infrastructureRevision":7,
+             "destinations":[{"id":"central","displayName":"Central","railId":"00000000-0000-0000-0000-000000000001","arcLengthInAbMeters":0.75}],
+             "lines":[{"id":"main","displayName":"Main","upStationIds":[],"downStationIds":[],"color":"#123456"}],
+             "lineRevision":4}
+        """.trimIndent())
+        val world = createTestWorld()
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(1.0, segmentCount = 1))
+        val core = CoreWorld.SavedInfrastructureV2(2, 7L, listOf(rail.save().copy(id = railId)))
+        val coreRuntime = CoreWorld.SavedRuntimeV1(1, 7L, 9L, emptyList())
+        val basicRuntime = BasicRuntimeSnapshotV3(3, 7L, 9L)
+        val simpleAtoRuntime = SimpleATORuntimeSnapshotV1(1, 7L, 9L,
+            dispatcher = SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList()),
+            timetables = emptyList(), rollingStock = emptyList())
+        val encoded = WorldSnapshotCapture(core, basic, simpleAto, coreRuntime, basicRuntime, simpleAtoRuntime).encode()
+        val infrastructure = SplitWorldSnapshotCodec.decodeInfrastructure(SplitWorldSnapshotCodec.encode(encoded.infrastructure))
+        val runtime = SplitWorldSnapshotCodec.decodeRuntime(SplitWorldSnapshotCodec.encode(encoded.runtime))
+
+        assertEquals(2, infrastructure.formatVersion)
+        assertEquals(2, infrastructure.basic().formatVersion)
+        assertEquals(1, infrastructure.simpleAto().formatVersion)
+        assertTrue(infrastructure.basicSnapshotJson.contains("operatingDirections"))
+        assertFalse(infrastructure.simpleAtoSnapshotJson.contains("operatingDirections"))
+        assertEquals(WorldSnapshotCodec.encodeInfrastructure(core), WorldSnapshotCodec.encodeInfrastructure(infrastructure.core()))
+        assertEquals(basic, infrastructure.basic())
+        assertEquals(simpleAto, infrastructure.simpleAto())
+        assertEquals(coreRuntime, runtime.core())
+        assertEquals(basicRuntime, runtime.basic())
+        assertEquals(simpleAtoRuntime, runtime.simpleAto())
+    }
+
     @Test
     fun `current infrastructure outer document requires SimpleATO payload`() {
         assertThrows(Exception::class.java) {
@@ -39,7 +85,6 @@ class WorldSnapshotExtensionDataTest {
         val simpleAtoInfrastructure = SimpleATOInfrastructureSnapshotV1(
             formatVersion = SimpleATOInfrastructureSnapshotV1.CURRENT_FORMAT_VERSION,
             infrastructureRevision = 7L,
-            operatingDirections = emptyList(),
             destinations = emptyList(),
             lines = emptyList(),
             lineRevision = 0L

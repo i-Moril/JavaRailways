@@ -55,7 +55,7 @@ class FixedBlockInspectionSourceTest {
         val normal = FixedBlockDefinition("test:block/range/0", 1L,
             listOf(FixedBlockTraversal(second, ViewDirection.AB, 2.0, 8.0)))
         val captured = snapshot(degraded, normal)
-        val directions = work.art1st.javarailways.simpleato.routing.OperatingDirectionStore().also {
+        val directions = work.art1st.javarailways.basic.rail.OperatingDirectionStore().also {
             it.put(second, ViewDirection.AB)
         }
         val source = FixedBlockInspectionSource({ captured }, { id ->
@@ -131,7 +131,7 @@ class FixedBlockInspectionSourceTest {
     fun `active single reverse selected-route check fails and disabled repeated visits keep separate ranges`() {
         val block = FixedBlockDefinition("test:single", 1L, listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)))
         val captured = snapshot(block)
-        val directions = work.art1st.javarailways.simpleato.routing.OperatingDirectionStore()
+        val directions = work.art1st.javarailways.basic.rail.OperatingDirectionStore()
         directions.put(first, ViewDirection.AB)
         val policy = FixedBlockDirectionPolicy(directions::snapshot)
         val source = FixedBlockInspectionSource({ captured }, directionPolicy = policy).source

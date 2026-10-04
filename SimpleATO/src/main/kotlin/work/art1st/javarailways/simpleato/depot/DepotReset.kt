@@ -163,7 +163,7 @@ class DepotResetCoordinator(
                 )
             val railLength = rail.getView(ViewDirection.AB).curve.totalArcLength
             val placementDirection = destination.approachDirection
-                ?: world.simpleAtoWorldData.operatingDirections[rail.id]
+                ?: world.basicWorldData.operatingDirections[rail.id]
                 ?: ViewDirection.AB
             val arcInView = when (placementDirection) {
                 ViewDirection.AB -> destination.arcLengthInAbMeters

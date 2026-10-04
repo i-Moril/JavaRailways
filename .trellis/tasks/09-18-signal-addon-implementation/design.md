@@ -19,7 +19,15 @@ SimpleSignals
 
 ## Deliverable 1: SimpleATO extraction
 
-`SimpleATO` owns platform-neutral automated operating policy, ATO/ATP constraints, operating direction, Destination/Station/Depot/Line/Timetable, rolling-stock assignment, operational route selection, applied timetable state and persistence. Generic pathfinding implementation, longitudinal dynamics, actuation primitives and physical/resource validation shared with manual driving remain in Basic; operating costs/constraints and the selected route belong to SimpleATO.
+`SimpleATO` owns platform-neutral automated operating policy, ATO/ATP constraints, Destination/Station/Depot/Line/Timetable, rolling-stock assignment, operational route selection, applied timetable state and persistence. Generic pathfinding implementation, longitudinal dynamics, actuation primitives and physical/resource validation shared with manual driving remain in Basic; operating costs/constraints and the selected route belong to SimpleATO.
+
+用户已批准轨道公共方向归 Basic，取代此前将所有运营方向归 SimpleATO 的决定。迁移直接移动现有稀疏存储，
+不重写搜索器、不复制存储或为手动驾驶增加强制限制；规划仍由 SimpleATO 组合显式限制后调用 Basic 一次。
+用户确认这些格式从未部署，因此直接修正当前DTO，Basic保持format2、SimpleATO保持format1，
+不增加旧方向字段的搬迁转换或兼容reader。已有历史metadata转换只更正输出owner，独立09-24世界格式任务不扩入本批。
+具体机制归[方向契约](../../spec/javarailways/basic/operating-directions.md)。
+`BasicWorldData.operatingDirections` 保存唯一状态；SimpleATO、宿主只读 API 和信号插件读同一份公共配置。
+变化回调在世界创建时接到已有信号 epoch，不增加另一个监听框架。
 
 `SimpleATOBukkit` is a separate Gradle source/test module but not a separately installed plugin. `BukkitPlugin` directly composes it and includes its classes in the JavaRailways shadow JAR, so there is one `JavaPlugin`, one descriptor and one server-plugin lifecycle. The adapter module owns only platform behavior specifically required by SimpleATO: startup wiring and commands/diagnostics/presentation belonging to the operational stack. It does not own generic host rendering or Folia scheduling, does not provide a presentation runtime to independent signal plugins, does not use Bukkit service discovery to find its own host, and does not own protection regions, fixed blocks, national signal aspects or a mandatory JS engine.
 
@@ -28,7 +36,7 @@ SimpleSignals
 ### Operational route restrictions
 
 Basic owns the deterministic search over one immutable `TopologyState` and a physical-neutral restriction contract.
-Before search, SimpleATO composes its operating direction with contributions compiled by installed owners. A contribution
+Before search, SimpleATO reads Basic's public operating directions and composes them with contributions compiled by installed owners. A contribution
 may forbid a directed canonical rail span or replace free traversal through several spans with one or more complete,
 physically valid paths. Basic validates these values, builds one query-local graph and represents each complete path as
 one atomic macro edge. Dijkstra therefore cannot splice the first half of one table route to the second half of another.
@@ -101,7 +109,7 @@ Basic either claims the complete union or none. A confirmed Basic grant is neces
 [双向固定闭塞合同](../../spec/simple-signals/backend/bidirectional-fixed-block.md)。
 两端独立信号规则、工具/测距和单线多闭塞协调不随本批扩展。
 
-方向一致性与低速降级已实现并通过独立复核及受影响模块的离线门禁。SimpleATO 保留运营方向的唯一所有权，
+方向一致性与低速降级已实现并通过独立复核及受影响模块的离线门禁。Basic 保存公共运营方向，
 宿主只提供一次读取相关轨道方向的公开接口；方向修改从原有信号更新流程通知受影响闭塞，
 不逐 tick 轮询所有定义。SimpleSignals 对整条闭塞路径校验方向，并明确拒绝有效单向闭塞的反向申请。
 已知方向失配与未知故障分开处理：前者使用区间内持续生效的 20 km/h 默认限制，后者继续保持 0。
@@ -110,7 +118,7 @@ Basic either claims the complete union or none. A confirmed Basic grant is neces
 控制器按车头在冻结路线上的位置维持区间限速，并在车头越过出口后结束这项限速；
 车身仍占用的资源独立沿用车尾释放规则，不因限速结束而提前释放。
 完整机制与验收归[双向固定闭塞合同](../../spec/simple-signals/backend/bidirectional-fixed-block.md)，
-本批将公开方向读取/更新、区间限速表达和闭塞行为作为一个完整部分验证后提交。
+公开方向读取/更新、区间限速表达和闭塞行为已作为一个完整部分验证；本次归属调整不改变这些行为。
 实现证据见[实施记录](implement.md)；[研究记录](research/fixed-block-direction-policy.md)保留改动前的源码依据，不代表当前模型或真实服务器验证。
 
 Fixed blocks are plugin-owned definitions. Entering one normally adds its whole block resource and holds it until the train tail clears the plugin-defined boundary. Protection regions and fixed blocks may implement a common plugin-local read surface—occupancy, length, grant state and downstream limit—but this interface is not a Basic `AuthoritySection`.

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.api.mission
 
+import work.art1st.javarailways.basic.pathFinding.basicWorldData
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -32,10 +34,10 @@ class AtoMissionTest {
             listOf(AtoMissionPoint.Stop(WayPointRef("B")))
         )
 
-        world.simpleAtoWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
+        world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
         assertTrue(AtoMissionResolver(world).resolve(request) is AtoMissionResolutionResult.RouteUnavailable)
 
-        world.simpleAtoWorldData.operatingDirections.put(rail.id, ViewDirection.BA)
+        world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.BA)
         assertTrue(AtoMissionResolver(world).resolve(request) is AtoMissionResolutionResult.Success)
     }
 

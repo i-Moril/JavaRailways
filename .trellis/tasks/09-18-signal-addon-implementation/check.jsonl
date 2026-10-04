@@ -1,10 +1,10 @@
-{"file":".trellis/spec/simple-signals/backend/index.md","reason":"No duplicate resource/occupancy owner, independent directional rules or tick scanner; review public host API isolation"}
-{"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Verify approved direction correction, explicit denial before reservation/preparation, continuous ATO-only range and existing tail release"}
-{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Verify both true entry geometries and old/new revision edit safety/locality"}
-{"file":".trellis/spec/simple-signals/backend/protection-region-authority-transition.md","reason":"Reverse successor floor uses existing matcher and rejects real conflicts"}
-{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Verify finite positive defaulted startup config, transient ranges and unchanged schema1 without compatibility"}
-{"file":".trellis/tasks/09-18-signal-addon-implementation/research/fixed-block-direction-policy.md","reason":"Audit actual seams and complexity against research rather than silently omitting mismatch/range behavior"}
-{"file":".trellis/spec/javarailways/simpleato/index.md","reason":"Single operating direction owner, unchanged manual controllers and no Core/Basic production scope expansion"}
-{"file":".trellis/spec/javarailways/simpleato/reactive-signal-epochs.md","reason":"Direction events reach only relevant sources and coherent epochs; unchanged/unrelated writes stay idle"}
-{"file":".trellis/spec/javarailways/simpleato/controller-runtime.md","reason":"Binding-local range survives entry passage, expires by head exit and participates in the same most-restrictive pipeline"}
-{"file":".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md","reason":"Host public subset reads, composition lifecycle and nonblocking signal publication"}
+{"file":".trellis/spec/javarailways/basic/index.md","reason":"Verify: Basic is the new sole owner of public track directions; shared physics/manual behavior stays unchanged"}
+{"file":".trellis/spec/javarailways/basic/operating-directions.md","reason":"Verify: Approved full ownership move; undeployed Basic2/SimpleATO1 drafts corrected directly, no new migration/compatibility"}
+{"file":".trellis/spec/javarailways/basic/persistence.md","reason":"Verify: Move sparse directions into current Basic infrastructure; preserve strict prevalidation and split pairing"}
+{"file":".trellis/spec/javarailways/basic/route-planning.md","reason":"Verify: Reuse pure explicit-input search and neutral restrictions without rewriting Dijkstra"}
+{"file":".trellis/spec/javarailways/simpleato/index.md","reason":"Verify: Remove prior direction ownership; keep mission/timetable/controller responsibility"}
+{"file":".trellis/spec/javarailways/simpleato/persistence.md","reason":"Verify: Remove direction field from undeployed SimpleATO1; retain Destination/Line/runtime restore"}
+{"file":".trellis/spec/javarailways/simpleato/reactive-signal-epochs.md","reason":"Verify: Wire Basic direction changes into existing scoped epoch interests, no duplicate event bus"}
+{"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Verify: Preserve reviewed reverse denial, exact directions, known degraded limits and tail release"}
+{"file":".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md","reason":"Verify: Update public consumer type, world composition and all rail authoring/undo/persistence callers"}
+{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Verify: Explicit user exception for never-deployed drafts: keep format numbers, no old-direction reader/conversion/tests"}

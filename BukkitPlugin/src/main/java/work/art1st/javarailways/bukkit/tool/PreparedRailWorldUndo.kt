@@ -273,7 +273,7 @@ internal class PreparedRailWorldUndoBuilder private constructor(
                 rails = editPlan.baseRailSnapshot,
                 renderMetas = RailRenderMetaStore.load(worldId, worldName).sortedBy { it.railId.toString() },
                 railMetadata = coreWorld.basicWorldData.railMetadata.snapshot(),
-                operatingDirections = coreWorld.simpleAtoWorldData.operatingDirections.entries()
+                operatingDirections = coreWorld.basicWorldData.operatingDirections.entries()
                     .toSortedMap(compareBy(UUID::toString)),
                 destinations = coreWorld.simpleAtoWorldData.destinations.all(),
                 wayPoints = coreWorld.basicWorldData.wayPoints.all()

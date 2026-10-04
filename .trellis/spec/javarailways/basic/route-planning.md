@@ -4,7 +4,7 @@
 
 触发：修改WayPoint route search、direction restriction、expanded/planned route、loop progress或route compilation。
 
-用途：记录Mission、Station、Line、Timetable与诊断命令共用的按实际弧长加权planner。authoritative输入是Core发布的版本化`TopologyState`；SimpleATO拥有方向、停站、线路和时刻表等路径选择策略，Basic只保留可复用的纯图算法与冻结路线校验/资源投影，不拥有另一张图。
+用途：记录Mission、Station、Line、Timetable与诊断命令共用的按实际弧长加权planner。authoritative输入是Core发布的版本化`TopologyState`；Basic保存轨道公共方向并提供纯图算法与冻结路线校验/资源投影，SimpleATO拥有停站、线路和时刻表等路径选择策略。两者都不拥有另一张物理图。
 
 生产调用统一经过SimpleATO的`OperationalRoutePlanner`：每次查询捕获一个immutable topology root，在Dijkstra前组合运行方向与已注册plugin source，再调用Basic的`TopologyRoutePlanner`一次。旧的live-`RailView.nextRails` `RoutePlanner`和二次live `PlannedRouteCompiler`已经删除；Dispatcher、准入和时刻表应用不重新寻路。
 

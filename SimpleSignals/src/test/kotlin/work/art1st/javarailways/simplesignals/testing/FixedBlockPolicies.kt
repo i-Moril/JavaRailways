@@ -3,7 +3,7 @@ package work.art1st.javarailways.simplesignals.testing
 import org.bukkit.plugin.Plugin
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration
-import work.art1st.javarailways.simpleato.api.route.RailOperatingDirections
+import work.art1st.javarailways.basic.api.route.RailOperatingDirections
 import work.art1st.javarailways.simplesignals.block.*
 import work.art1st.javarailways.simplesignals.runtime.PublishedSectionSignal
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntime

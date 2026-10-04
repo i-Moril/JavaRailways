@@ -6,9 +6,12 @@ CURRENT，已完成离线验证。SimpleSignals 负责双向匹配与入口检�
 本批实现一个物理闭塞、两个真实入口和一个共享主信号结果。工具、测距、两端独立规则及单线多闭塞协调不在本批。
 
 当前修正还覆盖单向闭塞的明确反向拒绝、整条路径的运营方向一致性，以及已知失配时的区间低速模式。
-SimpleATO 保留方向存储与自动控制限制的所有权；BukkitPlugin 只提供公开方向读取及生产组合；SimpleSignals 判断闭塞策略。
+Basic 保存唯一公共方向配置；SimpleATO 拥有自动控制限制；BukkitPlugin 提供公开方向读取及生产组合；SimpleSignals 判断闭塞策略。
 完整受影响模块门禁已通过；最后独立复核和详细验证记录见[任务实施记录](../../../tasks/09-18-signal-addon-implementation/implement.md)。
 用户已明确：降级限速只约束 ATO，手动驾驶保持原样；本批不增加手动限速、自动制动或 ATS，也不删除既有手动安全行为。
+
+方向归属及工作流程见[Basic方向契约](../../javarailways/basic/operating-directions.md)。
+本次所有权调整不改变闭塞校验、低速降级与资源生命周期。
 
 ## 2. 一列车如何通过
 
@@ -31,7 +34,7 @@ Basic 原子取得完整资源集合；另一列车不能同时持有这个闭�
 闭塞的反向路径由已归一化路径倒序、每段 `facing` 取反得到，canonical AB 的上下界不变。
 例如 `rail1 AB → rail2 BA` 的反向是 `rail2 AB → rail1 BA`，不是简单把整条路径标成 BA。
 反向路径对所有闭塞在准备阶段生成，用于识别反向经过，不代表允许反向申请。原路径经过既有连续性校验；Core 的拓扑生成器已经拒绝非对称物理连接，
-道岔合法连接也来自同一已校验映射，因此不重复验证必然合法的反向连接。运营方向限制仍属于 SimpleATO，不由这里放宽。
+道岔合法连接也来自同一已校验映射，因此不重复验证必然合法的反向连接。这里不能放宽 Basic 保存的公共运营方向限制。
 它是可丢弃派生值，不增加资源、占用监测区或存档路径副本。
 
 匹配保留既有 rail→block 索引、route metres、交集拼接和完整路线验证。双向闭塞分别匹配两种路径，
@@ -57,12 +60,12 @@ Basic 原子取得完整资源集合；另一列车不能同时持有这个闭�
 `CompiledFixedBlock.reverseTraversals` 保存已验证的反向路径，`entryTraversals` 保存一个或两个真实入口；
 `FixedBlockRouteWindow.reversed: Boolean = false` 标识本次经过的方向，只用于派生入口，不写入存档。
 两端使用相同提前时间、限速和外观结果；下游规则配置仍是该主信号的一份明确规则，不自动推断另一份方向规则。
-资源申请继续使用现有 `ContributedRouteResource` 和 Basic 授权接口；SimpleATO 增加中立方向值与有终点的速度范围，不认识闭塞类型。
+资源申请继续使用现有 `ContributedRouteResource` 和 Basic 授权接口；Basic 提供中立方向值，SimpleATO 消费有终点的速度范围，不认识闭塞类型。
 
 `InfrastructureResourceService.operatingDirections(worldId, topology, railIds)` 返回
 `RailOperatingDirections(topology, directions)`；map 中每个请求轨道都有条目，null 表示允许两向，非 null 表示仅允许对应方向。
-SimpleATO 的中央方向写入点将实际变化的 rail UUID 交给既有信号更新流程。
-不把方向存储搬到 Basic、不复制全世界映射，也不另建服务注册层。检查绑定补充路线起止范围与速度，
+Basic 的中央方向写入点通过世界组合层回调，将实际变化的 rail UUID 交给既有信号更新流程。
+不复制全世界映射，不保留 SimpleATO 副本，也不另建服务注册层。检查绑定补充路线起止范围与速度，
 `InspectionDeclarationBinding.speedRanges` 与 `InspectionUpdateInput.speedRanges` 使用不可变
 `InspectionSpeedRange(declarationId, restriction)`；`RouteSpeedRestriction.endRouteDistanceMeters` 为可选终点。
 稳定声明 ID 接收失效通知，每次经过的 restriction ID 区分其速度范围；入口经过后范围仍存在，限制适配器按车头终点过滤。
@@ -78,7 +81,7 @@ SimpleATO 的中央方向写入点将实际变化的 rail UUID 交给既有信�
 停车折返保留已占用的同一 block token，返程匹配提供新路线上的释放位置；不得先释放再重新争抢。
 停在闭塞内部不释放 token，车头通过出口也不单独触发释放。
 
-运营方向仍由 SimpleATO 唯一持有；相关轨道一次读取必须来自同一存储状态。
+公共运营方向由 Basic 唯一持有；相关轨道一次读取必须来自同一存储状态。
 变化通知不在存储锁内执行信号代码，无实际变化时不发通知；信号更新沿用既有物理/信号时序和原子结果发布。
 保留静态时刻表编辑保护与运行中资源占用保护。已知降级定义仍属于路线编辑依赖，不能因暂不申请 token 而允许随意编辑。
 持续限速随原有路线绑定替换、折返或移除；不另建每列车区间管理器。

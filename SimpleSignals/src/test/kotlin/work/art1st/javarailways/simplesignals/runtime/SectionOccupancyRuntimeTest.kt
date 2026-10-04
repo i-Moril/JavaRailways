@@ -45,7 +45,7 @@ class SectionOccupancyRuntimeTest {
         var reads = 0
         val policy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy({ root, rails ->
             reads++
-            work.art1st.javarailways.simpleato.api.route.RailOperatingDirections(root, rails.associateWith { null })
+            work.art1st.javarailways.basic.api.route.RailOperatingDirections(root, rails.associateWith { null })
         })
         val world = SimpleSignalsWorldRuntime(worldId, policy)
         world.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 1L, emptyList(), emptyList(), listOf(block)))
@@ -89,7 +89,7 @@ class SectionOccupancyRuntimeTest {
         var reads = 0
         val policy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy({ root, rails ->
             reads++
-            work.art1st.javarailways.simpleato.api.route.RailOperatingDirections(root, rails.associateWith { null })
+            work.art1st.javarailways.basic.api.route.RailOperatingDirections(root, rails.associateWith { null })
         })
         val world = SimpleSignalsWorldRuntime(worldId, policy)
         world.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 1L, emptyList(), emptyList(), listOf(block)))
@@ -114,7 +114,7 @@ class SectionOccupancyRuntimeTest {
         val downstream = terminalSignal("test:downstream-signal", downstreamBlock.blockId, 30.0, "clear")
         val upstream = configuredSignal("test:upstream-signal", block.blockId, listOf(FixedBlockSignalDependency(downstream.signalId)))
         var epochs: SignalEpochRuntime? = null
-        val directions = work.art1st.javarailways.simpleato.routing.OperatingDirectionStore { epochs?.publishOperatingDirectionChanges(it) }
+        val directions = work.art1st.javarailways.basic.rail.OperatingDirectionStore { epochs?.publishOperatingDirectionChanges(it) }
         directions.put(railId, ViewDirection.AB)
         val subsets = arrayListOf<Set<UUID>>()
         var unavailable = false

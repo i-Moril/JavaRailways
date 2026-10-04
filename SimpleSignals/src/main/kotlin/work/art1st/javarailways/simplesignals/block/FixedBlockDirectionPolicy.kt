@@ -2,7 +2,7 @@ package work.art1st.javarailways.simplesignals.block
 
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
-import work.art1st.javarailways.simpleato.api.route.RailOperatingDirections
+import work.art1st.javarailways.basic.api.route.RailOperatingDirections
 import java.util.UUID
 
 /** One bounded, coherent policy read; geometry and authored definitions are never erased. */

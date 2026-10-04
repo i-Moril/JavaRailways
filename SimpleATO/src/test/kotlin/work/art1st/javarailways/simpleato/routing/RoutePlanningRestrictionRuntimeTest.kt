@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.routing
 
+import work.art1st.javarailways.basic.api.route.planning.OperatingDirectionOverlay
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue

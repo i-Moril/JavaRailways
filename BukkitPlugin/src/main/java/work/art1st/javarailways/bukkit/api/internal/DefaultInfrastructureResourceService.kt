@@ -57,7 +57,7 @@ internal class DefaultInfrastructureResourceService(
     private data class WorldRuntime(
         val currentTopology: () -> TopologyState,
         val registry: InfrastructureCoordinationRegistry,
-        val operatingDirections: ((TopologyState, Collection<UUID>) -> work.art1st.javarailways.simpleato.api.route.RailOperatingDirections)?,
+        val operatingDirections: ((TopologyState, Collection<UUID>) -> work.art1st.javarailways.basic.api.route.RailOperatingDirections)?,
         var routeAdmission: RouteResourceAdmissionRuntime? = null,
         var manualTurnoutSelection: ManualTurnoutSelectionRuntime? = null,
         var stallWorld: ((String, Exception) -> Unit)? = null
@@ -82,7 +82,7 @@ internal class DefaultInfrastructureResourceService(
         currentTopology: () -> TopologyState,
         railExists: (UUID) -> Boolean = { false },
         topologyNodeExists: (StableTopologyNodeKey) -> Boolean = { false },
-        operatingDirections: ((TopologyState, Collection<UUID>) -> work.art1st.javarailways.simpleato.api.route.RailOperatingDirections)? = null,
+        operatingDirections: ((TopologyState, Collection<UUID>) -> work.art1st.javarailways.basic.api.route.RailOperatingDirections)? = null,
         resourceExists: (InfrastructureResource) -> Boolean
     ) = synchronized(lock) {
         check(!closed) { "InfrastructureResourceService is closed" }
@@ -102,7 +102,7 @@ internal class DefaultInfrastructureResourceService(
     }
 
     override fun operatingDirections(worldId: UUID, topology: TopologyState, railIds: Collection<UUID>):
-        work.art1st.javarailways.simpleato.api.route.RailOperatingDirections {
+        work.art1st.javarailways.basic.api.route.RailOperatingDirections {
         val world = synchronized(lock) {
             check(!closed) { "InfrastructureResourceService is closed" }
             checkNotNull(worlds[worldId]) { "Railway world is not registered: $worldId" }

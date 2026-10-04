@@ -92,14 +92,15 @@ internal object SimpleSignalsDefinitionEditImpact {
 
         // Region cuts are strictly inside a rail. A direct successor starts at that exact directed
         // cut; topology neighbours or a block across a positive gap are not successor candidates.
-        val blocksByEntryRail = blockSnapshot.blocksById.values.groupBy { it.traversals.first().railId }
+        val blocksByEntryRail = blockSnapshot.blocksById.values.flatMap { block ->
+            block.entryTraversals.map { entry -> block to entry }
+        }.groupBy { (_, entry) -> entry.railId }
         fun successors(region: ProtectionRegionDefinition) =
             region.boundaries.flatMap { boundary ->
-                blocksByEntryRail[boundary.position.railId].orEmpty().filter { block ->
-                    val start = block.traversals.first()
+                blocksByEntryRail[boundary.position.railId].orEmpty().filter { (_, start) ->
                     start.facing != boundary.insideFacing &&
                         abs(start.travelStartAbMeters - boundary.position.arcLengthInAbMeters) <= Curve.TOLERANCE
-                }
+                }.map { (block, _) -> block }
             }
         definitions.regions.forEach { region ->
             val successors = successors(region)

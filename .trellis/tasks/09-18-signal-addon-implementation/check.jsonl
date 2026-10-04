@@ -1,6 +1,5 @@
-{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Production binding: existing runtime publication/source transaction and lock-free safety readers"}
-{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Verify attached-signal reference/variant validation, persistence/admin/edit protection, changed-only fan-out, no extra safety work and retained handles"}
-{"file":".trellis/spec/simple-signals/backend/model-packages.md","reason":"Discover directories once per enable; immutable lookup, no ZIP or hot reload"}
-{"file":".trellis/spec/simple-signals/backend/authoring-commands.md","reason":"Validate without handles or writes; apply preserves original transaction"}
-{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Preserve old/new placement and logical protection"}
-{"file":".trellis/spec/bukkit-plugin/backend/model-presentation-api.md","reason":"Public services, stable object IDs, latest-only submit and observable nonblocking cleanup"}
+{"file":".trellis/spec/simple-signals/backend/index.md","reason":"No new host API, resource/occupancy duplication, independent directional rules or tick scanner"}
+{"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Verify true reverse matching/declarations, real opposing claims and tail/reversal lifecycle with one token"}
+{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Verify both true entry geometries and old/new revision edit safety/locality"}
+{"file":".trellis/spec/simple-signals/backend/protection-region-authority-transition.md","reason":"Reverse successor floor uses existing matcher and rejects real conflicts"}
+{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Verify fixed omitted-field default, true roundtrip, strict invalid types and unchanged schema1"}

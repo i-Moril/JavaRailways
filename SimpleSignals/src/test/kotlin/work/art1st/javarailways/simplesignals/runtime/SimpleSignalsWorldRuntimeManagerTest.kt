@@ -1205,6 +1205,70 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
+    fun `reverse successor edits protect the predecessor region and region edits protect the whole block`() {
+        val fixture = Fixture()
+        val outside = UUID(0L, 91L)
+        val topology = topologyState(41L,
+            listOf(fixture.entry, fixture.upperIn, fixture.lowerIn, fixture.upperOut, fixture.lowerOut, fixture.exit, outside),
+            listOf(
+                endpoint(outside, RailEndpoint.B) to endpoint(fixture.entry, RailEndpoint.A),
+                endpoint(fixture.entry, RailEndpoint.B) to endpoint(fixture.upperIn, RailEndpoint.A),
+                endpoint(fixture.entry, RailEndpoint.B) to endpoint(fixture.lowerIn, RailEndpoint.A),
+                endpoint(fixture.upperIn, RailEndpoint.B) to endpoint(fixture.upperOut, RailEndpoint.A),
+                endpoint(fixture.upperIn, RailEndpoint.B) to endpoint(fixture.lowerOut, RailEndpoint.A),
+                endpoint(fixture.lowerIn, RailEndpoint.B) to endpoint(fixture.lowerOut, RailEndpoint.A),
+                endpoint(fixture.lowerIn, RailEndpoint.B) to endpoint(fixture.upperOut, RailEndpoint.A),
+                endpoint(fixture.upperOut, RailEndpoint.B) to endpoint(fixture.exit, RailEndpoint.A),
+                endpoint(fixture.lowerOut, RailEndpoint.B) to endpoint(fixture.exit, RailEndpoint.A)))
+        val registry = editRegistry(topology)
+        val infrastructure = MutableTopologyService(topology, registry)
+        val successor = FixedBlockDefinition("test:reverse-successor", 1L, listOf(
+            FixedBlockTraversal(outside, ViewDirection.AB, 0.0, 10.0),
+            FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0)), true)
+        val definitions = store()
+        definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1L,
+            listOf(fixture.region), listOf(fixture.table(1L, fixture.upperRoute())), listOf(successor)))
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val runtime = manager.authoringRuntime(fixture.worldId)!!
+        val before = Files.readString(definitions.primaryFile(fixture.worldId))
+        val publication = runtime.authoringPublication()
+        val retained = sources.sources.getValue(fixture.worldId)
+        val withoutRevision = SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(
+            FixedBlockDefinition(successor.blockId, 1L, successor.traversals, false)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
+            manager.applyDefinitionPatch(fixture.worldId, 1L, withoutRevision).status)
+        assertEquals(0, infrastructure.permitAcquisitionCount)
+        val releaseRegion = protect(registry, topology, fixture.upperIn, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
+        val disabling = SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(
+            FixedBlockDefinition(successor.blockId, 2L, successor.traversals, false)))
+        listOf(disabling, SimpleSignalsDefinitionPatch(removeFixedBlockIds = listOf(successor.blockId))).forEach { patch ->
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED,
+                manager.applyDefinitionPatch(fixture.worldId, 1L, patch).status)
+            assertTrue(fixture.upperIn in infrastructure.lastEditRequest!!.impact.railIds)
+            assertEquals(before, Files.readString(definitions.primaryFile(fixture.worldId)))
+            assertSame(publication, runtime.authoringPublication())
+            assertSame(retained, sources.sources.getValue(fixture.worldId))
+        }
+        releaseRegion()
+        val releaseBlock = protect(registry, topology, outside, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM)
+        val regionEdit = SimpleSignalsDefinitionPatch(
+            upsertRegions = listOf(ProtectionRegionDefinition(fixture.region.regionId, 2L, fixture.region.boundaries)),
+            upsertRouteTables = listOf(fixture.table(2L, fixture.upperRoute(), regionRevision = 2L)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED,
+            manager.applyDefinitionPatch(fixture.worldId, 1L, regionEdit).status)
+        assertTrue(outside in infrastructure.lastEditRequest!!.impact.railIds)
+        assertEquals(before, Files.readString(definitions.primaryFile(fixture.worldId)))
+        assertSame(publication, runtime.authoringPublication())
+        assertSame(retained, sources.sources.getValue(fixture.worldId))
+        releaseBlock()
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
+            manager.applyDefinitionPatch(fixture.worldId, 1L, disabling).status)
+        assertFalse(runtime.authoringPublication().definitions.fixedBlocks.single().bidirectional)
+    }
+
+    @Test
     fun `successor block exit edit protects upstream region authority even without a signal rule`() {
         val fixture = Fixture()
         val registry = editRegistry(fixture.currentTopology)

@@ -56,6 +56,22 @@ class ProtectionRegionInspectionSourceTest {
     private val stamp = RailwayStateStamp("world", 1L, topology.revision)
 
     @Test
+    fun `region reverse exit joins the derived reverse block entry and clamps an internal stop`() {
+        val block = FixedBlockDefinition("test:two-way-west", 1L,
+            listOf(FixedBlockTraversal(west, ViewDirection.AB, 0.0, 5.0)), true)
+        listOf(10.0 to 30.0, 8.0 to 28.0).forEach { (lastEnd, floor) ->
+            val reverse = RouteSnapshot("test:reverse", 1L, topology.revision, listOf(
+                segment(east, ViewDirection.BA, 0.0, 10.0),
+                segment(middle, ViewDirection.BA, 0.0, 10.0),
+                segment(west, ViewDirection.BA, 0.0, lastEnd)))
+            val declaration = source(listOf(block)).bindingProvider.bind(
+                InspectionBindingInput(stamp, "train", reverse)).declarations.single()
+            assertEquals(5.0, declaration.triggerRouteDistanceMeters)
+            assertEquals(floor, declaration.minimumRequestedAuthorityEndRouteDistanceMeters)
+        }
+    }
+
+    @Test
     fun `complete crossing compiles one entry to exit authority floor`() {
         val source = source()
         val route = forwardRoute()

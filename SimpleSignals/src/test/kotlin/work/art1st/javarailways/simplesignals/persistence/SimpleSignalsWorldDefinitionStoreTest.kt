@@ -27,6 +27,28 @@ class SimpleSignalsWorldDefinitionStoreTest {
     lateinit var directory: Path
 
     @Test
+    fun `fixed absent bidirectional fixture defaults false and explicit true stays in schema one`() {
+        val fixture = requireNotNull(javaClass.getResource("/fixed-block-without-bidirectional.json")).readText()
+        val fixtureWorld = UUID(0L, 32L)
+        val decoded = SimpleSignalsWorldDefinitionsCodec.decode(fixture, fixtureWorld)
+        val block = decoded.fixedBlocks.single()
+        assertFalse(block.bidirectional)
+        val enabled = SimpleSignalsWorldDefinitions(fixtureWorld, 2L, emptyList(), emptyList(),
+            listOf(FixedBlockDefinition(block.blockId, 2L, block.traversals, true)))
+        val encoded = SimpleSignalsWorldDefinitionsCodec.encode(enabled)
+        assertTrue(encoded.contains("\"bidirectional\": true"))
+        assertTrue(encoded.contains("\"schemaVersion\": 1"))
+        assertEquals(enabled, SimpleSignalsWorldDefinitionsCodec.decode(encoded, fixtureWorld))
+        assertTrue(SimpleSignalsWorldDefinitionsCodec.encode(decoded).contains("\"bidirectional\": false"))
+        listOf("null", "1", "\"true\"", "[]").forEach { invalid ->
+            assertThrows(IllegalArgumentException::class.java) {
+                SimpleSignalsWorldDefinitionsCodec.decode(encoded.replace("\"bidirectional\": true",
+                    "\"bidirectional\": $invalid"), fixtureWorld)
+            }.also { assertTrue(it.message.orEmpty().isNotBlank()) }
+        }
+    }
+
+    @Test
     fun `strict current fixture round trips without derived topology`() {
         val decoded = SimpleSignalsWorldDefinitionsCodec.decode(CURRENT_FIXTURE, WORLD_ID)
         val encoded = SimpleSignalsWorldDefinitionsCodec.encode(decoded)

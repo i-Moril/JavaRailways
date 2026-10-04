@@ -22,6 +22,35 @@ class FixedBlockCatalogTest {
     private val second = rail(2)
 
     @Test
+    fun `bidirectional compilation derives immutable reverse path without duplicating occupancy or index`() {
+        val topology = lineTopologyState(7L, first, second)
+        val traversals = listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
+            FixedBlockTraversal(second, ViewDirection.AB, 0.0, 10.0 + Curve.TOLERANCE / 2))
+        val catalog = FixedBlockCatalog()
+        val twoWay = FixedBlockDefinition("test:two-way", 1L, traversals, true)
+        assertEquals(FixedBlockCatalogStatus.PUBLISHED, catalog.publish(topology, 1L, listOf(twoWay)).status)
+        val snapshot = catalog.snapshot(topology)
+        val compiled = snapshot.blocksById.getValue(twoWay.blockId)
+        assertEquals(listOf(FixedBlockTraversal(second, ViewDirection.BA, 0.0, 10.0),
+            FixedBlockTraversal(first, ViewDirection.BA, 2.0, 10.0)), compiled.reverseTraversals)
+        assertEquals(18.0, compiled.lengthMeters)
+        assertEquals(1, snapshot.blocksById.size)
+        assertEquals(setOf(twoWay.blockId), snapshot.blockIdsByRail.getValue(first))
+        assertEquals(setOf(twoWay.blockId), snapshot.blockIdsByRail.getValue(second))
+        assertEquals(listOf(RailInterval(first, 2.0, 10.0), RailInterval(second, 0.0, 10.0)),
+            compiled.occupancyArea.intervals)
+        assertEquals(listOf(RailObjectRef("test", "two-way/entry"), RailObjectRef("test", "two-way/exit")),
+            compiled.occupancyArea.boundaries.map { it.boundaryId })
+        assertEquals(listOf(first, second), compiled.entryTraversals.map { it.railId })
+        assertThrows(UnsupportedOperationException::class.java) {
+            (compiled.reverseTraversals as MutableList<FixedBlockTraversal>).clear()
+        }
+        assertEquals(FixedBlockCatalogStatus.REJECTED, catalog.publish(topology, 2L,
+            listOf(FixedBlockDefinition(twoWay.blockId, 1L, traversals, false))).status)
+        assertSame(snapshot, catalog.snapshot(topology))
+    }
+
+    @Test
     fun `multi rail AB and BA blocks compile length boundaries and occupancy geometry`() {
         val topology = lineTopologyState(7L, first, second)
         val catalog = FixedBlockCatalog()

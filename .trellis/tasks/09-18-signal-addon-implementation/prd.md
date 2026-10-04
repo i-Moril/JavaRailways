@@ -73,9 +73,10 @@ defines the implemented flow and its verification boundary.
 #### Guided authoring and measurement
 
 The following player-facing requirements are confirmed. The user deferred tools, measurement,
-style-editing UI and track overlays to the next batch. The current approved implementation batch is
-only the backend primary/attached-signal relationship described in the
-[model presentation contract](../../spec/simple-signals/backend/model-presentation.md#主信号与附属信号机).
+style-editing UI and track overlays to the next batch. The backend primary/attached-signal relationship
+is complete offline. Bidirectional single-track single-block control is also implemented and verified offline,
+with two true entrances sharing one block token and one primary signal result; see the
+[bidirectional block contract](../../spec/simple-signals/backend/bidirectional-fixed-block.md).
 Other interaction/API choices remain under discussion and do not authorize tool implementation:
 
 - Create a directed fixed block by selecting its entry and exit. Also allow continuing construction
@@ -87,10 +88,9 @@ Other interaction/API choices remain under discussion and do not authorize tool 
   also belong to the primary signal. Each display keeps its own model, style, position and facing;
   a repeater's display position is not automatically another train-control boundary.
 - Support the user's single-track example of two signal machines displaying the same signal.
-  The first-batch scope of controlling entry from both ends remains to be confirmed: current
-  fixed-block route matching and inspection declarations are directed, so adding a reverse-facing
-  display alone does not control reverse entry. Shared presentation and bidirectional admission
-  must not be treated as the same capability.
+  Bidirectional admission is now approved through `bidirectional = true` on the block; missing/false
+  keeps existing directed behavior. Reverse entry uses the same physical resource and shared rule result,
+  not a second direction-specific token or rule. A reverse-facing display alone still does not enable this control.
 - Provide a separate measurement tool showing both the straight-line distance and the along-track
   distance between two selected rail positions. Path choice at branches must be discussed rather than silently assumed.
 - Like RailWand, allow editing the tool's default signal style for future placement and editing the style
@@ -102,11 +102,12 @@ editor visualization. User-proposed visualization candidates are directed `▴` 
 by speed limit, dedicated resource-pack items for stopping points/anchors, and differently colored
 TextDisplay bars for fixed-block extents. These are proposals, not a frozen rendering/API design.
 Multiple displays now have confirmed shared-output semantics. This does not require every entrance
-signal on a physical section to share one result. The current directed matcher and one-rule-per-section
-runtime are implementation limits, not permanent constraints on bidirectional blocks. A bidirectional
+signal on a physical section to share one result. The current one-rule-per-section runtime is an
+implementation limit, not a permanent constraint on bidirectional blocks. A bidirectional
 physical block must use the same resource identity from both ends; reuse Basic's existing arbitration
 and tail-release lifecycle rather than adding another direction lock for a single block. The authoring
-scope for bidirectional entrances remains open. These extension boundaries are recorded in the
+scope for independently computed directional rules remains open; the current approved single-block
+scope intentionally shares one result. These extension boundaries are recorded in the
 [owner spec](../../spec/simple-signals/backend/index.md#后续单线支持的边界目标尚未实现).
 
 ### C. Timetable, editing and persistence
@@ -133,6 +134,10 @@ scope for bidirectional entrances remains open. These extension boundaries are r
 - [ ] Guided creation selects entry/exit and can continue from an existing block; manual signal placement selects an existing block/region without creating another section.
 - [x] Additional signal machines and repeaters reference their primary signal and reuse its output without duplicating signal evaluation, creating another block resource, or adding a control boundary at every display position.
 - [x] Attached devices round-trip in the existing sidecar and admin workflow, reject invalid/orphan references atomically, update only related models, and retain unaffected handles through edits and unload cleanup; verified offline, not on a live Folia/client.
+- [x] A bidirectional single block matches the same physical path from both ends, produces actual entrance checks,
+  denies opposing claims atomically and retains the same token during an internal stopped reversal until tail clearance.
+  Reverse protection-region successors and edit protection use the same geometry; default single-direction behavior remains unchanged.
+  Verified with real Basic class composition and the 295-test module gate; live Folia and a complete depot mission remain unverified.
 - [ ] The separate rail measurement tool reports straight-line and along-track distances for the selected positions/path without modifying infrastructure or acquiring train resources.
 - [ ] Tool defaults affect future signal placement, while instance-style editing changes only the selected device and preserves the existing logical control binding.
 - [ ] The `SimpleSignals` JAR installs beside the host, is absent from host JARs and imports only documented public contracts.
@@ -178,7 +183,7 @@ scope for bidirectional entrances remains open. These extension boundaries are r
 ## Deferred decisions
 
 - Exact plugin-local JS/YAML API, script budget and model-variant vocabulary. These are reviewed after the Java/Kotlin safety/runtime boundary exists.
-- Guided authoring interaction/API, measurement path selection, bidirectional fixed-block entry scope,
+- Guided authoring interaction/API, measurement path selection, independently computed directional signal rules,
   protection-region route/device editing and editor visualization. Confirmed player-facing requirements are recorded above;
   these unresolved details must be reviewed before the authoring implementation batch.
 - Arbitrary model instance parameters. Production model binding is complete offline; actual Folia/client presentation remains to be verified.
@@ -190,5 +195,5 @@ None for the route-restriction foundation. Sources compile immutable neutral con
 
 Placement, package loading, the JR four-light demo, device persistence and production model binding
 are complete offline. The backend primary/attached-signal relationship is implemented and verified offline. Tools, measurement,
-style-editing UI and track visualization are explicitly deferred to the next batch; bidirectional
-fixed-block entry and protection-region authoring remain separate scope decisions.
+style-editing UI and track visualization are explicitly deferred to the next batch. Bidirectional
+single-block control is complete offline; broader direction coordination and protection-region authoring remain separate decisions.

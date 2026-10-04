@@ -57,10 +57,19 @@ internal class CompiledFixedBlock(
     val definition: FixedBlockDefinition,
     traversals: Collection<FixedBlockTraversal>,
     val lengthMeters: Double,
-    val occupancyArea: RailwayOccupancyAreaDefinition
+    val occupancyArea: RailwayOccupancyAreaDefinition,
+    reverseTraversals: Collection<FixedBlockTraversal> = emptyList()
 ) {
     /** Topology-normalized traversal; rail-end values within tolerance are snapped to the endpoint. */
     val traversals: List<FixedBlockTraversal> = java.util.List.copyOf(traversals)
+    /** Optional reverse path shares the block identity and the same canonical occupancy geometry. */
+    val reverseTraversals: List<FixedBlockTraversal> = java.util.List.copyOf(reverseTraversals)
+    val entryTraversals: List<FixedBlockTraversal> = java.util.List.copyOf(
+        listOf(this.traversals.first()) + this.reverseTraversals.take(1)
+    )
+
+    fun entryTraversal(reversed: Boolean): FixedBlockTraversal =
+        if (reversed) reverseTraversals.first() else traversals.first()
 }
 
 /**
@@ -260,6 +269,11 @@ internal class FixedBlockCatalog {
                 )
             }
         }
+        val reverseTraversals = if (definition.bidirectional) {
+            // Core requires symmetric physical continuations; reversing the validated normalized
+            // path therefore needs no second topology walk or direction-specific graph.
+            compiledTraversals.asReversed().map { it.copy(facing = it.facing.opposite()) }
+        } else emptyList()
 
         val ref = definition.blockId.toRailObjectRef()
         val first = compiledTraversals.first()
@@ -299,7 +313,8 @@ internal class FixedBlockCatalog {
                 definition,
                 compiledTraversals,
                 compiledTraversals.sumOf(FixedBlockTraversal::lengthMeters),
-                area
+                area,
+                reverseTraversals
             )
         )
     }

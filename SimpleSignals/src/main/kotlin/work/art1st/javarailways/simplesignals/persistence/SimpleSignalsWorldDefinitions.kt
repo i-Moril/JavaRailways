@@ -2,7 +2,12 @@ package work.art1st.javarailways.simplesignals.persistence
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonTransformingSerializer
+import kotlinx.serialization.json.booleanOrNull
 import work.art1st.javarailways.bukkit.api.model.ModelPose
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -137,8 +142,20 @@ private data class SavedProtectionRouteTraversalV1(
 private data class SavedFixedBlockV1(
     val blockId: String,
     val revision: Long,
-    val traversals: List<SavedFixedBlockTraversalV1>
+    val traversals: List<SavedFixedBlockTraversalV1>,
+    @Serializable(with = FixedBlockBidirectionalSerializer::class)
+    val bidirectional: Boolean = false
 )
+
+/** The default Boolean decoder also accepts quoted strings; this authored flag requires a boolean. */
+private object FixedBlockBidirectionalSerializer : JsonTransformingSerializer<Boolean>(Boolean.serializer()) {
+    override fun transformDeserialize(element: JsonElement): JsonElement {
+        require(element is JsonPrimitive && !element.isString && element.booleanOrNull != null) {
+            "fixed-block bidirectional must be a JSON boolean"
+        }
+        return element
+    }
+}
 
 @Serializable
 private data class SavedFixedBlockTraversalV1(
@@ -344,7 +361,8 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                         traversal.lowerAbMeters,
                         traversal.upperAbMeters
                     )
-                }
+                },
+                block.bidirectional
             )
         },
         fixedBlockSignals.map { signal ->
@@ -475,7 +493,8 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                 traversal.lowerAbMeters,
                 traversal.upperAbMeters
             )
-        }
+        },
+        bidirectional
     )
 
     private fun SavedFixedBlockSignalV1.restore() = FixedBlockSignalDefinition(

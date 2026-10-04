@@ -27,6 +27,8 @@ Basic 判断这些轨道是否涉及已应用时刻表、列车占用或其他�
   新建 block 尚未被provider注册为可用身份，因此只提交旧、新轨道影响；不能把不存在的资源交给许可校验。
 - region/table 改变：包含相关区域边界、内部和进路；进路 section 与入口选择作为传播起点。
 - region 与直接后继 block 互相影响准入 floor；变更 block 时不能遗漏前驱 region，变更 region/table 时不能遗漏直接后继 block。
+  双向 block 将两个已归一化的真实入口按轨道建表；反向入口也按位置和朝向匹配 region cut，
+  开关变化在旧、新 publication 分别收集。具体方向语义见[双向固定闭塞](bidirectional-fixed-block.md)。
 - signal 改变：包含其受控 section 和所有结构上可受影响的消费者。
 - indicator 改变：包含旧、新放置轨道和绑定入口的进路，不把仅显示模型的设备当作限速提供者。
 - attached signal 改变：包含旧、新放置轨道及各自主信号绑定的区间或进路；改绑时同时保护两个主信号的逻辑范围。

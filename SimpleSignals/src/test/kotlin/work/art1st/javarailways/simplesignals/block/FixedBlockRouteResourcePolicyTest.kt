@@ -48,6 +48,95 @@ class FixedBlockRouteResourcePolicyTest {
     }
 
     @Test
+    fun `bidirectional full and clipped reverse visits share the authored block token`() {
+        val reverseRoute = route(listOf(
+            RouteSegmentSnapshot(second, ViewDirection.BA, 0.0, 10.0),
+            RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0)))
+        assertTrue(policy.contribute(worldId, intent(20.0, reverseRoute)).isEmpty(),
+            "the default false block still skips the opposite facing")
+        val twoWay = FixedBlockDefinition(block.blockId, block.revision, block.traversals, true)
+        val twoWaySnapshot = FixedBlockCatalog().also {
+            assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(topology, 4L, listOf(twoWay)).status)
+        }.snapshot(topology)
+        val twoWayPolicy = FixedBlockRouteResourcePolicy(plugin) { twoWaySnapshot }
+        val windows = (FixedBlockRouteMatcher.matchRoute(twoWaySnapshot, reverseRoute)
+            as FixedBlockAuthorityMatchResult.Matched).windows
+        assertEquals(listOf(FixedBlockRouteWindow(block.blockId, 2.0, 18.0, reversed = true)), windows)
+        assertTrue(twoWayPolicy.contribute(worldId, intent(2.0, reverseRoute)).isEmpty())
+        assertEquals(RouteBoundary(12.0), twoWayPolicy.contribute(worldId, intent(12.0, reverseRoute))
+            .single().releaseAfterTailPasses)
+        assertEquals(policy.contribute(worldId, intent(18.0)).single().resource,
+            twoWayPolicy.contribute(worldId, intent(18.0, reverseRoute)).single().resource)
+    }
+
+    @Test
+    fun `bidirectional mixed-facing path reverses order and preserves internal start and end`() {
+        val mixedTopology = topologyState(8L, listOf(first, second), listOf(
+            endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.B)))
+        val mixed = FixedBlockDefinition("test:mixed", 1L, listOf(
+            FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
+            FixedBlockTraversal(second, ViewDirection.BA, 2.0, 10.0)), true)
+        val mixedSnapshot = FixedBlockCatalog().also {
+            assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(mixedTopology, 1L, listOf(mixed)).status)
+        }.snapshot(mixedTopology)
+        fun match(vararg segments: RouteSegmentSnapshot) = (FixedBlockRouteMatcher.matchRoute(mixedSnapshot,
+            RouteSnapshot("test:mixed-route", 1L, 8L, segments.toList())) as FixedBlockAuthorityMatchResult.Matched).windows
+        assertEquals(listOf(FixedBlockRouteWindow(mixed.blockId, 2.0, 18.0, reversed = true)), match(
+            RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0),
+            RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0)))
+        assertEquals(listOf(FixedBlockRouteWindow(mixed.blockId, 0.0, 11.0, false, true)), match(
+            RouteSegmentSnapshot(second, ViewDirection.AB, 5.0, 10.0),
+            RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 6.0)))
+        assertEquals(listOf(FixedBlockRouteWindow(mixed.blockId, 2.0, 15.0, reversed = true)), match(
+            RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0),
+            RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 5.0)))
+    }
+
+    @Test
+    fun `repeated reverse visits retain one token with only the requested latest release`() {
+        val third = UUID(0L, 3L)
+        val loop = topologyState(8L, listOf(first, second, third), listOf(
+            endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A),
+            endpoint(second, RailEndpoint.B) to endpoint(third, RailEndpoint.A),
+            endpoint(third, RailEndpoint.B) to endpoint(first, RailEndpoint.A)))
+        val twoWay = FixedBlockDefinition("test:loop", 1L,
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)), true)
+        val loopSnapshot = FixedBlockCatalog().also { it.publish(loop, 1L, listOf(twoWay)) }.snapshot(loop)
+        val loopPolicy = FixedBlockRouteResourcePolicy(plugin) { loopSnapshot }
+        val repeated = RouteSnapshot("test:reverse-loop", 1L, 8L, listOf(
+            RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0),
+            RouteSegmentSnapshot(third, ViewDirection.BA, 0.0, 10.0),
+            RouteSegmentSnapshot(second, ViewDirection.BA, 0.0, 10.0),
+            RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0)))
+        val windows = (FixedBlockRouteMatcher.matchRoute(loopSnapshot, repeated)
+            as FixedBlockAuthorityMatchResult.Matched).windows
+        assertEquals(listOf(FixedBlockRouteWindow(twoWay.blockId, 2.0, 8.0, reversed = true),
+            FixedBlockRouteWindow(twoWay.blockId, 32.0, 38.0, reversed = true)), windows)
+        assertEquals(RouteBoundary(8.0), loopPolicy.contribute(worldId, intent(20.0, repeated))
+            .single().releaseAfterTailPasses)
+        assertEquals(RouteBoundary(35.0), loopPolicy.contribute(worldId, intent(35.0, repeated))
+            .single().releaseAfterTailPasses)
+    }
+
+    @Test
+    fun `reverse traversal cannot use authority clipping to hide an interior branch departure`() {
+        val branch = UUID(0L, 3L)
+        val fork = topologyState(8L, listOf(first, second, branch), listOf(
+            endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A),
+            endpoint(first, RailEndpoint.B) to endpoint(branch, RailEndpoint.A)))
+        val twoWay = FixedBlockDefinition(block.blockId, block.revision, block.traversals, true)
+        val forkSnapshot = FixedBlockCatalog().also {
+            assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(fork, 1L, listOf(twoWay)).status)
+        }.snapshot(fork)
+        val route = RouteSnapshot("test:reverse-branch", 1L, 8L, listOf(
+            RouteSegmentSnapshot(branch, ViewDirection.BA, 0.0, 10.0),
+            RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0)))
+        val result = FixedBlockRouteMatcher.matchAuthority(forkSnapshot, route, 5.0)
+        assertTrue(result is FixedBlockAuthorityMatchResult.Rejected,
+            "joining midway inside the block is not an internal route endpoint")
+    }
+
+    @Test
     fun `complete authority traversal contributes one block token held to the exit`() {
         val contributions = policy.contribute(worldId, intent(18.0)).toList()
 
@@ -276,7 +365,7 @@ class FixedBlockRouteResourcePolicyTest {
         requestId = "test:request",
         owner = InfrastructureOwner("test:train", 1L),
         trainId = "train",
-        observationStamp = RailwayStateStamp(worldId.toString(), 9L, topology.revision),
+        observationStamp = RailwayStateStamp(worldId.toString(), 9L, route.topologyRevision),
         route = route,
         desiredAuthority = RouteBoundary(desiredAuthorityMeters)
     )

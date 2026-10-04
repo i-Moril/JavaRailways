@@ -148,7 +148,8 @@ republish之前，旧source/snapshot按root identity检查fail-close。productio
 
 ## 固定闭塞定义与索引
 
-`FixedBlockDefinition`由稳定namespaced block ID、单调revision和一条从入口到出口的完整有序有向traversal组成；每段使用
+`FixedBlockDefinition`由稳定namespaced block ID、单调revision、一条从入口到出口的完整有序有向traversal，以及
+默认关闭的 `bidirectional` 组成；每段使用
 rail UUID、`ViewDirection`及canonical AB闭区间。定义不保存长度、occupancy或route occurrence，这些都是exact topology root下的
 派生值。
 
@@ -181,8 +182,8 @@ baseline；此前snapshot为unknown而不是空占用。没有配置规则的blo
 
 同一world candidate完整编译后、outer publication替换前，runtime还会用已编译interval检查fixed block与所有保护区域的正长度interior
 重叠；大于`Curve.TOLERANCE`的交集拒绝整批candidate，只有共用边界点允许。失败不取得edit permit、不写盘且保留旧publication。
-这个检查只发生在load/authoring路径，不进入tick。当前不规定两个fixed block之间能否重叠；双向block是否共享物理范围属于后续信号规则，
-不能在基础catalog中提前禁止。
+这个检查只发生在load/authoring路径，不进入tick。当前不规定不同fixed-block定义之间能否重叠，
+不能在基础catalog中提前禁止。单个双向闭塞则复用一份定义、占用几何和资源，见[双向固定闭塞合同](bidirectional-fixed-block.md)。
 
 ## 固定闭塞进路资源
 
@@ -223,7 +224,7 @@ binding provider复用同一publication reverse index和exact frozen-route match
 到达exit时不变，进入block后才向前抬到exit，重叠window按有序单向扫描连锁。随后上述contributor收到完整authority prefix并
 继续做路线交集验证，Basic仍可拒绝且只有Basic grant能扩大实际authority。运营路线在block内部结束时，floor止于该路线终点，
 不为了“持有整个闭塞”把列车授权到站台以外。资源交集起点不是信号位置：`FixedBlockInspectionSource`仅为
-`enteredAtBoundary=true`的window生成真实入口声明，使用作者的入口rail/facing、入口route metre、提前时间和authority floor。
+`enteredAtBoundary=true`的window生成真实入口声明，使用本次通过方向的入口rail/facing、入口route metre、提前时间和authority floor。
 路线从block内部开始时，`enteredAtBoundary=false`，不生成入口声明或入口floor；既有contributor仍按资源交集提交整个block token，
 已有claim与车尾释放队列照常保留/延长，不依赖一个虚构信号。后续block的真实入口仍正常产生声明与限制。
 真实入口若位于完整冻结路线中但已经被车头越过，既有`InspectionScheduler.declarationsBetween(head, head + horizon)`自然排除它；
@@ -248,20 +249,21 @@ degree-2物理环线上的真实Basic申请/延长/车尾释放，并覆盖内�
 已越过真实入口不读取信号、后续真实入口照常激活、入口零交集、真实前方入口缺baseline仍为0、
 停车保留token、延长后车尾释放，以及已释放历史block在之后的申请中不被重新取得。
 
-当前block资源匹配仍按作者的有向traversal。折返时反向定义可能要求未持有的新token，旧方向token也可能失去新的路线释放证据；
-把资源改为双向物理范围匹配可解决这一身份衔接，但会改变资源语义，必须先评审，不能在本批次静默引入alias、schema迁移或generic rebase协议。
+默认 block 仍按作者的有向 traversal 匹配。默认关闭的 `bidirectional` 开关已支持
+同一物理路径的两端进入，复用同一 token、主信号结果及 Basic 折返/释放机制。反向路径派生、入口检查、
+保护区域衔接和验证要求归[双向固定闭塞合同](bidirectional-fixed-block.md)，已完成离线验证。
 
 ### 后续单线支持的边界（目标，尚未实现）
 
-用户已将单线多闭塞的方向协调推迟到 [TODO.md](../../../../TODO.md)。当前不增加方向锁、调度框架、占位类型或存档字段；
+用户已将单线多闭塞的方向协调推迟到 [TODO.md](../../../../TODO.md)。当前不增加多闭塞方向锁、调度框架、占位类型或相应存档字段；
 后续具体准入机制仍须讨论。当前建造与显示模型必须保留以下边界：
 
 - 同一物理闭塞允许双向进入时，两端必须申请同一个 `simplesignals:fixed-block` 资源，不能因 AB/BA 方向或不同信号机而拆成两份独立资源。
-  单个闭塞的互斥和车尾释放复用 Basic 现有机制；需要补齐的是 SimpleSignals 的双向匹配和入口限制，不是第二套资源仲裁。
+  本批已补齐 SimpleSignals 的双向匹配和入口限制；单个闭塞的互斥和车尾释放复用 Basic 现有机制，不是第二套资源仲裁。
 - 附属信号机和中继信号机引用主信号结果，各自保留模型和摆放；附属显示不创建资源、不重复执行规则，也不凭显示位置增加入口限制。
   两个真实入口共用资源，不代表必须共用同一信号结果；它们可以根据各自前方区间独立计算，不能把显示主从关系当作入口互斥模型。
-- 目前 `FixedBlockRouteMatcher` 跳过与作者方向不同的 traversal，`SectionSignalRuleRuntime` 普通区间只接受一个规则绑定。
-  这是当前限制；后续双向接入时需要调整，不得据此新增“一个物理闭塞永久只有一个入口信号”的公共契约。
+- 本批双向单闭塞继续使用一个规则结果控制两个入口；附属设备负责额外显示，不增加规则节点。
+  两端独立规则尚未设计，不得据此新增“一个物理闭塞永久只有一个入口信号”的公共契约。
 - 多闭塞的整段方向协调与每个闭塞的独立占用是不同问题。不能默认给整段加只能由一列车持有的独占资源，导致未来无法支持同向跟车；
   是否允许跟车、如何切换方向及如何原子约束资源申请仍未冻结。后续方案须验证相向申请不会各自进入两端闭塞而互相堵住。
 

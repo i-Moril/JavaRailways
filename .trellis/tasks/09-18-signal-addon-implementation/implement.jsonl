@@ -1,6 +1,5 @@
-{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Production binding: existing runtime publication/source transaction and lock-free safety readers"}
-{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Approved attached-signal backend contract: direct primary reference, additive persistence, indexed display fan-out and retained handles"}
-{"file":".trellis/spec/simple-signals/backend/model-packages.md","reason":"Discover directories once per enable; immutable lookup, no ZIP or hot reload"}
-{"file":".trellis/spec/simple-signals/backend/authoring-commands.md","reason":"Validate without handles or writes; apply preserves original transaction"}
-{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Preserve old/new placement and logical protection"}
-{"file":".trellis/spec/bukkit-plugin/backend/model-presentation-api.md","reason":"Public services, stable object IDs, latest-only submit and observable nonblocking cleanup"}
+{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Existing fixed-block catalog, resource contributor, inspection and definition transaction owners"}
+{"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Approved single-block bidirectional matching, true entrances, shared resource/rule and stopped reversal contract"}
+{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Include old/new reverse-entry region successor geometry without world-wide impact"}
+{"file":".trellis/spec/simple-signals/backend/protection-region-authority-transition.md","reason":"Reuse sorted route windows for direct reverse successor and clamped authority floor"}
+{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Default-false additive block field stays schema1 without compatibility or migration branches"}

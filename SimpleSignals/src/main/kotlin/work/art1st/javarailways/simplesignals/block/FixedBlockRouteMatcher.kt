@@ -14,7 +14,9 @@ internal data class FixedBlockRouteWindow(
     val entryRouteDistanceMeters: Double,
     val exitRouteDistanceMeters: Double,
     /** False when the operational route begins inside the block, past its entry signal. */
-    val enteredAtBoundary: Boolean = true
+    val enteredAtBoundary: Boolean = true,
+    /** True when this visit follows the compiled reverse of the authored path. */
+    val reversed: Boolean = false
 )
 
 internal sealed interface FixedBlockAuthorityMatchResult {
@@ -56,30 +58,35 @@ internal object FixedBlockRouteMatcher {
         val candidates = snapshot.candidates(projection.occurrencesByRail.keys)
         val windows = ArrayList<FixedBlockRouteWindow>()
         for (block in candidates) {
-            // Match the full operating route before clipping to the requested authority. Otherwise a
-            // rolling request ending inside a block looks indistinguishable from a broken path.
-            val pieces = overlapPieces(block, projection.occurrencesByRail, route.totalLengthMeters)
-            if (pieces.isEmpty()) continue
-            val runs = mergeContiguousPieces(pieces)
-            val complete = runs.filter { run ->
-                (run.blockStartMeters <= Curve.TOLERANCE || run.routeStartMeters <= Curve.TOLERANCE) &&
-                    (block.lengthMeters - run.blockEndMeters <= Curve.TOLERANCE ||
-                        route.totalLengthMeters - run.routeEndMeters <= Curve.TOLERANCE)
-            }
-            if (complete.size != runs.size) {
-                return FixedBlockAuthorityMatchResult.Rejected(
-                    "route leaves the directed traversal of fixed block " +
-                        block.definition.blockId
-                )
-            }
-            for (run in complete) {
-                if (run.routeStartMeters >= authorityEndRouteMeters - Curve.TOLERANCE) continue
-                windows += FixedBlockRouteWindow(
-                    block.definition.blockId,
-                    run.routeStartMeters,
-                    min(run.routeEndMeters, authorityEndRouteMeters),
-                    enteredAtBoundary = run.blockStartMeters <= Curve.TOLERANCE
-                )
+            val directions = listOf(block.traversals, block.reverseTraversals)
+            for ((direction, traversals) in directions.withIndex()) {
+                if (traversals.isEmpty()) continue
+                // Match the full operating route before clipping to the requested authority. Otherwise a
+                // rolling request ending inside a block looks indistinguishable from a broken path.
+                val pieces = overlapPieces(traversals, projection.occurrencesByRail, route.totalLengthMeters)
+                if (pieces.isEmpty()) continue
+                val runs = mergeContiguousPieces(pieces)
+                val complete = runs.filter { run ->
+                    (run.blockStartMeters <= Curve.TOLERANCE || run.routeStartMeters <= Curve.TOLERANCE) &&
+                        (block.lengthMeters - run.blockEndMeters <= Curve.TOLERANCE ||
+                            route.totalLengthMeters - run.routeEndMeters <= Curve.TOLERANCE)
+                }
+                if (complete.size != runs.size) {
+                    return FixedBlockAuthorityMatchResult.Rejected(
+                        "route leaves the directed traversal of fixed block " +
+                            block.definition.blockId
+                    )
+                }
+                for (run in complete) {
+                    if (run.routeStartMeters >= authorityEndRouteMeters - Curve.TOLERANCE) continue
+                    windows += FixedBlockRouteWindow(
+                        block.definition.blockId,
+                        run.routeStartMeters,
+                        min(run.routeEndMeters, authorityEndRouteMeters),
+                        enteredAtBoundary = run.blockStartMeters <= Curve.TOLERANCE,
+                        reversed = direction == 1
+                    )
+                }
             }
         }
         return FixedBlockAuthorityMatchResult.Matched(
@@ -93,13 +100,13 @@ internal object FixedBlockRouteMatcher {
     }
 
     private fun overlapPieces(
-        block: CompiledFixedBlock,
+        traversals: List<FixedBlockTraversal>,
         occurrencesByRail: Map<java.util.UUID, List<DirectedRouteOccurrence>>,
         authorityEndRouteMeters: Double
     ): List<OverlapPiece> {
         val pieces = ArrayList<OverlapPiece>()
         var blockTraversalStart = 0.0
-        for (traversal in block.traversals) {
+        for (traversal in traversals) {
             for (occurrence in occurrencesByRail[traversal.railId].orEmpty()) {
                 if (occurrence.facing != traversal.facing) continue
                 val routeLow = min(

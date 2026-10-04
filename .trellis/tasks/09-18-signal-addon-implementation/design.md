@@ -95,6 +95,12 @@ Basic either claims the complete union or none. A confirmed Basic grant is neces
 
 ### Fixed blocks and transitions
 
+用户现已批准单线单闭塞的双向控制。通过默认关闭的 `bidirectional` 字段，复用既有匹配、
+入口检查和 Basic 资源生命周期；两端使用同一 block token 和一份共享主信号输出，
+附属设备提供独立摆放。反向路径、拒绝条件、编辑影响和验证统一见
+[双向固定闭塞合同](../../spec/simple-signals/backend/bidirectional-fixed-block.md)。
+两端独立信号规则、工具/测距和单线多闭塞协调不随本批扩展。
+
 Fixed blocks are plugin-owned definitions. Entering one normally adds its whole block resource and holds it until the train tail clears the plugin-defined boundary. Protection regions and fixed blocks may implement a common plugin-local read surface—occupancy, length, grant state and downstream limit—but this interface is not a Basic `AuthoritySection`.
 
 The current foundation compiles each block only on load/authoring. It validates the ordered traversal against one exact
@@ -118,8 +124,8 @@ to one restriction per signal. Resource contributions coalesce only windows cove
 block token and the latest covered exit. No occurrence-specific resource ID, public field or second release queue is introduced.
 Repeated complete-region selection and Basic's repeated turnout/diamond handling are covered by the bulb-line batch below;
 fixed-block matching alone must not be presented as proof of that device lifecycle or return-to-depot support.
-Basic already retains resources and rebuilds the route coordinate at stopped reversal, but directional block-token correspondence is unresolved;
-the return-to-depot signal/resource integration must not be described as complete. Basic independently adds the physical rail, turnout and diamond
+Basic already retains resources and rebuilds the route coordinate at stopped reversal. Shared block-token correspondence is now the approved
+bidirectional single-block batch above; broader return-to-depot behavior must not be described as complete merely from that slice. Basic independently adds the physical rail, turnout and diamond
 floor and atomically claims the union. The exact current matching, authority and release bounds belong in the SimpleSignals owner spec;
 the current partial-endpoint, repeated-fixed-block and continuous bulb-line behavior is recorded in the respective owner contracts.
 
@@ -258,11 +264,11 @@ SimpleSignals 已接通目录发现、设备创建、完整信号状态到显示
 不等于真实 Folia/客户端显示验证已经完成。
 SimpleATOBukkit 不参与这条流程。
 
-本批经用户确认，只实现主信号与附属信号机的后端关系。附属设备保存直接主信号引用和独立模型摆放，
+前一批经用户确认，已实现主信号与附属信号机的后端关系。附属设备保存直接主信号引用和独立模型摆放，
 复用已有主信号结果及模型对象生命周期，不成为新的规则节点、检查声明或资源。
 存档新增默认空集合，复用现有管理员草稿和定义提交；精确字段、索引、失败行为和测试统一归
 [模型显示合同](../../spec/simple-signals/backend/model-presentation.md#主信号与附属信号机)。
-工具、测距、样式编辑界面及轨道可视化下一批处理；本批不扩大为双向入口或单线多闭塞运行支持。
+工具、测距、样式编辑界面及轨道可视化下一批处理；双向入口由上述单闭塞批次提供，单线多闭塞运行支持仍推迟。
 
 普通模型值契约已经审查并实现：附属插件展开模型包，主插件只消费不可变的容器/物品树，
 以完整场景选择恢复或替换外观。创建时建立动画/场景索引，提交前完成全部校验，再更新旧、新命中部件的并集。

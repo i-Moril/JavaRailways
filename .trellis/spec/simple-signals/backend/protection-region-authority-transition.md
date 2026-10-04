@@ -79,8 +79,9 @@ else:
 匹配后的route-local坐标；因此道岔另一支路不会被误认为第二个候选。
 
 多个匹配不是正常选路歧义。它表示两个同方向fixed-block定义在当前冻结路线的同一入口开始并发生冲突。
-当前fixed-block catalog尚未统一禁止所有block-to-block重叠，因为反向定义共享物理范围的语义仍未冻结；
-binding保留最后一道防御性fail-close检查。
+当前fixed-block catalog尚未统一禁止不同block定义之间的重叠，binding仍拒绝同一入口上的冲突定义。
+[单个双向闭塞](bidirectional-fixed-block.md)不依靠两个重叠定义：同一block在两种方向生成路线窗口，
+此处照常选择当前冻结路线上的唯一后继，无须另一套区域衔接算法。
 
 ### 3.4 授权与资源连接
 
@@ -234,7 +235,7 @@ region为`[5m,25m]`，block从`25m`延伸到路线终点以外，站台运营目
 
 - moving-block territory中的精确post-exit boundary；
 - 不同列车长度和净空余量下的tail-clearance合同；
-- 是否以及如何在authoring时禁止同方向fixed-block重叠，同时允许未来明确规定的反向共享定义。
+- 是否以及如何在authoring时禁止不同fixed-block定义的重叠。单个双向闭塞已使用一份定义，不需要重叠定义表达。
 
 ### Wrong
 

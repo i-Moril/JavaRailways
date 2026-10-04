@@ -40,7 +40,7 @@ internal class FixedBlockInspectionSource(
                 trainProfileRevision = 0L,
                 declarations = windows.filter(FixedBlockRouteWindow::enteredAtBoundary).map { window ->
                     val block = captured.blocksById.getValue(window.blockId)
-                    val entry = block.traversals.first()
+                    val entry = block.entryTraversal(window.reversed)
                     InspectionDeclaration(
                         declarationId = fixedBlockSignalDeclarationId(window.blockId),
                         railId = entry.railId,

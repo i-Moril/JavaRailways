@@ -76,7 +76,12 @@ Current extraction progress:
     日志：`Basic/build/operating-direction-review-focused.log`、`Basic/build/operating-direction-review-final-gate.log`。
     没有live Folia/客户端或大规模性能验证；整体Stage2继续进行，其他未提交内容不纳入本批。
 
-- [x] 历史基线 `8ff013f6` 的方向一致性与低速降级修正，完成一个可独立审查的三模块批次；下述存储归属已由本次 Basic 方案替代，闭塞行为不变：
+- [ ] 落实用户修订的统一失效策略：运营方向失配与结构失效均禁止 ATO 驶入，保留区间、进路及设备配置。
+  删除 `disabled-block-speed-kmh` 和仅为低速降级存在的逻辑，不增加兼容策略；按实际调用清理相关接口。
+  复用原有方向读取、变化通知、路线校验和资源生命周期；验证正反向、多轨道、无信号规则的闭塞均不能绕过拒绝，
+  修复后恢复、旧占用不丢失、无关区间及手动驾驶不受影响。契约目标见[双向固定闭塞合同](../../spec/simple-signals/backend/bidirectional-fixed-block.md)。
+
+- [x] 历史基线 `8ff013f6` 的方向一致性与低速降级修正，完成一个可独立审查的三模块批次；下述存储归属已由 Basic 方案替代，低速行为现已被上方待实现的新决策取代，以下仅保留历史证据：
   - SimpleATO 仍唯一持有运营方向。宿主公开接口一次读取相关轨道的完整方向子集；中央写入只通知实际变化轨道，
     沿用信号 epoch 的合并集合与轨道兴趣索引，无变化和无关编辑不唤醒相关来源，不轮询所有闭塞。
   - SimpleSignals 检查闭塞的每段 authored facing：单向要求每段仅允许该方向，双向要求每段均允许两向。
@@ -182,6 +187,19 @@ Current extraction progress:
 - [ ] Finish the remaining editor integration through the common edit permit; guided authoring remains separate below.
   - [x] Existing SimpleSignals six-kind definition patches use the common permit, and the admin apply command already displays the original blocker kind, owner/revision and rail/node/resource overlap with bounded output. `SimpleSignalsWorldRuntimeManagerTest` covers exact diagnostic content and truncation; do not add another formatter or mark that command UI as unimplemented. Contract: [authoring commands](../../spec/simple-signals/backend/authoring-commands.md).
 - [ ] Add guided RailObjectWand interaction for create/edit/delete/inspect/validate; the admin JSON command workflow is complete above. Topology-format migration and its recovery points remain owned by the separate 09-24 migration task, not runtime command compatibility.
+  - 当前获批批次仅实现下面的独立道岔工具，具体边界见[实施说明](research/turnout-wand-batch.md)。信号规则预设/模板推迟，不预留实现。
+  - [x] 主插件提供独立道岔 Wand：`/jr wand turnout`，左键来向、右键出口，复用现有 `selectTurnout` 和实际占用/资源冲突结果。
+    根据命中弧长选择较近端点，只接受当前拓扑中的合法连接；成功/拒绝后重新读真实双侧选择，以局部短暂粒子和消息反馈。
+    复用既有异步选轨和玩家调度；取消、换工具、换世界或换拓扑后旧查询结果不能扳动道岔。
+    无新资源管理器、授权、周期任务、存档升级或兼容路径；Core、Basic 和 ATO 生产代码不变。
+    使用说明见 [BukkitPlugin README](../../../BukkitPlugin/README.md)，实现机制见[道岔工具契约](../../spec/bukkit-plugin/backend/turnout-wand.md)。
+    新增 12 项回归；独立复核补上跨世界往返时清空旧选择，并增加支线到干线的真实服务切换断言，无剩余范围内问题。
+    修复后完整 BukkitPlugin 84 套/348 项测试实际执行通过，Basic 手动切换的4项聚焦测试实际通过，均零失败/错误/跳过。
+    生产和测试 Kotlin 重新编译，Java consumer 编译复用未变缓存；shadowJar 实际重建，确认工具类、中英语言资源、WebUI JAR和默认 OP 权限入包。
+    `git diff --check`与 curated context 校验通过；日志为 `BukkitPlugin/build/turnout-wand-review-fixed-gate.log` 和 `turnout-wand-review-gate.log`。
+    取消测试覆盖实际生产判定函数，服务测试组合真实 Core/宿主；换世界事件接线通过源码复核，不表示完整 Folia 调度或客户端画面已验证。
+  - [ ] 再提供当前通路预览：显示入口到出口的实际路径、方向和不连通原因，相关道岔状态变化后更新；重计算不阻塞物理或平台线程，不逐 tick 扫描全路网。
+  - [ ] 在以上能力可用后接入进路录制：按真实道岔状态记录所选入口到出口的完整固定路径，录制不自动扳动道岔或申请列车授权，路径显示与最终保存校验使用一致输入。
 - [ ] 在 `SimpleSignals` 接入信号模型显示：把实体操作安排到目标线程，只更新实际变化并保留最新待显示状态，
   丢弃旧显示序号，世界卸载或插件停用时可重复安全清理。复用主插件平台 API 前先审查具体跨插件需求，
   不通过 `SimpleATOBukkit` 转发显示。

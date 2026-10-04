@@ -47,6 +47,7 @@ import work.art1st.javarailways.bukkit.render.backend.TrainPacketBundleCoordinat
 import work.art1st.javarailways.bukkit.render.chunk.ViewDistanceManager
 import work.art1st.javarailways.bukkit.tool.RailObjectWand
 import work.art1st.javarailways.bukkit.tool.RailWand
+import work.art1st.javarailways.bukkit.tool.TurnoutWand
 import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.simpleatobukkit.SimpleATOBukkitModule
 import work.art1st.javarailways.core.api.event.processor.EventRegistration
@@ -123,6 +124,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
 
     /** RailWand 工具 */
     lateinit var railWand: RailWand
+
+    lateinit var turnoutWand: TurnoutWand
 
     /** 列车控制权与钥匙绑定管理 */
     lateinit var trainControlManager: TrainControlManager
@@ -265,6 +268,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         railWand.init()
         railObjectWand = RailObjectWand(this)
         railObjectWand.init()
+        turnoutWand = TurnoutWand(this)
+        turnoutWand.init()
 
         // Cloud 通过 Paper Brigadier 注册完整命令树与动态补全。
         cloudCommands = CloudCommandRegistrar(this)

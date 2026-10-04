@@ -72,6 +72,10 @@ Stable persisted `kind/type` values represent capabilities; Java/Kotlin class na
 
 ### Protection-region authoring and indexing
 
+已确认的 Wand 目标（尚未实现）：每次放置有向边界都自动从内侧尝试识别完整区域，
+不要求预先选中区域或进入修复模式。补全旧区域时通过保留的边界关系识别原区域，沿用其身份与配置；
+定义暂时不完整时保留配置并禁止 ATO 驶入，恢复须重新校验。用户交互和搜索上限要求见 PRD。
+
 On create/update/load, the plugin captures one immutable `TopologyState` root, cuts directed traversal at every declared boundary and flood-fills from the explicitly selected interior side. It rejects an unbounded escape, multiple candidate interiors, invalid facing, missing rail positions and unsupported overlap before publishing the new definition snapshot.
 
 The definition stores boundaries, not a second authoritative subgraph. Derived interior membership, rail-to-region reverse lookup and entry/exit route indexes are disposable caches keyed by `(topologyRevision, signalDefinitionRevision)`. A topology or definition change invalidates and rebuilds affected indexes outside the per-tick path.
@@ -109,16 +113,17 @@ Basic either claims the complete union or none. A confirmed Basic grant is neces
 [双向固定闭塞合同](../../spec/simple-signals/backend/bidirectional-fixed-block.md)。
 两端独立信号规则、工具/测距和单线多闭塞协调不随本批扩展。
 
-方向一致性与低速降级已实现并通过独立复核及受影响模块的离线门禁。Basic 保存公共运营方向，
+方向一致性与原低速降级曾通过独立复核及受影响模块的离线门禁。用户现已取消低速降级：
+方向失配与结构失效统一保留区间配置并禁止 ATO 驶入，修复并重新校验后恢复；此变更尚未实现。
+删除 `disabled-block-speed-kmh` 和仅服务于该降级的逻辑，不保留旧策略开关。
+Basic 保存公共运营方向，
 宿主只提供一次读取相关轨道方向的公开接口；方向修改从原有信号更新流程通知受影响闭塞，
 不逐 tick 轮询所有定义。SimpleSignals 对整条闭塞路径校验方向，并明确拒绝有效单向闭塞的反向申请。
-已知方向失配与未知故障分开处理：前者使用区间内持续生效的 20 km/h 默认限制，后者继续保持 0。
-现有检查绑定缓存路线起止区间，限制适配器消费同一份快照；入口经过后仍能维持限速，资源仲裁和车尾释放不另建实现。
+SimpleSignals 将方向失配作为区间不可用原因，路线校验和资源准入必须明确拒绝，不能把它从索引中移除后当作无信号线路通过。
+资源仲裁和车尾释放不另建实现，也不因区间不可用而丢弃已持有资源。
 用户明确要求手动驾驶保持原样，本批只约束 ATO，不加入手动限速、自动制动或 ATS，也不删除现有手动安全行为。
-控制器按车头在冻结路线上的位置维持区间限速，并在车头越过出口后结束这项限速；
-车身仍占用的资源独立沿用车尾释放规则，不因限速结束而提前释放。
 完整机制与验收归[双向固定闭塞合同](../../spec/simple-signals/backend/bidirectional-fixed-block.md)，
-公开方向读取/更新、区间限速表达和闭塞行为已作为一个完整部分验证；本次归属调整不改变这些行为。
+其中正文仍记录已实现的旧机制，开头的目标决策说明本次待完成变更，不能将历史门禁作为新策略的验证证据。
 实现证据见[实施记录](implement.md)；[研究记录](research/fixed-block-direction-policy.md)保留改动前的源码依据，不代表当前模型或真实服务器验证。
 
 Fixed blocks are plugin-owned definitions. Entering one normally adds its whole block resource and holds it until the train tail clears the plugin-defined boundary. Protection regions and fixed blocks may implement a common plugin-local read surface—occupancy, length, grant state and downstream limit—but this interface is not a Basic `AuthoritySection`.
@@ -261,6 +266,11 @@ reuses the immutable value while topology/selection revisions remain unchanged a
 during epoch processing. This completes the prerequisite for turnout-aware dependency selection without exposing mutable `RailView`.
 
 ### Rendering and customization
+
+用户已批准先做独立道岔 Wand，作为后续录制当前进路的操作前提；信号规则预设/模板暂时搁置。
+工具由 BukkitPlugin 负责，复用现有 `InfrastructureResourceService.selectTurnout`，不移动或复制 Basic 的安全切换逻辑。
+本批只选择来向和出口、显示真实连接及拒绝原因；完整区域通路预览、录制与其他建造工具分批实现。
+边界和验证见[道岔工具实施说明](research/turnout-wand-batch.md)。
 
 SimpleSignals 自己负责信号模型包、模型操作对象、RailObjectWand 模式、命令、权限，以及可选的 JS/YAML 配置。
 显示侧读取不可变的信号结果，只在外观或摆放状态变化时更新模型。显示绑定将通过已实现的通用公开接口复用主插件的模型系统，

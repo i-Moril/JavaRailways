@@ -43,6 +43,8 @@ import work.art1st.javarailways.bukkit.render.backend.PacketPlatformDiagnostics
 import work.art1st.javarailways.bukkit.render.model.SeatModel
 import work.art1st.javarailways.bukkit.tool.RailWandEditPermitAcquisition
 import work.art1st.javarailways.bukkit.tool.RailWandTopologyEditPlan
+import work.art1st.javarailways.bukkit.tool.TurnoutWandI18n
+import work.art1st.javarailways.bukkit.tool.giveTurnoutWand
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.physics.World as RailWorld
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -103,7 +105,7 @@ class JavaRailwaysCommand {
         }
 
     private fun completeCommand(sender: CommandSender, args: Array<out String>): List<String> {
-        val plugin = BukkitPlugin.INSTANCE
+        val plugin by lazy { BukkitPlugin.INSTANCE }
         val prefix = args.lastOrNull().orEmpty()
         fun filtered(values: Iterable<String>): List<String> = values.distinct()
             .filter { it.startsWith(prefix, ignoreCase = true) }
@@ -125,7 +127,7 @@ class JavaRailwaysCommand {
                 }
                 else -> emptyList()
             }
-            "wand" -> if (args.size == 2) filtered(listOf("rail", "railobject")) else emptyList()
+            "wand" -> if (args.size == 2) filtered(listOf("rail", "railobject", "turnout")) else emptyList()
             "waypoint", "wp", "stop" -> when (args.size) {
                 2 -> filtered(listOf("list", "info", "remove"))
                 3 -> if (args[1].lowercase() in setOf("info", "remove")) filtered(waypoints()) else emptyList()
@@ -199,6 +201,10 @@ class JavaRailwaysCommand {
     }
 
     private fun handleWand(sender: CommandSender, args: List<String>): Boolean {
+        if (args.firstOrNull().equals("turnout", ignoreCase = true)) {
+            giveTurnoutWand(sender) { BukkitPlugin.INSTANCE.turnoutWand.giveWand(it) }
+            return true
+        }
         if (sender !is Player) { sender.sendMessage("Player only"); return true }
         when (args.firstOrNull()?.lowercase()) {
             "rail", "give" -> {
@@ -209,7 +215,7 @@ class JavaRailwaysCommand {
                 BukkitPlugin.INSTANCE.railObjectWand.giveWand(sender)
                 sender.sendMessage("RailObjectWand 已给予")
             }
-            else -> sender.sendMessage("用法: /jr wand <rail|railobject> (设置请 Shift+右键打开 Dialog)")
+            else -> sender.sendMessage("用法: /jr wand <rail|railobject|turnout> (设置请 Shift+右键)")
         }
         return true
     }
@@ -1361,6 +1367,7 @@ class JavaRailwaysCommand {
         sender.sendMessage("/jr train action <name> - 触发列车动作（动画/声音等）")
         sender.sendMessage("/jr wand rail - 获取 RailWand")
         sender.sendMessage("/jr wand railobject - 获取 RailObjectWand")
+        sender.sendMessage(TurnoutWandI18n.component(sender, "command.help"))
         sender.sendMessage("/jr waypoint list|info|remove - 管理路径点")
         sender.sendMessage("/jr route validate <from> <to> - 验证路径点之间的展开经路")
         sender.sendMessage("/jr navigate [--measure|-m] <waypoints...> - 为驾驶中的列车提交临时 ATO 导航")

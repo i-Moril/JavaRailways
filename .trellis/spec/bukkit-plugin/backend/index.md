@@ -18,6 +18,7 @@
 | --- | --- |
 | [Lifecycle 与线程归属](./lifecycle-and-threading.md) | composition root、world tick、Folia scheduler、shutdown |
 | [交互、渲染与持久化](./interaction-render-persistence.md) | Cloud/Wand/Dialog、backend/model、add-on API、snapshot/sidecar |
+| [独立道岔操作工具](./turnout-wand.md) | 来向/出口选择、安全手动切换、真实连接反馈 |
 | [通用模型显示与轨道定位 API](./model-presentation-api.md) | 曲线查询、不可变模型定义、完整场景应用、跨线程显示与清理完成通知 |
 
 ## 核心规则

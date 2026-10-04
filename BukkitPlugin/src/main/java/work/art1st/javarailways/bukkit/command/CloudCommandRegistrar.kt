@@ -69,6 +69,7 @@ class CloudCommandRegistrar(plugin: BukkitPlugin) {
             parent("train", "sit"); parent("train", "stand")
             parent("wand"); parent("wand", "rail"); parent("wand", "give")
             parent("wand", "railobject"); parent("wand", "object"); parent("wand", "ro")
+            parent("wand", "turnout")
             listOf("waypoint", "wp", "stop").forEach { name ->
                 parent(name); parent(name, "list"); args(name, "info"); args(name, "remove")
             }

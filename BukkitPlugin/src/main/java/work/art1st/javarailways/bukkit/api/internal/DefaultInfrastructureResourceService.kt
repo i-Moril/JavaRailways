@@ -57,6 +57,7 @@ internal class DefaultInfrastructureResourceService(
     private data class WorldRuntime(
         val currentTopology: () -> TopologyState,
         val registry: InfrastructureCoordinationRegistry,
+        val operatingDirections: ((TopologyState, Collection<UUID>) -> work.art1st.javarailways.simpleato.api.route.RailOperatingDirections)?,
         var routeAdmission: RouteResourceAdmissionRuntime? = null,
         var manualTurnoutSelection: ManualTurnoutSelectionRuntime? = null,
         var stallWorld: ((String, Exception) -> Unit)? = null
@@ -81,12 +82,14 @@ internal class DefaultInfrastructureResourceService(
         currentTopology: () -> TopologyState,
         railExists: (UUID) -> Boolean = { false },
         topologyNodeExists: (StableTopologyNodeKey) -> Boolean = { false },
+        operatingDirections: ((TopologyState, Collection<UUID>) -> work.art1st.javarailways.simpleato.api.route.RailOperatingDirections)? = null,
         resourceExists: (InfrastructureResource) -> Boolean
     ) = synchronized(lock) {
         check(!closed) { "InfrastructureResourceService is closed" }
         check(worldId !in worlds) { "Infrastructure coordination already exists for world $worldId" }
         worlds[worldId] = WorldRuntime(
             currentTopology = currentTopology,
+            operatingDirections = operatingDirections,
             registry = InfrastructureCoordinationRegistry(
                 { currentTopology().revision }, resourceExists, railExists, topologyNodeExists
             )
@@ -96,6 +99,25 @@ internal class DefaultInfrastructureResourceService(
     override fun currentTopology(worldId: UUID): TopologyState = synchronized(lock) {
         check(!closed) { "InfrastructureResourceService is closed" }
         checkNotNull(worlds[worldId]) { "Railway world is not registered: $worldId" }.currentTopology()
+    }
+
+    override fun operatingDirections(worldId: UUID, topology: TopologyState, railIds: Collection<UUID>):
+        work.art1st.javarailways.simpleato.api.route.RailOperatingDirections {
+        val world = synchronized(lock) {
+            check(!closed) { "InfrastructureResourceService is closed" }
+            checkNotNull(worlds[worldId]) { "Railway world is not registered: $worldId" }
+        }
+        check(world.currentTopology() === topology) { "operating direction topology is stale" }
+        val snapshot = checkNotNull(world.operatingDirections) { "operating directions are unavailable" }(topology, railIds)
+        check(snapshot.topology === topology && snapshot.directions.keys == railIds.toSet()) {
+            "operating direction subset does not match the request"
+        }
+        synchronized(lock) {
+            check(!closed && worlds[worldId] === world && world.currentTopology() === topology) {
+                "operating direction world or topology changed during the read"
+            }
+        }
+        return snapshot
     }
 
     /** Completes world composition after Basic data is attached and before the first physics wake. */

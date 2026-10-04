@@ -30,6 +30,43 @@ import java.util.concurrent.atomic.AtomicLong
 
 class InspectionRuntimeTest {
     @Test
+    fun `cached ranges baseline without entries survive passage and respond to stable range invalidation`() {
+        val publications = arrayListOf<TrainRestrictionSnapshot>()
+        val runtime = runtime(publications)
+        val range = work.art1st.javarailways.simpleato.api.inspection.InspectionSpeedRange("test:block",
+            work.art1st.javarailways.simpleato.api.restriction.RouteSpeedRestriction("test:block/visit-0", 0.0, 5.0, 80.0))
+        val repeatedRange = range.copy(restriction = range.restriction.copy(
+            restrictionId = "test:block/visit-1", routeDistanceMeters = 90.0, endRouteDistanceMeters = 100.0))
+        val ranges = listOf(range, repeatedRange)
+        val binding = InspectionDeclarationBinding("test:source", "train", routeBinding, 1L, 0L,
+            emptyList(), ranges)
+        var revision = 0L
+        bind(runtime, binding) { input ->
+            assertTrue(input.activeDeclarations.isEmpty())
+            assertEquals(ranges, input.speedRanges)
+            listOf(TrainRestrictionSnapshot("test:source", revision++, "train", input.observationStamp,
+                input.route, input.speedRanges.map { it.restriction }))
+        }
+        runtime.update(stamp, routeBinding, 30.0, 10.0, perception)
+        runtime.update(stamp, routeBinding, 40.0, 10.0, perception)
+        assertEquals(1, publications.size)
+        runtime.markDirty("test:source", listOf("test:unrelated"))
+        runtime.markDirty("test:other", listOf("test:block"))
+        runtime.update(stamp, routeBinding, 50.0, 10.0, perception)
+        assertEquals(1, publications.size)
+        runtime.markDirty("test:source", listOf("test:block"))
+        runtime.update(stamp, routeBinding, 60.0, 10.0, perception)
+        assertEquals(2, publications.size)
+        runtime.removeTrain("train")
+        runtime.update(stamp, routeBinding, 70.0, 10.0, perception)
+        assertEquals(2, publications.size)
+        assertThrows(IllegalArgumentException::class.java) { InspectionDeclarationBinding("test:source", "train", routeBinding, 1L, 0L,
+            emptyList(), listOf(range.copy(restriction = range.restriction.copy(endRouteDistanceMeters = routeBinding.totalLengthMeters + 1)))) }
+        assertThrows(IllegalArgumentException::class.java) { InspectionDeclarationBinding("test:source", "train", routeBinding, 1L, 0L,
+            emptyList(), listOf(range, range)) }
+    }
+
+    @Test
     fun `selected route dependencies use current sources without train bindings or publications`() {
         val publications = arrayListOf<TrainRestrictionSnapshot>()
         val runtime = runtime(publications)

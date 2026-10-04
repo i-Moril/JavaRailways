@@ -149,7 +149,10 @@ class TrainRestrictionConstraintAdapter(
             )
         }
         return CompiledSource(
-            snapshot.restrictions.map { restriction ->
+            snapshot.restrictions.filter { restriction ->
+                restriction !is RouteSpeedRestriction || restriction.endRouteDistanceMeters == null ||
+                    routeProgressMeters <= restriction.endRouteDistanceMeters
+            }.map { restriction ->
                 restriction.toAtoConstraint(snapshot.sourceId, routeProgressMeters)
             },
             TrainRestrictionSourceEnforcement(

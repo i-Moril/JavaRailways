@@ -50,7 +50,9 @@ data class SignalEpochInput private constructor(
     val continuationUpdates: List<SignalRailContinuationUpdate>,
     val admissionUpdates: List<ActiveRouteAdmissionUpdate>,
     /** True on a new source baseline or a changed physical topology, even with no watched updates. */
-    val topologyBaseline: Boolean
+    val topologyBaseline: Boolean,
+    /** Actual policy changes, scoped to this source's rail interests; baseline readers take a full subset. */
+    val changedOperatingDirectionRailIds: Set<UUID>
 ) {
     internal companion object {
         fun create(
@@ -58,13 +60,15 @@ data class SignalEpochInput private constructor(
             areaUpdates: Collection<RailwayAreaOccupancyUpdate>,
             continuationUpdates: Collection<SignalRailContinuationUpdate>,
             admissionUpdates: Collection<ActiveRouteAdmissionUpdate> = emptyList(),
-            topologyBaseline: Boolean = false
+            topologyBaseline: Boolean = false,
+            changedOperatingDirectionRailIds: Collection<UUID> = emptySet()
         ): SignalEpochInput = SignalEpochInput(
             observation,
             Collections.unmodifiableList(ArrayList(areaUpdates)),
             Collections.unmodifiableList(ArrayList(continuationUpdates)),
             Collections.unmodifiableList(ArrayList(admissionUpdates)),
-            topologyBaseline
+            topologyBaseline,
+            Collections.unmodifiableSet(LinkedHashSet(changedOperatingDirectionRailIds))
         )
     }
 }
@@ -130,6 +134,7 @@ data class SignalEpochSource private constructor(
     val watchedContinuationEntries: Set<RailEndpointRef>,
     /** Route admission changes touching these rails wake this source; no policy meaning is host-owned. */
     val watchedAdmissionRailIds: Set<UUID>,
+    val watchedOperatingDirectionRailIds: Set<UUID>,
     val handler: SignalEpochHandler
 ) {
     constructor(
@@ -151,17 +156,27 @@ data class SignalEpochSource private constructor(
         watchedContinuationEntries: Collection<RailEndpointRef>,
         watchedAdmissionRailIds: Collection<UUID>,
         handler: SignalEpochHandler
+    ) : this(sourceId, areas, watchedContinuationEntries, watchedAdmissionRailIds, emptySet(), handler)
+
+    constructor(
+        sourceId: String,
+        areas: Collection<RailwayOccupancyAreaDefinition>,
+        watchedContinuationEntries: Collection<RailEndpointRef>,
+        watchedAdmissionRailIds: Collection<UUID>,
+        watchedOperatingDirectionRailIds: Collection<UUID>,
+        handler: SignalEpochHandler
     ) : this(
         sourceId,
         Collections.unmodifiableList(ArrayList(areas)),
         Collections.unmodifiableSet(LinkedHashSet(watchedContinuationEntries.sorted())),
         Collections.unmodifiableSet(LinkedHashSet(watchedAdmissionRailIds.sorted())),
+        Collections.unmodifiableSet(LinkedHashSet(watchedOperatingDirectionRailIds.sorted())),
         handler
     )
 
     init {
         require(NAMESPACED_SIMPLE_ATO_ID.matches(sourceId)) { "sourceId must be namespaced" }
-        require(areas.isNotEmpty() || watchedContinuationEntries.isNotEmpty() || watchedAdmissionRailIds.isNotEmpty()) {
+        require(areas.isNotEmpty() || watchedContinuationEntries.isNotEmpty() || watchedAdmissionRailIds.isNotEmpty() || watchedOperatingDirectionRailIds.isNotEmpty()) {
             "signal epoch source must declare a monitored area, continuation or admission rail"
         }
         require(areas.map(RailwayOccupancyAreaDefinition::areaId).distinct().size == areas.size) {

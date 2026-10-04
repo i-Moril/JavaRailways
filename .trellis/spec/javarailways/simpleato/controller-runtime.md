@@ -51,6 +51,26 @@ signal epoch不直接持有controller。它先写world-local immutable snapshot 
 observation stamp。下一次physics tick中controller从route绑定携带的world-local snapshot source读取最新限制；同revision
 重复读取是幂等的，wrong train、source unavailable或store/controller revision矛盾会在controller tick内使world fail closed。
 
+### 缓存的区间速度限制
+
+`RouteSpeedRestriction` 的 `routeDistanceMeters` 表示开始位置，新增可选
+`endRouteDistanceMeters: Double? = null` 表示结束位置，单位都是冻结路线上的米。
+终点为 null 时仍是原来的目标速度限制；有终点时，适配器在车头越过终点后才忽略这一项。
+终点必须有限、不小于起点且不超过路线长度。入口前使用同一制动曲线，入口后起点已经经过，
+现有映射把它转换为当前位置的速度上限，而不是立即截断车辆速度。
+
+`InspectionDeclarationBinding.speedRanges` 保存不可变的 `InspectionSpeedRange(declarationId, restriction)` 列表，
+并经 `InspectionUpdateInput.speedRanges` 交给来源的完整限制投影。缓存范围要求正的有限速度和明确终点；
+`declarationId` 只用来接收既有失效通知，不要求入口仍在激活集合内。每次经过有独立的 restriction ID，
+同一物理声明 ID 可以唤醒这些范围。没有入口声明的区间内部起步也能在首次检查时发布限制。
+来源仍负责把未知状态投影为 0，SimpleATO 不解释闭塞、方向失配或信号灯色。
+
+例如范围为 `[40m, 100m]`：车头在 20m 时按既有曲线为入口减速，在 60m 时保持上限，
+越过 100m 后这项限制结束。资源是否仍被车身占用由 Basic 的车尾释放流程决定，不由速度范围决定。
+范围随现有路线绑定替换、折返或移除，不创建另一套列车生命周期。稳定范围声明 ID 的查询集合在来源绑定时缓存，
+失效交接只查询实际收到的 ID；没有失效 ID 时不额外扫描范围。每 tick 仅在原有限制适配中检查缓存限制的终点，
+增加的工作为 O(C)，C 为该列车缓存的限制数；不重新扫描路线或调用信号规则。手动控制器不消费这一接口。
+
 ## Publication边界
 
 `AbstractATO`把一次publication表示为protected immutable `PublishedAtoState`，并通过一次volatile reference
@@ -75,6 +95,8 @@ Core尚未调用commit/publication时，旧快照必须保持不变；publicatio
 
 - `SimpleATOTest`覆盖mission boundary、constraint归约、publication原子性、Stall与freeze；
 - `InspectionRuntimeTest`覆盖两列车并发投影/独立dirty消费、旧route view完成后新route baseline、折返/移除/reset；
+- 区间限制覆盖只有范围而没有入口声明的首次投影、稳定声明失效、范围越界/重复限制 ID 拒绝、
+  入口前制动目标、入口后持续上限、车头在终点及越过终点；折返使用新绑定范围，不提前释放已有资源；
 - `ProtectionSignalControllerHandoffTest`在停止Dispatcher后，验证允许→0→允许均到达下一次控制计算，
   未变化epoch不产生新投影revision，越过入口撤销对应限制，0限速不阻止首次资源申请；
 - `StationCallRuntimeTest`覆盖停站状态与controller publication；

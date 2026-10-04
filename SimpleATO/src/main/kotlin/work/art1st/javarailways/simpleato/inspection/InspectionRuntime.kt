@@ -36,6 +36,9 @@ class InspectionRuntime(
         val source: InspectionSource
     ) {
         val invalidations = AtomicReference<Set<String>>(emptySet())
+        val rangeDeclarationIds: Set<String> = java.util.Set.copyOf(
+            compiled.binding.speedRanges.map { it.declarationId }
+        )
     }
 
     private data class PhysicsSession(
@@ -189,7 +192,9 @@ class InspectionRuntime(
         if (declarationIds.isEmpty()) return
         publishedBindingsByTrain.values.forEach { binding ->
             binding.definitions[sourceId]?.let { session ->
-                val present = declarationIds.filter(session.compiled::containsDeclaration)
+                val present = declarationIds.filter {
+                    session.compiled.containsDeclaration(it) || it in session.rangeDeclarationIds
+                }
                 if (present.isNotEmpty()) {
                     session.invalidations.updateAndGet { it + present }
                 }
@@ -305,7 +310,10 @@ class InspectionRuntime(
             val pending = ArrayList<PendingUpdate>()
             trainSessions.forEach { (key, session) ->
                 try {
-                    session.scheduler.markPresentDirty(session.definition.invalidations.getAndSet(emptySet()))
+                    val dirty = session.definition.invalidations.getAndSet(emptySet())
+                    session.scheduler.markPresentDirty(dirty)
+                    val rangeDirty = dirty.any(session.definition.rangeDeclarationIds::contains)
+                    if (rangeDirty) session.scheduler.retry()
                     val activeDeclarations = session.scheduler.updatesFor(
                         routeProgressMeters,
                         dynamicLookaheadMeters,
@@ -313,13 +321,14 @@ class InspectionRuntime(
                         maximumSpeedMetersPerSecond,
                         accelerationMetersPerSecondSquared
                     )
-                    if (activeDeclarations == null && !session.baselinePending) return@forEach
+                    if (activeDeclarations == null && !session.baselinePending && !rangeDirty) return@forEach
                     val input = InspectionUpdateInput.create(
                         observationStamp,
                         currentRoute,
                         routeProgressMeters,
                         perception,
-                        activeDeclarations.orEmpty()
+                        activeDeclarations.orEmpty(),
+                        session.definition.compiled.binding.speedRanges
                     )
                     val publications = java.util.List.copyOf(session.definition.handler.update(input))
                     validatePublications(key, observationStamp, currentRoute, publications)

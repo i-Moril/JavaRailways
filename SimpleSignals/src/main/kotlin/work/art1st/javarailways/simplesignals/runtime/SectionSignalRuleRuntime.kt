@@ -36,13 +36,19 @@ internal sealed interface SectionSignalState {
         override val effectiveSpeedLimitMetersPerSecond: Double
             get() = 0.0
     }
+
+    /** A proven operating-direction mismatch, with a usable cap and no invented aspect. */
+    data class Degraded(override val effectiveSpeedLimitMetersPerSecond: Double) : SectionSignalState {
+        init { require(effectiveSpeedLimitMetersPerSecond.isFinite() && effectiveSpeedLimitMetersPerSecond > 0.0) }
+    }
 }
 
 /** One already-published downstream signal output at a compiled distance. */
 internal data class DownstreamSignalView(
     val signalId: String,
     val distanceMeters: Double,
-    val output: SectionSignalOutput
+    val output: SectionSignalOutput?,
+    val effectiveSpeedLimitMetersPerSecond: Double = checkNotNull(output).speedLimitMetersPerSecond
 ) {
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalId)) {
@@ -50,6 +56,9 @@ internal data class DownstreamSignalView(
         }
         require(distanceMeters.isFinite() && distanceMeters >= 0.0) {
             "downstream signal distance must be finite and non-negative"
+        }
+        require(effectiveSpeedLimitMetersPerSecond.isFinite() && effectiveSpeedLimitMetersPerSecond >= 0.0) {
+            "downstream effective speed must be finite and non-negative"
         }
     }
 }
@@ -225,6 +234,7 @@ internal class SectionSignalRuleRuntime private constructor(
         activeContinuations: ActiveRailContinuationsSnapshot,
         changedContinuationEntries: Collection<RailEndpointRef>,
         changedEntries: Collection<String> = emptyList(),
+        sectionOverride: (SectionRef) -> SectionSignalState? = { null },
         resolveSection: (SectionSignalRuleBinding) -> SectionRef? = { it.controlledSection }
     ): SectionSignalSnapshot {
         val candidateStates = previous?.states?.toMutableMap() ?: linkedMapOf()
@@ -268,7 +278,10 @@ internal class SectionSignalRuleRuntime private constructor(
             val unavailableDownstream = downstreamStates.firstOrNull { (_, state) ->
                 state is SectionSignalState.Unavailable
             }
-            val next = if (controlledSection == null) {
+            val override = section?.let(sectionOverride)
+            val next = if (override != null) {
+                override
+            } else if (controlledSection == null) {
                 binding.unreadyOutput?.let(SectionSignalState::Available) ?:
                     SectionSignalState.Unavailable("protection route is unavailable or unready")
             } else if (binding.downstreamSignals.any { it.protectionRouteId == null ||
@@ -290,7 +303,8 @@ internal class SectionSignalRuleRuntime private constructor(
                                     DownstreamSignalView(
                                         dependency.signalId,
                                         dependency.distanceMeters,
-                                        (state as SectionSignalState.Available).output
+                                        (state as? SectionSignalState.Available)?.output,
+                                        state.effectiveSpeedLimitMetersPerSecond
                                     )
                                 },
                                 preparedRoute

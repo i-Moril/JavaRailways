@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simplesignals.signal
 
+import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
@@ -59,7 +61,7 @@ class ProtectionRouteSelectionRuntimeTest {
             endpoint(trunk, RailEndpoint.B) to endpoint(second, RailEndpoint.A),
             endpoint(first, RailEndpoint.B) to endpoint(connector, RailEndpoint.A),
             endpoint(connector, RailEndpoint.B) to endpoint(trunk, RailEndpoint.A)))
-        val world = SimpleSignalsWorldRuntime(worldId)
+        val world = signalWorldRuntime(worldId)
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
             world.initializeDefinitions(loop, SimpleSignalsWorldDefinitions(worldId, 1L, listOf(region),
                 listOf(ProtectionRouteTableDefinition("test:table", 1L, region.regionId, 1L,
@@ -100,7 +102,7 @@ class ProtectionRouteSelectionRuntimeTest {
                 routeIndicators = if (indicatorOnly) listOf(RouteIndicatorDefinition("test:indicator", 1L,
                     "test:entry", "none",
                     mapOf(defaultRoute.routeId to "first", requestedRoute.routeId to "second"))) else emptyList())
-            val world = SimpleSignalsWorldRuntime(worldId)
+            val world = signalWorldRuntime(worldId)
             val initialized = world.initializeDefinitions(loopTopology, definitions)
             assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, initialized.status, initialized.diagnostics.toString())
             val occupancy = world.initializeSectionOccupancy()
@@ -383,7 +385,7 @@ class ProtectionRouteSelectionRuntimeTest {
     private fun runtime(blocks: List<FixedBlockDefinition> = emptyList(), extraRoutes: List<ProtectionRouteDefinition> = emptyList(),
         captureSources: (List<SignalEpochSource>) -> Unit = {}):
         Pair<SimpleSignalsWorldRuntime, SignalEpochRuntime> {
-        val world = SimpleSignalsWorldRuntime(worldId)
+        val world = signalWorldRuntime(worldId)
         val result = world.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 1L, listOf(region),
             listOf(ProtectionRouteTableDefinition("test:table", 1L, region.regionId, 1L,
                 listOf(defaultRoute, requestedRoute) + extraRoutes, listOf(defaultRoute.routeId))), blocks))

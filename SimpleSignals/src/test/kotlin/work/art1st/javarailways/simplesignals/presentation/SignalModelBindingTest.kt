@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simplesignals.presentation
 
+import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+
 import net.minecraft.SharedConstants
 import net.minecraft.server.Bootstrap
 import org.bukkit.plugin.Plugin
@@ -164,7 +166,7 @@ class SignalModelBindingTest {
             if (fail) error("unavailable primary")
             SectionSignalOutput(speed, "proceed")
         })
-        val baseline = SimpleSignalsWorldRuntime(worldId).also { it.initializeDefinitions(topology, base) }
+        val baseline = signalWorldRuntime(worldId).also { it.initializeDefinitions(topology, base) }
         val publication = f.world.authoringPublication()
         assertEquals(baseline.authoringPublication().fixedBlockSignals.bindings.size, publication.fixedBlockSignals.bindings.size)
         assertEquals(baseline.fixedBlockSnapshot().blocksById.keys, f.world.fixedBlockSnapshot().blocksById.keys)
@@ -268,7 +270,7 @@ class SignalModelBindingTest {
             attachedSignals = listOf(AttachedSignalDefinition("test:current-repeater", 1, "test:current",
                 DeviceModelDefinition("demo_signals:wall", ModelPlacement.Ground(ModelPose.IDENTITY))),
                 AttachedSignalDefinition("test:fixed-repeater", 1, "test:fixed", model())))
-        val world = SimpleSignalsWorldRuntime(worldId)
+        val world = signalWorldRuntime(worldId)
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, world.initializeDefinitions(topology, definitions).status)
         val occupancy = world.initializeSectionOccupancy()
         val service = RecordingModels()
@@ -596,7 +598,7 @@ class SignalModelBindingTest {
         report: ((String, Throwable) -> Unit)? = null,
         definitionOverride: SimpleSignalsWorldDefinitions? = null): Fixture {
         val definitions = definitionOverride ?: definitions(model(), two)
-        val world = SimpleSignalsWorldRuntime(worldId)
+        val world = signalWorldRuntime(worldId)
         world.initializeDefinitions(topology, definitions)
         val occupancy = if (rule == null) world.initializeSectionOccupancy() else world.initializeSectionOccupancy(
             world.authoringPublication().fixedBlockSignals.bindings.map { original -> SectionSignalRuleBinding(original.signalId,

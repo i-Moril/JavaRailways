@@ -94,7 +94,7 @@ internal class CompiledProtectionSignals private constructor(
                 ) { input ->
                     checkNotNull(input.preparedRoute) { "protection rule has no prepared route" }
                     val selected = if (input.controlledSection.occupants.isNotEmpty()) signal.occupiedOutput else {
-                        val limit = input.downstreamSignals.minOfOrNull { it.output.speedLimitMetersPerSecond }
+                        val limit = input.downstreamSignals.minOfOrNull { it.effectiveSpeedLimitMetersPerSecond }
                             ?: Double.POSITIVE_INFINITY
                         signal.clearLevels.last { it.minimumDownstreamSpeedMetersPerSecond <= limit }.output
                     }

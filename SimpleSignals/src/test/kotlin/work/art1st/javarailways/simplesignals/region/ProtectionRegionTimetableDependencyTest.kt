@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simplesignals.region
 
+import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -46,7 +48,7 @@ class ProtectionRegionTimetableDependencyTest {
                     ProtectionBoundaryDefinition("test:exit", RailPositionSnapshot(rail.id, ViewDirection.BA, origin + 15.0))))
                 val block = FixedBlockDefinition("test:successor", 1L,
                     listOf(FixedBlockTraversal(rail.id, ViewDirection.AB, origin + 15.0, origin + 35.0)))
-                val signals = SimpleSignalsWorldRuntime(worldId)
+                val signals = signalWorldRuntime(worldId)
                 assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
                     signals.initializeDefinitions(world.topologyState, SimpleSignalsWorldDefinitions(worldId, 1L,
                         listOf(region), emptyList(), listOf(block))).status)

@@ -1,5 +1,9 @@
 package work.art1st.javarailways.simplesignals.block
 
+import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+import work.art1st.javarailways.simplesignals.testing.fixedBlockInspectionSource
+import work.art1st.javarailways.simplesignals.testing.fixedBlockPolicy
+
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -45,11 +49,120 @@ import java.util.UUID
 
 class FixedBlockInspectionSourceTest {
     @Test
+    fun `degraded range cannot collide with a normal signal whose authored ID contains the range suffix`() {
+        val degraded = FixedBlockDefinition("test:block", 1L,
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)))
+        val normal = FixedBlockDefinition("test:block/range/0", 1L,
+            listOf(FixedBlockTraversal(second, ViewDirection.AB, 2.0, 8.0)))
+        val captured = snapshot(degraded, normal)
+        val directions = work.art1st.javarailways.simpleato.routing.OperatingDirectionStore().also {
+            it.put(second, ViewDirection.AB)
+        }
+        val source = FixedBlockInspectionSource({ captured }, { id ->
+            PublishedSectionSignal(stamp(), if (id == degraded.blockId) SectionSignalState.Degraded(20.0 / 3.6)
+                else SectionSignalState.Available(SectionSignalOutput(10.0, "clear")))
+        }, { true }, directionPolicy = FixedBlockDirectionPolicy(directions::snapshot)).source
+        val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
+            RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0))
+        val publications = arrayListOf<TrainRestrictionSnapshot>()
+        val runtime = InspectionRuntime({ value ->
+            publications += value
+            TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, value.revision)
+        }, { _, _, failure -> throw failure })
+        runtime.replaceSources(listOf(source))
+        runtime.synchronizeRoute(stamp(), "train", route)
+        runtime.createTrainInspection("train").update(stamp(), FrozenRouteBinding.from(route),
+            0.0, 20.0, 20.0, 1.0, perception(route))
+        val restrictions = publications.single().restrictions
+        assertEquals(2, restrictions.size)
+        assertEquals(2, restrictions.map { it.restrictionId }.distinct().size)
+        assertEquals(setOf(20.0 / 3.6, 10.0), restrictions.map { (it as RouteSpeedRestriction).maximumSpeedMetersPerSecond }.toSet())
+    }
+
+    @Test
+    fun `resource-only mismatch retains bounded cap with no entrance until physical baseline proves degraded mode`() {
+        val block = FixedBlockDefinition("test:degraded", 1L, listOf(
+            FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
+            FixedBlockTraversal(second, ViewDirection.AB, 0.0, 8.0)))
+        // Production semantics: no operating direction records means both, hence a single block mismatches.
+        val world = SimpleSignalsWorldRuntime(worldId)
+        world.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 1L, emptyList(), emptyList(), listOf(block)))
+        val occupancy = world.initializeSectionOccupancy()
+        val routes = listOf(
+            route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0), RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0)),
+            route(RouteSegmentSnapshot(first, ViewDirection.AB, 4.0, 10.0), RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0)),
+            route(RouteSegmentSnapshot(second, ViewDirection.BA, 4.0, 10.0), RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0)))
+        routes.forEachIndexed { index, route ->
+            val binding = world.fixedBlockInspectionSource.bindingProvider.bind(InspectionBindingInput(stamp(), "train", route))
+            assertEquals(0, binding.declarations.size)
+            assertEquals(if (index == 0) 2.0 else 0.0, binding.speedRanges.single().restriction.routeDistanceMeters)
+            assertEquals(if (index == 0) 18.0 else 14.0, binding.speedRanges.single().restriction.endRouteDistanceMeters)
+            assertEquals(setOf(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)),
+                world.fixedBlockInspectionSource.routeInfrastructureDependencies.dependencies(route).toSet())
+        }
+        val route = routes[1]
+        val publications = arrayListOf<TrainRestrictionSnapshot>()
+        val inspections = InspectionRuntime({ value -> publications += value
+            TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, value.revision) }, { _, _, failure -> throw failure })
+        inspections.replaceSources(listOf(world.fixedBlockInspectionSource))
+        inspections.synchronizeRoute(stamp(), "train", route)
+        val worker = inspections.createTrainInspection("train")
+        fun update(head: Double, epoch: Long) = worker.update(stamp(epoch), FrozenRouteBinding.from(route),
+            head, 3.0, 20.0, 1.0, perception(route))
+        update(0.0, 1L)
+        assertEquals(0.0, (publications.single().restrictions.single() as RouteSpeedRestriction).maximumSpeedMetersPerSecond)
+        val epochs = SignalEpochRuntime(worldId.toString(), { value ->
+            TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, value.revision) },
+            invalidateInspectionDeclarations = inspections::markDirty)
+        epochs.replaceSources(occupancy.sources)
+        epochs.process(RailwayWorldFrameSnapshot.create(1L, topology.revision, emptyList(),
+            ActiveRailContinuationsSnapshot.empty(topology.revision)))
+        update(1.0, 2L)
+        val restriction = publications.last().restrictions.single() as RouteSpeedRestriction
+        assertEquals(20.0 / 3.6, restriction.maximumSpeedMetersPerSecond)
+        update(5.0, 3L)
+        update(14.1, 4L)
+        assertEquals(2, publications.size, "range lifetime does not require callbacks at passed entry or exit")
+        assertEquals(0.0, restriction.routeDistanceMeters)
+        assertEquals(14.0, restriction.endRouteDistanceMeters)
+    }
+
+    @Test
+    fun `active single reverse selected-route check fails and disabled repeated visits keep separate ranges`() {
+        val block = FixedBlockDefinition("test:single", 1L, listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)))
+        val captured = snapshot(block)
+        val directions = work.art1st.javarailways.simpleato.routing.OperatingDirectionStore()
+        directions.put(first, ViewDirection.AB)
+        val policy = FixedBlockDirectionPolicy(directions::snapshot)
+        val source = FixedBlockInspectionSource({ captured }, directionPolicy = policy).source
+        val reverse = route(RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0))
+        assertThrows(IllegalStateException::class.java) { source.routeInfrastructureDependencies.dependencies(reverse) }
+        assertThrows(IllegalStateException::class.java) { source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", reverse)) }
+        directions.put(first, null)
+        assertEquals(1, source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", reverse)).speedRanges.size)
+
+        val third = UUID(0L, 3L)
+        val loop = topologyState(topology.revision, listOf(first, second, third), listOf(
+            endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A),
+            endpoint(second, RailEndpoint.B) to endpoint(third, RailEndpoint.A),
+            endpoint(third, RailEndpoint.B) to endpoint(first, RailEndpoint.A)))
+        val loopSnapshot = FixedBlockCatalog().also { it.publish(loop, 1L, listOf(block)) }.snapshot(loop)
+        val repeated = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
+            RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0), RouteSegmentSnapshot(third, ViewDirection.AB, 0.0, 10.0),
+            RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0))
+        val binding = FixedBlockInspectionSource({ loopSnapshot }, directionPolicy = policy).source
+            .bindingProvider.bind(InspectionBindingInput(stamp(), "train", repeated))
+        assertEquals(listOf(2.0 to 8.0, 32.0 to 38.0), binding.speedRanges.map {
+            it.restriction.routeDistanceMeters to it.restriction.endRouteDistanceMeters })
+        assertEquals(2, binding.speedRanges.map { it.restriction.restrictionId }.distinct().size)
+    }
+
+    @Test
     fun `both genuine entries use one configured rule baseline lead time and block dependency`() {
         val block = FixedBlockDefinition("test:two-way", 1L, listOf(
             FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
             FixedBlockTraversal(second, ViewDirection.AB, 0.0, 8.0)), true)
-        val worldRuntime = SimpleSignalsWorldRuntime(worldId)
+        val worldRuntime = signalWorldRuntime(worldId)
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, worldRuntime.initializeDefinitions(
             topology, definitions(block, signal(block.blockId, 1L, 12.0), 1L)).status)
         val occupancy = worldRuntime.initializeSectionOccupancy()
@@ -120,7 +233,7 @@ class FixedBlockInspectionSourceTest {
         val block = FixedBlockDefinition("test:inside", 1L,
             listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)))
         val snapshot = FixedBlockCatalog().also { it.publish(topology, 1L, listOf(block)) }.snapshot(topology)
-        val source = FixedBlockInspectionSource({ snapshot }, { error("must not read signal state") }).source
+        val source = fixedBlockInspectionSource({ snapshot }, { error("must not read signal state") }).source
         val partial = route(RouteSegmentSnapshot(first, ViewDirection.AB, 4.0, 6.0))
         assertEquals(setOf(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)),
             source.routeInfrastructureDependencies.dependencies(partial).toSet())
@@ -130,7 +243,7 @@ class FixedBlockInspectionSourceTest {
     @Test
     fun `empty block index still rejects stale selected route topology`() {
         val snapshot = FixedBlockCatalog().also { it.publish(topology, 1L, emptyList()) }.snapshot(topology)
-        val source = FixedBlockInspectionSource({ snapshot }).source
+        val source = fixedBlockInspectionSource({ snapshot }).source
         val stale = RouteSnapshot("test:stale", 0L, 8L,
             listOf(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0)))
         assertThrows(IllegalStateException::class.java) { source.routeInfrastructureDependencies.dependencies(stale) }
@@ -154,7 +267,7 @@ class FixedBlockInspectionSourceTest {
         val route = route(*listOf(first, third, second, first).map {
             RouteSegmentSnapshot(it, ViewDirection.BA, 0.0, 10.0)
         }.toTypedArray())
-        val source = FixedBlockInspectionSource({ snapshot }, {
+        val source = fixedBlockInspectionSource({ snapshot }, {
             PublishedSectionSignal(stamp(), SectionSignalState.Available(SectionSignalOutput(9.0, "shared")))
         }, { true }).source
         val declarations = source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", route)).declarations
@@ -196,7 +309,7 @@ class FixedBlockInspectionSourceTest {
             RouteSegmentSnapshot(third, ViewDirection.AB, 0.0, 10.0),
             RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0))
         var signal: PublishedSectionSignal? = null
-        val source = FixedBlockInspectionSource({ snapshot }, { signal }, { true }).source
+        val source = fixedBlockInspectionSource({ snapshot }, { signal }, { true }).source
         assertEquals(setOf(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)),
             source.routeInfrastructureDependencies.dependencies(route).toSet(),
             "repeat visits reference one physical token even before any signal baseline")
@@ -252,7 +365,7 @@ class FixedBlockInspectionSourceTest {
             RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0)
         )
 
-        val binding = FixedBlockInspectionSource(
+        val binding = fixedBlockInspectionSource(
             snapshot = { snapshot },
             inspectionLeadTimeSeconds = { _, blockId ->
                 if (blockId == block.blockId) 12.0 else 0.0
@@ -269,7 +382,7 @@ class FixedBlockInspectionSourceTest {
         assertEquals(12.0, declaration.inspectionLeadTimeSeconds, 0.0)
         assertEquals(18.0, requireNotNull(declaration.minimumRequestedAuthorityEndRouteDistanceMeters), 1.0e-9)
 
-        val policy = FixedBlockRouteResourcePolicy(plugin()) { snapshot }
+        val policy = fixedBlockPolicy(plugin()) { snapshot }
         val contribution = policy.contribute(
             worldId,
             intent(route, declaration.minimumRequestedAuthorityEndRouteDistanceMeters!!)
@@ -294,7 +407,7 @@ class FixedBlockInspectionSourceTest {
             RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0)
         )
 
-        val declaration = FixedBlockInspectionSource(snapshot = { snapshot }).source.bindingProvider.bind(
+        val declaration = fixedBlockInspectionSource(snapshot = { snapshot }).source.bindingProvider.bind(
             InspectionBindingInput(stamp(), "train", route)
         ).declarations.single()
 
@@ -314,7 +427,7 @@ class FixedBlockInspectionSourceTest {
         val snapshot = snapshot(block)
         val partial = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 5.0))
 
-        val declaration = FixedBlockInspectionSource(snapshot = { snapshot }).source.bindingProvider.bind(
+        val declaration = fixedBlockInspectionSource(snapshot = { snapshot }).source.bindingProvider.bind(
                 InspectionBindingInput(stamp(), "train", partial)
             ).declarations.single()
         assertEquals(2.0, declaration.triggerRouteDistanceMeters)
@@ -327,7 +440,7 @@ class FixedBlockInspectionSourceTest {
             listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 9.0)))
         val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 5.0, 10.0))
         val publications = arrayListOf<TrainRestrictionSnapshot>()
-        val source = FixedBlockInspectionSource(snapshot = { snapshot(block) },
+        val source = fixedBlockInspectionSource(snapshot = { snapshot(block) },
             signalState = { error("entrance signal behind the occupant must not be read") },
             hasConfiguredSignal = { true },
             inspectionLeadTimeSeconds = { _, _ -> error("there is no entrance to prepare") }).source
@@ -344,7 +457,7 @@ class FixedBlockInspectionSourceTest {
         assertEquals(RouteBoundary(1.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(1.0)))
         runtime.createTrainInspection("train").update(stamp(), binding, 0.0, 3.0, 20.0, 1.0, perception(route))
         assertEquals(emptyList<Any>(), publications.single().restrictions)
-        assertEquals(block.blockId, FixedBlockRouteResourcePolicy(plugin()) { snapshot(block) }
+        assertEquals(block.blockId, fixedBlockPolicy(plugin()) { snapshot(block) }
             .contribute(worldId, intent(route, 1.0)).single().resource.resourceId)
     }
 
@@ -353,7 +466,7 @@ class FixedBlockInspectionSourceTest {
         val block = FixedBlockDefinition("test:passed-entry", 1L,
             listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 9.0)))
         val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0))
-        val source = FixedBlockInspectionSource(snapshot = { snapshot(block) },
+        val source = fixedBlockInspectionSource(snapshot = { snapshot(block) },
             signalState = { error("signal behind the head must not be inspected") },
             hasConfiguredSignal = { true }).source
         val declaration = source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", route))
@@ -383,7 +496,7 @@ class FixedBlockInspectionSourceTest {
         val snapshot = snapshot(internal, future)
         val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 5.0, 10.0),
             RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0))
-        val source = FixedBlockInspectionSource(snapshot = { snapshot }, signalState = { id ->
+        val source = fixedBlockInspectionSource(snapshot = { snapshot }, signalState = { id ->
             assertEquals(future.blockId, id, "internal start must not read the rear entry signal")
             PublishedSectionSignal(stamp(), SectionSignalState.Available(SectionSignalOutput(0.0, "custom-red")))
         }, hasConfiguredSignal = { true }, inspectionLeadTimeSeconds = { _, id ->
@@ -434,7 +547,7 @@ class FixedBlockInspectionSourceTest {
             stamp(1L),
             SectionSignalState.Available(SectionSignalOutput(17.5, "custom-proceed"))
         )
-        val source = FixedBlockInspectionSource(
+        val source = fixedBlockInspectionSource(
             snapshot = { snapshot },
             signalState = { blockId -> signal.takeIf { blockId == block.blockId } }
         ).source
@@ -482,7 +595,7 @@ class FixedBlockInspectionSourceTest {
             listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 9.0))
         )
         val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0))
-        val worldRuntime = SimpleSignalsWorldRuntime(worldId)
+        val worldRuntime = signalWorldRuntime(worldId)
         worldRuntime.initializeDefinitions(
             topology,
             SimpleSignalsWorldDefinitions(
@@ -560,7 +673,7 @@ class FixedBlockInspectionSourceTest {
             sourceUnavailable = { _, _, failure -> throw failure }
         )
         runtime.replaceSources(
-            listOf(FixedBlockInspectionSource(snapshot = { snapshot(block) }).source)
+            listOf(fixedBlockInspectionSource(snapshot = { snapshot(block) }).source)
         )
         runtime.synchronizeRoute(stamp(), "train", route)
 
@@ -585,7 +698,7 @@ class FixedBlockInspectionSourceTest {
             listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 9.0))
         )
         val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0))
-        val worldRuntime = SimpleSignalsWorldRuntime(worldId)
+        val worldRuntime = signalWorldRuntime(worldId)
         assertEquals(
             SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
             worldRuntime.initializeDefinitions(

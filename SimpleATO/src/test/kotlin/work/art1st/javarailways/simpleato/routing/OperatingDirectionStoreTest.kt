@@ -10,6 +10,27 @@ import java.util.UUID
 
 class OperatingDirectionStoreTest {
     @Test
+    fun `central mutations notify only actual changed rails after publication`() {
+        val changes = arrayListOf<Set<UUID>>()
+        lateinit var store: OperatingDirectionStore
+        store = OperatingDirectionStore { ids ->
+            changes += ids
+            store.entries() // a callback can read the already published state
+        }
+        val first = UUID.randomUUID()
+        val second = UUID.randomUUID()
+        store.put(first, null)
+        store.restore(mapOf(first to ViewDirection.AB))
+        store.put(first, ViewDirection.AB)
+        store.replaceRails(listOf(first), mapOf(first to ViewDirection.AB))
+        assertEquals(listOf(setOf(first)), changes)
+        store.replaceRails(listOf(first), mapOf(second to ViewDirection.BA))
+        assertEquals(setOf(first, second), changes.last())
+        store.put(second, null)
+        assertEquals(setOf(second), changes.last())
+    }
+
+    @Test
     fun `missing entry permits both directions and stored entry permits one`() {
         val store = OperatingDirectionStore()
         val railId = UUID.randomUUID()

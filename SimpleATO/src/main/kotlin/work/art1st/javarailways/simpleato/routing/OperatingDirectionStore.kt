@@ -48,7 +48,7 @@ internal class OperatingDirectionOverlay(
  * are serialized so authoring transactions can replace UUIDs without exposing a partially migrated
  * policy to route planners.
  */
-class OperatingDirectionStore {
+class OperatingDirectionStore(private val changed: (Set<UUID>) -> Unit = {}) {
     private val lock = Any()
     private val values = linkedMapOf<UUID, ViewDirection>()
 
@@ -61,9 +61,19 @@ class OperatingDirectionStore {
 
     /** Null removes the restriction and therefore permits both directions. */
     fun put(railId: UUID, permittedDirection: ViewDirection?) {
-        synchronized(lock) {
+        val changes = synchronized(lock) {
+            if (values[railId] == permittedDirection) return
             if (permittedDirection == null) values.remove(railId) else values[railId] = permittedDirection
+            setOf(railId)
         }
+        changed(changes)
+    }
+
+    /** Captures only related rails together under the sole store lock. */
+    fun snapshot(topology: TopologyState, railIds: Collection<UUID>) = synchronized(lock) {
+        work.art1st.javarailways.simpleato.api.route.RailOperatingDirections(
+            topology, railIds.associateWith { values[it] }
+        )
     }
 
     fun entries(): Map<UUID, ViewDirection> = synchronized(lock) {
@@ -72,10 +82,12 @@ class OperatingDirectionStore {
 
     /** Restores one fresh world. Runtime compatibility belongs at the persistence boundary. */
     fun restore(restored: Map<UUID, ViewDirection>) {
-        synchronized(lock) {
+        val changes = synchronized(lock) {
             check(values.isEmpty()) { "OperatingDirectionStore is not empty" }
             values.putAll(restored)
+            java.util.Set.copyOf(restored.keys)
         }
+        if (changes.isNotEmpty()) changed(changes)
     }
 
     /** Atomically transfers policy from removed rail UUIDs to their replacement UUIDs. */
@@ -83,15 +95,19 @@ class OperatingDirectionStore {
         removedRailIds: Collection<UUID>,
         replacementDirections: Map<UUID, ViewDirection>
     ) {
-        synchronized(lock) {
+        val changes = synchronized(lock) {
             val removed = removedRailIds.toSet()
             val collisions = replacementDirections.keys.filter { it !in removed && it in values }
             require(collisions.isEmpty()) {
                 "replacement operating directions collide with existing rails: ${collisions.sorted()}"
             }
+            val affected = removed + replacementDirections.keys
+            val previous = affected.associateWith(values::get)
             removed.forEach(values::remove)
             values.putAll(replacementDirections)
+            java.util.Set.copyOf(affected.filter { previous[it] != values[it] })
         }
+        if (changes.isNotEmpty()) changed(changes)
     }
 
     internal fun overlay(topology: TopologyState): OperatingDirectionOverlay = synchronized(lock) {

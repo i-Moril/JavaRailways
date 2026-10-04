@@ -21,6 +21,8 @@ class SimpleSignalsPlugin : JavaPlugin() {
     fun modelCleanupCompletion(): CompletionStage<Void> = modelCleanup
 
     override fun onEnable() {
+        saveDefaultConfig()
+        val settings = SimpleSignalsConfig.from(config.get("disabled-block-speed-kmh"))
         val services = SimpleSignalsHostServices.load(server.servicesManager)
         val runtimes = SimpleSignalsWorldRuntimeManager(
             this,
@@ -35,9 +37,14 @@ class SimpleSignalsPlugin : JavaPlugin() {
             { context, failure ->
                 // Signal callbacks only enqueue reporting; logger/Bukkit access happens on this worker.
                 CompletableFuture.runAsync { logger.log(Level.SEVERE, context, failure) }
-            }
+            },
+            settings.disabledBlockSpeedMetersPerSecond
         )
-        val fixedBlocks = FixedBlockRouteResourcePolicy(this, runtimes::fixedBlockSnapshot)
+        val fixedBlocks = FixedBlockRouteResourcePolicy(this, { worldId ->
+            work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(
+                { topology, rails -> services.infrastructure().operatingDirections(worldId, topology, rails) },
+                settings.disabledBlockSpeedMetersPerSecond)
+        }, runtimes::fixedBlockSnapshot)
         val providerRegistration = services.infrastructure().registerResourceProvider(
             this,
             FIXED_BLOCK_RESOURCE_TYPE,

@@ -43,7 +43,9 @@ data class InspectionUpdateInput private constructor(
     val route: FrozenRouteBinding,
     val routeProgressMeters: Double,
     val perception: PerceptionSnapshot,
-    val activeDeclarations: List<InspectionDeclaration>
+    val activeDeclarations: List<InspectionDeclaration>,
+    /** Complete binding-local ranges, including internal starts and passed entrances. */
+    val speedRanges: List<InspectionSpeedRange>
 ) {
     init {
         require(routeProgressMeters.isFinite() && routeProgressMeters >= 0.0 &&
@@ -63,13 +65,15 @@ data class InspectionUpdateInput private constructor(
             route: FrozenRouteBinding,
             routeProgressMeters: Double,
             perception: PerceptionSnapshot,
-            activeDeclarations: Collection<InspectionDeclaration>
+            activeDeclarations: Collection<InspectionDeclaration>,
+            speedRanges: Collection<InspectionSpeedRange> = emptyList()
         ): InspectionUpdateInput = InspectionUpdateInput(
             observationStamp,
             route,
             routeProgressMeters,
             perception,
-            Collections.unmodifiableList(ArrayList(activeDeclarations))
+            Collections.unmodifiableList(ArrayList(activeDeclarations)),
+            Collections.unmodifiableList(ArrayList(speedRanges))
         )
     }
 }

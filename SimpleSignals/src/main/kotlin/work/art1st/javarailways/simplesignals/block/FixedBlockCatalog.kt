@@ -62,10 +62,10 @@ internal class CompiledFixedBlock(
 ) {
     /** Topology-normalized traversal; rail-end values within tolerance are snapped to the endpoint. */
     val traversals: List<FixedBlockTraversal> = java.util.List.copyOf(traversals)
-    /** Optional reverse path shares the block identity and the same canonical occupancy geometry. */
+    /** Reverse geometry detects passage independently of permission to acquire the block. */
     val reverseTraversals: List<FixedBlockTraversal> = java.util.List.copyOf(reverseTraversals)
     val entryTraversals: List<FixedBlockTraversal> = java.util.List.copyOf(
-        listOf(this.traversals.first()) + this.reverseTraversals.take(1)
+        listOf(this.traversals.first()) + if (definition.bidirectional) this.reverseTraversals.take(1) else emptyList()
     )
 
     fun entryTraversal(reversed: Boolean): FixedBlockTraversal =
@@ -269,11 +269,11 @@ internal class FixedBlockCatalog {
                 )
             }
         }
-        val reverseTraversals = if (definition.bidirectional) {
+        val reverseTraversals = run {
             // Core requires symmetric physical continuations; reversing the validated normalized
             // path therefore needs no second topology walk or direction-specific graph.
             compiledTraversals.asReversed().map { it.copy(facing = it.facing.opposite()) }
-        } else emptyList()
+        }
 
         val ref = definition.blockId.toRailObjectRef()
         val first = compiledTraversals.first()

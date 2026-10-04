@@ -39,6 +39,30 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
 class SignalEpochRuntimeTest {
+    @Test
+    fun `direction changes coalesce and wake only sources watching actually changed rails`() {
+        val other = UUID.randomUUID()
+        val received = linkedMapOf<String, MutableList<Set<UUID>>>()
+        fun source(id: String, rail: UUID) = SignalEpochSource(id, emptyList(), emptyList(), emptyList(), listOf(rail)) {
+            received.getOrPut(id, ::arrayListOf).add(it.changedOperatingDirectionRailIds)
+            assertThrows(UnsupportedOperationException::class.java) { (it.changedOperatingDirectionRailIds as MutableSet).clear() }
+            SignalEpochResult.empty()
+        }
+        val runtime = runtime(listOf(source("test:first", railId), source("test:other", other)))
+        val store = work.art1st.javarailways.simpleato.routing.OperatingDirectionStore(runtime::publishOperatingDirectionChanges)
+        runtime.process(frame(1L, emptyList()))
+        store.put(railId, ViewDirection.AB)
+        store.put(railId, ViewDirection.BA)
+        runtime.process(frame(2L, emptyList()))
+        assertEquals(listOf(emptySet<UUID>(), setOf(railId)), received["test:first"])
+        assertEquals(1, received.getValue("test:other").size)
+        store.put(railId, ViewDirection.BA)
+        store.put(UUID.randomUUID(), ViewDirection.AB)
+        runtime.process(frame(3L, emptyList()))
+        assertEquals(2, received.getValue("test:first").size)
+        assertEquals(1, received.getValue("test:other").size)
+    }
+
     private val railId = UUID.nameUUIDFromBytes("signal-epoch-rail".toByteArray())
     private val firstAreaId = RailObjectRef("test", "first-area")
     private val secondAreaId = RailObjectRef("test", "second-area")

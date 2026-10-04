@@ -142,6 +142,14 @@ worker的record比较、JSON编码、旧文件复制均为`O(render record count
 低频publication入口显式重编译，不能在route callback里临时重建。未注册、损坏而未加载或已经unload的railway world直接
 抛出`IllegalStateException`。同UUID重新加载是新的root/binding，旧root可继续作为immutable value读取，但不能冒充新world。
 
+`InfrastructureResourceService.operatingDirections(worldId, topology, railIds): RailOperatingDirections`
+只读 SimpleATO 持有的运营方向，不取得资源或编辑许可。调用方传入该世界 exact current topology root 和所需 rail UUID 集合；
+返回值保留这个 root，并一次捕获对应的不可变 `directions: Map<UUID, ViewDirection?>`。
+每个请求轨道都有条目，值为 null 表示允许两向，非 null 表示仅允许该方向；缺轨道与世界不可用不能解释为 null。
+过期或不属于该世界的 root 拒绝；读取前后仍须是同一个当前 root。方向子集在同一个存储锁内读取，
+不会复制其他轨道的政策；时间和空间都是 O(U)，U 为本次请求的不同轨道数。
+worker 和信号回调都可读取这份值，不能从公开接口取得可写 store 或把 SimpleATO 的方向模型搬到 Basic。
+
 ## Persistence 与配置
 
 - world 保存分为 infrastructure/runtime 两文件，必须选择相同 `infrastructureRevision` 的最新 primary/backup pair。outer `InfrastructureFileV2` 包含 Core、Basic、SimpleATO 三个严格 current document，恢复顺序为 Core → Basic → SimpleATO；旧 outer format 不由 runtime reader 接受。Stage 2 ownership extraction 的真实旧源只有 outer V1 + Basic V1，纯迁移一步输出 outer V2 + Basic V2 + SimpleATO V1，不接受分批重构产生的中间版本。文件发现、dry-run、恢复点和 apply 仍由独立 09-24 迁移任务实现。写入使用 temp、backup、atomic replace fallback；transport 策略不等于 schema version。

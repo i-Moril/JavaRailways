@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simplesignals.block
 
+import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -63,7 +65,7 @@ class FixedBlockTimetableDependencyTest {
             val divergentBlock = FixedBlockDefinition(originalBlock.blockId, 2L, listOf(
                 FixedBlockTraversal(entry.id, ViewDirection.AB, origin - 1.0, 40.0),
                 FixedBlockTraversal(lower.id, ViewDirection.AB, 0.0, 5.0)))
-            val signals = SimpleSignalsWorldRuntime(worldId)
+            val signals = signalWorldRuntime(worldId)
             assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
                 signals.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 1L,
                     emptyList(), emptyList(), listOf(originalBlock))).status)

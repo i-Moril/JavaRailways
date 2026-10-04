@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simplesignals.signal
 
+import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
@@ -219,7 +221,7 @@ class SignalReplacementContinuityTest {
         private val signal = ProtectionSignalDefinition("test:current", 1L, ProtectionSignalKind.CURRENT_ENTRY,
             "test:entry", 0.0, ConfiguredSignalOutput(0.0, "R"), ConfiguredSignalOutput(0.0, "R"),
             listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(20.0, "G"))))
-        val world = SimpleSignalsWorldRuntime(worldId)
+        val world = signalWorldRuntime(worldId)
         val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
         })

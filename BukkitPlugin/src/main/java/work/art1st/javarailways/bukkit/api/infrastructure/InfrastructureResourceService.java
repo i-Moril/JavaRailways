@@ -46,6 +46,16 @@ public interface InfrastructureResourceService {
     TopologyState currentTopology(UUID worldId);
 
     /**
+     * Captures one immutable SimpleATO policy subset for the requested rails in one store read.
+     * The topology must be this world's exact current root; missing rails or an unavailable world
+     * fail explicitly. A null facing in the returned map means both directions are allowed.
+     * This read does not reserve resources and may be made from a worker or signal callback.
+     */
+    work.art1st.javarailways.simpleato.api.route.RailOperatingDirections operatingDirections(
+        UUID worldId, TopologyState topology, Collection<UUID> railIds
+    );
+
+    /**
      * Returns the route-resource admission entry point for one plugin and railway world.
      *
      * <p>The returned service authenticates every request, handle inspection, and grant end as

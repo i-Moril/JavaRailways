@@ -55,6 +55,42 @@ The result must prove that protection regions and fixed blocks are optional poli
 - Support diamond conflicts through Basic's route-bound physical resources without treating a diamond as a switch or topology continuation.
 - Release resources through the host grant/cursor lifecycle. Planned plugin disable must first remove its applied-plan dependencies and then pass the single owner-unregister gate; the gate rejects disable while that owner still has pending requests, live claims, referenced resource types, active inspection bindings or non-empty restrictions. If Bukkit has already forced the plugin off, the host removes dead callbacks, retains claims/dependencies and stalls only affected worlds instead of widening authority.
 
+#### Direction-aware blocks and deliberate low-speed fallback — implemented offline
+
+The user identified that opposite-facing traversal must not silently bypass a single-direction
+block's resource policy. Commit `5e375e79` was the bidirectional baseline that retained this bypass.
+The approved correction is now implemented across SimpleATO, the host API and SimpleSignals,
+and has passed independent review and the full affected-module offline gate. Detailed evidence is
+recorded in [the implementation checklist](implement.md); live Folia/client validation remains pending.
+
+- An effective single-direction block declares normal acquisition lookahead only at its entrance
+  for approaching trains travelling in the permitted direction. Reverse entry from its exit must
+  explicitly refuse resource admission, not return an empty contribution or rely only on a displayed stop aspect.
+- Check the block's declared directionality against the operating directions of every traversal,
+  including mixed canonical AB/BA paths. The user confirmed exact allowed-direction-set equality:
+  a single-direction block requires every traversed rail to permit only the authored path direction;
+  a bidirectional block requires every traversed rail to permit both directions. An unset track
+  policy permits both directions and therefore mismatches a single-direction block. Direction is
+  relative to the block path: `rail A AB -> rail B BA` requires A's policy AB and B's policy BA,
+  not identical AB/BA enum values. Any mismatching traversal disables the whole block, not just
+  that rail or one entrance. A mismatch disables that block's normal control rather
+  than deleting its authored definition; the intended replacement is low-speed operation with
+  SimpleATO's existing separation or the manual driver's visual responsibility.
+- This is an explicit operating mode for a known direction mismatch, not a nonzero fallback for
+  corrupt definitions, unavailable observations, missing plugins or unknown physical topology.
+  Basic's physical-resource validation and all stricter restrictions remain in force.
+- Existing claims must not disappear because normal block control is disabled. Reuse the current
+  edit guards and grant/tail-release lifecycle; do not introduce a second resource owner or an
+  ad-hoc release-on-disable path.
+- Operating directions remain owned by SimpleATO. SimpleSignals needs a neutral public read/change
+  seam rather than importing private world state, duplicating that policy, or polling all blocks every tick.
+- The low-speed fallback is configurable and defaults to 20 km/h. It must constrain travel
+  inside the entire mismatched block, not merely require that speed at its entry or exit.
+- The user explicitly keeps manual driving unchanged. The degraded speed restriction applies only
+  to ATO; manual drivers control speed and maintain visual separation themselves. Do not add a manual
+  limiter, automatic braking or an ATS integration in this correction, and do not remove existing
+  Basic manual safety behavior. More systematic manual protection is deferred.
+
 #### Model presentation and placement
 
 These behaviors are approved. Package loading, placement persistence, production signal/model binding,
@@ -136,8 +172,19 @@ scope intentionally shares one result. These extension boundaries are recorded i
 - [x] Attached devices round-trip in the existing sidecar and admin workflow, reject invalid/orphan references atomically, update only related models, and retain unaffected handles through edits and unload cleanup; verified offline, not on a live Folia/client.
 - [x] A bidirectional single block matches the same physical path from both ends, produces actual entrance checks,
   denies opposing claims atomically and retains the same token during an internal stopped reversal until tail clearance.
-  Reverse protection-region successors and edit protection use the same geometry; default single-direction behavior remains unchanged.
+  Reverse protection-region successors and edit protection use the same geometry; the direction-policy correction below supersedes the old single-direction bypass.
   Verified with real Basic class composition and the 295-test module gate; live Folia and a complete depot mission remain unverified.
+- [x] Correct the single-direction bypass: reverse admission is explicitly refused while direction-consistent
+  control is active; direction-mismatched blocks enter the reviewed low-speed mode without erasing
+  held claims, and direction edits invalidate only relevant cached checks outside the tick hot path.
+- [x] Multi-rail direction validation checks every traversal relative to the authored path. One
+  mismatching rail disables the whole block; unset/bidirectional rails mismatch a single-direction
+  block, and a bidirectional block requires all its rails to permit both directions. Mixed canonical
+  AB/BA paths with matching per-rail policy remain valid.
+- [x] Known direction mismatch constrains ATO throughout the section at a configurable default
+  20 km/h, including internal starts, reverse traversal and repeated visits. Downstream consumers
+  see this known effective limit rather than an unavailable zero; unknown failures remain zero.
+  Manual control and existing manual safety behavior are unchanged; ATS is not implemented.
 - [ ] The separate rail measurement tool reports straight-line and along-track distances for the selected positions/path without modifying infrastructure or acquiring train resources.
 - [ ] Tool defaults affect future signal placement, while instance-style editing changes only the selected device and preserves the existing logical control binding.
 - [ ] The `SimpleSignals` JAR installs beside the host, is absent from host JARs and imports only documented public contracts.
@@ -197,3 +244,10 @@ Placement, package loading, the JR four-light demo, device persistence and produ
 are complete offline. The backend primary/attached-signal relationship is implemented and verified offline. Tools, measurement,
 style-editing UI and track visualization are explicitly deferred to the next batch. Bidirectional
 single-block control is complete offline; broader direction coordination and protection-region authoring remain separate decisions.
+
+The direction-aware block correction is complete offline: the configurable 20 km/h default fallback
+applies only to ATO, and manual driving is unchanged. Historical prerequisites remain in
+[the bounded research](research/fixed-block-direction-policy.md); current behavior belongs in the
+[owning contract](../../spec/simple-signals/backend/bidirectional-fixed-block.md), with actual verification
+in [the implementation checklist](implement.md). This bounded completion does not finish Stage 2,
+the guided tools, multi-block single-track coordination, a complete depot mission or live presentation validation.

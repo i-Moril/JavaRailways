@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simplesignals.signal
 
+import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
@@ -213,7 +215,7 @@ class ProtectionSignalDevicesTest {
             ProtectionRouteTraversal(first, ViewDirection.BA, 0.0, 5.0),
             ProtectionRouteTraversal(trunk, ViewDirection.BA, 5.0, 10.0)))
         val fixedBackward = signal("test:reverse-signal", ProtectionSignalKind.FIXED_ROUTE, backward.routeId)
-        val world = SimpleSignalsWorldRuntime(worldId)
+        val world = signalWorldRuntime(worldId)
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
             world.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 1, listOf(region), listOf(
                 ProtectionRouteTableDefinition("test:table", 1, region.regionId, 1, listOf(routeA, routeB, backward))),
@@ -265,7 +267,7 @@ class ProtectionSignalDevicesTest {
         val lower = path("test:lower", "test:lower-entry", "test:lower-exit", lowerEntry, lowerCore, lowerExit)
         val upperSignal = signal("test:upper-signal", ProtectionSignalKind.CURRENT_ENTRY, upper.entryBoundaryId)
         val lowerSignal = signal("test:lower-signal", ProtectionSignalKind.CURRENT_ENTRY, lower.entryBoundaryId)
-        val world = SimpleSignalsWorldRuntime(worldId)
+        val world = signalWorldRuntime(worldId)
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
             world.initializeDefinitions(connected, SimpleSignalsWorldDefinitions(worldId, 1, listOf(throat), listOf(
                 ProtectionRouteTableDefinition("test:table", 1, throat.regionId, 1, listOf(upper, lower),
@@ -306,7 +308,7 @@ class ProtectionSignalDevicesTest {
             routeA.routeId to listOf(FixedBlockSignalDependency(downstream.signalId, listOf(
                 FixedBlockSignalContinuationRequirement(endpoint(first, RailEndpoint.B), endpoint(next, RailEndpoint.A))))),
             routeB.routeId to emptyList()))
-        val world = SimpleSignalsWorldRuntime(worldId)
+        val world = signalWorldRuntime(worldId)
         val result = world.initializeDefinitions(expanded, definitions(listOf(dependent), listOf(block), listOf(downstream)))
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, result.status, result.diagnostics.toString())
         val occupancy = world.initializeSectionOccupancy()
@@ -331,7 +333,7 @@ class ProtectionSignalDevicesTest {
     private fun runtime(signals: List<ProtectionSignalDefinition> = listOf(fixed, current),
         blocks: List<FixedBlockDefinition> = emptyList(), fixedSignals: List<FixedBlockSignalDefinition> = emptyList(),
         calls: MutableMap<String, Int>? = null): Fixture {
-        val world = SimpleSignalsWorldRuntime(worldId)
+        val world = signalWorldRuntime(worldId)
         val prepared = world.prepareDefinitions(topology, definitions(signals, blocks, fixedSignals))
             as SimpleSignalsDefinitionPreparationResult.Prepared
         world.commitPrepared(prepared.value)

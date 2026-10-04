@@ -28,7 +28,7 @@ data class SimpleATOWorldData(
     private val sharedRailObjects: RailObjectStore,
     private val sharedSafetyInterlock: WorldSafetyInterlock,
     val destinations: OperationalDestinationStore = OperationalDestinationStore(),
-    val operatingDirections: OperatingDirectionStore = OperatingDirectionStore(),
+    val operatingDirections: OperatingDirectionStore = OperatingDirectionStore(signalEpochRuntime::publishOperatingDirectionChanges),
     val stations: StationStore = StationStore(sharedRailObjects),
     val depots: DepotStore = DepotStore(),
     val lines: LineStore = LineStore(),

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simplesignals.block
 
+import work.art1st.javarailways.simplesignals.testing.fixedBlockPolicy
+
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -18,6 +20,11 @@ import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
+import work.art1st.javarailways.basic.api.route.ContributedRouteResource
+import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
+import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot
+import work.art1st.javarailways.basic.api.route.ResourcePreparationState
+import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
@@ -36,6 +43,41 @@ import java.util.UUID
 
 /** Real Basic claims and cursor release, using the concrete plugin contributor. */
 class FixedBlockStopContinuationTest {
+    @Test
+    fun `active single reverse refusal makes no new claim and known disable preserves held token until tail release`() {
+        BidirectionalFixture(false, prepareDevice = true).use { fixture ->
+            val requester = Any()
+            val reverse = fixture.route("test:reverse", 1L,
+                listOf(RouteSegmentSnapshot(fixture.first, ViewDirection.BA, 5.0, 40.0)))
+            fixture.observe(1L, fixture.train("reverse", 1L, fixture.first, 95.0, 90.0, ViewDirection.BA))
+            val denied = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+                fixture.runtime.request(requester, fixture.intent("reverse", reverse, 35.0)))
+            assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, denied.failure.code)
+            assertTrue(fixture.registry.claimSnapshots().isEmpty())
+            assertTrue(fixture.runtime.activeAdmissions().isEmpty(), "refusal cannot leave a pending resource request")
+            assertEquals(0, fixture.preparationResolutions)
+            assertEquals(0, fixture.preparationStarts, "refusal precedes every preparation side effect")
+
+            val forward = fixture.route("test:forward", 1L, listOf(
+                RouteSegmentSnapshot(fixture.first, ViewDirection.AB, 5.0, 100.0),
+                RouteSegmentSnapshot(fixture.second, ViewDirection.AB, 0.0, 100.0)))
+            fixture.observe(2L, fixture.train("forward", 2L, fixture.first, 5.0, 10.0))
+            val grant = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+                fixture.runtime.request(requester, fixture.intent("forward", forward, 80.0))).grant
+            assertTrue(fixture.token in fixture.held())
+            assertEquals(1, fixture.preparationStarts, "the same fixture actually prepares an accepted request")
+            fixture.directions.put(fixture.first, null) // isolated policy/lifecycle evidence; production edits retain their guard
+            val extension = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+                fixture.runtime.request(requester, fixture.intent("forward", forward, 115.0))).grant
+            assertSame(grant.grantId, extension.grantId)
+            assertTrue(fixture.token in fixture.held(), "the contributor omits new control but cannot erase a held token")
+            fixture.observe(3L, fixture.train("forward", 3L, fixture.first, 79.0, 89.0))
+            assertTrue(fixture.token in fixture.held())
+            fixture.observe(4L, fixture.train("forward", 4L, fixture.second, 5.0, 15.0))
+            assertFalse(fixture.token in fixture.held())
+        }
+    }
+
     @Test
     fun `opposing disjoint prefixes conflict on one token atomically and regrant after tail clear`() {
         BidirectionalFixture().use { fixture ->
@@ -107,7 +149,7 @@ class FixedBlockStopContinuationTest {
         }
     }
 
-    private class BidirectionalFixture : AutoCloseable {
+    private class BidirectionalFixture(bidirectional: Boolean = true, prepareDevice: Boolean = false) : AutoCloseable {
         val world = createTestWorld()
         private val firstRail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 2))
         private val views = getViewsInOrder(firstRail, false)
@@ -126,24 +168,49 @@ class FixedBlockStopContinuationTest {
             }
         })
         private val block = FixedBlockDefinition("test:two-way", 1L,
-            listOf(FixedBlockTraversal(first, ViewDirection.AB, 20.0, 80.0)), true)
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 20.0, 80.0)), bidirectional)
         private val snapshot = FixedBlockCatalog().also {
             assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(topology, 1L, listOf(block)).status)
         }.snapshot(topology)
-        private val policy = FixedBlockRouteResourcePolicy(plugin) { snapshot }
+        val directions = work.art1st.javarailways.simpleato.routing.OperatingDirectionStore().also {
+            if (!bidirectional) it.put(first, ViewDirection.AB)
+        }
+        private val policy = FixedBlockRouteResourcePolicy(plugin, { FixedBlockDirectionPolicy(directions::snapshot) }) { snapshot }
         val token = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)
+        private val device = StableInfrastructureResource("test:device", "test:prepared-device")
+        private val preparation = ResourcePreparationDescriptor("test:prepare-device", emptyMap())
+        var preparationResolutions = 0
+            private set
+        var preparationStarts = 0
+            private set
         val registry = InfrastructureCoordinationRegistry({ topology.revision }, { resource ->
-            resource == token || resource is RailIntervalResource && resource.railId in setOf(first, second)
+            resource == token || resource == device || resource is RailIntervalResource && resource.railId in setOf(first, second)
         })
         private var observation = RailwayObservation.fromCore(worldId.toString(),
             RailwayWorldFrameSnapshot.create(0L, topology.revision, emptyList(),
                 ActiveRailContinuationsSnapshot.empty(topology.revision)))
         val runtime = RouteResourceAdmissionRuntime.create(worldId.toString(), world, registry, Any(),
-            { observation }, { intent -> policy.contribute(worldId, intent).map { plugin to it } },
-            { _, contribution -> policy.validateRouteContribution(plugin, worldId, contribution.resource.resourceId,
-                contribution.preparation)?.let {
+            { observation }, { intent ->
+                val deviceContribution = if (prepareDevice) listOf(plugin to
+                    ContributedRouteResource(device, intent.desiredAuthority, preparation)) else emptyList()
+                deviceContribution + policy.contribute(worldId, intent).map { plugin to it }
+            },
+            { _, contribution -> if (contribution.resource == device) null else
+                policy.validateRouteContribution(plugin, worldId, contribution.resource.resourceId, contribution.preparation)?.let {
                 work.art1st.javarailways.basic.api.route.RouteAdmissionFailure(it, "invalid")
-            } }, { _, _ -> null }) { _, failure -> throw failure }
+            } }, { resource, descriptor ->
+                assertEquals(device, resource)
+                assertEquals(preparation, descriptor)
+                preparationResolutions++
+                val start: () -> ResourcePreparationTicket = {
+                    preparationStarts++
+                    object : ResourcePreparationTicket {
+                        override fun snapshot() = ResourcePreparationSnapshot(ResourcePreparationState.READY)
+                        override fun abort() = Unit
+                    }
+                }
+                start
+            }) { _, failure -> throw failure }
 
         fun route(id: String, revision: Long, segments: List<RouteSegmentSnapshot>) =
             RouteSnapshot(id, revision, topology.revision, segments)
@@ -191,7 +258,7 @@ class FixedBlockStopContinuationTest {
         val snapshot = FixedBlockCatalog().also {
             assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(topology, 1L, listOf(block)).status)
         }.snapshot(topology)
-        val policy = FixedBlockRouteResourcePolicy(plugin) { snapshot }
+        val policy = fixedBlockPolicy(plugin) { snapshot }
         val token = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)
         val railIds = views.map { it.rail.id }.toSet()
         val registry = InfrastructureCoordinationRegistry({ topology.revision }, { resource ->
@@ -271,7 +338,7 @@ class FixedBlockStopContinuationTest {
         val snapshot = FixedBlockCatalog().also {
             assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(topology, 1L, listOf(block)).status)
         }.snapshot(topology)
-        val policy = FixedBlockRouteResourcePolicy(plugin) { snapshot }
+        val policy = fixedBlockPolicy(plugin) { snapshot }
         val token = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)
         val registry = InfrastructureCoordinationRegistry({ topology.revision }, { resource ->
             resource == token || resource is RailIntervalResource && resource.railId == rail.id

@@ -6,6 +6,19 @@ import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import java.util.Collections
 import java.util.UUID
 
+/** A cached bounded restriction associated with one stable inspection invalidation identity. */
+data class InspectionSpeedRange(
+    val declarationId: String,
+    val restriction: work.art1st.javarailways.simpleato.api.restriction.RouteSpeedRestriction
+) {
+    init {
+        require(NAMESPACED_SIMPLE_ATO_ID.matches(declarationId)) { "range declarationId must be namespaced" }
+        require(restriction.endRouteDistanceMeters != null && restriction.maximumSpeedMetersPerSecond > 0.0) {
+            "cached speed ranges require a bounded end and finite positive speed"
+        }
+    }
+}
+
 /**
  * One signal-plugin resource that must be inspected before its route-local trigger is reached.
  *
@@ -71,7 +84,9 @@ data class InspectionDeclarationBinding private constructor(
     val route: FrozenRouteBinding,
     val definitionRevision: Long,
     val trainProfileRevision: Long,
-    val declarations: List<InspectionDeclaration>
+    val declarations: List<InspectionDeclaration>,
+    /** Cached positive bounded caps. Their lifetime is the route binding, independent of entry activation. */
+    val speedRanges: List<InspectionSpeedRange>
 ) {
     constructor(
         sourceId: String,
@@ -79,14 +94,16 @@ data class InspectionDeclarationBinding private constructor(
         route: FrozenRouteBinding,
         definitionRevision: Long,
         trainProfileRevision: Long,
-        declarations: Collection<InspectionDeclaration>
+        declarations: Collection<InspectionDeclaration>,
+        speedRanges: Collection<InspectionSpeedRange> = emptyList()
     ) : this(
         sourceId,
         trainId,
         route,
         definitionRevision,
         trainProfileRevision,
-        Collections.unmodifiableList(ArrayList(declarations))
+        Collections.unmodifiableList(ArrayList(declarations)),
+        Collections.unmodifiableList(ArrayList(speedRanges))
     )
 
     init {
@@ -94,6 +111,12 @@ data class InspectionDeclarationBinding private constructor(
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         require(definitionRevision >= 0L) { "definitionRevision must be non-negative" }
         require(trainProfileRevision >= 0L) { "trainProfileRevision must be non-negative" }
+        require(speedRanges.map { it.restriction.restrictionId }.distinct().size == speedRanges.size) { "speed range IDs must be unique" }
+        speedRanges.forEach { range ->
+            require(checkNotNull(range.restriction.endRouteDistanceMeters) <= route.totalLengthMeters) {
+                "cached speed range exceeds the frozen route"
+            }
+        }
         require(declarations.map { declaration ->
             declaration.declarationId to if (declaration.triggerRouteDistanceMeters == 0.0) 0.0
                 else declaration.triggerRouteDistanceMeters

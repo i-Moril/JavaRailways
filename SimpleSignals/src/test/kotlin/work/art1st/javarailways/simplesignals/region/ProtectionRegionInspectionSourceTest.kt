@@ -1,5 +1,8 @@
 package work.art1st.javarailways.simplesignals.region
 
+import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+import work.art1st.javarailways.simplesignals.testing.fixedBlockPolicy
+
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -29,7 +32,6 @@ import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_RESOURCE_TYPE
 import work.art1st.javarailways.simplesignals.block.FixedBlockCatalog
 import work.art1st.javarailways.simplesignals.block.FixedBlockCatalogStatus
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
-import work.art1st.javarailways.simplesignals.block.FixedBlockRouteResourcePolicy
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.runtime.*
@@ -154,6 +156,20 @@ class ProtectionRegionInspectionSourceTest {
             requireNotNull(declaration.minimumRequestedAuthorityEndRouteDistanceMeters),
             0.0
         )
+    }
+
+    @Test
+    fun `known disabled successor omits only its normal authority floor`() {
+        val block = FixedBlockDefinition("test:block/east", 1L,
+            listOf(FixedBlockTraversal(east, ViewDirection.AB, 5.0, 10.0)))
+        val captured = publication(listOf(block), directionPolicy =
+            work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy())
+        val source = ProtectionRegionInspectionSource { captured }.source
+        val declaration = source.bindingProvider.bind(InspectionBindingInput(stamp, "train", forwardRoute()))
+            .declarations.single()
+        assertEquals(25.0, declaration.minimumRequestedAuthorityEndRouteDistanceMeters,
+            "the region keeps its own crossing floor but must not acquire the disabled successor normally")
+        assertEquals(listOf(block), captured.definitions.fixedBlocks)
     }
 
     @Test
@@ -305,7 +321,7 @@ class ProtectionRegionInspectionSourceTest {
             FrozenRouteBinding.from(route),
             RouteBoundary(5.1)
         )
-        val policy = FixedBlockRouteResourcePolicy(plugin("SimpleSignals")) { candidateWorld ->
+        val policy = fixedBlockPolicy(plugin("SimpleSignals")) { candidateWorld ->
             blockSnapshot.takeIf { candidateWorld == worldId }
         }
 
@@ -450,10 +466,11 @@ class ProtectionRegionInspectionSourceTest {
         blocks: Collection<FixedBlockDefinition> = emptyList(),
         regions: List<ProtectionRegionDefinition> = listOf(region()),
         tables: List<ProtectionRouteTableDefinition> = emptyList(),
-        revision: Long = 3L
+        revision: Long = 3L,
+        directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy? = null
     ): SimpleSignalsRuntimePublication {
         val worldId = UUID.randomUUID()
-        val runtime = SimpleSignalsWorldRuntime(worldId)
+        val runtime = directionPolicy?.let { SimpleSignalsWorldRuntime(worldId, it) } ?: signalWorldRuntime(worldId)
         val result = runtime.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, revision,
             regions, tables, blocks.toList()))
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, result.status, result.toString())

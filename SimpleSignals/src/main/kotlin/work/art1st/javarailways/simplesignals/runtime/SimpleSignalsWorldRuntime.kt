@@ -170,7 +170,8 @@ internal class SimpleSignalsRuntimePublication(
     val fixedBlocks: FixedBlockCatalog,
     val fixedBlockSignals: CompiledFixedBlockSignals,
     val protectionSignals: CompiledProtectionSignals,
-    previous: SimpleSignalsRuntimePublication? = null
+    previous: SimpleSignalsRuntimePublication? = null,
+    val directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy()
 ) {
     val routeBindingCompiler = work.art1st.javarailways.simplesignals.signal.ProtectionRouteBindingCompiler(this)
     // Canonical immutable route references are reused only across exact unchanged geometry.
@@ -193,7 +194,8 @@ internal class SimpleSignalsRuntimePublication(
  * Hot-path readers never rebuild definition state inside their callbacks.
  */
 internal class SimpleSignalsWorldRuntime(
-    val worldId: UUID
+    val worldId: UUID,
+    private val directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy()
 ) {
     private data class RuntimeState(
         val publication: SimpleSignalsRuntimePublication?,
@@ -259,7 +261,8 @@ internal class SimpleSignalsWorldRuntime(
         ::fixedBlockInspectionLeadTime,
         ::protectionDeviceDeclarations,
         ::protectionDeviceSignal,
-        { id -> state.publication?.protectionSignals?.signalIdsByDeclaration?.containsKey(id) == true }
+        { id -> state.publication?.protectionSignals?.signalIdsByDeclaration?.containsKey(id) == true },
+        directionPolicy
     ).source
 
     val protectionRegionInspectionSource = ProtectionRegionInspectionSource(
@@ -516,7 +519,8 @@ internal class SimpleSignalsWorldRuntime(
             candidateBlocks,
             candidateSignals,
             candidateProtectionSignals,
-            current
+            current,
+            directionPolicy
         )
         SimpleSignalsDefinitionPreparationResult.Prepared(
             SimpleSignalsPreparedDefinitions(
@@ -753,7 +757,8 @@ internal class SimpleSignalsWorldRuntimeManager(
     private val railTargets: RailTargetService,
     private val modelPresentation: ModelPresentationService,
     private val modelWorker: (() -> Unit) -> Unit = { action -> CompletableFuture.runAsync(action) },
-    private val modelFailure: (String, Throwable) -> Unit = { _, _ -> }
+    private val modelFailure: (String, Throwable) -> Unit = { _, _ -> },
+    private val disabledBlockSpeedMetersPerSecond: Double = 20.0 / 3.6
 ) {
     private val lock = Any()
     private val runtimes = linkedMapOf<UUID, SimpleSignalsWorldRuntime>()
@@ -912,7 +917,8 @@ internal class SimpleSignalsWorldRuntimeManager(
             }
         }
 
-        val runtime = SimpleSignalsWorldRuntime(worldId)
+        val runtime = SimpleSignalsWorldRuntime(worldId, work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(
+            { topology, rails -> infrastructure.operatingDirections(worldId, topology, rails) }, disabledBlockSpeedMetersPerSecond))
         val initial = try {
             runtime.initializeDefinitions(topology, loaded.definitions)
         } catch (failure: Exception) {

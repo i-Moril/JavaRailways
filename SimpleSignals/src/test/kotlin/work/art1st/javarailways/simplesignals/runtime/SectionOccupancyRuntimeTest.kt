@@ -1,10 +1,13 @@
 package work.art1st.javarailways.simplesignals.runtime
 
+import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyCrossingKind
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
@@ -37,6 +40,122 @@ import work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclaration
 import java.util.UUID
 
 class SectionOccupancyRuntimeTest {
+    @Test
+    fun `stale topology fails before control publication and definition replacement establishes a fresh baseline`() {
+        var reads = 0
+        val policy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy({ root, rails ->
+            reads++
+            work.art1st.javarailways.simpleato.api.route.RailOperatingDirections(root, rails.associateWith { null })
+        })
+        val world = SimpleSignalsWorldRuntime(worldId, policy)
+        world.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 1L, emptyList(), emptyList(), listOf(block)))
+        val occupancy = world.initializeSectionOccupancy()
+        val completedEpochs = arrayListOf<Long>()
+        val epochs = SignalEpochRuntime(worldId.toString(), { value ->
+            TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, value.revision)
+        }, completeEpoch = { stamp, _ -> completedEpochs += stamp.physicsEpoch })
+        epochs.replaceSources(occupancy.sources)
+        val section = SectionRef(SectionKind.FIXED_BLOCK, block.blockId)
+        epochs.process(emptyFrame(1L, topology, ActiveRailContinuationsSnapshot.empty(topology.revision)))
+        assertTrue(occupancy.signalFor(section)!!.state is SectionSignalState.Degraded)
+        val baseline = occupancy.presentationSnapshot()
+
+        val replacementTopology = lineTopologyState(topology.revision + 1L, railId)
+        assertThrows(IllegalArgumentException::class.java) {
+            epochs.process(emptyFrame(2L, replacementTopology,
+                ActiveRailContinuationsSnapshot.empty(replacementTopology.revision)))
+        }
+        assertSame(baseline, occupancy.presentationSnapshot())
+        assertEquals(listOf(1L), completedEpochs, "stale topology cannot advance the completed control observation")
+        assertEquals(1, reads, "stale geometry cannot be proved by another direction read")
+
+        val bidirectional = FixedBlockDefinition(block.blockId, block.revision + 1L, block.traversals, true)
+        val prepared = world.prepareDefinitions(replacementTopology,
+            SimpleSignalsWorldDefinitions(worldId, 2L, emptyList(), emptyList(), listOf(bidirectional)))
+            as SimpleSignalsDefinitionPreparationResult.Prepared
+        val replacement = SectionOccupancyRuntime.from(prepared.value.candidatePublication)
+        epochs.replaceSourcesAtomically(replacement.sources) {
+            assertEquals(SimpleSignalsDefinitionCommitStatus.COMMITTED, world.commitPrepared(prepared.value, replacement))
+        }
+        assertNull(replacement.signalFor(section), "old degraded or unavailable control is not a new physical baseline")
+        epochs.process(emptyFrame(3L, replacementTopology,
+            ActiveRailContinuationsSnapshot.empty(replacementTopology.revision)))
+        assertTrue(replacement.presentationSnapshot()!!.blockControls.isEmpty(), "the new bidirectional definition is enabled")
+        assertEquals(2, reads)
+    }
+
+    @Test
+    fun `ordinary physical updates reuse the immutable disabled block controls without policy reads`() {
+        var reads = 0
+        val policy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy({ root, rails ->
+            reads++
+            work.art1st.javarailways.simpleato.api.route.RailOperatingDirections(root, rails.associateWith { null })
+        })
+        val world = SimpleSignalsWorldRuntime(worldId, policy)
+        world.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 1L, emptyList(), emptyList(), listOf(block)))
+        val occupancy = world.initializeSectionOccupancy()
+        val epochs = epochRuntime(checkNotNull(occupancy.source))
+        epochs.process(emptyFrame(1L, topology, ActiveRailContinuationsSnapshot.empty(topology.revision)))
+        val baseline = checkNotNull(occupancy.presentationSnapshot())
+        assertTrue(baseline.blockControls.getValue(block.blockId) is SectionSignalState.Degraded)
+        epochs.process(frame(2L, listOf(RailInterval(railId, 4.0, 5.0))))
+        val updated = checkNotNull(occupancy.presentationSnapshot())
+        assertNotSame(baseline.occupancy, updated.occupancy)
+        assertSame(baseline.blockControls, updated.blockControls)
+        assertEquals(1, reads)
+    }
+
+    @Test
+    fun `direction wave publishes known degraded speed downstream and leaves unrelated or no-op writes idle`() {
+        val second = UUID.randomUUID()
+        val connected = lineTopologyState(topology.revision, railId, second)
+        val downstreamBlock = FixedBlockDefinition("test:downstream", 1L,
+            listOf(FixedBlockTraversal(second, ViewDirection.AB, 2.0, 8.0)))
+        val downstream = terminalSignal("test:downstream-signal", downstreamBlock.blockId, 30.0, "clear")
+        val upstream = configuredSignal("test:upstream-signal", block.blockId, listOf(FixedBlockSignalDependency(downstream.signalId)))
+        var epochs: SignalEpochRuntime? = null
+        val directions = work.art1st.javarailways.simpleato.routing.OperatingDirectionStore { epochs?.publishOperatingDirectionChanges(it) }
+        directions.put(railId, ViewDirection.AB)
+        val subsets = arrayListOf<Set<UUID>>()
+        var unavailable = false
+        val policy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy({ root, rails ->
+            subsets += rails.toSet()
+            if (unavailable) error("policy unavailable")
+            directions.snapshot(root, rails)
+        })
+        val world = SimpleSignalsWorldRuntime(worldId, policy)
+        world.initializeDefinitions(connected, SimpleSignalsWorldDefinitions(worldId, 1L, emptyList(), emptyList(),
+            listOf(block, downstreamBlock), listOf(upstream, downstream)))
+        val occupancy = world.initializeSectionOccupancy()
+        epochs = epochRuntime(checkNotNull(occupancy.source))
+        fun nextFrame(epoch: Long) = emptyFrame(epoch, connected, ActiveRailContinuationsSnapshot.empty(connected.revision))
+        epochs.process(nextFrame(1L))
+        val baseline = checkNotNull(occupancy.signalSnapshot())
+        assertEquals(20.0 / 3.6, baseline.states.getValue(downstream.signalId).effectiveSpeedLimitMetersPerSecond)
+        assertTrue(baseline.states.getValue(downstream.signalId) is SectionSignalState.Degraded)
+        assertEquals(8.0, baseline.states.getValue(upstream.signalId).effectiveSpeedLimitMetersPerSecond,
+            "upstream consumes the known limit and remains usable")
+        assertEquals(listOf(setOf(railId, second)), subsets)
+        assertEquals(baseline.stamp, occupancy.presentationSnapshot()!!.occupancy.stamp)
+        directions.put(UUID.randomUUID(), ViewDirection.AB)
+        directions.put(railId, ViewDirection.AB)
+        epochs.process(nextFrame(2L))
+        assertSame(baseline, occupancy.signalSnapshot())
+        assertEquals(1, subsets.size)
+        directions.put(second, ViewDirection.AB)
+        epochs.process(nextFrame(3L))
+        val enabled = checkNotNull(occupancy.signalSnapshot())
+        assertEquals(30.0, enabled.states.getValue(upstream.signalId).effectiveSpeedLimitMetersPerSecond)
+        assertEquals(setOf(second), subsets.last(), "only related block paths are read after a direction change")
+        unavailable = true
+        directions.put(second, ViewDirection.BA)
+        epochs.process(nextFrame(4L))
+        val unknown = checkNotNull(occupancy.signalSnapshot())
+        assertEquals(0.0, unknown.states.getValue(downstream.signalId).effectiveSpeedLimitMetersPerSecond)
+        assertEquals(0.0, unknown.states.getValue(upstream.signalId).effectiveSpeedLimitMetersPerSecond)
+        assertTrue(unknown.states.getValue(downstream.signalId) is SectionSignalState.Unavailable)
+    }
+
     private val worldId = UUID.nameUUIDFromBytes("section-world".toByteArray())
     private val railId = UUID.nameUUIDFromBytes("section-rail".toByteArray())
     private val topology = lineTopologyState(7L, railId)
@@ -58,7 +177,7 @@ class SectionOccupancyRuntimeTest {
             1L,
             listOf(FixedBlockTraversal(railId, ViewDirection.AB, 8.0, 10.0))
         )
-        val worldRuntime = SimpleSignalsWorldRuntime(worldId)
+        val worldRuntime = signalWorldRuntime(worldId)
         worldRuntime.initializeDefinitions(
             topology,
             SimpleSignalsWorldDefinitions(
@@ -118,7 +237,7 @@ class SectionOccupancyRuntimeTest {
             upstreamBlock.blockId,
             listOf(FixedBlockSignalDependency(downstreamSignal.signalId))
         )
-        val worldRuntime = SimpleSignalsWorldRuntime(worldId)
+        val worldRuntime = signalWorldRuntime(worldId)
         worldRuntime.initializeDefinitions(
             topology,
             SimpleSignalsWorldDefinitions(
@@ -197,7 +316,7 @@ class SectionOccupancyRuntimeTest {
                 )
             )
         )
-        val worldRuntime = SimpleSignalsWorldRuntime(worldId)
+        val worldRuntime = signalWorldRuntime(worldId)
         worldRuntime.initializeDefinitions(
             turnoutTopology,
             SimpleSignalsWorldDefinitions(
@@ -271,7 +390,7 @@ class SectionOccupancyRuntimeTest {
 
     @Test
     fun `physical baseline change enter and leave publish immutable section snapshots while idle stays idle`() {
-        val worldRuntime = SimpleSignalsWorldRuntime(worldId)
+        val worldRuntime = signalWorldRuntime(worldId)
         assertEquals(
             SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
             worldRuntime.initializeDefinitions(
@@ -355,7 +474,7 @@ class SectionOccupancyRuntimeTest {
         val firstSection = SectionRef(SectionKind.FIXED_BLOCK, firstBlock.blockId)
         val secondSection = SectionRef(SectionKind.FIXED_BLOCK, secondBlock.blockId)
         val calls = arrayListOf<String>()
-        val worldRuntime = SimpleSignalsWorldRuntime(worldId)
+        val worldRuntime = signalWorldRuntime(worldId)
         worldRuntime.initializeDefinitions(
             topology,
             SimpleSignalsWorldDefinitions(
@@ -386,7 +505,7 @@ class SectionOccupancyRuntimeTest {
                     listOf(DownstreamSignalDependency("test:second-signal", 6.0))
                 ) { input ->
                     calls += input.signalId
-                    val downstream = input.downstreamSignals.single().output
+                    val downstream = checkNotNull(input.downstreamSignals.single().output)
                     SectionSignalOutput(
                         downstream.speedLimitMetersPerSecond,
                         "mirror/${downstream.modelVariant}"
@@ -476,7 +595,7 @@ class SectionOccupancyRuntimeTest {
         val downstreamSection = SectionRef(SectionKind.FIXED_BLOCK, downstreamBlock.blockId)
         var shouldFail = false
         var consumerCalls = 0
-        val worldRuntime = SimpleSignalsWorldRuntime(worldId)
+        val worldRuntime = signalWorldRuntime(worldId)
         worldRuntime.initializeDefinitions(
             topology,
             SimpleSignalsWorldDefinitions(
@@ -506,7 +625,7 @@ class SectionOccupancyRuntimeTest {
                     listOf(DownstreamSignalDependency("test:downstream-signal", 6.0))
                 ) { input ->
                     consumerCalls++
-                    input.downstreamSignals.single().output
+                    checkNotNull(input.downstreamSignals.single().output)
                 }
             )
         )

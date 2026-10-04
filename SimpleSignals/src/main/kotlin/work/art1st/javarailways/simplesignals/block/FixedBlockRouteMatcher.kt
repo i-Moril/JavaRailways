@@ -32,13 +32,15 @@ internal object FixedBlockRouteMatcher {
     /** Matches every fixed block reached by the complete exact frozen route. */
     fun matchRoute(
         snapshot: FixedBlockReadSnapshot,
-        route: RouteSnapshot
-    ): FixedBlockAuthorityMatchResult = matchAuthority(snapshot, route, route.totalLengthMeters)
+        route: RouteSnapshot,
+        detectReverse: Boolean = false
+    ): FixedBlockAuthorityMatchResult = matchAuthority(snapshot, route, route.totalLengthMeters, detectReverse)
 
     fun matchAuthority(
         snapshot: FixedBlockReadSnapshot,
         route: RouteSnapshot,
-        authorityEndRouteMeters: Double
+        authorityEndRouteMeters: Double,
+        detectReverse: Boolean = false
     ): FixedBlockAuthorityMatchResult {
         require(authorityEndRouteMeters.isFinite() && authorityEndRouteMeters >= 0.0) {
             "authorityEndRouteMeters must be finite and non-negative"
@@ -46,6 +48,7 @@ internal object FixedBlockRouteMatcher {
         require(authorityEndRouteMeters <= route.totalLengthMeters) {
             "authorityEndRouteMeters exceeds the frozen route"
         }
+        require(route.topologyRevision == snapshot.topology.revision) { "fixed-block route topology is stale" }
         if (snapshot.blocksById.isEmpty()) {
             return FixedBlockAuthorityMatchResult.Matched(emptyList())
         }
@@ -60,6 +63,7 @@ internal object FixedBlockRouteMatcher {
         for (block in candidates) {
             val directions = listOf(block.traversals, block.reverseTraversals)
             for ((direction, traversals) in directions.withIndex()) {
+                if (direction == 1 && !detectReverse && !block.definition.bidirectional) continue
                 if (traversals.isEmpty()) continue
                 // Match the full operating route before clipping to the requested authority. Otherwise a
                 // rolling request ending inside a block looks indistinguishable from a broken path.

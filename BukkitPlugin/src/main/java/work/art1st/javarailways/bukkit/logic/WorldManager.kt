@@ -172,6 +172,7 @@ class WorldManager internal constructor(
                     { railWorld.topologyState },
                     railExists = { railId -> railWorld.getRail(railId) != null },
                     topologyNodeExists = { key -> railWorld.topologyState.structuralNodeWithPorts(key.ports) != null },
+                    operatingDirections = railWorld.simpleAtoWorldData.operatingDirections::snapshot,
                     resourceExists = { resource ->
                     when (resource) {
                         is RailIntervalResource -> railWorld.getRail(resource.railId)?.curve?.totalArcLength

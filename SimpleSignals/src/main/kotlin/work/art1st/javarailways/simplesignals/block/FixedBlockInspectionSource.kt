@@ -23,7 +23,8 @@ internal class FixedBlockInspectionSource(
     private val inspectionLeadTimeSeconds: (FixedBlockReadSnapshot, String) -> Double = { _, _ -> 0.0 },
     private val protectionDeclarations: (FixedBlockReadSnapshot, RouteSnapshot) -> List<InspectionDeclaration> = { _, _ -> emptyList() },
     private val protectionSignalState: (String) -> PublishedSectionSignal? = { null },
-    private val hasConfiguredProtectionSignal: (String) -> Boolean = { false }
+    private val hasConfiguredProtectionSignal: (String) -> Boolean = { false },
+    private val directionPolicy: FixedBlockDirectionPolicy = FixedBlockDirectionPolicy()
 ) {
     private val nextRevision = AtomicLong(0L)
 
@@ -32,13 +33,15 @@ internal class FixedBlockInspectionSource(
         bindingProvider = { input ->
             val captured = snapshot()
             val windows = matchRoute(captured, input.route)
+            val disabled = directionPolicy.disabledBlocks(captured, windows.map { captured.blocksById.getValue(it.blockId) }.distinct())
+            val normal = directionPolicy.normalWindows(captured, windows, disabled)
             InspectionDeclarationBinding(
                 sourceId = FIXED_BLOCK_SIGNAL_SOURCE_ID,
                 trainId = input.trainId,
                 route = FrozenRouteBinding.from(input.route),
                 definitionRevision = captured.definitionRevision,
                 trainProfileRevision = 0L,
-                declarations = windows.filter(FixedBlockRouteWindow::enteredAtBoundary).map { window ->
+                declarations = normal.filter(FixedBlockRouteWindow::enteredAtBoundary).map { window ->
                     val block = captured.blocksById.getValue(window.blockId)
                     val entry = block.entryTraversal(window.reversed)
                     InspectionDeclaration(
@@ -49,12 +52,21 @@ internal class FixedBlockInspectionSource(
                         inspectionLeadTimeSeconds = inspectionLeadTimeSeconds(captured, window.blockId),
                         minimumRequestedAuthorityEndRouteDistanceMeters = window.exitRouteDistanceMeters
                     )
-                } + protectionDeclarations(captured, input.route)
+                } + protectionDeclarations(captured, input.route),
+                speedRanges = windows.filter { it.blockId in disabled }.mapIndexed { index, window ->
+                    val id = fixedBlockSignalDeclarationId(window.blockId)
+                    work.art1st.javarailways.simpleato.api.inspection.InspectionSpeedRange(id,
+                        RouteSpeedRestriction("simplesignals:fixed-block-range/${window.blockId.replace(':', '/')}/$index", window.entryRouteDistanceMeters,
+                            directionPolicy.disabledSpeedMetersPerSecond, window.exitRouteDistanceMeters))
+                }
             )
         },
         routeInfrastructureDependencies = { route ->
             val captured = snapshot()
-            java.util.Set.copyOf(matchRoute(captured, route).map { window ->
+            val windows = matchRoute(captured, route)
+            val disabled = directionPolicy.disabledBlocks(captured, windows.map { captured.blocksById.getValue(it.blockId) }.distinct())
+            directionPolicy.normalWindows(captured, windows, disabled)
+            java.util.Set.copyOf(windows.map { window ->
                 StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, window.blockId)
             })
         },
@@ -93,6 +105,15 @@ internal class FixedBlockInspectionSource(
                     maximumSpeedMetersPerSecond =
                         published?.state?.effectiveSpeedLimitMetersPerSecond ?: 0.0
                 )
+            } + input.speedRanges.map { range ->
+                val published = signalState(blockIdFromSignalDeclaration(range.declarationId))
+                val known = published != null && published.stamp.worldId == input.observationStamp.worldId &&
+                    published.stamp.topologyRevision == input.observationStamp.topologyRevision &&
+                    published.stamp.physicsEpoch <= input.observationStamp.physicsEpoch &&
+                    published.state is work.art1st.javarailways.simplesignals.runtime.SectionSignalState.Degraded
+                range.restriction.copy(maximumSpeedMetersPerSecond = if (known)
+                    minOf(range.restriction.maximumSpeedMetersPerSecond, published.state.effectiveSpeedLimitMetersPerSecond)
+                    else 0.0)
             }
             listOf(
                 TrainRestrictionSnapshot(
@@ -111,7 +132,7 @@ internal class FixedBlockInspectionSource(
         check(captured.topology.revision == route.topologyRevision) {
             "fixed-block definitions use stale topology for route ${route.routeId}"
         }
-        return when (val matched = FixedBlockRouteMatcher.matchRoute(captured, route)) {
+        return when (val matched = FixedBlockRouteMatcher.matchRoute(captured, route, detectReverse = true)) {
             is FixedBlockAuthorityMatchResult.Matched -> matched.windows
             is FixedBlockAuthorityMatchResult.Rejected -> error(matched.detail)
         }

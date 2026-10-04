@@ -16,6 +16,7 @@ internal const val FIXED_BLOCK_RESOURCE_TYPE = "simplesignals:fixed-block"
 /** Bridges plugin-owned fixed blocks into the host's one generic route-resource transaction. */
 internal class FixedBlockRouteResourcePolicy(
     private val plugin: Plugin,
+    private val directionPolicyForWorld: (UUID) -> FixedBlockDirectionPolicy = { FixedBlockDirectionPolicy() },
     private val snapshotForWorld: (UUID) -> FixedBlockReadSnapshot?
 ) : InfrastructureResourceProvider, RouteResourceContributor {
     override fun exists(worldId: UUID, resourceId: String): Boolean =
@@ -46,14 +47,17 @@ internal class FixedBlockRouteResourcePolicy(
         val match = FixedBlockRouteMatcher.matchAuthority(
             snapshot,
             intent.route,
-            intent.desiredAuthority.distanceFromRouteStartMeters
+            intent.desiredAuthority.distanceFromRouteStartMeters,
+            detectReverse = true
         )
         val windows = when (match) {
             is FixedBlockAuthorityMatchResult.Matched -> match.windows
             is FixedBlockAuthorityMatchResult.Rejected -> error(match.detail)
         }
+        val directionPolicy = directionPolicyForWorld(worldId)
+        val disabled = directionPolicy.disabledBlocks(snapshot, windows.map { snapshot.blocksById.getValue(it.blockId) }.distinct())
         val lastExitByBlock = linkedMapOf<String, Double>()
-        windows.forEach { window ->
+        directionPolicy.normalWindows(snapshot, windows, disabled).forEach { window ->
             lastExitByBlock.merge(window.blockId, window.exitRouteDistanceMeters, ::maxOf)
         }
         return java.util.List.copyOf(

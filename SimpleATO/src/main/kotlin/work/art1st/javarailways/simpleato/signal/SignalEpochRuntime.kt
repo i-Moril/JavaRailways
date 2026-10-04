@@ -43,6 +43,18 @@ class SignalEpochRuntime(
         val previous: ActiveRouteAdmissionUpdate? = null
     )
     private var changedAdmissions = linkedMapOf<InfrastructureOwner, AdmissionChange>()
+    private val directionLock = Any()
+    private var changedDirectionRails = linkedSetOf<java.util.UUID>()
+
+    /** Store writers call this after releasing the policy lock. Multiple writes coalesce per epoch. */
+    fun publishOperatingDirectionChanges(railIds: Set<java.util.UUID>) = synchronized(directionLock) {
+        changedDirectionRails.addAll(railIds)
+        Unit
+    }
+
+    private fun takeOperatingDirectionChanges(): Set<java.util.UUID> = synchronized(directionLock) {
+        java.util.Set.copyOf(changedDirectionRails).also { changedDirectionRails = linkedSetOf() }
+    }
 
     fun publishAdmissionUpdate(update: ActiveRouteAdmissionUpdate) = synchronized(admissionLock) {
         val pendingChange = changedAdmissions[update.owner]
@@ -114,15 +126,17 @@ class SignalEpochRuntime(
         val continuationUpdatesBySource = current.consumeContinuationUpdates(
             observation.activeContinuations
         )
+        val directionChangesBySource = current.directionChangesBySource(takeOperatingDirectionChanges())
         current.sources.forEach { source ->
             val updates = updatesBySource[source.sourceId].orEmpty()
             val continuationUpdates = continuationUpdatesBySource[source.sourceId].orEmpty()
             val admissionUpdates = admissionUpdatesBySource[source.sourceId].orEmpty()
+            val directionChanges = directionChangesBySource[source.sourceId].orEmpty()
             if (updates.isEmpty() && continuationUpdates.isEmpty() && admissionUpdates.isEmpty() &&
-                !topologyBaseline
+                directionChanges.isEmpty() && !topologyBaseline
             ) return@forEach
             val result = source.handler.update(
-                SignalEpochInput.create(observation, updates, continuationUpdates, admissionUpdates, topologyBaseline)
+                SignalEpochInput.create(observation, updates, continuationUpdates, admissionUpdates, topologyBaseline, directionChanges)
             )
             validateResult(source, observation, liveTrainIds, result.publications)
             validated += result.publications
@@ -169,7 +183,8 @@ class SignalEpochRuntime(
         val ownerByArea: Map<RailObjectRef, String>,
         val occupancyEngine: RailwayAreaOccupancyEngine,
         private val ownersByContinuationEntry: Map<RailEndpointRef, Set<String>>,
-        private val ownersByAdmissionRail: Map<java.util.UUID, Set<String>>
+        private val ownersByAdmissionRail: Map<java.util.UUID, Set<String>>,
+        private val ownersByDirectionRail: Map<java.util.UUID, Set<String>>
     ) {
         var previousTopologyRevision: Long? = null
         private var previousContinuations: ActiveRailContinuationsSnapshot? = null
@@ -182,6 +197,14 @@ class SignalEpochRuntime(
         private val admissionInterests = hashMapOf<InfrastructureOwner, AdmissionInterest>()
         private val admissionOwnersByTrain = hashMapOf<String, MutableSet<InfrastructureOwner>>()
         private var previousLiveTrainIds: Set<String>? = null
+
+        fun directionChangesBySource(rails: Set<java.util.UUID>): Map<String, Set<java.util.UUID>> {
+            val result = linkedMapOf<String, MutableSet<java.util.UUID>>()
+            rails.forEach { rail -> ownersByDirectionRail[rail].orEmpty().forEach { source ->
+                result.getOrPut(source, ::linkedSetOf).add(rail)
+            } }
+            return result.mapValues { java.util.Set.copyOf(it.value) }
+        }
 
         fun consumeAdmissionUpdates(
             updates: List<AdmissionChange>, liveTrainIds: Set<String>
@@ -275,6 +298,7 @@ class SignalEpochRuntime(
                 val areaOwners = linkedMapOf<RailObjectRef, String>()
                 val continuationOwners = linkedMapOf<RailEndpointRef, MutableSet<String>>()
                 val admissionOwners = linkedMapOf<java.util.UUID, MutableSet<String>>()
+                val directionOwners = linkedMapOf<java.util.UUID, MutableSet<String>>()
                 ordered.forEach { source ->
                     source.areas.forEach { area ->
                         require(areaOwners.putIfAbsent(area.areaId, source.sourceId) == null) {
@@ -286,6 +310,9 @@ class SignalEpochRuntime(
                     }
                     source.watchedAdmissionRailIds.forEach { rail ->
                         admissionOwners.getOrPut(rail, ::sortedSetOf) += source.sourceId
+                    }
+                    source.watchedOperatingDirectionRailIds.forEach { rail ->
+                        directionOwners.getOrPut(rail, ::sortedSetOf) += source.sourceId
                     }
                 }
                 return SourceState(
@@ -303,7 +330,8 @@ class SignalEpochRuntime(
                             }
                         }
                     ),
-                    java.util.Map.copyOf(admissionOwners.mapValues { java.util.Set.copyOf(it.value) })
+                    java.util.Map.copyOf(admissionOwners.mapValues { java.util.Set.copyOf(it.value) }),
+                    java.util.Map.copyOf(directionOwners.mapValues { java.util.Set.copyOf(it.value) })
                 )
             }
         }

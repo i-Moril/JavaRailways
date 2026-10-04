@@ -152,6 +152,35 @@ class DefaultInfrastructureResourceServiceTest {
     }
 
     @Test
+    fun `requested direction subset is immutable exact-root bound and taken in one store read`() {
+        val service = DefaultInfrastructureResourceService()
+        val worldId = UUID.randomUUID()
+        val first = UUID.randomUUID()
+        val second = UUID.randomUUID()
+        val topology = buildTestTopology(7L, listOf(TestTopologyRail(first, 100.0), TestTopologyRail(second, 100.0)), emptyMap())
+        val store = work.art1st.javarailways.simpleato.routing.OperatingDirectionStore()
+        var calls = 0
+        service.registerWorld(worldId, { topology }, operatingDirections = { root, rails ->
+            calls++
+            store.snapshot(root, rails)
+        }) { false }
+        store.put(first, ViewDirection.AB)
+        val captured = service.operatingDirections(worldId, topology, listOf(first, second))
+        assertEquals(1, calls)
+        assertSame(topology, captured.topology)
+        assertEquals(mapOf(first to ViewDirection.AB, second to null), captured.directions)
+        store.put(first, ViewDirection.BA)
+        assertEquals(ViewDirection.AB, captured.directions[first])
+        assertThrows(UnsupportedOperationException::class.java) { (captured.directions as MutableMap).clear() }
+        assertThrows(IllegalArgumentException::class.java) { service.operatingDirections(worldId, topology, listOf(UUID.randomUUID())) }
+        assertThrows(IllegalStateException::class.java) { service.operatingDirections(worldId,
+            buildTestTopology(7L, emptyList(), emptyMap()), listOf(first)) }
+        service.removeWorld(worldId)
+        assertThrows(IllegalStateException::class.java) { service.operatingDirections(worldId, topology, listOf(first)) }
+        service.close()
+    }
+
+    @Test
     fun `applied dependency denial returns exact diagnostics without installing an edit permit`() {
         val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()

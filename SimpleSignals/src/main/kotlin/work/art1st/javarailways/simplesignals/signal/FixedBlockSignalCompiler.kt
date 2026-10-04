@@ -81,7 +81,7 @@ internal class CompiledFixedBlockSignals private constructor(
                         definition.occupiedOutput
                     } else {
                         val downstreamLimit = input.downstreamSignals.minOfOrNull {
-                            it.output.speedLimitMetersPerSecond
+                            it.effectiveSpeedLimitMetersPerSecond
                         } ?: Double.POSITIVE_INFINITY
                         definition.clearLevels.last {
                             it.minimumDownstreamSpeedMetersPerSecond <= downstreamLimit

@@ -37,11 +37,15 @@ data class CurrentSpeedRestriction(
 data class RouteSpeedRestriction(
     override val restrictionId: String,
     val routeDistanceMeters: Double,
-    val maximumSpeedMetersPerSecond: Double
+    val maximumSpeedMetersPerSecond: Double,
+    /** Inclusive head boundary; null preserves the existing unbounded target semantics. */
+    val endRouteDistanceMeters: Double? = null
 ) : TrainRestriction {
     init {
         requireNamespacedRestrictionId(restrictionId)
         requireRouteDistance(routeDistanceMeters)
+        require(endRouteDistanceMeters == null || endRouteDistanceMeters.isFinite() &&
+            endRouteDistanceMeters >= routeDistanceMeters) { "speed range end must be finite and not precede its start" }
         require(maximumSpeedMetersPerSecond.isFinite() && maximumSpeedMetersPerSecond >= 0.0) {
             "maximumSpeedMetersPerSecond must be finite and non-negative"
         }
@@ -134,6 +138,9 @@ data class TrainRestrictionSnapshot private constructor(
             "restriction IDs must be unique within one source snapshot"
         }
         restrictions.forEach { restriction ->
+            if (restriction is RouteSpeedRestriction) require(
+                restriction.endRouteDistanceMeters == null || restriction.endRouteDistanceMeters <= route.totalLengthMeters
+            ) { "restriction ${restriction.restrictionId} range exceeds the frozen route" }
             val target = when (restriction) {
                 is CurrentSpeedRestriction -> null
                 is RouteSpeedRestriction -> restriction.routeDistanceMeters

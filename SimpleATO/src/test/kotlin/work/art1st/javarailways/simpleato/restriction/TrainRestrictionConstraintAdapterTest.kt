@@ -26,6 +26,47 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapsh
 import java.util.UUID
 
 class TrainRestrictionConstraintAdapterTest {
+    @Test
+    fun `repeated ranges end independently and reversal consumes its own complete replacement`() {
+        adapter.publish(snapshot("test:ranges", 1L, listOf(
+            RouteSpeedRestriction("test:block/visit-0", 0.0, 5.0, 30.0),
+            RouteSpeedRestriction("test:block/visit-1", 60.0, 5.0, 90.0))))
+        adapter.apply(stamp, routeBinding, 40.0)
+        val future = manager.snapshot().values.flatten().single() as RouteSpeedLimitConstraint
+        assertEquals(20.0, future.distanceToStartMeters)
+        adapter.apply(stamp, routeBinding, 70.0)
+        assertEquals(5.0, permittedSpeed())
+        adapter.apply(stamp, routeBinding, 90.001)
+        assertTrue(manager.snapshot().values.flatten().isEmpty())
+        val reverse = RouteSnapshot(route.routeId, 3L, route.topologyRevision,
+            route.segments.map { RouteSegmentSnapshot(it.railId, ViewDirection.BA, 0.0, 100.0) })
+        val reverseBinding = FrozenRouteBinding.from(reverse)
+        adapter.apply(stamp, reverseBinding, 10.0)
+        assertTrue(manager.snapshot().values.flatten().single() is DepartureHoldConstraint)
+        adapter.publish(TrainRestrictionSnapshot("test:ranges", 2L, "train", stamp, reverseBinding,
+            listOf(RouteSpeedRestriction("test:block/visit-0", 0.0, 5.0, 30.0))))
+        adapter.apply(stamp, reverseBinding, 10.0)
+        assertEquals(5.0, permittedSpeed())
+        adapter.apply(stamp, reverseBinding, 30.001)
+        assertTrue(manager.snapshot().values.flatten().isEmpty())
+    }
+
+    @Test
+    fun `bounded cap brakes toward entry remains through head exit then expires without publication`() {
+        adapter.publish(snapshot("test:ranges", 1L, listOf(RouteSpeedRestriction("test:range", 20.0, 5.0, 60.0))))
+        adapter.apply(stamp, routeBinding, 10.0)
+        assertEquals(10.0, (manager.snapshot().values.flatten().single() as RouteSpeedLimitConstraint).distanceToStartMeters)
+        listOf(20.0, 30.0, 60.0).forEach { head ->
+            adapter.apply(stamp.copy(physicsEpoch = 11L), routeBinding, head)
+            assertEquals(5.0, permittedSpeed())
+        }
+        adapter.apply(stamp.copy(physicsEpoch = 12L), routeBinding, 60.0001)
+        assertTrue(manager.snapshot().values.flatten().isEmpty())
+        assertThrows(IllegalArgumentException::class.java) { RouteSpeedRestriction("test:range", 20.0, 5.0, 19.0) }
+        assertThrows(IllegalArgumentException::class.java) { snapshot("test:ranges", 2L,
+            listOf(RouteSpeedRestriction("test:range", 20.0, 5.0, 101.0))) }
+    }
+
     private val stamp = RailwayStateStamp("world", 10L, 4L)
     private val route = RouteSnapshot(
         "test:route",

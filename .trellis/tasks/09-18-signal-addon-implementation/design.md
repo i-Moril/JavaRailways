@@ -101,6 +101,18 @@ Basic either claims the complete union or none. A confirmed Basic grant is neces
 [双向固定闭塞合同](../../spec/simple-signals/backend/bidirectional-fixed-block.md)。
 两端独立信号规则、工具/测距和单线多闭塞协调不随本批扩展。
 
+方向一致性与低速降级已实现并通过独立复核及受影响模块的离线门禁。SimpleATO 保留运营方向的唯一所有权，
+宿主只提供一次读取相关轨道方向的公开接口；方向修改从原有信号更新流程通知受影响闭塞，
+不逐 tick 轮询所有定义。SimpleSignals 对整条闭塞路径校验方向，并明确拒绝有效单向闭塞的反向申请。
+已知方向失配与未知故障分开处理：前者使用区间内持续生效的 20 km/h 默认限制，后者继续保持 0。
+现有检查绑定缓存路线起止区间，限制适配器消费同一份快照；入口经过后仍能维持限速，资源仲裁和车尾释放不另建实现。
+用户明确要求手动驾驶保持原样，本批只约束 ATO，不加入手动限速、自动制动或 ATS，也不删除现有手动安全行为。
+控制器按车头在冻结路线上的位置维持区间限速，并在车头越过出口后结束这项限速；
+车身仍占用的资源独立沿用车尾释放规则，不因限速结束而提前释放。
+完整机制与验收归[双向固定闭塞合同](../../spec/simple-signals/backend/bidirectional-fixed-block.md)，
+本批将公开方向读取/更新、区间限速表达和闭塞行为作为一个完整部分验证后提交。
+实现证据见[实施记录](implement.md)；[研究记录](research/fixed-block-direction-policy.md)保留改动前的源码依据，不代表当前模型或真实服务器验证。
+
 Fixed blocks are plugin-owned definitions. Entering one normally adds its whole block resource and holds it until the train tail clears the plugin-defined boundary. Protection regions and fixed blocks may implement a common plugin-local read surface—occupancy, length, grant state and downstream limit—but this interface is not a Basic `AuthoritySection`.
 
 The current foundation compiles each block only on load/authoring. It validates the ordered traversal against one exact

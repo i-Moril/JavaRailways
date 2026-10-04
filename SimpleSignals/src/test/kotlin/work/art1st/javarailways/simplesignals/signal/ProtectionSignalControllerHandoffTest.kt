@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simplesignals.signal
 
+import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicPlugin
@@ -44,7 +46,6 @@ import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_SIGNAL_SOURCE_ID
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.region.*
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionPublicationStatus
-import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntime
 import java.util.UUID
 
 /** Uses the host's real dispatcher, Basic admission and controller; only actuation is stationary. */
@@ -140,7 +141,7 @@ class ProtectionSignalControllerHandoffTest {
             "test:handoff-entry", 0.0, ConfiguredSignalOutput(0.0, "custom/unready"),
             ConfiguredSignalOutput(0.0, "custom/occupied"),
             listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(9.25, "custom/clear"))))
-        val signals = SimpleSignalsWorldRuntime(worldId)
+        val signals = signalWorldRuntime(worldId)
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
             signals.initializeDefinitions(world.topologyState, SimpleSignalsWorldDefinitions(worldId, 1L,
                 listOf(region), listOf(ProtectionRouteTableDefinition("test:handoff-table", 1L,

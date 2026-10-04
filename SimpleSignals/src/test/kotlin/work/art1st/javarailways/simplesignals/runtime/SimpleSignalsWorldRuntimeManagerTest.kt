@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simplesignals.runtime
 
+import work.art1st.javarailways.simplesignals.testing.fixedBlockPolicy
+
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -54,7 +56,6 @@ import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotStore
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_RESOURCE_TYPE
-import work.art1st.javarailways.simplesignals.block.FixedBlockRouteResourcePolicy
 import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_SIGNAL_SOURCE_ID
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition
@@ -2741,7 +2742,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             emptyList(), emptyList(), listOf(selected, unrelated)))
         val plugin = plugin()
         var runtime: SimpleSignalsWorldRuntime? = null
-        val provider = FixedBlockRouteResourcePolicy(plugin) { runtime?.fixedBlockSnapshot() }
+        val provider = fixedBlockPolicy(plugin) { runtime?.fixedBlockSnapshot() }
         val registry = InfrastructureCoordinationRegistry({ topology.revision }, { resource ->
             when (resource) {
                 is RailIntervalResource -> resource.railId in topology.railProjection
@@ -3076,6 +3077,12 @@ class SimpleSignalsWorldRuntimeManagerTest {
             when (method.name) {
                 "currentTopology" -> topology
                     ?: throw IllegalStateException("Railway world is not registered: ${arguments?.single()}")
+                "operatingDirections" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val rails = arguments!![2] as Collection<UUID>
+                    work.art1st.javarailways.simpleato.api.route.RailOperatingDirections(
+                        arguments[1] as TopologyState, rails.associateWith { ViewDirection.AB })
+                }
                 "acquireEditPermit" -> {
                     permitAcquisitionCount++
                     lastEditRequest = arguments!![2] as TopologyEditRequest

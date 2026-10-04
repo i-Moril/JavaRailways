@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simplesignals.block
 
+import work.art1st.javarailways.simplesignals.testing.fixedBlockPolicy
+
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -24,6 +26,38 @@ import java.lang.reflect.Proxy
 import java.util.UUID
 
 class FixedBlockRouteResourcePolicyTest {
+    @Test
+    fun `all traversals require exact allowed directions including mixed facing and unset`() {
+        val mixed = topologyState(7L, listOf(first, second), listOf(
+            endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.B)))
+        val definition = FixedBlockDefinition("test:mixed", 1L, listOf(
+            FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
+            FixedBlockTraversal(second, ViewDirection.BA, 2.0, 10.0)))
+        val snapshot = FixedBlockCatalog().also { it.publish(mixed, 1L, listOf(definition)) }.snapshot(mixed)
+        val directions = work.art1st.javarailways.simpleato.routing.OperatingDirectionStore()
+        var reads = 0
+        val policy = FixedBlockDirectionPolicy({ root, rails -> reads++; directions.snapshot(root, rails) })
+        val contributor = FixedBlockRouteResourcePolicy(plugin, { policy }) { snapshot }
+        val forward = route(listOf(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
+            RouteSegmentSnapshot(second, ViewDirection.BA, 0.0, 10.0)))
+        assertTrue(contributor.contribute(worldId, intent(20.0, forward)).isEmpty(), "unset permits both and disables a single block")
+        directions.put(first, ViewDirection.AB)
+        assertTrue(contributor.contribute(worldId, intent(5.0, forward)).isEmpty(), "a mismatch on a future rail disables the entire block")
+        directions.put(second, ViewDirection.BA)
+        assertEquals(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, definition.blockId), contributor.contribute(worldId, intent(5.0, forward)).single().resource)
+        assertEquals(3, reads, "one coherent full-path subset per contribution")
+        directions.put(second, ViewDirection.AB)
+        assertTrue(contributor.contribute(worldId, intent(5.0, forward)).isEmpty())
+
+        val bidi = FixedBlockCatalog().also { it.publish(mixed, 1L, listOf(
+            FixedBlockDefinition(definition.blockId, definition.revision, definition.traversals, true))) }.snapshot(mixed)
+        assertEquals(setOf(definition.blockId), policy.disabledBlocks(bidi, bidi.blocksById.values))
+        directions.put(first, null)
+        directions.put(second, null)
+        assertEquals(emptySet<String>(), policy.disabledBlocks(bidi, bidi.blocksById.values))
+        assertTrue(contributor.exists(worldId, definition.blockId), "disabled policy preserves the authored resource identity")
+    }
+
     private val worldId = UUID.randomUUID()
     private val first = UUID(0L, 1L)
     private val second = UUID(0L, 2L)
@@ -43,7 +77,7 @@ class FixedBlockRouteResourcePolicyTest {
         )
     }.snapshot(topology)
     private val plugin = plugin("SimpleSignals")
-    private val policy = FixedBlockRouteResourcePolicy(plugin) { candidateWorld ->
+    private val policy = fixedBlockPolicy(plugin) { candidateWorld ->
         snapshot.takeIf { candidateWorld == worldId }
     }
 
@@ -52,13 +86,12 @@ class FixedBlockRouteResourcePolicyTest {
         val reverseRoute = route(listOf(
             RouteSegmentSnapshot(second, ViewDirection.BA, 0.0, 10.0),
             RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0)))
-        assertTrue(policy.contribute(worldId, intent(20.0, reverseRoute)).isEmpty(),
-            "the default false block still skips the opposite facing")
+        assertThrows(IllegalStateException::class.java) { policy.contribute(worldId, intent(20.0, reverseRoute)) }
         val twoWay = FixedBlockDefinition(block.blockId, block.revision, block.traversals, true)
         val twoWaySnapshot = FixedBlockCatalog().also {
             assertEquals(FixedBlockCatalogStatus.PUBLISHED, it.publish(topology, 4L, listOf(twoWay)).status)
         }.snapshot(topology)
-        val twoWayPolicy = FixedBlockRouteResourcePolicy(plugin) { twoWaySnapshot }
+        val twoWayPolicy = fixedBlockPolicy(plugin) { twoWaySnapshot }
         val windows = (FixedBlockRouteMatcher.matchRoute(twoWaySnapshot, reverseRoute)
             as FixedBlockAuthorityMatchResult.Matched).windows
         assertEquals(listOf(FixedBlockRouteWindow(block.blockId, 2.0, 18.0, reversed = true)), windows)
@@ -102,7 +135,7 @@ class FixedBlockRouteResourcePolicyTest {
         val twoWay = FixedBlockDefinition("test:loop", 1L,
             listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)), true)
         val loopSnapshot = FixedBlockCatalog().also { it.publish(loop, 1L, listOf(twoWay)) }.snapshot(loop)
-        val loopPolicy = FixedBlockRouteResourcePolicy(plugin) { loopSnapshot }
+        val loopPolicy = fixedBlockPolicy(plugin) { loopSnapshot }
         val repeated = RouteSnapshot("test:reverse-loop", 1L, 8L, listOf(
             RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0),
             RouteSegmentSnapshot(third, ViewDirection.BA, 0.0, 10.0),
@@ -237,7 +270,7 @@ class FixedBlockRouteResourcePolicyTest {
                 catalog.publish(topology, 1L, listOf(reverseBlock)).status
             )
         }.snapshot(topology)
-        val reversePolicy = FixedBlockRouteResourcePolicy(plugin) { reverseSnapshot }
+        val reversePolicy = fixedBlockPolicy(plugin) { reverseSnapshot }
         val reverseRoute = route(
             listOf(
                 RouteSegmentSnapshot(second, ViewDirection.BA, 0.0, 10.0),
@@ -262,7 +295,7 @@ class FixedBlockRouteResourcePolicyTest {
                 catalog.publish(topology, 0L, emptyList()).status
             )
         }.snapshot(topology)
-        val emptyPolicy = FixedBlockRouteResourcePolicy(plugin) { emptySnapshot }
+        val emptyPolicy = fixedBlockPolicy(plugin) { emptySnapshot }
 
         assertTrue(emptyPolicy.contribute(worldId, intent(18.0)).isEmpty())
     }
@@ -290,7 +323,7 @@ class FixedBlockRouteResourcePolicyTest {
                 catalog.publish(loopTopology, 1L, listOf(loopBlock)).status
             )
         }.snapshot(loopTopology)
-        val loopPolicy = FixedBlockRouteResourcePolicy(plugin) { loopSnapshot }
+        val loopPolicy = fixedBlockPolicy(plugin) { loopSnapshot }
         val loopRoute = RouteSnapshot(
             "test:loop-route",
             1L,
@@ -345,7 +378,7 @@ class FixedBlockRouteResourcePolicyTest {
 
     @Test
     fun `missing world runtime rejects contribution instead of widening authority`() {
-        val unavailable = FixedBlockRouteResourcePolicy(plugin) { null }
+        val unavailable = fixedBlockPolicy(plugin) { null }
         val failure = assertThrows(IllegalStateException::class.java) {
             unavailable.contribute(worldId, intent(18.0))
         }

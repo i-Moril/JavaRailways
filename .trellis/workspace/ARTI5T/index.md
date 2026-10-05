@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
+- **Total Sessions**: 7
 - **Last Active**: 2026-10-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~193 | Active |
+| `journal-1.md` | ~232 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-10-05 | Automatic protection routes and mouse replacement | `6ee799fb` | `dev/signal-system` |
 | 6 | 2026-10-05 | Record current protection routes | `0dd7b2be` | `dev/signal-system` |
 | 5 | 2026-10-05 | Protection region current route preview | `dee2409d` | `dev/signal-system` |
 | 4 | 2026-10-05 | Stage 2 local topology revalidation checks | `9c4491cf` | `dev/signal-system` |

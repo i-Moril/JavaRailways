@@ -191,3 +191,42 @@ Added explicit current-preview recording through the existing fixed table transa
 ### Next Steps
 
 - Stop for user review. Route deletion/replacement/default configuration and signal-machine placement remain later batches; do not archive Stage 2.
+
+
+## Session 7: Automatic protection routes and mouse replacement
+<!-- trellis-session: v=2 fp=5d701885b60d1c24 -->
+
+**Date**: 2026-10-05
+**Task**: Automatic protection routes and mouse replacement
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+Complete reviewed protection-region authoring batch: shortest route tables, endpoint warnings and mouse confirmation with stable route replacement. Stage 2 remains in progress.
+
+### Main Changes
+
+- New complete regions atomically save direction-legal shortest routes; no valid routes reject the complete candidate; repairs preserve authored tables.
+- Left selects entry, sneak-left selects exit, right confirms stable-ID path replacement; removed recording command and old cancel gesture.
+- Local Dijkstra and omitted-edge reachability run on workers; endpoint warning geometry is cached and bounded at 512 particles per 20-tick display refresh; specs and README synchronized.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6ee799fb` | feat(simplesignals): generate and edit protection routes |
+
+### Testing
+
+- [OK] Focused 133 tests / 6 suites passed; 20 added tests.
+- [OK] Independent full gate: SimpleSignals check and Java API consumer compile passed; 41 suites / 427 tests actually executed, zero failures/errors/skips; verifyPluginJar executed, compilation and Java consumer reused cache.
+- [OK] git diff checks and task manifests validated; gate log /tmp/javarailways-automatic-routes-check.log. Live Folia/client and scale latency not tested.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Wait for user review of 6ee799fb before choosing next Stage 2 batch; do not archive unfinished task.

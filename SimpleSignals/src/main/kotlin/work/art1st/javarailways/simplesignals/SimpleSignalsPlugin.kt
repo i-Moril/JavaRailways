@@ -86,7 +86,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
         server.pluginManager.registerEvents(previews, this)
         checkNotNull(getCommand("simplesignals")) { "SimpleSignals command descriptor is missing" }
             .setExecutor { sender, command, label, args ->
-                if (args.take(2) == listOf("wand", "route") || args.firstOrNull() == "route")
+                if (args.take(2) == listOf("wand", "route"))
                     previews.onCommand(sender, command, label, args)
                 else if (args.firstOrNull() == "wand") wands.onCommand(sender, command, label, args)
                 else admin.onCommand(sender, command, label, args)

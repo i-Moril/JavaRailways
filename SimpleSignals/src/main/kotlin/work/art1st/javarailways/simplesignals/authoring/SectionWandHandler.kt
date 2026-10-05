@@ -45,7 +45,12 @@ internal class SectionWandHandler(
         require(player.inventory.firstEmpty() >= 0) { "Make one empty inventory slot for the wand" }
         player.inventory.addItem(createItem(plugin, tool))
     },
-    private val findTarget: (Player) -> CompletionStage<Optional<RailTarget>> = { player -> targets.findLookedAtRail(player, 64.0, 0.75) }
+    private val findTarget: (Player) -> CompletionStage<Optional<RailTarget>> = { player -> targets.findLookedAtRail(player, 64.0, 0.75) },
+    private val repeatDisplay: (Player, () -> Unit, () -> Unit) -> AutoCloseable = { player, action, retired ->
+        val task = player.scheduler.runAtFixedRate(plugin, { action() }, retired, 1L, RoutePreviewDrawing.REFRESH_TICKS)
+        AutoCloseable { task?.cancel() }
+    },
+    private val render: (Player, RoutePreviewDrawing, Int) -> Unit = { player, drawing, offset -> drawing.draw(player, offset) }
 ) : Listener, CommandExecutor {
     private val sessions = SectionWandSessions()
 
@@ -64,7 +69,7 @@ internal class SectionWandHandler(
             sender.sendMessage(Component.text(when (tool) {
                 SectionWandTool.BLOCK_CREATE -> "Block wand: right-click two rail positions; left-click existing block boundaries to continue. Sneak-click cancels."
                 SectionWandTool.BLOCK_DELETE -> "Block delete wand: left-click a boundary to remove adjoining blocks, right-click a block body to remove only that block."
-                SectionWandTool.REGION_CREATE -> "Region wand: look along the rail toward the intended interior and right-click each boundary. A complete region forms automatically."
+                SectionWandTool.REGION_CREATE -> "Region wand: look toward the intended interior and right-click each boundary. A complete region and shortest routes form automatically. Left-click an existing boundary to show multiple-path warnings."
                 SectionWandTool.REGION_DELETE -> "Region delete wand: click a boundary. Existing regions retain their routes/devices and become unavailable until repaired."
             }))
         } catch (failure: Exception) { sender.sendMessage(Component.text(failure.message ?: "Cannot create wand")) }
@@ -89,9 +94,6 @@ internal class SectionWandHandler(
         }
         if (player.isSneaking) {
             sessions.invalidate(playerId); player.sendMessage(Component.text("Section selection cleared")); return
-        }
-        if (tool == SectionWandTool.REGION_CREATE && leftClick) {
-            player.sendMessage(Component.text("Look toward the protected interior, then right-click to place a boundary")); return
         }
         val worldId = player.world.uid
         val session = sessions.begin(playerId, worldId, tool, true) ?: return
@@ -137,17 +139,33 @@ internal class SectionWandHandler(
                             val curve: Curve = targets.findCurve(worldId, selected.rail().id).orElseThrow { IllegalArgumentException("Rail no longer exists") }
                             val tangent = curve.getPointAt(selected.arcLength()).tangent
                             val dot = tangent.x() * sightX + tangent.y() * sightY + tangent.z() * sightZ
-                            if (tool == SectionWandTool.REGION_CREATE) require(abs(dot) >= 0.15) {
+                            if (tool == SectionWandTool.REGION_CREATE && !leftClick) require(abs(dot) >= 0.15) {
                                 "Look along the rail toward the intended region interior"
                             }
                             val point = RailPositionSnapshot(selected.rail().id,
                                 if (dot >= 0) ViewDirection.AB else ViewDirection.BA, selected.arcLength())
                             val result = backend.perform(captured, tool, leftClick, firstPoint, point, ::active)
+                            val warnings = RoutePreviewDrawing.warnings(result.warnings) { id -> targets.findCurve(worldId, id).orElse(null) }
                             entity(player) {
                                 if (ownerCurrent()) {
                                     session.firstPoint = result.firstPoint
                                     session.firstCapture = result.firstCapture
                                     player.sendMessage(Component.text(result.message.take(8192)))
+                                    session.refresh?.close(); session.refresh = null
+                                    if (warnings.points.isNotEmpty()) {
+                                        var offset = 0
+                                        session.refresh = repeatDisplay(player, {
+                                            // An edit in this same session may have committed before its owner
+                                            // reply attaches the next drawing. Do not cancel that successful reply.
+                                            if (!ownerCurrent() || (!session.busy.get() && result.warningCapture?.let { !backend.current(it) } == true))
+                                                sessions.invalidate(playerId, session)
+                                            else {
+                                                render(player, warnings, offset)
+                                                offset = warnings.nextOffset(offset)
+                                            }
+                                        }, { sessions.invalidate(playerId, session) })
+                                        if (!active()) session.close()
+                                    }
                                 }
                                 session.busy.set(false)
                             }

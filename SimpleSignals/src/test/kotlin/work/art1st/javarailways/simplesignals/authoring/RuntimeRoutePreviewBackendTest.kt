@@ -141,8 +141,13 @@ class RuntimeRoutePreviewBackendTest {
                 listOf(ProtectionRegionDefinition("test:region", 0, cuts)), emptyList()))
             assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, result.status, result.diagnostics.joinToString())
         }
-        private val infrastructure = proxy(InfrastructureResourceService::class.java) { name, _ -> when (name) {
+        private val infrastructure = proxy(InfrastructureResourceService::class.java) { name, args -> when (name) {
             "currentTopology" -> root
+            "operatingDirections" -> {
+                @Suppress("UNCHECKED_CAST")
+                val ids = args!![2] as Collection<UUID>
+                work.art1st.javarailways.basic.api.route.RailOperatingDirections(root, ids.associateWith { null })
+            }
             "observeTopologyChanges" -> AutoCloseable { closes++ }
             else -> { mutations++; error("Forbidden service call: $name") }
         } }

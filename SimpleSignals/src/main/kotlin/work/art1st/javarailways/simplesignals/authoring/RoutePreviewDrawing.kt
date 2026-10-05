@@ -6,18 +6,19 @@ import org.bukkit.entity.Player
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition
 import java.util.UUID
 import kotlin.math.ceil
 
-internal enum class PreviewParticleKind { PATH, DIRECTION, ENTRY, REQUESTED_EXIT, ACTUAL_END }
+internal enum class PreviewParticleKind { PATH, DIRECTION, ENTRY, REQUESTED_EXIT, ACTUAL_END, WARNING }
 internal data class PreviewParticle(val x: Double, val y: Double, val z: Double, val kind: PreviewParticleKind)
 
 /** All geometry is prepared on the worker. The owner sends bounded rotating batches of these values. */
 internal class RoutePreviewDrawing(points: Collection<PreviewParticle>, val connected: Boolean,
     val unavailableGeometry: Set<UUID> = emptySet()) {
     val points: List<PreviewParticle> = java.util.List.copyOf(points)
-    private val markers = this.points.filter { it.kind != PreviewParticleKind.PATH && it.kind != PreviewParticleKind.DIRECTION }
-    private val path = this.points.filter { it.kind == PreviewParticleKind.PATH || it.kind == PreviewParticleKind.DIRECTION }
+    private val markers = this.points.filter { it.kind in setOf(PreviewParticleKind.ENTRY, PreviewParticleKind.REQUESTED_EXIT, PreviewParticleKind.ACTUAL_END) }
+    private val path = this.points.filter { it.kind !in setOf(PreviewParticleKind.ENTRY, PreviewParticleKind.REQUESTED_EXIT, PreviewParticleKind.ACTUAL_END) }
     val batched: Boolean get() = points.size > BUDGET
 
     fun batch(offset: Int): List<PreviewParticle> {
@@ -37,6 +38,7 @@ internal class RoutePreviewDrawing(points: Collection<PreviewParticle>, val conn
                 PreviewParticleKind.ENTRY -> Color.AQUA
                 PreviewParticleKind.REQUESTED_EXIT -> Color.YELLOW
                 PreviewParticleKind.ACTUAL_END -> if (connected) Color.LIME else Color.RED
+                PreviewParticleKind.WARNING -> Color.ORANGE
             }
             player.spawnParticle(Particle.DUST, point.x, point.y, point.z, 1,
                 0.0, 0.0, 0.0, 0.0, Particle.DustOptions(color, 1.0f))
@@ -46,6 +48,22 @@ internal class RoutePreviewDrawing(points: Collection<PreviewParticle>, val conn
     companion object {
         const val BUDGET = 512
         const val REFRESH_TICKS = 20L
+        fun warnings(boundaries: Collection<ProtectionBoundaryDefinition>, findCurve: (UUID) -> Curve?): RoutePreviewDrawing {
+            val points = arrayListOf<PreviewParticle>()
+            val missing = linkedSetOf<UUID>()
+            val curves = hashMapOf<UUID, Curve?>()
+            for (boundary in boundaries) {
+                val id = boundary.position.railId
+                val curve = curves.getOrPut(id) { findCurve(id) }
+                if (curve == null || boundary.position.arcLengthInAbMeters > curve.totalArcLength) { missing += id; continue }
+                val position = curve.getPointAt(boundary.position.arcLengthInAbMeters).position
+                // Upright exclamation mark: separated dot + vertical stroke. Not a direction arrow.
+                points += PreviewParticle(position.x(), position.y() + 0.8, position.z(), PreviewParticleKind.WARNING)
+                repeat(6) { points += PreviewParticle(position.x(), position.y() + 1.15 + it * 0.15, position.z(), PreviewParticleKind.WARNING) }
+            }
+            return RoutePreviewDrawing(points, true, java.util.Set.copyOf(missing))
+        }
+
         fun prepare(path: CurrentRoutePath, findCurve: (UUID) -> Curve?): RoutePreviewDrawing {
             val points = arrayListOf<PreviewParticle>()
             val curves = hashMapOf<UUID, Curve?>()

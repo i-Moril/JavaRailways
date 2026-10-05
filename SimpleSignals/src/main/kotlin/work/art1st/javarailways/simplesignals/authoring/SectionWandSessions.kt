@@ -12,6 +12,8 @@ internal class SectionWandSessions {
         val busy = AtomicBoolean(false)
         @Volatile var firstPoint: RailPositionSnapshot? = null
         @Volatile var firstCapture: SectionWandCapture? = null
+        @Volatile var refresh: AutoCloseable? = null
+        fun close() { active.set(false); refresh?.close() }
     }
     private val sessions = ConcurrentHashMap<UUID, Session>()
     private val closed = AtomicBoolean(false)
@@ -20,7 +22,7 @@ internal class SectionWandSessions {
         if (!permitted || closed.get()) { invalidate(playerId); return null }
         val session = sessions.compute(playerId) { _, old ->
             if (old != null && old.active.get() && old.worldId == worldId && old.tool == tool) old
-            else { old?.active?.set(false); Session(worldId, tool) }
+            else { old?.close(); Session(worldId, tool) }
         }!!
         if (closed.get()) { invalidate(playerId); return null }
         return session.takeIf { it.busy.compareAndSet(false, true) }
@@ -29,13 +31,13 @@ internal class SectionWandSessions {
     fun current(playerId: UUID, session: Session): Boolean =
         !closed.get() && session.active.get() && sessions[playerId] === session
 
-    fun invalidate(playerId: UUID) { sessions.remove(playerId)?.active?.set(false) }
+    fun invalidate(playerId: UUID) { sessions.remove(playerId)?.close() }
     fun invalidate(playerId: UUID, session: Session) {
-        if (sessions.remove(playerId, session)) session.active.set(false)
+        if (sessions.remove(playerId, session)) session.close()
     }
     fun invalidateWorld(worldId: UUID) {
         sessions.entries.forEach { (playerId, session) ->
-            if (session.worldId == worldId && sessions.remove(playerId, session)) session.active.set(false)
+            if (session.worldId == worldId && sessions.remove(playerId, session)) session.close()
         }
     }
     fun close() { closed.set(true); sessions.keys.forEach(::invalidate) }

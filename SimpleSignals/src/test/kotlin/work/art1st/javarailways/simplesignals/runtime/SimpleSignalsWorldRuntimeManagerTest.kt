@@ -123,6 +123,118 @@ class SimpleSignalsWorldRuntimeManagerTest {
     @TempDir
     lateinit var directory: Path
 
+    @Test fun `region wand completes new region and shortest table atomically with endpoint warnings and reload`() {
+        val f = Fixture()
+        val store = store()
+        store.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1, emptyList(), emptyList(),
+            pendingProtectionBoundaries = listOf(f.region.boundaries.first())))
+        val infrastructure = MutableTopologyService(f.currentTopology)
+        val sources = CapturingSignalEpochSourceService()
+        val plans = CapturingRoutePlanningService()
+        val manager = runtimeManager(plugin(), infrastructure.service, plans, store, sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
+        val result = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.REGION_CREATE, false,
+            null, f.region.boundaries.last().position) { true }
+        assertTrue(result.message.contains("generated 1 shortest"), result.message)
+        val saved = manager.authoringRuntime(f.worldId)!!.currentDefinitions()
+        assertEquals(2, saved.definitionRevision)
+        assertTrue(saved.pendingProtectionBoundaries.isEmpty())
+        assertEquals(1, saved.regions.size)
+        val table = saved.routeTables.single()
+        assertEquals(saved.regions.single().regionId, table.regionId)
+        assertEquals(listOf(f.entry, f.upperIn, f.upperOut, f.exit), table.routes.single().traversals.map { it.railId })
+        assertEquals(saved.regions.single().boundaries.toSet(), result.warnings.toSet())
+        assertTrue(f.upperIn in f.plan(plans.single(f.worldId), f.currentTopology).route.segments.map { it.railId })
+        manager.remove(f.worldId)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        assertEquals(saved, manager.authoringRuntime(f.worldId)!!.currentDefinitions())
+    }
+
+    @Test fun `region completion with no permitted path preserves pending definition and disk`() {
+        val f = Fixture()
+        val store = store()
+        val pending = SimpleSignalsWorldDefinitions(f.worldId, 1, emptyList(), emptyList(),
+            pendingProtectionBoundaries = listOf(f.region.boundaries.first()))
+        store.save(f.worldId, pending)
+        val infrastructure = MutableTopologyService(f.currentTopology)
+        infrastructure.operatingDirectionOverride = f.currentTopology.railProjection.keys.associateWith {
+            if (it == f.entry || it == f.exit) ViewDirection.AB else ViewDirection.BA }
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), store, CapturingSignalEpochSourceService())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        val before = Files.readString(store.primaryFile(f.worldId))
+        val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
+        val failure = assertThrows(IllegalArgumentException::class.java) {
+            backend.perform(backend.capture(f.worldId)!!, SectionWandTool.REGION_CREATE, false, null,
+                f.region.boundaries.last().position) { true }
+        }
+        assertTrue(failure.message!!.contains("No direction-legal"))
+        assertEquals(pending, manager.authoringRuntime(f.worldId)!!.currentDefinitions())
+        assertEquals(before, Files.readString(store.primaryFile(f.worldId)))
+        assertEquals(0, infrastructure.permitAcquisitionCount)
+    }
+
+    @Test fun `blocked region completion never installs region without automatically generated table`() {
+        val f = Fixture()
+        val store = store()
+        val pending = SimpleSignalsWorldDefinitions(f.worldId, 1, emptyList(), emptyList(),
+            pendingProtectionBoundaries = listOf(f.region.boundaries.first()))
+        store.save(f.worldId, pending)
+        val registry = editRegistry { f.currentTopology }
+        val infrastructure = MutableTopologyService(f.currentTopology, registry)
+        val plans = CapturingRoutePlanningService()
+        val manager = runtimeManager(plugin(), infrastructure.service, plans, store, CapturingSignalEpochSourceService())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        val runtime = manager.authoringRuntime(f.worldId)!!
+        val old = runtime.authoringPublication()
+        val before = Files.readString(store.primaryFile(f.worldId))
+        val unprotect = protect(registry, f.currentTopology, f.lowerIn, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM)
+        try {
+            val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
+            val result = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.REGION_CREATE, false, null,
+                f.region.boundaries.last().position) { true }
+            assertFalse(result.message.contains("generated"))
+            assertSame(old, runtime.authoringPublication())
+            assertEquals(before, Files.readString(store.primaryFile(f.worldId)))
+            assertTrue(plans.single(f.worldId).source.restrictions(f.currentTopology).pathReplacements.isEmpty())
+        } finally { unprotect() }
+    }
+
+    @Test fun `region repair keeps manually selected route rather than regenerating shortest paths`() {
+        val f = Fixture()
+        val r = RecordingFixture(f, tables = listOf(f.table(1, f.lowerRoute())))
+        val backend = RuntimeSectionWandBackend(r.manager, r.infrastructure.service, 1000.0)
+        val before = r.runtime.currentDefinitions().routeTables
+        backend.perform(backend.capture(f.worldId)!!, SectionWandTool.REGION_DELETE, false, null,
+            f.region.boundaries.first().position) { true }
+        val repaired = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.REGION_CREATE, false, null,
+            f.region.boundaries.first().position) { true }
+        assertTrue(repaired.message.contains("Revalidated"), repaired.message)
+        assertEquals(before, r.runtime.currentDefinitions().routeTables)
+        assertEquals(f.lowerRoute().traversals, r.runtime.currentDefinitions().routeTables.single().routes.single().traversals)
+    }
+
+    @Test fun `existing multi row pair exact path remains no op and different path refuses arbitrary deletion`() {
+        val f = Fixture()
+        val table = ProtectionRouteTableDefinition("test:multiple", 1, f.region.regionId, f.region.revision,
+            listOf(f.upperRoute(), f.lowerRoute()))
+        val r = RecordingFixture(f, tables = listOf(table))
+        val same = r.capture()
+        assertTrue(r.recorder.record(same.first, same.second) { true }.contains("already recorded"))
+        // Third physically legal route, not one of the two rows.
+        r.active = ActiveRailContinuationsSnapshot.create(r.topology.revision, 3, mapOf(
+            endpoint(f.entry, RailEndpoint.B) to endpoint(f.upperIn, RailEndpoint.A),
+            endpoint(f.upperIn, RailEndpoint.B) to endpoint(f.lowerOut, RailEndpoint.A),
+            endpoint(f.lowerOut, RailEndpoint.B) to endpoint(f.exit, RailEndpoint.A)))
+        val third = r.capture()
+        val before = r.runtime.authoringPublication()
+        val disk = Files.readString(r.store.primaryFile(f.worldId))
+        val failure = assertThrows(IllegalArgumentException::class.java) { r.recorder.record(third.first, third.second) { true } }
+        assertTrue(failure.message!!.contains("JSON editor"))
+        assertSame(before, r.runtime.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(f.worldId)))
+    }
+
     @Test fun `record real preview creates sole table restricts Basic planning and survives reinstall`() {
         val r = RecordingFixture()
         assertTrue(r.binding.source.restrictions(r.topology).pathReplacements.isEmpty())
@@ -171,14 +283,18 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(backup, Files.readString(r.store.backupFile(r.f.worldId)))
     }
 
-    @Test fun `same gates different branches append and retain table identity old routes and defaults`() {
+    @Test fun `same gates different branches replace while retaining route table identity and defaults`() {
         val r = RecordingFixture()
         val first = r.capture()
         r.recorder.record(first.first, first.second) { true }
         val table = r.runtime.currentDefinitions().routeTables.single()
+        val device = protectionSignal(ProtectionSignalKind.FIXED_ROUTE, table.routes.single())
+        val indicator = RouteIndicatorDefinition("test:route-display", 0, table.routes.single().entryBoundaryId,
+            "none", mapOf(table.routes.single().routeId to "selected"))
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, r.manager.applyDefinitionPatch(r.f.worldId, 2,
             SimpleSignalsDefinitionPatch(upsertRouteTables = listOf(ProtectionRouteTableDefinition(table.tableId, 1,
-                table.regionId, table.regionRevision, table.routes, listOf(table.routes.single().routeId))))).status)
+                table.regionId, table.regionRevision, table.routes, listOf(table.routes.single().routeId))),
+                upsertProtectionSignals = listOf(device), upsertRouteIndicators = listOf(indicator))).status)
         val before = r.runtime.currentDefinitions().routeTables.single()
         r.lower()
         val next = r.capture()
@@ -186,10 +302,13 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val after = r.runtime.currentDefinitions().routeTables.single()
         assertEquals(before.tableId, after.tableId)
         assertEquals(2L, after.revision)
-        assertEquals(before.routes.single(), after.routes.first())
+        assertEquals(before.routes.single().routeId, after.routes.single().routeId)
+        assertFalse(before.routes.single().traversals == after.routes.single().traversals)
         assertEquals(before.defaultRouteIds, after.defaultRouteIds)
+        assertEquals(listOf(device), r.runtime.currentDefinitions().protectionSignals)
+        assertEquals(listOf(indicator), r.runtime.currentDefinitions().routeIndicators)
         assertEquals(next.second.path.traversals, after.routes.last().traversals)
-        assertEquals(2, r.binding.source.restrictions(r.topology).pathReplacements.single().permittedPaths.size)
+        assertEquals(1, r.binding.source.restrictions(r.topology).pathReplacements.single().permittedPaths.size)
     }
 
     @Test fun `record multi rail reverse BA preview without another trace or geometry sampling`() {
@@ -261,12 +380,13 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertTrue(r.infrastructure.lastEditRequest!!.impact.railIds.contains(f.lowerIn), "whole region is protected")
     }
 
-    @Test fun `append rejects invalid retained route from a prior region revision without silently filtering it`() {
+    @Test fun `replacement rejects invalid retained other pair from prior region revision without filtering it`() {
         val f = Fixture()
         // This is the persisted state after region repair: the older authored table retains
         // both paths, while its compiled usable subset contains only the still-valid route.
         val table = ProtectionRouteTableDefinition("test:throat-table", 1, f.region.regionId, 0,
-            listOf(f.upperRoute(), f.discontinuousRoute()), listOf(f.upperRoute().routeId))
+            listOf(f.upperRoute(), ProtectionRouteDefinition("test:broken", "test:exit", "test:entry", f.discontinuousRoute().traversals)),
+            listOf(f.upperRoute().routeId))
         val r = RecordingFixture(f, tables = listOf(table))
         assertEquals(2, r.runtime.currentDefinitions().routeTables.single().routes.size)
         assertEquals(1, r.binding.source.restrictions(r.topology).pathReplacements.single().permittedPaths.size)
@@ -3523,6 +3643,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             topology = next
         }
         var nextEditDecision = TopologyEditDecision(TopologyEditStatus.GRANTED)
+        var operatingDirectionOverride: Map<UUID, ViewDirection?>? = null
         var afterPermitGranted: () -> Unit = {}
         var permitAcquisitionCount = 0
             private set
@@ -3543,7 +3664,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
                     @Suppress("UNCHECKED_CAST")
                     val rails = arguments!![2] as Collection<UUID>
                     work.art1st.javarailways.basic.api.route.RailOperatingDirections(
-                        arguments[1] as TopologyState, rails.associateWith { ViewDirection.AB })
+                        arguments[1] as TopologyState, rails.associateWith { rail ->
+                            if (operatingDirectionOverride == null) ViewDirection.AB else operatingDirectionOverride!!.getValue(rail) })
                 }
                 "acquireEditPermit" -> {
                     permitAcquisitionCount++

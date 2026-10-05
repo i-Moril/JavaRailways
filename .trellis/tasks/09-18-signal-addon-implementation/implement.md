@@ -337,6 +337,21 @@ Current extraction progress:
 
 Each commit must explain which runtime flow it changes, the mechanism used, the remaining transitional owner and the focused verification performed. Stop for user review after every commit.
 
+## 进路自动生成与鼠标替换：当前批次
+
+- [x] 创建完整的新保护区域时自动生成各有向边界组合的最短进路；复用现有异步编辑与校验发布。
+- [x] 将录制改为左键入口、Shift + 左键出口、右键确认；移除录制命令及旧的潜行取消手势。
+- [x] 将保存由单纯追加改为对应入口—出口组合的路径替换，保留已有进路身份及引用。
+- [x] 为多通路组合提供出入口警告信息；先记录共用视觉规范，再接入边界警告显示。
+- [x] 覆盖唯一/多通路、方向限制、等长选择、不可达、鼠标交互、绑定保留、编辑拒绝及修复不覆盖测试。
+- [x] 明确离线验证与真实客户端显示验证的边界；独立审查通过，无需代码修正。本批提交后停止等待用户检查。
+
+聚焦检查实际执行133项/6套，全部通过，新增20项。独立完整门禁通过：41套/427项，零失败、错误或跳过。
+完整测试与JAR隔离实际执行；生产/测试编译、JAR及Java consumer编译复用缓存，本批编译已在聚焦检查执行。
+日志`/tmp/javarailways-automatic-routes-check.log`；未验证真实Folia、客户端画面或规模延迟。
+搜索和警告几何在worker，每个入口一次最短路搜索；替代通路用移除路径连接后的局部可达性检查。
+没有新增每tick图遍历或schema升级；完整TextDisplay、信号机Wand、测距及单线多闭塞协调不在本批，Stage2继续进行。
+
 ## Rollback points
 
 - Keep module extraction, protection migration, route integration, reactive policy, persistence and rendering in separate commits.

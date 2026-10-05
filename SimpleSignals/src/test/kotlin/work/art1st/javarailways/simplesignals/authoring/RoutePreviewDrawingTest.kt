@@ -12,6 +12,39 @@ import java.util.UUID
 import kotlin.math.ceil
 
 class RoutePreviewDrawingTest {
+    @Test fun `warning exclamations are boundary only and rotate within hard display budget`() {
+        val cuts = (1..200).map { ProtectionBoundaryDefinition("test:b$it", RailPositionSnapshot(rail, ViewDirection.AB, it.toDouble())) }
+        var lookups = 0
+        val warnings = RoutePreviewDrawing.warnings(cuts) { lookups++; curve(250.0) }
+        assertEquals(1, lookups)
+        assertEquals(1400, warnings.points.size)
+        assertTrue(warnings.points.all { it.kind == PreviewParticleKind.WARNING && it.x in 1.0..200.0 })
+        assertTrue(warnings.batched)
+        val selectedPath = RoutePreviewDrawing.prepare(path()) { curve(250.0) }
+        val drawing = RoutePreviewDrawing(selectedPath.points + warnings.points, true)
+        val seen = hashSetOf<PreviewParticle>()
+        var offset = 0
+        repeat(5) {
+            val batch = drawing.batch(offset)
+            assertTrue(batch.size <= RoutePreviewDrawing.BUDGET)
+            assertTrue(batch.any { it.kind == PreviewParticleKind.ENTRY })
+            seen += batch; offset = drawing.nextOffset(offset)
+        }
+        assertTrue(seen.containsAll(drawing.points))
+        assertEquals(1, lookups)
+    }
+
+    @Test fun `selection warning preparation reuses value across turnout-only observations`() {
+        val topology = lineTopologyState(1, rail)
+        val definition = ProtectionRegionDefinition("test:region", 0, listOf(path().entry, path().requestedExit))
+        val interior = listOf(ProtectionRegionInteriorSlice(rail, 2.0, 8.0))
+        val directions = mapOf<UUID, ViewDirection?>(rail to null)
+        val warnings = RegionRouteWarnings()
+        val first = warnings.drawing(topology, definition, interior, directions) { curve(10.0) }
+        val repeated = warnings.drawing(topology, definition, interior, directions) { error("Cached geometry must not be recalculated") }
+        assertSame(first, repeated)
+        assertNotSame(first, warnings.drawing(topology, definition, interior, mapOf(rail to ViewDirection.AB)) { curve(10.0) })
+    }
     private val rail = UUID(0, 1)
     private fun curve(length: Double) = PrimeCurve.fromPoints(listOf(
         Curve.RawPoint(Vector3d(), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0, Curve.SegmentType.LINE_START),

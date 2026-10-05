@@ -157,6 +157,63 @@ class SectionWandHandlerTest {
         assertFalse(old.active.get())
     }
 
+    @Test fun `region warnings are worker prepared and owner refresh performs no geometry work`() {
+        val f = Fixture()
+        f.tool = SectionWandTool.REGION_CREATE
+        val cut = work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition("test:warn",
+            RailPositionSnapshot(f.railId, ViewDirection.AB, 5.0))
+        f.nextOutcome = SectionWandOutcome("multiple paths", warnings = listOf(cut), warningCapture = f.capture)
+        f.target = CompletableFuture()
+        f.handler.click(f.player, f.tool!!, true)
+        f.completeTarget(); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+        assertEquals(1, f.openRefresh)
+        val samples = f.curveCalls
+        repeat(3) { f.refresh!!.invoke() }
+        assertEquals(3, f.draws)
+        assertEquals(samples, f.curveCalls)
+        f.current = false
+        f.refresh!!.invoke()
+        assertEquals(1, f.closedRefresh)
+        assertEquals(3, f.draws)
+    }
+
+    @Test fun `world swap disable and late warning handle attachment all close display`() {
+        val f = Fixture()
+        val cut = work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition("test:warn",
+            RailPositionSnapshot(f.railId, ViewDirection.AB, 5.0))
+        f.nextOutcome = SectionWandOutcome("warnings", warnings = listOf(cut))
+        f.closeOnAttach = true
+        f.clickAndDrain()
+        assertEquals(1, f.closedRefresh)
+        f.refresh!!.invoke()
+        assertEquals(0, f.draws)
+        val next = Fixture()
+        next.nextOutcome = SectionWandOutcome("warnings", warnings = listOf(cut.copy(position = cut.position.copy(railId = next.railId))))
+        next.clickAndDrain()
+        next.handler.onWorldChange(PlayerChangedWorldEvent(next.player, next.world))
+        assertEquals(1, next.closedRefresh)
+        next.handler.close(); next.refresh!!.invoke()
+        assertEquals(0, next.draws)
+    }
+
+    @Test fun `old warning capture changing during own edit does not suppress successful owner reply`() {
+        val f = Fixture()
+        val cut = work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition("test:warn",
+            RailPositionSnapshot(f.railId, ViewDirection.AB, 5.0))
+        f.nextOutcome = SectionWandOutcome("first warning", warnings = listOf(cut), warningCapture = f.capture)
+        f.clickAndDrain()
+        f.nextOutcome = SectionWandOutcome("next edit succeeded")
+        f.target = CompletableFuture()
+        f.handler.click(f.player, f.tool!!, false)
+        f.completeTarget(); f.drainOwner(); f.drainWorkers()
+        f.current = false // The just-completed edit changed publication before the queued player reply.
+        f.refresh!!.invoke()
+        assertEquals(0, f.closedRefresh)
+        f.drainOwner()
+        assertTrue(f.messages.last().toString().contains("next edit succeeded"))
+        assertEquals(1, f.closedRefresh)
+    }
+
     private inner class Fixture {
         val worldId = UUID(0, 1)
         val playerId = UUID(0, 2)
@@ -174,6 +231,11 @@ class SectionWandHandlerTest {
         var given = 0
         var lastGiven: SectionWandTool? = null
         var lastFirst: RailPositionSnapshot? = null
+        var refresh: (() -> Unit)? = null
+        var openRefresh = 0
+        var closedRefresh = 0
+        var draws = 0
+        var closeOnAttach = false
         val messages = mutableListOf<Component>()
         val workers = ArrayDeque<() -> Unit>()
         val owners = ArrayDeque<() -> Unit>()
@@ -216,7 +278,7 @@ class SectionWandHandlerTest {
         }
         private val backend = object : SectionWandBackend {
             override fun capture(worldId: UUID) = capture
-            override fun current(capture: SectionWandCapture): Boolean { check(!ownerThread); return current }
+            override fun current(capture: SectionWandCapture): Boolean = current
             override fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
                 firstPoint: RailPositionSnapshot?, point: RailPositionSnapshot, active: () -> Boolean): SectionWandOutcome {
                 check(!ownerThread)
@@ -226,10 +288,18 @@ class SectionWandHandlerTest {
                 return nextOutcome
             }
         }
-        val handler = SectionWandHandler(plugin, backend, targets, enabled = { true },
+        val handler: SectionWandHandler = SectionWandHandler(plugin, backend, targets, enabled = { true },
             worker = { workers += it }, entity = { _, action -> owners += action },
             toolInHand = { check(ownerThread); tool }, giveTool = { _, value -> check(ownerThread); given++; lastGiven = value },
-            findTarget = { check(ownerThread); targetCalls++; target })
+            findTarget = { check(ownerThread); targetCalls++; target },
+            repeatDisplay = { _, action, _ ->
+                check(ownerThread); refresh = action; openRefresh++
+                if (closeOnAttach) handler.close()
+                var closed = false
+                AutoCloseable { if (!closed) { closed = true; closedRefresh++ } }
+            }, render = { _, drawing, offset ->
+                check(ownerThread); assertTrue(drawing.batch(offset).size <= 512); draws++
+            })
         fun completeTarget() { target.complete(Optional.of(RailTarget(rail, 5.0, 0.0))) }
         fun drainOwner() { ownerThread = true; while (owners.isNotEmpty()) owners.removeFirst().invoke() }
         fun drainWorkers() {

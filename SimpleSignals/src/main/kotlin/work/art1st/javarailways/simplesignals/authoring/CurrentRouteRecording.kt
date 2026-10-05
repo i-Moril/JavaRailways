@@ -36,18 +36,20 @@ internal class CurrentRouteRecording(private val manager: SimpleSignalsWorldRunt
         // The path is immutable. From here on live turnout selections are deliberately not a commit guard.
         val definitions = publication.definitions
         val table = definitions.routeTables.singleOrNull { it.regionId == region.regionId }
-        val duplicate = table?.routes?.firstOrNull {
-            it.entryBoundaryId == path.entry.boundaryId && it.exitBoundaryId == path.requestedExit.boundaryId &&
-                it.traversals == path.traversals
-        }
+        val paired = table?.routes.orEmpty().filter {
+            it.entryBoundaryId == path.entry.boundaryId && it.exitBoundaryId == path.requestedExit.boundaryId }
+        val duplicate = paired.firstOrNull { it.traversals == path.traversals }
         if (duplicate != null) return "Region ${region.regionId}: route ${duplicate.routeId} already recorded; no changes"
-        val route = ProtectionRouteDefinition("simplesignals:${UUID.randomUUID()}", path.entry.boundaryId,
+        require(paired.size <= 1) { "This boundary pair has several authored routes; use the definition JSON editor to choose which route to replace" }
+        val previous = paired.singleOrNull()
+        val route = ProtectionRouteDefinition(previous?.routeId ?: "simplesignals:${UUID.randomUUID()}", path.entry.boundaryId,
             path.requestedExit.boundaryId, path.traversals)
-        val appended = ProtectionRouteTableDefinition(table?.tableId ?: "simplesignals:${UUID.randomUUID()}",
+        val updated = ProtectionRouteTableDefinition(table?.tableId ?: "simplesignals:${UUID.randomUUID()}",
             table?.let { Math.addExact(it.revision, 1L) } ?: 0L, region.regionId, region.revision,
-            table?.routes.orEmpty() + route, table?.defaultRouteIds.orEmpty())
+            if (previous == null) table?.routes.orEmpty() + route else table!!.routes.map { if (it === previous) route else it },
+            table?.defaultRouteIds.orEmpty())
         val result = manager.applyDefinitionPatch(selection.worldId, definitions.definitionRevision,
-            SimpleSignalsDefinitionPatch(upsertRouteTables = listOf(appended)), runtime, topology, active)
+            SimpleSignalsDefinitionPatch(upsertRouteTables = listOf(updated)), runtime, topology, active)
         return if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
             "Recorded region ${region.regionId}, route ${route.routeId}; definition revision ${result.definitions!!.definitionRevision}"
         else SimpleSignalsAdminCommand.formatResult(result)

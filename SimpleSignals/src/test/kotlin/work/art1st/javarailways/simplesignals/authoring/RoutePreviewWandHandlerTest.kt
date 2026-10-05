@@ -43,7 +43,7 @@ class RoutePreviewWandHandlerTest {
         assertEquals(0, f.targets)
         assertEquals(0, f.given)
         f.permitted = true
-        f.handler.click(f.player, false)
+        f.beginExit()
         assertEquals(0, f.targets)
         f.handler.onCommand(f.player, command, "simplesignals", arrayOf("wand", "route"))
         assertEquals(1, f.given)
@@ -77,7 +77,7 @@ class RoutePreviewWandHandlerTest {
     @Test fun `queued old owner result cannot publish after a new entry choice`() {
         val f = Fixture(); f.click(true)
         f.target = CompletableFuture()
-        f.handler.click(f.player, false); f.completeTarget(); f.drainOwners()
+        f.beginExit(); f.completeTarget(); f.drainOwners()
         f.drainWorkers(); f.drainOwners() // Attach the old preview, but do not start its worker yet.
         f.drainWorkers() // Compute and queue the old result for its player owner.
         assertEquals(1, f.computes)
@@ -94,12 +94,10 @@ class RoutePreviewWandHandlerTest {
         assertEquals(messages + 1, f.messages.size)
     }
 
-    @Test fun `sneak cancel tool swap and world round trip discard outstanding target and worker`() {
+    @Test fun `tool swap and world round trip discard outstanding target and worker`() {
         val f = Fixture()
         f.handler.click(f.player, true)
-        f.sneaking = true
-        f.handler.click(f.player, true)
-        f.sneaking = false
+        f.handler.onHeldItem(org.bukkit.event.player.PlayerItemHeldEvent(f.player, 0, 1))
         f.completeTarget(); f.drain()
         assertEquals(0, f.selections)
         f.target = CompletableFuture()
@@ -151,14 +149,14 @@ class RoutePreviewWandHandlerTest {
     @Test fun `duplicate exit clicks coalesce and failed target remains retryable`() {
         val f = Fixture(); f.click(true)
         f.target = CompletableFuture()
-        f.handler.click(f.player, false); f.handler.click(f.player, false)
+        f.beginExit(); f.beginExit()
         assertEquals(2, f.targets)
         f.target.complete(Optional.empty()); f.drain()
         f.click(false)
         assertEquals(1, f.computes)
     }
 
-    @Test fun `record command rejects permission console missing choice and failed preview`() {
+    @Test fun `right click confirmation rejects permission console missing choice and failed preview`() {
         val f = Fixture()
         f.record()
         f.permitted = false; f.record()
@@ -174,7 +172,7 @@ class RoutePreviewWandHandlerTest {
         assertTrue(f.workers.isEmpty())
     }
 
-    @Test fun `record command captures same visible path performs on worker and replies on player owner`() {
+    @Test fun `right click confirmation captures same visible path performs on worker and replies on player owner`() {
         val f = Fixture(); f.click(true); f.click(false)
         val computations = f.computes
         val messages = f.messages.size
@@ -193,9 +191,20 @@ class RoutePreviewWandHandlerTest {
         assertEquals(2, f.recordings, "busy clears after the owner receives a result")
     }
 
+    @Test fun `removed record command cannot save and shift right still confirms`() {
+        val f = Fixture(); f.click(true); f.click(false)
+        val targets = f.targets
+        f.handler.onCommand(f.player, command, "simplesignals", arrayOf("route", "record"))
+        f.drain()
+        assertEquals(0, f.recordings)
+        f.sneaking = true; f.record(); f.drain()
+        assertEquals(1, f.recordings)
+        assertEquals(targets, f.targets, "confirmation does not select a target")
+    }
+
     @Test fun `cancel new choice unload world change quit and swap drop unstarted record`() {
         val cancellations: List<(Fixture) -> Unit> = listOf(
-            { it.sneaking = true; it.handler.click(it.player, true) },
+            { it.inHand = false; it.handler.onHeldItem(org.bukkit.event.player.PlayerItemHeldEvent(it.player, 0, 1)) },
             { it.handler.click(it.player, true) },
             { it.handler.onWorldUnload(WorldUnloadEvent(it.world)) },
             { it.handler.onWorldChange(PlayerChangedWorldEvent(it.player, it.world)) },
@@ -235,7 +244,7 @@ class RoutePreviewWandHandlerTest {
         assertFalse(f.messages.any { it.toString().contains("uncommitted") })
     }
 
-    @Test fun `preview invalidated while command waits on worker is rejected before recorder`() {
+    @Test fun `preview invalidated while confirmation waits on worker is rejected before recorder`() {
         val f = Fixture(); f.click(true); f.click(false); f.record()
         f.observation!!.invoke(ActiveRailContinuationsSnapshot.create(1, 2,
             mapOf(endpoint(f.entry.position.railId, RailEndpoint.B) to endpoint(UUID(7, 7), RailEndpoint.A))))
@@ -351,8 +360,9 @@ class RoutePreviewWandHandlerTest {
                 drainOwners(); drainWorkers()
             }
         }
-        fun click(left: Boolean) { target = CompletableFuture(); handler.click(player, left); completeTarget(); drain() }
-        fun record() { handler.onCommand(player, command, "simplesignals", arrayOf("route", "record")) }
+        fun beginExit() { sneaking = true; handler.click(player, true); sneaking = false }
+        fun click(entry: Boolean) { target = CompletableFuture(); if (entry) handler.click(player, true) else beginExit(); completeTarget(); drain() }
+        fun record() { handler.click(player, false) }
     }
     private val command = object : Command("simplesignals") {
         override fun execute(sender: org.bukkit.command.CommandSender, commandLabel: String, args: Array<out String>) = true

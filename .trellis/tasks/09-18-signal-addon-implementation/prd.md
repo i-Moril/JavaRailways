@@ -132,7 +132,7 @@ with two true entrances sharing one block token and one primary signal result; s
 - 未选择分界点时，左键现有分界点进入接续放置状态，沿用轨道创建模式的操作习惯。
   不设单独连接模式；选取两个相连的现有分界点时直接尝试在两点之间创建闭塞区间。
 - 分界点可以配置地面显示子模型；它是分界点的建造显示，不是额外的列车控制信号、占用区或资源。
-- 进路表采用录制当前通路的方式：玩家调整道岔后选择入口和出口，保存当前实际连接构成的完整路径。
+- 进路表支持录制当前通路：玩家调整道岔后选择入口和出口，保存当前实际连接构成的完整路径。
   保存后的进路不会随之后的道岔切换而改变。录制功能之前必须先提供玩家可操作的道岔切换工具，
   使用主插件提供的独立道岔 Wand，复用现有手动道岔选择和占用检查，不并入 RailWand 的建造模式。
 - 进路录制必须有通路可视化：明确显示所选入口和出口目前是否连通，并沿实际通路高亮轨道及方向。
@@ -184,6 +184,24 @@ with two true entrances sharing one block token and one primary signal result; s
 - Like RailWand, allow editing the signal Wand's default style for future placement and editing the style
   of an already placed signal. Default-setting changes must not silently restyle existing devices;
   existing per-device placement/preset-copy behavior remains applicable.
+
+#### 进路自动生成与鼠标替换（已实现并通过独立离线检查）
+
+- 进路录制通过鼠标交互完成，不要求玩家执行录制命令。现有通路预览继续复用：
+  左键选择入口，Shift（潜行）+ 左键选择出口并预览，右键确认保存或替换。
+  原来的潜行点击取消规则必须移除，不能与选择出口冲突；更换入口可重新选择，
+  退出工具仍清理选择与预览。删除现有 `/simplesignals route record` 录制命令，不保留兼容入口。
+  计算未完成、预览过期或通路不完整时不能保存。
+- 创建保护区域时，检查各有向入口—出口边界组合，尝试自动生成进路表。
+  对有可行通路的组合先记录沿轨道距离最短的一条；存在多条通路时不因此禁止这条进路使用。
+  玩家随后可以手动录制当前通路，替换该入口—出口组合的进路。
+  对存在多条可行通路的组合，在相关入口和出口边界显示警告，不在内部道岔上标记该警告。
+  搜索只涉及已识别区域的内部，并在异步 worker 中执行，不放入物理 tick。
+- 为轨道、车站、闭塞和保护区域编辑制定共用的节点/区间视觉规范。
+  先统一标记含义、方向、选中及警告表达；不因此将各模块的业务定义合并或移入渲染层。
+- 验收：唯一通路自动入表；多通路采用最短路且警告仅出现在相关出入口；
+  鼠标替换后表内对应路径改变，之后切换道岔不改写已保存路径；
+  不完整预览、受运营保护的编辑或候选校验失败均保留原表与设备绑定。
 
 Two further UX topics remain open: protection-region route authoring and device binding, and clearer
 editor visualization. User-proposed visualization candidates are directed `▴` TextDisplays colored

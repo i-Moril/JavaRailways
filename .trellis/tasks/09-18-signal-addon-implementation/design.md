@@ -428,6 +428,23 @@ Development data migration, if required, is a separate auditable one-time tool w
 - Basic admission is one physical projection plus additions and one atomic claim.
 - Missing indexes, stale revisions, invalid script output, plugin exception, forced owner loss or preparation uncertainty cannot widen authority.
 
+## 进路自动生成与鼠标替换：已实现批次
+
+- 新保护区域闭合后，在现有编辑 worker 中，按区域内部的合法有向连接检查入口—出口组合。
+  距离权重采用实际轨道长度；每个可达组合保存一条最短进路，等长候选使用稳定顺序选择。
+  生成区域与进路表复用现有候选校验和原子编辑发布，不先保存区域再以另一事务补表。
+- 多通路警告关联有向入口与出口，不关联内部道岔；警告表示还有其他路径可供选择，
+  不表示最短进路被禁止使用。无需把所有可能路径枚举并写入存档。
+- 鼠标左键选入口，Shift + 左键选出口并预览，右键保存当前完整预览。
+  替换对应组合的路径时沿用原进路身份，避免无故丢失固定进路信号和默认进路引用；
+  仍经过既有编辑许可及候选校验，失败保留旧定义。录制不自动切换道岔或申请列车资源。
+- 只在新区域创建时自动生成；既有区域修复不覆盖玩家录制结果。
+- 内部算法为每入口一次 Dijkstra，替代通路通过暂时排除已选路径的连接后检查可达性识别，不枚举所有路径。
+  实际复杂度和生命周期见[自动进路合同](../../spec/simple-signals/backend/automatic-protection-routes.md)。
+- 共用视觉规范先统一节点、方向、区间、选中与警告的含义及显示生命周期。
+  业务定义保留在各所属模块，平台显示实现归 Bukkit 层。全工具的 TextDisplay 替换与
+  资源包样式制作不并入进路逻辑批次；不得为规范先创建通用业务注册框架。
+
 ## Open decisions
 
 - Exact plugin-local script/YAML surface and execution budget.

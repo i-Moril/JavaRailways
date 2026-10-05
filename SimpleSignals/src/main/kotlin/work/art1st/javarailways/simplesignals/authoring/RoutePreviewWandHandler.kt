@@ -70,17 +70,13 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
             sender.sendMessage(Component.text("SimpleSignals: missing permission ${SectionWandHandler.PERMISSION}")); return true
         }
         if (sender !is Player) { sender.sendMessage(Component.text("Route preview wand requires a player")); return true }
-        if (args.contentEquals(arrayOf("route", "record"))) {
-            record(sender)
-            return true
-        }
         if (!args.contentEquals(arrayOf("wand", "route"))) {
-            sender.sendMessage(Component.text("/simplesignals wand route; /simplesignals route record")); return true
+            sender.sendMessage(Component.text("/simplesignals wand route")); return true
         }
         invalidate(sender.uniqueId)
         try {
             giveTool(sender)
-            sender.sendMessage(Component.text("Route preview: left-click an existing region entry, right-click its desired exit. Sneak-click cancels. Physical connectivity does not grant movement authority."))
+            sender.sendMessage(Component.text("Route wand: left-click an existing region entry; Shift-left-click its exit to preview; right-click confirms saving or replacing that pair's path. Physical connectivity does not grant movement authority."))
         } catch (failure: Exception) { sender.sendMessage(Component.text(failure.message ?: "Cannot create preview wand")) }
         return true
     }
@@ -135,9 +131,10 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
         if (closed.get() || !enabled() || !player.hasPermission(SectionWandHandler.PERMISSION)) {
             invalidate(playerId); return
         }
-        if (player.isSneaking) { invalidate(playerId); player.sendMessage(Component.text("Route preview cleared")); return }
+        if (!left) { record(player); return }
+        val selectingEntry = !player.isSneaking
         val worldId = player.world.uid
-        val choice = if (left) {
+        val choice = if (selectingEntry) {
             invalidate(playerId)
             Choice(worldId).also { choices[playerId] = it }
         } else choices[playerId]?.takeIf { it.worldId == worldId && it.selection != null } ?: run {
@@ -157,7 +154,7 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
                 if (failure != null || target == null || target.isEmpty) { fail("No existing region boundary selected"); return@entity }
                 val hit = target.get()
                 val point = RailPositionSnapshot(hit.rail().id, ViewDirection.AB, hit.arcLength())
-                val previous = if (left) null else choice.selection
+                val previous = if (selectingEntry) null else choice.selection
                 worker {
                     if (!active()) return@worker
                     try {
@@ -166,7 +163,7 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
                             if (!ownerCurrent()) { invalidate(playerId, choice); return@entity }
                             choice.selection = selection
                             choice.busy.set(false)
-                            if (left) player.sendMessage(Component.text("Entry ${selection.entry.boundaryId} selected; right-click the desired exit"))
+                            if (selectingEntry) player.sendMessage(Component.text("Entry ${selection.entry.boundaryId} selected; Shift-left-click the desired exit"))
                             else {
                                 choice.preview?.close()
                                 choice.refresh?.close()
@@ -221,7 +218,7 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
         private fun createItem(plugin: Plugin): ItemStack = ItemStack(Material.BLAZE_ROD).apply { editMeta { meta ->
             meta.displayName(Component.text("SimpleSignals current route preview"))
             meta.persistentDataContainer.set(key(plugin), PersistentDataType.BYTE, 1.toByte())
-            meta.lore(listOf(Component.text("Left: entry; right: exit; sneak-click: cancel")))
+            meta.lore(listOf(Component.text("Left: entry; Shift-left: exit; right: save/replace")))
         } }
         internal fun describe(value: RoutePreviewComputation): String {
             val path = value.path
@@ -229,6 +226,7 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
             return "${path.end}: ${path.detail}. Actual end: ${reached.railId} ${reached.facing} @ ${reached.arcLengthInAbMeters} m; " +
                 "${path.traversals.size} directed rail spans. Cyan: entry; yellow: requested exit; raised ${if (value.drawing.connected) "green" else "red"}: actual end; white arrows: travel direction. " +
                 "Physical connectivity only; no movement authority." +
+                (if (value.drawing.points.any { it.kind == PreviewParticleKind.WARNING }) " Amber ! at boundaries: multiple legal paths; shortest initially selected; right-click can replace the selected pair with this preview." else "") +
                 (if (value.drawing.batched) " Long display rotates in batches of at most ${RoutePreviewDrawing.BUDGET} particles." else "") +
                 (if (value.drawing.unavailableGeometry.isNotEmpty()) " Cannot draw missing geometry on ${value.drawing.unavailableGeometry.size} rails." else "")
         }

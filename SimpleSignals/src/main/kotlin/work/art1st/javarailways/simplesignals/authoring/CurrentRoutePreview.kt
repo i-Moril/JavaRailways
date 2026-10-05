@@ -7,7 +7,11 @@ import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition
+import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
+import work.art1st.javarailways.simplesignals.region.ProtectionRegionInteriorSlice
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simplesignals.runtime.PreviewRegionState
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntime
 import java.util.UUID
@@ -17,7 +21,23 @@ import java.util.concurrent.atomic.AtomicReference
 
 internal data class RoutePreviewSelection(val worldId: UUID, val runtime: SimpleSignalsWorldRuntime,
     val regionId: String, val entry: ProtectionBoundaryDefinition, val exit: ProtectionBoundaryDefinition? = null,
-    val regionRailIds: Set<UUID> = emptySet())
+    val regionRailIds: Set<UUID> = emptySet(), val warnings: RegionRouteWarnings = RegionRouteWarnings())
+
+/** One derived value per player selection, not a world cache or signal watcher. */
+internal class RegionRouteWarnings {
+    private data class Prepared(val topology: TopologyState, val region: ProtectionRegionDefinition,
+        val directions: Map<UUID, ViewDirection?>, val drawing: RoutePreviewDrawing)
+    @Volatile private var prepared: Prepared? = null
+    fun drawing(topology: TopologyState, region: ProtectionRegionDefinition,
+        interior: List<ProtectionRegionInteriorSlice>, directions: Map<UUID, ViewDirection?>,
+        curve: (UUID) -> work.art1st.javarailways.core.api.physics.curve.Curve?): RoutePreviewDrawing {
+        prepared?.takeIf { it.topology === topology && it.region == region && it.directions == directions }?.let { return it.drawing }
+        val found = ProtectionRouteDiscovery.discover(topology, region, interior, directions)
+        val drawing = RoutePreviewDrawing.warnings(region.boundaries.filter { it.boundaryId in found.warningBoundaryIds }, curve)
+        prepared = Prepared(topology, region, java.util.Collections.unmodifiableMap(LinkedHashMap(directions)), drawing)
+        return drawing
+    }
+}
 
 internal class RoutePreviewComputation(val path: CurrentRoutePath, val regionState: PreviewRegionState,
     val regionRailIds: Set<UUID>, val drawing: RoutePreviewDrawing,
@@ -71,12 +91,20 @@ internal class RuntimeRoutePreviewBackend(private val plugin: Plugin,
             selection.entry.position, CurrentRouteEnd.UNAVAILABLE, "Selected region or boundary was removed")
         else CurrentRouteTracer.trace(topology, active,
             checkNotNull(region), selection.entry.boundaryId, exit.boundaryId, !state.unavailable)
-        val regionRails = selection.runtime.authoringPublication().regions.compilationSnapshot()
-            ?.regionsById?.get(selection.regionId)?.interior?.map { it.railId }.orEmpty() +
+        val compiled = selection.runtime.authoringPublication().regions.compilationSnapshot()
+            ?.regionsById?.get(selection.regionId)
+        val regionRails = compiled?.interior?.map { it.railId }.orEmpty() +
             region?.boundaries?.map { it.position.railId }.orEmpty()
-        val drawing = RoutePreviewDrawing.prepare(path) { railId ->
+        val pathDrawing = RoutePreviewDrawing.prepare(path) { railId ->
             targets.findCurve(selection.worldId, railId).orElse(null)
         }
+        val warnings = if (compiled != null && region != null && !state.unavailable && region.boundaryDraft == null) {
+            val directions = infrastructure.operatingDirections(selection.worldId, topology, compiled.interior.map { it.railId }.toSet())
+            selection.warnings.drawing(topology, region, compiled.interior, directions.directions) {
+                targets.findCurve(selection.worldId, it).orElse(null) }
+        } else RoutePreviewDrawing(emptyList(), false)
+        val drawing = RoutePreviewDrawing(pathDrawing.points + warnings.points, pathDrawing.connected,
+            pathDrawing.unavailableGeometry + warnings.unavailableGeometry)
         return RoutePreviewComputation(path, state, java.util.Set.copyOf(regionRails), drawing, active)
     }
 

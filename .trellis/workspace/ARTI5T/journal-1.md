@@ -152,3 +152,42 @@ Implemented read-only current-turnout protection route preview in SimpleSignals;
 ### Next Steps
 
 - Stop for user review; route recording is the next implementation item. Stage 2 remains active.
+
+
+## Session 6: Record current protection routes
+<!-- trellis-session: v=2 fp=eb07479312b705ec -->
+
+**Date**: 2026-10-05
+**Task**: Record current protection routes
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+Added explicit current-preview recording through the existing fixed table transaction. Fifteen new tests; 407 module tests pass; Stage 2 remains active.
+
+### Main Changes
+
+- Added /simplesignals route record on the existing route wand; captured complete preview path freezes once and never retraces or requests resources.
+- First table constrains planning; append preserves table ID/routes/defaults; exact-path duplicate performs no edit; current region binding strictly validates retained old paths.
+- Reused Choice lifecycle and real manager edit/store/source transaction; recording callback is required, with no optional legacy constructor mode.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0dd7b2be` | feat(simplesignals): record current protection routes |
+
+### Testing
+
+- [OK] Focused 107 tests in four suites pass; final offline SimpleSignals check and Java consumer gate pass: 40 suites, 407 tests, zero failures/errors/skips.
+- [OK] Real manager/store/backend/Basic planner prove save and reload, branch selection, duplicate/append/default/freeze; actual registry static/live blockers preserve disk/publication/source.
+- [OK] Tests and JAR isolation executed in final gate; compilation and unchanged Java consumer reused focused outputs. No live Folia/client/load verification.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Stop for user review. Route deletion/replacement/default configuration and signal-machine placement remain later batches; do not archive Stage 2.

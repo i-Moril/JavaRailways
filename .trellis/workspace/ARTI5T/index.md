@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 5
+- **Total Sessions**: 6
 - **Last Active**: 2026-10-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~154 | Active |
+| `journal-1.md` | ~193 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 6 | 2026-10-05 | Record current protection routes | `0dd7b2be` | `dev/signal-system` |
 | 5 | 2026-10-05 | Protection region current route preview | `dee2409d` | `dev/signal-system` |
 | 4 | 2026-10-05 | Stage 2 local topology revalidation checks | `9c4491cf` | `dev/signal-system` |
 | 3 | 2026-09-27 | Complete Stage 1 signal add-on host APIs | `57ab8374`, `47cd99db`, `98627482`, `ae55fa6d` | `dev/signal-system` |

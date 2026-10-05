@@ -47,6 +47,7 @@ import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContribut
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
+import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -58,12 +59,30 @@ internal class DefaultInfrastructureResourceService(
         val currentTopology: () -> TopologyState,
         val registry: InfrastructureCoordinationRegistry,
         val operatingDirections: ((TopologyState, Collection<UUID>) -> work.art1st.javarailways.basic.api.route.RailOperatingDirections)?,
+        val observeTopologyChanges: ((RailTopologyChangeListener) -> AutoCloseable)?,
         var routeAdmission: RouteResourceAdmissionRuntime? = null,
         var manualTurnoutSelection: ManualTurnoutSelectionRuntime? = null,
         var stallWorld: ((String, Exception) -> Unit)? = null
     )
 
     private val worlds = linkedMapOf<UUID, WorldRuntime>()
+    private class TopologyRegistration(val owner: Plugin, val world: WorldRuntime) : AutoCloseable {
+        private var active = true
+        var delegate: AutoCloseable? = null
+
+        @Synchronized
+        fun deliver(action: () -> Unit) {
+            if (active && owner.isEnabled) action()
+        }
+
+        @Synchronized
+        override fun close() {
+            if (!active) return
+            active = false
+            delegate?.close()
+        }
+    }
+    private val topologyRegistrations = linkedSetOf<TopologyRegistration>()
     private data class ProviderRegistration(
         val pluginOwner: Plugin,
         val provider: InfrastructureResourceProvider,
@@ -83,6 +102,7 @@ internal class DefaultInfrastructureResourceService(
         railExists: (UUID) -> Boolean = { false },
         topologyNodeExists: (StableTopologyNodeKey) -> Boolean = { false },
         operatingDirections: ((TopologyState, Collection<UUID>) -> work.art1st.javarailways.basic.api.route.RailOperatingDirections)? = null,
+        observeTopologyChanges: ((RailTopologyChangeListener) -> AutoCloseable)? = null,
         resourceExists: (InfrastructureResource) -> Boolean
     ) = synchronized(lock) {
         check(!closed) { "InfrastructureResourceService is closed" }
@@ -90,6 +110,7 @@ internal class DefaultInfrastructureResourceService(
         worlds[worldId] = WorldRuntime(
             currentTopology = currentTopology,
             operatingDirections = operatingDirections,
+            observeTopologyChanges = observeTopologyChanges,
             registry = InfrastructureCoordinationRegistry(
                 { currentTopology().revision }, resourceExists, railExists, topologyNodeExists
             )
@@ -99,6 +120,42 @@ internal class DefaultInfrastructureResourceService(
     override fun currentTopology(worldId: UUID): TopologyState = synchronized(lock) {
         check(!closed) { "InfrastructureResourceService is closed" }
         checkNotNull(worlds[worldId]) { "Railway world is not registered: $worldId" }.currentTopology()
+    }
+
+    override fun observeTopologyChanges(
+        pluginOwner: Plugin, worldId: UUID, listener: RailTopologyChangeListener
+    ): AutoCloseable {
+        val registration = synchronized(lock) {
+            check(!closed) { "InfrastructureResourceService is closed" }
+            TopologyRegistration(requireEnabled(pluginOwner), checkNotNull(worlds[worldId]) {
+                "Railway world is not registered: $worldId"
+            })
+        }
+        val subscribe = checkNotNull(registration.world.observeTopologyChanges) {
+            "Topology transaction observation is unavailable for world $worldId"
+        }
+        registration.delegate = subscribe(RailTopologyChangeListener { change ->
+            registration.deliver { listener.onTopologyChange(change) }
+        })
+        val installed = synchronized(lock) {
+            if (closed || worlds[worldId] !== registration.world || !pluginOwner.isEnabled) false
+            else topologyRegistrations.add(registration)
+        }
+        if (!installed) {
+            registration.close()
+            error("Railway world or plugin changed while registering topology observation")
+        }
+        return AutoCloseable {
+            synchronized(lock) { topologyRegistrations.remove(registration) }
+            registration.close()
+        }
+    }
+
+    private fun closeTopologyRegistrations(predicate: (TopologyRegistration) -> Boolean) {
+        val removed = synchronized(lock) {
+            topologyRegistrations.filter(predicate).also { topologyRegistrations.removeAll(it.toSet()) }
+        }
+        removed.forEach(TopologyRegistration::close)
     }
 
     override fun operatingDirections(worldId: UUID, topology: TopologyState, railIds: Collection<UUID>):
@@ -490,6 +547,7 @@ internal class DefaultInfrastructureResourceService(
     fun removeWorld(worldId: UUID) {
         BukkitThreadGuardBridge.runInSimulationContext {
             synchronized(lock) { worlds.remove(worldId) }?.let { runtime ->
+                closeTopologyRegistrations { it.world === runtime }
                 runtime.manualTurnoutSelection?.close()
                 runtime.routeAdmission?.close()
                 runtime.registry.close()
@@ -635,6 +693,7 @@ internal class DefaultInfrastructureResourceService(
                 }
             }
             signalSources?.removeUnusedOwner(pluginOwner)
+            closeTopologyRegistrations { it.owner === pluginOwner }
             synchronized(lock) {
                 resourceProviders.values.removeIf { it.pluginOwner === pluginOwner }
                 routeContributors.removeIf { it.pluginOwner === pluginOwner }
@@ -649,6 +708,7 @@ internal class DefaultInfrastructureResourceService(
      */
     fun forcedDisableOwner(pluginOwner: Plugin) {
         BukkitThreadGuardBridge.runInSimulationContext {
+            closeTopologyRegistrations { it.owner === pluginOwner }
             val (snapshot, providedTypeIds, ownedContributor) = synchronized(lock) {
                 if (closed) return@runInSimulationContext
                 val ownedTypes = resourceProviders
@@ -701,6 +761,7 @@ internal class DefaultInfrastructureResourceService(
                 worlds.values.toList().also { worlds.clear() }
             }
             snapshot.forEach { runtime ->
+                closeTopologyRegistrations { it.world === runtime }
                 runtime.manualTurnoutSelection?.close()
                 runtime.routeAdmission?.close()
                 runtime.registry.close()

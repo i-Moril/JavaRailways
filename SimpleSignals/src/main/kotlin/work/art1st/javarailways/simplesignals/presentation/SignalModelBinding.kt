@@ -229,7 +229,7 @@ internal class SignalModelBinding(
             if (!ready || retired || handles.active !== this) return
             val stamp = state?.occupancy?.stamp
             if (stamp != null) {
-                if (stamp.worldId != worldId.toString() || stamp.topologyRevision != topologyRevision ||
+                if (stamp.worldId != worldId.toString() ||
                     stamp.physicsEpoch <= lastEpoch) return
                 lastEpoch = stamp.physicsEpoch
             } else if (lastEpoch >= 0) return

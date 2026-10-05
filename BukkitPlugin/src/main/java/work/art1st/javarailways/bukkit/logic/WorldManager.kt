@@ -86,6 +86,7 @@ class WorldManager internal constructor(
     private val pendingPeriodicSnapshots = ConcurrentHashMap<BukkitWorld, WorldSnapshotCapture>()
     private val snapshotWrites = ConcurrentHashMap<BukkitWorld, Future<*>>()
     private val speedSafetyMonitors = ConcurrentHashMap<CoreWorld, SpeedSafetyMonitor>()
+    private val topologySubscriptions = ConcurrentHashMap<CoreWorld, AutoCloseable>()
 
     fun start() {
         check(tickTask == null) { "WorldManager is already started" }
@@ -167,12 +168,17 @@ class WorldManager internal constructor(
         )
         try {
             if (railWorld is CoreWorld) {
+                topologySubscriptions[railWorld] = railWorld.registerTopologyChangeListener { change ->
+                    railWorld.simpleAtoWorldData.inspectionRuntime.invalidateTopology(change)
+                    railWorld.simpleAtoWorldData.signalEpochRuntime.invalidateTopology(change)
+                }
                 infrastructureResourceService?.registerWorld(
                     bukkitWorld.uid,
                     { railWorld.topologyState },
                     railExists = { railId -> railWorld.getRail(railId) != null },
                     topologyNodeExists = { key -> railWorld.topologyState.structuralNodeWithPorts(key.ports) != null },
                     operatingDirections = railWorld.basicWorldData.operatingDirections::snapshot,
+                    observeTopologyChanges = railWorld::registerTopologyChangeListener,
                     resourceExists = { resource ->
                     when (resource) {
                         is RailIntervalResource -> railWorld.getRail(resource.railId)?.curve?.totalArcLength
@@ -236,6 +242,7 @@ class WorldManager internal constructor(
             infrastructureResourceService?.removeWorld(bukkitWorld.uid)
             observationService?.removeWorld(bukkitWorld.uid)
             (railWorld as? CoreWorld)?.let { coreWorld ->
+                topologySubscriptions.remove(coreWorld)?.close()
                 speedSafetyMonitors.remove(coreWorld)
                     ?.let(coreWorld.physicsCoordinator::unregisterPublishedFrameProcessor)
                 coreWorld.physicsCoordinator.close()
@@ -341,6 +348,7 @@ class WorldManager internal constructor(
                 }
             } finally {
                 coreWorld?.let { world ->
+                    topologySubscriptions.remove(world)?.close()
                     speedSafetyMonitors.remove(world)?.let(world.physicsCoordinator::unregisterPublishedFrameProcessor)
                 }
                 infrastructureResourceService?.removeWorld(bukkitWorld.uid)

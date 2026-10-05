@@ -58,9 +58,6 @@ internal class RouteAuthorityAdmissionClient(
         selection: FrozenRouteSelectionResult.Selected,
         desiredAuthority: RouteBoundary
     ): RouteAdmissionResult {
-        require(selection.observationStamp.topologyRevision == selection.route.topologyRevision) {
-            "selection observation and route must use the same topology revision"
-        }
         val current = active
         if (selection.trainId != trainId) {
             if (current == null) {
@@ -338,9 +335,6 @@ internal class RouteAuthorityAdmissionClient(
         check(grant.observationStamp.worldId == selection.observationStamp.worldId) {
             "grant belongs to another world"
         }
-        check(grant.observationStamp.topologyRevision == selection.route.topologyRevision) {
-            "grant belongs to another topology revision"
-        }
         check(grant.committedAuthority.distanceFromRouteStartMeters <=
             selection.route.totalLengthMeters
         ) { "grant authority exceeds the frozen route" }
@@ -405,7 +399,6 @@ internal class RouteAuthorityAdmissionClient(
         fun matches(other: FrozenRouteSelectionResult.Selected): Boolean =
             selection.trainId == other.trainId &&
                 selection.observationStamp.worldId == other.observationStamp.worldId &&
-                selection.route.topologyRevision == other.route.topologyRevision &&
                 selection.route.routeId == other.route.routeId
     }
 

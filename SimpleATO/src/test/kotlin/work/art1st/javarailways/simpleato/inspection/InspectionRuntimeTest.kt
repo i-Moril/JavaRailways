@@ -22,6 +22,8 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublic
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import java.util.UUID
+import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange
+import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -29,6 +31,46 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicLong
 
 class InspectionRuntimeTest {
+    @Test
+    fun `transaction invalidates only routes using changed rails and preserves frozen binding identity`() {
+        val publications = arrayListOf<TrainRestrictionSnapshot>()
+        val runtime = runtime(publications)
+        bind(runtime, binding()) { input ->
+            listOf(snapshot(input.observationStamp, revision = publications.size.toLong() + 1L))
+        }
+        runtime.update(stamp, routeBinding, 50.0, 0.0, perception)
+        val binding = runtime.bindingFor("train")
+        val seven = buildTestTopology(7L, emptyList(), emptyMap())
+        val eight = buildTestTopology(8L, emptyList(), emptyMap())
+        runtime.invalidateTopology(RailTopologyChange(seven, eight, setOf(UUID.randomUUID())))
+        runtime.markDirty("test:source", listOf("test:signal"))
+        val nextStamp = stamp.copy(physicsEpoch = 12L, topologyRevision = 8L)
+        runtime.update(nextStamp, routeBinding, 60.0, 0.0, perception)
+        assertEquals(2, publications.size)
+        assertEquals(routeBinding, publications.last().route)
+        assertEquals(nextStamp, publications.last().observationStamp)
+        org.junit.jupiter.api.Assertions.assertSame(binding, runtime.bindingFor("train"))
+        runtime.invalidateTopology(RailTopologyChange(eight,
+            buildTestTopology(9L, emptyList(), emptyMap()), setOf(railId)))
+        assertThrows(IllegalStateException::class.java) {
+            runtime.update(nextStamp.copy(physicsEpoch = 13L, topologyRevision = 9L), routeBinding, 65.0, 0.0, perception)
+        }
+        assertEquals(2, publications.size)
+        runtime.removeTrain("train")
+        runtime.invalidateTopology(RailTopologyChange(buildTestTopology(9L, emptyList(), emptyMap()),
+            buildTestTopology(10L, emptyList(), emptyMap()), setOf(railId)))
+        assertEquals(false, runtime.hasBindings("train"))
+    }
+
+    @Test
+    fun `inspection rejects a newer topology without the transaction handoff`() {
+        val runtime = runtime()
+        bind(runtime, binding()) { input -> listOf(snapshot(input.observationStamp, revision = 1L)) }
+        assertThrows(IllegalStateException::class.java) {
+            runtime.update(stamp.copy(topologyRevision = 8L), routeBinding, 50.0, 0.0, perception)
+        }
+    }
+
     @Test
     fun `cached ranges baseline without entries survive passage and respond to stable range invalidation`() {
         val publications = arrayListOf<TrainRestrictionSnapshot>()

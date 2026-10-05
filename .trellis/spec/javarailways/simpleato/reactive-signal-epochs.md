@@ -29,14 +29,14 @@ Core捕获一个尚未公开的RailwayWorldFrameSnapshot
 ```
 
 第一次observation是baseline，因此所有source（包括只有准入兴趣、没有area/道岔的source）都会调用一次。
-physical topology revision变化也触发全体source一次baseline，使无道岔单轨进路同样能撤销过期状态。
+轨道事务按受影响area及已登记的轨道／接头兴趣，只唤醒相关source；不因世界版本变化对全体source建立baseline。
 后续若area不变且`(topologyRevision, selectionRevision)`不变、没有相关准入变化，则保持IDLE。
 selection revision变化时只比较已编译的watched entries，未实际变化的entry不唤醒source。同一epoch的`ENTER`、`LEFT`保留在一次area update和一次source调用中，不进入跨epoch事件队列。
 
 ## 公共值与callback
 
 - `SignalEpochSource(sourceId, areas, watchedContinuationEntries, watchedAdmissionRailIds, handler)`：一个已安装source snapshot中的immutable binding；source至少拥有一种兴趣。entry/rail只声明唤醒兴趣，SimpleATO不解释道岔、信号或保护区域含义。
-- `SignalEpochInput(observation, areaUpdates, continuationUpdates, admissionUpdates, topologyBaseline)`：immutable value；updates只包含该source拥有/关注的baseline或变化值。`SignalRailContinuationUpdate`保留canonical entry和nullable selected exit；完整同epoch snapshot仍由`observation.activeContinuations`提供。`admissionUpdates`使用Basic的不可变`ActiveRouteAdmissionUpdate`，null current表示owner退出；`topologyBaseline`显式通知安装baseline或物理拓扑变化，不需要伪造道岔事件。
+- `SignalEpochInput(observation, areaUpdates, continuationUpdates, admissionUpdates, topologyBaseline)`：immutable value；updates只包含该source拥有/关注的baseline或变化值。`SignalRailContinuationUpdate`保留canonical entry和nullable selected exit；完整同epoch snapshot仍由`observation.activeContinuations`提供。`admissionUpdates`使用Basic的不可变`ActiveRouteAdmissionUpdate`，null current表示owner退出；`topologyBaseline`通知首次安装或影响该来源的轨道事务，不表示整个世界所有source过期。area update的available=false表示监测几何待重验，不能按空闲处理。
 - `SignalEpochResult(publications, invalidatedInspectionDeclarationIds)`：完整immutable snapshot publications与同source ID下需要
   重算的inspection声明ID；空result表示本epoch两者均无变化，不表示撤销旧限制。
 - `SignalEpochSource.watchedOperatingDirectionRailIds` 声明运营方向变化的轨道兴趣；
@@ -64,6 +64,15 @@ signal handler抛错、返回值非法、publisher或invalidation失败都会向
 开始前永久Stall当前coordinator，因此部分结果不能驱动车辆继续运动。这里不增加rollback或两阶段协议。
 
 ## 表示、复杂度与线程
+
+`invalidateTopology(change)`在Core成功结构事务的新root可见前调用，先通过Basic的area反向索引标记受影响观测，
+再合并相关source ID。下一epoch只交接这些来源的变化；未改区域保留原occupancy记录。
+世界版本仍可检查宿主是否漏接整次事务通知，但不能用它替代各来源的依赖相交判断。
+新／旧观测和物理epoch须保持同世界、连续顺序；收到真实编辑却完全漏接通知属于接线故障，不是假定所有旧数据有效。
+
+source候选准备与轨道事务并行时，运行时短暂记录准备期间发生的变更；候选构造完立即交接给其占用索引，
+后续事务直接同时通知当前和待提交候选。文件保存或commit callback不持有这把短锁。
+成功或失败都清除本次准备记录，不保存长期事务历史，也不在事务回调中编译整套source。
 
 runtime以空source state启动。`replaceSources`先完整复制、排序、验证source/area唯一性并建立新的`areaId → sourceId` map和Basic rail-local occupancy index；全部成功后才用一次volatile写替换state，失败保留旧state。低频配置事务使用同一编译路径的`replaceSourcesAtomically`：完整candidate先编译，随后执行调用方commit callback，callback抛错时不替换state，成功后只做已经编译好的引用写入。candidate通过现有occupancy engine的`prepareReplacement`接续未变区域物理记录；不在commit callback或physics路径比较几何/构建索引。每个`process`开头只捕获一次state，因此并发替换不会把两个集合混入同一epoch；新state首次仍建立完整source baseline，但其未变区域可以同时带真实crossings。新/变更区域保持冷baseline，具体同一记录的串行与stamp规则归[Basic占用合同](../basic/railway-area-occupancy.md)。空state不投影完整observation、不运行occupancy engine或source callback，只从Core frame读取stamp和live train ID并提交completed boundary，供controller证明自己消费的是上一成功physics epoch。
 
@@ -132,7 +141,8 @@ Bukkit通过`SignalEpochSourceService`按`(plugin owner, world UUID)`安装完�
 - admission-only source建立baseline，替换后恢复当前请求；不相关rail准入变化保持IDLE；
 - 同owner多次变化合并、请求移除/换轨唤醒旧兴趣、同路线车尾更新不重新扫描segments；
 - 无新的准入/道岔变化且Bukkit尚未消费观测时，物理frame中的列车消失仍唤醒其准入关注者；
-- topology变化唤醒无道岔source，并撤销过期进路选择。
+- 相关轨道事务唤醒无道岔source并撤销过期进路选择；无关事务不重置占用或唤醒无关来源。
+- source准备／提交期间的事务不能被候选安装丢掉；失败提交清理待准备记录，后续正常事务仍能通知当前来源。
 - 方向变化只唤醒关注该轨道的来源；相同值写入不通知、多个变化合并、首次 baseline、无关来源保持 IDLE，
   回调读取的方向子集一致，来源替换仍在新 baseline 建立当前状态；
 - prepare/commit期间旧epoch继续完成；同一未变area的首个replacement baseline包含真实LEFT和最新occupants，仍对全部source建立baseline。

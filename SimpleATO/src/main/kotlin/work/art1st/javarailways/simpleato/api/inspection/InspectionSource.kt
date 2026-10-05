@@ -21,9 +21,6 @@ data class InspectionBindingInput(
 ) {
     init {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
-        require(observationStamp.topologyRevision == route.topologyRevision) {
-            "observation and inspection route must use the same topology revision"
-        }
     }
 }
 

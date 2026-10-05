@@ -34,11 +34,90 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 import java.util.Collections
 import java.util.UUID
+import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange
+import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
 class SignalEpochRuntimeTest {
+    @Test
+    fun `transaction during prepared source commit also invalidates the candidate`() {
+        val received = mutableListOf<work.art1st.javarailways.simpleato.api.signal.SignalEpochInput>()
+        val original = area(firstAreaId, 10.0, 20.0)
+        val replacement = area(firstAreaId, 12.0, 20.0)
+        val runtime = runtime(listOf(source("test:first", original) { SignalEpochResult.empty() }))
+        runtime.process(frame(1L, listOf(RailInterval(railId, 15.0, 16.0))))
+        runtime.replaceSourcesAtomically(listOf(source("test:first", replacement) {
+            received += it
+            SignalEpochResult.empty()
+        })) {
+            runtime.invalidateTopology(RailTopologyChange(
+                buildTestTopology(7L, emptyList(), emptyMap()),
+                buildTestTopology(8L, emptyList(), emptyMap()), setOf(railId)
+            ))
+        }
+        runtime.process(frame(2L, emptyList(), activeContinuations = ActiveRailContinuationsSnapshot.empty(8L)))
+        assertEquals(false, received.single().areaUpdates.single().available)
+        assertEquals(emptyList<Any>(), received.single().areaUpdates.single().crossings)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            runtime.replaceSourcesAtomically(emptyList()) { throw IllegalArgumentException("failed commit") }
+        }
+        // Failed preparation must release its slot; the next transaction and replacement are usable.
+        runtime.invalidateTopology(RailTopologyChange(
+            buildTestTopology(8L, emptyList(), emptyMap()),
+            buildTestTopology(9L, emptyList(), emptyMap()), setOf(UUID.randomUUID())
+        ))
+        runtime.replaceSources(emptyList())
+        runtime.process(frame(3L, emptyList(), activeContinuations = ActiveRailContinuationsSnapshot.empty(9L)))
+        assertEquals(1, received.size)
+    }
+
+    @Test
+    fun `unrelated topology transaction preserves occupancy crossings and leaves untouched sources idle`() {
+        val received = mutableListOf<work.art1st.javarailways.simpleato.api.signal.SignalEpochInput>()
+        val runtime = runtime(listOf(source("test:first", area(firstAreaId, 10.0, 20.0)) {
+            received += it
+            SignalEpochResult.empty()
+        }))
+        runtime.process(frame(1L, listOf(RailInterval(railId, 15.0, 16.0))))
+        runtime.invalidateTopology(RailTopologyChange(
+            buildTestTopology(7L, emptyList(), emptyMap()),
+            buildTestTopology(8L, emptyList(), emptyMap()), setOf(UUID.randomUUID())
+        ))
+        runtime.process(frame(2L, listOf(RailInterval(railId, 15.0, 16.0)),
+            activeContinuations = ActiveRailContinuationsSnapshot.empty(8L)))
+        assertEquals(1, received.size)
+        runtime.process(frame(3L, listOf(RailInterval(railId, 21.0, 22.0)),
+            tailTraversal = listOf(RailTraversalSegmentSnapshot(railId, ViewDirection.AB, 16.0, 22.0)),
+            activeContinuations = ActiveRailContinuationsSnapshot.empty(8L)))
+        assertEquals(false, received.last().topologyBaseline)
+        assertEquals(listOf(RailwayOccupancyCrossingKind.LEFT), received.last().areaUpdates.single().crossings.map { it.kind })
+    }
+
+    @Test
+    fun `affected area is unavailable without resetting occupancy and a missing transaction fails closed`() {
+        val received = mutableListOf<work.art1st.javarailways.simpleato.api.signal.SignalEpochInput>()
+        val runtime = runtime(listOf(source("test:first", area(firstAreaId, 10.0, 20.0)) {
+            received += it
+            SignalEpochResult.empty()
+        }))
+        runtime.process(frame(1L, listOf(RailInterval(railId, 15.0, 16.0))))
+        runtime.invalidateTopology(RailTopologyChange(
+            buildTestTopology(7L, emptyList(), emptyMap()),
+            buildTestTopology(8L, emptyList(), emptyMap()), setOf(railId)
+        ))
+        runtime.process(frame(2L, emptyList(), activeContinuations = ActiveRailContinuationsSnapshot.empty(8L)))
+        assertEquals(true, received.last().topologyBaseline)
+        val area = received.last().areaUpdates.single()
+        assertEquals(false, area.available)
+        assertEquals(emptyList<Any>(), area.crossings)
+        assertThrows(IllegalStateException::class.java) {
+            runtime.process(frame(3L, emptyList(), activeContinuations = ActiveRailContinuationsSnapshot.empty(9L)))
+        }
+    }
+
     @Test
     fun `direction changes coalesce and wake only sources watching actually changed rails`() {
         val other = UUID.randomUUID()
@@ -764,7 +843,7 @@ class SignalEpochRuntimeTest {
         } ?: RailPositionSnapshot(railId, ViewDirection.AB, 0.0)
         return RailwayWorldFrameSnapshot.create(
             epoch,
-            7L,
+            activeContinuations.topologyRevision,
             listOf(
                 TrainFrameSnapshot.create(
                     trainId = "train",

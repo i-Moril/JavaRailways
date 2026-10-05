@@ -43,11 +43,10 @@ class RouteResourceIntentTest {
     }
 
     @Test
-    fun `intent rejects a route from another topology revision`() {
+    fun `intent accepts older route provenance for current structural validation`() {
         val route = route()
 
-        assertThrows(IllegalArgumentException::class.java) {
-            RouteResourceIntent(
+        val intent = RouteResourceIntent(
                 requestId = "test:request/main",
                 owner = InfrastructureOwner("test:route/main", 2L),
                 trainId = "train-1",
@@ -55,7 +54,7 @@ class RouteResourceIntentTest {
                 route = route,
                 desiredAuthority = RouteBoundary(80.0)
             )
-        }
+        assertEquals(route, intent.route)
     }
 
     @Test

@@ -84,18 +84,20 @@ internal class FixedBlockReadSnapshot internal constructor(
     val definitionRevision: Long,
     blocksById: Map<String, CompiledFixedBlock>,
     blockIdsByRail: Map<UUID, Set<String>>,
-    internal val routeTopology: ProtectionRegionTopology
+    private val compiledRouteTopology: ProtectionRegionTopology,
+    val unavailableBlockIds: Set<String> = emptySet()
 ) {
+    internal var liveTopology: (() -> TopologyState)? = null
+    internal var requireUsable: (RouteSnapshot, Double) -> Unit = { _, _ -> }
+    internal val routeTopology: ProtectionRegionTopology
+        get() = liveTopology?.invoke()?.takeUnless { it === topology }?.let(ProtectionRegionTopology::direct) ?: compiledRouteTopology
     val blocksById: Map<String, CompiledFixedBlock> = java.util.Map.copyOf(blocksById)
     val blockIdsByRail: Map<UUID, Set<String>> = java.util.Map.copyOf(
         blockIdsByRail.mapValues { java.util.Set.copyOf(it.value) }
     )
 
     fun candidates(route: RouteSnapshot): List<CompiledFixedBlock> {
-        require(route.topologyRevision == topology.revision) {
-            "route topology revision ${route.topologyRevision} does not match fixed-block topology " +
-                topology.revision
-        }
+        requireUsable(route, route.totalLengthMeters)
         return candidates(route.segments.map { it.railId })
     }
 
@@ -229,7 +231,7 @@ internal class FixedBlockCatalog(private val allowTurnoutGeometry: Boolean = fal
         return captured.snapshot
     }
 
-    private fun compile(
+    internal fun compile(
         definition: FixedBlockDefinition,
         topology: ProtectionRegionTopology
     ): Compilation {
@@ -416,7 +418,7 @@ internal class FixedBlockCatalog(private val allowTurnoutGeometry: Boolean = fal
         FixedBlockDiagnostic(code, detail, definition.blockId, railId)
     )
 
-    private sealed interface Compilation {
+    internal sealed interface Compilation {
         data class Compiled(val block: CompiledFixedBlock) : Compilation
         data class Rejected(val diagnostic: FixedBlockDiagnostic) : Compilation
     }
@@ -431,5 +433,21 @@ internal class FixedBlockCatalog(private val allowTurnoutGeometry: Boolean = fal
             topology === other.topology &&
                 definitionRevision == other.definitionRevision &&
                 definitions == other.definitions
+    }
+
+    companion object {
+        /** Installs already checked geometry; unchanged blocks retain their exact object identity. */
+        fun fromCompiled(topology: TopologyState, revision: Long, definitions: List<FixedBlockDefinition>,
+            blocks: Map<String, CompiledFixedBlock>, unavailable: Set<String>): FixedBlockCatalog {
+            val byRail = linkedMapOf<UUID, MutableSet<String>>()
+            definitions.forEach { block -> block.traversals.forEach {
+                byRail.getOrPut(it.railId, ::linkedSetOf).add(block.blockId)
+            } }
+            val catalog = FixedBlockCatalog()
+            catalog.publication = Publication(topology, revision, definitions,
+                FixedBlockReadSnapshot(topology, revision, blocks, byRail, ProtectionRegionTopology.direct(topology),
+                    java.util.Set.copyOf(unavailable)))
+            return catalog
+        }
     }
 }

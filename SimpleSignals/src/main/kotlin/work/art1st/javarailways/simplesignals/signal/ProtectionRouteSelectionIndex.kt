@@ -27,7 +27,6 @@ internal data class CompiledProtectionRoute(
     val requiredContinuations: List<RequiredActiveContinuation>
 ) {
     fun isPhysicallyOpen(active: ActiveRailContinuationsSnapshot): Boolean {
-        if (active.topologyRevision != topologyRevision) return false
         return requiredContinuations.all { requirement ->
             active.selectedContinuation(requirement.entry) == requirement.selectedExit
         }
@@ -44,7 +43,8 @@ internal data class CompiledProtectionRoute(
 internal class ProtectionRouteSelectionIndex private constructor(
     val topology: TopologyState,
     routesById: Map<String, CompiledProtectionRoute>,
-    defaultRoutesByEntryBoundaryId: Map<String, CompiledProtectionRoute>
+    defaultRoutesByEntryBoundaryId: Map<String, CompiledProtectionRoute>,
+    private val compiledRoutes: Map<String, CompiledRoute>
 ) {
     val routesById: Map<String, CompiledProtectionRoute> = java.util.Map.copyOf(routesById)
     val defaultRoutesByEntryBoundaryId: Map<String, CompiledProtectionRoute> =
@@ -54,14 +54,15 @@ internal class ProtectionRouteSelectionIndex private constructor(
         entryBoundaryId: String,
         active: ActiveRailContinuationsSnapshot
     ): CompiledProtectionRoute? {
-        if (active.topologyRevision != topology.revision) return null
         return defaultRoutesByEntryBoundaryId[entryBoundaryId]?.takeIf { it.isPhysicallyOpen(active) }
     }
 
     companion object {
         fun compile(
             topology: TopologyState,
-            definitions: Collection<ProtectionRouteTableDefinition>
+            definitions: Collection<ProtectionRouteTableDefinition>,
+            previous: ProtectionRouteSelectionIndex? = null,
+            affectedRegionIds: Set<String> = emptySet()
         ): ProtectionRouteSelectionIndex {
             val routesById = linkedMapOf<String, CompiledRoute>()
             val defaultRoutes = ArrayList<CompiledRoute>()
@@ -76,7 +77,10 @@ internal class ProtectionRouteSelectionIndex private constructor(
                     "route table ${table.tableId} references unknown default routes $unknownDefaults"
                 }
                 table.routes.forEach { route ->
-                    val compiled = compileRoute(topology, table, route)
+                    val retained = previous?.compiledRoutes?.get(route.routeId)?.takeIf {
+                        table.regionId !in affectedRegionIds && it.route.definition == route
+                    }
+                    val compiled = retained ?: compileRoute(topology, table, route)
                     require(routesById.putIfAbsent(route.routeId, compiled) == null) {
                         "protection route ${route.routeId} is defined by more than one table"
                     }
@@ -103,7 +107,8 @@ internal class ProtectionRouteSelectionIndex private constructor(
             return ProtectionRouteSelectionIndex(
                 topology,
                 routesById.mapValues { it.value.route },
-                defaultsByEntry
+                defaultsByEntry,
+                java.util.Map.copyOf(routesById)
             )
         }
 

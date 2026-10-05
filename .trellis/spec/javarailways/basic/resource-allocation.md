@@ -38,7 +38,8 @@ claim，设备准备完成后才发布grant；同一route的更远authority使�
 
 `StableTopologyNodeKey`由结构节点的persistent `RailEndpointRef` ports去重排序得到；不得用revision-local
 `TopologyNodeId`作为长期依赖。`StableInfrastructureResource`只表示真实运行/运营资源，不得把rail或结构节点包装成
-resource。计划apply/replace时，registry对三类引用调用各自validator，并在validation前后核对topology revision；
+resource。计划apply/replace时，registry对三类引用调用各自无副作用的validator；校验、依赖安装及edit permit
+冲突检查共用registry锁，因此正常编辑不能穿过依赖安装窗口。全局revision不是这些稳定引用的有效性证明；
 成功后依赖不会仅因不相交编辑使全局revision增加而自动失效。编辑申请同样双重核对revision，再在同一把锁内完成
 依赖、live claim及其他permit的冲突检查并安装permit，避免check与mutation之间的竞态。
 
@@ -105,7 +106,11 @@ footprint使用其`StableInfrastructureResource`，不得改用revision-local `T
 
 `RouteResourceIntent`只描述一个自身携带topology revision的冻结route plan、列车身份、同一观察stamp与期望authority boundary；request本身既不复制第二个topology revision，也不携带附加资源。SimpleATO提供有序traversal；宿主在同一准入流程中认证并调用具体信号插件的contributor，收集只能增加最终union的资源和保持边界。Basic从authoritative observation读取列车实际占用，并从请求范围自行推导不可删除的物理资源底线。Basic不执行保护区域/固定闭塞的递归contributor closure。
 
-request不携带可替代Basic推导的raw `InfrastructureFootprint`或可信列车长度。SimpleATO从Core的authoritative `TopologyState`选择路径并提交有序edge traversal；Basic validator证明它在同一revision内连续、方向正确且每个continuation合法，再通过拓扑节点与绑定同一topology root的route-bound resource catalog，把rail intervals、turnouts、fixed crossings与其他shared conflicts加入物理底线。经过验证的插件addition只可增加资源。physical occupancy geometry只用于检查，不形成第二个footprint。非法或断裂traversal返回`INVALID_ROUTE`；保护区域覆盖不足由具体信号插件作为配置错误处理，不是Basic的`PROTECTION_REQUIRED`。验证前后均核对topology root，任何失败都不改变registry。
+request不携带可替代Basic推导的raw `InfrastructureFootprint`或可信列车长度。SimpleATO提交按稳定rail ID、方向和AB位置记录的冻结路线；Basic在当前`TopologyState`上检查真实连续性、方向和合法连接，再通过绑定该root的route-bound resource catalog，把rail intervals、turnouts、fixed crossings与其他shared conflicts加入物理底线。不得把旧root的node/edge ID直接用于新图。经过验证的插件addition只可增加资源。physical occupancy geometry只用于检查，不形成第二个footprint。非法或断裂traversal返回`INVALID_ROUTE`；保护区域覆盖不足由具体信号插件处理。校验期间若事务影响本路线，申请拒绝；无关编辑不使路线过期。任何失败都不新增registry资源。
+
+运行中route state按rail ID建立反向索引，消费Core的`RailTopologyChange`。只有与事务影响相交的状态才标记不可用；
+已持有资源保留，不因编辑强制释放。未命中的grant、设备准备、后续申请和车尾游标继续工作。
+编辑候选自身仍须核对当前root，以防覆盖并发修改；这类编辑失败不得传播成全世界列车的授权失效。
 
 `RouteResourceAdmissionRuntime`消费Basic内部route validation得到的唯一资源集合，在registry mutation前用同一观测的occupancy index查询已编译geometry，然后原子claim并启动同一admission中的完整有序`InfrastructurePreparationRequirement`批次。claim只建立逻辑排他性，不等于设备已经物理就绪；通用main-thread batch ticket报告`PREPARING/READY/ABORTED_SAFE/UNSAFE`，pending admission handle持有claim mutation，只有`READY`才完成claim，只有资源handler确认`ABORTED_SAFE`才删除本次新claim。`abort()`不规定恢复旧状态或默认状态。当前live actuator处理turnout requirement：它在任何side effect前解析并验证完整的双向selection批次，然后即时写入并返回`READY`；当前内存选择没有虚构的运行时失败或旧selection恢复路径。执行未完成时不会返回成功claim结果，也不存在grant；任一snapshot/actuator异常或`UNSAFE`均保留当前claim reservation并Stall world。
 
@@ -219,7 +224,7 @@ Dispatcher只提交冻结route与目标authority；Basic编译完整物理底线
 - 用一个虚构的rail interval表达跨rail范围，或遗漏共享conflict node；
 - add-on直接申请raw live claim绕过route validation和mandatory physical footprint；
 - caller提交可替代物理底线的raw footprint/列车长度，或Basic替caller选择路径/执行保护区域策略；
-- topology revision只在validation前检查一次，允许检查期间的structural edit穿过；
+- 用全世界revision变化废弃无关路线，或遗漏校验期间实际影响本路线的structural edit；
 - release时复位branch；
 - 只看head或direction；
 - worker直接修改registry或设备；
@@ -231,7 +236,7 @@ Dispatcher只提交冻结route与目标authority；Basic编译完整物理底线
 - `RouteResourceAdmissionEngineTest.kt`：完整batch在首个写入前检查conflict/physical lock、idempotent、tail release；不构造同步内存selection的虚构apply failure。
 - `TimetableDispatcherTest.kt`与`TimetableDispatcherSharedAdmissionTest.kt`：authority/retry、stable conflict、tail release、sameTick Stall、manual modes。
 - `TimetableStationCallDispatcherTest.kt`：berth/old mission tail release。
-- `InfrastructureCoordinationRegistryTest.kt`：重叠infrastructure dependencies、exclusive claims、held edit permit、owner revision、双重topology check、provider failure和无partial mutation。
+- `InfrastructureCoordinationRegistryTest.kt`：重叠infrastructure dependencies、exclusive claims、held edit permit、owner revision、编辑候选的双重topology check、稳定引用不因无关revision变化过期、provider failure和无partial mutation。
 - `InfrastructureCoordinationRegistryTest.kt`：claim shrink按准确身份原子删除、保留剩余顺序与owner revision，支持重叠interval，并在missing/wrong owner/pending/closed时保持不变。
 - `LiveClaimTailReleaseTest.kt`：先shrink后出队、单调进度、重叠identity独立释放、unexpected result锁存
   fail closed、全部释放后的幂等completed、active queue追加、empty queue恢复和非法suffix原子拒绝。

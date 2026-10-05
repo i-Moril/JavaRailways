@@ -106,6 +106,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
     private ModelHandle ordinaryModel;
     private CompletionStage<Void> modelCleanup;
     private RailwayObservationSubscription observationSubscription;
+    private AutoCloseable topologySubscription;
     private InfrastructureResourceProviderRegistration resourceProviderRegistration;
     private RouteResourceContributorRegistration routeContributorRegistration;
     private UUID worldId;
@@ -146,6 +147,12 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
     public void onEnable() {
         services = loadServices(getServer());
         worldId = getServer().getWorlds().getFirst().getUID();
+        topologySubscription = services.infrastructure().observeTopologyChanges(this, worldId, change -> {
+            Objects.requireNonNull(change.getPrevious());
+            Objects.requireNonNull(change.getCurrent());
+            Objects.requireNonNull(change.getAffectedRailIds());
+            // Invalidate only indexed dependencies here; dispatch compilation to the add-on worker.
+        });
         services.observations().latest(worldId).ifPresent(observation ->
             getLogger().fine("Latest railway epoch: " + observation.getStamp().getPhysicsEpoch())
         );
@@ -333,6 +340,14 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (topologySubscription != null) {
+            try {
+                topologySubscription.close();
+            } catch (Exception failure) {
+                throw new IllegalStateException("Cannot close topology subscription", failure);
+            }
+            topologySubscription = null;
+        }
         if (infrastructureDependenciesInstalled && services != null && worldId != null &&
             infrastructureDependencyOwner != null) {
             services.infrastructure().removeInfrastructureDependencies(

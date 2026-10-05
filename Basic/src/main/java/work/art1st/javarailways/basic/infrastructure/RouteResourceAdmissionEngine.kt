@@ -61,6 +61,56 @@ internal class RouteResourceAdmissionEngine(
     private val terminal = java.util.WeakHashMap<RouteAdmissionHandle, TerminalRequest>()
     private val routes = java.util.TreeMap<String, RouteState>()
     private var worldStalled = false
+    private val dependencyLock = Any()
+    private val routesByRail = hashMapOf<java.util.UUID, MutableSet<RouteState>>()
+    private val validationsByRail = hashMapOf<java.util.UUID, MutableSet<Validation>>()
+    private class Validation(val rails: Set<java.util.UUID>) { @Volatile var invalidated = false }
+
+    /** Called before a successful transaction publishes. No compilation, claim mutation or waits. */
+    fun invalidateTopology(change: work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange) =
+        synchronized(dependencyLock) {
+            change.affectedRailIds.forEach { rail ->
+                routesByRail[rail]?.forEach { it.topologyInvalidated = true }
+                validationsByRail[rail]?.forEach { it.invalidated = true }
+            }
+        }
+
+    private fun <T> validateTopology(route: RouteSnapshot, action: (Validation) -> T): T {
+        val validation = Validation(route.segments.mapTo(hashSetOf()) { it.railId })
+        synchronized(dependencyLock) {
+            validation.rails.forEach { validationsByRail.getOrPut(it, ::hashSetOf).add(validation) }
+        }
+        return try { action(validation) } finally {
+            synchronized(dependencyLock) {
+                validation.rails.forEach { rail ->
+                    validationsByRail[rail]?.let { entries ->
+                        entries.remove(validation)
+                        if (entries.isEmpty()) validationsByRail.remove(rail)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun indexRoute(route: RouteState, selected: RouteSnapshot = route.projection.route,
+                           validation: Validation? = null) = synchronized(dependencyLock) {
+        unindexRoute(route)
+        route.indexedRails = selected.segments.mapTo(hashSetOf()) { it.railId }
+        route.indexedRails.forEach { routesByRail.getOrPut(it, ::hashSetOf).add(route) }
+        if (validation?.invalidated == true) route.topologyInvalidated = true
+    }
+
+    private fun unindexRoute(route: RouteState) = synchronized(dependencyLock) {
+        route.indexedRails.forEach { rail -> routesByRail[rail]?.let { entries ->
+            entries.remove(route)
+            if (entries.isEmpty()) routesByRail.remove(rail)
+        } }
+        route.indexedRails = emptySet()
+    }
+
+    private fun removeRoute(ownerId: String) {
+        routes.remove(ownerId)?.let(::unindexRoute)
+    }
 
     private class RouteState(
         val requester: Any,
@@ -75,7 +125,10 @@ internal class RouteResourceAdmissionEngine(
         var pendingHandle: RouteAdmissionHandle? = null,
         var reversalFromTrainState: Boolean? = null,
         var publishedAdmission: ActiveRouteAdmissionSnapshot? = null
-    )
+    ) {
+        @Volatile var topologyInvalidated = false
+        var indexedRails: Set<java.util.UUID> = emptySet()
+    }
 
     private data class ReservedDelta(
         val result: InfrastructureMutationResult,
@@ -91,7 +144,6 @@ internal class RouteResourceAdmissionEngine(
         val deltaEntries: List<ResolvedTailReleaseEntry>,
         val candidateProjection: ProjectedTopologyRoute,
         val appendsRoute: Boolean,
-        val topologyRoot: TopologyState,
         val reservation: ReservedDelta,
         val ticket: ResourcePreparationTicket
     ) {
@@ -100,6 +152,8 @@ internal class RouteResourceAdmissionEngine(
                 return rejected(RouteAdmissionFailureCode.WORLD_STALLED,
                     "world is already stalled; reservation retained")
             }
+            if (route.topologyInvalidated) return rejected(RouteAdmissionFailureCode.STALE_TOPOLOGY,
+                "a route dependency changed during preparation; reservation retained")
             val state = try {
                 ticket.snapshot()
             } catch (failure: Exception) {
@@ -112,8 +166,7 @@ internal class RouteResourceAdmissionEngine(
                         ?: error("no coherent observation when preparation became ready")
                     check(observation.stamp.worldId == worldId &&
                         observation.stamp.physicsEpoch >= intent.observationStamp.physicsEpoch &&
-                        observation.stamp.topologyRevision == topologyRoot.revision &&
-                        currentTopology() === topologyRoot
+                        !route.topologyInvalidated
                     ) { "route topology or observation changed during preparation" }
                     val train = observation.trains.firstOrNull { it.trainId == intent.trainId }
                         ?: error("train disappeared during preparation")
@@ -132,7 +185,7 @@ internal class RouteResourceAdmissionEngine(
                     check(observation.occupancy.blockingTrainIds(
                         compiled.occupancyGeometry.intervals, intent.trainId
                     ).isEmpty()) { "another train entered the prepared route" }
-                    check(currentTopology() === topologyRoot &&
+                    check(!route.topologyInvalidated &&
                         latestObservation()?.stamp == observation.stamp && !worldStalled
                     ) { "world changed while checking the prepared route" }
                     if (oldGrant != null) {
@@ -176,9 +229,7 @@ internal class RouteResourceAdmissionEngine(
                     if (route.committedGrant != null) {
                         val observation = latestObservation()
                             ?: error("no coherent observation when request safely aborted")
-                        check(observation.stamp.worldId == worldId &&
-                            observation.stamp.topologyRevision == topologyRoot.revision &&
-                            currentTopology() === topologyRoot
+                        check(observation.stamp.worldId == worldId && !route.topologyInvalidated
                         ) { "world changed before safe request abort" }
                         val train = observation.trains.firstOrNull { it.trainId == intent.trainId }
                             ?: error("train disappeared before safe request abort")
@@ -191,13 +242,14 @@ internal class RouteResourceAdmissionEngine(
                         rolledBack.status == InfrastructureMutationStatus.RELEASED else rolledBack.successful
                     ) { "safe request abort could not remove its new resources" }
                     if (route.committedGrant == null) {
-                        routes.remove(intent.owner.ownerId)
+                        removeRoute(intent.owner.ownerId)
                     } else {
                         val release = checkNotNull(route.tailRelease).rollbackExtendedHolds()
                         check(release !is LiveClaimTailReleaseResult.FailedClosed) {
                             "safe request abort could not reconcile tail release"
                         }
                         route.pendingHandle = null
+                        indexRoute(route)
                     }
                     rejected(RouteAdmissionFailureCode.PREPARATION_ABORTED_SAFE,
                         "resource preparation safely aborted: ${state.detail}")
@@ -213,7 +265,10 @@ internal class RouteResourceAdmissionEngine(
 
     /** Adds the next requested route range to the same owner state, whether or not it has a grant yet. */
     @MainThread
-    fun request(requester: Any, intent: RouteResourceIntent): RouteAdmissionResult {
+    fun request(requester: Any, intent: RouteResourceIntent): RouteAdmissionResult =
+        validateTopology(intent.route) { requestValidated(requester, intent, it) }
+
+    private fun requestValidated(requester: Any, intent: RouteResourceIntent, validation: Validation): RouteAdmissionResult {
         if (worldStalled) return rejected(RouteAdmissionFailureCode.WORLD_STALLED, "world is stalled")
         if (intent.observationStamp.worldId != worldId) {
             return rejected(RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "request belongs to another world")
@@ -258,11 +313,12 @@ internal class RouteResourceAdmissionEngine(
             return rejected(RouteAdmissionFailureCode.STALE_OBSERVATION, "observation stamp is no longer current")
         }
         val topology = currentTopology()
-        if (topology.revision != intent.route.topologyRevision ||
-            topology.revision != observation.stamp.topologyRevision ||
-            existing != null && topology !== existing.projection.topology
-        ) {
-            return rejected(RouteAdmissionFailureCode.STALE_TOPOLOGY, "frozen route topology changed")
+        if (observation.stamp.topologyRevision != topology.revision) {
+            return rejected(RouteAdmissionFailureCode.STALE_OBSERVATION,
+                "current topology has no matching physical observation yet")
+        }
+        if (existing?.topologyInvalidated == true || validation.invalidated) {
+            return rejected(RouteAdmissionFailureCode.STALE_TOPOLOGY, "a frozen route dependency changed")
         }
         val train = observation.trains.firstOrNull { it.trainId == intent.trainId }
             ?: return rejected(RouteAdmissionFailureCode.TRAIN_NOT_FOUND, "train is absent from observation")
@@ -381,8 +437,8 @@ internal class RouteResourceAdmissionEngine(
                 blockers.map(RouteAdmissionBlocker::OccupyingTrain)
             ))
         }
-        if (currentTopology() !== topology) {
-            return rejected(RouteAdmissionFailureCode.STALE_TOPOLOGY, "topology changed during validation")
+        if (validation.invalidated || existing?.topologyInvalidated == true) {
+            return rejected(RouteAdmissionFailureCode.STALE_TOPOLOGY, "a route dependency changed during validation")
         }
         if (latestObservation()?.stamp != observation.stamp) {
             return rejected(RouteAdmissionFailureCode.STALE_OBSERVATION, "observation changed during validation")
@@ -430,6 +486,9 @@ internal class RouteResourceAdmissionEngine(
             physical.routeProgressPath,
             preparationsByResource = LinkedHashMap()
         ).also { routes[intent.owner.ownerId] = it }
+        indexRoute(route, intent.route, validation)
+        if (route.topologyInvalidated) return rejected(RouteAdmissionFailureCode.STALE_TOPOLOGY,
+            "a route dependency changed during reservation; reservation retained")
         if (release != null) {
             try {
                 release.stageExtendedHolds(heldEntries)
@@ -452,11 +511,12 @@ internal class RouteResourceAdmissionEngine(
                     rolledBack.status == InfrastructureMutationStatus.RELEASED else rolledBack.successful
                 ) { "rejected preparation could not remove its new resources" }
                 if (route.committedGrant == null) {
-                    routes.remove(intent.owner.ownerId)
+                    removeRoute(intent.owner.ownerId)
                 } else {
                     check(release!!.rollbackExtendedHolds() !is LiveClaimTailReleaseResult.FailedClosed) {
                         "rejected preparation could not restore old release boundaries"
                     }
+                    indexRoute(route)
                 }
                 rejected(RouteAdmissionFailureCode.INVALID_PREPARATION,
                     "preparation rejected: ${started.failure.message}")
@@ -467,7 +527,7 @@ internal class RouteResourceAdmissionEngine(
         val handle = RouteAdmissionHandle()
         route.pendingHandle = handle
         pending[handle] = PendingRequest(handle, intent, route, compiled, deltaEntries,
-            projection, appendsRoute, topology,
+            projection, appendsRoute,
             reservation, (started as InfrastructurePreparationStart.Accepted).ticket)
         return progress(requester, handle)
     }
@@ -517,10 +577,7 @@ internal class RouteResourceAdmissionEngine(
         val observation = latestObservation()
             ?: return reversalRejected(RouteAdmissionFailureCode.STALE_OBSERVATION,
                 "no published observation")
-        if (observation.stamp.worldId != worldId ||
-            observation.stamp.topologyRevision != route.projection.topology.revision ||
-            currentTopology() !== route.projection.topology
-        ) {
+        if (observation.stamp.worldId != worldId || route.topologyInvalidated) {
             return reversalRejected(RouteAdmissionFailureCode.STALE_TOPOLOGY,
                 "route topology changed before reversal")
         }
@@ -546,7 +603,9 @@ internal class RouteResourceAdmissionEngine(
     fun rebaseAfterReversal(
         requester: Any,
         intent: RouteResourceIntent
-    ): RouteGrantReversalResult {
+    ): RouteGrantReversalResult = validateTopology(intent.route) { rebaseValidated(requester, intent, it) }
+
+    private fun rebaseValidated(requester: Any, intent: RouteResourceIntent, validation: Validation): RouteGrantReversalResult {
         if (worldStalled) return reversalRejected(RouteAdmissionFailureCode.WORLD_STALLED, "world is stalled")
         if (intent.observationStamp.worldId != worldId) {
             return reversalRejected(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
@@ -579,10 +638,11 @@ internal class RouteResourceAdmissionEngine(
                 "reversal observation stamp is no longer current")
         }
         val topology = currentTopology()
-        if (topology !== route.projection.topology ||
-            topology.revision != intent.route.topologyRevision ||
-            topology.revision != observation.stamp.topologyRevision
-        ) {
+        if (observation.stamp.topologyRevision != topology.revision) {
+            return reversalRejected(RouteAdmissionFailureCode.STALE_OBSERVATION,
+                "current topology has no matching reversal observation yet")
+        }
+        if (route.topologyInvalidated || validation.invalidated) {
             return reversalRejected(RouteAdmissionFailureCode.STALE_TOPOLOGY,
                 "frozen route topology changed during reversal")
         }
@@ -697,7 +757,7 @@ internal class RouteResourceAdmissionEngine(
                 blockers.map(RouteAdmissionBlocker::OccupyingTrain)
             ))
         }
-        if (currentTopology() !== topology || latestObservation()?.stamp != observation.stamp) {
+        if (validation.invalidated || route.topologyInvalidated || latestObservation()?.stamp != observation.stamp) {
             return reversalRejected(RouteAdmissionFailureCode.STALE_OBSERVATION,
                 "world changed while validating the reversed body route")
         }
@@ -736,6 +796,7 @@ internal class RouteResourceAdmissionEngine(
         )
 
         route.projection = projection
+        indexRoute(route, validation = validation)
         route.cursor = initialized.cursor
         route.routeProgressPath = physical.routeProgressPath
         route.tailRelease = newTailRelease
@@ -755,6 +816,7 @@ internal class RouteResourceAdmissionEngine(
         val updates = ArrayList<RouteGrantTailReleaseUpdate>(routes.size)
         for (route in routes.values) {
             if (route.committedGrant == null) continue
+            if (route.topologyInvalidated) continue // Retain claims; never release from invalid progress geometry.
             if (route.reversalFromTrainState != null) continue
             val update = checkNotNull(route.tailRelease).consume(observation.stamp, trains[route.trainId])
             publishAdmission(route)
@@ -771,7 +833,7 @@ internal class RouteResourceAdmissionEngine(
         if (route.requester !== requester || route.pendingHandle != null ||
             !checkNotNull(route.tailRelease).resourceQueueEmpty
         ) return false
-        routes.remove(route.owner.ownerId)
+        removeRoute(route.owner.ownerId)
         publishAdmission(route)
         return true
     }
@@ -873,7 +935,7 @@ internal class RouteResourceAdmissionEngine(
     fun discardInactiveRequester(requester: Any): Boolean {
         if (requesterActivity(requester).isNotEmpty()) return false
         val removed = routes.values.filter { it.requester === requester }
-        removed.forEach { routes.remove(it.owner.ownerId); publishAdmission(it) }
+        removed.forEach { removeRoute(it.owner.ownerId); publishAdmission(it) }
         terminal.entries.removeIf { it.value.requester === requester }
         return true
     }
@@ -960,7 +1022,6 @@ internal class RouteResourceAdmissionEngine(
         committed: RouteSnapshot,
         requested: RouteSnapshot
     ): Boolean = requested.routeId == committed.routeId &&
-        requested.topologyRevision == committed.topologyRevision &&
         requested.revision > committed.revision &&
         requested.segments.size > committed.segments.size &&
         requested.segments.subList(0, committed.segments.size) == committed.segments

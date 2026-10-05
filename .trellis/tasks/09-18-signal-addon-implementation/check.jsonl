@@ -4,5 +4,11 @@
 {"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Verify direction consistency and replacement of low-speed fallback"}
 {"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"Review unnecessary new mechanisms"}
 {"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"No speculative compatibility paths"}
-{"file":".trellis/tasks/09-18-signal-addon-implementation/research/section-wands-batch.md","reason":"Agreed Wand acceptance scope"}
+{"file":".trellis/tasks/09-18-signal-addon-implementation/research/section-topology-revalidation-batch.md","reason":"Verify local transaction revalidation and safe asynchronous publication"}
 {"file":".trellis/spec/simple-signals/backend/section-authoring-wands.md","reason":"Verify actual tool gestures, local unavailable-state handling, geometry and lifecycle evidence"}
+{"file":".trellis/spec/javarailways/core/versioned-operational-topology.md","reason":"Transaction notification before root publication and precise rail impact"}
+{"file":".trellis/spec/javarailways/basic/railway-area-occupancy.md","reason":"Unavailable areas retain occupants while unrelated crossing continuity survives"}
+{"file":".trellis/spec/javarailways/basic/route-resource-admission.md","reason":"Current physical validation and affected-only route invalidation"}
+{"file":".trellis/spec/javarailways/simpleato/reactive-signal-epochs.md","reason":"Signal-source transaction handoff, bounded publication synchronization and local baselines"}
+{"file":".trellis/spec/javarailways/simpleato/operational-routing-and-authority.md","reason":"Frozen routes and restrictions must survive unrelated world edits"}
+{"file":".trellis/spec/simple-signals/backend/section-topology-revalidation.md","reason":"Local affected-object revalidation, asynchronous commit, retained invalid territory and repair"}

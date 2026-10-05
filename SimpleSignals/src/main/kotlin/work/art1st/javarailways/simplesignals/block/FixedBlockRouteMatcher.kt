@@ -48,7 +48,7 @@ internal object FixedBlockRouteMatcher {
         require(authorityEndRouteMeters <= route.totalLengthMeters) {
             "authorityEndRouteMeters exceeds the frozen route"
         }
-        require(route.topologyRevision == snapshot.topology.revision) { "fixed-block route topology is stale" }
+        snapshot.requireUsable(route, authorityEndRouteMeters)
         if (snapshot.blocksById.isEmpty()) {
             return FixedBlockAuthorityMatchResult.Matched(emptyList())
         }

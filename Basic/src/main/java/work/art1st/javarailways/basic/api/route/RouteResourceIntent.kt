@@ -125,7 +125,7 @@ class ResourcePreparationDescriptor(
  * @property owner logical grant owner and non-negative plan revision
  * @property trainId non-blank stable train identity from the named observation
  * @property observationStamp coherent world, physics-epoch, and topology observation identity
- * @property route immutable selected route bound to the observation's topology revision
+ * @property route immutable selected traversals, structurally validated against current topology at admission
  * @property desiredAuthority requested route-metre authority boundary
  */
 data class RouteResourceIntent(
@@ -141,9 +141,6 @@ data class RouteResourceIntent(
         require(NAMESPACED_ROUTE_INTENT_ID.matches(requestId)) { "requestId must be namespaced" }
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         require(route.segments.isNotEmpty()) { "route must contain at least one segment" }
-        require(observationStamp.topologyRevision == route.topologyRevision) {
-            "observationStamp and route must use the same topology revision"
-        }
         require(desiredAuthority.distanceFromRouteStartMeters <= route.totalLengthMeters) {
             "desiredAuthority exceeds the frozen route"
         }

@@ -34,7 +34,7 @@ Basic proves physical consistency; the signalling plugin decides signalling poli
 
 ### 3.1 不可删除的物理资源底线
 
-Basic projects the requested route prefix/suffix against the exact retained `TopologyState` root. In one route-order pass it derives:
+Basic projects the requested route prefix/suffix against one current `TopologyState` root. A frozen route uses persistent rail IDs, direction and AB positions; its captured world revision is provenance, not an expiry rule. Projection validates those actual rails and connections on the selected root, without reusing revision-local node/edge IDs from an older graph. In one route-order pass it derives:
 
 - one canonical AB rail interval for every traversed physical rail slice;
 - one stable, direction-independent resource for every traversed turnout;
@@ -68,7 +68,21 @@ contributor看到完整请求前缀，因此延长时可能再次返回车尾已
 该过滤只在显式准入申请时执行，复用当前持有map与既有cursor，不建立历史资源表、第二个队列或信号领域特判。
 已经过去的非法provider、重复项或越过请求终点的释放点仍拒绝，不能借“历史”绕过认证和boundary校验。
 
-当前Basic内部申请由`RouteResourceAdmissionEngine`拥有：读取一份当前observation和同revision的拓扑root。没有route state时，投影调用方冻结路线并编译`[0, desiredAuthority]`物理范围，先确认路线从权威车尾开始；已有route state时，核对申请身份与路线，只编译已提交authority至新boundary的suffix。普通停车点后的下一段任务可以把新traversal严格追加到已经完整授权的旧路线末端：旧segments必须逐项保持不变、route ID/topology/owner/train不变，并使用operating-route自身的更高revision；其他route变化仍拒绝。两种增长方式共用后续资源校验、占用查询、registry reservation、设备准备与结果流程。宿主构造world owner时绑定附加资源校验；请求本身不能替换该函数。registry mutation使用宿主持有的token，不使用发起申请的插件token；插件退出不能直接删除列车仍持有的资源。准备票据未READY时只返回同一pending handle，不扩大grant或切换route binding；READY时重新读取最新完整observation，要求拓扑仍为原root、物理车尾仍符合已提交前缀，且该观测中的申请范围没有其他列车。正常跨越physics epoch时，grant与释放控制器绑定通过复核的新stamp；复核失败时不能发布旧授权，也不能把已准备的设备擅自视为安全中止，而是保留claim并stall。资源handler明确报告安全中止时才撤销本次新增claim。附加资源提供者异常按`INVALID_CONTRIBUTION`拒绝。Bukkit现已把这个owner绑定为world-local、认证过调用方身份的`RouteResourceAdmissionService`；生产Dispatcher/SimpleATO caller迁移仍待后续批次。
+当前Basic内部申请由`RouteResourceAdmissionEngine`拥有：读取一份当前observation和与之相符的拓扑root。
+没有route state时，投影调用方冻结路线并编译`[0, desiredAuthority]`物理范围，先确认路线从权威车尾开始；
+已有route state时，核对申请身份、路线和局部有效性，只编译已提交authority至新boundary的suffix。
+普通停车点后的下一段任务可以把新traversal严格追加到已经完整授权的旧路线末端：旧segments必须逐项保持不变，
+route ID、owner和train不变，并使用operating-route自身的更高revision；其他route变化仍拒绝。
+两种增长方式共用后续资源校验、占用查询、registry reservation、设备准备与结果流程。
+
+宿主构造world owner时绑定附加资源校验；请求本身不能替换该函数。registry mutation使用宿主持有的token，
+不使用发起申请的插件token；插件退出不能直接删除列车仍持有的资源。
+准备票据未READY时只返回同一pending handle，不扩大grant或切换route binding；READY时重新读取最新完整observation，
+要求路线没有被相交事务标记失效、物理车尾仍符合已提交前缀，且该观测中的申请范围没有其他列车。
+无关编辑可以改变世界root，不要求因此重新准备设备。正常跨越physics epoch时，grant与释放控制器绑定通过复核的新stamp。
+复核失败时不能发布旧授权，也不能把已准备的设备擅自视为安全中止；claim继续保留，无法证明设备安全时stall。
+资源handler明确报告安全中止时才撤销本次新增claim。附加资源提供者异常按`INVALID_CONTRIBUTION`拒绝。
+Bukkit将此owner绑定为world-local、认证过调用方身份的`RouteResourceAdmissionService`，生产Dispatcher通过该服务申请。
 
 ### 3.3 申请、准备和释放
 
@@ -212,8 +226,9 @@ enum class RouteAdmissionFailureCode {
 `requestId` 是 namespaced caller correlation ID，没有 retry/persistence 语义。`owner` 是logical
 route/grant owner及其non-negative plan revision；Bukkit/service binding在字段外提供认证过的platform owner，
 因此修改value不能冒充另一个插件。`trainId`是exact observation内的nonblank Core stable ID。stamp world必须等于world-local
-service；physics epoch必须仍能解析到准入所用immutable observation；stamp topology revision必须等于
-`route.topologyRevision`。request不复制第二个expected-topology字段。
+service；physics epoch必须仍能解析到准入所用immutable observation。route记录创建时的拓扑版本，
+observation记录物理观测使用的拓扑版本，两者不必因无关线路编辑保持数值相等。真实路线依赖必须仍有效，
+且物理观测与准入所用当前图必须一致。request不复制第二个expected-topology字段。
 
 `RouteResourceIntent`不含resource identity、resource type、preparation descriptor或provider callback。
 SimpleATO只需理解冻结路线、列车身份和所需authority。`RouteBoundary`只在包含它的intent及其唯一`route`内解释，
@@ -375,13 +390,15 @@ claim；claim成功后才按确定顺序启动准备。
 ```text
 require service open and authenticated platform owner
 resolve exact retained observationStamp; resolve trainId in that observation
-require route topology == observation topology == current TopologyState root
+resolve a coherent current observation and TopologyState root
+require the existing route state has no intersecting topology invalidation
 validate route identity, segment values, connectivity, legal continuations and tail start
 validate desiredAuthority and every explicit tail-release boundary in route metres
 compile Basic physical floor + physical preparation/occupancy/release metadata once
 collect each authenticated route-resource contributor once
 validate unique contributions against world-local registrations and preparation kinds
 merge by exact identity; duplicate physical identities may only extend release
+reject if an intersecting topology transaction occurred during this validation
 query authoritative same-epoch occupancy geometry
 atomically claim the complete union
 start ordered physical/provider preparation; publish grant only after all READY
@@ -392,7 +409,8 @@ preparation只在claim之后开始，并遵循第6节的retained-claim failure�
 
 ## 5. 不变量、生命周期、线程与版本
 
-- Route, observation and route-bound resource catalog must refer to the same topology root/revision.
+- The current observation and physical catalog must be coherent with the root used for compilation. A frozen route's historical revision need not equal that root: validate its actual stable rail traversal and retain indexed invalidation for its lifetime.
+- Core transaction notifications invalidate only route states whose rail dependencies intersect the reported impact. An affected state keeps its claims and pauses release; it cannot extend authority or publish a pending grant. An unrelated edit does not restart preparation, discard the grant or reset the tail cursor. Initial validation also tracks intersecting edits until the existing route state takes ownership; it does not allocate a Core per-route token.
 - Delayed preparation may cross physics epochs. `READY` is not permission to publish the original observation's authority: recheck the current coherent frame and route-start/occupancy evidence, then bind the grant to that validated frame. If the safety evidence is lost after preparation, retain the claim and Stall rather than inventing a safe device abort. A Stall caused by another pending attempt also forbids later `READY` publication; retain those pending claims and notify the world Stall owner only on the first local failure.
 - The mandatory physical footprint is always present in the committed union, regardless of contributor results.
 - Validation/preparation failure never publishes a wider grant. Unsafe or unprovable device state retains the safest claim and stalls that world rather than releasing protection.
@@ -427,7 +445,7 @@ preparation只在claim之后开始，并遵循第6节的retained-claim failure�
 | authenticated owner and intent owner differ | `OWNER_MISMATCH` | none |
 | exact observation epoch no longer retained | `STALE_OBSERVATION` | none |
 | train absent from exact observation | `TRAIN_NOT_FOUND` | none |
-| observation/topology/catalog mismatch | `STALE_TOPOLOGY` | none |
+| incoherent observation/catalog, or an intersecting edit invalidated this route | `STALE_TOPOLOGY` | no new resources; existing claims retained |
 | disconnected or illegal frozen traversal | `INVALID_ROUTE` | none |
 | route-boundary identity/range invalid | `INVALID_BOUNDARY` | none |
 | mandatory physical resource cannot be resolved | `INVALID_INFRASTRUCTURE` | none |
@@ -452,13 +470,13 @@ There is no Basic `PROTECTION_REQUIRED`: missing protection-region coverage is a
 ### 6.1 同一 operating route 的后续请求
 
 Basic按logical owner ID找到当前route state。若不存在，`request`建立第一次申请；若存在，authenticated requester、
-logical owner、stable train ID、`routeId`和topology revision必须不变。通常`routeRevision`与ordered segments完全相同；
+logical owner、stable train ID与`routeId`必须不变，且本路线未被相关事务标记失效。通常`routeRevision`与ordered segments完全相同；
 普通停车点接续下一mission时，只有在committed boundary已经到达旧route length后，才接受更高operating-route revision，
 而且新segments必须以旧segments为逐项完全相同的前缀并至少追加一项。Basic重新投影完整候选路线以验证连接和方向，
 但物理资源、占用geometry和准备只编译旧committed boundary到新desired boundary的新增范围。它可以使用更新的successful
-physics epoch，但topology revision必须不变。新desired boundary必须严格晚于committed boundary且不超过候选route length。
+physics epoch，也允许无关编辑导致world topology revision增加。新desired boundary必须严格晚于committed boundary且不超过候选route length。
 新增contribution遵循相同校验；已经由该grant持有的identity只能单调延后release boundary，不能改变已committed
-preparation descriptor。一个route state同一时刻只允许一个pending request。route/topology/plan改变必须在
+preparation descriptor。一个route state同一时刻只允许一个pending request。修改路线既有内容、其实际依赖或计划必须在
 安全运营边界replan；折返只能使用显式的暂停释放与原地rebase，不能伪装成append或whole-claim replacement。
 
 Denied或pending后续请求保持旧committed grant/authority/route binding，旧tail release继续。只有delta原子reserve、全部delta
@@ -518,7 +536,8 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 - First pending request has one route cursor and no committed grant; safe abort after successful rollback removes the unused route state, allowing a fresh request from a fresh observation.
 - The same public `request(intent)` accepts a farther boundary on the identical frozen route or a strict forward continuation after the old route end, rejects a mismatched owner/train/modified prefix/disconnected append/reversal and a concurrent pending attempt, and keeps the same cursor and grant ID after successful growth.
 - Reversal suspension stops observation-driven release before the physical direction changes; a valid rebase keeps grant/claim identity, proves retained coverage of the complete reversed body and resumes from a new-tail cursor, while an uncovered resource or invalid route releases nothing.
-- Delayed `READY` on a newer safe epoch rebinds the grant stamp; changed topology root, missing/moved train tail or newly occupied route publishes no grant and retains the claim under Stall.
+- Delayed `READY` on a newer safe epoch rebinds the grant stamp; an unrelated topology transaction still permits completion, extension and tail release. A transaction that actually intersects the route, a missing/moved train tail or a newly occupied requested range publishes no grant and retains the claim under Stall.
+- A frozen route captured before an unrelated edit may make its first request after actual-current-topology validation; a now-missing rail or illegal connection is rejected. An intersecting edit during contributor execution cannot slip through the claim boundary.
 - Two pending attempts cannot publish a grant after either one has stalled the world; the second claim stays retained and the Stall callback fires once.
 - Tail release and same-route extension retain the existing cursor, release only a contiguous eligible prefix and never shorten plugin-specified holds.
 - Extension filters only non-held contributions whose release boundary has passed the accepted tail cursor; held resources remain protected, while malformed/duplicate/unauthorized historical contributions still reject without registry mutation.

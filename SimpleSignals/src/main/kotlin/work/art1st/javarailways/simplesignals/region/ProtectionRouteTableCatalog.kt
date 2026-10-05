@@ -75,6 +75,7 @@ internal class ProtectionRouteTableCatalog(
     /** Revalidated current geometry. Authored tables, including invalid old routes, remain in the world document. */
     fun usableDefinitions(): List<ProtectionRouteTableDefinition> = snapshot?.usableDefinitions.orEmpty()
     fun unavailableRegionIds(): Set<String> = snapshot?.unavailableRegionIds.orEmpty()
+    fun compiledRestrictions(): RoutePlanningRestrictions = checkNotNull(snapshot).restrictions
 
     val restrictionSource = RoutePlanningRestrictionSource { topology ->
         val captured = snapshot
@@ -82,19 +83,17 @@ internal class ProtectionRouteTableCatalog(
         check(regionCatalog.compilationSnapshot() === captured.regionSnapshot) {
             "protection-region publication changed after fixed route tables were compiled"
         }
-        check(topology.revision == captured.regionSnapshot.topology.revision) {
-            "fixed route tables target topology revision " +
-                "${captured.regionSnapshot.topology.revision}, not ${topology.revision}"
-        }
-        check(topology === captured.regionSnapshot.topology) {
-            "fixed route tables target a different topology root with revision ${topology.revision}"
-        }
-        captured.restrictions
+        val restrictions = captured.restrictions
+        if (topology.revision == restrictions.topologyRevision) restrictions else
+            RoutePlanningRestrictions(topology.revision, restrictions.forbiddenTraversals, restrictions.pathReplacements)
     }
 
     fun publish(
         definitionRevision: Long,
-        definitions: Collection<ProtectionRouteTableDefinition>
+        definitions: Collection<ProtectionRouteTableDefinition>,
+        previous: ProtectionRouteTableCatalog? = null,
+        affectedRegionIds: Set<String> = emptySet(),
+        revalidateRoutes: Boolean = false
     ): ProtectionRouteTableCatalogResult = synchronized(lock) {
         require(definitionRevision >= 0L) { "definitionRevision must be non-negative" }
         val copiedDefinitions = java.util.List.copyOf(
@@ -164,8 +163,10 @@ internal class ProtectionRouteTableCatalog(
             )
         val replacements = ArrayList<PathReplacement>(copiedDefinitions.size)
         val usable = arrayListOf<ProtectionRouteTableDefinition>()
+        val compiledTables = linkedMapOf<String, Compilation.Compiled>()
         val unavailable = regionSnapshot.regionsById.values.filter { it.definition.boundaryDraft != null }
             .mapTo(linkedSetOf()) { it.definition.regionId }
+        unavailable.addAll(regionSnapshot.unavailableRegionIds)
         val routeIds = copiedDefinitions.flatMap { it.routes }.map { it.routeId }
         if (routeIds.distinct().size != routeIds.size) return@synchronized rejected(
             ProtectionRouteTableValidationCode.DUPLICATE_ROUTE_ID, "protection route IDs must be unique")
@@ -173,8 +174,12 @@ internal class ProtectionRouteTableCatalog(
             if (definition.defaultRouteIds.any { id -> definition.routes.none { it.routeId == id } })
                 return@synchronized rejected(ProtectionRouteTableValidationCode.UNKNOWN_BOUNDARY,
                     "table ${definition.tableId} references an unknown default route")
-            when (val compiled = compile(definition, regionSnapshot)) {
+            val retained = previous?.snapshot?.takeIf { old ->
+                definition.regionId !in affectedRegionIds && definition in old.definitions
+            }?.compiledTables?.get(definition.tableId)
+            when (val compiled = retained ?: compile(definition, regionSnapshot, revalidateRoutes)) {
                 is Compilation.Compiled -> {
+                    compiledTables[definition.tableId] = compiled
                     compiled.replacement?.let(replacements::add)
                     compiled.usable?.let(usable::add) ?: unavailable.add(definition.regionId)
                 }
@@ -191,6 +196,7 @@ internal class ProtectionRouteTableCatalog(
             definitions = copiedDefinitions,
             usableDefinitions = java.util.List.copyOf(usable),
             unavailableRegionIds = java.util.Set.copyOf(unavailable),
+            compiledTables = java.util.Map.copyOf(compiledTables),
             restrictions = RoutePlanningRestrictions(
                 topologyRevision = regionSnapshot.topology.revision,
                 forbiddenTraversals = unavailable.flatMap { id -> regionSnapshot.regionsById.getValue(id).interior.flatMap { slice ->
@@ -210,7 +216,8 @@ internal class ProtectionRouteTableCatalog(
 
     private fun compile(
         table: ProtectionRouteTableDefinition,
-        snapshot: ProtectionRegionCompilationSnapshot
+        snapshot: ProtectionRegionCompilationSnapshot,
+        revalidateRoutes: Boolean = false
     ): Compilation {
         val region = snapshot.regionsById[table.regionId]
             ?: return rejectedCompilation(
@@ -226,7 +233,8 @@ internal class ProtectionRouteTableCatalog(
                 table
             )
         }
-        if (region.definition.boundaryDraft != null) return Compilation.Compiled(null, null)
+        if (region.definition.boundaryDraft != null || table.regionId in snapshot.unavailableRegionIds)
+            return Compilation.Compiled(null, null)
         duplicate(table.routes, ProtectionRouteDefinition::routeId)?.let { routeId ->
             return rejectedCompilation(
                 ProtectionRouteTableValidationCode.DUPLICATE_ROUTE_ID,
@@ -252,7 +260,7 @@ internal class ProtectionRouteTableCatalog(
                 )
             ) {
                 is RouteCompilation.Compiled -> { paths += compiled.path; validRoutes += route }
-                is RouteCompilation.Rejected -> if (table.regionRevision == region.definition.revision)
+                is RouteCompilation.Rejected -> if (!revalidateRoutes && table.regionRevision == region.definition.revision)
                     return Compilation.Rejected(compiled.diagnostic)
             }
         }
@@ -474,6 +482,7 @@ internal class ProtectionRouteTableCatalog(
         val definitions: List<ProtectionRouteTableDefinition>,
         val usableDefinitions: List<ProtectionRouteTableDefinition>,
         val unavailableRegionIds: Set<String>,
+        val compiledTables: Map<String, Compilation.Compiled>,
         val restrictions: RoutePlanningRestrictions
     ) {
         fun equivalentTo(other: Snapshot): Boolean =

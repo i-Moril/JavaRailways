@@ -3193,9 +3193,58 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
     private fun store() = SimpleSignalsWorldDefinitionStore(directory.toFile())
 
+    @Test
+    fun `topology callback never waits for source publication and older worker cannot override related repair`() {
+        val fixture = Fixture()
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val definitions = store()
+        val block = FixedBlockDefinition("test:local", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 3.0)), true)
+        definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            emptyList(), emptyList(), listOf(block)))
+        val sources = CapturingSignalEpochSourceService()
+        val queue = java.util.ArrayDeque<() -> Unit>()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            sources, topologyWorker = { queue += it })
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val runtime = manager.authoringRuntime(fixture.worldId)!!
+        val before = runtime.authoringPublication()
+        infrastructure.commitTopology(fixture.topology(42), setOf(fixture.entry))
+        assertEquals(1, queue.size)
+        assertTrue(runtime.topologyGuard.sectionUnavailable(TopologySectionKind.BLOCK, block.blockId))
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        sources.beforeCommitAction = {
+            sources.beforeCommitAction = {}
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS))
+        }
+        val work = queue.removeFirst()
+        val worker = CompletableFuture.runAsync { work() }
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            CompletableFuture.runAsync { infrastructure.commitTopology(fixture.topology(43), setOf(fixture.entry)) }
+                .get(1, TimeUnit.SECONDS)
+            assertSame(before, runtime.authoringPublication())
+        } finally { release.countDown() }
+        worker.get(5, TimeUnit.SECONDS)
+        assertEquals(43, runtime.authoringPublication().topology.revision)
+        assertFalse(runtime.topologyGuard.sectionUnavailable(TopologySectionKind.BLOCK, block.blockId))
+        assertEquals(2, sources.atomicCommitCount, "initial install plus one final local publication")
+        manager.remove(fixture.worldId)
+        assertTrue(infrastructure.listeners.isEmpty())
+    }
+
     private class MutableTopologyService(initial: TopologyState?, private val registry: InfrastructureCoordinationRegistry? = null) {
         private val registryOwner = Any()
+        val listeners = java.util.concurrent.CopyOnWriteArrayList<work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener>()
+        @Volatile
         var topology: TopologyState? = initial
+        fun commitTopology(next: TopologyState, rails: Set<UUID>) {
+            val change = work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange(checkNotNull(topology), next, rails)
+            listeners.forEach { it.onTopologyChange(change) }
+            topology = next
+        }
         var nextEditDecision = TopologyEditDecision(TopologyEditStatus.GRANTED)
         var afterPermitGranted: () -> Unit = {}
         var permitAcquisitionCount = 0
@@ -3206,6 +3255,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
             private set
         val service: InfrastructureResourceService = proxy(InfrastructureResourceService::class.java) { method, arguments ->
             when (method.name) {
+                "observeTopologyChanges" -> {
+                    val listener = arguments!![2] as work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener
+                    listeners += listener
+                    AutoCloseable { listeners -= listener }
+                }
                 "currentTopology" -> topology
                     ?: throw IllegalStateException("Railway world is not registered: ${arguments?.single()}")
                 "operatingDirections" -> {
@@ -3408,7 +3462,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
             railTargets: RailTargetService = fixtureRailTargets(),
             modelPresentation: ModelPresentationService = fixtureModelService(),
             modelWorker: (() -> Unit) -> Unit = { it() },
-            modelFailure: (String, Throwable) -> Unit = { _, _ -> }
+            modelFailure: (String, Throwable) -> Unit = { _, _ -> },
+            topologyWorker: (() -> Unit) -> Unit = { CompletableFuture.runAsync(it) }
         ) = SimpleSignalsWorldRuntimeManager(
             plugin,
             infrastructure,
@@ -3419,7 +3474,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
             railTargets,
             modelPresentation,
             modelWorker,
-            modelFailure
+            modelFailure,
+            topologyWorker = topologyWorker
         ).also {
             SharedConstants.tryDetectVersion()
             Bootstrap.bootStrap()

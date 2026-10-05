@@ -201,15 +201,15 @@ class TopologyRouteProjectorTest {
     }
 
     @Test
-    fun `stale missing and out of range rails are rejected`() {
+    fun `revision provenance does not replace current structural rail validation`() {
         val rail = rail(1)
         val topology = lineTopologyState(revision, rail)
         val staleRoute = route(
             segment(rail, ViewDirection.AB),
-            topologyRevision = revision + 1L
+            topologyRevision = revision - 1L
         )
-        val stale = assertInstanceOf(
-            TopologyRouteProjectionResult.Rejected::class.java,
+        assertInstanceOf(
+            TopologyRouteProjectionResult.Projected::class.java,
             TopologyRouteProjector.project(staleRoute, topology)
         )
         val missing = reject(
@@ -221,7 +221,6 @@ class TopologyRouteProjectorTest {
             topology
         )
 
-        assertEquals(TopologyRouteProjectionRejection.STALE_TOPOLOGY, stale.reason)
         assertTrue(missing.detail.contains("missing rail"))
         assertTrue(outOfRange.detail.contains("exceeds rail"))
     }

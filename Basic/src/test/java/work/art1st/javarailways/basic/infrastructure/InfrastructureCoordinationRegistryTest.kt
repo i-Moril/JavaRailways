@@ -22,8 +22,38 @@ import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class InfrastructureCoordinationRegistryTest {
+    @Test
+    fun `edit permit cannot enter between dependency validation and installation`() {
+        val validating = CountDownLatch(1)
+        val releaseValidation = CountDownLatch(1)
+        val editStarted = CountDownLatch(1)
+        val tested = InfrastructureCoordinationRegistry(
+            currentTopologyRevision = { 4L }, resourceExists = { true },
+            railExists = {
+                validating.countDown()
+                check(releaseValidation.await(5, TimeUnit.SECONDS))
+                true
+            }, topologyNodeExists = { true })
+        val declaration = CompletableFuture.supplyAsync {
+            tested.setInfrastructureDependencies(Any(), dependencies(owner("test:plan", 1)))
+        }
+        check(validating.await(5, TimeUnit.SECONDS))
+        val edit = CompletableFuture.supplyAsync {
+            editStarted.countDown()
+            tested.acquireEditPermit(Any(), TopologyEditRequest(4L, owner("test:editor", 1), editImpact()))
+        }
+        check(editStarted.await(5, TimeUnit.SECONDS))
+        assertFalse(edit.isDone)
+        releaseValidation.countDown()
+        assertEquals(InfrastructureDependencyMutationStatus.APPLIED, declaration.get(5, TimeUnit.SECONDS).status)
+        assertEquals(TopologyEditStatus.CONFLICT, edit.get(5, TimeUnit.SECONDS).decision.status)
+    }
+
     private val railId = UUID.randomUUID()
     private var topologyRevision = 4L
     private val validRails = mutableSetOf(railId)
@@ -157,13 +187,16 @@ class InfrastructureCoordinationRegistryTest {
 
     @Test
     fun `dependencies validate the three categories only when applied`() {
+        val platform = Any()
+        val owner = owner("test:older-root", 1)
         assertEquals(
-            InfrastructureDependencyMutationStatus.STALE_TOPOLOGY,
+            InfrastructureDependencyMutationStatus.APPLIED,
             registry.setInfrastructureDependencies(
-                Any(),
-                dependencies(owner("test:stale", 1), topologyRevision = 3L)
+                platform,
+                dependencies(owner, topologyRevision = 3L)
             ).status
         )
+        registry.removeInfrastructureDependencies(platform, owner)
         validNodes.clear()
         assertEquals(
             InfrastructureDependencyMutationStatus.INVALID_REFERENCE,
@@ -173,7 +206,7 @@ class InfrastructureCoordinationRegistryTest {
     }
 
     @Test
-    fun `topology change during dependency validation rejects before commit`() {
+    fun `unrelated topology revision change during dependency validation does not expire stable references`() {
         var revision = 4L
         val changingRegistry = InfrastructureCoordinationRegistry(
             currentTopologyRevision = { revision },
@@ -190,8 +223,8 @@ class InfrastructureCoordinationRegistryTest {
             dependencies(owner("test:plan", 1))
         )
 
-        assertEquals(InfrastructureDependencyMutationStatus.STALE_TOPOLOGY, result.status)
-        assertTrue(changingRegistry.dependencySnapshots().isEmpty())
+        assertEquals(InfrastructureDependencyMutationStatus.APPLIED, result.status)
+        assertEquals(1, changingRegistry.dependencySnapshots().size)
     }
 
     @Test

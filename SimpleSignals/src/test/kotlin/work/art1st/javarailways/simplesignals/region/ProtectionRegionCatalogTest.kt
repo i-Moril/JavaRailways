@@ -196,7 +196,7 @@ class ProtectionRegionCatalogTest {
     }
 
     @Test
-    fun `route selected against another topology revision is rejected`() {
+    fun `route of another topology revision still validates its physical region window`() {
         val catalog = ProtectionRegionCatalog()
         catalog.publish(topology, 3L, listOf(throatRegion()))
 
@@ -207,12 +207,17 @@ class ProtectionRegionCatalogTest {
                     "test:route/stale",
                     1L,
                     topology.revision + 1L,
-                    listOf(segment(west, ViewDirection.AB, 5.0, 10.0))
+                    listOf(segment(west, ViewDirection.AB, 5.0, 11.0))
                 )
             )
         )
 
-        assertEquals(ProtectionRegionValidationCode.STALE_TOPOLOGY, rejected.diagnostics.single().code)
+        assertEquals(ProtectionRegionValidationCode.INVALID_ROUTE, rejected.diagnostics.single().code)
+        val matched = assertInstanceOf(ProtectionRegionRouteMatchResult.Matched::class.java,
+            catalog.match(RouteSnapshot("test:route/unchanged", 1L, topology.revision + 1L,
+                listOf(segment(west, ViewDirection.AB, 5.0, 10.0), segment(middle, ViewDirection.AB, 0.0, 10.0),
+                    segment(east, ViewDirection.AB, 0.0, 5.0)))))
+        assertEquals(throatRegion().regionId, matched.windows.single().regionId)
     }
 
     @Test

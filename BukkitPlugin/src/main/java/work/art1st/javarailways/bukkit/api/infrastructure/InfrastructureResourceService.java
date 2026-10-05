@@ -12,6 +12,7 @@ import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest;
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot;
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService;
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState;
+import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener;
 
 import java.util.Collection;
 import java.util.List;
@@ -20,8 +21,8 @@ import java.util.UUID;
 /**
  * World-local coordination for non-exclusive edit dependencies, exclusive live claims, and edits.
  *
- * <p>Every mutation is atomic and checks the request's topology revision against the authoritative
- * current world revision. Infrastructure dependencies may overlap each other and never reserve a
+ * <p>Every mutation is atomic and validates current referenced infrastructure. Edit commits retain
+ * exact captured topology checks to prevent lost changes. Dependencies may overlap and never reserve a
  * runtime resource. Live claims are mutually exclusive. An edit permit conflicts with both and remains
  * held until closed. Mutation methods may be called from plugin lifecycle or simulation code and
  * are serialized with JavaRailways topology changes. The protected infrastructure mutation itself
@@ -36,14 +37,23 @@ public interface InfrastructureResourceService {
      * Returns the exact immutable topology root currently published by one railway world.
      *
      * <p>The returned value is safe to retain and read without access to a mutable Core world. A
-     * later structural edit may publish a different root, so callers must keep the object identity
-     * with any derived indexes and explicitly rebuild them before using the newer root. World
+     * later structural edit may publish a different root. Transaction listeners invalidate only
+     * derived indexes that depend on its affected rails; unaffected indexes remain usable. World
      * unload invalidates only future lookups; it does not mutate a root already returned.</p>
      *
      * @throws IllegalStateException if this service is closed or the requested railway world is
      *                               not currently registered
      */
     TopologyState currentTopology(UUID worldId);
+
+    /**
+     * Observes successful structural transactions before the new root becomes visible. The callback
+     * may only invalidate indexed dependencies and hand off immutable state; graph compilation and
+     * I/O belong on a worker. Exceptions fault the edited world. Closing the registration, unloading
+     * this exact world runtime, or disabling its owner removes the listener; reloading the UUID
+     * never revives it. Register before capturing the root used to compile dependent state.
+     */
+    AutoCloseable observeTopologyChanges(Plugin pluginOwner, UUID worldId, RailTopologyChangeListener listener);
 
     /**
      * Captures one immutable Basic operating-direction subset for the requested rails in one store read.

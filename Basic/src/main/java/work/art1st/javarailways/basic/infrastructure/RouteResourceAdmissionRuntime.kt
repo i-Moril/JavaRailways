@@ -29,7 +29,8 @@ class RouteResourceAdmissionRuntime private constructor(
     private val currentTopology: () -> TopologyState,
     private val routeBoundResources: RouteBoundResourceCatalog,
     private val engine: RouteResourceAdmissionEngine,
-    initialTopology: TopologyState
+    initialTopology: TopologyState,
+    private val topologyRegistration: AutoCloseable
 ) : AutoCloseable {
     private var catalogTopology = initialTopology
     private var physicalResources: Set<StableInfrastructureResource> = emptySet()
@@ -70,8 +71,11 @@ class RouteResourceAdmissionRuntime private constructor(
     fun rebaseAfterReversal(
         requester: Any,
         intent: RouteResourceIntent
-    ): RouteGrantReversalResult =
-        if (closed) reversalUnavailable() else engine.rebaseAfterReversal(requester, intent)
+    ): RouteGrantReversalResult {
+        if (closed) return reversalUnavailable()
+        refreshPhysicalResources()
+        return engine.rebaseAfterReversal(requester, intent)
+    }
 
     /** Advances every committed route from one already-published coherent world observation. */
     @MainThread
@@ -137,6 +141,7 @@ class RouteResourceAdmissionRuntime private constructor(
     @MainThread
     override fun close() {
         closed = true
+        topologyRegistration.close()
     }
 
     private fun refreshPhysicalResources() {
@@ -198,7 +203,13 @@ class RouteResourceAdmissionRuntime private constructor(
                 stallWorld = stallWorld,
                 publishAdmissionUpdate = publishAdmissionUpdate
             )
-            return RouteResourceAdmissionRuntime({ world.topologyState }, catalog, engine, topology)
+            val registration = world.registerTopologyChangeListener { change -> engine.invalidateTopology(change) }
+            return try {
+                RouteResourceAdmissionRuntime({ world.topologyState }, catalog, engine, topology, registration)
+            } catch (failure: Exception) {
+                registration.close()
+                throw failure
+            }
         }
     }
 }

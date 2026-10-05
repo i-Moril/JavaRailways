@@ -97,12 +97,6 @@ internal object TopologyRouteProjector {
         route: RouteSnapshot,
         topology: TopologyState
     ): TopologyRouteProjectionResult {
-        if (topology.revision != route.topologyRevision) {
-            return rejected(
-                TopologyRouteProjectionRejection.STALE_TOPOLOGY,
-                "route expects topology revision ${route.topologyRevision}, found ${topology.revision}"
-            )
-        }
         if (route.segments.isEmpty()) {
             return invalid("route ${route.routeId} has no segments")
         }

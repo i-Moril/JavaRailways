@@ -95,7 +95,7 @@ class TrainRestrictionConstraintAdapterTest {
         assertEquals(TrainRestrictionPublicationStatus.STALE_REVISION, stale.status)
         assertEquals(2L, stale.acceptedRevision)
 
-        adapter.apply(stamp.copy(physicsEpoch = 11L), routeBinding, 0.0)
+        adapter.apply(stamp.copy(physicsEpoch = 11L, topologyRevision = stamp.topologyRevision + 1L), routeBinding, 0.0)
         assertEquals(5.0, permittedSpeed())
     }
 

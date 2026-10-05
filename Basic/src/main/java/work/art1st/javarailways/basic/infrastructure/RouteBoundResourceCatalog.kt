@@ -94,9 +94,9 @@ internal class RouteBoundResourceCatalog(
             "route-bound resource catalog has not published a complete snapshot"
         )
         val currentTopology = topologyState()
-        if (snapshot.topology !== route.topology || currentTopology !== route.topology) {
+        if (snapshot.topology !== currentTopology) {
             return RouteBoundResourceQuery.StaleTopology(
-                "route, catalog, and current topology must retain the same topology root"
+                "physical resource catalog has not followed the current topology"
             )
         }
 

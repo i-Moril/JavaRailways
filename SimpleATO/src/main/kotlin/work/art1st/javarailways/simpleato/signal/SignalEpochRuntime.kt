@@ -10,6 +10,7 @@ import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
@@ -32,6 +33,22 @@ class SignalEpochRuntime(
 ) : RailwayEpochProcessor {
     @Volatile
     private var state = SourceState.create(emptyList())
+    private val topologyHandoffLock = Any()
+    private class SourcePreparation {
+        var candidate: SourceState? = null
+        val changesDuringCompilation = arrayListOf<RailTopologyChange>()
+    }
+    private var preparingSources: SourcePreparation? = null
+
+    /** Bounded transaction handoff. Area geometry is only recompiled by source replacement. */
+    fun invalidateTopology(change: RailTopologyChange) = synchronized(topologyHandoffLock) {
+        state.invalidateTopology(change)
+        preparingSources?.let { preparation ->
+            val candidate = preparation.candidate
+            if (candidate == null) preparation.changesDuringCompilation += change
+            else candidate.invalidateTopology(change)
+        }
+    }
 
     // Only detached values cross from simulation admission to the physics epoch. Repeated changes
     // before the next epoch replace one owner entry; an idle epoch takes no snapshot of all owners.
@@ -96,9 +113,26 @@ class SignalEpochRuntime(
         sources: Collection<SignalEpochSource>,
         commitAction: () -> Unit
     ) {
-        val candidate = SourceState.create(sources, state.occupancyEngine)
-        commitAction()
-        state = candidate
+        val preparation = SourcePreparation()
+        val previous = synchronized(topologyHandoffLock) {
+            check(preparingSources == null) { "signal source replacements must be serialized" }
+            preparingSources = preparation
+            state
+        }
+        try {
+            val candidate = SourceState.create(sources, previous.occupancyEngine)
+            synchronized(topologyHandoffLock) {
+                // Retain events only for this finite compile, then deliver directly to both states.
+                // The caller's potentially paused commit never retains transaction/root history.
+                preparation.changesDuringCompilation.forEach(candidate::invalidateTopology)
+                preparation.changesDuringCompilation.clear()
+                preparation.candidate = candidate
+            }
+            commitAction()
+            synchronized(topologyHandoffLock) { state = candidate }
+        } finally {
+            synchronized(topologyHandoffLock) { preparingSources = null }
+        }
     }
 
     override fun process(frame: RailwayWorldFrameSnapshot) {
@@ -113,7 +147,8 @@ class SignalEpochRuntime(
         val observation = RailwayObservation.fromCore(worldId, frame)
         val validated = ArrayList<TrainRestrictionSnapshot>()
         val invalidations = linkedMapOf<String, Set<String>>()
-        val topologyBaseline = current.previousTopologyRevision != observation.stamp.topologyRevision
+        val topologySources = current.takeTopologyChanges(observation.stamp.topologyRevision)
+        val initialBaseline = current.previousTopologyRevision == null
         val admissionUpdatesBySource = current.consumeAdmissionUpdates(
             takeAdmissionUpdates(current.previousTopologyRevision == null), liveTrainIds
         )
@@ -128,6 +163,7 @@ class SignalEpochRuntime(
         )
         val directionChangesBySource = current.directionChangesBySource(takeOperatingDirectionChanges())
         current.sources.forEach { source ->
+            val topologyBaseline = initialBaseline || source.sourceId in topologySources
             val updates = updatesBySource[source.sourceId].orEmpty()
             val continuationUpdates = continuationUpdatesBySource[source.sourceId].orEmpty()
             val admissionUpdates = admissionUpdatesBySource[source.sourceId].orEmpty()
@@ -187,6 +223,31 @@ class SignalEpochRuntime(
         private val ownersByDirectionRail: Map<java.util.UUID, Set<String>>
     ) {
         var previousTopologyRevision: Long? = null
+        private var notifiedTopologyRevision: Long? = null
+        private val topologyLock = Any()
+        private val changedTopologySources = linkedSetOf<String>()
+
+        fun invalidateTopology(change: RailTopologyChange) = synchronized(topologyLock) {
+            occupancyEngine.invalidateTopology(change).forEach { area ->
+                ownerByArea[area]?.let(changedTopologySources::add)
+            }
+            change.affectedRailIds.forEach { rail ->
+                changedTopologySources.addAll(ownersByAdmissionRail[rail].orEmpty())
+                changedTopologySources.addAll(ownersByDirectionRail[rail].orEmpty())
+                changedTopologySources.addAll(ownersByTopologyRail[rail].orEmpty())
+            }
+            notifiedTopologyRevision = change.current.revision
+        }
+
+        fun takeTopologyChanges(revision: Long): Set<String> = synchronized(topologyLock) {
+            check(previousTopologyRevision == null || previousTopologyRevision == revision ||
+                notifiedTopologyRevision == revision) { "topology changed without a transaction handoff" }
+            java.util.Set.copyOf(changedTopologySources).also { changedTopologySources.clear() }
+        }
+
+        private val ownersByTopologyRail: Map<java.util.UUID, Set<String>> =
+            ownersByContinuationEntry.entries.groupBy { it.key.railId }
+                .mapValues { (_, entries) -> entries.flatMapTo(linkedSetOf()) { it.value } }
         private var previousContinuations: ActiveRailContinuationsSnapshot? = null
         private data class AdmissionInterest(
             val update: ActiveRouteAdmissionUpdate,
@@ -271,10 +332,7 @@ class SignalEpochRuntime(
             val updatesBySource = linkedMapOf<String, MutableList<SignalRailContinuationUpdate>>()
             ownersByContinuationEntry.forEach { (entry, owners) ->
                 val selectedExit = current.selectedContinuation(entry)
-                if (previous != null &&
-                    previous.topologyRevision == current.topologyRevision &&
-                    previous.selectedContinuation(entry) == selectedExit
-                ) {
+                if (previous != null && previous.selectedContinuation(entry) == selectedExit) {
                     return@forEach
                 }
                 val update = SignalRailContinuationUpdate(entry, selectedExit)

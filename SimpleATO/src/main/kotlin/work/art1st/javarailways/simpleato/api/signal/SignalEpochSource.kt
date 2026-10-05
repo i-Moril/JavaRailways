@@ -49,7 +49,7 @@ data class SignalEpochInput private constructor(
     val areaUpdates: List<RailwayAreaOccupancyUpdate>,
     val continuationUpdates: List<SignalRailContinuationUpdate>,
     val admissionUpdates: List<ActiveRouteAdmissionUpdate>,
-    /** True on a new source baseline or a changed physical topology, even with no watched updates. */
+    /** True on installation or a transaction touching this source's indexed physical interests. */
     val topologyBaseline: Boolean,
     /** Actual policy changes, scoped to this source's rail interests; baseline readers take a full subset. */
     val changedOperatingDirectionRailIds: Set<UUID>

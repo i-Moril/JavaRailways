@@ -176,6 +176,8 @@ internal class SimpleSignalsRuntimePublication(
     previous: SimpleSignalsRuntimePublication? = null,
     val directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy()
 ) {
+    internal var topologyIndex: SectionTopologyIndex? = null
+    internal var topologyGuard: SectionTopologyGuard? = null
     val unavailableTerritory = work.art1st.javarailways.simplesignals.region.UnavailableProtectionTerritory(
         checkNotNull(regions.compilationSnapshot()), routeTables.unavailableRegionIds())
     val routeBindingCompiler = work.art1st.javarailways.simplesignals.signal.ProtectionRouteBindingCompiler(this)
@@ -184,8 +186,8 @@ internal class SimpleSignalsRuntimePublication(
     private val regionsById = definitions.regions.associateBy { it.regionId }
     val clearanceRoutesById: Map<String, CompiledProtectionRoute> =
         routeSelection.routesById.mapValues { (id, route) ->
-            if (previous != null && topology === previous.topology &&
-                route == previous.routeSelection.routesById[id] &&
+            if (previous != null && (route === previous.routeSelection.routesById[id] ||
+                    topology === previous.topology && route == previous.routeSelection.routesById[id]) &&
                 regionsById[route.regionId] == previous.regionsById[route.regionId]
             ) previous.clearanceRoutesById.getValue(id) else route
         }
@@ -200,7 +202,8 @@ internal class SimpleSignalsRuntimePublication(
  */
 internal class SimpleSignalsWorldRuntime(
     val worldId: UUID,
-    private val directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy()
+    private val directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(),
+    private val protectionRegionMaxDistanceMeters: Double = 1000.0
 ) {
     private data class RuntimeState(
         val publication: SimpleSignalsRuntimePublication?,
@@ -209,6 +212,9 @@ internal class SimpleSignalsWorldRuntime(
     )
 
     private val lock = Any()
+    internal val topologyGuard = SectionTopologyGuard()
+    internal var topologySubscription: AutoCloseable? = null
+    internal val topologyWorkerScheduled = java.util.concurrent.atomic.AtomicBoolean()
     private val sectionEpochContinuity = SectionOccupancyRuntime.EpochContinuity()
     private val modelLifecycleLock = Any()
     internal val modelHandles = SignalModelHandles()
@@ -223,6 +229,7 @@ internal class SimpleSignalsWorldRuntime(
 
     fun retire() {
         closed = true
+        topologySubscription?.close()
         modelHandles.retire()
     }
 
@@ -257,7 +264,8 @@ internal class SimpleSignalsWorldRuntime(
         RoutePlanningRestrictionSource { topology ->
             val captured = state.publication
                 ?: error("SimpleSignals definitions have not been published for world $worldId")
-            captured.routeTables.restrictionSource.restrictions(topology)
+            check(topology === topologyGuard.currentTopology()) { "route query did not capture the current topology" }
+            topologyGuard.restrictions(captured.routeTables.compiledRestrictions())
         }
     )
 
@@ -337,6 +345,7 @@ internal class SimpleSignalsWorldRuntime(
     }
 
     fun sectionOccupancySnapshot(): SectionOccupancySnapshot? = state.sectionOccupancy?.snapshot()
+    internal fun currentSectionOccupancy(): SectionOccupancyRuntime? = state.sectionOccupancy
 
     fun sectionSignalSnapshot(): SectionSignalSnapshot? = state.sectionOccupancy?.signalSnapshot()
 
@@ -347,8 +356,7 @@ internal class SimpleSignalsWorldRuntime(
     private fun protectionDeviceSignal(id: String): PublishedSectionSignal? {
         val captured = state
         val signalId = captured.publication?.protectionSignals?.signalIdsByDeclaration?.get(id) ?: return null
-        val signals = captured.sectionOccupancy?.signalSnapshot() ?: return null
-        return signals.states[signalId]?.let { PublishedSectionSignal(signals.stamp, it) }
+        return captured.sectionOccupancy?.signalById(signalId)
     }
 
     private fun protectionDeviceDeclarations(blockSnapshot: FixedBlockReadSnapshot,
@@ -461,17 +469,34 @@ internal class SimpleSignalsWorldRuntime(
             return@synchronized SimpleSignalsDefinitionPreparationResult.Unchanged
         }
 
-        val candidateRegions = ProtectionRegionCatalog()
+        var candidateRegions = ProtectionRegionCatalog()
+        val retainedRegions = current?.regions?.compilationSnapshot()?.let { old ->
+            old.regionsById.filter { (id, region) -> id in old.unavailableRegionIds && region.definition in copiedRegions }
+        }.orEmpty()
+        val oldBlocks = current?.fixedBlocks?.snapshot(current.topology)
+        val retainedBlocks = oldBlocks?.blocksById?.filter { (id, block) ->
+            id in oldBlocks.unavailableBlockIds && block.definition in copiedBlocks
+        }.orEmpty()
         val index = topologyIndex?.takeIf { it.topologyState === topology }
             ?: if (copiedRegions.isEmpty() && copiedBlocks.isEmpty()) {
                 work.art1st.javarailways.simplesignals.region.ProtectionRegionTopology.empty(topology)
             } else {
-                work.art1st.javarailways.simplesignals.region.ProtectionRegionTopology.derive(topology)
+                work.art1st.javarailways.simplesignals.region.ProtectionRegionTopology.direct(topology)
                     .also { topologyIndex = it }
             }
-        val placedBoundaries = copiedRegions.flatMap { it.effectiveBoundaries } + copiedDefinitions.pendingProtectionBoundaries
+        val placedBoundaries = copiedRegions.filter { it.regionId !in retainedRegions }.flatMap { it.effectiveBoundaries } + copiedDefinitions.pendingProtectionBoundaries
         if (placedBoundaries.map { it.boundaryId }.distinct().size != placedBoundaries.size) {
             return@synchronized preparationRejected("placed protection boundary IDs must be unique")
+        }
+        for (region in copiedRegions.filter { it.regionId !in retainedRegions && it.boundaryDraft == null }) {
+            val search = try {
+                work.art1st.javarailways.simplesignals.authoring.ProtectionBoundarySearch.search(topology,
+                    region.boundaries.first(), region.boundaries, protectionRegionMaxDistanceMeters)
+            } catch (failure: IllegalArgumentException) {
+                return@synchronized preparationRejected(failure.message ?: "protection boundaries are invalid")
+            }
+            if (!search.complete || search.boundaries.map { it.boundaryId }.toSet() != region.boundaries.map { it.boundaryId }.toSet())
+                return@synchronized preparationRejected("region ${region.regionId}: ${search.detail}")
         }
         for (boundary in placedBoundaries) {
             val rail = topology.railProjection[boundary.position.railId]?.singleOrNull()
@@ -484,14 +509,21 @@ internal class SimpleSignalsWorldRuntime(
         val regionResult = candidateRegions.publish(
             topology,
             definitions.definitionRevision,
-            copiedRegions,
+            copiedRegions.filter { it.regionId !in retainedRegions },
             index
         )
         if (regionResult.status == ProtectionRegionCatalogStatus.REJECTED) {
             return@synchronized preparationRejected(regionResult.diagnostics.map { it.detail })
         }
+        if (retainedRegions.isNotEmpty()) candidateRegions = ProtectionRegionCatalog.fromCompiled(topology,
+            definitions.definitionRevision, checkNotNull(candidateRegions.compilationSnapshot()).regionsById.values + retainedRegions.values,
+            retainedRegions.keys)
         val candidateTables = ProtectionRouteTableCatalog(candidateRegions)
-        val tableResult = candidateTables.publish(definitions.definitionRevision, copiedTables)
+        val changedRegions = checkNotNull(candidateRegions.compilationSnapshot()).regionsById.filter { (id, region) ->
+            current?.regions?.compilationSnapshot()?.regionsById?.get(id) != region
+        }.keys
+        val tableResult = candidateTables.publish(definitions.definitionRevision, copiedTables,
+            current?.routeTables, changedRegions)
         if (tableResult.status == ProtectionRouteTableCatalogStatus.REJECTED) {
             return@synchronized preparationRejected(tableResult.diagnostics.map { it.detail })
         }
@@ -503,16 +535,19 @@ internal class SimpleSignalsWorldRuntime(
             )
         }
 
-        val candidateBlocks = FixedBlockCatalog()
+        var candidateBlocks = FixedBlockCatalog()
         val blockResult = candidateBlocks.publish(
             topology,
             definitions.definitionRevision,
-            copiedBlocks,
+            copiedBlocks.filter { it.blockId !in retainedBlocks },
             index
         )
         if (blockResult.status == FixedBlockCatalogStatus.REJECTED) {
             return@synchronized preparationRejected(blockResult.diagnostics.map { it.detail })
         }
+        if (retainedBlocks.isNotEmpty()) candidateBlocks = FixedBlockCatalog.fromCompiled(topology,
+            definitions.definitionRevision, copiedBlocks, candidateBlocks.snapshot(topology).blocksById + retainedBlocks,
+            retainedBlocks.keys)
         val (candidateSignals, candidateProtectionSignals) = try {
             val primaryIds = copiedSignals.mapTo(hashSetOf()) { it.signalId }
             copiedDefinitions.protectionSignals.mapTo(primaryIds) { it.signalId }
@@ -551,6 +586,7 @@ internal class SimpleSignalsWorldRuntime(
             current,
             directionPolicy
         )
+        candidate.topologyIndex = SectionTopologyIndex(candidate, current?.topologyIndex)
         SimpleSignalsDefinitionPreparationResult.Prepared(
             SimpleSignalsPreparedDefinitions(
                 this,
@@ -583,11 +619,37 @@ internal class SimpleSignalsWorldRuntime(
         )
         check(replacementModels == null || replacementModels.handles === modelHandles)
         beforeCommit()
+        bindTopologyGuard(prepared.candidatePublication)
+        topologyGuard.install(prepared.topology, checkNotNull(prepared.candidatePublication.topologyIndex))
         replacementSectionOccupancy?.attachEpochContinuity(sectionEpochContinuity)
         if (replacementSectionOccupancy != null) {
             modelHandles.publish(replacementModels) { state = candidateState }
         } else state = candidateState
         SimpleSignalsDefinitionCommitStatus.COMMITTED
+    }
+
+    private fun bindTopologyGuard(publication: SimpleSignalsRuntimePublication) {
+        publication.fixedBlocks.snapshot(publication.topology).also {
+            it.liveTopology = topologyGuard::currentTopology
+            it.requireUsable = topologyGuard::requireUsable
+        }
+        checkNotNull(publication.regions.compilationSnapshot()).also {
+            it.liveTopology = topologyGuard::currentTopology
+            it.requireUsable = topologyGuard::requireUsable
+        }
+        publication.topologyGuard = topologyGuard
+    }
+
+    internal fun commitTopologyRevalidation(base: SimpleSignalsRuntimePublication,
+        expected: SectionTopologyGuard.View, candidate: SimpleSignalsRuntimePublication,
+        occupancy: SectionOccupancyRuntime): Boolean = synchronized(lock) {
+        if (closed || state.publication !== base) return@synchronized false
+        topologyGuard.commit(expected, checkNotNull(candidate.topologyIndex)) {
+            bindTopologyGuard(candidate)
+            occupancy.attachEpochContinuity(sectionEpochContinuity)
+            state.models?.let(occupancy::attachModelBinding)
+            state = RuntimeState(candidate, occupancy, state.models)
+        }
     }
 
     fun initializeDefinitions(
@@ -703,11 +765,12 @@ internal class SimpleSignalsWorldRuntime(
         topology: TopologyState
     ): String? {
         val regionSnapshot = regions.compilationSnapshot() ?: return null
-        val regionSlicesByRail = regionSnapshot.regionsById.values
+        val regionSlicesByRail = regionSnapshot.regionsById.values.filter { it.definition.regionId !in regionSnapshot.unavailableRegionIds }
             .flatMap { region -> region.interior.map { slice -> region.definition.regionId to slice } }
             .groupBy { (_, slice) -> slice.railId }
             .mapValues { (_, slices) -> slices.sortedBy { (_, slice) -> slice.startAbMeters } }
         fixedBlocks.snapshot(topology).blocksById.values.forEach { block ->
+            if (block.definition.blockId in fixedBlocks.snapshot(topology).unavailableBlockIds) return@forEach
             block.occupancyArea.intervals.forEach { interval ->
                 val slices = regionSlicesByRail[interval.railId].orEmpty()
                 var low = 0
@@ -786,7 +849,9 @@ internal class SimpleSignalsWorldRuntimeManager(
     private val railTargets: RailTargetService,
     private val modelPresentation: ModelPresentationService,
     private val modelWorker: (() -> Unit) -> Unit = { action -> CompletableFuture.runAsync(action) },
-    private val modelFailure: (String, Throwable) -> Unit = { _, _ -> }
+    private val modelFailure: (String, Throwable) -> Unit = { _, _ -> },
+    private val protectionRegionMaxDistanceMeters: Double = 1000.0,
+    private val topologyWorker: (() -> Unit) -> Unit = { action -> CompletableFuture.runAsync(action) }
 ) {
     private val lock = Any()
     private val runtimes = linkedMapOf<UUID, SimpleSignalsWorldRuntime>()
@@ -892,7 +957,6 @@ internal class SimpleSignalsWorldRuntimeManager(
 
     fun validateRouteAdmission(worldId: UUID, intent: work.art1st.javarailways.basic.api.route.RouteResourceIntent) {
         val publication = checkNotNull(runtimeReadView[worldId]) { "SimpleSignals world runtime is unavailable" }.authoringPublication()
-        check(infrastructure.currentTopology(worldId) === publication.topology) { "SimpleSignals topology is stale" }
         publication.unavailableTerritory.requireUsable(intent.route, intent.desiredAuthority.distanceFromRouteStartMeters)
     }
 
@@ -952,7 +1016,7 @@ internal class SimpleSignalsWorldRuntimeManager(
         }
 
         val runtime = SimpleSignalsWorldRuntime(worldId, work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(
-            { topology, rails -> infrastructure.operatingDirections(worldId, topology, rails) }))
+            { topology, rails -> infrastructure.operatingDirections(worldId, topology, rails) }), protectionRegionMaxDistanceMeters)
         val initial = try {
             runtime.initializeDefinitions(topology, loaded.definitions)
         } catch (failure: Exception) {
@@ -969,12 +1033,22 @@ internal class SimpleSignalsWorldRuntimeManager(
         }
         val sectionOccupancy = runtime.initializeSectionOccupancy()
         try {
+            runtime.topologySubscription = infrastructure.observeTopologyChanges(plugin, worldId) { change ->
+                if (!runtime.closed && runtime.topologyGuard.invalidate(change)) scheduleTopologyRevalidation(runtime)
+            }
+            check(infrastructure.currentTopology(worldId) === topology) { "topology changed during world installation" }
+        } catch (failure: Exception) {
+            runtime.retire()
+            return@synchronized unavailable(worldId, "SimpleSignals topology observation could not be installed: ${describe(failure)}")
+        }
+        try {
             signalEpochSources.replaceSources(
                 plugin,
                 worldId,
                 sectionOccupancy.sources
             )
         } catch (failure: Exception) {
+            runtime.retire()
             return@synchronized unavailable(
                 worldId,
                 "SimpleSignals section occupancy could not be registered: ${describe(failure)}"
@@ -987,6 +1061,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                 listOf(runtime.routePlanningBinding)
             )
         } catch (failure: Exception) {
+            runtime.retire()
             return@synchronized unavailable(
                 worldId,
                 "SimpleSignals route source could not be registered: ${describe(failure)}"
@@ -1002,6 +1077,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                 )
             )
         } catch (failure: Exception) {
+            runtime.retire()
             return@synchronized unavailable(
                 worldId,
                 "SimpleSignals inspection sources could not be registered: ${describe(failure)}"
@@ -1009,6 +1085,7 @@ internal class SimpleSignalsWorldRuntimeManager(
         }
         runtimes[worldId] = runtime
         publishRuntimeReadView()
+        if (runtime.topologyGuard.capture().pending.isNotEmpty()) scheduleTopologyRevalidation(runtime)
         SimpleSignalsWorldInstallResult(
             SimpleSignalsWorldInstallStatus.INSTALLED,
             definitionSource = loaded.source,
@@ -1017,6 +1094,51 @@ internal class SimpleSignalsWorldRuntimeManager(
         }
         if (result.status == SimpleSignalsWorldInstallStatus.INSTALLED) runtimeReadView[worldId]?.let(::scheduleModels)
         return result
+    }
+
+    private fun scheduleTopologyRevalidation(runtime: SimpleSignalsWorldRuntime) {
+        if (!runtime.topologyWorkerScheduled.compareAndSet(false, true)) return
+        try {
+            topologyWorker {
+                var failed: SectionTopologyGuard.View? = null
+                try {
+                    while (!closed && !runtime.closed && runtimeReadView[runtime.worldId] === runtime) {
+                        val captured = runtime.topologyGuard.capture()
+                        if (captured.pending.isEmpty()) break
+                        // Acquiring the immutable root also waits for the notifying commit to publish it.
+                        infrastructure.currentTopology(runtime.worldId)
+                        val base = runtime.authoringPublication()
+                        val candidate = SectionTopologyRevalidation.compile(base, captured, protectionRegionMaxDistanceMeters)
+                        val occupancy = SectionOccupancyRuntime.from(candidate)
+                        occupancy.retainPublishedFrom(runtime.currentSectionOccupancy())
+                        var committed = false
+                        try {
+                            signalEpochSources.replaceSourcesAtomically(plugin, runtime.worldId, occupancy.sources) {
+                                check(!closed && runtimeReadView[runtime.worldId] === runtime) { "topology refresh became stale" }
+                                committed = runtime.commitTopologyRevalidation(base, captured, candidate, occupancy)
+                                check(committed) { "topology refresh became stale" }
+                            }
+                        } catch (failure: Exception) {
+                            if (runtime.closed || runtime.topologyGuard.capture() !== captured || runtime.authoringPublication() !== base) continue
+                            throw failure
+                        }
+                        if (committed && runtime.topologyGuard.capture().pending.isEmpty()) break
+                    }
+                } catch (failure: Exception) {
+                    failed = runtime.topologyGuard.capture()
+                    reportModelFailure("SimpleSignals topology revalidation failed for world ${runtime.worldId}; affected sections remain unavailable", failure)
+                } finally {
+                    runtime.topologyWorkerScheduled.set(false)
+                    val latest = runtime.topologyGuard.capture()
+                    if (!closed && !runtime.closed && runtimeReadView[runtime.worldId] === runtime &&
+                        latest.pending.isNotEmpty() && latest !== failed)
+                        scheduleTopologyRevalidation(runtime)
+                }
+            }
+        } catch (failure: Exception) {
+            runtime.topologyWorkerScheduled.set(false)
+            reportModelFailure("SimpleSignals topology worker could not be scheduled", failure)
+        }
     }
 
     fun remove(worldId: UUID) {

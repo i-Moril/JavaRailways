@@ -49,6 +49,7 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
@@ -57,6 +58,8 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailCrossingPoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
+import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange
+import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
@@ -84,6 +87,117 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class DefaultInfrastructureResourceServiceTest {
+    @Test
+    fun `real unrelated transaction preserves live grant and idle signal while related edit remains blocked`() {
+        val service = DefaultInfrastructureResourceService()
+        val world = createTestWorld()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("signal")
+        try {
+            val rail = world.createRailForTest(straightCurve(0.0, 100.0, 0.0))
+            service.registerWorld(worldId, { world.topologyState }, railExists = { world.getRail(it) != null },
+                observeTopologyChanges = world::registerTopologyChangeListener) { resource ->
+                resource is RailIntervalResource && world.getRail(resource.railId) != null ||
+                    resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
+            }
+            var observation = routeObservation(worldId, world.topologyRevision, 1L, rail.id, 14.0, 15.0)
+            service.attachInfrastructureRuntime(worldId, world, { observation }, {}, 5.0) { reason, failure ->
+                throw IllegalStateException(reason, failure)
+            }
+            var callbacks = 0
+            val epochs = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
+                TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
+            })
+            epochs.replaceSources(listOf(SignalEpochSource("test:section", listOf(
+                work.art1st.javarailways.basic.api.observation.RailwayOccupancyAreaDefinition.create(
+                    RailObjectRef("test", "section"), 1L, world.topologyRevision,
+                    listOf(RailInterval(rail.id, 10.0, 30.0)), listOf(
+                        work.art1st.javarailways.basic.api.observation.RailwayOccupancyBoundary(
+                            RailObjectRef("test", "entry"), RailPositionSnapshot(rail.id, ViewDirection.AB, 10.0)
+                        )
+                    )
+                )
+            )) {
+                callbacks++
+                SignalEpochResult.empty()
+            }))
+            service.observeTopologyChanges(owner, worldId, epochs::invalidateTopology)
+            epochs.process(routeFrame(world.topologyRevision, 1L, rail.id, 14.0, 15.0))
+            val route = RouteSnapshot("test:route", 1L, world.topologyRevision,
+                listOf(RouteSegmentSnapshot(rail.id, ViewDirection.AB, 14.0, 100.0)))
+            val admission = service.routeAdmission(owner, worldId)
+            val routeOwner = InfrastructureOwner("test:train", 1L)
+            val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java, admission.request(
+                RouteResourceIntent("test:request", routeOwner, "train", observation.stamp, route, RouteBoundary(40.0))
+            )).grant
+            world.createRailForTest(straightCurve(1000.0, 1020.0, 1000.0))
+            observation = routeObservation(worldId, world.topologyRevision, 2L, rail.id, 14.0, 15.0)
+            service.consumeObservation(worldId, observation)
+            epochs.process(routeFrame(world.topologyRevision, 2L, rail.id, 14.0, 15.0))
+            val extended = assertInstanceOf(RouteAdmissionResult.Granted::class.java, admission.request(
+                RouteResourceIntent("test:request", routeOwner, "train", observation.stamp, route, RouteBoundary(60.0))
+            )).grant
+            assertSame(first.grantId, extended.grantId)
+            assertSame(route, service.activeRouteAdmissions(worldId).single().route)
+            assertEquals(1, callbacks)
+            assertEquals(1, service.liveClaims(worldId).size)
+            assertEquals(TopologyEditStatus.CONFLICT, service.acquireEditPermit(owner, worldId,
+                TopologyEditRequest(world.topologyRevision, InfrastructureOwner("test:edit", 1L),
+                    TopologyEditImpact(setOf(rail.id), emptySet(), emptySet()))).decision().status)
+        } finally {
+            service.close()
+            world.physicsCoordinator.close()
+        }
+    }
+
+    @Test
+    fun `topology observers are scoped to owner registration and exact world lifetime`() {
+        val service = DefaultInfrastructureResourceService()
+        val worldId = UUID.randomUUID()
+        val callbacks = linkedSetOf<RailTopologyChangeListener>()
+        val root = buildTestTopology(7L, emptyList(), emptyMap())
+        fun install() = service.registerWorld(worldId, { root }, observeTopologyChanges = { listener ->
+            callbacks.add(listener)
+            AutoCloseable { callbacks.remove(listener) }
+        }) { false }
+        install()
+        val first = plugin("first")
+        val second = plugin("second")
+        val received = arrayListOf<String>()
+        val change = RailTopologyChange(root, buildTestTopology(8L, emptyList(), emptyMap()), setOf(UUID.randomUUID()))
+        val registration = service.observeTopologyChanges(first, worldId) {
+            assertSame(change, it)
+            assertSame(root, service.currentTopology(worldId))
+            received += "first"
+        }
+        service.observeTopologyChanges(second, worldId) { received += "second" }
+        val oldCallbacks = callbacks.toList()
+        oldCallbacks.forEach { it.onTopologyChange(change) }
+        assertEquals(listOf("first", "second"), received)
+        registration.close()
+        oldCallbacks.forEach { it.onTopologyChange(change) }
+        assertEquals(listOf("first", "second", "second"), received)
+        service.unregisterOwner(second)
+        assertTrue(callbacks.isEmpty())
+        service.observeTopologyChanges(first, worldId) { received += "unloaded" }
+        val unloaded = callbacks.single()
+        service.removeWorld(worldId)
+        install()
+        unloaded.onTopologyChange(change)
+        assertEquals(3, received.size)
+        service.observeTopologyChanges(first, worldId) { received += "disabled" }
+        val disabled = callbacks.single()
+        service.forcedDisableOwner(first)
+        disabled.onTopologyChange(change)
+        assertEquals(3, received.size)
+        service.observeTopologyChanges(second, worldId) { received += "closed" }
+        val closed = callbacks.single()
+        service.close()
+        closed.onTopologyChange(change)
+        assertEquals(3, received.size)
+        assertTrue(callbacks.isEmpty())
+    }
+
     @Test
     fun `edit permit acquisition does not wait for the cross-world simulation lock`() {
         val service = DefaultInfrastructureResourceService()
@@ -1276,7 +1390,7 @@ class DefaultInfrastructureResourceServiceTest {
     }
 
     @Test
-    fun `topology revision is read from world at mutation time`() {
+    fun `unrelated topology revision does not expire stable infrastructure dependencies`() {
         val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
         val plugin = plugin("signal")
@@ -1291,12 +1405,12 @@ class DefaultInfrastructureResourceServiceTest {
         currentTopology = buildTestTopology(8L, emptyList(), emptyMap())
         assertSame(currentTopology, service.currentTopology(worldId))
         assertEquals(
-            InfrastructureDependencyMutationStatus.STALE_TOPOLOGY,
+            InfrastructureDependencyMutationStatus.APPLIED,
             service.setInfrastructureDependencies(
                 plugin, worldId, dependencies("example.signal:plan/main", "example.signal:signal", "home")
             ).status
         )
-        assertTrue(service.infrastructureDependencies(worldId).isEmpty())
+        assertEquals(1, service.infrastructureDependencies(worldId).size)
     }
 
     @Test
@@ -1452,6 +1566,7 @@ class DefaultInfrastructureResourceServiceTest {
 
     @OptIn(ExtensionData::class)
     private class TestWorld(override val topologyState: TopologyState) : World {
+        override fun registerTopologyChangeListener(listener: RailTopologyChangeListener): AutoCloseable = AutoCloseable {}
         override val tickManager: TickManager get() = error("tick manager is not used by this test")
         override val allTrains: Collection<Train> = emptyList()
 

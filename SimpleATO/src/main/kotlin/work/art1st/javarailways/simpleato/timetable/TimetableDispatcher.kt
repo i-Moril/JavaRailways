@@ -2997,9 +2997,7 @@ class TimetableDispatcher(
             ?: run.admissionCandidate?.takeIf { it.missionRevision == runtime.mission.revision })?.let {
             val stamp = context.observation.stamp
             val committed = it.route.selection
-            if (stamp.worldId != committed.observationStamp.worldId ||
-                stamp.topologyRevision != committed.route.topologyRevision
-            ) {
+            if (stamp.worldId != committed.observationStamp.worldId) {
                 run.state = TimetableServiceRunState.REPLAN_REQUIRED
                 run.message = "committed operating route topology changed; explicit replan is required"
                 return null

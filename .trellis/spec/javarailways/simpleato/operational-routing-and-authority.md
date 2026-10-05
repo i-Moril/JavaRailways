@@ -102,7 +102,15 @@ Dispatcher在安装inspection binding或向Basic提交准入前，把完整exact
 
 ### 3.2 冻结路线与准入客户端
 
-冻结路线保存其生成时读取的 `topologyRevision`、独立的 `routeRevision` 和有序 traversal。SimpleATO 向 Basic 提交路线、列车 ID、同一 observation stamp 与期望 authority boundary；不提交 caller-authored route progress/occurrence index、可替代物理底线的 raw `InfrastructureFootprint`、可信列车长度或已枚举的 turnout/diamond 列表。Basic 从同一 observation 的权威列车尾验证冻结路线起点，并自行初始化进度。信号系统插件可以附加自己注册的资源要求，但这些要求只增加最终 union。每项addition必须包含exact stable identity与显式route-metre车尾释放boundary；可选preparation descriptor只描述provider-owned target，不能携带callback或mutable train/world。完整shape由[Basic路线资源准入](../basic/route-resource-admission.md)唯一拥有。
+冻结路线保存其生成时读取的 `topologyRevision`、独立的 `routeRevision` 和有序 traversal。
+其中世界拓扑版本只是生成来源，不是整个路线的有效期；不要求后续观测仍处于该世界版本。
+SimpleATO 向 Basic 提交路线、列车 ID、同一 observation stamp 与期望 authority boundary；不提交 caller-authored route progress/occurrence index、可替代物理底线的 raw `InfrastructureFootprint`、可信列车长度或已枚举的 turnout/diamond 列表。Basic 从同一 observation 的权威列车尾验证冻结路线起点，并自行初始化进度。信号系统插件可以附加自己注册的资源要求，但这些要求只增加最终 union。每项addition必须包含exact stable identity与显式route-metre车尾释放boundary；可选preparation descriptor只描述provider-owned target，不能携带callback或mutable train/world。完整shape由[Basic路线资源准入](../basic/route-resource-admission.md)唯一拥有。
+
+运行路线继续受既有静态依赖与运行资源防编辑保护。`InspectionRuntime`在原有active-route记录旁建立轨道到列车的反向索引，
+由Core轨道事务的`affectedRailIds`只标记相交路线不可用；没有inspection source的已绑定路线同样保留这一检查。
+未相交的路线、binding身份和已有grant不变，不因世界revision推进而重新寻路或申请。
+这不是独立的路线登记令牌或版本系统；记录随原有路线绑定、替换和移除维护。
+首次提交尚未登记的路线由Basic在当前物理拓扑上验证其显式轨道路径，不能把旧版本号当作已经验证的凭证。
 
 SimpleATO本身只认识“当前可用grant边界”和“外部限制”，不把普通固定闭塞、保护区域或移动闭塞编成一个Basic-owned `AuthoritySection`模型：
 
@@ -119,7 +127,7 @@ extension不改变当前authority constraint；原grant的车尾释放不因准�
 队尾追加并发布新committed grant boundary后，SimpleATO才从已提交grant视图生成更宽的authority constraint。
 
 普通authority extension不会改写路线。到达已完整授权的路线末端后，下一项正向mission可以形成上述严格append候选，并在
-同一grant下申请更远boundary；旧前缀、owner、train、world与topology均不变。topology、旧前缀、route ID或运营plan发生其他
+同一grant下申请更远boundary；旧前缀、owner、train、world均不变。相关物理依赖、旧前缀、route ID或运营plan发生其他
 变化时仍是replan；折返只允许走已评审的stopped-rebase边界，不能伪装为append、caller footprint或whole-claim replace。同一grant已有
 pending request时，SimpleATO轮询该handle而不是并行提交另一个请求；这是同进程生命周期约束，不需要保存request历史或模拟
 网络重试。Basic的typed stale/conflict/preparation结果由既有dispatcher策略消费。
@@ -130,11 +138,12 @@ pending request时，SimpleATO轮询该handle而不是并行提交另一个请�
 `simpleato:resource-admission`来源发布位于路线起点0 m的`MovementAuthorityRestriction`，因此尚无grant、首次pending或首次
 拒绝（包括选择属于另一列车的调用方错误）都不会产生可用前方权限。`Granted`是唯一能改变该来源的结果：部分授权把来源替换为返回的`committedAuthority`边界；授权已到完整frozen route末端时发布更高revision空restriction，明确撤销旧截断，由同一mission的终点Stop constraint停车。extension pending及rejected不发布新restriction，继续使用旧grant边界。pending只通过原handle调用`progress`，不重放intent。
 
-client以route ID/topology binding、train和world做常量时间预筛；完整有序traversal、revision和append-only关系仍由
+client以route ID、train和world做常量时间预筛；完整有序traversal、revision和append-only关系仍由
 Basic的现有route state权威核对。新的observation epoch可以用于同路线延长或正向mission append。pending continuation保存
 候选selection与handle，但继续发布旧grant的route binding；只有`Granted`才原子替换本地selection/binding并发布新authority。
 折返时client先要求Basic暂停旧cursor；新方向发布后提交body-only的new-tail-started selection与body-length boundary。Basic成功rebase后，client保留grant ID、切换restriction route binding，并把authority收紧到新head；后续rolling request把已规划反向mission从当前head progress开始的后缀追加到该body boundary。stop target与authority end是调用方配置的两个边界，SimpleATO不从stop tolerance自动推导资源余量。
-route ID、train、world或topology变化返回`ROUTE_STATE_MISMATCH`或`TRAIN_NOT_FOUND`并要求调用方走安全replan。结束时，
+route ID、train或world不匹配返回`ROUTE_STATE_MISMATCH`或`TRAIN_NOT_FOUND`；相关轨道依赖变化由运行记录明确拒绝，
+不能把无关世界版本变化归入这些失败。结束时，
 有grant的路线必须先由Basic `endGrant`确认资源和pending均已清空，然后client才发布该来源的更高revision空snapshot；若该空
 snapshot发布失败，后续显式结束只重试restriction撤销，不会对已经结束的Basic grant重复调用`endGrant`。首次安全
 中止且从未产生grant的路线可直接显式结束。pending不能通过清空restriction掩盖；`WORLD_STALLED`会锁存并拒绝后续申请或结束。client不实现自动重试、
@@ -146,7 +155,8 @@ timeout、generation token、持久化或Bukkit调度，也不拥有Basic的tail
 
 Basic准入来源与信号插件来源进入同一个`ConstraintManager`，没有任何来源拥有“放行”特权。首次Basic grant提交前，准入client的0 m
 `MovementAuthorityRestriction`会压住插件已经发布的任意正限速；grant提交后，插件限速仍只能与该authority及其他ATO/ATP约束取最小值。
-插件snapshot若不再匹配当前world、topology或frozen route，适配器把该来源替换为零速`DepartureHoldConstraint`，不能沿用或解释为许可。
+插件snapshot若不再匹配当前world或frozen route，适配器把该来源替换为零速`DepartureHoldConstraint`。
+真正受到轨道编辑影响的路线由事务标记为不可用，在控制检查前拒绝；无关编辑不让旧限制整体过期。
 
 每个 controlled train 在一个成功 physics epoch 中最多执行一次前方路线 perception。区间、车辆和信号插件从这次扫描及 world-level 索引读取数据；任何策略都不得为了自己的信号显示或资源判断再做一次完整路线遍历。Basic 的 grant/denial 作为候选输入，不在 SimpleATO 中复制资源冲突计算。
 
@@ -160,7 +170,7 @@ topology revision和总长度。远端目标统一用冻结路线起点起算的
 `MovementAuthorityConstraint`。信号插件不接触控制器，也不创建第二套constraint归约器。
 
 同一来源的新revision完整替换旧snapshot；更高revision的空列表是唯一的正常撤销语义，迟到或重复revision不能覆盖
-已接受结果。world不匹配、topology过期、冻结路线身份/版本/长度改变、来源被明确标记不可用或当前progress越过路线范围时，
+已接受结果。world不匹配、相关路线已被事务标记不可用、冻结路线身份/版本/长度改变、来源被明确标记不可用或当前progress越过路线范围时，
 adapter以该来源的constraint key安装零速`DepartureHoldConstraint`而不是静默删除限制。每列车的adapter把全部来源转换后
 通过一个`SIGNALLING` owner一次性replace，避免逐来源更新期间短暂扩大许可。physics epoch晚于生成观察是正常消费，早于生成
 观察才是时间倒置。当前adapter已接入production timetable controller与Bukkit认证Basic服务，host inspection scheduler/runtime也已组合到同一控制器perception流程。具体信号插件的保护区、固定闭塞、内部依赖传播与presentation仍属Stage 2，因此不能把host接线描述成完整信号系统已经生产可用。
@@ -275,7 +285,7 @@ grant/tail-release生命周期释放，不能因检查范围变化而撤销。
 离开、显式dirty更新，不转为每tick回调。
 
 如果当前应存在的来源没有可验证的完整binding、binding与route/profile revision不符、dirty后的更新失败，或更新结果未能绑定
-当前world/topology/route，SimpleATO必须在该来源上保持或安装零authority/零速限制，直到新的完整结果成功提交。失效期间不能
+当前world/route，或路线已被相关事务标记不可用，SimpleATO必须在该来源上保持或安装零authority/零速限制，直到新的完整结果成功提交。失效期间不能
 静默沿用旧的permissive结果，也不能退化到每tick全世界轮询。一个来源的失败不允许撤销Basic已有claim，也不改变其他来源的限制。
 
 具体信号插件可以在Java/Kotlin中实现完整规则，并自行选择JS、YAML或其他配置层。SimpleATO只提供检查调度与最严格限制归约，
@@ -375,7 +385,7 @@ Bad：为了取得静态依赖先启动一个假列车binding或申请资源。
 SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`；需要信号插件策略时，它把同一冻结路线与
 观察输入交给插件的准入协调器，由插件构造并认证提交intent。两者都不再定义平行的`AutomaticRouteIntent`或
 `FrozenOperationalRoute`。`observationStamp.physicsEpoch`必须与选路所读列车状态一致；
-`route.topologyRevision`是唯一topology绑定，request不复制第二个expected revision。SimpleATO只消费
+`route.topologyRevision`记录路线生成时的拓扑，request不复制第二个expected revision，也不把它当作当前运行有效期。SimpleATO只消费
 `Granted/Pending/Rejected`及其immutable snapshot/handle，不读取或修改Basic内部registry。SimpleATO不得用自己
 的身份提交另一插件产生的addition。
 
@@ -384,7 +394,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 ## 5. 不变量、生命周期、线程与版本
 
 - 同一次选路只能组合一个 topology root、一个 coherent physics observation 和一个已应用运营 plan/overlay revision；不得拼接“最新”组件。
-- 普通正向mission接续只追加到已完整授权的旧route末端并递增operating-route revision；折返先暂停释放并在新tail重建route binding/cursor；其他topology、旧前缀、route ID或overlay改变走安全replan。
+- 普通正向mission接续只追加到已完整授权的旧route末端并递增operating-route revision；折返先暂停释放并在新tail重建route binding/cursor；相关轨道依赖、旧前缀、route ID或overlay改变走安全replan，无关轨道事务不影响既定路线。
 - Basic denial 不扩大 authority。现有安全 authority 保持或收紧，直到新 grant 成功。
 - 每列车准入client在首个committed grant前保持0 m authority；只有Basic `Granted`可扩大该来源，pending/denied保持上一已发布边界。
 - 同一路线extension pending、conflict或安全preparation failure时保持旧authority；只有Basic在delta preparation ready后
@@ -429,7 +439,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 - 外部restriction adapter每次应用只线性转换当前列车的来源与限制`O(S + R)`；不得重新扫描冻结路线、排序来源或调用插件代码。
 - world occupancy、区间状态和 Basic grant 状态应先按 rail/resource 建索引；禁止 `allTrains × allSections` 或每个信号各自 lookup 全世界。
 - unchanged stable denial 使用缓存的 typed result 与 revision key；相关 revision 不变时不重复昂贵解析。
-- 索引缺失、provider 异常或 revision 在计算中改变时 fail closed；不得退化到另一套 live graph/资源扫描并继续授权。
+- 索引缺失、provider异常或计算期间实际依赖被修改时fail closed；不得退化到另一套live graph/资源扫描并继续授权。无关世界编辑不使已冻结路线或已有grant失效。
 
 ## 8. Good / Base / Bad cases
 
@@ -446,11 +456,12 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 - route selection：方向限制、edge 内 virtual endpoint、零/一/多 turnout、纯环、无路线，且输入相同得到确定 traversal。
 - observed frozen-route seam：成功路线从同一observation的具名列车tail及其facing精确开始；observation/overlay
   topology mismatch、列车缺失/脱轨和planner的invalid target/unreachable均保持各自typed rejection。
-- revision binding：route 与 topology revision 独立；任何 observation/topology/overlay stale 都不发请求、不扩大 authority。
+- revision binding：route revision与世界topology revision独立；不一致的物理输入、失效的实际路线依赖或运营配置都不扩大authority。无关轨道事务不得造成旧路线过期。
+- 局部事务：真实无关轨道编辑后Dispatcher保持已绑定路线与grant、继续运行，不进入REPLAN_REQUIRED；相关编辑被防编辑保护拒绝，或相交运行记录明确不可用。没有inspection source时也验证这一行为。
 - admission client：请求没有可替代Basic物理底线的第二份资源清单；合法addition、conflict、pending和grant分支均保持规定lifecycle；直线路段仍由Basic推导rail interval claim，不使用旧`NOT_REQUIRED`捷径。
 - admission client lifecycle：首次immediate grant、首次pending的0 m hold、pending→ready、extension/continuation pending或denied保留旧boundary与route binding、continuation READY保留grant ID后切换binding、首次safe abort、显式end以及unrelated route必须先end均有独立断言；输入stamp/train与Basic typed失败不被重写。
 - rolling extension：只沿同一frozen route或经Basic验证的严格正向append发出更远boundary；同一grant最多一个pending handle，期间旧资源继续释放且
-  pending/denied不扩大authority，修改旧前缀/topology/plan走replan。折返独立证明暂停释放、同grant rebase和新head零剩余authority。client lookahead policy用独立策略测试，
+  pending/denied不扩大authority，修改旧前缀、实际依赖或plan走replan。折返独立证明暂停释放、同grant rebase和新head零剩余authority。client lookahead policy用独立策略测试，
   复用controller既有perception horizon，并在剩余authority到达既有route-allocation trigger时申请下一段；不另设扫描距离。
 - bulb line：首次前视覆盖两次道岔使用时，按Basic提示退回完整区间入口外；相交floor必须连锁回退，不能截断保护进路。重试至多一次，无法推进时等待；普通申请仍无额外路线扫描或道岔类型分支。
 - signal-plugin integration：固定闭塞、保护区域和移动闭塞插件结果都只能收紧限制；附加资源只增加Basic最终union，不能删除物理底线。
@@ -462,7 +473,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 - inspection runtime：完整binding替换失败保留旧session；多个source的callback结果在首次publication前完成校验；callback、
   validation或publisher失败通知fail-closed owner且未发布工作保持dirty；source/train移除不触碰Basic claim或伪造restriction撤销。
 - control pipeline：车辆、停车、信号和 grant candidates 只做一次 perception，并归约到最严格 speed/authority。
-- external restrictions：严格递增revision、不同来源取最严格结果、绝对route metre到剩余距离转换、空新revision撤销、输入集合防御性复制，以及world/topology/route/source failure的零速fail-close。
+- external restrictions：严格递增revision、不同来源取最严格结果、绝对route metre到剩余距离转换、空新revision撤销、输入集合防御性复制，以及world/route/source不匹配或路线实际受编辑影响时的零速fail-close；无关世界revision变化继续使用现有限制。
 - retry：稳定配置错误 revision 不变时不逐 tick 重算；占用释放事件允许重新准入。
 - migration parity：迁移前后同一 fixture 的 route、stop/speed constraint、dispatcher priority 与 manual-mode 行为一致。
 

@@ -65,7 +65,7 @@ class SectionOccupancyRuntimeTest {
     }
 
     @Test
-    fun `stale topology fails before control publication and definition replacement establishes a fresh baseline`() {
+    fun `unnotified topology fails observation coherence and definition replacement establishes a fresh baseline`() {
         var reads = 0
         val policy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy({ root, rails ->
             reads++
@@ -85,7 +85,7 @@ class SectionOccupancyRuntimeTest {
         val baseline = occupancy.presentationSnapshot()
 
         val replacementTopology = lineTopologyState(topology.revision + 1L, railId)
-        assertThrows(IllegalArgumentException::class.java) {
+        assertThrows(IllegalStateException::class.java) {
             epochs.process(emptyFrame(2L, replacementTopology,
                 ActiveRailContinuationsSnapshot.empty(replacementTopology.revision)))
         }
@@ -102,7 +102,9 @@ class SectionOccupancyRuntimeTest {
             assertEquals(SimpleSignalsDefinitionCommitStatus.COMMITTED, world.commitPrepared(prepared.value, replacement))
         }
         assertNull(replacement.signalFor(section), "old degraded or unavailable control is not a new physical baseline")
-        epochs.process(emptyFrame(3L, replacementTopology,
+        epochs.invalidateTopology(work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange(
+            topology, replacementTopology, setOf(railId)))
+        epochs.process(emptyFrame(2L, replacementTopology,
             ActiveRailContinuationsSnapshot.empty(replacementTopology.revision)))
         assertTrue(replacement.presentationSnapshot()!!.blockControls.isEmpty(), "the new bidirectional definition is enabled")
         assertEquals(2, reads)

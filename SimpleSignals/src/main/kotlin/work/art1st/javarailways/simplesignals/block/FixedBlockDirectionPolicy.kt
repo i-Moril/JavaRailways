@@ -14,8 +14,8 @@ internal class FixedBlockDirectionPolicy(
     fun disabledBlocks(snapshot: FixedBlockReadSnapshot, blocks: Collection<CompiledFixedBlock>): Set<String> {
         if (blocks.isEmpty()) return emptySet()
         val rails = blocks.flatMapTo(linkedSetOf()) { block -> block.traversals.map { it.railId } }
-        val subset = read(snapshot.topology, rails)
-        check(subset.topology === snapshot.topology && subset.directions.keys == rails) {
+        val subset = read(snapshot.liveTopology?.invoke() ?: snapshot.topology, rails)
+        check(subset.directions.keys == rails) {
             "fixed-block operating direction subset is incomplete or stale"
         }
         return java.util.Set.copyOf(blocks.filter { block ->

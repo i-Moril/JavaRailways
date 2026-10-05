@@ -158,8 +158,7 @@ internal object FrozenMissionRouteAssembler {
         val observation = context.observation
         val committed = existing.selection
         if (observation.stamp.worldId != committed.observationStamp.worldId ||
-            observation.stamp.topologyRevision != topology.revision ||
-            committed.route.topologyRevision != topology.revision
+            observation.stamp.topologyRevision != topology.revision
         ) {
             return rejected(
                 FrozenMissionRouteRejection.STALE_OBSERVATION,
@@ -232,8 +231,7 @@ internal object FrozenMissionRouteAssembler {
         val observation = context.observation
         val committed = existing.selection
         if (observation.stamp.worldId != committed.observationStamp.worldId ||
-            observation.stamp.topologyRevision != topology.revision ||
-            committed.route.topologyRevision != topology.revision
+            observation.stamp.topologyRevision != topology.revision
         ) {
             return rejected(
                 FrozenMissionRouteRejection.STALE_OBSERVATION,

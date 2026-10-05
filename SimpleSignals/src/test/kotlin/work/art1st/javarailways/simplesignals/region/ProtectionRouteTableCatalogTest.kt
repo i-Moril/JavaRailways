@@ -243,14 +243,16 @@ class ProtectionRouteTableCatalogTest {
     }
 
     @Test
-    fun `cached source fails closed after topology or region publication changes`() {
+    fun `cached source survives unrelated topology revision but rejects changed region publication`() {
         val fixture = fixture()
         val tables = publishedTables(fixture, listOf(fixture.upperRoute()))
         val newTopology = fixture.topology(42L)
 
-        assertThrows(IllegalStateException::class.java) {
-            tables.restrictionSource.restrictions(newTopology)
-        }
+        val original = tables.restrictionSource.restrictions(fixture.topology)
+        val current = tables.restrictionSource.restrictions(newTopology)
+        assertEquals(newTopology.revision, current.topologyRevision)
+        assertEquals(original.pathReplacements, current.pathReplacements)
+        assertEquals(original.forbiddenTraversals, current.forbiddenTraversals)
 
         assertEquals(
             ProtectionRegionCatalogStatus.PUBLISHED,

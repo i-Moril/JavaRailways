@@ -730,7 +730,7 @@ class TimetableDispatcherSharedAdmissionTest {
     }
 
     @Test
-    fun `changed live topology stops before rebinding an old route to the new observation`() {
+    fun `unrelated live topology edit preserves the admitted frozen route and continues running`() {
         val fixture = fixture()
         fixture.service.onRequest = fixture.service::grant
         fixture.start()
@@ -745,7 +745,8 @@ class TimetableDispatcherSharedAdmissionTest {
         fixture.dispatch()
 
         assertEquals(1, fixture.service.intents.size)
-        assertEquals(TimetableServiceRunState.REPLAN_REQUIRED, fixture.status().state)
+        assertEquals(TimetableServiceRunState.RUNNING, fixture.status().state)
+        assertEquals(admittedRevision, fixture.service.intents.single().route.topologyRevision)
     }
 
     @Test
@@ -1089,6 +1090,7 @@ class TimetableDispatcherSharedAdmissionTest {
             signalRestrictions,
             dependencyService
         ) { inspectionRuntime ->
+            world.registerTopologyChangeListener(inspectionRuntime::invalidateTopology)
             inspectionRuntime.replaceSources(inspectionSources)
         }
         fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions, dependencies, registry)

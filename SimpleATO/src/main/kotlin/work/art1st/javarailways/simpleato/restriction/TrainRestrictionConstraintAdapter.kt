@@ -85,8 +85,8 @@ class TrainRestrictionConstraintAdapter(
     /**
      * Replaces this train's complete external-signalling constraint set in one atomic manager call.
      *
-     * A snapshot remains usable across later physics epochs only while world, topology and the
-     * complete frozen route still match. Any unprovable source is converted to a zero-speed hold.
+     * A snapshot remains usable across later physics epochs while world and the complete frozen
+     * route still match. The host invalidates affected route bindings at the topology transaction.
      */
     internal fun apply(
         currentStamp: RailwayStateStamp,
@@ -130,8 +130,6 @@ class TrainRestrictionConstraintAdapter(
             currentStamp.worldId != snapshot.observationStamp.worldId -> "restriction belongs to another world"
             currentStamp.physicsEpoch < snapshot.observationStamp.physicsEpoch ->
                 "restriction observation is newer than the current physics epoch"
-            currentStamp.topologyRevision != snapshot.observationStamp.topologyRevision ->
-                "restriction topology revision is stale"
             currentRoute != snapshot.route -> "restriction frozen route is no longer active"
             routeProgressMeters > currentRoute.totalLengthMeters ->
                 "current route progress exceeds the frozen route"

@@ -4,5 +4,9 @@
 {"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Direction consistency and new refusal requirement"}
 {"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"No duplicate save, lock or resource lifecycle"}
 {"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"No speculative compatibility"}
-{"file":".trellis/tasks/09-18-signal-addon-implementation/research/section-wands-batch.md","reason":"Current approved batch"}
+{"file":".trellis/tasks/09-18-signal-addon-implementation/research/section-topology-revalidation-batch.md","reason":"Current approved transaction-driven revalidation batch"}
 {"file":".trellis/spec/simple-signals/backend/section-authoring-wands.md","reason":"Tool behavior and local incomplete-region state contract"}
+{"file":".trellis/spec/javarailways/core/versioned-operational-topology.md","reason":"Neutral structural transaction impact notification"}
+{"file":".trellis/spec/javarailways/basic/railway-area-occupancy.md","reason":"Affected-only occupancy invalidation"}
+{"file":".trellis/spec/javarailways/basic/route-resource-admission.md","reason":"Stable physical route validity instead of world-wide expiry"}
+{"file":".trellis/spec/javarailways/simpleato/reactive-signal-epochs.md","reason":"Local source notification and source replacement race safety"}

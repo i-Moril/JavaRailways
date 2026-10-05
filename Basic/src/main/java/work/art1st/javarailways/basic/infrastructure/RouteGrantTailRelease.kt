@@ -142,12 +142,6 @@ internal class RouteGrantTailRelease(
                 "route-grant tail release belongs to world $worldId, not ${stamp.worldId}"
             )
         }
-        if (stamp.topologyRevision != topologyRevision) {
-            return@synchronized failClosed(
-                RouteGrantTailReleaseFailureKind.STALE_TOPOLOGY,
-                "route-grant tail release topology $topologyRevision does not match ${stamp.topologyRevision}"
-            )
-        }
         if (stamp.physicsEpoch < lastPhysicsEpoch) {
             return@synchronized failClosed(
                 RouteGrantTailReleaseFailureKind.DECREASING_PHYSICS_EPOCH,

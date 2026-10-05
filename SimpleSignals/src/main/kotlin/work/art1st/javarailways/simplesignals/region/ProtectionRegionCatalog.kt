@@ -30,22 +30,17 @@ internal sealed interface ProtectionRegionRouteMatchResult {
 internal class ProtectionRegionCompilationSnapshot(
     val topology: TopologyState,
     val definitionRevision: Long,
-    val derivedTopology: ProtectionRegionTopology,
+    private val compiledTopology: ProtectionRegionTopology,
     val regionsById: Map<String, ResolvedProtectionRegion>,
-    private val regionIdsByRail: Map<UUID, Set<String>>
+    val regionIdsByRail: Map<UUID, Set<String>>,
+    val unavailableRegionIds: Set<String> = emptySet()
 ) {
+    internal var liveTopology: (() -> TopologyState)? = null
+    internal var requireUsable: (RouteSnapshot, Double) -> Unit = { _, _ -> }
+    val derivedTopology: ProtectionRegionTopology
+        get() = liveTopology?.invoke()?.takeUnless { it === topology }?.let(ProtectionRegionTopology::direct) ?: compiledTopology
     fun match(route: RouteSnapshot): ProtectionRegionRouteMatchResult {
-        if (route.topologyRevision != topology.revision) {
-            return ProtectionRegionRouteMatchResult.Rejected(
-                listOf(
-                    ProtectionRegionDiagnostic(
-                        ProtectionRegionValidationCode.STALE_TOPOLOGY,
-                        "route topology revision ${route.topologyRevision} does not match catalog " +
-                            topology.revision
-                    )
-                )
-            )
-        }
+        requireUsable(route, route.totalLengthMeters)
         if (regionsById.isEmpty()) {
             return ProtectionRegionRouteMatchResult.Matched(emptyList())
         }
@@ -198,7 +193,8 @@ internal class ProtectionRegionCatalog {
                 topology: TopologyState,
                 definitionRevision: Long,
                 derivedTopology: ProtectionRegionTopology,
-                regions: Collection<ResolvedProtectionRegion>
+                regions: Collection<ResolvedProtectionRegion>,
+                unavailable: Set<String> = emptySet()
             ): Snapshot {
                 val definitions = regions.map(ResolvedProtectionRegion::definition)
                 val byId = regions.associateBy { it.definition.regionId }
@@ -224,10 +220,19 @@ internal class ProtectionRegionCatalog {
                         definitionRevision,
                         derivedTopology,
                         immutableById,
-                        immutableByRail
+                        immutableByRail,
+                        java.util.Set.copyOf(unavailable)
                     )
                 )
             }
         }
+    }
+
+    companion object {
+        fun fromCompiled(topology: TopologyState, revision: Long,
+            regions: Collection<ResolvedProtectionRegion>, unavailable: Set<String>): ProtectionRegionCatalog =
+            ProtectionRegionCatalog().also {
+                it.snapshot = Snapshot.create(topology, revision, ProtectionRegionTopology.direct(topology), regions, unavailable)
+            }
     }
 }

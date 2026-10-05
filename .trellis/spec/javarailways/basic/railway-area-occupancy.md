@@ -22,10 +22,14 @@ tail表示保守安全车尾。未来近似实现可延后其位置和`LEFT`，�
 
 ## 派生算法与时序
 
-公开`RailwayAreaOccupancyEngine`由一个world-local串行owner调用；工厂防御性复制定义，并由internal tracker实现。它只接受同world、拓扑匹配且physics epoch严格连续的observation。
+公开`RailwayAreaOccupancyEngine`由一个world-local串行owner调用；工厂防御性复制定义，并由internal tracker实现。
+它只接受同world且physics epoch严格连续的observation。定义中的topologyRevision记录计算来源，
+不要求所有区域的旧计算版本都等于当前世界版本；局部有效性来自下述事务影响通知。
 
 `create(definitions)`建立独立冷引擎。`prepareReplacement(definitions): RailwayAreaOccupancyEngine`在编辑worker上完整编译另一份几何和索引，旧引擎继续处理已捕获的epoch，调用方成功提交后才切换到候选。不存在就地修改旧引擎的`replaceDefinitions`接口或兼容转发。
-候选只对area ID、topology revision、轨道区间和完整有向边界均未变的区域接续原物理记录；definition revision不是几何，单独变化不丢失记录。
+候选对area ID、轨道区间和完整有向边界未变、且仍有效的区域接续原物理记录；
+definition revision及无关世界拓扑变化不是几何变化，不丢失记录。已失效区域须经重新验证后建立可用的新记录，
+不能仅重装原定义就清除停用状态。
 未变区域共享其占用/已消费stamp的状态单元，而不是在prepare时复制可变值。因此prepare之后、旧epoch最后产生的ENTER/LEFT也能成为新引擎的前帧事实。
 新引擎首次消费仍发布所有区域的完整baseline，但未变区域同时保留该帧真实crossings；新建或几何变化区域只发布当前occupants，不猜测此前经过。
 旧、新引擎的consume必须在同一world physics owner上串行，不能并发或对同一记录重复消费一个epoch。准备只访问不可变几何及状态单元引用，不读取可变occupants，不等待physics，也不保留前任引擎链。接口不公开索引、mutable tracker状态或信号策略。
@@ -42,6 +46,18 @@ tail表示保守安全车尾。未来近似实现可延后其位置和`LEFT`，�
 
 列车生成、移除或管理员瞬移可能让最终occupants变化但没有连续运动证据。此时发布新occupant snapshot，`crossings`保持空，不伪造ENTER/LEFT。
 
+## 轨道编辑如何局部停用监测
+
+宿主在Core事务通知中调用`invalidateTopology(change): Set<RailObjectRef>`。
+tracker在定义准备时建立轨道到area的反向索引，按`affectedRailIds`查找并去重，只标记命中的状态记录。
+返回的area身份供信号运行时唤醒所属来源；未命中区域不改变occupants、物理前帧或连续运动记录。
+已经按该次编辑后拓扑计算的定义，不会因重放这条已包含的变更再次失效。
+
+下一次更新通过`RailwayAreaOccupancyUpdate.available=false`明确报告几何不可用，保留最后已知occupants，
+不伪造LEFT，也不能把这份occupants当作当前完整观测。消费者须按不可用处理，不能理解为空闲。
+恢复由插件重验并准备新定义，Basic不猜测区间新边界、不释放claim、不重设道岔。
+例如旁线C施工而监测区仅覆盖A/B，后续真实LEFT仍能从原有记录产生，不出现冷启动丢事件。
+
 ## 索引与复杂度
 
 定义变更时一次编译两个rail-local索引：
@@ -55,7 +71,7 @@ replacement的几何相等比较和新索引编译只在worker执行；同area�
 
 ## 失败与禁止行为
 
-- topology revision不匹配、world改变或epoch跳号：拒绝该observation，不推进baseline；
+- world改变或epoch跳号：拒绝该observation，不推进baseline；相关轨道编辑则仅停用命中的area；
 - area ID重复、同area boundary ID或物理位置重复、边界不落在本area interval内：定义编译失败；
 - 禁止用`sweptSpans`判断最终occupants；
 - 禁止按rail ID合并traversal occurrence或从topology重建经过顺序；
@@ -68,10 +84,11 @@ replacement的几何相等比较和新索引编译只在worker执行；同area�
 - 车头到达inward边界即ENTER；车尾恰停outward边界不LEFT，下一次向外移动才LEFT；
 - swept envelope覆盖区域而epoch末placement在外时，occupants为空；
 - 瞬移、生成、删除改变occupants但不伪造crossing；
-- 定义defensive copy，拒绝拓扑不匹配与epoch缺口。
+- 定义defensive copy，拒绝world变化与epoch缺口；无关事务推进版本不拒绝观测。
 - public engine factory可在不导入Basic internal package的情况下建立baseline；batch/update collection不可修改。
 - replacement在prepare之后旧epoch仍推进占用时，下一帧从其最新记录继续；首次完整baseline保留真实LEFT及同帧ENTER+LEFT。
-- 新建、删后重建、边界/方向/拓扑变化区域不继承旧记录；只改definition revision的相同几何保留连续性；world变化或epoch缺口仍拒绝。
+- 新建、删后重建、边界/方向或相关拓扑变化区域重验后重新建立观测；无关拓扑和只改definition revision的相同几何保留连续性。
+- 受影响area报告available=false并保留最后已知占用，不产生假的LEFT；无关area保持IDLE或产生真实穿越。
 - 连续多次prepare/发布不保留引擎链；未变化epoch继续返回空batch。
 
 ## 迁移与禁止的替代方案

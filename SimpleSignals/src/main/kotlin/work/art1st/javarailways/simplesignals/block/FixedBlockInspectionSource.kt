@@ -84,9 +84,6 @@ internal class FixedBlockInspectionSource(
                     require(published.stamp.worldId == input.observationStamp.worldId) {
                         "fixed-block signal ${declaration.declarationId} belongs to another world"
                     }
-                    require(published.stamp.topologyRevision == input.observationStamp.topologyRevision) {
-                        "fixed-block signal ${declaration.declarationId} uses stale topology"
-                    }
                     require(published.stamp.physicsEpoch <= input.observationStamp.physicsEpoch) {
                         "fixed-block signal ${declaration.declarationId} is newer than the inspection observation"
                     }
@@ -114,9 +111,6 @@ internal class FixedBlockInspectionSource(
     )
 
     private fun matchRoute(captured: FixedBlockReadSnapshot, route: RouteSnapshot): List<FixedBlockRouteWindow> {
-        check(captured.topology.revision == route.topologyRevision) {
-            "fixed-block definitions use stale topology for route ${route.routeId}"
-        }
         return when (val matched = FixedBlockRouteMatcher.matchRoute(captured, route, detectReverse = true)) {
             is FixedBlockAuthorityMatchResult.Matched -> matched.windows
             is FixedBlockAuthorityMatchResult.Rejected -> error(matched.detail)

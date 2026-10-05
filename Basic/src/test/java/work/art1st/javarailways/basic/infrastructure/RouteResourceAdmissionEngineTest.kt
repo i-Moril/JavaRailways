@@ -34,6 +34,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
@@ -59,6 +60,101 @@ class RouteResourceAdmissionEngineTest {
     }
     private var additionValidation: (ContributedRouteResource) -> RouteAdmissionFailure? = { null }
     private val admissionUpdates = arrayListOf<ActiveRouteAdmissionUpdate>()
+
+    @Test
+    fun `unrelated transaction preserves pending grant tail release and extension of older frozen route`() {
+        val ticket = MutableTicket()
+        val service = service(InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) })
+        val requester = Any()
+        val original = intent()
+        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java, service.request(requester, original))
+        val previous = topology
+        val other = UUID(0L, 777L)
+        topology = buildTestTopology(8L, listOf(TestTopologyRail(railId, 100.0), TestTopologyRail(other, 10.0)), emptyMap())
+        service.invalidateTopology(RailTopologyChange(previous, topology, setOf(other)))
+        catalog.publish(topology, emptyList())
+        observation = observation(8L, train("first", 0.0, 1.0, 8L))
+        ticket.state = InfrastructurePreparationState.READY
+        val grant = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.progress(requester, pending.handle)).grant
+        val extended = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(route = original.route, authority = 40.0))).grant
+        assertSame(grant.grantId, extended.grantId)
+        assertEquals(RouteBoundary(40.0), extended.committedAuthority)
+        observation = observation(9L, train("first", 41.0, 42.0, 9L))
+        service.consumeObservation(observation)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `affected transaction rejects pending ready without polling ticket or releasing reservation`() {
+        val ticket = MutableTicket()
+        val service = service(InfrastructurePreparationActuator { InfrastructurePreparationStart.Accepted(ticket) })
+        val requester = Any()
+        val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java, service.request(requester, intent()))
+        val previous = topology
+        topology = buildTestTopology(8L, emptyList(), emptyMap())
+        service.invalidateTopology(RailTopologyChange(previous, topology, setOf(railId)))
+        val calls = ticket.snapshotCalls
+        ticket.state = InfrastructurePreparationState.READY
+        val failed = assertInstanceOf(RouteAdmissionResult.Rejected::class.java, service.progress(requester, pending.handle))
+        assertEquals(RouteAdmissionFailureCode.STALE_TOPOLOGY, failed.failure.code)
+        assertEquals(calls, ticket.snapshotCalls)
+        assertEquals(1, registry.claimSnapshots().size)
+        assertTrue(service.consumeObservation(observation(8L, train("first", 21.0, 22.0, 8L))).isEmpty())
+        assertEquals(1, registry.claimSnapshots().size)
+    }
+
+    @Test
+    fun `affected transaction during contributor validation prevents first claim`() {
+        lateinit var service: RouteResourceAdmissionEngine
+        service = RouteResourceAdmissionEngine(
+            "world", registry, hostClaimOwner, { topology }, { observation }, catalog,
+            { _, _ -> null }, InfrastructurePreparationActuator { error("must not prepare") },
+            { _, _ -> error("must not stall") },
+            collectContributions = {
+                val previous = topology
+                topology = buildTestTopology(8L, emptyList(), emptyMap())
+                service.invalidateTopology(RailTopologyChange(previous, topology, setOf(railId)))
+                emptyList()
+            })
+        val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java, service.request(Any(), intent()))
+        assertEquals(RouteAdmissionFailureCode.STALE_TOPOLOGY, rejected.failure.code)
+        assertTrue(registry.claimSnapshots().isEmpty())
+    }
+
+    @Test
+    fun `first request accepts old route provenance only after current structural projection`() {
+        val frozen = intent().route
+        topology = buildTestTopology(8L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
+        catalog.publish(topology, emptyList())
+        observation = observation(8L, train("first", 0.0, 1.0, 8L))
+        assertInstanceOf(RouteAdmissionResult.Granted::class.java, service().request(Any(), intent(route = frozen)))
+    }
+
+    @Test
+    fun `first request after transaction waits for a matching physical frame without expiring frozen route`() {
+        var preparations = 0
+        val service = service(InfrastructurePreparationActuator {
+            preparations++
+            InfrastructurePreparationStart.Accepted(MutableTicket(InfrastructurePreparationState.READY))
+        })
+        val frozen = intent().route
+        val previous = topology
+        topology = buildTestTopology(8L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
+        service.invalidateTopology(RailTopologyChange(previous, topology, setOf(railId)))
+        catalog.publish(topology, emptyList())
+        // No route or validation existed when the event arrived; observation still belongs to root 7.
+        val stale = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.request(Any(), intent(route = frozen)))
+        assertEquals(RouteAdmissionFailureCode.STALE_OBSERVATION, stale.failure.code)
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertEquals(0, preparations)
+        observation = observation(8L, train("first", 0.0, 1.0, 8L))
+        assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(Any(), intent(route = frozen)))
+        assertEquals(1, preparations)
+    }
 
     @Test
     fun `held same target turnout returns useful ceiling before later within request repeat`() {
@@ -295,6 +391,19 @@ class RouteResourceAdmissionEngineTest {
             revision = 2L,
             segments = listOf(RouteSegmentSnapshot(railId, ViewDirection.BA, 80.0, 100.0))
         )
+        val beforeRebase = service.activeAdmissions()
+        val previous = topology
+        val other = UUID(0L, 777L)
+        topology = buildTestTopology(8L,
+            listOf(TestTopologyRail(railId, 100.0), TestTopologyRail(other, 10.0)), emptyMap())
+        service.invalidateTopology(RailTopologyChange(previous, topology, setOf(other)))
+        catalog.publish(topology, emptyList())
+        val stale = assertInstanceOf(RouteGrantReversalResult.Rejected::class.java,
+            service.rebaseAfterReversal(requester, intent(route = reversedRoute, authority = 10.0)))
+        assertEquals(RouteAdmissionFailureCode.STALE_OBSERVATION, stale.failure.code)
+        assertEquals(beforeRebase, service.activeAdmissions())
+        assertEquals(retainedClaim, registry.claimSnapshots().single().footprint)
+        observation = observation(9L, train("first", 20.0, 10.0, 9L, ViewDirection.BA, reversed = true))
         val rebased = assertInstanceOf(
             RouteGrantReversalResult.Accepted::class.java,
             service.rebaseAfterReversal(
@@ -320,8 +429,8 @@ class RouteResourceAdmissionEngineTest {
         )
 
         observation = observation(
-            9L,
-            train("first", 10.0, 0.0, 9L, ViewDirection.BA, reversed = true)
+            10L,
+            train("first", 10.0, 0.0, 10L, ViewDirection.BA, reversed = true)
         )
         assertInstanceOf(RouteGrantTailReleaseUpdate.Active::class.java,
             service.consumeObservation(observation).single())
@@ -909,7 +1018,7 @@ class RouteResourceAdmissionEngineTest {
     }
 
     @Test
-    fun `ready after topology root replacement stalls even at the same revision`() {
+    fun `ready after affected topology replacement rejects locally without world stall`() {
         val ticket = MutableTicket()
         var stalls = 0
         val service = RouteResourceAdmissionEngine(
@@ -921,15 +1030,17 @@ class RouteResourceAdmissionEngineTest {
         val requester = Any()
         val pending = assertInstanceOf(RouteAdmissionResult.Pending::class.java,
             service.request(requester, intent()))
-        topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
+        val previous = topology
+        topology = buildTestTopology(8L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
+        service.invalidateTopology(RailTopologyChange(previous, topology, setOf(railId)))
         observation = observation(8L, train("first", 0.0, 1.0, 8L))
 
         ticket.state = InfrastructurePreparationState.READY
         val failed = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
             service.progress(requester, pending.handle))
 
-        assertEquals(RouteAdmissionFailureCode.WORLD_STALLED, failed.failure.code)
-        assertEquals(1, stalls)
+        assertEquals(RouteAdmissionFailureCode.STALE_TOPOLOGY, failed.failure.code)
+        assertEquals(0, stalls)
         assertEquals(1, registry.claimSnapshots().size)
     }
 

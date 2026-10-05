@@ -107,11 +107,6 @@ class RouteGrantTailReleaseTest {
                 "wrong world"
             ),
             Triple(
-                RouteGrantTailReleaseFailureKind.STALE_TOPOLOGY,
-                observation(epoch = 8L, tailMeters = 1.0, topology = topologyRevision + 1L),
-                "wrong topology"
-            ),
-            Triple(
                 RouteGrantTailReleaseFailureKind.DECREASING_PHYSICS_EPOCH,
                 observation(epoch = 6L, tailMeters = 1.0),
                 "decreasing epoch"

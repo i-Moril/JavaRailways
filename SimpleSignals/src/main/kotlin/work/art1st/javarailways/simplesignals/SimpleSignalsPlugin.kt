@@ -40,7 +40,9 @@ class SimpleSignalsPlugin : JavaPlugin() {
             { context, failure ->
                 // Signal callbacks only enqueue reporting; logger/Bukkit access happens on this worker.
                 CompletableFuture.runAsync { logger.log(Level.SEVERE, context, failure) }
-            }
+            },
+            protectionRegionMaxDistanceMeters = settings.protectionRegionMaxDistanceMeters,
+            topologyWorker = { action -> server.asyncScheduler.runNow(this) { if (isEnabled) action() } }
         )
         val fixedBlocks = FixedBlockRouteResourcePolicy(this, { worldId ->
             work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(

@@ -60,13 +60,6 @@ internal object DirectedRouteProjector {
         route: RouteSnapshot,
         topology: ProtectionRegionTopology
     ): DirectedRouteProjectionResult {
-        if (route.topologyRevision != topology.topologyRevision) {
-            return rejected(
-                DirectedRouteProjectionFailureCode.STALE_TOPOLOGY,
-                "route topology revision ${route.topologyRevision} does not match " +
-                    topology.topologyRevision
-            )
-        }
         val occurrences = ArrayList<DirectedRouteOccurrence>(route.segments.size)
         var routeStart = 0.0
         for (segment in route.segments) {

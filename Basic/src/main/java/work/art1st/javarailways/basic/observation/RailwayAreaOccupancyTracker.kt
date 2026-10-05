@@ -30,18 +30,54 @@ internal class RailwayAreaOccupancyTracker(
 ) : RailwayAreaOccupancyEngine {
     private val compiled = CompiledDefinitions.create(definitions)
     private var lastStamp: RailwayStateStamp? = null
+    // Provenance frontier detects a missing transaction handoff; it never expires untouched areas.
+    @Volatile private var incorporatedTopologyRevision: Long = maxOf(
+        compiled.definitions.maxOfOrNull { it.topologyRevision } ?: 0L,
+        previous?.incorporatedTopologyRevision ?: 0L
+    )
     // Geometry matching touches only immutable definitions. Mutable cells are used exclusively by
     // serialized consumes, including an old epoch that finishes after replacement preparation.
-    private class AreaState {
+    private class PhysicalState {
         var stamp: RailwayStateStamp? = null
         var occupants: Set<String> = emptySet()
+    }
+    private class AreaState(val physical: PhysicalState = PhysicalState(), @Volatile var invalidated: Boolean = false) {
+        var stamp: RailwayStateStamp?
+            get() = physical.stamp
+            set(value) { physical.stamp = value }
+        var occupants: Set<String>
+            get() = physical.occupants
+            set(value) { physical.occupants = value }
     }
     private val statesByArea: Map<RailObjectRef, AreaState> = compiled.definitions.associate { definition ->
         val oldDefinition = previous?.compiled?.definitionsById?.get(definition.areaId)
         val retained = oldDefinition != null &&
-            definition.topologyRevision == oldDefinition.topologyRevision &&
             definition.intervals == oldDefinition.intervals && definition.boundaries == oldDefinition.boundaries
-        definition.areaId to if (retained) previous.statesByArea.getValue(definition.areaId) else AreaState()
+        val oldState = previous?.statesByArea?.get(definition.areaId)
+        definition.areaId to if (retained) AreaState(
+            checkNotNull(oldState).physical,
+            oldState.invalidated && definition.topologyRevision <= checkNotNull(oldDefinition).topologyRevision
+        ) else AreaState()
+    }
+    private val areasByRail: Map<UUID, Set<RailObjectRef>> = compiled.definitions
+        .flatMap { definition -> definition.intervals.map { it.railId to definition.areaId } }
+        .groupBy({ it.first }, { it.second }).mapValues { it.value.toSet() }
+    private val invalidationUpdates = linkedSetOf<RailObjectRef>()
+
+    override fun invalidateTopology(
+        change: work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange
+    ): Set<RailObjectRef> {
+        incorporatedTopologyRevision = maxOf(incorporatedTopologyRevision, change.current.revision)
+        val affected = change.affectedRailIds.flatMapTo(linkedSetOf()) { areasByRail[it].orEmpty() }
+            .filterTo(linkedSetOf()) { compiled.definitionsById.getValue(it).topologyRevision < change.current.revision }
+        affected.forEach { id ->
+            val state = statesByArea.getValue(id)
+            if (!state.invalidated) {
+                state.invalidated = true
+                invalidationUpdates += id
+            }
+        }
+        return java.util.Set.copyOf(affected)
     }
 
     override fun prepareReplacement(definitions: Collection<RailwayOccupancyAreaDefinition>): RailwayAreaOccupancyEngine =
@@ -49,7 +85,9 @@ internal class RailwayAreaOccupancyTracker(
 
     /** Consumes exactly the next completed physics epoch. */
     override fun consume(observation: RailwayObservation): RailwayAreaOccupancyBatch {
-        validateStamp(observation.stamp)
+        require(compiled.definitions.isEmpty() || observation.stamp.topologyRevision <= incorporatedTopologyRevision) {
+            "occupancy observation has no topology transaction handoff for revision ${observation.stamp.topologyRevision}"
+        }
         lastStamp?.let { validateContinuation(it, observation.stamp) }
         if (lastStamp == null) {
             statesByArea.values.forEach { state -> state.stamp?.let { validateContinuation(it, observation.stamp) } }
@@ -65,7 +103,8 @@ internal class RailwayAreaOccupancyTracker(
         // RailwayObservation already guarantees stable train-ID order.
         observation.trains.forEach { train ->
             compiled.crossingsFor(train.headTraversal, train.tailTraversal).forEach candidateLoop@{ candidate ->
-                if (statesByArea.getValue(candidate.areaId).stamp == null) return@candidateLoop
+                val state = statesByArea.getValue(candidate.areaId)
+                if (state.stamp == null || state.invalidated) return@candidateLoop
                 val occupants = workingOccupants.getValue(candidate.areaId)
                 val changed = when (candidate.kind) {
                     RailwayOccupancyCrossingKind.ENTER -> occupants.add(train.trainId)
@@ -84,7 +123,11 @@ internal class RailwayAreaOccupancyTracker(
 
         val updates = compiled.definitions.mapNotNull { definition ->
             val areaId = definition.areaId
-            val previous = statesByArea.getValue(areaId).occupants
+            val cell = statesByArea.getValue(areaId)
+            val previous = cell.occupants
+            if (cell.invalidated) return@mapNotNull if (lastStamp == null || areaId in invalidationUpdates) {
+                RailwayAreaOccupancyUpdate(areaId, definition.definitionRevision, previous, emptyList(), available = false)
+            } else null
             val current = actualOccupants.getValue(areaId)
             val crossings = crossingsByArea.getValue(areaId)
             if (lastStamp != null && previous == current && crossings.isEmpty()) {
@@ -100,9 +143,10 @@ internal class RailwayAreaOccupancyTracker(
         }
 
         statesByArea.forEach { (areaId, state) ->
-            state.occupants = actualOccupants.getValue(areaId)
+            if (!state.invalidated) state.occupants = actualOccupants.getValue(areaId)
             state.stamp = observation.stamp
         }
+        invalidationUpdates.clear()
         lastStamp = observation.stamp
         return RailwayAreaOccupancyBatch(observation.stamp, updates)
     }
@@ -113,12 +157,6 @@ internal class RailwayAreaOccupancyTracker(
         }
         require(current.physicsEpoch == previous.physicsEpoch + 1L) {
             "occupancy observation epoch must follow ${previous.physicsEpoch}: ${current.physicsEpoch}"
-        }
-    }
-
-    private fun validateStamp(stamp: RailwayStateStamp) {
-        require(compiled.definitions.all { it.topologyRevision == stamp.topologyRevision }) {
-            "occupancy definitions do not belong to topology revision ${stamp.topologyRevision}"
         }
     }
 
@@ -243,9 +281,6 @@ internal class RailwayAreaOccupancyTracker(
                 val copied = definitions.sortedBy { it.areaId.toString() }
                 require(copied.map(RailwayOccupancyAreaDefinition::areaId).distinct().size == copied.size) {
                     "occupancy area IDs must be unique"
-                }
-                require(copied.map(RailwayOccupancyAreaDefinition::topologyRevision).distinct().size <= 1) {
-                    "occupancy areas must belong to one topology revision"
                 }
                 val boundaries = copied
                     .flatMap { definition ->

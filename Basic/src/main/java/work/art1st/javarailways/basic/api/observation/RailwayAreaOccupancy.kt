@@ -120,20 +120,24 @@ data class RailwayOccupancyCrossing(
  * One changed or newly baselined monitored area after a completed railway epoch. Every entry in
  * [crossings] repeats this [areaId], so consumers may safely flatten batches without losing identity.
  *
- * [occupants] is the authoritative conservative placement at epoch end. [crossings] contains only
- * real ordered boundary movement; train creation, removal or administrative relocation can change
- * the occupant snapshot without fabricating an ENTER or LEFT event.
+ * When [available], [occupants] is the authoritative conservative placement at epoch end and
+ * [crossings] contains only real ordered boundary movement. Train creation, removal or administrative
+ * relocation can change that snapshot without fabricating an ENTER or LEFT event. When unavailable,
+ * occupants retain the last known placement, crossings are empty, and even an empty occupant set
+ * is not evidence of clear track.
  *
  * @property areaId stable identity of the changed area
  * @property definitionRevision exact plugin definition revision used for this update
- * @property occupants stable train IDs conservatively occupying the area at epoch end
+ * @property occupants current conservative train IDs when available, otherwise retained last-known IDs
  * @property crossings real boundary crossings derived during this epoch
  */
 class RailwayAreaOccupancyUpdate(
     val areaId: RailObjectRef,
     val definitionRevision: Long,
     occupants: Collection<String>,
-    crossings: Collection<RailwayOccupancyCrossing>
+    crossings: Collection<RailwayOccupancyCrossing>,
+    /** False after a dependency edit; occupants are retained knowledge, never proof of clear track. */
+    val available: Boolean = true
 ) {
     val occupants: Set<String> = Collections.unmodifiableSet(TreeSet(occupants))
     val crossings: List<RailwayOccupancyCrossing> = java.util.List.copyOf(crossings)
@@ -176,9 +180,18 @@ class RailwayAreaOccupancyBatch(
  */
 interface RailwayAreaOccupancyEngine {
     /**
+     * Invalidates only areas indexed by the transaction's affected rails. Call at the world
+     * transaction boundary, serialized with [consume]. Invalid areas retain their last occupants
+     * and emit an unavailable update without fabricated crossings. A validated replacement may
+     * restore them; unrelated geometry and crossing continuity survive a world snapshot change.
+     */
+    fun invalidateTopology(change: work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange): Set<RailObjectRef>
+
+    /**
      * Compiles an independent replacement off the observation path without reading mutable state.
-     * Exact area identity, topology revision, intervals and directed boundary identities preserve
-     * continuity; definition revision alone does not reset it. New/changed areas start fresh.
+     * Exact area identity, intervals and directed boundary identities preserve physical continuity;
+     * revision provenance alone does not reset it. Availability belongs to the replacement: an
+     * affected area becomes available only after compilation incorporating the transaction.
      *
      * The caller serializes all [consume] calls across this engine and its replacements on one
      * world-local owner. Preparation may overlap an old consume; publication needs no wait. The

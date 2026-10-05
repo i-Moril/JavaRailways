@@ -94,7 +94,8 @@ class IsolatedTimetableSimulationWorld private constructor(
     val world: CoreWorld,
     private val tickManager: TickManagerImpl,
     private val physicsCoordinator: PhysicsCoordinator,
-    private val routeAdmissionHost: IsolatedRouteAdmissionHost
+    private val routeAdmissionHost: IsolatedRouteAdmissionHost,
+    private val topologySubscription: AutoCloseable
 ) : AutoCloseable {
     private var logicalMillis = 0L
     private var hasSimulated = false
@@ -204,6 +205,7 @@ class IsolatedTimetableSimulationWorld private constructor(
             .sortedBy { it.id.serviceId }
 
     override fun close() {
+        topologySubscription.close()
         routeAdmissionHost.close()
         physicsCoordinator.close()
         tickManager.close()
@@ -246,6 +248,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                 publishCollisionEvents = false
             )
             var routeAdmissionHost: IsolatedRouteAdmissionHost? = null
+            var topologySubscription: AutoCloseable? = null
             try {
                 val world = IsolatedMainThreadMarker.run {
                     CoreWorld.load(
@@ -266,6 +269,10 @@ class IsolatedTimetableSimulationWorld private constructor(
                             completeEpoch = signalRestrictions::completeEpoch,
                             invalidateInspectionDeclarations = inspectionRuntime::markDirty
                         )
+                        topologySubscription = isolatedWorld.registerTopologyChangeListener { change ->
+                            inspectionRuntime.invalidateTopology(change)
+                            signalEpochRuntime.invalidateTopology(change)
+                        }
                         val basicData = basicDataFactory(isolatedWorld, signalEpochRuntime::publishOperatingDirectionChanges)
                         isolatedWorld.registerExtensionData(BasicPlugin.INSTANCE, basicData)
                         basicInfrastructure.restore(isolatedWorld)
@@ -304,9 +311,11 @@ class IsolatedTimetableSimulationWorld private constructor(
                     world,
                     tickManager,
                     physics,
-                    checkNotNull(routeAdmissionHost)
+                    checkNotNull(routeAdmissionHost),
+                    checkNotNull(topologySubscription)
                 )
             } catch (failure: Throwable) {
+                topologySubscription?.close()
                 routeAdmissionHost?.close()
                 physics.close()
                 tickManager.close()

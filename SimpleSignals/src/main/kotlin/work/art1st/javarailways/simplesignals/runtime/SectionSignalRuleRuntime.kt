@@ -232,14 +232,15 @@ internal class SectionSignalRuleRuntime private constructor(
         changedContinuationEntries: Collection<RailEndpointRef>,
         changedEntries: Collection<String> = emptyList(),
         sectionOverride: (SectionRef) -> SectionSignalState? = { null },
+        signalUnavailable: (String) -> Boolean = { false },
         resolveSection: (SectionSignalRuleBinding) -> SectionRef? = { it.controlledSection }
     ): SectionSignalSnapshot {
         val candidateStates = previous?.states?.toMutableMap() ?: linkedMapOf()
         val resolvedSections = previous?.resolvedSectionsBySignal?.toMutableMap() ?: linkedMapOf()
         val changedOutputs = linkedSetOf<String>()
-        if (previous == null) unavailableDeclarations.keys.forEach { id ->
-            candidateStates[id] = SectionSignalState.Unavailable("authored signal binding or dependency is unavailable")
-            changedOutputs += id
+        unavailableDeclarations.keys.forEach { id ->
+            val next = SectionSignalState.Unavailable("authored signal binding or dependency is unavailable")
+            if (candidateStates.put(id, next) != next) changedOutputs += id
         }
         val changedProviders = buildList {
             occupancy.changedSections.mapTo(this, RuleNode::section)
@@ -280,7 +281,9 @@ internal class SectionSignalRuleRuntime private constructor(
                 state is SectionSignalState.Unavailable
             }
             val override = section?.let(sectionOverride)
-            val next = if (override != null) {
+            val next = if (signalUnavailable(binding.signalId) || controlledSection?.available == false) {
+                SectionSignalState.Unavailable("signal section topology is unavailable")
+            } else if (override != null) {
                 override
             } else if (controlledSection == null) {
                 binding.unreadyOutput?.let(SectionSignalState::Available) ?:

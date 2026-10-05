@@ -22,6 +22,95 @@ import java.util.UUID
 
 class CoreWorldRailTopologyTransactionTest {
     @Test
+    fun `successful changed transactions notify once before publication with only touched junction dependencies`() {
+        val world = createTestWorld()
+        val source = world.createRailForTest(straightCurve(0.0, 10.0))
+        val straight = world.createRailForTest(straightCurve(10.0, 20.0))
+        val far = world.createRailForTest(straightCurve(20.0, 30.0))
+        val isolated = world.createRailForTest(straightCurve(100.0, 110.0))
+        world.railTopologyTransaction {
+            RailView.connect(source.viewAB, straight.viewBA)
+            RailView.connect(straight.viewAB, far.viewBA)
+        }
+        val before = world.topologyState
+        val changes = mutableListOf<work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange>()
+        val registration = world.registerTopologyChangeListener { change ->
+            assertTrue(world.topologyState === change.previous)
+            changes += change
+        }
+        lateinit var branch: CoreRail
+        world.railTopologyTransaction {
+            branch = world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 40.0))
+            RailView.connect(source.viewAB, branch.viewBA)
+        }
+        val change = changes.single()
+        assertTrue(change.previous === before)
+        assertTrue(change.current === world.topologyState)
+        assertEquals(setOf(source.id, straight.id, branch.id), change.affectedRailIds)
+        assertFalse(isolated.id in change.affectedRailIds)
+        assertFalse(far.id in change.affectedRailIds)
+        assertThrows(UnsupportedOperationException::class.java) {
+            (change.affectedRailIds as MutableSet).clear()
+        }
+        world.railTopologyTransaction { }
+        assertThrows(IllegalStateException::class.java) {
+            world.railTopologyTransaction { error("rejected before mutation") }
+        }
+        assertEquals(1, changes.size)
+        registration.close()
+        registration.close()
+        world.removeRail(isolated)
+        assertEquals(1, changes.size)
+    }
+
+    @Test
+    fun `prepared deletion reports removed rail and former connected peer but not peer far endpoint`() {
+        val world = createTestWorld()
+        val removed = world.createRailForTest(straightCurve(0.0, 10.0))
+        val neighbor = world.createRailForTest(straightCurve(10.0, 20.0))
+        val far = world.createRailForTest(straightCurve(20.0, 30.0))
+        world.railTopologyTransaction {
+            RailView.connect(removed.viewAB, neighbor.viewBA)
+            RailView.connect(neighbor.viewAB, far.viewBA)
+        }
+        val prepared = world.prepareRailRemovalTopologyUpdate(world.topologyState, setOf(removed.id))
+        val changes = mutableListOf<work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange>()
+        world.registerTopologyChangeListener(changes::add)
+        world.railTopologyTransaction(prepared) { world.removeRail(removed) }
+        assertEquals(setOf(removed.id, neighbor.id), changes.single().affectedRailIds)
+        assertTrue(changes.single() === prepared.topologyChange)
+        assertFalse(removed.id in changes.single().current.railProjection)
+        assertTrue(removed.id in changes.single().previous.railProjection)
+    }
+
+    @Test
+    fun `new at grade crossing notifies both physical participants`() {
+        val world = createTestWorld()
+        val existing = world.createRailForTest(straightCurve(-10.0, 10.0))
+        val changes = mutableListOf<work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange>()
+        world.registerTopologyChangeListener(changes::add)
+        val added = world.createRailForTest(crossingCurve(-10.0, 10.0))
+        assertEquals(setOf(existing.id, added.id), changes.single().affectedRailIds)
+    }
+
+    @Test
+    fun `failed changed transaction never publishes a topology notification`() {
+        val world = createTestWorld()
+        var callbacks = 0
+        val before = world.topologyState
+        world.registerTopologyChangeListener { callbacks++ }
+        assertThrows(IllegalStateException::class.java) {
+            world.railTopologyTransaction {
+                world.createRailInTransaction(UUID.randomUUID(), straightCurve(0.0, 10.0))
+                error("failed mutation")
+            }
+        }
+        assertEquals(0, callbacks)
+        assertTrue(world.topologyState === before)
+        assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
+    }
+
+    @Test
     fun `CoreRail has no public constructor bypass`() {
         assertTrue(CoreRail::class.java.constructors.all { it.isSynthetic })
         assertTrue(CoreWorld::class.java.methods.none { it.name == "createRailForBootstrap" })

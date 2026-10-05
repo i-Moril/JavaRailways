@@ -33,18 +33,24 @@ internal class CompiledFixedBlockSignals private constructor(
     fun hasSignalForBlock(blockId: String): Boolean =
         inspectionLeadTimeByBlockId.containsKey(blockId)
 
+    fun withoutBindings(ids: Set<String>): CompiledFixedBlockSignals = CompiledFixedBlockSignals(
+        null, bindings.filter { it.signalId !in ids }, inspectionLeadTimeByBlockId)
+
     companion object {
         fun compile(
             definitions: Collection<FixedBlockSignalDefinition>,
             fixedBlocks: FixedBlockReadSnapshot,
             externalSignalGeometry: Map<String, CompiledFixedBlock> = emptyMap(),
             compileRuntime: Boolean = true,
-            unavailableSignalIds: Set<String> = emptySet()
+            unavailableSignalIds: Set<String> = emptySet(),
+            retainedBindings: Map<String, SectionSignalRuleBinding> = emptyMap(),
+            topologyFailures: MutableSet<String>? = null
         ): CompiledFixedBlockSignals {
             val copiedDefinitions = java.util.List.copyOf(definitions.sortedBy { it.signalId })
             val blocksById = fixedBlocks.blocksById
             copiedDefinitions.forEach { definition ->
-                definition.model?.validatePlacement(fixedBlocks.topology, definition.signalId)
+                if (topologyFailures == null && definition.controlledBlockId !in fixedBlocks.unavailableBlockIds)
+                    definition.model?.validatePlacement(fixedBlocks.topology, definition.signalId)
                 require(definition.controlledBlockId in blocksById) {
                     "signal ${definition.signalId} controls unknown fixed block " +
                         definition.controlledBlockId
@@ -55,7 +61,9 @@ internal class CompiledFixedBlockSignals private constructor(
             require(copiedDefinitions.map { it.controlledBlockId }.distinct().size == copiedDefinitions.size) {
                 "one block may only have one signal"
             }
-            val bindings = copiedDefinitions.filter { it.signalId !in unavailableSignalIds }.map { definition ->
+            val bindings = copiedDefinitions.filter { it.signalId !in unavailableSignalIds }.mapNotNull { definition ->
+                retainedBindings[definition.signalId]?.let { return@mapNotNull it }
+                try {
                 val sourceBlock = blocksById.getValue(definition.controlledBlockId)
                 SectionSignalRuleBinding(
                     definition.signalId,
@@ -93,6 +101,11 @@ internal class CompiledFixedBlockSignals private constructor(
                         }.output
                     }
                     SectionSignalOutput(selected.speedLimitMetersPerSecond, selected.modelVariant)
+                }
+                } catch (failure: IllegalArgumentException) {
+                    if (topologyFailures == null) throw failure
+                    topologyFailures.add(definition.signalId)
+                    null
                 }
             }
             val sections = blocksById.keys.sorted().map { SectionRef(SectionKind.FIXED_BLOCK, it) }

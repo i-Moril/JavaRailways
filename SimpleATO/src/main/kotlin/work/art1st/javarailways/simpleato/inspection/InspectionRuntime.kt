@@ -16,6 +16,9 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapsh
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import java.util.TreeMap
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ConcurrentHashMap
+import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange
+import java.util.UUID
 
 /**
  * Railway-owner compiler and publisher of inspection bindings.
@@ -47,10 +50,13 @@ class InspectionRuntime(
         var baselinePending: Boolean = true
     )
 
-    private data class ActiveRoute(
-        val observationStamp: RailwayStateStamp,
+    internal class ActiveRoute(
+        @Volatile var observationStamp: RailwayStateStamp,
         val route: RouteSnapshot
-    )
+    ) {
+        @Volatile var available: Boolean = true
+        val railIds: Set<UUID> = route.segments.mapTo(linkedSetOf()) { it.railId }
+    }
 
     private class BindingCompilationFailure(
         val key: BindingKey,
@@ -70,6 +76,28 @@ class InspectionRuntime(
     private val compiledBindingsByTrain = linkedMapOf<String, TreeMap<String, CompiledSourceBinding>>()
     private var sourcesById = sortedMapOf<String, InspectionSource>()
     private val activeRoutesByTrain = linkedMapOf<String, ActiveRoute>()
+    private val routesByRail = ConcurrentHashMap<UUID, Set<ActiveRoute>>()
+    @Volatile private var observedTopologyRevision: Long? = null
+    @Volatile private var completeTopologyHandoff = true
+
+    /** Called in the topology transaction before a changed root can drive the next physics epoch. */
+    fun invalidateTopology(change: RailTopologyChange) {
+        observedTopologyRevision?.let { known ->
+            if (known != change.previous.revision) completeTopologyHandoff = false
+        }
+        observedTopologyRevision = change.current.revision
+        change.affectedRailIds.forEach { rail ->
+            routesByRail[rail].orEmpty().forEach { route -> route.available = false }
+        }
+    }
+
+    private fun forgetRoute(trainId: String) {
+        activeRoutesByTrain.remove(trainId)?.let { route ->
+            route.railIds.forEach { rail ->
+                routesByRail.computeIfPresent(rail) { _, routes -> (routes - route).takeIf { it.isNotEmpty() } }
+            }
+        }
+    }
 
     /** Collects static edit references without creating train bindings or publishing restrictions. */
     fun collectRouteInfrastructureDependencies(
@@ -97,7 +125,10 @@ class InspectionRuntime(
     private var publishedBindingsByTrain: Map<String, TrainBinding> = emptyMap()
 
     /** Compiled definitions captured together with the controller's frozen-route mapping. */
-    inner class TrainBinding internal constructor(internal val definitions: Map<String, CompiledSourceBinding>) {
+    inner class TrainBinding internal constructor(
+        internal val definitions: Map<String, CompiledSourceBinding>,
+        internal val activeRoute: ActiveRoute? = null
+    ) {
         internal val runtime: InspectionRuntime get() = this@InspectionRuntime
         val maximumDeclaredLeadTimeSeconds: Double = definitions.values.maxOfOrNull {
             it.compiled.maximumDeclaredInspectionLeadTimeSeconds
@@ -168,20 +199,29 @@ class InspectionRuntime(
         route: RouteSnapshot
     ): Double {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
-        val activeRoute = ActiveRoute(observationStamp, route)
+        if (observedTopologyRevision == null) observedTopologyRevision = observationStamp.topologyRevision
+        check(completeTopologyHandoff && observationStamp.topologyRevision <= checkNotNull(observedTopologyRevision)) {
+            "inspection topology changed without a transaction handoff"
+        }
         val current = activeRoutesByTrain[trainId]
         if (current?.route == route && compiledBindingsByTrain[trainId]?.keys == sourcesById.keys) {
-            activeRoutesByTrain[trainId] = activeRoute
+            check(current.available) { "inspection route intersects an edited rail; explicit replan is required" }
+            current.observationStamp = observationStamp
             return maximumDeclaredLeadTimeSeconds(trainId)
         }
+        val activeRoute = ActiveRoute(observationStamp, route)
         val compiled = try {
             compileBindings(trainId, activeRoute, sourcesById, compiledBindingsByTrain[trainId])
         } catch (failure: BindingCompilationFailure) {
             notifyUnavailable(failure.key, failure)
             throw failure
         }
+        forgetRoute(trainId)
         activeRoutesByTrain[trainId] = activeRoute
-        if (compiled.isEmpty()) compiledBindingsByTrain.remove(trainId) else compiledBindingsByTrain[trainId] = compiled
+        activeRoute.railIds.forEach { rail ->
+            routesByRail.compute(rail) { _, routes -> routes.orEmpty() + activeRoute }
+        }
+        compiledBindingsByTrain[trainId] = compiled
         publishCompiledViews()
         return maximumDeclaredLeadTimeSeconds(trainId)
     }
@@ -270,6 +310,15 @@ class InspectionRuntime(
             binding: TrainBinding = bindingFor(trainId)
         ) {
             require(perception.train.trainId == trainId) { "inspection perception belongs to another train" }
+            binding.activeRoute?.let { active ->
+                check(active.available) { "inspection route intersects an edited rail; explicit replan is required" }
+                check(completeTopologyHandoff && observationStamp.topologyRevision <= checkNotNull(observedTopologyRevision)) {
+                    "inspection topology changed without a transaction handoff"
+                }
+                require(active.observationStamp.worldId == observationStamp.worldId) {
+                    "inspection observation belongs to another world"
+                }
+            }
             // A controller captures route + compiled definitions in one publication. A route append
             // must not mix its old mapping with newly published world definitions. Teardown, however,
             // discards the worker's state without calling a removed source.
@@ -288,7 +337,12 @@ class InspectionRuntime(
                 }
             }
             val trainSessions = sessions.map { BindingKey(it.definition.source.sourceId, trainId) to it }
-            if (trainSessions.isEmpty()) return
+            if (trainSessions.isEmpty()) {
+                check(binding.activeRoute == null || FrozenRouteBinding.from(binding.activeRoute.route) == currentRoute) {
+                    "inspection context does not match the bound frozen route"
+                }
+                return
+            }
 
             val staleSessions = trainSessions.filter { (_, session) ->
                 session.definition.compiled.binding.route != currentRoute
@@ -299,12 +353,6 @@ class InspectionRuntime(
                 )
                 staleSessions.forEach { (key, _) -> notifyUnavailable(key, failure) }
                 throw failure
-            }
-            require(observationStamp.topologyRevision == currentRoute.topologyRevision) {
-                "observation and route must use the same topology revision"
-            }
-            require(perception.route.topologyRevision == currentRoute.topologyRevision) {
-                "perception and route must use the same topology revision"
             }
 
             val pending = ArrayList<PendingUpdate>()
@@ -363,7 +411,7 @@ class InspectionRuntime(
     fun removeTrain(trainId: String) {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         compiledBindingsByTrain.remove(trainId)
-        activeRoutesByTrain.remove(trainId)
+        forgetRoute(trainId)
         publishCompiledViews()
     }
 
@@ -381,6 +429,9 @@ class InspectionRuntime(
     fun clear() {
         compiledBindingsByTrain.clear()
         activeRoutesByTrain.clear()
+        routesByRail.clear()
+        observedTopologyRevision = null
+        completeTopologyHandoff = true
         sourcesById.clear()
         publishCompiledViews()
     }
@@ -388,7 +439,7 @@ class InspectionRuntime(
     /** Removes sessions for trains whose production route lifecycle has ended. */
     fun retainTrains(trainIds: Set<String>) {
         compiledBindingsByTrain.keys.removeIf { it !in trainIds }
-        activeRoutesByTrain.keys.removeIf { it !in trainIds }
+        activeRoutesByTrain.keys.filter { it !in trainIds }.forEach(::forgetRoute)
         publishCompiledViews()
     }
 
@@ -470,8 +521,8 @@ class InspectionRuntime(
     }
 
     private fun publishCompiledViews() {
-        publishedBindingsByTrain = compiledBindingsByTrain.mapValues { (_, bySource) ->
-            TrainBinding(java.util.Collections.unmodifiableMap(LinkedHashMap(bySource)))
+        publishedBindingsByTrain = compiledBindingsByTrain.mapValues { (trainId, bySource) ->
+            TrainBinding(java.util.Collections.unmodifiableMap(LinkedHashMap(bySource)), activeRoutesByTrain[trainId])
         }.toMap()
         authorityRequestFloorsByTrain = compiledBindingsByTrain.mapNotNull { (trainId, bySource) ->
             if (bySource.isEmpty()) return@mapNotNull null

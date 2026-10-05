@@ -45,6 +45,8 @@ internal class ProtectionRouteSelectionSnapshot(
 internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSignalsRuntimePublication) {
     private val index = publication.routeSelection
     private val entries = index.routesById.values.mapTo(sortedSetOf()) { it.definition.entryBoundaryId }
+    private val regionsByEntry = index.routesById.values.groupBy { it.definition.entryBoundaryId }
+        .mapValues { (_, routes) -> routes.map { it.regionId }.distinct() }
     private val entriesByRail = index.routesById.values.flatMap { route ->
         route.definition.traversals.map { it.railId to route.definition.entryBoundaryId }
     }.groupBy({ it.first }, { it.second }).mapValues { java.util.Set.copyOf(it.value) }
@@ -98,7 +100,6 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
     /** Called by the first new signal callback after the world's last old callback has finished. */
     fun retainClearanceFrom(previous: ProtectionRouteSelectionRuntime) {
         check(requests.isEmpty())
-        if (index.topology !== previous.index.topology) return
         fun retain(owner: InfrastructureOwner, clearance: Clearance) {
             if (clearance.binding.invalidEntries.isNotEmpty() || clearance.binding.matches.any {
                 publication.clearanceRoutesById[it.route.definition.routeId] !==
@@ -198,7 +199,7 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
     fun fixedRouteReady(routeId: String, input: SignalEpochInput): Boolean {
         val route = index.routesById.getValue(routeId)
         if (input.observation.stamp.worldId != publication.definitions.worldId.toString() ||
-            input.observation.stamp.topologyRevision != index.topology.revision ||
+            publication.topologyGuard?.sectionUnavailable(work.art1st.javarailways.simplesignals.runtime.TopologySectionKind.REGION, route.regionId) == true ||
             !route.isPhysicallyOpen(input.observation.activeContinuations)) return false
         val owners = ownersByEntry.getValue(route.definition.entryBoundaryId)
         if (owners.size > 1) return false
@@ -238,9 +239,9 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
 
     private fun select(entry: String, input: SignalEpochInput, liveTrains: Set<String>): SelectedProtectionRoute {
         if (input.observation.stamp.worldId != publication.definitions.worldId.toString() ||
-            input.observation.stamp.topologyRevision != index.topology.revision ||
-            input.observation.activeContinuations.topologyRevision != index.topology.revision
-        ) return SelectedProtectionRoute(entry, ProtectionRouteSelectionSource.NONE, available = false)
+            regionsByEntry[entry].orEmpty().any {
+                publication.topologyGuard?.sectionUnavailable(work.art1st.javarailways.simplesignals.runtime.TopologySectionKind.REGION, it) == true })
+            return SelectedProtectionRoute(entry, ProtectionRouteSelectionSource.NONE, available = false)
         val owners = ownersByEntry.getValue(entry)
         if (owners.size > 1) return SelectedProtectionRoute(entry, ProtectionRouteSelectionSource.REQUEST, available = false)
         owners.singleOrNull()?.let { owner ->

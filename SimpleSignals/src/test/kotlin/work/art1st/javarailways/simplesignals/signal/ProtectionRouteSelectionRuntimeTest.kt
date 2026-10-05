@@ -347,7 +347,7 @@ class ProtectionRouteSelectionRuntimeTest {
     }
 
     @Test
-    fun `unknown frozen path and stale topology are restrictive`() {
+    fun `unknown frozen path and affected topology are restrictive while unrelated edit preserves selection`() {
         val (world, epoch) = runtime()
         val partial = RouteSnapshot("test:partial", 1, topology.revision,
             listOf(RouteSegmentSnapshot(trunk, ViewDirection.AB, 0.0, 8.0)))
@@ -357,7 +357,22 @@ class ProtectionRouteSelectionRuntimeTest {
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, null))
         epoch.process(frame(2, first))
         assertTrue(selection(world).routeReady)
+        val extra = UUID(0, 905)
+        val sameRegionConnections = listOf(endpoint(trunk, RailEndpoint.B) to endpoint(first, RailEndpoint.A),
+            endpoint(trunk, RailEndpoint.B) to endpoint(second, RailEndpoint.A))
+        val unrelatedRoot = topologyState(8, listOf(trunk, first, second, extra), sameRegionConnections)
+        val unrelatedEdit = work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange(topology, unrelatedRoot, setOf(extra))
+        world.topologyGuard.invalidate(unrelatedEdit)
+        epoch.invalidateTopology(unrelatedEdit)
         epoch.process(frame(3, first, topologyRevision = 8))
+        assertTrue(selection(world).routeReady)
+        val affectedRoot = topologyState(9, listOf(trunk, first, second, extra),
+            sameRegionConnections + (endpoint(trunk, RailEndpoint.B) to endpoint(extra, RailEndpoint.A)))
+        val affectedEdit = work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange(unrelatedRoot, affectedRoot,
+            setOf(trunk, first, second, extra))
+        world.topologyGuard.invalidate(affectedEdit)
+        epoch.invalidateTopology(affectedEdit)
+        epoch.process(frame(4, first, topologyRevision = 9))
         assertFalse(selection(world).available)
         assertFalse(selection(world).routeReady)
     }

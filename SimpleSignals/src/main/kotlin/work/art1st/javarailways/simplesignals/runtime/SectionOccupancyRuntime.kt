@@ -32,7 +32,8 @@ internal class SectionOccupancyObservation(
     val section: SectionRef,
     val definitionRevision: Long,
     val lengthMeters: Double,
-    occupants: Collection<String>
+    occupants: Collection<String>,
+    val available: Boolean = true
 ) {
     val occupants: Set<String> = java.util.Set.copyOf(occupants)
 }
@@ -79,14 +80,20 @@ internal class SectionOccupancyRuntime private constructor(
     val protectionRouteSelection: ProtectionRouteSelectionRuntime,
     private val protectionSignals: work.art1st.javarailways.simplesignals.signal.CompiledProtectionSignals,
     private val blocks: work.art1st.javarailways.simplesignals.block.FixedBlockReadSnapshot,
-    private val directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy
+    private val directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy,
+    private val publication: SimpleSignalsRuntimePublication
 ) {
-    /** Accessed only by the world's serialized signal callbacks; never forms a predecessor chain. */
+    /** Single completed epoch owner, safely read during handoff; never forms a predecessor chain. */
     internal class EpochContinuity {
-        var lastProcessed: SectionOccupancyRuntime? = null
+        @Volatile var lastProcessed: SectionOccupancyRuntime? = null
     }
 
     private var epochContinuity: EpochContinuity? = null
+    private var continuityTransferred = false
+    private var retainedPublication = false
+    private var awaitingBaseline: Set<TopologySection> = emptySet()
+    private val bindingsBySignal = (publication.fixedBlockSignals.bindings + publication.protectionSignals.bindings)
+        .associateBy { it.signalId }
 
     fun attachEpochContinuity(continuity: EpochContinuity) {
         check(epochContinuity == null || epochContinuity === continuity)
@@ -103,6 +110,41 @@ internal class SectionOccupancyRuntime private constructor(
 
     @Volatile
     private var latest: PublishedState? = null
+
+    /** Immutable output handoff only. Mutable route-clearance state still transfers on the epoch owner. */
+    fun retainPublishedFrom(previous: SectionOccupancyRuntime?) {
+        val old = previous?.latest ?: return
+        retainedPublication = true
+        val guard = publication.topologyGuard
+        awaitingBaseline = awaitingBaseline + previous.awaitingBaseline + guard?.capture()?.pending?.keys.orEmpty()
+        val sections = bindingsByArea.values.associate { binding ->
+            val retained = old.occupancy.sections[binding.section]
+            val unchanged = previous.bindingsByArea[binding.area.areaId]?.area === binding.area ||
+                (binding.section.kind == SectionKind.PROTECTION_ROUTE &&
+                    previous.protectionSignals.routeGeometry.blocksById[binding.section.id] ===
+                    protectionSignals.routeGeometry.blocksById[binding.section.id])
+            binding.section to (retained?.takeIf { unchanged } ?: SectionOccupancyObservation(
+                binding.section, binding.definitionRevision, binding.lengthMeters, retained?.occupants.orEmpty(), false))
+        }.toMutableMap()
+        // Missing-rail areas cannot be registered with Basic, but their last known occupants remain evidence.
+        val authoredRoutes = publication.definitions.routeTables.flatMapTo(hashSetOf()) { table -> table.routes.map { it.routeId } }
+        old.occupancy.sections.forEach { (section, observation) ->
+            val retainedUnavailable = when (section.kind) {
+                SectionKind.FIXED_BLOCK -> section.id in blocks.unavailableBlockIds
+                SectionKind.PROTECTION_ROUTE -> section.id in authoredRoutes && section !in sections
+            }
+            if (retainedUnavailable)
+                sections[section] = SectionOccupancyObservation(section, observation.definitionRevision,
+                    observation.lengthMeters, observation.occupants, false)
+        }
+        val signals = old.signals?.let { snapshot -> SectionSignalSnapshot(snapshot.stamp,
+            snapshot.states.mapValues { (id, state) -> if (guard?.signalUnavailable(id) == true ||
+                TopologySection(TopologySectionKind.SIGNAL, id) in awaitingBaseline)
+                SectionSignalState.Unavailable("signal awaits topology revalidation baseline") else state },
+            emptySet(), snapshot.resolvedSectionsBySignal) }
+        latest = PublishedState(SectionOccupancySnapshot(old.occupancy.stamp, sections, emptySet(), emptyMap()),
+            signals, old.selection, old.indicators, old.blockControls)
+    }
 
     @Volatile private var modelBinding: SignalModelBinding? = null
 
@@ -122,33 +164,83 @@ internal class SectionOccupancyRuntime private constructor(
             bindingsByArea.entries.sortedBy { it.key.toString() }.map { it.value.area },
             signalRules?.watchedContinuationEntries.orEmpty() + protectionRouteSelection.watchedContinuationEntries,
             protectionRouteSelection.watchedAdmissionRailIds,
-            blocks.blockIdsByRail.keys
+            blocks.blockIdsByRail.keys + (publication.topologyIndex?.railsByObject?.filterKeys {
+                it.kind == TopologySectionKind.SIGNAL
+            }?.values?.flatten().orEmpty())
         ) { input -> update(input) }
     }
 
-    fun snapshot(): SectionOccupancySnapshot? = latest?.occupancy
+    fun snapshot(): SectionOccupancySnapshot? {
+        val own = latest?.occupancy ?: return null
+        val completed = lastCompletedRuntime() ?: return own
+        val observed = completed.latest?.occupancy ?: return own
+        return SectionOccupancySnapshot(observed.stamp, own.sections.mapValues { (section, retained) ->
+            val current = observed.sections[section] ?: return@mapValues retained
+            val unchanged = when (section.kind) {
+                SectionKind.FIXED_BLOCK -> blocks.blocksById[section.id] === completed.blocks.blocksById[section.id]
+                SectionKind.PROTECTION_ROUTE -> protectionSignals.routeGeometry.blocksById[section.id] != null &&
+                    protectionSignals.routeGeometry.blocksById[section.id] === completed.protectionSignals.routeGeometry.blocksById[section.id]
+            }
+            if (unchanged && retained.available) current else SectionOccupancyObservation(section,
+                retained.definitionRevision, retained.lengthMeters, current.occupants, false)
+        }, emptySet(), emptyMap())
+    }
 
     val sources: List<SignalEpochSource> = listOfNotNull(source)
 
-    fun signalSnapshot(): SectionSignalSnapshot? = latest?.signals
+    fun signalSnapshot(): SectionSignalSnapshot? = latest?.signals?.let { snapshot ->
+        val completed = lastCompletedRuntime()?.latest
+        if (completed != null) return@let SectionSignalSnapshot(completed.occupancy.stamp,
+            snapshot.states.mapValues { (id, state) -> signalById(id)?.state ?: state },
+            snapshot.changedSignalIds, snapshot.resolvedSectionsBySignal)
+        val guard = publication.topologyGuard ?: return@let snapshot
+        val unavailable = snapshot.states.keys.filter(guard::signalUnavailable)
+        if (unavailable.isEmpty()) snapshot else SectionSignalSnapshot(snapshot.stamp,
+            snapshot.states + unavailable.associateWith { SectionSignalState.Unavailable("signal topology is unavailable") },
+            unavailable, snapshot.resolvedSectionsBySignal)
+    }
+
+    private fun lastCompletedRuntime(): SectionOccupancyRuntime? =
+        epochContinuity?.lastProcessed?.takeIf { retainedPublication && it !== this }
+
+    /** Controller lookup is O(1); untouched bindings read the last completed epoch, not a worker copy. */
+    fun signalById(signalId: String): PublishedSectionSignal? {
+        val own = latest ?: return null
+        val completed = lastCompletedRuntime()
+        val captured = if (completed != null && bindingsBySignal[signalId] != null &&
+            bindingsBySignal[signalId] === completed.bindingsBySignal[signalId]) completed.latest ?: own else own
+        if (publication.topologyGuard?.signalUnavailable(signalId) == true ||
+            TopologySection(TopologySectionKind.SIGNAL, signalId) in awaitingBaseline)
+            return PublishedSectionSignal(captured.occupancy.stamp, SectionSignalState.Unavailable("signal topology awaits a valid baseline"))
+        val signals = captured.signals ?: return null
+        return signals.states[signalId]?.let { PublishedSectionSignal(signals.stamp, it) }
+    }
 
     fun signalFor(section: SectionRef): PublishedSectionSignal? {
-        val captured = latest ?: return null
+        val own = latest ?: return null
+        val completed = lastCompletedRuntime()
+        val captured = if (completed != null && section.kind == SectionKind.FIXED_BLOCK &&
+            blocks.blocksById[section.id] === completed.blocks.blocksById[section.id]) completed.latest ?: own else own
+        if (section.kind == SectionKind.FIXED_BLOCK &&
+            (publication.topologyGuard?.sectionUnavailable(TopologySectionKind.BLOCK, section.id) == true ||
+                TopologySection(TopologySectionKind.BLOCK, section.id) in awaitingBaseline))
+            return PublishedSectionSignal(captured.occupancy.stamp, SectionSignalState.Unavailable("fixed-block topology is unavailable"))
         if (section.kind == SectionKind.FIXED_BLOCK) captured.blockControls[section.id]?.let {
             return PublishedSectionSignal(captured.occupancy.stamp, it)
         }
         val signalId = signalRules?.signalIdFor(section) ?: return null
-        val snapshot = captured.signals ?: return null
-        return PublishedSectionSignal(snapshot.stamp, snapshot.states.getValue(signalId))
+        return signalById(signalId)
     }
 
     private fun update(input: SignalEpochInput): SignalEpochResult {
-        val previous = latest
-        if (previous == null) {
+        if (!continuityTransferred) {
             epochContinuity?.lastProcessed?.takeIf { it !== this }?.let { completed ->
+                if (retainedPublication) retainPublishedFrom(completed)
                 protectionRouteSelection.retainClearanceFrom(completed.protectionRouteSelection)
             }
+            continuityTransferred = true
         }
+        val previous = latest
         val oldSelection = protectionRouteSelection.snapshot()
         protectionRouteSelection.update(input)
         val selection = protectionRouteSelection.snapshot()
@@ -168,12 +260,18 @@ internal class SectionOccupancyRuntime private constructor(
         }
         val observations = previous?.occupancy?.sections?.toMutableMap() ?: linkedMapOf()
         val changed = linkedSetOf<SectionRef>()
-        val policyBlocks = if (previous == null || input.topologyBaseline) blocks.blocksById.values.toList()
-            else blocks.candidates(input.changedOperatingDirectionRailIds)
+        val topologyAffected = if (input.topologyBaseline)
+            publication.topologyGuard?.capture()?.pending?.keys.orEmpty() + awaitingBaseline else emptySet()
+        topologyAffected.filter { it.kind == TopologySectionKind.SIGNAL }.forEach { key ->
+            bindingsBySignal[key.id]?.observedSections?.let(changed::addAll)
+        }
+        val policyBlocks = (if (previous == null) blocks.blocksById.values.toList() else {
+            blocks.candidates(input.changedOperatingDirectionRailIds) + topologyAffected
+                .filter { it.kind == TopologySectionKind.BLOCK }.mapNotNull { blocks.blocksById[it.id] }
+        }).distinctBy { it.definition.blockId }.filter { it.definition.blockId !in blocks.unavailableBlockIds }
         val changedControls = linkedSetOf<String>()
         val controls = if (policyBlocks.isEmpty()) previous?.blockControls.orEmpty() else {
             val policyStates = try {
-                check(input.observation.stamp.topologyRevision == blocks.topology.revision) { "fixed-block topology is stale" }
                 val disabled = directionPolicy.disabledBlocks(blocks, policyBlocks)
                 policyBlocks.associate { block -> block.definition.blockId to
                     if (block.definition.blockId in disabled) SectionSignalState.Unavailable("fixed-block operating directions disagree")
@@ -202,13 +300,20 @@ internal class SectionOccupancyRuntime private constructor(
                 "occupancy area ${update.areaId} revision ${update.definitionRevision} does not match " +
                     "compiled section revision ${binding.definitionRevision}"
             }
-            observations[binding.section] = SectionOccupancyObservation(
+            val oldObservation = observations[binding.section]
+            val nextObservation = SectionOccupancyObservation(
                 binding.section,
                 binding.definitionRevision,
                 binding.lengthMeters,
-                update.occupants
+                update.occupants,
+                update.available
             )
-            changed += binding.section
+            if (oldObservation == null || oldObservation.definitionRevision != nextObservation.definitionRevision ||
+                oldObservation.lengthMeters != nextObservation.lengthMeters || oldObservation.available != nextObservation.available ||
+                oldObservation.occupants != nextObservation.occupants || update.crossings.isNotEmpty()) {
+                observations[binding.section] = nextObservation
+                changed += binding.section
+            }
             if (update.crossings.isNotEmpty()) {
                 crossings[binding.section] = update.crossings
             }
@@ -225,7 +330,8 @@ internal class SectionOccupancyRuntime private constructor(
             input.observation.activeContinuations,
             input.continuationUpdates.map { it.entry },
             protectionRouteSelection.evaluatedEntryIds,
-            { section -> controls[section.id].takeIf { section.kind == SectionKind.FIXED_BLOCK } }
+            { section -> controls[section.id].takeIf { section.kind == SectionKind.FIXED_BLOCK } },
+            { id -> publication.topologyGuard?.signalUnavailable(id) == true }
         ) { binding ->
             val definition = protectionSignals.definitionsById[binding.signalId]
             if (definition == null) binding.controlledSection else when (definition.kind) {
@@ -239,6 +345,7 @@ internal class SectionOccupancyRuntime private constructor(
         val published = PublishedState(occupancy, signals, selection, indicatorStates, controls)
         latest = published
         epochContinuity?.lastProcessed = this
+        awaitingBaseline = emptySet()
         modelBinding?.published(published, signals?.changedSignalIds.orEmpty(), changedIndicatorIds)
         return SignalEpochResult(
             emptyList(),
@@ -282,6 +389,7 @@ internal class SectionOccupancyRuntime private constructor(
             val blockSnapshot = publication.fixedBlocks.snapshot(publication.topology)
             val bindings = linkedMapOf<RailObjectRef, Binding>()
             blockSnapshot.blocksById.toSortedMap().forEach { (blockId, block) ->
+                if (blockId in blockSnapshot.unavailableBlockIds) return@forEach
                 val binding = Binding(
                     SectionRef(SectionKind.FIXED_BLOCK, blockId),
                     block.definition.revision,
@@ -303,7 +411,7 @@ internal class SectionOccupancyRuntime private constructor(
             }
             val copiedBindings = java.util.Map.copyOf(bindings)
             return SectionOccupancyRuntime(copiedBindings, signalRules, ProtectionRouteSelectionRuntime(publication),
-                publication.protectionSignals, blockSnapshot, publication.directionPolicy)
+                publication.protectionSignals, blockSnapshot, publication.directionPolicy, publication)
         }
     }
 }

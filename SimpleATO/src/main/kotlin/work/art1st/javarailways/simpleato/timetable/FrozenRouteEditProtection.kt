@@ -44,9 +44,6 @@ internal class FrozenRouteEditProtection(
         routes: List<RouteSnapshot>
     ): FrozenRouteProtectionResult {
         require(routes.isNotEmpty()) { "frozen-route dependency requires at least one route" }
-        require(routes.all { it.topologyRevision == topology.revision }) {
-            "frozen route topology revision does not match the current topology"
-        }
         val current = installed
         if (current?.routes == routes) return FrozenRouteProtectionResult.Protected(changed = false)
 

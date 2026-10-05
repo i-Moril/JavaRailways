@@ -15,7 +15,7 @@ internal class UnavailableProtectionTerritory(
     }.groupBy { (_, slice) -> slice.railId }
 
     fun requireUsable(route: RouteSnapshot, authorityEndMeters: Double = Double.POSITIVE_INFINITY) {
-        check(route.topologyRevision == regions.topology.revision) { "protection territory uses stale topology" }
+        regions.requireUsable(route, authorityEndMeters)
         if (slicesByRail.isEmpty() || route.segments.none { it.railId in slicesByRail }) return
         val projection = when (val result = DirectedRouteProjector.project(route, regions.derivedTopology)) {
             is DirectedRouteProjectionResult.Projected -> result.route

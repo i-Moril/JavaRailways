@@ -42,9 +42,6 @@ internal class ProtectionRouteBindingCompiler(private val publication: SimpleSig
             blocks.definitionRevision == publication.definitions.definitionRevision) {
             "protection regions and fixed blocks were captured from different definition revisions"
         }
-        check(route.topologyRevision == publication.topology.revision) {
-            "route topology revision ${route.topologyRevision} does not match catalog ${publication.topology.revision}"
-        }
         val windows = when (val match = regions.match(route)) {
             is ProtectionRegionRouteMatchResult.Matched -> match.windows
             is ProtectionRegionRouteMatchResult.Rejected -> error(match.diagnostics.joinToString { it.detail })

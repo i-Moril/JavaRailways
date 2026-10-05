@@ -51,12 +51,6 @@ data class InspectionUpdateInput private constructor(
         require(routeProgressMeters.isFinite() && routeProgressMeters >= 0.0 &&
             routeProgressMeters <= route.totalLengthMeters
         ) { "routeProgressMeters must be within the frozen route" }
-        require(observationStamp.topologyRevision == route.topologyRevision) {
-            "observation and route must use the same topology revision"
-        }
-        require(perception.route.topologyRevision == route.topologyRevision) {
-            "perception and route must use the same topology revision"
-        }
     }
 
     internal companion object {

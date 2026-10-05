@@ -54,6 +54,34 @@ internal class ProtectionRegionTopology private constructor(
         get() = topologyState.revision
 
     companion object {
+        /** O(1) view over Core's immutable rail/endpoint indexes; materializes only requested rails. */
+        fun direct(topologyState: TopologyState): ProtectionRegionTopology = ProtectionRegionTopology(
+            topologyState,
+            object : AbstractMap<UUID, ProtectionTopologyRail>() {
+                override fun get(key: UUID): ProtectionTopologyRail? {
+                    val projection = topologyState.railProjection[key]?.singleOrNull() ?: return null
+                    fun connections(endpoint: RailEndpoint): List<ProtectionTopologyConnection> {
+                        val port = RailEndpointRef(key, endpoint)
+                        val targets = when (val node = topologyState.structuralNodeAt(port)) {
+                            is TopologyNode.Turnout -> node.legalContinuations[port].orEmpty()
+                            is TopologyNode.LoopAnchor -> node.ports.filter { it != port }
+                            is TopologyNode.Terminus -> emptyList()
+                            null -> listOfNotNull(topologyState.ordinaryContinuationAt(port))
+                        }
+                        return targets.map(::toConnection).sortedWith(connectionOrder)
+                    }
+                    return ProtectionTopologyRail.create(key,
+                        max(projection.railStartAbMeters, projection.railEndAbMeters),
+                        connections(RailEndpoint.A), connections(RailEndpoint.B))
+                }
+                override val entries: Set<Map.Entry<UUID, ProtectionTopologyRail>>
+                    get() = topologyState.railProjection.keys.mapTo(linkedSetOf()) {
+                        java.util.AbstractMap.SimpleImmutableEntry(it, getValue(it))
+                    }
+                override val size: Int get() = topologyState.railProjection.size
+                override fun isEmpty(): Boolean = topologyState.railProjection.isEmpty()
+            })
+
         /** Retains the exact root without indexing rails when no protection region exists. */
         fun empty(topologyState: TopologyState): ProtectionRegionTopology =
             ProtectionRegionTopology(topologyState, emptyMap())

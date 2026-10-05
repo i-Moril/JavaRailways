@@ -170,12 +170,12 @@ class FixedBlockInspectionSourceTest {
     }
 
     @Test
-    fun `empty block index still rejects stale selected route topology`() {
+    fun `empty block index adds no dependency merely because route topology revision differs`() {
         val snapshot = FixedBlockCatalog().also { it.publish(topology, 1L, emptyList()) }.snapshot(topology)
         val source = fixedBlockInspectionSource({ snapshot }).source
         val stale = RouteSnapshot("test:stale", 0L, 8L,
             listOf(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0)))
-        assertThrows(IllegalStateException::class.java) { source.routeInfrastructureDependencies.dependencies(stale) }
+        assertEquals(emptySet<StableInfrastructureResource>(), source.routeInfrastructureDependencies.dependencies(stale).toSet())
     }
 
     private val worldId = UUID.randomUUID()

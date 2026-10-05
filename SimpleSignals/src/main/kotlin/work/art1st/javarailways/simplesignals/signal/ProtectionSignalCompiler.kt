@@ -25,7 +25,10 @@ internal class CompiledProtectionSignals private constructor(
         fun compile(topology: TopologyState, revision: Long, routes: ProtectionRouteSelectionIndex,
             blocks: FixedBlockReadSnapshot, fixedSignals: Collection<FixedBlockSignalDefinition>,
             signals: Collection<ProtectionSignalDefinition>, indicators: Collection<RouteIndicatorDefinition>,
-            authoredTables: Collection<ProtectionRouteTableDefinition> = emptyList()
+            authoredTables: Collection<ProtectionRouteTableDefinition> = emptyList(),
+            previous: Pair<CompiledFixedBlockSignals, CompiledProtectionSignals>? = null,
+            changedSignalIds: Set<String> = emptySet(),
+            revalidatingTopology: Boolean = false
         ): Pair<CompiledFixedBlockSignals, CompiledProtectionSignals> {
             val byId = signals.associateBy { it.signalId }
             require(byId.size == signals.size) { "protection signal IDs must be unique" }
@@ -36,7 +39,6 @@ internal class CompiledProtectionSignals private constructor(
             val authoredByEntry = authoredRoutes.values.groupBy { it.entryBoundaryId }
             val usableByEntry = routes.routesById.values.groupBy { it.definition.entryBoundaryId }
             val routeIdsBySignal = signals.associate { signal ->
-                signal.model?.validatePlacement(topology, signal.signalId)
                 val candidates = when (signal.kind) {
                     ProtectionSignalKind.FIXED_ROUTE -> listOfNotNull(routes.routesById[signal.bindingId]).also {
                         require(it.isNotEmpty() || signal.bindingId in authoredRoutes) {
@@ -47,6 +49,7 @@ internal class CompiledProtectionSignals private constructor(
                     .also { require(it.isNotEmpty() || signal.bindingId in authoredByEntry) {
                         "signal ${signal.signalId} binds unknown entry ${signal.bindingId}" } }
                 }
+                if (!revalidatingTopology && candidates.isNotEmpty()) signal.model?.validatePlacement(topology, signal.signalId)
                 require(signal.downstreamSignalsByRouteId.keys.all { id -> candidates.any { it.definition.routeId == id } ||
                     authoredRoutes[id]?.let {
                         (signal.kind == ProtectionSignalKind.FIXED_ROUTE && signal.bindingId == id ||
@@ -61,16 +64,24 @@ internal class CompiledProtectionSignals private constructor(
                 routes.routesById.values.filter { it.definition.entryBoundaryId in indicatorEntries }
                     .forEach { ids += it.definition.routeId }
             }
-            val geometryResult = geometryCatalog.publish(topology, revision, observedRouteIds.map { id ->
+            val geometryDefinitions = observedRouteIds.map { id ->
                 val route = routes.routesById.getValue(id)
                 FixedBlockDefinition(id, revision, route.definition.traversals.map {
                     FixedBlockTraversal(it.railId, it.facing, it.lowerAbMeters, it.upperAbMeters)
                 })
-            }, blocks.routeTopology.takeIf { it.rails.isNotEmpty() || observedRouteIds.isEmpty() })
-            require(geometryResult.status != FixedBlockCatalogStatus.REJECTED) {
-                geometryResult.diagnostics.joinToString { it.detail }
             }
-            val geometry = geometryCatalog.snapshot(topology)
+            val geometryBlocks = geometryDefinitions.associate { definition ->
+                val retained = previous?.second?.routeGeometry?.blocksById?.get(definition.blockId)?.takeIf {
+                    routes.routesById[definition.blockId] === previous.second.routes.routesById[definition.blockId]
+                }
+                val compiled = retained ?: when (val result = geometryCatalog.compile(definition, blocks.routeTopology)) {
+                    is FixedBlockCatalog.Compilation.Compiled -> result.block
+                    is FixedBlockCatalog.Compilation.Rejected -> throw IllegalArgumentException(result.diagnostic.detail)
+                }
+                definition.blockId to compiled
+            }
+            val geometry = FixedBlockCatalog.fromCompiled(topology, revision, geometryDefinitions, geometryBlocks, emptySet())
+                .snapshot(topology)
             val signalGeometry = routeIdsBySignal.filterValues { it.isNotEmpty() }
                 .mapValues { (_, ids) -> geometry.blocksById.getValue(ids.first()) }
             // A retained invalid binding remains a known zero-speed source, including its upstream consumers.
@@ -81,6 +92,8 @@ internal class CompiledProtectionSignals private constructor(
                 providers.distinct().filter { it in dependencies }.map { InvalidationDependency(it, consumer) }
             })
             val unavailable = routeIdsBySignal.filterValues { it.isEmpty() }.keys.toMutableSet()
+            fixedSignals.filter { it.controlledBlockId in blocks.unavailableBlockIds }
+                .mapTo(unavailable) { it.signalId }
             val consumers = dependencies.flatMap { (id, providers) -> providers.map { it to id } }.groupBy({ it.first }, { it.second })
             val pending = java.util.ArrayDeque<String>()
             pending.addAll(unavailable)
@@ -88,11 +101,17 @@ internal class CompiledProtectionSignals private constructor(
             while (pending.isNotEmpty()) consumers[pending.removeFirst()].orEmpty().forEach { id ->
                 if (unavailable.add(id)) pending += id
             }
-            val compiledFixed = CompiledFixedBlockSignals.compile(fixedSignals, blocks, signalGeometry, false, unavailable)
+            val retainedBindings = if (previous == null) emptyMap() else
+                (previous.first.bindings + previous.second.bindings).filter { it.signalId !in changedSignalIds }
+                    .associateBy { it.signalId }
+            val compiledFixed = CompiledFixedBlockSignals.compile(fixedSignals, blocks, signalGeometry, false, unavailable,
+                retainedBindings, unavailable.takeIf { revalidatingTopology })
             val allGeometry = signalGeometry + fixedSignals.associate {
                 it.signalId to blocks.blocksById.getValue(it.controlledBlockId)
             }
-            val bindings = signals.filter { it.signalId !in unavailable }.map { signal ->
+            val bindings = signals.filter { it.signalId !in unavailable }.mapNotNull { signal ->
+                retainedBindings[signal.signalId]?.let { return@mapNotNull it }
+                try {
                 val candidateIds = routeIdsBySignal.getValue(signal.signalId)
                 val prepared = candidateIds.associate { id ->
                     SectionRef(SectionKind.PROTECTION_ROUTE, id) to routes.routesById.getValue(id)
@@ -126,13 +145,18 @@ internal class CompiledProtectionSignals private constructor(
                     }
                     SectionSignalOutput(selected.speedLimitMetersPerSecond, selected.modelVariant)
                 }
+                } catch (failure: IllegalArgumentException) {
+                    if (!revalidatingTopology) throw failure
+                    unavailable.add(signal.signalId)
+                    null
+                }
             }
             val indicatorById = indicators.associateBy { it.indicatorId }
             require(indicatorById.size == indicators.size && indicatorById.keys.none { it in dependencies }) {
                 "device identities must be unique"
             }
             indicators.forEach { indicator ->
-                indicator.model?.validatePlacement(topology, indicator.indicatorId)
+                if (!revalidatingTopology) indicator.model?.validatePlacement(topology, indicator.indicatorId)
                 val entryRoutes = usableByEntry[indicator.entryBoundaryId].orEmpty()
                 val authoredEntry = authoredByEntry[indicator.entryBoundaryId].orEmpty()
                 require(entryRoutes.isNotEmpty() || authoredEntry.isNotEmpty()) { "indicator ${indicator.indicatorId} binds unknown entry" }
@@ -141,7 +165,13 @@ internal class CompiledProtectionSignals private constructor(
                     "indicator ${indicator.indicatorId} must configure exactly its entry routes"
                 }
             }
-            val allBindings = compiledFixed.bindings + bindings
+            pending.addAll(unavailable)
+            while (pending.isNotEmpty()) consumers[pending.removeFirst()].orEmpty().forEach { id ->
+                if (unavailable.add(id)) pending += id
+            }
+            val usableFixed = compiledFixed.withoutBindings(unavailable)
+            val usableProtection = bindings.filter { it.signalId !in unavailable }
+            val allBindings = usableFixed.bindings + usableProtection
             val sections = blocks.blocksById.keys.map { SectionRef(SectionKind.FIXED_BLOCK, it) } +
                 routes.routesById.keys.map { SectionRef(SectionKind.PROTECTION_ROUTE, it) }
             val unavailableDeclarations = unavailable.associateWith { id ->
@@ -151,9 +181,9 @@ internal class CompiledProtectionSignals private constructor(
             val runtime = if (allBindings.isEmpty() && unavailable.isEmpty()) null else
                 SectionSignalRuleRuntime.compile(sections, allBindings, unavailableDeclarations,
                     fixedSignals.filter { it.signalId in unavailable }.associate { SectionRef(SectionKind.FIXED_BLOCK, it.controlledBlockId) to it.signalId })
-            return compiledFixed to CompiledProtectionSignals(geometry, routes, java.util.Map.copyOf(byId),
+            return usableFixed to CompiledProtectionSignals(geometry, routes, java.util.Map.copyOf(byId),
                 java.util.Map.copyOf(indicatorById), java.util.Map.copyOf(routeIdsBySignal),
-                java.util.List.copyOf(bindings), runtime)
+                java.util.List.copyOf(usableProtection), runtime)
         }
     }
 }

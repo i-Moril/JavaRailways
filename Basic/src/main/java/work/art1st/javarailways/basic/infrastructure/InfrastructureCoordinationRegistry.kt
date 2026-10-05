@@ -40,6 +40,8 @@ data class InfrastructureClaimRequest(
 /**
  * World-local atomic registry. Platform ownership tokens are deliberately opaque and never enter
  * persisted owner identities or public diagnostics.
+ * Reference validators must be side-effect-free. Validation and installation use the same lock
+ * as edit-permit acquisition, so supported edits cannot pass between those two operations.
  */
 class InfrastructureCoordinationRegistry(
     private val currentTopologyRevision: () -> Long,
@@ -211,7 +213,7 @@ class InfrastructureCoordinationRegistry(
 
         return synchronized(lock) {
             val footprint = InfrastructureFootprint(delta)
-            validate(topologyRevision, footprint)?.let {
+            validate(footprint)?.let {
                 return@synchronized ClaimAppendReservation(it, null)
             }
             if (hasPendingMutation(expectedOwner.ownerId)) {
@@ -534,7 +536,7 @@ class InfrastructureCoordinationRegistry(
         request: InfrastructureClaimRequest,
         rollbackTracked: Boolean
     ): ClaimMutation = synchronized(lock) {
-        validate(request.topologyRevision, request.footprint)?.let {
+        validate(request.footprint)?.let {
             return@synchronized ClaimMutation(it, null)
         }
         if (hasPendingMutation(request.owner.ownerId)) {
@@ -605,13 +607,6 @@ class InfrastructureCoordinationRegistry(
         request: InfrastructureDependencyRequest
     ): InfrastructureDependencyMutationResult? {
         if (closed) return dependencyResult(InfrastructureDependencyMutationStatus.SERVICE_CLOSED, "registry is closed")
-        val currentRevision = currentTopologyRevision()
-        if (request.topologyRevision != currentRevision) {
-            return dependencyResult(
-                InfrastructureDependencyMutationStatus.STALE_TOPOLOGY,
-                "requested topology revision ${request.topologyRevision} does not match current $currentRevision"
-            )
-        }
         val invalid = firstInvalidReference(
             request.dependencies.railIds,
             request.dependencies.topologyNodeKeys,
@@ -619,13 +614,6 @@ class InfrastructureCoordinationRegistry(
         )
         if (invalid != null) {
             return dependencyResult(InfrastructureDependencyMutationStatus.INVALID_REFERENCE, invalid)
-        }
-        val confirmedRevision = currentTopologyRevision()
-        if (request.topologyRevision != confirmedRevision) {
-            return dependencyResult(
-                InfrastructureDependencyMutationStatus.STALE_TOPOLOGY,
-                "topology changed during validation from requested ${request.topologyRevision} to $confirmedRevision"
-            )
         }
         return null
     }
@@ -731,18 +719,8 @@ class InfrastructureCoordinationRegistry(
             }
         }
 
-    private fun validate(
-        topologyRevision: Long,
-        footprint: InfrastructureFootprint
-    ): InfrastructureMutationResult? {
+    private fun validate(footprint: InfrastructureFootprint): InfrastructureMutationResult? {
         if (closed) return result(InfrastructureMutationStatus.SERVICE_CLOSED, "registry is closed")
-        val currentRevision = currentTopologyRevision()
-        if (topologyRevision != currentRevision) {
-            return result(
-                InfrastructureMutationStatus.STALE_TOPOLOGY,
-                "requested topology revision $topologyRevision does not match current $currentRevision"
-            )
-        }
         for (resource in footprint.resources) {
             val exists = try {
                 resourceExists(resource)
@@ -755,13 +733,6 @@ class InfrastructureCoordinationRegistry(
             if (!exists) {
                 return result(InfrastructureMutationStatus.INVALID_RESOURCE, "resource does not exist: $resource")
             }
-        }
-        val confirmedRevision = currentTopologyRevision()
-        if (topologyRevision != confirmedRevision) {
-            return result(
-                InfrastructureMutationStatus.STALE_TOPOLOGY,
-                "topology changed during validation from requested $topologyRevision to $confirmedRevision"
-            )
         }
         return null
     }

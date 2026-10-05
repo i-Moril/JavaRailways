@@ -422,11 +422,11 @@ class ProtectionRegionInspectionSourceTest {
     }
 
     @Test
-    fun `static empty catalogs still reject stale route revision`() {
+    fun `static empty catalogs add no dependency merely because route topology revision differs`() {
         val captured = publication(regions = emptyList(), revision = 0L)
         val source = ProtectionRegionInspectionSource { captured }.source
         val stale = RouteSnapshot("test:stale", 1L, topology.revision + 1L, forwardRoute().segments)
-        assertThrows(IllegalStateException::class.java) { source.routeInfrastructureDependencies.dependencies(stale) }
+        assertTrue(source.routeInfrastructureDependencies.dependencies(stale).isEmpty())
     }
 
     @Test

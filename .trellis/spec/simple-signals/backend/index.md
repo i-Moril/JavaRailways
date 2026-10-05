@@ -14,6 +14,8 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 已提供独立管理员 inspect/export/validate/apply 命令及 current-JSON 草稿工作流；
 现已接入[闭塞与保护区域 Wand](section-authoring-wands.md)；独立信号机工具及信号规则 JS/YAML 接口仍未提供。模型显示接线已提供，但真实 Folia/客户端画面
 仍待验证，不得把 foundation 描述为完整建造/呈现系统。
+轨道编辑后的局部失效、后台重验与恢复归[区间局部重验](section-topology-revalidation.md)；
+世界拓扑版本增加不再使所有既有区间和冻结路线过期。
 
 模型显示方案见[信号状态如何显示成模型](model-presentation.md)。SimpleSignals 已提供私有的预设应用和
 轨道附着/地面摆放计算，复用公开曲线和值类型，输出 `ModelPose`；方向、倾斜与原地旋转已通过真实曲线测试。
@@ -144,16 +146,16 @@ revision绑定一个region ID及其revision；每条带稳定ID的route声明ent
 重叠的进路可以并存，重叠进路则由真实物理资源或插件明确添加的资源拒绝，不能把region ID默认变成整区互斥锁。
 
 所有table先全部验证和编译，成功后才原子替换cached restriction snapshot；失败保留旧snapshot。source callback
-只做`O(1)`的region publication与topology root/revision一致性检查，然后返回已缓存的Basic中立
-`RoutePlanningRestrictions`；不在Dijkstra或tick内解析region/table。设table route的总traversal数为`P`，
+检查本次查询使用当前root，并把已缓存的Basic中立`RoutePlanningRestrictions`与局部不可用范围组合；
+不在Dijkstra或tick内解析region/table。设table route的总traversal数为`P`，
 region interior slice总数为`S`，同一rail最多有`Q`个slice，publication编译为`O(S+P log Q)`（另加ID检查和
 topology continuation的局部邻接检查），route query仍只有Basic既有的query-graph编译和Dijkstra成本。
-region或topology publication变化而table尚未重编译时source抛出失败，不能返回旧的宽松限制。
+相关区域尚未重验时source禁止经过该范围，不能返回旧的宽松限制；无关区域继续使用已有进路表。
 
 world runtime的definition入口为一次更新建立全新的candidate region、route-table和fixed-block catalog；三者都成功后才以
 一次volatile publication替换live triple。注册到host的binding保持稳定，只读取该publication，因此已捕获的source和其他读取者
-会看到完整新组或完整旧组，不会看到跨revision混合状态。拓扑变更不会触发callback内重建；在authoring/persistence层显式
-republish之前，旧source/snapshot按root identity检查fail-close。production启动会把已恢复的非空定义完整编译后发布。
+会看到完整新组或完整旧组，不会看到不一致状态。轨道事务先同步标记相交依赖，再在worker重验和替换结果；
+不能在callback内重建，也不能仅因root不同停用无关区间。production启动仍完整编译已恢复定义。
 
 ## 固定闭塞定义与索引
 
@@ -165,7 +167,8 @@ rail UUID、`ViewDirection`及canonical AB闭区间。定义不保存长度、oc
 `FixedBlockCatalog.publish`只在load/authoring低频路径执行：它防御性复制并排序完整定义集，验证block ID唯一和保留定义revision
 单调，随后针对一个exact `TopologyState` root验证每段rail/范围及相邻段的物理continuation。跨rail连接必须是Core topology声明的
 有向continuation；仅共享一个道岔node但该entry没有到目标port的continuation仍拒绝。所有block编译成功后才一次替换publication，
-任一失败保留旧snapshot。读取者必须以同一个topology对象取得snapshot，仅revision数值相同的另一个root也视为stale。
+任一失败保留旧snapshot。运行时依赖是否有效由轨道事务通知决定，而不是比较所有snapshot的世界revision；
+worker为当前图重验受影响对象，未命中的编译结果可复用。
 authoring坐标最多允许超出rail末端`Curve.TOLERANCE`，编译几何会夹回真实rail长度；更大越界或夹回后不再具有正长度的traversal拒绝。
 
 每个编译结果保存作者定义、端点容差归一后的有向traversal、总长度，以及覆盖整段block的`RailwayOccupancyAreaDefinition`。occupancy geometry按rail合并相接或重叠的
@@ -220,7 +223,7 @@ window的最大exit；未申请的未来经过不得抬高释放点。Basic沿�
 折返前后两段运营路线不等于同一冻结路线绕圈，不能因此拒绝整个回库任务，也不能宣称完整回库资源衔接已实现。
 不同block独立加入同一个union；Basic仍自行编译不可删除的rail/turnout/diamond物理底线并原子claim。
 
-匹配失败、stale topology、缺world runtime或provider validation失败均发生在registry mutation前。在线definition patch继续持有旧、新
+匹配失败、相关拓扑依赖失效、缺world runtime或provider validation失败均发生在registry mutation前。在线definition patch继续持有旧、新
 受影响rail的host edit permit：若route已经claim这些物理rail，edit被拒绝；若edit先取得permit，route claim被拒绝。因此无需把
 definition revision编码进resource ID，也不新增第二个revision token。publication通过volatile runtime引用读取；manager另发布只读
 world→runtime map，使准入热路径不等待authoring持有的manager lock或文件I/O。
@@ -289,7 +292,7 @@ degree-2物理环线上的真实Basic申请/延长/车尾释放，并覆盖内�
 
 现有固定闭塞inspection source实现`routeInfrastructureDependencies`，从一份不可变block snapshot读取
 `FixedBlockRouteMatcher.matchRoute`结果，返回实际注册的`StableInfrastructureResource("simplesignals:fixed-block", blockId)`。
-先核对snapshot与route的topology revision，即使block集合为空也不能跳过该校验。
+先确认publication与路线涉及的区间仍有效；不要求冻结路线的历史世界版本等于当前世界版本。
 区间内部站台起终点允许，重复经过的同一block身份去重；未配置信号、当前红灯或占用不改变这份静态依赖。
 保护区域没有额外exclusive token，仍由所选进路的物理依赖保护。
 
@@ -303,7 +306,7 @@ SimpleATO在时刻表生效前合入已有applied-plan声明，不调用列车bi
 本回调复用已有route matcher及rail反向索引；它只在应用/恢复准备执行，成本等于一次完整已选路线匹配加身份集合构造，
 不新增逐tick扫描或第二套匹配缓存。host收集、失败原子性与生命周期见
 [静态资源依赖合同](../../javarailways/simpleato/operational-routing-and-authority.md#35-已选时刻表路线的静态资源依赖)。
-测试须证明资源身份精确、partial/repeated路线正确、空catalog过期拒绝、table path唯一匹配，
+测试须证明资源身份精确、partial/repeated路线正确、受影响定义拒绝而无关revision变化不拒绝、table path唯一匹配，
 以及静态依赖能阻止真实编辑但不阻止运行claim；保护区域首次/替换失败还须证明clock、初始位置和旧依赖原子性。
 本功能没有持久化变更或兼容路径。
 
@@ -329,7 +332,7 @@ retained signal同样要求revision单调；signal引用和DAG也在取得permit
 `TopologyEditDecision`及blocker diagnostics。任一步失败都保留旧publication；save在替换primary前只写staging文件，替换primary
 是唯一commit point，之后backup rotation只作best-effort recovery维护，不能把已提交primary误报为失败。
 
-region/table/block/两类signal/indicator定义变化或exact topology root变化时，runtime先完整编译candidate definition与新的
+region/table/block/两类signal/indicator定义编辑时，runtime先完整编译candidate definition与新的
 `SectionOccupancyRuntime`，再以本次编辑的旧/新影响并集取得既有edit permit。permit拒绝发生在写盘和source callback前。
 permit成功后通过host `replaceSourcesAtomically`提交：host先验证/编译所有owner的candidate source全集并检查retained restriction，
 但不取得跨world simulation lock。已开始的epoch保留其捕获的旧immutable source，下一epoch才读取replacement并建立新baseline。
@@ -422,7 +425,8 @@ snapshot，再要求lead-time lookup仍属于同一个outer publication；若在
 
 编译结果另外保留“该block是否配置signal”的存在性，不能用lead time是否大于0推断，因为0秒也是合法配置。active声明读取不到已配置
 signal的首个published baseline时，inspection source在入口发布0 m/s限制；只有确实没有signal定义的resource-only block才不附加
-速度限制。已有状态仍必须匹配world/topology且不得来自未来physics epoch。这样初始缺失状态不会形成短暂许可，也不增加轮询或tick扫描。
+速度限制。已有状态必须匹配world且不得来自未来physics epoch，实际依赖也不能已被事务标记失效；
+无关世界revision变化不使信号输出过期。这样初始缺失状态不会形成短暂许可，也不增加轮询或tick扫描。
 
 该字段仍属于未发布的开发中schema-1合同，因此当前模型直接以`inspectionLeadTimeSeconds`取代早期分支上的距离字段；不增加
 runtime兼容alias或无实际发行版本对应的中间schema。需要保留的开发服数据应在启用前通过一次性迁移修正。
@@ -469,13 +473,13 @@ git diff --check
 `verifyPluginJar` 必须证明 artifact 含 `plugin.yml`，且不含 Core、Basic、SimpleATO 或 BukkitPlugin
 宿主 package。服务发现测试必须覆盖完整 capability 集合和缺少必需 capability 时的 fail-fast。
 保护区域测试必须覆盖简单/多道岔连通内部、outside reconnect、重叠、AB/BA路线窗口、缺少entry/exit和catalog失败不替换旧snapshot。
-固定闭塞测试必须覆盖多rail AB/BA、连续性与非法道岔transition、重复ID、revision/root stale、失败publication原子性、与保护区域
+固定闭塞测试必须覆盖多rail AB/BA、连续性与非法道岔transition、重复ID、定义revision冲突、局部拓扑失效、失败publication原子性、与保护区域
 正长度interior重叠拒绝但边界相接允许、reverse index、
 occupancy boundary方向/几何、schema-1 empty default/round-trip/严格非法输入，以及runtime patch/persistence/affected-rail整合。
 具体固定闭塞信号测试还必须覆盖配置输出不被runtime解释、占用优先、下游最小限速阈值选择、末端无依赖、inspection lead time、
 未知block/signal引用、重复controlled block、cycle、production binding安装以及signal patch的持久化和原子source替换。
-world runtime测试还必须覆盖空启动、非空table改变Basic实际选路、candidate失败保留旧pair、topology变化到显式republish之间
-fail-close，以及同UUID reload得到新binding。持久化测试必须覆盖固定current fixture round-trip、严格未知字段/version/world ID、
+world runtime测试还必须覆盖空启动、非空table改变Basic实际选路、candidate失败保留旧pair、相关拓扑变更到后台重验之间
+保持不可用、无关事务不影响行车，以及同UUID reload得到新binding。持久化测试必须覆盖固定current fixture round-trip、严格未知字段/version/world ID、
 primary损坏时backup恢复、恢复后写入不以坏primary覆盖最后有效backup、双损坏保留原文件、写入backup轮转、loaded definition在
 注册前改变Basic实际选路，以及orphan/corrupt输入只安装拒绝新寻路的fail-closed source而不发布可用runtime。authoring测试还须覆盖
 组合patch、revision/patch/validation拒绝、三类host conflict透传、permit后root变化、save失败保持disk/live旧值、成功disk/source同步

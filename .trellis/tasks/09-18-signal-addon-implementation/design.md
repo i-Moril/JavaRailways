@@ -75,11 +75,20 @@ Stable persisted `kind/type` values represent capabilities; Java/Kotlin class na
 当前边界 Wand 每次放置有向边界都自动从内侧尝试识别完整区域，
 不要求预先选中区域或进入修复模式。补全旧区域时通过保留的边界关系识别原区域，沿用其身份与配置；
 定义暂时不完整时保留配置并禁止 ATO 驶入，恢复须重新校验。工作方式、作者状态与搜索上限见
-[工具契约](../../spec/simple-signals/backend/section-authoring-wands.md)。此批不声称完成任意轨道结构改坏后的自动局部修复。
+[工具契约](../../spec/simple-signals/backend/section-authoring-wands.md)。轨道结构编辑另由下面的事务通知驱动。
+
+轨道重验采用用户确认的事务驱动方案：轨道编辑事务给出受影响轨道，SimpleSignals 利用轨道到区间的关联索引
+取出候选并去重，再在编辑后的拓扑上重新验证。删除需要旧关联，新增连接需要包含接入的既有轨道；
+不可用对象仍保持修复依赖。重验在 worker 执行，相关旧结果须在新拓扑被运营使用前停止放行，
+无关区间不能跟随停用。实现机制由[区间局部重验合同](../../spec/simple-signals/backend/section-topology-revalidation.md)维护；
+批次验证结果见 `implement.md`。
+用户已批准跨层替换运行时的世界 topology revision 失效判断：以事务影响集合及各对象轨道依赖作为有效性依据，
+不重置未受影响占用、不重新规划未受影响冻结路线、不丢弃已有授权；真正受影响的数据在重验前不得放行。
+世界版本继续标识不可变快照；只有编辑候选提交仍以 exact root 防止并发覆盖，不增加各轨道的版本计数。
 
 On create/update/load, the plugin captures one immutable `TopologyState` root, cuts directed traversal at every declared boundary and flood-fills from the explicitly selected interior side. It rejects an unbounded escape, multiple candidate interiors, invalid facing, missing rail positions and unsupported overlap before publishing the new definition snapshot.
 
-The definition stores boundaries, not a second authoritative subgraph. Derived interior membership, rail-to-region reverse lookup and entry/exit route indexes are disposable caches keyed by `(topologyRevision, signalDefinitionRevision)`. A topology or definition change invalidates and rebuilds affected indexes outside the per-tick path.
+The definition stores boundaries, not a second authoritative subgraph. Derived interior membership, rail-to-region reverse lookup and entry/exit route indexes are disposable caches. Definition edits replace their publication; rail transactions invalidate only intersecting dependencies and rebuild affected geometry outside the per-tick path. The captured topology revision identifies the compilation input, not a world-wide expiry condition.
 
 The first release treats one region as one throat/interlocking area. It does not model nested/overlapping regions or internal temporary stopping points. If a future signal system needs those features, that plugin may use another model without changing Basic.
 
@@ -115,7 +124,7 @@ Basic either claims the complete union or none. A confirmed Basic grant is neces
 两端独立信号规则、工具/测距和单线多闭塞协调不随本批扩展。
 
 方向一致性与原低速降级曾通过独立复核及受影响模块的离线门禁。用户现已取消低速降级：
-方向失配与结构失效统一保留区间配置并禁止 ATO 驶入，修复并重新校验后恢复；此变更尚未实现。
+方向失配与在线结构编辑失效统一保留区间配置并禁止 ATO 驶入，修复并重新校验后恢复；现已实现并通过离线验证。
 删除 `disabled-block-speed-kmh` 和仅服务于该降级的逻辑，不保留旧策略开关。
 Basic 保存公共运营方向，
 宿主只提供一次读取相关轨道方向的公开接口；方向修改从原有信号更新流程通知受影响闭塞，
@@ -124,7 +133,8 @@ SimpleSignals 将方向失配作为区间不可用原因，路线校验和资源
 资源仲裁和车尾释放不另建实现，也不因区间不可用而丢弃已持有资源。
 用户明确要求手动驾驶保持原样，本批只约束 ATO，不加入手动限速、自动制动或 ATS，也不删除现有手动安全行为。
 完整机制与验收归[双向固定闭塞合同](../../spec/simple-signals/backend/bidirectional-fixed-block.md)，
-其中正文仍记录已实现的旧机制，开头的目标决策说明本次待完成变更，不能将历史门禁作为新策略的验证证据。
+在线拓扑修改的失效与恢复归[局部重验合同](../../spec/simple-signals/backend/section-topology-revalidation.md)，
+不能将历史低速门禁作为新策略的验证证据，也不能据在线验证推断启动恢复或坐标迁移已完成。
 实现证据见[实施记录](implement.md)；[研究记录](research/fixed-block-direction-policy.md)保留改动前的源码依据，不代表当前模型或真实服务器验证。
 
 Fixed blocks are plugin-owned definitions. Entering one normally adds its whole block resource and holds it until the train tail clears the plugin-defined boundary. Protection regions and fixed blocks may implement a common plugin-local read surface—occupancy, length, grant state and downstream limit—but this interface is not a Basic `AuthoritySection`.

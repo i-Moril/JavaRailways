@@ -71,6 +71,8 @@ class CoreWorld(
     private val railTopologyLock = ReentrantReadWriteLock()
     private val activeRailSelectionLock = Any()
     private val railTopologyTransactionContext = ThreadLocal<RailTopologyTransactionContext?>()
+    private val topologyListeners = java.util.concurrent.CopyOnWriteArrayList<
+        work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener>()
     private val trainsByName = ConcurrentHashMap<String, CoreTrain>()
     val runtimeId: String = UUID.randomUUID().toString()
 
@@ -936,14 +938,25 @@ class CoreWorld(
                             incomplete.excludedRailIds.filter(rails::containsKey).sortedBy(UUID::toString)
                     )
                 }
-                if (captureRailTopologyFingerprint() != context.before) {
+                val after = captureRailTopologyFingerprint()
+                if (after != context.before) {
                     val nextRevision = Math.addExact(publishedTopologyState.revision, 1L)
                     val candidateInput = CoreTopologyInputAdapter.capture(
                             nextRevision,
                             rails.values,
                             atGradeRailCrossingIndex.snapshot()
                         )
-                    publishedTopologyState = TopologyStateBuilder.build(candidateInput)
+                    val candidate = TopologyStateBuilder.build(candidateInput)
+                    val oldEntries = checkNotNull(context.before).rails.associateBy { it.rail.id }
+                    val newEntries = after.rails.associateBy { it.rail.id }
+                    val changed = (oldEntries.keys + newEntries.keys).filterTo(linkedSetOf()) {
+                        oldEntries[it] != newEntries[it]
+                    }
+                    notifyTopologyChange(work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange(
+                        publishedTopologyState, candidate,
+                        work.art1st.javarailways.core.physics.rail.topologyAffectedRails(publishedTopologyState, candidate, changed)
+                    ))
+                    publishedTopologyState = candidate
                 }
                 result
             } catch (failure: Throwable) {
@@ -1000,6 +1013,7 @@ class CoreWorld(
                 }
                 validateReplacementRequirements(context)
                 validatePreparedTopologyResult(prepared)
+                prepared.topologyChange?.let(::notifyTopologyChange)
                 publishedTopologyState = prepared.targetRoot
                 result
             } catch (failure: Throwable) {
@@ -1096,6 +1110,18 @@ class CoreWorld(
 
     override val topologyState: TopologyState
         get() = publishedTopologyState
+
+    override fun registerTopologyChangeListener(
+        listener: work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener
+    ): AutoCloseable {
+        railTopologyLock.read { topologyListeners.add(listener) }
+        val closed = java.util.concurrent.atomic.AtomicBoolean()
+        return AutoCloseable { if (closed.compareAndSet(false, true)) topologyListeners.remove(listener) }
+    }
+
+    private fun notifyTopologyChange(change: work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange) {
+        topologyListeners.forEach { it.onTopologyChange(change) }
+    }
 
     fun isRailTopologyTransactionActiveOnCurrentThread(): Boolean =
         railTopologyLock.isWriteLockedByCurrentThread

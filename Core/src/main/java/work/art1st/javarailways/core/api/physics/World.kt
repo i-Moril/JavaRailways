@@ -30,6 +30,15 @@ interface World : Extendable<Any> {
      */
     val topologyState: TopologyState
 
+    /**
+     * Registers world-local bounded safety invalidation before each changed transaction publishes.
+     * No-op and rolled-back transactions do not notify. The caller owns the returned idempotent
+     * registration and closes it on teardown. Closing cannot cancel an already running callback.
+     */
+    fun registerTopologyChangeListener(
+        listener: work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener
+    ): AutoCloseable = throw UnsupportedOperationException("world does not support topology transactions")
+
     /** Find a train by its world-unique player-assigned name; implementations may also accept an internal ID. */
     fun getTrain(name: String): Train?
 

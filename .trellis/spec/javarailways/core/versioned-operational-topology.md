@@ -19,11 +19,16 @@ rail structural transaction
   -> capture current physical connections and crossing candidates
   -> build a candidate normalized node/edge graph
   -> validate connectivity, identities and rail-slice coverage
+  -> notify consumers of affected persistent rail identities
+  -> invalidate only intersecting operational dependencies
   -> atomically publish TopologyState(revision + 1)
-  -> invalidate revision-keyed derived caches and notify consumers
 ```
 
 构建失败时，candidate不得替换当前state。当前已发布state继续可读，但触发编辑的事务必须报告失败/回滚，不能让Core connection与published state永久分叉。
+
+拓扑版本标识一份物理图，不再表示整个世界所有运行对象的有效期。未受本次事务影响的监测区、
+既定路线和已有授权继续使用；真正受影响的对象由各自模块在重验前禁止使用。
+编辑候选的 exact root 检查仍然保留，以免一次提交覆盖另一项已经完成的编辑。
 
 ## 3. 内部机制与关键算法
 
@@ -97,7 +102,7 @@ data class TrackEdge(
 
 当前迁移实现用一个volatile `TopologyState`作为revision与图内容的共同publication root；`topologyRevision`从该root派生，不另维护可漂移的counter。事务持write lock捕获live rails，经adapter映射为`TopologyInput`并构建candidate，构建成功后只替换一次root。adapter将source view终点（AB→B、BA→A）连接到target view起点（AB→A、BA→B），但不补写缺失的反向关系；非对称连接是无效物理拓扑，必须拒绝publication，不能只在派生state中自动修复。引用当前world之外rail同样使构建失败。`activeRail`不进入input或fingerprint。
 
-迁移期间 `RailView.nextRails` 可以作为 Core 内部编辑模型或构建新 state 的适配输入，但不得与 `TopologyState` 长期并列为两个可独立修改的 authoritative graph。`RailView.connect`、单rail restore和world bulk load已经进入同一transaction/publication边界；`mutableNextRails`仍有直接写入caller，这是明确的后续封装缺口，不得把它解释成受支持的旁路authority。完成迁移后，所有结构编辑必须在同一 transaction 中产生下一 state；外部派生缓存必须按topology revision失效并可丢弃重建。
+迁移期间 `RailView.nextRails` 可以作为 Core 内部编辑模型或构建新 state 的适配输入，但不得与 `TopologyState` 长期并列为两个可独立修改的 authoritative graph。`RailView.connect`、单rail restore和world bulk load已经进入同一transaction/publication边界；`mutableNextRails`仍有直接写入caller，这是明确的后续封装缺口，不得把它解释成受支持的旁路authority。完成迁移后，所有结构编辑必须在同一 transaction 中产生下一 state；图自身的派生索引归属于各自root，运行对象则按下述事务影响局部失效。
 
 `nextActiveRail`、列车占用、资源 claim、信号显示、方向限制和临时限速都不是 structural topology。它们携带对应 topology revision，以独立 runtime/overlay state 发布；不能通过修改 `TopologyState` 表达一次道岔选择或一个信号变色。
 
@@ -107,7 +112,27 @@ data class TrackEdge(
 
 `TrackEdge`只表达两个结构节点之间不分岔的连续物理路径。Diamond不参与continuation，两条原有线路保持各自edge；其冲突身份与资源绑定由外部资源owner定义。Turnout对正向/背向遍历使用同一稳定node ID，只是进入port和合法continuation不同。
 
-外部overlay、资源或冻结路线可以使用有向 edge interval、node/subgraph reference 或stable rail UUID加canonical AB interval。它们必须记录解析所依据的topology revision；revision变化后重新解析或拒绝，不能把旧node/edge对象与新root组合。它们之间是否允许重叠、如何选路或如何claim由对应owner spec决定，Core不通过增加结构节点表达这些运营规则。
+外部overlay、资源或冻结路线可以使用有向 edge interval、node/subgraph reference 或stable rail UUID加canonical AB interval。
+旧node/edge对象不能与新root混用；使用稳定轨道UUID与弧长的运行对象则按事务影响判定是否仍有效，
+不能仅因世界revision变化而整体拒绝。它们之间是否允许重叠、如何选路或如何claim由对应owner spec决定，
+Core不通过增加结构节点表达这些运营规则。
+
+### 5.3 事务影响通知
+
+`World.registerTopologyChangeListener(RailTopologyChangeListener): AutoCloseable` 订阅该世界实例的成功结构变更。
+通知值 `RailTopologyChange(previous, current, affectedRailIds)` 包含前后不可变图及持久轨道UUID集合，
+不包含闭塞、进路或信号策略。集合包含增删改轨道、变化接头的既有参与轨道及相关平交轨道。
+prepared 编辑在 worker 根据已有明确 delta 和图的反向索引预先算好；提交时不再遍历全世界。
+同步底层事务仍从其既有前后结构检查取得变化，不能在玩家在线编辑中用它替代 prepared 流程。
+
+完成物理结果验证后，Core 在新图对下一次物理更新可见之前同步调用监听器。
+监听器只允许查关联索引、标记不可用或安排 worker，不能做文件I/O、完整图计算或等待物理／平台线程。
+无变化、准备失败和完整回滚不通知；监听器异常进入已有结构故障处理，不能忽略后继续行车。
+订阅关闭后不再接收后续通知；插件与世界生命周期由宿主适配器管理，不在Core保存插件对象。
+
+例如新增支线C接入A/B接头，通知不能只有C：A/B所属区间也需要重验；远处D所属区间无需变化。
+删除A仍报告旧A的UUID，让消费者从旧关联索引找到原区间。普通道岔选路不是结构编辑，不发此通知。
+没有每轨道版本计数、每路线授权令牌或永久事务历史。
 
 ## 6. 校验与错误矩阵
 
@@ -131,7 +156,8 @@ data class TrackEdge(
 - graph candidate仍可在structural edit时完整重建；平交检测按新增/替换rail增量更新。设目标rail压缩后采样段数为`S`、空间候选集合为`C`，采样只对新增rail执行一次，当前精确检测最坏成本为`O(sum(S * segments(candidate)))`，但rail/segment AABB先剪枝；长直轨压缩后只有一个segment。该工作只发生在结构编辑，不进入寻路、资源申请、信号查询或每列车tick。cell broad phase可以产生多余候选，但exact phase必须拒绝；不得用cell命中直接认定交叉。
 - edge位置查询应利用累计距离索引而不是线性扫描长edge；目标签名冻结时必须明确边界规则和复杂度。
 - 旧state可在读者持有期间继续存在；实现必须有有界保留策略或正常对象生命周期，不能为每个tick复制整图或永久保存所有revision。
-- 任一结构coverage不完整或revision不一致均fail closed；不得退化为读取live mutable adjacency补齐。
+- 结构coverage不完整或混用不同root的图对象必须拒绝；不得退化为读取live mutable adjacency补齐。
+  稳定轨道范围上的运行对象不因无关事务推进世界revision而失效。
 
 ## 8. Good / Base / Bad cases
 
@@ -149,6 +175,8 @@ data class TrackEdge(
 - diamond topology：空间相交不新增continuation/结构节点、不切edge并禁止跨线。
 - external reference：edge内virtual split不修改state；旧revision引用不能与新root混用。
 - edit reverse lookup：普通二度接头返回唯一对端，结构节点按endpoint/canonical ports命中，rail crossing查询只返回该rail的immutable观测。
+- 事务通知：prepared与底层事务均覆盖成功变更，删除含旧ID、连接含既有邻轨、无关轨道不误入影响；
+  无变化和完整回滚不通知；回调发生在新root可见之前，关闭订阅后不再调用。
 
 ```bash
 ./gradlew :Core:test
@@ -159,7 +187,9 @@ git diff --check
 
 迁移顺序：先让Core transaction生成唯一state，再让所有外部consumer改读该state，随后删除复制adjacency作为权威来源的可能性。迁移期adapter必须共享同一revision boundary，不能允许两边分别更新。
 
-实现前仍需冻结：edge slice边界归属、订阅API、旧revision保留策略，以及topology build失败时Core结构编辑的rollback接口。当前node/edge ID明确为revision-local runtime identity，不承诺split/merge或restart后稳定。这些未决项不能由首个实现私自决定后反向固化成API。
+实现前仍需冻结：edge slice边界归属、旧revision保留策略，以及topology build失败时Core结构编辑的rollback接口。
+事务订阅采用上方中立通知，不新增存档格式。当前node/edge ID明确为revision-local runtime identity，
+不承诺split/merge或restart后稳定。这些未决项不能由首个实现私自决定后反向固化成API。
 
 ```text
 错误：Core live adjacency + consumer copied snapshot + private graph 三者分别更新

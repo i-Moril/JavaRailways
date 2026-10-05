@@ -58,14 +58,15 @@ The result must prove that protection regions and fixed blocks are optional poli
 - Support diamond conflicts through Basic's route-bound physical resources without treating a diamond as a switch or topology continuation.
 - Release resources through the host grant/cursor lifecycle. Planned plugin disable must first remove its applied-plan dependencies and then pass the single owner-unregister gate; the gate rejects disable while that owner still has pending requests, live claims, referenced resource types, active inspection bindings or non-empty restrictions. If Bukkit has already forced the plugin off, the host removes dead callbacks, retains claims/dependencies and stalls only affected worlds instead of widening authority.
 
-#### Direction-aware blocks — implemented validation, revised failure policy pending
+#### Direction-aware blocks — implemented validation and online failure policy
 
 The user identified that opposite-facing traversal must not silently bypass a single-direction
 block's resource policy. Commit `5e375e79` was the bidirectional baseline that retained this bypass.
 The earlier correction, including low-speed fallback, was implemented and verified offline.
 The user has now replaced that fallback with refusal of ATO admission for every invalid block,
-including known operating-direction mismatch. This policy change is approved but not yet implemented.
-Historical verification remains in [the implementation checklist](implement.md); live Folia/client validation remains pending.
+including known operating-direction mismatch. Direction changes and live topology transactions now apply this policy;
+the current verification and startup/remapping limitations are recorded in [the implementation checklist](implement.md).
+Live Folia/client validation remains pending.
 
 - An effective single-direction block declares normal acquisition lookahead only at its entrance
   for approaching trains travelling in the permitted direction. Reverse entry from its exit must
@@ -324,8 +325,14 @@ scope intentionally shares one result. These extension boundaries are recorded i
 原有区域新增未设边界的侧线时采用同样的不可用行为；内部连接变化若仍符合边界和不重叠规则，则重新校验后继续使用。
 实施时需保证失效对象仍参与路线校验/准入阻断，新增侧线不能因没有旧入口信号而绕过检查；
 相关旧解释应在新拓扑被运营使用前停止放行，重算在 worker 进行，无关区间不因某个对象失效而整体不可用。
-当前 `SimpleSignalsWorldRuntime.prepareDefinitions` 会在 region/block/table 编译失败时拒绝整份候选，
-`ProtectionRegionCatalog.publish` 也在任一区域失败时直接拒绝，因此逐对象保留配置与可用性尚需实现，不能描述为已有行为。
+用户进一步确认统一从轨道编辑事务触发：取得事务影响的全部轨道，找到与这些轨道相交的闭塞和保护区域，
+再使用相同的成立规则重新检查。受影响集合包括连接关系变化的既有轨道，删除轨道使用编辑前的关联信息。
+不可用区域仍保留关联信息以便后续修复触发重验；不按施工操作类型分别编排监听流程，也不逐 tick 扫描区域。
+用户已批准取消运行流程以整个世界拓扑版本变化为统一失效条件的做法，改以事务影响与对象依赖是否相交判定。
+未受影响的占用状态、既定路线及已有授权应继续使用，不因其他线路施工而重规划或重新申请。
+保留世界／列车／路线身份、物理观测顺序和既有防编辑保护；编辑提交的一致性检查不等于运行对象有效性判断。
+轨道事务重验须按对象保留配置和可用性，不能因为一处区域编译失败而拒绝其他不相关区域的运行。
+显式定义编辑仍走原有完整候选验证与原子保存；这与后台重验的逐对象不可用结果是不同入口。
 新边界自动补全区域，不引入先选区域的编辑步骤，已确认。
 录制当前通路、先提供道岔操作工具及连通状态/完整通路预览已确认。
 独立道岔 Wand 已确认，由主插件提供；现有 RailWand 道岔模式继续负责建造。

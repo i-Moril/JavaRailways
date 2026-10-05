@@ -131,9 +131,6 @@ data class TrainRestrictionSnapshot private constructor(
         require(NAMESPACED_SIMPLE_ATO_ID.matches(sourceId)) { "sourceId must be namespaced" }
         require(revision >= 0L) { "revision must be non-negative" }
         require(trainId.isNotBlank()) { "trainId must not be blank" }
-        require(observationStamp.topologyRevision == route.topologyRevision) {
-            "observation and route must use the same topology revision"
-        }
         require(restrictions.map(TrainRestriction::restrictionId).distinct().size == restrictions.size) {
             "restriction IDs must be unique within one source snapshot"
         }

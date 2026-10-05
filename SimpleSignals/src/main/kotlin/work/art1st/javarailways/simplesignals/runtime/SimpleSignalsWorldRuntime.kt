@@ -193,6 +193,9 @@ internal class SimpleSignalsRuntimePublication(
         }
 }
 
+/** Only the selected region's authoring/availability input for a read-only player preview. */
+internal data class PreviewRegionState(val definition: ProtectionRegionDefinition?, val unavailable: Boolean)
+
 /**
  * One plugin-owned runtime for one exact host world load.
  *
@@ -226,9 +229,42 @@ internal class SimpleSignalsWorldRuntime(
     private var state = RuntimeState(null, null)
     // One disposable exact-root derivation shared by all preparation catalogs, including pending clicks.
     private var topologyIndex: work.art1st.javarailways.simplesignals.region.ProtectionRegionTopology? = null
+    private class PreviewRegionObserver(val regionId: String, val listener: (PreviewRegionState) -> Unit,
+        initial: PreviewRegionState) {
+        val previous = java.util.concurrent.atomic.AtomicReference(initial)
+    }
+    private val previewRegionObservers = java.util.concurrent.CopyOnWriteArrayList<PreviewRegionObserver>()
+
+    internal fun previewRegionState(regionId: String): PreviewRegionState {
+        if (closed) return PreviewRegionState(null, true)
+        val definition = state.publication?.regions?.compilationSnapshot()?.regionsById?.get(regionId)?.definition
+        return PreviewRegionState(definition, definition == null ||
+            topologyGuard.sectionUnavailable(TopologySectionKind.REGION, regionId) || definition.boundaryDraft != null)
+    }
+
+    /** Listeners only mark pending worker work; no platform calls or graph work during publication. */
+    internal fun observePreviewRegion(regionId: String, listener: (PreviewRegionState) -> Unit): AutoCloseable {
+        val observer = PreviewRegionObserver(regionId, listener, previewRegionState(regionId))
+        previewRegionObservers.add(observer)
+        notifyPreviewRegions()
+        return AutoCloseable { previewRegionObservers.remove(observer) }
+    }
+
+    internal fun notifyPreviewRegions() {
+        previewRegionObservers.forEach { observer ->
+            val next = previewRegionState(observer.regionId)
+            val previous = observer.previous.get()
+            if (next != previous && observer.previous.compareAndSet(previous, next)) {
+                // A broken UI observer cannot reject a safety/definition publication.
+                try { observer.listener(next) } catch (_: Exception) { previewRegionObservers.remove(observer) }
+            }
+        }
+    }
 
     fun retire() {
         closed = true
+        notifyPreviewRegions()
+        previewRegionObservers.clear()
         topologySubscription?.close()
         modelHandles.retire()
     }
@@ -625,6 +661,7 @@ internal class SimpleSignalsWorldRuntime(
         if (replacementSectionOccupancy != null) {
             modelHandles.publish(replacementModels) { state = candidateState }
         } else state = candidateState
+        notifyPreviewRegions()
         SimpleSignalsDefinitionCommitStatus.COMMITTED
     }
 
@@ -644,12 +681,14 @@ internal class SimpleSignalsWorldRuntime(
         expected: SectionTopologyGuard.View, candidate: SimpleSignalsRuntimePublication,
         occupancy: SectionOccupancyRuntime): Boolean = synchronized(lock) {
         if (closed || state.publication !== base) return@synchronized false
-        topologyGuard.commit(expected, checkNotNull(candidate.topologyIndex)) {
+        val committed = topologyGuard.commit(expected, checkNotNull(candidate.topologyIndex)) {
             bindTopologyGuard(candidate)
             occupancy.attachEpochContinuity(sectionEpochContinuity)
             state.models?.let(occupancy::attachModelBinding)
             state = RuntimeState(candidate, occupancy, state.models)
         }
+        if (committed) notifyPreviewRegions()
+        committed
     }
 
     fun initializeDefinitions(
@@ -1034,7 +1073,10 @@ internal class SimpleSignalsWorldRuntimeManager(
         val sectionOccupancy = runtime.initializeSectionOccupancy()
         try {
             runtime.topologySubscription = infrastructure.observeTopologyChanges(plugin, worldId) { change ->
-                if (!runtime.closed && runtime.topologyGuard.invalidate(change)) scheduleTopologyRevalidation(runtime)
+                if (!runtime.closed && runtime.topologyGuard.invalidate(change)) {
+                    runtime.notifyPreviewRegions()
+                    scheduleTopologyRevalidation(runtime)
+                }
             }
             check(infrastructure.currentTopology(worldId) === topology) { "topology changed during world installation" }
         } catch (failure: Exception) {

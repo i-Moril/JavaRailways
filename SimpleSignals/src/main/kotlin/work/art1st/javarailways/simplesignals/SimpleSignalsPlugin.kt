@@ -9,6 +9,8 @@ import work.art1st.javarailways.simplesignals.command.SimpleSignalsAdminCommand
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsDefinitionDrafts
 import work.art1st.javarailways.simplesignals.authoring.RuntimeSectionWandBackend
 import work.art1st.javarailways.simplesignals.authoring.SectionWandHandler
+import work.art1st.javarailways.simplesignals.authoring.RoutePreviewWandHandler
+import work.art1st.javarailways.simplesignals.authoring.RuntimeRoutePreviewBackend
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 import java.util.logging.Level
@@ -18,6 +20,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
     private var hostServices: SimpleSignalsHostServices? = null
     private var worldRuntimes: SimpleSignalsWorldRuntimeManager? = null
     private var sectionWands: SectionWandHandler? = null
+    private var routePreviewWand: RoutePreviewWandHandler? = null
     private var modelCleanup: CompletionStage<Void> = CompletableFuture.completedFuture(null)
 
     /** Host shutdown must observe this result before disabling JavaRailways. Never block a region thread. */
@@ -74,15 +77,23 @@ class SimpleSignalsPlugin : JavaPlugin() {
             services.railTargets())
         sectionWands = wands
         server.pluginManager.registerEvents(wands, this)
+        val previews = RoutePreviewWandHandler(this,
+            RuntimeRoutePreviewBackend(this, runtimes::authoringRuntime, services.infrastructure(), services.observations(), services.railTargets()),
+            services.railTargets())
+        routePreviewWand = previews
+        server.pluginManager.registerEvents(previews, this)
         checkNotNull(getCommand("simplesignals")) { "SimpleSignals command descriptor is missing" }
             .setExecutor { sender, command, label, args ->
-                if (args.firstOrNull() == "wand") wands.onCommand(sender, command, label, args)
+                if (args.take(2) == listOf("wand", "route")) previews.onCommand(sender, command, label, args)
+                else if (args.firstOrNull() == "wand") wands.onCommand(sender, command, label, args)
                 else admin.onCommand(sender, command, label, args)
             }
         logger.info("SimpleSignals enabled")
     }
 
     override fun onDisable() {
+        routePreviewWand?.close()
+        routePreviewWand = null
         sectionWands?.close()
         sectionWands = null
         // Host PluginDisableEvent handling removes dead callbacks. Do not create a second unload gate.

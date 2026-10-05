@@ -174,7 +174,7 @@ internal class SectionWandHandler(
 
     companion object {
         const val PERMISSION = "simplesignals.admin"
-        const val USAGE = "/simplesignals wand block|region [create|delete]"
+        const val USAGE = "/simplesignals wand block|region [create|delete], or /simplesignals wand route"
         private fun key(plugin: Plugin) = NamespacedKey(plugin, "section_wand")
         private fun readTool(plugin: Plugin, stack: ItemStack): SectionWandTool? {
             val value = stack.itemMeta?.persistentDataContainer?.get(key(plugin), PersistentDataType.STRING) ?: return null

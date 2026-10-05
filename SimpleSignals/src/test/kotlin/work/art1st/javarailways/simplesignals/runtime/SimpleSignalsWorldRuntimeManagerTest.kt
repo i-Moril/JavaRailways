@@ -3235,6 +3235,39 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertTrue(infrastructure.listeners.isEmpty())
     }
 
+    @Test
+    fun `preview observes pending topology invalidation and unchanged region recovery`() {
+        val fixture = Fixture()
+        val unrelated = UUID(0, 100)
+        val infrastructure = MutableTopologyService(fixture.topology(41, listOf(unrelated)))
+        val definitions = store()
+        definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            listOf(fixture.region), emptyList()))
+        val queue = java.util.ArrayDeque<() -> Unit>()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            CapturingSignalEpochSourceService(), topologyWorker = { queue += it })
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val runtime = manager.authoringRuntime(fixture.worldId)!!
+        val changes = mutableListOf<PreviewRegionState>()
+        val subscription = runtime.observePreviewRegion(fixture.region.regionId, changes::add)
+        try {
+            infrastructure.commitTopology(fixture.topology(42, listOf(unrelated)), setOf(fixture.entry))
+            assertEquals(listOf(true), changes.map { it.unavailable }, "pending invalidation must notify before revalidation")
+            assertEquals(1, queue.size)
+            assertTrue(runtime.previewRegionState(fixture.region.regionId).unavailable)
+            queue.removeFirst().invoke()
+            assertEquals(listOf(true, false), changes.map { it.unavailable })
+            assertTrue(changes.all { it.definition == fixture.region }, "recovery retains the unchanged definition")
+            assertFalse(runtime.previewRegionState(fixture.region.regionId).unavailable)
+            infrastructure.commitTopology(fixture.topology(43, listOf(unrelated)), setOf(unrelated))
+            assertEquals(2, changes.size, "unrelated edits must not notify this preview")
+            assertTrue(queue.isEmpty())
+        } finally {
+            subscription.close()
+            manager.remove(fixture.worldId)
+        }
+    }
+
     private class MutableTopologyService(initial: TopologyState?, private val registry: InfrastructureCoordinationRegistry? = null) {
         private val registryOwner = Any()
         val listeners = java.util.concurrent.CopyOnWriteArrayList<work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener>()

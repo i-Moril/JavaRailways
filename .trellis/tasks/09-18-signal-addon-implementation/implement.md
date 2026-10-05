@@ -222,7 +222,15 @@ Current extraction progress:
     生产和测试 Kotlin 重新编译，Java consumer 编译复用未变缓存；shadowJar 实际重建，确认工具类、中英语言资源、WebUI JAR和默认 OP 权限入包。
     `git diff --check`与 curated context 校验通过；日志为 `BukkitPlugin/build/turnout-wand-review-fixed-gate.log` 和 `turnout-wand-review-gate.log`。
     取消测试覆盖实际生产判定函数，服务测试组合真实 Core/宿主；换世界事件接线通过源码复核，不表示完整 Folia 调度或客户端画面已验证。
-  - [ ] 再提供当前通路预览：显示入口到出口的实际路径、方向和不连通原因，相关道岔状态变化后更新；重计算不阻塞物理或平台线程，不逐 tick 扫描全路网。
+  - [x] 提供 `/simplesignals wand route` 当前通路预览：左键入口、右键同区域出口、潜行取消。沿真实当前道岔选择追踪，不寻路、不扳动道岔、不申请资源、不保存进路。
+    保留错误出口/尽头/循环/未开放通路的完整前缀和真实停点；仅相关道岔、轨道或所选区域事件异步重算，合并待处理工作并丢弃旧结果。
+    worker 准备路径与箭头，玩家每20 tick最多发送512个已准备粒子；长路径循环分批，端点每批保留，逻辑路径不截短。完整 TextDisplay 可视化另做。
+    关闭覆盖取消、换工具、退出、换世界、世界卸载和插件停用；修复迟到订阅/显示任务、旧玩家线程结果覆盖以及输入未变化时重复重算的问题。
+    精确端点区域切口属于原有禁止配置，选点只处理合法同轨边界；删除不可达的跨接头匹配分支，没有放宽区域规则。
+    独立复核补上相关轨道失效时的区域通知，真实 manager 回归先复现漏通知，再验证同定义恢复通知与无关编辑隔离。
+    新增34项测试；最终离线 `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava` 成功，40套/392项全部执行通过，零失败/错误/跳过。
+    编译在聚焦检查中执行，最终门禁复用编译缓存；JAR隔离实际检查，Java consumer复用未变缓存。日志 `/tmp/javarailways-current-route-preview-check.log`，XML位于 `SimpleSignals/build/test-results/test/`。
+    机制/复杂度见[预览合同](../../spec/simple-signals/backend/current-route-preview.md)，范围见[预览批次](research/current-route-preview-batch.md)。没有 Core/Basic/ATO/API/schema 变化，未做 live Folia/客户端或规模延迟实测，Stage2仍不归档。
   - [ ] 在以上能力可用后接入进路录制：按真实道岔状态记录所选入口到出口的完整固定路径，录制不自动扳动道岔或申请列车授权，路径显示与最终保存校验使用一致输入。
 - [ ] 在 `SimpleSignals` 接入信号模型显示：把实体操作安排到目标线程，只更新实际变化并保留最新待显示状态，
   丢弃旧显示序号，世界卸载或插件停用时可重复安全清理。复用主插件平台 API 前先审查具体跨插件需求，

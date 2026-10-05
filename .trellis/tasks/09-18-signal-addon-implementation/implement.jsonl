@@ -1,12 +1,8 @@
-{"file":".trellis/spec/simple-signals/backend/index.md","reason":"SimpleSignals runtime and plugin isolation"}
-{"file":".trellis/spec/simple-signals/backend/authoring-commands.md","reason":"Reuse the worker-side definition transaction"}
-{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Preserve local edit scope and protection"}
-{"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Direction consistency and new refusal requirement"}
-{"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"No duplicate save, lock or resource lifecycle"}
-{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"No speculative compatibility"}
-{"file":".trellis/tasks/09-18-signal-addon-implementation/research/section-topology-revalidation-batch.md","reason":"Current approved transaction-driven revalidation batch"}
-{"file":".trellis/spec/simple-signals/backend/section-authoring-wands.md","reason":"Tool behavior and local incomplete-region state contract"}
-{"file":".trellis/spec/javarailways/core/versioned-operational-topology.md","reason":"Neutral structural transaction impact notification"}
-{"file":".trellis/spec/javarailways/basic/railway-area-occupancy.md","reason":"Affected-only occupancy invalidation"}
-{"file":".trellis/spec/javarailways/basic/route-resource-admission.md","reason":"Stable physical route validity instead of world-wide expiry"}
-{"file":".trellis/spec/javarailways/simpleato/reactive-signal-epochs.md","reason":"Local source notification and source replacement race safety"}
+{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Plugin isolation and current runtime ownership"}
+{"file":".trellis/spec/simple-signals/backend/current-route-preview.md","reason":"Approved current-path algorithm, gestures, event scope, threads and tests"}
+{"file":".trellis/spec/simple-signals/backend/section-authoring-wands.md","reason":"Reuse targeting, sessions and incomplete-region behavior"}
+{"file":".trellis/spec/simple-signals/backend/section-topology-revalidation.md","reason":"Local edit invalidation and exact world lifecycle"}
+{"file":".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md","reason":"Read-only observation callbacks and target-owner display scheduling"}
+{"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"No new framework, resources, schemas or public host API"}
+{"file":".trellis/spec/guides/code-spec-authoring.md","reason":"Readable algorithm and complexity evidence"}
+{"file":".trellis/tasks/09-18-signal-addon-implementation/research/current-route-preview-batch.md","reason":"Current bounded preview batch, recording deferred"}

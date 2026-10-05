@@ -76,3 +76,40 @@ Completed and archived Stage 1 host APIs. Applied timetable routes now install s
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: Stage 2 local topology revalidation checks
+<!-- trellis-session: v=2 fp=4955ffb73602285c -->
+
+**Date**: 2026-10-05
+**Task**: Stage 2 local topology revalidation checks
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+Completed local topology invalidation review and offline cross-module gate; retained active Stage 2 task for user review.
+
+### Main Changes
+
+- Core affected-rail notifications drive Basic and ATO local validity plus SimpleSignals worker revalidation.
+- Reviewed late-epoch output continuity, invalid-route occupant retention, overlap repair dependencies, fresh-frame coherence and consecutive swaps.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9c4491cf` | fix(signals): invalidate topology dependencies locally |
+
+### Testing
+
+- [OK] 276 suites, 1655 tests: 1648 passed, 7 baseline skips, zero failures/errors; final SimpleSignals tests and verifyPluginJar executed, unchanged modules reused prior results.
+- [OK] Java consumer compile, Bukkit shadowJar, diff check and 12/14 context entries validated; no live Folia or scale test.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Stop for user review of 9c4491cf; Stage 2 remains in progress. Startup recovery and coordinate remapping are not complete.

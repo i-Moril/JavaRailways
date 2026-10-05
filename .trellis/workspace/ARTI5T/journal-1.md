@@ -113,3 +113,42 @@ Completed local topology invalidation review and offline cross-module gate; reta
 ### Next Steps
 
 - Stop for user review of 9c4491cf; Stage 2 remains in progress. Startup recovery and coordinate remapping are not complete.
+
+
+## Session 5: Protection region current route preview
+<!-- trellis-session: v=2 fp=44e06b6074677aa8 -->
+
+**Date**: 2026-10-05
+**Task**: Protection region current route preview
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+Implemented read-only current-turnout protection route preview in SimpleSignals; 34 new tests and 392 module tests passed; route recording and live platform validation remain pending.
+
+### Main Changes
+
+- Added /simplesignals wand route: left entry, right exit, current physical choices only, explicit actual stop reasons.
+- Coalesced relevant events on workers; prepared bounded particle batches; closed subscriptions and late tasks on player/world/plugin teardown.
+- Independent review removed unreachable endpoint selection logic and fixed pending invalidation to unchanged-region recovery notification.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dee2409d` | feat(simplesignals): preview current protection routes |
+
+### Testing
+
+- [OK] Focused 33 preview tests and one manager regression passed; regression failed before notification fix.
+- [OK] Final offline SimpleSignals check and Java consumer gate passed: 40 suites, 392 tests, zero failures/errors/skips; tests and verifyPluginJar executed, Java consumer reused cache.
+- [OK] git diff --check and task manifests validation passed; live Folia/client and load tests not performed.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Stop for user review; route recording is the next implementation item. Stage 2 remains active.

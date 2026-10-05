@@ -280,12 +280,16 @@ during epoch processing. This completes the prerequisite for turnout-aware depen
 
 独立道岔 Wand 已完成，作为后续录制当前进路的操作前提；信号规则预设/模板暂时搁置。
 工具由 BukkitPlugin 负责，复用现有 `InfrastructureResourceService.selectTurnout`，不移动或复制 Basic 的安全切换逻辑。
-该批只选择来向和出口、显示真实连接及拒绝原因；区域通路预览由后续 SimpleSignals 工具完成，进路录制仍未实施。
+该批只选择来向和出口、显示真实连接及拒绝原因；区域通路预览与录制由后续 SimpleSignals 工具完成。
 边界和验证见[道岔工具实施说明](research/turnout-wand-batch.md)。
 
 现已接入保护区域当前通路预览：沿只读道岔选择得到一份实际通路结果，相关事件异步更新，
 不申请资源、不自动切换道岔、不保存进路。预览与未来录制共用这份结果；本批范围和合同见
 [预览批次](research/current-route-preview-batch.md)与[预览规范](../../spec/simple-signals/backend/current-route-preview.md)。
+
+现已在已有预览上增加显式录制命令：保存显示过的完整路径，首次建立固定进路表、之后追加，
+不设置默认进路、不申请资源、不重新寻路。范围见[录制批次](research/current-route-recording-batch.md)，
+冻结时点、校验及失败语义见[录制契约](../../spec/simple-signals/backend/current-route-recording.md)。
 
 当前批次优先完成 SimpleSignals 自有的闭塞和保护区域 Wand，直接复用已有定义事务。
 独立信号机放置、测距和规则预设不作为这两个工具的前置条件，见[本批实施边界](research/section-wands-batch.md)。

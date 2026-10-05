@@ -3,6 +3,7 @@ package work.art1st.javarailways.simplesignals.authoring
 import net.kyori.adventure.text.Component
 import org.bukkit.World
 import org.bukkit.command.Command
+import org.bukkit.command.ConsoleCommandSender
 import org.bukkit.entity.Player
 import org.bukkit.event.player.PlayerChangedWorldEvent
 import org.bukkit.event.player.PlayerQuitEvent
@@ -157,6 +158,92 @@ class RoutePreviewWandHandlerTest {
         assertEquals(1, f.computes)
     }
 
+    @Test fun `record command rejects permission console missing choice and failed preview`() {
+        val f = Fixture()
+        f.record()
+        f.permitted = false; f.record()
+        val console = RuntimeRoutePreviewBackendTest.proxy(ConsoleCommandSender::class.java) { name, args -> when (name) {
+            "hasPermission" -> true
+            "sendMessage" -> { f.messages += args!![0] as Component; null }
+            else -> error("Unexpected console call: $name")
+        } }
+        f.handler.onCommand(console, command, "simplesignals", arrayOf("route", "record"))
+        f.permitted = true; f.click(true); f.record()
+        f.pathEnd = CurrentRouteEnd.WRONG_EXIT; f.click(false); f.record()
+        assertEquals(0, f.recordings)
+        assertTrue(f.workers.isEmpty())
+    }
+
+    @Test fun `record command captures same visible path performs on worker and replies on player owner`() {
+        val f = Fixture(); f.click(true); f.click(false)
+        val computations = f.computes
+        val messages = f.messages.size
+        f.record()
+        assertEquals(0, f.recordings)
+        assertEquals(messages, f.messages.size)
+        f.record() // A second submission cannot enter the worker while busy.
+        assertEquals(1, f.workers.size)
+        f.drainWorkers()
+        assertEquals(1, f.recordings)
+        assertEquals(computations, f.computes)
+        assertFalse(f.messages.last().toString().contains("Recorded"))
+        f.drainOwners()
+        assertTrue(f.messages.last().toString().contains("Recorded"))
+        f.record(); f.drain()
+        assertEquals(2, f.recordings, "busy clears after the owner receives a result")
+    }
+
+    @Test fun `cancel new choice unload world change quit and swap drop unstarted record`() {
+        val cancellations: List<(Fixture) -> Unit> = listOf(
+            { it.sneaking = true; it.handler.click(it.player, true) },
+            { it.handler.click(it.player, true) },
+            { it.handler.onWorldUnload(WorldUnloadEvent(it.world)) },
+            { it.handler.onWorldChange(PlayerChangedWorldEvent(it.player, it.world)) },
+            { it.handler.onQuit(PlayerQuitEvent(it.player, Component.empty())) },
+            { it.handler.onHeldItem(org.bukkit.event.player.PlayerItemHeldEvent(it.player, 0, 1)) },
+            { it.handler.close() }
+        )
+        cancellations.forEach { cancel ->
+            val f = Fixture(); f.click(true); f.click(false); f.record(); cancel(f)
+            f.drainWorkers(); f.drainOwners()
+            assertEquals(0, f.recordings)
+            assertFalse(f.messages.any { it.toString().contains("Recorded") })
+        }
+    }
+
+    @Test fun `old completed recording reply is discarded after replacement choice without undoing commit`() {
+        val f = Fixture(); f.click(true); f.click(false); f.record(); f.drainWorkers()
+        assertEquals(1, f.recordings)
+        f.handler.click(f.player, true)
+        f.drainOwners()
+        assertFalse(f.messages.any { it.toString().contains("Recorded") })
+        assertEquals(1, f.recordings)
+    }
+
+    @Test fun `record active predicate has no Bukkit access and ignores later preview change`() {
+        val f = Fixture(); f.click(true); f.click(false)
+        f.recordAction = { _, _, active ->
+            assertFalse(f.owner)
+            f.observation!!.invoke(ActiveRailContinuationsSnapshot.create(1, 2,
+                mapOf(endpoint(f.entry.position.railId, RailEndpoint.B) to endpoint(UUID(7, 7), RailEndpoint.A))))
+            assertTrue(active(), "turnout-only preview invalidation must not cancel a frozen recording")
+            f.handler.close()
+            assertFalse(active(), "cancellation invalidates the transaction guard")
+            "uncommitted"
+        }
+        f.record(); f.drain()
+        assertFalse(f.messages.any { it.toString().contains("uncommitted") })
+    }
+
+    @Test fun `preview invalidated while command waits on worker is rejected before recorder`() {
+        val f = Fixture(); f.click(true); f.click(false); f.record()
+        f.observation!!.invoke(ActiveRailContinuationsSnapshot.create(1, 2,
+            mapOf(endpoint(f.entry.position.railId, RailEndpoint.B) to endpoint(UUID(7, 7), RailEndpoint.A))))
+        f.drain()
+        assertEquals(0, f.recordings)
+        assertTrue(f.messages.any { it.toString().contains("preview expired") })
+    }
+
     private inner class Fixture {
         var owner = true
         var permitted = true
@@ -168,6 +255,10 @@ class RoutePreviewWandHandlerTest {
         var given = 0
         var selections = 0
         var computes = 0
+        var recordings = 0
+        var pathEnd = CurrentRouteEnd.REACHED_EXIT
+        var observation: ((ActiveRailContinuationsSnapshot) -> Unit)? = null
+        var recordAction: ((RoutePreviewSelection, RoutePreviewComputation, () -> Boolean) -> String)? = null
         var subscriptions = 0
         var closedSubscriptions = 0
         var openRefresh = 0
@@ -217,7 +308,8 @@ class RoutePreviewWandHandlerTest {
             override fun compute(selection: RoutePreviewSelection): RoutePreviewComputation {
                 check(!owner); computes++
                 val path = CurrentRoutePath(entry, exit, listOf(ProtectionRouteTraversal(rail.id, ViewDirection.AB, 2.0, 8.0)),
-                    exit.position.copy(facing = ViewDirection.AB), CurrentRouteEnd.REACHED_EXIT, "connected")
+                    exit.position.copy(facing = ViewDirection.AB), pathEnd, "connected",
+                    watchedContinuations = mapOf(endpoint(rail.id, RailEndpoint.B) to null))
                 return RoutePreviewComputation(path, PreviewRegionState(region, false), setOf(rail.id), RoutePreviewDrawing.prepare(path) {
                     check(!owner); curve
                 })
@@ -226,11 +318,18 @@ class RoutePreviewWandHandlerTest {
             override fun subscribe(selection: RoutePreviewSelection, observation: (ActiveRailContinuationsSnapshot) -> Unit,
                 topology: (RailTopologyChange) -> Unit, region: (PreviewRegionState) -> Unit): List<AutoCloseable> {
                 check(!owner); subscriptions++
+                this@Fixture.observation = observation
                 return List(3) { var closed = false; AutoCloseable { if (!closed) { closed = true; closedSubscriptions++ } } }
             }
         }
         val handler: RoutePreviewWandHandler = RoutePreviewWandHandler(plugin, backend,
             RuntimeRoutePreviewBackendTest.proxy(RailTargetService::class.java) { name, _ -> error("Unexpected target call $name") },
+            record = { selection, value, active ->
+                check(!owner); recordings++
+                assertTrue(active())
+                assertEquals(selection.entry, value.path.entry)
+                recordAction?.invoke(selection, value, active) ?: "Recorded region test:region, route test:route"
+            },
             worker = { workers += it }, entity = { _, action -> owners += action },
             repeatDisplay = { _, action, retire ->
                 check(owner); refresh = action; retired = retire; openRefresh++
@@ -253,6 +352,7 @@ class RoutePreviewWandHandlerTest {
             }
         }
         fun click(left: Boolean) { target = CompletableFuture(); handler.click(player, left); completeTarget(); drain() }
+        fun record() { handler.onCommand(player, command, "simplesignals", arrayOf("route", "record")) }
     }
     private val command = object : Command("simplesignals") {
         override fun execute(sender: org.bukkit.command.CommandSender, commandLabel: String, args: Array<out String>) = true

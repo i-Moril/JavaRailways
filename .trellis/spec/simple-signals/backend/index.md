@@ -16,7 +16,8 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 仍待验证，不得把 foundation 描述为完整建造/呈现系统。
 轨道编辑后的局部失效、后台重验与恢复归[区间局部重验](section-topology-revalidation.md)；
 世界拓扑版本增加不再使所有既有区间和冻结路线过期。
-已提供[保护区域当前通路预览](current-route-preview.md)：只读路径/方向显示、相关事件异步更新和关闭清理通过离线检查；录制保存另做。
+已提供[保护区域当前通路预览](current-route-preview.md)：只读路径/方向显示、相关事件异步更新和关闭清理通过离线检查。
+[当前通路录制](current-route-recording.md)已接入，复用预览与已有定义事务；首次、追加、重复无变化、编辑保护及重载规划通过离线检查。
 
 模型显示方案见[信号状态如何显示成模型](model-presentation.md)。SimpleSignals 已提供私有的预设应用和
 轨道附着/地面摆放计算，复用公开曲线和值类型，输出 `ModelPose`；方向、倾斜与原地旋转已通过真实曲线测试。

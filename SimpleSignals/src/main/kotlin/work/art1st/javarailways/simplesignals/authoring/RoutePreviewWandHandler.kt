@@ -29,7 +29,9 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal class RoutePreviewWandHandler(private val plugin: Plugin, private val backend: RoutePreviewBackend,
-    targets: RailTargetService, private val enabled: () -> Boolean = { plugin.isEnabled },
+    targets: RailTargetService,
+    private val record: (RoutePreviewSelection, RoutePreviewComputation, () -> Boolean) -> String,
+    private val enabled: () -> Boolean = { plugin.isEnabled },
     worker: ((() -> Unit) -> Unit)? = null,
     private val entity: (Player, () -> Unit) -> Unit = { player, action -> player.scheduler.run(plugin, { action() }, {}) },
     private val repeatDisplay: (Player, () -> Unit, () -> Unit) -> AutoCloseable = { player, action, retired ->
@@ -68,8 +70,12 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
             sender.sendMessage(Component.text("SimpleSignals: missing permission ${SectionWandHandler.PERMISSION}")); return true
         }
         if (sender !is Player) { sender.sendMessage(Component.text("Route preview wand requires a player")); return true }
+        if (args.contentEquals(arrayOf("route", "record"))) {
+            record(sender)
+            return true
+        }
         if (!args.contentEquals(arrayOf("wand", "route"))) {
-            sender.sendMessage(Component.text("/simplesignals wand route")); return true
+            sender.sendMessage(Component.text("/simplesignals wand route; /simplesignals route record")); return true
         }
         invalidate(sender.uniqueId)
         try {
@@ -77,6 +83,44 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
             sender.sendMessage(Component.text("Route preview: left-click an existing region entry, right-click its desired exit. Sneak-click cancels. Physical connectivity does not grant movement authority."))
         } catch (failure: Exception) { sender.sendMessage(Component.text(failure.message ?: "Cannot create preview wand")) }
         return true
+    }
+
+    private fun record(player: Player) {
+        val playerId = player.uniqueId
+        val choice = choices[playerId]
+        val selection = choice?.selection
+        val session = choice?.preview
+        val value = session?.visible()
+        if (choice == null || selection?.exit == null || session == null || value == null ||
+            value.path.end != CurrentRouteEnd.REACHED_EXIT || value.path.waitingForObservation ||
+            choice.worldId != player.world.uid || !player.isOnline || !inHand(player)) {
+            player.sendMessage(Component.text("Hold the route wand and select an entry and exit with a current complete preview first"))
+            return
+        }
+        if (!choice.busy.compareAndSet(false, true)) {
+            player.sendMessage(Component.text("Route selection or recording is already in progress"))
+            return
+        }
+        // This guard is passed into the atomic transaction: only session values, never Bukkit reads.
+        fun active() = !closed.get() && choice.active.get() && choices[playerId] === choice &&
+            choice.selection === selection && choice.preview === session
+        fun reply(message: String) = entity(player) {
+            if (active() && enabled() && player.isOnline && player.world.uid == choice.worldId &&
+                player.hasPermission(SectionWandHandler.PERMISSION) && inHand(player))
+                player.sendMessage(Component.text(message.take(8192)))
+            choice.busy.set(false)
+        }
+        try {
+            worker {
+                if (!active()) return@worker
+                try {
+                    require(session.visible() === value) { "Route preview expired; wait for the current path" }
+                    reply(record.invoke(selection, value, ::active))
+                } catch (failure: Exception) {
+                    reply("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
+                }
+            }
+        } catch (failure: Exception) { reply("Cannot start route recording: ${failure.message}") }
     }
 
     @EventHandler(priority = EventPriority.HIGH)

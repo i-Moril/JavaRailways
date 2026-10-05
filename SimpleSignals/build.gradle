@@ -89,7 +89,7 @@ bukkitPluginYaml {
     libraries.add('org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.3.0')
     libraries.add('org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.9.0')
     commands.register('simplesignals') {
-        description.set('Inspect/apply definitions or obtain block/region construction and current-route preview wands')
+        description.set('Inspect/apply definitions, obtain construction/preview wands, or record the current route')
         permission.set('simplesignals.admin')
     }
     permissions.register('simplesignals.admin') {

@@ -231,7 +231,14 @@ Current extraction progress:
     新增34项测试；最终离线 `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava` 成功，40套/392项全部执行通过，零失败/错误/跳过。
     编译在聚焦检查中执行，最终门禁复用编译缓存；JAR隔离实际检查，Java consumer复用未变缓存。日志 `/tmp/javarailways-current-route-preview-check.log`，XML位于 `SimpleSignals/build/test-results/test/`。
     机制/复杂度见[预览合同](../../spec/simple-signals/backend/current-route-preview.md)，范围见[预览批次](research/current-route-preview-batch.md)。没有 Core/Basic/ATO/API/schema 变化，未做 live Folia/客户端或规模延迟实测，Stage2仍不归档。
-  - [ ] 在以上能力可用后接入进路录制：按真实道岔状态记录所选入口到出口的完整固定路径，录制不自动扳动道岔或申请列车授权，路径显示与最终保存校验使用一致输入。
+  - [x] 接入 `/simplesignals route record`：保存当前成功预览的同一完整路径，首次建立固定表、之后追加；自动ID、相同完整路径无变化，同入口/出口不同支路可分别录制。
+    冻结前校验有效预览及当前相关观测，冻结后正常道岔切换不改写记录；保留旧表ID、全部旧进路/defaults，绑定当前区域revision严格校验，不静默过滤失效旧进路。
+    小型SimpleSignals适配生成原table upsert，复用manager唯一事务；沿用玩家Choice busy/active和关闭路径，提交判定只读原子状态。不寻路、采样曲线、申请资源或切换道岔。
+    新增15项测试（manager9、handler6），聚焦107项/4套通过。真实manager/store/preview backend/Basic planner证明保存前后实际支路变化、重载保持、重复不写、追加/default不丢失和冻结语义。
+    真实Basic registry的静态依赖/live claim拒绝相关区域编辑，包括未录支路；非法旧route、save/source/cancel失败保持旧disk/publication/source。
+    最终离线 `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava` 成功，40套/407项全部实际执行，零失败/错误/跳过。聚焦中编译实际执行，最终编译与Java consumer复用缓存，JAR隔离实际检查。
+    日志 `/tmp/javarailways-route-recording-check.log`，XML在 `SimpleSignals/build/test-results/test/`。本批范围见[录制批次](research/current-route-recording-batch.md)，机制/复杂度见[录制契约](../../spec/simple-signals/backend/current-route-recording.md)。
+    不改Core/Basic/ATO/API/sidecar形状，不加兼容、可选录制模式或新请求/结果层；默认进路配置、删除/替换、信号机工具和完整可视化仍待后续。未做live Folia/客户端或规模实测，Stage2不归档。
 - [ ] 在 `SimpleSignals` 接入信号模型显示：把实体操作安排到目标线程，只更新实际变化并保留最新待显示状态，
   丢弃旧显示序号，世界卸载或插件停用时可重复安全清理。复用主插件平台 API 前先审查具体跨插件需求，
   不通过 `SimpleATOBukkit` 转发显示。

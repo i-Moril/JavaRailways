@@ -1,6 +1,10 @@
 package work.art1st.javarailways.simplesignals.runtime
 
 import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+import work.art1st.javarailways.simplesignals.authoring.*
+import work.art1st.javarailways.basic.api.observation.RailwayObservation
+import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 
 import work.art1st.javarailways.simplesignals.testing.fixedBlockPolicy
 
@@ -118,6 +122,246 @@ import java.util.concurrent.TimeUnit
 class SimpleSignalsWorldRuntimeManagerTest {
     @TempDir
     lateinit var directory: Path
+
+    @Test fun `record real preview creates sole table restricts Basic planning and survives reinstall`() {
+        val r = RecordingFixture()
+        assertTrue(r.binding.source.restrictions(r.topology).pathReplacements.isEmpty())
+        val unrestricted = r.f.plan(r.binding, r.topology).route.segments.map { it.railId }
+        val selectedBranch = if (r.f.upperIn in unrestricted) r.f.lowerIn else r.f.upperIn
+        if (selectedBranch == r.f.lowerIn) r.lower() else r.upper()
+        val (selection, preview) = r.capture()
+        val message = r.recorder.record(selection, preview) { true }
+        assertTrue(message.contains("Recorded region"), message)
+        val saved = r.runtime.currentDefinitions()
+        assertEquals(2L, saved.definitionRevision)
+        val table = saved.routeTables.single()
+        assertEquals(r.f.region.revision, table.regionRevision)
+        assertTrue(table.tableId.startsWith("simplesignals:"))
+        assertTrue(table.routes.single().routeId.startsWith("simplesignals:"))
+        assertEquals(preview.path.traversals, table.routes.single().traversals)
+        val recorded = r.f.plan(r.binding, r.topology).route.segments.map { it.railId }
+        assertTrue(selectedBranch in recorded)
+        assertFalse(selectedBranch in unrestricted)
+        // Basic keeps the outside approach/departure spans separate from the complete table macro.
+        assertEquals(listOf(r.f.entry) + preview.path.traversals.map { it.railId } + r.f.exit, recorded)
+        r.manager.remove(r.f.worldId)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, r.manager.install(r.f.worldId).status)
+        assertEquals(saved, r.runtime.currentDefinitions())
+        assertEquals(recorded, r.f.plan(r.binding, r.topology).route.segments.map { it.railId })
+        assertThrows(IllegalArgumentException::class.java) { r.recorder.record(selection, preview) { true } }
+    }
+
+    @Test fun `duplicate recording leaves revision file backup sources and permits unchanged`() {
+        val r = RecordingFixture()
+        var capture = r.capture()
+        r.recorder.record(capture.first, capture.second) { true }
+        capture = r.capture()
+        val before = r.runtime.authoringPublication()
+        val file = Files.readString(r.store.primaryFile(r.f.worldId))
+        val backup = Files.readString(r.store.backupFile(r.f.worldId))
+        val sources = r.sources.sources.getValue(r.f.worldId)
+        val permits = r.infrastructure.permitAcquisitionCount
+        val result = r.recorder.record(capture.first, capture.second) { true }
+        assertTrue(result.contains(before.definitions.routeTables.single().routes.single().routeId), result)
+        assertTrue(result.contains("already recorded"), result)
+        assertSame(before, r.runtime.authoringPublication())
+        assertSame(sources, r.sources.sources.getValue(r.f.worldId))
+        assertEquals(permits, r.infrastructure.permitAcquisitionCount)
+        assertEquals(file, Files.readString(r.store.primaryFile(r.f.worldId)))
+        assertEquals(backup, Files.readString(r.store.backupFile(r.f.worldId)))
+    }
+
+    @Test fun `same gates different branches append and retain table identity old routes and defaults`() {
+        val r = RecordingFixture()
+        val first = r.capture()
+        r.recorder.record(first.first, first.second) { true }
+        val table = r.runtime.currentDefinitions().routeTables.single()
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, r.manager.applyDefinitionPatch(r.f.worldId, 2,
+            SimpleSignalsDefinitionPatch(upsertRouteTables = listOf(ProtectionRouteTableDefinition(table.tableId, 1,
+                table.regionId, table.regionRevision, table.routes, listOf(table.routes.single().routeId))))).status)
+        val before = r.runtime.currentDefinitions().routeTables.single()
+        r.lower()
+        val next = r.capture()
+        assertTrue(r.recorder.record(next.first, next.second) { true }.contains("Recorded region"))
+        val after = r.runtime.currentDefinitions().routeTables.single()
+        assertEquals(before.tableId, after.tableId)
+        assertEquals(2L, after.revision)
+        assertEquals(before.routes.single(), after.routes.first())
+        assertEquals(before.defaultRouteIds, after.defaultRouteIds)
+        assertEquals(next.second.path.traversals, after.routes.last().traversals)
+        assertEquals(2, r.binding.source.restrictions(r.topology).pathReplacements.single().permittedPaths.size)
+    }
+
+    @Test fun `record multi rail reverse BA preview without another trace or geometry sampling`() {
+        val r = RecordingFixture()
+        r.active = ActiveRailContinuationsSnapshot.create(r.topology.revision, 2, mapOf(
+            endpoint(r.f.exit, RailEndpoint.A) to endpoint(r.f.upperOut, RailEndpoint.B),
+            endpoint(r.f.upperOut, RailEndpoint.A) to endpoint(r.f.upperIn, RailEndpoint.B),
+            endpoint(r.f.upperIn, RailEndpoint.A) to endpoint(r.f.entry, RailEndpoint.B)))
+        val (selection, value) = r.capture(reverse = true)
+        assertEquals(CurrentRouteEnd.REACHED_EXIT, value.path.end)
+        assertEquals(4, value.path.traversals.size)
+        assertTrue(value.path.traversals.all { it.facing == ViewDirection.BA })
+        val curves = r.curveReads
+        assertTrue(r.recorder.record(selection, value) { true }.contains("Recorded region"))
+        assertEquals(curves, r.curveReads)
+        assertEquals(value.path.traversals, r.runtime.currentDefinitions().routeTables.single().routes.single().traversals)
+    }
+
+    @Test fun `turnout change before capture is stale while change after freeze preserves captured path`() {
+        val r = RecordingFixture()
+        val capture = r.capture()
+        r.lower()
+        assertThrows(IllegalArgumentException::class.java) { r.recorder.record(capture.first, capture.second) { true } }
+        r.upper()
+        val frozen = r.capture()
+        val curves = r.curveReads
+        r.sources.beforeCommitAction = { r.lower() }
+        assertTrue(r.recorder.record(frozen.first, frozen.second) { true }.contains("Recorded region"))
+        assertEquals(frozen.second.path.traversals, r.runtime.currentDefinitions().routeTables.single().routes.single().traversals)
+        assertEquals(curves, r.curveReads)
+    }
+
+    @Test fun `missing unsuccessful unknown region and cancelled previews never save`() {
+        val r = RecordingFixture()
+        r.active = ActiveRailContinuationsSnapshot.empty(r.topology.revision)
+        val incomplete = r.capture()
+        assertEquals(CurrentRouteEnd.UNSELECTED, incomplete.second.path.end)
+        assertThrows(IllegalArgumentException::class.java) { r.recorder.record(incomplete.first, incomplete.second) { true } }
+        r.upper()
+        val capture = r.capture()
+        assertThrows(IllegalArgumentException::class.java) { r.recorder.record(capture.first, capture.second) { false } }
+        assertThrows(IllegalArgumentException::class.java) {
+            r.recorder.record(capture.first.copy(regionId = "test:unknown"), capture.second) { true }
+        }
+        assertEquals(1L, r.runtime.currentDefinitions().definitionRevision)
+        assertEquals(0, r.infrastructure.permitAcquisitionCount)
+    }
+
+    @Test fun `recording is blocked by real Basic static dependency and live claim with no state changes`() {
+        val f = Fixture()
+        val registry = editRegistry { f.currentTopology }
+        val r = RecordingFixture(f = f, registry = registry)
+        val capture = r.capture()
+        val before = r.runtime.authoringPublication()
+        val disk = Files.readString(r.store.primaryFile(f.worldId))
+        val sources = r.sources.sources.getValue(f.worldId)
+        for (kind in listOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM)) {
+            val release = protect(registry, f.currentTopology, f.lowerIn, kind)
+            val result = r.recorder.record(capture.first, capture.second) { true }
+            assertTrue(result.contains("EDIT_BLOCKED"), result)
+            assertTrue(result.contains(kind.name), result)
+            assertSame(before, r.runtime.authoringPublication())
+            assertSame(sources, r.sources.sources.getValue(f.worldId))
+            assertEquals(disk, Files.readString(r.store.primaryFile(f.worldId)))
+            release()
+        }
+        assertTrue(r.recorder.record(capture.first, capture.second) { true }.contains("Recorded region"))
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertTrue(r.infrastructure.lastEditRequest!!.impact.railIds.contains(f.lowerIn), "whole region is protected")
+    }
+
+    @Test fun `append rejects invalid retained route from a prior region revision without silently filtering it`() {
+        val f = Fixture()
+        // This is the persisted state after region repair: the older authored table retains
+        // both paths, while its compiled usable subset contains only the still-valid route.
+        val table = ProtectionRouteTableDefinition("test:throat-table", 1, f.region.regionId, 0,
+            listOf(f.upperRoute(), f.discontinuousRoute()), listOf(f.upperRoute().routeId))
+        val r = RecordingFixture(f, tables = listOf(table))
+        assertEquals(2, r.runtime.currentDefinitions().routeTables.single().routes.size)
+        assertEquals(1, r.binding.source.restrictions(r.topology).pathReplacements.single().permittedPaths.size)
+        val before = r.runtime.authoringPublication()
+        val disk = Files.readString(r.store.primaryFile(r.f.worldId))
+        r.lower()
+        val capture = r.capture()
+        assertEquals(CurrentRouteEnd.REACHED_EXIT, capture.second.path.end)
+        val result = r.recorder.record(capture.first, capture.second) { true }
+        assertTrue(result.contains("VALIDATION_REJECTED"), result)
+        assertSame(before, r.runtime.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
+    }
+
+    @Test fun `recording save source and commit cancellation failures preserve primary and publication`() {
+        val r = RecordingFixture()
+        val capture = r.capture()
+        val before = r.runtime.authoringPublication()
+        val disk = Files.readString(r.store.primaryFile(r.f.worldId))
+        var active = true
+        r.sources.beforeCommitAction = { active = false }
+        assertTrue(r.recorder.record(capture.first, capture.second) { active }.contains("WORLD_UNAVAILABLE"))
+        assertSame(before, r.runtime.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
+        r.sources.beforeCommitAction = {}
+        r.sources.nextPrevalidationFailure = IllegalArgumentException("source rejected")
+        assertTrue(r.recorder.record(capture.first, capture.second) { true }.contains("VALIDATION_REJECTED"))
+        assertSame(before, r.runtime.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
+        r.manager.remove(r.f.worldId)
+        val failing = SimpleSignalsWorldDefinitionStore(directory.toFile()) { throw java.io.IOException("injected before primary replace") }
+        val manager = runtimeManager(plugin(), r.infrastructure.service, r.routes, failing, r.sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(r.f.worldId).status)
+        val backend = r.backend(manager)
+        val selected = backend.select(r.f.worldId, r.f.region.boundaries.last().position,
+            backend.select(r.f.worldId, r.f.region.boundaries.first().position, null))
+        val value = backend.compute(selected)
+        val retained = manager.authoringRuntime(r.f.worldId)!!.authoringPublication()
+        val result = CurrentRouteRecording(manager, r.infrastructure.service, backend).record(selected, value) { true }
+        assertTrue(result.contains("PERSISTENCE_FAILED"), result)
+        assertSame(retained, manager.authoringRuntime(r.f.worldId)!!.authoringPublication())
+        assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
+        assertEquals(r.infrastructure.permitAcquisitionCount, r.infrastructure.permitCloseCount)
+    }
+
+    /** Real preview/tracer + manager/store + Basic permit/planner, with host observations provided as values. */
+    private inner class RecordingFixture(val f: Fixture = Fixture(), registry: InfrastructureCoordinationRegistry? = null,
+        tables: List<ProtectionRouteTableDefinition> = emptyList()) {
+        val topology = f.currentTopology
+        val store = store()
+        val infrastructure = MutableTopologyService(topology, registry)
+        val routes = CapturingRoutePlanningService()
+        val sources = CapturingSignalEpochSourceService()
+        val manager: SimpleSignalsWorldRuntimeManager
+        val runtime get() = checkNotNull(manager.authoringRuntime(f.worldId))
+        val binding get() = routes.single(f.worldId)
+        var active = ActiveRailContinuationsSnapshot.empty(topology.revision)
+        var curveReads = 0
+        init {
+            store.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1, listOf(f.region), tables))
+            manager = runtimeManager(plugin(), infrastructure.service, routes, store, sources)
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+            upper()
+        }
+        fun upper() { active = ActiveRailContinuationsSnapshot.create(topology.revision, 1, mapOf(
+            endpoint(f.entry, RailEndpoint.B) to endpoint(f.upperIn, RailEndpoint.A),
+            endpoint(f.upperIn, RailEndpoint.B) to endpoint(f.upperOut, RailEndpoint.A),
+            endpoint(f.upperOut, RailEndpoint.B) to endpoint(f.exit, RailEndpoint.A))) }
+        fun lower() { active = ActiveRailContinuationsSnapshot.create(topology.revision, 2, mapOf(
+            endpoint(f.entry, RailEndpoint.B) to endpoint(f.lowerIn, RailEndpoint.A),
+            endpoint(f.lowerIn, RailEndpoint.B) to endpoint(f.lowerOut, RailEndpoint.A),
+            endpoint(f.lowerOut, RailEndpoint.B) to endpoint(f.exit, RailEndpoint.A))) }
+        fun backend(manager: SimpleSignalsWorldRuntimeManager = this.manager): RuntimeRoutePreviewBackend {
+            val observations = proxy(RailwayObservationService::class.java) { method, _ ->
+                check(method.name == "latest")
+                java.util.Optional.of(RailwayObservation.fromCore(f.worldId.toString(),
+                    RailwayWorldFrameSnapshot.create(1, active.topologyRevision, emptyList(), active)))
+            }
+            val curves = fixtureRailTargets()
+            val targets = proxy(RailTargetService::class.java) { method, args ->
+                check(method.name == "findCurve"); curveReads++
+                curves.findCurve(args!![0] as UUID, args[1] as UUID)
+            }
+            return RuntimeRoutePreviewBackend(plugin(), manager::authoringRuntime, infrastructure.service, observations, targets)
+        }
+        val preview by lazy { backend() }
+        val recorder by lazy { CurrentRouteRecording(manager, infrastructure.service, preview) }
+        fun capture(reverse: Boolean = false): Pair<RoutePreviewSelection, RoutePreviewComputation> {
+            val region = runtime.currentDefinitions().regions.single()
+            val entry = if (reverse) region.boundaries.last() else region.boundaries.first()
+            val exit = if (reverse) region.boundaries.first() else region.boundaries.last()
+            val selection = preview.select(f.worldId, exit.position, preview.select(f.worldId, entry.position, null))
+            return selection to preview.compute(selection)
+        }
+    }
 
     @Test
     fun `zero remaining region markers preserve models tables and local refusal through restart and repair`() {

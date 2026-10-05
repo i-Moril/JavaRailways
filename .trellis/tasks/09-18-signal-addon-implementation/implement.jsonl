@@ -1,8 +1,9 @@
 {"file":".trellis/spec/simple-signals/backend/index.md","reason":"Plugin isolation and current runtime ownership"}
 {"file":".trellis/spec/simple-signals/backend/current-route-preview.md","reason":"Approved current-path algorithm, gestures, event scope, threads and tests"}
+{"file":".trellis/spec/simple-signals/backend/current-route-recording.md","reason":"Record captured preview through existing table and transaction"}
 {"file":".trellis/spec/simple-signals/backend/section-authoring-wands.md","reason":"Reuse targeting, sessions and incomplete-region behavior"}
 {"file":".trellis/spec/simple-signals/backend/section-topology-revalidation.md","reason":"Local edit invalidation and exact world lifecycle"}
 {"file":".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md","reason":"Read-only observation callbacks and target-owner display scheduling"}
 {"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"No new framework, resources, schemas or public host API"}
 {"file":".trellis/spec/guides/code-spec-authoring.md","reason":"Readable algorithm and complexity evidence"}
-{"file":".trellis/tasks/09-18-signal-addon-implementation/research/current-route-preview-batch.md","reason":"Current bounded preview batch, recording deferred"}
+{"file":".trellis/tasks/09-18-signal-addon-implementation/research/current-route-recording-batch.md","reason":"Current recording batch ownership and verification"}

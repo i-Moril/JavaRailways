@@ -1,13 +1,9 @@
-{"file":".trellis/tasks/09-18-signal-addon-implementation/research/protection-exit-clearance.md","reason":"Source-backed geometry/stop readiness gaps; do not mistake block grants for tail clearance"}
-{"file":".trellis/spec/simple-signals/backend/protection-region-authority-transition.md","reason":"Approved protection-entry clearance target and existing frozen-route floor owner"}
-{"file":".trellis/spec/simple-signals/backend/protection-region-signal-selection.md","reason":"Unique request, occurrence clearance and common protection-signal readiness"}
-{"file":".trellis/spec/javarailways/simpleato/entry-clearance.md","reason":"Neutral requirement, shared perception, exact self-gate exclusion and result lifecycle"}
-{"file":".trellis/spec/javarailways/simpleato/controller-runtime.md","reason":"One controller owner and next-tick restriction enforcement without Dispatcher"}
-{"file":".trellis/spec/javarailways/simpleato/reactive-signal-epochs.md","reason":"Coalesced value-only feedback and local signal wakeups"}
-{"file":".trellis/spec/javarailways/core/render-publication.md","reason":"Immutable same-frame conservative body geometry via public Train capability"}
-{"file":".trellis/spec/javarailways/core/api-boundaries.md","reason":"Minimal public Train frame accessor and downstream API verification"}
-{"file":".trellis/spec/javarailways/simpleato/operational-routing-and-authority.md","reason":"Geometry floor-only refresh without changing Basic admission and route lifecycle"}
-{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Plugin isolation and current runtime ownership"}
-{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Reuse normal affected-rail permits and source replacement"}
-{"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"Keep Basic arbitration unchanged and use minimum neutral host API without extra scanner"}
-{"file":".trellis/spec/guides/code-spec-authoring.md","reason":"Readable algorithm and complexity evidence"}
+{"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Frozen per-entry rule target, shared occupancy/resource, direction identity and schema3"}
+{"file":".trellis/tasks/09-18-signal-addon-implementation/research/directional-fixed-block-signals.md","reason":"Exact source map, mixed graph and consumer audit; preserve deletion/revalidation contracts"}
+{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Existing configurable rules, atomic publication, current-only persistence and plugin isolation"}
+{"file":".trellis/spec/simple-signals/backend/protection-region-signal-selection.md","reason":"Shared mixed rule graph, exact declaration identities and protection readiness"}
+{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Independent explicit models and attached primary references with retained handles"}
+{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Per-signal versus shared-section edit seeds and old/new guarded transactions"}
+{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Semantic break only upgrades plugin sidecar; no old development reader"}
+{"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"No second occupancy scanner, resource arbiter or host API"}
+{"file":".trellis/spec/guides/code-spec-authoring.md","reason":"Actual module flow, non-trivial algorithms and complexity"}

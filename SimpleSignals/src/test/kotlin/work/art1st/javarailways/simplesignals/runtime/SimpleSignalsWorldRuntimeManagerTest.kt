@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals.runtime
 
 import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+import work.art1st.javarailways.simplesignals.testing.reconfigured
 import work.art1st.javarailways.simplesignals.authoring.*
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
@@ -2837,6 +2838,35 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertTrue(malformed.diagnostics.any { it.contains("upserted and removed") })
         assertTrue(malformed.diagnostics.any { it.contains("does not exist") })
         assertEquals(0, infrastructure.permitAcquisitionCount)
+    }
+
+    @Test
+    fun `duplicate directional entry and reverse on one way reject candidate before disk source or permit changes`() {
+        val f = Fixture()
+        val block = FixedBlockDefinition("test:entry-block", 1,
+            listOf(FixedBlockTraversal(f.entry, ViewDirection.AB, 1.0, 4.0)))
+        val signal = FixedBlockSignalDefinition("test:forward", 1, block.blockId, 0.0,
+            ConfiguredSignalOutput(0.0, "stop"), listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(12.0, "proceed"))))
+        val stored = store()
+        stored.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1, emptyList(), emptyList(), listOf(block), listOf(signal)))
+        val infrastructure = MutableTopologyService(f.currentTopology)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), stored, sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        val originalDisk = Files.readString(stored.primaryFile(f.worldId))
+        val originalSource = sources.sources.getValue(f.worldId).single()
+        val originalRuntime = manager.authoringRuntime(f.worldId)!!
+        val originalPublication = originalRuntime.authoringPublication()
+        for (candidate in listOf(signal.reconfigured(signalId = "test:duplicate"),
+            signal.reconfigured(signalId = "test:reverse", entryDirection = work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection.REVERSE))) {
+            val patch = SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(candidate))
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
+                manager.applyDefinitionPatch(f.worldId, 1, patch).status)
+            assertEquals(0, infrastructure.permitAcquisitionCount)
+            assertEquals(originalDisk, Files.readString(stored.primaryFile(f.worldId)))
+            assertSame(originalSource, sources.sources.getValue(f.worldId).single())
+            assertSame(originalPublication, originalRuntime.authoringPublication())
+        }
     }
 
     @Test

@@ -177,7 +177,9 @@ private data class SavedFixedBlockSignalV1(
     val occupiedOutput: SavedSignalOutputV1,
     val clearLevels: List<SavedFixedBlockSignalClearLevelV1>,
     val downstreamSignals: List<SavedFixedBlockSignalDependencyV1>,
-    val model: SavedDeviceModel? = null
+    val model: SavedDeviceModel? = null,
+    val entryDirection: work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection =
+        work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection.FORWARD
 )
 
 @Serializable
@@ -265,7 +267,7 @@ private data class SavedModelPose(
 
 /** Strict codec for the independently versioned SimpleSignals world-definition sidecar. */
 internal object SimpleSignalsWorldDefinitionsCodec {
-    const val CURRENT_FORMAT_VERSION = 2
+    const val CURRENT_FORMAT_VERSION = 3
 
     private val json = Json {
         encodeDefaults = true
@@ -395,7 +397,8 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                         }
                     )
                 },
-                signal.model?.saved()
+                signal.model?.saved(),
+                signal.entryDirection
             )
         },
         protectionSignals.map { signal -> SavedProtectionSignal(signal.signalId, signal.revision, signal.kind,
@@ -543,7 +546,8 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                 }
             )
         },
-        model?.restore(signalId)
+        model?.restore(signalId),
+        entryDirection
     )
 
     private fun SavedSignalOutputV1.restore() = ConfiguredSignalOutput(

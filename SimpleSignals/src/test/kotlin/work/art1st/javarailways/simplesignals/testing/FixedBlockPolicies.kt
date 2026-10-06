@@ -8,6 +8,21 @@ import work.art1st.javarailways.simplesignals.block.*
 import work.art1st.javarailways.simplesignals.runtime.PublishedSectionSignal
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntime
 import java.util.UUID
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry
+import work.art1st.javarailways.simplesignals.signal.*
+import work.art1st.javarailways.simplesignals.presentation.DeviceModelDefinition
+
+/** Rebuild through the immutable domain constructor; its generated copy deliberately stays private. */
+internal fun FixedBlockSignalDefinition.reconfigured(
+    signalId: String = this.signalId,
+    revision: Long = this.revision,
+    entryDirection: FixedBlockEntryDirection = this.entryDirection,
+    inspectionLeadTimeSeconds: Double = this.inspectionLeadTimeSeconds,
+    clearLevels: Collection<FixedBlockSignalClearLevel> = this.clearLevels,
+    downstreamSignals: Collection<FixedBlockSignalDependency> = this.downstreamSignals,
+    model: DeviceModelDefinition? = this.model
+) = FixedBlockSignalDefinition(signalId, revision, controlledBlockId, inspectionLeadTimeSeconds,
+    occupiedOutput, clearLevels, downstreamSignals, model, entryDirection)
 
 /** Legacy normal-control fixtures explicitly supply the per-rail policy their definitions require. */
 internal fun authoredDirectionPolicy(snapshot: () -> FixedBlockReadSnapshot): FixedBlockDirectionPolicy =
@@ -31,9 +46,9 @@ internal fun fixedBlockPolicy(plugin: Plugin, snapshotForWorld: (UUID) -> FixedB
 
 internal fun fixedBlockInspectionSource(
     snapshot: () -> FixedBlockReadSnapshot,
-    signalState: (String) -> PublishedSectionSignal? = { null },
-    hasConfiguredSignal: (String) -> Boolean = { false },
-    inspectionLeadTimeSeconds: (FixedBlockReadSnapshot, String) -> Double = { _, _ -> 0.0 },
+    signalState: (FixedBlockSignalEntry) -> PublishedSectionSignal? = { null },
+    hasConfiguredSignal: (FixedBlockSignalEntry) -> Boolean = { false },
+    inspectionLeadTimeSeconds: (FixedBlockReadSnapshot, FixedBlockSignalEntry) -> Double = { _, _ -> 0.0 },
     protectionDeclarations: (FixedBlockReadSnapshot, RouteSnapshot) -> List<InspectionDeclaration> = { _, _ -> emptyList() },
     protectionSignalState: (String) -> PublishedSectionSignal? = { null },
     hasConfiguredProtectionSignal: (String) -> Boolean = { false }

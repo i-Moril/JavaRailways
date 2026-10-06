@@ -67,18 +67,19 @@ unload/reload先删除local runtime，再创建新runtime与binding，不能复�
 
 ## 世界定义持久化
 
-每个world使用带`schemaVersion = 2`的独立文件：
+每个world使用带`schemaVersion = 3`的独立文件：
 `<plugin dataFolder>/worlds/<world UUID>-definitions.json`。current document只保存`worldId`、
 `definitionRevision`、保护区域及其有向边界、固定进路表、每条进路完整的有向traversal、固定闭塞的完整有向traversal，以及
 固定闭塞/保护信号的配置输出/依赖和进路显示器的入口绑定与variant映射。
 三类设备共用可选模型引用及 rail/ground 摆放，字段、校验和早期未发布草稿的修正范围只在
 [模型显示合同](model-presentation.md)维护；显示器不再保留重复的顶层轨道位置。
 `fixedBlocks`、`fixedBlockSignals`、`protectionSignals`和`routeIndicators`最初作为有明确empty default的additive字段加入，并未单独升级
-版本；本次删除`defaultRouteIds`才将这一文件从1升至2，不连带升级宿主世界文件，也不增加旧开发reader。identity使用稳定namespaced ID与
+版本；删除`defaultRouteIds`将文件从1升至2。双向入口规则由原一条作用两端改为分别控制指定入口，本批语义改变将此文件升至3，
+不连带升级宿主世界或模型包文件，也不增加旧开发reader。identity使用稳定namespaced ID与
 canonical UUID字符串；位置统一保存canonical AB metres，方向使用`ViewDirection`。派生interior、rail reverse index、occupancy
 geometry、topology revision和编译后的Basic restriction都是可丢弃缓存，禁止写入sidecar。
 
-codec固定`encodeDefaults = true`和`ignoreUnknownKeys = false`。未知字段、非version 2、非canonical UUID、文件world ID与
+codec固定`encodeDefaults = true`和`ignoreUnknownKeys = false`。严格拒绝未知字段、非version 3、非canonical UUID、文件world ID与
 加载world不符或domain invariant失败均拒绝；runtime不包含旧格式reader、upcaster或兼容分支。decode边界把DTO一次转换为
 当前`ProtectionRegionDefinition`/`ProtectionRouteTableDefinition`/`FixedBlockDefinition`/`FixedBlockSignalDefinition`/
 `ProtectionSignalDefinition`/`RouteIndicatorDefinition`，业务编译器不处理磁盘版本。
@@ -267,7 +268,7 @@ degree-2物理环线上的真实Basic申请/延长/车尾释放，并覆盖内�
 停车保留token、延长后车尾释放，以及已释放历史block在之后的申请中不被重新取得。
 
 默认 block 仍按作者的有向 traversal 匹配。默认关闭的 `bidirectional` 开关已支持
-同一物理路径的两端进入，复用同一 token、主信号结果及 Basic 折返/释放机制。反向路径派生、入口检查、
+同一物理路径的两端进入，复用同一 token、占用状态及 Basic 折返/释放机制。两入口已支持独立规则；反向路径派生、入口检查、
 保护区域衔接和验证要求归[双向固定闭塞合同](bidirectional-fixed-block.md)，已完成离线验证。
 
 该合同还规定已接通的方向修正：逐段核对运营方向，有效单向闭塞明确拒绝反向申请；
@@ -285,8 +286,8 @@ degree-2物理环线上的真实Basic申请/延长/车尾释放，并覆盖内�
   本批已补齐 SimpleSignals 的双向匹配和入口限制；单个闭塞的互斥和车尾释放复用 Basic 现有机制，不是第二套资源仲裁。
 - 附属信号机和中继信号机引用主信号结果，各自保留模型和摆放；附属显示不创建资源、不重复执行规则，也不凭显示位置增加入口限制。
   两个真实入口共用资源，不代表必须共用同一信号结果；它们可以根据各自前方区间独立计算，不能把显示主从关系当作入口互斥模型。
-- 本批双向单闭塞继续使用一个规则结果控制两个入口；附属设备负责额外显示，不增加规则节点。
-  两端独立规则尚未设计，不得据此新增“一个物理闭塞永久只有一个入口信号”的公共契约。
+- 双向单闭塞两端独立规则已实现：按作者路径的 FORWARD/REVERSE 分别配置下游、输出、提前时间和模型。
+  共用一份占用几何与资源；附属设备仍直接读取指定主信号，不增加规则节点。具体身份、失效与错误语义归[双向闭塞合同](bidirectional-fixed-block.md)。
 - 多闭塞的整段方向协调与每个闭塞的独立占用是不同问题。不能默认给整段加只能由一列车持有的独占资源，导致未来无法支持同向跟车；
   是否允许跟车、如何切换方向及如何原子约束资源申请仍未冻结。后续方案须验证相向申请不会各自进入两端闭塞而互相堵住。
 
@@ -407,15 +408,15 @@ ATO。列车通过入口导致active集合移除该声明时，source发布新�
 ## 具体固定闭塞规则
 
 当前production provider由`FixedBlockSignalDefinition`配置，不在Kotlin中写死灯色名称或速度表。每个定义保存稳定namespaced
-`signalId`、单调`revision`、唯一`controlledBlockId`、非负有限`inspectionLeadTimeSeconds`、一个`occupiedOutput`、至少一个
+`signalId`、单调`revision`、`controlledBlockId`、`entryDirection`、非负有限`inspectionLeadTimeSeconds`、一个`occupiedOutput`、至少一个
 `clearLevel`及零个或多个`downstreamSignal`引用。每个下游引用只另存沿途必须的turnout `entry -> selected exit`选择，不重复存完整rail traversal，也不让作者手填物理距离。output只包含有限非负`speedLimitMetersPerSecond`和非空但不透明的
 `modelVariant`。clear level按`minimumDownstreamSpeedMetersPerSecond`严格递增，第一项必须为0，从而让任意合法下游限速都有结果。
 
-world definition prepare会在publication前完成以下编译：验证signal ID与controlled block一一对应、block及downstream signal引用
-存在、每个signal内部dependency不重复。编译器先从控制block自身的完整有向traversal提取已经确定的turnout选择，再从block出口开始沿ordinary/loop continuation单向前进；遇到多出口turnout时必须消费dependency明示声明的合法选择，直到目标signal的block入口，并从实际经过距离派生`distanceMeters`。未声明的多出口、非turnout entry、非法或未使用的选择、循环、无法到达目标，以及同一entry合并后要求不同exit，都拒绝整份candidate。这不是寻路，不猜测shortest path；它只执行作者明示给出的分支决定并验证其与exact topology一致。派生条件随后与section provider和downstream signal依赖一起交给既有`SectionSignalRuleRuntime`做完整DAG检查。任一引用、revision、阈值或cycle非法都会拒绝整份candidate，旧publication与存档不变。编译后的binding和inspection lead-time map与region/table/block
+world definition prepare会在publication前完成以下编译：signal ID唯一，每个`(controlledBlockId, entryDirection)`至多一个主信号，
+REVERSE只接受双向block；block存在、每个signal内部dependency不重复。编译器先从控制入口对应的完整有向traversal提取已经确定的turnout选择，再从该方向block出口开始沿ordinary/loop continuation单向前进；遇到多出口turnout时必须消费dependency明示声明的合法选择，直到目标signal的对应入口，并从实际经过距离派生`distanceMeters`。未声明的多出口、非turnout entry、非法或未使用的选择、循环、无法到达目标，以及同一entry合并后要求不同exit，都拒绝整份candidate。这不是寻路，不猜测shortest path；它只执行作者明示给出的分支决定并验证其与exact topology一致。派生条件随后与section provider和downstream signal依赖一起交给既有`SectionSignalRuleRuntime`做完整DAG检查。revision、阈值或cycle非法会拒绝整份candidate，旧publication与存档不变；production混合编译对删除/暂时缺失的下游保留规则并发布Unavailable，不能破坏合法区间删除与修复行为。编译后的binding和有向入口lead-time map与region/table/block
 catalog一起放入同一个immutable `SimpleSignalsRuntimePublication`；production world install直接使用这里的rule runtime，不再安装空规则。
 
-上述dependency存档shape在早期未发布草稿中已直接修正；当前schema 2的writer仍只写`requiredContinuations`，strict decoder不接受旧`distanceMeters`形状，不增加runtime alias、upcaster或虚构的中间version。
+上述dependency存档shape在早期未发布草稿中已直接修正；当前schema 3的writer仍只写`requiredContinuations`，strict decoder不接受旧`distanceMeters`形状，不增加runtime alias、upcaster或虚构的中间version。
 
 一次规则执行先从同epoch active-continuation snapshot中过滤出所有预编译条件均成立的下游dependency。本block有occupant时直接返回配置的`occupiedOutput`；本block空闲时取当前物理分支上已发布下游signal限速的最小值，
 再返回threshold不大于该值的最后一个clear level；没有下游依赖时把下游限速视为正无穷，选择最后一个clear level。下游
@@ -428,16 +429,16 @@ snapshot，再要求lead-time lookup仍属于同一个outer publication；若在
 把旧几何与新时间拼接。signal定义的在线增删改与block几何变更一样预编译新的section runtime，并通过现有host原子source replacement
 提交；signal-only edit不创建第二套事件队列、catalog或revision token。
 
-编译结果另外保留“该block是否配置signal”的存在性，不能用lead time是否大于0推断，因为0秒也是合法配置。active声明读取不到已配置
-signal的首个published baseline时，inspection source在入口发布0 m/s限制；只有确实没有signal定义的resource-only block才不附加
+编译结果另外保留“该block的这个入口是否配置signal”的存在性，不能用lead time是否大于0推断，因为0秒也是合法配置。active声明读取不到已配置
+signal的首个published baseline时，inspection source在入口发布0 m/s限制；只有这个入口确实没有signal定义时才不附加
 速度限制。已有状态必须匹配world且不得来自未来physics epoch，实际依赖也不能已被事务标记失效；
 无关世界revision变化不使信号输出过期。这样初始缺失状态不会形成短暂许可，也不增加轮询或tick扫描。
 
-早期未发布草稿已直接以`inspectionLeadTimeSeconds`取代距离字段，当前schema 2保留此时间字段；不增加
+早期未发布草稿已直接以`inspectionLeadTimeSeconds`取代距离字段，当前schema 3保留此时间字段；不增加
 runtime兼容alias或无实际发行版本对应的中间schema。需要保留的开发服数据应在启用前通过一次性迁移修正。
 
 Good case：空闲block按最严格下游限速选择配置档位，输出变化只向上游传播。Base case：没有下游的末端signal选最后一个clear level；
-没有signal定义的block仍只执行资源/authority floor；已配置signal尚无baseline时入口限速为0。Bad case：引用不存在的block/signal、一个block两个signal、cycle或首个threshold
+没有signal定义的入口仍只执行资源/authority floor；已配置signal尚无baseline时入口限速为0。Bad case：引用不存在的block、一个入口两个signal、单向block反向规则、cycle或首个threshold
 非0均在load/authoring时拒绝，不把缺配置解释成许可。测试必须覆盖current schema empty default和round-trip、占用/下游阈值选择、末端选择、
 未知引用/cycle、一致publication读取、配置零lead time与未配置block的区分、缺baseline的零速、production安装非空binding，以及signal patch的原子保存与orphan block删除拒绝。
 
@@ -482,7 +483,7 @@ git diff --check
 正长度interior重叠拒绝但边界相接允许、reverse index、
 occupancy boundary方向/几何、current schema empty default/round-trip/严格非法输入，以及runtime patch/persistence/affected-rail整合。
 具体固定闭塞信号测试还必须覆盖配置输出不被runtime解释、占用优先、下游最小限速阈值选择、末端无依赖、inspection lead time、
-未知block/signal引用、重复controlled block、cycle、production binding安装以及signal patch的持久化和原子source替换。
+未知block、暂失下游的Unavailable、重复同向入口、非法反向、cycle、production binding安装以及signal patch的持久化和原子source替换。
 world runtime测试还必须覆盖空启动、非空table改变Basic实际选路、candidate失败保留旧pair、相关拓扑变更到后台重验之间
 保持不可用、无关事务不影响行车，以及同UUID reload得到新binding。持久化测试必须覆盖固定current fixture round-trip、严格未知字段/version/world ID、
 primary损坏时backup恢复、恢复后写入不以坏primary覆盖最后有效backup、双损坏保留原文件、写入backup轮转、loaded definition在

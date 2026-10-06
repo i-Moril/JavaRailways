@@ -19,28 +19,36 @@ import work.art1st.javarailways.simplesignals.runtime.SectionSignalRuleRuntime
 import java.util.UUID
 import kotlin.math.abs
 
+/** A directed rule path borrows compiled traversals; it is not another block or occupancy area. */
+internal data class DirectedSignalGeometry(val traversals: List<FixedBlockTraversal>, val lengthMeters: Double) {
+    companion object {
+        fun from(block: CompiledFixedBlock, direction: FixedBlockEntryDirection = FixedBlockEntryDirection.FORWARD) =
+            DirectedSignalGeometry(if (direction == FixedBlockEntryDirection.REVERSE) block.reverseTraversals else block.traversals,
+                block.lengthMeters)
+    }
+}
+
 /** Immutable concrete rule set compiled together with one world-definition publication. */
 internal class CompiledFixedBlockSignals private constructor(
     val ruleRuntime: SectionSignalRuleRuntime?,
     val bindings: List<SectionSignalRuleBinding>,
-    inspectionLeadTimeByBlockId: Map<String, Double>
+    inspectionLeadTimeByEntry: Map<FixedBlockSignalEntry, Double>
 ) {
-    private val inspectionLeadTimeByBlockId = java.util.Map.copyOf(inspectionLeadTimeByBlockId)
+    private val inspectionLeadTimeByEntry = java.util.Map.copyOf(inspectionLeadTimeByEntry)
 
-    fun inspectionLeadTimeSeconds(blockId: String): Double =
-        inspectionLeadTimeByBlockId[blockId] ?: 0.0
+    fun inspectionLeadTimeSeconds(entry: FixedBlockSignalEntry): Double =
+        inspectionLeadTimeByEntry[entry] ?: 0.0
 
-    fun hasSignalForBlock(blockId: String): Boolean =
-        inspectionLeadTimeByBlockId.containsKey(blockId)
+    fun hasSignalForEntry(entry: FixedBlockSignalEntry): Boolean = inspectionLeadTimeByEntry.containsKey(entry)
 
     fun withoutBindings(ids: Set<String>): CompiledFixedBlockSignals = CompiledFixedBlockSignals(
-        null, bindings.filter { it.signalId !in ids }, inspectionLeadTimeByBlockId)
+        null, bindings.filter { it.signalId !in ids }, inspectionLeadTimeByEntry)
 
     companion object {
         fun compile(
             definitions: Collection<FixedBlockSignalDefinition>,
             fixedBlocks: FixedBlockReadSnapshot,
-            externalSignalGeometry: Map<String, CompiledFixedBlock> = emptyMap(),
+            externalSignalGeometry: Map<String, DirectedSignalGeometry> = emptyMap(),
             compileRuntime: Boolean = true,
             unavailableSignalIds: Set<String> = emptySet(),
             retainedBindings: Map<String, SectionSignalRuleBinding> = emptyMap(),
@@ -55,22 +63,26 @@ internal class CompiledFixedBlockSignals private constructor(
                     "signal ${definition.signalId} controls unknown fixed block " +
                         definition.controlledBlockId
                 }
+                require(definition.entryDirection != FixedBlockEntryDirection.REVERSE ||
+                    blocksById.getValue(definition.controlledBlockId).definition.bidirectional) {
+                    "signal ${definition.signalId} reverse entry requires a bidirectional fixed block"
+                }
             }
             val definitionsBySignal = copiedDefinitions.associateBy(FixedBlockSignalDefinition::signalId)
             require(definitionsBySignal.size == copiedDefinitions.size) { "fixed-block signal IDs must be unique" }
-            require(copiedDefinitions.map { it.controlledBlockId }.distinct().size == copiedDefinitions.size) {
-                "one block may only have one signal"
+            require(copiedDefinitions.map { it.entry }.distinct().size == copiedDefinitions.size) {
+                "one fixed-block entry may only have one signal"
             }
             val bindings = copiedDefinitions.filter { it.signalId !in unavailableSignalIds }.mapNotNull { definition ->
                 retainedBindings[definition.signalId]?.let { return@mapNotNull it }
                 try {
-                val sourceBlock = blocksById.getValue(definition.controlledBlockId)
+                val sourceBlock = DirectedSignalGeometry.from(blocksById.getValue(definition.controlledBlockId), definition.entryDirection)
                 SectionSignalRuleBinding(
                     definition.signalId,
                     SectionRef(SectionKind.FIXED_BLOCK, definition.controlledBlockId),
                     definition.downstreamSignals.map { dependency ->
                         val downstreamGeometry = definitionsBySignal[dependency.signalId]?.let {
-                            blocksById.getValue(it.controlledBlockId)
+                            DirectedSignalGeometry.from(blocksById.getValue(it.controlledBlockId), it.entryDirection)
                         } ?: requireNotNull(externalSignalGeometry[dependency.signalId]) {
                             "signal ${definition.signalId} depends on unknown signal " +
                                 dependency.signalId
@@ -88,7 +100,8 @@ internal class CompiledFixedBlockSignals private constructor(
                             path.requiredContinuations,
                             affectedRailIds = path.affectedRailIds
                         )
-                    }
+                    },
+                    declarationId = fixedBlockSignalDeclarationId(definition.controlledBlockId, definition.entryDirection)
                 ) { input ->
                     val selected = if (input.controlledSection.occupants.isNotEmpty()) {
                         definition.occupiedOutput
@@ -116,7 +129,7 @@ internal class CompiledFixedBlockSignals private constructor(
                 runtime,
                 java.util.List.copyOf(bindings),
                 copiedDefinitions.associate {
-                    it.controlledBlockId to it.inspectionLeadTimeSeconds
+                    it.entry to it.inspectionLeadTimeSeconds
                 }
             )
         }
@@ -124,8 +137,8 @@ internal class CompiledFixedBlockSignals private constructor(
         fun compileDownstreamPath(
             sourceSignalId: String,
             dependency: FixedBlockSignalDependency,
-            sourceBlock: CompiledFixedBlock,
-            downstreamBlock: CompiledFixedBlock,
+            sourceBlock: DirectedSignalGeometry,
+            downstreamBlock: DirectedSignalGeometry,
             fixedBlocks: FixedBlockReadSnapshot
         ): CompiledDownstreamPath {
             val requirements = dependency.requiredContinuations.associateBy { it.entry }

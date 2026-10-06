@@ -22,8 +22,25 @@
     日志：`/tmp/javarailways-exit-clearance-full-check2.log`、`/tmp/javarailways-exit-clearance-final-gate.log`。
   - Core HTML Dokka已生成；Javadoc缺离线缓存`org.jetbrains.dokka:javadoc-plugin:2.2.0`，未验证，没有下载或改构建配置。
     `git diff --check`通过；真实Folia/客户端及规模性能基准未验证。提交后停下供用户审阅，Stage 2仍进行中。
-    先核对中立要求与共享 ready 状态的最小接口，再实现代码及回归；本条在完整独立门禁通过前保持未完成。
-- [ ] 双向闭塞的两入口独立规则，保持一个共享资源。
+- [x] 双向闭塞的两入口独立规则，保持一个共享资源。
+  - 2026-10-06 用户批准本批：先补[所属契约](../../spec/simple-signals/backend/bidirectional-fixed-block.md)，再实现与独立检查。
+    规则按作者完整路径的 FORWARD/REVERSE 绑定；每入口最多一个主信号，各自配置下游、提前时间、输出和显式模型。
+    未配置该端不增加信号速度限制；已配置但无有效结果则入口0。共享一份占用与block资源，复用单向图、检查绑定和正常编辑事务。
+    当前世界定义文件schema3，拒绝旧2，不增加运行时升级；不改宿主API/世界文件、JS、信号Wand或多闭塞单线协调。
+    研究与准确改动面见[方向规则研究](research/directional-fixed-block-signals.md)。九个生产文件改入口键、有向几何视图和声明索引；
+    反向路径借用已有缓存，规则共享同一占用provider，保留方向有效性、原资源身份、车尾释放与净空门控。
+  - 实现聚焦8套/160项实际执行通过，生产与全部测试Kotlin编译通过。独立checker未发现生产缺陷；
+    补2项真实组合回归，验证Basic方向变化经signal epoch同时失效/恢复两端且无变化IDLE，以及同ID换入口fresh binding/旧新编辑范围。
+    补充聚焦2套/21项实际编译与执行通过；总计新增16项测试。
+  - 最终独立离线`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava :SimpleSignals:jar`通过，
+    排除WebUI前端安装/构建，缓存Gradle9.5/JDK17+25，无下载和构建配置变化。
+    43套/450项全部实际执行，零失败、错误或跳过；`verifyPluginJar`实际执行，Java consumer、最终编译与JAR构建复用未变缓存。
+    直接检查JAR确认方向类型入包、无宿主类；`git diff --check`与9+9项上下文验证通过，没有独立lint任务。
+    日志`/tmp/javarailways-directional-signals-focused3.log`、`/tmp/javarailways-directional-signals-review-focused.log`、
+    `/tmp/javarailways-directional-signals-final-check.log`；XML在SimpleSignals/build/test-results/test。
+  - 契约/README同步CURRENT，保留合法删除后缺失下游Unavailable。真实Folia/客户端与规模性能未验证；
+    测试日志包含一次physics overload及既有Gradle/native警告，不能据测试通过声称延迟已验证。
+    本批提交后停下供用户检查；既有TODO/docs-site、另一任务及未跟踪资产不纳入提交，Stage2仍进行中。
 - [ ] 对已有距离输入与信号循环依赖做有界方案评审，不重复添加输入模型或写死国家规则。
 
 本批范围与验收见[修正批次](research/signal-comparison-corrections.md)。下文的历史默认进路完成项已被新决定取代。

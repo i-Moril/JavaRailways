@@ -24,7 +24,7 @@ class AttachedSignalPersistenceTest {
         val restored = SimpleSignalsWorldDefinitionsCodec.decode(old, worldId)
         assertTrue(restored.attachedSignals.isEmpty())
         val document = Json.parseToJsonElement(SimpleSignalsWorldDefinitionsCodec.encode(restored)).jsonObject
-        assertEquals(JsonPrimitive(2), document["schemaVersion"])
+        assertEquals(JsonPrimitive(3), document["schemaVersion"])
         assertEquals(JsonArray(emptyList()), document["attachedSignals"])
     }
 
@@ -41,7 +41,7 @@ class AttachedSignalPersistenceTest {
         assertEquals(document, SimpleSignalsWorldDefinitionsCodec.decode(encoded, worldId))
         val saved = Json.parseToJsonElement(encoded).jsonObject.getValue("attachedSignals").jsonArray
         assertEquals(setOf("signalId", "revision", "primarySignalId", "model"), saved.first().jsonObject.keys)
-        assertEquals(JsonPrimitive(2), Json.parseToJsonElement(encoded).jsonObject["schemaVersion"])
+        assertEquals(JsonPrimitive(3), Json.parseToJsonElement(encoded).jsonObject["schemaVersion"])
     }
 
     @Test

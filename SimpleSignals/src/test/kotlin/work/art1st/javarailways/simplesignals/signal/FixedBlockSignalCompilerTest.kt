@@ -23,8 +23,8 @@ class FixedBlockSignalCompilerTest {
             blocks("test:configured-block", "test:resource-only-block")
         )
 
-        assertTrue(compiled.hasSignalForBlock("test:configured-block"))
-        assertFalse(compiled.hasSignalForBlock("test:resource-only-block"))
+        assertTrue(compiled.hasSignalForEntry(FixedBlockSignalEntry("test:configured-block")))
+        assertFalse(compiled.hasSignalForEntry(FixedBlockSignalEntry("test:resource-only-block")))
     }
 
     @Test

@@ -13,6 +13,7 @@ import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
 import work.art1st.javarailways.simplesignals.region.*
 import work.art1st.javarailways.simplesignals.signal.*
 import java.util.UUID
+import work.art1st.javarailways.simplesignals.testing.reconfigured
 
 class SectionAuthoringActionsTest {
     private val world = UUID(0, 30)
@@ -65,6 +66,25 @@ class SectionAuthoringActionsTest {
         val deleted = SectionAuthoringActions.deleteBlock(defs, point(8.0), true).patch
         assertTrue(deleted.upsertRegions.isEmpty())
         assertTrue(deleted.removeRegionIds.isEmpty())
+    }
+
+    @Test fun `deleting bidirectional block removes both primary signals and all their displays only`() {
+        val shared = block("shared", 2.0, 8.0)
+        val other = block("other", 8.0, 10.0)
+        val forward = signal("forward", shared.blockId)
+        val reverse = signal("reverse", shared.blockId).reconfigured(entryDirection = FixedBlockEntryDirection.REVERSE)
+        val unrelated = signal("unrelated", other.blockId)
+        val model = DeviceModelDefinition("test:head", ModelPlacement.Ground(ModelPose.IDENTITY))
+        val attachments = listOf(forward, reverse, unrelated).flatMap { primary -> (1..2).map {
+            AttachedSignalDefinition(primary.signalId + "/repeat-$it", 0, primary.signalId, model)
+        } }
+        val defs = SimpleSignalsWorldDefinitions(world, 0, emptyList(), emptyList(), listOf(shared, other),
+            listOf(forward, reverse, unrelated), attachedSignals = attachments)
+        val patch = SectionAuthoringActions.deleteBlock(defs, point(5.0), false).patch
+        assertEquals(listOf(shared.blockId), patch.removeFixedBlockIds)
+        assertEquals(setOf(forward.signalId, reverse.signalId), patch.removeFixedBlockSignalIds.toSet())
+        assertEquals(attachments.filter { it.primarySignalId != unrelated.signalId }.map { it.signalId }.toSet(),
+            patch.removeAttachedSignalIds.toSet())
     }
 
     @Test fun `deleting all region markers preserves accepted identity and original complete cuts`() {

@@ -28,6 +28,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 - 取消默认进路；保护信号只有匹配的有效列车请求已取得授权且实际设备状态正确时才能开放。
 - 保护区域放行前须利用列车长度确认可完整驶出，不能把拥有后继闭塞资源等同于车尾净空。
 - 双向闭塞保持共享资源，但应允许两端按各自后续线路独立计算信号。
+  本批已批准：按作者完整路径的两个入口分别配置输出、下游依赖、提前时间和模型；未配置端仅执行资源约束，已配置端缺有效状态则停车。
 - 按独立、可验证的批次修正，不新增重复扫描、真实铁路全套联锁或运行时旧开发数据兼容。
   实施顺序与边界见[修正批次](research/signal-comparison-corrections.md)。
 
@@ -117,7 +118,7 @@ defines the implemented flow and its verification boundary.
 - A future Wand can edit per-device offsets, rail coordinates and direction. Changing attachment direction retains offset values and recomputes placement; rotating the model in place preserves its placement point.
 - Models may default to following rail slope/cant and players may override that choice, with world-upright as the fallback. Selecting a preset copies the effective offset, rotation and tilt choice into independent instance parameters. Later preset edits/removal do not move existing devices; adopting new parameters requires explicitly reapplying a preset. Do not add runtime field-inheritance tracking.
 - The approved [model-package format](../../spec/simple-signals/backend/model-packages.md) provides multiple models and local shared parts. Static scenes are named without author time fields; imports merge offsets and Euler angles as train imports do, while explicit containers provide hierarchical assembly. Load and validate the whole package into immutable host values outside the signal tick.
-- All three device kinds use one optional model reference plus rail/ground placement. Backend-only devices need no display position; remove the route indicator's duplicate standalone position. Reuse the current sidecar and authoring transaction, with old/new attachment rails included in the existing edit permit. The user explicitly approved correcting the earlier unpublished schema-1 model draft without intermediate versions or old-field aliases; the file now uses schema 2 following removal of default routes. The exact current shape belongs in the model presentation contract.
+- All three device kinds use one optional model reference plus rail/ground placement. Backend-only devices need no display position; remove the route indicator's duplicate standalone position. Reuse the current sidecar and authoring transaction, with old/new attachment rails included in the existing edit permit. The earlier unpublished model draft was corrected directly; default-route removal then required schema 2, and directional-entry rule semantics now use schema 3. The exact current shape belongs in the model presentation contract.
 - Arbitrary model instance parameters such as mast height are deferred. Later they must be separate from signal aspect `modelVariant`; do not reserve empty fields or add parameter evaluation now. Static model IDs can distinguish preconfigured heights in the meantime.
 
 #### Guided authoring and measurement
@@ -125,7 +126,7 @@ defines the implemented flow and its verification boundary.
 The following player-facing requirements are confirmed. The user deferred tools, measurement,
 style-editing UI and track overlays to the next batch. The backend primary/attached-signal relationship
 is complete offline. Bidirectional single-track single-block control is also implemented and verified offline,
-with two true entrances sharing one block token and one primary signal result; see the
+with two true entrances sharing one block token and occupancy; independent per-entry rules are implemented offline. See the
 [bidirectional block contract](../../spec/simple-signals/backend/bidirectional-fixed-block.md).
 尚未决定的交互不阻塞已经确认的独立批次。独立道岔 Wand 已提交；用户现已批准先实施
 闭塞与保护区域 Wand 的确定部分，见[本批边界和测试](research/section-wands-batch.md)。
@@ -187,8 +188,8 @@ with two true entrances sharing one block token and one primary signal result; s
   a repeater's display position is not automatically another train-control boundary.
 - Support the user's single-track example of two signal machines displaying the same signal.
   Bidirectional admission is now approved through `bidirectional = true` on the block; missing/false
-  keeps existing directed behavior. Reverse entry uses the same physical resource and shared rule result,
-  not a second direction-specific token or rule. A reverse-facing display alone still does not enable this control.
+  keeps existing directed behavior. Reverse entry uses the same physical resource but may bind its own independently
+  configured rule; no second direction-specific token. A reverse-facing display alone still does not enable this control.
 - Provide a separate measurement tool showing both the straight-line distance and the along-track
   distance between two selected rail positions. Path choice at branches must be discussed rather than silently assumed.
 - Like RailWand, allow editing the signal Wand's default style for future placement and editing the style
@@ -218,12 +219,12 @@ editor visualization. User-proposed visualization candidates are directed `▴` 
 by speed limit, dedicated resource-pack items for stopping points/anchors, and differently colored
 TextDisplay bars for fixed-block extents. These are proposals, not a frozen rendering/API design.
 Multiple displays now have confirmed shared-output semantics. This does not require every entrance
-signal on a physical section to share one result. The current one-rule-per-section runtime is an
-implementation limit, not a permanent constraint on bidirectional blocks. A bidirectional
+signal on a physical section to share one result. The approved directional-entry batch removes the
+one-rule-per-section implementation limit. A bidirectional
 physical block must use the same resource identity from both ends; reuse Basic's existing arbitration
 and tail-release lifecycle rather than adding another direction lock for a single block. The authoring
-scope for independently computed directional rules remains open; the current approved single-block
-scope intentionally shares one result. These extension boundaries are recorded in the
+scope for independently computed directional rules is frozen for this batch; no configured rule on one end
+must not borrow the opposite end's output. These extension boundaries are recorded in the
 [owner spec](../../spec/simple-signals/backend/index.md#后续单线支持的边界目标尚未实现).
 
 ### C. Timetable, editing and persistence
@@ -330,7 +331,7 @@ scope intentionally shares one result. These extension boundaries are recorded i
 ## Deferred decisions
 
 - Exact plugin-local JS/YAML API, script budget and model-variant vocabulary. These are reviewed after the Java/Kotlin safety/runtime boundary exists.
-- Guided authoring interaction/API, measurement path selection, independently computed directional signal rules,
+- Guided authoring interaction/API, measurement path selection,
   protection-region route/device editing and editor visualization. Confirmed player-facing requirements are recorded above;
   these unresolved details must be reviewed before the authoring implementation batch.
 - Arbitrary model instance parameters. Production model binding is complete offline; actual Folia/client presentation remains to be verified.

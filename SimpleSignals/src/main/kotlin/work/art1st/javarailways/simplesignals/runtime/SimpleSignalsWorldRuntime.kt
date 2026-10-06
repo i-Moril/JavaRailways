@@ -416,19 +416,19 @@ internal class SimpleSignalsWorldRuntime(
         } }
     }
 
-    private fun fixedBlockSignal(blockId: String): PublishedSectionSignal? =
+    private fun fixedBlockSignal(entry: work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry): PublishedSectionSignal? =
         checkNotNull(state.sectionOccupancy) {
             "section occupancy is not initialized for world $worldId"
-        }.signalFor(SectionRef(SectionKind.FIXED_BLOCK, blockId))
+        }.fixedBlockSignal(entry)
 
-    private fun hasConfiguredFixedBlockSignal(blockId: String): Boolean =
+    private fun hasConfiguredFixedBlockSignal(entry: work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry): Boolean =
         checkNotNull(state.publication) {
             "SimpleSignals definitions have not been published for world $worldId"
-        }.fixedBlockSignals.hasSignalForBlock(blockId)
+        }.fixedBlockSignals.hasSignalForEntry(entry)
 
     private fun fixedBlockInspectionLeadTime(
         blockSnapshot: FixedBlockReadSnapshot,
-        blockId: String
+        entry: work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry
     ): Double {
         val captured = checkNotNull(state.publication) {
             "SimpleSignals definitions have not been published for world $worldId"
@@ -436,7 +436,7 @@ internal class SimpleSignalsWorldRuntime(
         check(captured.fixedBlocks.snapshot(captured.topology) === blockSnapshot) {
             "fixed-block publication changed while compiling an inspection binding"
         }
-        return captured.fixedBlockSignals.inspectionLeadTimeSeconds(blockId)
+        return captured.fixedBlockSignals.inspectionLeadTimeSeconds(entry)
     }
 
     fun prepareDefinitions(

@@ -83,7 +83,7 @@ internal class CompiledProtectionSignals private constructor(
             val geometry = FixedBlockCatalog.fromCompiled(topology, revision, geometryDefinitions, geometryBlocks, emptySet())
                 .snapshot(topology)
             val signalGeometry = routeIdsBySignal.filterValues { it.isNotEmpty() }
-                .mapValues { (_, ids) -> geometry.blocksById.getValue(ids.first()) }
+                .mapValues { (_, ids) -> DirectedSignalGeometry.from(geometry.blocksById.getValue(ids.first())) }
             // A retained invalid binding remains a known zero-speed source, including its upstream consumers.
             // Never erase a dependency and reinterpret its consumer as a permissive terminal signal.
             val dependencies = fixedSignals.associate { it.signalId to it.downstreamSignals.map { dependency -> dependency.signalId } } +
@@ -107,7 +107,7 @@ internal class CompiledProtectionSignals private constructor(
             val compiledFixed = CompiledFixedBlockSignals.compile(fixedSignals, blocks, signalGeometry, false, unavailable,
                 retainedBindings, unavailable.takeIf { revalidatingTopology })
             val allGeometry = signalGeometry + fixedSignals.associate {
-                it.signalId to blocks.blocksById.getValue(it.controlledBlockId)
+                it.signalId to DirectedSignalGeometry.from(blocks.blocksById.getValue(it.controlledBlockId), it.entryDirection)
             }
             val bindings = signals.filter { it.signalId !in unavailable }.mapNotNull { signal ->
                 retainedBindings[signal.signalId]?.let { return@mapNotNull it }
@@ -123,7 +123,7 @@ internal class CompiledProtectionSignals private constructor(
                             "signal ${signal.signalId} depends on unknown signal ${dependency.signalId}"
                         }
                         val path = CompiledFixedBlockSignals.compileDownstreamPath(signal.signalId, dependency,
-                            geometry.blocksById.getValue(routeId), target,
+                            DirectedSignalGeometry.from(geometry.blocksById.getValue(routeId)), target,
                             if (blocks.blocksById.isEmpty()) geometry else blocks)
                         DownstreamSignalDependency(dependency.signalId, path.distanceMeters,
                             path.requiredContinuations, routeId, path.affectedRailIds)
@@ -175,12 +175,11 @@ internal class CompiledProtectionSignals private constructor(
             val sections = blocks.blocksById.keys.map { SectionRef(SectionKind.FIXED_BLOCK, it) } +
                 routes.routesById.keys.map { SectionRef(SectionKind.PROTECTION_ROUTE, it) }
             val unavailableDeclarations = unavailable.associateWith { id ->
-                fixedSignals.firstOrNull { it.signalId == id }?.let { fixedBlockSignalDeclarationId(it.controlledBlockId) }
+                fixedSignals.firstOrNull { it.signalId == id }?.let { fixedBlockSignalDeclarationId(it.controlledBlockId, it.entryDirection) }
                     ?: protectionSignalDeclarationId(id)
             }
             val runtime = if (allBindings.isEmpty() && unavailable.isEmpty()) null else
-                SectionSignalRuleRuntime.compile(sections, allBindings, unavailableDeclarations,
-                    fixedSignals.filter { it.signalId in unavailable }.associate { SectionRef(SectionKind.FIXED_BLOCK, it.controlledBlockId) to it.signalId })
+                SectionSignalRuleRuntime.compile(sections, allBindings, unavailableDeclarations)
             return usableFixed to CompiledProtectionSignals(geometry, routes, java.util.Map.copyOf(byId),
                 java.util.Map.copyOf(indicatorById), java.util.Map.copyOf(routeIdsBySignal),
                 java.util.List.copyOf(usableProtection), runtime)

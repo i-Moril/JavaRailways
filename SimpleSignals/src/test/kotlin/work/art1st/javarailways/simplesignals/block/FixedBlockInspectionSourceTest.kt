@@ -3,10 +3,12 @@ package work.art1st.javarailways.simplesignals.block
 import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
 import work.art1st.javarailways.simplesignals.testing.fixedBlockInspectionSource
 import work.art1st.javarailways.simplesignals.testing.fixedBlockPolicy
+import work.art1st.javarailways.simplesignals.testing.reconfigured
 
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
@@ -44,6 +46,7 @@ import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclarationId
+import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
 import java.lang.reflect.Proxy
 import java.util.UUID
 
@@ -87,17 +90,23 @@ class FixedBlockInspectionSourceTest {
     }
 
     @Test
-    fun `both genuine entries use one configured rule baseline lead time and block dependency`() {
+    fun `both genuine entries select independent rules lead times and one block dependency`() {
         val block = FixedBlockDefinition("test:two-way", 1L, listOf(
             FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
             FixedBlockTraversal(second, ViewDirection.AB, 0.0, 8.0)), true)
         val worldRuntime = signalWorldRuntime(worldId)
+        val forwardSignal = signal(block.blockId, 1L, 12.0)
+        val reverseSignal = forwardSignal.reconfigured(signalId = "test:reverse-signal", inspectionLeadTimeSeconds = 4.0,
+            entryDirection = FixedBlockEntryDirection.REVERSE,
+            clearLevels = listOf(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel(0.0,
+                work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput(7.0, "reverse-clear"))))
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, worldRuntime.initializeDefinitions(
-            topology, definitions(block, signal(block.blockId, 1L, 12.0), 1L)).status)
+            topology, SimpleSignalsWorldDefinitions(worldId, 1L, emptyList(), emptyList(), listOf(block),
+                listOf(forwardSignal, reverseSignal))).status)
         val occupancy = worldRuntime.initializeSectionOccupancy()
         assertEquals(1, occupancy.source!!.areas.size)
         assertEquals(2, occupancy.source.areas.single().boundaries.size)
-        assertEquals(1, worldRuntime.authoringPublication().fixedBlockSignals.bindings.size)
+        assertEquals(2, worldRuntime.authoringPublication().fixedBlockSignals.bindings.size)
         val source = worldRuntime.fixedBlockInspectionSource
         val forward = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
             RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0))
@@ -108,10 +117,10 @@ class FixedBlockInspectionSourceTest {
                 .declarations.single()
             assertEquals(if (index == 0) first else second, declaration.railId)
             assertEquals(if (index == 0) ViewDirection.AB else ViewDirection.BA, declaration.facing)
-            assertEquals(fixedBlockSignalDeclarationId(block.blockId), declaration.declarationId)
+            assertEquals(fixedBlockSignalDeclarationId(block.blockId, FixedBlockEntryDirection.entries[index]), declaration.declarationId)
             assertEquals(2.0, declaration.triggerRouteDistanceMeters)
             assertEquals(18.0, declaration.minimumRequestedAuthorityEndRouteDistanceMeters)
-            assertEquals(12.0, declaration.inspectionLeadTimeSeconds)
+            assertEquals(if (index == 0) 12.0 else 4.0, declaration.inspectionLeadTimeSeconds)
             assertEquals(setOf(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)),
                 source.routeInfrastructureDependencies.dependencies(route).toSet())
             val publications = arrayListOf<TrainRestrictionSnapshot>()
@@ -141,12 +150,13 @@ class FixedBlockInspectionSourceTest {
         epoch.process(RailwayWorldFrameSnapshot.create(2L, topology.revision, emptyList(),
             ActiveRailContinuationsSnapshot.empty(topology.revision)))
         assertEquals(1, occupancy.snapshot()!!.sections.size)
-        assertEquals(1, occupancy.signalSnapshot()!!.states.size)
-        inspections.forEach { (runtime, update, publications) ->
-            runtime.markDirty(FIXED_BLOCK_SIGNAL_SOURCE_ID, listOf(fixedBlockSignalDeclarationId(block.blockId)))
+        assertEquals(2, occupancy.signalSnapshot()!!.states.size)
+        inspections.forEachIndexed { index, (runtime, update, publications) ->
+            runtime.markDirty(FIXED_BLOCK_SIGNAL_SOURCE_ID, listOf(fixedBlockSignalDeclarationId(block.blockId,
+                FixedBlockEntryDirection.entries[index])))
             update()
             val restriction = publications.last().restrictions.single() as RouteSpeedRestriction
-            assertEquals(20.0, restriction.maximumSpeedMetersPerSecond)
+            assertEquals(if (index == 0) 20.0 else 7.0, restriction.maximumSpeedMetersPerSecond)
             assertEquals(2.0, restriction.routeDistanceMeters)
         }
         val internal = route(RouteSegmentSnapshot(second, ViewDirection.BA, 4.0, 10.0),
@@ -167,6 +177,33 @@ class FixedBlockInspectionSourceTest {
         assertEquals(setOf(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)),
             source.routeInfrastructureDependencies.dependencies(partial).toSet())
         assertEquals(emptyList<Any>(), source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", partial)).declarations)
+    }
+
+    @Test
+    fun `unconfigured forward entry has resource floor but configured reverse missing baseline stops`() {
+        val block = FixedBlockDefinition("test:reverse-only", 1, listOf(
+            FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)), true)
+        val snapshot = FixedBlockCatalog().also { it.publish(topology, 1, listOf(block)) }.snapshot(topology)
+        val source = fixedBlockInspectionSource({ snapshot }, hasConfiguredSignal = {
+            it.direction == FixedBlockEntryDirection.REVERSE
+        }, inspectionLeadTimeSeconds = { _, entry -> if (entry.direction == FixedBlockEntryDirection.REVERSE) 4.0 else 0.0 }).source
+        for (direction in FixedBlockEntryDirection.entries) {
+            val route = route(RouteSegmentSnapshot(first, if (direction == FixedBlockEntryDirection.FORWARD)
+                ViewDirection.AB else ViewDirection.BA, 0.0, 10.0))
+            val results = arrayListOf<TrainRestrictionSnapshot>()
+            val runtime = InspectionRuntime({ publication -> results += publication
+                TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, publication.revision)
+            }) { _, _, failure -> throw failure }
+            runtime.replaceSources(listOf(source))
+            runtime.synchronizeRoute(stamp(), "train", route)
+            val binding = FrozenRouteBinding.from(route)
+            assertEquals(RouteBoundary(8.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(2.1)))
+            assertEquals(setOf(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)),
+                source.routeInfrastructureDependencies.dependencies(route).toSet())
+            runtime.createTrainInspection("train").update(stamp(), binding, 0.0, 3.0, 20.0, 1.0, perception(route))
+            if (direction == FixedBlockEntryDirection.FORWARD) assertTrue(results.single().restrictions.isEmpty())
+            else assertEquals(0.0, (results.single().restrictions.single() as RouteSpeedRestriction).maximumSpeedMetersPerSecond)
+        }
     }
 
     @Test
@@ -297,7 +334,7 @@ class FixedBlockInspectionSourceTest {
         val binding = fixedBlockInspectionSource(
             snapshot = { snapshot },
             inspectionLeadTimeSeconds = { _, blockId ->
-                if (blockId == block.blockId) 12.0 else 0.0
+                if (blockId.blockId == block.blockId) 12.0 else 0.0
             }
         ).source.bindingProvider.bind(
             InspectionBindingInput(stamp(), "train", route)
@@ -426,10 +463,10 @@ class FixedBlockInspectionSourceTest {
         val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 5.0, 10.0),
             RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0))
         val source = fixedBlockInspectionSource(snapshot = { snapshot }, signalState = { id ->
-            assertEquals(future.blockId, id, "internal start must not read the rear entry signal")
+            assertEquals(future.blockId, id.blockId, "internal start must not read the rear entry signal")
             PublishedSectionSignal(stamp(), SectionSignalState.Available(SectionSignalOutput(0.0, "custom-red")))
         }, hasConfiguredSignal = { true }, inspectionLeadTimeSeconds = { _, id ->
-            assertEquals(future.blockId, id)
+            assertEquals(future.blockId, id.blockId)
             12.0
         }).source
         val declaration = source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", route))
@@ -478,7 +515,7 @@ class FixedBlockInspectionSourceTest {
         )
         val source = fixedBlockInspectionSource(
             snapshot = { snapshot },
-            signalState = { blockId -> signal.takeIf { blockId == block.blockId } }
+            signalState = { entry -> signal.takeIf { entry.blockId == block.blockId } }
         ).source
         val publications = arrayListOf<TrainRestrictionSnapshot>()
         val runtime = InspectionRuntime(

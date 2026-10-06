@@ -172,7 +172,7 @@ candidate worker只比较不可变拓扑、区域定义和compiled route；未�
   投影完整active声明集合并在planner前应用restriction，不等待Dispatcher。不同列车的投影callback可并发，
   只读已发布的信号快照；共享规则图仍在串行signal epoch执行。必须用停掉Dispatcher后的真实控制测试验证，不能用直接发布restriction的测试代替。
   首个baseline前及无法证明ready时为0，但inspection资源申请仍正常进行；不能形成“0速度所以永远不申请”的循环。
-- 同一source内的声明ID按类别派生：固定闭塞使用`simplesignals:fixed-block/<namespace>/<path>`，
+- 同一source内的声明ID按类别派生：固定闭塞使用`simplesignals:fixed-block/forward/<namespace>/<path>`或`simplesignals:fixed-block/reverse/<namespace>/<path>`，
   保护信号使用`simplesignals:protection-signal/<namespace>/<path>`（将作者ID的唯一冒号换为斜杠，完整保留namespace/path）。
   映射集中在`SignalInspectionIdentity.kt`。这只是inspection内部身份映射，不改变作者ID或资源ID。
   两类定义可合法使用相同作者ID；失效通知、声明绑定和状态读取必须使用同一映射，不能混用作者ID。
@@ -186,7 +186,8 @@ candidate worker只比较不可变拓扑、区域定义和compiled route；未�
 
 正常案例：列车请求A，完整授权、道岔正确、入口净空就绪且A及下游空闲；当前信号按配置输出，显示器显示A。
 切换案例：列车请求B，准备时当前信号0、显示器B；完整授权和实际道岔一致后才使用B规则；固定进路A设备始终检查A。
-错误案例：未知route/signal引用、混合依赖cycle、非法variant/速度在prepare拒绝，旧定义和运行时不变；运行中观测失效保持0，不能复用旧允许结果。
+错误案例：混合依赖cycle、非法variant/速度在prepare拒绝，旧定义和运行时不变；暂时缺失绑定目标或下游的设备保留配置并发布Unavailable，
+运行中观测失效同样保持0，不能丢掉依赖后恢复放行或复用旧允许结果。
 
 - 无请求但道岔全部正确：固定进路信号和当前信号都停车，显示器无进路，不创建 claim/grant。
 - 请求出现后显示其 route identity；准备中保持0；完整 grant 且道岔一致后才进入正常规则。
@@ -202,8 +203,9 @@ candidate worker只比较不可变拓扑、区域定义和compiled route；未�
 - 固定进路信号不受其他进路的选择变化影响，只在其固定进路状态变化时更新。
 - 当前信号与任意距离放置的多个显示器读取同一 selection revision 并始终显示相同 route identity。
 - stale topology、grant/道岔不一致、多个无法唯一裁决的当前请求和缺少 baseline 全部 fail-close。
-- 混合固定闭塞/保护信号依赖的cycle和未知引用在load/prepare拒绝；不把错误拖到tick内再重试。
-- 当前 sidecar schema 为2；删除 `defaultRouteIds` 是本次唯一破坏性存档变化。
+- 混合固定闭塞/保护信号依赖的cycle和非法依赖路径在load/prepare拒绝；暂时缺失下游在低频编译时标成Unavailable，
+  连同其上游保持0，不在tick里重试查找，也不能因此阻止已有合法区间删除。
+- 删除 `defaultRouteIds` 曾使sidecar升为2；两端规则语义改变已升至3，保护设备自身字段不因此改形状。
   current fixture保存/恢复、在线patch和source原子替换须覆盖三种设备；旧版本或旧字段拒绝，不添加runtime兼容层。
 
 当前回归入口是`ProtectionSignalDevicesTest`、`SimpleSignalsWorldRuntimeManagerTest`及`ProtectionSignalControllerHandoffTest`。
@@ -219,4 +221,5 @@ candidate worker只比较不可变拓扑、区域定义和compiled route；未�
 只负责显示；位置和模型由玩家配置。
 
 本次删除旧开发配置字段，不提供运行时升级或别名。需要保留 schema 1 文件时，应先保留恢复点，再通过单独的一次性转换处理；
-不能自动覆盖旧主文件。中立净空要求与结果不写存档，不再次升级schema；双向入口独立规则和具体距离规则仍需另批明确，不因本次门控完成而宣称已实现。
+不能自动覆盖旧主文件。中立净空要求与结果不写存档，不单独升级schema；双向入口独立规则已实现，
+详见[双向闭塞合同](bidirectional-fixed-block.md)；具体距离规则仍待单独评审，不因门控完成而宣称已实现。

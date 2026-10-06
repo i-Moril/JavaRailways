@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals.presentation
 
 import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+import work.art1st.javarailways.simplesignals.testing.reconfigured
 import work.art1st.javarailways.simplesignals.testing.protectionTestEpoch
 
 import net.minecraft.SharedConstants
@@ -149,6 +150,38 @@ class SignalModelBindingTest {
         assertEquals(2, first.submissions.size)
         assertEquals(2, second.submissions.size)
         assertEquals(0, curveQueries)
+    }
+
+    @Test
+    fun `two entry primary models and their attachments read independent output from shared occupancy`() {
+        val base = definitions(model())
+        val block = base.fixedBlocks.single().let { FixedBlockDefinition(it.blockId, it.revision, it.traversals, true) }
+        val forward = base.fixedBlockSignals.single()
+        val reverse = forward.reconfigured(signalId = "test:reverse", entryDirection = FixedBlockEntryDirection.REVERSE,
+            clearLevels = listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(7.0, "stop"))),
+            model = DeviceModelDefinition("demo_signals:home", ModelPlacement.RailAttached(
+                RailPositionSnapshot(railId, ViewDirection.AB, 9.0))))
+        val configured = SimpleSignalsWorldDefinitions(worldId, 1, emptyList(), emptyList(), listOf(block),
+            listOf(forward, reverse), attachedSignals = listOf(
+                AttachedSignalDefinition("test:forward-repeat", 1, forward.signalId, model()),
+                AttachedSignalDefinition("test:reverse-repeat", 1, reverse.signalId, model())))
+        val f = fixture(definitionOverride = configured)
+        f.start()
+        f.process(1, false)
+        assertEquals(1, f.occupancy.source!!.areas.size)
+        assertEquals(2, f.world.authoringPublication().fixedBlockSignals.bindings.size)
+        val expected = mapOf("fixed-block-signal/test:first" to "green", "attached-signal/test:forward-repeat" to "green",
+            "fixed-block-signal/test:reverse" to "red", "attached-signal/test:reverse-repeat" to "red")
+        expected.forEach { (id, scene) -> assertEquals(mapOf("lamp" to scene), f.service.byId(id).submissions.last().animationScenes()) }
+        val reverseHandle = f.service.byId("fixed-block-signal/test:reverse")
+        assertEquals(9.0, reverseHandle.submissions.last().transform().x())
+        val reverseCount = reverseHandle.submissions.size
+        f.process(2, true)
+        expected.keys.forEach { assertEquals(mapOf("lamp" to "red"), f.service.byId(it).submissions.last().animationScenes()) }
+        assertEquals(reverseCount, reverseHandle.submissions.size, "unchanged reverse scene does not submit")
+        f.process(3, false)
+        assertEquals(mapOf("lamp" to "green"), f.service.byId("attached-signal/test:forward-repeat").submissions.last().animationScenes())
+        assertTrue(f.errors.isEmpty())
     }
 
     @Test

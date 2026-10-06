@@ -276,14 +276,14 @@ class ProtectionSignalDevicesTest {
 
     @Test
     fun `current schema fixture defaults and full device round trip are strict`() {
-        val fixture = """{"schemaVersion":2,"worldId":"$worldId","definitionRevision":0,"protectionRegions":[],"protectionRouteTables":[]}"""
+        val fixture = """{"schemaVersion":3,"worldId":"$worldId","definitionRevision":0,"protectionRegions":[],"protectionRouteTables":[]}"""
         val empty = SimpleSignalsWorldDefinitionsCodec.decode(fixture, worldId)
         assertTrue(empty.protectionSignals.isEmpty())
         assertTrue(empty.routeIndicators.isEmpty())
         val definitions = definitions()
         val encoded = SimpleSignalsWorldDefinitionsCodec.encode(definitions)
         assertEquals(definitions, SimpleSignalsWorldDefinitionsCodec.decode(encoded, worldId))
-        assertTrue(encoded.contains("\"schemaVersion\": 2"))
+        assertTrue(encoded.contains("\"schemaVersion\": 3"))
         assertThrows(IllegalArgumentException::class.java) {
             SimpleSignalsWorldDefinitionsCodec.decode(encoded.replace("FIXED_ROUTE", "UNKNOWN"), worldId)
         }

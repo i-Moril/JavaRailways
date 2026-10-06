@@ -1,13 +1,9 @@
-{"file":".trellis/tasks/09-18-signal-addon-implementation/research/protection-exit-clearance.md","reason":"Verify geometry, beyond-horizon stops, grant margins and no nominal-length shortcut"}
-{"file":".trellis/spec/simple-signals/backend/protection-region-authority-transition.md","reason":"Verify train-specific tail clearance on exact frozen route without changing Basic claims"}
-{"file":".trellis/spec/simple-signals/backend/protection-region-signal-selection.md","reason":"Verify current request/visit plus controller proof before displayed permission"}
-{"file":".trellis/spec/javarailways/simpleato/entry-clearance.md","reason":"Verify minimal neutral API, constraint coverage, exact own-entry exclusion and safe replacement"}
-{"file":".trellis/spec/javarailways/simpleato/controller-runtime.md","reason":"Verify next controller tick enforcement, one perception, Dispatcher stopped"}
-{"file":".trellis/spec/javarailways/simpleato/reactive-signal-epochs.md","reason":"Verify coalesced scoped wakeups, baseline/withdrawal and serialized publications"}
-{"file":".trellis/spec/javarailways/core/render-publication.md","reason":"Verify coherent published body span and no internal cast or second train scan"}
-{"file":".trellis/spec/javarailways/core/api-boundaries.md","reason":"Verify public frame capability and Java/Core API consumers"}
-{"file":".trellis/spec/javarailways/simpleato/operational-routing-and-authority.md","reason":"Verify scoped floor refresh and existing atomic admission lifecycle"}
-{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Verify plugin-only ownership and artifact isolation"}
-{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Verify edited definitions keep existing permits and atomic source replacement"}
-{"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"Check unnecessary abstractions and duplicate paths"}
-{"file":".trellis/spec/guides/code-spec-authoring.md","reason":"Check actual method, complexity and verification boundaries"}
+{"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Verify independent endpoints, missing rule/baseline distinction and stable block identity"}
+{"file":".trellis/tasks/09-18-signal-addon-implementation/research/directional-fixed-block-signals.md","reason":"Verify consumer coverage, mixed geometry and no undeclared widening"}
+{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Verify atomic current persistence, reactive updates and JAR isolation"}
+{"file":".trellis/spec/simple-signals/backend/protection-region-signal-selection.md","reason":"Verify declaration lookup and preserve request/grant/tail-clearance gates"}
+{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Independent primary/attached outputs; placement does not rebind logic"}
+{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Both endpoint consumers for block edits, exact endpoint consumers for rule edits"}
+{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Fixed schema3 directional fixture, schema2 refusal, no other boundary upgrade"}
+{"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"Check unnecessary wrappers, registries, caches or repeat scans"}
+{"file":".trellis/spec/guides/code-spec-authoring.md","reason":"Check status, mechanisms and real validation evidence"}

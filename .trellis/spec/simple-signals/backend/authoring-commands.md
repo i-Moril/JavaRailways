@@ -36,7 +36,7 @@ validate 与 apply 共享候选构造及编译机制；配置模型时还解析�
 
 world 为已加载世界名称或 canonical UUID；玩家和控制台均显式指定。权限 `simplesignals.admin`，default op。
 draft stem 匹配 `[A-Za-z0-9][A-Za-z0-9_-]{0,63}`，不接受绝对路径、目录、`..` 或符号链接逃逸，不可指向正式 primary/backup。
-JSON 使用严格current schema 2 codec，不创建第二种patch磁盘格式；旧开发schema或已删除字段明确拒绝，不自动覆盖。
+JSON 使用[当前世界定义codec](index.md#世界定义持久化)，不创建第二种patch磁盘格式；旧开发schema或已删除字段明确拒绝，不自动覆盖。
 草稿 `definitionRevision` 是 export 时的基线，即 expected revision；apply 成功由原事务增加 1。
 修改既有对象仍必须提高该对象 revision；字段单位与 current definitions 一致，速度为 m/s、位置为 canonical AB m、提前时间为 s。
 附属信号机与其他定义一起 export、diff、validate 和 apply；它自己的模型、摆放或主信号引用变化时，
@@ -97,7 +97,7 @@ validate 成功/失败均无许可、磁盘和 source mutation。
 
 ## 10. 迁移、未决事项与 Wrong / Correct
 
-命令使用同一current model与sidecar版本，不独立编号；此次sidecar升版来自删除默认进路字段，命令不增加旧格式reader或兼容alias。
+命令使用同一current model与sidecar版本，不独立编号；存档升级原因归世界定义合同，命令不增加旧格式reader或兼容alias。
 闭塞/保护区域 Wand 已接到同一事务；独立信号机工具、脚本与更友好的表单仍为后续批次。具体模型绑定见其 owner 合同。
 
 Wrong：修改正式 JSON 后调用 install/reload，或 validate 临时占用资源后宣称 apply 已获准。

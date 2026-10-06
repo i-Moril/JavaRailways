@@ -122,10 +122,10 @@ Basic either claims the complete union or none. A confirmed Basic grant is neces
 ### Fixed blocks and transitions
 
 用户现已批准单线单闭塞的双向控制。通过默认关闭的 `bidirectional` 字段，复用既有匹配、
-入口检查和 Basic 资源生命周期；两端使用同一 block token 和一份共享主信号输出，
-附属设备提供独立摆放。反向路径、拒绝条件、编辑影响和验证统一见
+入口检查和 Basic 资源生命周期；两端使用同一 block token 和占用状态。
+现已解除共享主信号的旧限制，各入口独立绑定规则和显式模型；反向路径、拒绝条件、编辑影响和验证统一见
 [双向固定闭塞合同](../../spec/simple-signals/backend/bidirectional-fixed-block.md)。
-两端独立信号规则、工具/测距和单线多闭塞协调不随本批扩展。
+工具/测距和单线多闭塞协调不随本批扩展。
 
 方向一致性与原低速降级曾通过独立复核及受影响模块的离线门禁。用户现已取消低速降级：
 方向失配与在线结构编辑失效统一保留区间配置并禁止 ATO 驶入，修复并重新校验后恢复；现已实现并通过离线验证。
@@ -146,7 +146,7 @@ Fixed blocks are plugin-owned definitions. Entering one normally adds its whole 
 The current foundation compiles each block only on load/authoring. It validates the ordered traversal against one exact
 `TopologyState`, derives whole-block Basic occupancy geometry with directed entry/exit boundaries, sums its physical length,
 and publishes a rail-to-block reverse index together with the other world definitions. `fixedBlocks` was added to the
-sidecar with an explicit empty default and did not independently bump its version. The current file uses schema 2 as described below.
+sidecar with an explicit empty default and did not independently bump its version. Directional-entry rules now use schema 3; the owning contract records the semantic change.
 Protection-region observation remains a later batch.
 
 Fixed-block route admission now uses one plugin-owned `simplesignals:fixed-block` resource type and the existing host
@@ -314,7 +314,7 @@ SimpleSignals 已接通目录发现、设备创建、完整信号状态到显示
 完整信号包已按[模型包契约](../../spec/simple-signals/backend/model-packages.md)实现目录加载与校验；
 设备磁盘字段已批准：三类设备共用可选的模型引用与轨道/地面摆放，删除显示器的重复位置字段，
 复用已有定义编译、revision、编辑许可及 sidecar 事务。具体形状、校验和测试只在信号模型契约维护。
-模型存档最初经用户批准直接修正尚未发布的 schema 1 草稿；当前文件因删除默认进路字段升为 schema 2，
+模型存档最初经用户批准直接修正尚未发布的 schema 1 草稿；删除默认进路字段后文件升为 schema 2，入口规则语义改变后当前为3，
 不保留旧草稿字段或人为增加中间版本；
 任意柱高等模型实例参数推迟，未来使用独立于灯色的字段。生产绑定的离线服务调用测试
 不等于真实 Folia/客户端显示验证已经完成。
@@ -396,7 +396,7 @@ than overwriting a disjoint edit, while other worlds and physics continue indepe
 
 ## Persistence and lifecycle
 
-SimpleATO and every signal plugin own separate persistence boundaries. `SimpleSignals` now stores schema-version-2 world definitions in
+SimpleATO and every signal plugin own separate persistence boundaries. SimpleSignals stores schema-version-3 world definitions in
 `<dataFolder>/worlds/<world UUID>-definitions.json`, with a same-directory `.bak`. It persists only authored region boundaries, complete
 fixed-route traversals and fixed-block traversals using namespaced IDs, canonical UUIDs/AB metres and `ViewDirection`; derived interiors,
 occupancy geometry, indexes and compiled restrictions are rebuilt.
@@ -405,8 +405,9 @@ an invalid primary may be read from a valid backup without overwriting either in
 Startup publishes no usable route source until decode, topology binding and complete compilation have all succeeded. A corrupt/orphaned
 candidate installs the same stable source ID in fail-closed form so new operational route searches are rejected instead of treating the
 plugin as unrestricted; it does not publish a usable local runtime. Runtime code sees only the current domain model and the writer emits only
-schema version 2 through same-directory temp/backup/atomic replace. This boundary alone changes because `defaultRouteIds` was removed;
-host world and model-package versions are unchanged. No old development format reader
+schema version 3 through same-directory temp/backup/atomic replace. Default-route removal previously required version 2;
+the directional-entry rule semantic change now advances only this boundary to 3.
+Host world and model-package versions are unchanged. No old development format reader
 or migration branch exists; a future topology migration remains a separate dry-run-first tool with a recovery point.
 
 At enable/load, the plugin remains restrictive until host capabilities, persisted definitions, topology bindings and derived indexes validate. Missing required host services prevents enable. Planned disable first un-applies the plugin's plans, publishes empty restrictions where required and calls the single host owner-unregister operation. That operation succeeds only when no plugin-owned pending request, live claim, referenced type, applied-plan dependency, active inspection binding or non-empty restriction remains. If Bukkit has already forced disable, the host removes dead callbacks, retains claims/dependencies and stalls only affected worlds. Renderer and authoring resources clean up idempotently after the safety gate succeeds.
@@ -450,7 +451,7 @@ Development data migration, if required, is a separate auditable one-time tool w
   业务定义保留在各所属模块，平台显示实现归 Bukkit 层。全工具的 TextDisplay 替换与
   资源包样式制作不并入进路逻辑批次；不得为规范先创建通用业务注册框架。
 
-## 当前修复批次：保护区域出口车尾净空
+## 已完成修复批次：保护区域出口车尾净空
 
 本批实现用户已经批准的净空要求，不重复删除默认进路。区域、入口和出口由 SimpleSignals 解释；
 SimpleATO 只执行中立的“入口以前须具备到某位置的连续可行驶空间”要求，Basic 的资源仲裁与真实车尾释放不变。
@@ -468,6 +469,14 @@ SimpleATO 只执行中立的“入口以前须具备到某位置的连续可行�
 这是进入前按当前状态作出的证明，不保证后续紧急停车或故障不会留下车尾；资源仍由 Basic 保留到实际清除。
 独立检查以真实Core直线连续移动发现车钩解算毫米级抖动，因此同一既有绑定共享一个向上取整、回落带迟滞的保守长度。
 上界不小于有效本帧车身跨度；缺帧不使用缓存证明。目的仅是抑制无意义热路径重编，不增加资源仲裁或历史存储；参数与算法归所属合同。
+
+## 当前修复批次：双向闭塞两端独立规则
+
+只在SimpleSignals内解除“区间只能绑定一条规则”的实现限制，保留共享物理占用、block身份和宿主资源生命周期。
+定义、混合依赖编译、响应式状态和ATO检查投影按同一入口方向选取；模型和附属显示继续按主信号ID读取。
+不建立第二份占用区、每列车规则图或第二条感知路径。未配置端与已配置但失效端必须区分。
+具体方向字段、声明身份、错误和复杂度只在[双向闭塞合同](../../spec/simple-signals/backend/bidirectional-fixed-block.md)维护；
+准确代码影响见[研究](research/directional-fixed-block-signals.md)。这一规则语义改变只升级插件定义文件至schema3，无运行时旧开发reader。
 
 ## Open decisions
 

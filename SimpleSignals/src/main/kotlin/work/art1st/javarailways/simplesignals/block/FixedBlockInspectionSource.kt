@@ -10,7 +10,9 @@ import work.art1st.javarailways.simplesignals.runtime.PublishedSectionSignal
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclarationId
-import work.art1st.javarailways.simplesignals.signal.blockIdFromSignalDeclaration
+import work.art1st.javarailways.simplesignals.signal.blockEntryFromSignalDeclaration
+import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry
 import java.util.concurrent.atomic.AtomicLong
 
 internal const val FIXED_BLOCK_SIGNAL_SOURCE_ID = "simplesignals:fixed-block-signals"
@@ -18,9 +20,9 @@ internal const val FIXED_BLOCK_SIGNAL_SOURCE_ID = "simplesignals:fixed-block-sig
 /** Compiles fixed blocks and protection signals into one neutral SimpleATO inspection source. */
 internal class FixedBlockInspectionSource(
     private val snapshot: () -> FixedBlockReadSnapshot,
-    private val signalState: (String) -> PublishedSectionSignal? = { null },
-    private val hasConfiguredSignal: (String) -> Boolean = { false },
-    private val inspectionLeadTimeSeconds: (FixedBlockReadSnapshot, String) -> Double = { _, _ -> 0.0 },
+    private val signalState: (FixedBlockSignalEntry) -> PublishedSectionSignal? = { null },
+    private val hasConfiguredSignal: (FixedBlockSignalEntry) -> Boolean = { false },
+    private val inspectionLeadTimeSeconds: (FixedBlockReadSnapshot, FixedBlockSignalEntry) -> Double = { _, _ -> 0.0 },
     private val protectionDeclarations: (FixedBlockReadSnapshot, RouteSnapshot) -> List<InspectionDeclaration> = { _, _ -> emptyList() },
     private val protectionSignalState: (String) -> PublishedSectionSignal? = { null },
     private val hasConfiguredProtectionSignal: (String) -> Boolean = { false },
@@ -44,12 +46,14 @@ internal class FixedBlockInspectionSource(
                 declarations = normal.filter(FixedBlockRouteWindow::enteredAtBoundary).map { window ->
                     val block = captured.blocksById.getValue(window.blockId)
                     val entry = block.entryTraversal(window.reversed)
+                    val signalEntry = FixedBlockSignalEntry(window.blockId,
+                        if (window.reversed) FixedBlockEntryDirection.REVERSE else FixedBlockEntryDirection.FORWARD)
                     InspectionDeclaration(
-                        declarationId = fixedBlockSignalDeclarationId(window.blockId),
+                        declarationId = fixedBlockSignalDeclarationId(window.blockId, signalEntry.direction),
                         railId = entry.railId,
                         facing = entry.facing,
                         triggerRouteDistanceMeters = window.entryRouteDistanceMeters,
-                        inspectionLeadTimeSeconds = inspectionLeadTimeSeconds(captured, window.blockId),
+                        inspectionLeadTimeSeconds = inspectionLeadTimeSeconds(captured, signalEntry),
                         minimumRequestedAuthorityEndRouteDistanceMeters = window.exitRouteDistanceMeters
                     )
                 } + protectionDeclarations(captured, input.route)
@@ -77,9 +81,9 @@ internal class FixedBlockInspectionSource(
             }
             val restrictions = nearestById.values.mapNotNull { declaration ->
                 val protection = hasConfiguredProtectionSignal(declaration.declarationId)
-                val blockId = if (protection) null else blockIdFromSignalDeclaration(declaration.declarationId)
+                val entry = if (protection) null else blockEntryFromSignalDeclaration(declaration.declarationId)
                 val published = if (protection) protectionSignalState(declaration.declarationId)
-                    else signalState(checkNotNull(blockId))
+                    else signalState(checkNotNull(entry))
                 if (published != null) {
                     require(published.stamp.worldId == input.observationStamp.worldId) {
                         "fixed-block signal ${declaration.declarationId} belongs to another world"
@@ -87,7 +91,7 @@ internal class FixedBlockInspectionSource(
                     require(published.stamp.physicsEpoch <= input.observationStamp.physicsEpoch) {
                         "fixed-block signal ${declaration.declarationId} is newer than the inspection observation"
                     }
-                } else if (!protection && !hasConfiguredSignal(checkNotNull(blockId))) {
+                } else if (!protection && !hasConfiguredSignal(checkNotNull(entry))) {
                     return@mapNotNull null
                 }
                 RouteSpeedRestriction(

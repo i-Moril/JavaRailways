@@ -188,7 +188,7 @@ class SectionTopologyRevalidationTest {
         epochs.replaceSources(occupancy.sources)
         epochs.process(frame(1, initial))
         val section = SectionRef(SectionKind.FIXED_BLOCK, other.blockId)
-        assertEquals(20.0, occupancy.signalFor(section)!!.state.effectiveSpeedLimitMetersPerSecond)
+        assertEquals(20.0, occupancy.fixedBlockSignal(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(section.id))!!.state.effectiveSpeedLimitMetersPerSecond)
         val changed = topology(2, true)
         val event = RailTopologyChange(initial, changed, setOf(a, b, branch))
         runtime.topologyGuard.invalidate(event)
@@ -201,17 +201,17 @@ class SectionTopologyRevalidationTest {
         epochs.process(frame(2, changed, unrelated)) // Captured old source sees the real occupant later.
         epochs.replaceSourcesAtomically(replacement.sources) {
             assertTrue(runtime.commitTopologyRevalidation(base, captured, candidate, replacement))
-            assertEquals(0.0, replacement.signalFor(section)!!.state.effectiveSpeedLimitMetersPerSecond)
+            assertEquals(0.0, replacement.fixedBlockSignal(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(section.id))!!.state.effectiveSpeedLimitMetersPerSecond)
             assertEquals(setOf("train"), replacement.snapshot()!!.sections.getValue(section).occupants)
             assertEquals(2L, replacement.signalById(signal(other).signalId)!!.stamp.physicsEpoch)
             // Host permits an old epoch even after plugin commit, until its source swap completes.
             epochs.process(frame(3, changed))
-            assertEquals(20.0, replacement.signalFor(section)!!.state.effectiveSpeedLimitMetersPerSecond)
+            assertEquals(20.0, replacement.fixedBlockSignal(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(section.id))!!.state.effectiveSpeedLimitMetersPerSecond)
             assertEquals(3L, replacement.signalById(signal(other).signalId)!!.stamp.physicsEpoch)
-            assertEquals(0.0, replacement.signalFor(SectionRef(SectionKind.FIXED_BLOCK, main.blockId))!!.state.effectiveSpeedLimitMetersPerSecond)
+            assertEquals(0.0, replacement.fixedBlockSignal(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(main.blockId))!!.state.effectiveSpeedLimitMetersPerSecond)
         }
         epochs.process(frame(4, changed))
-        assertEquals(20.0, replacement.signalFor(section)!!.state.effectiveSpeedLimitMetersPerSecond)
+        assertEquals(20.0, replacement.fixedBlockSignal(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(section.id))!!.state.effectiveSpeedLimitMetersPerSecond)
         assertTrue(replacement.snapshot()!!.sections.getValue(section).occupants.isEmpty())
     }
 

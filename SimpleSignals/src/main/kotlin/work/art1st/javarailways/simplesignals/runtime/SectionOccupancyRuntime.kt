@@ -10,6 +10,9 @@ import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_SIGNAL_SOURCE_ID
 import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionRuntime
 import work.art1st.javarailways.simplesignals.signal.protectionRouteAreaId
 import work.art1st.javarailways.simplesignals.presentation.SignalModelBinding
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry
+import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
+import work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclarationId
 
 internal const val SECTION_OCCUPANCY_SOURCE_ID = FIXED_BLOCK_SIGNAL_SOURCE_ID
 
@@ -217,19 +220,19 @@ internal class SectionOccupancyRuntime private constructor(
         return signals.states[signalId]?.let { PublishedSectionSignal(signals.stamp, it) }
     }
 
-    fun signalFor(section: SectionRef): PublishedSectionSignal? {
+    fun fixedBlockSignal(entry: FixedBlockSignalEntry): PublishedSectionSignal? {
+        val blockId = entry.blockId
         val own = latest ?: return null
         val completed = lastCompletedRuntime()
-        val captured = if (completed != null && section.kind == SectionKind.FIXED_BLOCK &&
-            blocks.blocksById[section.id] === completed.blocks.blocksById[section.id]) completed.latest ?: own else own
-        if (section.kind == SectionKind.FIXED_BLOCK &&
-            (publication.topologyGuard?.sectionUnavailable(TopologySectionKind.BLOCK, section.id) == true ||
-                TopologySection(TopologySectionKind.BLOCK, section.id) in awaitingBaseline))
+        val captured = if (completed != null &&
+            blocks.blocksById[blockId] === completed.blocks.blocksById[blockId]) completed.latest ?: own else own
+        if (publication.topologyGuard?.sectionUnavailable(TopologySectionKind.BLOCK, blockId) == true ||
+                TopologySection(TopologySectionKind.BLOCK, blockId) in awaitingBaseline)
             return PublishedSectionSignal(captured.occupancy.stamp, SectionSignalState.Unavailable("fixed-block topology is unavailable"))
-        if (section.kind == SectionKind.FIXED_BLOCK) captured.blockControls[section.id]?.let {
+        captured.blockControls[blockId]?.let {
             return PublishedSectionSignal(captured.occupancy.stamp, it)
         }
-        val signalId = signalRules?.signalIdFor(section) ?: return null
+        val signalId = signalRules?.signalIdForDeclaration(fixedBlockSignalDeclarationId(blockId, entry.direction)) ?: return null
         return signalById(signalId)
     }
 
@@ -351,7 +354,9 @@ internal class SectionOccupancyRuntime private constructor(
         return SignalEpochResult(
             emptyList(),
             signals?.let(signalRules::invalidatedDeclarationIds).orEmpty() +
-                changedControls.map { work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclarationId(it) }
+                changedControls.flatMap { id -> FixedBlockEntryDirection.entries.map { direction ->
+                    fixedBlockSignalDeclarationId(id, direction)
+                } }
         )
     }
 

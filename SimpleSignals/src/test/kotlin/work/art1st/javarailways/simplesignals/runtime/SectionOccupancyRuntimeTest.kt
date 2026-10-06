@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals.runtime
 
 import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+import work.art1st.javarailways.simplesignals.testing.reconfigured
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
@@ -37,6 +38,8 @@ import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalContinuatio
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDependency
 import work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclarationId
+import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry
 import java.util.UUID
 
 class SectionOccupancyRuntimeTest {
@@ -81,7 +84,7 @@ class SectionOccupancyRuntimeTest {
         epochs.replaceSources(occupancy.sources)
         val section = SectionRef(SectionKind.FIXED_BLOCK, block.blockId)
         epochs.process(emptyFrame(1L, topology, ActiveRailContinuationsSnapshot.empty(topology.revision)))
-        assertTrue(occupancy.signalFor(section)!!.state is SectionSignalState.Unavailable)
+        assertTrue(occupancy.fixedBlockSignal(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(section.id))!!.state is SectionSignalState.Unavailable)
         val baseline = occupancy.presentationSnapshot()
 
         val replacementTopology = lineTopologyState(topology.revision + 1L, railId)
@@ -101,7 +104,7 @@ class SectionOccupancyRuntimeTest {
         epochs.replaceSourcesAtomically(replacement.sources) {
             assertEquals(SimpleSignalsDefinitionCommitStatus.COMMITTED, world.commitPrepared(prepared.value, replacement))
         }
-        assertNull(replacement.signalFor(section), "old degraded or unavailable control is not a new physical baseline")
+        assertNull(replacement.fixedBlockSignal(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(section.id)), "old degraded or unavailable control is not a new physical baseline")
         epochs.invalidateTopology(work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange(
             topology, replacementTopology, setOf(railId)))
         epochs.process(emptyFrame(2L, replacementTopology,
@@ -182,6 +185,55 @@ class SectionOccupancyRuntimeTest {
         assertTrue(unknown.states.getValue(downstream.signalId) is SectionSignalState.Unavailable)
     }
 
+    @Test
+    fun `shared block direction control invalidates and restores both actual entry declarations`() {
+        val shared = FixedBlockDefinition(block.blockId, block.revision, block.traversals, true)
+        val forward = terminalSignal("test:forward", shared.blockId, 30.0, "forward-clear")
+        val reverse = terminalSignal("test:reverse", shared.blockId, 17.0, "reverse-clear")
+            .reconfigured(entryDirection = FixedBlockEntryDirection.REVERSE)
+        var epochs: SignalEpochRuntime? = null
+        val directions = work.art1st.javarailways.basic.rail.OperatingDirectionStore {
+            epochs?.publishOperatingDirectionChanges(it)
+        }
+        val world = SimpleSignalsWorldRuntime(worldId,
+            work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(directions::snapshot))
+        assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, world.initializeDefinitions(topology,
+            SimpleSignalsWorldDefinitions(worldId, 1, emptyList(), emptyList(), listOf(shared),
+                listOf(forward, reverse))).status)
+        val occupancy = world.initializeSectionOccupancy()
+        val invalidations = arrayListOf<Pair<String, Set<String>>>()
+        epochs = epochRuntime(checkNotNull(occupancy.source), invalidations)
+        fun nextFrame(epoch: Long) = emptyFrame(epoch, topology,
+            ActiveRailContinuationsSnapshot.empty(topology.revision))
+        val entries = FixedBlockEntryDirection.entries.map { FixedBlockSignalEntry(shared.blockId, it) }
+        val declarations = entries.map { fixedBlockSignalDeclarationId(it.blockId, it.direction) }.toSet()
+        epochs.process(nextFrame(1))
+        assertEquals(1, occupancy.source.areas.size)
+        assertEquals(listOf(30.0, 17.0), entries.map { occupancy.fixedBlockSignal(it)!!.state.effectiveSpeedLimitMetersPerSecond })
+        invalidations.clear()
+
+        directions.put(railId, ViewDirection.AB)
+        epochs.process(nextFrame(2))
+        assertEquals(listOf(SECTION_OCCUPANCY_SOURCE_ID to declarations), invalidations)
+        entries.forEach { entry ->
+            val state = occupancy.fixedBlockSignal(entry)!!
+            assertTrue(state.state is SectionSignalState.Unavailable)
+            assertEquals(0.0, state.state.effectiveSpeedLimitMetersPerSecond)
+            assertEquals(2L, state.stamp.physicsEpoch)
+        }
+        val disabled = occupancy.signalSnapshot()
+        invalidations.clear()
+        epochs.process(nextFrame(3))
+        assertSame(disabled, occupancy.signalSnapshot(), "unchanged control does not rerun the source")
+        assertTrue(invalidations.isEmpty())
+
+        directions.put(railId, null)
+        epochs.process(nextFrame(4))
+        assertEquals(listOf(SECTION_OCCUPANCY_SOURCE_ID to declarations), invalidations)
+        assertEquals(listOf(30.0, 17.0), entries.map { occupancy.fixedBlockSignal(it)!!.state.effectiveSpeedLimitMetersPerSecond })
+        assertEquals(1, occupancy.snapshot()!!.sections.size)
+    }
+
     private val worldId = UUID.nameUUIDFromBytes("section-world".toByteArray())
     private val railId = UUID.nameUUIDFromBytes("section-rail".toByteArray())
     private val topology = lineTopologyState(7L, railId)
@@ -240,6 +292,41 @@ class SectionOccupancyRuntimeTest {
         assertThrows(UnsupportedOperationException::class.java) {
             (baseline.sections as MutableMap<*, *>).clear()
         }
+    }
+
+    @Test
+    fun `direction failure invalidates both physical entrances including the unconfigured end and restores`() {
+        var epochs: SignalEpochRuntime? = null
+        val directions = work.art1st.javarailways.basic.rail.OperatingDirectionStore { epochs?.publishOperatingDirectionChanges(it) }
+        val twoWay = FixedBlockDefinition(block.blockId, block.revision, block.traversals, true)
+        val reverse = terminalSignal("test:reverse", block.blockId, 7.0, "reverse-clear")
+            .reconfigured(entryDirection = FixedBlockEntryDirection.REVERSE)
+        val policy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(directions::snapshot)
+        val world = SimpleSignalsWorldRuntime(worldId, policy)
+        assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, world.initializeDefinitions(topology,
+            SimpleSignalsWorldDefinitions(worldId, 1, emptyList(), emptyList(), listOf(twoWay), listOf(reverse))).status)
+        val occupancy = world.initializeSectionOccupancy()
+        val invalidations = arrayListOf<Pair<String, Set<String>>>()
+        epochs = epochRuntime(occupancy.source!!, invalidations)
+        fun next(number: Long) = emptyFrame(number, topology, ActiveRailContinuationsSnapshot.empty(topology.revision))
+        epochs.process(next(1))
+        assertNull(occupancy.fixedBlockSignal(FixedBlockSignalEntry(block.blockId)))
+        assertEquals(7.0, occupancy.fixedBlockSignal(reverse.entry)!!.state.effectiveSpeedLimitMetersPerSecond)
+        invalidations.clear()
+        directions.put(railId, ViewDirection.AB)
+        epochs.process(next(2))
+        val both = FixedBlockEntryDirection.entries.map { fixedBlockSignalDeclarationId(block.blockId, it) }.toSet()
+        assertEquals(listOf(SECTION_OCCUPANCY_SOURCE_ID to both), invalidations)
+        for (entry in FixedBlockEntryDirection.entries) assertEquals(0.0,
+            occupancy.fixedBlockSignal(FixedBlockSignalEntry(block.blockId, entry))!!.state.effectiveSpeedLimitMetersPerSecond)
+        directions.put(railId, null)
+        epochs.process(next(3))
+        assertEquals(SECTION_OCCUPANCY_SOURCE_ID to both, invalidations.last())
+        assertNull(occupancy.fixedBlockSignal(FixedBlockSignalEntry(block.blockId)))
+        assertEquals(7.0, occupancy.fixedBlockSignal(reverse.entry)!!.state.effectiveSpeedLimitMetersPerSecond)
+        val snapshot = occupancy.signalSnapshot()
+        epochs.process(next(4))
+        assertSame(snapshot, occupancy.signalSnapshot())
     }
 
     @Test
@@ -587,7 +674,7 @@ class SectionOccupancyRuntimeTest {
     }
 
     @Test
-    fun `one fixed block accepts only one controlling signal rule`() {
+    fun `rule bindings reject duplicate declaration identity for one physical entry`() {
         val section = SectionRef(SectionKind.FIXED_BLOCK, block.blockId)
 
         assertThrows(IllegalArgumentException::class.java) {

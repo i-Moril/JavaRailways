@@ -4,6 +4,14 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.simplesignals.presentation.DeviceModelDefinition
 import work.art1st.javarailways.simplesignals.region.SIMPLE_SIGNALS_NAMESPACED_ID
 
+/** Relative to the complete authored block path, not an individual rail's AB/BA facing. */
+internal enum class FixedBlockEntryDirection { FORWARD, REVERSE }
+
+internal data class FixedBlockSignalEntry(
+    val blockId: String,
+    val direction: FixedBlockEntryDirection = FixedBlockEntryDirection.FORWARD
+)
+
 /** One configured signal presentation and the speed limit it contributes. */
 internal data class ConfiguredSignalOutput(
     val speedLimitMetersPerSecond: Double,
@@ -78,7 +86,8 @@ internal data class FixedBlockSignalDefinition private constructor(
     val occupiedOutput: ConfiguredSignalOutput,
     val clearLevels: List<FixedBlockSignalClearLevel>,
     val downstreamSignals: List<FixedBlockSignalDependency>,
-    val model: DeviceModelDefinition?
+    val model: DeviceModelDefinition?,
+    val entryDirection: FixedBlockEntryDirection
 ) {
     constructor(
         signalId: String,
@@ -88,7 +97,8 @@ internal data class FixedBlockSignalDefinition private constructor(
         occupiedOutput: ConfiguredSignalOutput,
         clearLevels: Collection<FixedBlockSignalClearLevel>,
         downstreamSignals: Collection<FixedBlockSignalDependency> = emptyList(),
-        model: DeviceModelDefinition? = null
+        model: DeviceModelDefinition? = null,
+        entryDirection: FixedBlockEntryDirection = FixedBlockEntryDirection.FORWARD
     ) : this(
         signalId,
         revision,
@@ -97,8 +107,11 @@ internal data class FixedBlockSignalDefinition private constructor(
         occupiedOutput,
         java.util.List.copyOf(clearLevels),
         java.util.List.copyOf(downstreamSignals),
-        model
+        model,
+        entryDirection
     )
+
+    val entry: FixedBlockSignalEntry get() = FixedBlockSignalEntry(controlledBlockId, entryDirection)
 
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalId)) { "signalId must be namespaced" }

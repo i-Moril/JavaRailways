@@ -16,6 +16,7 @@ SimpleATO 规划时读取公共配置并组合其他选路限制；目标选择�
 | [运营选路与行车授权](./operational-routing-and-authority.md) | 改 mission、运营 overlay、冻结路线、资源准入调用或约束合成 | SimpleATO 选路、准入客户端、单一列车保护管线 |
 | [ATO policy runtime](./ato-policy-runtime.md) | 改mission、constraint、world Stall或route progress | SimpleATO唯一policy owner及Basic safety interlock桥接 |
 | [Controller runtime](./controller-runtime.md) | 改SimpleATO physics tick、mission/constraint状态或publication | 具体`SimpleATO` controller及其唯一可写运行状态 |
+| [入口整列车净空](./entry-clearance.md) | 改中立入口要求、当前停车约束证明及信号交接 | SimpleATO 单次感知、共享保守长度及入口停车检查 |
 | [响应式信号epoch](./reactive-signal-epochs.md) | 改监测区更新路由、信号callback或同步restriction publication | 平台无关source host、校验、fail-closed epoch顺序 |
 | [Dispatcher runtime](./dispatcher-runtime.md) | 改 timetable clock/run state、车次推进、车站/车辆段动作或恢复 | `SimpleATOWorldData.dispatcher` |
 | [Timetable model 与 validation](./timetable-model-and-validation.md) | 改 authoring/runtime model、validator、store或extension | execution authority与validation gate |

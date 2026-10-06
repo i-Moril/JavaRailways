@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals.signal
 
 import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+import work.art1st.javarailways.simplesignals.testing.protectionTestEpoch
 
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -22,7 +23,6 @@ import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.api.restriction.*
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
-import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
@@ -226,7 +226,7 @@ class SignalReplacementContinuityTest {
             fixedRoute.routeId, 0.0, ConfiguredSignalOutput(0.0, "R"), ConfiguredSignalOutput(20.0, "G"),
             listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(20.0, "G"))))
         val world = signalWorldRuntime(worldId)
-        val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
+        val epoch = protectionTestEpoch(world, worldId.toString(), TrainRestrictionPublisher {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
         })
         private val owner = InfrastructureOwner("test:owner", 1L)

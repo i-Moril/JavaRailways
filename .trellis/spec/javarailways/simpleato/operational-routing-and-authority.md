@@ -215,6 +215,13 @@ segment occurrence，并以声明携带的rail UUID和AB/BA方向做一次交叉
 初始最远终点，再向前单调扫过因抬高边界而新越过的重叠窗口；相邻窗口入口恰好等于当前终点时不连锁。因此请求一次
 成本为`O(log D + k)`，`D`为声明数、`k`为本次实际跨过的后续要求数；没有第二次路线扫描或每tick插件回调。
 
+binding另可携带中立 `entryClearances`：入口、车尾必须通过的路线坐标及精确入口自身限制身份。
+`synchronizeRoute` 使用同一权威observation的有序车身跨度与controller已有安全距离，
+将 `tailClear+trainLength+safetyDistance` 合并到现有floor。几何变化只刷新这一列车的floor，
+不重新调用插件binding provider或重建所有列车的入口索引。请求可裁到运营终点，
+但净空证明必须保留未裁的目标，不能把不足空间当作允许。完整接口、移动侧检查与结果交接见
+[入口净空合同](entry-clearance.md)。列车几何来自宿主，插件binding input仍保持上述低频值边界。
+
 灯泡线过长申请可被Basic以`REQUEST_RANGE_TOO_LONG`及中立`retryAtOrBefore`拒绝。Dispatcher不得把该提示直接当成授权，
 也不得原样重跑原请求。它用同一份compiled request floors把上限向后退：若某个已进入的声明要求的终点超过上限，
 将上限退回该声明入口；重复处理受影响floor，直到新边界不会截断任何声明要求。入口恰好等于边界时不触发floor。

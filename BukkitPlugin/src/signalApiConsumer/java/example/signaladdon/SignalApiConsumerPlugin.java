@@ -61,6 +61,10 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection;
 import work.art1st.javarailways.core.api.physics.curve.Curve;
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration;
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBinding;
+import work.art1st.javarailways.simpleato.api.inspection.InspectionEntryClearance;
+import work.art1st.javarailways.simpleato.api.inspection.InspectionEntryClearanceState;
+import work.art1st.javarailways.simpleato.api.inspection.InspectionRestrictionIdentity;
+import work.art1st.javarailways.simpleato.api.inspection.InspectionClearanceSnapshot;
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource;
 import work.art1st.javarailways.simpleato.api.inspection.InspectionUpdateHandler;
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult;
@@ -413,8 +417,20 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                 "example.signaladdon:slow-section",
                 new work.art1st.javarailways.simpleato.api.restriction.RouteSpeedRestriction(
                     "example.signaladdon:slow-section/visit-0", 10.0, 20.0 / 3.6, route.getTotalLengthMeters())
-            ))
+            )),
+            List.of(new InspectionEntryClearance(declaration.getDeclarationId(), 80.0, 90.0,
+                List.of(new InspectionRestrictionIdentity("example.signaladdon:main", "example.signaladdon:home-red"))))
         );
+    }
+
+    private static InspectionClearanceSnapshot compileClearanceValues(
+        work.art1st.javarailways.core.api.physics.train.Train train, RailwayStateStamp stamp, RouteSnapshot route
+    ) {
+        var frame = train.getPublishedFrame(); // Null explicitly means no physical clearance proof.
+        if (frame != null) Objects.requireNonNull(frame.getBodyTraversal());
+        return new InspectionClearanceSnapshot("example.signaladdon:main", train.getId(), stamp,
+            FrozenRouteBinding.from(route), List.of(new InspectionEntryClearanceState(
+                "example.signaladdon:home-entry", 80.0, 90.0, 100.0, 102.0, false)));
     }
 
     /** Compile-only proof that the reactive signal slice is consumable from ordinary Java. */
@@ -437,10 +453,16 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             List.of(area),
             List.of(),
             List.of(railId),
+            List.of(),
+            List.of("example.signaladdon:main"),
             input -> {
                 Objects.requireNonNull(input.getObservation());
                 Objects.requireNonNull(input.getAreaUpdates());
                 Objects.requireNonNull(input.getAdmissionUpdates());
+                input.getEntryClearanceUpdates().forEach(update -> {
+                    Objects.requireNonNull(update.getRoute());
+                    update.getClearances().forEach(clearance -> Objects.requireNonNull(clearance.getDeclarationId()));
+                });
                 input.getAdmissionUpdates().forEach(update -> {
                     Objects.requireNonNull(update.getOwner());
                     if (update.getCurrent() != null) {

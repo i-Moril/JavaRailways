@@ -9,7 +9,20 @@
     实际执行测试编译、完整测试、`verifyPluginJar`及Java consumer编译；生产编译/JAR复用先前实现构建结果。
     `git diff --check`通过，未配置独立lint任务；日志`/tmp/javarailways-request-only-check.log`。
     测试组合真实运行类与构造观测/准入帧，不等于live Folia或客户端验证；不声称出口净空已实现。
-- [ ] 实现基于列车长度与前方停车位置的保护区域出口净空，不以取得后继闭塞代替净空证明。
+- [x] 实现基于列车长度与前方停车位置的保护区域出口净空，不以取得后继闭塞代替净空证明。
+  - 2026-10-06 完成独立检查：区域source声明中立入口/出口；SimpleATO以同帧车身保守跨度和原有安全距离扩长请求floor、单次前视，
+    使用既有授权/停车/站台/前车/信号约束证明净空并立即安装入口等待。共享信号经已有串行epoch接收变化，必须同时满足匹配请求、授权、设备和净空；只精确排除本次入口自身红灯，不删除最终保护约束。
+  - Core公开已有原子Train frame；两端共用既有ActiveRoute中的保守长度上界，吸收车钩解算抖动。真实Core直线100步证明raw变化但floor实例及共享callback稳定，增长立即收紧、旧epoch不能缩短更新上界、缺/错帧不借缓存。
+    不改Basic仲裁/真实车尾释放、双向闭塞、JS/模型或存档版本，不新增全世界扫描、资源registry或第二个planner。
+  - 聚焦105项全部通过，含7个真实Core周期controller/Basic/signal组合：前视外红灯、同点第三方限制、短运营终点、相邻区域恢复、前车以及Dispatcher停止后的下一tick响应。
+    Java API consumer编译和插件JAR隔离实际执行通过。独立checker仅修正2处旧测试fixture，不放宽runtime。
+  - 最终离线代码/测试门禁通过：1764项，1757通过、7项基线skip，零失败/错误。
+    Core 209（skip6）、Basic 389（skip1）、SimpleATO 351、BukkitPlugin 350、SimpleSignals 434、TunnelBridgeBuilder 31；
+    前五个非Signals模块已在`--rerun-tasks`轮实际执行，最终复用相同源码结果，Signals最终434项实际执行。
+    日志：`/tmp/javarailways-exit-clearance-full-check2.log`、`/tmp/javarailways-exit-clearance-final-gate.log`。
+  - Core HTML Dokka已生成；Javadoc缺离线缓存`org.jetbrains.dokka:javadoc-plugin:2.2.0`，未验证，没有下载或改构建配置。
+    `git diff --check`通过；真实Folia/客户端及规模性能基准未验证。提交后停下供用户审阅，Stage 2仍进行中。
+    先核对中立要求与共享 ready 状态的最小接口，再实现代码及回归；本条在完整独立门禁通过前保持未完成。
 - [ ] 双向闭塞的两入口独立规则，保持一个共享资源。
 - [ ] 对已有距离输入与信号循环依赖做有界方案评审，不重复添加输入模型或写死国家规则。
 

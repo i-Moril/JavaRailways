@@ -109,14 +109,16 @@ route-window只描述region entry/exit，不保存后继区间。world runtime�
 `simplesignals:protection-regions` inspection source把完整window编译成route-local authority floor；若当前exact frozen route上
 唯一直接fixed-block successor与exit同点，则同一次floor延伸到该block exit。分叉已由冻结路线消解，多个同点匹配表示block定义
 冲突而非正常候选。完整工作模型、二分查找、错误语义、复杂度与测试合同见
-[保护区域到固定闭塞的授权衔接合同](protection-region-authority-transition.md)。moving-block精确边界和通用tail clearance仍未冻结。
+[保护区域到固定闭塞的授权衔接合同](protection-region-authority-transition.md)。同一window还声明中立入口净空要求：
+SimpleATO用当前完整车身跨度扩长单次前视与请求floor，并以已有停车/跟车/授权约束证明整列车可驶出；
+资源token不能代替净空证明。公开值与移动侧算法归[SimpleATO入口净空合同](../../javarailways/simpleato/entry-clearance.md)。
 
 保护区域信号不能使用一个全区occupancy bit。默认进路已取消；definition publication只编译有效固定进路及所需active-continuation查询，
 不根据道岔当前朝向猜测或建立列车进路。
-当前已接入Basic准入变化和道岔变化，以缓存的冻结路线窗口和完整授权floor产生共享入口选择；正在准备更远资源不撤销旧区域ready，
+当前已接入Basic准入、道岔和中立净空变化，以缓存的冻结路线窗口、完整授权floor及匹配经过的净空证明产生共享入口选择；正在准备更远资源不撤销已满足全部条件的旧区域ready，
 车尾通过旧区域后移除其入口请求关联，仍持有的长资源继续由Basic保护。每条固定进路编译自己的occupancy geometry，
 固定进路信号、当前信号和presentation-only进路显示器消费同一epoch的状态。当前信号只按“当前列车请求、无进路”
-选择；固定进路信号也必须有匹配的当前请求、足够授权和正确道岔状态。无请求时两者停车，显示器无进路。进路表示机与进路预告机复用同一显示抽象，玩家只需绑定同一个
+选择；固定进路信号也必须有匹配的当前请求、足够授权、正确道岔状态和当前净空证明。无请求时两者停车，显示器无进路。进路表示机与进路预告机复用同一显示抽象，玩家只需绑定同一个
 入口选择源并在所需距离放置不同模型。完整优先级、失败语义、复杂度、测试点及Basic准入变化交接边界见
 [保护区域信号与进路显示合同](protection-region-signal-selection.md)。
 

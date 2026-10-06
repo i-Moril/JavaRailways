@@ -2,12 +2,12 @@
 
 ## 1. 状态、范围、触发条件与 owner
 
-- **状态**：`CURRENT/FOUNDATION`，对应 `SimpleSignals` 提交 `ad62ee04` 之后的行为。
+- **状态**：`CURRENT/FOUNDATION`，区域衔接与入口整列车净空门控已通过独立离线检查。
 - **触发条件**：SimpleATO 为一列车建立或替换 exact frozen-route inspection binding。
 - **Owner**：保护区域、固定闭塞及二者的 route-local 衔接由 `SimpleSignals` 拥有；授权请求下限由
   `SimpleATO` 应用；最终物理资源验证、原子 claim 和 committed authority 由 `Basic` 拥有。
-- **范围**：只规定保护区域出口与当前冻结路线中唯一直接相邻 fixed block 的衔接。
-- **非目标**：不规定 moving-block 出口边界、通用列车尾净空、侧防/接近锁闭、灯色、模型或速度规则。
+- **范围**：保护区域的完整资源申请、直接相邻 fixed block 衔接，以及入场前整列车能够驶出出口的当前条件检查。
+- **非目标**：不规定未来故障下的必然通行、侧防/接近锁闭、国家制式灯色或模型规则；不改变真实车尾释放。
 
 面向使用者的说明见
 [保护区域与固定闭塞的授权衔接](../../../../docs-site/docs/architecture/protection-region-authority-transition.md)。
@@ -24,10 +24,14 @@ SimpleATO 已选择并冻结 RouteSnapshot
        0 个：minimum authority end = region exit
        1 个：minimum authority end = fixed-block 与运营路线交集的末端
        多个：定义冲突，binding fail closed
-  -> SimpleATO 在 nominal request 严格越过 region entry 后应用 minimum end
+  -> 同一匹配声明中立 entry clearance：入口、车尾须通过的出口、精确入口自身信号身份
+  -> SimpleATO 用同周期车身长度 L 和原有授权安全距离 m，取 max(上述静态下限, region exit + L + m)
+  -> nominal request 严格越过 region entry 后应用该下限
   -> Basic 以扩大后的同一 frozen-route prefix 编译物理资源底线
   -> SimpleSignals 既有 contributor 为完整 fixed block 加入 block token
   -> Basic 原子 claim 完整 union；成功才发布更远 committed authority
+  -> 控制器在原有单次前视内检查授权、停车点、下游红灯及前车，发布当前经过的净空结果
+  -> 串行 signal epoch 合并净空、Basic 授权与实际设备状态；缺一项则入口仍停车
 ```
 
 保护区域不保存 successor ID，也不提交默认独占的 region token。出口处分叉已经由 exact frozen route
@@ -94,18 +98,27 @@ inspectionLeadTimeSeconds = 0s
 minimumRequestedAuthorityEnd = successor?.exit ?: region exit
 ```
 
+这是插件的静态 floor，不是完整入场条件。同一 window 还产生一个中立 `InspectionEntryClearance`，
+`entryRouteDistanceMeters=entry`、`tailClearRouteDistanceMeters=exit`。
+SimpleATO 用当前一致的保守车身跨度 L 和控制器安全距离 m 派生 `exit+L+m`，与静态 floor 取最大值。
+车长来自 Core 已发布的完整车身轨迹，不是车厢数量或模型长度相加。
+
 这不是直接grant。SimpleATO只在nominal request严格越过trigger后抬高requested boundary；Basic仍可拒绝。
 扩大后的prefix随后进入既有`FixedBlockRouteResourcePolicy`，由它独立匹配block交集并加入
 `resourceType=simplesignals:fixed-block, resourceId=<blockId>`资源。Basic再加入不可删除的rail、turnout和
 diamond资源并原子处理union。
 
 后继block可以包含运营停车点。若冻结路线在block内部结束，successor window的exit是该路线终点，
-floor不能超过它；列车仍申请整个block token，并在停车期间保留，后续申请通过既有队列延长释放位置。
+这个静态floor不能超过它；列车仍申请整个block token，并在停车期间保留，后续申请通过既有队列延长释放位置。
 “申请整个闭塞资源”不等于“必须取得到闭塞物理出口的行车授权”。保护区域本身仍要求完整入口到出口，
 本规则不允许在咽喉保护区域内部停车。
 
+运营终点裁剪不裁剪净空证明：若 `exit+L+m` 超过路线终点，入口保持停车；不能以已经取得裁剪后的
+block token 代替足够空间。授权虽足够、但下游红灯或实际停车余量使车头无法到达 `exit+L` 时同样不放行。
+
 衔接只处理一个直接后继，不递归连接第二个fixed block。后续普通fixed-block declarations可按自己的入口
 继续抬高未来请求；region source不得自己遍历一条block链。
+控制器所需空间可以覆盖更多后续窗口，仍由宿主的一次前视和已有声明处理，不由区域 callback 递归申请。
 
 ## 4. 接口、数据结构与单位
 
@@ -120,7 +133,7 @@ SimpleSignalsRuntimePublication.routeBindingCompiler
     .compile(route: RouteSnapshot): ProtectionRouteBindingMatch
 ```
 
-跨模块输出复用SimpleATO现有公开值，不新增region专用API：
+跨模块输出复用SimpleATO公开值，不新增region专用API：
 
 ```kotlin
 InspectionDeclaration(
@@ -137,6 +150,10 @@ InspectionDeclaration(
 相等判断统一使用`Curve.TOLERANCE`。source ID固定为`simplesignals:protection-regions`，block resource type
 仍为`simplesignals:fixed-block`。本合同没有新增持久化字段或schema version。
 
+`InspectionDeclarationBinding.entryClearances` 中的中立要求及 `InspectionClearanceSnapshot` 完整结果归
+[SimpleATO 净空合同](../../javarailways/simpleato/entry-clearance.md)。入口自身红灯的排除身份仅来自本次匹配
+进路绑定的保护信号设备；没有绑定设备时排除集合为空。排除还必须匹配本次入口坐标，不能按来源整批忽略。
+
 ## 5. 不变量、生命周期、线程与版本
 
 - 匹配只发生在route binding创建或替换时，不进入physics tick、signal wave或Bukkit回调。
@@ -146,7 +163,7 @@ InspectionDeclaration(
 - region definition不保存successor；topology或definition变化后重新绑定并重新派生。
 - 灯泡线的每次经过分别产生原region ID与不同trigger的声明，复用已存在的`(ID, trigger)`唯一性。Basic的过长道岔申请提示必须经SimpleATO通用floor回退，不能把保护区域内部当作可停车的重试终点。
 - region ID默认不成为独占资源；冲突由实际物理资源和明确的插件附加资源表达。
-- update handler当前不产生速度restriction；本source只提供route-local authority floor。
+- update handler不产生速度restriction；本source提供静态floor和中立净空要求。控制器使用自己的约束 owner 安装入口等待，具体信号仍由既有信号来源投影。
 - 任一异常都在Basic registry mutation前终止binding，不能留下部分claim。
 - `routeInfrastructureDependencies`复用相同compiler做应用前检查并返回空resource集合；region没有默认exclusive token。
   它不建立inspection binding、不运行update handler，也不发布restriction或修改selector。
@@ -163,6 +180,9 @@ InspectionDeclaration(
 - region exit匹配多个block entries → fixed-block定义冲突，binding fail closed；这不是道岔分支选择。
 - 计算出的trigger或minimum end超出frozen route → `InspectionDeclarationBinding`拒绝。
 - Basic后续claim或设备准备失败 → 不发布更远authority，插件不得自行放行。
+- 缺完整当前车身帧、净空目标/安全余量超过运营终点、扫描未覆盖目标 → 净空不可用，入口等待。
+- 已授权但入口后的实际停车/跟车边界不足 → 净空未就绪；资源准备可以继续。
+- 净空结果缺失、来自其他列车/路线/经过或未来physics epoch → selector不放行。
 
 ## 7. 性能、复杂度与退化行为
 
@@ -181,24 +201,27 @@ fixed-block matcher成本为`O(R + K log K + I log I)`；每个region对排序�
 fixed-block source在低频binding阶段分别执行一次fixed-block匹配；不为消除这次重复引入跨source cache、共享
 publication token或失效协议。
 
-定义规模增大只增加路线绑定耗时，不增加每tick成本。异常规模或冲突定义的退化行为是拒绝该binding，而不是
+定义规模增大只增加路线绑定耗时；新增热路径只检查本列车实际前视净空要求和既有约束，复杂度及交接归
+[SimpleATO 净空合同](../../javarailways/simpleato/entry-clearance.md)。异常规模或冲突定义的退化行为是拒绝该binding，而不是
 跳过信号策略、任选后继或回退为无限authority。
 
 ## 8. Good / Base / Bad cases
 
 ### Good：唯一直接固定闭塞
 
-region为`[5m, 25m]`，当前冻结路线上的block为`[25m, 30m]`。trigger为`5m`，minimum end为
-`30m`；Basic在同一次请求中取得region路径物理资源和block token。
+region为`[5m, 25m]`，当前冻结路线上的block为`[25m, 30m]`，车身10m、安全距离2m。
+trigger为5m，静态floor为30m，实际请求下限至少37m。只取得30m授权不能放行；取得足够授权且前方无停车阻碍才可放行。
 
 ### Base：没有直接后继
 
-没有fixed block，或block从`26m`才开始。minimum end保持`25m`；不得跨越间隙猜测moving-block策略。
+没有fixed block，或block从26m才开始。静态floor保持25m；车身10m、安全距离2m时仍要求至少37m授权。
+没有直接闭塞不取消车尾净空要求，也不猜测额外闭塞资源。
 
 ### Good：后继闭塞内部的站台
 
-region为`[5m,25m]`，block从`25m`延伸到路线终点以外，站台运营目标为`30m`。minimum end为`30m`，
-同一次申请包含区域物理资源与整个block token；停车不释放仍被列车占用的token，也不扩大授权到站台以外。
+region为`[5m,25m]`，车身10m，站台运营目标为30m：即使整个block token可获得，仍不能入场。
+目标在35m之后还必须满足站台实际停车余量与授权安全距离；例如目标38m、两项余量均2m时，36m停车边界覆盖35m车头净空目标，且37m所需授权未越过运营终点。
+停车不释放仍被车身占用的token，不扩大授权到运营路线以外。
 
 ### Bad：冲突定义
 
@@ -224,6 +247,11 @@ region为`[5m,25m]`，block从`25m`延伸到路线终点以外，站台运营目
 - 时刻表静态检查中，无table完整穿越成功且不产生resource；内部起止、同点后继冲突、stale空catalog失败。
 - 有table时，唯一表内路径与重复完整经过成功；缺失或重复匹配失败，但缺少signal/occupancy baseline不影响结果。
 - 真实Dispatcher组合证明首次/替换失败均发生在clock与初始定位之前，替换恢复旧完整依赖且不产生claim/binding/output。
+- `EntryClearanceTest`覆盖授权安全距离、实际停车余量、前车、不足终点、精确自身入口排除、BA/重复轨道跨度和单调扩长；
+- `EntryClearanceRuntimeTest`覆盖per-train floor-only刷新、变化合并/首次baseline/来源替换/退出/空source排空、
+  不可变公开值与正负零去重，以及真实Core直线100步移动的长度上界、floor实例和共享callback稳定；
+- `ProtectionSignalControllerHandoffTest`用真实Core周期组合Basic、Dispatcher、控制器和信号，
+  覆盖远端红灯、同点外部红灯、前车、短运营终点、相邻区域先下游后上游恢复及停止Dispatcher仍重判。
 
 继续扩展本合同前应补充：
 
@@ -231,10 +259,26 @@ region为`[5m,25m]`，block从`25m`延伸到路线终点以外，站台运营目
 
 ## 10. 迁移、未决事项与 Wrong / Correct
 
+### 入场净空与迁移边界
+
+直接后继 floor、净空空间与实际车尾释放是不同条件，不能互相代替。
+
+- 保护区域匹配提供 occurrence-specific 的入口与出口。对于出口 x 与权威列车长度 L，
+  要求车头能到达 x+L，授权需再包含控制器原有安全余量。无后继闭塞、后继闭塞太短和运营终点太近都不能绕过这个要求。
+- SimpleATO 在已有前视扫描前将这段必需范围并入 horizon；之后只检查已合成的当前约束，
+  包括授权、运营停车点、下游零速目标和前车间距，不重走路线、不重跑信号规则。
+- 排除对象必须是当前有向入口、当前经过对应的自身红灯/净空等待，不能按类别忽略所有信号、所有零速限制或所有授权。
+  入口停车不阻止资源准备；净空变化必须到达下一次控制计算，不能等待 Dispatcher 活动。
+- 共享信号准备状态只有在资源、设备和这次列车的净空证明均成立时才允许。
+  净空结果缺失、路线/列车不匹配、来自未来周期或所需扫描不完整时保持停车。
+- 保持真实车尾释放、资源身份与存档格式不变；不增加全世界轮询、第二套资源管理或任意旧数据兼容。
+- 回归须覆盖短后继/无后继、路线终点不足、已授权但下游红灯、站台停车、前车、
+  本入口红灯不自锁、Dispatcher 停止后的恢复、超出原前视的障碍、BA 与重复经过及严格路线替换。
+
+公开中立值与控制算法归[SimpleATO 净空合同](../../javarailways/simpleato/entry-clearance.md)。
+
 本规则不改变sidecar格式，不需要runtime compatibility或世界迁移。仍未决定：
 
-- moving-block territory中的精确post-exit boundary；
-- 不同列车长度和净空余量下的tail-clearance合同；
 - 是否以及如何在authoring时禁止不同fixed-block定义的重叠。单个双向闭塞已使用一份定义，不需要重叠定义表达。
 
 ### Wrong

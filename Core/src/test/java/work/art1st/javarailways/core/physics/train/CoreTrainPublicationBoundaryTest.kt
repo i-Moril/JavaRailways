@@ -9,6 +9,24 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 
 class CoreTrainPublicationBoundaryTest {
     @Test
+    fun `public Train frame includes current conservative coupler spacing`() {
+        val world = createTestWorld()
+        try {
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+            val train = createTrainWithConfig("public-consist-frame", rail, world, listOf(10.0, 10.0), connectorLength = 1.0)
+            val publicTrain: work.art1st.javarailways.core.api.physics.train.Train = train
+            val frame = requireNotNull(publicTrain.publishedFrame)
+            org.junit.jupiter.api.Assertions.assertSame(train.publishedFrame, frame)
+            val bodyLength = frame.bodyTraversal.sumOf { kotlin.math.abs(it.endArcLengthInAbMeters - it.startArcLengthInAbMeters) }
+            assertTrue(bodyLength > frame.cars.sumOf { it.lengthMeters }, "coupler gaps must not disappear from clearance geometry")
+            assertEquals(frame.head, work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot.capture(train.headLocation, ViewDirection.AB))
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as? AutoCloseable)?.close()
+        }
+    }
+
+    @Test
     fun `train frame preserves ordered head and tail traversal across rail boundaries`() {
         val world = createTestWorld()
         val first = createStraightRailFromSegments(

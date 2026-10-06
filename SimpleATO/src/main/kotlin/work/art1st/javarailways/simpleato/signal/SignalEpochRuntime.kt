@@ -17,6 +17,7 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapsh
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochInput
 import work.art1st.javarailways.simpleato.api.signal.SignalRailContinuationUpdate
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
+import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 
 /**
  * Platform-neutral serialized host for runtime-replaceable signal sources in one Core world.
@@ -31,6 +32,14 @@ class SignalEpochRuntime(
     private val completeEpoch: (RailwayStateStamp, Set<String>) -> Unit = { _, _ -> },
     private val invalidateInspectionDeclarations: (String, Set<String>) -> Unit = { _, _ -> }
 ) : RailwayEpochProcessor {
+    private var inspectionRuntime: InspectionRuntime? = null
+    private var previousClearanceLiveTrainIds: Set<String> = emptySet()
+
+    fun attachInspectionRuntime(runtime: InspectionRuntime) {
+        check(inspectionRuntime == null || inspectionRuntime === runtime)
+        inspectionRuntime = runtime
+    }
+
     @Volatile
     private var state = SourceState.create(emptyList())
     private val topologyHandoffLock = Any()
@@ -139,7 +148,10 @@ class SignalEpochRuntime(
         val current = state
         val stamp = RailwayStateStamp(worldId, frame.physicsEpoch, frame.topologyRevision)
         val liveTrainIds = frame.trains.mapTo(hashSetOf()) { it.trainId }
+        (previousClearanceLiveTrainIds - liveTrainIds).forEach { inspectionRuntime?.withdrawClearancesForTrain(it) }
+        previousClearanceLiveTrainIds = liveTrainIds
         if (current.sources.isEmpty()) {
+            inspectionRuntime?.takeClearanceUpdates(false)
             completeEpoch(stamp, java.util.Set.copyOf(liveTrainIds))
             return
         }
@@ -149,6 +161,7 @@ class SignalEpochRuntime(
         val invalidations = linkedMapOf<String, Set<String>>()
         val topologySources = current.takeTopologyChanges(observation.stamp.topologyRevision)
         val initialBaseline = current.previousTopologyRevision == null
+        val clearanceUpdates = inspectionRuntime?.takeClearanceUpdates(initialBaseline).orEmpty().groupBy { it.sourceId }
         val admissionUpdatesBySource = current.consumeAdmissionUpdates(
             takeAdmissionUpdates(current.previousTopologyRevision == null), liveTrainIds
         )
@@ -168,11 +181,12 @@ class SignalEpochRuntime(
             val continuationUpdates = continuationUpdatesBySource[source.sourceId].orEmpty()
             val admissionUpdates = admissionUpdatesBySource[source.sourceId].orEmpty()
             val directionChanges = directionChangesBySource[source.sourceId].orEmpty()
+            val readiness = source.watchedInspectionSourceIds.flatMap { clearanceUpdates[it].orEmpty() }
             if (updates.isEmpty() && continuationUpdates.isEmpty() && admissionUpdates.isEmpty() &&
-                directionChanges.isEmpty() && !topologyBaseline
+                directionChanges.isEmpty() && readiness.isEmpty() && !topologyBaseline
             ) return@forEach
             val result = source.handler.update(
-                SignalEpochInput.create(observation, updates, continuationUpdates, admissionUpdates, topologyBaseline, directionChanges)
+                SignalEpochInput.create(observation, updates, continuationUpdates, admissionUpdates, topologyBaseline, directionChanges, readiness)
             )
             validateResult(source, observation, liveTrainIds, result.publications)
             validated += result.publications

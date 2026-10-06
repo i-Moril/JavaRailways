@@ -1,6 +1,8 @@
 package work.art1st.javarailways.simplesignals.signal
 
 import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+import work.art1st.javarailways.simplesignals.testing.protectionTestEpoch
+import work.art1st.javarailways.simplesignals.testing.TestProtectionEpoch
 
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -14,7 +16,6 @@ import work.art1st.javarailways.core.api.physics.rail.topology.*
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.simpleato.api.restriction.*
-import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.api.inspection.InspectionBindingInput
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.simplesignals.block.*
@@ -68,7 +69,7 @@ class ProtectionSignalDevicesTest {
         val decoded = SimpleSignalsWorldDefinitionsCodec.decode(SimpleSignalsWorldDefinitionsCodec.encode(world.currentDefinitions()), worldId)
         val reloaded = signalWorldRuntime(worldId)
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, reloaded.initializeDefinitions(topology, decoded).status)
-        val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
+        val epoch = protectionTestEpoch(world, worldId.toString(), TrainRestrictionPublisher {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
         })
         epoch.replaceSources(reloaded.initializeSectionOccupancy().sources)
@@ -102,11 +103,11 @@ class ProtectionSignalDevicesTest {
         f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 20.0, 14.0)))
         f.epoch.process(frame(3, first))
         speeds(0.0)
-        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 15.0, 15.0)))
+        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 16.0, 16.0)))
         f.epoch.process(frame(4, first))
         speeds(30.0)
         val granted = f.world.protectionRouteSelectionSnapshot()
-        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 20.0, 15.0)))
+        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 20.0, 16.0)))
         f.epoch.process(frame(5, first))
         speeds(30.0)
         assertSame(granted, f.world.protectionRouteSelectionSnapshot(), "farther preparation retains the covered region")
@@ -171,7 +172,7 @@ class ProtectionSignalDevicesTest {
             assertEquals("opaque/b", it.modelVariant)
             assertFalse(it.selection.routeReady)
         }
-        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(frozen, 20.0, 15.0)))
+        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(frozen, 20.0, 16.0)))
         f.epoch.process(frame(3, second))
         assertEquals(30.0, speed(f.world, current.signalId))
         assertEquals(0.0, speed(f.world, fixed.signalId))
@@ -332,7 +333,7 @@ class ProtectionSignalDevicesTest {
                 ProtectionRouteTableDefinition("test:table", 1, region.regionId, 1, listOf(routeA, routeB, backward))),
                 protectionSignals = listOf(fixedBackward))).status)
         val occupancy = world.initializeSectionOccupancy()
-        val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
+        val epoch = protectionTestEpoch(world, worldId.toString(), TrainRestrictionPublisher {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
         })
         epoch.replaceSources(occupancy.sources)
@@ -384,7 +385,7 @@ class ProtectionSignalDevicesTest {
             world.initializeDefinitions(connected, SimpleSignalsWorldDefinitions(worldId, 1, listOf(throat), listOf(
                 ProtectionRouteTableDefinition("test:table", 1, throat.regionId, 1, listOf(upper, lower))), protectionSignals = listOf(upperSignal, lowerSignal))).status)
         val occupancy = world.initializeSectionOccupancy()
-        val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
+        val epoch = protectionTestEpoch(world, worldId.toString(), TrainRestrictionPublisher {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
         })
         epoch.replaceSources(occupancy.sources)
@@ -395,11 +396,14 @@ class ProtectionSignalDevicesTest {
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(upperMission, 30.0, 30.0)))
         val lowerOwner = InfrastructureOwner("test:lower-owner", 1)
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(lowerOwner,
-            admission(lowerMission, 30.0, 30.0).copy(owner = lowerOwner)))
+            admission(lowerMission, 30.0, 30.0).copy(owner = lowerOwner, trainId = "lower-train")))
         val position = RailPositionSnapshot(upperCore, ViewDirection.AB, 2.0)
         val physical = RailwayWorldFrameSnapshot.create(1, connected.revision, listOf(TrainFrameSnapshot.create(
             "train", "Train", 1, 1, 0.0, false, false, emptyList(), position, position,
-            listOf(RailInterval(upperCore, 2.0, 3.0)), emptyList(), emptyList(), emptyList(), emptyList())),
+            listOf(RailInterval(upperCore, 2.0, 3.0)), emptyList(), emptyList(), emptyList(), emptyList()),
+            TrainFrameSnapshot.create("lower-train", "Lower", 1, 1, 0.0, false, false, emptyList(),
+                RailPositionSnapshot(lowerEntry, ViewDirection.AB, 0.0), RailPositionSnapshot(lowerEntry, ViewDirection.AB, 0.0),
+                emptyList(), emptyList(), emptyList(), emptyList(), emptyList())),
             ActiveRailContinuationsSnapshot.create(connected.revision, 1, mapOf(
                 endpoint(upperCore, RailEndpoint.B) to endpoint(upperExit, RailEndpoint.A),
                 endpoint(lowerCore, RailEndpoint.B) to endpoint(lowerExit, RailEndpoint.A))))
@@ -431,7 +435,7 @@ class ProtectionSignalDevicesTest {
         val result = world.initializeDefinitions(expanded, definitions(listOf(dependent), listOf(block), listOf(downstream)))
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, result.status, result.diagnostics.toString())
         val occupancy = world.initializeSectionOccupancy()
-        val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
+        val epoch = protectionTestEpoch(world, worldId.toString(), TrainRestrictionPublisher {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
         })
         epoch.replaceSources(occupancy.sources)
@@ -449,7 +453,7 @@ class ProtectionSignalDevicesTest {
         assertTrue(world.protectionRouteSelectionSnapshot()!!.selections.getValue("test:entry").routeReady)
     }
 
-    private data class Fixture(val world: SimpleSignalsWorldRuntime, val epoch: SignalEpochRuntime,
+    private data class Fixture(val world: SimpleSignalsWorldRuntime, val epoch: TestProtectionEpoch,
         val invalidations: MutableList<Set<String>>)
 
     private fun runtime(signals: List<ProtectionSignalDefinition> = listOf(fixed, current),
@@ -473,7 +477,7 @@ class ProtectionSignalDevicesTest {
             world.initializeSectionOccupancy(bindings)
         }
         val invalidations = arrayListOf<Set<String>>()
-        val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
+        val epoch = protectionTestEpoch(world, worldId.toString(), TrainRestrictionPublisher {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
         }, invalidateInspectionDeclarations = { source, ids ->
             assertEquals(FIXED_BLOCK_SIGNAL_SOURCE_ID, source)

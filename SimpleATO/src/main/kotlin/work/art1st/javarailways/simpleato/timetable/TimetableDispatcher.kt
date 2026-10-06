@@ -3087,7 +3087,9 @@ class TimetableDispatcher(
             val maximumInspectionLeadTime = inspectionRuntime.synchronizeRoute(
                 observation.stamp,
                 run.train.id,
-                route
+                route,
+                authorityStoppingMarginMeters = run.ato.authorityStoppingMarginMeters,
+                publishedFrame = run.train.publishedFrame.takeIf { it.head == snapshot.head }
             )
             run.ato.bindTrainRestrictionRoute(
                 observation.stamp,

@@ -98,7 +98,7 @@ open class CoreTrain @MainThread internal constructor(
     private val publishedFrameRef = AtomicReference<TrainFrameSnapshot?>()
 
     /** Latest complete value-only frame; consumers must not supplement it from live train state. */
-    val publishedFrame: TrainFrameSnapshot
+    override val publishedFrame: TrainFrameSnapshot
         get() = publishedFrameRef.get() ?: error("initial train frame has not been published: $id")
 
     /** Opaque state used to roll back an administrator maintenance relocation. */

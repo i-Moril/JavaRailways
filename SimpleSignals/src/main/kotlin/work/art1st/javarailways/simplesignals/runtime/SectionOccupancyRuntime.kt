@@ -166,7 +166,8 @@ internal class SectionOccupancyRuntime private constructor(
             protectionRouteSelection.watchedAdmissionRailIds,
             blocks.blockIdsByRail.keys + (publication.topologyIndex?.railsByObject?.filterKeys {
                 it.kind == TopologySectionKind.SIGNAL
-            }?.values?.flatten().orEmpty())
+            }?.values?.flatten().orEmpty()),
+            watchedInspectionSourceIds = setOf(work.art1st.javarailways.simplesignals.region.PROTECTION_REGION_INSPECTION_SOURCE_ID)
         ) { input -> update(input) }
     }
 

@@ -1,6 +1,8 @@
 package work.art1st.javarailways.simplesignals.signal
 
 import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+import work.art1st.javarailways.simplesignals.testing.protectionTestEpoch
+import work.art1st.javarailways.simplesignals.testing.TestProtectionEpoch
 
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -22,7 +24,6 @@ import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
-import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
@@ -94,7 +95,7 @@ class ProtectionRouteSelectionRuntimeTest {
             ProtectionRouteTraversal(first, ViewDirection.BA, 0.0, 5.0),
             ProtectionRouteTraversal(trunk, ViewDirection.BA, 5.0, 10.0)))
         val tableRoutes = listOf(firstRoute, requestedRoute, reverse)
-        fun freshRuntime(indicatorOnly: Boolean = false): Pair<SimpleSignalsWorldRuntime, SignalEpochRuntime> {
+        fun freshRuntime(indicatorOnly: Boolean = false): Pair<SimpleSignalsWorldRuntime, TestProtectionEpoch> {
             val definitions = SimpleSignalsWorldDefinitions(worldId, 1L,
                 listOf(region), listOf(ProtectionRouteTableDefinition("test:table", 1L, region.regionId, 1L,
                     tableRoutes)),
@@ -106,7 +107,7 @@ class ProtectionRouteSelectionRuntimeTest {
             val initialized = world.initializeDefinitions(loopTopology, definitions)
             assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, initialized.status, initialized.diagnostics.toString())
             val occupancy = world.initializeSectionOccupancy()
-            val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
+            val epoch = protectionTestEpoch(world, worldId.toString(), TrainRestrictionPublisher {
                 TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
             })
             epoch.replaceSources(occupancy.sources)
@@ -268,10 +269,10 @@ class ProtectionRouteSelectionRuntimeTest {
     }
 
     @Test
-    fun `old granted floor remains ready while distant suffix is preparing`() {
+    fun `sufficient clearance floor remains ready while distant suffix is preparing`() {
         val (world, epoch) = runtime()
         val frozen = route(second)
-        epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(frozen, 20.0, 15.0)))
+        epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(frozen, 20.0, 16.0)))
         epoch.process(frame(1, second))
         assertEquals(ActiveRouteAdmissionState.GRANTED, selection(world).requestState)
         assertTrue(selection(world).routeReady)
@@ -399,14 +400,14 @@ class ProtectionRouteSelectionRuntimeTest {
 
     private fun runtime(blocks: List<FixedBlockDefinition> = emptyList(), extraRoutes: List<ProtectionRouteDefinition> = emptyList(),
         captureSources: (List<SignalEpochSource>) -> Unit = {}):
-        Pair<SimpleSignalsWorldRuntime, SignalEpochRuntime> {
+        Pair<SimpleSignalsWorldRuntime, TestProtectionEpoch> {
         val world = signalWorldRuntime(worldId)
         val result = world.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 1L, listOf(region),
             listOf(ProtectionRouteTableDefinition("test:table", 1L, region.regionId, 1L,
                 listOf(firstRoute, requestedRoute) + extraRoutes)), blocks))
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, result.status, result.diagnostics.toString())
         val occupancy = world.initializeSectionOccupancy()
-        val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
+        val epoch = protectionTestEpoch(world, worldId.toString(), TrainRestrictionPublisher {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
         })
         epoch.replaceSources(occupancy.sources)

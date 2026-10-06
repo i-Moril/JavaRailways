@@ -14,7 +14,8 @@ Core捕获一个尚未公开的RailwayWorldFrameSnapshot
   → 一个Basic RailwayAreaOccupancyEngine派生changed/baseline area updates
   → selectionRevision变化时只比较source预注册的watched continuation entries
   → 接收Basic交接的latest-per-owner准入变化，按冻结路线rail兴趣分发
-  → 只按area/continuation/admission兴趣唤醒有update的SignalEpochSource
+  → 接收controller交接的latest-per-source/train净空结果，按inspection source ID兴趣分发
+  → 只按area/continuation/admission/方向/净空兴趣唤醒有update的SignalEpochSource
   → 每个source同步处理自己的完整update子集
   → host先校验全部source结果
   → 按sourceId、trainId确定顺序发布到world-local immutable snapshot store
@@ -30,7 +31,7 @@ Core捕获一个尚未公开的RailwayWorldFrameSnapshot
 
 第一次observation是baseline，因此所有source（包括只有准入兴趣、没有area/道岔的source）都会调用一次。
 轨道事务按受影响area及已登记的轨道／接头兴趣，只唤醒相关source；不因世界版本变化对全体source建立baseline。
-后续若area不变且`(topologyRevision, selectionRevision)`不变、没有相关准入变化，则保持IDLE。
+后续若area不变且`(topologyRevision, selectionRevision)`不变、没有相关准入/方向/净空变化，则保持IDLE。
 selection revision变化时只比较已编译的watched entries，未实际变化的entry不唤醒source。同一epoch的`ENTER`、`LEFT`保留在一次area update和一次source调用中，不进入跨epoch事件队列。
 
 ## 公共值与callback
@@ -43,6 +44,9 @@ selection revision变化时只比较已编译的watched entries，未实际变�
   `SignalEpochInput.changedOperatingDirectionRailIds` 只交接该来源实际关注的变化轨道。
   SimpleATO 只负责唤醒，不解释这些轨道属于闭塞还是保护区域。
 - `TrainRestrictionPublisher.publish(snapshot)`：平台无关publication seam；只有`ACCEPTED`允许epoch继续。
+- `SignalEpochSource.watchedInspectionSourceIds: Set<String>` 关注中立检查来源；
+  `SignalEpochInput.entryClearanceUpdates: List<InspectionClearanceSnapshot>` 只交接所关注来源的完整变化结果。
+  本来源首次baseline取得当前完整值，移除交接空clearances。值及核对合同归[入口净空合同](entry-clearance.md)。
 
 撤销必须发布同`(sourceId,trainId)`流内更高revision且`restrictions=[]`的完整`TrainRestrictionSnapshot`。这复用现有revision contract，不增加nullable、隐式超时或“没有返回即清除”。所有public collection在构造时复制，callback只能读取。
 
@@ -89,6 +93,15 @@ runtime以空source state启动。`replaceSources`先完整复制、排序、验
 仍能按旧路线兴趣分发待消费的owner删除，复用的handler不会保留已经结束的请求。多次换轨再取消只交接最终删除，
 但保留最初旧路线的唤醒覆盖；这不是永久tombstone或事件历史。
 
+`SimpleATOWorldData`在启动时将唯一`InspectionRuntime`接到本runtime。
+controller交接的净空按`(inspectionSourceId, trainId)`保留一个当前完整值和至多一个待消费值，
+同路线仅stamp前进、状态未变时不唤醒共享规则。每epoch按来源分组变化，再为各signal source取其
+`watchedInspectionSourceIds`，与其他兴趣合并成一次callback；没有新增全世界区域查询或信号轮询。
+首次或替换baseline读取最新完整值，普通epoch只读变化；空source fast path仍消费待交接变化，
+但保留仍活跃的最新值供以后baseline，不无限积累已移除列车的空结果。
+短锁只交接不可变值；旧路线worker结果须匹配当前binding才能接受，来源/列车退出撤销旧结果。
+净空由控制器本次直接收紧入口等待，共享信号下一epoch响应，不依赖Dispatcher或Bukkit任务。
+
 每个owner的冻结路线对象不变时复用已缓存的source兴趣；路线换绑才遍历segments，按反向索引找相关source。
 变化发给旧/新兴趣的并集，删除请求或折返换轨同样唤醒旧入口，不让历史关联残留。
 host复用本epoch已经建立的live train ID集合；成员变化时按缓存的train-to-admission-owner反查唤醒对应source，
@@ -112,6 +125,10 @@ selection revision未变时continuation检查为`O(1)`；变化时比较`W`个�
 
 准入交接写入平均`O(1)`；普通epoch消费`A`个变化owner，只遍历其已缓存的相关source，不扫描全部owner或冻结路线。
 首次baseline复制当前owner集合；每个新冻结路线的兴趣编译成本是segments数加实际rail索引命中数，发生在路线换绑而非每次车尾释放。
+
+净空消费新增成本是本epoch的`U_c`个变化值分组，加全部signal source的实际watch ID数`W_c`及分发命中数，
+即`O(U_c + W_c + hits)`；首次baseline还复制当前完整值。这里按来源ID查分组map，
+没有逐来源逐列车或逐区域扫描，也不声称有尚未实现的反向兴趣索引。
 
 `process`只由Core serialized physics coordinator调用，不并发重入；signal handler必须同步返回且不得调用Bukkit、阻塞I/O或把安全工作异步延后。Dispatcher只在route建立/延长时编译声明并绑定冻结route与Mission progress的映射，不参与逐epoch限制执行。epoch N写入的snapshot、inspection invalidation和completed stamp由controller在epoch N+1规划运动前直接消费：各列车维护自己的inspection激活状态，投影callback可以并发，不能在其中重跑共享规则。具体交接、baseline和线程合同见[inspection owner契约](./operational-routing-and-authority.md#343-缓存失效与响应式更新)。因此Bukkit主线程停顿不会使旧限制继续驱动车辆。source替换可来自另一线程，但生产adapter仍须先等待当前physics epoch结束再允许插件卸载或废弃callback owner；volatile snapshot只保证epoch内一致性，不替代插件lifecycle barrier。具体插件内部可以根据B变化同步重算A；host当前不建立通用fixed-point依赖图。
 
@@ -138,6 +155,7 @@ Bukkit通过`SignalEpochSourceService`按`(plugin owner, world UUID)`安装完�
 - publisher非ACCEPTED与handler exception向Core传播；
 - inspection invalidation在完整结果校验后按source顺序发布，且只唤醒同source当前binding中的声明；
 - source/input/result collection defensive copy。
+- 净空值首次baseline、仅变化唤醒、相同状态保持IDLE、移除空值、来源替换及空source排空均有回归；
 - admission-only source建立baseline，替换后恢复当前请求；不相关rail准入变化保持IDLE；
 - 同owner多次变化合并、请求移除/换轨唤醒旧兴趣、同路线车尾更新不重新扫描segments；
 - 无新的准入/道岔变化且Bukkit尚未消费观测时，物理frame中的列车消失仍唤醒其准入关注者；

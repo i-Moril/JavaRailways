@@ -3,6 +3,10 @@ package work.art1st.javarailways.simplesignals.region
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBinding
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
+import work.art1st.javarailways.simpleato.api.inspection.InspectionEntryClearance
+import work.art1st.javarailways.simpleato.api.inspection.InspectionRestrictionIdentity
+import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_SIGNAL_SOURCE_ID
+import work.art1st.javarailways.simplesignals.signal.protectionSignalDeclarationId
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -41,6 +45,18 @@ internal class ProtectionRegionInspectionSource(
                         inspectionLeadTimeSeconds = 0.0,
                         minimumRequestedAuthorityEndRouteDistanceMeters =
                             match.floorMeters
+                    )
+                },
+                entryClearances = matched.windows.map { match ->
+                    InspectionEntryClearance(
+                        match.region.regionId,
+                        match.region.entry.routeDistanceMeters,
+                        match.region.exit.routeDistanceMeters,
+                        match.tableRoute?.let { route ->
+                            captured.protectionSignals.signalIdsByRoute[route.definition.routeId].orEmpty().map {
+                                InspectionRestrictionIdentity(FIXED_BLOCK_SIGNAL_SOURCE_ID, protectionSignalDeclarationId(it))
+                            }
+                        }.orEmpty()
                     )
                 }
             )

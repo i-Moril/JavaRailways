@@ -86,7 +86,8 @@ data class InspectionDeclarationBinding private constructor(
     val trainProfileRevision: Long,
     val declarations: List<InspectionDeclaration>,
     /** Cached positive bounded caps. Their lifetime is the route binding, independent of entry activation. */
-    val speedRanges: List<InspectionSpeedRange>
+    val speedRanges: List<InspectionSpeedRange>,
+    val entryClearances: List<InspectionEntryClearance>
 ) {
     constructor(
         sourceId: String,
@@ -95,7 +96,8 @@ data class InspectionDeclarationBinding private constructor(
         definitionRevision: Long,
         trainProfileRevision: Long,
         declarations: Collection<InspectionDeclaration>,
-        speedRanges: Collection<InspectionSpeedRange> = emptyList()
+        speedRanges: Collection<InspectionSpeedRange> = emptyList(),
+        entryClearances: Collection<InspectionEntryClearance> = emptyList()
     ) : this(
         sourceId,
         trainId,
@@ -103,7 +105,8 @@ data class InspectionDeclarationBinding private constructor(
         definitionRevision,
         trainProfileRevision,
         Collections.unmodifiableList(ArrayList(declarations)),
-        Collections.unmodifiableList(ArrayList(speedRanges))
+        Collections.unmodifiableList(ArrayList(speedRanges)),
+        Collections.unmodifiableList(ArrayList(entryClearances))
     )
 
     init {
@@ -111,6 +114,17 @@ data class InspectionDeclarationBinding private constructor(
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         require(definitionRevision >= 0L) { "definitionRevision must be non-negative" }
         require(trainProfileRevision >= 0L) { "trainProfileRevision must be non-negative" }
+        require(entryClearances.map { it.declarationId to
+            if (it.entryRouteDistanceMeters == 0.0) 0.0 else it.entryRouteDistanceMeters }.distinct().size == entryClearances.size) {
+            "entry clearance identity and position must be unique"
+        }
+        entryClearances.forEach { clearance ->
+            require(clearance.tailClearRouteDistanceMeters <= route.totalLengthMeters)
+            require(declarations.any { it.declarationId == clearance.declarationId &&
+                it.triggerRouteDistanceMeters == clearance.entryRouteDistanceMeters }) {
+                "entry clearance must reference an exact bound declaration"
+            }
+        }
         require(speedRanges.map { it.restriction.restrictionId }.distinct().size == speedRanges.size) { "speed range IDs must be unique" }
         speedRanges.forEach { range ->
             require(checkNotNull(range.restriction.endRouteDistanceMeters) <= route.totalLengthMeters) {

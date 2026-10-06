@@ -19,8 +19,10 @@ SimpleATO同时拥有`AbstractATO`、mission、constraint与world Stall coordina
    `HandleTrainActuator`后再把controller安装到目标Core train；生产与隔离composition不得使用运动学actuator；
 2. Dispatcher在serialized owner上提交带revision的mission、station call、reverse或authority命令；
 3. physics tick开始时controller只在边界drain已接受命令，形成一份active mission/route状态；
-4. controller构造一次perception，用当前Mission投影更新该列车inspection激活状态并消费上一成功signal epoch的失效标记，
+4. controller先把前视入口的车尾净空目标并入horizon，再构造一次perception，用当前Mission投影更新该列车inspection激活状态并消费上一成功signal epoch的失效标记，
    然后读取最新immutable restriction snapshots，按owner原子替换constraints并取所有候选中最严格速度；
+   入口净空门控在基础线路、mission、station及信号约束合成以后、最终planner以前检查同一份约束；
+   未就绪时安装该入口停车约束，同时交接不可变结果，不阻止Dispatcher继续准备资源；
 5. SimpleATO `AbstractATO`先执行invariant validation，再调用Basic真实手柄actuator；它逐级选择配置中的P/N/B档并通过共享
    `TrainDynamicsExecutor`移动Core train；
 6. 成功epoch结束时`AbstractATO`原子发布train snapshot、累计距离和controller value state，Dispatcher只读取这份publication。
@@ -28,6 +30,9 @@ SimpleATO同时拥有`AbstractATO`、mission、constraint与world Stall coordina
 Mission、constraint和station-call的mutable集合都只存在于该controller实例，不在
 `SimpleATOWorldData`或Basic创建第二份镜像。每列车每tick的route/perception扫描仍为线性；controller只从world-local
 inspection runtime读取编译好的声明及最大提前时间；controller按最高速度转换为保守距离并并入原有horizon。
+具有中立净空要求的列车才额外读取一次 Core `publishedFrame`、求和有序车身跨度并定位冻结路线进度；
+没有要求的普通列车不承担这些工作。净空跨度进入下一个入口时按预编译有序入口继续扩长一次，
+仍只执行原有的一次前方扫描，不能先扫描再补扫。具体算法、坐标和回归归[入口净空合同](entry-clearance.md)。
 每列车的`InspectionRuntime.TrainInspection`独占自己的scheduler和baseline状态，低频lifecycle只发布编译结果，
 不得从Dispatcher或signal epoch修改物理worker正在使用的scheduler。不同列车的`InspectionUpdateHandler`可以并发执行，
 只投影已发布的不可变策略/信号状态；共享信号规则仍在串行signal epoch运行。
@@ -99,6 +104,8 @@ Core尚未调用commit/publication时，旧快照必须保持不变；publicatio
   入口前制动目标、入口后持续上限、车头在终点及越过终点；折返使用新绑定范围，不提前释放已有资源；
 - `ProtectionSignalControllerHandoffTest`在停止Dispatcher后，验证允许→0→允许均到达下一次控制计算，
   未变化epoch不产生新投影revision，越过入口撤销对应限制，0限速不阻止首次资源申请；
+- 入口净空回归必须组合真实控制器、Basic授权及串行信号交接：完整grant但出口后红灯/站台/前车不足仍等待，
+  本入口红灯只在局部证明中精确排除；延长前视仍一次扫描，相邻入口不形成互相准备循环；
 - `StationCallRuntimeTest`覆盖停站状态与controller publication；
 - Dispatcher、manual navigation和隔离仿真测试证明所有composition caller使用新owner；
 - Basic测试独立编译，证明Basic main/test source均不依赖SimpleATO。

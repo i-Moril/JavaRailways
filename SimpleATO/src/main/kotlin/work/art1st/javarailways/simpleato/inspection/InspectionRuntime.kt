@@ -10,6 +10,7 @@ import work.art1st.javarailways.simpleato.api.inspection.InspectionBindingInput
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 import work.art1st.javarailways.simpleato.api.inspection.InspectionUpdateHandler
 import work.art1st.javarailways.simpleato.api.inspection.InspectionUpdateInput
+import work.art1st.javarailways.simpleato.api.inspection.InspectionClearanceSnapshot
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationStatus
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
@@ -18,6 +19,7 @@ import java.util.TreeMap
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.ConcurrentHashMap
 import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import java.util.UUID
 
 /**
@@ -52,8 +54,11 @@ class InspectionRuntime(
 
     internal class ActiveRoute(
         @Volatile var observationStamp: RailwayStateStamp,
-        val route: RouteSnapshot
+        val route: RouteSnapshot,
+        var trainLengthMeters: Double? = null,
+        var authorityStoppingMarginMeters: Double = 0.0
     ) {
+        val geometryLength = ConservativeTrainLengthEnvelope()
         @Volatile var available: Boolean = true
         val railIds: Set<UUID> = route.segments.mapTo(linkedSetOf()) { it.railId }
     }
@@ -130,16 +135,53 @@ class InspectionRuntime(
         internal val activeRoute: ActiveRoute? = null
     ) {
         internal val runtime: InspectionRuntime get() = this@InspectionRuntime
+        internal fun currentTrainLength(frame: TrainFrameSnapshot?, trainId: String, physicsEpoch: Long,
+            head: work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot): Double? =
+            activeRoute?.geometryLength?.observe(currentTrainLengthMeters(frame, trainId, physicsEpoch, head), physicsEpoch)
         val maximumDeclaredLeadTimeSeconds: Double = definitions.values.maxOfOrNull {
             it.compiled.maximumDeclaredInspectionLeadTimeSeconds
         } ?: 0.0
+        internal val entryClearances = CompiledEntryClearances(definitions.flatMap { (sourceId, binding) ->
+            binding.compiled.binding.entryClearances.map { BoundEntryClearance(sourceId, it) }
+        })
     }
 
     fun bindingFor(trainId: String): TrainBinding =
         publishedBindingsByTrain[trainId] ?: TrainBinding(emptyMap())
 
     @Volatile
-    private var authorityRequestFloorsByTrain: Map<String, CompiledAuthorityRequestFloors> = emptyMap()
+    private var authorityRequestFloorsByTrain = ConcurrentHashMap<String, CompiledAuthorityRequestFloors>()
+
+    private val clearanceLock = Any()
+    private val clearanceSnapshots = linkedMapOf<Pair<String, String>, InspectionClearanceSnapshot>()
+    private val changedClearanceSnapshots = linkedMapOf<Pair<String, String>, InspectionClearanceSnapshot>()
+
+    /** Worker-owned proofs are immutable; the serialized signal owner consumes only changes. */
+    fun publishClearance(snapshot: InspectionClearanceSnapshot) = synchronized(clearanceLock) {
+        val current = publishedBindingsByTrain[snapshot.trainId]?.definitions?.get(snapshot.sourceId)
+        if (current?.compiled?.binding?.route != snapshot.route) return@synchronized
+        val key = snapshot.sourceId to snapshot.trainId
+        val old = clearanceSnapshots[key]
+        clearanceSnapshots[key] = snapshot
+        if (old?.route != snapshot.route || old.clearances != snapshot.clearances)
+            changedClearanceSnapshots[key] = snapshot
+    }
+
+    internal fun takeClearanceUpdates(baseline: Boolean): List<InspectionClearanceSnapshot> = synchronized(clearanceLock) {
+        val updates = if (baseline) clearanceSnapshots + changedClearanceSnapshots else changedClearanceSnapshots
+        java.util.List.copyOf(updates.values).also { changedClearanceSnapshots.clear() }
+    }
+
+    private fun clearClearances(predicate: (Pair<String, String>) -> Boolean) = synchronized(clearanceLock) {
+        clearanceSnapshots.keys.filter(predicate).forEach { key ->
+            val old = clearanceSnapshots.remove(key)!!
+            changedClearanceSnapshots[key] = InspectionClearanceSnapshot(old.sourceId, old.trainId,
+                old.observationStamp, old.route, emptyList())
+        }
+    }
+
+    /** A vanished physical train cannot leave a reusable ready proof behind. */
+    internal fun withdrawClearancesForTrain(trainId: String) = clearClearances { it.second == trainId }
 
     /**
      * Atomically replaces the complete world source set.
@@ -196,27 +238,48 @@ class InspectionRuntime(
     fun synchronizeRoute(
         observationStamp: RailwayStateStamp,
         trainId: String,
-        route: RouteSnapshot
+        route: RouteSnapshot,
+        trainLengthMeters: Double? = null,
+        authorityStoppingMarginMeters: Double = 0.0,
+        publishedFrame: TrainFrameSnapshot? = null
     ): Double {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
+        require(trainLengthMeters == null || trainLengthMeters.isFinite() && trainLengthMeters > 0.0)
+        require(authorityStoppingMarginMeters.isFinite() && authorityStoppingMarginMeters >= 0.0)
         if (observedTopologyRevision == null) observedTopologyRevision = observationStamp.topologyRevision
         check(completeTopologyHandoff && observationStamp.topologyRevision <= checkNotNull(observedTopologyRevision)) {
             "inspection topology changed without a transaction handoff"
         }
         val current = activeRoutesByTrain[trainId]
+        fun currentLength(bindings: Map<String, CompiledSourceBinding>, owner: ActiveRoute): Double? =
+            if (trainLengthMeters != null) owner.geometryLength.observe(trainLengthMeters, observationStamp.physicsEpoch)
+            else if (bindings.values.any { it.compiled.binding.entryClearances.isNotEmpty() })
+                owner.geometryLength.observe(currentTrainLengthMeters(publishedFrame, trainId, observationStamp.physicsEpoch), observationStamp.physicsEpoch)
+            else null
         if (current?.route == route && compiledBindingsByTrain[trainId]?.keys == sourcesById.keys) {
             check(current.available) { "inspection route intersects an edited rail; explicit replan is required" }
             current.observationStamp = observationStamp
+            val length = currentLength(compiledBindingsByTrain.getValue(trainId), current)
+            if (current.trainLengthMeters != length ||
+                current.authorityStoppingMarginMeters != authorityStoppingMarginMeters) {
+                current.trainLengthMeters = length
+                current.authorityStoppingMarginMeters = authorityStoppingMarginMeters
+                compiledBindingsByTrain.getValue(trainId).takeIf { it.isNotEmpty() }?.let {
+                    authorityRequestFloorsByTrain[trainId] = compileAuthorityFloors(trainId, it)
+                }
+            }
             return maximumDeclaredLeadTimeSeconds(trainId)
         }
-        val activeRoute = ActiveRoute(observationStamp, route)
+        val activeRoute = ActiveRoute(observationStamp, route, trainLengthMeters, authorityStoppingMarginMeters)
         val compiled = try {
             compileBindings(trainId, activeRoute, sourcesById, compiledBindingsByTrain[trainId])
         } catch (failure: BindingCompilationFailure) {
             notifyUnavailable(failure.key, failure)
             throw failure
         }
+        activeRoute.trainLengthMeters = currentLength(compiled, activeRoute)
         forgetRoute(trainId)
+        clearClearances { it.second == trainId }
         activeRoutesByTrain[trainId] = activeRoute
         activeRoute.railIds.forEach { rail ->
             routesByRail.compute(rail) { _, routes -> routes.orEmpty() + activeRoute }
@@ -412,6 +475,7 @@ class InspectionRuntime(
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         compiledBindingsByTrain.remove(trainId)
         forgetRoute(trainId)
+        clearClearances { it.second == trainId }
         publishCompiledViews()
     }
 
@@ -422,11 +486,13 @@ class InspectionRuntime(
             bySource.isEmpty()
         }
         sourcesById.remove(sourceId)
+        clearClearances { it.first == sourceId }
         publishCompiledViews()
     }
 
     /** World teardown only: discards all callbacks and route-local state without an unload stall. */
     fun clear() {
+        synchronized(clearanceLock) { clearanceSnapshots.clear(); changedClearanceSnapshots.clear() }
         compiledBindingsByTrain.clear()
         activeRoutesByTrain.clear()
         routesByRail.clear()
@@ -438,6 +504,7 @@ class InspectionRuntime(
 
     /** Removes sessions for trains whose production route lifecycle has ended. */
     fun retainTrains(trainIds: Set<String>) {
+        clearClearances { it.second !in trainIds }
         compiledBindingsByTrain.keys.removeIf { it !in trainIds }
         activeRoutesByTrain.keys.filter { it !in trainIds }.forEach(::forgetRoute)
         publishCompiledViews()
@@ -524,14 +591,28 @@ class InspectionRuntime(
         publishedBindingsByTrain = compiledBindingsByTrain.mapValues { (trainId, bySource) ->
             TrainBinding(java.util.Collections.unmodifiableMap(LinkedHashMap(bySource)), activeRoutesByTrain[trainId])
         }.toMap()
-        authorityRequestFloorsByTrain = compiledBindingsByTrain.mapNotNull { (trainId, bySource) ->
-            if (bySource.isEmpty()) return@mapNotNull null
-            val routes = bySource.values.map { it.compiled.binding.route }.distinct()
-            check(routes.size == 1) { "inspection sources for one train must bind one frozen route" }
-            trainId to CompiledAuthorityRequestFloors.compile(
+        authorityRequestFloorsByTrain = ConcurrentHashMap(compiledBindingsByTrain.mapNotNull { (trainId, bySource) ->
+            if (bySource.isEmpty()) null else trainId to compileAuthorityFloors(trainId, bySource)
+        }.toMap())
+    }
+
+    private fun compileAuthorityFloors(trainId: String, bySource: Map<String, CompiledSourceBinding>): CompiledAuthorityRequestFloors {
+        val routes = bySource.values.map { it.compiled.binding.route }.distinct()
+        check(routes.size == 1) { "inspection sources for one train must bind one frozen route" }
+        return CompiledAuthorityRequestFloors.compile(
                 routes.single(),
-                bySource.values.flatMap { it.compiled.authorityRequestFloors }
+                bySource.values.flatMap { it.compiled.authorityRequestFloors } +
+                    bySource.values.flatMap { it.compiled.binding.entryClearances }.map { clearance ->
+                        val active = activeRoutesByTrain.getValue(trainId)
+                        val length = active.trainLengthMeters
+                        val end = length?.let { clearance.tailClearRouteDistanceMeters + it +
+                            active.authorityStoppingMarginMeters }?.takeIf(Double::isFinite)
+                        // A clipped request is NOT clearance proof. The controller and selector
+                        // retain the un-clipped target and keep the entrance closed if it cannot fit.
+                        AuthorityRequestFloor(clearance.entryRouteDistanceMeters,
+                            minOf(end ?: routes.single().totalLengthMeters, routes.single().totalLengthMeters),
+                            clearance.declarationId)
+                    }
             )
-        }.toMap()
     }
 }

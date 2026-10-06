@@ -15,11 +15,12 @@ import java.util.concurrent.Executors
 /**
  * 创建用于测试的 World：空轨道/列车，单线程 TickManager，与运行时使用相同的 Koin 父 scope。
  */
-fun createTestWorld(): CoreWorld {
+fun createTestWorld(physicsCoordinator: work.art1st.javarailways.core.physics.tick.PhysicsCoordinator =
+    work.art1st.javarailways.core.physics.tick.PhysicsCoordinator(1)): CoreWorld {
     ensureJavaRailwaysKoinStarted()
     val scheduler = Executors.newSingleThreadScheduledExecutor()
     val tickManager = TickManagerImpl(scheduler, System.currentTimeMillis())
-    return CoreWorld.createEmpty(tickManager, NoOpWorldParentContext)
+    return CoreWorld.createEmpty(tickManager, NoOpWorldParentContext, physicsCoordinator)
 }
 
 /**
@@ -62,7 +63,8 @@ fun createStraightRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>)
  * @param isLoop 是否为闭环轨道。true 时从起点尝试向前选取安全车头位置；false（直线）时从起点向前移动列车总长度，避免向后放置时超出轨道起点
  * @return 创建的列车
  */
-fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengths: List<Double>, isLoop: Boolean = false): CoreTrain {
+fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengths: List<Double>, isLoop: Boolean = false,
+    connectorLength: Double = 0.0): CoreTrain {
     // 计算列车总长度（所有车厢长度之和）
     val totalTrainLength = carLengths.sum()
 
@@ -85,8 +87,8 @@ fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengt
             bogiesOffsets = listOf(len / 2, -len / 2),
             length = len,
             floorHeight = 0.0,
-            connectorLengthAtA = 0.0,
-            connectorLengthAtB = 0.0,
+            connectorLengthAtA = connectorLength,
+            connectorLengthAtB = connectorLength,
             world = world,
             savedExtensionData = emptyMap()
         )

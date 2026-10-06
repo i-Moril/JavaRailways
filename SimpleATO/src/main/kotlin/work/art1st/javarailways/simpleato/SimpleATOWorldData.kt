@@ -35,6 +35,7 @@ data class SimpleATOWorldData(
     val routePlanningRestrictions: RoutePlanningRestrictionRuntime = RoutePlanningRestrictionRuntime()
 ) {
     init {
+        signalEpochRuntime.attachInspectionRuntime(inspectionRuntime)
         require(stations.usesRailObjectStore(sharedRailObjects)) {
             "StationStore must use the Basic world RailObjectStore"
         }

@@ -66,6 +66,9 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublis
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionConstraintAdapter
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
+import work.art1st.javarailways.simpleato.inspection.entryClearanceState
+import work.art1st.javarailways.simpleato.api.inspection.InspectionClearanceSnapshot
+import work.art1st.javarailways.simpleato.api.inspection.InspectionEntryClearanceState
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -425,6 +428,8 @@ class SimpleATO(
     val missionStopToleranceMeters: Double
         get() = safetyProfile.stopToleranceMeters
 
+    internal val authorityStoppingMarginMeters: Double get() = safetyProfile.safetyDistanceMeters
+
     fun terminalMovementAuthorityLimitMeters(routeEndDistanceMeters: Double): Double {
         require(routeEndDistanceMeters.isFinite() && routeEndDistanceMeters >= 0.0)
         return routeEndDistanceMeters + safetyProfile.safetyDistanceMeters
@@ -585,10 +590,30 @@ class SimpleATO(
         perceptionEpoch++
         missionProgressMeters += lastTravelDistanceMeters
         val restriction = restrictionRoute
-        val scan = scanRouteAndObjects(routePerceptionHorizonMeters(
+        val hasClearanceRequirements = restriction?.inspectionBinding?.entryClearances?.sourceIds?.isNotEmpty() == true
+        val frame = if (hasClearanceRequirements) train.publishedFrame else null
+        missionRouteLayout?.let { layout -> frame?.let {
+            missionProjectedProgressMeters = requireNotNull(layout.project(it.head, missionProjectedProgressMeters))
+        } }
+        val progress = if (hasClearanceRequirements) restriction.let(::restrictionRouteProgress) else null
+        val nominalHorizon = routePerceptionHorizonMeters(
             restriction?.inspectionBinding?.maximumDeclaredLeadTimeSeconds
                 ?: inspectionMaximumLeadTimeSeconds(train.id)
-        ))
+        )
+        val frameLength = if (hasClearanceRequirements) restriction.let { it.inspectionBinding.currentTrainLength(
+            frame, train.id, restrictionStamp(it).physicsEpoch,
+            RailPositionSnapshot.capture(train.headLocation, (train.headLocation as RailLocationWithFacing).facing)) }
+        else null
+        val clearances = if (restriction != null && progress != null)
+            restriction.inspectionBinding.entryClearances.between(progress, progress + nominalHorizon,
+                frameLength, safetyProfile.safetyDistanceMeters)
+        else emptyList()
+        val horizon = clearances.maxOfOrNull { clearance ->
+            val end = clearance.requirement.tailClearRouteDistanceMeters + (frameLength ?: 0.0) +
+                safetyProfile.stopToleranceMeters + ROUTE_PERCEPTION_MARGIN_METERS
+            if (end.isFinite()) maxOf(nominalHorizon, end - checkNotNull(progress)) else nominalHorizon
+        } ?: nominalHorizon
+        val scan = scanRouteAndObjects(horizon)
         missionRouteLayout?.let { layout ->
             missionProjectedProgressMeters = requireNotNull(
                 layout.project(scan.perception.train.head, missionProjectedProgressMeters)
@@ -600,12 +625,36 @@ class SimpleATO(
         currentSegments = scan.segments
         activeBrakingEnvelope = actuator.brakingEnvelope(buildBrakingGradeSegments(scan.segments))
 
-        updateTrainRestrictions(scan.perception, restriction)
+        val geometryLength = frameLength?.takeIf { frame?.head == scan.perception.train.head }
+        updateTrainRestrictions(scan.perception, restriction, if (clearances.isNotEmpty()) horizon else null)
         synchronizeInfrastructureLimitWithHead()
         processSpeedLimitTransitions(scan)
         updateBuiltInConstraints(scan)
         updateMissionConstraints()
         updateStationCallConstraints(scan)
+        constraintManager.remove(ENTRY_CLEARANCE_OWNER)
+        if (restriction != null && hasClearanceRequirements) {
+            val routeProgress = restrictionRouteProgress(restriction)
+            val base = constraintManager.snapshot().values.flatten()
+            val observedDistance = scan.segments.sumOf { it.totalArcLength }
+            val holds = mutableListOf<AtoConstraint>()
+            val statesBySource = linkedMapOf<String, MutableList<InspectionEntryClearanceState>>()
+            clearances.asReversed().forEach { bound ->
+                val state = entryClearanceState(bound.requirement, geometryLength, routeProgress,
+                    restriction.binding.totalLengthMeters, observedDistance,
+                    safetyProfile, base + holds)
+                statesBySource.getOrPut(bound.sourceId, ::mutableListOf) += state
+                if (!state.movementReady) holds += RouteSpeedLimitConstraint(
+                    ConstraintKey("simpleato:entry-clearance", "${bound.sourceId}/${bound.requirement.declarationId}/${bound.requirement.entryRouteDistanceMeters}"),
+                    (bound.requirement.entryRouteDistanceMeters - routeProgress).coerceAtLeast(0.0), 0.0)
+            }
+            constraintManager.replace(ENTRY_CLEARANCE_OWNER, holds)
+            restriction.inspectionBinding.entryClearances.sourceIds.forEach { source ->
+                restriction.inspectionBinding.runtime.publishClearance(InspectionClearanceSnapshot(
+                    source, train.id, restrictionStamp(restriction), restriction.binding,
+                    statesBySource[source].orEmpty().asReversed()))
+            }
+        }
         publishRuntimeDiagnostics()
 
         // Continue perception and invariant validation without a Mission, but never turn line-speed
@@ -627,26 +676,28 @@ class SimpleATO(
      * Pulls signal values and recompiles every external restriction before this Tick plans motion.
      * The previous completed signal epoch is therefore consumed without waiting for Bukkit.
      */
-    private fun updateTrainRestrictions(perception: PerceptionSnapshot, route: RestrictionRoute?) {
-        if (route == null) return
-        val currentStamp = route.signalSnapshots.completedObservationStamp()
-            ?.takeIf { it.physicsEpoch >= route.observationStamp.physicsEpoch }
-            ?: route.observationStamp
-        val routeProgress = if (activeMission?.revision == route.missionRevision) {
+    private fun restrictionStamp(route: RestrictionRoute): RailwayStateStamp =
+        route.signalSnapshots.completedObservationStamp()
+            ?.takeIf { it.physicsEpoch >= route.observationStamp.physicsEpoch } ?: route.observationStamp
+
+    private fun restrictionRouteProgress(route: RestrictionRoute): Double =
+        if (activeMission?.revision == route.missionRevision) {
             val missionProgress = requireNotNull(missionProjectedProgressMeters) {
                 "active Mission has no projected progress for its frozen restriction route"
             }
-            (route.headDistanceFromRouteStartMeters + missionProgress -
-                route.missionHeadProgressAtSelectionMeters)
+            (route.headDistanceFromRouteStartMeters + missionProgress - route.missionHeadProgressAtSelectionMeters)
                 .coerceIn(0.0, route.binding.totalLengthMeters)
-        } else {
-            route.binding.totalLengthMeters
-        }
+        } else route.binding.totalLengthMeters
+
+    private fun updateTrainRestrictions(perception: PerceptionSnapshot, route: RestrictionRoute?, clearanceHorizon: Double? = null) {
+        if (route == null) return
+        val currentStamp = restrictionStamp(route)
+        val routeProgress = restrictionRouteProgress(route)
         val inspection = trainInspection?.takeIf { it.runtime === route.inspectionBinding.runtime }
             ?: route.inspectionBinding.runtime.createTrainInspection(train.id).also { trainInspection = it }
         inspection.update(
             currentStamp, route.binding, routeProgress,
-            inspectionDynamicLookaheadMeters(perception.train.speedMetersPerSecond),
+            maxOf(inspectionDynamicLookaheadMeters(perception.train.speedMetersPerSecond), clearanceHorizon ?: 0.0),
             inspectionMaximumSpeedMetersPerSecond, inspectionAccelerationMetersPerSecondSquared,
             perception, route.inspectionBinding
         )
@@ -1180,6 +1231,7 @@ class SimpleATO(
         val EXTERNAL_OWNER = ConstraintOwner(ConstraintOwnerType.OPERATIONS, "basic:simple-api")
         val MISSION_OWNER = ConstraintOwner(ConstraintOwnerType.OPERATIONS, "basic:mission")
         val STATION_OWNER = ConstraintOwner(ConstraintOwnerType.OPERATIONS, "basic:station-call")
+        val ENTRY_CLEARANCE_OWNER = ConstraintOwner(ConstraintOwnerType.SIGNALLING, "simpleato:entry-clearance")
         const val POSITION_EPSILON_METERS = 1.0e-3
     }
 }

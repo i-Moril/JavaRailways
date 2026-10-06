@@ -104,7 +104,7 @@ class ProtectionRegionInspectionSourceTest {
             0.0
         )
         assertEquals(
-            25.0,
+            30.0, // Missing train geometry conservatively requests the route end, not the static exit.
             runtime.adjustRequestedAuthorityBoundary("train", frozen, RouteBoundary(5.1))
                 .distanceFromRouteStartMeters,
             0.0

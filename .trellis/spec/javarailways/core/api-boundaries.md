@@ -26,6 +26,11 @@ data class RailPositionSnapshot(
 
 `arcLengthInAbMeters` 必须 finite、`>= 0`；它不保留 live `Rail`。完整 render frame contract 归[render publication](./render-publication.md)。
 
+`Train.publishedFrame: TrainFrameSnapshot?` 提供已经发布的完整不可变物理帧，非阻塞、不执行几何求解；
+CoreTrain 复用已有原子 publication，不另建 snapshot。不能提供帧的实现返回 null，consumer 必须视为缺少证明，
+不得 cast 为 CoreTrain 或从 live car/head/tail 拼接替代帧。需要一致车身几何的 consumer 一次捕获此值，
+校验列车身份与计算周期，再从同一对象读取 head、tail 和有序 bodyTraversal；帧 shape 不因新增读取入口而升级持久化版本。
+
 `RailwayWorldFrameSnapshot(physicsEpoch,topologyRevision,trains,occupancy,activeContinuations)`是世界级一致发布，不是若干独立getter的容器。它要求所有train frame与occupancy属于同一physics epoch、train ID唯一、集合不可变并按稳定ID排序。`occupancy`与Core collision共享一次构建的immutable bucket index，consumer只做局部区间查询，不从`trains`重建world index。`activeContinuations`只包含turnout port的live有向选择，使用stable `RailEndpointRef`，并与frame的`topologyRevision`一致；map缺项表示该entry当前没有选中出口。`topologyRevision`仅表示runtime structural topology，`selectionRevision`仅表示process-local live branch变化，两者都不得当作持久化schema version或Basic infrastructure revision。
 
 `RailwayEpochProcessor.process(frame)`在同一世界的physics coordinator线程串行执行。输入是尚未公开的完整候选world frame；callback返回前ticket不能完成，callback抛错则该frame不发布并令coordinator Stall。processor不能调用Bukkit、保留live Core对象或把安全处理排入下一epoch；完整顺序由[runtime publication](./runtime-publication.md)拥有。

@@ -32,6 +32,12 @@ data class TrainFrameSnapshot private constructor(
 
 来源：`Core/src/main/java/work/art1st/javarailways/core/api/physics/train/TrainFrameSnapshot.kt`。
 
+公开列车读取入口为 `Train.publishedFrame: TrainFrameSnapshot?`。CoreTrain 返回其已经原子发布的完整帧，
+其他不能提供完整帧的实现返回 null；读取为常数时间，不调用曲线、车身求解或渲染操作。
+消费方一次捕获该帧并校验 train ID、physics epoch；不得分次读取“最新车头”和“最新车身”。
+例如 SimpleATO 的入口净空检查沿 `bodyTraversal` 累加当前保守车身长度，保留同一 rail 的多次 occurrence，
+再与当前控制感知核对；缺帧/空车身不能作为长度为零放行，也不能用 cars.size 或车厢长度之和替代。
+
 `revision` per-train monotonic、`>=0`；`physicsEpoch>=0`（initial为0）；speed finite且`>=0 m/s`；cars/bogies/spans由`List.copyOf`。`RenderableFrameSnapshot`内联position/direction/normal/velocity共12个finite `Double`。
 
 `occupiedIntervals`是epoch末保守占用；`bodyTraversal`是同一时点从保守车尾到车头的有序持续位置，供

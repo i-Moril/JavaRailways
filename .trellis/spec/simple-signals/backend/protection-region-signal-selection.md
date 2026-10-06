@@ -2,8 +2,9 @@
 
 ## 1. 状态、范围与 owner
 
-- 状态：`CURRENT/PARTIAL`。共享入口选择、三种设备的后端配置/状态计算及模型呈现已实现；JS/YAML 加载尚未提供。本批取消默认进路，保护信号只接受真实列车请求，离线验证记录见任务 `implement.md`。
-- SimpleSignals 拥有保护区域、固定进路、信号规则和显示设备；Basic 拥有物理资源准入、设备准备、claim 和 committed grant；SimpleATO 只合并最终限制，不识别具体信号或进路类型。
+- 状态：`CURRENT/PARTIAL`。共享入口选择、三种设备的后端配置/状态计算及模型呈现已实现；JS/YAML 加载尚未提供。
+  默认进路已取消；保护信号要求真实列车请求及匹配经过的净空证明，离线验证记录见任务 `implement.md`。
+- SimpleSignals 拥有保护区域、固定进路、信号规则和显示设备；Basic 拥有物理资源准入、设备准备、claim 和 committed grant；SimpleATO 合并限制并执行中立入口净空检查，不识别具体信号或进路类型。
 - 非目标：不把保护区域类型加入 Basic/SimpleATO，不创建整区独占 token，不规定国家制式灯色，不让显示设备产生行车授权，也不根据道岔当前状态猜测或自动建立进路。
 
 ## 2. 用户可配置的三种设备
@@ -24,7 +25,7 @@
 [模型显示合同](model-presentation.md)，不保留显示器原有的第二份轨道坐标。
 
 固定进路信号不跟随当前入口的选路：即使当前入口选择B，它仍检查自己绑定的A的占用、实际道岔方向和出口下游。
-A必须有匹配的当前准入请求、覆盖本区域要求范围的完整授权及正确实际道岔状态，才算准备完成。
+A必须有匹配的当前准入请求、覆盖本区域要求范围及车尾净空目标的完整授权、正确实际道岔状态和当前净空证明，才算准备完成。
 A没有请求或当前请求属于其他进路时保持停车。显示允许信号也不替代Basic资源授权。
 当前信号则读取共享选择，仅使用被选进路的占用和下游依赖。未选支路的下游不可用不应把当前信号拉成0。
 
@@ -50,12 +51,13 @@ A没有请求或当前请求属于其他进路时保持停车。显示允许信�
 
 - 当前区域未完整授权时：保留请求进路身份，`routeReady=false`，设备输出配置的0速度限制；
 - Basic全程请求状态为`PREPARING`不等于每个历史区域都未准备。申请更远后缀时，旧committed authority仍可覆盖当前区域floor，沿途道岔正确则该入口仍ready；
-- `GRANTED`：只有 committed authority 覆盖该保护区域要求的完整 floor，且实际 active continuations 已与请求进路一致，才能运行正常进路规则；
+- `GRANTED`：只有 committed authority 覆盖完整 floor 和当前净空所需授权，实际 active continuations 已与请求进路一致，且匹配经过的移动侧净空证明成立，才能运行正常进路规则；
 - 请求失败/结束或全部资源释放：Basic 不再发布该请求；某区域的出口已经由成功释放事件证明车尾通过时，选择器先移除该入口关联，不必等待整条冻结路线结束。跨越更长范围的资源仍由Basic保留，不会因选择变更被释放；
 - grant 与实际道岔方向不一致、topology stale 或观测缺失：fail-close，速度为0。
 
 当前信号和固定进路信号都必须等待匹配请求完成 Basic 原子授权及设备准备，随后才把进路占用及出口下游状态交给规则。
-这只证明资源和设备已准备，不代表已经证明停车后车尾离开咽喉；基于车长和前方停车点的净空检查仍待下一批实现。
+还必须消费SimpleATO中立净空结果：已授权但出口后红灯、运营停车点或前车使空间不足时，入口保持停车。
+这是进入前的当前条件证明，不保证后续故障/紧急停车永不使列车停在区域内；真实资源继续按车尾释放。
 
 ## 6. 共享状态与输出边界
 
@@ -72,7 +74,7 @@ SelectedProtectionRoute
 ```
 
 这是已实现的plugin-internal值，不是宿主公开API。`available=false`表示不能证明唯一、当前的选择，不能作为允许状态。
-`routeReady` 表示匹配请求已取得足够授权且实际道岔一致；没有请求时为 false。
+`routeReady` 表示匹配请求已取得足够授权、实际道岔一致且当前经过的整列车净空已证明；没有请求时为 false。
 `requestState`按本区域floor是否已被committed authority覆盖计算，不照抄正在准备更远资源的全程state。
 信号规则另外读取本进路占用和下游输出；显示器只读取route identity/source并映射为模型。
 
@@ -107,6 +109,13 @@ compiler只返回不可变窗口、floor、匹配的canonical compiled route及�
 自己已编译索引中相关的entry加入`invalidEntries`，避免把其他region或未知entry带入运行期owner map；既有binding缓存、
 prefix append与清除事实交接不变。没有route table的region可用于授权floor，但不属于当前信号的可选固定进路。
 
+selector按train缓存`simplesignals:protection-regions`的最新完整`InspectionClearanceSnapshot`，
+通过冻结路线身份、region声明ID、本次entry/exit坐标及非未来observation stamp匹配当前window。
+它还检查`movementReady`和committed authority至少覆盖结果里的`requiredAuthorityEndRouteDistanceMeters`。
+缺结果、空撤销或错误经过不能借用其他列车/前一圈的ready。新baseline从host的当前完整值恢复，
+不在编辑commit callback中读取并发worker的可变结果。中立值与控制算法归
+[SimpleATO净空合同](../../javarailways/simpleato/entry-clearance.md)。
+
 入口关联只对requested authority已越过入口、且释放事件证明的车尾下界尚未通过出口的窗口成立。
 `releasedThroughRouteMeters`不是“之前的所有资源都已释放”；它只用于撤销已经被物理车尾通过的入口请求关联。
 Basic对剩余资源的排他校验独立继续生效；没有请求不能代替列车grant。
@@ -138,6 +147,8 @@ candidate worker只比较不可变拓扑、区域定义和compiled route；未�
 - 当前定义发布时编译entry-to-routes、rail-to-entry和turnout-entry-to-entry反向索引；不在tick内遍历保护区域图。
 - 请求第一次换绑路线才调用共用compiler计算匹配窗口/floor；相同route对象复用结果。维护entry-to-request-owner集合；请求变化只更新旧/新关联入口，不遍历所有列车的请求。
 - 请求状态变化只唤醒对应入口；进路所需 active continuation 变化只唤醒引用该道岔的入口；选择输出未变化时停止向当前信号和显示器传播。
+- 净空变化通过现有train-to-request-owner和owner-to-entry关联，只唤醒涉及的入口；dirty入口仍作为固定信号图种子，
+  不能因共享选择值未变而漏掉固定信号准备变化。与其他兴趣合并一次callback，未变净空不重复执行规则。
 - 真实出口LEFT通过area-to-route和train-to-owner现有请求索引只更新相关请求；不为每tick发布车尾进度、不扫描所有列车或查询live claims。相同冻结route的更新不重新比较完整segments，只有真正append/换绑才检查前缀。
 - 占用或下游输出变化只运行依赖对应已选进路的信号规则；进路显示器不因无关占用变化执行。
 - 不允许 `all trains x all regions`、每 tick `liveClaims()` 轮询、重新寻路或根据显示器放置位置进行轨道扫描。
@@ -173,7 +184,7 @@ candidate worker只比较不可变拓扑、区域定义和compiled route；未�
 
 ## 9. 校验和测试
 
-正常案例：列车请求A，完整授权、道岔正确且A及下游空闲；当前信号按配置输出，显示器显示A。
+正常案例：列车请求A，完整授权、道岔正确、入口净空就绪且A及下游空闲；当前信号按配置输出，显示器显示A。
 切换案例：列车请求B，准备时当前信号0、显示器B；完整授权和实际道岔一致后才使用B规则；固定进路A设备始终检查A。
 错误案例：未知route/signal引用、混合依赖cycle、非法variant/速度在prepare拒绝，旧定义和运行时不变；运行中观测失效保持0，不能复用旧允许结果。
 
@@ -208,4 +219,4 @@ candidate worker只比较不可变拓扑、区域定义和compiled route；未�
 只负责显示；位置和模型由玩家配置。
 
 本次删除旧开发配置字段，不提供运行时升级或别名。需要保留 schema 1 文件时，应先保留恢复点，再通过单独的一次性转换处理；
-不能自动覆盖旧主文件。基于列车长度的出口净空、双向入口独立规则和具体距离规则仍是随后批次，不因本次授权检查完成而宣称已实现。
+不能自动覆盖旧主文件。中立净空要求与结果不写存档，不再次升级schema；双向入口独立规则和具体距离规则仍需另批明确，不因本次门控完成而宣称已实现。

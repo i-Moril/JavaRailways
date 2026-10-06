@@ -7,6 +7,7 @@ import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.simpleato.api.NAMESPACED_SIMPLE_ATO_ID
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
+import work.art1st.javarailways.simpleato.api.inspection.InspectionClearanceSnapshot
 import java.util.Collections
 import java.util.UUID
 
@@ -52,7 +53,8 @@ data class SignalEpochInput private constructor(
     /** True on installation or a transaction touching this source's indexed physical interests. */
     val topologyBaseline: Boolean,
     /** Actual policy changes, scoped to this source's rail interests; baseline readers take a full subset. */
-    val changedOperatingDirectionRailIds: Set<UUID>
+    val changedOperatingDirectionRailIds: Set<UUID>,
+    val entryClearanceUpdates: List<InspectionClearanceSnapshot>
 ) {
     internal companion object {
         fun create(
@@ -61,14 +63,16 @@ data class SignalEpochInput private constructor(
             continuationUpdates: Collection<SignalRailContinuationUpdate>,
             admissionUpdates: Collection<ActiveRouteAdmissionUpdate> = emptyList(),
             topologyBaseline: Boolean = false,
-            changedOperatingDirectionRailIds: Collection<UUID> = emptySet()
+            changedOperatingDirectionRailIds: Collection<UUID> = emptySet(),
+            entryClearanceUpdates: Collection<InspectionClearanceSnapshot> = emptyList()
         ): SignalEpochInput = SignalEpochInput(
             observation,
             Collections.unmodifiableList(ArrayList(areaUpdates)),
             Collections.unmodifiableList(ArrayList(continuationUpdates)),
             Collections.unmodifiableList(ArrayList(admissionUpdates)),
             topologyBaseline,
-            Collections.unmodifiableSet(LinkedHashSet(changedOperatingDirectionRailIds))
+            Collections.unmodifiableSet(LinkedHashSet(changedOperatingDirectionRailIds)),
+            java.util.List.copyOf(entryClearanceUpdates)
         )
     }
 }
@@ -135,6 +139,7 @@ data class SignalEpochSource private constructor(
     /** Route admission changes touching these rails wake this source; no policy meaning is host-owned. */
     val watchedAdmissionRailIds: Set<UUID>,
     val watchedOperatingDirectionRailIds: Set<UUID>,
+    val watchedInspectionSourceIds: Set<String>,
     val handler: SignalEpochHandler
 ) {
     constructor(
@@ -165,18 +170,31 @@ data class SignalEpochSource private constructor(
         watchedAdmissionRailIds: Collection<UUID>,
         watchedOperatingDirectionRailIds: Collection<UUID>,
         handler: SignalEpochHandler
+    ) : this(sourceId, areas, watchedContinuationEntries, watchedAdmissionRailIds,
+        watchedOperatingDirectionRailIds, emptyList(), handler)
+
+    constructor(
+        sourceId: String,
+        areas: Collection<RailwayOccupancyAreaDefinition>,
+        watchedContinuationEntries: Collection<RailEndpointRef>,
+        watchedAdmissionRailIds: Collection<UUID>,
+        watchedOperatingDirectionRailIds: Collection<UUID>,
+        watchedInspectionSourceIds: Collection<String>,
+        handler: SignalEpochHandler
     ) : this(
         sourceId,
         Collections.unmodifiableList(ArrayList(areas)),
         Collections.unmodifiableSet(LinkedHashSet(watchedContinuationEntries.sorted())),
         Collections.unmodifiableSet(LinkedHashSet(watchedAdmissionRailIds.sorted())),
         Collections.unmodifiableSet(LinkedHashSet(watchedOperatingDirectionRailIds.sorted())),
+        java.util.Set.copyOf(watchedInspectionSourceIds),
         handler
     )
 
     init {
         require(NAMESPACED_SIMPLE_ATO_ID.matches(sourceId)) { "sourceId must be namespaced" }
-        require(areas.isNotEmpty() || watchedContinuationEntries.isNotEmpty() || watchedAdmissionRailIds.isNotEmpty() || watchedOperatingDirectionRailIds.isNotEmpty()) {
+        require(watchedInspectionSourceIds.all(NAMESPACED_SIMPLE_ATO_ID::matches))
+        require(areas.isNotEmpty() || watchedContinuationEntries.isNotEmpty() || watchedAdmissionRailIds.isNotEmpty() || watchedOperatingDirectionRailIds.isNotEmpty() || watchedInspectionSourceIds.isNotEmpty()) {
             "signal epoch source must declare a monitored area, continuation or admission rail"
         }
         require(areas.map(RailwayOccupancyAreaDefinition::areaId).distinct().size == areas.size) {

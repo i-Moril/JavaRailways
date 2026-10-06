@@ -13,6 +13,7 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochInput
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsRuntimePublication
+import work.art1st.javarailways.simplesignals.region.PROTECTION_REGION_INSPECTION_SOURCE_ID
 
 internal const val PROTECTION_ROUTE_SELECTION_SOURCE_ID = "simplesignals:protection-route-selection"
 
@@ -82,6 +83,7 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
         protectionRouteAreaId(it)
     }
     private var liveTrainIds: Set<String> = emptySet()
+    private val clearancesByTrain = linkedMapOf<String, work.art1st.javarailways.simpleato.api.inspection.InspectionClearanceSnapshot>()
     // Direct entry memberships keep an unrelated admission change from scanning every live request.
     private val ownersByEntry = entries.associateWith { linkedSetOf<InfrastructureOwner>() }
 
@@ -172,10 +174,19 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
                     }
                 }
         }
+        input.entryClearanceUpdates.filter {
+            it.sourceId == PROTECTION_REGION_INSPECTION_SOURCE_ID
+        }.forEach { snapshot ->
+            clearancesByTrain[snapshot.trainId] = snapshot
+            ownersByTrain[snapshot.trainId].orEmpty().forEach { owner ->
+                dirty += activeEntries(requests.getValue(owner))
+            }
+        }
         var selections: MutableMap<String, SelectedProtectionRoute>? = if (previous == null) linkedMapOf() else null
         val changed = linkedSetOf<String>()
         val liveTrains = input.observation.trains.mapTo(hashSetOf()) { it.trainId }
         liveTrainIds = liveTrains
+        clearancesByTrain.keys.removeIf { it !in liveTrains }
         dirty.forEach { entry ->
             val selected = select(entry, input, liveTrains)
             if (selected != (selections?.get(entry) ?: previous?.selections?.get(entry))) {
@@ -211,7 +222,7 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
             ?: return false
         return request.snapshot.trainId in liveTrainIds &&
             (request.snapshot.committedAuthority?.distanceFromRouteStartMeters ?: -1.0) >=
-            match.floorMeters - Curve.TOLERANCE
+            match.floorMeters - Curve.TOLERANCE && clearanceReady(request, match, input)
     }
 
     internal data class DeviceRouteWindow(val routeId: String, val entryMeters: Double, val floorMeters: Double)
@@ -255,10 +266,25 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
             return SelectedProtectionRoute(
                 entry, ProtectionRouteSelectionSource.REQUEST, match.route.definition.routeId,
                 if (granted) ActiveRouteAdmissionState.GRANTED else ActiveRouteAdmissionState.PREPARING,
-                granted && match.route.isPhysicallyOpen(input.observation.activeContinuations)
+                granted && match.route.isPhysicallyOpen(input.observation.activeContinuations) && clearanceReady(request, match, input)
             )
         }
         return SelectedProtectionRoute(entry, ProtectionRouteSelectionSource.NONE)
+    }
+
+    private fun clearanceReady(request: Request, match: Match, input: SignalEpochInput): Boolean {
+        val snapshot = clearancesByTrain[request.snapshot.trainId] ?: return false
+        if (snapshot.route != work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding.from(request.snapshot.route) ||
+            snapshot.observationStamp.worldId != input.observation.stamp.worldId ||
+            snapshot.observationStamp.physicsEpoch > input.observation.stamp.physicsEpoch) return false
+        val clearance = snapshot.clearances.firstOrNull {
+            it.declarationId == match.route.regionId &&
+                kotlin.math.abs(it.entryRouteDistanceMeters - match.entryMeters) <= Curve.TOLERANCE &&
+                kotlin.math.abs(it.tailClearRouteDistanceMeters - match.exitMeters) <= Curve.TOLERANCE
+        } ?: return false
+        return clearance.movementReady &&
+            (request.snapshot.committedAuthority?.distanceFromRouteStartMeters ?: -1.0) >=
+                maxOf(match.floorMeters, clearance.requiredAuthorityEndRouteDistanceMeters) - Curve.TOLERANCE
     }
 
     private fun compileBinding(route: RouteSnapshot): Binding {

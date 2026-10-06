@@ -45,6 +45,9 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
     /** Direction-independent physical intervals occupied during the latest published physics step. */
     val occupiedRailIntervals: List<RailInterval>
 
+    /** Latest complete immutable physical frame; null means aligned geometry is unavailable. */
+    val publishedFrame: TrainFrameSnapshot? get() = null
+
     /** Move along the selected rail path by [deltaS] metres. Called by the owning physics worker. */
     fun moveTrainForward(deltaS: Double)
 

@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals.presentation
 
 import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
+import work.art1st.javarailways.simplesignals.testing.protectionTestEpoch
 
 import net.minecraft.SharedConstants
 import net.minecraft.server.Bootstrap
@@ -279,7 +280,7 @@ class SignalModelBindingTest {
             PreparedSignalModels.prepare(definitions, models, rails, topology), service, { context, _ -> errors += context }, world.modelHandles)
         assertTrue(world.attachModels(world.authoringPublication(), binding))
         world.startModels()
-        val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
+        val epoch = protectionTestEpoch(world, worldId.toString(), TrainRestrictionPublisher {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision) })
         epoch.replaceSources(occupancy.sources)
         fun process(number: Long) {

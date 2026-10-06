@@ -9,25 +9,25 @@ class DirectionalSignalPersistenceTest {
     private val world = UUID(0, 120)
     private val fixture get() = requireNotNull(javaClass.getResource("/directional-fixed-block-signals.json")).readText()
 
-    @Test fun `fixed schema three fixture preserves both independent entries and explicit writer direction`() {
+    @Test fun `fixed schema one fixture preserves both independent entries and explicit writer direction`() {
         val decoded = SimpleSignalsWorldDefinitionsCodec.decode(fixture, world)
         assertEquals(listOf(FixedBlockEntryDirection.FORWARD, FixedBlockEntryDirection.REVERSE),
             decoded.fixedBlockSignals.map { it.entryDirection })
         assertEquals(1, decoded.fixedBlocks.size)
         assertEquals(listOf(12.0, 4.0), decoded.fixedBlockSignals.map { it.inspectionLeadTimeSeconds })
         val encoded = SimpleSignalsWorldDefinitionsCodec.encode(decoded)
-        assertTrue(encoded.contains("\"schemaVersion\": 3"))
+        assertTrue(encoded.contains("\"schemaVersion\": 1"))
         assertTrue(encoded.contains("\"entryDirection\": \"REVERSE\""))
         assertEquals(decoded, SimpleSignalsWorldDefinitionsCodec.decode(encoded, world))
         assertNotNull(decoded.fixedBlockSignals.last().model)
     }
 
-    @Test fun `current missing direction defaults forward but previous shared-rule schema is rejected`() {
+    @Test fun `current missing direction defaults forward but unsupported version numbers are rejected`() {
         val missing = fixture.replace("\"entryDirection\": \"FORWARD\", ", "")
         assertEquals(FixedBlockEntryDirection.FORWARD,
             SimpleSignalsWorldDefinitionsCodec.decode(missing, world).fixedBlockSignals.first().entryDirection)
-        for (version in listOf(2, 4)) assertThrows(IllegalArgumentException::class.java) {
-            SimpleSignalsWorldDefinitionsCodec.decode(fixture.replace("\"schemaVersion\": 3", "\"schemaVersion\": $version"), world)
+        for (version in listOf(0, 2, 3, 99)) assertThrows(IllegalArgumentException::class.java) {
+            SimpleSignalsWorldDefinitionsCodec.decode(fixture.replace("\"schemaVersion\": 1", "\"schemaVersion\": $version"), world)
         }
     }
 

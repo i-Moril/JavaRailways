@@ -146,7 +146,7 @@ Fixed blocks are plugin-owned definitions. Entering one normally adds its whole 
 The current foundation compiles each block only on load/authoring. It validates the ordered traversal against one exact
 `TopologyState`, derives whole-block Basic occupancy geometry with directed entry/exit boundaries, sums its physical length,
 and publishes a rail-to-block reverse index together with the other world definitions. `fixedBlocks` was added to the
-sidecar with an explicit empty default and did not independently bump its version. Directional-entry rules now use schema 3; the owning contract records the semantic change.
+sidecar with an explicit empty default and did not independently bump its version. Directional-entry rules use the same unpublished schema 1; the owning contract records the current shape and version correction.
 Protection-region observation remains a later batch.
 
 Fixed-block route admission now uses one plugin-owned `simplesignals:fixed-block` resource type and the existing host
@@ -314,7 +314,7 @@ SimpleSignals 已接通目录发现、设备创建、完整信号状态到显示
 完整信号包已按[模型包契约](../../spec/simple-signals/backend/model-packages.md)实现目录加载与校验；
 设备磁盘字段已批准：三类设备共用可选的模型引用与轨道/地面摆放，删除显示器的重复位置字段，
 复用已有定义编译、revision、编辑许可及 sidecar 事务。具体形状、校验和测试只在信号模型契约维护。
-模型存档最初经用户批准直接修正尚未发布的 schema 1 草稿；删除默认进路字段后文件升为 schema 2，入口规则语义改变后当前为3，
+模型存档经用户批准直接修正尚未发布的 schema 1；删除默认进路与两端独立规则保留，误升的2/3按用户要求恢复为1，
 不保留旧草稿字段或人为增加中间版本；
 任意柱高等模型实例参数推迟，未来使用独立于灯色的字段。生产绑定的离线服务调用测试
 不等于真实 Folia/客户端显示验证已经完成。
@@ -396,7 +396,7 @@ than overwriting a disjoint edit, while other worlds and physics continue indepe
 
 ## Persistence and lifecycle
 
-SimpleATO and every signal plugin own separate persistence boundaries. SimpleSignals stores schema-version-3 world definitions in
+SimpleATO and every signal plugin own separate persistence boundaries. SimpleSignals stores schema-version-1 world definitions in
 `<dataFolder>/worlds/<world UUID>-definitions.json`, with a same-directory `.bak`. It persists only authored region boundaries, complete
 fixed-route traversals and fixed-block traversals using namespaced IDs, canonical UUIDs/AB metres and `ViewDirection`; derived interiors,
 occupancy geometry, indexes and compiled restrictions are rebuilt.
@@ -405,8 +405,8 @@ an invalid primary may be read from a valid backup without overwriting either in
 Startup publishes no usable route source until decode, topology binding and complete compilation have all succeeded. A corrupt/orphaned
 candidate installs the same stable source ID in fail-closed form so new operational route searches are rejected instead of treating the
 plugin as unrestricted; it does not publish a usable local runtime. Runtime code sees only the current domain model and the writer emits only
-schema version 3 through same-directory temp/backup/atomic replace. Default-route removal previously required version 2;
-the directional-entry rule semantic change now advances only this boundary to 3.
+schema version 1 through same-directory temp/backup/atomic replace. Default-route removal and independent directional-entry rules
+correct the same unpublished format directly; the mistaken version increments to 2/3 have been restored to 1 without compatibility branches.
 Host world and model-package versions are unchanged. No old development format reader
 or migration branch exists; a future topology migration remains a separate dry-run-first tool with a recovery point.
 
@@ -476,7 +476,7 @@ SimpleATO 只执行中立的“入口以前须具备到某位置的连续可行�
 定义、混合依赖编译、响应式状态和ATO检查投影按同一入口方向选取；模型和附属显示继续按主信号ID读取。
 不建立第二份占用区、每列车规则图或第二条感知路径。未配置端与已配置但失效端必须区分。
 具体方向字段、声明身份、错误和复杂度只在[双向闭塞合同](../../spec/simple-signals/backend/bidirectional-fixed-block.md)维护；
-准确代码影响见[研究](research/directional-fixed-block-signals.md)。这一规则语义改变只升级插件定义文件至schema3，无运行时旧开发reader。
+准确代码影响见[研究](research/directional-fixed-block-signals.md)。未发布格式直接修正并保持schema 1；误升版2/3已恢复，无运行时旧开发reader。
 
 ## Open decisions
 

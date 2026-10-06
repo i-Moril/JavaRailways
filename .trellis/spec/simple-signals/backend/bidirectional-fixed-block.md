@@ -121,13 +121,15 @@ Basic 方向变化只通知相关轨道；SimpleSignals 通过反向索引重新
 本批还须覆盖两端不同输出/提前时间/下游距离、混合 AB/BA 跨轨路径、反向依赖进入混合保护信号图；
 共同占用唤醒两端、仅某端下游变化不执行无关规则、区间失效通知两端、声明 ID 不撞名和重复经过按方向归约；
 每端缺配置与缺基线的区别、独立主/附属模型输出、区间删除移除两端、规则改绑的旧新编辑保护；
-重复入口与单向反向规则失败原子性、固定 schema 3 双端 JSON fixture 及旧 schema 2 拒绝。
+重复入口与单向反向规则失败原子性、固定 current schema 双端 JSON fixture 及未知版本拒绝。
+当前固定 fixture 使用 schema 1，同时覆盖2/3及其他未知版本拒绝，不为开发代际建立兼容性，见下节。
 
 ## 10. 存档和待实现项
 
-`bidirectional` 有明确默认值，其引入本身不要求升版。sidecar曾因删除默认进路字段升为schema 2。
-当前该独立文件为 schema 3：旧的一规则两端控制变为只控制声明入口，即使字段有默认值也改变旧语义。
-只升级 SimpleSignals world-definition sidecar，不升级 Core/Basic/SimpleATO 世界或模型包格式；writer 只写 3，reader 拒绝旧版本。
+版本决策首先遵守[版本号与发布基线](../../javarailways/shared/versioning.md)，不能仅凭删除字段或语义改变升版。
+`bidirectional` 有明确默认值，其引入本身不要求升版。此前 sidecar 因删除默认进路字段被升为 schema 2，再因一规则两端控制改为入口独立被升为 3；两次决定均未确认发布/冻结基线，已撤销其升版依据。
+当前文件已按用户要求恢复为 schema 1，writer 只写1，reader拒绝所有非1版本（包括误升的2/3）。保留两端独立字段和现有功能，不恢复旧的一规则两端语义或默认进路，也不新增兼容 reader。
+Core/Basic/SimpleATO 世界、模型包格式、revision 和 epoch 不随本次规则变化升级。
 不加旧规则自动复制、运行时别名或兼容 reader；需保留旧开发服数据时另做有恢复点的单向一次性迁移。
 当前未提供该迁移工具，不自动修改服务器旧文件。
 旧配置 `disabled-block-speed-kmh` 和低速策略删除，不保留兼容开关。检查 API 中通用的限速范围能力不因此删除。

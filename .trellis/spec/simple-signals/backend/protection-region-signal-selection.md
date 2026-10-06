@@ -205,8 +205,8 @@ candidate worker只比较不可变拓扑、区域定义和compiled route；未�
 - stale topology、grant/道岔不一致、多个无法唯一裁决的当前请求和缺少 baseline 全部 fail-close。
 - 混合固定闭塞/保护信号依赖的cycle和非法依赖路径在load/prepare拒绝；暂时缺失下游在低频编译时标成Unavailable，
   连同其上游保持0，不在tick里重试查找，也不能因此阻止已有合法区间删除。
-- 删除 `defaultRouteIds` 曾使sidecar升为2；两端规则语义改变已升至3，保护设备自身字段不因此改形状。
-  current fixture保存/恢复、在线patch和source原子替换须覆盖三种设备；旧版本或旧字段拒绝，不添加runtime兼容层。
+- 删除 `defaultRouteIds` 和两端独立规则直接修正未发布sidecar，版本为1；误升的2/3已恢复，不改变现有设备字段和功能。
+  current fixture保存/恢复、在线patch和source原子替换须覆盖三种设备；非1版本或旧字段拒绝，不添加runtime兼容层。
 
 当前回归入口是`ProtectionSignalDevicesTest`、`SimpleSignalsWorldRuntimeManagerTest`及`ProtectionSignalControllerHandoffTest`。
 最后一个组合真实Basic准入、SignalEpochRuntime、Dispatcher和SimpleATO控制器：Dispatcher建立路线/授权后停止推进，
@@ -220,6 +220,6 @@ candidate worker只比较不可变拓扑、区域定义和compiled route；未�
 进路预告机不应再沿轨道搜索目标信号。它与进路显示器都显式绑定同一入口选择源，
 只负责显示；位置和模型由玩家配置。
 
-本次删除旧开发配置字段，不提供运行时升级或别名。需要保留 schema 1 文件时，应先保留恢复点，再通过单独的一次性转换处理；
+删除旧开发配置字段直接修正未发布 schema 1，不提供运行时升级或别名。需要保留不符合当前形状的开发文件时，应先保留恢复点，再通过单独的一次性转换处理；
 不能自动覆盖旧主文件。中立净空要求与结果不写存档，不单独升级schema；双向入口独立规则已实现，
 详见[双向闭塞合同](bidirectional-fixed-block.md)；具体距离规则仍待单独评审，不因门控完成而宣称已实现。

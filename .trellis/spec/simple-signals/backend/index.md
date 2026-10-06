@@ -67,19 +67,19 @@ unload/reload先删除local runtime，再创建新runtime与binding，不能复�
 
 ## 世界定义持久化
 
-每个world使用带`schemaVersion = 3`的独立文件：
+每个world使用带`schemaVersion = 1`的独立文件：
 `<plugin dataFolder>/worlds/<world UUID>-definitions.json`。current document只保存`worldId`、
 `definitionRevision`、保护区域及其有向边界、固定进路表、每条进路完整的有向traversal、固定闭塞的完整有向traversal，以及
 固定闭塞/保护信号的配置输出/依赖和进路显示器的入口绑定与variant映射。
 三类设备共用可选模型引用及 rail/ground 摆放，字段、校验和早期未发布草稿的修正范围只在
 [模型显示合同](model-presentation.md)维护；显示器不再保留重复的顶层轨道位置。
 `fixedBlocks`、`fixedBlockSignals`、`protectionSignals`和`routeIndicators`最初作为有明确empty default的additive字段加入，并未单独升级
-版本；删除`defaultRouteIds`将文件从1升至2。双向入口规则由原一条作用两端改为分别控制指定入口，本批语义改变将此文件升至3，
-不连带升级宿主世界或模型包文件，也不增加旧开发reader。identity使用稳定namespaced ID与
+版本；删除`defaultRouteIds`和双向入口独立规则直接修正同一个未发布格式，当前版本恢复为1，
+不连带升级宿主世界或模型包文件，也不增加误升版2/3或旧字段reader。版本决策须先遵守[发布基线门槛](../../javarailways/shared/versioning.md)。identity使用稳定namespaced ID与
 canonical UUID字符串；位置统一保存canonical AB metres，方向使用`ViewDirection`。派生interior、rail reverse index、occupancy
 geometry、topology revision和编译后的Basic restriction都是可丢弃缓存，禁止写入sidecar。
 
-codec固定`encodeDefaults = true`和`ignoreUnknownKeys = false`。严格拒绝未知字段、非version 3、非canonical UUID、文件world ID与
+codec固定`encodeDefaults = true`和`ignoreUnknownKeys = false`。严格拒绝未知字段、非version 1（包括2/3）、非canonical UUID、文件world ID与
 加载world不符或domain invariant失败均拒绝；runtime不包含旧格式reader、upcaster或兼容分支。decode边界把DTO一次转换为
 当前`ProtectionRegionDefinition`/`ProtectionRouteTableDefinition`/`FixedBlockDefinition`/`FixedBlockSignalDefinition`/
 `ProtectionSignalDefinition`/`RouteIndicatorDefinition`，业务编译器不处理磁盘版本。
@@ -416,7 +416,7 @@ world definition prepare会在publication前完成以下编译：signal ID唯一
 REVERSE只接受双向block；block存在、每个signal内部dependency不重复。编译器先从控制入口对应的完整有向traversal提取已经确定的turnout选择，再从该方向block出口开始沿ordinary/loop continuation单向前进；遇到多出口turnout时必须消费dependency明示声明的合法选择，直到目标signal的对应入口，并从实际经过距离派生`distanceMeters`。未声明的多出口、非turnout entry、非法或未使用的选择、循环、无法到达目标，以及同一entry合并后要求不同exit，都拒绝整份candidate。这不是寻路，不猜测shortest path；它只执行作者明示给出的分支决定并验证其与exact topology一致。派生条件随后与section provider和downstream signal依赖一起交给既有`SectionSignalRuleRuntime`做完整DAG检查。revision、阈值或cycle非法会拒绝整份candidate，旧publication与存档不变；production混合编译对删除/暂时缺失的下游保留规则并发布Unavailable，不能破坏合法区间删除与修复行为。编译后的binding和有向入口lead-time map与region/table/block
 catalog一起放入同一个immutable `SimpleSignalsRuntimePublication`；production world install直接使用这里的rule runtime，不再安装空规则。
 
-上述dependency存档shape在早期未发布草稿中已直接修正；当前schema 3的writer仍只写`requiredContinuations`，strict decoder不接受旧`distanceMeters`形状，不增加runtime alias、upcaster或虚构的中间version。
+上述dependency存档shape在未发布格式中直接修正；当前schema 1的writer只写`requiredContinuations`，strict decoder不接受旧`distanceMeters`形状，不增加runtime alias、upcaster或虚构的中间version。
 
 一次规则执行先从同epoch active-continuation snapshot中过滤出所有预编译条件均成立的下游dependency。本block有occupant时直接返回配置的`occupiedOutput`；本block空闲时取当前物理分支上已发布下游signal限速的最小值，
 再返回threshold不大于该值的最后一个clear level；没有下游依赖时把下游限速视为正无穷，选择最后一个clear level。下游
@@ -434,7 +434,7 @@ signal的首个published baseline时，inspection source在入口发布0 m/s限�
 速度限制。已有状态必须匹配world且不得来自未来physics epoch，实际依赖也不能已被事务标记失效；
 无关世界revision变化不使信号输出过期。这样初始缺失状态不会形成短暂许可，也不增加轮询或tick扫描。
 
-早期未发布草稿已直接以`inspectionLeadTimeSeconds`取代距离字段，当前schema 3保留此时间字段；不增加
+未发布格式已直接以`inspectionLeadTimeSeconds`取代距离字段，当前schema 1保留此时间字段；不增加
 runtime兼容alias或无实际发行版本对应的中间schema。需要保留的开发服数据应在启用前通过一次性迁移修正。
 
 Good case：空闲block按最严格下游限速选择配置档位，输出变化只向上游传播。Base case：没有下游的末端signal选最后一个clear level；

@@ -1,9 +1,10 @@
+{"file":".trellis/spec/javarailways/shared/versioning.md","reason":"Reject version changes without a verified released/frozen baseline; unpublished formats do not gain development generations"}
 {"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Verify independent endpoints, missing rule/baseline distinction and stable block identity"}
 {"file":".trellis/tasks/09-18-signal-addon-implementation/research/directional-fixed-block-signals.md","reason":"Verify consumer coverage, mixed geometry and no undeclared widening"}
 {"file":".trellis/spec/simple-signals/backend/index.md","reason":"Verify atomic current persistence, reactive updates and JAR isolation"}
 {"file":".trellis/spec/simple-signals/backend/protection-region-signal-selection.md","reason":"Verify declaration lookup and preserve request/grant/tail-clearance gates"}
 {"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Independent primary/attached outputs; placement does not rebind logic"}
 {"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Both endpoint consumers for block edits, exact endpoint consumers for rule edits"}
-{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Fixed schema3 directional fixture, schema2 refusal, no other boundary upgrade"}
+{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Check current-only persistence and explicitly authorized compatibility, not assumed development generations"}
 {"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"Check unnecessary wrappers, registries, caches or repeat scans"}
 {"file":".trellis/spec/guides/code-spec-authoring.md","reason":"Check status, mechanisms and real validation evidence"}

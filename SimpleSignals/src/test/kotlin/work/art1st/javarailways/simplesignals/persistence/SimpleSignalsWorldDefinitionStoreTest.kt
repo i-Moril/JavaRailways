@@ -36,7 +36,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
             listOf(FixedBlockDefinition(block.blockId, 2L, block.traversals, true)))
         val encoded = SimpleSignalsWorldDefinitionsCodec.encode(enabled)
         assertTrue(encoded.contains("\"bidirectional\": true"))
-        assertTrue(encoded.contains("\"schemaVersion\": 3"))
+        assertTrue(encoded.contains("\"schemaVersion\": 1"))
         assertEquals(enabled, SimpleSignalsWorldDefinitionsCodec.decode(encoded, fixtureWorld))
         assertTrue(SimpleSignalsWorldDefinitionsCodec.encode(decoded).contains("\"bidirectional\": false"))
         listOf("null", "1", "\"true\"", "[]").forEach { invalid ->
@@ -79,7 +79,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
             pendingProtectionBoundaries = listOf(region.boundaries.first().copy(boundaryId = "test:pending")))
         val text = SimpleSignalsWorldDefinitionsCodec.encode(value)
         assertEquals(value, SimpleSignalsWorldDefinitionsCodec.decode(text, WORLD_ID))
-        assertTrue(text.contains("\"schemaVersion\": 3"))
+        assertTrue(text.contains("\"schemaVersion\": 1"))
         assertTrue(text.contains("\"boundaryDraft\": []"))
         assertFalse(text.contains("interior"))
         assertTrue(value.regions.single().effectiveBoundaries.isEmpty())
@@ -87,10 +87,10 @@ class SimpleSignalsWorldDefinitionStoreTest {
     }
 
     @Test
-    fun `removed default route field and previous schema are rejected without changing files`() {
+    fun `removed default route field at schema one and unsupported version are rejected without changing files`() {
         val oldField = CURRENT_FIXTURE.replace("\"routes\": [",
             "\"defaultRouteIds\": [], \"routes\": [")
-        val oldVersion = CURRENT_FIXTURE.replace("\"schemaVersion\": 3", "\"schemaVersion\": 2")
+        val oldVersion = CURRENT_FIXTURE.replace("\"schemaVersion\": 1", "\"schemaVersion\": 2")
         listOf(oldField, oldVersion).forEach { contents ->
             assertThrows(IllegalArgumentException::class.java) {
                 SimpleSignalsWorldDefinitionsCodec.decode(contents, WORLD_ID)
@@ -153,7 +153,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
         val decoded = SimpleSignalsWorldDefinitionsCodec.decode(encoded, WORLD_ID)
 
         assertEquals(definitions, decoded)
-        assertTrue(encoded.contains("\"schemaVersion\": 3"))
+        assertTrue(encoded.contains("\"schemaVersion\": 1"))
         assertTrue(encoded.contains("\"inspectionLeadTimeSeconds\": 12.0"))
         assertTrue(encoded.contains("\"modelVariant\": \"clear/permissive\""))
         assertTrue(encoded.contains("\"requiredContinuations\""))
@@ -183,7 +183,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
         val decoded = SimpleSignalsWorldDefinitionsCodec.decode(encoded, WORLD_ID)
 
         assertEquals(definitions, decoded)
-        assertTrue(encoded.contains("\"schemaVersion\": 3"))
+        assertTrue(encoded.contains("\"schemaVersion\": 1"))
         assertTrue(encoded.contains("\"fixedBlocks\""))
 
         val emptyTraversal = encoded.replace(
@@ -201,7 +201,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
             "\"definitionRevision\": 9,",
             "\"definitionRevision\": 9,\n  \"unexpected\": true,"
         )
-        val futureVersion = CURRENT_FIXTURE.replace("\"schemaVersion\": 3", "\"schemaVersion\": 4")
+        val futureVersion = CURRENT_FIXTURE.replace("\"schemaVersion\": 1", "\"schemaVersion\": 99")
         val nonCanonicalWorldId = CURRENT_FIXTURE.replace(
             WORLD_ID.toString(),
             WORLD_ID.toString().uppercase()
@@ -391,7 +391,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
 
         private val CURRENT_FIXTURE = """
             {
-              "schemaVersion": 3,
+              "schemaVersion": 1,
               "worldId": "$WORLD_ID",
               "definitionRevision": 9,
               "protectionRegions": [

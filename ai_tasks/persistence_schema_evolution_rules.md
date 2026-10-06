@@ -4,11 +4,13 @@
 > 适用范围：世界存档、Bukkit sidecar、模型包配置、WebUI 本地恢复数据、extension payload，以及其他跨进程/重启保存的数据
 > 默认阶段：项目仍在开发期；除任务明确要求外，不在运行时代码中兼容任意旧开发数据
 
+升版的前置门槛见 Trellis [版本号与发布基线](../.trellis/spec/javarailways/shared/versioning.md)。先确认发布状态，不得仅因开发期字段或语义变化升版。
+
 ---
 
 ## 1. 核心规则
 
-> **只给独立持久化边界编号；兼容性新增字段不升级版本；破坏性变化才升级；旧输入只在解码边界单向迁移到当前模型；业务代码只处理当前模型。**
+> **只给独立持久化边界编号；未发布格式直接修正并保持约定版本；兼容性新增字段不升级版本；已有发布/冻结基线的破坏性变化才升级；明确支持的旧输入只在解码边界单向迁移到当前模型；业务代码只处理当前模型。**
 
 版本号用于说明磁盘契约，不用于说明实现新旧、功能强弱或数据先后。
 
@@ -40,11 +42,13 @@
 
 嵌套 DTO 默认不独立编号。例如 `SavedTrain` 是 Core runtime snapshot 的组成部分；给 Train 增加字段时，不应自动创建 `SavedTrainV2`。
 
-如果只有 Core runtime 内层 JSON 发生破坏性变化，只升级 Core runtime schema；外层 split file 的字段未变时，不连带升级 outer file。版本必须在最小独立边界上演进，避免级联 V2/V3。
+确认已发布/冻结基线确实需要升版后，如果只有 Core runtime 内层 JSON 发生破坏性变化，只升级 Core runtime schema；外层 split file 的字段未变时，不连带升级 outer file。版本必须在最小独立边界上演进，避免级联 V2/V3。
 
 ---
 
 ## 4. 何时不升级版本
+
+未发布开发格式即使删除字段、重排结构或改变语义，也直接修正 current model、fixture、样例和文档，保持约定版本，不创建新的开发代际。版本状态不明时先确认，不得把本地提交、构建、测试或开发服文件当作发布证据。
 
 新 reader 能在不转换旧 JSON 的情况下正确读取旧数据时，保持当前 schema version。
 
@@ -75,7 +79,7 @@ data class SavedTrainV1(
 
 ## 5. 何时升级版本
 
-旧 JSON 必须先转换才能无歧义成为当前模型时，属于破坏性变化，应升级所属独立边界的 schema version。
+只有已有发布或用户明确冻结的兼容基线，且基线 JSON 必须先转换才能无歧义成为当前模型时，才升级所属独立边界的 schema version。以下变化用于判断兼容性，不是跳过发布基线检查的理由。
 
 典型破坏性变化：
 
@@ -88,11 +92,12 @@ data class SavedTrainV1(
 - 严格 reader 删除旧文件仍包含的字段；
 - discriminator、type identity 或引用语义改变。
 
-判断问题只有一个：
+判断顺序不能颠倒：
 
-> 当前 serializer 是否能直接、正确、无猜测地读取旧数据？
+1. 是否有可核实的已发布格式或用户明确冻结的兼容基线？未发布则直接修正，不升版；状态不明则先确认。
+2. 对该基线，当前 serializer 是否能直接、正确、无猜测地读取旧数据？
 
-如果答案是否定的，升级最小独立边界；如果答案是肯定的，不升级。
+第二问的答案是否定时，升级最小独立边界；答案是肯定时，不升级。旧输入支持仍须另有明确要求。
 
 ---
 
@@ -114,7 +119,7 @@ LegacyCustomModelDataConfig
 ComponentCustomModelDataConfig
 ```
 
-磁盘使用稳定 `kind/type` 区分。如果其中某一种 payload 自身以后发生破坏性变化，再在该 payload 边界增加 `schemaVersion`。
+磁盘使用稳定 `kind/type` 区分。如果其中某一种 payload 自身以后相对已发布/冻结基线发生破坏性变化，再在该 payload 边界演进 `schemaVersion`。
 
 类名后缀 `Vn` 只用于确实代表已发布磁盘 schema 的类型，不用于一般实现类、策略或功能变体。
 
@@ -242,7 +247,7 @@ explicit legacy aliases（仅在任务明确要求时）
 
 - `typeId` 一旦发布不得随 Kotlin 类名、包名或插件重构改变；
 - 新增带默认值的 payload 字段不升级 payload version；
-- payload 破坏性变化只升级该 `typeId` 的 schema version，不升级整个 world snapshot；
+- payload 相对已发布/冻结基线的破坏性变化只升级该 `typeId` 的 schema version，不升级整个 world snapshot；未发布时直接修正；
 - 未知 type ID/version 明确失败，不反射、不忽略；
 - legacy FQCN 只能通过显式 allowlist alias，且必须有移除条件；
 - registry 不扫描 classpath，不根据存档字符串执行 `Class.forName()`。
@@ -296,8 +301,9 @@ migration 解码可以先读取 JSON tree 和版本字段，但迁移到 current
 - current round-trip 保留新字段；
 - 不创建新 schema version。
 
-### 破坏性升级
+### 已发布/冻结基线的破坏性升级
 
+- 指出原格式的发布证据或用户明确冻结的兼容基线；
 - 每个受支持旧版本有最小固定 fixture；
 - 每个 `Vn → Vn+1` upcaster 有独立测试；
 - fixture 可以升级到 current model；
@@ -309,7 +315,7 @@ migration 解码可以先读取 JSON tree 和版本字段，但迁移到 current
 ### Review checklist
 
 1. 这是独立持久化边界，还是嵌套 DTO/能力变体？
-2. 旧数据能否被 current serializer 直接无歧义读取？
+2. 是否有发布/冻结基线证据？未发布保持约定版本；状态不明先确认。有基线后才判断旧数据能否被 current serializer 直接无歧义读取。
 3. 如果升级，是否只升级了最小边界？
 4. 是否只有 current model 进入业务层？
 5. 是否只写 current version？
@@ -324,10 +330,10 @@ migration 解码可以先读取 JSON tree 和版本字段，但迁移到 current
 | 当前事项 | 处理规则 |
 |---|---|
 | `SavedTrainV1` 增加 `derailed=false`、`derailReason=null` | 兼容性字段扩展；不创建 Train/runtime V2 |
-| manifest 从宽松结构改为严格字段/type 契约 | 破坏性公开配置变化；V2 合理 |
-| RailRenderMeta 删除已落盘 `segments/pointArcs` | 对严格 reader 是破坏性变化；若要求读现有 V2，则升级该 sidecar 边界并 upcast；否则开发期离线迁移 |
+| manifest 从宽松结构改为严格字段/type 契约 | 先确认原公开配置已经发布/冻结；有基线时才因破坏性变化升版，未发布直接修正 |
+| RailRenderMeta 删除已落盘 `segments/pointArcs` | 落盘不等于发布；先确认基线，有明确旧输入支持要求时按边界升级并 upcast，未发布直接修正并按需离线迁移 |
 | `ItemStackConfigV1/V2` 表示两种 CMD 能力 | 改用能力名称和 discriminator，不视为 schema 代际 |
-| extension 从 FQCN 改为 stable type ID | identity 破坏性变化；仅按明确要求保留 FQCN allowlist alias |
+| extension 从 FQCN 改为 stable type ID | identity 破坏性变化先检查发布基线；仅按明确要求保留 FQCN allowlist alias |
 | raw JSON 增加 gzip | transport 变化；不升级 JSON payload schema |
 | `infrastructureRevision` 单调化 | revision 规则修复；不是 schema 升级 |
 
@@ -336,9 +342,11 @@ migration 解码可以先读取 JSON tree 和版本字段，但迁移到 current
 ## 14. 一句话决策
 
 ```text
+Unpublished format → correct the current model, keep the agreed version.
+Unknown release baseline → verify or ask; do not guess a version bump.
 Additive change → defaults, no version bump.
-Breaking change → bump the smallest persisted boundary and upcast once.
+Breaking change to a released/frozen baseline → bump the smallest persisted boundary.
 Variant capability → stable kind/type, not V2.
-Old input → migration boundary only; business code stays current-only.
+Explicitly supported old input → migration boundary only; business code stays current-only.
 Compatibility not explicitly required → migrate development data, do not accumulate readers.
 ```

@@ -174,7 +174,7 @@ SimpleSignalsWorldDefinitions.attachedSignals: List<AttachedSignalDefinition> //
 可在同一 patch 中删除其全部附属设备；失败不改磁盘、source 或当前模型。
 
 附属设备只新增默认空的 `attachedSignals` 列表及上述四个字段；这是有明确默认值的新增能力，不单独升级版本。
-删除默认进路曾将统一文件升至schema 2；两端规则语义改变已升至3，见[双向闭塞合同](bidirectional-fixed-block.md)。
+统一文件仍为未发布schema 1；删除默认进路及两端独立规则不建立新代际，误升的2/3已恢复，见[双向闭塞合同](bidirectional-fixed-block.md)。
 不增加旧开发格式 reader、alias 或中间版本。现有 export/validate/apply/diff/inspect 路径一并识别附属设备。
 必需回归包括固定 JSON 缺省/round-trip、非法引用和重复 ID、无模型主信号带多台附属、
 主信号变化/不可用/default 传播、外观不变不提交、主从设备数量不改变规则/检查/资源数量、
@@ -478,7 +478,7 @@ manager 流程还验证完整编辑事务、位置缓存的精确拓扑根边界
 
 ## 10. 已确定的边界与后续工作
 
-模型存档沿用同一个世界定义文件；早期草稿的直接修正范围见上文，方向规则语义改变后当前文件版本为schema 3，模型包版本不变。
+模型存档沿用同一个未发布世界定义文件；直接修正范围见上文，当前文件版本为schema 1，模型包版本不变。
 不因为分批实现就连续升级版本，也不为开发中的接口草稿增加旧格式兼容代码。
 `default`、两种摆放方式、方向相关的轨道偏移预设，以及模型默认/玩家可覆盖的倾斜选择已确认。
 Wand 修改附着方向时保留偏移值重新定位，原地转动只修改模型旋转；预设采用选择时复制、实例独立保存，

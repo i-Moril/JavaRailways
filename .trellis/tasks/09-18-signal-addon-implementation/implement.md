@@ -1,10 +1,22 @@
 # Stage 2 implementation plan
 
+## 2026-10-06 未发布格式版本纠正
+
+- [x] 按用户要求把 SimpleSignals world-definition schema 从误升的3恢复到1，保留默认进路删除和两端独立规则。
+  只改本插件版本常量、current fixture、版本拒绝回归与对应文档；不改其他模块版本或增加2/3兼容分支。
+  先前批次日志中的2/3仅为当时实际执行的历史记录，不代表发布/冻结基线，不能作为后续升版依据。
+  门槛见[版本号与发布基线](../../spec/javarailways/shared/versioning.md)。生产仅修改codec版本常量；6个测试文件、4份固定JSON同步schema 1。
+  方向fixture拒绝0/2/3/99；缺方向仍为FORWARD，双端/model/attached内容保持；schema 1包含已删除defaultRouteIds仍严格拒绝并保留源文件。
+  离线`:SimpleSignals:test :SimpleSignals:verifyPluginJar`实际通过：43套/450项，零失败、错误或跳过，42秒。
+  生产与测试Kotlin编译、测试资源处理、JAR、插件隔离和测试本轮实际执行；其余依赖复用缓存，本次未重跑Java API consumer。
+  独立checker确认四份fixture除版本3→1外全部值不变、跨模块代码diff为空、21个文档链接与10+10上下文引用有效、managed/state块不变，`git diff --check`通过。
+  日志`/tmp/javarailways-schema-one-check.log`；含既有构建警告和一次physics overload，不作为性能证明。未部署、未迁移服务器文件；用户已批准提交并继续核对余项，Stage 2仍进行中。
+
 ## 2026-10-05 信号对照修正（本轮优先）
 
 - [x] 删除默认进路，并要求固定进路/当前入口信号都具有匹配的有效授权请求。已独立检查，本批提交后停下供用户审阅。
   - 6个生产文件删除默认配置、索引、专用footprint与冲突计算；没有匹配请求或请求其他进路时固定信号也停车。
-  - 9个测试文件及3份fixture同步current sidecar schema 2；不改宿主存档、Basic/ATO/Core API、实际资源仲裁或模型包版本。
+  - 当时9个测试文件及3份fixture同步sidecar schema 2（误升，现由上方版本纠正批次取代）；不改宿主存档、Basic/ATO/Core API、实际资源仲裁或模型包版本。
   - 聚焦10套/148项实际执行通过。独立完整离线门禁`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava`通过：41套/429项，零失败、错误或跳过，39秒。
     实际执行测试编译、完整测试、`verifyPluginJar`及Java consumer编译；生产编译/JAR复用先前实现构建结果。
     `git diff --check`通过，未配置独立lint任务；日志`/tmp/javarailways-request-only-check.log`。
@@ -26,7 +38,7 @@
   - 2026-10-06 用户批准本批：先补[所属契约](../../spec/simple-signals/backend/bidirectional-fixed-block.md)，再实现与独立检查。
     规则按作者完整路径的 FORWARD/REVERSE 绑定；每入口最多一个主信号，各自配置下游、提前时间、输出和显式模型。
     未配置该端不增加信号速度限制；已配置但无有效结果则入口0。共享一份占用与block资源，复用单向图、检查绑定和正常编辑事务。
-    当前世界定义文件schema3，拒绝旧2，不增加运行时升级；不改宿主API/世界文件、JS、信号Wand或多闭塞单线协调。
+    当时世界定义文件schema3、拒绝旧2（误升，现由上方版本纠正批次取代）；不改宿主API/世界文件、JS、信号Wand或多闭塞单线协调。
     研究与准确改动面见[方向规则研究](research/directional-fixed-block-signals.md)。九个生产文件改入口键、有向几何视图和声明索引；
     反向路径借用已有缓存，规则共享同一占用provider，保留方向有效性、原资源身份、车尾释放与净空门控。
   - 实现聚焦8套/160项实际执行通过，生产与全部测试Kotlin编译通过。独立checker未发现生产缺陷；

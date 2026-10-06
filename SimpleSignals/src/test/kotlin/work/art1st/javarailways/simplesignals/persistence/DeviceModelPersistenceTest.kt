@@ -31,7 +31,7 @@ class DeviceModelPersistenceTest {
         val encoded = SimpleSignalsWorldDefinitionsCodec.encode(definitions)
         assertEquals(definitions, SimpleSignalsWorldDefinitionsCodec.decode(encoded, worldId))
         val document = Json.parseToJsonElement(encoded).jsonObject
-        assertEquals(JsonPrimitive(3), document["schemaVersion"])
+        assertEquals(JsonPrimitive(1), document["schemaVersion"])
         val indicator = document.getValue("routeIndicators").jsonArray[0].jsonObject
         assertEquals(setOf("indicatorId", "revision", "entryBoundaryId", "noRouteModelVariant", "modelVariantsByRouteId", "model"), indicator.keys)
         val placement = indicator.getValue("model").jsonObject.getValue("placement").jsonObject

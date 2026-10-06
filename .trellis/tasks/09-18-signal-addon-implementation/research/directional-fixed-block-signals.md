@@ -5,6 +5,8 @@
 - Date: 2026-10-06
 - Source baseline: `dev/signal-system`, HEAD `6911087b fix(signals): require full-train exit clearance before entry`，本次直接核实。既有 TODO、docs-site、另一任务及未跟踪资产/bin 保留。
 
+> 版本决定纠正：本文是上批实现前的研究记录。原先仅凭语义变化要求 schema 2 → 3 的决定已撤销，因为没有确认发布/冻结基线。版本决策必须先遵守[版本号与发布基线](../../../spec/javarailways/shared/versioning.md)。下文涉及 3/旧 2 拒绝的内容只记录上批方案和已发生的实现，不是继续升版或保留误升版的指令；用户随后要求恢复为同一个未发布schema 1，当前状态见[所属契约](../../../spec/simple-signals/backend/bidirectional-fixed-block.md)。
+
 ## Findings
 
 ### 1. 最小字段与身份方案
@@ -57,7 +59,7 @@ signal ID 在全世界/设备种类间仍唯一。反向规则要求其 block `b
 - `signal/SignalInspectionIdentity.kt`：当前 encoder/decoder 只恢复 block ID，需 typed entry key；protection 前缀隔离保持不变。
 - `runtime/SimpleSignalsWorldRuntime.kt`：`:308` source 接线，`:419` 状态查找，`:424` 配置存在性，`:429` lead-time 一致 publication 校验都要更新为 entry 查询。
   保留首次 baseline fail-close、无关编辑读取最后已完成 epoch 和 source replacement 原子性。
-- `persistence/SimpleSignalsWorldDefinitions.kt`：`:172` 的 signal DTO、`:373` encode、`:511` restore 增方向；`:268` 独立 schema 升 3。导入/导出草稿沿用同 codec。
+- `persistence/SimpleSignalsWorldDefinitions.kt`：`:172` 的 signal DTO、`:373` encode、`:511` restore 增方向；原方案还要求 `:268` 独立 schema 升 3，此版本决定已撤销。导入/导出草稿沿用同 codec。
   `signal/ProtectionSignalDefinition.kt:38` 当前复用 fixed 定义检查输出表，新增方向参数须有明确正向默认或改为现有独立校验 helper，不能误让 protection 类型依赖某个 bidirectional block。
 - `runtime/SimpleSignalsDefinitionEditImpact.kt`：按 signal ID 比较定义（`:30`）会自动识别方向变化；旧/新依赖可达收集（`:140` 左右）必须包含方向化依赖的 `affectedRailIds`。
   所有同 block 的控者应保留为 consumer，不按当前输出/分支剪枝。旧/新 rail 模型位置、附属设备和静态/动态 blocker 一并保留。
@@ -85,21 +87,21 @@ signal ID 在全世界/设备种类间仍唯一。反向规则要求其 block `b
 显式 rail/ground 坐标只决定显示姿态，不改变所选 entryDirection、ATO restriction trigger、依赖距离或资源。
 附属显示引用具体端的 signal ID，不自动共享另一端输出。
 
-### 4. 持久化变化
+### 4. 当时的持久化方案（升版决定已撤销）
 
-当前独立 SimpleSignals world sidecar 使用 schema 2，严格 current-only decode，writer encodeDefaults=true、ignoreUnknownKeys=false
+研究基线时的独立 SimpleSignals world sidecar 使用 schema 2，严格 current-only decode，writer encodeDefaults=true、ignoreUnknownKeys=false
 （`persistence/SimpleSignalsWorldDefinitions.kt:267-286`）。
 旧的一个 fixed signal 同时控制两端，现在默认 FORWARD 只控制正向：虽然是带默认值新增字段，旧内容语义仍改变。
-按 `ai_tasks/persistence_schema_evolution_rules.md` 第 5 节应只把此 sidecar 边界升至 3。
-不升级 Core/Basic/SimpleATO 世界格式、model-package config-version、revision 或 epoch；不额外编号嵌套 DTO。
-旧 schema 2 应明确拒绝，不能默默把旧共享规则当正向，也不能新增 BOTH、旧分支或 runtime upcaster。
+当时机械套用 `ai_tasks/persistence_schema_evolution_rules.md` 第 5 节，仅因语义变化把此 sidecar 升至 3，缺少发布基线检查；这不是合理的升版依据。
+当时未升级 Core/Basic/SimpleATO 世界格式、model-package config-version、revision 或 epoch，也未额外编号嵌套 DTO。
+上批实现拒绝旧 schema 2，未新增 BOTH、旧分支或 runtime upcaster；这些是历史实现状态，不证明旧 2 曾发布或部署。
 若真实开发服数据需保留，另开明确授权的一次性 dry-run/恢复点迁移，不在本批实现。
 
 需同步三个固定 JSON fixture：`SimpleSignals/src/test/resources/device-model-definitions.json`、
 `fixed-block-without-bidirectional.json`、`world-definitions-without-attached-signals.json`。
 其他内嵌 fixture/版本拒绝例见 `SimpleSignalsWorldDefinitionStoreTest`、`SimpleSignalsDefinitionDraftsTest`、`ProtectionSignalDevicesTest`。
-更新 current=3、旧2拒绝、future4拒绝，不把“旧缺方向使用默认”的 fixture 误作旧 schema2兼容。
-默认 FORWARD 可由当前 schema3 缺字段验证，writer 应明确写出方向。
+上批 fixture 使用 current=3、旧2拒绝、future4拒绝，没有把“旧缺方向使用默认”的 fixture 当作旧 schema2兼容。
+默认 FORWARD 用当时的 schema3 缺字段验证，writer 明确写出方向。后续纠正版本时应同步 current fixture，不为误升版建立兼容代际。
 
 ### 5. 错误与原子性：一个现存合同冲突
 
@@ -135,7 +137,7 @@ D 为已编译路线入口声明数、A 为当前 active 声明数、N/E 为本 
 - `presentation/SignalModelBindingTest`：同 block 两主 signal 的模型/附属各读自己的 variant，不增规则/area/token；显式 model 放在别处不改逻辑；无变化不submit；换向/删除保留无关 handle。
 - `runtime/SimpleSignalsWorldRuntimeManagerTest`：方向/依赖/模型修改提高 revision，旧新保护范围及 consumer 路径，静态时刻表/动态claim blocker，错误reverse候选及保存/source失败原子性，合法删除后外部依赖持续不可用。
 - `authoring/SectionAuthoringActionsTest` / `SectionWandHandlerTest`：删除 block 两端与其全部附属同批清除，外部依赖保留不可用；资源含义不变，不增加signalWand功能。
-- persistence 五组既有测试及固定 fixture：schema3，旧2与未来4拒绝，非法方向枚举，current缺方向defaultforward，显式reverse round-trip，完整三类设备/附属值保留。
+- persistence 五组既有测试及固定 fixture：非法方向枚举，current缺方向defaultforward，显式reverse round-trip，完整三类设备/附属值保留。上批实际采用 schema3/旧2拒绝/未来4拒绝，但其升版决定已撤销；不能作为后续版本决策依据。
 - `block/FixedBlockRouteResourcePolicyTest` / `FixedBlockStopContinuationTest` / `FixedBlockTimetableDependencyTest`：真实 Basic 相向同一token互斥、失败无部分claim、内部折返/token保留/车尾释放、静态dependency仍只有block身份。不必为本批改变 Basic/ATO arbiter。
 
 ### 7. 构建门禁的已有证据与可复用命令
@@ -180,7 +182,7 @@ focused 修改可先仅运行 `:SimpleSignals:test --tests '*FixedBlockSignalCom
 - `.trellis/spec/simple-signals/backend/definition-edit-impact.md`：旧、新结构依赖/显示位置和许可失败原子性。
 - `.trellis/spec/simple-signals/backend/model-presentation.md`：逻辑入口与显示位置独立、具体主 signal 附属、world handle生命周期。
 - `.trellis/spec/simple-signals/backend/section-authoring-wands.md`：删除闭塞连带设备、保留外部依赖 unavailable、signalWand未实现。
-- `ai_tasks/persistence_schema_evolution_rules.md`：语义改变属于破坏性变化，仅最小独立边界升级。
+- `.trellis/spec/javarailways/shared/versioning.md`、`ai_tasks/persistence_schema_evolution_rules.md`：先确认发布/冻结基线，再判断破坏性变化及最小独立边界；未发布格式直接修正，不升版。
 - `.trellis/tasks/09-18-signal-addon-implementation/prd.md`：2026-10-05修正决定；本文件是实现前调查，不替代主会话 owner contract。
 
 ### External references

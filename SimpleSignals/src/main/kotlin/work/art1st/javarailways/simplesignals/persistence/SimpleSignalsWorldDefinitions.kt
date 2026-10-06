@@ -267,7 +267,7 @@ private data class SavedModelPose(
 
 /** Strict codec for the independently versioned SimpleSignals world-definition sidecar. */
 internal object SimpleSignalsWorldDefinitionsCodec {
-    const val CURRENT_FORMAT_VERSION = 3
+    const val CURRENT_FORMAT_VERSION = 1
 
     private val json = Json {
         encodeDefaults = true

@@ -1,14 +1,15 @@
 # 持久化与 Schema 演进
 
-本规则适用于世界 split snapshot、Bukkit sidecar、模型包配置、Wand PDC、WebUI draft/recovery、extension payload 等跨进程或重启保存的数据。完整政策来源是 `ai_tasks/persistence_schema_evolution_rules.md`。
+本规则适用于世界 split snapshot、Bukkit sidecar、模型包配置、Wand PDC、WebUI draft/recovery、extension payload 等跨进程或重启保存的数据。先遵守[版本号与发布基线](./versioning.md)的前置门槛；完整编码与迁移政策来源是 `ai_tasks/persistence_schema_evolution_rules.md`。
 
 ## 决策顺序
 
 1. 先判断是否为可独立读取、写入、迁移或替换的持久化边界；嵌套 DTO 不自动拥有版本。
-2. current serializer 能直接、正确、无猜测读取旧数据时，增加带默认值/nullable 字段，不升级版本。
-3. 字段重命名、删除、类型/单位/语义变化或无默认值必填字段属于 breaking change；只升级最小独立边界。
-4. 旧输入只在 decode boundary 连续单向 upcast 到 current DTO；业务层只处理 current model，writer 只写 current version。
-5. 默认开发期不新增旧开发数据 runtime reader；优先一次性、支持 dry-run 且可审计的离线迁移。
+2. 确认该边界是否已有发布或用户明确冻结的兼容基线。未发布格式直接修正当前模型并保持约定版本；状态不明时先确认，不得猜测升版。
+3. 对已发布/冻结基线，current serializer 能直接、正确、无猜测读取旧数据时，增加带默认值/nullable 字段，不升级版本。
+4. 对已发布/冻结基线，字段重命名、删除、类型/单位/语义变化或无默认值必填字段属于 breaking change；只升级最小独立边界。
+5. 明确要求支持的旧输入只在 decode boundary 连续单向 upcast 到 current DTO；业务层只处理 current model，writer 只写 current version。
+6. 默认开发期不新增旧开发数据 runtime reader；优先一次性、支持 dry-run 且可审计的离线迁移。
 
 ```text
 读取 bytes/text
@@ -50,8 +51,9 @@ Json {
 
 ## 必测场景
 
+- 未发布格式修正：current fixture、样例、文档与当前模型一致，约定版本不递增，不加入旧开发 reader。
 - additive field：旧 fixture 可读、默认值明确、current round-trip 保留新字段、版本不变。
-- breaking upgrade：每个受支持旧版有 fixture，每个连续 upcaster 独立测试，future version/断链/损坏输入失败，writer 只写 current。
+- 已发布/冻结基线的 breaking upgrade：每个受支持旧版有 fixture，每个连续 upcaster 独立测试，future version/断链/损坏输入失败，writer 只写 current。
 - 引用数据：materialize 前拒绝 orphan。参考 `Basic/src/test/java/work/art1st/javarailways/basic/persistence/BasicInfrastructureSnapshotTest.kt`。
 - split snapshot：基础设施 revision 必须一致，备份恢复不能组合不匹配文件。参考 `BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/persistence/WorldSnapshotExtensionDataTest.kt` 与 `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/persistence/WorldPersistence.kt`。
 - transport（gzip、文件后缀、atomic move）和 payload schema 分开测试；transport 改变本身不升级 schema。

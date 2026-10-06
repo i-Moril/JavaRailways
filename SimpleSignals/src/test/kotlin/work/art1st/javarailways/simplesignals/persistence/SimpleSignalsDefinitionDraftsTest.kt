@@ -56,7 +56,7 @@ class SimpleSignalsDefinitionDraftsTest {
         val original = Files.readString(directory.resolve("drafts/source.json"))
         assertThrows(IllegalArgumentException::class.java) { transport.read("source", UUID(0, 99)) }
         Files.writeString(directory.resolve("drafts/unknown.json"), original.replaceFirst("{", "{\"typo\":1,"))
-        Files.writeString(directory.resolve("drafts/future.json"), original.replace("\"schemaVersion\": 3", "\"schemaVersion\": 4"))
+        Files.writeString(directory.resolve("drafts/future.json"), original.replace("\"schemaVersion\": 1", "\"schemaVersion\": 99"))
         Files.createDirectory(directory.resolve("drafts/nonfile.json"))
         assertThrows(Exception::class.java) { transport.read("unknown", world) }
         assertThrows(IllegalArgumentException::class.java) { transport.read("future", world) }

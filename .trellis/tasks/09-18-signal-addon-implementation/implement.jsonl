@@ -8,3 +8,5 @@
 {"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Current-only persistence; no speculative version bump or old development reader"}
 {"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"No second occupancy scanner, resource arbiter or host API"}
 {"file":".trellis/spec/guides/code-spec-authoring.md","reason":"Actual module flow, non-trivial algorithms and complexity"}
+{"file":".trellis/spec/simple-signals/backend/js-signal-rules.md","reason":"TARGET JS contract: selected distance policy, readonly inputs, local setters, budgets, forward-window gaps and review-only scope"}
+{"file":".trellis/tasks/09-18-signal-addon-implementation/research/js-rule-runtime-source-map.md","reason":"Current source seams, protection selection, dynamic-model validation and true snapshot/graph costs"}

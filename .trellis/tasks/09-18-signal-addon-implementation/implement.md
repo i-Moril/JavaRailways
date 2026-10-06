@@ -1,5 +1,17 @@
 # Stage 2 implementation plan
 
+## 2026-10-06 JS 信号规则契约批次（仅文档）
+
+- [x] 记录用户选择 JS 处理距离敏感逻辑，最远扫描距离只控制输入，不新增 Kotlin 距离条件表。
+- [x] 根据真实规则／区间边界编写 [TARGET 契约](../../spec/simple-signals/backend/js-signal-rules.md)：工作方式、只读输入、setter、失效、内部机制、复杂度、伪代码与测试断言。
+- [x] 完成 [源码对照](research/js-rule-runtime-source-map.md)与独立文档审查；修正“输入相同必不重算”的过度承诺，保留现有事件唤醒和输出不变停止传播语义，不新增输入缓存。
+- [ ] 审查并确定引擎预算、绑定格式及自动前视候选／分支语义，再分批实施受限 JS provider 与前视接线。
+
+本批不修改运行代码、依赖、存档版本、Wand 或循环策略；已有显式下游距离输入不等于已实现最远距离自动扫描。
+验证仅为源码／文档审查、`git diff --check` 与 curated context 校验（implement/check 各12项通过）；
+既有大型 index/model 文档仍有注入截断警告，专题 JS 草案单独列入 manifest。未执行构建、JS 引擎测试或 Folia 验证。
+本批单独提交后停下供用户检查，Stage 2 不归档。
+
 ## 2026-10-06 未发布格式版本纠正
 
 - [x] 按用户要求把 SimpleSignals world-definition schema 从误升的3恢复到1，保留默认进路删除和两端独立规则。
@@ -53,7 +65,12 @@
   - 契约/README同步CURRENT，保留合法删除后缺失下游Unavailable。真实Folia/客户端与规模性能未验证；
     测试日志包含一次physics overload及既有Gradle/native警告，不能据测试通过声称延迟已验证。
     本批提交后停下供用户检查；既有TODO/docs-site、另一任务及未跟踪资产不纳入提交，Stage2仍进行中。
-- [ ] 对已有距离输入与信号循环依赖做有界方案评审，不重复添加输入模型或写死国家规则。
+- [x] 对已有距离输入与信号循环依赖做有界方案评审，不重复添加输入模型或写死国家规则。
+  - 2026-10-06 完成[距离与循环依赖评审](research/distance-and-cycle-rule-review.md)，独立checker核对实际编译器、规则输入及拒绝顺序。
+    距离/区间长度已有；当前具体规则仅按下游速度阈值选档，没有距离自适应。物理环线与信号最终输出环是不同合同，后者在候选prepare中有意拒绝。
+    当时距离配置策略与JS仍为待选方案；用户现已选择JS，见本文件顶部契约批次，不再扩展距离条件表。
+    JS尚未实现；完整循环策略仍另外评审，不新增固定点、陈旧输出或重复扫描，不能把研究完成等同于实现。
+    本批仅静态源码与文档检查，未改运行代码或执行构建；上述450项属于已提交版本纠正批次，不冒充新策略验证。
 
 本批范围与验收见[修正批次](research/signal-comparison-corrections.md)。下文的历史默认进路完成项已被新决定取代。
 
@@ -230,7 +247,7 @@ Current extraction progress:
 - [x] Expose the neutral Basic active-admission value and compile/persist mutually compatible configured default protection routes without claiming them. The active value carries the frozen route and actual requested/committed authority boundaries; default-route runtime checks use precompiled turnout requirements.
 - [x] Connect admission changes and physical turnout observations to one shared entry selector: request > physically-correct configured default > no route. Retain the old committed prefix during suffix preparation and remove tail-cleared route associations without ending the whole operating route. Match frozen routes once on route changes; unchanged selection state remains idle. Host routes latest-per-owner updates by cached rail interests, including removal/reversal, source replacement baseline and train disappearance independent of Bukkit follow-up. A cleared entry association does not release overlapping long resources still held by Basic.
 - [x] Implement the three device forms' backend on that shared state: fixed-route signal, current signal and presentation-only route indicator. Reuse the indicator for distant previews through explicit source binding and player placement. Route-specific occupancy, mixed-kind one-way dependencies, typed inspection declaration IDs, additive schema-1 persistence and live definition patches are implemented. Rendering is tracked below; independent physical inspection consumption is the separately approved host slice above. Do not infer request state from claim owner strings, poll `liveClaims()` per tick or scan turnouts for non-default fallback routes.
-- [ ] In a separately reviewed batch, define optional JS/YAML input views, setters such as speed/model variant, validation, execution budget and failure behavior.
+- [ ] 实现用户已选的 JS 输入／setter provider；[草案](../../spec/simple-signals/backend/js-signal-rules.md)已写，具体引擎预算、绑定与自动前视仍须评审，不以文档代替运行验收。
 - [x] Verify protection-device deletion through the normal definition edit permit. Actual Basic registry regressions cover fixed-route/current-entry signals blocked by static route dependencies and live claims, unchanged disk/publication/sources on rejection, success after blocker release, and disjoint-line deletion. Normal Dispatcher ordering installs route protection before inspection binding and removes inspection before protection; subsequent worker updates filter removed captured bindings. No production defect was reproduced in this guarded lifecycle, so no deletion compatibility path was added. Owner contract: [definition edit impact](../../spec/simple-signals/backend/definition-edit-impact.md#5-不变量线程与版本). This does not establish arbitrary external-caller lifecycle safety or cancel an already-running callback.
 - [ ] Keep scripts away from mutable world objects and raw Basic claim mutation; all outputs pass plugin validation and host restriction/resource APIs.
 

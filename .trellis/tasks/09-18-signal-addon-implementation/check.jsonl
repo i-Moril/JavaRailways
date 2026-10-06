@@ -8,3 +8,5 @@
 {"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Check current-only persistence and explicitly authorized compatibility, not assumed development generations"}
 {"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"Check unnecessary wrappers, registries, caches or repeat scans"}
 {"file":".trellis/spec/guides/code-spec-authoring.md","reason":"Check status, mechanisms and real validation evidence"}
+{"file":".trellis/spec/simple-signals/backend/js-signal-rules.md","reason":"Review TARGET/current distinction, no second scan/arbiter, setter atomicity, scope of failure, hard-budget open gate and no schema bump"}
+{"file":".trellis/tasks/09-18-signal-addon-implementation/research/js-rule-runtime-source-map.md","reason":"Verify source-grounded interfaces, selected-route length, automatic-forward gaps and honest complexity"}

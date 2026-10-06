@@ -2,6 +2,10 @@
 
 ## Status and ownership
 
+2026-10-06 用户选择 JS 处理距离敏感规则，不再扩展距离条件配置表。当前仅有
+[JS 规则目标草案](../../spec/simple-signals/backend/js-signal-rules.md)，复用已有规则与区间数据边界；
+自动前视候选、引擎隔离及预算未实现，输出循环策略另行评审，不改变既有资源／ATO owner。
+
 2026-10-05 新决定取代下文早期默认进路分支：无匹配列车请求时保护信号保持停车。
 出口放行还须验证一列车长度的空间，不能仅看资源授权；双向信号结果须与共享资源身份分离。
 本轮分批落实，当前已批准边界见[修正批次](research/signal-comparison-corrections.md)。
@@ -480,7 +484,7 @@ SimpleATO 只执行中立的“入口以前须具备到某位置的连续可行�
 
 ## Open decisions
 
-- Exact plugin-local script/YAML surface and execution budget.
+- JS 接口、引擎与预算、磁盘绑定及自动前视分支语义，见 [所属草案](../../spec/simple-signals/backend/js-signal-rules.md#10-实施拆分与待审查项)。JS 已选定，不再重新比较距离条件表。
 - Whether WebUI remains a host sidecar, moves beside SimpleATO, or becomes independently deployable.
 
 These decisions do not block module extraction, protection-region migration or the Java/Kotlin signalling core. The scaffold now fixes the Java package root as `work.art1st.javarailways.simplesignals`; persisted type IDs and script API identifiers remain separate decisions for their owning domain batches.

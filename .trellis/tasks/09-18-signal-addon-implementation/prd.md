@@ -32,6 +32,16 @@ The result must prove that protection regions and fixed blocks are optional poli
 - 按独立、可验证的批次修正，不新增重复扫描、真实铁路全套联锁或运行时旧开发数据兼容。
   实施顺序与边界见[修正批次](research/signal-comparison-corrections.md)。
 
+### JS 信号规则决定（2026-10-06）
+
+- 距离敏感的自定义信号逻辑由 JS 完成，不再为现有 Kotlin 规则新增距离条件配置表。
+- 信号声明最远扫描距离，不声明前视区间个数；该距离只控制可读取的数据范围，实际判断仍由 JS 完成。
+- 输出通过独立的限速与模型外观 setter 提交，不以 `return "YG"` 或模型名反查速度。
+- 本批仅编写输入／执行契约、伪代码和测试要求，审查后再实施；复用已有占用、DAG、epoch 和安全约束，不增加第二套扫描或仲裁。
+- 验收要求：连续短区间可根据多个下游信号的距离／限速判断；脚本异常不保留旧许可、不影响无关信号；
+  自动前视的缺失／分支语义和实际引擎预算须在实现前评审，不能把文档或现有显式依赖当作已完成 JS。
+  详细机制归 [JS 契约草案](../../spec/simple-signals/backend/js-signal-rules.md)。完整环线预告不并入本批。
+
 ### A. SimpleATO module extraction
 
 - Move the remaining automated operating policy, Destination, Station, Depot, Line, Timetable, rolling-stock assignment, operational route planning, timetable apply state and their persistence into platform-neutral `SimpleATO`.
@@ -330,7 +340,7 @@ must not borrow the opposite end's output. These extension boundaries are record
 
 ## Deferred decisions
 
-- Exact plugin-local JS/YAML API, script budget and model-variant vocabulary. These are reviewed after the Java/Kotlin safety/runtime boundary exists.
+- JS 已选为距离敏感规则实现方式；接口、引擎／执行预算、磁盘绑定和自动前视分支语义仍按 [JS 草案](../../spec/simple-signals/backend/js-signal-rules.md)评审，不把草图视为已冻结 API。
 - Guided authoring interaction/API, measurement path selection,
   protection-region route/device editing and editor visualization. Confirmed player-facing requirements are recorded above;
   these unresolved details must be reviewed before the authoring implementation batch.

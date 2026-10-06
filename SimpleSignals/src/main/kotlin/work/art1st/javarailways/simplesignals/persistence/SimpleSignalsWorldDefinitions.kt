@@ -86,7 +86,7 @@ internal data class SimpleSignalsWorldDefinitions private constructor(
 }
 
 @Serializable
-private data class SimpleSignalsWorldDefinitionsFileV1(
+private data class SimpleSignalsWorldDefinitionsFile(
     val schemaVersion: Int,
     val worldId: String,
     val definitionRevision: Long,
@@ -122,8 +122,7 @@ private data class SavedProtectionRouteTableV1(
     val revision: Long,
     val regionId: String,
     val regionRevision: Long,
-    val routes: List<SavedProtectionRouteV1>,
-    val defaultRouteIds: List<String> = emptyList()
+    val routes: List<SavedProtectionRouteV1>
 )
 
 @Serializable
@@ -266,7 +265,7 @@ private data class SavedModelPose(
 
 /** Strict codec for the independently versioned SimpleSignals world-definition sidecar. */
 internal object SimpleSignalsWorldDefinitionsCodec {
-    const val CURRENT_FORMAT_VERSION = 1
+    const val CURRENT_FORMAT_VERSION = 2
 
     private val json = Json {
         encodeDefaults = true
@@ -276,12 +275,12 @@ internal object SimpleSignalsWorldDefinitionsCodec {
     }
 
     fun encode(definitions: SimpleSignalsWorldDefinitions): String = json.encodeToString(
-        SimpleSignalsWorldDefinitionsFileV1.serializer(),
+        SimpleSignalsWorldDefinitionsFile.serializer(),
         definitions.toFile()
     )
 
     fun decode(contents: String, expectedWorldId: UUID): SimpleSignalsWorldDefinitions {
-        val file = json.decodeFromString(SimpleSignalsWorldDefinitionsFileV1.serializer(), contents)
+        val file = json.decodeFromString(SimpleSignalsWorldDefinitionsFile.serializer(), contents)
         require(file.schemaVersion == CURRENT_FORMAT_VERSION) {
             "Unsupported SimpleSignals world definitions version: ${file.schemaVersion}"
         }
@@ -313,7 +312,7 @@ internal object SimpleSignalsWorldDefinitionsCodec {
         )
     }
 
-    private fun SimpleSignalsWorldDefinitions.toFile() = SimpleSignalsWorldDefinitionsFileV1(
+    private fun SimpleSignalsWorldDefinitions.toFile() = SimpleSignalsWorldDefinitionsFile(
         CURRENT_FORMAT_VERSION,
         worldId.toString(),
         definitionRevision,
@@ -352,8 +351,7 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                             )
                         }
                     )
-                },
-                table.defaultRouteIds
+                }
             )
         },
         fixedBlocks.map { block ->
@@ -490,8 +488,7 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                     )
                 }
             )
-        },
-        defaultRouteIds
+        }
     )
 
     private fun SavedFixedBlockV1.restore() = FixedBlockDefinition(

@@ -59,8 +59,9 @@ class SignalReplacementContinuityTest {
         assertNull(fixture.world.sectionSignalSnapshot())
         inspection.markDirty(captured.sourceId, listOf(protectionSignalDeclarationId("test:current")))
         inspect()
-        assertEquals(0.0, (publications.last().restrictions.single() as RouteSpeedRestriction)
-            .maximumSpeedMetersPerSecond)
+        assertEquals(2, publications.last().restrictions.size)
+        assertTrue(publications.last().restrictions.all {
+            (it as RouteSpeedRestriction).maximumSpeedMetersPerSecond == 0.0 })
     }
 
     @Test
@@ -221,6 +222,9 @@ class SignalReplacementContinuityTest {
         private val signal = ProtectionSignalDefinition("test:current", 1L, ProtectionSignalKind.CURRENT_ENTRY,
             "test:entry", 0.0, ConfiguredSignalOutput(0.0, "R"), ConfiguredSignalOutput(0.0, "R"),
             listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(20.0, "G"))))
+        private val fixedSignal = ProtectionSignalDefinition("test:fixed", 1L, ProtectionSignalKind.FIXED_ROUTE,
+            fixedRoute.routeId, 0.0, ConfiguredSignalOutput(0.0, "R"), ConfiguredSignalOutput(20.0, "G"),
+            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(20.0, "G"))))
         val world = signalWorldRuntime(worldId)
         val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
@@ -241,7 +245,7 @@ class SignalReplacementContinuityTest {
             route: ProtectionRouteDefinition = fixedRoute, tableRevision: Long = 1L) =
             SimpleSignalsWorldDefinitions(worldId, revision, listOf(region),
                 listOf(ProtectionRouteTableDefinition("test:table", tableRevision, region.regionId, region.revision,
-                    listOf(route))), protectionSignals = listOf(signal))
+                    listOf(route))), protectionSignals = listOf(signal, fixedSignal))
 
         fun establishRequest() {
             epoch.process(frame(1L))
@@ -249,6 +253,8 @@ class SignalReplacementContinuityTest {
                 "train", requestRoute, ActiveRouteAdmissionState.PREPARING, RouteBoundary(50.0), RouteBoundary(30.0))))
             epoch.process(frame(2L))
             assertTrue(selection().routeReady)
+            assertEquals(20.0, world.sectionSignalSnapshot()!!.states.getValue("test:fixed")
+                .effectiveSpeedLimitMetersPerSecond)
         }
 
         fun selection() = world.protectionRouteSelectionSnapshot()!!.selections.getValue("test:entry")
@@ -261,6 +267,8 @@ class SignalReplacementContinuityTest {
             assertEquals(ActiveRouteAdmissionState.PREPARING, selected.requestState)
             assertFalse(selected.routeReady) // Exit15 was cleared; exit45 still exceeds the30m grant.
             assertEquals(0.0, world.sectionSignalSnapshot()!!.states.getValue("test:current")
+                .effectiveSpeedLimitMetersPerSecond)
+            assertEquals(0.0, world.sectionSignalSnapshot()!!.states.getValue("test:fixed")
                 .effectiveSpeedLimitMetersPerSecond)
         }
 

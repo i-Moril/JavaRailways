@@ -12,7 +12,6 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
-import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
 import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalContinuationRequirement
@@ -27,7 +26,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
     lateinit var directory: Path
 
     @Test
-    fun `fixed absent bidirectional fixture defaults false and explicit true stays in schema one`() {
+    fun `fixed absent bidirectional fixture defaults false and explicit true stays in current schema`() {
         val fixture = requireNotNull(javaClass.getResource("/fixed-block-without-bidirectional.json")).readText()
         val fixtureWorld = UUID(0L, 32L)
         val decoded = SimpleSignalsWorldDefinitionsCodec.decode(fixture, fixtureWorld)
@@ -37,7 +36,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
             listOf(FixedBlockDefinition(block.blockId, 2L, block.traversals, true)))
         val encoded = SimpleSignalsWorldDefinitionsCodec.encode(enabled)
         assertTrue(encoded.contains("\"bidirectional\": true"))
-        assertTrue(encoded.contains("\"schemaVersion\": 1"))
+        assertTrue(encoded.contains("\"schemaVersion\": 2"))
         assertEquals(enabled, SimpleSignalsWorldDefinitionsCodec.decode(encoded, fixtureWorld))
         assertTrue(SimpleSignalsWorldDefinitionsCodec.encode(decoded).contains("\"bidirectional\": false"))
         listOf("null", "1", "\"true\"", "[]").forEach { invalid ->
@@ -59,14 +58,13 @@ class SimpleSignalsWorldDefinitionStoreTest {
         assertEquals("simplesignals:test-region", roundTrip.regions.single().regionId)
         assertEquals(ViewDirection.BA, roundTrip.regions.single().boundaries[1].insideFacing)
         assertEquals(3, roundTrip.routeTables.single().routes.single().traversals.size)
-        assertEquals(emptyList<String>(), roundTrip.routeTables.single().defaultRouteIds)
         assertEquals(emptyList<FixedBlockDefinition>(), roundTrip.fixedBlocks)
         assertEquals(emptyList<FixedBlockSignalDefinition>(), roundTrip.fixedBlockSignals)
         assertTrue(roundTrip.pendingProtectionBoundaries.isEmpty())
         assertEquals(null, roundTrip.regions.single().boundaryDraft)
         assertTrue(encoded.contains("\"fixedBlocks\": []"))
         assertTrue(encoded.contains("\"fixedBlockSignals\": []"))
-        assertTrue(encoded.contains("\"defaultRouteIds\": []"))
+        assertFalse(encoded.contains("defaultRouteIds"))
         assertFalse(encoded.contains("interior"))
         assertFalse(encoded.contains("topologyRevision"))
     }
@@ -81,7 +79,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
             pendingProtectionBoundaries = listOf(region.boundaries.first().copy(boundaryId = "test:pending")))
         val text = SimpleSignalsWorldDefinitionsCodec.encode(value)
         assertEquals(value, SimpleSignalsWorldDefinitionsCodec.decode(text, WORLD_ID))
-        assertTrue(text.contains("\"schemaVersion\": 1"))
+        assertTrue(text.contains("\"schemaVersion\": 2"))
         assertTrue(text.contains("\"boundaryDraft\": []"))
         assertFalse(text.contains("interior"))
         assertTrue(value.regions.single().effectiveBoundaries.isEmpty())
@@ -89,36 +87,26 @@ class SimpleSignalsWorldDefinitionStoreTest {
     }
 
     @Test
-    fun `configured default protection routes round trip within schema one`() {
-        val decoded = SimpleSignalsWorldDefinitionsCodec.decode(CURRENT_FIXTURE, WORLD_ID)
-        val table = decoded.routeTables.single()
-        val definitions = SimpleSignalsWorldDefinitions(
-            decoded.worldId,
-            decoded.definitionRevision,
-            decoded.regions,
-            listOf(
-                ProtectionRouteTableDefinition(
-                    table.tableId,
-                    table.revision,
-                    table.regionId,
-                    table.regionRevision,
-                    table.routes,
-                    listOf(table.routes.single().routeId)
-                )
-            )
-        )
-
-        val encoded = SimpleSignalsWorldDefinitionsCodec.encode(definitions)
-        val roundTrip = SimpleSignalsWorldDefinitionsCodec.decode(encoded, WORLD_ID)
-
-        assertEquals(definitions, roundTrip)
-        assertTrue(encoded.contains("\"defaultRouteIds\": ["))
-        assertTrue(encoded.contains("\"simplesignals:test-route\""))
-        assertTrue(encoded.contains("\"schemaVersion\": 1"))
+    fun `removed default route field and previous schema are rejected without changing files`() {
+        val oldField = CURRENT_FIXTURE.replace("\"routes\": [",
+            "\"defaultRouteIds\": [], \"routes\": [")
+        val oldVersion = CURRENT_FIXTURE.replace("\"schemaVersion\": 2", "\"schemaVersion\": 1")
+        listOf(oldField, oldVersion).forEach { contents ->
+            assertThrows(IllegalArgumentException::class.java) {
+                SimpleSignalsWorldDefinitionsCodec.decode(contents, WORLD_ID)
+            }
+        }
+        val store = SimpleSignalsWorldDefinitionStore(directory.toFile())
+        Files.createDirectories(store.primaryFile(WORLD_ID).parent)
+        Files.writeString(store.primaryFile(WORLD_ID), oldField)
+        Files.writeString(store.backupFile(WORLD_ID), oldVersion)
+        assertInstanceOf(SimpleSignalsWorldDefinitionLoadResult.Corrupted::class.java, store.load(WORLD_ID))
+        assertEquals(oldField, Files.readString(store.primaryFile(WORLD_ID)))
+        assertEquals(oldVersion, Files.readString(store.backupFile(WORLD_ID)))
     }
 
     @Test
-    fun `fixed-block signals round trip within schema one`() {
+    fun `fixed-block signals round trip within current schema`() {
         val block = FixedBlockDefinition(
             "simplesignals:block",
             3L,
@@ -165,7 +153,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
         val decoded = SimpleSignalsWorldDefinitionsCodec.decode(encoded, WORLD_ID)
 
         assertEquals(definitions, decoded)
-        assertTrue(encoded.contains("\"schemaVersion\": 1"))
+        assertTrue(encoded.contains("\"schemaVersion\": 2"))
         assertTrue(encoded.contains("\"inspectionLeadTimeSeconds\": 12.0"))
         assertTrue(encoded.contains("\"modelVariant\": \"clear/permissive\""))
         assertTrue(encoded.contains("\"requiredContinuations\""))
@@ -173,7 +161,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
     }
 
     @Test
-    fun `fixed blocks round trip within schema one and reject malformed domain input`() {
+    fun `fixed blocks round trip within current schema and reject malformed domain input`() {
         val definitions = SimpleSignalsWorldDefinitions(
             WORLD_ID,
             10L,
@@ -195,7 +183,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
         val decoded = SimpleSignalsWorldDefinitionsCodec.decode(encoded, WORLD_ID)
 
         assertEquals(definitions, decoded)
-        assertTrue(encoded.contains("\"schemaVersion\": 1"))
+        assertTrue(encoded.contains("\"schemaVersion\": 2"))
         assertTrue(encoded.contains("\"fixedBlocks\""))
 
         val emptyTraversal = encoded.replace(
@@ -213,7 +201,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
             "\"definitionRevision\": 9,",
             "\"definitionRevision\": 9,\n  \"unexpected\": true,"
         )
-        val futureVersion = CURRENT_FIXTURE.replace("\"schemaVersion\": 1", "\"schemaVersion\": 2")
+        val futureVersion = CURRENT_FIXTURE.replace("\"schemaVersion\": 2", "\"schemaVersion\": 3")
         val nonCanonicalWorldId = CURRENT_FIXTURE.replace(
             WORLD_ID.toString(),
             WORLD_ID.toString().uppercase()
@@ -403,7 +391,7 @@ class SimpleSignalsWorldDefinitionStoreTest {
 
         private val CURRENT_FIXTURE = """
             {
-              "schemaVersion": 1,
+              "schemaVersion": 2,
               "worldId": "$WORLD_ID",
               "definitionRevision": 9,
               "protectionRegions": [

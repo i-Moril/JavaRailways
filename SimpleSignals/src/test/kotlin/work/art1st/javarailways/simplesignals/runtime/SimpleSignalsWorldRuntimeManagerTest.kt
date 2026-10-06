@@ -283,7 +283,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(backup, Files.readString(r.store.backupFile(r.f.worldId)))
     }
 
-    @Test fun `same gates different branches replace while retaining route table identity and defaults`() {
+    @Test fun `same gates different branches replace while retaining route and device identity`() {
         val r = RecordingFixture()
         val first = r.capture()
         r.recorder.record(first.first, first.second) { true }
@@ -293,7 +293,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             "none", mapOf(table.routes.single().routeId to "selected"))
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, r.manager.applyDefinitionPatch(r.f.worldId, 2,
             SimpleSignalsDefinitionPatch(upsertRouteTables = listOf(ProtectionRouteTableDefinition(table.tableId, 1,
-                table.regionId, table.regionRevision, table.routes, listOf(table.routes.single().routeId))),
+                table.regionId, table.regionRevision, table.routes)),
                 upsertProtectionSignals = listOf(device), upsertRouteIndicators = listOf(indicator))).status)
         val before = r.runtime.currentDefinitions().routeTables.single()
         r.lower()
@@ -304,7 +304,6 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(2L, after.revision)
         assertEquals(before.routes.single().routeId, after.routes.single().routeId)
         assertFalse(before.routes.single().traversals == after.routes.single().traversals)
-        assertEquals(before.defaultRouteIds, after.defaultRouteIds)
         assertEquals(listOf(device), r.runtime.currentDefinitions().protectionSignals)
         assertEquals(listOf(indicator), r.runtime.currentDefinitions().routeIndicators)
         assertEquals(next.second.path.traversals, after.routes.last().traversals)
@@ -385,8 +384,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         // This is the persisted state after region repair: the older authored table retains
         // both paths, while its compiled usable subset contains only the still-valid route.
         val table = ProtectionRouteTableDefinition("test:throat-table", 1, f.region.regionId, 0,
-            listOf(f.upperRoute(), ProtectionRouteDefinition("test:broken", "test:exit", "test:entry", f.discontinuousRoute().traversals)),
-            listOf(f.upperRoute().routeId))
+            listOf(f.upperRoute(), ProtectionRouteDefinition("test:broken", "test:exit", "test:entry", f.discontinuousRoute().traversals)))
         val r = RecordingFixture(f, tables = listOf(table))
         assertEquals(2, r.runtime.currentDefinitions().routeTables.single().routes.size)
         assertEquals(1, r.binding.source.restrictions(r.topology).pathReplacements.single().permittedPaths.size)

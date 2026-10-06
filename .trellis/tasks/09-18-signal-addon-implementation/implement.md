@@ -1,5 +1,20 @@
 # Stage 2 implementation plan
 
+## 2026-10-05 信号对照修正（本轮优先）
+
+- [x] 删除默认进路，并要求固定进路/当前入口信号都具有匹配的有效授权请求。已独立检查，本批提交后停下供用户审阅。
+  - 6个生产文件删除默认配置、索引、专用footprint与冲突计算；没有匹配请求或请求其他进路时固定信号也停车。
+  - 9个测试文件及3份fixture同步current sidecar schema 2；不改宿主存档、Basic/ATO/Core API、实际资源仲裁或模型包版本。
+  - 聚焦10套/148项实际执行通过。独立完整离线门禁`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava`通过：41套/429项，零失败、错误或跳过，39秒。
+    实际执行测试编译、完整测试、`verifyPluginJar`及Java consumer编译；生产编译/JAR复用先前实现构建结果。
+    `git diff --check`通过，未配置独立lint任务；日志`/tmp/javarailways-request-only-check.log`。
+    测试组合真实运行类与构造观测/准入帧，不等于live Folia或客户端验证；不声称出口净空已实现。
+- [ ] 实现基于列车长度与前方停车位置的保护区域出口净空，不以取得后继闭塞代替净空证明。
+- [ ] 双向闭塞的两入口独立规则，保持一个共享资源。
+- [ ] 对已有距离输入与信号循环依赖做有界方案评审，不重复添加输入模型或写死国家规则。
+
+本批范围与验收见[修正批次](research/signal-comparison-corrections.md)。下文的历史默认进路完成项已被新决定取代。
+
 ## Start gate
 
 - [x] Stage 1 public resource, restriction, inspection, applied-plan dependency/edit and owner-lifecycle APIs are complete, reviewed and archived.
@@ -238,7 +253,7 @@ Current extraction progress:
     真实Basic registry的静态依赖/live claim拒绝相关区域编辑，包括未录支路；非法旧route、save/source/cancel失败保持旧disk/publication/source。
     最终离线 `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava` 成功，40套/407项全部实际执行，零失败/错误/跳过。聚焦中编译实际执行，最终编译与Java consumer复用缓存，JAR隔离实际检查。
     日志 `/tmp/javarailways-route-recording-check.log`，XML在 `SimpleSignals/build/test-results/test/`。本批范围见[录制批次](research/current-route-recording-batch.md)，机制/复杂度见[录制契约](../../spec/simple-signals/backend/current-route-recording.md)。
-    不改Core/Basic/ATO/API/sidecar形状，不加兼容、可选录制模式或新请求/结果层；默认进路配置、删除/替换、信号机工具和完整可视化仍待后续。未做live Folia/客户端或规模实测，Stage2不归档。
+    当时不改Core/Basic/ATO/API/sidecar形状，不加兼容、可选录制模式或新请求/结果层；后续已完成进路替换，并取消默认进路配置（见本文件顶部修正批次）。删除、信号机工具和完整可视化仍待后续。未做live Folia/客户端或规模实测，Stage2不归档。
 - [ ] 在 `SimpleSignals` 接入信号模型显示：把实体操作安排到目标线程，只更新实际变化并保留最新待显示状态，
   丢弃旧显示序号，世界卸载或插件停用时可重复安全清理。复用主插件平台 API 前先审查具体跨插件需求，
   不通过 `SimpleATOBukkit` 转发显示。

@@ -46,8 +46,7 @@ internal class CurrentRouteRecording(private val manager: SimpleSignalsWorldRunt
             path.requestedExit.boundaryId, path.traversals)
         val updated = ProtectionRouteTableDefinition(table?.tableId ?: "simplesignals:${UUID.randomUUID()}",
             table?.let { Math.addExact(it.revision, 1L) } ?: 0L, region.regionId, region.revision,
-            if (previous == null) table?.routes.orEmpty() + route else table!!.routes.map { if (it === previous) route else it },
-            table?.defaultRouteIds.orEmpty())
+            if (previous == null) table?.routes.orEmpty() + route else table!!.routes.map { if (it === previous) route else it })
         val result = manager.applyDefinitionPatch(selection.worldId, definitions.definitionRevision,
             SimpleSignalsDefinitionPatch(upsertRouteTables = listOf(updated)), runtime, topology, active)
         return if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)

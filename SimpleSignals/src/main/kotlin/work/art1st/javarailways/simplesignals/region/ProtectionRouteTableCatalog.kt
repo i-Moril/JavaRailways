@@ -171,9 +171,6 @@ internal class ProtectionRouteTableCatalog(
         if (routeIds.distinct().size != routeIds.size) return@synchronized rejected(
             ProtectionRouteTableValidationCode.DUPLICATE_ROUTE_ID, "protection route IDs must be unique")
         for (definition in copiedDefinitions) {
-            if (definition.defaultRouteIds.any { id -> definition.routes.none { it.routeId == id } })
-                return@synchronized rejected(ProtectionRouteTableValidationCode.UNKNOWN_BOUNDARY,
-                    "table ${definition.tableId} references an unknown default route")
             val retained = previous?.snapshot?.takeIf { old ->
                 definition.regionId !in affectedRegionIds && definition in old.definitions
             }?.compiledTables?.get(definition.tableId)
@@ -269,10 +266,9 @@ internal class ProtectionRouteTableCatalog(
                 DirectedRailSpan(slice.railId, facing, slice.startAbMeters, slice.endAbMeters)
             }
         }
-        val validIds = validRoutes.mapTo(hashSetOf()) { it.routeId }
         return if (paths.isEmpty()) Compilation.Compiled(null, null) else Compilation.Compiled(
             PathReplacement(replaced, paths), ProtectionRouteTableDefinition(table.tableId, table.revision,
-                table.regionId, region.definition.revision, validRoutes, table.defaultRouteIds.filter { it in validIds }))
+                table.regionId, region.definition.revision, validRoutes))
     }
 
     private fun compile(

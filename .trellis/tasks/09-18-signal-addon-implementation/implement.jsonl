@@ -1,11 +1,7 @@
+{"file":".trellis/tasks/09-18-signal-addon-implementation/research/signal-comparison-corrections.md","reason":"Latest user decisions supersede historical defaults; first batch is request-only protection signals"}
+{"file":".trellis/spec/simple-signals/backend/protection-region-signal-selection.md","reason":"Selector/ready lifecycle; default semantics superseded by latest batch"}
+{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Deleted persisted field changes only SimpleSignals independent boundary; no compatibility"}
 {"file":".trellis/spec/simple-signals/backend/index.md","reason":"Plugin isolation and current runtime ownership"}
-{"file":".trellis/spec/simple-signals/backend/current-route-preview.md","reason":"Approved current-path algorithm, gestures, event scope, threads and tests"}
-{"file":".trellis/spec/simple-signals/backend/current-route-recording.md","reason":"Record captured preview through existing table and transaction"}
-{"file":".trellis/spec/simple-signals/backend/automatic-protection-routes.md","reason":"Region-local shortest routes, alternatives and atomic create contract"}
-{"file":".trellis/spec/simple-signals/backend/section-authoring-wands.md","reason":"Reuse targeting, sessions and incomplete-region behavior"}
-{"file":".trellis/spec/simple-signals/backend/section-topology-revalidation.md","reason":"Local edit invalidation and exact world lifecycle"}
-{"file":".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md","reason":"Read-only observation callbacks and target-owner display scheduling"}
-{"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"No new framework, resources, schemas or public host API"}
+{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Reuse normal affected-rail permits and source replacement"}
+{"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"Delete default-only logic without a new framework or public host API"}
 {"file":".trellis/spec/guides/code-spec-authoring.md","reason":"Readable algorithm and complexity evidence"}
-{"file":".trellis/tasks/09-18-signal-addon-implementation/research/automatic-protection-routes-batch.md","reason":"Approved shortest routes, endpoint warnings and mouse replacement supersede old recording gestures"}
-{"file":".trellis/spec/bukkit-plugin/backend/editor-markers.md","reason":"Shared marker meaning and platform lifecycle without a generic business framework"}

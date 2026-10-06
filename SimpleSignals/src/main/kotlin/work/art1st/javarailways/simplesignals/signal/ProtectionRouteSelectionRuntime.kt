@@ -19,7 +19,7 @@ internal const val PROTECTION_ROUTE_SELECTION_SOURCE_ID = "simplesignals:protect
 internal fun protectionRouteAreaId(routeId: String) =
     RailObjectRef("simplesignals", "protection-route/${routeId.replace(':', '/')}")
 
-internal enum class ProtectionRouteSelectionSource { REQUEST, DEFAULT, NONE }
+internal enum class ProtectionRouteSelectionSource { REQUEST, NONE }
 
 /** Shared by the current signal and all route indicators bound to this directed entrance. */
 internal data class SelectedProtectionRoute(
@@ -203,12 +203,12 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
             !route.isPhysicallyOpen(input.observation.activeContinuations)) return false
         val owners = ownersByEntry.getValue(route.definition.entryBoundaryId)
         if (owners.size > 1) return false
-        val request = owners.singleOrNull()?.let(requests::get) ?: return true
+        val request = owners.singleOrNull()?.let(requests::get) ?: return false
         if (!request.clearanceKnown) return false
         if (route.definition.entryBoundaryId in request.binding.invalidEntries) return false
         val match = currentMatch(request, route.definition.entryBoundaryId)
             ?.takeIf { it.route.definition.routeId == routeId }
-            ?: return true
+            ?: return false
         return request.snapshot.trainId in liveTrainIds &&
             (request.snapshot.committedAuthority?.distanceFromRouteStartMeters ?: -1.0) >=
             match.floorMeters - Curve.TOLERANCE
@@ -258,9 +258,7 @@ internal class ProtectionRouteSelectionRuntime(private val publication: SimpleSi
                 granted && match.route.isPhysicallyOpen(input.observation.activeContinuations)
             )
         }
-        val default = index.defaultRoute(entry, input.observation.activeContinuations)
-        return if (default == null) SelectedProtectionRoute(entry, ProtectionRouteSelectionSource.NONE)
-        else SelectedProtectionRoute(entry, ProtectionRouteSelectionSource.DEFAULT, default.definition.routeId, routeReady = true)
+        return SelectedProtectionRoute(entry, ProtectionRouteSelectionSource.NONE)
     }
 
     private fun compileBinding(route: RouteSnapshot): Binding {

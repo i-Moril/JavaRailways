@@ -2,6 +2,10 @@
 
 ## Status and ownership
 
+2026-10-05 新决定取代下文早期默认进路分支：无匹配列车请求时保护信号保持停车。
+出口放行还须验证一列车长度的空间，不能仅看资源授权；双向信号结果须与共享资源身份分离。
+本轮分批落实，当前已批准边界见[修正批次](research/signal-comparison-corrections.md)。
+
 This is a `TARGET` design with two ordered deliverables. The first concrete signal-system module, plugin and product name is `SimpleSignals`. Stage 1 public APIs are complete and archived; this task consumes them without adding parallel resource, inspection, restriction, applied-plan dependency or unload machinery.
 
 ```text
@@ -141,8 +145,8 @@ Fixed blocks are plugin-owned definitions. Entering one normally adds its whole 
 
 The current foundation compiles each block only on load/authoring. It validates the ordered traversal against one exact
 `TopologyState`, derives whole-block Basic occupancy geometry with directed entry/exit boundaries, sums its physical length,
-and publishes a rail-to-block reverse index together with the other world definitions. The sidecar adds `fixedBlocks` to
-schema 1 with an explicit empty default, so this backward-readable additive field does not create a new schema version.
+and publishes a rail-to-block reverse index together with the other world definitions. `fixedBlocks` was added to the
+sidecar with an explicit empty default and did not independently bump its version. The current file uses schema 2 as described below.
 Protection-region observation remains a later batch.
 
 Fixed-block route admission now uses one plugin-owned `simplesignals:fixed-block` resource type and the existing host
@@ -204,13 +208,12 @@ a later plugin-policy boundary; the region object stores no successor and does n
 
 Protection-region signal selection follows the separate
 [signal and route-display owner contract](../../spec/simple-signals/backend/protection-region-signal-selection.md). One region does not expose a
-single occupancy bit: each authored fixed route has its own occupancy/resource/turnout projection. A region may configure several mutually
-compatible default routes. They create no claim and require no grant; without a train request, a current signal selects only its configured
-default route and only while all route turnouts physically agree. An active request has higher priority and remains restrictive until Basic
-publishes a grant covering the complete region floor. With neither source the current signal is red. Fixed-route signals bypass this selector,
-while presentation-only route indicators and distant route previews share the selected-route snapshot and differ only by player placement and
-model. The existing diagnostic-only claim list does not contain enough train/route/request information, so the request branch first requires a
-reviewed immutable Basic admission observation rather than parsing owner IDs or polling the registry.
+single occupancy bit: each authored fixed route has its own occupancy/resource/turnout projection. Default routes are removed.
+A current signal selects only the real train request at its entrance and remains restrictive until Basic publishes a grant covering
+the complete region floor and the physical continuations agree. A fixed-route signal requires the same conditions for its own
+matching current visit. No request means stop for both signal forms and no route for indicators.
+Presentation-only indicators and distant previews share the selection snapshot and differ only by player placement and model.
+Request information comes from immutable Basic admission observations, not owner-ID parsing or registry polling.
 
 ### Reviewed bulb-line traversal batch (CURRENT, follow-up audit fixes)
 
@@ -311,7 +314,8 @@ SimpleSignals 已接通目录发现、设备创建、完整信号状态到显示
 完整信号包已按[模型包契约](../../spec/simple-signals/backend/model-packages.md)实现目录加载与校验；
 设备磁盘字段已批准：三类设备共用可选的模型引用与轨道/地面摆放，删除显示器的重复位置字段，
 复用已有定义编译、revision、编辑许可及 sidecar 事务。具体形状、校验和测试只在信号模型契约维护。
-用户已批准直接修正尚未发布的 schema 1，不保留旧草稿字段或人为增加中间版本；
+模型存档最初经用户批准直接修正尚未发布的 schema 1 草稿；当前文件因删除默认进路字段升为 schema 2，
+不保留旧草稿字段或人为增加中间版本；
 任意柱高等模型实例参数推迟，未来使用独立于灯色的字段。生产绑定的离线服务调用测试
 不等于真实 Folia/客户端显示验证已经完成。
 SimpleATOBukkit 不参与这条流程。
@@ -392,7 +396,7 @@ than overwriting a disjoint edit, while other worlds and physics continue indepe
 
 ## Persistence and lifecycle
 
-SimpleATO and every signal plugin own separate persistence boundaries. `SimpleSignals` now stores schema-version-1 world definitions in
+SimpleATO and every signal plugin own separate persistence boundaries. `SimpleSignals` now stores schema-version-2 world definitions in
 `<dataFolder>/worlds/<world UUID>-definitions.json`, with a same-directory `.bak`. It persists only authored region boundaries, complete
 fixed-route traversals and fixed-block traversals using namespaced IDs, canonical UUIDs/AB metres and `ViewDirection`; derived interiors,
 occupancy geometry, indexes and compiled restrictions are rebuilt.
@@ -401,7 +405,8 @@ an invalid primary may be read from a valid backup without overwriting either in
 Startup publishes no usable route source until decode, topology binding and complete compilation have all succeeded. A corrupt/orphaned
 candidate installs the same stable source ID in fail-closed form so new operational route searches are rejected instead of treating the
 plugin as unrestricted; it does not publish a usable local runtime. Runtime code sees only the current domain model and the writer emits only
-schema version 1 through same-directory temp/backup/atomic replace. No old development format reader
+schema version 2 through same-directory temp/backup/atomic replace. This boundary alone changes because `defaultRouteIds` was removed;
+host world and model-package versions are unchanged. No old development format reader
 or migration branch exists; a future topology migration remains a separate dry-run-first tool with a recovery point.
 
 At enable/load, the plugin remains restrictive until host capabilities, persisted definitions, topology bindings and derived indexes validate. Missing required host services prevents enable. Planned disable first un-applies the plugin's plans, publishes empty restrictions where required and calls the single host owner-unregister operation. That operation succeeds only when no plugin-owned pending request, live claim, referenced type, applied-plan dependency, active inspection binding or non-empty restriction remains. If Bukkit has already forced disable, the host removes dead callbacks, retains claims/dependencies and stalls only affected worlds. Renderer and authoring resources clean up idempotently after the safety gate succeeds.
@@ -436,7 +441,7 @@ Development data migration, if required, is a separate auditable one-time tool w
 - 多通路警告关联有向入口与出口，不关联内部道岔；警告表示还有其他路径可供选择，
   不表示最短进路被禁止使用。无需把所有可能路径枚举并写入存档。
 - 鼠标左键选入口，Shift + 左键选出口并预览，右键保存当前完整预览。
-  替换对应组合的路径时沿用原进路身份，避免无故丢失固定进路信号和默认进路引用；
+  替换对应组合的路径时沿用原进路身份，避免无故丢失固定进路信号绑定；
   仍经过既有编辑许可及候选校验，失败保留旧定义。录制不自动切换道岔或申请列车资源。
 - 只在新区域创建时自动生成；既有区域修复不覆盖玩家录制结果。
 - 内部算法为每入口一次 Dijkstra，替代通路通过暂时排除已选路径的连接后检查可达性识别，不枚举所有路径。

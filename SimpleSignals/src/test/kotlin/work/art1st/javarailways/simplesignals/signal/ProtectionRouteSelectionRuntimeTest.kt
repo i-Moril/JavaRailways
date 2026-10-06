@@ -49,7 +49,7 @@ class ProtectionRouteSelectionRuntimeTest {
         boundary("test:first-exit", first, 5.0, ViewDirection.BA),
         boundary("test:second-exit", second, 5.0, ViewDirection.BA)
     ))
-    private val defaultRoute = fixedRoute("test:first-route", first, "test:first-exit")
+    private val firstRoute = fixedRoute("test:first-route", first, "test:first-exit")
     private val requestedRoute = fixedRoute("test:second-route", second, "test:second-exit")
     private val owner = InfrastructureOwner("test:owner", 1L)
 
@@ -65,7 +65,7 @@ class ProtectionRouteSelectionRuntimeTest {
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
             world.initializeDefinitions(loop, SimpleSignalsWorldDefinitions(worldId, 1L, listOf(region),
                 listOf(ProtectionRouteTableDefinition("test:table", 1L, region.regionId, 1L,
-                    listOf(defaultRoute, requestedRoute))))).status)
+                    listOf(firstRoute, requestedRoute))))).status)
         val route = RouteSnapshot("test:repeated", 1L, loop.revision,
             listOf(trunk, first, connector, trunk, first).map { RouteSegmentSnapshot(it, ViewDirection.AB, 0.0, 10.0) })
         val selector = ProtectionRouteSelectionRuntime(world.authoringPublication())
@@ -73,7 +73,7 @@ class ProtectionRouteSelectionRuntimeTest {
         assertTrue(world.protectionRegionInspectionSource.routeInfrastructureDependencies.dependencies(route).isEmpty())
         val matched = world.authoringPublication().routeBindingCompiler.compile(route)
         assertEquals(listOf(5.0, 35.0), matched.windows.map { it.region.entry.routeDistanceMeters })
-        assertEquals(listOf(defaultRoute.routeId, defaultRoute.routeId), matched.windows.map { it.tableRoute?.definition?.routeId })
+        assertEquals(listOf(firstRoute.routeId, firstRoute.routeId), matched.windows.map { it.tableRoute?.definition?.routeId })
         assertSame(before, selector.snapshot())
         assertNull(world.protectionRouteSelectionSnapshot())
     }
@@ -93,15 +93,15 @@ class ProtectionRouteSelectionRuntimeTest {
         val reverse = ProtectionRouteDefinition("test:reverse-first", "test:first-exit", "test:entry", listOf(
             ProtectionRouteTraversal(first, ViewDirection.BA, 0.0, 5.0),
             ProtectionRouteTraversal(trunk, ViewDirection.BA, 5.0, 10.0)))
-        val tableRoutes = listOf(defaultRoute, requestedRoute, reverse)
+        val tableRoutes = listOf(firstRoute, requestedRoute, reverse)
         fun freshRuntime(indicatorOnly: Boolean = false): Pair<SimpleSignalsWorldRuntime, SignalEpochRuntime> {
             val definitions = SimpleSignalsWorldDefinitions(worldId, 1L,
                 listOf(region), listOf(ProtectionRouteTableDefinition("test:table", 1L, region.regionId, 1L,
-                    tableRoutes, listOf(defaultRoute.routeId))),
+                    tableRoutes)),
                 protectionSignals = if (indicatorOnly) emptyList() else listOf(signal),
                 routeIndicators = if (indicatorOnly) listOf(RouteIndicatorDefinition("test:indicator", 1L,
                     "test:entry", "none",
-                    mapOf(defaultRoute.routeId to "first", requestedRoute.routeId to "second"))) else emptyList())
+                    mapOf(firstRoute.routeId to "first", requestedRoute.routeId to "second"))) else emptyList())
             val world = signalWorldRuntime(worldId)
             val initialized = world.initializeDefinitions(loopTopology, definitions)
             assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, initialized.status, initialized.diagnostics.toString())
@@ -130,12 +130,12 @@ class ProtectionRouteSelectionRuntimeTest {
         }
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(initial, 30.0, 30.0)))
         epoch.process(physical(1L, first, 4.0))
-        assertEquals(defaultRoute.routeId, selection(world).routeId)
+        assertEquals(firstRoute.routeId, selection(world).routeId)
         assertEquals(ProtectionRouteSelectionSource.REQUEST, selection(world).source)
 
         // Basic has not published a release-boundary advance: a longer rail/block may remain held.
         epoch.process(physical(2L, first, 6.0, crossedExit = true))
-        assertEquals(ProtectionRouteSelectionSource.DEFAULT, selection(world).source)
+        assertEquals(ProtectionRouteSelectionSource.NONE, selection(world).source)
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(appended, 50.0, 30.0)))
         epoch.process(physical(3L, second, 6.0))
         assertEquals(requestedRoute.routeId, selection(world).routeId)
@@ -164,7 +164,7 @@ class ProtectionRouteSelectionRuntimeTest {
             boundary("test:unrelated-exit", unrelated, 8.0, ViewDirection.BA)))
         val edited = SimpleSignalsWorldDefinitions(worldId, 2L, listOf(region, unrelatedRegion),
             listOf(ProtectionRouteTableDefinition("test:table", 1L, region.regionId, 1L,
-                tableRoutes, listOf(defaultRoute.routeId))), protectionSignals = listOf(signal))
+                tableRoutes)), protectionSignals = listOf(signal))
         val prepared = assertInstanceOf(SimpleSignalsDefinitionPreparationResult.Prepared::class.java,
             sameWorld.prepareDefinitions(loopTopology, edited)).value
         val replacement = SectionOccupancyRuntime.from(prepared.candidatePublication)
@@ -207,17 +207,17 @@ class ProtectionRouteSelectionRuntimeTest {
         indicatorEpoch.process(physical(1L, first, 4.0))
         indicatorEpoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(appended, 50.0, 30.0)))
         indicatorEpoch.process(physical(2L, first, 4.0))
-        assertEquals(defaultRoute.routeId, selection(indicatorWorld).routeId)
+        assertEquals(firstRoute.routeId, selection(indicatorWorld).routeId)
         indicatorEpoch.process(physical(3L, second, 6.0, crossedExit = true))
         assertEquals(requestedRoute.routeId, selection(indicatorWorld).routeId)
         assertFalse(selection(indicatorWorld).routeReady) // Indicators alone still receive route exit events.
     }
 
     @Test
-    fun `request only changes override default and ended request restores default`() {
+    fun `request readiness updates and ended request removes selection`() {
         val (world, epoch) = runtime()
         epoch.process(frame(1, first))
-        assertEquals(ProtectionRouteSelectionSource.DEFAULT, selection(world).source)
+        assertEquals(ProtectionRouteSelectionSource.NONE, selection(world).source)
         val frozen = route(second)
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(frozen, 15.0)))
         epoch.process(frame(2, first))
@@ -234,8 +234,8 @@ class ProtectionRouteSelectionRuntimeTest {
         assertSame(unchanged, world.protectionRouteSelectionSnapshot())
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, null))
         epoch.process(frame(5, first))
-        assertEquals("test:first-route", selection(world).routeId)
-        assertEquals(ProtectionRouteSelectionSource.DEFAULT, selection(world).source)
+        assertNull(selection(world).routeId)
+        assertEquals(ProtectionRouteSelectionSource.NONE, selection(world).source)
     }
 
     @Test
@@ -248,11 +248,11 @@ class ProtectionRouteSelectionRuntimeTest {
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, null))
         epoch.replaceSources(sources)
         epoch.process(frame(2, first))
-        assertEquals(ProtectionRouteSelectionSource.DEFAULT, selection(world).source)
+        assertEquals(ProtectionRouteSelectionSource.NONE, selection(world).source)
     }
 
     @Test
-    fun `request moved to unrelated rail restores default and does not retain entrance membership`() {
+    fun `request moved to unrelated rail removes entrance membership`() {
         val (world, epoch) = runtime()
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route(second), 20.0, 20.0)))
         epoch.process(frame(1, second))
@@ -260,7 +260,7 @@ class ProtectionRouteSelectionRuntimeTest {
             listOf(RouteSegmentSnapshot(UUID(0, 999), ViewDirection.AB, 0.0, 10.0)))
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(unrelated, 10.0, 10.0)))
         epoch.process(frame(2, first))
-        assertEquals(ProtectionRouteSelectionSource.DEFAULT, selection(world).source)
+        assertEquals(ProtectionRouteSelectionSource.NONE, selection(world).source)
         val unchanged = world.protectionRouteSelectionSnapshot()
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, null))
         epoch.process(frame(3, first))
@@ -292,22 +292,22 @@ class ProtectionRouteSelectionRuntimeTest {
     }
 
     @Test
-    fun `unrequested future entry stays default and released past entry stops selecting request`() {
+    fun `unrequested future entry stays empty and released past entry removes request`() {
         val (world, epoch) = runtime()
         val frozen = route(second)
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(frozen, 5.0)))
         epoch.process(frame(1, first))
-        assertEquals(ProtectionRouteSelectionSource.DEFAULT, selection(world).source)
+        assertEquals(ProtectionRouteSelectionSource.NONE, selection(world).source)
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(frozen, 20.0, 20.0)))
         epoch.process(frame(2, second))
         assertEquals(ProtectionRouteSelectionSource.REQUEST, selection(world).source)
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(frozen, 20.0, 20.0, 15.0)))
         epoch.process(frame(3, first))
-        assertEquals(ProtectionRouteSelectionSource.DEFAULT, selection(world).source)
+        assertEquals(ProtectionRouteSelectionSource.NONE, selection(world).source)
     }
 
     @Test
-    fun `conflicting requests and missing train never silently choose default`() {
+    fun `conflicting requests and missing train remain unavailable`() {
         val (world, epoch) = runtime()
         val frozen = route(second)
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(frozen, 20.0, 20.0)))
@@ -354,7 +354,7 @@ class ProtectionRouteSelectionRuntimeTest {
         epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(partial, 8.0, 8.0)))
         epoch.process(frame(1, first))
         assertFalse(selection(world).available)
-        epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, null))
+        epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route(first), 20.0, 20.0)))
         epoch.process(frame(2, first))
         assertTrue(selection(world).routeReady)
         val extra = UUID(0, 905)
@@ -403,7 +403,7 @@ class ProtectionRouteSelectionRuntimeTest {
         val world = signalWorldRuntime(worldId)
         val result = world.initializeDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 1L, listOf(region),
             listOf(ProtectionRouteTableDefinition("test:table", 1L, region.regionId, 1L,
-                listOf(defaultRoute, requestedRoute) + extraRoutes, listOf(defaultRoute.routeId))), blocks))
+                listOf(firstRoute, requestedRoute) + extraRoutes)), blocks))
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, result.status, result.diagnostics.toString())
         val occupancy = world.initializeSectionOccupancy()
         val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {

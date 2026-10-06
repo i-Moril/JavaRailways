@@ -21,6 +21,16 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 ## Requirements
 
+### 信号对照审查后的新决定（2026-10-05）
+
+以下决定取代本文早期的默认进路和共享双向信号结果限制；历史完成记录不代表新行为已经实现。
+
+- 取消默认进路；保护信号只有匹配的有效列车请求已取得授权且实际设备状态正确时才能开放。
+- 保护区域放行前须利用列车长度确认可完整驶出，不能把拥有后继闭塞资源等同于车尾净空。
+- 双向闭塞保持共享资源，但应允许两端按各自后续线路独立计算信号。
+- 按独立、可验证的批次修正，不新增重复扫描、真实铁路全套联锁或运行时旧开发数据兼容。
+  实施顺序与边界见[修正批次](research/signal-comparison-corrections.md)。
+
 ### A. SimpleATO module extraction
 
 - Move the remaining automated operating policy, Destination, Station, Depot, Line, Timetable, rolling-stock assignment, operational route planning, timetable apply state and their persistence into platform-neutral `SimpleATO`.
@@ -107,7 +117,7 @@ defines the implemented flow and its verification boundary.
 - A future Wand can edit per-device offsets, rail coordinates and direction. Changing attachment direction retains offset values and recomputes placement; rotating the model in place preserves its placement point.
 - Models may default to following rail slope/cant and players may override that choice, with world-upright as the fallback. Selecting a preset copies the effective offset, rotation and tilt choice into independent instance parameters. Later preset edits/removal do not move existing devices; adopting new parameters requires explicitly reapplying a preset. Do not add runtime field-inheritance tracking.
 - The approved [model-package format](../../spec/simple-signals/backend/model-packages.md) provides multiple models and local shared parts. Static scenes are named without author time fields; imports merge offsets and Euler angles as train imports do, while explicit containers provide hierarchical assembly. Load and validate the whole package into immutable host values outside the signal tick.
-- All three device kinds use one optional model reference plus rail/ground placement. Backend-only devices need no display position; remove the route indicator's duplicate standalone position. Reuse the current sidecar and authoring transaction, with old/new attachment rails included in the existing edit permit. The user explicitly approved correcting the unpublished schema-1 draft without intermediate versions or old-field aliases; the exact current shape belongs in the model presentation contract.
+- All three device kinds use one optional model reference plus rail/ground placement. Backend-only devices need no display position; remove the route indicator's duplicate standalone position. Reuse the current sidecar and authoring transaction, with old/new attachment rails included in the existing edit permit. The user explicitly approved correcting the earlier unpublished schema-1 model draft without intermediate versions or old-field aliases; the file now uses schema 2 following removal of default routes. The exact current shape belongs in the model presentation contract.
 - Arbitrary model instance parameters such as mast height are deferred. Later they must be separate from signal aspect `modelVariant`; do not reserve empty fields or add parameter evaluation now. Static model IDs can distinguish preconfigured heights in the meantime.
 
 #### Guided authoring and measurement

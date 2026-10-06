@@ -12,6 +12,7 @@ import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.*
 import work.art1st.javarailways.core.api.physics.rail.topology.*
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
+import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.simpleato.api.restriction.*
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.api.inspection.InspectionBindingInput
@@ -71,6 +72,7 @@ class ProtectionSignalDevicesTest {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
         })
         epoch.replaceSources(reloaded.initializeSectionOccupancy().sources)
+        epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(mission(first), 20.0, 20.0)))
         epoch.process(frame(1, first))
         assertEquals(30.0, speed(reloaded, fixed.signalId))
         assertEquals(30.0, speed(reloaded, current.signalId))
@@ -82,15 +84,86 @@ class ProtectionSignalDevicesTest {
     }
 
     @Test
+    fun `aligned protection devices wait for their request floor and end with no route`() {
+        val f = runtime()
+        val route = mission(first)
+        f.epoch.process(frame(1, first))
+        fun speeds(expected: Double) {
+            assertEquals(expected, speed(f.world, fixed.signalId))
+            assertEquals(expected, speed(f.world, current.signalId))
+        }
+        speeds(0.0)
+        assertTrue(f.world.routeIndicatorStates().values.all { it.selection.source == ProtectionRouteSelectionSource.NONE })
+        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 20.0)))
+        f.epoch.process(frame(2, first))
+        speeds(0.0)
+        assertTrue(f.world.routeIndicatorStates().values.all {
+            it.selection.routeId == routeA.routeId && !it.selection.routeReady })
+        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 20.0, 14.0)))
+        f.epoch.process(frame(3, first))
+        speeds(0.0)
+        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 15.0, 15.0)))
+        f.epoch.process(frame(4, first))
+        speeds(30.0)
+        val granted = f.world.protectionRouteSelectionSnapshot()
+        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 20.0, 15.0)))
+        f.epoch.process(frame(5, first))
+        speeds(30.0)
+        assertSame(granted, f.world.protectionRouteSelectionSnapshot(), "farther preparation retains the covered region")
+        f.epoch.process(frame(6, second))
+        speeds(0.0)
+        f.epoch.process(frame(7, first))
+        speeds(30.0)
+        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, null))
+        f.epoch.process(frame(8, first))
+        speeds(0.0)
+        assertTrue(f.world.routeIndicatorStates().values.all {
+            it.selection.source == ProtectionRouteSelectionSource.NONE && it.selection.routeId == null &&
+                it.modelVariant == "opaque/none" })
+    }
+
+    @Test
+    fun `only the requesting train tail exit removes both signal readiness and indicator identity`() {
+        val f = runtime()
+        fun physical(epoch: Long, tail: Double, left: Boolean = false): RailwayWorldFrameSnapshot {
+            val head = RailPositionSnapshot(first, ViewDirection.AB, 6.0)
+            val rear = RailPositionSnapshot(first, ViewDirection.AB, tail)
+            return RailwayWorldFrameSnapshot.create(epoch, topology.revision, listOf(TrainFrameSnapshot.create(
+                "train", "Train", epoch, epoch, 0.0, false, false, emptyList(), head, rear,
+                listOf(RailInterval(first, tail, 6.0)), emptyList(), emptyList(), emptyList(),
+                if (left) listOf(RailTraversalSegmentSnapshot(first, ViewDirection.AB, 4.0, 6.0)) else emptyList()
+            )), ActiveRailContinuationsSnapshot.create(topology.revision, epoch, mapOf(
+                endpoint(trunk, RailEndpoint.B) to endpoint(first, RailEndpoint.A),
+                endpoint(first, RailEndpoint.A) to endpoint(trunk, RailEndpoint.B))))
+        }
+        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(mission(first), 20.0, 20.0)))
+        f.epoch.process(physical(1, 4.0))
+        assertTrue(f.world.routeIndicatorStates().values.all {
+            it.selection.routeId == routeA.routeId && it.selection.routeReady })
+        f.epoch.process(physical(2, 4.0))
+        assertEquals(ProtectionRouteSelectionSource.REQUEST,
+            f.world.protectionRouteSelectionSnapshot()!!.selections.getValue("test:entry").source)
+        f.epoch.process(physical(3, 6.0, left = true))
+        assertEquals(0.0, speed(f.world, fixed.signalId))
+        assertEquals(0.0, speed(f.world, current.signalId))
+        assertTrue(f.world.routeIndicatorStates().values.all {
+            it.selection.source == ProtectionRouteSelectionSource.NONE && it.selection.routeId == null &&
+                it.modelVariant == "opaque/none" })
+        assertEquals(1, f.world.sectionOccupancySnapshot()!!.crossingsBySection.getValue(
+            SectionRef(SectionKind.PROTECTION_ROUTE, routeA.routeId)).size)
+    }
+
+    @Test
     fun `shared-prefix routes compile and fixed binding remains independent during requested selection`() {
         val f = runtime()
         f.epoch.process(frame(1, first))
-        assertEquals(30.0, speed(f.world, fixed.signalId))
-        assertEquals(30.0, speed(f.world, current.signalId))
+        assertEquals(0.0, speed(f.world, fixed.signalId))
+        assertEquals(0.0, speed(f.world, current.signalId))
+        assertTrue(f.world.routeIndicatorStates().values.all { it.modelVariant == "opaque/none" })
         val frozen = mission(second)
         f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(frozen, 20.0)))
         f.epoch.process(frame(2, first))
-        assertEquals(30.0, speed(f.world, fixed.signalId))
+        assertEquals(0.0, speed(f.world, fixed.signalId), "a request for B must not open aligned route A")
         assertEquals(0.0, speed(f.world, current.signalId))
         assertEquals("private/no-route", output(f.world, current.signalId).modelVariant)
         f.world.routeIndicatorStates().values.forEach {
@@ -112,24 +185,23 @@ class ProtectionSignalDevicesTest {
     }
 
     @Test
-    fun `fixed readiness ownership changes wake rules when current selection stays unavailable`() {
+    fun `fixed readiness requires a unique matching owner and recovers after ambiguity ends`() {
         val f = runtime()
+        val matching = admission(mission(first), 20.0, 20.0)
+        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, matching))
         f.epoch.process(frame(1, first))
-        val staleOtherRoute = admission(mission(second), 20.0).copy(trainId = "missing")
-        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, staleOtherRoute))
-        f.epoch.process(frame(2, first))
-        val unchangedSelection = f.world.protectionRouteSelectionSnapshot()
         assertEquals(30.0, speed(f.world, fixed.signalId))
         val other = InfrastructureOwner("test:other", 1)
         f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(other,
-            staleOtherRoute.copy(owner = other)))
-        f.epoch.process(frame(3, first))
-        assertSame(unchangedSelection, f.world.protectionRouteSelectionSnapshot())
+            matching.copy(owner = other)))
+        f.epoch.process(frame(2, first))
         assertEquals(0.0, speed(f.world, fixed.signalId), "ambiguous owners must stop the fixed route")
+        assertEquals(0.0, speed(f.world, current.signalId))
+        assertTrue(f.world.routeIndicatorStates().values.all { !it.selection.available })
         f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(other, null))
-        f.epoch.process(frame(4, first))
-        assertSame(unchangedSelection, f.world.protectionRouteSelectionSnapshot())
+        f.epoch.process(frame(3, first))
         assertEquals(30.0, speed(f.world, fixed.signalId))
+        assertEquals(30.0, speed(f.world, current.signalId))
     }
 
     @Test
@@ -137,11 +209,11 @@ class ProtectionSignalDevicesTest {
         val calls = hashMapOf<String, Int>()
         val f = runtime(calls = calls)
         f.epoch.process(frame(1, first))
-        assertEquals(1, calls[fixed.signalId])
-        assertEquals(1, calls[current.signalId])
+        assertNull(calls[fixed.signalId])
+        assertNull(calls[current.signalId])
         f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(mission(second), 20.0)))
         f.epoch.process(frame(2, first))
-        assertEquals(1, calls[fixed.signalId], "fixed route is unchanged by another requested identity")
+        assertNull(calls[fixed.signalId], "another requested route cannot execute a permissive fixed rule")
         f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(mission(second), 20.0, 20.0)))
         f.epoch.process(frame(3, second))
         val before = calls[current.signalId]
@@ -156,7 +228,7 @@ class ProtectionSignalDevicesTest {
     }
 
     @Test
-    fun `no default matching request stale admission and multiple owners remain stop`() {
+    fun `no request stale admission and multiple owners remain stop`() {
         val f = runtime()
         f.epoch.process(frame(1, second))
         assertEquals(0.0, speed(f.world, current.signalId))
@@ -187,6 +259,7 @@ class ProtectionSignalDevicesTest {
             routeB.routeId to listOf(FixedBlockSignalDependency(signalB.signalId))))
         val calls = hashMapOf<String, Int>()
         val f = runtime(listOf(dependent), listOf(blockA, blockB), listOf(signalA, signalB), calls)
+        f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(mission(first), 20.0, 20.0)))
         f.epoch.process(frame(1, first))
         assertEquals(30.0, speed(f.world, current.signalId))
         val before = calls[current.signalId]
@@ -201,15 +274,15 @@ class ProtectionSignalDevicesTest {
     }
 
     @Test
-    fun `schema one additive fixture defaults and full device round trip are strict`() {
-        val legacy = """{"schemaVersion":1,"worldId":"$worldId","definitionRevision":0,"protectionRegions":[],"protectionRouteTables":[]}"""
-        val empty = SimpleSignalsWorldDefinitionsCodec.decode(legacy, worldId)
+    fun `current schema fixture defaults and full device round trip are strict`() {
+        val fixture = """{"schemaVersion":2,"worldId":"$worldId","definitionRevision":0,"protectionRegions":[],"protectionRouteTables":[]}"""
+        val empty = SimpleSignalsWorldDefinitionsCodec.decode(fixture, worldId)
         assertTrue(empty.protectionSignals.isEmpty())
         assertTrue(empty.routeIndicators.isEmpty())
         val definitions = definitions()
         val encoded = SimpleSignalsWorldDefinitionsCodec.encode(definitions)
         assertEquals(definitions, SimpleSignalsWorldDefinitionsCodec.decode(encoded, worldId))
-        assertTrue(encoded.contains("\"schemaVersion\": 1"))
+        assertTrue(encoded.contains("\"schemaVersion\": 2"))
         assertThrows(IllegalArgumentException::class.java) {
             SimpleSignalsWorldDefinitionsCodec.decode(encoded.replace("FIXED_ROUTE", "UNKNOWN"), worldId)
         }
@@ -263,13 +336,14 @@ class ProtectionSignalDevicesTest {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
         })
         epoch.replaceSources(occupancy.sources)
+        val route = RouteSnapshot("test:reverse-mission", 1, topology.revision, listOf(
+            RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0),
+            RouteSegmentSnapshot(trunk, ViewDirection.BA, 0.0, 10.0)))
+        epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 20.0, 20.0)))
         epoch.process(frame(1, first))
         assertEquals(30.0, speed(world, fixedBackward.signalId))
         epoch.process(frame(2, first, listOf(RailInterval(first, 2.0, 3.0))))
         assertEquals(3.0, speed(world, fixedBackward.signalId))
-        val route = RouteSnapshot("test:reverse-mission", 1, topology.revision, listOf(
-            RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 10.0),
-            RouteSegmentSnapshot(trunk, ViewDirection.BA, 0.0, 10.0)))
         val declaration = world.fixedBlockInspectionSource.bindingProvider.bind(
             InspectionBindingInput(RailwayStateStamp(worldId.toString(), 2, topology.revision), "train", route))
             .declarations.single()
@@ -308,13 +382,20 @@ class ProtectionSignalDevicesTest {
         val world = signalWorldRuntime(worldId)
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
             world.initializeDefinitions(connected, SimpleSignalsWorldDefinitions(worldId, 1, listOf(throat), listOf(
-                ProtectionRouteTableDefinition("test:table", 1, throat.regionId, 1, listOf(upper, lower),
-                    listOf(upper.routeId, lower.routeId))), protectionSignals = listOf(upperSignal, lowerSignal))).status)
+                ProtectionRouteTableDefinition("test:table", 1, throat.regionId, 1, listOf(upper, lower))), protectionSignals = listOf(upperSignal, lowerSignal))).status)
         val occupancy = world.initializeSectionOccupancy()
         val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionPublisher {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
         })
         epoch.replaceSources(occupancy.sources)
+        val upperMission = RouteSnapshot("test:upper-mission", 1, connected.revision,
+            listOf(upperEntry, upperCore, upperExit).map { RouteSegmentSnapshot(it, ViewDirection.AB, 0.0, 10.0) })
+        val lowerMission = RouteSnapshot("test:lower-mission", 1, connected.revision,
+            listOf(lowerEntry, lowerCore, lowerExit).map { RouteSegmentSnapshot(it, ViewDirection.AB, 0.0, 10.0) })
+        epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(upperMission, 30.0, 30.0)))
+        val lowerOwner = InfrastructureOwner("test:lower-owner", 1)
+        epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(lowerOwner,
+            admission(lowerMission, 30.0, 30.0).copy(owner = lowerOwner)))
         val position = RailPositionSnapshot(upperCore, ViewDirection.AB, 2.0)
         val physical = RailwayWorldFrameSnapshot.create(1, connected.revision, listOf(TrainFrameSnapshot.create(
             "train", "Train", 1, 1, 0.0, false, false, emptyList(), position, position,
@@ -354,6 +435,9 @@ class ProtectionSignalDevicesTest {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
         })
         epoch.replaceSources(occupancy.sources)
+        val route = RouteSnapshot("test:next-mission", 1, expanded.revision,
+            listOf(trunk, first, next).map { RouteSegmentSnapshot(it, ViewDirection.AB, 0.0, 10.0) })
+        epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 30.0, 30.0)))
         epoch.process(frame(1, first, additionalSelections = mapOf(
             endpoint(first, RailEndpoint.B) to endpoint(next, RailEndpoint.A))))
         assertEquals(30.0, speed(world, current.signalId))
@@ -402,7 +486,7 @@ class ProtectionSignalDevicesTest {
     private fun definitions(signals: List<ProtectionSignalDefinition> = listOf(fixed, current),
         blocks: List<FixedBlockDefinition> = emptyList(), fixedSignals: List<FixedBlockSignalDefinition> = emptyList()) =
         SimpleSignalsWorldDefinitions(worldId, 1, listOf(region), listOf(ProtectionRouteTableDefinition(
-            "test:table", 1, region.regionId, 1, listOf(routeA, routeB), listOf(routeA.routeId))),
+            "test:table", 1, region.regionId, 1, listOf(routeA, routeB))),
             blocks, fixedSignals, signals, indicators)
 
     private fun signal(id: String, kind: ProtectionSignalKind, binding: String, revision: Long = 1,

@@ -59,23 +59,20 @@ internal data class ProtectionRouteTableDefinition private constructor(
     val revision: Long,
     val regionId: String,
     val regionRevision: Long,
-    val routes: List<ProtectionRouteDefinition>,
-    val defaultRouteIds: List<String>
+    val routes: List<ProtectionRouteDefinition>
 ) {
     constructor(
         tableId: String,
         revision: Long,
         regionId: String,
         regionRevision: Long,
-        routes: Collection<ProtectionRouteDefinition>,
-        defaultRouteIds: Collection<String> = emptyList()
+        routes: Collection<ProtectionRouteDefinition>
     ) : this(
         tableId,
         revision,
         regionId,
         regionRevision,
-        java.util.List.copyOf(routes),
-        java.util.List.copyOf(defaultRouteIds.sorted())
+        java.util.List.copyOf(routes)
     )
 
     init {
@@ -84,11 +81,5 @@ internal data class ProtectionRouteTableDefinition private constructor(
         require(revision >= 0L) { "route-table revision must be non-negative" }
         require(regionRevision >= 0L) { "region revision must be non-negative" }
         require(routes.isNotEmpty()) { "a fixed route table must contain at least one route" }
-        require(defaultRouteIds.all(SIMPLE_SIGNALS_NAMESPACED_ID::matches)) {
-            "default route IDs must be namespaced"
-        }
-        require(defaultRouteIds.distinct().size == defaultRouteIds.size) {
-            "default route IDs must be unique"
-        }
     }
 }

@@ -78,7 +78,7 @@ Basic 方向变化只通知相关轨道；SimpleSignals 通过反向索引重新
 
 ## 10. 存档和待实现项
 
-`bidirectional` 有明确默认值，仍使用 schema 1，无旧格式别名或兼容 reader。
+`bidirectional` 有明确默认值，其引入本身不要求升版。当前sidecar已因删除默认进路字段升为schema 2；无旧格式别名或兼容reader。
 旧配置 `disabled-block-speed-kmh` 和低速策略删除，不保留兼容开关。检查 API 中通用的限速范围能力不因此删除。
 两个入口的显示主从关系不能替代资源互斥；单线多闭塞协调仍列 TODO，不能先用整段独占资源阻止所有同向跟车。
 建造工具见[闭塞与保护区域工具](section-authoring-wands.md)；真实 Folia 显示与大规模性能基准另行验证。

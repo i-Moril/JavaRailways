@@ -18,8 +18,15 @@
   道岔 continuation 与保护进路作为运行期筛选元数据保留；逐分支哈希索引发现回边，仅生成该分支的 `cycle` 叶，
   循环段不进入下游信号依赖集合，兄弟分支继续。编译结果另汇总区间、非循环信号、道岔和保护进路依赖，
   不读取物理 epoch、执行 JS、选择进路或修改世界。聚焦 `SignalObservationPlanTest` 10项通过。
-- [ ] 后续独立实现批次：从真实 world section/topology publication 构造上述连接图，接入同步 signal epoch 的同帧填值、
-  JS 求值、失败收紧和完整 publication；本批没有接入世界设备、模型或插件启动。
+- [x] 从真实 world section/topology publication 构造连接图：复用 exact `TopologyState`、固定闭塞快照、保护区域编译快照、
+  保护进路选择索引和既有 traversal/continuation，不建立第二套物理图。准备时计算普通轨道间距、所有合法道岔分支、
+  保护进路 choice、track-end/route-unresolved/topology-unavailable 及有向环；同入口多逻辑信号和附属显示 root 保持共享。
+  图作为不可变值随完整 runtime publication 安装，普通定义准备与局部拓扑重验失败均保留旧 publication。
+  正长度无区间环只生成命中分支的 `cycle` 叶并保留兄弟分支，零长度环拒绝；未受影响保护进路可在外层 exact-topology
+  index 下跨无关 revision 复用。独立复核修正旧 revision 误拒绝和正长度环整图拒绝；完整 SimpleSignals 486 项测试、
+  Java consumer、插件 JAR 和 diff check 通过。本批不读取 epoch、不执行 JS、不发布规则结果，不改 schema/version。
+- [ ] 后续独立实现批次：接入同步 signal epoch 的同帧填值、JS 求值、失败收紧和完整结果 publication；
+  当前真实静态图已安装，但玩家放置信号尚未使用 JS 规则运行。
 
 本节前四项属于 2026-10-07 的文档收敛提交；随后独立 foundation 提交实现包 catalog、Graal 依赖和 JS runtime，
 仍不修改持久化版本或兼容路径，也不声称树形扫描、world/epoch 接线或游戏内放置已经可用。

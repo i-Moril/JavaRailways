@@ -2,9 +2,10 @@
 
 ## 1. 状态、范围与负责模块
 
-这是分阶段契约。统一信号包解析、独立 GraalJS 执行和不可变树形观察计划编译器已实现（`CURRENT/FOUNDATION`）。
-当前编译器接收低频准备阶段生成的有向区间连接图，按路径展开直线、分支、保护进路和环终止，
-但尚未把真实世界 publication 转成该连接图，也未接入插件启动、世界设备、现有规则图或 signal epoch。
+这是分阶段契约。统一信号包解析、独立 GraalJS 执行、真实 world publication 到有向区间连接图的准备，
+以及不可变树形观察计划编译器均已实现（`CURRENT/FOUNDATION`）。当前实现复用现有固定闭塞、保护区域、
+保护进路和规范化 `TopologyState`，按路径展开直线、分支、保护进路和环终止，但尚未把这些计划接入
+世界设备或 signal epoch。
 物理阶段之后的同步填值和 JS 求值仍是 **TARGET**。除此之外不增加时间、内存、节点、分支或整波预算；包作者负责规则的终止性和成本。
 
 SimpleSignals 负责包加载、脚本执行、前视投影、输出校验和信号结果发布。Basic 仍只负责物理资源校验与仲裁，SimpleATO 仍负责路线前视、资源申请、动态制动和最严格约束合成。JS 不得选路、扳动道岔、授予资源、直接制动列车或修改世界。包分发与玩家可见组合见[统一信号包](model-packages.md#统一信号包model-logic-与公开组合)。
@@ -15,8 +16,8 @@ SimpleSignals 负责包加载、脚本执行、前视投影、输出校验和信
 
 1. 包准备阶段读取 `pack.yml`、模型和逻辑文件，编译 JS，并校验引用、模型外观和逻辑声明。
 2. 拓扑或配置变更后，SimpleSignals 在低频准备阶段从信号入口编译前视计划。计划包含扫描范围内的所有合法后继，以及运行时筛选分支所需的道岔、保护进路和区间身份；它不包含某一 tick 的占用结果。
-   当前 `SignalObservationPlanCompiler` 已完成“有向区间连接图 → 不可变路径树”这一步；从真实世界 section/topology publication
-   构造连接图及其生命周期接线仍在后续批次。
+   当前 `SignalObservationGraphBuilder` 已从同一 `SimpleSignalsRuntimePublication` 的真实 section/topology
+   publication 构造连接图，`SignalObservationPlanCompiler` 再把它变成不可变路径树；signal epoch 的运行填值仍在后续批次。
 3. Core 完成物理 worker 并捕获同一 epoch 的物理观测后，进入已有串行 signal epoch。
 4. SimpleSignals 用该 epoch 的占用、选路、资源准备和设备状态填充前视计划，生成只读树形输入。
 5. JS 在这个信号阶段内同步调用 setter。调用正常返回且输出完整有效后，才构造信号结果。
@@ -49,6 +50,17 @@ SimpleSignals 负责包加载、脚本执行、前视投影、输出校验和信
 编译结果同时保存实际可见的区间、非循环下游信号、道岔入口和保护进路依赖集合，供后续 publication/dirty 索引接线；
 它们只是不可变计划元数据，不读取当前道岔、请求、占用或信号输出。
 
+`SignalObservationGraphBuilder` 不另建物理拓扑。它要求固定闭塞快照、保护区域编译快照和保护进路选择索引都绑定
+同一个 `TopologyState` 对象及定义 publication，然后复用已有 traversal 和 `RequiredActiveContinuation`；普通连接、道岔合法
+连接、确定性 loop anchor 和尽头直接从规范化拓扑读取。区间之间的普通轨道只累计沿轨距离。相同位置只有同一保护入口的
+多条进路可以成为并列候选，其他重叠入口是歧义并拒绝整个候选。一个保护进路可以同时绑定 fixed-route 与 current-entry
+逻辑信号，因此节点保存全部逻辑 signal ID；附属显示器只复用主信号 root，不创建第二个逻辑节点。
+
+构造完成的 `SignalObservationGraphPublication` 与 topology、world definitions 一起作为完整不可变值进入
+`SimpleSignalsRuntimePublication`；普通定义准备和局部拓扑重验都必须在 publication 可见前完成构图。未受影响的保护进路
+对象可以跨无关 topology revision 复用；一致性由外层 `ProtectionRouteSelectionIndex.topology` 的精确对象身份和 authored
+definition 再校验保证，不能错误要求被复用对象内部保存的旧 revision 数字等于新 revision。
+
 ### 环终止
 
 展开某条分支时维护该分支已经经过的有向扫描状态。状态身份至少包含轨道／区间身份、行驶方向、入口边界和已选保护进路上下文；仅用 rail UUID 会把反向经过或不同进路误判为环。当前编译器使用 branch-local state→path-index 表做常数时间回边检查，并把子树发现的最早循环起点沿递归返回，使每个路径 occurrence 最多标记一次；不能在每条回边上重新遍历整个循环段，否则多回边图会退化出 `O(V + E)` 之外的额外开销。若下一个状态已在当前分支出现：
@@ -59,6 +71,10 @@ SimpleSignals 负责包加载、脚本执行、前视投影、输出校验和信
 4. 继续生成其他兄弟分支。
 
 这不是 SCC、fixed-point 或迭代收敛算法。包含环的分支仍可把环之前的物理区间事实交给 JS；回边之后不存在“下一圈”的递归信号输出。为避免 `A -> B -> C -> A` 在同一 signal epoch 中变成求值顺序相关的输出环，编译器把第一次出现到重复状态之间标为该分支的循环段：循环段内的信号 occurrence 不提供本轮或上一轮的 `downstreamSignal`，只提供同 epoch 的物理区间事实和最终 `cycle` 终止原因。环外的无环依赖仍可按既有顺序读取本轮已经确定的下游输出。零长度有向环无法形成有意义的距离边界，应在准备阶段作为非法拓扑／配置拒绝。
+
+真实拓扑扫描还维护 branch-local 的有向 cursor→沿轨距离表。若在遇到下一个区间前回到相同 cursor，正长度的无区间环
+直接成为该分支的 `cycle` 终止，并把相对环起点/环长转换成信号 root 的绝对沿轨距离；兄弟分支继续。只有零长度重复
+cursor 被拒绝，不能把整个正长度环或包含它的包判为非法。
 
 ## 4. JS 输入与输出契约草图
 
@@ -102,6 +118,9 @@ function evaluate(input: SignalInput, output: SignalOutput): void;
 
 所有输入必须来自同一物理 epoch、同一拓扑／定义 revision 和仍有效的世界绑定。拓扑、包或定义替换使对应前视计划失效；旧调用不得覆盖新绑定。完整结果原子发布，消费者不读取半更新状态。
 
+静态观察图使用 topology 与 definitions 的对象身份作为 cache identity，而不是只比较数值 revision。候选构图失败时，
+定义准备失败并保留旧 live publication；局部拓扑重验也必须生成同一新 topology 上的图后才能原子替换派生 publication。
+
 `SignalLogicRuntime(catalog)` 是已实现的 SimpleSignals 私有执行边界，不依赖 BukkitPlugin 私有实现类。它使用
 Graal 24.2.2，共享一个 Engine 和按 logic ID 缓存的 immutable Source；构造时用临时 Context 验证语法和 `evaluate` 入口。
 每次 `evaluate(logicId, JsonElement)` 都创建一个全新 Context/realm，在同一调用栈同步求值，然后在 `finally` 中
@@ -121,6 +140,7 @@ JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／�
 
 - 包、脚本、入口或引用非法：拒绝完整候选，保留旧 live publication；不存在旧候选时该设备不可用。
 - 扫描距离不是有限正数、零长度有向环或计划无法与当前拓扑一致：拒绝准备结果，不安装半张树。
+- catalog/topology 对象不属于同一 publication、区间入口歧义、路径要求冲突的道岔连接或区间几何长度不一致：拒绝候选并保留旧 publication。
 - 自己区间无有效观测、保护入口未 ready、路径未确定或拓扑失效：结果保持停车／不可用，不把未知当空闲。
 - 调用抛错、异步返回或 setter 合同无效：丢弃两个 setter 的全部输出，相关信号为 `Unavailable`、安全速度为 0。
 - 环：不是执行错误；只结束当前分支并把 `cycle` 告诉 JS，兄弟分支照常可见。
@@ -133,7 +153,8 @@ JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／�
 
 ## 7. 性能、复杂度与退化
 
-设一个已编译前视的可见路径出现次数为 `V`、展开边数为 `E`，当前编译器以 branch-local 哈希索引检测环，
+真实图准备只在定义／拓扑候选准备或局部重验中执行；它沿每个可见分支扫描到下一区间、终止点或首个重复 cursor，
+不进入 tick 热路径，也不重新寻路。设一个已编译前视的可见路径出现次数为 `V`、展开边数为 `E`，当前编译器以 branch-local 哈希索引检测环，
 计划编译和不可变视图规模为 `O(V + E)`；汇合的物理节点会按不同到达路径产生独立 occurrence，公开语义始终是路径树。
 运行时填值和 JS 遍历也至少与脚本实际访问的可见节点数成正比。没有“lookup 等于重新寻路”：单个已投影字段访问为 `O(1)`，文件和拓扑搜索不在调用中进行。
 
@@ -156,6 +177,8 @@ JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／�
 ### 环线
 
 若路径为 `A -> B -> C -> A`，从 A 展开到第二次 A 时，该叶为 `cycle` 并停止；B、C 之前的区间事实仍可读取。JS 可以根据终止原因采取自己定义的保守外观。运行时不继续第二圈，不执行 fixed-point，也不把 `cycle` 当作线路尽头。
+若一个道岔分支进入没有任何区间边界的正长度环，真实拓扑扫描在第一次回到相同有向 cursor 时生成同样的 `cycle` 叶；
+另一条通往正常尽头或区间的道岔分支不受影响。
 
 ## 9. 必需测试与断言点
 
@@ -166,15 +189,16 @@ JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／�
 - 保护区域与普通闭塞使用同一树节点语义；保护分支保留入口和进路身份，未知进路不能成为空数组或线路尽头。计划编译已覆盖静态结构，运行期 `routeReady` 待接线。
 - `A -> B -> C -> A` 只在当前分支终止，原因是 `cycle`，兄弟分支继续；环检测区分方向、入口和保护进路上下文。计划编译已覆盖。
 - 环回边不建立递归下游输出依赖；循环段内不暴露本轮或上一轮下游输出，改变规则求值顺序不改变输入；零长度环在准备阶段拒绝，旧 publication 保持不变。计划编译已生成相应依赖集合；publication 原子保留由后续接线批次验证。
+- 真实 catalog/topology 组合覆盖双向闭塞、普通轨道间距、保护进路分支、道岔 continuation、同入口多逻辑信号、附属显示 root、不可用区域、歧义入口保留旧 publication、跨 revision 保留未受影响进路，以及正长度无区间环只终止命中分支。
 - setter 缺失、重复、非法速度、未知外观和异常都原子失败并收紧到 0；显示失败不扩大许可。
 - 同一逻辑的多个显示器不增加求值次数；无关变化不求值，字段访问不触发拓扑寻路或文件读取。
 - 用真实 GraalJS 和代表性大分支包记录耗时与分配量，作为作者调优证据；测试不据此加入隐藏预算。
 
 ## 10. 迁移、实施顺序与错误做法
 
-第一批新信号包发现、两阶段引用解析和 GraalJS 最小受限执行已经完成。第二批已实现独立的有向区间图到
-不可变观察树的编译、逐分支距离、保护进路元数据和环终止；它尚不等于真实世界已接线。
-下一批从当前 world publication 构造连接图并接入 signal epoch 的同步填值、JS 求值和模型显示。每批独立测试、提交并等待审查。
+第一批新信号包发现、两阶段引用解析和 GraalJS 最小受限执行已经完成。第二批实现有向区间图到不可变观察树的
+编译；第三批已从当前 world publication 构造真实连接图，并把完整图绑定到定义准备和局部拓扑重验 publication。
+下一批只接入 signal epoch 的同步填值、JS 求值和结果发布。每批独立测试、提交并等待审查。
 
 仍待实现批次决定但不改变本契约的问题：树形 Kotlin／JS 字段名、错误诊断载荷、模型 variant 联合校验、世界绑定和
 热重载命令。它们不能被用来重新加入预算、退化成扁平活动路径或把脚本移出同步信号阶段。

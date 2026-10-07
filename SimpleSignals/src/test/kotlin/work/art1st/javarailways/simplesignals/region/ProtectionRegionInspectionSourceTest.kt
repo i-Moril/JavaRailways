@@ -2,6 +2,7 @@ package work.art1st.javarailways.simplesignals.region
 
 import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
 import work.art1st.javarailways.simplesignals.testing.fixedBlockPolicy
+import work.art1st.javarailways.simplesignals.testing.authoredDirectionPolicy
 
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -358,7 +359,7 @@ class ProtectionRegionInspectionSourceTest {
         )
 
         assertThrows(IllegalStateException::class.java) {
-            source(listOf(first, second)).bindingProvider.bind(
+            sourceWithInconsistentBlocks(listOf(first, second)).bindingProvider.bind(
                 InspectionBindingInput(stamp, "train", forwardRoute())
             )
         }
@@ -416,9 +417,12 @@ class ProtectionRegionInspectionSourceTest {
             FixedBlockDefinition(id, 1L, listOf(FixedBlockTraversal(east, ViewDirection.AB, 5.0, 10.0)))
         }
         val failure = assertThrows(IllegalStateException::class.java) {
-            source(blocks).routeInfrastructureDependencies.dependencies(forwardRoute())
+            sourceWithInconsistentBlocks(blocks).routeInfrastructureDependencies.dependencies(forwardRoute())
         }
-        assertTrue(failure.message!!.contains("multiple fixed-block successors"))
+        assertTrue(
+            failure.message!!.contains("multiple fixed-block successors"),
+            failure.message
+        )
     }
 
     @Test
@@ -461,6 +465,28 @@ class ProtectionRegionInspectionSourceTest {
     private fun source(blocks: Collection<FixedBlockDefinition> = emptyList()) =
         ProtectionRegionInspectionSource { publication(blocks) }.source
 
+    /**
+     * These defensive-source tests deliberately bypass the normal definition transaction, which
+     * now rejects ambiguous section entries while compiling the observation graph.
+     */
+    private fun sourceWithInconsistentBlocks(blocks: Collection<FixedBlockDefinition>): InspectionSource {
+        val captured = publication()
+        val catalog = fixedBlockCatalog(captured.definitions.definitionRevision, blocks)
+        val inconsistent = SimpleSignalsRuntimePublication(
+            captured.topology,
+            captured.definitions,
+            captured.regions,
+            captured.routeTables,
+            captured.routeSelection,
+            catalog,
+            captured.fixedBlockSignals,
+            captured.protectionSignals,
+            captured.signalObservationGraph,
+            directionPolicy = authoredDirectionPolicy { catalog.snapshot(captured.topology) }
+        )
+        return ProtectionRegionInspectionSource { inconsistent }.source
+    }
+
     private fun publication(
         blocks: Collection<FixedBlockDefinition> = emptyList(),
         regions: List<ProtectionRegionDefinition> = listOf(region()),
@@ -478,7 +504,8 @@ class ProtectionRegionInspectionSourceTest {
 
     private fun withBlocks(captured: SimpleSignalsRuntimePublication, blocks: FixedBlockCatalog) =
         SimpleSignalsRuntimePublication(captured.topology, captured.definitions, captured.regions,
-            captured.routeTables, captured.routeSelection, blocks, captured.fixedBlockSignals, captured.protectionSignals)
+            captured.routeTables, captured.routeSelection, blocks, captured.fixedBlockSignals, captured.protectionSignals,
+            captured.signalObservationGraph)
 
     private fun fixedBlockCatalog(
         definitionRevision: Long,

@@ -81,13 +81,39 @@ internal data class ProtectionRouteChoice(val entryBoundaryId: String, val route
 
 /** A prepared graph edge. [distanceMeters] is unsectioned track between both section boundaries. */
 internal data class SignalObservationContinuation(
-    val target: SignalObservationScanState,
+    val target: SignalObservationScanState?,
     val distanceMeters: Double = 0.0,
-    val requirements: SignalObservationBranchRequirements = SignalObservationBranchRequirements()
+    val requirements: SignalObservationBranchRequirements = SignalObservationBranchRequirements(),
+    val terminalReason: SignalObservationEndReason? = null,
+    /** Relative to the source section's exit, only for an unsectioned [SignalObservationEndReason.CYCLE]. */
+    val cycleStartDistanceMeters: Double? = null,
+    val cycleLengthMeters: Double? = null
 ) {
     init {
         require(distanceMeters.isFinite() && distanceMeters >= 0.0) {
             "signal observation continuation distance must be finite and non-negative"
+        }
+        require((target == null) != (terminalReason == null)) {
+            "a signal observation continuation must have exactly one target or terminal reason"
+        }
+        require(terminalReason != SignalObservationEndReason.DISTANCE_LIMIT) {
+            "distance termination is derived by the plan compiler"
+        }
+        require((terminalReason == SignalObservationEndReason.CYCLE) ==
+            (cycleStartDistanceMeters != null && cycleLengthMeters != null)
+        ) { "only an unsectioned cycle continuation may contain complete cycle metrics" }
+        cycleStartDistanceMeters?.let {
+            require(it.isFinite() && it >= 0.0 && it <= distanceMeters) {
+                "unsectioned cycle start distance must lie on its continuation"
+            }
+        }
+        cycleLengthMeters?.let {
+            require(it.isFinite() && it > 0.0) {
+                "unsectioned directed cycles must have positive length"
+            }
+            require(kotlin.math.abs(checkNotNull(cycleStartDistanceMeters) + it - distanceMeters) <=
+                work.art1st.javarailways.core.api.physics.curve.Curve.TOLERANCE
+            ) { "unsectioned cycle metrics must end at the continuation termination" }
         }
     }
 }
@@ -112,16 +138,19 @@ internal class SignalObservationGraphNode(
     val lengthMeters: Double,
     val signalId: String? = null,
     continuations: Collection<SignalObservationContinuation> = emptyList(),
-    val terminalReason: SignalObservationEndReason? = null
+    val terminalReason: SignalObservationEndReason? = null,
+    additionalSignalIds: Collection<String> = emptyList()
 ) {
     val continuations: List<SignalObservationContinuation> = java.util.List.copyOf(continuations)
+    /** Every logical signal at this directed entry; attached displays are resolved separately. */
+    val signalIds: Set<String> = immutableSet(listOfNotNull(signalId) + additionalSignalIds)
 
     init {
         require(lengthMeters.isFinite() && lengthMeters > 0.0) {
             "signal observation section length must be finite and positive"
         }
-        require(signalId == null || SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalId)) {
-            "signal observation signal ID must be namespaced"
+        require(signalIds.all(SIMPLE_SIGNALS_NAMESPACED_ID::matches)) {
+            "signal observation signal IDs must be namespaced"
         }
         require(terminalReason != SignalObservationEndReason.DISTANCE_LIMIT &&
             terminalReason != SignalObservationEndReason.CYCLE
@@ -149,11 +178,13 @@ internal class SignalObservationGraph(nodes: Collection<SignalObservationGraphNo
         val states = ordered.keys
         ordered.values.forEach { node ->
             node.continuations.forEach { continuation ->
-                require(continuation.target in states) {
-                    "signal observation continuation targets unknown state ${continuation.target}"
+                continuation.target?.let { target ->
+                    require(target in states) {
+                        "signal observation continuation targets unknown state $target"
+                    }
                 }
                 continuation.requirements.protectionRoute?.let { route ->
-                    val target = ordered.getValue(continuation.target).state
+                    val target = ordered.getValue(checkNotNull(continuation.target)).state
                     require(target.section.kind == SectionKind.PROTECTION_ROUTE &&
                         target.entryBoundaryId == route.entryBoundaryId &&
                         target.protectionRouteId == route.routeId
@@ -189,10 +220,12 @@ internal class SignalObservationPlanNode internal constructor(
     val distanceMeters: Double,
     val lengthMeters: Double,
     val signalId: String?,
+    signalIds: Collection<String>,
     val exposesDownstreamSignal: Boolean,
     branches: Collection<SignalObservationPlanBranch>,
     val termination: SignalObservationTermination?
 ) {
+    val signalIds: Set<String> = immutableSet(signalIds)
     val branches: List<SignalObservationPlanBranch> = java.util.List.copyOf(branches)
 }
 
@@ -302,7 +335,24 @@ internal object SignalObservationPlanCompiler {
                     )
                     return@forEach
                 }
-                val repeatedAt = pathIndexes[continuation.target]
+                continuation.terminalReason?.let { reason ->
+                    node.branches += MutablePlanBranch(
+                        continuation.requirements,
+                        termination = if (reason == SignalObservationEndReason.CYCLE) {
+                            SignalObservationTermination(
+                                reason,
+                                nextDistance,
+                                sectionEnd + checkNotNull(continuation.cycleStartDistanceMeters),
+                                checkNotNull(continuation.cycleLengthMeters)
+                            )
+                        } else {
+                            SignalObservationTermination(reason, nextDistance)
+                        }
+                    )
+                    return@forEach
+                }
+                val target = checkNotNull(continuation.target)
+                val repeatedAt = pathIndexes[target]
                 if (repeatedAt != null) {
                     val cycleStart = path[repeatedAt].distanceMeters
                     val cycleLength = nextDistance - cycleStart
@@ -310,7 +360,7 @@ internal object SignalObservationPlanCompiler {
                         "signal observation contains a zero-length directed cycle"
                     }
                     earliestCycleStartIndex = minOf(earliestCycleStartIndex ?: repeatedAt, repeatedAt)
-                    val repeated = MutablePlanNode(graph.nodesByState.getValue(continuation.target), nextDistance).also {
+                    val repeated = MutablePlanNode(graph.nodesByState.getValue(target), nextDistance).also {
                         it.exposesDownstreamSignal = false
                         it.termination = SignalObservationTermination(
                             SignalObservationEndReason.CYCLE,
@@ -323,7 +373,7 @@ internal object SignalObservationPlanCompiler {
                 } else {
                     val expansion = expand(
                         graph,
-                        continuation.target,
+                        target,
                         nextDistance,
                         maximumDistanceMeters,
                         path,
@@ -356,6 +406,7 @@ internal object SignalObservationPlanCompiler {
         node.distanceMeters,
         node.source.lengthMeters,
         node.source.signalId,
+        node.source.signalIds,
         node.exposesDownstreamSignal,
         node.branches.map { branch ->
             SignalObservationPlanBranch(
@@ -376,7 +427,7 @@ internal object SignalObservationPlanCompiler {
         routes: MutableSet<ProtectionRouteChoice>
     ) {
         sections += node.state.section
-        if (!root && node.exposesDownstreamSignal) node.signalId?.let(signals::add)
+        if (!root && node.exposesDownstreamSignal) signals.addAll(node.signalIds)
         node.branches.forEach { branch ->
             branch.requirements.requiredContinuations.mapTo(entries, RequiredActiveContinuation::entry)
             branch.requirements.protectionRoute?.let(routes::add)

@@ -227,6 +227,14 @@ class SignalObservationPlanTest {
         assertThrows(IllegalArgumentException::class.java) {
             SignalObservationPlanCompiler.compile(graph, missing, 10.0)
         }
+        assertThrows(IllegalArgumentException::class.java) {
+            SignalObservationContinuation(
+                target = null,
+                terminalReason = SignalObservationEndReason.CYCLE,
+                cycleStartDistanceMeters = 0.0,
+                cycleLengthMeters = 0.0
+            )
+        }
     }
 
     @Test

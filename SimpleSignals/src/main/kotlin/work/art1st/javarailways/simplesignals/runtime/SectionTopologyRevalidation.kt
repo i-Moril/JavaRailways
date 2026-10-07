@@ -17,6 +17,7 @@ import work.art1st.javarailways.simplesignals.route.DirectedRouteProjectionResul
 import work.art1st.javarailways.simplesignals.route.DirectedRouteProjector
 import work.art1st.javarailways.simplesignals.signal.CompiledProtectionSignals
 import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionIndex
+import work.art1st.javarailways.simplesignals.signalpack.SignalObservationGraphBuilder
 import java.util.UUID
 
 internal enum class TopologySectionKind { BLOCK, REGION, SIGNAL }
@@ -299,8 +300,16 @@ internal object SectionTopologyRevalidation {
             blockCatalog.snapshot(topology), definitions.fixedBlockSignals, definitions.protectionSignals,
             definitions.routeIndicators, definitions.routeTables, previous.fixedBlockSignals to previous.protectionSignals,
             affectedSignals, revalidatingTopology = true)
+        val observationGraph = SignalObservationGraphBuilder.compile(
+            topology,
+            definitions,
+            blockCatalog.snapshot(topology),
+            checkNotNull(regionCatalog.compilationSnapshot()),
+            selection,
+            tables.unavailableRegionIds()
+        )
         return SimpleSignalsRuntimePublication(topology, definitions, regionCatalog, tables, selection, blockCatalog,
-            signals.first, signals.second, previous, previous.directionPolicy).also {
+            signals.first, signals.second, observationGraph, previous, previous.directionPolicy).also {
             it.topologyIndex = SectionTopologyIndex(it, view.index, extraDependencies)
             it.topologyGuard = previous.topologyGuard
         }

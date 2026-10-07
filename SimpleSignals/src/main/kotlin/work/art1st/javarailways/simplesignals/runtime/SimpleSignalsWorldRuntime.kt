@@ -45,6 +45,8 @@ import work.art1st.javarailways.simplesignals.presentation.PreparedSignalModels
 import work.art1st.javarailways.simplesignals.presentation.SignalModelBinding
 import work.art1st.javarailways.simplesignals.presentation.SignalModelHandles
 import work.art1st.javarailways.simplesignals.presentation.SimpleSignalsModelPackages
+import work.art1st.javarailways.simplesignals.signalpack.SignalObservationGraphBuilder
+import work.art1st.javarailways.simplesignals.signalpack.SignalObservationGraphPublication
 import work.art1st.javarailways.bukkit.api.model.ModelPresentationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import java.nio.file.Path
@@ -173,6 +175,7 @@ internal class SimpleSignalsRuntimePublication(
     val fixedBlocks: FixedBlockCatalog,
     val fixedBlockSignals: CompiledFixedBlockSignals,
     val protectionSignals: CompiledProtectionSignals,
+    val signalObservationGraph: SignalObservationGraphPublication,
     previous: SimpleSignalsRuntimePublication? = null,
     val directionPolicy: work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy = work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy()
 ) {
@@ -610,6 +613,20 @@ internal class SimpleSignalsWorldRuntime(
             return@synchronized preparationRejected(diagnostic)
         }
 
+        val candidateObservationGraph = try {
+            SignalObservationGraphBuilder.compile(
+                topology,
+                copiedDefinitions,
+                candidateBlocks.snapshot(topology),
+                checkNotNull(candidateRegions.compilationSnapshot()),
+                candidateRouteSelection,
+                candidateTables.unavailableRegionIds()
+            )
+        } catch (failure: IllegalArgumentException) {
+            return@synchronized preparationRejected(
+                failure.message ?: "signal observation graph could not be compiled"
+            )
+        }
         val candidate = SimpleSignalsRuntimePublication(
             topology,
             copiedDefinitions,
@@ -619,6 +636,7 @@ internal class SimpleSignalsWorldRuntime(
             candidateBlocks,
             candidateSignals,
             candidateProtectionSignals,
+            candidateObservationGraph,
             current,
             directionPolicy
         )

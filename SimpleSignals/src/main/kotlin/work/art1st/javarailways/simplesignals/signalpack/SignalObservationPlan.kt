@@ -136,21 +136,21 @@ internal enum class SignalObservationEndReason {
 internal class SignalObservationGraphNode(
     val state: SignalObservationScanState,
     val lengthMeters: Double,
-    val signalId: String? = null,
+    val deviceId: String? = null,
     continuations: Collection<SignalObservationContinuation> = emptyList(),
     val terminalReason: SignalObservationEndReason? = null,
-    additionalSignalIds: Collection<String> = emptyList()
+    additionalDeviceIds: Collection<String> = emptyList()
 ) {
     val continuations: List<SignalObservationContinuation> = java.util.List.copyOf(continuations)
     /** Every logical signal at this directed entry; attached displays are resolved separately. */
-    val signalIds: Set<String> = immutableSet(listOfNotNull(signalId) + additionalSignalIds)
+    val deviceIds: Set<String> = immutableSet(listOfNotNull(deviceId) + additionalDeviceIds)
 
     init {
         require(lengthMeters.isFinite() && lengthMeters > 0.0) {
             "signal observation section length must be finite and positive"
         }
-        require(signalIds.all(SIMPLE_SIGNALS_NAMESPACED_ID::matches)) {
-            "signal observation signal IDs must be namespaced"
+        require(deviceIds.all(SIMPLE_SIGNALS_NAMESPACED_ID::matches)) {
+            "signal observation device IDs must be namespaced"
         }
         require(terminalReason != SignalObservationEndReason.DISTANCE_LIMIT &&
             terminalReason != SignalObservationEndReason.CYCLE
@@ -219,13 +219,13 @@ internal class SignalObservationPlanNode internal constructor(
     val state: SignalObservationScanState,
     val distanceMeters: Double,
     val lengthMeters: Double,
-    val signalId: String?,
-    signalIds: Collection<String>,
+    val deviceId: String?,
+    deviceIds: Collection<String>,
     val exposesDownstreamSignal: Boolean,
     branches: Collection<SignalObservationPlanBranch>,
     val termination: SignalObservationTermination?
 ) {
-    val signalIds: Set<String> = immutableSet(signalIds)
+    val deviceIds: Set<String> = immutableSet(deviceIds)
     val branches: List<SignalObservationPlanBranch> = java.util.List.copyOf(branches)
 }
 
@@ -246,12 +246,12 @@ internal class SignalObservationPlan internal constructor(
     val maximumDistanceMeters: Double,
     val root: SignalObservationPlanNode,
     observedSections: Collection<SectionRef>,
-    downstreamSignalIds: Collection<String>,
+    downstreamDeviceIds: Collection<String>,
     watchedContinuationEntries: Collection<RailEndpointRef>,
     protectionRoutes: Collection<ProtectionRouteChoice>
 ) {
     val observedSections: Set<SectionRef> = immutableSet(observedSections)
-    val downstreamSignalIds: Set<String> = immutableSet(downstreamSignalIds)
+    val downstreamDeviceIds: Set<String> = immutableSet(downstreamDeviceIds)
     val watchedContinuationEntries: Set<RailEndpointRef> = immutableSet(watchedContinuationEntries)
     val protectionRoutes: Set<ProtectionRouteChoice> = immutableSet(protectionRoutes)
 }
@@ -405,8 +405,8 @@ internal object SignalObservationPlanCompiler {
         node.source.state,
         node.distanceMeters,
         node.source.lengthMeters,
-        node.source.signalId,
-        node.source.signalIds,
+        node.source.deviceId,
+        node.source.deviceIds,
         node.exposesDownstreamSignal,
         node.branches.map { branch ->
             SignalObservationPlanBranch(
@@ -427,7 +427,7 @@ internal object SignalObservationPlanCompiler {
         routes: MutableSet<ProtectionRouteChoice>
     ) {
         sections += node.state.section
-        if (!root && node.exposesDownstreamSignal) signals.addAll(node.signalIds)
+        if (!root && node.exposesDownstreamSignal) signals.addAll(node.deviceIds)
         node.branches.forEach { branch ->
             branch.requirements.requiredContinuations.mapTo(entries, RequiredActiveContinuation::entry)
             branch.requirements.protectionRoute?.let(routes::add)

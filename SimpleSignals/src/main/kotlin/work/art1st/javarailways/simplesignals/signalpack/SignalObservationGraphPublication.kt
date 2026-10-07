@@ -38,13 +38,13 @@ internal class SignalObservationGraphPublication internal constructor(
     val topology: TopologyState,
     val definitions: SimpleSignalsWorldDefinitions,
     val graph: SignalObservationGraph,
-    logicalRootsBySignalId: Map<String, List<SignalObservationRoot>>,
-    deviceRootsBySignalId: Map<String, List<SignalObservationRoot>>
+    logicalRootsByDeviceId: Map<String, List<SignalObservationRoot>>,
+    rootsByDeviceId: Map<String, List<SignalObservationRoot>>
 ) {
     val definitionRevision: Long get() = definitions.definitionRevision
-    val logicalRootsBySignalId: Map<String, List<SignalObservationRoot>> = immutableRootMap(logicalRootsBySignalId)
+    val logicalRootsByDeviceId: Map<String, List<SignalObservationRoot>> = immutableRootMap(logicalRootsByDeviceId)
     /** Includes attached display identities, which reuse their primary logical signal's roots. */
-    val deviceRootsBySignalId: Map<String, List<SignalObservationRoot>> = immutableRootMap(deviceRootsBySignalId)
+    val rootsByDeviceId: Map<String, List<SignalObservationRoot>> = immutableRootMap(rootsByDeviceId)
 
     fun isFor(topology: TopologyState, definitions: SimpleSignalsWorldDefinitions): Boolean =
         this.topology === topology && this.definitions === definitions
@@ -134,7 +134,7 @@ internal object SignalObservationGraphBuilder {
         val entries = EntryIndex(targets)
 
         val nodes = sections.values.sortedBy { it.state }.map { section ->
-            val signalIds = logicalStates.entries.asSequence().filter { section.state in it.value }
+            val deviceIds = logicalStates.entries.asSequence().filter { section.state in it.value }
                 .map { it.key }.sorted().toList()
             val terminal = if (section.unavailable) SignalObservationEndReason.TOPOLOGY_UNAVAILABLE else null
             val continuations = if (terminal == null) {
@@ -145,10 +145,10 @@ internal object SignalObservationGraphBuilder {
             SignalObservationGraphNode(
                 section.state,
                 section.lengthMeters,
-                signalIds.firstOrNull(),
+                deviceIds.firstOrNull(),
                 continuations,
                 terminal,
-                signalIds.drop(1)
+                deviceIds.drop(1)
             )
         }
         val graph = SignalObservationGraph(nodes)

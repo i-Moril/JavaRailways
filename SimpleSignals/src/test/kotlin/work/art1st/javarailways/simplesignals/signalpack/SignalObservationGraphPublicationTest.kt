@@ -88,11 +88,11 @@ class SignalObservationGraphPublicationTest {
         assertTrue(observation.isFor(publication.topology, publication.definitions))
         assertSame(publication.topology, observation.topology)
         assertSame(publication.definitions, observation.definitions)
-        assertEquals(observation.logicalRootsBySignalId.getValue(forward.signalId),
-            observation.deviceRootsBySignalId.getValue(attached.signalId))
+        assertEquals(observation.logicalRootsByDeviceId.getValue(forward.signalId),
+            observation.rootsByDeviceId.getValue(attached.signalId))
 
-        val forwardState = observation.logicalRootsBySignalId.getValue(forward.signalId).single().state
-        val reverseState = observation.logicalRootsBySignalId.getValue(reverse.signalId).single().state
+        val forwardState = observation.logicalRootsByDeviceId.getValue(forward.signalId).single().state
+        val reverseState = observation.logicalRootsByDeviceId.getValue(reverse.signalId).single().state
         assertEquals(ViewDirection.AB, forwardState.direction)
         assertEquals(ViewDirection.BA, reverseState.direction)
         assertEquals("test:first/entry", forwardState.entryBoundaryId)
@@ -154,7 +154,7 @@ class SignalObservationGraphPublicationTest {
         val result = world.initializeDefinitions(topology, definitions)
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, result.status, result.diagnostics.toString())
         val observation = world.authoringPublication().signalObservationGraph
-        val approachRoot = observation.logicalRootsBySignalId.getValue(approachSignal.signalId).single().state
+        val approachRoot = observation.logicalRootsByDeviceId.getValue(approachSignal.signalId).single().state
         val branches = observation.graph.nodesByState.getValue(approachRoot).continuations
         assertEquals(2, branches.size)
         assertTrue(branches.all { it.distanceMeters == 1.0 })
@@ -163,10 +163,10 @@ class SignalObservationGraphPublicationTest {
         assertTrue(branches.all { branch ->
             branch.requirements.requiredContinuations.single().entry == endpoint(trunk, RailEndpoint.B)
         })
-        assertEquals(2, observation.logicalRootsBySignalId.getValue(current.signalId).size)
+        assertEquals(2, observation.logicalRootsByDeviceId.getValue(current.signalId).size)
         val leftState = branches.single { it.requirements.protectionRoute!!.routeId == leftRoute.routeId }.target!!
         assertEquals(setOf(current.signalId, fixed.signalId),
-            observation.graph.nodesByState.getValue(leftState).signalIds)
+            observation.graph.nodesByState.getValue(leftState).deviceIds)
 
         val plan = SignalObservationPlanCompiler.compile(observation.graph, approachRoot, 30.0)
         assertEquals(2, plan.root.branches.size)
@@ -239,7 +239,7 @@ class SignalObservationGraphPublicationTest {
 
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, result.status, result.diagnostics.toString())
         val observation = world.authoringPublication().signalObservationGraph
-        val root = observation.logicalRootsBySignalId.getValue(signal.signalId).single().state
+        val root = observation.logicalRootsByDeviceId.getValue(signal.signalId).single().state
         val terminal = observation.graph.nodesByState.getValue(root).continuations.single()
         assertEquals(SignalObservationEndReason.TOPOLOGY_UNAVAILABLE, terminal.terminalReason)
         assertEquals(1.0, terminal.distanceMeters)
@@ -311,7 +311,7 @@ class SignalObservationGraphPublicationTest {
             SimpleSignalsWorldDefinitions(worldId, 1, emptyList(), emptyList(), listOf(block), listOf(signal)))
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, result.status, result.diagnostics.toString())
         val observation = world.authoringPublication().signalObservationGraph
-        val root = observation.logicalRootsBySignalId.getValue(signal.signalId).single().state
+        val root = observation.logicalRootsByDeviceId.getValue(signal.signalId).single().state
         val graphBranches = observation.graph.nodesByState.getValue(root).continuations
         assertTrue(graphBranches.any { it.terminalReason == SignalObservationEndReason.CYCLE })
         assertTrue(graphBranches.any { it.terminalReason == SignalObservationEndReason.TRACK_END })

@@ -11,8 +11,8 @@
   parts/inline/import、场景、variant 和 placement 编译。统一包同包 model import 只导入 identity-grouped parts，
   不继承目标 default/variants/placement；循环、缺失引用、非法 variant、不可变结果与捕获后不重读均有聚焦测试。
   Car/Rail 专用包未迁移；生产启动、世界绑定和 signal epoch 不在本提交。
-- [ ] 后续生产绑定必须显式区分 package `signalId` 与当前世界定义中表示已放置逻辑节点的 `signalId`；
-  应先把后者语义清晰化为 `deviceId` 或增加显式类型引用，不得按同名隐式绑定。本批不改世界 schema、启动或 signal epoch。
+- [x] signal epoch 内存绑定已显式区分 package `signalId` 与已放置逻辑 `deviceId`；observation publication/plan
+  也使用 device 语义命名，不按同名、模型或路径猜绑定。本批保持世界 schema 1 不变；持久化类型引用和启动 catalog 后续单列。
 
 ## 2026-10-07 JS 包与树形前视决策收敛（本提交仅文档）
 
@@ -39,8 +39,16 @@
   正长度无区间环只生成命中分支的 `cycle` 叶并保留兄弟分支，零长度环拒绝；未受影响保护进路可在外层 exact-topology
   index 下跨无关 revision 复用。独立复核修正旧 revision 误拒绝和正长度环整图拒绝；完整 SimpleSignals 486 项测试、
   Java consumer、插件 JAR 和 diff check 通过。本批不读取 epoch、不执行 JS、不发布规则结果，不改 schema/version。
-- [ ] 后续独立实现批次：接入同步 signal epoch 的同帧填值、JS 求值、失败收紧和完整结果 publication；
-  当前真实静态图已安装，但玩家放置信号尚未使用 JS 规则运行。
+- [x] 将显式内存绑定接入既有同步 signal epoch：同帧占用／道岔／保护进路事实投影为树形 JSON，按非循环下游依赖
+  顺序每设备至多求值一次；完整 setter 结果及 model variant 校验后原子替换快照，异常／未知 variant／不可用物理状态收紧为0，
+  不保留上一 epoch 的许可。既有 Kotlin provider 仍作为未绑定设备的默认实现，附属显示继续读取主设备同一结果。
+  过渡期调度只允许 JS 设备读取先完成的 Kotlin 下游；若未绑定 Kotlin 消费者位于 JS 替换设备上游，低频编译按传递
+  consumer 闭包拒绝该绑定，避免同 epoch 读到被随后覆盖的旧实现结果。已绑定设备仍会产生一次既有 Kotlin 基线开销，
+  本批不扩成第二个或统一调度器；没有第二次世界／拓扑扫描。
+  离线功能门禁中的 Graal 调用不是吞吐／延迟基准；fresh Context、树投影和过渡期重复 Kotlin 求值的生产规模成本
+  仍待代表性包基准及在线观测，不能据单元测试通过宣称 tick 性能已验收。
+- [ ] 后续独立实现批次：把 package signal 类型引用加入尚未发布的世界 current model并接入插件启动 catalog；
+  当前不从旧 `signalId`、modelId 或文件路径猜测绑定，不改 schema version，也不声称玩家已能在游戏中选择新类型。
 
 本节前四项属于 2026-10-07 的文档收敛提交；随后独立 foundation 提交实现包 catalog、Graal 依赖和 JS runtime，
 仍不修改持久化版本或兼容路径，也不声称树形扫描、world/epoch 接线或游戏内放置已经可用。

@@ -2,11 +2,11 @@
 
 ## 1. 状态、范围与负责模块
 
-这是分阶段契约。统一信号包解析、独立 GraalJS 执行、真实 world publication 到有向区间连接图的准备，
-以及不可变树形观察计划编译器均已实现（`CURRENT/FOUNDATION`）。当前实现复用现有固定闭塞、保护区域、
-保护进路和规范化 `TopologyState`，按路径展开直线、分支、保护进路和环终止，但尚未把这些计划接入
-世界设备或 signal epoch。
-物理阶段之后的同步填值和 JS 求值仍是 **TARGET**。除此之外不增加时间、内存、节点、分支或整波预算；包作者负责规则的终止性和成本。
+这是分阶段契约。统一信号包解析、独立 GraalJS 执行、真实 world publication 到有向区间连接图的准备、
+不可变树形观察计划编译器，以及显式内存设备绑定后的同步 epoch 填值／求值均已实现（`CURRENT/FOUNDATION`）。
+当前实现复用现有固定闭塞、保护区域、保护进路和规范化 `TopologyState`，按路径展开直线、分支、保护进路和环终止。
+世界存档中的 package signal 类型引用、插件启动时的 catalog 安装和玩家放置仍是 **TARGET**；本批没有从设备 ID、
+模型 ID 或文件名猜测类型，也没有修改 schema 1。除此之外不增加时间、内存、节点、分支或整波预算；包作者负责规则的终止性和成本。
 
 SimpleSignals 负责包加载、脚本执行、前视投影、输出校验和信号结果发布。Basic 仍只负责物理资源校验与仲裁，SimpleATO 仍负责路线前视、资源申请、动态制动和最严格约束合成。JS 不得选路、扳动道岔、授予资源、直接制动列车或修改世界。包分发与玩家可见类型见[统一信号包](model-packages.md#统一信号包modellogic-与一等-signal-类型)。
 
@@ -18,9 +18,9 @@ SimpleSignals 负责包加载、脚本执行、前视投影、输出校验和信
    以稳定 `modelId`、`logicId`、`signalId` 编译 JS 并校验跨包引用。模型 materialize 与生产世界绑定仍属后续批次。
 2. 拓扑或配置变更后，SimpleSignals 在低频准备阶段从信号入口编译前视计划。计划包含扫描范围内的所有合法后继，以及运行时筛选分支所需的道岔、保护进路和区间身份；它不包含某一 tick 的占用结果。
    当前 `SignalObservationGraphBuilder` 已从同一 `SimpleSignalsRuntimePublication` 的真实 section/topology
-   publication 构造连接图，`SignalObservationPlanCompiler` 再把它变成不可变路径树；signal epoch 的运行填值仍在后续批次。
+   publication 构造连接图，`SignalObservationPlanCompiler` 再把它变成不可变路径树；运行时只给该计划填入当前 epoch 的事实。
 3. Core 完成物理 worker 并捕获同一 epoch 的物理观测后，进入已有串行 signal epoch。
-4. SimpleSignals 用该 epoch 的占用、选路、资源准备和设备状态填充前视计划，生成只读树形输入。
+4. 对显式 `SignalPackDeviceBinding(deviceId, signalId)`，其中 `signalId` 就是 package catalog 的公开 signal ID，SimpleSignals 用该 epoch 的占用、选路、资源准备和设备状态填充前视计划，生成只读树形输入。
 5. JS 在这个信号阶段内同步调用 setter。调用正常返回且输出完整有效后，才构造信号结果。
 6. 同一 signal epoch 的所有 publication 均成功后才推进完成 epoch。SimpleATO 在下一次控制计算读取已完成结果；模型显示读取同一个不透明外观名，不另跑一遍脚本。
 
@@ -199,7 +199,13 @@ JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／�
 
 第一批新信号包发现、两阶段引用解析和 GraalJS 最小受限执行已经完成。第二批实现有向区间图到不可变观察树的
 编译；第三批已从当前 world publication 构造真实连接图，并把完整图绑定到定义准备和局部拓扑重验 publication。
-下一批只接入 signal epoch 的同步填值、JS 求值和结果发布。每批独立测试、提交并等待审查。
+同步填值批次已经通过 `SignalPackEpochRuntime` 接入既有 section `SignalEpochSource`：低频编译显式设备绑定和计划，
+回调内先更新占用／选路，再按非循环下游依赖顺序求值，每台逻辑设备每个回调至多一次，最后一次性替换完整快照。
+本阶段允许 JS 设备向后读取未绑定的既有 Kotlin 设备，因为后者先形成同 epoch 基线；反方向若让未绑定 Kotlin
+消费者依赖已由 JS 替换的下游设备，则候选编译直接拒绝，避免 Kotlin 先读到旧实现结果、JS 随后覆盖却没有重新唤醒
+该消费者。已绑定设备目前仍会先计算一次既有 Kotlin 基线再由 JS 结果覆盖，这是可测的过渡期开销，不产生第二次
+世界／拓扑扫描；后续统一调度器接线前不得移除此闭包校验。
+下一批再决定 package signal 类型如何写入尚未发布的世界 current model，并接入启动 catalog；每批独立测试、提交并等待审查。
 
 仍待实现批次决定但不改变本契约的问题：树形 Kotlin／JS 字段名、错误诊断载荷、模型 variant 联合校验、世界绑定和
 热重载命令。它们不能被用来重新加入预算、退化成扁平活动路径或把脚本移出同步信号阶段。

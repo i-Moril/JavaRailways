@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyCrossingKind
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
@@ -40,9 +41,126 @@ import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDependency
 import work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclarationId
 import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry
+import work.art1st.javarailways.simplesignals.signalpack.SignalLogicRuntime
+import work.art1st.javarailways.simplesignals.signalpack.SignalPackDeviceBinding
+import work.art1st.javarailways.simplesignals.signalpack.SignalPackEpochRuntime
+import work.art1st.javarailways.simplesignals.signalpack.SignalPackLoader
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.UUID
 
 class SectionOccupancyRuntimeTest {
+    @TempDir
+    lateinit var signalPackRoot: Path
+
+    @Test
+    fun `legacy consumer lookup follows the complete upstream dependency closure`() {
+        val downstream = SectionRef(SectionKind.FIXED_BLOCK, "test:closure-downstream")
+        val middle = SectionRef(SectionKind.FIXED_BLOCK, "test:closure-middle")
+        val upstream = SectionRef(SectionKind.FIXED_BLOCK, "test:closure-upstream")
+        fun binding(id: String, section: SectionRef, dependency: String? = null) =
+            SectionSignalRuleBinding(
+                id,
+                section,
+                dependency?.let { listOf(DownstreamSignalDependency(it, 1.0)) }.orEmpty()
+            ) { SectionSignalOutput(0.0, "stop") }
+        val runtime = SectionSignalRuleRuntime.compile(
+            listOf(downstream, middle, upstream),
+            listOf(
+                binding("test:closure-downstream-signal", downstream),
+                binding("test:closure-middle-signal", middle, "test:closure-downstream-signal"),
+                binding("test:closure-upstream-signal", upstream, "test:closure-middle-signal")
+            )
+        )
+
+        assertEquals(
+            setOf(
+                "test:closure-downstream-signal",
+                "test:closure-middle-signal",
+                "test:closure-upstream-signal"
+            ),
+            runtime.transitiveConsumerSignalIds(setOf("test:closure-downstream-signal"))
+        )
+    }
+
+    @Test
+    fun `signal pack rules consume the real epoch tree once and failure replaces permissive output`() {
+        val upstreamBlock = FixedBlockDefinition("test:js-upstream-block", 1,
+            listOf(FixedBlockTraversal(railId, ViewDirection.AB, 0.0, 4.0)))
+        val downstreamBlock = FixedBlockDefinition("test:js-downstream-block", 1,
+            listOf(FixedBlockTraversal(railId, ViewDirection.AB, 6.0, 10.0)))
+        val downstream = terminalSignal("test:js-downstream", downstreamBlock.blockId, 99.0, "legacy")
+        val upstream = configuredSignal("test:js-upstream", upstreamBlock.blockId,
+            listOf(FixedBlockSignalDependency(downstream.signalId)))
+        val world = signalWorldRuntime(worldId)
+        assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, world.initializeDefinitions(topology,
+            SimpleSignalsWorldDefinitions(worldId, 1, emptyList(), emptyList(),
+                listOf(upstreamBlock, downstreamBlock), listOf(upstream, downstream))).status)
+        val pack = signalPackRoot.resolve("automatic")
+        Files.createDirectories(pack.resolve("model"))
+        Files.createDirectories(pack.resolve("logic"))
+        Files.createDirectories(pack.resolve("signal"))
+        Files.writeString(pack.resolve("pack.yml"), "config-version: 1\nname: automatic")
+        Files.writeString(pack.resolve("model/head.yml"), """
+            parts:
+              - type: dummy
+            default: {}
+            variants:
+              stop: {}
+              clear: {}
+        """.trimIndent())
+        Files.writeString(pack.resolve("logic/block.yml"), "scan-distance-metres: 100")
+        Files.writeString(pack.resolve("logic/block.js"), """
+            function evaluate(input, output) {
+              if (input.self.occupied) throw new Error("occupied rule failure");
+              const speed = input.forward[0]?.downstreamSignal?.speedLimitMetersPerSecond ?? 25;
+              output.setSpeedLimit(speed);
+              output.setModelVariant(speed === 0 ? "stop" : "clear");
+            }
+        """.trimIndent())
+        Files.writeString(pack.resolve("signal/block.yml"), """
+            display-name: Automatic block
+            model: automatic:head
+            logic: automatic:block
+        """.trimIndent())
+        val catalog = SignalPackLoader.load(signalPackRoot)
+        SignalLogicRuntime(catalog).use { logic ->
+            val publication = world.authoringPublication()
+            val mixedFailure = assertThrows(IllegalArgumentException::class.java) {
+                SignalPackEpochRuntime.compile(publication, catalog, logic, listOf(
+                    SignalPackDeviceBinding(downstream.signalId, "automatic:block")
+                ))
+            }
+            assertTrue(mixedFailure.message!!.contains("legacy consumers upstream"))
+            SignalPackEpochRuntime.compile(publication, catalog, logic, listOf(
+                SignalPackDeviceBinding(upstream.signalId, "automatic:block")
+            ))
+            val packRules = SignalPackEpochRuntime.compile(publication, catalog, logic, listOf(
+                SignalPackDeviceBinding(upstream.signalId, "automatic:block"),
+                SignalPackDeviceBinding(downstream.signalId, "automatic:block")
+            ))
+            val occupancy = SectionOccupancyRuntime.from(publication, packRules)
+            val epochs = epochRuntime(requireNotNull(occupancy.source))
+
+            epochs.process(frame(1, listOf(RailInterval(railId, 4.5, 5.5))))
+            val clear = requireNotNull(occupancy.signalSnapshot())
+            assertEquals(25.0, clear.availableOutput(downstream.signalId).speedLimitMetersPerSecond)
+            assertEquals(25.0, clear.availableOutput(upstream.signalId).speedLimitMetersPerSecond)
+            assertEquals("clear", clear.availableOutput(upstream.signalId).modelVariant)
+
+            epochs.process(frame(2, listOf(RailInterval(railId, 7.0, 8.0))))
+            val failed = requireNotNull(occupancy.signalSnapshot())
+            val failedDownstream = failed.states.getValue(downstream.signalId)
+            assertTrue(failedDownstream is SectionSignalState.Unavailable)
+            assertEquals(0.0, failedDownstream.effectiveSpeedLimitMetersPerSecond,
+                "a JS exception must not retain the previous permissive output")
+            assertEquals(0.0, failed.availableOutput(upstream.signalId).speedLimitMetersPerSecond,
+                "the upstream rule must consume the same-epoch restrictive downstream result")
+            assertEquals("stop", failed.availableOutput(upstream.signalId).modelVariant)
+            assertEquals(2L, failed.stamp.physicsEpoch)
+        }
+    }
+
     @Test
     fun `deleted downstream configuration remains unavailable after reload and restores when provider returns`() {
         val second = UUID.randomUUID()

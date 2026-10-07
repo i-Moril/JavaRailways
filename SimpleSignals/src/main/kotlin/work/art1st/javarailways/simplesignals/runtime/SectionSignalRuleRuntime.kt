@@ -207,6 +207,15 @@ internal class SectionSignalRuleRuntime private constructor(
 
     fun signalIdForDeclaration(declarationId: String): String? = signalIdByDeclaration[declarationId]
 
+    /** Legacy consumers must not run before a replacement provider publishes its same-epoch value. */
+    fun transitiveConsumerSignalIds(providerSignalIds: Collection<String>): Set<String> {
+        val providers = providerSignalIds.filter(bindingsBySignal::containsKey).map(RuleNode::signal)
+        if (providers.isEmpty()) return emptySet()
+        return graph.reachableConsumers(providers).asSequence()
+            .filter { it.kind == RuleNodeKind.SIGNAL }
+            .mapTo(sortedSetOf(), RuleNode::identity)
+    }
+
     /** Definition changes follow every compiled dependency, including currently inactive paths. */
     fun affectedBindings(
         sections: Collection<SectionRef>, signalIds: Collection<String>, entries: Collection<String>

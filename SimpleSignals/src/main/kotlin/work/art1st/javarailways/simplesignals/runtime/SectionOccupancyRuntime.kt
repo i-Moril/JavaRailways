@@ -13,6 +13,7 @@ import work.art1st.javarailways.simplesignals.presentation.SignalModelBinding
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry
 import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
 import work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclarationId
+import work.art1st.javarailways.simplesignals.signalpack.SignalPackEpochRuntime
 
 internal const val SECTION_OCCUPANCY_SOURCE_ID = FIXED_BLOCK_SIGNAL_SOURCE_ID
 
@@ -80,6 +81,7 @@ internal class SectionOccupancySnapshot(
 internal class SectionOccupancyRuntime private constructor(
     private val bindingsByArea: Map<RailObjectRef, Binding>,
     private val signalRules: SectionSignalRuleRuntime?,
+    private val signalPackRules: SignalPackEpochRuntime?,
     val protectionRouteSelection: ProtectionRouteSelectionRuntime,
     private val protectionSignals: work.art1st.javarailways.simplesignals.signal.CompiledProtectionSignals,
     private val blocks: work.art1st.javarailways.simplesignals.block.FixedBlockReadSnapshot,
@@ -97,6 +99,8 @@ internal class SectionOccupancyRuntime private constructor(
     private var awaitingBaseline: Set<TopologySection> = emptySet()
     private val bindingsBySignal = (publication.fixedBlockSignals.bindings + publication.protectionSignals.bindings)
         .associateBy { it.signalId }
+    private val fixedBlockIdByDeviceId = publication.definitions.fixedBlockSignals
+        .associate { it.signalId to it.controlledBlockId }
 
     fun attachEpochContinuity(continuity: EpochContinuity) {
         check(epochContinuity == null || epochContinuity === continuity)
@@ -159,13 +163,16 @@ internal class SectionOccupancyRuntime private constructor(
     fun indicators() = latest?.indicators.orEmpty()
     fun selectionSnapshot() = latest?.selection
 
-    val source: SignalEpochSource? = if (bindingsByArea.isEmpty() && protectionRouteSelection.source == null && signalRules == null) {
+    val source: SignalEpochSource? = if (bindingsByArea.isEmpty() && protectionRouteSelection.source == null &&
+        signalRules == null && signalPackRules == null) {
         null
     } else {
         SignalEpochSource(
             SECTION_OCCUPANCY_SOURCE_ID,
             bindingsByArea.entries.sortedBy { it.key.toString() }.map { it.value.area },
-            signalRules?.watchedContinuationEntries.orEmpty() + protectionRouteSelection.watchedContinuationEntries,
+            signalRules?.watchedContinuationEntries.orEmpty() +
+                signalPackRules?.watchedContinuationEntries.orEmpty() +
+                protectionRouteSelection.watchedContinuationEntries,
             protectionRouteSelection.watchedAdmissionRailIds,
             blocks.blockIdsByRail.keys + (publication.topologyIndex?.railsByObject?.filterKeys {
                 it.kind == TopologySectionKind.SIGNAL
@@ -328,7 +335,7 @@ internal class SectionOccupancyRuntime private constructor(
             }
         }
         val occupancy = SectionOccupancySnapshot(input.observation.stamp, observations, changed, crossings)
-        val signals = signalRules?.evaluate(
+        val configuredSignals = signalRules?.evaluate(
             previous?.signals,
             occupancy,
             input.observation.activeContinuations,
@@ -346,6 +353,23 @@ internal class SectionOccupancyRuntime private constructor(
                         ?.routeId?.let(protectionSignals::routeSection)
             }
         }
+        val signals = signalPackRules?.evaluate(
+            previous?.signals,
+            configuredSignals,
+            occupancy,
+            input,
+            selection,
+            protectionRouteSelection.evaluatedEntryIds,
+            { deviceId ->
+                when {
+                    publication.topologyGuard?.signalUnavailable(deviceId) == true ->
+                        "signal topology is unavailable"
+                    else -> fixedBlockIdByDeviceId[deviceId]
+                        ?.let { controls[it] as? SectionSignalState.Unavailable }
+                        ?.reason
+                }
+            }
+        ) { routeId -> protectionRouteSelection.fixedRouteReady(routeId, input) } ?: configuredSignals
         val published = PublishedState(occupancy, signals, selection, indicatorStates, controls)
         latest = published
         epochContinuity?.lastProcessed = this
@@ -353,7 +377,7 @@ internal class SectionOccupancyRuntime private constructor(
         modelBinding?.published(published, signals?.changedSignalIds.orEmpty(), changedIndicatorIds)
         return SignalEpochResult(
             emptyList(),
-            signals?.let(signalRules::invalidatedDeclarationIds).orEmpty() +
+            signals?.let { signalRules?.invalidatedDeclarationIds(it) }.orEmpty() +
                 changedControls.flatMap { id -> FixedBlockEntryDirection.entries.map { direction ->
                     fixedBlockSignalDeclarationId(id, direction)
                 } }
@@ -369,7 +393,17 @@ internal class SectionOccupancyRuntime private constructor(
 
     companion object {
         fun from(publication: SimpleSignalsRuntimePublication): SectionOccupancyRuntime =
-            from(publication, publication.protectionSignals.ruleRuntime)
+            from(publication, publication.protectionSignals.ruleRuntime, null)
+
+        fun from(
+            publication: SimpleSignalsRuntimePublication,
+            signalPackRules: SignalPackEpochRuntime
+        ): SectionOccupancyRuntime {
+            require(signalPackRules.publication === publication) {
+                "signal-pack rules target another SimpleSignals publication"
+            }
+            return from(publication, publication.protectionSignals.ruleRuntime, signalPackRules)
+        }
 
         fun from(
             publication: SimpleSignalsRuntimePublication,
@@ -385,12 +419,14 @@ internal class SectionOccupancyRuntime private constructor(
                     },
                     java.util.List.copyOf(rules)
                 )
-            }
+            },
+            null
         )
 
         private fun from(
             publication: SimpleSignalsRuntimePublication,
-            signalRules: SectionSignalRuleRuntime?
+            signalRules: SectionSignalRuleRuntime?,
+            signalPackRules: SignalPackEpochRuntime?
         ): SectionOccupancyRuntime {
             val blockSnapshot = publication.fixedBlocks.snapshot(publication.topology)
             val bindings = linkedMapOf<RailObjectRef, Binding>()
@@ -416,7 +452,8 @@ internal class SectionOccupancyRuntime private constructor(
                 check(bindings.putIfAbsent(area.areaId, binding) == null)
             }
             val copiedBindings = java.util.Map.copyOf(bindings)
-            return SectionOccupancyRuntime(copiedBindings, signalRules, ProtectionRouteSelectionRuntime(publication),
+            return SectionOccupancyRuntime(copiedBindings, signalRules, signalPackRules,
+                ProtectionRouteSelectionRuntime(publication),
                 publication.protectionSignals, blockSnapshot, publication.directionPolicy, publication)
         }
     }

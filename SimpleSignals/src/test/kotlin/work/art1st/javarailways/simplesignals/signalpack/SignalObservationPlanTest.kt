@@ -40,7 +40,7 @@ class SignalObservationPlanTest {
         assertEquals(140.0, dNode.distanceMeters)
         assertEquals(SignalObservationEndReason.DISTANCE_LIMIT, dNode.termination?.reason)
         assertEquals(145.0, dNode.termination?.distanceMeters)
-        assertEquals(setOf("test:signal-b", "test:signal-c", "test:signal-d"), plan.downstreamSignalIds)
+        assertEquals(setOf("test:signal-b", "test:signal-c", "test:signal-d"), plan.downstreamDeviceIds)
     }
 
     @Test
@@ -139,7 +139,7 @@ class SignalObservationPlanTest {
         assertFalse(bNode.exposesDownstreamSignal)
         assertFalse(cNode.exposesDownstreamSignal)
         assertFalse(repeatedA.exposesDownstreamSignal)
-        assertEquals(setOf("test:signal-sibling"), plan.downstreamSignalIds)
+        assertEquals(setOf("test:signal-sibling"), plan.downstreamDeviceIds)
 
         val siblingNode = child(bNode, sibling)
         assertTrue(siblingNode.exposesDownstreamSignal)

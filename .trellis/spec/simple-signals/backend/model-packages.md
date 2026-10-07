@@ -8,16 +8,17 @@
 它只规定 SimpleSignals 如何读取可复用的模型定义、外观映射和轨道摆放预设。
 设备属于哪个信号、放在哪个世界和坐标，以及设备存档格式，不在模型包内规定。
 
-SimpleSignals 负责加载器；主插件继续只接收已有的不可变 `ModelDefinition`。
-不修改 Core、Basic、SimpleATO、SimpleATOBukkit，也不扩展主插件的列车/轨道包加载器。
+SimpleSignals 负责目录发现、安全文件读取、包身份和信号 catalog；BukkitPlugin 的公共普通模型 compiler 负责
+YAML 部件树、外观、场景、variant 与宿主摆放 metadata 的解析和 materialization。显示服务仍只接收不可变
+`ModelDefinition`。不修改 Core、Basic、SimpleATO、SimpleATOBukkit，也不迁移主插件的列车/车厢或轨道包加载器。
 已批准的默认显示、预设复制和摆放行为见[模型显示契约](model-presentation.md)，
 部件与场景的运行语义见[主插件模型 API](../../bukkit-plugin/backend/model-presentation-api.md)。
 
 ## 统一信号包：model、logic 与一等 signal 类型
 
-统一信号包的发现、严格文件解析、两阶段跨包引用解析和 JS 源捕获已经实现（`CURRENT/FOUNDATION`）。模型文件在
-这一批只验证安全路径并形成不可变 catalog 值，尚未交给现有 `ModelPackageLoader` materialize；插件启动、世界设备、
-Wand 和热重载也尚未接线（`TARGET`）。后文 `manifest.yml/models/parts` 仍是当前已接线的模型-only loader，
+统一信号包的发现、严格文件解析、模型 materialization、两阶段跨包 signal 引用解析和 JS 源捕获已经实现
+（`CURRENT/FOUNDATION`）。插件启动、世界设备、Wand 和热重载尚未接线（`TARGET`）。后文
+`manifest.yml/models/parts` 仍是当前已接线的模型-only loader，
 不能把两个布局混合读取，也不能声称统一信号包已经能在游戏中放置或显示。
 
 ```text
@@ -29,8 +30,9 @@ Wand 和热重载也尚未接线（`TARGET`）。后文 `manifest.yml/models/par
 ```
 
 - `pack.yml` 只保存 `config-version`、稳定包名和可选显示名，不枚举 model、logic 或 signal。
-- `model/**/*.yml` 每个文件定义一个模型；其 `modelId` 为 `包名:相对路径去掉.yml`。当前 foundation 把内容当作待
-  materialize 的不透明资源，模型身份本身不携带速度或信号语义。
+- `model/**/*.yml` 每个文件定义并 materialize 一个普通模型；其 `modelId` 为 `包名:相对路径去掉.yml`。
+  `import` 指向同包另一 model 的安全相对 model ID，只把目标 parts 树作为 identity-position `Group` 子树导入；
+  不继承目标的 default、variants 或 rail-placement，首批不支持跨包 model import。模型身份不携带速度或信号语义。
 - `logic/<路径>.yml` 与同目录同 stem 的 `logic/<路径>.js` 共同定义一个逻辑，`logicId` 同样从 YAML 相对路径派生。
   YAML 只允许 `scan-distance-metres`；扫描距离属于逻辑，不属于模型、signal 类型、已放置设备或 SimpleATO。
   缺任一配对文件均拒绝整个候选，JS 在 catalog 准备时捕获，运行期不重读。
@@ -73,8 +75,9 @@ logic: example:automatic
 发现使用两阶段解析：第一阶段读取全部包身份、模型文件和逻辑文件，捕获 JS 源并检查身份；第二阶段解析全部 signal
 文件的跨包引用。因此包目录枚举顺序不影响结果。包 A 的 signal 可引用包 B 的模型或逻辑，只要稳定 ID 能解析，
 就不能因发现顺序拒绝。缺包、未知引用、引用类型错误、配对缺失或路径逃逸使完整 catalog candidate 准备失败；
-当前函数本身没有 live publication 可部分替换。模型 materializer 将在后续批次负责模型内部递归引用校验。
-返回的 catalog、package、model、logic 和 signal 表不可变；JS 源在 catalog 准备时捕获，`SignalLogicRuntime` 不重读文件，
+当前函数本身没有 live publication 可部分替换。全部模型通过宿主公共 compiler 完整解析、展开并校验，任一模型错误拒绝
+整个 catalog candidate；model import 的缺失引用和环也在此阶段拒绝。返回的 catalog、package、model、logic 和 signal 表不可变；
+模型和 JS 源在 catalog 准备时捕获，后续读取 immutable value，不重读文件，`SignalLogicRuntime` 也不重读 JS，
 避免校验完成后文件变化造成候选内容漂移。正常 tick 不读取包文件。
 
 这是未发布配置边界的 current model，保持 `config-version: 1`，没有旧布局 alias、upcaster 或运行时兼容 reader。
@@ -83,10 +86,11 @@ JS 的执行 foundation、同步信号阶段目标和树形输入见[JS 信号�
 
 ### 统一包可执行合同
 
-1. **状态与 owner**：`SignalPackLoader` 的目录发现、身份派生、跨包解析和 JS 源码捕获是
-   `CURRENT/FOUNDATION`，由 SimpleSignals 拥有；模型 materialize、世界绑定和 tick 求值是 `TARGET`。
+1. **状态与 owner**：`SignalPackLoader` 的目录发现、身份派生、跨包解析、模型 materialization 和 JS 源码捕获是
+   `CURRENT/FOUNDATION`；SimpleSignals 拥有包/catalog，BukkitPlugin 公共 compiler 拥有普通模型 YAML 语义。
+   世界绑定和 signal epoch 求值仍是 `TARGET`。
 2. **工作流**：`load(root)` 先按目录名排序读取所有 `pack.yml`，再递归发现三类文件；
-   model 和 logic 先进入全局表，signal 仅暂存引用，待所有包就绪后再统一解析，最后一次性返回
+   每个 package 的 model 捕获后作为一批交给 compiler，logic 进入全局表，signal 仅暂存引用，待所有包就绪后再统一解析，最后一次性返回
    `SignalPackCatalog`。
 3. **内部机制**：ID 由包名与去扩展名的相对路径派生；路径每段单独验证且拒绝空段、`.`、`..`。
    递归发现跟随目录符号链接，但每个候选节点都先转换为 real path 并证明仍在包目录内；
@@ -99,13 +103,14 @@ JS 的执行 foundation、同步信号阶段目标和树形输入见[JS 信号�
    `models/logics/combinations` 入口的运行时兼容。
 6. **错误矩阵**：未知字段或扩展名、空显示名、非法 ID 段、缺失 logic 配对、非正有限扫描距离、
    重复包或 ID、未知／错类型引用、符号链接逃逸均拒绝完整 candidate；错误包含包、文件和字段位置。
-7. **复杂度与降级**：设候选目录节点数为 F、实际读取的元数据／信号／逻辑字节为 B、signal 引用数为 R，准备成本为
-   `O(F log F + B + R)`，内存为 `O(F + B)`；只在低频准备阶段发生。任一错误使本次加载失败，
+7. **复杂度与降级**：设候选目录节点数为 F、实际读取总字节为 B、signal 引用数为 R、模型展开/校验实际访问量为 V，准备成本为
+   `O(F log F + B + R + V)`，内存为 `O(F + B + V)` 量级；只在低频准备阶段发生。任一错误使本次加载失败，
    不伪造模型、逻辑或 signal 占位值。
 8. **案例**：基本案例是同包 signal 引用本包 model/logic；合法扩展案例是包 A 的 signal 引用包 B
    的 model 与 logic；错误案例是孤立 `.js`、逃逸目录链接或把 logicId 写到 model 字段。
 9. **必需测试**：固定验证嵌套路径派生、跨包与反向枚举顺序、同 stem 配对、未知字段、
-   `.`/`..` 段、文件与目录符号链接逃逸、捕获后源文本稳定性和返回表不可变。
+   `.`/`..` 段、文件与目录符号链接逃逸、实际模型 materialization、model import/cycle/variant、
+   捕获后不重读源文件和返回表不可变。
 10. **迁移与错误用法**：正确做法是由 package `signalId` 显式引出 modelId/logicId；错误做法是从
     已放置设备 ID、模型 ID 或文件名在运行时猜测逻辑。世界绑定和旧 `signalId` 的 `deviceId` 清晰化
     仍是下一批的显式设计点。
@@ -113,7 +118,7 @@ JS 的执行 foundation、同步信号阶段目标和树形输入见[JS 信号�
 ## 一次加载如何工作
 
 1. 读取包入口，知道包名及本包提供哪些模型。
-2. 读取模型文件和共享部件文件，检查字段、引用、循环和数值。
+2. 安全读取模型文件和共享部件文件，把捕获文本交给 BukkitPlugin 公共 compiler 检查字段、引用、循环和数值。
 3. 展开模型的部件引用，把米制偏移和角度转换为公开模型值；检查所有默认和普通外观映射。
 4. 返回完整、不可变的加载结果：每个模型的部件树、`default`、`variants` 和摆放预设。
    任一文件错误就不返回这个包的部分结果。
@@ -125,7 +130,7 @@ JS 的执行 foundation、同步信号阶段目标和树形输入见[JS 信号�
 
 ### 加载入口和结果
 
-本批入口属于 SimpleSignals 私有的 `presentation` 包：
+既有模型-only 入口属于 SimpleSignals 私有的 `presentation` 包，但模型语言编译复用 BukkitPlugin 公共边界：
 
 ```kotlin
 ModelPackageLoader.load(directory: Path): LoadedModelPackage
@@ -287,6 +292,11 @@ animations:
 模型文件必填非空 `parts` 和 `default`；`variants` 默认 `{}`，`rail-placement` 可省略。
 每个模型都有自己的完整 `default` 和普通外观映射，不建立包级默认值继承或模型继承。
 
+统一 `model/` 布局没有独立 `parts/` 目录。它的 `import` 以安全相对 model ID 指向同包另一个模型，导入目标
+parts 树并包成 identity pose `Group`；目标模型的 `default`、`variants`、`rail-placement` 都不继承。
+被导入模型仍作为独立模型完整解析和校验。既有 model-only 布局继续让 import 指向 `parts/`；两种模式由调用方
+显式选择，不在一个 candidate 中混用，也不根据文件内容猜测。
+
 `default` 和每个 variant 都是“动画名 → 场景名”的完整映射，允许显式 `{}` 恢复基础外观。
 不把 variant 与 default 逐项合并。名称按原字符串精确匹配，不改大小写、不猜拼写、不添加别名。
 模型包加载时还不知道任意脚本将输出什么；因此只能验证已声明映射，未知运行期 `modelVariant`
@@ -351,7 +361,7 @@ YAML 只读取普通值，不允许任意对象标签、重复键或合并键/�
 每个内部共享部件都能被至少一个根覆盖，不必把一条嵌套链的每个后缀再次完整校验。
 不同根的场景命名空间分别检查，不能把两套独立模型里同名但不同场景的动画错误地混在一起。
 
-公开模型构造器负责数值和树内不变量。SimpleSignals 另外在加载阶段建立局部的动画命中部件索引，
+公开模型构造器负责数值和树内不变量。BukkitPlugin 公共 compiler 在加载阶段建立局部的动画命中部件索引，
 检查 `default` 和全部 variants 中的未知动画、未知场景及同一部件多重命中；不导入宿主私有 `OrdinarySceneIndex`，
 也不为了校验而创建世界或模型操作对象。索引按树中实际摆放位置记录命中，不把两个复用同一值对象的
 部件误认成同一个位置。该临时索引在校验结束后可丢弃，不做第二套长期显示索引。
@@ -389,10 +399,10 @@ V 是共享定义和模型的树校验、场景索引建立过程中实际遍历
 - 未被模型使用的嵌套共享定义也拒绝非法场景集合；独立共享根保留各自场景命名空间。
   从调用方传入的嵌套 Map 构造结果后，调用方修改不会影响已加载值，结果也拒绝直接修改。
 
-`ModelPackageLoaderTest` 的 27 项回归已通过，使用固定 YAML 与真实公开模型值、Paper 物品注册表初始化。
-最终 SimpleSignals 全量检查为 26 个测试类、238 项测试，零失败、错误或跳过；JAR 隔离检查通过。
-这些证据验证配置准备，不证明真实 Folia 的实体显示或客户端资源包内容。
+既有 `ModelPackageLoaderTest` 的 27 项回归继续通过，使用固定 YAML 与真实公开模型值、Paper 物品注册表初始化；
+宿主 compiler 聚焦测试覆盖两种 import mode、不可变值、循环和非法选择，统一包测试覆盖 materialization、
+同包 model import、原子失败及捕获后不重读。这些证据验证配置准备，不证明真实 Folia 的实体显示或客户端资源包内容。
 
 本批不改世界定义 schema，不迁移列车模型包，不支持任何先前草稿格式的兼容别名。
 设备模型/摆放存档及显示接线已完成，后续为 Wand 编辑与真实 Folia 显示验证。
-场景时间轴和跨包共享等尚未支持的能力，出现需求后再讨论，不以额外框架预先占位。
+场景时间轴和跨包 model import 等尚未支持的能力，出现需求后再讨论，不以额外框架预先占位。

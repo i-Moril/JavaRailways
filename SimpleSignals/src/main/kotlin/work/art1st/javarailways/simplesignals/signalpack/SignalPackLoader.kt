@@ -1,6 +1,10 @@
 package work.art1st.javarailways.simplesignals.signalpack
 
 import work.art1st.javarailways.simplesignals.presentation.ModelPackageYaml
+import work.art1st.javarailways.bukkit.api.model.asset.ModelAssetImportMode
+import work.art1st.javarailways.bukkit.api.model.asset.ModelAssetYamlCompilation
+import work.art1st.javarailways.bukkit.api.model.asset.ModelAssetYamlCompiler
+import work.art1st.javarailways.bukkit.api.model.asset.ModelAssetYamlSource
 import work.art1st.javarailways.simplesignals.presentation.ModelYamlSource
 import work.art1st.javarailways.simplesignals.presentation.ModelYamlValue
 import java.io.IOException
@@ -113,11 +117,26 @@ object SignalPackLoader {
             packageName: String,
             packageRoot: Path,
             directory: Path
-        ): Map<String, SignalPackModel> = discoveredFiles(packageName, packageRoot, directory, setOf(".yml"))
-            .associate { file ->
-                val modelId = "$packageName:${file.localId}"
-                modelId to SignalPackModel(modelId, file.file)
+        ): Map<String, SignalPackModel> {
+            val files = discoveredFiles(packageName, packageRoot, directory, setOf(".yml"))
+            val sources = files.associate { file ->
+                file.localId to ModelAssetYamlSource(
+                    relative(packageRoot, file.file),
+                    io(file.source, "$") { Files.readString(file.file) }
+                )
             }
+            val materialized = ModelAssetYamlCompiler.compile(
+                ModelAssetYamlCompilation(packageName, sources, emptyMap(), ModelAssetImportMode.MODELS)
+            )
+            return files.associate { file ->
+                val modelId = "$packageName:${file.localId}"
+                modelId to SignalPackModel(
+                    modelId,
+                    file.file,
+                    materialized.getValue(file.localId)
+                )
+            }
+        }
 
         private fun readLogics(
             packageName: String,

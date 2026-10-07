@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals.presentation
 
 import work.art1st.javarailways.bukkit.api.model.ModelDefinition
+import work.art1st.javarailways.bukkit.api.model.asset.CompiledModelAsset
 import java.util.Collections
 
 /** Fully prepared package; lookup never retains a file, parser or mutable authoring definition. */
@@ -21,6 +22,17 @@ internal class LoadedPackageModel(
     val followRailTilt: Boolean,
     railPlacementPresets: Map<String, RailPlacementPreset>
 ) {
+    constructor(id: String, compiled: CompiledModelAsset) : this(
+        id,
+        compiled.definition(),
+        compiled.defaultScenes(),
+        compiled.variants(),
+        compiled.placement().followReferenceTilt(),
+        compiled.placement().presets().mapValues { (_, preset) ->
+            RailPlacementPreset(preset.localPose(), preset.followReferenceTilt())
+        }
+    )
+
     val defaultScenes: Map<String, String> = immutableModelMap(defaultScenes)
     val variants: Map<String, Map<String, String>> = immutableModelMap(
         variants.mapValues { (_, selection) -> immutableModelMap(selection) }

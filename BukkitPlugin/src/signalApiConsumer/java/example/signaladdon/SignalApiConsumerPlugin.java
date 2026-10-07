@@ -25,6 +25,11 @@ import work.art1st.javarailways.bukkit.api.model.ModelScale;
 import work.art1st.javarailways.bukkit.api.model.ModelPresentation;
 import work.art1st.javarailways.bukkit.api.model.ModelPresentationService;
 import work.art1st.javarailways.bukkit.api.model.ModelHandle;
+import work.art1st.javarailways.bukkit.api.model.asset.CompiledModelAsset;
+import work.art1st.javarailways.bukkit.api.model.asset.ModelAssetImportMode;
+import work.art1st.javarailways.bukkit.api.model.asset.ModelAssetYamlCompilation;
+import work.art1st.javarailways.bukkit.api.model.asset.ModelAssetYamlCompiler;
+import work.art1st.javarailways.bukkit.api.model.asset.ModelAssetYamlSource;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest;
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
@@ -76,6 +81,7 @@ import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBind
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult;
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -92,7 +98,7 @@ import java.util.function.Function;
  * BukkitPlugin implementation packages.</p>
  */
 public final class SignalApiConsumerPlugin extends JavaPlugin {
-    /** Model packages are expanded by the add-on before reaching the ordinary presentation API. */
+    /** An add-on may still construct the immutable ordinary model API directly. */
     public ModelDefinition ordinaryModelDefinition() {
         var lamp = new ItemAppearance(Material.PAPER, "example.signaladdon:signals/lamp", 42,
             new ItemAppearance.Brightness(15, 15));
@@ -104,6 +110,20 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         var item = new ModelPart.Item(ModelPose.IDENTITY, ModelScale.UNIT,
             new ItemAppearance(Material.PAPER, null, null, null), List.of(animation));
         return new ModelDefinition(List.of(new ModelPart.Group(ModelPose.IDENTITY, List.of(item), List.of())));
+    }
+
+    /** Captured package text can be compiled on an add-on worker without Bukkit world access. */
+    public Map<String, CompiledModelAsset> compileModelAssets(Map<String, String> capturedModels) {
+        var sources = new LinkedHashMap<String, ModelAssetYamlSource>();
+        capturedModels.forEach((id, yaml) ->
+            sources.put(id, new ModelAssetYamlSource("model/" + id + ".yml", yaml))
+        );
+        return ModelAssetYamlCompiler.compile(new ModelAssetYamlCompilation(
+            "example.signaladdon",
+            sources,
+            Map.of(),
+            ModelAssetImportMode.MODELS
+        ));
     }
 
     private Services services;

@@ -328,7 +328,9 @@ SimpleSignals 自己负责信号模型包、模型操作对象、RailObjectWand 
 JS 目标包的作者目录固定分为元数据 `pack.yml`、`model/`、`logic/` 和 `signal/`。`model/` 保存外观资产；
 每个 `logic/<path>.yml` 与同 stem 的 `.js` 保存逻辑元数据和源码；每个 `signal/<path>.yml` 是玩家可见
 的一等类型，引用一个 namespaced modelId 和一个 logicId。三类 ID 均由包名与安全相对路径派生；
-跨包引用两阶段解析。该目标包格式不表示当前 `manifest.yml` 模型加载器已经迁移。
+跨包 signal 引用两阶段解析。`model/**/*.yml` 通过 BukkitPlugin 公共普通模型 compiler materialize；同包 model import
+只贡献目标 parts 的 identity-position group，不继承目标 default、variants 或 placement，首批不支持跨包 model import。
+既有 `manifest.yml/models/parts` loader 也复用同一 compiler，但两种目录发现与身份合同仍保持独立。
 现有世界 `FixedBlockSignalDefinition.signalId`／`ProtectionSignalDefinition.signalId` 仍表示已放置逻辑节点，
 不是上述 package signal 类型。生产绑定批次须先将其语义清晰化为 deviceId 或增加显式类型字段，不能同名猜绑定。
 这是未发布 current model，保持版本1且不读取此前 foundation 布局，不能为开发提交建立兼容代际。
@@ -358,7 +360,7 @@ SimpleATOBukkit 不参与这条流程。
 [模型显示合同](../../spec/simple-signals/backend/model-presentation.md#主信号与附属信号机)。
 工具、测距、样式编辑界面及轨道可视化下一批处理；双向入口由上述单闭塞批次提供，单线多闭塞运行支持仍推迟。
 
-普通模型值契约已经审查并实现：附属插件展开模型包，主插件只消费不可变的容器/物品树，
+普通模型值契约已经审查并实现：附属插件捕获安全路径下的 YAML，主插件公共 compiler 展开模型包并返回不可变容器/物品树，
 以完整场景选择恢复或替换外观。创建时建立动画/场景索引，提交前完成全部校验，再更新旧、新命中部件的并集。
 具体变换、动画匹配、复位、资源键和零插值规则只在上述主插件契约中定义。
 本批不改变旧列车动画或包格式；附属插件使用公开 handle 提交值，由主插件调度，不能直接调用内部普通入口。

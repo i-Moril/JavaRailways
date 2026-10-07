@@ -6,7 +6,11 @@
   `logic/*.yml`／`logic/*.js` 和 `signal/*.yml` 按安全相对路径派生稳定 namespaced modelId、logicId、signalId。
 - [x] package signal 文件取代旧 combination 概念，保存玩家显示名并引用一个 modelId 与一个 logicId；
   跨包引用继续两阶段、与目录顺序无关，旧 foundation 布局没有兼容 reader/upcaster。
-- [x] catalog/loader/runtime 测试改用一等 signal 文件；模型内容本批仍为待 materialize 的不透明文件。
+- [x] catalog/loader/runtime 测试改用一等 signal 文件。
+- [x] BukkitPlugin 提供 worker-safe 的公共普通模型 YAML compiler；旧 model-only loader 与统一信号包共用其
+  parts/inline/import、场景、variant 和 placement 编译。统一包同包 model import 只导入 identity-grouped parts，
+  不继承目标 default/variants/placement；循环、缺失引用、非法 variant、不可变结果与捕获后不重读均有聚焦测试。
+  Car/Rail 专用包未迁移；生产启动、世界绑定和 signal epoch 不在本提交。
 - [ ] 后续生产绑定必须显式区分 package `signalId` 与当前世界定义中表示已放置逻辑节点的 `signalId`；
   应先把后者语义清晰化为 `deviceId` 或增加显式类型引用，不得按同名隐式绑定。本批不改世界 schema、启动或 signal epoch。
 

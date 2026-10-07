@@ -3,13 +3,13 @@
 ## 1. 这份设计要解决什么问题
 
 本文描述当前已实现（`CURRENT`）的主插件通用模型显示能力：按 UUID 查询轨道曲线、不可变模型定义、完整场景应用，
-以及负责跨线程显示和清理的公开模型服务。SimpleSignals 的模型包和信号绑定仍是后续工作。
+以及负责跨线程显示和清理的公开模型服务。普通模型 YAML 编译边界已经公开；SimpleSignals 的生产信号绑定仍是后续工作。
 
 目标是让 SimpleSignals 等附属插件复用主插件的模型系统，而不必把信号机伪装成列车模型。
 这里的“主插件”指 `BukkitPlugin`，不是 SimpleATOBukkit。分工如下：
 
-- 主插件负责构造模型部件、调用现有渲染实现，以及在正确线程上更新和删除模型。
-- 附属插件负责模型包、摆放位置，以及业务状态应显示什么外观。
+- 主插件负责普通模型 YAML 的严格编译、构造模型部件、调用现有渲染实现，以及在正确线程上更新和删除模型。
+- 附属插件负责安全发现并捕获模型包文本、稳定业务身份、摆放位置，以及业务状态应显示什么外观。
 - 资源申请、进路判定、限速和灯色不进入这个通用接口。SimpleATO 和 SimpleATOBukkit 不参与这条显示流程。
 
 接口只提供普通模型的定义和操作对象，不公开整个 `ModelManager`、`CompositeModel`、
@@ -24,7 +24,7 @@
 
 附属插件通过公开服务完成以下流程，不需要自行操作显示实体：
 
-1. 附属插件在加载模型包或编辑摆放位置时，解析模型配置并检查引用。
+1. 附属插件在 worker 上安全读取并捕获模型 YAML，调用宿主公开 compiler 解析普通模型、展开引用并检查场景；编辑摆放位置不重读模型。
 2. 它按轨道 UUID 查询曲线，再根据轨道上的位置，计算模型的世界坐标和朝向。
 3. 它向主插件申请一个 `ModelHandle`。这个对象用于提交显示状态和关闭模型，此时还不创建实体。
 4. 第一次提交有效状态后，主插件安排模型实体的创建。以后只提交发生变化的显示状态。
@@ -53,7 +53,7 @@
 
 ### 复用部件树，不引入列车行为
 
-附属插件在构造公开定义前解析部件引用并检查循环引用，主插件接收已经展开的不可变容器/物品树。
+附属插件可以直接构造公开定义；对于 YAML 包，主插件的公开 compiler 接收已捕获的文本，解析部件引用并检查循环引用，返回已经展开的不可变容器/物品树。
 普通模型不需要 `CarDefinition`、`Car`、驾驶座控制端或转向架装配信息。
 
 当前内部 `buildModel` 将容器映射到既有 `DummyModel`、物品叶子映射到 `DisplayModel`，复用
@@ -128,11 +128,17 @@ record ModelPresentation(long revision, ModelPose transform,
 - `ModelDefinition` 是解析完成的部件树、模型资源引用和动画定义，不是文件路径、YAML 文本，
   也不包含仍会被修改的 Bukkit `ItemStack`。下文是当前值类型，不另造一套重复的列车配置加载系统。
 
-### 普通模型只接收已经展开的部件树
+### YAML compiler 与已经展开的部件树
 
-附属插件读取自己的模型包、解析部件引用，再提交树状定义。主插件不接收文件路径、
-部件 registry、读取回调或任意脚本，因此显示时不会重新查配置或执行插件提供的解析代码。
-附属插件负责拒绝包内循环引用；公开值类型形成后，主插件仍校验整棵树的数值、资源和场景定义。
+`ModelPresentationService` 仍只接收已经展开的 `ModelDefinition`。附属插件可以直接构造它，也可以把已经安全读取的
+`ModelAssetYamlSource` 集合交给 `ModelAssetYamlCompiler`。compiler 不接收文件路径、读取回调、世界对象或任意脚本，
+因此可在 worker 执行，显示时也不会重新查配置。它严格解析普通 YAML、展开引用、拒绝循环并校验默认/命名场景，
+返回不可变 `CompiledModelAsset`（定义、default、variants 与宿主中立摆放 metadata）。
+
+`SHARED_PARTS` 模式供既有 `manifest.yml/models/parts` 包使用；import 只解析提供的 shared-part sources。
+`MODELS` 模式供统一包使用；import 解析同一 compilation 内另一 model ID，只把目标 parts 树作为 identity-pose
+`Group` 子树导入，目标的 default、variants 和 placement 不继承。两种模式都完整解析并校验所有输入；首批不支持
+跨包 model import。调用方先做安全路径/符号链接检查，再传入稳定 source name 以取得精确诊断。
 
 值类型位于 `work.art1st.javarailways.bukkit.api.model`。下面列出当前构造参数；所有列表在入口复制为只读集合，
 数值、名字、时间和资源键由构造器校验。这不是 YAML 或存档格式：
@@ -281,7 +287,9 @@ null 表示自然光。帧 appearance 为 null 时使用物品基础外观；帧
 当前查询有 UUID 索引和轨道表两次按键查找，可能短暂等待该世界的拓扑读锁；不是无锁查询，
 但不扫描世界，也不等待 Bukkit 任务或取得跨世界物理锁。
 
-解析、检查和构造模型的成本为 `O(P + A + F)`，P 是展开后的部件数，A 是动画数，F 是关键帧总数。
+设捕获 YAML 总字节为 B、引用数为 R、实际展开/校验访问的部件数为 P、动画数为 A、帧数为 F，
+解析、引用展开、场景索引与构造成本为 `O(B + R + P + A + F)`；递归引用使用 active path 检测环，
+每个无参数共享 subtree 只构造一次。
 读取文件、解析和展开大量配置应在工作线程完成，不能占用物理线程或 Minecraft 区域线程。
 创建时同时建立动画/场景索引；不在每次提交时重读模型包、搜索引用或重新遍历全部帧。
 
@@ -312,6 +320,7 @@ null 表示自然光。帧 appearance 为 null 时使用物品基础外观；帧
 ## 9. 实现时必须验证什么
 
 - 用独立 Java 调用示例编译公开 API，确认附属插件不需要导入主插件实现类，也不把主插件类打进自己的 JAR。
+- 用捕获文本分别验证 shared-parts/model import、循环、缺失引用、非法 variant、结果不可变及编译后不访问文件。
 - 检查缺失轨道、未加载世界、AB/BA 朝向，以及轨道删除后旧曲线仍可读取；定位不得调用最近点搜索或寻路。
 - 检查多部件构造、局部变换、资源引用和场景切换；确保旧外观的场景不残留，现有列车构造仍正常。
 - 检查同名动画跨部件广播、部件内重名拒绝、缺场景和动画冲突的整次拒绝，以及空 Map 的完整复位。
@@ -341,10 +350,11 @@ EntityLib 部分只验证真实 ItemDisplayMeta 的 -1 自然光/0 固定黑暗�
 
 ## 10. 已决定的方向和仍需讨论的细节
 
-已决定复用通用部件构造和现有渲染实现，保留列车专用入口；信号含义与模型包仍归 SimpleSignals。
+已决定复用通用部件构造和现有渲染实现，保留列车专用入口；信号含义、包发现和稳定信号身份仍归 SimpleSignals，
+普通模型 YAML 语法与编译归 BukkitPlugin 公共边界。
 已展开部件树、完整场景选择与基础状态复位已获用户批准，并实现了公开值类型和内部应用。
 普通静态模型固定零插值；公共插值配置与时间轴播放留待出现实际需求后审查。
-信号包的 YAML/JS 格式、模型是否跟随轨道倾斜，以及摆放信息如何保存，由信号插件在下一批提出。
+信号包的 JS/一等 signal 格式以及摆放信息如何保存由信号插件规定；通用 compiler 只返回宿主中立 placement metadata。
 
 不要把信号包伪装成车体，也不要要求附属插件直接调用 `BukkitPlugin.INSTANCE.modelManager`。
 应公开只负责普通模型的操作对象和定义类型，在主插件内部复用现有构造代码。
@@ -353,7 +363,8 @@ EntityLib 部分只验证真实 ItemDisplayMeta 的 -1 自然光/0 固定黑暗�
 不能直接把列车入口公开，然后声称已经满足普通纯显示和完整复位规则。
 新定义只接收上述容器/物品值，复用私有构造和渲染机制；完整外观复位由渲染层正确清除
 资源组件与亮度覆盖，不是在附属插件外面叠加一层“恢复旧动画”回调。
-本批不改变列车包或任何存档，不修复旧配置解析和时间轴播放的其他问题，也不添加草稿兼容。
+本批不迁移列车/车厢包或轨道包，不改变任何存档，不修复旧配置解析和时间轴播放的其他问题，也不添加草稿兼容；
+这些专用 package loader 若以后采用公共 compiler，必须另行审查其专有字段与兼容边界。
 
-源码依据：`api/model/*.java`、`ModelTreeBuilder.kt`、`render/model/OrdinaryModel.kt`、`render/model/CompositeModel.kt`、`PartAnimationConfig.kt`、
+源码依据：`api/model/*.java`、`api/model/asset/*`、`ModelTreeBuilder.kt`、`render/model/OrdinaryModel.kt`、`render/model/CompositeModel.kt`、`PartAnimationConfig.kt`、
 `api/rail/RailTargetService.java`、`api/internal/JavaRailwaysServiceRegistration.kt`。

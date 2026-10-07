@@ -212,7 +212,17 @@ class SignalLogicRuntimeTest {
         Files.createDirectories(pack.resolve("model"))
         Files.createDirectories(pack.resolve("logic"))
         Files.createDirectories(pack.resolve("signal"))
-        Files.writeString(pack.resolve("model/model.yml"), "model")
+        Files.writeString(
+            pack.resolve("model/model.yml"),
+            """
+                parts:
+                  - type: item_display
+                    item: {type: PAPER}
+                default: {}
+                variants:
+                  stop: {}
+            """.trimIndent()
+        )
         Files.writeString(pack.resolve("logic/logic.js"), script.trimIndent())
         Files.writeString(pack.resolve("logic/logic.yml"), "scan-distance-metres: 100")
         Files.writeString(

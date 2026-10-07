@@ -2,11 +2,14 @@ package work.art1st.javarailways.simplesignals.signalpack
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import org.bukkit.Material
+import work.art1st.javarailways.bukkit.api.model.ModelPart
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -19,14 +22,14 @@ class SignalPackLoaderTest {
         pack(
             "z-directory",
             manifest("alpha", "Alpha package"),
-            models = mapOf("heads/mast.yml" to "model"),
+            models = mapOf("heads/mast.yml" to VALID_MODEL),
             logics = mapOf("local" to Logic(250.5)),
             signals = mapOf("aspects/cross.yml" to signal("Alpha Cross", "alpha:heads/mast", "beta:clear"))
         )
         pack(
             "a-directory",
             manifest("beta"),
-            models = mapOf("head.yml" to "model"),
+            models = mapOf("head.yml" to VALID_MODEL),
             logics = mapOf("clear" to Logic(800.0)),
             signals = mapOf("mutual.yml" to signal("Beta Mutual", "alpha:heads/mast", "beta:clear"))
         )
@@ -45,7 +48,7 @@ class SignalPackLoaderTest {
         pack(
             "library",
             manifest("library"),
-            models = mapOf("unused.yml" to "model"),
+            models = mapOf("unused.yml" to VALID_MODEL),
             logics = mapOf("nested/unused" to Logic(100.0)),
             signals = emptyMap()
         )
@@ -55,6 +58,75 @@ class SignalPackLoaderTest {
         assertTrue(catalog.signals.isEmpty())
         assertTrue("library:unused" in catalog.models)
         assertTrue("library:nested/unused" in catalog.logics)
+    }
+
+    @Test
+    fun `model files are materialized during candidate preparation`() {
+        val root = pack("materialized", manifest("materialized"))
+
+        val model = SignalPackLoader.load(temporary).models.getValue("materialized:mast")
+        val item = model.materialized.definition().parts().single() as ModelPart.Item
+
+        assertEquals(Material.PAPER, item.appearance().material())
+        assertEquals(setOf("stop"), model.materialized.variants().keys)
+        Files.writeString(root.resolve("model/mast.yml"), "broken after load")
+        assertEquals(Material.PAPER, item.appearance().material())
+        assertEquals(root.resolve("model/mast.yml").toRealPath(), model.file)
+    }
+
+    @Test
+    fun `same-package model imports contribute only a reusable identity-grouped parts tree`() {
+        pack(
+            "models",
+            manifest("models"),
+            models = mapOf("base.yml" to IMPORT_BASE_MODEL, "home.yml" to IMPORT_HOME_MODEL),
+            signals = emptyMap()
+        )
+
+        val catalog = SignalPackLoader.load(temporary)
+        val base = catalog.models.getValue("models:base").materialized
+        val home = catalog.models.getValue("models:home").materialized
+        val first = home.definition().parts()[0] as ModelPart.Group
+        val second = home.definition().parts()[1] as ModelPart.Group
+
+        assertSame(first, second)
+        assertSame(base.definition().parts().single(), first.children().single())
+        assertEquals(setOf("home-stop"), home.variants().keys)
+        assertEquals(setOf("home"), home.placement().presets().keys)
+        assertEquals(setOf("base-stop"), base.variants().keys)
+        assertEquals(setOf("base"), base.placement().presets().keys)
+    }
+
+    @Test
+    fun `model import cycles missing references and invalid variants reject the whole candidate`() {
+        pack(
+            "cycle",
+            manifest("cycle"),
+            models = mapOf(
+                "a.yml" to "parts: [{import: b}]\ndefault: {}",
+                "b.yml" to "parts: [{import: a}]\ndefault: {}"
+            ),
+            signals = emptyMap()
+        )
+        assertFails("cyclic part reference: a -> b -> a")
+        reset()
+
+        pack(
+            "missing",
+            manifest("missing"),
+            models = mapOf("home.yml" to "parts: [{import: absent}]\ndefault: {}"),
+            signals = emptyMap()
+        )
+        assertFails("missing model 'absent'")
+        reset()
+
+        pack(
+            "variant",
+            manifest("variant"),
+            models = mapOf("home.yml" to IMPORT_BASE_MODEL.replace("lamp: red", "lamp: absent")),
+            signals = emptyMap()
+        )
+        assertFails("unknown scene 'absent'")
     }
 
     @Test
@@ -219,7 +291,7 @@ class SignalPackLoaderTest {
     private fun pack(
         directory: String,
         yaml: String,
-        models: Map<String, String> = mapOf("mast.yml" to "model"),
+        models: Map<String, String> = mapOf("mast.yml" to VALID_MODEL),
         logics: Map<String, Logic> = mapOf("logic" to Logic(100.0)),
         signals: Map<String, String> = mapOf("standard.yml" to signal("Standard", "${packageName(yaml)}:mast", "${packageName(yaml)}:logic"))
     ): Path {
@@ -261,5 +333,42 @@ class SignalPackLoaderTest {
 
     private companion object {
         const val VALID_LOGIC = "function evaluate(input, output) { output.setSpeedLimit(0); output.setModelVariant('stop'); }"
+        const val VALID_MODEL = """
+            parts:
+              - type: item_display
+                item: {type: PAPER}
+            default: {}
+            variants:
+              stop: {}
+        """
+        const val IMPORT_BASE_MODEL = """
+            parts:
+              - type: dummy
+                parts:
+                  - type: item_display
+                    item: {type: PAPER}
+                    animations:
+                      - name: lamp
+                        scenes:
+                          dark: {}
+                          red: {item: {type: STICK}}
+            default: {lamp: dark}
+            variants:
+              base-stop: {lamp: red}
+            rail-placement:
+              presets:
+                base: {offset: {z: 1}}
+        """
+        const val IMPORT_HOME_MODEL = """
+            parts:
+              - import: base
+              - import: base
+            default: {lamp: dark}
+            variants:
+              home-stop: {lamp: red}
+            rail-placement:
+              presets:
+                home: {offset: {z: 2}}
+        """
     }
 }

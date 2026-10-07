@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simplesignals.signalpack
 
+import work.art1st.javarailways.bukkit.api.model.asset.CompiledModelAsset
 import java.nio.file.Path
 import java.util.Collections
 
@@ -31,7 +32,11 @@ class SignalPack internal constructor(
     val signals: Map<String, SignalPackSignal> = immutableMap(signals)
 }
 
-data class SignalPackModel(val modelId: String, val file: Path)
+data class SignalPackModel(
+    val modelId: String,
+    val file: Path,
+    val materialized: CompiledModelAsset
+)
 
 data class SignalPackLogic(
     val logicId: String,

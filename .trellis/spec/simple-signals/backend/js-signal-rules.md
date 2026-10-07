@@ -8,13 +8,14 @@
 世界设备或 signal epoch。
 物理阶段之后的同步填值和 JS 求值仍是 **TARGET**。除此之外不增加时间、内存、节点、分支或整波预算；包作者负责规则的终止性和成本。
 
-SimpleSignals 负责包加载、脚本执行、前视投影、输出校验和信号结果发布。Basic 仍只负责物理资源校验与仲裁，SimpleATO 仍负责路线前视、资源申请、动态制动和最严格约束合成。JS 不得选路、扳动道岔、授予资源、直接制动列车或修改世界。包分发与玩家可见组合见[统一信号包](model-packages.md#统一信号包model-logic-与公开组合)。
+SimpleSignals 负责包加载、脚本执行、前视投影、输出校验和信号结果发布。Basic 仍只负责物理资源校验与仲裁，SimpleATO 仍负责路线前视、资源申请、动态制动和最严格约束合成。JS 不得选路、扳动道岔、授予资源、直接制动列车或修改世界。包分发与玩家可见类型见[统一信号包](model-packages.md#统一信号包modellogic-与一等-signal-类型)。
 
 现有 `SectionSignalRuleRuntime`、显式下游依赖和无环失效传播属于 **CURRENT**；本目标不能被描述成已经由 `forwardSignals` 数组或现有 DAG 自动实现。源码边界见[研究记录](../../../tasks/09-18-signal-addon-implementation/research/js-rule-runtime-source-map.md)。
 
 ## 2. 一次规则执行如何完成
 
-1. 包准备阶段读取 `pack.yml`、模型和逻辑文件，编译 JS，并校验引用、模型外观和逻辑声明。
+1. 包准备阶段读取元数据 `pack.yml`、`model/`、成对的 `logic/*.yml`／`logic/*.js` 和 `signal/*.yml`，
+   以稳定 `modelId`、`logicId`、`signalId` 编译 JS 并校验跨包引用。模型 materialize 与生产世界绑定仍属后续批次。
 2. 拓扑或配置变更后，SimpleSignals 在低频准备阶段从信号入口编译前视计划。计划包含扫描范围内的所有合法后继，以及运行时筛选分支所需的道岔、保护进路和区间身份；它不包含某一 tick 的占用结果。
    当前 `SignalObservationGraphBuilder` 已从同一 `SimpleSignalsRuntimePublication` 的真实 section/topology
    publication 构造连接图，`SignalObservationPlanCompiler` 再把它变成不可变路径树；signal epoch 的运行填值仍在后续批次。

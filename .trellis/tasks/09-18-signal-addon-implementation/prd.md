@@ -40,8 +40,9 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 - 距离敏感的自定义信号逻辑由 JS 完成，不再为现有 Kotlin 规则新增距离条件配置表。输出通过独立的限速与
   模型外观 setter 提交，不以 `return "YG"` 或模型名反查速度。
-- 一个包使用 `pack.yml`、`model/`、`logic/` 三部分。`pack.yml` 只暴露玩家可选择的模型—逻辑组合，
-  并可用稳定 namespaced ID 引用其他包的模型或逻辑；世界定义引用公开组合身份，不保存脚本路径或源码。
+- 一个包使用元数据 `pack.yml` 和 `model/`、`logic/`、`signal/` 三类文件。model、logic、signal 的稳定 namespaced
+  ID 均由包名和安全相对路径派生；`signal/*.yml` 是玩家可选择的一等类型并引用一个 modelId 和一个 logicId。
+  跨包引用按完整 ID 两阶段解析；未来世界定义引用公开 signal 类型身份，不保存脚本路径或源码。
 - 复用仓库已经采用的 GraalJS 技术栈和能力隔离原则，但 SimpleSignals 不依赖或导入
   `BukkitPlugin` 私有运行时类。包准备可在工作线程完成；规则求值在物理快照之后、同一信号 epoch 的
   同步信号阶段执行，随后统一校验并原子发布结果。

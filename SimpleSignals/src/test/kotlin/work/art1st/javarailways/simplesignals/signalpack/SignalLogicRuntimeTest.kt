@@ -211,24 +211,23 @@ class SignalLogicRuntimeTest {
         val pack = Files.createDirectories(temporary.resolve("pack"))
         Files.createDirectories(pack.resolve("model"))
         Files.createDirectories(pack.resolve("logic"))
+        Files.createDirectories(pack.resolve("signal"))
         Files.writeString(pack.resolve("model/model.yml"), "model")
         Files.writeString(pack.resolve("logic/logic.js"), script.trimIndent())
+        Files.writeString(pack.resolve("logic/logic.yml"), "scan-distance-metres: 100")
+        Files.writeString(
+            pack.resolve("signal/standard.yml"),
+            """
+                display-name: Standard
+                model: test:model
+                logic: test:logic
+            """.trimIndent()
+        )
         Files.writeString(
             pack.resolve("pack.yml"),
             """
                 config-version: 1
                 name: test
-                models:
-                  model: model.yml
-                logics:
-                  logic:
-                    file: logic.js
-                    scan-distance-metres: 100
-                combinations:
-                  standard:
-                    display-name: Standard
-                    model: test:model
-                    logic: test:logic
             """.trimIndent()
         )
         return SignalPackLoader.load(temporary)

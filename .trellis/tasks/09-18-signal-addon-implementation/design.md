@@ -2,8 +2,9 @@
 
 ## Status and ownership
 
-2026-10-07 用户批准 JS 规则目标：包由 `pack.yml`、`model/`、`logic/` 构成，清单暴露玩家可见的
-模型—逻辑组合并允许稳定 namespaced 跨包引用；复用 GraalJS，但不依赖 `BukkitPlugin` 私有实现。
+2026-10-07 用户批准 JS 规则目标，随后将统一包修正为元数据 `pack.yml` 加 `model/`、`logic/`、`signal/`：
+文件相对路径派生稳定 namespaced modelId、logicId、signalId，玩家可见的一等 signal 文件引用模型与逻辑；
+跨包引用两阶段解析。复用 GraalJS，但不依赖 `BukkitPlugin` 私有实现。
 规则在物理快照之后的同步信号阶段读取完整分支树，扫描距离逐分支累计，不设节点／分支／时间／内存／整波预算；
 包作者承担脚本性能责任。扫描遇到同一有向状态时仅停止该分支并把原因交给 JS，不采用 DAG 拒环、SCC 或 fixed-point。
 这些仍是 `TARGET`，当前 Java/Kotlin provider、模型包和 publication 是 `CURRENT`；精确契约归
@@ -324,10 +325,13 @@ SimpleSignals 自己负责信号模型包、模型操作对象、RailObjectWand 
 显示侧读取不可变的信号结果，只在外观或摆放状态变化时更新模型。显示绑定将通过已实现的通用公开接口复用主插件的模型系统，
 不另写一套渲染器，也不把信号模型伪装成列车。
 
-JS 目标包的作者目录固定分为 `pack.yml`、`model/` 和 `logic/`。`model/` 保存外观资产，`logic/` 保存
-规则源码及其逻辑元数据；只有 `pack.yml` 暴露的模型—逻辑组合进入玩家选择界面。组合可通过稳定的
-namespaced ID 引用其他包内容，解析须与发现顺序无关。该目标包格式不表示当前 `manifest.yml` 模型加载器已经迁移，
-也不在本文冻结 YAML 字段名、脚本文件名或版本号；实现时直接按未发布 current model 修正，不能为开发提交建立兼容代际。
+JS 目标包的作者目录固定分为元数据 `pack.yml`、`model/`、`logic/` 和 `signal/`。`model/` 保存外观资产；
+每个 `logic/<path>.yml` 与同 stem 的 `.js` 保存逻辑元数据和源码；每个 `signal/<path>.yml` 是玩家可见
+的一等类型，引用一个 namespaced modelId 和一个 logicId。三类 ID 均由包名与安全相对路径派生；
+跨包引用两阶段解析。该目标包格式不表示当前 `manifest.yml` 模型加载器已经迁移。
+现有世界 `FixedBlockSignalDefinition.signalId`／`ProtectionSignalDefinition.signalId` 仍表示已放置逻辑节点，
+不是上述 package signal 类型。生产绑定批次须先将其语义清晰化为 deviceId 或增加显式类型字段，不能同名猜绑定。
+这是未发布 current model，保持版本1且不读取此前 foundation 布局，不能为开发提交建立兼容代际。
 
 [主插件模型契约](../../spec/bukkit-plugin/backend/model-presentation-api.md)描述按 ID 查询轨道曲线、
 构造普通模型、安排目标线程更新和清理实体；[信号模型绑定合同](../../spec/simple-signals/backend/model-presentation.md)

@@ -27,7 +27,7 @@ class SignalLogicRuntime(catalog: SignalPackCatalog) : AutoCloseable {
 
     init {
         try {
-            sources = catalog.logics.values.associate { logic -> logic.id to source(logic) }
+            sources = catalog.logics.values.associate { logic -> logic.logicId to source(logic) }
             // Reject syntax errors and a missing entry point before this candidate can be installed.
             for ((logicId, source) in sources) {
                 withTemporaryContext { context -> compile(context, logicId, source) }
@@ -75,7 +75,7 @@ class SignalLogicRuntime(catalog: SignalPackCatalog) : AutoCloseable {
               return evaluate;
             })()
         """.trimIndent()
-        return Source.newBuilder("js", wrapped, logic.file.toString()).cached(true).build()
+        return Source.newBuilder("js", wrapped, logic.sourceFile.toString()).cached(true).build()
     }
 
     private fun compile(context: Context, logicId: String, source: Source): Value {

@@ -1,9 +1,19 @@
 # Stage 2 implementation plan
 
+## 2026-10-07 统一信号包一等类型格式纠正
+
+- [x] 直接修正未发布 config-version 1：`pack.yml` 只保存包元数据；`model/`、成对同 stem 的
+  `logic/*.yml`／`logic/*.js` 和 `signal/*.yml` 按安全相对路径派生稳定 namespaced modelId、logicId、signalId。
+- [x] package signal 文件取代旧 combination 概念，保存玩家显示名并引用一个 modelId 与一个 logicId；
+  跨包引用继续两阶段、与目录顺序无关，旧 foundation 布局没有兼容 reader/upcaster。
+- [x] catalog/loader/runtime 测试改用一等 signal 文件；模型内容本批仍为待 materialize 的不透明文件。
+- [ ] 后续生产绑定必须显式区分 package `signalId` 与当前世界定义中表示已放置逻辑节点的 `signalId`；
+  应先把后者语义清晰化为 `deviceId` 或增加显式类型引用，不得按同名隐式绑定。本批不改世界 schema、启动或 signal epoch。
+
 ## 2026-10-07 JS 包与树形前视决策收敛（本提交仅文档）
 
-- [x] 将目标包收敛为 `pack.yml`、`model/`、`logic/`；只由清单暴露玩家可见的模型—逻辑组合，
-  支持稳定 namespaced 跨包引用，不在任务文档冻结 owner 契约尚未确定的字段名。
+- [x] 历史文档批次曾将目标包收敛为 `pack.yml`、`model/`、`logic/` 及清单组合；其布局已由上方
+  一等 signal 文件格式取代，稳定 namespaced 跨包引用要求保持不变。
 - [x] 确认复用 GraalJS 技术栈而不导入 `BukkitPlugin` 私有 runtime；实际规则在物理快照之后的同步信号阶段执行，
   准备工作才可异步，不规划 context pool、watchdog 或异步求值结果交接。
 - [x] 将自动前视目标改为完整分支树，扫描距离逐分支累计；删除节点、分支、时间、内存和整波预算要求，

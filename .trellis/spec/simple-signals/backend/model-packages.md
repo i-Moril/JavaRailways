@@ -13,9 +13,9 @@ SimpleSignals 负责加载器；主插件继续只接收已有的不可变 `Mode
 已批准的默认显示、预设复制和摆放行为见[模型显示契约](model-presentation.md)，
 部件与场景的运行语义见[主插件模型 API](../../bukkit-plugin/backend/model-presentation-api.md)。
 
-## 统一信号包：model、logic 与公开组合
+## 统一信号包：model、logic 与一等 signal 类型
 
-统一信号包的发现、严格清单解析、两阶段跨包引用解析和 JS 源捕获已经实现（`CURRENT/FOUNDATION`）。模型导出在
+统一信号包的发现、严格文件解析、两阶段跨包引用解析和 JS 源捕获已经实现（`CURRENT/FOUNDATION`）。模型文件在
 这一批只验证安全路径并形成不可变 catalog 值，尚未交给现有 `ModelPackageLoader` materialize；插件启动、世界设备、
 Wand 和热重载也尚未接线（`TARGET`）。后文 `manifest.yml/models/parts` 仍是当前已接线的模型-only loader，
 不能把两个布局混合读取，也不能声称统一信号包已经能在游戏中放置或显示。
@@ -25,51 +25,90 @@ Wand 和热重载也尚未接线（`TARGET`）。后文 `manifest.yml/models/par
   pack.yml
   model/
   logic/
+  signal/
 ```
 
-- `model/` 保存外观、部件树、命名 variant 和摆放预设；当前 foundation 把声明文件当作待 materialize 的不透明资源，
-  模型名称本身不携带速度或信号语义。
-- `logic/` 保存 JS；`pack.yml` 的 logic entry 同时声明按轨道米数计算的最大扫描距离。扫描距离属于逻辑，不属于模型、
-  已放置设备或 SimpleATO。
-- `pack.yml` 是唯一面向玩家公开组合的目录：只有其中声明的“模型 + 逻辑”组合出现在 Wand／UI 中。
-  包里存在但未公开的模型或逻辑仍可被其他组合引用，不自动成为可放置设备。
-- 一个模型可以配多个逻辑，一个逻辑也可以配多个模型。组合可以用稳定 namespaced ID 引用其他包提供的
-  模型或逻辑；引用不使用 JVM 类名、相对逃逸路径或加载顺序。
-- 世界设备保存公开组合的稳定 ID 和设备实例参数，不保存 JS 源码、宿主类名、任意文件路径或每设备扫描距离。
+- `pack.yml` 只保存 `config-version`、稳定包名和可选显示名，不枚举 model、logic 或 signal。
+- `model/**/*.yml` 每个文件定义一个模型；其 `modelId` 为 `包名:相对路径去掉.yml`。当前 foundation 把内容当作待
+  materialize 的不透明资源，模型身份本身不携带速度或信号语义。
+- `logic/<路径>.yml` 与同目录同 stem 的 `logic/<路径>.js` 共同定义一个逻辑，`logicId` 同样从 YAML 相对路径派生。
+  YAML 只允许 `scan-distance-metres`；扫描距离属于逻辑，不属于模型、signal 类型、已放置设备或 SimpleATO。
+  缺任一配对文件均拒绝整个候选，JS 在 catalog 准备时捕获，运行期不重读。
+- `signal/**/*.yml` 每个文件定义一个玩家可见信号类型；其 `signalId` 从文件相对路径派生，文件包含非空
+  `display-name` 以及 namespaced `model`、`logic` 引用。只有 signal 文件进入未来 Wand／UI；存在但未被 signal
+  引用的模型或逻辑仍可被跨包 signal 引用，不自动成为可放置信号类型。
+- 一个模型可以被多个 signal 使用，一个逻辑也可以被多个 signal 使用。signal 可引用其他包的 `modelId`／`logicId`；
+  引用不使用 JVM 类名、相对逃逸路径或加载顺序。
+- 未来世界设备保存公开 package `signalId` 和设备实例参数，不保存 JS 源码、宿主类名、任意文件路径或每设备扫描距离。
+  当前世界定义中的 `FixedBlockSignalDefinition.signalId`／`ProtectionSignalDefinition.signalId` 是已放置逻辑节点身份，
+  不是 package signal 类型；生产绑定前必须把前者重命名为清晰的 `deviceId` 或增加显式类型引用，不能按同名猜绑定。
 
 `SignalPackLoader.load(directory: Path): SignalPackCatalog` 同步准备根目录的直接子目录。调用方负责把文件读取放在
-低频 worker；该函数不创建 executor、世界对象或 live publication。严格 `pack.yml` current schema 已冻结为：
+低频 worker；该函数不创建 executor、世界对象或 live publication。严格 current schema 1 示例为：
 
+`pack.yml`：
 ```yaml
 config-version: 1
 name: example
-models:
-  four-light: four-light.yml
-logics:
-  automatic:
-    file: automatic.js
-    scan-distance-metres: 800
-combinations:
-  automatic-four-light:
-    display-name: Automatic four-light
-    model: example:four-light
-    logic: example:automatic
+display-name: Example signals
 ```
 
-五个根字段均必填且拒绝未知字段；三个映射允许为空。包名、本地 ID 和完整 `包名:本地ID` 均使用严格稳定身份，
-不使用类名。model 文件必须位于本包 `model/`，logic 文件必须位于 `logic/` 且以 `.js` 结尾；真实路径必须仍位于
-对应包和子目录内，符号链接不能逃逸。logic 的 `scan-distance-metres` 必须是有限正数。
+`logic/automatic.yml` 与 `logic/automatic.js`：
+```yaml
+scan-distance-metres: 800
+```
 
-发现使用两阶段解析：第一阶段读取全部包身份及其导出项、捕获 JS 源文本并检查重复 ID；第二阶段解析跨包引用并校验完整组合。
-因此包目录枚举顺序不影响结果。包 A 的公开组合引用包 B 的模型、同时包 B 的另一组合引用包 A 的逻辑，
-只要各稳定 ID 都能解析，就不是错误，也不能因发现顺序拒绝。缺包、未知引用、引用类型错误或路径逃逸使完整
-catalog candidate 准备失败；当前函数本身没有 live publication 可部分替换。模型 materializer 将在后续批次负责模型内部
-递归引用校验。返回的 catalog、package、导出和组合表不可变；JS 源在 catalog 准备时捕获，`SignalLogicRuntime` 不重读文件，
+`signal/automatic-four-light.yml`：
+```yaml
+display-name: Automatic four-light
+model: example:four-light
+logic: example:automatic
+```
+
+包入口只允许两个必填字段和可选 `display-name`；model/signal 只接受 `.yml`，logic 只接受成对的 `.yml`/`.js`。
+包名、派生本地 ID 和完整 `包名:本地ID` 均使用严格稳定身份，不使用类名。相对路径中的每一段都必须符合小写
+稳定 ID 规则；真实路径必须仍位于对应包和子目录内，符号链接不能逃逸。logic 的
+`scan-distance-metres` 必须是有限正数。
+
+发现使用两阶段解析：第一阶段读取全部包身份、模型文件和逻辑文件，捕获 JS 源并检查身份；第二阶段解析全部 signal
+文件的跨包引用。因此包目录枚举顺序不影响结果。包 A 的 signal 可引用包 B 的模型或逻辑，只要稳定 ID 能解析，
+就不能因发现顺序拒绝。缺包、未知引用、引用类型错误、配对缺失或路径逃逸使完整 catalog candidate 准备失败；
+当前函数本身没有 live publication 可部分替换。模型 materializer 将在后续批次负责模型内部递归引用校验。
+返回的 catalog、package、model、logic 和 signal 表不可变；JS 源在 catalog 准备时捕获，`SignalLogicRuntime` 不重读文件，
 避免校验完成后文件变化造成候选内容漂移。正常 tick 不读取包文件。
 
 这是未发布配置边界的 current model，保持 `config-version: 1`，没有旧布局 alias、upcaster 或运行时兼容 reader。
 后续 materialize 和接线仍须依照[版本号与发布基线](../../javarailways/shared/versioning.md)，不能按提交次数升版。
 JS 的执行 foundation、同步信号阶段目标和树形输入见[JS 信号规则契约](js-signal-rules.md)。
+
+### 统一包可执行合同
+
+1. **状态与 owner**：`SignalPackLoader` 的目录发现、身份派生、跨包解析和 JS 源码捕获是
+   `CURRENT/FOUNDATION`，由 SimpleSignals 拥有；模型 materialize、世界绑定和 tick 求值是 `TARGET`。
+2. **工作流**：`load(root)` 先按目录名排序读取所有 `pack.yml`，再递归发现三类文件；
+   model 和 logic 先进入全局表，signal 仅暂存引用，待所有包就绪后再统一解析，最后一次性返回
+   `SignalPackCatalog`。
+3. **内部机制**：ID 由包名与去扩展名的相对路径派生；路径每段单独验证且拒绝空段、`.`、`..`。
+   递归发现跟随目录符号链接，但每个候选节点都先转换为 real path 并证明仍在包目录内；
+   这使逃逸链接成为错误，而不是被静默忽略。
+4. **签名与结果**：`SignalPackLoader.load(Path): SignalPackCatalog`。catalog 分别以完整 ID 索引
+   `models`、`logics`、`signals`；`SignalPackSignal` 同时暴露 `signalId`、`modelId`、`logicId`及已解析对象。
+   所有表均为不可变快照。
+5. **不变量与版本**：一个 logic 必须恰有同 stem 的 YAML 和 JS；一个 signal 必须解析到一个
+   modelId 和一个 logicId。候选准备不发布部分结果。未发布格式仍为 schema 1，不提供旧
+   `models/logics/combinations` 入口的运行时兼容。
+6. **错误矩阵**：未知字段或扩展名、空显示名、非法 ID 段、缺失 logic 配对、非正有限扫描距离、
+   重复包或 ID、未知／错类型引用、符号链接逃逸均拒绝完整 candidate；错误包含包、文件和字段位置。
+7. **复杂度与降级**：设候选目录节点数为 F、实际读取的元数据／信号／逻辑字节为 B、signal 引用数为 R，准备成本为
+   `O(F log F + B + R)`，内存为 `O(F + B)`；只在低频准备阶段发生。任一错误使本次加载失败，
+   不伪造模型、逻辑或 signal 占位值。
+8. **案例**：基本案例是同包 signal 引用本包 model/logic；合法扩展案例是包 A 的 signal 引用包 B
+   的 model 与 logic；错误案例是孤立 `.js`、逃逸目录链接或把 logicId 写到 model 字段。
+9. **必需测试**：固定验证嵌套路径派生、跨包与反向枚举顺序、同 stem 配对、未知字段、
+   `.`/`..` 段、文件与目录符号链接逃逸、捕获后源文本稳定性和返回表不可变。
+10. **迁移与错误用法**：正确做法是由 package `signalId` 显式引出 modelId/logicId；错误做法是从
+    已放置设备 ID、模型 ID 或文件名在运行时猜测逻辑。世界绑定和旧 `signalId` 的 `deviceId` 清晰化
+    仍是下一批的显式设计点。
 
 ## 一次加载如何工作
 

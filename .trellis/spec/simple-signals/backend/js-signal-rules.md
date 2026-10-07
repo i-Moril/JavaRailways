@@ -2,9 +2,11 @@
 
 ## 1. 状态、范围与负责模块
 
-这是 **TARGET** 契约，尚未实现。2026-10-07 已确认：SimpleSignals 使用 JS 表达距离敏感的信号逻辑，规则在物理阶段之后的串行信号阶段执行，并可读取完整的树形前视。前视分支遇到有向环时停止该分支，并把停止原因交给 JS。除此之外不增加时间、内存、节点、分支或整波预算；包作者负责规则的终止性和成本。
+这是分阶段契约。统一信号包解析和独立 GraalJS 执行 foundation 已实现（`CURRENT/FOUNDATION`）；它能严格加载、
+编译并同步求值一个规则，但尚未接入插件启动、世界设备、现有规则图或 signal epoch。物理阶段之后的同步信号阶段、
+完整树形前视和遇环停止仍是 **TARGET**。除此之外不增加时间、内存、节点、分支或整波预算；包作者负责规则的终止性和成本。
 
-SimpleSignals 负责包加载、脚本执行、前视投影、输出校验和信号结果发布。Basic 仍只负责物理资源校验与仲裁，SimpleATO 仍负责路线前视、资源申请、动态制动和最严格约束合成。JS 不得选路、扳动道岔、授予资源、直接制动列车或修改世界。包分发与玩家可见组合见[信号包目标格式](model-packages.md#目标信号包model-logic-与公开组合)。
+SimpleSignals 负责包加载、脚本执行、前视投影、输出校验和信号结果发布。Basic 仍只负责物理资源校验与仲裁，SimpleATO 仍负责路线前视、资源申请、动态制动和最严格约束合成。JS 不得选路、扳动道岔、授予资源、直接制动列车或修改世界。包分发与玩家可见组合见[统一信号包](model-packages.md#统一信号包model-logic-与公开组合)。
 
 现有 `SectionSignalRuleRuntime`、显式下游依赖和无环失效传播属于 **CURRENT**；本目标不能被描述成已经由 `forwardSignals` 数组或现有 DAG 自动实现。源码边界见[研究记录](../../../tasks/09-18-signal-addon-implementation/research/js-rule-runtime-source-map.md)。
 
@@ -88,9 +90,20 @@ function evaluate(input: SignalInput, output: SignalOutput): void;
 
 所有输入必须来自同一物理 epoch、同一拓扑／定义 revision 和仍有效的世界绑定。拓扑、包或定义替换使对应前视计划失效；旧调用不得覆盖新绑定。完整结果原子发布，消费者不读取半更新状态。
 
-复用仓库已有 GraalJS 版本和能力隔离原则，但 SimpleSignals 不依赖 BukkitPlugin 私有实现类。目标运行时禁止 Host class lookup、宿主对象遍历、文件、网络、Bukkit、线程、进程、native access、动态导入、Promise／异步回调以及任意 I/O。时间和随机等非确定能力也不属于规则 API。可共享 Graal Engine／已编译 Source；任一 Context 只能串行使用，具体 Context 生命周期在运行时实现批次评审，不能先承诺异步池。
+`SignalLogicRuntime(catalog)` 是已实现的 SimpleSignals 私有执行边界，不依赖 BukkitPlugin 私有实现类。它使用
+Graal 24.2.2，共享一个 Engine 和按 logic ID 缓存的 immutable Source；构造时用临时 Context 验证语法和 `evaluate` 入口。
+每次 `evaluate(logicId, JsonElement)` 都创建一个全新 Context/realm，在同一调用栈同步求值，然后在 `finally` 中
+`close(true)`。fresh realm 阻止闭包和 `globalThis` 状态跨设备／调用串扰；强制关闭取消脚本偷偷启动但没有返回的 guest job，
+不会为 async 增加后台等待、future 或 timeout。Context 和 runtime 调用由 `@Synchronized` 串行化，runtime 关闭后拒绝求值。
 
-本目标不改变 schema、插件或包版本。当前新包格式是否替换已发布基线必须在实现其 reader/writer 前按[版本规则](../../javarailways/shared/versioning.md)核实；没有发布证据时不得猜测升版或新增旧开发格式 reader。
+运行时禁止 Host class lookup、宿主对象遍历、文件、网络、Bukkit、线程、进程、native access、environment access、
+polyglot access、动态导入、Promise／异步回调以及任意 I/O。stdout/stderr 丢弃，guest `console` 为 no-op；`Date`、
+`performance`、`crypto` 和 `Math.random` 不可用。唯一 HostAccess 是带 `@HostAccess.Export` 的 evaluation-local setter bridge。
+输入先从 `JsonElement` 文本在 guest realm 内 `JSON.parse`，再用启动时捕获的内建函数递归冻结，脚本不能通过宿主引用或
+篡改 `Object.freeze` 绕过只读边界。
+
+本批保持统一包 `config-version: 1`，没有旧开发格式 reader；Graal 作为 SimpleSignals 自己的 Paper library 声明，普通插件
+JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／加载仍未部署验证，不能用离线 JAR 检查冒充运行验收。
 
 ## 6. 校验与失败处理
 
@@ -100,7 +113,9 @@ function evaluate(input: SignalInput, output: SignalOutput): void;
 - 调用抛错、异步返回或 setter 合同无效：丢弃两个 setter 的全部输出，相关信号为 `Unavailable`、安全速度为 0。
 - 环：不是执行错误；只结束当前分支并把 `cycle` 告诉 JS，兄弟分支照常可见。
 - 模型创建／显示失败：不撤销安全限速；显示层按自己的默认外观退化，不能借故保留许可。
-- 无限循环或耗时过长：signal epoch 会被该同步调用阻塞。这是包作者／管理员承担的配置责任；运行时不伪造超时结果，不留下后台脚本，也不加入未获批准的 watchdog 或预算。
+- 返回 Promise／async 结果或 detached async 越过调用边界写 output：规则失败；其他未返回的残留 guest job 也会随
+  临时 Context 强制关闭而取消，不能影响已经结束的同步输出边界。
+- 无限循环或耗时过长：未来接入后会阻塞同步 signal epoch。这是包作者／管理员承担的配置责任；运行时不伪造超时结果，不留下后台脚本，也不加入未获批准的 watchdog 或预算。
 
 诊断必须定位包、逻辑、设备和失败类别；重复异常可以限频，但不得把反复失败改成成功许可。
 
@@ -109,6 +124,10 @@ function evaluate(input: SignalInput, output: SignalOutput): void;
 设一个已编译前视的可见路径出现次数为 `V`、展开边数为 `E`，计划编译和不可变视图规模为 `O(V + E)`；有汇合的物理图可以内部共享以减少常量，但公开语义仍是路径树。运行时填值和 JS 遍历也至少与脚本实际访问的可见节点数成正比。没有“lookup 等于重新寻路”：单个已投影字段访问为 `O(1)`，文件和拓扑搜索不在调用中进行。
 
 最大扫描距离分别截断各分支，不限制节点数或分支数，也不把所有分支长度相加。插件不设置执行时长、内存、节点、分支、递归深度或整波总量预算；这意味着错误脚本确实可以拖慢或阻塞服务器，属于明确接受的作者责任。运行时仍应避免每设备重复文件读取、每显示器重复执行和无关变化触发：一台逻辑信号在一个 signal epoch 至多求值一次，多个显示设备复用结果；输入未变时可以不求值，输出未变时不重复发布显示更新。
+
+当前 foundation 每次求值创建并强制关闭一个 Context，以换取调用间状态隔离和 detached async 取消；Engine 与 Source
+仍复用，文件不重读。这一固定成本必须在 signal epoch 接线批次用代表性包测量，不能声称等同于普通 Kotlin callback；
+也不能在没有同等隔离证据时改回长期共享 Context 或引入未批准的 context pool。
 
 ## 8. 具体情形
 
@@ -139,9 +158,11 @@ function evaluate(input: SignalInput, output: SignalOutput): void;
 
 ## 10. 迁移、实施顺序与错误做法
 
-实施分三批：先完成新信号包的发现、两阶段引用解析和 GraalJS 最小受限执行；再实现拓扑前视计划、树形投影与环终止；最后接入 signal epoch、模型显示和世界绑定。每批独立测试、提交并等待审查。
+第一批新信号包发现、两阶段引用解析和 GraalJS 最小受限执行已经完成。下一批实现拓扑前视计划、树形投影与环终止；
+最后接入 signal epoch、模型显示和世界绑定。每批独立测试、提交并等待审查。
 
-仍待实现批次决定但不改变本契约的问题：最终 Kotlin／JS 字段名、Context 的世界／包粒度、脚本文件入口名称、错误诊断载荷和热重载命令。它们不能被用来重新加入预算、退化成扁平活动路径或把脚本移出同步信号阶段。
+仍待实现批次决定但不改变本契约的问题：树形 Kotlin／JS 字段名、错误诊断载荷、模型 variant 联合校验、世界绑定和
+热重载命令。它们不能被用来重新加入预算、退化成扁平活动路径或把脚本移出同步信号阶段。
 
 错误做法：每次 `lookup` 重新走拓扑；遇环拒绝整个包；用 future 超时但让脚本后台继续；把保护区域另做一套查询；让 JS 直接修改世界；以旧绿灯作为异常 fallback。
 

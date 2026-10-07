@@ -25,6 +25,11 @@ dependencies {
     compileOnly('org.jetbrains.kotlin:kotlin-stdlib-jdk8')
     compileOnly('org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0')
 
+    // Signal rule evaluation is owned by this add-on. Keep the same Graal family as the host,
+    // but do not import the host's private script runtime.
+    implementation('org.graalvm.polyglot:polyglot:24.2.2')
+    implementation('org.graalvm.polyglot:js-community:24.2.2')
+
     // The host owns these APIs at runtime. The add-on JAR must not copy them.
     compileOnly(project(':Core'))
     compileOnly(project(':Basic'))
@@ -88,6 +93,8 @@ bukkitPluginYaml {
     depend.add('JavaRailways')
     libraries.add('org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.3.0')
     libraries.add('org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.9.0')
+    libraries.add('org.graalvm.polyglot:polyglot:24.2.2')
+    libraries.add('org.graalvm.polyglot:js-community:24.2.2')
     commands.register('simplesignals') {
         description.set('Inspect/apply definitions or obtain construction and mouse-operated route wands')
         permission.set('simplesignals.admin')
@@ -123,7 +130,9 @@ def verifyPluginJar = tasks.register('verifyPluginJar') {
             'folia-supported: true',
             'simplesignals:',
             'simplesignals.admin:',
-            'org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.9.0'
+            'org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.9.0',
+            'org.graalvm.polyglot:polyglot:24.2.2',
+            'org.graalvm.polyglot:js-community:24.2.2'
         ].each { requiredText ->
             if (!descriptor.contains(requiredText)) {
                 throw new GradleException("SimpleSignals plugin.yml is missing: ${requiredText}")
@@ -133,7 +142,8 @@ def verifyPluginJar = tasks.register('verifyPluginJar') {
             'work/art1st/javarailways/core/',
             'work/art1st/javarailways/basic/',
             'work/art1st/javarailways/simpleato/',
-            'work/art1st/javarailways/bukkit/'
+            'work/art1st/javarailways/bukkit/',
+            'org/graalvm/'
         ]
         def shadowedHostClasses = relativeEntries.findAll { entry ->
             forbiddenPrefixes.any { prefix -> entry.startsWith(prefix) }

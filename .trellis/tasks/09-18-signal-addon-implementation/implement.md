@@ -10,11 +10,13 @@
   明确包作者负责脚本性能与终止。
 - [x] 将遍历兜底收敛为逐分支遇环停止并向 JS 报告终止原因；兄弟分支继续，不使用 DAG 全局拒绝、SCC、
   fixed-point 或陈旧 permissive 输出。
-- [ ] 下一独立实现批次：建立包发现／跨包解析与 GraalJS runtime 基础，保持现有 Java/Kotlin provider 可用；
-  不在同一提交接入树形 observation。
+- [x] 建立包发现／跨包解析与 GraalJS runtime 基础，保持现有 Java/Kotlin provider 可用；严格 current schema 1、
+  两阶段稳定 ID 解析、捕获 JS 源、fresh realm 沙箱、exact-once setter 和 detached async 取消均由聚焦测试覆盖，
+  未在同一提交接入树形 observation、世界或插件启动。
 - [ ] 后续独立实现批次：编译树形 observation plan、接入同步 signal epoch、实现逐分支 cycle leaf 和完整验证。
 
-本提交不修改运行代码、依赖、持久化版本或兼容路径，不声称 JS、目标包格式或树形扫描已经可用。
+本节前四项属于 2026-10-07 的文档收敛提交；随后独立 foundation 提交实现包 catalog、Graal 依赖和 JS runtime，
+仍不修改持久化版本或兼容路径，也不声称树形扫描、world/epoch 接线或游戏内放置已经可用。
 精确契约由 [JS 规则 owner 文档](../../spec/simple-signals/backend/js-signal-rules.md)维护。
 
 ## 2026-10-06 JS 信号规则契约批次（仅文档）

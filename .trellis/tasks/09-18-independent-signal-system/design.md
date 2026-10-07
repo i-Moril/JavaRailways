@@ -7,6 +7,16 @@
 > scheduling remains in `BukkitPlugin`; rendering and policy belong to `SimpleSignals`. The older
 > boundary below is retained only as decision history.
 
+> **JS/package decisions superseded again (2026-10-07):** the child task and the owner
+> [`js-signal-rules.md`](../../spec/simple-signals/backend/js-signal-rules.md) replace this document's
+> provisional flat forward array, explicit signal-dependency DAG rejection, asynchronous context pool,
+> callback/watchdog budget and SCC/fixed-point fallback. The approved target uses
+> `pack.yml + model/ + logic/`, stable namespaced cross-package model/logic references, synchronous
+> post-physics signal-phase evaluation, and a complete branch tree whose distance is applied per branch.
+> There is no generic node/branch/time/memory/wave budget; package authors own script performance.
+> Repeating a directed scan state stops only that branch and reports the terminal reason to JavaScript.
+> Sections below remain architectural decision history and must not override that owner contract.
+
 ## Architecture boundary
 
 The task uses the following agreed module boundary. Fine-grained signal-package indication interoperability is a deferred Stage 2 policy-runtime decision and does not block this extraction design.

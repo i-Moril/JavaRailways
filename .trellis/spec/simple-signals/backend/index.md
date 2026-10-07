@@ -13,7 +13,8 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 现已提供保护区域固定进路信号、当前入口信号和presentation-only进路显示器的后端配置/规则；
 已提供独立管理员 inspect/export/validate/apply 命令及 current-JSON 草稿工作流；
 现已接入[闭塞与保护区域 Wand](section-authoring-wands.md)；独立信号机工具及信号规则 JS 接口仍未提供。
-用户已确认距离敏感规则使用 JS，不扩展距离条件配置表；[JS 规则契约草案](js-signal-rules.md)记录输入、setter、执行隔离、性能与测试要求，尚未实现或冻结 API。模型显示接线已提供，但真实 Folia/客户端画面
+用户已确认距离敏感规则使用 JS，不扩展距离条件配置表；[JS 规则 TARGET 契约](js-signal-rules.md)已确定同步信号阶段、
+树形前视、逐分支遇环停止和无通用执行预算，最终字段名仍随实现批次冻结，运行时尚未实现。模型显示接线已提供，但真实 Folia/客户端画面
 仍待验证，不得把 foundation 描述为完整建造/呈现系统。
 轨道编辑后的局部失效、后台重验与恢复归[区间局部重验](section-topology-revalidation.md)；
 世界拓扑版本增加不再使所有既有区间和冻结路线过期。
@@ -23,9 +24,10 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 
 模型显示方案见[信号状态如何显示成模型](model-presentation.md)。SimpleSignals 已提供私有的预设应用和
 轨道附着/地面摆放计算，复用公开曲线和值类型，输出 `ModelPose`；方向、倾斜与原地旋转已通过真实曲线测试。
-[模型包加载器](model-packages.md)已实现：在工作线程准备阶段读取目录、展开包内部件、校验命名场景和完整外观映射，
+[模型包加载器](model-packages.md)的当前模型-only布局已实现：在工作线程准备阶段读取目录、展开包内部件、校验命名场景和完整外观映射，
 返回不可变普通模型与摆放预设。设备模型/摆放存档接入现有定义事务；插件启用时异步发现模型包，
 通过宿主已有的轨道定位和模型显示服务创建模型、提交信号变化、清理失效绑定。
+同一契约另记录尚未实现的 `pack.yml + model/ + logic/` 统一信号包目标；两种状态不得混写。
 完整接线、初始化并发和错误边界由模型显示合同维护；建造工具只消费公开宿主 API。
 附属信号机直接引用固定闭塞或保护区域的主信号，保存自己的模型和摆放，复用主信号输出；
 不增加规则、inspection 或资源。具体定义、更新索引和编辑影响见

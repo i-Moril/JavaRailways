@@ -2,9 +2,12 @@
 
 ## Status and ownership
 
-2026-10-06 用户选择 JS 处理距离敏感规则，不再扩展距离条件配置表。当前仅有
-[JS 规则目标草案](../../spec/simple-signals/backend/js-signal-rules.md)，复用已有规则与区间数据边界；
-自动前视候选、引擎隔离及预算未实现，输出循环策略另行评审，不改变既有资源／ATO owner。
+2026-10-07 用户批准 JS 规则目标：包由 `pack.yml`、`model/`、`logic/` 构成，清单暴露玩家可见的
+模型—逻辑组合并允许稳定 namespaced 跨包引用；复用 GraalJS，但不依赖 `BukkitPlugin` 私有实现。
+规则在物理快照之后的同步信号阶段读取完整分支树，扫描距离逐分支累计，不设节点／分支／时间／内存／整波预算；
+包作者承担脚本性能责任。扫描遇到同一有向状态时仅停止该分支并把原因交给 JS，不采用 DAG 拒环、SCC 或 fixed-point。
+这些仍是 `TARGET`，当前 Java/Kotlin provider、模型包和 publication 是 `CURRENT`；精确契约归
+[JS 规则 owner 文档](../../spec/simple-signals/backend/js-signal-rules.md)，不改变既有资源／ATO owner。
 
 2026-10-05 新决定取代下文早期默认进路分支：无匹配列车请求时保护信号保持停车。
 出口放行还须验证一列车长度的空间，不能仅看资源授权；双向信号结果须与共享资源身份分离。
@@ -272,16 +275,32 @@ Stage 2 consumes the reviewed declaration, single-scan, activation and fail-clos
 its per-train/route inspection declarations and owns any downstream reverse-dependency propagation; SimpleATO activates matching
 declarations with preparation lead times; SimpleATO converts them using current train motion, activates declarations through its
 one shared perception, and owns current-speed braking. The plugin does not reevaluate all signals or run
-arbitrary JS every tick. Scripts, if the plugin offers them, receive immutable bounded views and return requests/restrictions/model
-variants through plugin-controlled APIs; they never mutate the Minecraft world or Basic registry directly.
+arbitrary JS every tick. Scripts receive immutable views and append restrictions/model choices to an evaluation-local decision;
+they never mutate the Minecraft world or Basic registry directly.
 
-The reviewed propagation direction is a directed provider-to-consumer invalidation chain, not a fixed-point solver. Occupancy,
-the currently active turnout continuation and changed downstream section output may enqueue only registered upstream consumers;
-consumers never enqueue their providers. Each node runs at most once in one wave and an unchanged output ends propagation on
-that branch. Core remains the authority for live directed active continuations. The immutable same-physics-epoch world frame now
-exposes `entry endpoint -> selected exit endpoint?`; Basic projects that snapshot unchanged and any consumer may read it. Core
-reuses the immutable value while topology/selection revisions remain unchanged and rejects publication if a selection changes
-during epoch processing. This completes the prerequisite for turnout-aware dependency selection without exposing mutable `RailView`.
+`CURRENT` built-in providers use a precompiled one-way invalidation graph and reject their explicit dependency cycles. The JS
+`TARGET` must not generalize that implementation restriction into a rail-topology DAG. Loading or editing a signal prepares a
+read-only forward observation plan from the existing section/topology indexes; an epoch fills occupancy, downstream output,
+turnout selection and protection-route readiness from one coherent post-physics frame. The plan presents all candidate continuations
+as a tree-like view, and the logic definition's scan distance is accumulated independently on each branch. Runtime evaluation does
+not run Dijkstra, query live Core topology, invoke another ATO scan, or flatten the selected continuation into the only visible path.
+
+The rule callback executes synchronously inside the serialized signal phase after the physical frame has been captured and before
+that epoch's signal publication is completed. Package discovery, parsing, source compilation and observation-plan preparation may
+run off-tick; the actual `evaluate` call is not delegated to an asynchronous pool. Graal contexts are used serially under their owner;
+this task does not require one context per signal or a bounded context pool.
+
+While expanding one branch, the scanner tracks the complete directed scan state required to distinguish direction, entry and selected
+protection-route context. Repeating that state creates a terminal cycle leaf: that branch is not expanded further, its termination
+reason is exposed to JS, and sibling branches continue. The cyclic edge does not create a recursive downstream-output dependency.
+The compiler marks the segment between the first occurrence and the repeated state; signal occurrences on that segment expose
+same-epoch physical facts and the cycle terminal, but neither current-wave nor previous-wave downstream signal output. This makes
+the result independent of which root is evaluated first instead of using an old permissive value to break the recursion. Acyclic
+dependencies outside that segment may still consume an already determined current-wave downstream output.
+No SCC iteration, fixed-point convergence, watchdog or stale permissive fallback is added. Other terminal reasons such as distance
+limit, track end, unresolved route or unavailable topology are likewise visible through the owner contract without freezing their
+source-level field names here. Output changes still use existing reverse indexes to wake affected upstream rules, and unchanged
+validated output still stops propagation.
 
 ### Rendering and customization
 
@@ -304,6 +323,11 @@ during epoch processing. This completes the prerequisite for turnout-aware depen
 SimpleSignals 自己负责信号模型包、模型操作对象、RailObjectWand 模式、命令、权限，以及可选的 JS/YAML 配置。
 显示侧读取不可变的信号结果，只在外观或摆放状态变化时更新模型。显示绑定将通过已实现的通用公开接口复用主插件的模型系统，
 不另写一套渲染器，也不把信号模型伪装成列车。
+
+JS 目标包的作者目录固定分为 `pack.yml`、`model/` 和 `logic/`。`model/` 保存外观资产，`logic/` 保存
+规则源码及其逻辑元数据；只有 `pack.yml` 暴露的模型—逻辑组合进入玩家选择界面。组合可通过稳定的
+namespaced ID 引用其他包内容，解析须与发现顺序无关。该目标包格式不表示当前 `manifest.yml` 模型加载器已经迁移，
+也不在本文冻结 YAML 字段名、脚本文件名或版本号；实现时直接按未发布 current model 修正，不能为开发提交建立兼容代际。
 
 [主插件模型契约](../../spec/bukkit-plugin/backend/model-presentation-api.md)描述按 ID 查询轨道曲线、
 构造普通模型、安排目标线程更新和清理实体；[信号模型绑定合同](../../spec/simple-signals/backend/model-presentation.md)
@@ -342,7 +366,8 @@ SimpleATOBukkit 不参与这条流程。
 
 主插件不规定 `return "YG"` 这样的规则接口，Java/Kotlin 代码也不写死灯色与速度的对应表。
 规则提供经过校验的非负有限限速值；外观名称不能为空，也不能只包含空白字符。插件自己的自定义接口可以提供
-`setSpeedLimit(...)`、`setModelVariant(...)` 等操作，但具体名称、执行预算和可读取信息仍需后续审查。
+`setSpeedLimit(...)`、`setModelVariant(...)` 等 evaluation-local setter；没有执行预算，完整树形只读输入和
+终止原因由 [JS owner 契约](../../spec/simple-signals/backend/js-signal-rules.md)维护，任务文档不另行冻结字段名。
 规则失败时发布不可用状态，对应的安全限速为零，不自动编造一个外观名称。
 
 ## Timetable apply and editing
@@ -434,7 +459,9 @@ Development data migration, if required, is a separate auditable one-time tool w
 
 - Region derivation is proportional to the affected topology subgraph during create/update/load, never per tick.
 - Route matching is linear in the relevant frozen-route range plus indexed resource hits.
-- Dependency invalidation is proportional to the affected one-way provider-to-consumer chain; construction must reject a dependency that would point downstream again rather than trying to settle a cycle at runtime.
+- `CURRENT` built-in dependency invalidation remains proportional to its affected one-way provider-to-consumer chain. The JS
+  `TARGET` prepares only the declared-distance branch tree and uses reverse indexes for dirtying; a repeated directed scan state
+  terminates that branch and reports the reason instead of rejecting the whole rail loop or trying to settle an SCC.
 - Basic admission is one physical projection plus additions and one atomic claim.
 - Missing indexes, stale revisions, invalid script output, plugin exception, forced owner loss or preparation uncertainty cannot widen authority.
 
@@ -484,7 +511,9 @@ SimpleATO 只执行中立的“入口以前须具备到某位置的连续可行�
 
 ## Open decisions
 
-- JS 接口、引擎与预算、磁盘绑定及自动前视分支语义，见 [所属草案](../../spec/simple-signals/backend/js-signal-rules.md#10-实施拆分与待审查项)。JS 已选定，不再重新比较距离条件表。
+- JS 技术栈、同步信号阶段、包目录、完整分支树、逐分支扫描距离、无通用预算及遇环停止均已批准。
+  待实现批次只需确定不影响这些语义的具体类拆分、未冻结的 YAML/API 字段、跨包错误诊断和串行 context 生命周期；
+  以[所属 owner 契约](../../spec/simple-signals/backend/js-signal-rules.md)为准，不恢复 flat-array、context-pool、watchdog 或 SCC 方案。
 - Whether WebUI remains a host sidecar, moves beside SimpleATO, or becomes independently deployable.
 
 These decisions do not block module extraction, protection-region migration or the Java/Kotlin signalling core. The scaffold now fixes the Java package root as `work.art1st.javarailways.simplesignals`; persisted type IDs and script API identifiers remain separate decisions for their owning domain batches.

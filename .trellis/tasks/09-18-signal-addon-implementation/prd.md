@@ -32,15 +32,27 @@ The result must prove that protection regions and fixed blocks are optional poli
 - 按独立、可验证的批次修正，不新增重复扫描、真实铁路全套联锁或运行时旧开发数据兼容。
   实施顺序与边界见[修正批次](research/signal-comparison-corrections.md)。
 
-### JS 信号规则决定（2026-10-06）
+### JS 信号规则决定（2026-10-07）
 
-- 距离敏感的自定义信号逻辑由 JS 完成，不再为现有 Kotlin 规则新增距离条件配置表。
-- 信号声明最远扫描距离，不声明前视区间个数；该距离只控制可读取的数据范围，实际判断仍由 JS 完成。
-- 输出通过独立的限速与模型外观 setter 提交，不以 `return "YG"` 或模型名反查速度。
-- 本批仅编写输入／执行契约、伪代码和测试要求，审查后再实施；复用已有占用、DAG、epoch 和安全约束，不增加第二套扫描或仲裁。
-- 验收要求：连续短区间可根据多个下游信号的距离／限速判断；脚本异常不保留旧许可、不影响无关信号；
-  自动前视的缺失／分支语义和实际引擎预算须在实现前评审，不能把文档或现有显式依赖当作已完成 JS。
-  详细机制归 [JS 契约草案](../../spec/simple-signals/backend/js-signal-rules.md)。完整环线预告不并入本批。
+以下是已批准的 `TARGET`，取代 2026-10-06 草案中“扁平前视、DAG 拒环、执行预算仍待决定”的部分；
+当前运行时仍只有 Java/Kotlin 规则 provider，不能把目标契约写成已实现能力。精确字段名、文件名解析规则和
+公开 Java 类型只由[JS 规则 owner 契约](../../spec/simple-signals/backend/js-signal-rules.md)冻结，本任务不复制第二份 API。
+
+- 距离敏感的自定义信号逻辑由 JS 完成，不再为现有 Kotlin 规则新增距离条件配置表。输出通过独立的限速与
+  模型外观 setter 提交，不以 `return "YG"` 或模型名反查速度。
+- 一个包使用 `pack.yml`、`model/`、`logic/` 三部分。`pack.yml` 只暴露玩家可选择的模型—逻辑组合，
+  并可用稳定 namespaced ID 引用其他包的模型或逻辑；世界定义引用公开组合身份，不保存脚本路径或源码。
+- 复用仓库已经采用的 GraalJS 技术栈和能力隔离原则，但 SimpleSignals 不依赖或导入
+  `BukkitPlugin` 私有运行时类。包准备可在工作线程完成；规则求值在物理快照之后、同一信号 epoch 的
+  同步信号阶段执行，随后统一校验并原子发布结果。
+- 信号逻辑声明最远扫描距离，不声明前视区间个数。宿主从既有拓扑／区间快照准备完整分支树，JS 可观察
+  所有候选分支及当前选择／准备状态；扫描距离对每条分支分别累计，只限定输入可见范围，实际判断仍由 JS 完成。
+- 不增加节点数、分支数、执行时间、内存、整波次数或 context-pool/watchdog 预算。包作者对脚本耗时和终止
+  负责；宿主仍保留无宿主对象、文件、网络、线程、进程和直接世界修改的能力边界，以及输入输出校验。
+- 唯一遍历兜底是环：一条分支再次遇到相同的有向扫描状态时停止扩展该分支，兄弟分支继续，并把
+  `cycle` 等终止原因作为只读输入交给 JS。这里不使用 SCC、fixed-point 或陈旧 permissive 输出来“收敛”。
+- 验收要求：连续短区间可根据多个下游信号的距离／限速判断；树形分支和保护区域可统一观察；环只截断
+  命中的分支且脚本能分辨原因；脚本异常不保留旧许可、不影响无关信号。文档完成不等于运行时已经实现。
 
 ### A. SimpleATO module extraction
 
@@ -340,7 +352,10 @@ must not borrow the opposite end's output. These extension boundaries are record
 
 ## Deferred decisions
 
-- JS 已选为距离敏感规则实现方式；接口、引擎／执行预算、磁盘绑定和自动前视分支语义仍按 [JS 草案](../../spec/simple-signals/backend/js-signal-rules.md)评审，不把草图视为已冻结 API。
+- JS 的引擎族、同步信号阶段、包形状、树形前视、逐分支距离和遇环停止已经决定，不再重新引入执行预算、
+  扁平数组或 SCC/fixed-point 方案。仍待逐批实现和验证的是具体 loader/runtime 类边界、未冻结的字段名、
+  跨包解析诊断、上下文生命周期，以及它们与现有 publication/edit 事务的接线；以
+  [JS owner 契约](../../spec/simple-signals/backend/js-signal-rules.md)为准。
 - Guided authoring interaction/API, measurement path selection,
   protection-region route/device editing and editor visualization. Confirmed player-facing requirements are recorded above;
   these unresolved details must be reviewed before the authoring implementation batch.

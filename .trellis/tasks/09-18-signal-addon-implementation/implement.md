@@ -1,11 +1,29 @@
 # Stage 2 implementation plan
 
+## 2026-10-07 JS 包与树形前视决策收敛（本提交仅文档）
+
+- [x] 将目标包收敛为 `pack.yml`、`model/`、`logic/`；只由清单暴露玩家可见的模型—逻辑组合，
+  支持稳定 namespaced 跨包引用，不在任务文档冻结 owner 契约尚未确定的字段名。
+- [x] 确认复用 GraalJS 技术栈而不导入 `BukkitPlugin` 私有 runtime；实际规则在物理快照之后的同步信号阶段执行，
+  准备工作才可异步，不规划 context pool、watchdog 或异步求值结果交接。
+- [x] 将自动前视目标改为完整分支树，扫描距离逐分支累计；删除节点、分支、时间、内存和整波预算要求，
+  明确包作者负责脚本性能与终止。
+- [x] 将遍历兜底收敛为逐分支遇环停止并向 JS 报告终止原因；兄弟分支继续，不使用 DAG 全局拒绝、SCC、
+  fixed-point 或陈旧 permissive 输出。
+- [ ] 下一独立实现批次：建立包发现／跨包解析与 GraalJS runtime 基础，保持现有 Java/Kotlin provider 可用；
+  不在同一提交接入树形 observation。
+- [ ] 后续独立实现批次：编译树形 observation plan、接入同步 signal epoch、实现逐分支 cycle leaf 和完整验证。
+
+本提交不修改运行代码、依赖、持久化版本或兼容路径，不声称 JS、目标包格式或树形扫描已经可用。
+精确契约由 [JS 规则 owner 文档](../../spec/simple-signals/backend/js-signal-rules.md)维护。
+
 ## 2026-10-06 JS 信号规则契约批次（仅文档）
 
 - [x] 记录用户选择 JS 处理距离敏感逻辑，最远扫描距离只控制输入，不新增 Kotlin 距离条件表。
 - [x] 根据真实规则／区间边界编写 [TARGET 契约](../../spec/simple-signals/backend/js-signal-rules.md)：工作方式、只读输入、setter、失效、内部机制、复杂度、伪代码与测试断言。
 - [x] 完成 [源码对照](research/js-rule-runtime-source-map.md)与独立文档审查；修正“输入相同必不重算”的过度承诺，保留现有事件唤醒和输出不变停止传播语义，不新增输入缓存。
-- [ ] 审查并确定引擎预算、绑定格式及自动前视候选／分支语义，再分批实施受限 JS provider 与前视接线。
+- [x] 后续评审已于 2026-10-07 决定包目录、同步执行阶段、完整树形分支、无通用预算及遇环停止；
+  精确 loader/API 字段仍由 owner 契约和独立实现批次确定。
 
 本批不修改运行代码、依赖、存档版本、Wand 或循环策略；已有显式下游距离输入不等于已实现最远距离自动扫描。
 验证仅为源码／文档审查、`git diff --check` 与 curated context 校验（implement/check 各12项通过）；
@@ -237,7 +255,9 @@ Current extraction progress:
 
 - [x] Review the deferred reactive design: SimpleSignals owns a one-way provider-to-upstream-consumer invalidation chain; no fixed-point solver or host-owned dependency graph. Record the future Core active-continuation snapshot prerequisite without implementing it in this batch.
 - [x] Publish Core's immutable active-turnout continuations in the coherent world frame and project them unchanged through Basic observation. Rebuild the turnout-port map only when topology or live selection revision changes; reject a candidate frame if the selection changes during epoch processing.
-- [x] Implement only the dependency/invalidation mechanism approved in that review: precompile an acyclic one-way graph and evaluate only reached consumers, stopping unchanged branches without a world-wide scan. Concrete aspect/limit rules remain separate.
+- [x] Implement only the dependency/invalidation mechanism approved in that review for the `CURRENT` built-in providers:
+  precompile an acyclic one-way graph and evaluate only reached consumers, stopping unchanged branches without a world-wide scan.
+  This completed mechanism is not the `TARGET` JS tree/cycle contract above; concrete aspect/limit rules remain separate.
 - [x] Prove unchanged resources remain idle and stale permissive outputs cannot survive invalidation: unchanged host area state skips the plugin callback, unchanged rule output stops the branch, and rule/downstream failure publishes an unavailable zero-limit state instead of retaining an old permissive result.
 - [x] Close the actual inspection-to-controller handoff gap (user approved the SimpleATO ownership move): Dispatcher publishes compiled declarations with its frozen-route mapping; each train's controller owns activation/baseline state, consumes signal invalidations and applies projections before its planner, using the existing single perception. Two real Basic/SignalEpoch/SimpleATO integration cases prove changed occupancy/readiness reaches the next physical control calculation with Dispatcher stopped, unchanged state stays idle, and callback failure prevents actuation; direct restriction-publisher tests are not the evidence. See the [inspection owner contract](../../spec/javarailways/simpleato/operational-routing-and-authority.md#343-缓存失效与响应式更新).
 - [x] Extend the neutral signal-epoch wake-up seam with source-declared watched rail endpoints. Fixed-block downstream dependencies now declare only required turnout continuations; definition prepare walks that explicit directed path, derives distance and watched conditions, and turnout-only changes seed only affected rules. Missing, illegal, conflicting, cyclic or unreachable paths fail restrictive outside the tick path.
@@ -247,7 +267,8 @@ Current extraction progress:
 - [x] Expose the neutral Basic active-admission value and compile/persist mutually compatible configured default protection routes without claiming them. The active value carries the frozen route and actual requested/committed authority boundaries; default-route runtime checks use precompiled turnout requirements.
 - [x] Connect admission changes and physical turnout observations to one shared entry selector: request > physically-correct configured default > no route. Retain the old committed prefix during suffix preparation and remove tail-cleared route associations without ending the whole operating route. Match frozen routes once on route changes; unchanged selection state remains idle. Host routes latest-per-owner updates by cached rail interests, including removal/reversal, source replacement baseline and train disappearance independent of Bukkit follow-up. A cleared entry association does not release overlapping long resources still held by Basic.
 - [x] Implement the three device forms' backend on that shared state: fixed-route signal, current signal and presentation-only route indicator. Reuse the indicator for distant previews through explicit source binding and player placement. Route-specific occupancy, mixed-kind one-way dependencies, typed inspection declaration IDs, additive schema-1 persistence and live definition patches are implemented. Rendering is tracked below; independent physical inspection consumption is the separately approved host slice above. Do not infer request state from claim owner strings, poll `liveClaims()` per tick or scan turnouts for non-default fallback routes.
-- [ ] 实现用户已选的 JS 输入／setter provider；[草案](../../spec/simple-signals/backend/js-signal-rules.md)已写，具体引擎预算、绑定与自动前视仍须评审，不以文档代替运行验收。
+- [ ] 实现用户已选的 JS 输入／setter provider；[owner 契约](../../spec/simple-signals/backend/js-signal-rules.md)已确定
+  包结构、同步阶段、树形前视、无通用预算和遇环停止，具体类/API 字段随小批次实现，不以文档代替运行验收。
 - [x] Verify protection-device deletion through the normal definition edit permit. Actual Basic registry regressions cover fixed-route/current-entry signals blocked by static route dependencies and live claims, unchanged disk/publication/sources on rejection, success after blocker release, and disjoint-line deletion. Normal Dispatcher ordering installs route protection before inspection binding and removes inspection before protection; subsequent worker updates filter removed captured bindings. No production defect was reproduced in this guarded lifecycle, so no deletion compatibility path was added. Owner contract: [definition edit impact](../../spec/simple-signals/backend/definition-edit-impact.md#5-不变量线程与版本). This does not establish arbitrary external-caller lifecycle safety or cancel an already-running callback.
 - [ ] Keep scripts away from mutable world objects and raw Basic claim mutation; all outputs pass plugin validation and host restriction/resource APIs.
 

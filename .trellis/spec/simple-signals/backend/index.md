@@ -13,8 +13,9 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 现已提供保护区域固定进路信号、当前入口信号和presentation-only进路显示器的后端配置/规则；
 已提供独立管理员 inspect/export/validate/apply 命令及 current-JSON 草稿工作流；
 现已接入[闭塞与保护区域 Wand](section-authoring-wands.md)；独立信号机工具及信号规则 JS 接口仍未提供。
-用户已确认距离敏感规则使用 JS，不扩展距离条件配置表；[JS 规则契约](js-signal-rules.md)中的统一包加载和独立
-GraalJS 沙箱 foundation 已实现，同步 signal epoch、树形前视和逐分支遇环停止仍待接线。模型显示接线已提供，但真实 Folia/客户端画面
+用户已确认距离敏感规则使用 JS，不扩展距离条件配置表；[JS 规则契约](js-signal-rules.md)中的统一包加载、独立
+GraalJS 沙箱及有向区间图到不可变前视树的编译 foundation 已实现。真实 world publication 到连接图的准备、
+同步 signal epoch 填值与 JS 求值仍待接线；逐分支遇环停止已经在计划编译器中实现。模型显示接线已提供，但真实 Folia/客户端画面
 仍待验证，不得把 foundation 描述为完整建造/呈现系统。
 轨道编辑后的局部失效、后台重验与恢复归[区间局部重验](section-topology-revalidation.md)；
 世界拓扑版本增加不再使所有既有区间和冻结路线过期。

@@ -13,7 +13,13 @@
 - [x] 建立包发现／跨包解析与 GraalJS runtime 基础，保持现有 Java/Kotlin provider 可用；严格 current schema 1、
   两阶段稳定 ID 解析、捕获 JS 源、fresh realm 沙箱、exact-once setter 和 detached async 取消均由聚焦测试覆盖，
   未在同一提交接入树形 observation、世界或插件启动。
-- [ ] 后续独立实现批次：编译树形 observation plan、接入同步 signal epoch、实现逐分支 cycle leaf 和完整验证。
+- [x] 编译不可变树形 observation plan：从已准备的有向区间连接图逐路径展开，状态身份包含区间、方向、入口和保护进路上下文；
+  逐分支累计区间/连接距离，连续短区间扫描到距离边界，分叉保留全部候选，汇合保留独立 occurrence。
+  道岔 continuation 与保护进路作为运行期筛选元数据保留；逐分支哈希索引发现回边，仅生成该分支的 `cycle` 叶，
+  循环段不进入下游信号依赖集合，兄弟分支继续。编译结果另汇总区间、非循环信号、道岔和保护进路依赖，
+  不读取物理 epoch、执行 JS、选择进路或修改世界。聚焦 `SignalObservationPlanTest` 10项通过。
+- [ ] 后续独立实现批次：从真实 world section/topology publication 构造上述连接图，接入同步 signal epoch 的同帧填值、
+  JS 求值、失败收紧和完整 publication；本批没有接入世界设备、模型或插件启动。
 
 本节前四项属于 2026-10-07 的文档收敛提交；随后独立 foundation 提交实现包 catalog、Graal 依赖和 JS runtime，
 仍不修改持久化版本或兼容路径，也不声称树形扫描、world/epoch 接线或游戏内放置已经可用。

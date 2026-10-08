@@ -84,6 +84,14 @@ tasks.named('processTestResources') {
     }
 }
 
+tasks.register('jrFourLightResourcePack', Zip) {
+    group = 'distribution'
+    description = 'Packages the JR four-light client resource pack used by the development smoke test.'
+    archiveFileName = 'jr-four-light-resourcepack.zip'
+    destinationDirectory = layout.buildDirectory.dir('distributions')
+    from('examples/jr-four-light/resourcepack')
+}
+
 bukkitPluginYaml {
     name = 'SimpleSignals'
     main = 'work.art1st.javarailways.simplesignals.SimpleSignalsPlugin'
@@ -94,7 +102,9 @@ bukkitPluginYaml {
     libraries.add('org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.3.0')
     libraries.add('org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.9.0')
     libraries.add('org.graalvm.polyglot:polyglot:24.2.2')
-    libraries.add('org.graalvm.polyglot:js-community:24.2.2')
+    // Paper's plugin library loader requires concrete JAR coordinates; js-community is POM-only.
+    libraries.add('org.graalvm.js:js-language:24.2.2')
+    libraries.add('org.graalvm.truffle:truffle-runtime:24.2.2')
     commands.register('simplesignals') {
         description.set('Inspect/apply definitions or obtain construction and mouse-operated route wands')
         permission.set('simplesignals.admin')
@@ -132,7 +142,8 @@ def verifyPluginJar = tasks.register('verifyPluginJar') {
             'simplesignals.admin:',
             'org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.9.0',
             'org.graalvm.polyglot:polyglot:24.2.2',
-            'org.graalvm.polyglot:js-community:24.2.2'
+            'org.graalvm.js:js-language:24.2.2',
+            'org.graalvm.truffle:truffle-runtime:24.2.2'
         ].each { requiredText ->
             if (!descriptor.contains(requiredText)) {
                 throw new GradleException("SimpleSignals plugin.yml is missing: ${requiredText}")

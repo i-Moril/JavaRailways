@@ -20,6 +20,7 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simplesignals.signalpack.SignalPackLoader
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
@@ -63,6 +64,18 @@ class JrFourLightDemoTest {
             assertEquals(false, it.followRailTilt)
             assertEquals(1.0, it.adjustment.rotationW()) // No second facing rotation in the preset.
         }
+    }
+
+    @Test
+    fun `actual example also loads as a runnable unified signal pack`() {
+        val catalog = SignalPackLoader.load(directory.resolve("server/signal-packs"))
+        val signal = catalog.signals.getValue("jr_four_light:automatic-four-light")
+        assertEquals("jr_four_light:head", signal.modelId)
+        assertEquals("jr_four_light:automatic", signal.logicId)
+        assertEquals(100.0, signal.logic.scanDistanceMetres)
+        assertTrue(signal.logic.source.contains("output.setSpeedLimit"))
+        assertEquals(variants.toSet(), signal.model.presentation.variants.keys)
+        assertEquals(mapOf("lamp" to "stop"), signal.model.presentation.defaultScenes)
     }
 
     @Test

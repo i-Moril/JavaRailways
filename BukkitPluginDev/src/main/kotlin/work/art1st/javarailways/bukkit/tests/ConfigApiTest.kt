@@ -276,7 +276,7 @@ class ConfigApiTest : BasicCommand {
                 @Suppress("UNCHECKED_CAST")
                 configUI.setValue(key as ConfigKey<Boolean>, value)
             }
-            ConfigValueType.NUMBER -> {
+            ConfigValueType.NUMBER, ConfigValueType.NUMBER_TEXT -> {
                 val value = valueStr.toDoubleOrNull() ?: return
                 @Suppress("UNCHECKED_CAST")
                 configUI.setValue(key as ConfigKey<Double>, value)

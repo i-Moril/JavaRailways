@@ -1,0 +1,3 @@
+display-name: JR four-light automatic block (smoke)
+model: jr_four_light:head
+logic: jr_four_light:automatic

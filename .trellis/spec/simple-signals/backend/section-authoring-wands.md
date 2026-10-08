@@ -4,13 +4,15 @@
 
 SimpleSignals 拥有工具物品、玩家选点、建造算法和命令；宿主只提供公开的轨道定位、运营方向和编辑许可。
 本合同覆盖闭塞建造/删除，以及保护区域有向边界的放置/删除/自动补全。
-Signal Wand 已把逻辑入口与模型位置分成两步，覆盖固定闭塞、保护区域当前入口和保护区域固定进路三类主信号：
+Signal Wand 已把逻辑入口与模型位置分成两步，覆盖固定闭塞、保护区域当前入口和保护区域固定进路三类主信号，
+并覆盖附属信号的完整建造及既有进路表示器的编辑／删除：
 放置模式左键绑定入口并明确选择新建或精确既有设备，右键更新位置和类型；删除模式精确选择并删除一台主信号及其直接附属设备。
 新建设备的 `inspectionLeadTimeSeconds` 固定为明确策略值 `0.0` 秒，表示不要求信号插件增加额外准备提前量；
 SimpleATO 的 inspection threshold 取 `max(reachableDistance(leadTime), dynamicLookahead)`，route perception horizon 也取
 controller 制动／反应／安全距离与 `maxSpeed * leadTime` 的最大值，而不是把两者相加。同步信号求值本身没有 setup delay；
 因此0秒只是不抬高这两个既有 minimum horizon，固定闭塞授权 floor 和入口停车约束也不消失，所以该值不是临时占位。
-测距、inspection lead time 编辑、摆放预设/样式和完整轨道可视化仍未实现；进路录制另见[录制合同](current-route-recording.md)。
+测距、inspection lead time 编辑、摆放预设/样式、进路表示器新建和完整轨道可视化仍未实现；
+进路录制另见[录制合同](current-route-recording.md)。
 本批离线门禁与审查结果记录在任务 `implement.md`，不代表真实 Folia 客户端验证。
 
 ## 2. 一次建造如何完成
@@ -42,9 +44,10 @@ controller 制动／反应／安全距离与 `maxSpeed * leadTime` 的最大值�
 命令为 `/simplesignals wand block|region [create|delete]`，默认 create，权限 `simplesignals.admin`。
 信号工具命令固定为 `/simplesignals wand signal`，只在 catalog 已就绪且非空时发放一个通用 Signal Wand。
 新物品从按 `signalType` 排序的当前 catalog 选择第一项作为确定性默认值；命令不接受类型参数，也不承担 catalog 列表界面。
-Shift+右键打开 SimpleSignals 自有的 Paper 原生设置页，选择放置／删除模式、三种控制类型，并按 `signalType` 排序和标记当前项；
+Shift+右键打开 SimpleSignals 自有的 Paper 原生设置页，选择放置／删除模式、五种控制类型，按 `signalType` 排序和标记当前项，
+并从独立 model-only catalog 选择 presentation model；统一信号包模型不冒充 presentation-only 模型来源；
 选择后才修改物品状态。PDC 使用稳定 marker 识别工具，并另存包含随机 `itemId`、非负单调 `stateRevision`、模式、
-控制类型、namespaced `signalType` 与严格 tagged binding 的完整状态。固定闭塞 binding 保存 world/block/entry direction；
+控制类型、namespaced `signalType`、可空 `presentationModelId` 与严格 tagged binding 的完整状态。固定闭塞 binding 保存 world/block/entry direction；
 保护当前入口保存 world/entry boundary，固定进路另存 route ID；两者还明确保存“新设备”或精确既有 `signalId + revision`。
 绑定随物品移动，且通过附魔光泽提示；
 状态跟随物品转移、换手和重启，不是玩家全局设置；格式损坏时不能编辑或自动覆盖。本工具状态尚未发布，直接修正当前格式，
@@ -80,18 +83,25 @@ Wand 编辑流程的图搜索、候选编译、JSON 和文件 I/O 均在 worker�
 并列出该入口全部精确既有固定进路设备及可用状态。暂时不可用的作者进路不能新建／改绑，但既有设备可原地更新或删除。
 创建使用共享四类设备 ID namespace 中无冲突的 UUID、revision 0和0秒额外 lead time；更新保留逻辑 binding、ID与 lead time。
 删除只移除所选设备和直接附属设备，同入口／进路的其他主信号不变。
+附属信号控制类型按轨道附着位置、方向和0.75米容差寻找已经摆放的固定闭塞／保护主信号；候选保存主信号
+`signalId + revision`，并列出新建设备和每个精确既有附属设备。右键使用所选 model-only ID 建立或更新
+`DeviceModelDefinition`，仍由 manager 验证该模型能表达主信号全部外观；删除只删除精确附属设备，不删除主信号。
+进路表示器控制类型复用有向保护入口解析，列出该入口全部精确既有表示器；右键只替换其模型和轨道位置，保留
+`noRouteModelVariant` 及完整 route→variant 映射，删除只删除该表示器。当前没有已确认的映射作者来源，空入口新建会明确拒绝，
+不能用 `default`、同一个 variant 或 route ID 猜测映射。
 设置页回调必须重新读取主手物品，确认 exact `itemId + stateRevision`、权限、插件状态和当前 catalog 项；成功使用
 `Math.addExact` 增加 revision 后写回。普通点击捕获完整物品状态，所有返回玩家 owner 的 continuation 都要求 exact 相等；
 即使先切走类型再切回来，revision 变化也会使旧操作失效。
 
 主手持有 Signal Wand 时，每位玩家最多运行一个 entity-scheduler 周期任务，约每10 tick刷新 action bar，显示
-放置／删除模式、当前 `signalType` 和绑定状态。catalog 未就绪或类型已删除时明确显示 unavailable，但不静默重写物品。
+放置／删除模式、当前 `signalType`、presentation model 和绑定状态。catalog 未就绪或所选项已删除时明确显示 unavailable，
+但不静默重写物品。
 join、切槽、换手、背包点击、丢弃、拾取和交互后在玩家 owner 上刷新；离手、权限/插件/玩家失效、entity retired、quit
 或插件关闭时取消。状态栏任务与一次编辑 session 相互独立；它只是 SimpleSignals 工具显示，不是宿主级 action-bar 仲裁 API。
 
 ## 6. 删除与失效处理
 
-信号工具在 catalog 未就绪、类型未知、入口不唯一、生成 ID 碰撞、revision 溢出、捕获的 catalog／runtime／
+信号工具在 catalog 未就绪、信号类型或 presentation model 未知、入口不唯一、生成 ID 碰撞、revision 溢出、捕获的 catalog／runtime／
 publication／topology 过期或 manager patch 被拒绝时都只返回失败；不得改变 sidecar、live publication、inspection source、
 JS 输出或模型 handle。PDC 中即使仍有格式合法但已删除的 `signalType`，也必须由当前 catalog 和候选编译拒绝，不能视为授权。
 删除固定闭塞主信号时，同一个 patch 还删除所有 `primarySignalId` 直接引用它的附属设备；区间、其他入口主信号及其附属设备不变。
@@ -115,6 +125,8 @@ JS 输出或模型 handle。PDC 中即使仍有格式合法但已删除的 `sign
 保护入口解析用 `regionIdsByRail` 找到该 rail 的 `G` 个区域，再检查其 effective boundaries，成本为 `O(G + B + D log D)`，
 其中 `B` 是候选区域边界数，`D` 是该入口展示的进路／设备数；不运行 graph resolver。catalog 排序只在发放或打开低频设置页时完成；
 状态栏每10 tick对当前不可变 catalog 做一次类型存在性检查，点击和 signal epoch 不重新寻路。
+附属信号左键在低频作者操作中扫描 `P` 个主信号的已摆放 rail anchor，再对命中的主信号收集 `A` 个附属设备，成本
+`O(P + A log A)`；它不进入 tick 或信号求值。进路表示器沿用保护入口索引，再扫描定义中的表示器并稳定排序。
 
 ## 8. 具体操作情形
 
@@ -139,6 +151,9 @@ JS 输出或模型 handle。PDC 中即使仍有格式合法但已删除的 `sign
 状态栏须覆盖模式、绑定、当前/缺失类型、单任务以及离手/retired/quit/close取消，并证明玩家访问只在 entity owner。真实 manager 测试必须断言成功后
 `signalType`、placement、JS 限速和模型身份一起变化，并断言编辑许可或准备失败时旧磁盘与全部 live 状态保持不变。
 删除测试还须证明主信号和直接附属设备原子消失，而无关区间、设备、磁盘与 live publication 保持一致。
+附属信号测试必须覆盖同位置反向主信号排除、新建／换模型改位／精确删除、主信号和附属 revision 过期、未知 model-only ID、
+共享设备 ID 碰撞，以及结果只增加显示设备而不增加规则、inspection 或资源。进路表示器测试必须证明既有定义的
+`noRouteModelVariant` 和完整 route→variant 映射在改位／换模型后原样保留，过期定义不提交，空入口新建明确拒绝且不写占位映射。
 
 ## 10. 存档与后续事项
 
@@ -147,8 +162,8 @@ JS 输出或模型 handle。PDC 中即使仍有格式合法但已删除的 `sign
 手动驾驶不接入新的制动或 ATS。保护区域最大范围只约束保护区域搜索，不限制固定闭塞长度。
 轨道事务后的局部失效与重验见[区间局部重验](section-topology-revalidation.md)；
 它与玩家直接编辑边界共用区域规则，但不等于已实现分割/合并后的信号坐标迁移。
-分界点地面子模型、完整 TextDisplay 叠加、非零 inspection lead time 的实例编辑和附属信号的独立建造
-继续按后续交互批次推进；三类主信号的两步新建／精确更新和级联删除属于当前能力。
+分界点地面子模型、完整 TextDisplay 叠加、非零 inspection lead time 的实例编辑及进路表示器映射作者界面
+继续按后续交互批次推进；三类主信号和附属信号的两步新建／精确更新／删除，以及既有进路表示器的改位／换模型／删除属于当前能力。
 
 错误做法：从 PDC 直接信任类型、用类型充当工具 marker、把选择放在命令参数、只替换模型、把0秒误称为临时占位并据此绕过
 动态前视／制动或授权 floor，

@@ -107,7 +107,8 @@ internal class SignalWandHandler(
             sender.sendMessage(Component.text("No signal types are available")); return true
         }
         val state = SignalWandState(newItemId(), 0L, SignalWandMode.PLACEMENT,
-            SignalWandControlKind.FIXED_BLOCK, available.first().signalType)
+            SignalWandControlKind.FIXED_BLOCK, available.first().signalType,
+            presentationModelId = backend.availableModelIds()?.firstOrNull())
         sessions.invalidate(sender.uniqueId)
         try {
             giveTool(sender, state)
@@ -152,6 +153,9 @@ internal class SignalWandHandler(
         } + available.map {
             SignalWandSetting(SignalWandSettingAction.Type(it.signalType),
                 "${it.signalType} — ${it.displayName}", it.signalType == openingState.signalType)
+        } + backend.availableModelIds().orEmpty().map { modelId ->
+            SignalWandSetting(SignalWandSettingAction.Model(modelId),
+                "Presentation model: $modelId", modelId == openingState.presentationModelId)
         }
         showSettings(player, settings) { action ->
             entity(player) { selectSetting(player, openingState, action) }
@@ -175,6 +179,10 @@ internal class SignalWandHandler(
         if (action is SignalWandSettingAction.Type && available.none { it.signalType == action.signalType }) {
             player.sendMessage(Component.text("Signal type is no longer available: ${action.signalType}")); return
         }
+        if (action is SignalWandSettingAction.Model &&
+            backend.availableModelIds()?.contains(action.modelId) != true) {
+            player.sendMessage(Component.text("Presentation model is no longer available: ${action.modelId}")); return
+        }
         val revision = try {
             Math.addExact(current.stateRevision, 1L)
         } catch (_: ArithmeticException) {
@@ -195,6 +203,10 @@ internal class SignalWandHandler(
                 stateRevision = revision,
                 signalType = action.signalType
             )
+            is SignalWandSettingAction.Model -> current.copy(
+                stateRevision = revision,
+                presentationModelId = action.modelId
+            )
         }
         if (!replaceToolState(player, current, replacement)) {
             player.sendMessage(Component.text("Signal Wand settings expired; reopen the settings page")); return
@@ -205,6 +217,7 @@ internal class SignalWandHandler(
             is SignalWandSettingAction.Mode -> "Signal Wand mode selected: ${action.mode.label}"
             is SignalWandSettingAction.ControlKind -> "Signal Wand control selected: ${action.controlKind.label}"
             is SignalWandSettingAction.Type -> "Signal Wand type selected: ${action.signalType}"
+            is SignalWandSettingAction.Model -> "Signal Wand presentation model selected: ${action.modelId}"
         }))
     }
 
@@ -231,13 +244,13 @@ internal class SignalWandHandler(
             }
         }
         if (operation == SignalWandOperation.PLACE && state.binding == null) {
-            player.sendMessage(Component.text("Left-click a controlled entrance before placing its signal"))
+            player.sendMessage(Component.text("Left-click the device binding target before placing it"))
             return
         }
         val worldId = player.world.uid
         val session = sessions.begin(playerId, worldId, state) ?: return
         val captured = try {
-            backend.capture(worldId, state.signalType)
+            backend.capture(worldId, state.signalType, state.presentationModelId)
         } catch (failure: Exception) {
             session.busy.set(false)
             player.sendMessage(Component.text("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}"))
@@ -358,7 +371,7 @@ internal class SignalWandHandler(
             return
         }
         ensureStatus(player)
-        player.sendActionBar(statusText(state, backend.availableSignalTypes()))
+        player.sendActionBar(statusText(state, backend.availableSignalTypes(), backend.availableModelIds()))
     }
 
     private fun ensureStatus(player: Player) {
@@ -470,7 +483,8 @@ internal class SignalWandHandler(
                 state.mode.name,
                 state.controlKind.name,
                 state.signalType,
-                state.binding?.toPersisted()
+                state.binding?.toPersisted(),
+                state.presentationModelId
             )
         )
 
@@ -482,7 +496,8 @@ internal class SignalWandHandler(
                 SignalWandMode.valueOf(persisted.mode),
                 SignalWandControlKind.valueOf(persisted.controlKind),
                 persisted.signalType,
-                persisted.binding?.toDomain()
+                persisted.binding?.toDomain(),
+                persisted.presentationModelId
             )
         } catch (_: Exception) {
             null
@@ -511,7 +526,11 @@ internal class SignalWandHandler(
             return readTool(plugin, item) == replacement
         }
 
-        internal fun statusText(state: SignalWandState, available: List<AvailableSignalType>?): Component {
+        internal fun statusText(
+            state: SignalWandState,
+            available: List<AvailableSignalType>?,
+            availableModels: List<String>?
+        ): Component {
             val availableNow = available?.any { it.signalType == state.signalType } == true
             val suffix = when {
                 available == null -> " (catalog unavailable)"
@@ -519,16 +538,21 @@ internal class SignalWandHandler(
                 else -> ""
             }
             val binding = state.binding?.let { " | bound: ${it.description()}" } ?: " | bound: none"
+            val model = state.presentationModelId?.let {
+                val modelSuffix = if (availableModels?.contains(it) == true) "" else " (unavailable)"
+                " | model: $it$modelSuffix"
+            } ?: " | model: none"
             return Component.text("Signal Wand | mode: ${state.mode.label} | control: ${state.controlKind.label} | " +
-                "type: ${state.signalType}$suffix$binding")
+                "type: ${state.signalType}$suffix$model$binding")
         }
 
         internal fun decorate(meta: org.bukkit.inventory.meta.ItemMeta, state: SignalWandState) {
             meta.lore(listOf(
-                Component.text("Shift-right-click: mode, control and signal type"),
+                Component.text("Shift-right-click: mode, control, signal type and model"),
                 Component.text("Mode: ${state.mode.label}"),
                 Component.text("Control: ${state.controlKind.label}"),
                 Component.text("Selected type: ${state.signalType}"),
+                Component.text("Presentation model: ${state.presentationModelId ?: "none"}"),
                 Component.text(state.binding?.let { "Bound: ${it.description()}" } ?: "Bound: none")
             ))
             meta.setEnchantmentGlintOverride(state.binding != null)
@@ -554,7 +578,8 @@ internal class SignalWandHandler(
                 factory.empty()
                     .base(DialogBase.builder(Component.text("Signal Wand settings", NamedTextColor.GOLD))
                         .body(listOf(DialogBody.plainMessage(Component.text(
-                            "Select the mode and signal type stored by this Wand.", NamedTextColor.GRAY))))
+                            "Select the mode, control, signal type and presentation model stored by this Wand.",
+                            NamedTextColor.GRAY))))
                         .canCloseWithEscape(true)
                         .build())
                     .type(DialogType.multiAction(buttons, null, 1))
@@ -575,9 +600,9 @@ internal class SignalWandHandler(
                     .build()
             }
             player.showDialog(Dialog.create { factory -> factory.empty()
-                .base(DialogBase.builder(Component.text("Select protection signal", NamedTextColor.GOLD))
+                .base(DialogBase.builder(Component.text("Select signal device", NamedTextColor.GOLD))
                     .body(listOf(DialogBody.plainMessage(Component.text(
-                        "Choose a new device or one exact existing primary.", NamedTextColor.GRAY))))
+                        "Choose one exact new or existing device.", NamedTextColor.GRAY))))
                     .canCloseWithEscape(true).build())
                 .type(DialogType.multiAction(buttons, null, 1)) })
         }
@@ -593,15 +618,21 @@ internal data class SignalWandState(
     val mode: SignalWandMode,
     val controlKind: SignalWandControlKind,
     val signalType: String,
-    val binding: SignalWandBinding? = null
+    val binding: SignalWandBinding? = null,
+    val presentationModelId: String? = null
 ) {
     init {
         require(stateRevision >= 0L) { "stateRevision must be non-negative" }
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalType)) { "signalType must be namespaced" }
+        require(presentationModelId == null || SIMPLE_SIGNALS_NAMESPACED_ID.matches(presentationModelId)) {
+            "presentationModelId must be namespaced"
+        }
         require(binding == null || when (controlKind) {
             SignalWandControlKind.FIXED_BLOCK -> binding is FixedBlockSignalWandBinding
             SignalWandControlKind.PROTECTION_CURRENT_ENTRY -> binding is ProtectionCurrentEntrySignalWandBinding
             SignalWandControlKind.PROTECTION_FIXED_ROUTE -> binding is ProtectionFixedRouteSignalWandBinding
+            SignalWandControlKind.ATTACHED_SIGNAL -> binding is AttachedSignalWandBinding
+            SignalWandControlKind.ROUTE_INDICATOR -> binding is RouteIndicatorSignalWandBinding
         }) { "binding kind must match controlKind" }
     }
 }
@@ -614,7 +645,9 @@ internal enum class SignalWandMode(val label: String) {
 internal enum class SignalWandControlKind(val label: String) {
     FIXED_BLOCK("fixed-block primary"),
     PROTECTION_CURRENT_ENTRY("protection current-entry primary"),
-    PROTECTION_FIXED_ROUTE("protection fixed-route primary")
+    PROTECTION_FIXED_ROUTE("protection fixed-route primary"),
+    ATTACHED_SIGNAL("attached signal"),
+    ROUTE_INDICATOR("route indicator")
 }
 
 internal sealed interface SignalWandBinding { val worldId: UUID }
@@ -658,15 +691,56 @@ internal data class ProtectionFixedRouteSignalWandBinding(
     }
 }
 
+internal sealed interface AttachedSignalIntent
+internal data object NewAttachedSignal : AttachedSignalIntent
+internal data class ExistingAttachedSignal(val signalId: String, val revision: Long) : AttachedSignalIntent {
+    init {
+        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalId)) { "attached signalId must be namespaced" }
+        require(revision >= 0L) { "attached signal revision must be non-negative" }
+    }
+}
+
+internal data class AttachedSignalWandBinding(
+    override val worldId: UUID,
+    val primarySignalId: String,
+    val primarySignalRevision: Long,
+    val intent: AttachedSignalIntent
+) : SignalWandBinding {
+    init {
+        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(primarySignalId)) { "primary signalId must be namespaced" }
+        require(primarySignalRevision >= 0L) { "primary signal revision must be non-negative" }
+    }
+}
+
+internal data class RouteIndicatorSignalWandBinding(
+    override val worldId: UUID,
+    val entryBoundaryId: String,
+    val indicatorId: String,
+    val indicatorRevision: Long
+) : SignalWandBinding {
+    init {
+        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(entryBoundaryId)) { "entry boundary must be namespaced" }
+        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(indicatorId)) { "indicatorId must be namespaced" }
+        require(indicatorRevision >= 0L) { "indicator revision must be non-negative" }
+    }
+}
+
 private fun SignalWandBinding.description(): String = when (this) {
     is FixedBlockSignalWandBinding -> "$blockId $entryDirection"
     is ProtectionCurrentEntrySignalWandBinding -> "$entryBoundaryId current-entry ${intent.description()}"
     is ProtectionFixedRouteSignalWandBinding -> "$entryBoundaryId route $routeId ${intent.description()}"
+    is AttachedSignalWandBinding -> "$primarySignalId attached ${intent.description()}"
+    is RouteIndicatorSignalWandBinding -> "$entryBoundaryId indicator $indicatorId"
 }
 
 private fun ProtectionSignalIntent.description(): String = when (this) {
     NewProtectionSignal -> "new"
     is ExistingProtectionSignal -> signalId
+}
+
+private fun AttachedSignalIntent.description(): String = when (this) {
+    NewAttachedSignal -> "new"
+    is ExistingAttachedSignal -> signalId
 }
 
 @Serializable
@@ -676,7 +750,8 @@ private data class PersistedSignalWandState(
     val mode: String,
     val controlKind: String,
     val signalType: String,
-    val binding: PersistedSignalWandBinding? = null
+    val binding: PersistedSignalWandBinding? = null,
+    val presentationModelId: String? = null
 )
 
 @Serializable
@@ -709,6 +784,25 @@ private data class PersistedProtectionFixedRouteSignalWandBinding(
     val existingSignalRevision: Long? = null
 ) : PersistedSignalWandBinding
 
+@Serializable
+@SerialName("attached_signal")
+private data class PersistedAttachedSignalWandBinding(
+    val worldId: String,
+    val primarySignalId: String,
+    val primarySignalRevision: Long,
+    val existingSignalId: String? = null,
+    val existingSignalRevision: Long? = null
+) : PersistedSignalWandBinding
+
+@Serializable
+@SerialName("route_indicator")
+private data class PersistedRouteIndicatorSignalWandBinding(
+    val worldId: String,
+    val entryBoundaryId: String,
+    val indicatorId: String,
+    val indicatorRevision: Long
+) : PersistedSignalWandBinding
+
 private fun SignalWandBinding.toPersisted(): PersistedSignalWandBinding = when (this) {
     is FixedBlockSignalWandBinding -> PersistedFixedBlockSignalWandBinding(
         worldId.toString(), blockId, entryDirection.name)
@@ -716,6 +810,11 @@ private fun SignalWandBinding.toPersisted(): PersistedSignalWandBinding = when (
         worldId.toString(), entryBoundaryId, intent.existingId(), intent.existingRevision())
     is ProtectionFixedRouteSignalWandBinding -> PersistedProtectionFixedRouteSignalWandBinding(
         worldId.toString(), entryBoundaryId, routeId, intent.existingId(), intent.existingRevision())
+    is AttachedSignalWandBinding -> PersistedAttachedSignalWandBinding(
+        worldId.toString(), primarySignalId, primarySignalRevision,
+        intent.existingId(), intent.existingRevision())
+    is RouteIndicatorSignalWandBinding -> PersistedRouteIndicatorSignalWandBinding(
+        worldId.toString(), entryBoundaryId, indicatorId, indicatorRevision)
 }
 
 private fun PersistedSignalWandBinding.toDomain(): SignalWandBinding = when (this) {
@@ -726,6 +825,11 @@ private fun PersistedSignalWandBinding.toDomain(): SignalWandBinding = when (thi
     is PersistedProtectionFixedRouteSignalWandBinding -> ProtectionFixedRouteSignalWandBinding(
         UUID.fromString(worldId), entryBoundaryId, routeId,
         protectionIntent(existingSignalId, existingSignalRevision))
+    is PersistedAttachedSignalWandBinding -> AttachedSignalWandBinding(
+        UUID.fromString(worldId), primarySignalId, primarySignalRevision,
+        attachedIntent(existingSignalId, existingSignalRevision))
+    is PersistedRouteIndicatorSignalWandBinding -> RouteIndicatorSignalWandBinding(
+        UUID.fromString(worldId), entryBoundaryId, indicatorId, indicatorRevision)
 }
 
 private fun ProtectionSignalIntent.existingId() = (this as? ExistingProtectionSignal)?.signalId
@@ -733,6 +837,12 @@ private fun ProtectionSignalIntent.existingRevision() = (this as? ExistingProtec
 private fun protectionIntent(id: String?, revision: Long?): ProtectionSignalIntent {
     require((id == null) == (revision == null)) { "existing signal identity must include both ID and revision" }
     return if (id == null) NewProtectionSignal else ExistingProtectionSignal(id, checkNotNull(revision))
+}
+private fun AttachedSignalIntent.existingId() = (this as? ExistingAttachedSignal)?.signalId
+private fun AttachedSignalIntent.existingRevision() = (this as? ExistingAttachedSignal)?.revision
+private fun attachedIntent(id: String?, revision: Long?): AttachedSignalIntent {
+    require((id == null) == (revision == null)) { "existing attached identity must include both ID and revision" }
+    return if (id == null) NewAttachedSignal else ExistingAttachedSignal(id, checkNotNull(revision))
 }
 
 internal data class SignalWandSetting(
@@ -745,6 +855,7 @@ internal sealed interface SignalWandSettingAction {
     data class Mode(val mode: SignalWandMode) : SignalWandSettingAction
     data class ControlKind(val controlKind: SignalWandControlKind) : SignalWandSettingAction
     data class Type(val signalType: String) : SignalWandSettingAction
+    data class Model(val modelId: String) : SignalWandSettingAction
 }
 
 private enum class SignalWandOperation { BIND, PLACE, DELETE }

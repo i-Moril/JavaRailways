@@ -1,5 +1,26 @@
 # Stage 2 implementation plan
 
+## 2026-10-08 Signal Wand presentation-device follow-up
+
+- [x] Add separate model-only catalog selection to the strict Wand item state, settings and status bar. The selected
+  presentation model is independent from `signalType`; capture and both continuations retain exact signal/model catalog,
+  runtime, publication, topology and item revisions.
+- [x] Add attached-signal control: left-click resolves placed rail-attached fixed-block/protection primaries by rail
+  position, direction and 0.75 m tolerance, then lists a new attachment and every exact existing attachment. Right-click
+  creates or updates one `DeviceModelDefinition` through the normal manager patch; deletion removes only the exact attachment.
+  Generated identity and four-device collision checks, primary/attachment revisions, persistence, model validation and
+  edit permission remain in the existing transaction. It creates no rule, inspection or resource.
+- [x] Add directed-entry selection for exact existing route indicators. Right-click preserves the complete no-route and
+  route-to-variant mapping while changing model/rail placement; deletion removes only that indicator. Definitions remain
+  selectable even when their route is unavailable.
+- [ ] Route-indicator creation remains blocked intentionally: current Wand/package data has no reviewed source for
+  `noRouteModelVariant` plus every authored route's variant. Do not manufacture one variant for all routes, use `default`,
+  or infer names from route IDs. Ground placement, measurement, presets/styles, hot reload and live client/Folia remain out.
+- [x] Offline gate passed: `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava` ran 483 tests with zero
+  failures/errors/skips; plugin JAR verification and scoped `git diff --check` passed. One existing physics-overload test
+  diagnostic and existing JDK/Gradle warnings are not live performance evidence. No world schema, compatibility reader,
+  resource/inspection count or production deployment changed.
+
 ## 2026-10-08 Signal Wand protection-primary follow-up
 
 - [x] Add a control-kind setting independent of placement/deletion mode and signal type. The current unpublished Wand PDC

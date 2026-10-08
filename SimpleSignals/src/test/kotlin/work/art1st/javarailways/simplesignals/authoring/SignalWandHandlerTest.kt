@@ -58,6 +58,13 @@ class SignalWandHandlerTest {
                 NewProtectionSignal))
         assertEquals(currentEntry, SignalWandHandler.decodeState(SignalWandHandler.encodeState(currentEntry)))
         assertEquals(fixedRoute, SignalWandHandler.decodeState(SignalWandHandler.encodeState(fixedRoute)))
+        val attached = state.copy(controlKind = SignalWandControlKind.ATTACHED_SIGNAL,
+            binding = AttachedSignalWandBinding(f.worldId, "test:primary", 2,
+                ExistingAttachedSignal("test:attached", 3)), presentationModelId = "test:model")
+        val indicator = state.copy(controlKind = SignalWandControlKind.ROUTE_INDICATOR,
+            binding = RouteIndicatorSignalWandBinding(f.worldId, "test:entry", "test:indicator", 4))
+        assertEquals(attached, SignalWandHandler.decodeState(SignalWandHandler.encodeState(attached)))
+        assertEquals(indicator, SignalWandHandler.decodeState(SignalWandHandler.encodeState(indicator)))
         assertNull(SignalWandHandler.decodeState("not json"))
         assertNull(SignalWandHandler.decodeState(
             """{"itemId":"${state.itemId}","stateRevision":-1,"mode":"PLACEMENT","signalType":"test:a"}"""))
@@ -65,6 +72,8 @@ class SignalWandHandlerTest {
             """{"itemId":"bad","stateRevision":0,"mode":"PLACEMENT","signalType":"test:a"}"""))
         assertNull(SignalWandHandler.decodeState(
             """{"itemId":"${state.itemId}","stateRevision":0,"mode":"PLACEMENT","signalType":"bad"}"""))
+        assertNull(SignalWandHandler.decodeState(
+            """{"itemId":"${state.itemId}","stateRevision":0,"mode":"PLACEMENT","controlKind":"FIXED_BLOCK","signalType":"test:a","presentationModelId":"bad"}"""))
         assertNull(SignalWandHandler.decodeState(
             """{"itemId":"${state.itemId}","stateRevision":9223372036854775808,"mode":"PLACEMENT","signalType":"test:a"}"""))
         assertNull(SignalWandHandler.decodeState(
@@ -74,6 +83,9 @@ class SignalWandHandlerTest {
         val mismatched = SignalWandHandler.encodeState(currentEntry).replace(
             "PROTECTION_CURRENT_ENTRY", "FIXED_BLOCK")
         assertNull(SignalWandHandler.decodeState(mismatched))
+        val partialAttachedIdentity = SignalWandHandler.encodeState(attached)
+            .replace(",\"existingSignalRevision\":3", "")
+        assertNull(SignalWandHandler.decodeState(partialAttachedIdentity))
     }
 
     @Test fun `state rejects malformed type and negative revision`() {
@@ -135,6 +147,7 @@ class SignalWandHandlerTest {
         assertEquals("test:a", f.given.single().signalType)
         assertEquals(SignalWandMode.PLACEMENT, f.given.single().mode)
         assertEquals(SignalWandControlKind.FIXED_BLOCK, f.given.single().controlKind)
+        assertEquals("test:model", f.given.single().presentationModelId)
         assertNull(f.given.single().binding)
         assertEquals(0L, f.given.single().stateRevision)
         assertEquals(f.newItemId, f.given.single().itemId)
@@ -147,15 +160,23 @@ class SignalWandHandlerTest {
         f.handler.openSettings(f.player, opening)
         assertEquals(listOf("Mode: placement", "Mode: deletion", "Control: fixed-block primary",
             "Control: protection current-entry primary", "Control: protection fixed-route primary",
-            "test:a — A", "test:z — Z"),
+            "Control: attached signal", "Control: route indicator",
+            "test:a — A", "test:z — Z", "Presentation model: test:model"),
             f.settings.map { it.label })
-        assertEquals(listOf(true, false, true, false, false, false, true), f.settings.map { it.selected })
+        assertEquals(listOf(true, false, true, false, false, false, false, false, true, false),
+            f.settings.map { it.selected })
         f.choose!!(SignalWandSettingAction.Type("test:a"))
         f.drainOwners()
         assertEquals(opening.itemId, f.tool.itemId)
         assertEquals(1L, f.tool.stateRevision)
         assertEquals("test:a", f.tool.signalType)
         assertTrue(f.messages.last().toString().contains("selected"))
+        val modelOpening = f.tool
+        f.handler.openSettings(f.player, modelOpening)
+        f.choose!!(SignalWandSettingAction.Model("test:model"))
+        f.drainOwners()
+        assertEquals(2L, f.tool.stateRevision)
+        assertEquals("test:model", f.tool.presentationModelId)
     }
 
     @Test fun `settings callback rejects swapped revised removed unauthorized disabled and overflow state`() = Fixture().use { f ->
@@ -377,6 +398,7 @@ class SignalWandHandlerTest {
         var performs = 0
         var deletes = 0
         var available: List<AvailableSignalType>? = DEFAULT_TYPES
+        var modelIds: List<String>? = listOf("test:model")
         val messages = mutableListOf<Component>()
         val actionBars = mutableListOf<Component>()
         val given = mutableListOf<SignalWandState>()
@@ -429,8 +451,10 @@ class SignalWandHandlerTest {
         }
         private val backend = object : SignalWandBackend {
             override fun availableSignalTypes() = available
-            override fun capture(worldId: UUID, signalType: String): SignalWandCapture {
+            override fun availableModelIds() = modelIds
+            override fun capture(worldId: UUID, signalType: String, modelId: String?): SignalWandCapture {
                 require(available?.any { it.signalType == signalType } == true)
+                require(modelId == null || modelIds?.contains(modelId) == true)
                 return capture
             }
             override fun current(capture: SignalWandCapture) = current

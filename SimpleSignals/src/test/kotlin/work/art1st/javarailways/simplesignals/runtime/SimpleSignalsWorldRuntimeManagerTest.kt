@@ -75,6 +75,7 @@ import work.art1st.javarailways.simplesignals.region.endpoint
 import work.art1st.javarailways.simplesignals.region.topologyState
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStore
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
+import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
@@ -1604,6 +1605,139 @@ class SimpleSignalsWorldRuntimeManagerTest {
             assertSame(publication, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
         }
         assertEquals(0, infrastructure.permitAcquisitionCount)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `signal wand creates updates and exactly deletes attached signals selected from a placed primary`() {
+        val fixture = Fixture()
+        val block = FixedBlockDefinition("test:attached-wand-block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)), bidirectional = true)
+        val primaryPosition = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
+        val primary = FixedBlockSignalDefinition("test:attached-wand-primary", 3, block.blockId, 0.0,
+            "automatic:block", placement = ModelPlacement.RailAttached(primaryPosition))
+        val reversePrimary = FixedBlockSignalDefinition("test:attached-wand-reverse-primary", 1, block.blockId, 0.0,
+            "automatic:block", FixedBlockEntryDirection.REVERSE,
+            ModelPlacement.RailAttached(primaryPosition.copy(facing = ViewDirection.BA)))
+        val original = AttachedSignalDefinition("test:attached-wand-existing", 2, primary.signalId,
+            DeviceModelDefinition("demo_signals:home", ModelPlacement.RailAttached(
+                RailPositionSnapshot(fixture.entry, ViewDirection.AB, 1.0))))
+        val definitions = store().also { it.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            emptyList(), emptyList(), listOf(block), listOf(primary, reversePrimary),
+            attachedSignals = listOf(original))) }
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            CapturingSignalEpochSourceService(), loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack("proceed", modelVariants = listOf("stop", "proceed")))
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val backend = RuntimeSignalWandBackend(manager, infrastructure.service) { "test:attached-wand-created" }
+        val updatedPosition = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 2.0)
+
+        var capture = backend.capture(fixture.worldId, "automatic:slow", "demo_signals:home")
+        var choices = backend.resolveEntrance(capture, SignalWandControlKind.ATTACHED_SIGNAL,
+            SignalWandMode.PLACEMENT, primaryPosition)
+        assertEquals(2, choices.size)
+        assertTrue(choices.all { (it.binding as AttachedSignalWandBinding).primarySignalId == primary.signalId })
+        val existingChoice = choices.single {
+            ((it.binding as AttachedSignalWandBinding).intent as? ExistingAttachedSignal)?.signalId == original.signalId
+        }
+        val updateOutcome = backend.place(capture, existingChoice.binding, updatedPosition) { true }
+        assertTrue(updateOutcome.message.contains("Updated"), updateOutcome.message)
+        assertTrue(updateOutcome.message.contains("with model demo_signals:home"), updateOutcome.message)
+        var live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        val updated = live.attachedSignals.single()
+        assertEquals(3, updated.revision)
+        assertEquals(primary.signalId, updated.primarySignalId)
+        assertEquals("demo_signals:home", updated.model.modelId)
+        assertEquals(ModelPlacement.RailAttached(updatedPosition), updated.model.placement)
+        assertTrue(assertThrows(IllegalArgumentException::class.java) {
+            backend.capture(fixture.worldId, "automatic:block", "demo_signals:missing")
+        }.message!!.contains("Unknown presentation model"))
+        capture = backend.capture(fixture.worldId, "automatic:block", "demo_signals:home")
+        val beforeStalePrimary = manager.authoringRuntime(fixture.worldId)!!.authoringPublication()
+        val stalePrimary = AttachedSignalWandBinding(fixture.worldId, primary.signalId, 2,
+            ExistingAttachedSignal(original.signalId, updated.revision))
+        assertTrue(assertThrows(IllegalArgumentException::class.java) {
+            backend.place(capture, stalePrimary, updatedPosition) { true }
+        }.message!!.contains("primary signal revision changed"))
+        assertSame(beforeStalePrimary, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
+
+        capture = backend.capture(fixture.worldId, "automatic:block", "demo_signals:home")
+        choices = backend.resolveEntrance(capture, SignalWandControlKind.ATTACHED_SIGNAL,
+            SignalWandMode.PLACEMENT, primaryPosition)
+        val newChoice = choices.single { (it.binding as AttachedSignalWandBinding).intent === NewAttachedSignal }
+        assertTrue(backend.place(capture, newChoice.binding, updatedPosition) { true }.message.contains("Created"))
+        live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        assertEquals(setOf(original.signalId, "test:attached-wand-created"), live.attachedSignals.map { it.signalId }.toSet())
+
+        capture = backend.capture(fixture.worldId, "automatic:block")
+        choices = backend.resolveEntrance(capture, SignalWandControlKind.ATTACHED_SIGNAL,
+            SignalWandMode.DELETION, primaryPosition)
+        val deleteChoice = choices.single {
+            ((it.binding as AttachedSignalWandBinding).intent as ExistingAttachedSignal).signalId == original.signalId
+        }
+        assertTrue(backend.delete(capture, deleteChoice.binding) { true }.message.contains(original.signalId))
+        live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        assertEquals(listOf("test:attached-wand-created"), live.attachedSignals.map { it.signalId })
+        assertEquals(listOf(primary, reversePrimary), live.fixedBlockSignals)
+        assertEquals(live, (definitions.load(fixture.worldId) as
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `signal wand updates and deletes exact route indicator while creation requires an aspect mapping`() {
+        val fixture = Fixture()
+        val route = fixture.upperRoute()
+        val table = fixture.table(1, route)
+        val indicator = RouteIndicatorDefinition("test:indicator-wand", 5, route.entryBoundaryId,
+            "stop", mapOf(route.routeId to "proceed"))
+        val definitions = store().also { it.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            listOf(fixture.region), listOf(table), routeIndicators = listOf(indicator))) }
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            CapturingSignalEpochSourceService(), loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val backend = RuntimeSignalWandBackend(manager, infrastructure.service)
+        val entrance = fixture.region.boundaries.first().position
+        val placement = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 1.5)
+
+        var capture = backend.capture(fixture.worldId, "automatic:slow", "demo_signals:home")
+        val binding = backend.resolveEntrance(capture, SignalWandControlKind.ROUTE_INDICATOR,
+            SignalWandMode.PLACEMENT, entrance).single().binding
+        val updateOutcome = backend.place(capture, binding, placement) { true }
+        assertTrue(updateOutcome.message.contains("Updated"), updateOutcome.message)
+        assertTrue(updateOutcome.message.contains("with model demo_signals:home"), updateOutcome.message)
+        var live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        val updated = live.routeIndicators.single()
+        assertEquals(6, updated.revision)
+        assertEquals(indicator.entryBoundaryId, updated.entryBoundaryId)
+        assertEquals(indicator.noRouteModelVariant, updated.noRouteModelVariant)
+        assertEquals(indicator.modelVariantsByRouteId, updated.modelVariantsByRouteId)
+        assertEquals("demo_signals:home", updated.model!!.modelId)
+        assertEquals(ModelPlacement.RailAttached(placement), updated.model.placement)
+        capture = backend.capture(fixture.worldId, "automatic:block", "demo_signals:home")
+        val beforeStaleIndicator = manager.authoringRuntime(fixture.worldId)!!.authoringPublication()
+        assertTrue(assertThrows(IllegalArgumentException::class.java) {
+            backend.place(capture, binding, placement) { true }
+        }.message!!.contains("route indicator revision changed"))
+        assertSame(beforeStaleIndicator, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
+
+        capture = backend.capture(fixture.worldId, "automatic:block")
+        val deleteBinding = backend.resolveEntrance(capture, SignalWandControlKind.ROUTE_INDICATOR,
+            SignalWandMode.DELETION, entrance).single().binding
+        assertTrue(backend.delete(capture, deleteBinding) { true }.message.contains(indicator.indicatorId))
+        live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        assertTrue(live.routeIndicators.isEmpty())
+        capture = backend.capture(fixture.worldId, "automatic:block")
+        val unavailable = assertThrows(IllegalArgumentException::class.java) {
+            backend.resolveEntrance(capture, SignalWandControlKind.ROUTE_INDICATOR,
+                SignalWandMode.PLACEMENT, entrance)
+        }
+        assertTrue(unavailable.message!!.contains("requires an aspect mapping"), unavailable.message)
+        assertEquals(live, (definitions.load(fixture.worldId) as
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
         manager.clearLocal().toCompletableFuture().join()
     }
 
@@ -4212,20 +4346,25 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
     private fun store() = SimpleSignalsWorldDefinitionStore(directory.toFile())
 
-    private fun writeAutomaticSignalPack(outputVariant: String = "clear", script: String? = null): Path {
+    private fun writeAutomaticSignalPack(
+        outputVariant: String = "clear",
+        script: String? = null,
+        modelVariants: List<String> = listOf("clear")
+    ): Path {
         val root = directory.resolve("signal-packs")
         val pack = root.resolve("automatic")
         Files.createDirectories(pack.resolve("model"))
         Files.createDirectories(pack.resolve("logic"))
         Files.createDirectories(pack.resolve("signal"))
         Files.writeString(pack.resolve("pack.yml"), "config-version: 1\nname: automatic")
-        Files.writeString(pack.resolve("model/head.yml"), """
+        val headVariants = modelVariants.joinToString("\n") { "  $it: {}" }
+        val headModel = """
             parts:
               - type: dummy
             default: {}
             variants:
-              clear: {}
-        """.trimIndent())
+        """.trimIndent() + "\n" + headVariants
+        Files.writeString(pack.resolve("model/head.yml"), headModel)
         Files.writeString(pack.resolve("model/slow-head.yml"), """
             parts:
               - type: dummy

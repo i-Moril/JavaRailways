@@ -41,6 +41,7 @@ import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefi
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStore
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.presentation.LoadedPackageModel
+import work.art1st.javarailways.simplesignals.presentation.ModelTypeCatalogSnapshot
 import work.art1st.javarailways.simplesignals.presentation.PreparedSignalModels
 import work.art1st.javarailways.simplesignals.presentation.SignalModelBinding
 import work.art1st.javarailways.simplesignals.presentation.SignalModelHandles
@@ -1179,6 +1180,12 @@ internal class SimpleSignalsWorldRuntimeManager(
 
     fun currentSignalTypeCatalog(snapshot: SignalTypeCatalogSnapshot): Boolean =
         !closed && signalPacks?.catalog?.let(snapshot::represents) == true
+
+    /** Immutable model-only IDs for presentation-device authoring; no package asset escapes this view. */
+    fun modelTypeCatalogSnapshot(): ModelTypeCatalogSnapshot? = modelPackages?.let(ModelTypeCatalogSnapshot::from)
+
+    fun currentModelTypeCatalog(snapshot: ModelTypeCatalogSnapshot?): Boolean =
+        !closed && if (snapshot == null) modelPackages == null else modelPackages?.let(snapshot::represents) == true
 
     fun validateRouteAdmission(worldId: UUID, intent: work.art1st.javarailways.basic.api.route.RouteResourceIntent) {
         val publication = checkNotNull(runtimeReadView[worldId]) { "SimpleSignals world runtime is unavailable" }.authoringPublication()

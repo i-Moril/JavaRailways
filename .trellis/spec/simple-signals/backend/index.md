@@ -13,7 +13,8 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 当前入口信号都引用必填 `signalType`，presentation-only进路显示器不执行规则；
 已提供独立管理员 inspect/export/validate/apply 命令及 current-JSON 草稿工作流；
 现已接入[闭塞与保护区域 Wand](section-authoring-wands.md)，并提供固定闭塞、保护区域当前入口和固定进路主信号的
-两步绑定／摆放、新建、精确更新与级联删除；附属信号的独立摆放及其他设备类型仍未提供。
+两步绑定／摆放、新建、精确更新与级联删除；附属信号已支持从已摆放主信号选择后独立新建／更新／删除，
+既有进路表示器可从有向入口选择后改位、换模型或删除。进路表示器新建仍等待明确的进路外观映射作者界面。
 用户已确认距离敏感规则使用 JS，不扩展距离条件配置表；[JS 规则契约](js-signal-rules.md)中的统一包加载、独立
 GraalJS 沙箱、有向区间图到不可变前视树的编译，以及真实 world publication 到连接图的准备均已实现。
 同步 signal epoch 填值、JS 求值以及 catalog-backed 主信号的模型绑定已接线；区间环和正长度无区间环都只停止命中分支。真实 Folia/客户端画面
@@ -31,7 +32,7 @@ GraalJS 沙箱、有向区间图到不可变前视树的编译，以及真实 wo
 通过宿主已有的轨道定位和模型显示服务创建模型、提交信号变化、清理失效绑定。
 同一契约记录 `pack.yml + model/ + logic/ + signal/` 统一信号包：包入口只保存元数据，文件路径派生稳定
 `modelId`／`logicId`／`signalType`，一等 signal 文件、两阶段跨包解析、JS 源捕获及通过宿主公共 compiler 的模型
-materialization、插件启动和世界逻辑／模型设备接线已实现。三类主信号的 Signal Wand 建造已实现；附属设备建造与热重载尚未实现，不能把离线绑定测试
+materialization、插件启动和世界逻辑／模型设备接线已实现。三类主信号和附属信号的 Signal Wand 建造已实现，既有进路表示器可编辑／删除；热重载及表示器新建尚未实现，不能把离线绑定测试
 说成已经完成全部游戏内建造或真实客户端显示。
 完整接线、初始化并发和错误边界由模型显示合同维护；建造工具只消费公开宿主 API。
 附属信号机直接引用固定闭塞或保护区域的主信号，保存自己的模型和摆放，复用主信号输出；

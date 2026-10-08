@@ -4,15 +4,19 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simplesignals.command.SimpleSignalsAdminCommand
+import work.art1st.javarailways.simplesignals.presentation.DeviceModelDefinition
 import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
+import work.art1st.javarailways.simplesignals.presentation.ModelTypeCatalogSnapshot
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionAuthoringStatus
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionPatch
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsRuntimePublication
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntime
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntimeManager
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
+import work.art1st.javarailways.simplesignals.signal.AttachedSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
+import work.art1st.javarailways.simplesignals.signal.RouteIndicatorDefinition
 import work.art1st.javarailways.simplesignals.signalpack.AvailableSignalType
 import work.art1st.javarailways.simplesignals.signalpack.SignalTypeCatalogSnapshot
 import java.util.UUID
@@ -26,7 +30,8 @@ internal data class SignalWandChoice(val binding: SignalWandBinding, val label: 
 /** Worker-facing boundary. Catalog data exposed to commands is immutable intent, not edit authority. */
 internal interface SignalWandBackend {
     fun availableSignalTypes(): List<AvailableSignalType>?
-    fun capture(worldId: UUID, signalType: String): SignalWandCapture
+    fun availableModelIds(): List<String>?
+    fun capture(worldId: UUID, signalType: String, modelId: String? = null): SignalWandCapture
     fun current(capture: SignalWandCapture): Boolean
     fun resolveEntrance(
         capture: SignalWandCapture,
@@ -55,7 +60,9 @@ internal class RuntimeSignalWandBackend(
     private data class Capture(
         override val worldId: UUID,
         val signalType: String,
+        val modelId: String?,
         val catalog: SignalTypeCatalogSnapshot,
+        val modelCatalog: ModelTypeCatalogSnapshot?,
         val runtime: SimpleSignalsWorldRuntime,
         val publication: SimpleSignalsRuntimePublication,
         val topology: TopologyState
@@ -64,19 +71,27 @@ internal class RuntimeSignalWandBackend(
     override fun availableSignalTypes(): List<AvailableSignalType>? =
         manager.signalTypeCatalogSnapshot()?.signalTypes
 
-    override fun capture(worldId: UUID, signalType: String): SignalWandCapture {
+    override fun availableModelIds(): List<String>? = manager.modelTypeCatalogSnapshot()?.modelIds
+
+    override fun capture(worldId: UUID, signalType: String, modelId: String?): SignalWandCapture {
         val catalog = manager.signalTypeCatalogSnapshot()
             ?: throw IllegalStateException("Signal type catalog is not ready")
         require(catalog.contains(signalType)) { "Unknown signal type: $signalType" }
+        val modelCatalog = manager.modelTypeCatalogSnapshot()
+        if (modelId != null) require(modelCatalog?.contains(modelId) == true) {
+            "Unknown presentation model: $modelId"
+        }
         val runtime = manager.authoringRuntime(worldId)
             ?: throw IllegalStateException("SimpleSignals world is unavailable")
-        return Capture(worldId, signalType, catalog, runtime, runtime.authoringPublication(),
+        return Capture(worldId, signalType, modelId, catalog, modelCatalog,
+            runtime, runtime.authoringPublication(),
             infrastructure.currentTopology(worldId))
     }
 
     override fun current(capture: SignalWandCapture): Boolean {
         val captured = capture as Capture
         return manager.currentSignalTypeCatalog(captured.catalog) &&
+            manager.currentModelTypeCatalog(captured.modelCatalog) &&
             manager.authoringRuntime(captured.worldId) === captured.runtime &&
             captured.runtime.authoringPublication() === captured.publication &&
             infrastructure.currentTopology(captured.worldId) === captured.topology
@@ -107,6 +122,8 @@ internal class RuntimeSignalWandBackend(
             }
             SignalWandControlKind.PROTECTION_CURRENT_ENTRY,
             SignalWandControlKind.PROTECTION_FIXED_ROUTE -> protectionChoices(captured, controlKind, mode, point)
+            SignalWandControlKind.ATTACHED_SIGNAL -> attachedChoices(captured, mode, point)
+            SignalWandControlKind.ROUTE_INDICATOR -> routeIndicatorChoices(captured, mode, point)
         }
     }
 
@@ -168,6 +185,36 @@ internal class RuntimeSignalWandBackend(
                 replacementId = replacement.signalId
                 created = existing == null
             }
+            is AttachedSignalWandBinding -> {
+                val modelId = requireNotNull(captured.modelId) {
+                    "Select a presentation model in the Signal Wand settings"
+                }
+                val existing = validateAttachedBinding(publication, binding)
+                val replacement = existing?.copy(
+                    revision = nextRevision(existing.revision),
+                    model = DeviceModelDefinition(modelId, placement)
+                ) ?: AttachedSignalDefinition(
+                    uniqueSignalId(publication), 0L, binding.primarySignalId,
+                    DeviceModelDefinition(modelId, placement)
+                )
+                patch = SimpleSignalsDefinitionPatch(upsertAttachedSignals = listOf(replacement))
+                replacementId = replacement.signalId
+                created = existing == null
+            }
+            is RouteIndicatorSignalWandBinding -> {
+                val modelId = requireNotNull(captured.modelId) {
+                    "Select a presentation model in the Signal Wand settings"
+                }
+                val existing = validateRouteIndicatorBinding(publication, binding)
+                val replacement = RouteIndicatorDefinition(
+                    existing.indicatorId, nextRevision(existing.revision), existing.entryBoundaryId,
+                    existing.noRouteModelVariant, existing.modelVariantsByRouteId,
+                    DeviceModelDefinition(modelId, placement)
+                )
+                patch = SimpleSignalsDefinitionPatch(upsertRouteIndicators = listOf(replacement))
+                replacementId = replacement.indicatorId
+                created = false
+            }
         }
         require(selectionCurrent()) { "Signal selection expired before submission" }
         val result = manager.applyDefinitionPatch(
@@ -180,7 +227,12 @@ internal class RuntimeSignalWandBackend(
         )
         return if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED) {
             val verb = if (created) "Created" else "Updated"
-            SignalWandOutcome("$verb signal $replacementId as ${captured.signalType}; " +
+            val (kind, configuration) = when (binding) {
+                is AttachedSignalWandBinding, is RouteIndicatorSignalWandBinding ->
+                    "signal device" to "with model ${requireNotNull(captured.modelId)}"
+                else -> "signal" to "as ${captured.signalType}"
+            }
+            SignalWandOutcome("$verb $kind $replacementId $configuration; " +
                 "definition revision ${result.definitions!!.definitionRevision}")
         } else {
             SignalWandOutcome(SimpleSignalsAdminCommand.formatResult(result))
@@ -210,8 +262,16 @@ internal class RuntimeSignalWandBackend(
                 ProtectionSignalKind.FIXED_ROUTE, requireUsableNewRoute = false)
             else -> null
         }
-        val signalId = fixedSignal?.signalId ?: protectionSignal?.signalId
-            ?: throw IllegalArgumentException("Select an existing primary signal to delete")
+        val attachedSignal = (binding as? AttachedSignalWandBinding)?.let {
+            validateAttachedBinding(publication, it)
+                ?: throw IllegalArgumentException("Select an existing attached signal to delete")
+        }
+        val routeIndicator = (binding as? RouteIndicatorSignalWandBinding)?.let {
+            validateRouteIndicatorBinding(publication, it)
+        }
+        val signalId = fixedSignal?.signalId ?: protectionSignal?.signalId ?: attachedSignal?.signalId
+            ?: routeIndicator?.indicatorId
+            ?: throw IllegalArgumentException("Select an existing signal device to delete")
         val attachedIds = publication.definitions.attachedSignals
             .filter { it.primarySignalId == signalId }
             .map { it.signalId }
@@ -222,19 +282,120 @@ internal class RuntimeSignalWandBackend(
             SimpleSignalsDefinitionPatch(
                 removeFixedBlockSignalIds = fixedSignal?.let { listOf(it.signalId) }.orEmpty(),
                 removeProtectionSignalIds = protectionSignal?.let { listOf(it.signalId) }.orEmpty(),
-                removeAttachedSignalIds = attachedIds
+                removeRouteIndicatorIds = routeIndicator?.let { listOf(it.indicatorId) }.orEmpty(),
+                removeAttachedSignalIds = if (attachedSignal == null) attachedIds else listOf(attachedSignal.signalId),
             ),
             captured.runtime,
             captured.topology,
             ::selectionCurrent
         )
         return if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED) {
-            SignalWandOutcome("Deleted signal $signalId and ${attachedIds.size} attached device(s); " +
+            SignalWandOutcome("Deleted signal device $signalId and ${if (attachedSignal == null) attachedIds.size else 0} attached device(s); " +
                 "definition revision ${result.definitions!!.definitionRevision}")
         } else {
             SignalWandOutcome(SimpleSignalsAdminCommand.formatResult(result))
         }
     }
+
+    private fun attachedChoices(
+        captured: Capture,
+        mode: SignalWandMode,
+        point: RailPositionSnapshot
+    ): List<SignalWandChoice> {
+        val definitions = captured.publication.definitions
+        val primaries = buildList {
+            definitions.fixedBlockSignals.forEach { signal ->
+                val placement = signal.placement as? ModelPlacement.RailAttached ?: return@forEach
+                if (placement.position.near(point)) add(PrimaryDevice(signal.signalId, signal.revision))
+            }
+            definitions.protectionSignals.forEach { signal ->
+                val placement = signal.placement as? ModelPlacement.RailAttached ?: return@forEach
+                if (placement.position.near(point)) add(PrimaryDevice(signal.signalId, signal.revision))
+            }
+        }.sortedBy(PrimaryDevice::signalId)
+        require(primaries.isNotEmpty()) { "No placed primary signal was found at this rail position" }
+        val choices = mutableListOf<SignalWandChoice>()
+        primaries.forEach { primary ->
+            if (mode == SignalWandMode.PLACEMENT) choices += SignalWandChoice(
+                AttachedSignalWandBinding(captured.worldId, primary.signalId, primary.revision, NewAttachedSignal),
+                "New attached signal for ${primary.signalId}"
+            )
+            definitions.attachedSignals.asSequence()
+                .filter { it.primarySignalId == primary.signalId }
+                .sortedBy { it.signalId }
+                .forEach { attached -> choices += SignalWandChoice(
+                    AttachedSignalWandBinding(captured.worldId, primary.signalId, primary.revision,
+                        ExistingAttachedSignal(attached.signalId, attached.revision)),
+                    "Existing ${attached.signalId} -> ${primary.signalId}"
+                ) }
+        }
+        require(choices.isNotEmpty()) { "The selected primary signal has no attached signal to delete" }
+        return choices
+    }
+
+    private fun routeIndicatorChoices(
+        captured: Capture,
+        mode: SignalWandMode,
+        point: RailPositionSnapshot
+    ): List<SignalWandChoice> {
+        val publication = captured.publication
+        val entrance = ProtectionSignalEntranceResolver.resolve(
+            checkNotNull(publication.regions.compilationSnapshot()), point)
+        val indicators = publication.definitions.routeIndicators
+            .filter { it.entryBoundaryId == entrance.boundary.boundaryId }
+            .sortedBy { it.indicatorId }
+        require(indicators.isNotEmpty()) {
+            if (mode == SignalWandMode.PLACEMENT) {
+                "This entrance has no route indicator to update; creating one requires an aspect mapping"
+            } else "This entrance has no route indicator to delete"
+        }
+        return indicators.map { indicator -> SignalWandChoice(
+            RouteIndicatorSignalWandBinding(captured.worldId, indicator.entryBoundaryId,
+                indicator.indicatorId, indicator.revision),
+            "Existing route indicator ${indicator.indicatorId}"
+        ) }
+    }
+
+    private fun validateAttachedBinding(
+        publication: SimpleSignalsRuntimePublication,
+        binding: AttachedSignalWandBinding
+    ): AttachedSignalDefinition? {
+        val primaryRevision = publication.definitions.fixedBlockSignals
+            .singleOrNull { it.signalId == binding.primarySignalId }?.revision
+            ?: publication.definitions.protectionSignals
+                .singleOrNull { it.signalId == binding.primarySignalId }?.revision
+            ?: throw IllegalArgumentException("The selected primary signal no longer exists")
+        require(primaryRevision == binding.primarySignalRevision) { "The selected primary signal revision changed" }
+        val intent = binding.intent
+        if (intent === NewAttachedSignal) return null
+        intent as ExistingAttachedSignal
+        val existing = publication.definitions.attachedSignals.singleOrNull { it.signalId == intent.signalId }
+            ?: throw IllegalArgumentException("The selected attached signal no longer exists")
+        require(existing.revision == intent.revision) { "The selected attached signal revision changed" }
+        require(existing.primarySignalId == binding.primarySignalId) { "The selected attached signal binding changed" }
+        return existing
+    }
+
+    private fun validateRouteIndicatorBinding(
+        publication: SimpleSignalsRuntimePublication,
+        binding: RouteIndicatorSignalWandBinding
+    ): RouteIndicatorDefinition {
+        require(binding.entryBoundaryId in checkNotNull(publication.regions.compilationSnapshot()).boundariesById) {
+            "The bound protection entrance no longer exists"
+        }
+        val existing = publication.definitions.routeIndicators.singleOrNull {
+            it.indicatorId == binding.indicatorId
+        } ?: throw IllegalArgumentException("The selected route indicator no longer exists")
+        require(existing.revision == binding.indicatorRevision) { "The selected route indicator revision changed" }
+        require(existing.entryBoundaryId == binding.entryBoundaryId) { "The selected route indicator binding changed" }
+        return existing
+    }
+
+    private data class PrimaryDevice(val signalId: String, val revision: Long)
+
+    private fun RailPositionSnapshot.near(other: RailPositionSnapshot): Boolean =
+        railId == other.railId && facing == other.facing &&
+            kotlin.math.abs(arcLengthInAbMeters - other.arcLengthInAbMeters) <= DEVICE_SELECTION_TOLERANCE_METRES
 
     private fun protectionChoices(
         captured: Capture,
@@ -369,5 +530,6 @@ internal class RuntimeSignalWandBackend(
 
     private companion object {
         const val DEFAULT_INSPECTION_LEAD_TIME_SECONDS = 0.0
+        const val DEVICE_SELECTION_TOLERANCE_METRES = 0.75
     }
 }

@@ -12,10 +12,10 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 已建立plugin-local信号规则执行边界、灯色/限速输出快照及其列车限制投影，并提供第一个由world definition配置的固定闭塞规则；
 现已提供保护区域固定进路信号、当前入口信号和presentation-only进路显示器的后端配置/规则；
 已提供独立管理员 inspect/export/validate/apply 命令及 current-JSON 草稿工作流；
-现已接入[闭塞与保护区域 Wand](section-authoring-wands.md)；独立信号机工具及信号规则 JS 接口仍未提供。
+现已接入[闭塞与保护区域 Wand](section-authoring-wands.md)；独立信号机工具仍未提供。
 用户已确认距离敏感规则使用 JS，不扩展距离条件配置表；[JS 规则契约](js-signal-rules.md)中的统一包加载、独立
 GraalJS 沙箱、有向区间图到不可变前视树的编译，以及真实 world publication 到连接图的准备均已实现。
-同步 signal epoch 填值与 JS 求值仍待接线；区间环和正长度无区间环都只停止命中分支。模型显示接线已提供，但真实 Folia/客户端画面
+同步 signal epoch 填值、JS 求值以及 package-bound 主信号的模型绑定已接线；区间环和正长度无区间环都只停止命中分支。真实 Folia/客户端画面
 仍待验证，不得把 foundation 描述为完整建造/呈现系统。
 轨道编辑后的局部失效、后台重验与恢复归[区间局部重验](section-topology-revalidation.md)；
 世界拓扑版本增加不再使所有既有区间和冻结路线过期。
@@ -30,7 +30,8 @@ GraalJS 沙箱、有向区间图到不可变前视树的编译，以及真实 wo
 通过宿主已有的轨道定位和模型显示服务创建模型、提交信号变化、清理失效绑定。
 同一契约记录 `pack.yml + model/ + logic/ + signal/` 统一信号包：包入口只保存元数据，文件路径派生稳定
 `modelId`／`logicId`／`signalId`，一等 signal 文件、两阶段跨包解析、JS 源捕获及通过宿主公共 compiler 的模型
-materialization 已实现；插件启动和世界设备接线尚未实现，不能把 prepared catalog 说成已在游戏中安装。
+materialization、插件启动和世界逻辑／模型设备接线已实现。玩家 Wand 与热重载尚未实现，不能把离线绑定测试
+说成已经完成游戏内建造或真实客户端显示。
 完整接线、初始化并发和错误边界由模型显示合同维护；建造工具只消费公开宿主 API。
 附属信号机直接引用固定闭塞或保护区域的主信号，保存自己的模型和摆放，复用主信号输出；
 不增加规则、inspection 或资源。具体定义、更新索引和编辑影响见
@@ -77,7 +78,8 @@ unload/reload先删除local runtime，再创建新runtime与binding，不能复�
 `<plugin dataFolder>/worlds/<world UUID>-definitions.json`。current document只保存`worldId`、
 `definitionRevision`、保护区域及其有向边界、固定进路表、每条进路完整的有向traversal、固定闭塞的完整有向traversal，以及
 固定闭塞/保护信号的配置输出/依赖和进路显示器的入口绑定与variant映射。
-三类设备共用可选模型引用及 rail/ground 摆放，字段、校验和早期未发布草稿的修正范围只在
+未绑定主信号与 presentation-only 设备使用显式模型引用及 rail/ground 摆放；package-bound 主信号显式保存
+`packageSignalId` 和独立 placement，不重复保存 catalog modelId。字段、互斥校验和早期未发布草稿的修正范围只在
 [模型显示合同](model-presentation.md)维护；显示器不再保留重复的顶层轨道位置。
 `fixedBlocks`、`fixedBlockSignals`、`protectionSignals`和`routeIndicators`最初作为有明确empty default的additive字段加入，并未单独升级
 版本；删除`defaultRouteIds`和双向入口独立规则直接修正同一个未发布格式，当前版本恢复为1，

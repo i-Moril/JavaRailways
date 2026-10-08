@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals.signalpack
 
 import work.art1st.javarailways.bukkit.api.model.asset.CompiledModelAsset
+import work.art1st.javarailways.simplesignals.presentation.LoadedPackageModel
 import java.nio.file.Path
 import java.util.Collections
 
@@ -36,7 +37,10 @@ data class SignalPackModel(
     val modelId: String,
     val file: Path,
     val materialized: CompiledModelAsset
-)
+) {
+    /** Presentation uses this exact captured asset rather than another loader or registry. */
+    internal val presentation = LoadedPackageModel(modelId, materialized)
+}
 
 data class SignalPackLogic(
     val logicId: String,

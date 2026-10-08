@@ -7,7 +7,8 @@
 这里不重新定义进路、限速或资源管理。
 其中 `default` 的名称、适用范围和选择规则，以及轨道附着/地面摆放、方向相关的偏移预设和可选跟随
 轨道倾斜的行为已经确认；完整模型包格式见[已批准的模型包契约](model-packages.md)。
-设备模型引用和摆放存档已实现，具体合同见下文；交互式 Wand 仍属于后续工作。
+设备模型引用和摆放存档已实现；package-bound 主信号的模型也已从统一 signal catalog 接入。
+交互式 Wand 仍属于后续工作。
 
 SimpleSignals 负责模型包、摆放位置、外观映射，以及何时创建或关闭模型。
 主插件提供通用的构造和显示能力，见[通用模型 API](../../bukkit-plugin/backend/model-presentation-api.md)。
@@ -66,21 +67,25 @@ Wand 的两种编辑操作含义不同：改变轨道附着的 AB/BA 方向时�
 定义提交后只替换逻辑绑定；模型操作对象由世界运行时持续持有，按设备差异更新。
 模型引用、摆放参数及精确拓扑根都未变化时，复用已计算的姿态；
 引用或摆放改变、或拓扑根替换时，在工作线程重新准备。全部可输出外观仍须校验，不能因为复用姿态就跳过。
-设备存档只保存选用的模型 ID 和实际摆放值，
-不保存曲线、最终计算坐标、模型树或预设名称。
+未绑定主信号和 presentation-only 设备保存选用的模型 ID 与实际摆放值；package-bound 主信号只保存
+`packageSignalId` 与实际摆放值，模型 ID 从 catalog signal 推导。两者都不保存曲线、最终计算坐标、模型树或预设名称。
 
 ### 设备模型引用与摆放存档（CURRENT）
 
-三类设备定义在原有逻辑字段外共用 `model: DeviceModelDefinition? = null`：
+未绑定 Kotlin provider 的主信号、附属信号和进路表示器使用显式 `model: DeviceModelDefinition?`：
 
 ```kotlin
 DeviceModelDefinition(modelId: String, placement: ModelPlacement)
 ```
 
-`modelId` 使用加载器的完整 `包名:模型名`，例如 `jr_four_light:head`；包名只含小写字母、数字、
+`modelId` 使用 model-only loader 的完整 `包名:模型名`，例如 `jr_four_light:head`；包名只含小写字母、数字、
 点、下划线和连字符。模型名允许同样字符构成的包内 `/` 分隔路径，但每段不能为空或为 `.`/`..`。
-这只是稳定引用，不是文件路径或 JVM 类名。`model=null` 或缺省表示仅运行后端，不要求虚假的轨道位置。
+这只是稳定引用，不是文件路径或 JVM 类名。`model=null` 表示不走显式模型路径。
 定义构造校验引用语法；绑定准备另行检查已加载的包与全部可输出外观名，不在构造时读文件。
+
+固定闭塞／保护主信号若设置 `packageSignalId`，则 `model` 必须为 null，可选 `placement` 只保存世界实例位置；
+模型和逻辑都从该 package signal 解析。未设置 `packageSignalId` 时 `placement` 必须为 null，显式模型仍完整保存在
+`model`。current schema 1 中两字段都必须出现，即使值为 null，避免旧的重复 modelId 形状被静默接受。
 
 磁盘上的可选 `model` 位于每个设备内，只有 `modelId` 与 `placement`，摆放用稳定的 `kind` 区分：
 
@@ -266,19 +271,23 @@ ModelPlacementCalculator.calculate(placement: RailAttached, curve: Curve?): Mode
 ### 生产接线与编辑边界
 
 插件启动时除了既有五个后端能力，还取得 `RailTargetService` 和 `ModelPresentationService`。
-后端世界安装不等待显示包；另在 Paper 工作线程读取 `dataFolder/models` 的直接子目录，各目录有
+后端世界安装不等待显示包；Paper 工作线程同时准备统一 `signal-packs/` catalog 和
+`dataFolder/models` 的 model-only 直接子目录，各目录有
 `manifest.yml`。根目录不存在表示空模型表；缺文件、包名冲突或包内容错误给出明确诊断，不猜模型或造占位。
 整次发现结果只在启用时安装一次，不做 ZIP、热重载、定时扫描或独立模型存档。
 
-世界模型准备接收当前完整定义和不可变模型表：逐设备解析 `modelId`，校验定义中全部可能输出的
-外观名，计算轨道附着姿态，保存共享模型及其场景表。地面摆放不查曲线。这一步不调用
+世界模型准备接收当前完整定义、model-only 表和可选的同一不可变 signal catalog：显式设备解析 `modelId`；
+package-bound 主信号从 `packageSignalId` 同时取得 catalog model/logic。准备阶段校验可确定的全部可能输出
+外观；JS 输出还在同 epoch 求值后对该 catalog model 的 variant 表检查。随后计算轨道附着姿态，
+保存共享模型及其场景表。地面摆放不查曲线。这一步不调用
 `ModelPresentationService.create`；纯 validate 因此不会登记任何模型对象。
 模型表尚未准备好或加载失败时，带模型的候选给出相应诊断；没有模型的后端配置仍可使用。
 
 正式编辑仍只有原来的 save/source/publication 提交点。模型准备失败时保留旧配置、存档和模型；
 提交成功时替换包含显示绑定的同一个 runtime state，并使旧绑定失效。模型对象与这次配置替换的生命周期分开：
 
-- 设备仍使用同一模型时，保留 handle、显示序号和上次提交的场景/姿态。规则编辑不重新创建模型；
+- 设备仍使用同一份已捕获模型对象时，保留 handle、显示序号和上次提交的场景/姿态。仅 modelId 或结构值相等
+  不足以跨另一 catalog/materialization 复用 handle；规则编辑在捕获模型身份未变时不重新创建模型；
   位置或旋转变化时，向现有 handle 提交新姿态。
 - 新增模型配置时创建该设备；删除设备或移除其模型配置时，只关闭对应 handle。
 - 同一设备换模型时，先关闭其旧 handle，再以原稳定 `objectId` 创建替代对象，不能同时登记两个同身份模型。
@@ -292,6 +301,8 @@ manager 提交锁和物理线程不等待模型树构造或实体清理。
 
 初始异步安装须重新核对 runtime 对象与当前 publication。准备期间发生编辑则重新为当前值准备，
 不能仅丢掉旧候选就永久失去显示。相同 UUID 的新 runtime 不接收旧世界的排队工作；卸载后不再创建模型。
+局部拓扑重验提交新的 exact topology root 后，复用同一模型 worker 为当前 publication 重新准备轨道附着姿态；
+安装仍复核 runtime、publication、topology、旧绑定和 catalog 身份。地面摆放可复用姿态，但不能借此跳过整份绑定身份检查。
 
 ### 初始画面与后续变化
 
@@ -316,7 +327,8 @@ manager 提交锁和物理线程不等待模型树构造或实体清理。
 不能把“已请求清理”报告为“实体已删完”。不新增另一套资源卸载门禁。
 
 实际私有入口是 `SimpleSignalsModelPackages.load(Path): Map<String, LoadedPackageModel>`、
-`PreparedSignalModels.prepare(definitions, models, rails)` 和 `SignalModelBinding`。
+`SignalPackLoader.load(Path): SignalPackCatalog`、
+`PreparedSignalModels.prepare(definitions, models, rails, topology, previous, signalPacks)` 和 `SignalModelBinding`。
 插件提供 `fun modelCleanupCompletion(): CompletionStage<Void>`，供停用流程观察异步清理；
 它不是阻塞卸载命令，也不表示列车资源已释放。调用方不能在区域线程上等待这个结果。
 

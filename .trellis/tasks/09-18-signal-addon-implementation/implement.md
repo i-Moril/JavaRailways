@@ -1,5 +1,21 @@
 # Stage 2 implementation plan
 
+## 2026-10-08 统一 package signal 的生产模型绑定
+
+- [x] package-bound 固定闭塞／保护主信号改为由同一 `SignalPackCatalog` signal 同时选择 model 与 logic；
+  世界 current schema 1 只另存可选 `placement`，禁止同时保存可冲突的显式 modelId。未绑定 Kotlin provider
+  继续使用显式 `model`；附属信号与进路表示器仍是 presentation-only 显式模型。
+- [x] 复用 catalog 已 materialize 的模型、`PreparedSignalModels`、handle retention 和显示发布锁；catalog pending／
+  缺失／未知时不创建错误 handle，catalog 成功后在 exact runtime/publication/topology 守卫下替换显示绑定。
+  定义候选以同一个捕获的 catalog 同时准备 epoch runtime 与模型；失败保留旧磁盘、publication、sources 和 handles。
+- [x] 直接修正未发布 sidecar schema 1：两类主信号严格显式写出可空 `model` 与 `placement`，两条路径互斥；
+  不升版、不增加默认字段、兼容 reader 或 upcaster。固定 fixture 覆盖 package placement、缺字段和重复 modelId 拒绝。
+- [x] 聚焦回归覆盖 JS 与模型同源选择、运行期 variant 对 catalog model 校验、catalog pending／未知不创建错误模型、
+  非法改绑原子保留旧状态。独立检查补充 exact materialized model 身份、catalog 在候选准备与提交间就绪时拒绝
+  过期候选，以及 topology 重验后按新 root 重算轨道附着姿态；仍复用既有 handle、worker 和 publication 锁。
+  离线完整 `:SimpleSignals:check` 为47套/504项，零失败／错误／跳过；plugin JAR 校验和 Java consumer 编译通过；
+  真实 Folia、客户端画面、Wand、热重载与生产规模性能仍未验证。
+
 ## 2026-10-07 统一信号包一等类型格式纠正
 
 - [x] 直接修正未发布 config-version 1：`pack.yml` 只保存包元数据；`model/`、成对同 stem 的

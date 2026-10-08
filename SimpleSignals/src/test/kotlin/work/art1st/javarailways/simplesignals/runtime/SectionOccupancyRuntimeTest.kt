@@ -54,7 +54,7 @@ class SectionOccupancyRuntimeTest {
     lateinit var signalPackRoot: Path
 
     @Test
-    fun `legacy consumer lookup follows the complete upstream dependency closure`() {
+    fun `unbound Kotlin consumer lookup follows the complete upstream dependency closure`() {
         val downstream = SectionRef(SectionKind.FIXED_BLOCK, "test:closure-downstream")
         val middle = SectionRef(SectionKind.FIXED_BLOCK, "test:closure-middle")
         val upstream = SectionRef(SectionKind.FIXED_BLOCK, "test:closure-upstream")
@@ -131,7 +131,7 @@ class SectionOccupancyRuntimeTest {
                     SignalPackDeviceBinding(downstream.signalId, "automatic:block")
                 ))
             }
-            assertTrue(mixedFailure.message!!.contains("legacy consumers upstream"))
+            assertTrue(mixedFailure.message!!.contains("unbound Kotlin consumers upstream"))
             SignalPackEpochRuntime.compile(publication, catalog, logic, listOf(
                 SignalPackDeviceBinding(upstream.signalId, "automatic:block")
             ))

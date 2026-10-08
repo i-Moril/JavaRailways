@@ -2,6 +2,7 @@ package work.art1st.javarailways.simplesignals.signal
 
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.simplesignals.presentation.DeviceModelDefinition
+import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
 import work.art1st.javarailways.simplesignals.region.SIMPLE_SIGNALS_NAMESPACED_ID
 
 /** Relative to the complete authored block path, not an individual rail's AB/BA facing. */
@@ -89,7 +90,9 @@ internal data class FixedBlockSignalDefinition private constructor(
     val model: DeviceModelDefinition?,
     val entryDirection: FixedBlockEntryDirection,
     /** Player-facing type from the unified signal-pack catalog; null keeps the configured Kotlin rule. */
-    val packageSignalId: String?
+    val packageSignalId: String?,
+    /** World-owned placement for the package signal's catalog-selected model. */
+    val placement: ModelPlacement?
 ) {
     constructor(
         signalId: String,
@@ -101,7 +104,8 @@ internal data class FixedBlockSignalDefinition private constructor(
         downstreamSignals: Collection<FixedBlockSignalDependency> = emptyList(),
         model: DeviceModelDefinition? = null,
         entryDirection: FixedBlockEntryDirection = FixedBlockEntryDirection.FORWARD,
-        packageSignalId: String? = null
+        packageSignalId: String? = null,
+        placement: ModelPlacement? = null
     ) : this(
         signalId,
         revision,
@@ -112,7 +116,8 @@ internal data class FixedBlockSignalDefinition private constructor(
         java.util.List.copyOf(downstreamSignals),
         model,
         entryDirection,
-        packageSignalId
+        packageSignalId,
+        placement
     )
 
     val entry: FixedBlockSignalEntry get() = FixedBlockSignalEntry(controlledBlockId, entryDirection)
@@ -121,6 +126,12 @@ internal data class FixedBlockSignalDefinition private constructor(
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalId)) { "signalId must be namespaced" }
         require(packageSignalId == null || SIMPLE_SIGNALS_NAMESPACED_ID.matches(packageSignalId)) {
             "packageSignalId must be null or namespaced"
+        }
+        require(packageSignalId == null || model == null) {
+            "package-bound signal model is selected by packageSignalId; use placement instead"
+        }
+        require(packageSignalId != null || placement == null) {
+            "package signal placement requires packageSignalId"
         }
         require(revision >= 0L) { "signal revision must be non-negative" }
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(controlledBlockId)) {

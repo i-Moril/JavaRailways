@@ -48,7 +48,7 @@ import java.util.concurrent.TimeUnit
 class SignalModelBindingTest {
     @TempDir lateinit var directory: Path
     private val packages = Path.of(requireNotNull(javaClass.getResource("/model-packages")).toURI())
-    private val models get() = SimpleSignalsModelPackages.load(packages)
+    private val models by lazy { SimpleSignalsModelPackages.load(packages) }
     private val worldId = UUID(0, 880)
     private val railId = UUID(0, 881)
     private val topology = lineTopologyState(7, railId)
@@ -588,6 +588,23 @@ class SignalModelBindingTest {
         assertSame(wall, f.service.byId(wall.id))
         assertEquals(0, wall.closeCalls)
         assertEquals(4, f.service.handles.size)
+    }
+
+    @Test
+    fun `equal model content from a different captured object replaces the handle`() {
+        val f = fixture()
+        f.start()
+        val original = f.service.handles.single()
+        val loaded = models
+        val home = loaded.getValue("demo_signals:home")
+        val recaptured = LoadedPackageModel(home.id, home.definition, home.defaultScenes, home.variants,
+            home.followRailTilt, home.railPlacementPresets)
+
+        replace(f, definitions(model(), revision = 2), loaded + (home.id to recaptured))
+        f.world.startModels()
+
+        assertEquals(1, original.closeCalls)
+        assertNotSame(original, f.service.byId(original.id))
     }
 
     private fun replace(f: Fixture, definitions: SimpleSignalsWorldDefinitions,

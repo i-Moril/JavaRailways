@@ -14,19 +14,24 @@ internal data class DeviceModelDefinition(val modelId: String, val placement: Mo
 
     /** Low-frequency candidate validation against the captured immutable topology, without sampling. */
     fun validatePlacement(topology: TopologyState, deviceId: String) {
-        val attached = placement as? ModelPlacement.RailAttached ?: return
-        val position = attached.position
-        val spans = requireNotNull(topology.railProjection[position.railId]) {
-            "device $deviceId model references missing rail ${position.railId}"
-        }
-        val length = spans.maxOf { maxOf(it.railStartAbMeters, it.railEndAbMeters) }
-        require(position.arcLengthInAbMeters in 0.0..length) {
-            "device $deviceId model placement ${position.arcLengthInAbMeters} is outside rail " +
-                "${position.railId} (0..$length metres)"
-        }
+        placement.validatePlacement(topology, deviceId)
     }
 
     private companion object {
         val NAME = Regex("[a-z0-9._-]+")
+    }
+}
+
+/** Placement is world-owned even when the selected package owns the model identity. */
+internal fun ModelPlacement.validatePlacement(topology: TopologyState, deviceId: String) {
+    val attached = this as? ModelPlacement.RailAttached ?: return
+    val position = attached.position
+    val spans = requireNotNull(topology.railProjection[position.railId]) {
+        "device $deviceId model references missing rail ${position.railId}"
+    }
+    val length = spans.maxOf { maxOf(it.railStartAbMeters, it.railEndAbMeters) }
+    require(position.arcLengthInAbMeters in 0.0..length) {
+        "device $deviceId model placement ${position.arcLengthInAbMeters} is outside rail " +
+            "${position.railId} (0..$length metres)"
     }
 }

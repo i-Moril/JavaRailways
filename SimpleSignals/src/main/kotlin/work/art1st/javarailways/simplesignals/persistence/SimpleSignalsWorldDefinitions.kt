@@ -178,7 +178,10 @@ private data class SavedFixedBlockSignalV1(
     val occupiedOutput: SavedSignalOutputV1,
     val clearLevels: List<SavedFixedBlockSignalClearLevelV1>,
     val downstreamSignals: List<SavedFixedBlockSignalDependencyV1>,
-    val model: SavedDeviceModel? = null,
+    /** Explicit model selection for an unbound Kotlin-provider signal; null when packageSignalId is set. */
+    val model: SavedDeviceModel?,
+    /** Package-bound instances persist placement without duplicating the catalog model ID. */
+    val placement: SavedModelPlacement?,
     val entryDirection: work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection =
         work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection.FORWARD
 )
@@ -216,7 +219,10 @@ private data class SavedProtectionSignal(
     val occupiedOutput: SavedSignalOutputV1, val clearLevels: List<SavedFixedBlockSignalClearLevelV1>,
     val downstreamSignals: List<SavedFixedBlockSignalDependencyV1> = emptyList(),
     val downstreamSignalsByRouteId: Map<String, List<SavedFixedBlockSignalDependencyV1>> = emptyMap(),
-    val model: SavedDeviceModel? = null
+    /** Explicit model selection for an unbound Kotlin-provider signal; null when packageSignalId is set. */
+    val model: SavedDeviceModel?,
+    /** Package-bound instances persist placement without duplicating the catalog model ID. */
+    val placement: SavedModelPlacement?
 )
 
 @Serializable
@@ -306,7 +312,8 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                 }, signal.downstreamSignals.map { it.restoreDependency(signal.signalId) },
                 signal.downstreamSignalsByRouteId.mapValues { (_, dependencies) ->
                     dependencies.map { it.restoreDependency(signal.signalId) }
-                }, signal.model?.restore(signal.signalId), signal.packageSignalId) },
+                }, signal.model?.restore(signal.signalId), signal.packageSignalId,
+                signal.placement?.restore(signal.signalId)) },
             file.routeIndicators.map { RouteIndicatorDefinition(it.indicatorId, it.revision, it.entryBoundaryId,
                 it.noRouteModelVariant, it.modelVariantsByRouteId, it.model?.restore(it.indicatorId)) },
             file.attachedSignals.map { AttachedSignalDefinition(it.signalId, it.revision, it.primarySignalId,
@@ -400,6 +407,7 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                     )
                 },
                 signal.model?.saved(),
+                signal.placement?.saved(),
                 signal.entryDirection
             )
         },
@@ -409,30 +417,38 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                 SavedFixedBlockSignalClearLevelV1(it.minimumDownstreamSpeedMetersPerSecond, it.output.saved())
             }, signal.downstreamSignals.map { it.savedDependency() },
             signal.downstreamSignalsByRouteId.mapValues { (_, dependencies) -> dependencies.map { it.savedDependency() } },
-            signal.model?.saved()) },
+            signal.model?.saved(), signal.placement?.saved()) },
         routeIndicators.map { SavedRouteIndicator(it.indicatorId, it.revision, it.entryBoundaryId,
             it.noRouteModelVariant, it.modelVariantsByRouteId, it.model?.saved()) },
         attachedSignals.map { SavedAttachedSignal(it.signalId, it.revision, it.primarySignalId, it.model.saved()) },
         pendingProtectionBoundaries.map { it.savedBoundary() }
     )
 
-    private fun DeviceModelDefinition.saved() = SavedDeviceModel(modelId, when (val value = placement) {
+    private fun DeviceModelDefinition.saved() = SavedDeviceModel(modelId, placement.saved())
+
+    private fun ModelPlacement.saved(): SavedModelPlacement = when (val value = this) {
         is ModelPlacement.RailAttached -> SavedModelPlacement.Rail(value.position.railId.toString(),
             value.position.arcLengthInAbMeters, value.position.facing, value.adjustment.saved(), value.followRailTilt)
         is ModelPlacement.Ground -> SavedModelPlacement.Ground(value.pose.saved())
-    })
+    }
 
     private fun ModelPose.saved() = SavedModelPose(x(), y(), z(), rotationX(), rotationY(), rotationZ(), rotationW())
 
     private fun SavedDeviceModel.restore(deviceId: String): DeviceModelDefinition = try {
-        DeviceModelDefinition(modelId, when (val value = placement) {
+        DeviceModelDefinition(modelId, placement.restore(deviceId))
+    } catch (failure: IllegalArgumentException) {
+        throw IllegalArgumentException("device $deviceId model: ${failure.message}", failure)
+    }
+
+    private fun SavedModelPlacement.restore(deviceId: String): ModelPlacement = try {
+        when (val value = this) {
             is SavedModelPlacement.Rail -> ModelPlacement.RailAttached(
                 RailPositionSnapshot(parseCanonicalUuid(value.railId, "device $deviceId model railId"),
                     value.facing, value.arcLengthInAbMeters), value.adjustment.restore(), value.followRailTilt)
             is SavedModelPlacement.Ground -> ModelPlacement.Ground(value.pose.restore())
-        })
+        }
     } catch (failure: IllegalArgumentException) {
-        throw IllegalArgumentException("device $deviceId model: ${failure.message}", failure)
+        throw IllegalArgumentException("device $deviceId placement: ${failure.message}", failure)
     }
 
     private fun FixedBlockSignalDependency.savedDependency() = SavedFixedBlockSignalDependencyV1(signalId,
@@ -550,7 +566,8 @@ internal object SimpleSignalsWorldDefinitionsCodec {
         },
         model?.restore(signalId),
         entryDirection,
-        packageSignalId
+        packageSignalId,
+        placement?.restore(signalId)
     )
 
     private fun SavedSignalOutputV1.restore() = ConfiguredSignalOutput(

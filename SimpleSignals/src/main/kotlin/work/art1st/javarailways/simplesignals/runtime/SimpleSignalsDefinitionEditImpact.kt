@@ -130,8 +130,11 @@ internal object SimpleSignalsDefinitionEditImpact {
             entries += route.definition.entryBoundaryId
         }
 
-        val modelsBySignal = definitions.fixedBlockSignals.associate { it.signalId to it.model } +
-            definitions.protectionSignals.associate { it.signalId to it.model }
+        val placementsBySignal = definitions.fixedBlockSignals.associate {
+            it.signalId to (it.model?.placement ?: it.placement)
+        } + definitions.protectionSignals.associate {
+            it.signalId to (it.model?.placement ?: it.placement)
+        }
         fun collectSections(observed: Collection<SectionRef>) = observed.forEach { section ->
             when (section.kind) {
                 SectionKind.FIXED_BLOCK -> blockSnapshot.blocksById.getValue(section.id)
@@ -143,7 +146,7 @@ internal object SimpleSignalsDefinitionEditImpact {
         val affectedBindings = publication.protectionSignals.ruleRuntime
             ?.affectedBindings(sections, changedSignals, entries).orEmpty()
         affectedBindings.forEach { binding ->
-            (modelsBySignal[binding.signalId]?.placement as? ModelPlacement.RailAttached)
+            (placementsBySignal[binding.signalId] as? ModelPlacement.RailAttached)
                 ?.let { rails += it.position.railId }
             collectSections(binding.observedSections)
             binding.downstreamSignals.forEach { rails += it.affectedRailIds }
@@ -167,7 +170,7 @@ internal object SimpleSignalsDefinitionEditImpact {
         val protectionById = definitions.protectionSignals.associateBy { it.signalId }
         val blocksById = definitions.fixedBlocks.associateBy { it.blockId }
         fun collectAuthoredSignal(id: String) {
-            (modelsBySignal[id]?.placement as? ModelPlacement.RailAttached)?.let { rails += it.position.railId }
+            (placementsBySignal[id] as? ModelPlacement.RailAttached)?.let { rails += it.position.railId }
             fixedById[id]?.let { signal ->
                 blocksById[signal.controlledBlockId]?.traversals?.mapTo(rails) { it.railId }
             }

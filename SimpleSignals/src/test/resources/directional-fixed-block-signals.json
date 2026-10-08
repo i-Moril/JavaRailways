@@ -15,7 +15,9 @@
     "occupiedOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "forward-stop"},
     "clearLevels": [{"minimumDownstreamSpeedMetersPerSecond": 0.0,
       "output": {"speedLimitMetersPerSecond": 25.0, "modelVariant": "forward-clear"}}],
-    "downstreamSignals": []
+    "downstreamSignals": [],
+    "model": null,
+    "placement": null
   }, {
     "signalId": "test:reverse", "packageSignalId": null, "revision": 2, "controlledBlockId": "test:shared",
     "entryDirection": "REVERSE", "inspectionLeadTimeSeconds": 4.0,
@@ -25,6 +27,7 @@
     "downstreamSignals": [],
     "model": {"modelId": "demo:reverse", "placement": {"kind": "ground",
       "pose": {"x": 1.0, "y": 64.0, "z": 2.0,
-        "rotationX": 0.0, "rotationY": 0.0, "rotationZ": 0.0, "rotationW": 1.0}}}
+        "rotationX": 0.0, "rotationY": 0.0, "rotationZ": 0.0, "rotationW": 1.0}}},
+    "placement": null
   }]
 }

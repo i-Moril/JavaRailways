@@ -6,7 +6,8 @@
 不可变树形观察计划编译器、显式设备绑定后的同步 epoch 填值／求值，以及插件启动时的包 catalog 安装均已实现
 （`CURRENT`）。当前实现复用现有固定闭塞、保护区域、保护进路和规范化 `TopologyState`，按路径展开直线、分支、
 保护进路和环终止。固定闭塞／保护逻辑设备在世界 current model 中保存可空 `packageSignalId`；原有 `signalId`
-继续表示世界内的设备身份，不能从它、模型 ID 或文件名猜测包类型。玩家放置／选择包类型仍是 **TARGET**。
+继续表示世界内的设备身份，不能从它、模型 ID 或文件名猜测包类型。同一 package signal 的 catalog 快照现在也
+决定生产模型；玩家通过 Wand 放置／选择包类型仍是 **TARGET**。
 除此之外不增加时间、内存、节点、分支或整波预算；包作者负责规则的终止性和成本。
 
 SimpleSignals 负责包加载、脚本执行、前视投影、输出校验和信号结果发布。Basic 仍只负责物理资源校验与仲裁，SimpleATO 仍负责路线前视、资源申请、动态制动和最严格约束合成。JS 不得选路、扳动道岔、授予资源、直接制动列车或修改世界。包分发与玩家可见类型见[统一信号包](model-packages.md#统一信号包modellogic-与一等-signal-类型)。
@@ -17,7 +18,8 @@ SimpleSignals 负责包加载、脚本执行、前视投影、输出校验和信
 
 1. 插件启动 worker 从 `signal-packs/` 读取元数据 `pack.yml`、`model/`、成对的 `logic/*.yml`／`logic/*.js`
    和 `signal/*.yml`，以稳定 `modelId`、`logicId`、`signalId` 编译并校验完整 catalog。每个 world 再把显式
-   `deviceId -> packageSignalId` 绑定编译为自己的 epoch runtime；模型 materialize 与玩家放置仍属后续批次。
+   `deviceId -> packageSignalId` 绑定编译为自己的 epoch runtime；同一个 catalog signal 的 materialized model 进入既有
+   `PreparedSignalModels`，世界只提供可选摆放。玩家放置仍属后续批次。
 2. 拓扑或配置变更后，SimpleSignals 在低频准备阶段从信号入口编译前视计划。计划包含扫描范围内的所有合法后继，以及运行时筛选分支所需的道岔、保护进路和区间身份；它不包含某一 tick 的占用结果。
    当前 `SignalObservationGraphBuilder` 已从同一 `SimpleSignalsRuntimePublication` 的真实 section/topology
    publication 构造连接图，`SignalObservationPlanCompiler` 再把它变成不可变路径树；运行时只给该计划填入当前 epoch 的事实。
@@ -128,7 +130,9 @@ function evaluate(input: SignalInput, output: SignalOutput): void;
 
 固定闭塞和保护信号的 current schema 1 JSON 必须显式包含 `packageSignalId` 字段，但字段值允许为 `null`；writer
 始终写出 `null` 或完整 namespaced package signal ID。该 sidecar 尚未发布，因此本次直接修正 current model，保持
-schema version 1，不添加默认值、旧 reader、upcaster 或运行时兼容路径。未绑定设备继续使用既有 Kotlin provider。
+schema version 1，不添加旧 reader、upcaster 或运行时兼容路径。两类主信号还必须显式写出互斥的 `model` 与
+`placement`：未绑定设备可在 `model` 保存 modelId+placement；package-bound 设备的 `model` 必须为 null，只有
+`placement` 可保存实例摆放，modelId 由 catalog signal 唯一决定。未绑定设备继续使用既有 Kotlin provider。
 
 静态观察图使用 topology 与 definitions 的对象身份作为 cache identity，而不是只比较数值 revision。候选构图失败时，
 定义准备失败并保留旧 live publication；局部拓扑重验也必须生成同一新 topology 上的图后才能原子替换派生 publication。
@@ -153,6 +157,8 @@ JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／�
 - 包、脚本、入口或引用非法：拒绝完整候选，保留旧 live publication；不存在旧候选时该设备不可用。
 - 启动 catalog 尚未就绪时，只允许不新增或改绑 `packageSignalId` 的定义编辑；新绑定必须等待 catalog 校验。
   catalog 就绪后的候选编辑必须严格编译，未知 signal 或非法包不能借限制性 fallback 提交。
+  若 catalog 恰在候选准备与原子提交之间就绪，该候选按过期准备拒绝并要求重试，不能用先前的限制性
+  runtime／无模型绑定覆盖刚安装的同一 catalog 结果。
 - 初始安装或拓扑安全重验可以用限制性 runtime 承接任意包编译失败，确保相关设备为 `Unavailable`／0；显式定义编辑
   不能用该机制掩盖坏配置。失败或迟到 attach 不得替换当前 permissive publication。
 - 扫描距离不是有限正数、零长度有向环或计划无法与当前拓扑一致：拒绝准备结果，不安装半张树。
@@ -227,8 +233,9 @@ JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／�
 world manager 按 exact publication/topology 身份安装 epoch runtime，并在 catalog 缺失或无效时保持限制性结果。
 共享 runtime 随 manager 清理关闭；单元测试覆盖 runtime 自身关闭，真实 Folia 下的 manager 清理和在线生命周期仍待部署验证。
 
-仍待实现批次决定但不改变本契约的问题：玩家通过 Wand 放置／选择 package signal、错误诊断载荷完善、模型
-materialize 和热重载命令。它们不能被用来重新加入预算、退化成扁平活动路径或把脚本移出同步信号阶段。
+生产模型绑定也已完成：逻辑与模型从同一不可变 catalog signal 解析，package catalog 就绪后用精确
+runtime/publication/topology 守卫替换显示绑定；缺失或未知 package 不创建错误 handle。模型创建／提交故障仍只属于显示，
+不能改变已经发布的安全输出。仍待实现的是玩家通过 Wand 放置／选择 package signal、错误诊断载荷完善和热重载命令。
 
 错误做法：每次 `lookup` 重新走拓扑；遇环拒绝整个包；用 future 超时但让脚本后台继续；把保护区域另做一套查询；让 JS 直接修改世界；以旧绿灯作为异常 fallback。
 

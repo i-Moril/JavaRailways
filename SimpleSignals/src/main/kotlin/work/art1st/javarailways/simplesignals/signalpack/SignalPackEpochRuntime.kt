@@ -267,11 +267,11 @@ internal class SignalPackEpochRuntime private constructor(
         ): SignalPackEpochRuntime {
             val byDevice = bindings.associateBy(SignalPackDeviceBinding::deviceId)
             require(byDevice.size == bindings.size) { "signal-pack device bindings must be unique" }
-            val unboundLegacyConsumers = publication.protectionSignals.ruleRuntime
+            val unboundKotlinConsumers = publication.protectionSignals.ruleRuntime
                 ?.transitiveConsumerSignalIds(byDevice.keys).orEmpty() - byDevice.keys
-            require(unboundLegacyConsumers.isEmpty()) {
-                "signal-pack bindings leave legacy consumers upstream of replaced devices: " +
-                    unboundLegacyConsumers.sorted().joinToString()
+            require(unboundKotlinConsumers.isEmpty()) {
+                "signal-pack bindings leave unbound Kotlin consumers upstream of replaced devices: " +
+                    unboundKotlinConsumers.sorted().joinToString()
             }
             val graph = publication.signalObservationGraph
             require(graph.isFor(publication.topology, publication.definitions)) {

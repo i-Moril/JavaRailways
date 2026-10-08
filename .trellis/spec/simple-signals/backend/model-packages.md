@@ -16,10 +16,10 @@ YAML 部件树、外观、场景、variant 与宿主摆放 metadata 的解析和
 
 ## 统一信号包：model、logic 与一等 signal 类型
 
-统一信号包的发现、严格文件解析、模型 materialization、两阶段跨包 signal 引用解析和 JS 源捕获已经实现
-（`CURRENT/FOUNDATION`）。插件启动、世界设备、Wand 和热重载尚未接线（`TARGET`）。后文
-`manifest.yml/models/parts` 仍是当前已接线的模型-only loader，
-不能把两个布局混合读取，也不能声称统一信号包已经能在游戏中放置或显示。
+统一信号包的发现、严格文件解析、模型 materialization、两阶段跨包 signal 引用解析、JS 源捕获、
+插件启动及世界逻辑／模型绑定已经实现（`CURRENT`）。Wand 和热重载尚未接线（`TARGET`）。后文
+`manifest.yml/models/parts` 是未绑定 Kotlin provider、附属信号和进路表示器继续使用的 model-only loader；
+两个布局仍不能混合读取。统一包模型已经接入生产显示准备，但真实 Folia／客户端画面仍未验证。
 
 ```text
 <package>/
@@ -41,9 +41,9 @@ YAML 部件树、外观、场景、variant 与宿主摆放 metadata 的解析和
   引用的模型或逻辑仍可被跨包 signal 引用，不自动成为可放置信号类型。
 - 一个模型可以被多个 signal 使用，一个逻辑也可以被多个 signal 使用。signal 可引用其他包的 `modelId`／`logicId`；
   引用不使用 JVM 类名、相对逃逸路径或加载顺序。
-- 未来世界设备保存公开 package `signalId` 和设备实例参数，不保存 JS 源码、宿主类名、任意文件路径或每设备扫描距离。
-  当前世界定义中的 `FixedBlockSignalDefinition.signalId`／`ProtectionSignalDefinition.signalId` 是已放置逻辑节点身份，
-  不是 package signal 类型；生产绑定前必须把前者重命名为清晰的 `deviceId` 或增加显式类型引用，不能按同名猜绑定。
+- 当前世界设备以 `packageSignalId` 保存公开 package `signalId`，并只保存自己的可选 `placement`；modelId 和 logicId
+  都从同一个不可变 catalog signal 取得，不在设备中重复。定义中的 `signalId` 继续是已放置逻辑节点的 deviceId，
+  不是 package signal 类型，不能按同名、模型或路径猜绑定。设备不保存 JS 源码、宿主类名、任意文件路径或每设备扫描距离。
 
 `SignalPackLoader.load(directory: Path): SignalPackCatalog` 同步准备根目录的直接子目录。调用方负责把文件读取放在
 低频 worker；该函数不创建 executor、世界对象或 live publication。严格 current schema 1 示例为：
@@ -81,14 +81,13 @@ logic: example:automatic
 避免校验完成后文件变化造成候选内容漂移。正常 tick 不读取包文件。
 
 这是未发布配置边界的 current model，保持 `config-version: 1`，没有旧布局 alias、upcaster 或运行时兼容 reader。
-后续 materialize 和接线仍须依照[版本号与发布基线](../../javarailways/shared/versioning.md)，不能按提交次数升版。
+后续格式变化仍须依照[版本号与发布基线](../../javarailways/shared/versioning.md)，不能按提交次数升版。
 JS 的执行 foundation、同步信号阶段目标和树形输入见[JS 信号规则契约](js-signal-rules.md)。
 
 ### 统一包可执行合同
 
-1. **状态与 owner**：`SignalPackLoader` 的目录发现、身份派生、跨包解析、模型 materialization 和 JS 源码捕获是
-   `CURRENT/FOUNDATION`；SimpleSignals 拥有包/catalog，BukkitPlugin 公共 compiler 拥有普通模型 YAML 语义。
-   世界绑定和 signal epoch 求值仍是 `TARGET`。
+1. **状态与 owner**：目录发现、身份派生、跨包解析、模型 materialization、JS 源码捕获、世界 epoch 与模型绑定均为
+   `CURRENT`；SimpleSignals 拥有包/catalog，BukkitPlugin 公共 compiler 拥有普通模型 YAML 语义。
 2. **工作流**：`load(root)` 先按目录名排序读取所有 `pack.yml`，再递归发现三类文件；
    每个 package 的 model 捕获后作为一批交给 compiler，logic 进入全局表，signal 仅暂存引用，待所有包就绪后再统一解析，最后一次性返回
    `SignalPackCatalog`。
@@ -110,10 +109,10 @@ JS 的执行 foundation、同步信号阶段目标和树形输入见[JS 信号�
    的 model 与 logic；错误案例是孤立 `.js`、逃逸目录链接或把 logicId 写到 model 字段。
 9. **必需测试**：固定验证嵌套路径派生、跨包与反向枚举顺序、同 stem 配对、未知字段、
    `.`/`..` 段、文件与目录符号链接逃逸、实际模型 materialization、model import/cycle/variant、
-   捕获后不重读源文件和返回表不可变。
-10. **迁移与错误用法**：正确做法是由 package `signalId` 显式引出 modelId/logicId；错误做法是从
-    已放置设备 ID、模型 ID 或文件名在运行时猜测逻辑。世界绑定和旧 `signalId` 的 `deviceId` 清晰化
-    仍是下一批的显式设计点。
+   捕获后不重读源文件和返回表不可变；生产绑定还须证明同一 catalog signal 同时选择 JS 与模型、未知类型不创建 handle、
+   非法改绑保留旧磁盘／publication／source／模型。
+10. **迁移与错误用法**：正确做法是由 `packageSignalId` 显式引出 modelId/logicId，并让世界 deviceId 保持独立；
+    错误做法是从已放置设备 ID、模型 ID 或文件名猜测逻辑，或在 package-bound 主信号内再保存可冲突的 modelId。
 
 ## 一次加载如何工作
 

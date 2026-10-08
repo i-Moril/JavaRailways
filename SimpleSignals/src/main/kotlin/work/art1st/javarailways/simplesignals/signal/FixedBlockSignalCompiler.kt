@@ -9,6 +9,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simplesignals.block.CompiledFixedBlock
 import work.art1st.javarailways.simplesignals.block.FixedBlockReadSnapshot
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
+import work.art1st.javarailways.simplesignals.presentation.validatePlacement
 import work.art1st.javarailways.simplesignals.runtime.DownstreamSignalDependency
 import work.art1st.javarailways.simplesignals.runtime.RequiredActiveContinuation
 import work.art1st.javarailways.simplesignals.runtime.SectionKind
@@ -58,7 +59,8 @@ internal class CompiledFixedBlockSignals private constructor(
             val blocksById = fixedBlocks.blocksById
             copiedDefinitions.forEach { definition ->
                 if (topologyFailures == null && definition.controlledBlockId !in fixedBlocks.unavailableBlockIds)
-                    definition.model?.validatePlacement(fixedBlocks.topology, definition.signalId)
+                    (definition.model?.placement ?: definition.placement)
+                        ?.validatePlacement(fixedBlocks.topology, definition.signalId)
                 require(definition.controlledBlockId in blocksById) {
                     "signal ${definition.signalId} controls unknown fixed block " +
                         definition.controlledBlockId

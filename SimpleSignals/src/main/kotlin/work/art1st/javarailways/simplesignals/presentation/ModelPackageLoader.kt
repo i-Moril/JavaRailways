@@ -9,7 +9,7 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
 
-/** Legacy SimpleSignals file discovery; model-language compilation is owned by BukkitPlugin. */
+/** Explicit model-only package discovery; model-language compilation is owned by BukkitPlugin. */
 internal object ModelPackageLoader {
     fun load(directory: Path): LoadedModelPackage = Load(directory).load()
 

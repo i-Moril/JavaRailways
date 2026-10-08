@@ -4,6 +4,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simplesignals.block.*
 import work.art1st.javarailways.simplesignals.runtime.*
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
+import work.art1st.javarailways.simplesignals.presentation.validatePlacement
 
 /** Disposable route geometry only; these routes are never registered as fixed-block resources. */
 internal class CompiledProtectionSignals private constructor(
@@ -49,7 +50,8 @@ internal class CompiledProtectionSignals private constructor(
                     .also { require(it.isNotEmpty() || signal.bindingId in authoredByEntry) {
                         "signal ${signal.signalId} binds unknown entry ${signal.bindingId}" } }
                 }
-                if (!revalidatingTopology && candidates.isNotEmpty()) signal.model?.validatePlacement(topology, signal.signalId)
+                if (!revalidatingTopology && candidates.isNotEmpty())
+                    (signal.model?.placement ?: signal.placement)?.validatePlacement(topology, signal.signalId)
                 require(signal.downstreamSignalsByRouteId.keys.all { id -> candidates.any { it.definition.routeId == id } ||
                     authoredRoutes[id]?.let {
                         (signal.kind == ProtectionSignalKind.FIXED_ROUTE && signal.bindingId == id ||

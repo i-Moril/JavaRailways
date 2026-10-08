@@ -20,7 +20,8 @@
           "adjustment": {"x": 0.5, "y": 2.0, "z": -1.5,
             "rotationX": 0.0, "rotationY": 0.6, "rotationZ": 0.0, "rotationW": 0.8}
         }
-      }
+      },
+      "placement": null
     },
     {
       "signalId": "test:fixed-backend", "packageSignalId": null, "revision": 1, "controlledBlockId": "test:other-block",
@@ -28,7 +29,9 @@
       "occupiedOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "stop"},
       "clearLevels": [{"minimumDownstreamSpeedMetersPerSecond": 0.0,
         "output": {"speedLimitMetersPerSecond": 12.0, "modelVariant": "clear"}}],
-      "downstreamSignals": []
+      "downstreamSignals": [],
+      "model": null,
+      "placement": null
     }
   ],
   "protectionSignals": [
@@ -43,7 +46,8 @@
         "modelId": "demo:ground",
         "placement": {"kind": "ground", "pose": {"x": -10.0, "y": 64.0, "z": 3.0,
           "rotationX": 0.0, "rotationY": 0.0, "rotationZ": 1.0, "rotationW": 0.0}}
-      }
+      },
+      "placement": null
     },
     {
       "signalId": "test:protection-backend", "packageSignalId": null, "revision": 1, "kind": "CURRENT_ENTRY", "bindingId": "test:entry",
@@ -51,7 +55,9 @@
       "unavailableOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "none"},
       "occupiedOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "stop"},
       "clearLevels": [{"minimumDownstreamSpeedMetersPerSecond": 0.0,
-        "output": {"speedLimitMetersPerSecond": 12.0, "modelVariant": "clear"}}]
+        "output": {"speedLimitMetersPerSecond": 12.0, "modelVariant": "clear"}}],
+      "model": null,
+      "placement": null
     }
   ],
   "routeIndicators": [

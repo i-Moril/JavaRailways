@@ -10,6 +10,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.runtime.SectionOccupancyRuntime
 import work.art1st.javarailways.simplesignals.runtime.SectionSignalState
+import work.art1st.javarailways.simplesignals.signalpack.SignalPackCatalog
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
@@ -38,7 +39,9 @@ internal object SimpleSignalsModelPackages {
 internal class PreparedSignalModels private constructor(
     internal val signals: Map<String, List<Device>>,
     internal val indicators: Map<String, Device>,
-    private val topology: TopologyState
+    internal val topology: TopologyState,
+    internal val signalPackCatalog: SignalPackCatalog?,
+    internal val explicitModels: Map<String, LoadedPackageModel>
 ) {
     internal class Device(val objectId: String, val model: LoadedPackageModel,
         val configuration: DeviceModelDefinition, val pose: ModelPose)
@@ -46,18 +49,21 @@ internal class PreparedSignalModels private constructor(
     companion object {
         fun prepare(definitions: SimpleSignalsWorldDefinitions, models: Map<String, LoadedPackageModel>,
             rails: RailTargetService, topology: TopologyState,
-            previous: PreparedSignalModels? = null): PreparedSignalModels {
+            previous: PreparedSignalModels? = null,
+            signalPacks: SignalPackCatalog? = null): PreparedSignalModels {
             val reusable = previous?.takeIf { it.topology === topology }
             val previousDevices = reusable?.let {
                 (it.signals.values.flatten() + it.indicators.values).associateBy(Device::objectId)
             }.orEmpty()
             fun device(kind: String, id: String, configuration: DeviceModelDefinition,
-                variants: Collection<String>): Device {
+                variants: Collection<String>, selectedModel: LoadedPackageModel? = null): Device {
                 try {
-                    val model = models[configuration.modelId]
+                    val model = selectedModel ?: models[configuration.modelId]
                         ?: throw IllegalArgumentException("model '${configuration.modelId}' is missing")
                     variants.forEach(model::variant)
-                    val cached = previousDevices["$kind/$id"]?.takeIf { it.configuration == configuration }
+                    val cached = previousDevices["$kind/$id"]?.takeIf {
+                        it.configuration == configuration && it.model === model
+                    }
                     val pose = cached?.pose ?: when (val placement = configuration.placement) {
                         is ModelPlacement.Ground -> ModelPlacementCalculator.calculate(placement)
                         is ModelPlacement.RailAttached -> ModelPlacementCalculator.calculate(placement,
@@ -70,24 +76,57 @@ internal class PreparedSignalModels private constructor(
             }
             val signals = linkedMapOf<String, MutableList<Device>>()
             val variantsBySignal = linkedMapOf<String, List<String>>()
+            val unavailablePackageSignals = hashSetOf<String>()
             definitions.fixedBlockSignals.forEach { definition ->
-                val variants = listOf(definition.occupiedOutput.modelVariant) + definition.clearLevels.map { it.output.modelVariant }
+                val packageSignal = definition.packageSignalId?.let { packageSignalId ->
+                    if (signalPacks == null) null else requireNotNull(signalPacks.signals[packageSignalId]) {
+                        "signal-pack device '${definition.signalId}' references unknown package signal '$packageSignalId'"
+                    }
+                }
+                val variants = packageSignal?.model?.materialized?.variants()?.keys?.toList()
+                    ?: listOf(definition.occupiedOutput.modelVariant) +
+                        definition.clearLevels.map { it.output.modelVariant }
                 variantsBySignal[definition.signalId] = variants
+                if (definition.packageSignalId != null && packageSignal == null) {
+                    unavailablePackageSignals += definition.signalId
+                } else definition.placement?.let { placement ->
+                    val resolved = checkNotNull(packageSignal)
+                    val configuration = DeviceModelDefinition(resolved.modelId, placement)
+                    signals.getOrPut(definition.signalId, ::mutableListOf) +=
+                        device("fixed-block-signal", definition.signalId, configuration, emptyList(),
+                            resolved.model.presentation)
+                }
                 definition.model?.let { model ->
                     signals.getOrPut(definition.signalId, ::mutableListOf) +=
                         device("fixed-block-signal", definition.signalId, model, variants)
                 }
             }
             definitions.protectionSignals.forEach { definition ->
-                val variants = listOf(definition.unavailableOutput.modelVariant, definition.occupiedOutput.modelVariant) +
-                    definition.clearLevels.map { it.output.modelVariant }
+                val packageSignal = definition.packageSignalId?.let { packageSignalId ->
+                    if (signalPacks == null) null else requireNotNull(signalPacks.signals[packageSignalId]) {
+                        "signal-pack device '${definition.signalId}' references unknown package signal '$packageSignalId'"
+                    }
+                }
+                val variants = packageSignal?.model?.materialized?.variants()?.keys?.toList()
+                    ?: listOf(definition.unavailableOutput.modelVariant, definition.occupiedOutput.modelVariant) +
+                        definition.clearLevels.map { it.output.modelVariant }
                 variantsBySignal[definition.signalId] = variants
+                if (definition.packageSignalId != null && packageSignal == null) {
+                    unavailablePackageSignals += definition.signalId
+                } else definition.placement?.let { placement ->
+                    val resolved = checkNotNull(packageSignal)
+                    val configuration = DeviceModelDefinition(resolved.modelId, placement)
+                    signals.getOrPut(definition.signalId, ::mutableListOf) +=
+                        device("protection-signal", definition.signalId, configuration, emptyList(),
+                            resolved.model.presentation)
+                }
                 definition.model?.let { model ->
                     signals.getOrPut(definition.signalId, ::mutableListOf) +=
                         device("protection-signal", definition.signalId, model, variants)
                 }
             }
             definitions.attachedSignals.forEach { definition ->
+                if (definition.primarySignalId in unavailablePackageSignals) return@forEach
                 val variants = requireNotNull(variantsBySignal[definition.primarySignalId]) {
                     "attached signal ${definition.signalId} binds unknown primary signal ${definition.primarySignalId}"
                 }
@@ -100,7 +139,7 @@ internal class PreparedSignalModels private constructor(
                     listOf(definition.noRouteModelVariant) + definition.modelVariantsByRouteId.values)
             } }
             return PreparedSignalModels(java.util.Map.copyOf(signals.mapValues { java.util.List.copyOf(it.value) }),
-                java.util.Map.copyOf(indicators), topology)
+                java.util.Map.copyOf(indicators), topology, signalPacks, models)
         }
     }
 }
@@ -166,8 +205,7 @@ internal class SignalModelBinding(
         val devices = (prepared.signals.values.flatten() + prepared.indicators.values).associateBy { it.objectId }
         val removed = handles.allocated.values.filter { display ->
             val wanted = devices[display.device.objectId]
-            wanted == null || wanted.model.id != display.device.model.id ||
-                wanted.model.definition != display.device.model.definition
+            wanted == null || wanted.model !== display.device.model
         }
         val removedIds = removed.mapTo(hashSetOf()) { it.device.objectId }
         val retained = handles.allocated.filterKeys { it !in removedIds }

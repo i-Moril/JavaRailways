@@ -54,6 +54,51 @@ class DeviceModelPersistenceTest {
     }
 
     @Test
+    fun `package-bound primary stores placement without a duplicate model identity`() {
+        for (collection in listOf("fixedBlockSignals", "protectionSignals")) {
+            val packageBound = editPrimary(collection) { device ->
+                val explicit = device.getValue("model").jsonObject
+                device + mapOf(
+                    "packageSignalId" to JsonPrimitive("automatic:block"),
+                    "model" to JsonNull,
+                    "placement" to explicit.getValue("placement")
+                )
+            }
+            val decoded = decode(packageBound)
+            val model = if (collection == "fixedBlockSignals") decoded.fixedBlockSignals.first().model
+                else decoded.protectionSignals.first().model
+            val placement = if (collection == "fixedBlockSignals") decoded.fixedBlockSignals.first().placement
+                else decoded.protectionSignals.first().placement
+            assertNull(model)
+            assertNotNull(placement)
+            assertEquals("automatic:block", if (collection == "fixedBlockSignals")
+                decoded.fixedBlockSignals.first().packageSignalId else decoded.protectionSignals.first().packageSignalId)
+
+            val encoded = Json.parseToJsonElement(SimpleSignalsWorldDefinitionsCodec.encode(decoded)).jsonObject
+                .getValue(collection).jsonArray.first().jsonObject
+            assertEquals(JsonNull, encoded["model"])
+            assertNotNull(encoded["placement"])
+
+            assertThrows(Exception::class.java) {
+                decode(editPrimaryJson(packageBound, collection) { it - "placement" })
+            }
+            assertThrows(Exception::class.java) {
+                decode(editPrimaryJson(packageBound, collection) { it - "model" })
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                decode(editPrimaryJson(packageBound, collection) { device ->
+                    val original = Json.parseToJsonElement(fixture).jsonObject.getValue(collection)
+                        .jsonArray.first().jsonObject.getValue("model")
+                    device + ("model" to original)
+                })
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                decode(editPrimaryJson(packageBound, collection) { it + ("packageSignalId" to JsonNull) })
+            }
+        }
+    }
+
+    @Test
     fun `model references require loader package and local path syntax`() {
         listOf("head", "demo:", ":head", "Demo:head", "demo:Head", "demo:a//b", "demo:/head",
             "demo:head/", "demo:.", "demo:..", "demo:a/../b", "demo:a/./b", "demo:a:b", "demo:a\\b").forEach { id ->
@@ -130,6 +175,17 @@ class DeviceModelPersistenceTest {
         val devices = document.getValue(collection).jsonArray.toMutableList()
         val device = devices[0].jsonObject
         devices[0] = JsonObject(device + ("model" to JsonObject(transform(device.getValue("model").jsonObject))))
+        return JsonObject(document + (collection to JsonArray(devices))).toString()
+    }
+
+    private fun editPrimary(collection: String, transform: (JsonObject) -> Map<String, JsonElement>) =
+        editPrimaryJson(fixture, collection, transform)
+
+    private fun editPrimaryJson(contents: String, collection: String,
+        transform: (JsonObject) -> Map<String, JsonElement>): String {
+        val document = Json.parseToJsonElement(contents).jsonObject
+        val devices = document.getValue(collection).jsonArray.toMutableList()
+        devices[0] = JsonObject(transform(devices[0].jsonObject))
         return JsonObject(document + (collection to JsonArray(devices))).toString()
     }
 

@@ -51,7 +51,7 @@ internal object FixedBlockSignalEntranceResolver {
     fun resolve(
         blocks: FixedBlockReadSnapshot,
         signals: Collection<FixedBlockSignalDefinition>,
-        binding: SignalWandBinding
+        binding: FixedBlockSignalWandBinding
     ): Resolved {
         val block = blocks.blocksById[binding.blockId]
             ?: throw IllegalArgumentException("The bound fixed block no longer exists")

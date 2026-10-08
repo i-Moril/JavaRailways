@@ -321,8 +321,11 @@ validated output still stops propagation.
 当前批次优先完成 SimpleSignals 自有的闭塞和保护区域 Wand，直接复用已有定义事务。
 独立信号机放置、测距和规则预设不作为这两个工具的前置条件，见[本批实施边界](research/section-wands-batch.md)。
 
-Signal Wand 使用一个稳定物品 marker，另存 `itemId/stateRevision/mode/signalType/binding?` 状态；binding 明确包含
-world、固定闭塞和入口方向。放置模式左键绑定入口、右键新建或更新轨道附着主信号；删除模式按当前点击入口级联删除。
+Signal Wand 使用一个稳定物品 marker，另存 `itemId/stateRevision/mode/controlKind/signalType/binding?` 状态；binding 是严格
+tagged union：固定闭塞保存 world/block/entry direction，保护当前入口保存 entry boundary，固定进路另存 route ID；
+保护 binding 还明确区分新设备与精确既有 `signalId + revision`。放置模式左键绑定入口、右键新建或更新轨道附着主信号；
+删除模式按当前点击入口选择并级联删除精确设备。保护入口用 publication rail reverse index、同轨 canonical AB 容差和 inward facing
+解析，不执行 graph search；接续页解决同入口多设备和固定进路选择，不按集合顺序猜测。
 命令只发放工具；类型选择由 SimpleSignals 自有的 Shift+右键 Paper dialog 完成。设置回调和普通编辑都比较 exact
 物品状态，revision 防止“切走再切回”复活旧操作。主手状态由每玩家一个 entity-scheduler task 约每10 tick显示，
 离手或生命周期失效即取消；不依赖 BukkitPlugin 私有 `AbstractWand`/`DialogRenderer`，也不建立通用 action-bar 仲裁层。

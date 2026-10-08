@@ -1145,7 +1145,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val capture = backend.capture(fixture.worldId, "automatic:slow")
         val position = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
 
-        val binding = backend.resolveEntrance(capture, position)
+        val binding = backend.resolveEntrance(capture, SignalWandControlKind.FIXED_BLOCK,
+            SignalWandMode.PLACEMENT, position).single().binding
         val outcome = backend.place(capture, binding, position) { true }
 
         assertTrue(outcome.message.contains("Updated signal"), outcome.message)
@@ -1197,7 +1198,9 @@ class SimpleSignalsWorldRuntimeManagerTest {
             detail = "active route uses this rail")
 
         val position = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
-        val outcome = backend.place(capture, backend.resolveEntrance(capture, position), position) { true }
+        val outcome = backend.place(capture, backend.resolveEntrance(capture,
+            SignalWandControlKind.FIXED_BLOCK, SignalWandMode.PLACEMENT, position).single().binding,
+            position) { true }
 
         assertTrue(outcome.message.contains("active route uses this rail"), outcome.message)
         assertSame(publication, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
@@ -1232,8 +1235,10 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val backend = RuntimeSignalWandBackend(manager, infrastructure.service)
         val capture = backend.capture(fixture.worldId, "automatic:block")
 
-        val outcome = backend.delete(capture,
-            RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)) { true }
+        val position = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
+        val binding = backend.resolveEntrance(capture, SignalWandControlKind.FIXED_BLOCK,
+            SignalWandMode.DELETION, position).single().binding
+        val outcome = backend.delete(capture, binding) { true }
 
         assertTrue(outcome.message.contains("1 attached device"), outcome.message)
         val live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
@@ -1265,7 +1270,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val backend = RuntimeSignalWandBackend(manager, infrastructure.service) { "test:generated-signal" }
         val capture = backend.capture(fixture.worldId, "automatic:block")
         val entrance = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
-        val binding = backend.resolveEntrance(capture, entrance)
+        val binding = backend.resolveEntrance(capture, SignalWandControlKind.FIXED_BLOCK,
+            SignalWandMode.PLACEMENT, entrance).single().binding
 
         val outcome = backend.place(capture, binding, entrance) { true }
 
@@ -1316,7 +1322,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val backend = RuntimeSignalWandBackend(manager, infrastructure.service) { existing.signalId }
         val capture = backend.capture(fixture.worldId, "automatic:block")
         val entrance = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
-        val binding = backend.resolveEntrance(capture, entrance)
+        val binding = backend.resolveEntrance(capture, SignalWandControlKind.FIXED_BLOCK,
+            SignalWandMode.PLACEMENT, entrance).single().binding
         val publication = manager.authoringRuntime(fixture.worldId)!!.authoringPublication()
         val retained = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         val disk = Files.readString(definitions.primaryFile(fixture.worldId))
@@ -1350,7 +1357,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val backend = RuntimeSignalWandBackend(manager, infrastructure.service) { "test:denied-created-device" }
         val capture = backend.capture(fixture.worldId, "automatic:block")
         val entrance = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
-        val binding = backend.resolveEntrance(capture, entrance)
+        val binding = backend.resolveEntrance(capture, SignalWandControlKind.FIXED_BLOCK,
+            SignalWandMode.PLACEMENT, entrance).single().binding
         val publication = manager.authoringRuntime(fixture.worldId)!!.authoringPublication()
         val disk = Files.readString(definitions.primaryFile(fixture.worldId))
         infrastructure.nextEditDecision = TopologyEditDecision(TopologyEditStatus.CONFLICT,
@@ -1373,6 +1381,229 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(initial, manager.authoringRuntime(fixture.worldId)!!.currentDefinitions())
         assertEquals(disk, Files.readString(definitions.primaryFile(fixture.worldId)))
         assertEquals(1, infrastructure.permitAcquisitionCount)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `signal wand updates creates and exactly deletes multiple current-entry protection primaries`() {
+        val fixture = Fixture()
+        val table = ProtectionRouteTableDefinition("test:wand-current-table", 1, fixture.region.regionId,
+            fixture.region.revision, listOf(fixture.upperRoute()))
+        val first = ProtectionSignalDefinition("test:current-a", 2, ProtectionSignalKind.CURRENT_ENTRY,
+            "test:entry", 3.0, "automatic:block")
+        val second = ProtectionSignalDefinition("test:current-b", 4, ProtectionSignalKind.CURRENT_ENTRY,
+            "test:entry", 7.0, "automatic:block")
+        val initial = SimpleSignalsWorldDefinitions(fixture.worldId, 1, listOf(fixture.region), listOf(table),
+            protectionSignals = listOf(first, second))
+        val definitions = store().also { it.save(fixture.worldId, initial) }
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val models = RecordingModels()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            CapturingSignalEpochSourceService(), modelPresentation = models, loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack("proceed"))
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val generatedId = "test:current-created"
+        val backend = RuntimeSignalWandBackend(manager, infrastructure.service) { generatedId }
+        val entrance = fixture.region.boundaries.first().position
+        val placement = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 1.0)
+
+        var capture = backend.capture(fixture.worldId, "automatic:block")
+        var choices = backend.resolveEntrance(capture, SignalWandControlKind.PROTECTION_CURRENT_ENTRY,
+            SignalWandMode.PLACEMENT, entrance)
+        assertEquals(listOf("test:current-a", "test:current-b"), choices.drop(1).map {
+            ((it.binding as ProtectionCurrentEntrySignalWandBinding).intent as ExistingProtectionSignal).signalId })
+        val staleExactBinding = choices.last().binding
+        val updateOutcome = backend.place(capture, staleExactBinding, placement) { true }
+        assertTrue(updateOutcome.message.contains("Updated"), updateOutcome.message)
+        var live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        assertEquals(first, live.protectionSignals.single { it.signalId == first.signalId })
+        val updated = live.protectionSignals.single { it.signalId == second.signalId }
+        assertEquals(5, updated.revision)
+        assertEquals(7.0, updated.inspectionLeadTimeSeconds)
+        assertEquals("automatic:block", updated.signalType)
+        assertEquals(ModelPlacement.RailAttached(placement), updated.placement)
+        assertEquals("automatic:head", manager.authoringRuntime(fixture.worldId)!!.currentModels()!!.prepared
+            .signals.getValue(second.signalId).single().model.id)
+
+        capture = backend.capture(fixture.worldId, "automatic:block")
+        val beforeStaleAttempt = manager.authoringRuntime(fixture.worldId)!!.authoringPublication()
+        val staleFailure = assertThrows(IllegalArgumentException::class.java) {
+            backend.place(capture, staleExactBinding, placement) { true }
+        }
+        assertTrue(staleFailure.message!!.contains("revision changed"), staleFailure.message)
+        assertSame(beforeStaleAttempt, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
+
+        capture = backend.capture(fixture.worldId, "automatic:block")
+        choices = backend.resolveEntrance(capture, SignalWandControlKind.PROTECTION_CURRENT_ENTRY,
+            SignalWandMode.PLACEMENT, entrance)
+        backend.place(capture, choices.first().binding, placement) { true }
+        live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        val created = live.protectionSignals.single { it.signalId == generatedId }
+        assertEquals(0L, created.revision)
+        assertEquals(0.0, created.inspectionLeadTimeSeconds)
+        assertEquals(ProtectionSignalKind.CURRENT_ENTRY, created.kind)
+        assertEquals("test:entry", created.bindingId)
+
+        capture = backend.capture(fixture.worldId, "automatic:block")
+        choices = backend.resolveEntrance(capture, SignalWandControlKind.PROTECTION_CURRENT_ENTRY,
+            SignalWandMode.DELETION, entrance)
+        val firstChoice = choices.single {
+            ((it.binding as ProtectionCurrentEntrySignalWandBinding).intent as ExistingProtectionSignal).signalId == first.signalId
+        }
+        backend.delete(capture, firstChoice.binding) { true }
+        live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        assertEquals(setOf(second.signalId, generatedId), live.protectionSignals.map { it.signalId }.toSet())
+        assertEquals(live, (definitions.load(fixture.worldId) as
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+        models.cleanup.complete(null)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `fixed-route protection chooser creates per usable authored route and preserves exact existing binding`() {
+        val fixture = Fixture()
+        val upper = fixture.upperRoute()
+        val lower = fixture.lowerRoute()
+        val table = ProtectionRouteTableDefinition("test:wand-fixed-table", 1, fixture.region.regionId,
+            fixture.region.revision, listOf(upper, lower))
+        val existing = ProtectionSignalDefinition("test:fixed-existing", 6, ProtectionSignalKind.FIXED_ROUTE,
+            upper.routeId, 11.0, "automatic:block")
+        val definitions = store().also { it.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            listOf(fixture.region), listOf(table), protectionSignals = listOf(existing))) }
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            CapturingSignalEpochSourceService(), loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val backend = RuntimeSignalWandBackend(manager, infrastructure.service) { "test:fixed-created" }
+        val entrance = fixture.region.boundaries.first().position
+        val placement = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 1.0)
+        var capture = backend.capture(fixture.worldId, "automatic:block")
+        var choices = backend.resolveEntrance(capture, SignalWandControlKind.PROTECTION_FIXED_ROUTE,
+            SignalWandMode.PLACEMENT, entrance)
+        assertEquals(listOf(lower.routeId, upper.routeId), choices.take(2).map {
+            (it.binding as ProtectionFixedRouteSignalWandBinding).routeId })
+        backend.place(capture, choices.first {
+            (it.binding as ProtectionFixedRouteSignalWandBinding).routeId == lower.routeId
+        }.binding, placement) { true }
+
+        capture = backend.capture(fixture.worldId, "automatic:slow")
+        choices = backend.resolveEntrance(capture, SignalWandControlKind.PROTECTION_FIXED_ROUTE,
+            SignalWandMode.PLACEMENT, entrance)
+        val existingChoice = choices.single { choice ->
+            ((choice.binding as ProtectionFixedRouteSignalWandBinding).intent as? ExistingProtectionSignal)
+                ?.signalId == existing.signalId
+        }
+        backend.place(capture, existingChoice.binding, placement) { true }
+        val live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        val created = live.protectionSignals.single { it.signalId == "test:fixed-created" }
+        assertEquals(lower.routeId, created.bindingId)
+        assertEquals(ProtectionSignalKind.FIXED_ROUTE, created.kind)
+        val updated = live.protectionSignals.single { it.signalId == existing.signalId }
+        assertEquals(7, updated.revision)
+        assertEquals(upper.routeId, updated.bindingId)
+        assertEquals(11.0, updated.inspectionLeadTimeSeconds)
+        assertEquals("automatic:slow", updated.signalType)
+
+        val runtime = manager.authoringRuntime(fixture.worldId)!!
+        val unavailableRegion = ProtectionRegionDefinition(fixture.region.regionId, 2,
+            fixture.region.boundaries, fixture.region.boundaries)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, manager.applyDefinitionPatch(
+            fixture.worldId, live.definitionRevision,
+            SimpleSignalsDefinitionPatch(upsertRegions = listOf(unavailableRegion)),
+            runtime, fixture.currentTopology
+        ).status)
+        capture = backend.capture(fixture.worldId, "automatic:block")
+        choices = backend.resolveEntrance(capture, SignalWandControlKind.PROTECTION_FIXED_ROUTE,
+            SignalWandMode.PLACEMENT, entrance)
+        assertTrue(choices.all { (it.binding as ProtectionFixedRouteSignalWandBinding).intent is ExistingProtectionSignal })
+        assertTrue(choices.all { it.label.contains("unavailable") })
+        val unavailableNew = ProtectionFixedRouteSignalWandBinding(fixture.worldId, "test:entry",
+            lower.routeId, NewProtectionSignal)
+        assertTrue(assertThrows(IllegalArgumentException::class.java) {
+            backend.place(capture, unavailableNew, placement) { true }
+        }.message!!.contains("not currently usable"))
+        val retainedChoice = choices.single {
+            ((it.binding as ProtectionFixedRouteSignalWandBinding).intent as ExistingProtectionSignal).signalId == existing.signalId
+        }
+        assertTrue(backend.place(capture, retainedChoice.binding, placement) { true }.message.contains("Updated"))
+
+        val finalDefinitions = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        assertEquals(finalDefinitions, (definitions.load(fixture.worldId) as
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `protection signal deletion cascades only the exact selected primary attachments`() {
+        val fixture = Fixture()
+        val table = ProtectionRouteTableDefinition("test:wand-delete-table", 1, fixture.region.regionId,
+            fixture.region.revision, listOf(fixture.upperRoute()))
+        val selected = ProtectionSignalDefinition("test:protection-delete", 2,
+            ProtectionSignalKind.CURRENT_ENTRY, "test:entry", 3.0, "automatic:block")
+        val retained = ProtectionSignalDefinition("test:protection-retained", 2,
+            ProtectionSignalKind.CURRENT_ENTRY, "test:entry", 3.0, "automatic:block")
+        val selectedAttached = AttachedSignalDefinition("test:protection-delete-attached", 1,
+            selected.signalId, railModel(fixture.entry))
+        val retainedAttached = AttachedSignalDefinition("test:protection-retained-attached", 1,
+            retained.signalId, railModel(fixture.entry))
+        val definitions = store().also { it.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            listOf(fixture.region), listOf(table), protectionSignals = listOf(selected, retained),
+            attachedSignals = listOf(selectedAttached, retainedAttached))) }
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            CapturingSignalEpochSourceService())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val backend = RuntimeSignalWandBackend(manager, infrastructure.service)
+        val capture = backend.capture(fixture.worldId, "automatic:block")
+        val choices = backend.resolveEntrance(capture, SignalWandControlKind.PROTECTION_CURRENT_ENTRY,
+            SignalWandMode.DELETION, fixture.region.boundaries.first().position)
+        val selectedChoice = choices.single {
+            ((it.binding as ProtectionCurrentEntrySignalWandBinding).intent as ExistingProtectionSignal).signalId == selected.signalId
+        }
+
+        assertTrue(backend.delete(capture, selectedChoice.binding) { true }.message.contains("1 attached device"))
+
+        val live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        assertEquals(listOf(retained), live.protectionSignals)
+        assertEquals(listOf(retainedAttached), live.attachedSignals)
+        assertEquals(live, (definitions.load(fixture.worldId) as
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `protection signal creation rejects protection indicator and attached device ID collisions`() {
+        val fixture = Fixture()
+        val route = fixture.upperRoute()
+        val table = ProtectionRouteTableDefinition("test:wand-collision-table", 1, fixture.region.regionId,
+            fixture.region.revision, listOf(route))
+        val primary = ProtectionSignalDefinition("test:collision-primary", 1,
+            ProtectionSignalKind.CURRENT_ENTRY, "test:entry", 0.0, "automatic:block")
+        val indicator = RouteIndicatorDefinition("test:collision-indicator", 1, "test:entry", "none",
+            mapOf(route.routeId to "route"))
+        val attached = AttachedSignalDefinition("test:collision-attached", 1, primary.signalId,
+            railModel(fixture.entry))
+        val definitions = store().also { it.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            listOf(fixture.region), listOf(table), protectionSignals = listOf(primary),
+            routeIndicators = listOf(indicator), attachedSignals = listOf(attached))) }
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            CapturingSignalEpochSourceService())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val publication = manager.authoringRuntime(fixture.worldId)!!.authoringPublication()
+        val entrance = fixture.region.boundaries.first().position
+        listOf(primary.signalId, indicator.indicatorId, attached.signalId).forEach { collisionId ->
+            val backend = RuntimeSignalWandBackend(manager, infrastructure.service) { collisionId }
+            val capture = backend.capture(fixture.worldId, "automatic:block")
+            val binding = backend.resolveEntrance(capture, SignalWandControlKind.PROTECTION_CURRENT_ENTRY,
+                SignalWandMode.PLACEMENT, entrance).first().binding
+            assertTrue(assertThrows(IllegalArgumentException::class.java) {
+                backend.place(capture, binding, entrance) { true }
+            }.message!!.contains("collides with an existing device"))
+            assertSame(publication, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
+        }
+        assertEquals(0, infrastructure.permitAcquisitionCount)
         manager.clearLocal().toCompletableFuture().join()
     }
 

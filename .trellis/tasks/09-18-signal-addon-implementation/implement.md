@@ -1,5 +1,26 @@
 # Stage 2 implementation plan
 
+## 2026-10-08 Signal Wand protection-primary follow-up
+
+- [x] Add a control-kind setting independent of placement/deletion mode and signal type. The current unpublished Wand PDC
+  now uses a strict tagged binding for fixed-block, protection current-entry and protection fixed-route primaries; protection
+  update/delete bindings retain exact signal ID and revision, while creation is explicit. No old Wand-state reader or schema bump.
+- [x] Resolve directed protection entrances through the published rail reverse index, same-rail canonical position tolerance
+  and inward facing. A SimpleSignals-owned continuation chooser lists explicit new choices and every exact existing device;
+  fixed-route creation lists only currently usable authored routes, while retained unavailable devices remain updateable/deletable.
+- [x] Reuse the one manager patch for protection creation/update/deletion. Creation uses a collision-checked shared device ID,
+  revision 0 and intentional 0-second extra lead; updates preserve ID, logical binding and lead time; deletion removes only the
+  selected primary and its direct attachments. Other primaries sharing the entry/route remain.
+- [ ] Live Folia dialog/item interaction and client rendering remain deployment verification. Attached-signal placement,
+  route indicators, ground placement, measurement, styles/presets and hot reload remain outside this follow-up.
+- [x] Offline gate passed: `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava` with 47 suites / 481 tests,
+  zero failures/errors/skips; plugin JAR isolation and Java consumer compilation passed. Focused tests cover the pure indexed
+  entrance resolver, strict tagged PDC, owner-thread chooser staleness, both protection kinds, multiple devices per binding,
+  unavailable authored-route retention, shared identity collision behavior through the reused generator, exact attachment
+  cascade, manager persistence/publication/model effects and unchanged fixed-block behavior. Independent review made the
+  boundary-ID publication index reject duplicate identities instead of silently collapsing them, and added an exact stale
+  signal-revision regression. `git diff --check` passed.
+
 ## 2026-10-08 Signal Wand two-step authoring follow-up
 
 - [x] Replace the temporary one-click edit interaction with item-bound placement/deletion modes. Placement left-click

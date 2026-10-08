@@ -39,7 +39,8 @@ import java.util.concurrent.CompletableFuture
 class SignalWandHandlerTest {
     @Test fun `wand marker and encoded state round trip while corrupt state fails closed`() = Fixture().use { f ->
         val state = SignalWandState(UUID(3, 4), 7L, SignalWandMode.PLACEMENT,
-            "automatic:jr-four-light", SignalWandBinding(f.worldId, "test:block", FixedBlockEntryDirection.REVERSE))
+            SignalWandControlKind.FIXED_BLOCK, "automatic:jr-four-light",
+            FixedBlockSignalWandBinding(f.worldId, "test:block", FixedBlockEntryDirection.REVERSE))
         val values = mutableMapOf<NamespacedKey, Any>()
         val data = proxy(PersistentDataContainer::class.java) { name, args -> when (name) {
             "set" -> { values[args!![0] as NamespacedKey] = args[2]!!; null }
@@ -49,6 +50,14 @@ class SignalWandHandlerTest {
         SignalWandHandler.writeTool(f.plugin, data, state)
         assertEquals(state, SignalWandHandler.readTool(f.plugin, data))
         assertEquals(state, SignalWandHandler.decodeState(SignalWandHandler.encodeState(state)))
+        val currentEntry = state.copy(controlKind = SignalWandControlKind.PROTECTION_CURRENT_ENTRY,
+            binding = ProtectionCurrentEntrySignalWandBinding(f.worldId, "test:entry",
+                ExistingProtectionSignal("test:signal", 8)))
+        val fixedRoute = state.copy(controlKind = SignalWandControlKind.PROTECTION_FIXED_ROUTE,
+            binding = ProtectionFixedRouteSignalWandBinding(f.worldId, "test:entry", "test:route",
+                NewProtectionSignal))
+        assertEquals(currentEntry, SignalWandHandler.decodeState(SignalWandHandler.encodeState(currentEntry)))
+        assertEquals(fixedRoute, SignalWandHandler.decodeState(SignalWandHandler.encodeState(fixedRoute)))
         assertNull(SignalWandHandler.decodeState("not json"))
         assertNull(SignalWandHandler.decodeState(
             """{"itemId":"${state.itemId}","stateRevision":-1,"mode":"PLACEMENT","signalType":"test:a"}"""))
@@ -60,14 +69,21 @@ class SignalWandHandlerTest {
             """{"itemId":"${state.itemId}","stateRevision":9223372036854775808,"mode":"PLACEMENT","signalType":"test:a"}"""))
         assertNull(SignalWandHandler.decodeState(
             """{"itemId":"${state.itemId}","stateRevision":0,"mode":"OLD","signalType":"test:a"}"""))
+        assertNull(SignalWandHandler.decodeState(
+            """{"itemId":"${state.itemId}","stateRevision":0,"mode":"PLACEMENT","signalType":"test:a","binding":{"worldId":"${f.worldId}","blockId":"test:block","entryDirection":"FORWARD"}}"""))
+        val mismatched = SignalWandHandler.encodeState(currentEntry).replace(
+            "PROTECTION_CURRENT_ENTRY", "FIXED_BLOCK")
+        assertNull(SignalWandHandler.decodeState(mismatched))
     }
 
     @Test fun `state rejects malformed type and negative revision`() {
         assertThrows(IllegalArgumentException::class.java) {
-            SignalWandState(UUID.randomUUID(), 0L, SignalWandMode.PLACEMENT, "not-namespaced")
+            SignalWandState(UUID.randomUUID(), 0L, SignalWandMode.PLACEMENT,
+                SignalWandControlKind.FIXED_BLOCK, "not-namespaced")
         }
         assertThrows(IllegalArgumentException::class.java) {
-            SignalWandState(UUID.randomUUID(), -1L, SignalWandMode.PLACEMENT, "test:a")
+            SignalWandState(UUID.randomUUID(), -1L, SignalWandMode.PLACEMENT,
+                SignalWandControlKind.FIXED_BLOCK, "test:a")
         }
     }
 
@@ -92,6 +108,13 @@ class SignalWandHandlerTest {
         SignalWandHandler.decorate(meta, f.tool.copy(binding = null))
         assertEquals(false, glint)
         assertTrue(lore.last().toString().contains("none"))
+
+        val protection = f.tool.copy(controlKind = SignalWandControlKind.PROTECTION_CURRENT_ENTRY,
+            binding = ProtectionCurrentEntrySignalWandBinding(f.worldId, "test:entry", NewProtectionSignal))
+        SignalWandHandler.decorate(meta, protection)
+        assertEquals(true, glint)
+        assertTrue(lore.any { it.toString().contains("protection current-entry") })
+        assertTrue(lore.last().toString().contains("test:entry"))
     }
 
     @Test fun `command has no type argument rejects unavailable catalogs and chooses sorted default`() = Fixture().use { f ->
@@ -111,6 +134,7 @@ class SignalWandHandlerTest {
         f.command("wand", "signal")
         assertEquals("test:a", f.given.single().signalType)
         assertEquals(SignalWandMode.PLACEMENT, f.given.single().mode)
+        assertEquals(SignalWandControlKind.FIXED_BLOCK, f.given.single().controlKind)
         assertNull(f.given.single().binding)
         assertEquals(0L, f.given.single().stateRevision)
         assertEquals(f.newItemId, f.given.single().itemId)
@@ -121,9 +145,11 @@ class SignalWandHandlerTest {
         f.tool = f.tool.copy(signalType = "test:z")
         val opening = f.tool
         f.handler.openSettings(f.player, opening)
-        assertEquals(listOf("Mode: placement", "Mode: deletion", "test:a — A", "test:z — Z"),
+        assertEquals(listOf("Mode: placement", "Mode: deletion", "Control: fixed-block primary",
+            "Control: protection current-entry primary", "Control: protection fixed-route primary",
+            "test:a — A", "test:z — Z"),
             f.settings.map { it.label })
-        assertEquals(listOf(true, false, false, true), f.settings.map { it.selected })
+        assertEquals(listOf(true, false, true, false, false, false, true), f.settings.map { it.selected })
         f.choose!!(SignalWandSettingAction.Type("test:a"))
         f.drainOwners()
         assertEquals(opening.itemId, f.tool.itemId)
@@ -141,7 +167,8 @@ class SignalWandHandlerTest {
 
         val first = f.tool
         f.handler.openSettings(f.player, first)
-        f.tool = SignalWandState(UUID(9, 9), 0, SignalWandMode.PLACEMENT, "test:a")
+        f.tool = SignalWandState(UUID(9, 9), 0, SignalWandMode.PLACEMENT,
+            SignalWandControlKind.FIXED_BLOCK, "test:a")
         f.choose!!(SignalWandSettingAction.Type("test:b")); f.drainOwners()
         assertEquals(0L, f.tool.stateRevision)
 
@@ -215,6 +242,46 @@ class SignalWandHandlerTest {
         assertEquals(1, f.deletes)
     }
 
+    @Test fun `control kind clears binding while signal type retains it`() = Fixture().use { f ->
+        val opening = f.tool
+        f.handler.openSettings(f.player, opening)
+        f.choose!!(SignalWandSettingAction.Type("test:b")); f.drainOwners()
+        assertEquals(f.binding, f.tool.binding)
+
+        val typed = f.tool
+        f.handler.openSettings(f.player, typed)
+        f.choose!!(SignalWandSettingAction.ControlKind(SignalWandControlKind.PROTECTION_CURRENT_ENTRY))
+        f.drainOwners()
+        assertEquals(SignalWandControlKind.PROTECTION_CURRENT_ENTRY, f.tool.controlKind)
+        assertNull(f.tool.binding)
+    }
+
+    @Test fun `protection entrance chooser persists exact selected identity and stale callback cannot replace item`() = Fixture().use { f ->
+        val selected = ProtectionCurrentEntrySignalWandBinding(f.worldId, "test:entry",
+            ExistingProtectionSignal("test:second", 7))
+        f.resolvedChoices = listOf(
+            SignalWandChoice(ProtectionCurrentEntrySignalWandBinding(f.worldId, "test:entry", NewProtectionSignal), "new"),
+            SignalWandChoice(selected, "existing"))
+        f.tool = f.tool.copy(controlKind = SignalWandControlKind.PROTECTION_CURRENT_ENTRY, binding = null)
+        f.click(Action.LEFT_CLICK_AIR)
+        f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0)))
+        f.drainOwners(); f.drainWorkers(); f.drainOwners()
+        assertEquals(listOf("new", "existing"), f.choices.map { it.label })
+        f.chooseChoice!!(f.choices.last()); f.drainOwners(); f.drainWorkers(); f.drainOwners()
+        assertEquals(selected, f.tool.binding)
+        assertEquals(1L, f.tool.stateRevision)
+
+        f.target = CompletableFuture()
+        f.tool = f.tool.copy(binding = null)
+        f.click(Action.LEFT_CLICK_AIR)
+        f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0)))
+        f.drainOwners(); f.drainWorkers(); f.drainOwners()
+        val staleChoice = f.chooseChoice!!
+        f.tool = f.tool.copy(stateRevision = f.tool.stateRevision + 1)
+        staleChoice(f.choices.first()); f.drainOwners(); f.drainWorkers(); f.drainOwners()
+        assertNull(f.tool.binding)
+    }
+
     @Test fun `stale capture world permission and complete item state invalidate queued callbacks`() = Fixture().use { f ->
         val staleAtStart = f.tool
         f.tool = f.tool.copy(stateRevision = 1)
@@ -259,6 +326,7 @@ class SignalWandHandlerTest {
         val firstRetired = f.statusRetired!!
         assertTrue(f.actionBars.last().toString().contains("test:a"))
         assertTrue(f.actionBars.last().toString().contains("placement"))
+        assertTrue(f.actionBars.last().toString().contains("fixed-block primary"))
         assertTrue(f.actionBars.last().toString().contains("test:block"))
         assertFalse(f.actionBars.last().toString().contains("unavailable"))
 
@@ -301,8 +369,9 @@ class SignalWandHandlerTest {
         var ownerThread = true
         var current = true
         var toolPresent = true
-        val binding = SignalWandBinding(worldId, "test:block", FixedBlockEntryDirection.FORWARD)
-        var tool = SignalWandState(UUID(0, 4), 0L, SignalWandMode.PLACEMENT, "test:a", binding)
+        val binding = FixedBlockSignalWandBinding(worldId, "test:block", FixedBlockEntryDirection.FORWARD)
+        var tool = SignalWandState(UUID(0, 4), 0L, SignalWandMode.PLACEMENT,
+            SignalWandControlKind.FIXED_BLOCK, "test:a", binding)
         var target = CompletableFuture<Optional<RailTarget>>()
         var targetCalls = 0
         var performs = 0
@@ -315,6 +384,9 @@ class SignalWandHandlerTest {
         val owners = ArrayDeque<() -> Unit>()
         var settings = emptyList<SignalWandSetting>()
         var choose: ((SignalWandSettingAction) -> Unit)? = null
+        var choices = emptyList<SignalWandChoice>()
+        var chooseChoice: ((SignalWandChoice) -> Unit)? = null
+        var resolvedChoices: List<SignalWandChoice> = listOf(SignalWandChoice(binding, "fixed"))
         var statusTick: (() -> Unit)? = null
         var statusRetired: (() -> Unit)? = null
         var statusStarts = 0
@@ -362,9 +434,10 @@ class SignalWandHandlerTest {
                 return capture
             }
             override fun current(capture: SignalWandCapture) = current
-            override fun resolveEntrance(capture: SignalWandCapture, point: RailPositionSnapshot): SignalWandBinding {
+            override fun resolveEntrance(capture: SignalWandCapture, controlKind: SignalWandControlKind,
+                mode: SignalWandMode, point: RailPositionSnapshot): List<SignalWandChoice> {
                 check(!ownerThread)
-                return binding
+                return resolvedChoices
             }
             override fun place(capture: SignalWandCapture, binding: SignalWandBinding, point: RailPositionSnapshot, active: () -> Boolean): SignalWandOutcome {
                 check(!ownerThread)
@@ -372,7 +445,7 @@ class SignalWandHandlerTest {
                 performs++
                 return SignalWandOutcome("updated")
             }
-            override fun delete(capture: SignalWandCapture, point: RailPositionSnapshot, active: () -> Boolean): SignalWandOutcome {
+            override fun delete(capture: SignalWandCapture, binding: SignalWandBinding, active: () -> Boolean): SignalWandOutcome {
                 check(!ownerThread)
                 assertTrue(active())
                 deletes++
@@ -387,6 +460,7 @@ class SignalWandHandlerTest {
                 if (!toolPresent || tool != expected) false else { tool = replacement; true }
             },
             showSettings = { _, values, callback -> settings = values; choose = callback },
+            showChoices = { _, values, callback -> choices = values; chooseChoice = callback },
             scheduleStatus = { _, tick, retired ->
                 statusStarts++
                 statusTick = tick

@@ -175,7 +175,8 @@ candidate worker只比较不可变拓扑、区域定义和compiled route；未�
 - 同一source内的声明ID按类别派生：固定闭塞使用`simplesignals:fixed-block/forward/<namespace>/<path>`或`simplesignals:fixed-block/reverse/<namespace>/<path>`，
   保护信号使用`simplesignals:protection-signal/<namespace>/<path>`（将作者ID的唯一冒号换为斜杠，完整保留namespace/path）。
   映射集中在`SignalInspectionIdentity.kt`。这只是inspection内部身份映射，不改变作者ID或资源ID。
-  两类定义可合法使用相同作者ID；失效通知、声明绑定和状态读取必须使用同一映射，不能混用作者ID。
+  固定闭塞主信号、保护主信号、进路显示器和附属信号共用一个设备 ID namespace，作者 ID 不得跨类型重复；
+  inspection 派生身份仍按设备类别映射。失效通知、声明绑定和状态读取必须使用同一映射，不能混用作者 ID 与派生 ID。
 - 显示器结果与occupancy/signals放入同一个不可变publication，callback结束才一次替换。
   不得在规则执行前提前发布新显示器结果，也不增加另一套显示revision或rollback协议。
 - 设本次传播到达`A`个图节点、`D`条依赖边，图执行沿用`O((A+D) log A)`。

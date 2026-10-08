@@ -35,6 +35,8 @@ internal class ProtectionRegionCompilationSnapshot(
     val regionIdsByRail: Map<UUID, Set<String>>,
     val unavailableRegionIds: Set<String> = emptySet()
 ) {
+    /** Authoring identity index; built with the publication, never reconstructed by Wand clicks. */
+    val boundariesById: Map<String, ProtectionBoundaryDefinition> = boundaryIndex(regionsById.values)
     internal var liveTopology: (() -> TopologyState)? = null
     internal var requireUsable: (RouteSnapshot, Double) -> Unit = { _, _ -> }
     val derivedTopology: ProtectionRegionTopology
@@ -50,6 +52,15 @@ internal class ProtectionRegionCompilationSnapshot(
             regionsById,
             regionIdsByRail
         )
+    }
+
+    private companion object {
+        fun boundaryIndex(regions: Collection<ResolvedProtectionRegion>): Map<String, ProtectionBoundaryDefinition> {
+            val boundaries = regions.flatMap { it.definition.effectiveBoundaries }
+            val byId = boundaries.associateBy { it.boundaryId }
+            require(byId.size == boundaries.size) { "published protection boundary IDs must be unique" }
+            return java.util.Map.copyOf(byId)
+        }
     }
 }
 

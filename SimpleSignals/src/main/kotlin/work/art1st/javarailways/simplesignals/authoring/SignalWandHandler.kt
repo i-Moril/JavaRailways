@@ -8,6 +8,7 @@ import io.papermc.paper.registry.data.dialog.body.DialogBody
 import io.papermc.paper.registry.data.dialog.type.DialogType
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import net.kyori.adventure.text.Component
@@ -54,7 +55,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 
-/** Fixed-block primary signal updater with item-bound settings and Folia owner scheduling. */
+/** Primary-signal authoring with item-bound settings and Folia owner scheduling. */
 internal class SignalWandHandler(
     private val plugin: Plugin,
     private val backend: SignalWandBackend,
@@ -71,6 +72,8 @@ internal class SignalWandHandler(
         { player, expected, replacement -> replaceMainHandState(plugin, player, expected, replacement) },
     private val showSettings: (Player, List<SignalWandSetting>, (SignalWandSettingAction) -> Unit) -> Unit =
         { player, settings, selected -> showNativeSettings(player, settings, selected) },
+    private val showChoices: (Player, List<SignalWandChoice>, (SignalWandChoice) -> Unit) -> Unit =
+        { player, choices, selected -> showNativeChoices(player, choices, selected) },
     private val scheduleStatus: (Player, () -> Unit, () -> Unit) -> SignalWandStatusTask? =
         { player, action, retired ->
             player.scheduler.runAtFixedRate(plugin, { action() }, retired, 1L, STATUS_PERIOD_TICKS)
@@ -82,6 +85,7 @@ internal class SignalWandHandler(
 ) : Listener, CommandExecutor {
     private val sessions = SignalWandSessions()
     private val statusTasks = ConcurrentHashMap<UUID, SignalWandStatusRegistration>()
+    private val choiceTokens = ConcurrentHashMap<UUID, Any>()
     private val closed = AtomicBoolean(false)
 
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
@@ -102,7 +106,8 @@ internal class SignalWandHandler(
         if (available.isEmpty()) {
             sender.sendMessage(Component.text("No signal types are available")); return true
         }
-        val state = SignalWandState(newItemId(), 0L, SignalWandMode.PLACEMENT, available.first().signalType)
+        val state = SignalWandState(newItemId(), 0L, SignalWandMode.PLACEMENT,
+            SignalWandControlKind.FIXED_BLOCK, available.first().signalType)
         sessions.invalidate(sender.uniqueId)
         try {
             giveTool(sender, state)
@@ -141,6 +146,9 @@ internal class SignalWandHandler(
         }
         val settings = SignalWandMode.entries.map { mode ->
             SignalWandSetting(SignalWandSettingAction.Mode(mode), "Mode: ${mode.label}", mode == openingState.mode)
+        } + SignalWandControlKind.entries.map { kind ->
+            SignalWandSetting(SignalWandSettingAction.ControlKind(kind),
+                "Control: ${kind.label}", kind == openingState.controlKind)
         } + available.map {
             SignalWandSetting(SignalWandSettingAction.Type(it.signalType),
                 "${it.signalType} — ${it.displayName}", it.signalType == openingState.signalType)
@@ -178,6 +186,11 @@ internal class SignalWandHandler(
                 mode = action.mode,
                 binding = if (action.mode == current.mode) current.binding else null
             )
+            is SignalWandSettingAction.ControlKind -> current.copy(
+                stateRevision = revision,
+                controlKind = action.controlKind,
+                binding = if (action.controlKind == current.controlKind) current.binding else null
+            )
             is SignalWandSettingAction.Type -> current.copy(
                 stateRevision = revision,
                 signalType = action.signalType
@@ -190,12 +203,14 @@ internal class SignalWandHandler(
         refreshStatus(player)
         player.sendMessage(Component.text(when (action) {
             is SignalWandSettingAction.Mode -> "Signal Wand mode selected: ${action.mode.label}"
+            is SignalWandSettingAction.ControlKind -> "Signal Wand control selected: ${action.controlKind.label}"
             is SignalWandSettingAction.Type -> "Signal Wand type selected: ${action.signalType}"
         }))
     }
 
     internal fun click(player: Player, state: SignalWandState, action: Action) {
         val playerId = player.uniqueId
+        choiceTokens.remove(playerId)
         if (!canUse(player) || toolInHand(player) != state) {
             sessions.invalidate(playerId)
             if (operational() && !player.hasPermission(PERMISSION)) {
@@ -211,12 +226,12 @@ internal class SignalWandHandler(
             state.mode == SignalWandMode.PLACEMENT &&
                 (action == Action.RIGHT_CLICK_AIR || action == Action.RIGHT_CLICK_BLOCK) -> SignalWandOperation.PLACE
             else -> {
-                player.sendMessage(Component.text("Deletion mode uses left-click on a fixed-block entrance"))
+                player.sendMessage(Component.text("Deletion mode uses left-click on a controlled entrance"))
                 return
             }
         }
         if (operation == SignalWandOperation.PLACE && state.binding == null) {
-            player.sendMessage(Component.text("Left-click a fixed-block entrance before placing its signal"))
+            player.sendMessage(Component.text("Left-click a controlled entrance before placing its signal"))
             return
         }
         val worldId = player.world.uid
@@ -236,29 +251,55 @@ internal class SignalWandHandler(
             if (ownerCurrent()) player.sendMessage(Component.text(message.take(MESSAGE_LIMIT)))
             session.busy.set(false)
         }
-        fun completeBinding(binding: SignalWandBinding) = entity(player) {
+        fun completeBindingOnOwner(binding: SignalWandBinding) {
             if (!ownerCurrent()) {
                 sessions.invalidate(playerId, session)
-                return@entity
+                return
             }
             val revision = try {
                 Math.addExact(state.stateRevision, 1L)
             } catch (_: ArithmeticException) {
                 session.busy.set(false)
                 player.sendMessage(Component.text("Signal Wand state revision overflow; replace this wand"))
-                return@entity
+                return
             }
             val replacement = state.copy(stateRevision = revision, binding = binding)
             if (!replaceToolState(player, state, replacement)) {
                 sessions.invalidate(playerId, session)
                 player.sendMessage(Component.text("Signal selection expired; select again"))
-                return@entity
+                return
             }
             sessions.invalidate(playerId, session)
             refreshStatus(player)
             player.sendMessage(Component.text(
-                "Bound ${binding.blockId} ${binding.entryDirection}; right-click a rail to place the signal"
+                "Bound ${binding.description()}; right-click a rail to place the signal"
             ))
+        }
+        fun completeBinding(binding: SignalWandBinding) = entity(player) { completeBindingOnOwner(binding) }
+        fun continueChoice(choices: List<SignalWandChoice>, deleting: Boolean) = entity(player) {
+            if (!ownerCurrent()) {
+                sessions.invalidate(playerId, session)
+                return@entity
+            }
+            val token = Any()
+            choiceTokens[playerId] = token
+            session.busy.set(false)
+            showChoices(player, choices) { choice ->
+                entity(player) choiceOwner@{
+                    if (choiceTokens.remove(playerId, token).not() || !ownerCurrent() ||
+                        !session.busy.compareAndSet(false, true)) return@choiceOwner
+                    worker {
+                        if (!active()) return@worker
+                        try {
+                            require(backend.current(captured)) { "Signal selection expired; select again" }
+                            if (deleting) complete(backend.delete(captured, choice.binding, ::active).message)
+                            else completeBinding(choice.binding)
+                        } catch (failure: Exception) {
+                            complete("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
+                        }
+                    }
+                }
+            }
         }
         try {
             findTarget(player).whenComplete { target, failure ->
@@ -278,14 +319,24 @@ internal class SignalWandHandler(
                                 .orElseThrow { IllegalArgumentException("Rail no longer exists") }
                             val tangent = curve.getPointAt(selected.arcLength()).tangent
                             val dot = tangent.x() * sight.x + tangent.y() * sight.y + tangent.z() * sight.z
-                            require(abs(dot) >= 0.15) { "Look along the rail into the fixed block" }
+                            require(abs(dot) >= 0.15) { "Look along the rail into the controlled section" }
                             val point = RailPositionSnapshot(selected.rail().id,
                                 if (dot >= 0) ViewDirection.AB else ViewDirection.BA, selected.arcLength())
                             when (operation) {
-                                SignalWandOperation.BIND -> completeBinding(backend.resolveEntrance(captured, point))
+                                SignalWandOperation.BIND -> {
+                                    val choices = backend.resolveEntrance(captured, state.controlKind, state.mode, point)
+                                    if (state.controlKind == SignalWandControlKind.FIXED_BLOCK) {
+                                        completeBinding(choices.single().binding)
+                                    } else continueChoice(choices, deleting = false)
+                                }
                                 SignalWandOperation.PLACE -> complete(
                                     backend.place(captured, checkNotNull(state.binding), point, ::active).message)
-                                SignalWandOperation.DELETE -> complete(backend.delete(captured, point, ::active).message)
+                                SignalWandOperation.DELETE -> {
+                                    val choices = backend.resolveEntrance(captured, state.controlKind, state.mode, point)
+                                    if (state.controlKind == SignalWandControlKind.FIXED_BLOCK) {
+                                        complete(backend.delete(captured, choices.single().binding, ::active).message)
+                                    } else continueChoice(choices, deleting = true)
+                                }
                             }
                         } catch (failure: Exception) {
                             complete("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
@@ -341,30 +392,37 @@ internal class SignalWandHandler(
 
     @EventHandler fun onJoin(event: PlayerJoinEvent) = deferRefresh(event.player)
     @EventHandler fun onQuit(event: PlayerQuitEvent) {
+        choiceTokens.remove(event.player.uniqueId)
         sessions.invalidate(event.player.uniqueId)
         stopStatus(event.player.uniqueId)
     }
     @EventHandler fun onWorldChange(event: PlayerChangedWorldEvent) {
+        choiceTokens.remove(event.player.uniqueId)
         sessions.invalidate(event.player.uniqueId)
         deferRefresh(event.player)
     }
     @EventHandler(ignoreCancelled = true) fun onHeldItem(event: PlayerItemHeldEvent) {
+        choiceTokens.remove(event.player.uniqueId)
         sessions.invalidate(event.player.uniqueId)
         deferRefresh(event.player)
     }
     @EventHandler(ignoreCancelled = true) fun onSwapHands(event: PlayerSwapHandItemsEvent) {
+        choiceTokens.remove(event.player.uniqueId)
         sessions.invalidate(event.player.uniqueId)
         deferRefresh(event.player)
     }
     @EventHandler(ignoreCancelled = true) fun onInventoryClick(event: InventoryClickEvent) {
+        choiceTokens.remove(event.whoClicked.uniqueId)
         sessions.invalidate(event.whoClicked.uniqueId)
         (event.whoClicked as? Player)?.let(::deferRefresh)
     }
     @EventHandler(ignoreCancelled = true) fun onInventoryDrag(event: InventoryDragEvent) {
+        choiceTokens.remove(event.whoClicked.uniqueId)
         sessions.invalidate(event.whoClicked.uniqueId)
         (event.whoClicked as? Player)?.let(::deferRefresh)
     }
     @EventHandler(ignoreCancelled = true) fun onDrop(event: PlayerDropItemEvent) {
+        choiceTokens.remove(event.player.uniqueId)
         sessions.invalidate(event.player.uniqueId)
         deferRefresh(event.player)
     }
@@ -377,6 +435,7 @@ internal class SignalWandHandler(
     fun close() {
         if (!closed.compareAndSet(false, true)) return
         sessions.close()
+        choiceTokens.clear()
         statusTasks.values.forEach(SignalWandStatusRegistration::cancel)
         statusTasks.clear()
     }
@@ -409,11 +468,9 @@ internal class SignalWandHandler(
                 state.itemId.toString(),
                 state.stateRevision,
                 state.mode.name,
+                state.controlKind.name,
                 state.signalType,
-                state.binding?.let {
-                    PersistedSignalWandBinding(
-                        it.worldId.toString(), it.blockId, it.entryDirection.name)
-                }
+                state.binding?.toPersisted()
             )
         )
 
@@ -423,11 +480,9 @@ internal class SignalWandHandler(
                 UUID.fromString(persisted.itemId),
                 persisted.stateRevision,
                 SignalWandMode.valueOf(persisted.mode),
+                SignalWandControlKind.valueOf(persisted.controlKind),
                 persisted.signalType,
-                persisted.binding?.let {
-                    SignalWandBinding(UUID.fromString(it.worldId), it.blockId,
-                        FixedBlockEntryDirection.valueOf(it.entryDirection))
-                }
+                persisted.binding?.toDomain()
             )
         } catch (_: Exception) {
             null
@@ -463,16 +518,18 @@ internal class SignalWandHandler(
                 !availableNow -> " (unavailable)"
                 else -> ""
             }
-            val binding = state.binding?.let { " | bound: ${it.blockId} ${it.entryDirection}" } ?: " | bound: none"
-            return Component.text("Signal Wand | mode: ${state.mode.label} | type: ${state.signalType}$suffix$binding")
+            val binding = state.binding?.let { " | bound: ${it.description()}" } ?: " | bound: none"
+            return Component.text("Signal Wand | mode: ${state.mode.label} | control: ${state.controlKind.label} | " +
+                "type: ${state.signalType}$suffix$binding")
         }
 
         internal fun decorate(meta: org.bukkit.inventory.meta.ItemMeta, state: SignalWandState) {
             meta.lore(listOf(
-                Component.text("Shift-right-click: mode and signal type"),
+                Component.text("Shift-right-click: mode, control and signal type"),
                 Component.text("Mode: ${state.mode.label}"),
+                Component.text("Control: ${state.controlKind.label}"),
                 Component.text("Selected type: ${state.signalType}"),
-                Component.text(state.binding?.let { "Bound: ${it.blockId} ${it.entryDirection}" } ?: "Bound: none")
+                Component.text(state.binding?.let { "Bound: ${it.description()}" } ?: "Bound: none")
             ))
             meta.setEnchantmentGlintOverride(state.binding != null)
         }
@@ -505,6 +562,26 @@ internal class SignalWandHandler(
             player.showDialog(dialog)
         }
 
+        private fun showNativeChoices(
+            player: Player,
+            choices: List<SignalWandChoice>,
+            selected: (SignalWandChoice) -> Unit
+        ) {
+            val buttons = choices.map { choice ->
+                ActionButton.builder(Component.text(choice.label.take(DISPLAY_NAME_LIMIT), NamedTextColor.YELLOW))
+                    .action(DialogAction.customClick(
+                        { _, audience -> if (audience === player) selected(choice) },
+                        ClickCallback.Options.builder().uses(1).lifetime(ClickCallback.DEFAULT_LIFETIME).build()))
+                    .build()
+            }
+            player.showDialog(Dialog.create { factory -> factory.empty()
+                .base(DialogBase.builder(Component.text("Select protection signal", NamedTextColor.GOLD))
+                    .body(listOf(DialogBody.plainMessage(Component.text(
+                        "Choose a new device or one exact existing primary.", NamedTextColor.GRAY))))
+                    .canCloseWithEscape(true).build())
+                .type(DialogType.multiAction(buttons, null, 1)) })
+        }
+
         private const val DISPLAY_NAME_LIMIT = 64
         private const val MARKER_VALUE: Byte = 1
     }
@@ -514,12 +591,18 @@ internal data class SignalWandState(
     val itemId: UUID,
     val stateRevision: Long,
     val mode: SignalWandMode,
+    val controlKind: SignalWandControlKind,
     val signalType: String,
     val binding: SignalWandBinding? = null
 ) {
     init {
         require(stateRevision >= 0L) { "stateRevision must be non-negative" }
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalType)) { "signalType must be namespaced" }
+        require(binding == null || when (controlKind) {
+            SignalWandControlKind.FIXED_BLOCK -> binding is FixedBlockSignalWandBinding
+            SignalWandControlKind.PROTECTION_CURRENT_ENTRY -> binding is ProtectionCurrentEntrySignalWandBinding
+            SignalWandControlKind.PROTECTION_FIXED_ROUTE -> binding is ProtectionFixedRouteSignalWandBinding
+        }) { "binding kind must match controlKind" }
     }
 }
 
@@ -528,14 +611,62 @@ internal enum class SignalWandMode(val label: String) {
     DELETION("deletion")
 }
 
-internal data class SignalWandBinding(
-    val worldId: UUID,
+internal enum class SignalWandControlKind(val label: String) {
+    FIXED_BLOCK("fixed-block primary"),
+    PROTECTION_CURRENT_ENTRY("protection current-entry primary"),
+    PROTECTION_FIXED_ROUTE("protection fixed-route primary")
+}
+
+internal sealed interface SignalWandBinding { val worldId: UUID }
+
+internal data class FixedBlockSignalWandBinding(
+    override val worldId: UUID,
     val blockId: String,
     val entryDirection: FixedBlockEntryDirection
-) {
+) : SignalWandBinding {
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(blockId)) { "bound blockId must be namespaced" }
     }
+}
+
+internal sealed interface ProtectionSignalIntent
+internal data object NewProtectionSignal : ProtectionSignalIntent
+internal data class ExistingProtectionSignal(val signalId: String, val revision: Long) : ProtectionSignalIntent {
+    init {
+        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalId)) { "signalId must be namespaced" }
+        require(revision >= 0L) { "signal revision must be non-negative" }
+    }
+}
+
+internal data class ProtectionCurrentEntrySignalWandBinding(
+    override val worldId: UUID,
+    val entryBoundaryId: String,
+    val intent: ProtectionSignalIntent
+) : SignalWandBinding {
+    init { require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(entryBoundaryId)) { "entry boundary must be namespaced" } }
+}
+
+internal data class ProtectionFixedRouteSignalWandBinding(
+    override val worldId: UUID,
+    val entryBoundaryId: String,
+    val routeId: String,
+    val intent: ProtectionSignalIntent
+) : SignalWandBinding {
+    init {
+        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(entryBoundaryId)) { "entry boundary must be namespaced" }
+        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(routeId)) { "routeId must be namespaced" }
+    }
+}
+
+private fun SignalWandBinding.description(): String = when (this) {
+    is FixedBlockSignalWandBinding -> "$blockId $entryDirection"
+    is ProtectionCurrentEntrySignalWandBinding -> "$entryBoundaryId current-entry ${intent.description()}"
+    is ProtectionFixedRouteSignalWandBinding -> "$entryBoundaryId route $routeId ${intent.description()}"
+}
+
+private fun ProtectionSignalIntent.description(): String = when (this) {
+    NewProtectionSignal -> "new"
+    is ExistingProtectionSignal -> signalId
 }
 
 @Serializable
@@ -543,16 +674,66 @@ private data class PersistedSignalWandState(
     val itemId: String,
     val stateRevision: Long,
     val mode: String,
+    val controlKind: String,
     val signalType: String,
     val binding: PersistedSignalWandBinding? = null
 )
 
 @Serializable
-private data class PersistedSignalWandBinding(
+private sealed interface PersistedSignalWandBinding
+
+@Serializable
+@SerialName("fixed_block")
+private data class PersistedFixedBlockSignalWandBinding(
     val worldId: String,
     val blockId: String,
     val entryDirection: String
-)
+) : PersistedSignalWandBinding
+
+@Serializable
+@SerialName("protection_current_entry")
+private data class PersistedProtectionCurrentEntrySignalWandBinding(
+    val worldId: String,
+    val entryBoundaryId: String,
+    val existingSignalId: String? = null,
+    val existingSignalRevision: Long? = null
+) : PersistedSignalWandBinding
+
+@Serializable
+@SerialName("protection_fixed_route")
+private data class PersistedProtectionFixedRouteSignalWandBinding(
+    val worldId: String,
+    val entryBoundaryId: String,
+    val routeId: String,
+    val existingSignalId: String? = null,
+    val existingSignalRevision: Long? = null
+) : PersistedSignalWandBinding
+
+private fun SignalWandBinding.toPersisted(): PersistedSignalWandBinding = when (this) {
+    is FixedBlockSignalWandBinding -> PersistedFixedBlockSignalWandBinding(
+        worldId.toString(), blockId, entryDirection.name)
+    is ProtectionCurrentEntrySignalWandBinding -> PersistedProtectionCurrentEntrySignalWandBinding(
+        worldId.toString(), entryBoundaryId, intent.existingId(), intent.existingRevision())
+    is ProtectionFixedRouteSignalWandBinding -> PersistedProtectionFixedRouteSignalWandBinding(
+        worldId.toString(), entryBoundaryId, routeId, intent.existingId(), intent.existingRevision())
+}
+
+private fun PersistedSignalWandBinding.toDomain(): SignalWandBinding = when (this) {
+    is PersistedFixedBlockSignalWandBinding -> FixedBlockSignalWandBinding(
+        UUID.fromString(worldId), blockId, FixedBlockEntryDirection.valueOf(entryDirection))
+    is PersistedProtectionCurrentEntrySignalWandBinding -> ProtectionCurrentEntrySignalWandBinding(
+        UUID.fromString(worldId), entryBoundaryId, protectionIntent(existingSignalId, existingSignalRevision))
+    is PersistedProtectionFixedRouteSignalWandBinding -> ProtectionFixedRouteSignalWandBinding(
+        UUID.fromString(worldId), entryBoundaryId, routeId,
+        protectionIntent(existingSignalId, existingSignalRevision))
+}
+
+private fun ProtectionSignalIntent.existingId() = (this as? ExistingProtectionSignal)?.signalId
+private fun ProtectionSignalIntent.existingRevision() = (this as? ExistingProtectionSignal)?.revision
+private fun protectionIntent(id: String?, revision: Long?): ProtectionSignalIntent {
+    require((id == null) == (revision == null)) { "existing signal identity must include both ID and revision" }
+    return if (id == null) NewProtectionSignal else ExistingProtectionSignal(id, checkNotNull(revision))
+}
 
 internal data class SignalWandSetting(
     val action: SignalWandSettingAction,
@@ -562,6 +743,7 @@ internal data class SignalWandSetting(
 
 internal sealed interface SignalWandSettingAction {
     data class Mode(val mode: SignalWandMode) : SignalWandSettingAction
+    data class ControlKind(val controlKind: SignalWandControlKind) : SignalWandSettingAction
     data class Type(val signalType: String) : SignalWandSettingAction
 }
 

@@ -87,7 +87,9 @@ internal data class FixedBlockSignalDefinition private constructor(
     val clearLevels: List<FixedBlockSignalClearLevel>,
     val downstreamSignals: List<FixedBlockSignalDependency>,
     val model: DeviceModelDefinition?,
-    val entryDirection: FixedBlockEntryDirection
+    val entryDirection: FixedBlockEntryDirection,
+    /** Player-facing type from the unified signal-pack catalog; null keeps the configured Kotlin rule. */
+    val packageSignalId: String?
 ) {
     constructor(
         signalId: String,
@@ -98,7 +100,8 @@ internal data class FixedBlockSignalDefinition private constructor(
         clearLevels: Collection<FixedBlockSignalClearLevel>,
         downstreamSignals: Collection<FixedBlockSignalDependency> = emptyList(),
         model: DeviceModelDefinition? = null,
-        entryDirection: FixedBlockEntryDirection = FixedBlockEntryDirection.FORWARD
+        entryDirection: FixedBlockEntryDirection = FixedBlockEntryDirection.FORWARD,
+        packageSignalId: String? = null
     ) : this(
         signalId,
         revision,
@@ -108,13 +111,17 @@ internal data class FixedBlockSignalDefinition private constructor(
         java.util.List.copyOf(clearLevels),
         java.util.List.copyOf(downstreamSignals),
         model,
-        entryDirection
+        entryDirection,
+        packageSignalId
     )
 
     val entry: FixedBlockSignalEntry get() = FixedBlockSignalEntry(controlledBlockId, entryDirection)
 
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalId)) { "signalId must be namespaced" }
+        require(packageSignalId == null || SIMPLE_SIGNALS_NAMESPACED_ID.matches(packageSignalId)) {
+            "packageSignalId must be null or namespaced"
+        }
         require(revision >= 0L) { "signal revision must be non-negative" }
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(controlledBlockId)) {
             "controlledBlockId must be namespaced"

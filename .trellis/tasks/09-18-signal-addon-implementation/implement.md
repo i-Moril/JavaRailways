@@ -10,9 +10,10 @@
 - [x] BukkitPlugin 提供 worker-safe 的公共普通模型 YAML compiler；旧 model-only loader 与统一信号包共用其
   parts/inline/import、场景、variant 和 placement 编译。统一包同包 model import 只导入 identity-grouped parts，
   不继承目标 default/variants/placement；循环、缺失引用、非法 variant、不可变结果与捕获后不重读均有聚焦测试。
-  Car/Rail 专用包未迁移；生产启动、世界绑定和 signal epoch 不在本提交。
+  Car/Rail 专用包未迁移；该历史提交尚未包含生产启动、世界绑定和 signal epoch，后三者已由后续批次完成。
 - [x] signal epoch 内存绑定已显式区分 package `signalId` 与已放置逻辑 `deviceId`；observation publication/plan
-  也使用 device 语义命名，不按同名、模型或路径猜绑定。本批保持世界 schema 1 不变；持久化类型引用和启动 catalog 后续单列。
+  也使用 device 语义命名，不按同名、模型或路径猜绑定。后续批次已在保持世界 schema 1 的前提下加入严格
+  `packageSignalId` 持久化和启动 catalog，见本节末项。
 
 ## 2026-10-07 JS 包与树形前视决策收敛（本提交仅文档）
 
@@ -47,8 +48,17 @@
   本批不扩成第二个或统一调度器；没有第二次世界／拓扑扫描。
   离线功能门禁中的 Graal 调用不是吞吐／延迟基准；fresh Context、树投影和过渡期重复 Kotlin 求值的生产规模成本
   仍待代表性包基准及在线观测，不能据单元测试通过宣称 tick 性能已验收。
-- [ ] 后续独立实现批次：把 package signal 类型引用加入尚未发布的世界 current model并接入插件启动 catalog；
-  当前不从旧 `signalId`、modelId 或文件路径猜测绑定，不改 schema version，也不声称玩家已能在游戏中选择新类型。
+- [x] 把 package signal 类型引用加入尚未发布的世界 current model并接入插件启动 catalog：固定闭塞和保护逻辑设备
+  的严格 schema 1 DTO 必须显式包含可空 `packageSignalId`，原 `signalId` 继续作为世界 `deviceId`，不从设备、模型或
+  文件路径猜测绑定。插件在启动 worker 一次加载 `signal-packs/`，manager 共享 catalog/runtime，并为每个 world 编译
+  `deviceId -> packageSignalId` 的 `SignalPackEpochRuntime`。catalog pending、缺失或启动／拓扑重验失败时绑定设备保持
+  `Unavailable`／0；catalog ready 后定义编辑严格编译，未知类型拒绝且不取得编辑许可。异步 attach 以 exact world
+  runtime/publication/topology 守卫并通过原子 source replacement 安装。没有 upcaster、兼容 reader、热重载、Wand
+  选择或模型 materialize；schema version 保持1。聚焦验证4套/123项通过。最终离线
+  `:SimpleSignals:check :SimpleSignals:verifyPluginJar :BukkitPlugin:compileSignalApiConsumerJava` 成功：SimpleSignals
+  47套/497项全部实际执行，零失败/错误/跳过，插件 JAR 校验实际执行；未变的 Java consumer 编译复用缓存。
+  `git diff --check` 通过。构建中的 JVM deprecated/restricted 警告及一次 physics overload 日志不作为性能证明；
+  未做 live Folia、客户端或生产规模延迟验证。
 
 本节前四项属于 2026-10-07 的文档收敛提交；随后独立 foundation 提交实现包 catalog、Graal 依赖和 JS runtime，
 仍不修改持久化版本或兼容路径，也不声称树形扫描、world/epoch 接线或游戏内放置已经可用。
@@ -304,10 +314,14 @@ Current extraction progress:
 - [x] Expose the neutral Basic active-admission value and compile/persist mutually compatible configured default protection routes without claiming them. The active value carries the frozen route and actual requested/committed authority boundaries; default-route runtime checks use precompiled turnout requirements.
 - [x] Connect admission changes and physical turnout observations to one shared entry selector: request > physically-correct configured default > no route. Retain the old committed prefix during suffix preparation and remove tail-cleared route associations without ending the whole operating route. Match frozen routes once on route changes; unchanged selection state remains idle. Host routes latest-per-owner updates by cached rail interests, including removal/reversal, source replacement baseline and train disappearance independent of Bukkit follow-up. A cleared entry association does not release overlapping long resources still held by Basic.
 - [x] Implement the three device forms' backend on that shared state: fixed-route signal, current signal and presentation-only route indicator. Reuse the indicator for distant previews through explicit source binding and player placement. Route-specific occupancy, mixed-kind one-way dependencies, typed inspection declaration IDs, additive schema-1 persistence and live definition patches are implemented. Rendering is tracked below; independent physical inspection consumption is the separately approved host slice above. Do not infer request state from claim owner strings, poll `liveClaims()` per tick or scan turnouts for non-default fallback routes.
-- [ ] 实现用户已选的 JS 输入／setter provider；[owner 契约](../../spec/simple-signals/backend/js-signal-rules.md)已确定
-  包结构、同步阶段、树形前视、无通用预算和遇环停止，具体类/API 字段随小批次实现，不以文档代替运行验收。
+- [x] 实现用户已选的 JS 输入／setter provider；[owner 契约](../../spec/simple-signals/backend/js-signal-rules.md)记录
+  包结构、同步 signal epoch、只读树形前视、逐分支环终止、exact-once setter 校验、原子结果发布和启动 world 绑定。
+  玩家放置、模型 materialize、热重载及 live Folia 验证仍单独跟踪，不因后端接线完成而视为已实现。
 - [x] Verify protection-device deletion through the normal definition edit permit. Actual Basic registry regressions cover fixed-route/current-entry signals blocked by static route dependencies and live claims, unchanged disk/publication/sources on rejection, success after blocker release, and disjoint-line deletion. Normal Dispatcher ordering installs route protection before inspection binding and removes inspection before protection; subsequent worker updates filter removed captured bindings. No production defect was reproduced in this guarded lifecycle, so no deletion compatibility path was added. Owner contract: [definition edit impact](../../spec/simple-signals/backend/definition-edit-impact.md#5-不变量线程与版本). This does not establish arbitrary external-caller lifecycle safety or cancel an already-running callback.
-- [ ] Keep scripts away from mutable world objects and raw Basic claim mutation; all outputs pass plugin validation and host restriction/resource APIs.
+- [x] Keep scripts away from mutable world objects and raw Basic claim mutation. Fresh restricted Graal realms receive only frozen
+  JSON observations and evaluation-local exported setters; validated output enters the existing signal publication boundary, while
+  missing/invalid packages, runtime exceptions and invalid setters publish restrictive unavailable/zero results. JS cannot claim,
+  select routes or mutate Bukkit/Core/Basic state.
 
 ## Timetable, authoring and rendering
 

@@ -1272,6 +1272,124 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
+    fun `persisted package signal stays restrictive until startup catalog atomically replaces its epoch source`() {
+        val fixture = Fixture()
+        val block = FixedBlockDefinition("test:pack-block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)))
+        val stop = ConfiguredSignalOutput(0.0, "legacy-stop")
+        val signal = FixedBlockSignalDefinition("test:pack-device", 1, block.blockId, 0.0, stop,
+            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(99.0, "legacy-clear"))),
+            packageSignalId = "automatic:block")
+        val store = store()
+        store.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1, emptyList(), emptyList(),
+            listOf(block), listOf(signal)))
+        val sources = CapturingSignalEpochSourceService()
+        val errors = mutableListOf<String>()
+        val manager = runtimeManager(plugin(), MutableTopologyService(fixture.currentTopology).service,
+            CapturingRoutePlanningService(), store, sources, modelFailure = { context, _ -> errors += context })
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+
+        fun process(epochNumber: Long) {
+            SignalEpochRuntime(fixture.worldId.toString(), TrainRestrictionSnapshotStore(fixture.worldId.toString())).also {
+                it.replaceSources(sources.sources.getValue(fixture.worldId))
+                it.process(RailwayWorldFrameSnapshot.create(epochNumber, fixture.currentTopology.revision, emptyList(),
+                    ActiveRailContinuationsSnapshot.empty(fixture.currentTopology.revision)))
+            }
+        }
+        process(1)
+        val unavailable = manager.authoringRuntime(fixture.worldId)!!.sectionSignalSnapshot()!!.states.getValue(signal.signalId)
+        assertInstanceOf(SectionSignalState.Unavailable::class.java, unavailable)
+        assertEquals(0.0, unavailable.effectiveSpeedLimitMetersPerSecond)
+
+        val root = writeAutomaticSignalPack()
+
+        manager.loadSignalPacks(root)
+        assertEquals(2, sources.atomicCommitCount)
+        process(2)
+        val available = manager.authoringRuntime(fixture.worldId)!!.sectionSignalSnapshot()!!.states.getValue(signal.signalId)
+        assertInstanceOf(SectionSignalState.Available::class.java, available)
+        assertEquals(25.0, available.effectiveSpeedLimitMetersPerSecond)
+        assertTrue(errors.isEmpty())
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `pending startup catalog permits edits which add no package binding and keeps them restrictive`() {
+        val fixture = Fixture()
+        val block = FixedBlockDefinition("test:pending-pack-block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)))
+        val signal = FixedBlockSignalDefinition("test:pending-pack-device", 1, block.blockId, 0.0,
+            ConfiguredSignalOutput(0.0, "legacy-stop"),
+            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(99.0, "legacy-clear"))),
+            packageSignalId = "automatic:block")
+        val definitions = store()
+        definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            emptyList(), emptyList(), listOf(block), listOf(signal)))
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+
+        val editedBlock = FixedBlockDefinition(block.blockId, 2, block.traversals)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATED,
+            manager.validateDefinitionPatch(fixture.worldId, 1,
+                SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(editedBlock))).status)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
+            manager.applyDefinitionPatch(fixture.worldId, 1,
+                SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(editedBlock))).status)
+
+        SignalEpochRuntime(fixture.worldId.toString(), TrainRestrictionSnapshotStore(fixture.worldId.toString())).also {
+            it.replaceSources(sources.sources.getValue(fixture.worldId))
+            it.process(RailwayWorldFrameSnapshot.create(1, fixture.currentTopology.revision, emptyList(),
+                ActiveRailContinuationsSnapshot.empty(fixture.currentTopology.revision)))
+        }
+        val state = manager.authoringRuntime(fixture.worldId)!!.sectionSignalSnapshot()!!.states.getValue(signal.signalId)
+        assertInstanceOf(SectionSignalState.Unavailable::class.java, state)
+        assertEquals(0.0, state.effectiveSpeedLimitMetersPerSecond)
+
+        val rebound = signal.reconfigured(revision = 2, packageSignalId = "automatic:other")
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
+            manager.validateDefinitionPatch(fixture.worldId, 2,
+                SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(rebound))).status)
+        assertEquals(1, infrastructure.permitAcquisitionCount)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `unknown package signal keeps the installed exact publication restrictive`() {
+        val fixture = Fixture()
+        val block = FixedBlockDefinition("test:unknown-pack-block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)))
+        val signal = FixedBlockSignalDefinition("test:unknown-pack-device", 1, block.blockId, 0.0,
+            ConfiguredSignalOutput(0.0, "legacy-stop"),
+            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(99.0, "legacy-clear"))),
+            packageSignalId = "automatic:missing")
+        val definitions = store()
+        definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            emptyList(), emptyList(), listOf(block), listOf(signal)))
+        val sources = CapturingSignalEpochSourceService()
+        val errors = mutableListOf<String>()
+        val manager = runtimeManager(plugin(), MutableTopologyService(fixture.currentTopology).service,
+            CapturingRoutePlanningService(), definitions, sources, modelFailure = { context, _ -> errors += context })
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val publication = manager.authoringRuntime(fixture.worldId)!!.authoringPublication()
+
+        manager.loadSignalPacks(writeAutomaticSignalPack())
+
+        assertSame(publication, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
+        assertEquals(1, sources.atomicCommitCount, "failed package compilation must not replace the restrictive source")
+        assertTrue(errors.single().contains("bound devices remain restrictive"))
+        SignalEpochRuntime(fixture.worldId.toString(), TrainRestrictionSnapshotStore(fixture.worldId.toString())).also {
+            it.replaceSources(sources.sources.getValue(fixture.worldId))
+            it.process(RailwayWorldFrameSnapshot.create(1, fixture.currentTopology.revision, emptyList(),
+                ActiveRailContinuationsSnapshot.empty(fixture.currentTopology.revision)))
+        }
+        assertInstanceOf(SectionSignalState.Unavailable::class.java,
+            manager.authoringRuntime(fixture.worldId)!!.sectionSignalSnapshot()!!.states.getValue(signal.signalId))
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
     fun `strict full JSON draft creates updates and deletes all six definition kinds through one manager transaction`() {
         val fixture = Fixture()
         val infrastructure = MutableTopologyService(fixture.currentTopology)
@@ -3584,6 +3702,35 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     private fun store() = SimpleSignalsWorldDefinitionStore(directory.toFile())
+
+    private fun writeAutomaticSignalPack(): Path {
+        val root = directory.resolve("signal-packs")
+        val pack = root.resolve("automatic")
+        Files.createDirectories(pack.resolve("model"))
+        Files.createDirectories(pack.resolve("logic"))
+        Files.createDirectories(pack.resolve("signal"))
+        Files.writeString(pack.resolve("pack.yml"), "config-version: 1\nname: automatic")
+        Files.writeString(pack.resolve("model/head.yml"), """
+            parts:
+              - type: dummy
+            default: {}
+            variants:
+              clear: {}
+        """.trimIndent())
+        Files.writeString(pack.resolve("logic/block.yml"), "scan-distance-metres: 100")
+        Files.writeString(pack.resolve("logic/block.js"), """
+            function evaluate(input, output) {
+              output.setSpeedLimit(25);
+              output.setModelVariant("clear");
+            }
+        """.trimIndent())
+        Files.writeString(pack.resolve("signal/block.yml"), """
+            display-name: Automatic block
+            model: automatic:head
+            logic: automatic:block
+        """.trimIndent())
+        return root
+    }
 
     @Test
     fun `topology callback never waits for source publication and older worker cannot override related repair`() {

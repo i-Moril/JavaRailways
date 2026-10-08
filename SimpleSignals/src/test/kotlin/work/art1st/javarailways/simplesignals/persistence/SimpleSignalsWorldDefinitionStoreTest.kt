@@ -138,7 +138,8 @@ class SimpleSignalsWorldDefinitionStoreTest {
                         )
                     )
                 )
-            )
+            ),
+            packageSignalId = "automatic:block"
         )
         val definitions = SimpleSignalsWorldDefinitions(
             WORLD_ID,
@@ -155,9 +156,16 @@ class SimpleSignalsWorldDefinitionStoreTest {
         assertEquals(definitions, decoded)
         assertTrue(encoded.contains("\"schemaVersion\": 1"))
         assertTrue(encoded.contains("\"inspectionLeadTimeSeconds\": 12.0"))
+        assertTrue(encoded.contains("\"packageSignalId\": \"automatic:block\""))
         assertTrue(encoded.contains("\"modelVariant\": \"clear/permissive\""))
         assertTrue(encoded.contains("\"requiredContinuations\""))
         assertFalse(encoded.contains("\"distanceMeters\""))
+        assertThrows(Exception::class.java) {
+            SimpleSignalsWorldDefinitionsCodec.decode(
+                encoded.replace(Regex("""\s*"packageSignalId": "automatic:block",?"""), ""),
+                WORLD_ID
+            )
+        }
     }
 
     @Test

@@ -171,6 +171,7 @@ private data class SavedFixedBlockTraversalV1(
 @Serializable
 private data class SavedFixedBlockSignalV1(
     val signalId: String,
+    val packageSignalId: String?,
     val revision: Long,
     val controlledBlockId: String,
     val inspectionLeadTimeSeconds: Double,
@@ -210,7 +211,7 @@ private data class SavedFixedBlockSignalContinuationRequirementV1(
 
 @Serializable
 private data class SavedProtectionSignal(
-    val signalId: String, val revision: Long, val kind: ProtectionSignalKind, val bindingId: String,
+    val signalId: String, val packageSignalId: String?, val revision: Long, val kind: ProtectionSignalKind, val bindingId: String,
     val inspectionLeadTimeSeconds: Double, val unavailableOutput: SavedSignalOutputV1,
     val occupiedOutput: SavedSignalOutputV1, val clearLevels: List<SavedFixedBlockSignalClearLevelV1>,
     val downstreamSignals: List<SavedFixedBlockSignalDependencyV1> = emptyList(),
@@ -305,7 +306,7 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                 }, signal.downstreamSignals.map { it.restoreDependency(signal.signalId) },
                 signal.downstreamSignalsByRouteId.mapValues { (_, dependencies) ->
                     dependencies.map { it.restoreDependency(signal.signalId) }
-                }, signal.model?.restore(signal.signalId)) },
+                }, signal.model?.restore(signal.signalId), signal.packageSignalId) },
             file.routeIndicators.map { RouteIndicatorDefinition(it.indicatorId, it.revision, it.entryBoundaryId,
                 it.noRouteModelVariant, it.modelVariantsByRouteId, it.model?.restore(it.indicatorId)) },
             file.attachedSignals.map { AttachedSignalDefinition(it.signalId, it.revision, it.primarySignalId,
@@ -374,6 +375,7 @@ internal object SimpleSignalsWorldDefinitionsCodec {
         fixedBlockSignals.map { signal ->
             SavedFixedBlockSignalV1(
                 signal.signalId,
+                signal.packageSignalId,
                 signal.revision,
                 signal.controlledBlockId,
                 signal.inspectionLeadTimeSeconds,
@@ -401,7 +403,7 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                 signal.entryDirection
             )
         },
-        protectionSignals.map { signal -> SavedProtectionSignal(signal.signalId, signal.revision, signal.kind,
+        protectionSignals.map { signal -> SavedProtectionSignal(signal.signalId, signal.packageSignalId, signal.revision, signal.kind,
             signal.bindingId, signal.inspectionLeadTimeSeconds, signal.unavailableOutput.saved(),
             signal.occupiedOutput.saved(), signal.clearLevels.map {
                 SavedFixedBlockSignalClearLevelV1(it.minimumDownstreamSpeedMetersPerSecond, it.output.saved())
@@ -547,7 +549,8 @@ internal object SimpleSignalsWorldDefinitionsCodec {
             )
         },
         model?.restore(signalId),
-        entryDirection
+        entryDirection,
+        packageSignalId
     )
 
     private fun SavedSignalOutputV1.restore() = ConfiguredSignalOutput(

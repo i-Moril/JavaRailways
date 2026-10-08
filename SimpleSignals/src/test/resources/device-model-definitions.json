@@ -6,7 +6,7 @@
   "protectionRouteTables": [],
   "fixedBlockSignals": [
     {
-      "signalId": "test:fixed-model", "revision": 1, "controlledBlockId": "test:block",
+      "signalId": "test:fixed-model", "packageSignalId": null, "revision": 1, "controlledBlockId": "test:block",
       "inspectionLeadTimeSeconds": 0.0,
       "occupiedOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "stop"},
       "clearLevels": [{"minimumDownstreamSpeedMetersPerSecond": 0.0,
@@ -23,7 +23,7 @@
       }
     },
     {
-      "signalId": "test:fixed-backend", "revision": 1, "controlledBlockId": "test:other-block",
+      "signalId": "test:fixed-backend", "packageSignalId": null, "revision": 1, "controlledBlockId": "test:other-block",
       "inspectionLeadTimeSeconds": 0.0,
       "occupiedOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "stop"},
       "clearLevels": [{"minimumDownstreamSpeedMetersPerSecond": 0.0,
@@ -33,7 +33,7 @@
   ],
   "protectionSignals": [
     {
-      "signalId": "test:protection-model", "revision": 1, "kind": "FIXED_ROUTE", "bindingId": "test:route",
+      "signalId": "test:protection-model", "packageSignalId": null, "revision": 1, "kind": "FIXED_ROUTE", "bindingId": "test:route",
       "inspectionLeadTimeSeconds": 0.0,
       "unavailableOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "none"},
       "occupiedOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "stop"},
@@ -46,7 +46,7 @@
       }
     },
     {
-      "signalId": "test:protection-backend", "revision": 1, "kind": "CURRENT_ENTRY", "bindingId": "test:entry",
+      "signalId": "test:protection-backend", "packageSignalId": null, "revision": 1, "kind": "CURRENT_ENTRY", "bindingId": "test:entry",
       "inspectionLeadTimeSeconds": 0.0,
       "unavailableOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "none"},
       "occupiedOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "stop"},

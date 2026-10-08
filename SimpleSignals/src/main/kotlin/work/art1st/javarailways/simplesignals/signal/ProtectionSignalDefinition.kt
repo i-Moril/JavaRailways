@@ -19,20 +19,27 @@ internal data class ProtectionSignalDefinition private constructor(
     val clearLevels: List<FixedBlockSignalClearLevel>,
     val downstreamSignals: List<FixedBlockSignalDependency>,
     val downstreamSignalsByRouteId: Map<String, List<FixedBlockSignalDependency>>,
-    val model: DeviceModelDefinition?
+    val model: DeviceModelDefinition?,
+    /** Player-facing type from the unified signal-pack catalog; null keeps the configured Kotlin rule. */
+    val packageSignalId: String?
 ) {
     constructor(signalId: String, revision: Long, kind: ProtectionSignalKind, bindingId: String,
         inspectionLeadTimeSeconds: Double, unavailableOutput: ConfiguredSignalOutput,
         occupiedOutput: ConfiguredSignalOutput, clearLevels: Collection<FixedBlockSignalClearLevel>,
         downstreamSignals: Collection<FixedBlockSignalDependency> = emptyList(),
         downstreamSignalsByRouteId: Map<String, List<FixedBlockSignalDependency>> = emptyMap(),
-        model: DeviceModelDefinition? = null
+        model: DeviceModelDefinition? = null,
+        packageSignalId: String? = null
     ) : this(signalId, revision, kind, bindingId, inspectionLeadTimeSeconds, unavailableOutput,
         occupiedOutput, java.util.List.copyOf(clearLevels), java.util.List.copyOf(downstreamSignals),
-        java.util.Map.copyOf(downstreamSignalsByRouteId.mapValues { java.util.List.copyOf(it.value) }), model)
+        java.util.Map.copyOf(downstreamSignalsByRouteId.mapValues { java.util.List.copyOf(it.value) }), model,
+        packageSignalId)
 
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(bindingId)) { "protection bindingId must be namespaced" }
+        require(packageSignalId == null || SIMPLE_SIGNALS_NAMESPACED_ID.matches(packageSignalId)) {
+            "packageSignalId must be null or namespaced"
+        }
         require(unavailableOutput.speedLimitMetersPerSecond == 0.0) { "unready protection signal must stop" }
         // Reuse the configured output-table and identity contract.
         FixedBlockSignalDefinition(signalId, revision, bindingId, inspectionLeadTimeSeconds,

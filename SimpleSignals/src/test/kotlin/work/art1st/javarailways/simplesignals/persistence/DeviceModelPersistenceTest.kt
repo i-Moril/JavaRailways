@@ -28,6 +28,8 @@ class DeviceModelPersistenceTest {
         assertNull(definitions.fixedBlockSignals[1].model)
         assertNull(definitions.protectionSignals[1].model)
         assertNull(definitions.routeIndicators[1].model)
+        assertTrue(definitions.fixedBlockSignals.all { it.packageSignalId == null })
+        assertTrue(definitions.protectionSignals.all { it.packageSignalId == null })
         val encoded = SimpleSignalsWorldDefinitionsCodec.encode(definitions)
         assertEquals(definitions, SimpleSignalsWorldDefinitionsCodec.decode(encoded, worldId))
         val document = Json.parseToJsonElement(encoded).jsonObject
@@ -38,6 +40,17 @@ class DeviceModelPersistenceTest {
         assertEquals(JsonPrimitive("rail"), placement["kind"])
         assertEquals(JsonPrimitive(false), placement["followRailTilt"])
         assertEquals(7, placement.getValue("adjustment").jsonObject.size)
+    }
+
+    @Test
+    fun `package signal identity is required but explicitly nullable for both logical signal kinds`() {
+        for (collection in listOf("fixedBlockSignals", "protectionSignals")) {
+            val document = Json.parseToJsonElement(fixture).jsonObject
+            val devices = document.getValue(collection).jsonArray.toMutableList()
+            devices[0] = JsonObject(devices[0].jsonObject - "packageSignalId")
+            val missing = JsonObject(document + (collection to JsonArray(devices))).toString()
+            assertThrows(Exception::class.java) { decode(missing) }
+        }
     }
 
     @Test

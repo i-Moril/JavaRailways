@@ -38,9 +38,10 @@ internal data class SignalPackDeviceBinding(
  */
 internal class SignalPackEpochRuntime private constructor(
     val publication: SimpleSignalsRuntimePublication,
-    private val logic: SignalLogicRuntime,
+    private val logic: SignalLogicRuntime?,
     private val bindingsByDeviceId: Map<String, PreparedBinding>,
-    private val evaluationOrder: List<String>
+    private val evaluationOrder: List<String>,
+    private val unavailableReasonsByDeviceId: Map<String, String> = emptyMap()
 ) {
     val watchedContinuationEntries: Set<RailEndpointRef> = Collections.unmodifiableSet(
         bindingsByDeviceId.values.flatMapTo(sortedSetOf()) { prepared ->
@@ -70,6 +71,25 @@ internal class SignalPackEpochRuntime private constructor(
         require(input.observation.stamp.topologyRevision == publication.topology.revision) {
             "signal-pack observation topology does not match its prepared publication"
         }
+        if (unavailableReasonsByDeviceId.isNotEmpty()) {
+            val candidate = (base?.states ?: previous?.states).orEmpty().toMutableMap()
+            val changed = linkedSetOf<String>()
+            unavailableReasonsByDeviceId.forEach { (deviceId, reason) ->
+                val next = SectionSignalState.Unavailable(reason)
+                candidate[deviceId] = next
+                if (previous?.states?.get(deviceId) != next) changed += deviceId
+            }
+            val expected = base?.states?.keys.orEmpty() + unavailableReasonsByDeviceId.keys
+            require(candidate.keys.containsAll(expected)) {
+                "restrictive signal-pack epoch did not establish a complete signal result"
+            }
+            return SectionSignalSnapshot(
+                occupancy.stamp,
+                candidate,
+                (base?.changedSignalIds.orEmpty() - unavailableReasonsByDeviceId.keys) + changed,
+                base?.resolvedSectionsBySignal ?: previous?.resolvedSectionsBySignal.orEmpty()
+            )
+        }
         val candidate = (base?.states ?: previous?.states).orEmpty().toMutableMap()
         if (previous != null) bindingsByDeviceId.keys.forEach { deviceId ->
             previous.states[deviceId]?.let { candidate[deviceId] = it }
@@ -89,7 +109,7 @@ internal class SignalPackEpochRuntime private constructor(
                 hostUnavailable(deviceId)?.let { throw HostUnavailable(it) }
                 val plan = prepared.selectPlan(selection, fixedRouteReady)
                 val json = project(plan, occupancy, input.observation.activeContinuations, selection, candidate)
-                val output = logic.evaluate(prepared.signal.logicId, json)
+                val output = checkNotNull(logic).evaluate(prepared.signal.logicId, json)
                 require(output.modelVariant in prepared.signal.model.materialized.variants()) {
                     "signal-pack device '$deviceId' selected undeclared model variant '${output.modelVariant}'"
                 }
@@ -287,6 +307,36 @@ internal class SignalPackEpochRuntime private constructor(
                 logic,
                 Collections.unmodifiableMap(prepared.toSortedMap()),
                 java.util.List.copyOf(order)
+            )
+        }
+
+        /**
+         * Startup-only fallback while the immutable package catalog is unavailable.
+         *
+         * Bound devices must not temporarily inherit their configured Kotlin output because that
+         * could retain a permission that the selected package rule would have removed.
+         */
+        fun unavailable(
+            publication: SimpleSignalsRuntimePublication,
+            bindings: Collection<SignalPackDeviceBinding>,
+            reason: String
+        ): SignalPackEpochRuntime {
+            require(reason.isNotBlank()) { "restrictive signal-pack reason must not be blank" }
+            val fixed = publication.definitions.fixedBlockSignals.mapTo(hashSetOf()) { it.signalId }
+            val protection = publication.definitions.protectionSignals.mapTo(hashSetOf()) { it.signalId }
+            val byDevice = bindings.associateBy(SignalPackDeviceBinding::deviceId)
+            require(byDevice.size == bindings.size) { "signal-pack device bindings must be unique" }
+            byDevice.keys.forEach { deviceId ->
+                require(deviceId in fixed || deviceId in protection) {
+                    "signal-pack binding '$deviceId' is not a placed logical signal device"
+                }
+            }
+            return SignalPackEpochRuntime(
+                publication,
+                null,
+                emptyMap(),
+                emptyList(),
+                Collections.unmodifiableMap(byDevice.keys.sorted().associateWith { reason })
             )
         }
 

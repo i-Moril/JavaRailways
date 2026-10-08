@@ -20,9 +20,10 @@ internal fun FixedBlockSignalDefinition.reconfigured(
     inspectionLeadTimeSeconds: Double = this.inspectionLeadTimeSeconds,
     clearLevels: Collection<FixedBlockSignalClearLevel> = this.clearLevels,
     downstreamSignals: Collection<FixedBlockSignalDependency> = this.downstreamSignals,
-    model: DeviceModelDefinition? = this.model
+    model: DeviceModelDefinition? = this.model,
+    packageSignalId: String? = this.packageSignalId
 ) = FixedBlockSignalDefinition(signalId, revision, controlledBlockId, inspectionLeadTimeSeconds,
-    occupiedOutput, clearLevels, downstreamSignals, model, entryDirection)
+    occupiedOutput, clearLevels, downstreamSignals, model, entryDirection, packageSignalId)
 
 /** Legacy normal-control fixtures explicitly supply the per-rail policy their definitions require. */
 internal fun authoredDirectionPolicy(snapshot: () -> FixedBlockReadSnapshot): FixedBlockDirectionPolicy =

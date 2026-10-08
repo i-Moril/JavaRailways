@@ -10,14 +10,14 @@
       "facing": "BA", "lowerAbMeters": 2.0, "upperAbMeters": 8.0}]
   }],
   "fixedBlockSignals": [{
-    "signalId": "test:forward", "revision": 1, "controlledBlockId": "test:shared",
+    "signalId": "test:forward", "packageSignalId": null, "revision": 1, "controlledBlockId": "test:shared",
     "entryDirection": "FORWARD", "inspectionLeadTimeSeconds": 12.0,
     "occupiedOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "forward-stop"},
     "clearLevels": [{"minimumDownstreamSpeedMetersPerSecond": 0.0,
       "output": {"speedLimitMetersPerSecond": 25.0, "modelVariant": "forward-clear"}}],
     "downstreamSignals": []
   }, {
-    "signalId": "test:reverse", "revision": 2, "controlledBlockId": "test:shared",
+    "signalId": "test:reverse", "packageSignalId": null, "revision": 2, "controlledBlockId": "test:shared",
     "entryDirection": "REVERSE", "inspectionLeadTimeSeconds": 4.0,
     "occupiedOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "reverse-stop"},
     "clearLevels": [{"minimumDownstreamSpeedMetersPerSecond": 0.0,

@@ -70,7 +70,10 @@ class SimpleSignalsPlugin : JavaPlugin() {
         hostServices = services
         worldRuntimes = runtimes
         server.asyncScheduler.runNow(this) {
-            if (isEnabled) runtimes.loadModelPackages(dataFolder.toPath().resolve("models"))
+            if (isEnabled) {
+                runtimes.loadSignalPacks(dataFolder.toPath().resolve("signal-packs"))
+                runtimes.loadModelPackages(dataFolder.toPath().resolve("models"))
+            }
         }
         val admin = SimpleSignalsAdminCommand(this, runtimes, SimpleSignalsDefinitionDrafts(dataFolder.toPath()))
         val wands = SectionWandHandler(this,

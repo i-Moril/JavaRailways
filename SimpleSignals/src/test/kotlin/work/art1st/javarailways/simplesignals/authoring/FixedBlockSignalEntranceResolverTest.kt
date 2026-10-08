@@ -63,12 +63,24 @@ class FixedBlockSignalEntranceResolverTest {
         }
     }
 
-    @Test fun `entrance without existing primary signal is rejected`() {
-        val failure = assertThrows(IllegalArgumentException::class.java) {
-            FixedBlockSignalEntranceResolver.resolve(snapshot(block("test:block", true)), emptyList(),
-                RailPositionSnapshot(rail, ViewDirection.AB, 2.0))
-        }
-        assertEquals("This fixed-block entrance has no primary signal to update", failure.message)
+    @Test fun `entrance without existing primary signal still resolves its stable binding`() {
+        val resolved = FixedBlockSignalEntranceResolver.resolve(snapshot(block("test:block", true)), emptyList(),
+            RailPositionSnapshot(rail, ViewDirection.AB, 2.0))
+        assertEquals("test:block", resolved.blockId)
+        assertEquals(FixedBlockEntryDirection.FORWARD, resolved.entryDirection)
+        assertEquals(null, resolved.signal)
+    }
+
+    @Test fun `stored binding is revalidated against current block direction and signal`() {
+        val configured = signal("test:reverse", FixedBlockEntryDirection.REVERSE)
+        val binding = SignalWandBinding(UUID(9, 9), "test:block", FixedBlockEntryDirection.REVERSE)
+        assertEquals(configured, FixedBlockSignalEntranceResolver.resolve(
+            snapshot(block("test:block", true)), listOf(configured), binding).signal)
+        assertEquals("The bound fixed block no longer allows reverse entry", assertThrows(
+            IllegalArgumentException::class.java
+        ) {
+            FixedBlockSignalEntranceResolver.resolve(snapshot(block("test:block", false)), listOf(configured), binding)
+        }.message)
     }
 
     private fun snapshot(vararg blocks: FixedBlockDefinition) = FixedBlockCatalog().also {

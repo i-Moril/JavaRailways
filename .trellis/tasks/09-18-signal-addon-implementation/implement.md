@@ -1,5 +1,28 @@
 # Stage 2 implementation plan
 
+## 2026-10-08 Signal Wand two-step authoring follow-up
+
+- [x] Replace the temporary one-click edit interaction with item-bound placement/deletion modes. Placement left-click
+  resolves and stores the exact world/block/entry-direction binding with a checked state revision; right-click
+  revalidates that binding and submits identity/upright rail-attached placement. The action bar and lore expose mode,
+  type and binding, and a bound item receives enchantment glint. Switching modes clears the old binding.
+- [x] Add fixed-block primary deletion through the existing manager transaction. The patch removes the selected primary
+  and every directly attached device atomically while retaining the block, other entrances and unrelated devices.
+  Catalog/runtime/publication/topology and exact item-state guards remain in both asynchronous stages.
+- [x] Create a primary at an empty bound entrance with a generated namespaced UUID device ID, revision 0 and intentional
+  `inspectionLeadTimeSeconds = 0.0`. The user confirmed that zero means no plugin-added preparation lead; SimpleATO still
+  takes its dynamic lookahead/braking horizon and the block authority floor remains. This is a current Wand policy, not
+  a placeholder or package field. Generated IDs are checked against all existing device identities before the manager
+  patch so a collision rejects without rebinding or overwriting. Existing updates preserve their prior lead time.
+- [ ] Live Folia interaction, actual client glint/model rendering and plugin/world unload behavior remain deployment
+  verification; protection signals, separately placed attached signals, measurement, ground placement, styles/presets
+  and hot reload remain outside this follow-up.
+- [x] Offline gate passed: `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava` with 46 suites / 472
+  SimpleSignals tests, zero failures/errors/skips; plugin JAR isolation and Java consumer compilation passed.
+  Focused tests distinguish deterministic owner/worker interaction from real manager persistence/publication effects;
+  creation verifies zero extra lead, generated identity, JS/model binding, collision, edit denial and stale topology;
+  no live Folia/client assertion is claimed. Scoped `git diff --check` passed.
+
 ## 2026-10-08 Signal Wand fixed-block vertical slice
 
 - [x] Expose an internal immutable player-facing catalog view sorted by `signalType`; it contains only stable type

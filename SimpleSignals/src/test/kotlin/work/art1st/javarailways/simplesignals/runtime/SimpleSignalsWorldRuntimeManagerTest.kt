@@ -1145,7 +1145,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val capture = backend.capture(fixture.worldId, "automatic:slow")
         val position = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
 
-        val outcome = backend.perform(capture, position) { true }
+        val binding = backend.resolveEntrance(capture, position)
+        val outcome = backend.place(capture, binding, position) { true }
 
         assertTrue(outcome.message.contains("Updated signal"), outcome.message)
         val live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
@@ -1195,13 +1196,183 @@ class SimpleSignalsWorldRuntimeManagerTest {
         infrastructure.nextEditDecision = TopologyEditDecision(TopologyEditStatus.CONFLICT,
             detail = "active route uses this rail")
 
-        val outcome = backend.perform(capture,
-            RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)) { true }
+        val position = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
+        val outcome = backend.place(capture, backend.resolveEntrance(capture, position), position) { true }
 
         assertTrue(outcome.message.contains("active route uses this rail"), outcome.message)
         assertSame(publication, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
         assertEquals(initial, manager.authoringRuntime(fixture.worldId)!!.currentDefinitions())
         assertEquals(disk, Files.readString(definitions.primaryFile(fixture.worldId)))
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `signal wand deletion removes selected primary and direct attachments while retaining unrelated definitions`() {
+        val fixture = Fixture()
+        val selectedBlock = FixedBlockDefinition("test:wand-delete-block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)))
+        val retainedBlock = FixedBlockDefinition("test:wand-retained-block", 1,
+            listOf(FixedBlockTraversal(fixture.exit, ViewDirection.AB, 6.0, 10.0)))
+        val selectedSignal = FixedBlockSignalDefinition("test:wand-delete-device", 1,
+            selectedBlock.blockId, 12.0, "automatic:block")
+        val retainedSignal = FixedBlockSignalDefinition("test:wand-retained-device", 1,
+            retainedBlock.blockId, 7.0, "automatic:block")
+        val placement = ModelPlacement.Ground(ModelPose(3.0, 64.0, 4.0, 0.0, 0.0, 0.0, 1.0))
+        val selectedAttached = AttachedSignalDefinition("test:wand-delete-attached", 1,
+            selectedSignal.signalId, DeviceModelDefinition("demo_signals:home", placement))
+        val definitions = store()
+        definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            emptyList(), emptyList(), listOf(selectedBlock, retainedBlock),
+            listOf(selectedSignal, retainedSignal), attachedSignals = listOf(selectedAttached)))
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            CapturingSignalEpochSourceService(), loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val backend = RuntimeSignalWandBackend(manager, infrastructure.service)
+        val capture = backend.capture(fixture.worldId, "automatic:block")
+
+        val outcome = backend.delete(capture,
+            RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)) { true }
+
+        assertTrue(outcome.message.contains("1 attached device"), outcome.message)
+        val live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        assertEquals(listOf(selectedBlock, retainedBlock), live.fixedBlocks)
+        assertEquals(listOf(retainedSignal), live.fixedBlockSignals)
+        assertEquals(emptyList<AttachedSignalDefinition>(), live.attachedSignals)
+        assertEquals(live, (definitions.load(fixture.worldId) as
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+        assertEquals(1, infrastructure.permitAcquisitionCount)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `signal wand creates empty entrance with stable ID zero extra lead JS and model binding`() {
+        val fixture = Fixture()
+        val block = FixedBlockDefinition("test:wand-empty-block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)))
+        val definitions = store()
+        val initial = SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            emptyList(), emptyList(), listOf(block))
+        definitions.save(fixture.worldId, initial)
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val sources = CapturingSignalEpochSourceService()
+        val models = RecordingModels()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            sources, modelPresentation = models, loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val backend = RuntimeSignalWandBackend(manager, infrastructure.service) { "test:generated-signal" }
+        val capture = backend.capture(fixture.worldId, "automatic:block")
+        val entrance = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
+        val binding = backend.resolveEntrance(capture, entrance)
+
+        val outcome = backend.place(capture, binding, entrance) { true }
+
+        assertTrue(outcome.message.contains("Created signal test:generated-signal"), outcome.message)
+        val live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        val created = live.fixedBlockSignals.single()
+        assertEquals("test:generated-signal", created.signalId)
+        assertEquals(0L, created.revision)
+        assertEquals(0.0, created.inspectionLeadTimeSeconds)
+        assertEquals(block.blockId, created.controlledBlockId)
+        assertEquals("automatic:block", created.signalType)
+        assertEquals(ModelPlacement.RailAttached(entrance), created.placement)
+        assertEquals(live, (definitions.load(fixture.worldId) as
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+        assertEquals("automatic:head", manager.authoringRuntime(fixture.worldId)!!.currentModels()!!.prepared
+            .signals.getValue(created.signalId).single().model.id)
+
+        SignalEpochRuntime(fixture.worldId.toString(), TrainRestrictionSnapshotStore(fixture.worldId.toString())).also {
+            it.replaceSources(sources.sources.getValue(fixture.worldId))
+            it.process(RailwayWorldFrameSnapshot.create(1, fixture.currentTopology.revision, emptyList(),
+                ActiveRailContinuationsSnapshot.empty(fixture.currentTopology.revision)))
+        }
+        assertEquals(25.0, manager.authoringRuntime(fixture.worldId)!!.sectionSignalSnapshot()!!.states
+            .getValue(created.signalId).effectiveSpeedLimitMetersPerSecond)
+        assertEquals(1, infrastructure.permitAcquisitionCount)
+        models.cleanup.complete(null)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `signal wand creation rejects generated device ID collisions before mutation`() {
+        val fixture = Fixture()
+        val target = FixedBlockDefinition("test:wand-target-block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)))
+        val existingBlock = FixedBlockDefinition("test:wand-existing-block", 1,
+            listOf(FixedBlockTraversal(fixture.exit, ViewDirection.AB, 6.0, 10.0)))
+        val existing = FixedBlockSignalDefinition("test:existing-device", 1,
+            existingBlock.blockId, 8.0, "automatic:block")
+        val initial = SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            emptyList(), emptyList(), listOf(target, existingBlock), listOf(existing))
+        val definitions = store()
+        definitions.save(fixture.worldId, initial)
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            CapturingSignalEpochSourceService(), loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val backend = RuntimeSignalWandBackend(manager, infrastructure.service) { existing.signalId }
+        val capture = backend.capture(fixture.worldId, "automatic:block")
+        val entrance = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
+        val binding = backend.resolveEntrance(capture, entrance)
+        val publication = manager.authoringRuntime(fixture.worldId)!!.authoringPublication()
+        val retained = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        val disk = Files.readString(definitions.primaryFile(fixture.worldId))
+
+        val failure = assertThrows(IllegalArgumentException::class.java) {
+            backend.place(capture, binding, entrance) { true }
+        }
+
+        assertTrue(failure.message!!.contains("collides with an existing device"), failure.message)
+        assertSame(publication, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
+        assertEquals(retained, manager.authoringRuntime(fixture.worldId)!!.currentDefinitions())
+        assertEquals(disk, Files.readString(definitions.primaryFile(fixture.worldId)))
+        assertEquals(0, infrastructure.permitAcquisitionCount)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `signal wand creation edit denial retains empty entrance disk and publication atomically`() {
+        val fixture = Fixture()
+        val block = FixedBlockDefinition("test:wand-denied-create-block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)))
+        val initial = SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            emptyList(), emptyList(), listOf(block))
+        val definitions = store()
+        definitions.save(fixture.worldId, initial)
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            CapturingSignalEpochSourceService(), loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val backend = RuntimeSignalWandBackend(manager, infrastructure.service) { "test:denied-created-device" }
+        val capture = backend.capture(fixture.worldId, "automatic:block")
+        val entrance = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
+        val binding = backend.resolveEntrance(capture, entrance)
+        val publication = manager.authoringRuntime(fixture.worldId)!!.authoringPublication()
+        val disk = Files.readString(definitions.primaryFile(fixture.worldId))
+        infrastructure.nextEditDecision = TopologyEditDecision(TopologyEditStatus.CONFLICT,
+            detail = "active route uses this rail")
+
+        val outcome = backend.place(capture, binding, entrance) { true }
+
+        assertTrue(outcome.message.contains("active route uses this rail"), outcome.message)
+        assertSame(publication, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
+        assertEquals(initial, manager.authoringRuntime(fixture.worldId)!!.currentDefinitions())
+        assertEquals(disk, Files.readString(definitions.primaryFile(fixture.worldId)))
+        assertEquals(1, infrastructure.permitAcquisitionCount)
+
+        infrastructure.topology = fixture.topology(42L)
+        val stale = assertThrows(IllegalArgumentException::class.java) {
+            backend.place(capture, binding, entrance) { true }
+        }
+        assertTrue(stale.message!!.contains("expired"), stale.message)
+        assertSame(publication, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
+        assertEquals(initial, manager.authoringRuntime(fixture.worldId)!!.currentDefinitions())
+        assertEquals(disk, Files.readString(definitions.primaryFile(fixture.worldId)))
+        assertEquals(1, infrastructure.permitAcquisitionCount)
         manager.clearLocal().toCompletableFuture().join()
     }
 

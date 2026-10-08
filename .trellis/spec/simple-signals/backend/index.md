@@ -12,7 +12,8 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 已建立catalog signal type驱动的JS规则执行边界、灯色/限速输出快照及其列车限制投影；固定闭塞主信号、保护区域固定进路信号、
 当前入口信号都引用必填 `signalType`，presentation-only进路显示器不执行规则；
 已提供独立管理员 inspect/export/validate/apply 命令及 current-JSON 草稿工作流；
-现已接入[闭塞与保护区域 Wand](section-authoring-wands.md)，并提供只能更新既有固定闭塞入口主信号类型与轨道位置的首个信号工具切片；创建、删除及其他设备类型仍未提供。
+现已接入[闭塞与保护区域 Wand](section-authoring-wands.md)，并提供固定闭塞入口主信号的两步绑定／摆放、新建、更新与级联删除；
+保护信号、附属信号的独立摆放及其他设备类型仍未提供。
 用户已确认距离敏感规则使用 JS，不扩展距离条件配置表；[JS 规则契约](js-signal-rules.md)中的统一包加载、独立
 GraalJS 沙箱、有向区间图到不可变前视树的编译，以及真实 world publication 到连接图的准备均已实现。
 同步 signal epoch 填值、JS 求值以及 catalog-backed 主信号的模型绑定已接线；区间环和正长度无区间环都只停止命中分支。真实 Folia/客户端画面

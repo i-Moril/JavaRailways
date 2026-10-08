@@ -13,9 +13,9 @@ internal object FixedBlockSignalEntranceResolver {
     const val SNAP_METERS = 0.75
 
     data class Resolved(
-        val signal: FixedBlockSignalDefinition,
         val blockId: String,
-        val entryDirection: FixedBlockEntryDirection
+        val entryDirection: FixedBlockEntryDirection,
+        val signal: FixedBlockSignalDefinition?
     )
 
     private data class Candidate(
@@ -41,10 +41,28 @@ internal object FixedBlockSignalEntranceResolver {
         require(candidates.size == 1) { "The selected boundary is shared by multiple fixed-block entrances" }
         val candidate = candidates.single()
         require(candidate.bidirectional) { "The selected fixed block does not allow reverse entry" }
-        val signal = signals.singleOrNull {
+        val matchingSignals = signals.filter {
             it.controlledBlockId == candidate.blockId && it.entryDirection == candidate.direction
-        } ?: throw IllegalArgumentException("This fixed-block entrance has no primary signal to update")
-        return Resolved(signal, candidate.blockId, candidate.direction)
+        }
+        require(matchingSignals.size <= 1) { "The selected fixed-block entrance has multiple primary signals" }
+        return Resolved(candidate.blockId, candidate.direction, matchingSignals.singleOrNull())
+    }
+
+    fun resolve(
+        blocks: FixedBlockReadSnapshot,
+        signals: Collection<FixedBlockSignalDefinition>,
+        binding: SignalWandBinding
+    ): Resolved {
+        val block = blocks.blocksById[binding.blockId]
+            ?: throw IllegalArgumentException("The bound fixed block no longer exists")
+        require(binding.entryDirection != FixedBlockEntryDirection.REVERSE || block.definition.bidirectional) {
+            "The bound fixed block no longer allows reverse entry"
+        }
+        val matchingSignals = signals.filter {
+            it.controlledBlockId == binding.blockId && it.entryDirection == binding.entryDirection
+        }
+        require(matchingSignals.size <= 1) { "The bound fixed-block entrance has multiple primary signals" }
+        return Resolved(binding.blockId, binding.entryDirection, matchingSignals.singleOrNull())
     }
 
     private fun candidate(

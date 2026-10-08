@@ -45,6 +45,7 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simplesignals.region.SIMPLE_SIGNALS_NAMESPACED_ID
+import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
 import work.art1st.javarailways.simplesignals.signalpack.AvailableSignalType
 import java.util.Optional
 import java.util.UUID
@@ -68,7 +69,7 @@ internal class SignalWandHandler(
     },
     private val replaceToolState: (Player, SignalWandState, SignalWandState) -> Boolean =
         { player, expected, replacement -> replaceMainHandState(plugin, player, expected, replacement) },
-    private val showSettings: (Player, List<SignalWandSetting>, (String) -> Unit) -> Unit =
+    private val showSettings: (Player, List<SignalWandSetting>, (SignalWandSettingAction) -> Unit) -> Unit =
         { player, settings, selected -> showNativeSettings(player, settings, selected) },
     private val scheduleStatus: (Player, () -> Unit, () -> Unit) -> SignalWandStatusTask? =
         { player, action, retired ->
@@ -101,13 +102,13 @@ internal class SignalWandHandler(
         if (available.isEmpty()) {
             sender.sendMessage(Component.text("No signal types are available")); return true
         }
-        val state = SignalWandState(newItemId(), 0L, available.first().signalType)
+        val state = SignalWandState(newItemId(), 0L, SignalWandMode.PLACEMENT, available.first().signalType)
         sessions.invalidate(sender.uniqueId)
         try {
             giveTool(sender, state)
             refreshStatus(sender)
             sender.sendMessage(Component.text(
-                "Signal Wand created. Shift-right-click to select a signal type; click an existing fixed-block entrance signal to update it."
+                "Signal Wand created. Shift-right-click for mode/type; left-click an entrance to bind, then right-click a rail to place."
             ))
         } catch (failure: Exception) {
             sender.sendMessage(Component.text(failure.message ?: "Cannot create signal wand"))
@@ -125,7 +126,7 @@ internal class SignalWandHandler(
         if (player.isSneaking && (event.action == Action.RIGHT_CLICK_AIR || event.action == Action.RIGHT_CLICK_BLOCK)) {
             openSettings(player, state)
         } else {
-            click(player, state)
+            click(player, state, event.action)
         }
     }
 
@@ -138,45 +139,84 @@ internal class SignalWandHandler(
         if (available.isEmpty()) {
             player.sendMessage(Component.text("No signal types are available")); return
         }
-        val settings = available.map {
-            SignalWandSetting(it.signalType, it.displayName, it.signalType == openingState.signalType)
+        val settings = SignalWandMode.entries.map { mode ->
+            SignalWandSetting(SignalWandSettingAction.Mode(mode), "Mode: ${mode.label}", mode == openingState.mode)
+        } + available.map {
+            SignalWandSetting(SignalWandSettingAction.Type(it.signalType),
+                "${it.signalType} — ${it.displayName}", it.signalType == openingState.signalType)
         }
-        showSettings(player, settings) { signalType ->
-            entity(player) { selectType(player, openingState, signalType) }
+        showSettings(player, settings) { action ->
+            entity(player) { selectSetting(player, openingState, action) }
         }
     }
 
-    internal fun selectType(player: Player, openingState: SignalWandState, signalType: String) {
+    internal fun selectSetting(
+        player: Player,
+        openingState: SignalWandState,
+        action: SignalWandSettingAction
+    ) {
         if (!canUse(player)) return
         val current = toolInHand(player)
         if (current != openingState) {
             player.sendMessage(Component.text("Signal Wand settings expired; reopen the settings page")); return
         }
         val available = currentTypes()
-        if (available == null || available.none { it.signalType == signalType }) {
-            player.sendMessage(Component.text("Signal type is no longer available: $signalType")); return
+        if (available == null) {
+            player.sendMessage(Component.text("Signal type catalog is not ready")); return
+        }
+        if (action is SignalWandSettingAction.Type && available.none { it.signalType == action.signalType }) {
+            player.sendMessage(Component.text("Signal type is no longer available: ${action.signalType}")); return
         }
         val revision = try {
             Math.addExact(current.stateRevision, 1L)
         } catch (_: ArithmeticException) {
             player.sendMessage(Component.text("Signal Wand state revision overflow; replace this wand")); return
         }
-        val replacement = SignalWandState(current.itemId, revision, signalType)
+        val replacement = when (action) {
+            is SignalWandSettingAction.Mode -> current.copy(
+                stateRevision = revision,
+                mode = action.mode,
+                binding = if (action.mode == current.mode) current.binding else null
+            )
+            is SignalWandSettingAction.Type -> current.copy(
+                stateRevision = revision,
+                signalType = action.signalType
+            )
+        }
         if (!replaceToolState(player, current, replacement)) {
             player.sendMessage(Component.text("Signal Wand settings expired; reopen the settings page")); return
         }
         sessions.invalidate(player.uniqueId)
         refreshStatus(player)
-        player.sendMessage(Component.text("Signal Wand type selected: $signalType"))
+        player.sendMessage(Component.text(when (action) {
+            is SignalWandSettingAction.Mode -> "Signal Wand mode selected: ${action.mode.label}"
+            is SignalWandSettingAction.Type -> "Signal Wand type selected: ${action.signalType}"
+        }))
     }
 
-    internal fun click(player: Player, state: SignalWandState) {
+    internal fun click(player: Player, state: SignalWandState, action: Action) {
         val playerId = player.uniqueId
         if (!canUse(player) || toolInHand(player) != state) {
             sessions.invalidate(playerId)
             if (operational() && !player.hasPermission(PERMISSION)) {
                 player.sendMessage(Component.text("SimpleSignals: missing permission $PERMISSION"))
             }
+            return
+        }
+        val operation = when {
+            state.mode == SignalWandMode.DELETION &&
+                (action == Action.LEFT_CLICK_AIR || action == Action.LEFT_CLICK_BLOCK) -> SignalWandOperation.DELETE
+            state.mode == SignalWandMode.PLACEMENT &&
+                (action == Action.LEFT_CLICK_AIR || action == Action.LEFT_CLICK_BLOCK) -> SignalWandOperation.BIND
+            state.mode == SignalWandMode.PLACEMENT &&
+                (action == Action.RIGHT_CLICK_AIR || action == Action.RIGHT_CLICK_BLOCK) -> SignalWandOperation.PLACE
+            else -> {
+                player.sendMessage(Component.text("Deletion mode uses left-click on a fixed-block entrance"))
+                return
+            }
+        }
+        if (operation == SignalWandOperation.PLACE && state.binding == null) {
+            player.sendMessage(Component.text("Left-click a fixed-block entrance before placing its signal"))
             return
         }
         val worldId = player.world.uid
@@ -195,6 +235,30 @@ internal class SignalWandHandler(
         fun complete(message: String) = entity(player) {
             if (ownerCurrent()) player.sendMessage(Component.text(message.take(MESSAGE_LIMIT)))
             session.busy.set(false)
+        }
+        fun completeBinding(binding: SignalWandBinding) = entity(player) {
+            if (!ownerCurrent()) {
+                sessions.invalidate(playerId, session)
+                return@entity
+            }
+            val revision = try {
+                Math.addExact(state.stateRevision, 1L)
+            } catch (_: ArithmeticException) {
+                session.busy.set(false)
+                player.sendMessage(Component.text("Signal Wand state revision overflow; replace this wand"))
+                return@entity
+            }
+            val replacement = state.copy(stateRevision = revision, binding = binding)
+            if (!replaceToolState(player, state, replacement)) {
+                sessions.invalidate(playerId, session)
+                player.sendMessage(Component.text("Signal selection expired; select again"))
+                return@entity
+            }
+            sessions.invalidate(playerId, session)
+            refreshStatus(player)
+            player.sendMessage(Component.text(
+                "Bound ${binding.blockId} ${binding.entryDirection}; right-click a rail to place the signal"
+            ))
         }
         try {
             findTarget(player).whenComplete { target, failure ->
@@ -217,8 +281,12 @@ internal class SignalWandHandler(
                             require(abs(dot) >= 0.15) { "Look along the rail into the fixed block" }
                             val point = RailPositionSnapshot(selected.rail().id,
                                 if (dot >= 0) ViewDirection.AB else ViewDirection.BA, selected.arcLength())
-                            val outcome = backend.perform(captured, point, ::active)
-                            complete(outcome.message)
+                            when (operation) {
+                                SignalWandOperation.BIND -> completeBinding(backend.resolveEntrance(captured, point))
+                                SignalWandOperation.PLACE -> complete(
+                                    backend.place(captured, checkNotNull(state.binding), point, ::active).message)
+                                SignalWandOperation.DELETE -> complete(backend.delete(captured, point, ::active).message)
+                            }
                         } catch (failure: Exception) {
                             complete("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
                         }
@@ -337,12 +405,30 @@ internal class SignalWandHandler(
         }
 
         internal fun encodeState(state: SignalWandState): String = STATE_JSON.encodeToString(
-            PersistedSignalWandState(state.itemId.toString(), state.stateRevision, state.signalType)
+            PersistedSignalWandState(
+                state.itemId.toString(),
+                state.stateRevision,
+                state.mode.name,
+                state.signalType,
+                state.binding?.let {
+                    PersistedSignalWandBinding(
+                        it.worldId.toString(), it.blockId, it.entryDirection.name)
+                }
+            )
         )
 
         internal fun decodeState(encoded: String): SignalWandState? = try {
             val persisted = STATE_JSON.decodeFromString<PersistedSignalWandState>(encoded)
-            SignalWandState(UUID.fromString(persisted.itemId), persisted.stateRevision, persisted.signalType)
+            SignalWandState(
+                UUID.fromString(persisted.itemId),
+                persisted.stateRevision,
+                SignalWandMode.valueOf(persisted.mode),
+                persisted.signalType,
+                persisted.binding?.let {
+                    SignalWandBinding(UUID.fromString(it.worldId), it.blockId,
+                        FixedBlockEntryDirection.valueOf(it.entryDirection))
+                }
+            )
         } catch (_: Exception) {
             null
         }
@@ -351,10 +437,7 @@ internal class SignalWandHandler(
             editMeta { meta ->
                 meta.displayName(Component.text("SimpleSignals Signal Wand"))
                 writeTool(plugin, meta.persistentDataContainer, state)
-                meta.lore(listOf(
-                    Component.text("Shift-right-click: select signal type"),
-                    Component.text("Selected type: ${state.signalType}")
-                ))
+                decorate(meta, state)
             }
         }
 
@@ -368,10 +451,7 @@ internal class SignalWandHandler(
             if (readTool(plugin, item) != expected) return false
             item.editMeta { meta ->
                 writeTool(plugin, meta.persistentDataContainer, replacement)
-                meta.lore(listOf(
-                    Component.text("Shift-right-click: select signal type"),
-                    Component.text("Selected type: ${replacement.signalType}")
-                ))
+                decorate(meta, replacement)
             }
             return readTool(plugin, item) == replacement
         }
@@ -383,19 +463,30 @@ internal class SignalWandHandler(
                 !availableNow -> " (unavailable)"
                 else -> ""
             }
-            return Component.text("Signal Wand | mode: fixed-block signal | type: ${state.signalType}$suffix")
+            val binding = state.binding?.let { " | bound: ${it.blockId} ${it.entryDirection}" } ?: " | bound: none"
+            return Component.text("Signal Wand | mode: ${state.mode.label} | type: ${state.signalType}$suffix$binding")
+        }
+
+        internal fun decorate(meta: org.bukkit.inventory.meta.ItemMeta, state: SignalWandState) {
+            meta.lore(listOf(
+                Component.text("Shift-right-click: mode and signal type"),
+                Component.text("Mode: ${state.mode.label}"),
+                Component.text("Selected type: ${state.signalType}"),
+                Component.text(state.binding?.let { "Bound: ${it.blockId} ${it.entryDirection}" } ?: "Bound: none")
+            ))
+            meta.setEnchantmentGlintOverride(state.binding != null)
         }
 
         private fun showNativeSettings(
             player: Player,
             settings: List<SignalWandSetting>,
-            selected: (String) -> Unit
+            selected: (SignalWandSettingAction) -> Unit
         ) {
             val buttons = settings.map { setting ->
                 val label = (if (setting.selected) "✓ " else "") +
-                    "${setting.signalType} — ${setting.displayName.take(DISPLAY_NAME_LIMIT)}"
+                    setting.label.take(DISPLAY_NAME_LIMIT)
                 val action = DialogAction.customClick(
-                    { _, audience -> if (audience === player) selected(setting.signalType) },
+                    { _, audience -> if (audience === player) selected(setting.action) },
                     ClickCallback.Options.builder().uses(1).lifetime(ClickCallback.DEFAULT_LIFETIME).build()
                 )
                 ActionButton.builder(Component.text(label, if (setting.selected) NamedTextColor.GREEN else NamedTextColor.YELLOW))
@@ -406,7 +497,7 @@ internal class SignalWandHandler(
                 factory.empty()
                     .base(DialogBase.builder(Component.text("Signal Wand settings", NamedTextColor.GOLD))
                         .body(listOf(DialogBody.plainMessage(Component.text(
-                            "Select the signal type stored by this Wand.", NamedTextColor.GRAY))))
+                            "Select the mode and signal type stored by this Wand.", NamedTextColor.GRAY))))
                         .canCloseWithEscape(true)
                         .build())
                     .type(DialogType.multiAction(buttons, null, 1))
@@ -422,7 +513,9 @@ internal class SignalWandHandler(
 internal data class SignalWandState(
     val itemId: UUID,
     val stateRevision: Long,
-    val signalType: String
+    val mode: SignalWandMode,
+    val signalType: String,
+    val binding: SignalWandBinding? = null
 ) {
     init {
         require(stateRevision >= 0L) { "stateRevision must be non-negative" }
@@ -430,18 +523,49 @@ internal data class SignalWandState(
     }
 }
 
+internal enum class SignalWandMode(val label: String) {
+    PLACEMENT("placement"),
+    DELETION("deletion")
+}
+
+internal data class SignalWandBinding(
+    val worldId: UUID,
+    val blockId: String,
+    val entryDirection: FixedBlockEntryDirection
+) {
+    init {
+        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(blockId)) { "bound blockId must be namespaced" }
+    }
+}
+
 @Serializable
 private data class PersistedSignalWandState(
     val itemId: String,
     val stateRevision: Long,
-    val signalType: String
+    val mode: String,
+    val signalType: String,
+    val binding: PersistedSignalWandBinding? = null
+)
+
+@Serializable
+private data class PersistedSignalWandBinding(
+    val worldId: String,
+    val blockId: String,
+    val entryDirection: String
 )
 
 internal data class SignalWandSetting(
-    val signalType: String,
-    val displayName: String,
+    val action: SignalWandSettingAction,
+    val label: String,
     val selected: Boolean
 )
+
+internal sealed interface SignalWandSettingAction {
+    data class Mode(val mode: SignalWandMode) : SignalWandSettingAction
+    data class Type(val signalType: String) : SignalWandSettingAction
+}
+
+private enum class SignalWandOperation { BIND, PLACE, DELETE }
 
 internal fun interface SignalWandStatusTask {
     fun cancel()

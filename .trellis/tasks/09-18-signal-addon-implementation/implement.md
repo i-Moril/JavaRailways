@@ -1,22 +1,5 @@
 # Stage 2 implementation plan
 
-## 2026-10-08 First playable Paper smoke path
-
-- [x] Make the development runners load the independent SimpleSignals JAR, and add an isolated `runSignalSmoke` empty-world
-  runner which stages only a development copy of the shipped JR example; production plugin startup must not auto-install demo data.
-- [x] Convert the real JR four-light asset into a current unified signal pack with an intentionally minimal occupancy-only
-  fixed-block JS rule, while retaining the model-only example for later attached displays.
-- [x] Package the matching 1.21.11 client resource pack, test the shipped unified package directly, and document the exact
-  `/phys create` → block Wand → Signal Wand → `/phys train 2` smoke path. Paper is the first visual target; do not claim
-  the 1.21.11 resource metadata is valid for the current 26.1.2 Folia runner.
-
-  Offline gate passed: full `:SimpleSignals:check`, host Java consumer compile, host shadow JAR and Dev JAR build; the shipped
-  JR example is loaded directly and the resource ZIP/staging contents were inspected. Live Paper 1.21.11 smoke then loaded
-  JavaRailways, JavaRailwaysDev and SimpleSignals, resolved concrete Graal libraries, reported `/phys` ready, installed empty
-  runtimes for all three worlds, and returned an installed `/simplesignals inspect world`. The server stopped cleanly.
-  Client Wand/model interaction and Folia remain explicit follow-up checks. The old `run/` data was not deleted or reset;
-  its `physics.yml` alone was migrated with the existing dry-run/apply tool and a timestamped restore point.
-
 ## 2026-10-08 Signal Wand protection-primary follow-up
 
 - [x] Add a control-kind setting independent of placement/deletion mode and signal type. The current unpublished Wand PDC

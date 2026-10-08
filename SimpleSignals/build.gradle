@@ -84,14 +84,6 @@ tasks.named('processTestResources') {
     }
 }
 
-tasks.register('jrFourLightResourcePack', Zip) {
-    group = 'distribution'
-    description = 'Packages the JR four-light client resource pack used by the development smoke test.'
-    archiveFileName = 'jr-four-light-resourcepack.zip'
-    destinationDirectory = layout.buildDirectory.dir('distributions')
-    from('examples/jr-four-light/resourcepack')
-}
-
 bukkitPluginYaml {
     name = 'SimpleSignals'
     main = 'work.art1st.javarailways.simplesignals.SimpleSignalsPlugin'

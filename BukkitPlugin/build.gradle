@@ -18,26 +18,6 @@ runPaper {
 
 def foliaPluginJar = layout.buildDirectory.file("folia-plugin/JavaRailways.jar")
 def simpleSignalsJar = project(":SimpleSignals").tasks.named("jar", Jar)
-def simpleSignalsSmokePack = project(":SimpleSignals").layout.projectDirectory.dir(
-    "examples/jr-four-light/server/signal-packs/jr-four-light"
-)
-def simpleSignalsResourcePack = project(":SimpleSignals").tasks.named("jrFourLightResourcePack")
-
-def stageSimpleSignalsSmokePack = { String taskName, String runDirectory ->
-    tasks.register(taskName, Sync) {
-        from(simpleSignalsSmokePack)
-        into(layout.projectDirectory.dir("${runDirectory}/plugins/SimpleSignals/signal-packs/jr-four-light"))
-    }
-}
-def prepareSimpleSignalsPaperSmokeData = stageSimpleSignalsSmokePack(
-    "prepareSimpleSignalsPaperSmokeData", "run"
-)
-def prepareSimpleSignalsFoliaSmokeData = stageSimpleSignalsSmokePack(
-    "prepareSimpleSignalsFoliaSmokeData", "run-folia"
-)
-def prepareSimpleSignalsIsolatedSmokeData = stageSimpleSignalsSmokePack(
-    "prepareSimpleSignalsIsolatedSmokeData", "run-signal-smoke"
-)
 def prepareFoliaPlugin = tasks.register("prepareFoliaPlugin") {
     dependsOn(tasks.shadowJar)
     inputs.file(tasks.shadowJar.archiveFile)
@@ -66,8 +46,7 @@ def prepareFoliaPlugin = tasks.register("prepareFoliaPlugin") {
 runPaper.folia.registerTask {
     minecraftVersion("26.1.2")
     runDirectory = file("run-folia")
-    dependsOn(prepareFoliaPlugin, ":TunnelBridgeBuilder:shadowJar", simpleSignalsJar,
-        simpleSignalsResourcePack, prepareSimpleSignalsFoliaSmokeData)
+    dependsOn(prepareFoliaPlugin, ":TunnelBridgeBuilder:shadowJar", simpleSignalsJar)
     pluginJars.from(foliaPluginJar)
     pluginJars.from(project(":TunnelBridgeBuilder").tasks.named("shadowJar").flatMap { it.archiveFile })
     pluginJars.from(simpleSignalsJar.flatMap { it.archiveFile })
@@ -157,8 +136,7 @@ tasks {
         pluginJars.from(provider {
             rootProject.project(":BukkitPluginDev").tasks.shadowJar.archiveFile.get().asFile
         })
-        dependsOn(":BukkitPluginDev:shadowJar", ":TunnelBridgeBuilder:shadowJar", simpleSignalsJar,
-            simpleSignalsResourcePack, prepareSimpleSignalsPaperSmokeData)
+        dependsOn(":BukkitPluginDev:shadowJar", ":TunnelBridgeBuilder:shadowJar", simpleSignalsJar)
         doFirst {
             delete(layout.projectDirectory.dir("run/plugins/.paper-remapped"))
         }
@@ -168,22 +146,6 @@ tasks {
 //        // for a variety of reasons, however it's asked frequently enough that an example of how to do it is included here.
 //        outputJar = layout.buildDirectory.file("libs/PaperweightTestPlugin-${project.version}.jar")
 //    }
-}
-
-tasks.register("runSignalSmoke", xyz.jpenilla.runpaper.task.RunServer) {
-    group = "run paper"
-    description = "Runs a clean Paper 1.21.11 world with JavaRailways, JavaRailwaysDev and SimpleSignals."
-    minecraftVersion("1.21.11")
-    runDirectory = file("run-signal-smoke")
-    pluginJars.from(tasks.shadowJar.archiveFile)
-    pluginJars.from(simpleSignalsJar.flatMap { it.archiveFile })
-    pluginJars.from(project(":BukkitPluginDev").tasks.named("shadowJar").flatMap { it.archiveFile })
-    dependsOn(tasks.shadowJar, ":BukkitPluginDev:shadowJar", simpleSignalsJar,
-        simpleSignalsResourcePack, prepareSimpleSignalsIsolatedSmokeData)
-    jvmArgs("-Dcom.mojang.eula.agree=true")
-    doFirst {
-        delete(layout.projectDirectory.dir("run-signal-smoke/plugins/.paper-remapped"))
-    }
 }
 
 //paperweight.reobfArtifactConfiguration = io.papermc.paperweight.userdev.ReobfArtifactConfiguration.REOBF_PRODUCTION

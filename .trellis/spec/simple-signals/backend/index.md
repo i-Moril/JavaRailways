@@ -472,9 +472,8 @@ git diff --check
 
 `verifyPluginJar` 必须证明 artifact 含 `plugin.yml`，且不含 Core、Basic、SimpleATO 或 BukkitPlugin
 宿主 package。服务发现测试必须覆盖完整 capability 集合和缺少必需 capability 时的 fail-fast。
-首次真实 Paper 烟测使用 `:BukkitPlugin:runSignalSmoke` 的隔离空世界；该任务只在自己的 data folder staging
-仓库 JR 示例统一包，并生成 1.21.11 客户端资源包。自动测试和 JAR 检查不能替代 Paper library resolution、插件 enable、
-`/simplesignals inspect world` 与客户端模型画面；当前已验证前三项，客户端交互与 Folia 26.1.2 资源格式仍未验证。
+自动测试和 JAR 检查不能替代真实服务器的 Paper library resolution、插件 enable、管理员命令与客户端模型画面。
+当前已在 Paper 1.21.11 验证前三项；客户端交互与 Folia 26.1.2 仍未验证。
 保护区域测试必须覆盖简单/多道岔连通内部、outside reconnect、重叠、AB/BA路线窗口、缺少entry/exit和catalog失败不替换旧snapshot。
 固定闭塞测试必须覆盖多rail AB/BA、连续性与非法道岔transition、重复ID、定义revision冲突、局部拓扑失效、失败publication原子性、与保护区域
 正长度interior重叠拒绝但边界相接允许、reverse index、

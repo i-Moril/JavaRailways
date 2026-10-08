@@ -321,6 +321,11 @@ validated output still stops propagation.
 当前批次优先完成 SimpleSignals 自有的闭塞和保护区域 Wand，直接复用已有定义事务。
 独立信号机放置、测距和规则预设不作为这两个工具的前置条件，见[本批实施边界](research/section-wands-batch.md)。
 
+Signal Wand 的当前受限切片使用一个稳定物品 marker，另存 `itemId/stateRevision/signalType` 状态。
+命令只发放工具；类型选择由 SimpleSignals 自有的 Shift+右键 Paper dialog 完成。设置回调和普通编辑都比较 exact
+物品状态，revision 防止“切走再切回”复活旧操作。主手状态由每玩家一个 entity-scheduler task 约每10 tick显示，
+离手或生命周期失效即取消；不依赖 BukkitPlugin 私有 `AbstractWand`/`DialogRenderer`，也不建立通用 action-bar 仲裁层。
+
 SimpleSignals 自己负责信号模型包、模型操作对象、RailObjectWand 模式、命令、权限，以及可选的 JS/YAML 配置。
 显示侧读取不可变的信号结果，只在外观或摆放状态变化时更新模型。显示绑定将通过已实现的通用公开接口复用主插件的模型系统，
 不另写一套渲染器，也不把信号模型伪装成列车。

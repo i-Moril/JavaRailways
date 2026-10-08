@@ -8,7 +8,7 @@
 保护进路和环终止。固定闭塞／保护逻辑设备在世界 current model 中只保存必填 `type`；Kotlin 属性名为
 `signalType`。它是由 SimpleSignals catalog 解析的稳定 namespaced 类型身份，不保存 catalog 来源。
 `signalId` 继续表示世界内的一台设备，不能从它、模型 ID 或文件名猜测类型。同一 signal type 的 catalog 快照现在也
-决定生产模型；玩家通过 Wand 放置／选择包类型仍是 **TARGET**。
+决定生产模型；玩家通过 Wand 为既有固定闭塞入口主信号选择类型并移动轨道附着位置已是 **CURRENT**，创建新主信号及其他设备工具仍是 **TARGET**。
 除此之外不增加时间、内存、节点、分支或整波预算；包作者负责规则的终止性和成本。
 
 SimpleSignals 负责包加载、脚本执行、前视投影、输出校验和信号结果发布。Basic 仍只负责物理资源校验与仲裁，SimpleATO 仍负责路线前视、资源申请、动态制动和最严格约束合成。JS 不得选路、扳动道岔、授予资源、直接制动列车或修改世界。包分发与玩家可见类型见[统一信号包](model-packages.md#统一信号包modellogic-与一等-signal-类型)。
@@ -23,7 +23,7 @@ world `type`。另一套完整信号系统插件可以拥有自己的 domain/run
 1. 插件启动 worker 从 `signal-packs/` 读取元数据 `pack.yml`、`model/`、成对的 `logic/*.yml`／`logic/*.js`
    和 `signal/*.yml`，以稳定 `modelId`、`logicId`、`signalType` 编译并校验完整 catalog。每个 world 再把显式
    `deviceId -> signalType` 绑定编译为自己的 epoch runtime；同一个 catalog signal 的 materialized model 进入既有
-   `PreparedSignalModels`，世界只提供可选摆放。玩家放置仍属后续批次。
+   `PreparedSignalModels`，世界只提供可选摆放。当前 Wand 只更新既有固定闭塞主信号，创建新设备仍属后续批次。
 2. 拓扑或配置变更后，SimpleSignals 在低频准备阶段从信号入口编译前视计划。计划包含扫描范围内的所有合法后继，以及运行时筛选分支所需的道岔、保护进路和区间身份；它不包含某一 tick 的占用结果。
    当前 `SignalObservationGraphBuilder` 已从同一 `SimpleSignalsRuntimePublication` 的真实 section/topology
    publication 构造连接图，`SignalObservationPlanCompiler` 再把它变成不可变路径树；运行时只给该计划填入当前 epoch 的事实。

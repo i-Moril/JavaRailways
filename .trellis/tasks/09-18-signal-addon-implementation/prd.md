@@ -366,6 +366,9 @@ must not borrow the opposite end's output. These extension boundaries are record
 ## Blocking open questions
 
 建造交互：工具分工已确认，信号机使用独立 Wand，测距也独立。
+Signal Wand 是一种通用物品，不按信号类型发放不同工具。信号类型在 Wand 的 Shift+右键设置页中选择，完整状态跟随物品；
+主手持有时由 SimpleSignals 自己显示周期 action bar，包含当前模式和类型。设置回调与异步编辑都用 item identity/revision
+拒绝过期操作；该状态栏不是 BukkitPlugin 的通用显示仲裁系统。
 删除顺序和绑定设备的连带删除行为已确认，见上方要求。
 闭塞禁止经过道岔已确认，不提供按道岔状态选择闭塞路径的交互。
 保护区域边界在创建时携带方向已确认，额外选择内部位置的建议已撤销。

@@ -52,6 +52,7 @@ import work.art1st.javarailways.simplesignals.signalpack.SignalPackCatalog
 import work.art1st.javarailways.simplesignals.signalpack.SignalTypeBinding
 import work.art1st.javarailways.simplesignals.signalpack.SignalPackEpochRuntime
 import work.art1st.javarailways.simplesignals.signalpack.SignalPackLoader
+import work.art1st.javarailways.simplesignals.signalpack.SignalTypeCatalogSnapshot
 import work.art1st.javarailways.bukkit.api.model.ModelPresentationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import java.nio.file.Path
@@ -1170,6 +1171,14 @@ internal class SimpleSignalsWorldRuntimeManager(
 
     /** Captures the existing world-load identity without waiting for worker I/O. */
     fun authoringRuntime(worldId: UUID): SimpleSignalsWorldRuntime? = runtimeReadView[worldId]
+
+    /** Immutable player-facing type list. Its captured catalog identity is authoring authority, not its contents. */
+    fun signalTypeCatalogSnapshot(): SignalTypeCatalogSnapshot? = signalPacks?.let { prepared ->
+        SignalTypeCatalogSnapshot.from(prepared.catalog)
+    }
+
+    fun currentSignalTypeCatalog(snapshot: SignalTypeCatalogSnapshot): Boolean =
+        !closed && signalPacks?.catalog?.let(snapshot::represents) == true
 
     fun validateRouteAdmission(worldId: UUID, intent: work.art1st.javarailways.basic.api.route.RouteResourceIntent) {
         val publication = checkNotNull(runtimeReadView[worldId]) { "SimpleSignals world runtime is unavailable" }.authoringPublication()

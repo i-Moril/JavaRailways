@@ -12,6 +12,8 @@ import work.art1st.javarailways.simplesignals.authoring.SectionWandHandler
 import work.art1st.javarailways.simplesignals.authoring.RoutePreviewWandHandler
 import work.art1st.javarailways.simplesignals.authoring.RuntimeRoutePreviewBackend
 import work.art1st.javarailways.simplesignals.authoring.CurrentRouteRecording
+import work.art1st.javarailways.simplesignals.authoring.RuntimeSignalWandBackend
+import work.art1st.javarailways.simplesignals.authoring.SignalWandHandler
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 import java.util.logging.Level
@@ -22,6 +24,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
     private var worldRuntimes: SimpleSignalsWorldRuntimeManager? = null
     private var sectionWands: SectionWandHandler? = null
     private var routePreviewWand: RoutePreviewWandHandler? = null
+    private var signalWand: SignalWandHandler? = null
     private var modelCleanup: CompletionStage<Void> = CompletableFuture.completedFuture(null)
 
     /** Host shutdown must observe this result before disabling JavaRailways. Never block a region thread. */
@@ -87,10 +90,16 @@ class SimpleSignalsPlugin : JavaPlugin() {
             record = CurrentRouteRecording(runtimes, services.infrastructure(), previewBackend)::record)
         routePreviewWand = previews
         server.pluginManager.registerEvents(previews, this)
+        val signals = SignalWandHandler(this, RuntimeSignalWandBackend(runtimes, services.infrastructure()),
+            services.railTargets())
+        signalWand = signals
+        server.pluginManager.registerEvents(signals, this)
         checkNotNull(getCommand("simplesignals")) { "SimpleSignals command descriptor is missing" }
             .setExecutor { sender, command, label, args ->
                 if (args.take(2) == listOf("wand", "route"))
                     previews.onCommand(sender, command, label, args)
+                else if (args.take(2) == listOf("wand", "signal"))
+                    signals.onCommand(sender, command, label, args)
                 else if (args.firstOrNull() == "wand") wands.onCommand(sender, command, label, args)
                 else admin.onCommand(sender, command, label, args)
             }
@@ -98,6 +107,8 @@ class SimpleSignalsPlugin : JavaPlugin() {
     }
 
     override fun onDisable() {
+        signalWand?.close()
+        signalWand = null
         routePreviewWand?.close()
         routePreviewWand = null
         sectionWands?.close()

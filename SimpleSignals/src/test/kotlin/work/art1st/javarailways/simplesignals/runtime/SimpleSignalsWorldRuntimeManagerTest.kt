@@ -1122,6 +1122,90 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
+    fun `signal wand backend updates type revision placement persistence JS and model through one manager patch`() {
+        val fixture = Fixture()
+        val block = FixedBlockDefinition("test:wand-block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)))
+        val originalPlacement = ModelPlacement.Ground(ModelPose(3.0, 64.0, 4.0, 0.0, 0.0, 0.0, 1.0))
+        val signal = FixedBlockSignalDefinition("test:wand-device", 1, block.blockId, 2.0,
+            "automatic:block", placement = originalPlacement)
+        val definitions = store()
+        definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            emptyList(), emptyList(), listOf(block), listOf(signal)))
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val sources = CapturingSignalEpochSourceService()
+        val models = RecordingModels()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            sources, modelPresentation = models, loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val backend = RuntimeSignalWandBackend(manager, infrastructure.service)
+        assertEquals(listOf("automatic:block", "automatic:slow"),
+            backend.availableSignalTypes()!!.map { it.signalType })
+        val capture = backend.capture(fixture.worldId, "automatic:slow")
+        val position = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
+
+        val outcome = backend.perform(capture, position) { true }
+
+        assertTrue(outcome.message.contains("Updated signal"), outcome.message)
+        val live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        val edited = live.fixedBlockSignals.single()
+        assertEquals(2, live.definitionRevision)
+        assertEquals(2, edited.revision)
+        assertEquals("automatic:slow", edited.signalType)
+        assertEquals(ModelPlacement.RailAttached(position), edited.placement)
+        assertEquals(live, (definitions.load(fixture.worldId) as
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+        assertEquals(1, infrastructure.permitAcquisitionCount)
+        assertEquals("automatic:slow-head", manager.authoringRuntime(fixture.worldId)!!.currentModels()!!.prepared
+            .signals.getValue(signal.signalId).single().model.id)
+
+        SignalEpochRuntime(fixture.worldId.toString(), TrainRestrictionSnapshotStore(fixture.worldId.toString())).also {
+            it.replaceSources(sources.sources.getValue(fixture.worldId))
+            it.process(RailwayWorldFrameSnapshot.create(1, fixture.currentTopology.revision, emptyList(),
+                ActiveRailContinuationsSnapshot.empty(fixture.currentTopology.revision)))
+        }
+        assertEquals(5.0, manager.authoringRuntime(fixture.worldId)!!.sectionSignalSnapshot()!!.states
+            .getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+        models.cleanup.complete(null)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `signal wand manager denial retains old type placement publication and disk atomically`() {
+        val fixture = Fixture()
+        val block = FixedBlockDefinition("test:wand-denied-block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 4.0)))
+        val originalPlacement = ModelPlacement.Ground(ModelPose(3.0, 64.0, 4.0, 0.0, 0.0, 0.0, 1.0))
+        val signal = FixedBlockSignalDefinition("test:wand-denied-device", 1, block.blockId, 2.0,
+            "automatic:block", placement = originalPlacement)
+        val definitions = store()
+        val initial = SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            emptyList(), emptyList(), listOf(block), listOf(signal))
+        definitions.save(fixture.worldId, initial)
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            CapturingSignalEpochSourceService(), loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val backend = RuntimeSignalWandBackend(manager, infrastructure.service)
+        val capture = backend.capture(fixture.worldId, "automatic:slow")
+        val publication = manager.authoringRuntime(fixture.worldId)!!.authoringPublication()
+        val disk = Files.readString(definitions.primaryFile(fixture.worldId))
+        infrastructure.nextEditDecision = TopologyEditDecision(TopologyEditStatus.CONFLICT,
+            detail = "active route uses this rail")
+
+        val outcome = backend.perform(capture,
+            RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)) { true }
+
+        assertTrue(outcome.message.contains("active route uses this rail"), outcome.message)
+        assertSame(publication, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
+        assertEquals(initial, manager.authoringRuntime(fixture.worldId)!!.currentDefinitions())
+        assertEquals(disk, Files.readString(definitions.primaryFile(fixture.worldId)))
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
     fun `JS signal types publish a transitive downstream chain in one physical epoch`() {
         val rails = (1L..3L).map { UUID(10L, it) }
         val topology = topologyState(71, rails, rails.zipWithNext().map { (first, second) ->
@@ -3740,6 +3824,13 @@ class SimpleSignalsWorldRuntimeManagerTest {
             variants:
               clear: {}
         """.trimIndent())
+        Files.writeString(pack.resolve("model/slow-head.yml"), """
+            parts:
+              - type: dummy
+            default: {}
+            variants:
+              clear: {}
+        """.trimIndent())
         Files.writeString(pack.resolve("logic/block.yml"), "scan-distance-metres: 100")
         Files.writeString(pack.resolve("logic/block.js"), script ?: """
             function evaluate(input, output) {
@@ -3761,7 +3852,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         """.trimIndent())
         Files.writeString(pack.resolve("signal/slow.yml"), """
             display-name: Slow automatic block
-            model: automatic:head
+            model: automatic:slow-head
             logic: automatic:slow
         """.trimIndent())
         return root

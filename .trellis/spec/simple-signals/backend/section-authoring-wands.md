@@ -4,7 +4,8 @@
 
 SimpleSignals 拥有工具物品、玩家选点、建造算法和命令；宿主只提供公开的轨道定位、运营方向和编辑许可。
 本合同覆盖闭塞建造/删除，以及保护区域有向边界的放置/删除/自动补全。
-信号机放置、测距、规则预设和完整轨道可视化仍未实现；进路录制另见[录制合同](current-route-recording.md)。
+固定闭塞主信号已有一个受限的放置切片：只能更新既有入口主信号的 `signalType` 和轨道附着位置，不能创建或删除。
+测距、inspection lead time 编辑、摆放预设/样式和完整轨道可视化仍未实现；进路录制另见[录制合同](current-route-recording.md)。
 本批离线门禁与审查结果记录在任务 `implement.md`，不代表真实 Folia 客户端验证。
 
 ## 2. 一次建造如何完成
@@ -34,6 +35,12 @@ SimpleSignals 拥有工具物品、玩家选点、建造算法和命令；宿主
 
 轨道位置仍为 `RailPositionSnapshot`：rail UUID、canonical AB 米数、朝向；保护边界朝向指向内部。
 命令为 `/simplesignals wand block|region [create|delete]`，默认 create，权限 `simplesignals.admin`。
+信号工具命令固定为 `/simplesignals wand signal`，只在 catalog 已就绪且非空时发放一个通用 Signal Wand。
+新物品从按 `signalType` 排序的当前 catalog 选择第一项作为确定性默认值；命令不接受类型参数，也不承担 catalog 列表界面。
+Shift+右键打开 SimpleSignals 自有的 Paper 原生设置页，按 `signalType` 排序并标记当前项；选择后才修改物品状态。
+PDC 使用稳定 marker 识别工具，并另存包含随机 `itemId`、非负单调 `stateRevision` 与 namespaced `signalType` 的完整状态。
+状态跟随物品转移、换手和重启，不是玩家全局设置；格式损坏时不能编辑或自动覆盖。本工具状态尚未发布，直接修正当前格式，
+不增加旧 `signal_wand_type` reader、upcaster 或世界 schema 版本。
 选轨最大视线距离 64 米、命中半径 0.75 米；同轨道已有边界在 0.75 米内可吸附。
 真实普通连接的两个轨道端点另按拓扑视为同一位置，不以空间接近代替连接。
 保护边界方向取视线与轨道 AB 切线的点积符号，绝对值小于 0.15 时要求玩家调整视线，不猜测方向。
@@ -53,7 +60,23 @@ Wand 编辑流程的图搜索、候选编译、JSON 和文件 I/O 均在 worker�
 成功提交只替换已经准备好的状态。定义比较和保存仍可随定义规模增长，但不阻塞物理线程等待平台交互。
 同一拓扑 root 的派生连接索引在候选间复用；普通点击不能反复从全世界 rails 重建索引。
 
+信号工具通过固定闭塞 snapshot 的 rail 反向索引筛选候选，只允许距有向入口0.75米内且视线朝向区间内部的点击。
+共享入口歧义、区间内部点击、单向闭塞反向入口和没有既有主信号的入口都拒绝。成功时保留设备 ID、受控入口与
+inspection lead time，用 checked revision +1 替换 `signalType` 和轨道附着 placement，再走同一个 manager patch 事务。
+设置页回调必须重新读取主手物品，确认 exact `itemId + stateRevision`、权限、插件状态和当前 catalog 项；成功使用
+`Math.addExact` 增加 revision 后写回。普通点击捕获完整物品状态，所有返回玩家 owner 的 continuation 都要求 exact 相等；
+即使先切走类型再切回来，revision 变化也会使旧操作失效。
+
+主手持有 Signal Wand 时，每位玩家最多运行一个 entity-scheduler 周期任务，约每10 tick刷新 action bar，显示
+`fixed-block signal` 模式和当前 `signalType`。catalog 未就绪或类型已删除时明确显示 unavailable，但不静默重写物品。
+join、切槽、换手、背包点击、丢弃、拾取和交互后在玩家 owner 上刷新；离手、权限/插件/玩家失效、entity retired、quit
+或插件关闭时取消。状态栏任务与一次编辑 session 相互独立；它只是 SimpleSignals 工具显示，不是宿主级 action-bar 仲裁 API。
+
 ## 6. 删除与失效处理
+
+信号工具在 catalog 未就绪、类型未知、入口不唯一、入口没有既有主信号、revision 溢出、捕获的 catalog／runtime／
+publication／topology 过期或 manager patch 被拒绝时都只返回失败；不得改变 sidecar、live publication、inspection source、
+JS 输出或模型 handle。PDC 中即使仍有格式合法但已删除的 `signalType`，也必须由当前 catalog 和候选编译拒绝，不能视为授权。
 
 删除闭塞分界点会在同一事务删除两侧相接闭塞；删除区间本体只删除选中的闭塞。
 闭塞的主信号及附属、中继显示一并删除；其他信号若依赖已删除目标，保留配置但结果不可用，不能丢掉依赖后放行。
@@ -70,6 +93,9 @@ Wand 编辑流程的图搜索、候选编译、JSON 和文件 I/O 均在 worker�
 保护区域搜索为局部图上的加权搜索，约 `O((V + E) log V)`；作者边界分组/排序另按边界数量计算。
 候选整体编译与写盘沿用现有低频事务，仍不是全量增量编译。本工具不增加每 tick 扫描，也不产生新的列车资源管理器。
 失效区域按轨道建立禁行范围索引，准入只检查与冻结路线相交的范围。
+信号入口解析先用 `blockIdsByRail` 找到命中轨道的 `K` 个候选闭塞，再各检查正反入口，成本为 `O(K + S)`；
+`S` 是该入口上配置的主信号数量，正常由定义唯一性限制为常数。catalog 排序只在发放或打开低频设置页时完成；
+状态栏每10 tick对当前不可变 catalog 做一次类型存在性检查，点击和 signal epoch 不重新寻路。
 
 ## 8. 具体操作情形
 
@@ -77,6 +103,9 @@ Wand 编辑流程的图搜索、候选编译、JSON 和文件 I/O 均在 worker�
 咽喉增加边界：先放两个入口但还有未标记支线时，只保存待补全边界；补上支线边界后自动生成区域。
 已有咽喉改边界：删除一处后区域停用；在原位置附近补放时恢复原边界身份，不要求重建所有显示设备。
 在建线路不被时刻表使用时仍可编辑；被静态路线依赖或动态资源占用的相关编辑返回原宿主拒绝原因。
+既有固定闭塞主信号：玩家选择另一 `signalType` 后点击同一入口，设备 ID 和 inspection lead time 保持不变，
+下一 revision 同时切换 JS 逻辑、catalog 模型和实例轨道位置。没有主信号的入口会明确拒绝，而不是用默认提前时间创建占位设备。
+相邻闭塞共用同一点且同方向都可匹配时会报告歧义，玩家必须选择可唯一识别的入口；工具不能按集合顺序修改其中一个。
 
 ## 9. 必须验证
 
@@ -85,6 +114,10 @@ Wand 编辑流程的图搜索、候选编译、JSON 和文件 I/O 均在 worker�
 未标记尽头、反向边界、长轨道、分支不累加、环线有界、零剩余边界、重启保留禁行范围和修复身份；
 无关线路仍可规划、直接资源准入不能绕过、旧资源不清除、编辑许可/保存失败原子性；
 权限、重复点击、玩家/世界失效、提交前取消和异步回复。真实服务类测试与替身平台测试须区分。
+信号工具还必须覆盖正反入口、单向反向拒绝、区间内部点击、共享入口歧义、缺既有设备、catalog 未就绪／未知类型、
+稳定默认值、设置页排序/当前标记、marker与完整PDC状态、状态revision溢出、过期回调和工具/权限/世界失效；
+状态栏须覆盖当前/缺失类型、单任务以及离手/retired/quit/close取消，并证明玩家访问只在 entity owner。真实 manager 测试必须断言成功后
+`signalType`、placement、JS 限速和模型身份一起变化，并断言编辑许可或准备失败时旧磁盘与全部 live 状态保持不变。
 
 ## 10. 存档与后续事项
 
@@ -93,4 +126,10 @@ Wand 编辑流程的图搜索、候选编译、JSON 和文件 I/O 均在 worker�
 手动驾驶不接入新的制动或 ATS。保护区域最大范围只约束保护区域搜索，不限制固定闭塞长度。
 轨道事务后的局部失效与重验见[区间局部重验](section-topology-revalidation.md)；
 它与玩家直接编辑边界共用区域规则，但不等于已实现分割/合并后的信号坐标迁移。
-分界点地面子模型、完整 TextDisplay 叠加和信号机独立工具继续按后续交互批次推进。
+分界点地面子模型、完整 TextDisplay 叠加，以及创建／删除主信号、保护信号和附属信号的完整工具继续按后续交互批次推进。
+
+错误做法：从 PDC 直接信任类型、用类型充当工具 marker、把选择放在命令参数、只替换模型、给新信号填入临时的0秒 lead time，
+或绕过 manager 直接写文件和 handle。
+正确做法：PDC 分离稳定 marker 与带身份/revision的类型意图；设置和编辑都重新校验完整物品状态及
+exact catalog/runtime/publication/topology，通过唯一入口找到
+既有设备，再用一个标准 definition patch 原子重编译逻辑、模型、许可、存档和 publication。

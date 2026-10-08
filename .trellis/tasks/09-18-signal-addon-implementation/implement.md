@@ -1,5 +1,37 @@
 # Stage 2 implementation plan
 
+## 2026-10-08 Signal Wand fixed-block vertical slice
+
+- [x] Expose an internal immutable player-facing catalog view sorted by `signalType`; it contains only stable type
+  identity and display name and retains the exact catalog identity for stale-capture checks. The filesystem source,
+  modelId and logicId do not enter the world authoring contract.
+- [x] The initially implemented command-selected type UX was rejected and superseded in-place. The only command is
+  `/simplesignals wand signal`; a ready non-empty catalog supplies the first sorted type as the deterministic default.
+  A stable PDC marker is separate from JSON item state `(random itemId, non-negative stateRevision, signalType)`.
+  Shift-right-click opens the SimpleSignals-owned native settings dialog, while a one-per-holder entity-scheduler task
+  refreshes the mode/type action bar every 10 ticks. Settings and edit continuations re-read the complete item state,
+  so changing away and back still invalidates old work. Corrupt state, stale dialog, removed type, revision overflow,
+  lost permission and plugin/player retirement do not write. No host-private Wand/Dialog implementation is imported.
+- [x] Add a pure fixed-block entrance resolver using the existing rail index and 0.75 m tolerance. It resolves
+  FORWARD/REVERSE from the look direction and compiled entrance, rejects one-way reverse entry, shared-boundary
+  ambiguity, block-body clicks and entrances without an existing primary signal.
+- [x] The first slice only updates an existing primary: checked device revision +1, selected `signalType`, and
+  identity/upright rail-attached placement are submitted in one normal manager patch. Existing inspection lead time,
+  signal identity and controlled entry remain unchanged. The manager revalidates the type and atomically prepares
+  persistence, JS, model binding, edit permit and publication; denial/staleness retains the old complete state.
+- [ ] Live Folia item interaction and client model rendering remain unverified. Creating/deleting primaries, choosing
+  inspection lead time, presets/styles, ground placement, protection/attached signals and hot reload remain outside
+  this slice. No schema/version or compatibility path changed.
+- [x] Independent review of the corrected settings/item-state/status amendment kept the captured catalog/publication/topology check inside the manager transaction guard,
+  hid the full package catalog behind the minimal immutable authoring view, validated PDC intent at construction, and
+  made the real-manager test prove that changing `signalType` changes both the JS output and selected model. Review
+  additionally closed status-task restart races during plugin shutdown, made delayed retired callbacks harmless,
+  invalidated inventory-drag edits, and required exact item state before starting an edit.
+- [x] Corrected focused handler tests and the full offline gate executed 46 suites / 464 tests
+  with zero failures, errors or skips; `:SimpleSignals:check`, `:SimpleSignals:verifyPluginJar`,
+  `:BukkitPlugin:compileSignalApiConsumerJava` and `git diff --check` pass. Gradle emitted existing native/deprecation
+  warnings and one physics-overload test log; these are not live Folia or performance evidence.
+
 ## 2026-10-08 JS-only signal type 修正（取代下方 provider 拆分）
 
 - [x] 删除 world/domain 的 `BuiltIn | Package` provider union 与 Kotlin 规则表执行路径。固定闭塞和保护主信号只保存

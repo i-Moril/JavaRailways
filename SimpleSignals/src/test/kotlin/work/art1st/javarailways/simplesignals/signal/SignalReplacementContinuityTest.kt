@@ -220,11 +220,9 @@ class SignalReplacementContinuityTest {
             ProtectionRouteTraversal(trunk, ViewDirection.AB, 5.0, 10.0),
             ProtectionRouteTraversal(branch, ViewDirection.AB, 0.0, 5.0)))
         private val signal = ProtectionSignalDefinition("test:current", 1L, ProtectionSignalKind.CURRENT_ENTRY,
-            "test:entry", 0.0, ConfiguredSignalOutput(0.0, "R"), ConfiguredSignalOutput(0.0, "R"),
-            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(20.0, "G"))))
+            "test:entry", 0.0, "automatic:block")
         private val fixedSignal = ProtectionSignalDefinition("test:fixed", 1L, ProtectionSignalKind.FIXED_ROUTE,
-            fixedRoute.routeId, 0.0, ConfiguredSignalOutput(0.0, "R"), ConfiguredSignalOutput(20.0, "G"),
-            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(20.0, "G"))))
+            fixedRoute.routeId, 0.0, "automatic:block")
         val world = signalWorldRuntime(worldId)
         val epoch = protectionTestEpoch(world, worldId.toString(), TrainRestrictionPublisher {
             TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
@@ -253,7 +251,7 @@ class SignalReplacementContinuityTest {
                 "train", requestRoute, ActiveRouteAdmissionState.PREPARING, RouteBoundary(50.0), RouteBoundary(30.0))))
             epoch.process(frame(2L))
             assertTrue(selection().routeReady)
-            assertEquals(20.0, world.sectionSignalSnapshot()!!.states.getValue("test:fixed")
+            assertEquals(0.0, world.sectionSignalSnapshot()!!.states.getValue("test:fixed")
                 .effectiveSpeedLimitMetersPerSecond)
         }
 

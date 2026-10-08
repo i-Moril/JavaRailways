@@ -47,14 +47,11 @@ internal object SimpleSignalsDefinitionEditImpact {
                 if (previous.routeSelection.routesById[id]?.requiredContinuations != route.requiredContinuations)
                     tables += route.tableId
             }
-            val oldBindings = (previous.fixedBlockSignals.bindings + previous.protectionSignals.bindings)
-                .associateBy { it.signalId }
-            (candidate.fixedBlockSignals.bindings + candidate.protectionSignals.bindings).forEach { binding ->
-                val before = oldBindings[binding.signalId]
-                if (before == null || before.downstreamSignals != binding.downstreamSignals ||
-                    before.observedSections != binding.observedSections ||
-                    before.continuationEntries != binding.continuationEntries)
-                    signals += binding.signalId
+            val oldIndex = previous.topologyIndex
+            val newIndex = candidate.topologyIndex
+            (old.definitionsSignalIds() + next.definitionsSignalIds()).forEach { signalId ->
+                val key = TopologySection(TopologySectionKind.SIGNAL, signalId)
+                if (oldIndex?.railsByObject?.get(key) != newIndex?.railsByObject?.get(key)) signals += signalId
             }
         }
         val result = linkedSetOf<UUID>()
@@ -130,40 +127,17 @@ internal object SimpleSignalsDefinitionEditImpact {
             entries += route.definition.entryBoundaryId
         }
 
-        val placementsBySignal = definitions.fixedBlockSignals.associate {
-            it.signalId to (it.model?.placement ?: it.placement)
-        } + definitions.protectionSignals.associate {
-            it.signalId to (it.model?.placement ?: it.placement)
-        }
-        fun collectSections(observed: Collection<SectionRef>) = observed.forEach { section ->
-            when (section.kind) {
-                SectionKind.FIXED_BLOCK -> blockSnapshot.blocksById.getValue(section.id)
-                    .traversals.mapTo(rails) { it.railId }
-                SectionKind.PROTECTION_ROUTE -> publication.routeSelection.routesById.getValue(section.id)
-                    .definition.traversals.mapTo(rails) { it.railId }
-            }
-        }
-        val affectedBindings = publication.protectionSignals.ruleRuntime
-            ?.affectedBindings(sections, changedSignals, entries).orEmpty()
-        affectedBindings.forEach { binding ->
-            (placementsBySignal[binding.signalId] as? ModelPlacement.RailAttached)
-                ?.let { rails += it.position.railId }
-            collectSections(binding.observedSections)
-            binding.downstreamSignals.forEach { rails += it.affectedRailIds }
-        }
+        val placementsBySignal = definitions.fixedBlockSignals.associate { it.signalId to it.placement } +
+            definitions.protectionSignals.associate { it.signalId to it.placement }
 
         // Display edits protect their primary's controlled territory without seeding rule consumers.
         // Conversely, a changed logical signal also protects every display consuming its output.
-        val affectedSignalIds = affectedBindings.mapTo(hashSetOf()) { it.signalId }.also { it += changedSignals }
+        val affectedSignalIds = changedSignals.toMutableSet()
         definitions.protectionSignals.filter { signal ->
             signal.bindingId in entries || signal.bindingId in changedRouteIds
         }.mapTo(affectedSignalIds) { it.signalId }
-        val authoredDependencies = definitions.fixedBlockSignals.associate { it.signalId to it.downstreamSignals } +
-            definitions.protectionSignals.associate { it.signalId to (it.downstreamSignals + it.downstreamSignalsByRouteId.values.flatten()) }
-        val consumers = authoredDependencies.flatMap { (consumer, providers) -> providers.map { it.signalId to consumer } }
-            .groupBy({ it.first }, { it.second })
         val pending = java.util.ArrayDeque(affectedSignalIds)
-        while (pending.isNotEmpty()) consumers[pending.removeFirst()].orEmpty().forEach {
+        while (pending.isNotEmpty()) publication.topologyIndex?.signalConsumers?.get(pending.removeFirst()).orEmpty().forEach {
             if (affectedSignalIds.add(it)) pending += it
         }
         val fixedById = definitions.fixedBlockSignals.associateBy { it.signalId }
@@ -171,6 +145,8 @@ internal object SimpleSignalsDefinitionEditImpact {
         val blocksById = definitions.fixedBlocks.associateBy { it.blockId }
         fun collectAuthoredSignal(id: String) {
             (placementsBySignal[id] as? ModelPlacement.RailAttached)?.let { rails += it.position.railId }
+            publication.topologyIndex?.railsByObject
+                ?.get(TopologySection(TopologySectionKind.SIGNAL, id)).orEmpty().let(rails::addAll)
             fixedById[id]?.let { signal ->
                 blocksById[signal.controlledBlockId]?.traversals?.mapTo(rails) { it.railId }
             }
@@ -180,13 +156,10 @@ internal object SimpleSignalsDefinitionEditImpact {
             }
         }
         affectedSignalIds.forEach(::collectAuthoredSignal)
-        val bindingsBySignal = (publication.fixedBlockSignals.bindings + publication.protectionSignals.bindings)
-            .associateBy { it.signalId }
         definitions.attachedSignals.forEach { attached ->
             if (attached.signalId in changedAttached || attached.primarySignalId in affectedSignalIds) {
                 (attached.model.placement as? ModelPlacement.RailAttached)?.let { rails += it.position.railId }
                 if (attached.signalId in changedAttached) {
-                    bindingsBySignal[attached.primarySignalId]?.let { collectSections(it.observedSections) }
                     collectAuthoredSignal(attached.primarySignalId)
                 }
             }
@@ -205,4 +178,7 @@ internal object SimpleSignalsDefinitionEditImpact {
                     .forEach { it.traversals.mapTo(rails) { traversal -> traversal.railId } }
             }
     }
+
+    private fun SimpleSignalsWorldDefinitions.definitionsSignalIds(): Set<String> =
+        (fixedBlockSignals.map { it.signalId } + protectionSignals.map { it.signalId }).toSet()
 }

@@ -6,58 +6,20 @@
   "protectionRouteTables": [],
   "fixedBlockSignals": [
     {
-      "signalId": "test:fixed-model", "packageSignalId": null, "revision": 1, "controlledBlockId": "test:block",
-      "inspectionLeadTimeSeconds": 0.0,
-      "occupiedOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "stop"},
-      "clearLevels": [{"minimumDownstreamSpeedMetersPerSecond": 0.0,
-        "output": {"speedLimitMetersPerSecond": 12.0, "modelVariant": "clear"}}],
-      "downstreamSignals": [],
-      "model": {
-        "modelId": "demo:heads/four",
-        "placement": {
-          "kind": "rail", "railId": "00000000-0000-0000-0000-0000000000ab",
-          "arcLengthInAbMeters": 12.0, "facing": "AB", "followRailTilt": true,
-          "adjustment": {"x": 0.5, "y": 2.0, "z": -1.5,
-            "rotationX": 0.0, "rotationY": 0.6, "rotationZ": 0.0, "rotationW": 0.8}
-        }
-      },
-      "placement": null
-    },
-    {
-      "signalId": "test:fixed-backend", "packageSignalId": null, "revision": 1, "controlledBlockId": "test:other-block",
-      "inspectionLeadTimeSeconds": 0.0,
-      "occupiedOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "stop"},
-      "clearLevels": [{"minimumDownstreamSpeedMetersPerSecond": 0.0,
-        "output": {"speedLimitMetersPerSecond": 12.0, "modelVariant": "clear"}}],
-      "downstreamSignals": [],
-      "model": null,
-      "placement": null
+      "signalId": "test:fixed-model", "revision": 1, "controlledBlockId": "test:block",
+      "inspectionLeadTimeSeconds": 0.0, "type": "demo:fixed",
+      "placement": {
+        "kind": "rail", "railId": "00000000-0000-0000-0000-0000000000ab",
+        "arcLengthInAbMeters": 12.0, "facing": "AB"
+      }
     }
   ],
   "protectionSignals": [
     {
-      "signalId": "test:protection-model", "packageSignalId": null, "revision": 1, "kind": "FIXED_ROUTE", "bindingId": "test:route",
-      "inspectionLeadTimeSeconds": 0.0,
-      "unavailableOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "none"},
-      "occupiedOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "stop"},
-      "clearLevels": [{"minimumDownstreamSpeedMetersPerSecond": 0.0,
-        "output": {"speedLimitMetersPerSecond": 12.0, "modelVariant": "clear"}}],
-      "model": {
-        "modelId": "demo:ground",
-        "placement": {"kind": "ground", "pose": {"x": -10.0, "y": 64.0, "z": 3.0,
-          "rotationX": 0.0, "rotationY": 0.0, "rotationZ": 1.0, "rotationW": 0.0}}
-      },
-      "placement": null
-    },
-    {
-      "signalId": "test:protection-backend", "packageSignalId": null, "revision": 1, "kind": "CURRENT_ENTRY", "bindingId": "test:entry",
-      "inspectionLeadTimeSeconds": 0.0,
-      "unavailableOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "none"},
-      "occupiedOutput": {"speedLimitMetersPerSecond": 0.0, "modelVariant": "stop"},
-      "clearLevels": [{"minimumDownstreamSpeedMetersPerSecond": 0.0,
-        "output": {"speedLimitMetersPerSecond": 12.0, "modelVariant": "clear"}}],
-      "model": null,
-      "placement": null
+      "signalId": "test:protection-model", "revision": 1, "kind": "FIXED_ROUTE", "bindingId": "test:route",
+      "inspectionLeadTimeSeconds": 0.0, "type": "demo:protection",
+      "placement": {"kind": "ground", "pose": {"x": -10.0, "y": 64.0, "z": 3.0,
+        "rotationX": 0.0, "rotationY": 0.0, "rotationZ": 1.0, "rotationW": 0.0}}
     }
   ],
   "routeIndicators": [
@@ -69,10 +31,6 @@
         "placement": {"kind": "rail", "railId": "00000000-0000-0000-0000-0000000000ab",
           "arcLengthInAbMeters": 4.0, "facing": "BA"}
       }
-    },
-    {
-      "indicatorId": "test:indicator-backend", "revision": 1, "entryBoundaryId": "test:entry",
-      "noRouteModelVariant": "none", "modelVariantsByRouteId": {"test:route": "selected"}
     }
   ]
 }

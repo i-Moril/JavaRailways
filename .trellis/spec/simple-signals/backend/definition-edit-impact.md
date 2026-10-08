@@ -42,17 +42,18 @@ Basic 判断这些轨道是否涉及已应用时刻表、列车占用或其他�
 受影响的结构消费者也收集自己的 rail 摆放，不按当前灯色或是否已经创建实体剪枝。
 模型字段不产生新的运行资源身份；完整序列化规则归[模型显示合同](model-presentation.md)。
 
-依赖检查复用 `OneWayInvalidationGraph` 的邻接表，使用结构可达遍历，每个节点访问一次。
-与运行时 `propagate` 不同，这里不执行规则，不因灯色未变而停止，也不按当前道岔开放方向排除路径。
-被影响的信号还包含它已编译的下游查找路径，不能只保护信号所在轨道。
+依赖检查复用 publication 的 `topologyIndex.signalConsumers` 邻接表，使用结构可达遍历，每个节点访问一次。
+这个索引来自已编译的 JS observation graph；影响收集不执行 JS、不因灯色未变而停止，也不按当前道岔开放方向
+排除路径。被影响的信号还包含它已编译的观察路径，不能只保护信号所在轨道。
 
 ## 4. 接口与单位
 
 内部入口：`SimpleSignalsDefinitionEditImpact.impact(previous, candidate): TopologyEditImpact?`。
 没有任何轨道或资源影响（如空世界初始publication）时返回null；实际patch在取得许可前必须有非空影响。
 `SimpleSignalsPreparedDefinitions.editImpact`保存现有host影响值，`affectedRailIds`只投影其中轨道集合供诊断。
-`OneWayInvalidationGraph.reachableConsumers(providers)` 包含起点及所有结构可达消费者。
-`SectionSignalRuleRuntime.affectedBindings(sections, signalIds, entries)` 将这些起点映射为受影响的信号 bindings。
+`SimpleSignalsDefinitionEditImpact` 从改变的 signal、section 与保护入口取得起点，再沿
+`SimpleSignalsTopologyIndex.signalConsumers` 收集所有结构可达消费者；观察路径轨道来自同一 index 的
+`railsByObject[TopologySection(SIGNAL, signalId)]`。
 轨道身份使用 Core rail UUID；不把 rail/node 改成新的 SimpleSignals 资源。
 
 ## 5. 不变量、线程与版本

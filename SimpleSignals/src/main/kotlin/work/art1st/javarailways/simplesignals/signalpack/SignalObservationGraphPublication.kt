@@ -270,7 +270,7 @@ internal object SignalObservationGraphBuilder {
         topologyView: ProtectionRegionTopology
     ): List<SignalObservationContinuation> {
         val results = arrayListOf<SignalObservationContinuation>()
-        scan(start, 0.0, emptyList(), linkedMapOf(), entries, topology, topologyView, results)
+        scan(start, 0.0, emptyList(), linkedSetOf(), linkedMapOf(), entries, topology, topologyView, results)
         return results.distinct().sortedWith(
             compareBy<SignalObservationContinuation>({ it.distanceMeters }, { it.target }, { it.terminalReason })
         )
@@ -280,6 +280,7 @@ internal object SignalObservationGraphBuilder {
         cursor: Cursor,
         distanceMeters: Double,
         requirements: List<RequiredActiveContinuation>,
+        traversedRailIds: LinkedHashSet<UUID>,
         path: MutableMap<Cursor, Double>,
         entries: EntryIndex,
         topology: TopologyState,
@@ -298,7 +299,8 @@ internal object SignalObservationGraphBuilder {
                 SignalObservationBranchRequirements(requirements),
                 SignalObservationEndReason.CYCLE,
                 cycleStart,
-                cycleLength
+                cycleLength,
+                java.util.Set.copyOf(traversedRailIds)
             )
             return
         }
@@ -312,13 +314,15 @@ internal object SignalObservationGraphBuilder {
                         is EntryTarget.Section -> results += SignalObservationContinuation(
                             target.section.state,
                             nextDistance,
-                            mergeRequirements(requirements, target.section.entryRequirements)
+                            mergeRequirements(requirements, target.section.entryRequirements),
+                            traversedRailIds = java.util.Set.copyOf(traversedRailIds + cursor.railId)
                         )
                         is EntryTarget.Terminal -> results += SignalObservationContinuation(
                             null,
                             nextDistance,
                             SignalObservationBranchRequirements(requirements),
-                            target.reason
+                            target.reason,
+                            traversedRailIds = java.util.Set.copyOf(traversedRailIds + cursor.railId)
                         )
                     }
                 }
@@ -340,7 +344,8 @@ internal object SignalObservationGraphBuilder {
                     null,
                     atEndpoint,
                     SignalObservationBranchRequirements(requirements),
-                    SignalObservationEndReason.TRACK_END
+                    SignalObservationEndReason.TRACK_END,
+                    traversedRailIds = java.util.Set.copyOf(traversedRailIds + cursor.railId)
                 )
                 return
             }
@@ -361,6 +366,7 @@ internal object SignalObservationGraphBuilder {
                     ),
                     atEndpoint,
                     nextRequirements,
+                    LinkedHashSet(traversedRailIds).also { it += cursor.railId },
                     path,
                     entries,
                     topology,

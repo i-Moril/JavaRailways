@@ -7,53 +7,24 @@ import work.art1st.javarailways.simplesignals.region.SIMPLE_SIGNALS_NAMESPACED_I
 @kotlinx.serialization.Serializable
 internal enum class ProtectionSignalKind { FIXED_ROUTE, CURRENT_ENTRY }
 
-/** Fixed devices observe their authored route; current devices consume the shared entry selector. */
-@ConsistentCopyVisibility
-internal data class ProtectionSignalDefinition private constructor(
+/** One placed protection signal whose model and JavaScript logic come from [signalType]. */
+internal data class ProtectionSignalDefinition(
     val signalId: String,
     val revision: Long,
     val kind: ProtectionSignalKind,
     val bindingId: String,
     val inspectionLeadTimeSeconds: Double,
-    val unavailableOutput: ConfiguredSignalOutput,
-    val occupiedOutput: ConfiguredSignalOutput,
-    val clearLevels: List<FixedBlockSignalClearLevel>,
-    val downstreamSignals: List<FixedBlockSignalDependency>,
-    val downstreamSignalsByRouteId: Map<String, List<FixedBlockSignalDependency>>,
-    val model: DeviceModelDefinition?,
-    /** Player-facing type from the unified signal-pack catalog; null keeps the configured Kotlin rule. */
-    val packageSignalId: String?,
-    /** World-owned placement for the package signal's catalog-selected model. */
-    val placement: ModelPlacement?
+    val signalType: String,
+    val placement: ModelPlacement? = null
 ) {
-    constructor(signalId: String, revision: Long, kind: ProtectionSignalKind, bindingId: String,
-        inspectionLeadTimeSeconds: Double, unavailableOutput: ConfiguredSignalOutput,
-        occupiedOutput: ConfiguredSignalOutput, clearLevels: Collection<FixedBlockSignalClearLevel>,
-        downstreamSignals: Collection<FixedBlockSignalDependency> = emptyList(),
-        downstreamSignalsByRouteId: Map<String, List<FixedBlockSignalDependency>> = emptyMap(),
-        model: DeviceModelDefinition? = null,
-        packageSignalId: String? = null,
-        placement: ModelPlacement? = null
-    ) : this(signalId, revision, kind, bindingId, inspectionLeadTimeSeconds, unavailableOutput,
-        occupiedOutput, java.util.List.copyOf(clearLevels), java.util.List.copyOf(downstreamSignals),
-        java.util.Map.copyOf(downstreamSignalsByRouteId.mapValues { java.util.List.copyOf(it.value) }), model,
-        packageSignalId, placement)
-
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(bindingId)) { "protection bindingId must be namespaced" }
-        require(packageSignalId == null || SIMPLE_SIGNALS_NAMESPACED_ID.matches(packageSignalId)) {
-            "packageSignalId must be null or namespaced"
+        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalId)) { "signalId must be namespaced" }
+        require(revision >= 0L) { "signal revision must be non-negative" }
+        require(inspectionLeadTimeSeconds.isFinite() && inspectionLeadTimeSeconds >= 0.0) {
+            "inspection lead time must be finite and non-negative"
         }
-        require(packageSignalId == null || model == null) {
-            "package-bound signal model is selected by packageSignalId; use placement instead"
-        }
-        require(packageSignalId != null || placement == null) {
-            "package signal placement requires packageSignalId"
-        }
-        require(unavailableOutput.speedLimitMetersPerSecond == 0.0) { "unready protection signal must stop" }
-        // Reuse the configured output-table and identity contract.
-        FixedBlockSignalDefinition(signalId, revision, bindingId, inspectionLeadTimeSeconds,
-            occupiedOutput, clearLevels, downstreamSignals)
+        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalType)) { "signalType must be namespaced" }
     }
 }
 

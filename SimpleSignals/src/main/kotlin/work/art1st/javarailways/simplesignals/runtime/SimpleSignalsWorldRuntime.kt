@@ -49,7 +49,7 @@ import work.art1st.javarailways.simplesignals.signalpack.SignalObservationGraphB
 import work.art1st.javarailways.simplesignals.signalpack.SignalObservationGraphPublication
 import work.art1st.javarailways.simplesignals.signalpack.SignalLogicRuntime
 import work.art1st.javarailways.simplesignals.signalpack.SignalPackCatalog
-import work.art1st.javarailways.simplesignals.signalpack.SignalPackDeviceBinding
+import work.art1st.javarailways.simplesignals.signalpack.SignalTypeBinding
 import work.art1st.javarailways.simplesignals.signalpack.SignalPackEpochRuntime
 import work.art1st.javarailways.simplesignals.signalpack.SignalPackLoader
 import work.art1st.javarailways.bukkit.api.model.ModelPresentationService
@@ -373,26 +373,14 @@ internal class SimpleSignalsWorldRuntime(
     }
 
     /** Installs immutable fixed-block monitoring geometry exactly once for this world load. */
-    fun initializeSectionOccupancy(): SectionOccupancyRuntime =
-        initializeSectionOccupancyInternal(null)
-
-    fun initializeSectionOccupancy(
-        signalRuleBindings: Collection<SectionSignalRuleBinding>
-    ): SectionOccupancyRuntime = initializeSectionOccupancyInternal(signalRuleBindings)
-
-    private fun initializeSectionOccupancyInternal(
-        signalRuleBindings: Collection<SectionSignalRuleBinding>?
-    ): SectionOccupancyRuntime = synchronized(lock) {
+    fun initializeSectionOccupancy(signalTypeRuntime: SignalPackEpochRuntime? = null): SectionOccupancyRuntime = synchronized(lock) {
         val current = state
         check(current.sectionOccupancy == null) { "section occupancy is already initialized for world $worldId" }
         val publication = checkNotNull(current.publication) {
             "SimpleSignals definitions have not been published for world $worldId"
         }
-        val occupancy = if (signalRuleBindings == null) {
-            SectionOccupancyRuntime.from(publication)
-        } else {
-            SectionOccupancyRuntime.from(publication, signalRuleBindings)
-        }
+        val occupancy = signalTypeRuntime?.let { SectionOccupancyRuntime.from(publication, it) }
+            ?: SectionOccupancyRuntime.from(publication)
         occupancy.also {
             it.attachEpochContinuity(sectionEpochContinuity)
             state = RuntimeState(current.publication, it)
@@ -968,7 +956,7 @@ internal class SimpleSignalsWorldRuntimeManager(
 
     /** Called once on the enable-time worker. Package files are never read from an epoch callback. */
     fun loadSignalPacks(directory: Path) {
-        ThreadGuard.ensureOffMainThread("SimpleSignals signal package preparation")
+        ThreadGuard.ensureOffMainThread("SimpleSignals signal catalog preparation")
         if (closed) return
         val prepared = try {
             java.nio.file.Files.createDirectories(directory)
@@ -984,26 +972,26 @@ internal class SimpleSignalsWorldRuntimeManager(
                 prepared.logic.close()
                 return
             }
-            check(signalPacks == null) { "SimpleSignals signal packages are already prepared" }
+            check(signalPacks == null) { "SimpleSignals signal catalog is already prepared" }
             signalPacks = prepared
             runtimes.values.toList()
         }
         worlds.filter(::attachSignalPacks).forEach(::attachModels)
     }
 
-    private fun signalPackBindings(publication: SimpleSignalsRuntimePublication): List<SignalPackDeviceBinding> =
-        (publication.definitions.fixedBlockSignals.mapNotNull { definition ->
-            definition.packageSignalId?.let { SignalPackDeviceBinding(definition.signalId, it) }
-        } + publication.definitions.protectionSignals.mapNotNull { definition ->
-            definition.packageSignalId?.let { SignalPackDeviceBinding(definition.signalId, it) }
-        }).sortedBy(SignalPackDeviceBinding::deviceId)
+    private fun signalTypeBindings(publication: SimpleSignalsRuntimePublication): List<SignalTypeBinding> =
+        (publication.definitions.fixedBlockSignals.map { definition ->
+            SignalTypeBinding(definition.signalId, definition.signalType)
+        } + publication.definitions.protectionSignals.map { definition ->
+            SignalTypeBinding(definition.signalId, definition.signalType)
+        }).sortedBy(SignalTypeBinding::deviceId)
 
     private fun prepareSectionOccupancy(
         publication: SimpleSignalsRuntimePublication,
         fallback: SignalPackFallback,
         packages: PreparedSignalPacks? = signalPacks
     ): SectionOccupancyRuntime {
-        val bindings = signalPackBindings(publication)
+        val bindings = signalTypeBindings(publication)
         if (bindings.isEmpty()) return SectionOccupancyRuntime.from(publication)
         if (packages != null) {
             return try {
@@ -1012,32 +1000,32 @@ internal class SimpleSignalsWorldRuntimeManager(
             } catch (failure: Exception) {
                 if (fallback != SignalPackFallback.ANY_FAILURE) throw failure
                 SectionOccupancyRuntime.from(publication, SignalPackEpochRuntime.unavailable(
-                    publication, bindings, "signal package binding is unavailable: ${describe(failure)}"))
+                    publication, bindings, "signal type binding is unavailable: ${describe(failure)}"))
             }
         }
         if (fallback == SignalPackFallback.NONE) {
-            throw IllegalArgumentException("signal packages are unavailable: " +
+            throw IllegalArgumentException("signal catalog is unavailable: " +
                 (signalPackFailure?.let { it.message ?: it.javaClass.simpleName }
                     ?: "startup preparation has not completed"))
         }
         return SectionOccupancyRuntime.from(publication, SignalPackEpochRuntime.unavailable(
-            publication, bindings, "signal packages are unavailable: " +
+            publication, bindings, "signal catalog is unavailable: " +
                 (signalPackFailure?.let { it.message ?: it.javaClass.simpleName }
                     ?: "startup preparation has not completed")))
     }
 
     /**
      * A pending catalog must not block edits which introduce no package binding that still needs
-     * validation. Existing bindings remain restrictive and removed bindings return to their fully
-     * compiled Kotlin rule. Once the catalog exists, every candidate is compiled strictly.
+     * validation. Existing bindings remain restrictive; once the catalog exists, every candidate
+     * is compiled strictly against its JavaScript signal type.
      */
     private fun prepareCandidateSectionOccupancy(
         base: SimpleSignalsRuntimePublication,
         candidate: SimpleSignalsRuntimePublication,
         packages: PreparedSignalPacks? = signalPacks
     ): SectionOccupancyRuntime {
-        val baseBindings = signalPackBindings(base).toSet()
-        val candidateBindings = signalPackBindings(candidate)
+        val baseBindings = signalTypeBindings(base).toSet()
+        val candidateBindings = signalTypeBindings(candidate)
         val fallback = if (packages == null && candidateBindings.all(baseBindings::contains)) {
             SignalPackFallback.MISSING_CATALOG
         } else {
@@ -1050,7 +1038,7 @@ internal class SimpleSignalsWorldRuntimeManager(
     private fun attachSignalPacks(runtime: SimpleSignalsWorldRuntime): Boolean {
         while (!closed && !runtime.closed && runtimeReadView[runtime.worldId] === runtime) {
             val publication = runtime.authoringPublication()
-            if (signalPackBindings(publication).isEmpty()) return true
+            if (signalTypeBindings(publication).isEmpty()) return true
             val previous = runtime.currentSectionOccupancy()
             val occupancy = try {
                 prepareSectionOccupancy(publication, SignalPackFallback.NONE).also { it.retainPublishedFrom(previous) }
@@ -1064,13 +1052,13 @@ internal class SimpleSignalsWorldRuntimeManager(
             try {
                 signalEpochSources.replaceSourcesAtomically(plugin, runtime.worldId, occupancy.sources) {
                     check(!closed && runtimeReadView[runtime.worldId] === runtime) {
-                        "signal package installation became stale"
+                        "signal catalog installation became stale"
                     }
                     check(infrastructure.currentTopology(runtime.worldId) === publication.topology) {
-                        "topology changed before signal package installation"
+                        "topology changed before signal catalog installation"
                     }
                     committed = runtime.replaceSectionOccupancy(publication, previous, occupancy)
-                    check(committed) { "signal package installation became stale" }
+                    check(committed) { "signal catalog installation became stale" }
                 }
             } catch (failure: Exception) {
                 if (runtime.closed || runtime.authoringPublication() !== publication) continue
@@ -1107,8 +1095,7 @@ internal class SimpleSignalsWorldRuntimeManager(
         previous: PreparedSignalModels? = null,
         packages: PreparedSignalPacks? = signalPacks): PreparedSignalModels {
         val definitions = publication.definitions
-        val configured = definitions.fixedBlockSignals.any { it.model != null } ||
-            definitions.protectionSignals.any { it.model != null } || definitions.routeIndicators.any { it.model != null } ||
+        val configured = definitions.routeIndicators.any { it.model != null } ||
             definitions.attachedSignals.isNotEmpty()
         val explicitModels = modelPackages ?: if (!configured) emptyMap() else {
             throw IllegalArgumentException("SimpleSignals rendering unavailable: " +
@@ -1557,7 +1544,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             }, prepared.candidatePublication, packages)
         } catch (failure: Exception) {
             return authoringResult(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
-                "signal package configuration was rejected: ${describe(failure)}")
+                "signal type configuration was rejected: ${describe(failure)}")
         }
         candidateOccupancy.attachModelBinding(candidateModels)
         val result = synchronized(lock) {
@@ -1569,7 +1556,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             "definitions changed before the prepared edit could be committed")
         if (signalPacks !== packages) return@synchronized authoringResult(
             SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
-            "signal package catalog changed while the definition edit was being prepared; retry the edit")
+            "signal catalog changed while the definition edit was being prepared; retry the edit")
         val topology = prepared.topology
         val nextRevision = prepared.definitions.definitionRevision
         val permitResult = try {
@@ -1660,7 +1647,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                         }
                         if (signalPacks !== packages) {
                             staleSignalPacksDuringCommit = true
-                            error("signal package catalog changed before the atomic definition commit")
+                            error("signal catalog changed before the atomic definition commit")
                         }
                         val committed = runtime.commitPrepared(
                             prepared,
@@ -1701,7 +1688,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                     }
                     val prefix = when {
                         staleSignalPacksDuringCommit ->
-                            "signal package catalog changed before the prepared edit could be committed"
+                            "signal catalog changed before the prepared edit could be committed"
                         status == SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED ->
                             "definitions could not be saved"
                         status == SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED ->

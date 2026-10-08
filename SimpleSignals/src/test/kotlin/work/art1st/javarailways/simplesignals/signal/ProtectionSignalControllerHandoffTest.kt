@@ -4,6 +4,7 @@ import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
 
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
@@ -43,11 +44,18 @@ import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_SIGNAL_SOURCE_ID
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.region.*
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionPublicationStatus
+import work.art1st.javarailways.simplesignals.signalpack.SignalLogicRuntime
+import work.art1st.javarailways.simplesignals.signalpack.SignalPackEpochRuntime
+import work.art1st.javarailways.simplesignals.signalpack.SignalPackLoader
+import work.art1st.javarailways.simplesignals.signalpack.SignalTypeBinding
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.UUID
 
 /** Uses the host's real dispatcher, Basic admission and controller; only actuation is stationary. */
 @OptIn(ExtensionData::class)
 class ProtectionSignalControllerHandoffTest {
+    @TempDir lateinit var directory: Path
     @Test
     fun `zero signal permits Basic request and changed occupancy reaches next controller without dispatcher`() =
         runHandoff(failHandler = false)
@@ -159,9 +167,7 @@ class ProtectionSignalControllerHandoffTest {
         val route = ProtectionRouteDefinition("test:handoff-route", "test:handoff-entry", "test:handoff-exit",
             listOf(ProtectionRouteTraversal(rail.id, ViewDirection.AB, entryMeters, exitMeters)))
         val signal = ProtectionSignalDefinition("test:handoff-signal", 1L, ProtectionSignalKind.CURRENT_ENTRY,
-            "test:handoff-entry", 0.0, ConfiguredSignalOutput(0.0, "custom/unready"),
-            ConfiguredSignalOutput(0.0, "custom/occupied"),
-            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(9.25, "custom/clear"))))
+            "test:handoff-entry", 0.0, "automatic:block")
         val secondEntry = exitMeters + 5.0
         val secondExit = exitMeters + 50.0
         val secondRegion = ProtectionRegionDefinition("test:second-region", 1L, listOf(
@@ -170,8 +176,7 @@ class ProtectionSignalControllerHandoffTest {
         val secondRoute = ProtectionRouteDefinition("test:second-route", "test:second-entry", "test:second-exit",
             listOf(ProtectionRouteTraversal(rail.id, ViewDirection.AB, secondEntry, secondExit)))
         val secondSignal = ProtectionSignalDefinition("test:second-signal", signal.revision, signal.kind,
-            "test:second-entry", signal.inspectionLeadTimeSeconds, signal.unavailableOutput,
-            signal.occupiedOutput, signal.clearLevels)
+            "test:second-entry", signal.inspectionLeadTimeSeconds, signal.signalType)
         val chain = extraStop == ExtraStop.CHAIN
         val signals = signalWorldRuntime(worldId)
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
@@ -181,7 +186,19 @@ class ProtectionSignalControllerHandoffTest {
                     region.regionId, region.revision, listOf(route))) + if (chain) listOf(
                     ProtectionRouteTableDefinition("test:second-table", 1L, secondRegion.regionId, 1L, listOf(secondRoute))) else emptyList(),
                 protectionSignals = listOf(signal) + if (chain) listOf(secondSignal) else emptyList())).status)
-        epoch.replaceSources(signals.initializeSectionOccupancy().sources)
+        val pack = directory.resolve("automatic")
+        Files.createDirectories(pack.resolve("model")); Files.createDirectories(pack.resolve("logic")); Files.createDirectories(pack.resolve("signal"))
+        Files.writeString(pack.resolve("pack.yml"), "config-version: 1\nname: automatic")
+        Files.writeString(pack.resolve("model/head.yml"), "parts:\n  - type: dummy\ndefault: {}\nvariants:\n  clear: {}\n  stop: {}")
+        Files.writeString(pack.resolve("logic/block.yml"), "scan-distance-metres: 500")
+        Files.writeString(pack.resolve("logic/block.js"), "function evaluate(input, output) { output.setSpeedLimit(input.self.occupied ? 0 : 9.25); output.setModelVariant(input.self.occupied ? 'stop' : 'clear'); }")
+        Files.writeString(pack.resolve("signal/block.yml"), "display-name: Automatic\nmodel: automatic:head\nlogic: automatic:block")
+        val catalog = SignalPackLoader.load(directory)
+        val logic = SignalLogicRuntime(catalog)
+        val publication = signals.authoringPublication()
+        val rules = SignalPackEpochRuntime.compile(publication, catalog, logic,
+            (listOf(signal) + if (chain) listOf(secondSignal) else emptyList()).map { SignalTypeBinding(it.signalId, it.signalType) })
+        epoch.replaceSources(signals.initializeSectionOccupancy(rules).sources)
         var failProjection = false
         var extraRed = true
         val signalSource = signals.fixedBlockInspectionSource

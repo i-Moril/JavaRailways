@@ -89,8 +89,7 @@ class ProtectionRouteSelectionRuntimeTest {
             endpoint(first, RailEndpoint.B) to endpoint(connector, RailEndpoint.A),
             endpoint(connector, RailEndpoint.B) to endpoint(trunk, RailEndpoint.A)))
         val signal = ProtectionSignalDefinition("test:current", 1L, ProtectionSignalKind.CURRENT_ENTRY,
-            "test:entry", 0.0, ConfiguredSignalOutput(0.0, "R"), ConfiguredSignalOutput(0.0, "R"),
-            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(20.0, "G"))))
+            "test:entry", 0.0, "automatic:block")
         val reverse = ProtectionRouteDefinition("test:reverse-first", "test:first-exit", "test:entry", listOf(
             ProtectionRouteTraversal(first, ViewDirection.BA, 0.0, 5.0),
             ProtectionRouteTraversal(trunk, ViewDirection.BA, 5.0, 10.0)))

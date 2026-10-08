@@ -10,7 +10,6 @@ import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntime
 import java.util.UUID
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry
 import work.art1st.javarailways.simplesignals.signal.*
-import work.art1st.javarailways.simplesignals.presentation.DeviceModelDefinition
 import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
 
 /** Rebuild through the immutable domain constructor; its generated copy deliberately stays private. */
@@ -19,13 +18,10 @@ internal fun FixedBlockSignalDefinition.reconfigured(
     revision: Long = this.revision,
     entryDirection: FixedBlockEntryDirection = this.entryDirection,
     inspectionLeadTimeSeconds: Double = this.inspectionLeadTimeSeconds,
-    clearLevels: Collection<FixedBlockSignalClearLevel> = this.clearLevels,
-    downstreamSignals: Collection<FixedBlockSignalDependency> = this.downstreamSignals,
-    model: DeviceModelDefinition? = this.model,
-    packageSignalId: String? = this.packageSignalId,
+    signalType: String = this.signalType,
     placement: ModelPlacement? = this.placement
 ) = FixedBlockSignalDefinition(signalId, revision, controlledBlockId, inspectionLeadTimeSeconds,
-    occupiedOutput, clearLevels, downstreamSignals, model, entryDirection, packageSignalId, placement)
+    signalType, entryDirection, placement)
 
 /** Legacy normal-control fixtures explicitly supply the per-rail policy their definitions require. */
 internal fun authoredDirectionPolicy(snapshot: () -> FixedBlockReadSnapshot): FixedBlockDirectionPolicy =

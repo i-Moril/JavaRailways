@@ -19,7 +19,8 @@ class DirectionalSignalPersistenceTest {
         assertTrue(encoded.contains("\"schemaVersion\": 1"))
         assertTrue(encoded.contains("\"entryDirection\": \"REVERSE\""))
         assertEquals(decoded, SimpleSignalsWorldDefinitionsCodec.decode(encoded, world))
-        assertNotNull(decoded.fixedBlockSignals.last().model)
+        assertNotNull(decoded.fixedBlockSignals.last().placement)
+        assertTrue(decoded.fixedBlockSignals.all { it.signalType == "automatic:block" })
     }
 
     @Test fun `current missing direction defaults forward but unsupported version numbers are rejected`() {

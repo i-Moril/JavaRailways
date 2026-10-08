@@ -76,57 +76,41 @@ internal class PreparedSignalModels private constructor(
             }
             val signals = linkedMapOf<String, MutableList<Device>>()
             val variantsBySignal = linkedMapOf<String, List<String>>()
-            val unavailablePackageSignals = hashSetOf<String>()
+            val unavailableSignals = hashSetOf<String>()
             definitions.fixedBlockSignals.forEach { definition ->
-                val packageSignal = definition.packageSignalId?.let { packageSignalId ->
-                    if (signalPacks == null) null else requireNotNull(signalPacks.signals[packageSignalId]) {
-                        "signal-pack device '${definition.signalId}' references unknown package signal '$packageSignalId'"
+                val catalogSignal = if (signalPacks == null) null else
+                    requireNotNull(signalPacks.signals[definition.signalType]) {
+                        "signal device '${definition.signalId}' references unknown signal type '${definition.signalType}'"
                     }
-                }
-                val variants = packageSignal?.model?.materialized?.variants()?.keys?.toList()
-                    ?: listOf(definition.occupiedOutput.modelVariant) +
-                        definition.clearLevels.map { it.output.modelVariant }
+                val variants = catalogSignal?.model?.materialized?.variants()?.keys?.toList().orEmpty()
                 variantsBySignal[definition.signalId] = variants
-                if (definition.packageSignalId != null && packageSignal == null) {
-                    unavailablePackageSignals += definition.signalId
+                if (catalogSignal == null) {
+                    unavailableSignals += definition.signalId
                 } else definition.placement?.let { placement ->
-                    val resolved = checkNotNull(packageSignal)
-                    val configuration = DeviceModelDefinition(resolved.modelId, placement)
+                    val configuration = DeviceModelDefinition(catalogSignal.modelId, placement)
                     signals.getOrPut(definition.signalId, ::mutableListOf) +=
                         device("fixed-block-signal", definition.signalId, configuration, emptyList(),
-                            resolved.model.presentation)
-                }
-                definition.model?.let { model ->
-                    signals.getOrPut(definition.signalId, ::mutableListOf) +=
-                        device("fixed-block-signal", definition.signalId, model, variants)
+                            catalogSignal.model.presentation)
                 }
             }
             definitions.protectionSignals.forEach { definition ->
-                val packageSignal = definition.packageSignalId?.let { packageSignalId ->
-                    if (signalPacks == null) null else requireNotNull(signalPacks.signals[packageSignalId]) {
-                        "signal-pack device '${definition.signalId}' references unknown package signal '$packageSignalId'"
+                val catalogSignal = if (signalPacks == null) null else
+                    requireNotNull(signalPacks.signals[definition.signalType]) {
+                        "signal device '${definition.signalId}' references unknown signal type '${definition.signalType}'"
                     }
-                }
-                val variants = packageSignal?.model?.materialized?.variants()?.keys?.toList()
-                    ?: listOf(definition.unavailableOutput.modelVariant, definition.occupiedOutput.modelVariant) +
-                        definition.clearLevels.map { it.output.modelVariant }
+                val variants = catalogSignal?.model?.materialized?.variants()?.keys?.toList().orEmpty()
                 variantsBySignal[definition.signalId] = variants
-                if (definition.packageSignalId != null && packageSignal == null) {
-                    unavailablePackageSignals += definition.signalId
+                if (catalogSignal == null) {
+                    unavailableSignals += definition.signalId
                 } else definition.placement?.let { placement ->
-                    val resolved = checkNotNull(packageSignal)
-                    val configuration = DeviceModelDefinition(resolved.modelId, placement)
+                    val configuration = DeviceModelDefinition(catalogSignal.modelId, placement)
                     signals.getOrPut(definition.signalId, ::mutableListOf) +=
                         device("protection-signal", definition.signalId, configuration, emptyList(),
-                            resolved.model.presentation)
-                }
-                definition.model?.let { model ->
-                    signals.getOrPut(definition.signalId, ::mutableListOf) +=
-                        device("protection-signal", definition.signalId, model, variants)
+                            catalogSignal.model.presentation)
                 }
             }
             definitions.attachedSignals.forEach { definition ->
-                if (definition.primarySignalId in unavailablePackageSignals) return@forEach
+                if (definition.primarySignalId in unavailableSignals) return@forEach
                 val variants = requireNotNull(variantsBySignal[definition.primarySignalId]) {
                     "attached signal ${definition.signalId} binds unknown primary signal ${definition.primarySignalId}"
                 }

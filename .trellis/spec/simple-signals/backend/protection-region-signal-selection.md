@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围与 owner
 
-- 状态：`CURRENT/PARTIAL`。共享入口选择、三种设备的后端配置/状态计算及模型呈现已实现；JS/YAML 加载尚未提供。
+- 状态：`CURRENT/PARTIAL`。共享入口选择、三种设备的后端配置/状态计算、JS signal type 与模型呈现已实现；Wand 尚未提供。
   默认进路已取消；保护信号要求真实列车请求及匹配经过的净空证明，离线验证记录见任务 `implement.md`。
 - SimpleSignals 拥有保护区域、固定进路、信号规则和显示设备；Basic 拥有物理资源准入、设备准备、claim 和 committed grant；SimpleATO 合并限制并执行中立入口净空检查，不识别具体信号或进路类型。
 - 非目标：不把保护区域类型加入 Basic/SimpleATO，不创建整区独占 token，不规定国家制式灯色，不让显示设备产生行车授权，也不根据道岔当前状态猜测或自动建立进路。
@@ -18,8 +18,8 @@
 固定进路信号和当前信号产生受验证的有限非负速度限制及不透明 model variant。进路显示器只产生显示 variant；不得用无限速度或占位速度伪装成信号限制。
 
 `ProtectionSignalDefinition.kind`为稳定的`FIXED_ROUTE`或`CURRENT_ENTRY`，`bindingId`分别指向固定进路或有向入口。
-定义还保存`inspectionLeadTimeSeconds`、速度必须为0的`unavailableOutput`、`occupiedOutput`、按下游速度阈值选择的
-`clearLevels`及下游依赖。灯色名称和具体速度全部来自配置，Kotlin只执行输入校验及阈值选择。
+定义还保存 `inspectionLeadTimeSeconds`、必填 `signalType` 和可选实例 placement。`signalType` 从 SimpleSignals catalog
+解析 modelId 与 logicId；占用、选路、route-ready 和树形下游事实交给 JS，Kotlin 只投影／校验输入输出，不保留速度档位表。
 `RouteIndicatorDefinition`保存入口ID、无进路variant及route-to-variant映射，不包含任何速度字段。
 三类设备共用可选模型/摆放配置，轨道或地面位置不改变逻辑入口；具体存档与校验归
 [模型显示合同](model-presentation.md)，不保留显示器原有的第二份轨道坐标。

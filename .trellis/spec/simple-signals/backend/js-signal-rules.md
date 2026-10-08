@@ -5,26 +5,30 @@
 这是分阶段契约。统一信号包解析、独立 GraalJS 执行、真实 world publication 到有向区间连接图的准备、
 不可变树形观察计划编译器、显式设备绑定后的同步 epoch 填值／求值，以及插件启动时的包 catalog 安装均已实现
 （`CURRENT`）。当前实现复用现有固定闭塞、保护区域、保护进路和规范化 `TopologyState`，按路径展开直线、分支、
-保护进路和环终止。固定闭塞／保护逻辑设备在世界 current model 中保存可空 `packageSignalId`；原有 `signalId`
-继续表示世界内的设备身份，不能从它、模型 ID 或文件名猜测包类型。同一 package signal 的 catalog 快照现在也
+保护进路和环终止。固定闭塞／保护逻辑设备在世界 current model 中只保存必填 `type`；Kotlin 属性名为
+`signalType`。它是由 SimpleSignals catalog 解析的稳定 namespaced 类型身份，不保存 catalog 来源。
+`signalId` 继续表示世界内的一台设备，不能从它、模型 ID 或文件名猜测类型。同一 signal type 的 catalog 快照现在也
 决定生产模型；玩家通过 Wand 放置／选择包类型仍是 **TARGET**。
 除此之外不增加时间、内存、节点、分支或整波预算；包作者负责规则的终止性和成本。
 
 SimpleSignals 负责包加载、脚本执行、前视投影、输出校验和信号结果发布。Basic 仍只负责物理资源校验与仲裁，SimpleATO 仍负责路线前视、资源申请、动态制动和最严格约束合成。JS 不得选路、扳动道岔、授予资源、直接制动列车或修改世界。包分发与玩家可见类型见[统一信号包](model-packages.md#统一信号包modellogic-与一等-signal-类型)。
 
-现有 `SectionSignalRuleRuntime`、显式下游依赖和无环失效传播属于 **CURRENT**；本目标不能被描述成已经由 `forwardSignals` 数组或现有 DAG 自动实现。源码边界见[研究记录](../../../tasks/09-18-signal-addon-implementation/research/js-rule-runtime-source-map.md)。
+其他插件若要扩展 SimpleSignals catalog，必须等待未来单独评审的 add-on API；该 API 不属于当前实现，也不能把来源写入
+world `type`。另一套完整信号系统插件可以拥有自己的 domain/runtime，但不是 SimpleSignals 的 Kotlin signal type。
+
+旧的 Kotlin 输出表、`SectionSignalRuleRuntime` 和 provider union 已删除。当前逻辑信号只执行 catalog 类型解析后的 JS；通用状态、publication、inspection 与拓扑 guard 仍复用。源码边界见[研究记录](../../../tasks/09-18-signal-addon-implementation/research/js-rule-runtime-source-map.md)。
 
 ## 2. 一次规则执行如何完成
 
 1. 插件启动 worker 从 `signal-packs/` 读取元数据 `pack.yml`、`model/`、成对的 `logic/*.yml`／`logic/*.js`
-   和 `signal/*.yml`，以稳定 `modelId`、`logicId`、`signalId` 编译并校验完整 catalog。每个 world 再把显式
-   `deviceId -> packageSignalId` 绑定编译为自己的 epoch runtime；同一个 catalog signal 的 materialized model 进入既有
+   和 `signal/*.yml`，以稳定 `modelId`、`logicId`、`signalType` 编译并校验完整 catalog。每个 world 再把显式
+   `deviceId -> signalType` 绑定编译为自己的 epoch runtime；同一个 catalog signal 的 materialized model 进入既有
    `PreparedSignalModels`，世界只提供可选摆放。玩家放置仍属后续批次。
 2. 拓扑或配置变更后，SimpleSignals 在低频准备阶段从信号入口编译前视计划。计划包含扫描范围内的所有合法后继，以及运行时筛选分支所需的道岔、保护进路和区间身份；它不包含某一 tick 的占用结果。
    当前 `SignalObservationGraphBuilder` 已从同一 `SimpleSignalsRuntimePublication` 的真实 section/topology
    publication 构造连接图，`SignalObservationPlanCompiler` 再把它变成不可变路径树；运行时只给该计划填入当前 epoch 的事实。
 3. Core 完成物理 worker 并捕获同一 epoch 的物理观测后，进入已有串行 signal epoch。
-4. 对显式 `SignalPackDeviceBinding(deviceId, signalId)`，其中 `signalId` 就是 package catalog 的公开 signal ID，SimpleSignals 用该 epoch 的占用、选路、资源准备和设备状态填充前视计划，生成只读树形输入。
+4. 对显式 `SignalTypeBinding(deviceId, signalType)`，SimpleSignals 用该 epoch 的占用、选路、资源准备和设备状态填充前视计划，生成只读树形输入。
 5. JS 在这个信号阶段内同步调用 setter。调用正常返回且输出完整有效后，才构造信号结果。
 6. 同一 signal epoch 的所有 publication 均成功后才推进完成 epoch。SimpleATO 在下一次控制计算读取已完成结果；模型显示读取同一个不透明外观名，不另跑一遍脚本。
 
@@ -124,15 +128,14 @@ function evaluate(input: SignalInput, output: SignalOutput): void;
 所有输入必须来自同一物理 epoch、同一拓扑／定义 revision 和仍有效的世界绑定。拓扑、包或定义替换使对应前视计划失效；旧调用不得覆盖新绑定。完整结果原子发布，消费者不读取半更新状态。
 
 插件管理器拥有一份共享 `SignalPackCatalog` 和 `SignalLogicRuntime`。包目录只在启动 worker 加载一次，不在 world
-回调或 JS 字段读取时重读。包含 package 绑定的 world 在 catalog 就绪前安装限制性 runtime：所有相关设备发布
+回调或 JS 字段读取时重读。包含 signal type 绑定的 world 在 catalog 就绪前安装限制性 runtime：所有相关设备发布
 `Unavailable` 和速度 0；catalog 成功后，只有 world runtime、publication 和 topology 仍与准备起点完全相同时，
 才能通过原子 source replacement 换入编译后的 `SignalPackEpochRuntime`。迟到结果不得覆盖已经替换或卸载的 world。
 
-固定闭塞和保护信号的 current schema 1 JSON 必须显式包含 `packageSignalId` 字段，但字段值允许为 `null`；writer
-始终写出 `null` 或完整 namespaced package signal ID。该 sidecar 尚未发布，因此本次直接修正 current model，保持
-schema version 1，不添加旧 reader、upcaster 或运行时兼容路径。两类主信号还必须显式写出互斥的 `model` 与
-`placement`：未绑定设备可在 `model` 保存 modelId+placement；package-bound 设备的 `model` 必须为 null，只有
-`placement` 可保存实例摆放，modelId 由 catalog signal 唯一决定。未绑定设备继续使用既有 Kotlin provider。
+固定闭塞和保护信号的 current schema 1 JSON 必须显式包含 namespaced `type`。该 sidecar 尚未发布，因此本次直接
+修正 current model，保持 schema version 1，不添加旧 reader、upcaster、alias 或运行时兼容路径；旧 `provider`、
+`packageSignalId`、输出表和显式主信号 `model` 都是严格未知字段。两类主信号只另存可选 `placement`，modelId 与
+logicId 均由 catalog signal 唯一决定。`inspectionLeadTimeSeconds` 仍是每设备共同字段。
 
 静态观察图使用 topology 与 definitions 的对象身份作为 cache identity，而不是只比较数值 revision。候选构图失败时，
 定义准备失败并保留旧 live publication；局部拓扑重验也必须生成同一新 topology 上的图后才能原子替换派生 publication。
@@ -155,7 +158,7 @@ JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／�
 ## 6. 校验与失败处理
 
 - 包、脚本、入口或引用非法：拒绝完整候选，保留旧 live publication；不存在旧候选时该设备不可用。
-- 启动 catalog 尚未就绪时，只允许不新增或改绑 `packageSignalId` 的定义编辑；新绑定必须等待 catalog 校验。
+- 启动 catalog 尚未就绪时，只允许不新增或改绑 `signalType` 的定义编辑；新绑定必须等待 catalog 校验。
   catalog 就绪后的候选编辑必须严格编译，未知 signal 或非法包不能借限制性 fallback 提交。
   若 catalog 恰在候选准备与原子提交之间就绪，该候选按过期准备拒绝并要求重试，不能用先前的限制性
   runtime／无模型绑定覆盖刚安装的同一 catalog 结果。
@@ -214,7 +217,8 @@ JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／�
 - 环回边不建立递归下游输出依赖；循环段内不暴露本轮或上一轮下游输出，改变规则求值顺序不改变输入；零长度环在准备阶段拒绝，旧 publication 保持不变。依赖集合和 publication 原子保留均已验证。
 - 真实 catalog/topology 组合覆盖双向闭塞、普通轨道间距、保护进路分支、道岔 continuation、同入口多逻辑信号、附属显示 root、不可用区域、歧义入口保留旧 publication、跨 revision 保留未受影响进路，以及正长度无区间环只终止命中分支。
 - setter 缺失、重复、非法速度、未知外观和异常都原子失败并收紧到 0；显示失败不扩大许可。
-- schema 1 的两种逻辑信号都必须显式写出可空 `packageSignalId`；缺字段严格拒绝。启动缺 catalog、未知 signal、
+- schema 1 的两种逻辑信号都必须显式写出 namespaced `type`；旧 `provider`、`packageSignalId`、规则表或显式主信号模型
+  均严格拒绝。启动缺 catalog、未知 signal type、
   无效包和迟到 attach 均不能保留或恢复 permissive 输出；catalog pending 时不涉及新绑定的编辑仍可提交。
 - 同一逻辑的多个显示器不增加求值次数；无关变化不求值，字段访问不触发拓扑寻路或文件读取。
 - 用真实 GraalJS 和代表性大分支包记录耗时与分配量，作为作者调优证据；测试不据此加入隐藏预算。
@@ -225,17 +229,17 @@ JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／�
 编译；第三批已从当前 world publication 构造真实连接图，并把完整图绑定到定义准备和局部拓扑重验 publication。
 同步填值批次已经通过 `SignalPackEpochRuntime` 接入既有 section `SignalEpochSource`：低频编译显式设备绑定和计划，
 回调内先更新占用／选路，再按非循环下游依赖顺序求值，每台逻辑设备每个回调至多一次，最后一次性替换完整快照。
-本阶段允许 JS 设备向后读取未绑定的既有 Kotlin 设备，因为后者先形成同 epoch 基线；反方向若让未绑定 Kotlin
-消费者依赖已由 JS 替换的下游设备，则候选编译直接拒绝，避免 Kotlin 先读到旧实现结果、JS 随后覆盖却没有重新唤醒
-该消费者。已绑定设备目前仍会先计算一次既有 Kotlin 基线再由 JS 结果覆盖，这是可测的过渡期开销，不产生第二次
-世界／拓扑扫描；后续统一调度器接线前不得移除此闭包校验。
-生产启动／持久化绑定批次已经完成：两种逻辑设备显式保存 `packageSignalId`，插件启动时加载共享 catalog，
+当前不存在 Kotlin 信号规则路径。所有逻辑设备都在一个 JS dependency DAG 中按同 epoch 下游优先顺序求值；环形物理
+扫描仍按前述 branch-local 规则终止，不能形成输出依赖环。定义索引、inspection 声明、拓扑失效和声明 invalidation
+独立于 JS 求值保留。source replacement 尚未取得新 baseline 时，未变 signal definition 以同一对象身份读取最后完成的
+旧 source；已变 definition 不复用该结果，拓扑 guard 仍优先收紧。
+生产启动／持久化绑定批次已经完成：两种逻辑设备通过 `type` 保存 `signalType`，插件启动时加载共享 catalog，
 world manager 按 exact publication/topology 身份安装 epoch runtime，并在 catalog 缺失或无效时保持限制性结果。
 共享 runtime 随 manager 清理关闭；单元测试覆盖 runtime 自身关闭，真实 Folia 下的 manager 清理和在线生命周期仍待部署验证。
 
-生产模型绑定也已完成：逻辑与模型从同一不可变 catalog signal 解析，package catalog 就绪后用精确
-runtime/publication/topology 守卫替换显示绑定；缺失或未知 package 不创建错误 handle。模型创建／提交故障仍只属于显示，
-不能改变已经发布的安全输出。仍待实现的是玩家通过 Wand 放置／选择 package signal、错误诊断载荷完善和热重载命令。
+生产模型绑定也已完成：逻辑与模型从同一不可变 catalog signal 解析，catalog 就绪后用精确
+runtime/publication/topology 守卫替换显示绑定；缺失或未知 signal type 不创建错误 handle。模型创建／提交故障仍只属于显示，
+不能改变已经发布的安全输出。仍待实现的是玩家通过 Wand 放置／选择 signal type、错误诊断载荷完善和热重载命令。
 
 错误做法：每次 `lookup` 重新走拓扑；遇环拒绝整个包；用 future 超时但让脚本后台继续；把保护区域另做一套查询；让 JS 直接修改世界；以旧绿灯作为异常 fallback。
 

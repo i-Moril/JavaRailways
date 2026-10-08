@@ -30,9 +30,7 @@ import work.art1st.javarailways.simplesignals.runtime.SectionRef
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionPreparationResult
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionPublicationStatus
 import work.art1st.javarailways.simplesignals.signal.AttachedSignalDefinition
-import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
 import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
-import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
@@ -336,8 +334,7 @@ class SignalObservationGraphPublicationTest {
         1,
         blockId,
         0.0,
-        ConfiguredSignalOutput(0.0, "stop"),
-        listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(20.0, "clear"))),
+        "automatic:block",
         entryDirection = direction
     )
 
@@ -348,9 +345,7 @@ class SignalObservationGraphPublicationTest {
             kind,
             binding,
             0.0,
-            ConfiguredSignalOutput(0.0, "unavailable"),
-            ConfiguredSignalOutput(0.0, "occupied"),
-            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(20.0, "clear")))
+            "automatic:block"
         )
 
     private fun route(id: String, branch: UUID, exit: String) = ProtectionRouteDefinition(

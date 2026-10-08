@@ -52,7 +52,8 @@ data class SignalPackLogic(
 )
 
 data class SignalPackSignal(
-    val signalId: String,
+    /** Reusable catalog identity referenced by placed devices' `signalType`. */
+    val signalType: String,
     val file: Path,
     val displayName: String,
     val model: SignalPackModel,

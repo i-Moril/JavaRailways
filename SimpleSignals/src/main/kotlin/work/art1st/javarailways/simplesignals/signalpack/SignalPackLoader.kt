@@ -59,16 +59,16 @@ object SignalPackLoader {
                     val logic = logics[pending.logicId]
                         ?: wrongKindOrUnknown(pending.logicLocation, pending.logicId, "logic", models)
                     val signal = SignalPackSignal(
-                        pending.signalId,
+                        pending.signalType,
                         pending.file,
                         pending.displayName,
                         model,
                         logic
                     )
-                    if (signals.putIfAbsent(pending.signalId, signal) != null) {
-                        pending.location.fail("duplicate signal ID '${pending.signalId}'")
+                    if (signals.putIfAbsent(pending.signalType, signal) != null) {
+                        pending.location.fail("duplicate signal type '${pending.signalType}'")
                     }
-                    localSignals[pending.signalId] = signal
+                    localSignals[pending.signalType] = signal
                 }
                 resolvedPackages[candidate.name] = SignalPack(
                     candidate.name,
@@ -288,7 +288,7 @@ object SignalPackLoader {
     )
 
     private data class PendingSignal(
-        val signalId: String,
+        val signalType: String,
         val file: Path,
         val displayName: String,
         val modelId: String,

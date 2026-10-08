@@ -1,15 +1,28 @@
 # Stage 2 implementation plan
 
-## 2026-10-08 统一 package signal 的生产模型绑定
+## 2026-10-08 JS-only signal type 修正（取代下方 provider 拆分）
 
-- [x] package-bound 固定闭塞／保护主信号改为由同一 `SignalPackCatalog` signal 同时选择 model 与 logic；
-  世界 current schema 1 只另存可选 `placement`，禁止同时保存可冲突的显式 modelId。未绑定 Kotlin provider
-  继续使用显式 `model`；附属信号与进路表示器仍是 presentation-only 显式模型。
+- [x] 删除 world/domain 的 `BuiltIn | Package` provider union 与 Kotlin 规则表执行路径。固定闭塞和保护主信号只保存
+  Kotlin `signalType`／JSON `type`，从 SimpleSignals catalog 解析同一个 modelId + logicId。
+- [x] 未发布 world schema 保持 version 1，严格拒绝旧 `provider`、`packageSignalId`、规则表和显式主信号 model；
+  不加 alias、reader 或 upcaster。保留每设备 `inspectionLeadTimeSeconds` 与可选实例 placement。
+- [x] 以下 2026-10-08 provider-union 条目仅是被本节取代的实现历史，不是 CURRENT 合同。
+
+## 2026-10-08 已取代的 provider 拆分历史
+
+- [x] 曾实现的 Kotlin built-in／filesystem package provider union 已在未发布分支内撤销；它不构成 current schema、
+  runtime 或扩展合同。当前只有 catalog signal type + JS logic，历史提交中的 provider 字段与测试数量仅供审计。
+
+## 2026-10-08 统一 catalog signal type 的生产模型绑定（后续 JS-only 修正后的语义）
+
+- [x] 固定闭塞／保护主信号由同一 SimpleSignals catalog signal type 同时选择 model 与 logic；
+  世界 current schema 1 只另存 `type` 与可选 `placement`，禁止保存可冲突的显式 modelId 或 Kotlin rule。
+  附属信号与进路表示器仍是 presentation-only 显式模型。
 - [x] 复用 catalog 已 materialize 的模型、`PreparedSignalModels`、handle retention 和显示发布锁；catalog pending／
   缺失／未知时不创建错误 handle，catalog 成功后在 exact runtime/publication/topology 守卫下替换显示绑定。
   定义候选以同一个捕获的 catalog 同时准备 epoch runtime 与模型；失败保留旧磁盘、publication、sources 和 handles。
-- [x] 直接修正未发布 sidecar schema 1：两类主信号严格显式写出可空 `model` 与 `placement`，两条路径互斥；
-  不升版、不增加默认字段、兼容 reader 或 upcaster。固定 fixture 覆盖 package placement、缺字段和重复 modelId 拒绝。
+- [x] 直接修正未发布 sidecar schema 1：两类主信号严格显式写出 `type`，只另存可选 `placement`；modelId 与
+  logicId 由同一个 catalog signal type 提供。不升版，不增加兼容 reader 或 upcaster；固定 fixture 覆盖严格字段校验。
 - [x] 聚焦回归覆盖 JS 与模型同源选择、运行期 variant 对 catalog model 校验、catalog pending／未知不创建错误模型、
   非法改绑原子保留旧状态。独立检查补充 exact materialized model 身份、catalog 在候选准备与提交间就绪时拒绝
   过期候选，以及 topology 重验后按新 root 重算轨道附着姿态；仍复用既有 handle、worker 和 publication 锁。
@@ -19,17 +32,17 @@
 ## 2026-10-07 统一信号包一等类型格式纠正
 
 - [x] 直接修正未发布 config-version 1：`pack.yml` 只保存包元数据；`model/`、成对同 stem 的
-  `logic/*.yml`／`logic/*.js` 和 `signal/*.yml` 按安全相对路径派生稳定 namespaced modelId、logicId、signalId。
-- [x] package signal 文件取代旧 combination 概念，保存玩家显示名并引用一个 modelId 与一个 logicId；
+  `logic/*.yml`／`logic/*.js` 和 `signal/*.yml` 按安全相对路径派生稳定 namespaced modelId、logicId、signalType。
+- [x] signal type 文件取代旧 combination 概念，保存玩家显示名并引用一个 modelId 与一个 logicId；
   跨包引用继续两阶段、与目录顺序无关，旧 foundation 布局没有兼容 reader/upcaster。
 - [x] catalog/loader/runtime 测试改用一等 signal 文件。
 - [x] BukkitPlugin 提供 worker-safe 的公共普通模型 YAML compiler；旧 model-only loader 与统一信号包共用其
   parts/inline/import、场景、variant 和 placement 编译。统一包同包 model import 只导入 identity-grouped parts，
   不继承目标 default/variants/placement；循环、缺失引用、非法 variant、不可变结果与捕获后不重读均有聚焦测试。
   Car/Rail 专用包未迁移；该历史提交尚未包含生产启动、世界绑定和 signal epoch，后三者已由后续批次完成。
-- [x] signal epoch 内存绑定已显式区分 package `signalId` 与已放置逻辑 `deviceId`；observation publication/plan
+- [x] signal epoch 内存绑定已显式区分 catalog `signalType` 与已放置逻辑 `deviceId`；observation publication/plan
   也使用 device 语义命名，不按同名、模型或路径猜绑定。后续批次已在保持世界 schema 1 的前提下加入严格
-  `packageSignalId` 持久化和启动 catalog，见本节末项。
+  JSON `type`／Kotlin `signalType` 持久化和启动 catalog，见本节末项。
 
 ## 2026-10-07 JS 包与树形前视决策收敛（本提交仅文档）
 
@@ -41,7 +54,7 @@
   明确包作者负责脚本性能与终止。
 - [x] 将遍历兜底收敛为逐分支遇环停止并向 JS 报告终止原因；兄弟分支继续，不使用 DAG 全局拒绝、SCC、
   fixed-point 或陈旧 permissive 输出。
-- [x] 建立包发现／跨包解析与 GraalJS runtime 基础，保持现有 Java/Kotlin provider 可用；严格 current schema 1、
+- [x] 历史批次建立包发现／跨包解析与 GraalJS runtime 基础时曾保持 Java/Kotlin provider 可用；严格 current schema 1、
   两阶段稳定 ID 解析、捕获 JS 源、fresh realm 沙箱、exact-once setter 和 detached async 取消均由聚焦测试覆盖，
   未在同一提交接入树形 observation、世界或插件启动。
 - [x] 编译不可变树形 observation plan：从已准备的有向区间连接图逐路径展开，状态身份包含区间、方向、入口和保护进路上下文；
@@ -58,16 +71,15 @@
   Java consumer、插件 JAR 和 diff check 通过。本批不读取 epoch、不执行 JS、不发布规则结果，不改 schema/version。
 - [x] 将显式内存绑定接入既有同步 signal epoch：同帧占用／道岔／保护进路事实投影为树形 JSON，按非循环下游依赖
   顺序每设备至多求值一次；完整 setter 结果及 model variant 校验后原子替换快照，异常／未知 variant／不可用物理状态收紧为0，
-  不保留上一 epoch 的许可。既有 Kotlin provider 仍作为未绑定设备的默认实现，附属显示继续读取主设备同一结果。
-  过渡期调度只允许 JS 设备读取先完成的 Kotlin 下游；若未绑定 Kotlin 消费者位于 JS 替换设备上游，低频编译按传递
-  consumer 闭包拒绝该绑定，避免同 epoch 读到被随后覆盖的旧实现结果。已绑定设备仍会产生一次既有 Kotlin 基线开销，
-  本批不扩成第二个或统一调度器；没有第二次世界／拓扑扫描。
-  离线功能门禁中的 Graal 调用不是吞吐／延迟基准；fresh Context、树投影和过渡期重复 Kotlin 求值的生产规模成本
+  不保留上一 epoch 的许可。附属显示继续读取主设备同一结果。当时曾存在 Kotlin/JS 混合调度；上方 JS-only 修正已经
+  删除全部持久化 Kotlin 规则、混合 provider 与重复 Kotlin 基线，只保留 JS 设备之间的同 epoch 有向顺序。
+  离线功能门禁中的 Graal 调用不是吞吐／延迟基准；fresh Context和树投影的生产规模成本
   仍待代表性包基准及在线观测，不能据单元测试通过宣称 tick 性能已验收。
-- [x] 把 package signal 类型引用加入尚未发布的世界 current model并接入插件启动 catalog：固定闭塞和保护逻辑设备
-  的严格 schema 1 DTO 必须显式包含可空 `packageSignalId`，原 `signalId` 继续作为世界 `deviceId`，不从设备、模型或
+- [x] 把 catalog signal 类型引用加入尚未发布的世界 current model并接入插件启动 catalog：该批曾使用可空
+  `packageSignalId` 和 provider union，现已由上方 JS-only current schema 1 直接修正为必填 `signalType`／JSON `type`；
+  原 `signalId` 继续作为世界 `deviceId`，不从设备、模型或
   文件路径猜测绑定。插件在启动 worker 一次加载 `signal-packs/`，manager 共享 catalog/runtime，并为每个 world 编译
-  `deviceId -> packageSignalId` 的 `SignalPackEpochRuntime`。catalog pending、缺失或启动／拓扑重验失败时绑定设备保持
+  `deviceId -> signalType` 的 `SignalPackEpochRuntime`。catalog pending、缺失或启动／拓扑重验失败时绑定设备保持
   `Unavailable`／0；catalog ready 后定义编辑严格编译，未知类型拒绝且不取得编辑许可。异步 attach 以 exact world
   runtime/publication/topology 守卫并通过原子 source replacement 安装。没有 upcaster、兼容 reader、热重载、Wand
   选择或模型 materialize；schema version 保持1。聚焦验证4套/123项通过。最终离线
@@ -318,15 +330,16 @@ Current extraction progress:
 
 - [x] Review the deferred reactive design: SimpleSignals owns a one-way provider-to-upstream-consumer invalidation chain; no fixed-point solver or host-owned dependency graph. Record the future Core active-continuation snapshot prerequisite without implementing it in this batch.
 - [x] Publish Core's immutable active-turnout continuations in the coherent world frame and project them unchanged through Basic observation. Rebuild the turnout-port map only when topology or live selection revision changes; reject a candidate frame if the selection changes during epoch processing.
-- [x] Implement only the dependency/invalidation mechanism approved in that review for the `CURRENT` built-in providers:
+- [x] Historical implementation: built-in providers once used the following dependency/invalidation mechanism, which the
+  JS-only correction above has now removed:
   precompile an acyclic one-way graph and evaluate only reached consumers, stopping unchanged branches without a world-wide scan.
   This completed mechanism is not the `TARGET` JS tree/cycle contract above; concrete aspect/limit rules remain separate.
 - [x] Prove unchanged resources remain idle and stale permissive outputs cannot survive invalidation: unchanged host area state skips the plugin callback, unchanged rule output stops the branch, and rule/downstream failure publishes an unavailable zero-limit state instead of retaining an old permissive result.
 - [x] Close the actual inspection-to-controller handoff gap (user approved the SimpleATO ownership move): Dispatcher publishes compiled declarations with its frozen-route mapping; each train's controller owns activation/baseline state, consumes signal invalidations and applies projections before its planner, using the existing single perception. Two real Basic/SignalEpoch/SimpleATO integration cases prove changed occupancy/readiness reaches the next physical control calculation with Dispatcher stopped, unchanged state stays idle, and callback failure prevents actuation; direct restriction-publisher tests are not the evidence. See the [inspection owner contract](../../spec/javarailways/simpleato/operational-routing-and-authority.md#343-缓存失效与响应式更新).
 - [x] Extend the neutral signal-epoch wake-up seam with source-declared watched rail endpoints. Fixed-block downstream dependencies now declare only required turnout continuations; definition prepare walks that explicit directed path, derives distance and watched conditions, and turnout-only changes seed only affected rules. Missing, illegal, conflicting, cyclic or unreachable paths fail restrictive outside the tick path.
 - [x] Propagate changed downstream state only as far as needed; stop when an output is unchanged and reject dependency construction that would introduce reverse/downstream feedback.
-- [x] Define the `SimpleSignals` Java/Kotlin rule execution boundary before adding scripts: immutable controlled-section/downstream views enter an injected rule and a validated speed plus opaque model variant leaves it; no concrete aspect vocabulary or speed table is hard-coded.
-- [x] Implement concrete rule providers through that boundary without moving policy into Basic or SimpleATO. Persisted fixed-block and protection fixed-route/current-entry providers are complete; arbitrary custom/script providers remain separate.
+- [x] Historical foundation: the neutral state/output/publication primitives introduced before scripts remain reusable, but the
+  persisted Kotlin rule authoring/compiler/evaluator has now been deleted in favor of catalog JS signal types.
 - [x] Expose the neutral Basic active-admission value and compile/persist mutually compatible configured default protection routes without claiming them. The active value carries the frozen route and actual requested/committed authority boundaries; default-route runtime checks use precompiled turnout requirements.
 - [x] Connect admission changes and physical turnout observations to one shared entry selector: request > physically-correct configured default > no route. Retain the old committed prefix during suffix preparation and remove tail-cleared route associations without ending the whole operating route. Match frozen routes once on route changes; unchanged selection state remains idle. Host routes latest-per-owner updates by cached rail interests, including removal/reversal, source replacement baseline and train disappearance independent of Bukkit follow-up. A cleared entry association does not release overlapping long resources still held by Basic.
 - [x] Implement the three device forms' backend on that shared state: fixed-route signal, current signal and presentation-only route indicator. Reuse the indicator for distant previews through explicit source binding and player placement. Route-specific occupancy, mixed-kind one-way dependencies, typed inspection declaration IDs, additive schema-1 persistence and live definition patches are implemented. Rendering is tracked below; independent physical inspection consumption is the separately approved host slice above. Do not infer request state from claim owner strings, poll `liveClaims()` per tick or scan turnouts for non-default fallback routes.

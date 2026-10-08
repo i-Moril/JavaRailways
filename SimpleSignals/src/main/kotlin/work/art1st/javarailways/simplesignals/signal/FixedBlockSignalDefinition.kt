@@ -1,7 +1,5 @@
 package work.art1st.javarailways.simplesignals.signal
 
-import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
-import work.art1st.javarailways.simplesignals.presentation.DeviceModelDefinition
 import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
 import work.art1st.javarailways.simplesignals.region.SIMPLE_SIGNALS_NAMESPACED_ID
 
@@ -13,126 +11,26 @@ internal data class FixedBlockSignalEntry(
     val direction: FixedBlockEntryDirection = FixedBlockEntryDirection.FORWARD
 )
 
-/** One configured signal presentation and the speed limit it contributes. */
-internal data class ConfiguredSignalOutput(
-    val speedLimitMetersPerSecond: Double,
-    val modelVariant: String
-) {
-    init {
-        require(speedLimitMetersPerSecond.isFinite() && speedLimitMetersPerSecond >= 0.0) {
-            "configured signal speed limit must be finite and non-negative"
-        }
-        require(modelVariant.isNotBlank()) { "configured signal model variant must not be blank" }
-    }
-}
-
-/** One explicitly selected turnout continuation along a downstream signal path. */
-internal data class FixedBlockSignalContinuationRequirement(
-    val entry: RailEndpointRef,
-    val selectedExit: RailEndpointRef
-) {
-    init {
-        require(entry != selectedExit) { "turnout continuation cannot return through its entry" }
-    }
-}
-
-/** One downstream signal whose published limit may restrict this signal. */
-@ConsistentCopyVisibility
-internal data class FixedBlockSignalDependency private constructor(
-    val signalId: String,
-    val requiredContinuations: List<FixedBlockSignalContinuationRequirement>
-) {
-    constructor(
-        signalId: String,
-        requiredContinuations: Collection<FixedBlockSignalContinuationRequirement> = emptyList()
-    ) : this(signalId, java.util.List.copyOf(requiredContinuations))
-
-    init {
-        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalId)) {
-            "downstream signalId must be namespaced"
-        }
-        require(requiredContinuations.map { it.entry }.distinct().size == requiredContinuations.size) {
-            "downstream signal continuation entries must be unique"
-        }
-    }
-}
-
 /**
- * A configured clear-section output selected from the most restrictive downstream speed.
+ * One placed fixed-block signal.
  *
- * The highest level whose threshold does not exceed the downstream speed is selected. A first
- * threshold of zero makes the table total for every valid downstream output.
+ * [signalId] identifies this world device. [signalType] identifies the reusable SimpleSignals
+ * catalog type that supplies both its model and JavaScript logic. The catalog's storage/provider
+ * origin is deliberately absent from the world model.
  */
-internal data class FixedBlockSignalClearLevel(
-    val minimumDownstreamSpeedMetersPerSecond: Double,
-    val output: ConfiguredSignalOutput
-) {
-    init {
-        require(
-            minimumDownstreamSpeedMetersPerSecond.isFinite() &&
-                minimumDownstreamSpeedMetersPerSecond >= 0.0
-        ) {
-            "minimum downstream speed must be finite and non-negative"
-        }
-    }
-}
-
-/** Current authoring model for one fixed-block entry signal. */
-@ConsistentCopyVisibility
-internal data class FixedBlockSignalDefinition private constructor(
+internal data class FixedBlockSignalDefinition(
     val signalId: String,
     val revision: Long,
     val controlledBlockId: String,
     val inspectionLeadTimeSeconds: Double,
-    val occupiedOutput: ConfiguredSignalOutput,
-    val clearLevels: List<FixedBlockSignalClearLevel>,
-    val downstreamSignals: List<FixedBlockSignalDependency>,
-    val model: DeviceModelDefinition?,
-    val entryDirection: FixedBlockEntryDirection,
-    /** Player-facing type from the unified signal-pack catalog; null keeps the configured Kotlin rule. */
-    val packageSignalId: String?,
-    /** World-owned placement for the package signal's catalog-selected model. */
-    val placement: ModelPlacement?
+    val signalType: String,
+    val entryDirection: FixedBlockEntryDirection = FixedBlockEntryDirection.FORWARD,
+    val placement: ModelPlacement? = null
 ) {
-    constructor(
-        signalId: String,
-        revision: Long,
-        controlledBlockId: String,
-        inspectionLeadTimeSeconds: Double,
-        occupiedOutput: ConfiguredSignalOutput,
-        clearLevels: Collection<FixedBlockSignalClearLevel>,
-        downstreamSignals: Collection<FixedBlockSignalDependency> = emptyList(),
-        model: DeviceModelDefinition? = null,
-        entryDirection: FixedBlockEntryDirection = FixedBlockEntryDirection.FORWARD,
-        packageSignalId: String? = null,
-        placement: ModelPlacement? = null
-    ) : this(
-        signalId,
-        revision,
-        controlledBlockId,
-        inspectionLeadTimeSeconds,
-        occupiedOutput,
-        java.util.List.copyOf(clearLevels),
-        java.util.List.copyOf(downstreamSignals),
-        model,
-        entryDirection,
-        packageSignalId,
-        placement
-    )
-
     val entry: FixedBlockSignalEntry get() = FixedBlockSignalEntry(controlledBlockId, entryDirection)
 
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalId)) { "signalId must be namespaced" }
-        require(packageSignalId == null || SIMPLE_SIGNALS_NAMESPACED_ID.matches(packageSignalId)) {
-            "packageSignalId must be null or namespaced"
-        }
-        require(packageSignalId == null || model == null) {
-            "package-bound signal model is selected by packageSignalId; use placement instead"
-        }
-        require(packageSignalId != null || placement == null) {
-            "package signal placement requires packageSignalId"
-        }
         require(revision >= 0L) { "signal revision must be non-negative" }
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(controlledBlockId)) {
             "controlledBlockId must be namespaced"
@@ -140,22 +38,6 @@ internal data class FixedBlockSignalDefinition private constructor(
         require(inspectionLeadTimeSeconds.isFinite() && inspectionLeadTimeSeconds >= 0.0) {
             "inspection lead time must be finite and non-negative"
         }
-        require(clearLevels.isNotEmpty()) { "fixed-block signal must define at least one clear level" }
-        require(clearLevels.first().minimumDownstreamSpeedMetersPerSecond == 0.0) {
-            "first fixed-block signal clear level must start at downstream speed 0"
-        }
-        clearLevels.zipWithNext().forEach { (left, right) ->
-            require(
-                left.minimumDownstreamSpeedMetersPerSecond <
-                    right.minimumDownstreamSpeedMetersPerSecond
-            ) {
-                "fixed-block signal clear-level thresholds must be strictly increasing"
-            }
-        }
-        require(downstreamSignals.map(FixedBlockSignalDependency::signalId).distinct().size ==
-            downstreamSignals.size
-        ) {
-            "downstream signal IDs must be unique"
-        }
+        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalType)) { "signalType must be namespaced" }
     }
 }

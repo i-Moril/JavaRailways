@@ -40,8 +40,7 @@ class SectionTopologyRevalidationTest {
     private fun block(id: String, vararg rails: UUID) = FixedBlockDefinition(id, 0,
         rails.map { FixedBlockTraversal(it, ViewDirection.AB, 0.0, 10.0) }, bidirectional = true)
     private fun signal(block: FixedBlockDefinition) = FixedBlockSignalDefinition("${block.blockId}/signal", 0,
-        block.blockId, 2.0, ConfiguredSignalOutput(0.0, "stop"),
-        listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(20.0, "clear"))))
+        block.blockId, 2.0, "automatic:block")
     private fun region() = ProtectionRegionDefinition("test:region", 0, listOf(
         ProtectionBoundaryDefinition("test:entry", RailPositionSnapshot(a, ViewDirection.AB, 2.0)),
         ProtectionBoundaryDefinition("test:exit", RailPositionSnapshot(b, ViewDirection.BA, 8.0))))
@@ -70,14 +69,13 @@ class SectionTopologyRevalidationTest {
         return next
     }
 
-    @Test fun `inserted turnout disables only indexed block and keeps unchanged geometry and bindings`() {
+    @Test fun `inserted turnout disables only indexed block and keeps unchanged geometry and signal index`() {
         val initial = topology(1)
         val main = block("test:main", a, b)
         val other = block("test:other", unrelated)
         val runtime = runtime(initial, listOf(main, other))
         val original = runtime.authoringPublication()
         val otherGeometry = runtime.fixedBlockSnapshot().blocksById.getValue(other.blockId)
-        val otherBinding = original.fixedBlockSignals.bindings.single { it.signalId == signal(other).signalId }
         val changed = topology(2, true)
         assertTrue(runtime.topologyGuard.invalidate(RailTopologyChange(initial, changed, setOf(a, b, branch))))
         assertThrows(IllegalStateException::class.java) { runtime.topologyGuard.requireUsable(route(changed, a, b), 20.0) }
@@ -88,7 +86,7 @@ class SectionTopologyRevalidationTest {
         runtime.topologyGuard.requireUsable(route(initial, unrelated), 10.0)
         val next = refresh(runtime)
         assertSame(otherGeometry, next.fixedBlocks.snapshot(changed).blocksById.getValue(other.blockId))
-        assertSame(otherBinding, next.fixedBlockSignals.bindings.single { it.signalId == signal(other).signalId })
+        assertTrue(next.fixedBlockSignals.hasSignalForEntry(signal(other).entry))
         assertEquals(setOf(main.blockId), next.fixedBlocks.snapshot(changed).unavailableBlockIds)
         assertEquals(original.definitions, runtime.currentDefinitions())
         assertTrue(FixedBlockRouteMatcher.matchRoute(runtime.fixedBlockSnapshot(), route(initial, unrelated)) is FixedBlockAuthorityMatchResult.Matched)
@@ -133,7 +131,7 @@ class SectionTopologyRevalidationTest {
         epochs.invalidateTopology(event)
         epochs.process(frame(2, changed))
         assertSame(observation, occupancy.snapshot()!!.sections.getValue(otherRef))
-        assertSame(output, occupancy.signalSnapshot()!!.states.getValue(signal(other).signalId))
+        assertEquals(output, occupancy.signalSnapshot()!!.states.getValue(signal(other).signalId))
         assertFalse(occupancy.snapshot()!!.sections.getValue(mainRef).available)
         val base = runtime.authoringPublication()
         val captured = runtime.topologyGuard.capture()
@@ -145,7 +143,7 @@ class SectionTopologyRevalidationTest {
         }
         epochs.process(frame(3, changed))
         assertSame(observation, replacement.snapshot()!!.sections.getValue(otherRef))
-        assertSame(output, replacement.signalSnapshot()!!.states.getValue(signal(other).signalId))
+        assertEquals(output, replacement.signalSnapshot()!!.states.getValue(signal(other).signalId))
         assertFalse(replacement.snapshot()!!.sections.getValue(mainRef).available)
     }
 
@@ -176,7 +174,7 @@ class SectionTopologyRevalidationTest {
         assertFalse(runtime.topologyGuard.sectionUnavailable(TopologySectionKind.REGION, region.regionId))
     }
 
-    @Test fun `worker handoff reads unrelated signal from actual last completed old epoch until replacement baseline`() {
+    @Test fun `worker handoff keeps unrelated unavailable JS signal on the last completed epoch until replacement baseline`() {
         val initial = topology(1)
         val main = block("test:main", a, b)
         val other = block("test:other", unrelated)
@@ -188,7 +186,7 @@ class SectionTopologyRevalidationTest {
         epochs.replaceSources(occupancy.sources)
         epochs.process(frame(1, initial))
         val section = SectionRef(SectionKind.FIXED_BLOCK, other.blockId)
-        assertEquals(20.0, occupancy.fixedBlockSignal(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(section.id))!!.state.effectiveSpeedLimitMetersPerSecond)
+        assertEquals(0.0, occupancy.fixedBlockSignal(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(section.id))!!.state.effectiveSpeedLimitMetersPerSecond)
         val changed = topology(2, true)
         val event = RailTopologyChange(initial, changed, setOf(a, b, branch))
         runtime.topologyGuard.invalidate(event)
@@ -197,7 +195,7 @@ class SectionTopologyRevalidationTest {
         val captured = runtime.topologyGuard.capture()
         val candidate = SectionTopologyRevalidation.compile(base, captured, 1000.0)
         val replacement = SectionOccupancyRuntime.from(candidate)
-        replacement.retainPublishedFrom(occupancy) // Worker sees the old clear output.
+        replacement.retainPublishedFrom(occupancy) // Worker sees the old restrictive output.
         epochs.process(frame(2, changed, unrelated)) // Captured old source sees the real occupant later.
         epochs.replaceSourcesAtomically(replacement.sources) {
             assertTrue(runtime.commitTopologyRevalidation(base, captured, candidate, replacement))
@@ -206,12 +204,12 @@ class SectionTopologyRevalidationTest {
             assertEquals(2L, replacement.signalById(signal(other).signalId)!!.stamp.physicsEpoch)
             // Host permits an old epoch even after plugin commit, until its source swap completes.
             epochs.process(frame(3, changed))
-            assertEquals(20.0, replacement.fixedBlockSignal(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(section.id))!!.state.effectiveSpeedLimitMetersPerSecond)
+            assertEquals(0.0, replacement.fixedBlockSignal(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(section.id))!!.state.effectiveSpeedLimitMetersPerSecond)
             assertEquals(3L, replacement.signalById(signal(other).signalId)!!.stamp.physicsEpoch)
             assertEquals(0.0, replacement.fixedBlockSignal(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(main.blockId))!!.state.effectiveSpeedLimitMetersPerSecond)
         }
         epochs.process(frame(4, changed))
-        assertEquals(20.0, replacement.fixedBlockSignal(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(section.id))!!.state.effectiveSpeedLimitMetersPerSecond)
+        assertEquals(0.0, replacement.fixedBlockSignal(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry(section.id))!!.state.effectiveSpeedLimitMetersPerSecond)
         assertTrue(replacement.snapshot()!!.sections.getValue(section).occupants.isEmpty())
     }
 
@@ -222,8 +220,7 @@ class SectionTopologyRevalidationTest {
             ProtectionRouteTraversal(a, ViewDirection.AB, 2.0, 10.0), ProtectionRouteTraversal(b, ViewDirection.AB, 0.0, 8.0)))
         val table = ProtectionRouteTableDefinition("test:table", 0, region.regionId, region.revision, listOf(path))
         val device = ProtectionSignalDefinition("test:route-signal", 0, ProtectionSignalKind.FIXED_ROUTE, path.routeId,
-            2.0, ConfiguredSignalOutput(0.0, "stop"), ConfiguredSignalOutput(0.0, "occupied"),
-            listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(20.0, "clear"))))
+            2.0, "automatic:block")
         val runtime = SimpleSignalsWorldRuntime(worldId)
         val installed = runtime.initializeDefinitions(initial,
             SimpleSignalsWorldDefinitions(worldId, 1, listOf(region), listOf(table), protectionSignals = listOf(device)))
@@ -273,8 +270,7 @@ class SectionTopologyRevalidationTest {
         val downstream = block("test:downstream", b)
         val other = block("test:other", unrelated)
         val upstreamSignal = FixedBlockSignalDefinition("test:upstream", 0, main.blockId, 2.0,
-            ConfiguredSignalOutput(0.0, "stop"), listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(20.0, "clear"))),
-            listOf(FixedBlockSignalDependency(signal(downstream).signalId)))
+            "automatic:block")
         val runtime = SimpleSignalsWorldRuntime(worldId)
         val installed = runtime.initializeDefinitions(initial, SimpleSignalsWorldDefinitions(worldId, 1,
             emptyList(), emptyList(), listOf(main, downstream, other),
@@ -312,7 +308,7 @@ class SectionTopologyRevalidationTest {
         epochs.process(frame(2, unrelatedChanged))
         assertTrue(upstreamSignal.signalId in replacement.signalSnapshot()!!.changedSignalIds,
             "the first swap's signal-only pending baseline must still reevaluate after the second swap")
-        assertEquals(20.0, replacement.signalById(upstreamSignal.signalId)!!.state.effectiveSpeedLimitMetersPerSecond)
+        assertEquals(0.0, replacement.signalById(upstreamSignal.signalId)!!.state.effectiveSpeedLimitMetersPerSecond)
     }
 
     @Test fun `disjoint bulk transaction does not add unrelated new rails to broken region`() {

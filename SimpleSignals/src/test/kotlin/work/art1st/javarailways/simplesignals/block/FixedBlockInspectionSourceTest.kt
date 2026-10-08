@@ -42,8 +42,6 @@ import work.art1st.javarailways.simplesignals.runtime.PublishedSectionSignal
 import work.art1st.javarailways.simplesignals.runtime.SectionSignalOutput
 import work.art1st.javarailways.simplesignals.runtime.SectionSignalState
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionPublicationStatus
-import work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput
-import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclarationId
 import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
@@ -97,16 +95,15 @@ class FixedBlockInspectionSourceTest {
         val worldRuntime = signalWorldRuntime(worldId)
         val forwardSignal = signal(block.blockId, 1L, 12.0)
         val reverseSignal = forwardSignal.reconfigured(signalId = "test:reverse-signal", inspectionLeadTimeSeconds = 4.0,
-            entryDirection = FixedBlockEntryDirection.REVERSE,
-            clearLevels = listOf(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalClearLevel(0.0,
-                work.art1st.javarailways.simplesignals.signal.ConfiguredSignalOutput(7.0, "reverse-clear"))))
+            entryDirection = FixedBlockEntryDirection.REVERSE)
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, worldRuntime.initializeDefinitions(
             topology, SimpleSignalsWorldDefinitions(worldId, 1L, emptyList(), emptyList(), listOf(block),
                 listOf(forwardSignal, reverseSignal))).status)
         val occupancy = worldRuntime.initializeSectionOccupancy()
         assertEquals(1, occupancy.source!!.areas.size)
         assertEquals(2, occupancy.source.areas.single().boundaries.size)
-        assertEquals(2, worldRuntime.authoringPublication().fixedBlockSignals.bindings.size)
+        assertTrue(worldRuntime.authoringPublication().fixedBlockSignals.hasSignalForEntry(forwardSignal.entry))
+        assertTrue(worldRuntime.authoringPublication().fixedBlockSignals.hasSignalForEntry(reverseSignal.entry))
         val source = worldRuntime.fixedBlockInspectionSource
         val forward = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
             RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0))
@@ -156,7 +153,8 @@ class FixedBlockInspectionSourceTest {
                 FixedBlockEntryDirection.entries[index])))
             update()
             val restriction = publications.last().restrictions.single() as RouteSpeedRestriction
-            assertEquals(if (index == 0) 20.0 else 7.0, restriction.maximumSpeedMetersPerSecond)
+            assertEquals(0.0, restriction.maximumSpeedMetersPerSecond,
+                "a placed signal remains restrictive until its JavaScript signal type is available")
             assertEquals(2.0, restriction.routeDistanceMeters)
         }
         val internal = route(RouteSegmentSnapshot(second, ViewDirection.BA, 4.0, 10.0),
@@ -576,14 +574,7 @@ class FixedBlockInspectionSourceTest {
                         1L,
                         block.blockId,
                         0.0,
-                        ConfiguredSignalOutput(0.0, "private/occupied"),
-                        listOf(
-                            FixedBlockSignalClearLevel(
-                                0.0,
-                                ConfiguredSignalOutput(20.0, "private/open")
-                            )
-                        ),
-                        emptyList()
+                        "automatic:block"
                     )
                 )
             )
@@ -729,13 +720,7 @@ class FixedBlockInspectionSourceTest {
         revision,
         blockId,
         leadTimeSeconds,
-        ConfiguredSignalOutput(0.0, "private/occupied"),
-        listOf(
-            FixedBlockSignalClearLevel(
-                0.0,
-                ConfiguredSignalOutput(20.0, "private/open")
-            )
-        )
+        "automatic:block"
     )
 
     private fun snapshot(vararg blocks: FixedBlockDefinition): FixedBlockReadSnapshot =

@@ -9,13 +9,13 @@ JavaRailways 主 JAR 的组成部分，也不能复制、shadow 或直接导入�
 当前已建立部署边界、严格current-model世界定义sidecar、保护区域领域核心、固定保护进路表和固定闭塞定义的低频编译器，
 以及把存档编译结果原子发布到实际world runtime。固定闭塞还把已编译Basic监测区接入host physics epoch，发布
 plugin-local immutable section occupancy snapshot，并以同一exact frozen-route matcher建立资源贡献与inspection authority floor；
-已建立plugin-local信号规则执行边界、灯色/限速输出快照及其列车限制投影，并提供第一个由world definition配置的固定闭塞规则；
-现已提供保护区域固定进路信号、当前入口信号和presentation-only进路显示器的后端配置/规则；
+已建立catalog signal type驱动的JS规则执行边界、灯色/限速输出快照及其列车限制投影；固定闭塞主信号、保护区域固定进路信号、
+当前入口信号都引用必填 `signalType`，presentation-only进路显示器不执行规则；
 已提供独立管理员 inspect/export/validate/apply 命令及 current-JSON 草稿工作流；
 现已接入[闭塞与保护区域 Wand](section-authoring-wands.md)；独立信号机工具仍未提供。
 用户已确认距离敏感规则使用 JS，不扩展距离条件配置表；[JS 规则契约](js-signal-rules.md)中的统一包加载、独立
 GraalJS 沙箱、有向区间图到不可变前视树的编译，以及真实 world publication 到连接图的准备均已实现。
-同步 signal epoch 填值、JS 求值以及 package-bound 主信号的模型绑定已接线；区间环和正长度无区间环都只停止命中分支。真实 Folia/客户端画面
+同步 signal epoch 填值、JS 求值以及 catalog-backed 主信号的模型绑定已接线；区间环和正长度无区间环都只停止命中分支。真实 Folia/客户端画面
 仍待验证，不得把 foundation 描述为完整建造/呈现系统。
 轨道编辑后的局部失效、后台重验与恢复归[区间局部重验](section-topology-revalidation.md)；
 世界拓扑版本增加不再使所有既有区间和冻结路线过期。
@@ -29,7 +29,7 @@ GraalJS 沙箱、有向区间图到不可变前视树的编译，以及真实 wo
 返回不可变普通模型与摆放预设。设备模型/摆放存档接入现有定义事务；插件启用时异步发现模型包，
 通过宿主已有的轨道定位和模型显示服务创建模型、提交信号变化、清理失效绑定。
 同一契约记录 `pack.yml + model/ + logic/ + signal/` 统一信号包：包入口只保存元数据，文件路径派生稳定
-`modelId`／`logicId`／`signalId`，一等 signal 文件、两阶段跨包解析、JS 源捕获及通过宿主公共 compiler 的模型
+`modelId`／`logicId`／`signalType`，一等 signal 文件、两阶段跨包解析、JS 源捕获及通过宿主公共 compiler 的模型
 materialization、插件启动和世界逻辑／模型设备接线已实现。玩家 Wand 与热重载尚未实现，不能把离线绑定测试
 说成已经完成游戏内建造或真实客户端显示。
 完整接线、初始化并发和错误边界由模型显示合同维护；建造工具只消费公开宿主 API。
@@ -77,9 +77,9 @@ unload/reload先删除local runtime，再创建新runtime与binding，不能复�
 每个world使用带`schemaVersion = 1`的独立文件：
 `<plugin dataFolder>/worlds/<world UUID>-definitions.json`。current document只保存`worldId`、
 `definitionRevision`、保护区域及其有向边界、固定进路表、每条进路完整的有向traversal、固定闭塞的完整有向traversal，以及
-固定闭塞/保护信号的配置输出/依赖和进路显示器的入口绑定与variant映射。
-未绑定主信号与 presentation-only 设备使用显式模型引用及 rail/ground 摆放；package-bound 主信号显式保存
-`packageSignalId` 和独立 placement，不重复保存 catalog modelId。字段、互斥校验和早期未发布草稿的修正范围只在
+固定闭塞/保护主信号的必填 `type`、可选 placement，以及进路显示器的入口绑定与variant映射。
+主信号的 `type` 是稳定 namespaced catalog identity，Kotlin 属性名为 `signalType`；catalog 来源不进入世界模型。
+presentation-only 设备使用显式模型引用及 rail/ground 摆放；主信号不重复保存 catalog modelId 或 Kotlin 规则表。字段、互斥校验和早期未发布草稿的修正范围只在
 [模型显示合同](model-presentation.md)维护；显示器不再保留重复的顶层轨道位置。
 `fixedBlocks`、`fixedBlockSignals`、`protectionSignals`和`routeIndicators`最初作为有明确empty default的additive字段加入，并未单独升级
 版本；删除`defaultRouteIds`和双向入口独立规则直接修正同一个未发布格式，当前版本恢复为1，
@@ -378,30 +378,21 @@ Wand 保持同一边界，不能依赖调用约定而省略这一断言。
 
 ## 已评审的响应式方向与已完成前置观测
 
-响应式signal更新必须是有向无环的provider-to-consumer失效链：占用变化、同一physics epoch的道岔active continuation变化和下游
-section输出变化只能通知预注册的上游consumer；consumer不得反向enqueue自己的provider。一个update wave内每个node最多执行一次，
-输出不变即停止向上游传播，不引入fixed-point求解器或通用双向graph runtime。
+响应式 signal 更新使用由 catalog 扫描距离编译的 JS 下游依赖顺序：占用变化、同一 physics epoch 的道岔
+active continuation 变化和下游 section 输出变化只唤醒受影响的上游设备。每台逻辑设备在一次 epoch 回调内至多求值一次；
+物理环在观察树上 branch-local 终止，不以 fixed-point 或上一轮许可求解。
 
 Core是live directed active continuation的物理权威。`RailwayWorldFrameSnapshot.activeContinuations`已在同一physics epoch公开
 `entry RailEndpointRef -> selected exit RailEndpointRef?`；Basic通过`RailwayObservation`原样投影，不解释信号含义，SimpleSignals、
 SimpleATO、WebUI、渲染或诊断等consumer均可读取。Core仅在topology或selection revision变化时重建turnout-port map，普通tick复用
 同一immutable snapshot；processor期间发生选择变化会使候选frame拒绝发布。后续依赖链必须使用该值，不能临时读取mutable `RailView`。
 
-插件内部的`OneWayInvalidationGraph`只保存预编译的provider-to-consumer邻接表和topological index。定义安装低频路径对完整
-node/edge集合做一次Kahn拓扑排序；未知端点、重复node/edge、自环或任意cycle拒绝整份candidate，因此运行时没有fixed-point、
-迭代上限或双向通知。一个update wave以已经发生状态变化的provider作为seed，只把其consumer加入按topological index排序的队列；
-每个node最多入队和执行一次，recompute返回output unchanged时该分支立即停止，返回changed时才继续加入其consumer。多个变化provider
-汇入同一consumer时，topological order保证所有本wave内可能变化的前驱先执行，而consumer仍只执行一次。设本wave实际到达`A`个
-node、`D`条edge，成本为`O((A + D) log A)`、临时空间为`O(A)`，与world中未受影响的信号数量无关。callback失败由既有同步signal
-epoch向外传播并fail-close，不为plugin-local output增加rollback协议。该机制本身不定义具体aspect/限速策略。
+`SignalPackEpochRuntime` 保存编译后的不可变观察计划及下游设备顺序。它在 section callback 已建立同 epoch 占用／选路
+candidate 后，为 JS 投影只读树并同步调用两个 setter。Java/Kotlin runtime 不包含 `R/Y/YG/G` 词汇、速度表或
+model 到速度的反向映射；输出统一校验为有限非负速度和非空且已声明的 model variant。
 
-`SectionSignalRuleRuntime`在这张图上提供plugin-local规则执行边界。一个预编译binding只关联稳定signal ID、自己控制的section、按距离
-排序的下游signal引用和一个注入rule；Java/Kotlin runtime不包含`R/Y/YG/G`词汇、速度表或model到速度的反向映射。rule输入只包含同一
-`RailwayStateStamp`的本section占用/长度及已发布下游输出；rule必须返回有限非负`speedLimitMetersPerSecond`和非空但不透明的
-`modelVariant`。这些值在进入snapshot前统一验证，未来Java、JS或YAML provider都构造相同binding/output。
-
-section callback先建立完整occupancy candidate，再在临时signal-state map上执行受影响wave；全部到达的rule处理完后，以一个volatile
-state同时发布occupancy和signal snapshot。相同输出不继续传播。rule抛错或返回非法output时，对应signal变成`Unavailable(reason)`，
+section callback先建立完整occupancy candidate，再在临时signal-state map上执行受影响wave；全部到达的 JS 处理完后，以一个volatile
+state同时发布occupancy和signal snapshot。脚本抛错或返回非法output时，对应signal变成`Unavailable(reason)`，
 其宿主安全限速为0且没有伪造model variant；任一下游unavailable会跳过consumer rule并继续传播unavailable，因此旧permissive输出
 不会在失效后留存。首次baseline必须为全部binding建立Available或Unavailable状态；未收到首个physical baseline以前仍没有signal
 snapshot。规则输出到每列车SimpleATO restriction的投影已经接通。编译结果另外把实际依赖的turnout entry注册到同signal-epoch source；只有active continuation变化时，SimpleATO才以同epoch immutable snapshot唤醒source，不轮询mutable turnout或增加第二条事件队列。
@@ -410,26 +401,18 @@ snapshot。规则输出到每列车SimpleATO restriction的投影已经接通。
 按类别派生的固定闭塞或保护信号设备声明ID并随`SignalEpochResult`返回（内部映射见保护信号合同）；SimpleATO只在当前路线binding中标记存在的声明，下一次inspection update把当前
 完整active声明集合交回inspection source。该source从同一原子section/signal snapshot读取每个入口输出，生成
 入口route metre上的`RouteSpeedRestriction`；`Available`使用规则给出的任意有限非负速度，`Unavailable`使用0，`modelVariant`不进入
-ATO。列车通过入口导致active集合移除该声明时，source发布新的完整快照并清除已越过的限制。没有配置rule binding的block仍保留
+ATO。列车通过入口导致active集合移除该声明时，source发布新的完整快照并清除已越过的限制。没有主信号定义的block仍保留
 整段authority floor与资源申请，但不会凭空产生速度规则。
 
-## 具体固定闭塞规则
+## 具体固定闭塞信号
 
-当前production provider由`FixedBlockSignalDefinition`配置，不在Kotlin中写死灯色名称或速度表。每个定义保存稳定namespaced
-`signalId`、单调`revision`、`controlledBlockId`、`entryDirection`、非负有限`inspectionLeadTimeSeconds`、一个`occupiedOutput`、至少一个
-`clearLevel`及零个或多个`downstreamSignal`引用。每个下游引用只另存沿途必须的turnout `entry -> selected exit`选择，不重复存完整rail traversal，也不让作者手填物理距离。output只包含有限非负`speedLimitMetersPerSecond`和非空但不透明的
-`modelVariant`。clear level按`minimumDownstreamSpeedMetersPerSecond`严格递增，第一项必须为0，从而让任意合法下游限速都有结果。
+`FixedBlockSignalDefinition` 保存稳定 namespaced `signalId`、单调 `revision`、`controlledBlockId`、`entryDirection`、
+非负有限 `inspectionLeadTimeSeconds`、必填 `signalType` 和可选实例 `placement`。固定闭塞编译器只校验设备／入口唯一、
+block 存在及反向入口只用于双向 block；模型、逻辑和扫描距离全部由 `signalType` 在统一 catalog 中解析。
 
-world definition prepare会在publication前完成以下编译：signal ID唯一，每个`(controlledBlockId, entryDirection)`至多一个主信号，
-REVERSE只接受双向block；block存在、每个signal内部dependency不重复。编译器先从控制入口对应的完整有向traversal提取已经确定的turnout选择，再从该方向block出口开始沿ordinary/loop continuation单向前进；遇到多出口turnout时必须消费dependency明示声明的合法选择，直到目标signal的对应入口，并从实际经过距离派生`distanceMeters`。未声明的多出口、非turnout entry、非法或未使用的选择、循环、无法到达目标，以及同一entry合并后要求不同exit，都拒绝整份candidate。这不是寻路，不猜测shortest path；它只执行作者明示给出的分支决定并验证其与exact topology一致。派生条件随后与section provider和downstream signal依赖一起交给既有`SectionSignalRuleRuntime`做完整DAG检查。revision、阈值或cycle非法会拒绝整份candidate，旧publication与存档不变；production混合编译对删除/暂时缺失的下游保留规则并发布Unavailable，不能破坏合法区间删除与修复行为。编译后的binding和有向入口lead-time map与region/table/block
-catalog一起放入同一个immutable `SimpleSignalsRuntimePublication`；production world install直接使用这里的rule runtime，不再安装空规则。
-
-上述dependency存档shape在未发布格式中直接修正；当前schema 1的writer只写`requiredContinuations`，strict decoder不接受旧`distanceMeters`形状，不增加runtime alias、upcaster或虚构的中间version。
-
-一次规则执行先从同epoch active-continuation snapshot中过滤出所有预编译条件均成立的下游dependency。本block有occupant时直接返回配置的`occupiedOutput`；本block空闲时取当前物理分支上已发布下游signal限速的最小值，
-再返回threshold不大于该值的最后一个clear level；没有下游依赖时把下游限速视为正无穷，选择最后一个clear level。下游
-`Unavailable`不进入这段算法，由通用runtime把当前signal也发布为`Unavailable`和0限速。已配置下游但没有任何已配置路径active时也发布`Unavailable`和0限速，不得回退到“无下游”的末端放行语义。该算法因此不解释`modelVariant`，也不从模型名反查速度。设所有dependency实际经过的有向rail/continuation总数为`P`，路径编译为`O(P)`，只发生在load/authoring prepare。单个被触发signal扫描其声明的当前active下游输出、预编译条件和档位表，成本为
-`O(c + d + l)`，其中`c`是这些dependency的预编译turnout条件数；整个update wave仍只与实际到达的signal/dependency/condition/level有关，不增加world tick或`trains x signals`扫描。
+world definition prepare 在 publication 前建立真实 section observation graph；catalog 准备再按每种 logic 的扫描距离编译
+路径树和 JS 输出依赖。未知 `signalType`、无观察入口、输出依赖环、非法模型 variant 或 stale graph 均拒绝候选；启动／拓扑
+恢复路径使用 `Unavailable`/0 的限制性 runtime，显式定义编辑不得用 fallback 掩盖坏配置。物理环只终止命中的树分支。
 
 `inspectionLeadTimeSeconds`只声明信号需要提前多少时间准备，不改变动态制动曲线或Basic授权。SimpleATO按当前速度、ATO加速度和
 最高速度把时间换算成每列车的激活距离；即使列车当前静止，也会按可加速到达的距离提前激活。binding provider先捕获一个fixed-block
@@ -445,13 +428,12 @@ signal的首个published baseline时，inspection source在入口发布0 m/s限�
 未发布格式已直接以`inspectionLeadTimeSeconds`取代距离字段，当前schema 1保留此时间字段；不增加
 runtime兼容alias或无实际发行版本对应的中间schema。需要保留的开发服数据应在启用前通过一次性迁移修正。
 
-Good case：空闲block按最严格下游限速选择配置档位，输出变化只向上游传播。Base case：没有下游的末端signal选最后一个clear level；
-没有signal定义的入口仍只执行资源/authority floor；已配置signal尚无baseline时入口限速为0。Bad case：引用不存在的block、一个入口两个signal、单向block反向规则、cycle或首个threshold
-非0均在load/authoring时拒绝，不把缺配置解释成许可。测试必须覆盖current schema empty default和round-trip、占用/下游阈值选择、末端选择、
-未知引用/cycle、一致publication读取、配置零lead time与未配置block的区分、缺baseline的零速、production安装非空binding，以及signal patch的原子保存与orphan block删除拒绝。
+Good case：JS 根据同 epoch 占用、路径选择和下游限速调用独立速度／外观 setter；多个附属显示复用一次结果。
+Base case：没有 signal 定义的入口仍只执行资源/authority floor；已配置 signal 尚无 catalog 或 baseline 时入口限速为 0。
+Bad case：引用不存在的 block/type、一个入口两个 signal、单向 block 反向信号、输出依赖环或脚本失败均不能保留许可。
 
-Wrong：按`modelVariant`字符串在runtime中硬编码速度，或每tick遍历所有signal重算。Correct：定义显式提供速度和不透明模型名，低频路径
-编译依赖图，物理/下游变化只触发受影响的有向wave。
+Wrong：按 `modelVariant` 字符串在 runtime 中硬编码速度，或每 tick 遍历所有 signal 重算。Correct：低频编译观察树，
+JS 明确设置速度和不透明模型名，物理／下游变化只触发受影响的有向 wave。
 
 ## 依赖与打包不变量
 

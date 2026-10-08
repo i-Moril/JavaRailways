@@ -165,6 +165,6 @@ class SectionAuthoringActionsTest {
         assertEquals(listOf("test:outside"), edit.patch.pendingProtectionBoundaries!!.map { it.boundaryId })
     }
 
-    private fun signal(name: String, blockId: String) = FixedBlockSignalDefinition("test:$name-signal", 0, blockId, 0.0,
-        ConfiguredSignalOutput(0.0, "stop"), listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(10.0, "clear"))))
+    private fun signal(name: String, blockId: String) =
+        FixedBlockSignalDefinition("test:$name-signal", 0, blockId, 0.0, "automatic:block")
 }

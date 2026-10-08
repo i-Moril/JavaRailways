@@ -34,8 +34,8 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 ### JS 信号规则决定（2026-10-07）
 
-以下是已批准的 `TARGET`，取代 2026-10-06 草案中“扁平前视、DAG 拒环、执行预算仍待决定”的部分；
-当前运行时仍只有 Java/Kotlin 规则 provider，不能把目标契约写成已实现能力。精确字段名、文件名解析规则和
+以下是已批准且已进入 `CURRENT` foundation 的方向，取代 2026-10-06 草案中“扁平前视、DAG 拒环、执行预算仍待决定”的部分；
+当前 SimpleSignals 主信号只通过 catalog signal type 执行 JS，不再保留 Kotlin 规则 provider。精确字段名、文件名解析规则和
 公开 Java 类型只由[JS 规则 owner 契约](../../spec/simple-signals/backend/js-signal-rules.md)冻结，本任务不复制第二份 API。
 
 - 距离敏感的自定义信号逻辑由 JS 完成，不再为现有 Kotlin 规则新增距离条件配置表。输出通过独立的限速与

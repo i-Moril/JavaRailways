@@ -53,35 +53,71 @@ internal class SectionTopologyIndex(
                 (region.definition.boundaries + region.definition.effectiveBoundaries).forEach { ids += it.position.railId }
             }
         }
-        val signalDependencies = publication.definitions.fixedBlockSignals.associate {
-            it.signalId to it.downstreamSignals.map { dependency -> dependency.signalId }
-        } + publication.definitions.protectionSignals.associate {
-            it.signalId to (it.downstreamSignals + it.downstreamSignalsByRouteId.values.flatten()).map { d -> d.signalId }
-        }
-        signalConsumers = signalDependencies.flatMap { (id, providers) -> providers.map { it to id } }
-            .groupBy({ it.first }, { it.second })
-        val bindings = publication.fixedBlockSignals.bindings + publication.protectionSignals.bindings
-        signalDependencies.keys.forEach { id -> rails[TopologySection(TopologySectionKind.SIGNAL, id)] = linkedSetOf() }
+        val logicalSignalIds = (publication.definitions.fixedBlockSignals.map { it.signalId } +
+            publication.definitions.protectionSignals.map { it.signalId }).toSet()
+        logicalSignalIds.forEach { id -> rails[TopologySection(TopologySectionKind.SIGNAL, id)] = linkedSetOf() }
         publication.definitions.fixedBlockSignals.forEach { signal ->
             rails.getValue(TopologySection(TopologySectionKind.SIGNAL, signal.signalId))
                 .addAll(rails[TopologySection(TopologySectionKind.BLOCK, signal.controlledBlockId)].orEmpty())
         }
         val authoredRoutes = publication.definitions.routeTables.flatMap { table -> table.routes.map { it.routeId to table.regionId } }.toMap()
+        val routeRails = publication.definitions.routeTables.flatMap { it.routes }.associate { route ->
+            SectionRef(SectionKind.PROTECTION_ROUTE, route.routeId) to route.traversals.mapTo(linkedSetOf()) { it.railId }
+        }
+        val blockRails = publication.definitions.fixedBlocks.associate { block ->
+            SectionRef(SectionKind.FIXED_BLOCK, block.blockId) to block.traversals.mapTo(linkedSetOf()) { it.railId }
+        }
+        val railsBySection = blockRails + routeRails
         publication.protectionSignals.routeIdsBySignal.forEach { (id, routeIds) -> routeIds.forEach { route ->
             rails.getValue(TopologySection(TopologySectionKind.SIGNAL, id))
                 .addAll(rails[TopologySection(TopologySectionKind.REGION, authoredRoutes[route].orEmpty())].orEmpty())
         } }
-        bindings.forEach { binding ->
-            binding.downstreamSignals.forEach { dependency ->
-                rails.getValue(TopologySection(TopologySectionKind.SIGNAL, binding.signalId)).addAll(dependency.affectedRailIds)
+
+        // Catalog scan distances are attached later, so topology invalidation conservatively indexes
+        // every statically reachable section/device from each logical root. This runs only while a
+        // publication is prepared; epoch evaluation still uses the catalog-bounded compiled plans.
+        val graph = publication.signalObservationGraph
+        val dependencyPairs = linkedSetOf<Pair<String, String>>()
+        graph.logicalRootsByDeviceId.forEach { (consumerId, roots) ->
+            val visited = linkedSetOf<work.art1st.javarailways.simplesignals.signalpack.SignalObservationScanState>()
+            val pending = java.util.ArrayDeque<work.art1st.javarailways.simplesignals.signalpack.SignalObservationScanState>()
+            roots.forEach { root ->
+                val rootNode = graph.graph.nodesByState.getValue(root.state)
+                rootNode.continuations.forEach { continuation ->
+                    rails.getValue(TopologySection(TopologySectionKind.SIGNAL, consumerId))
+                        .addAll(continuation.traversedRailIds)
+                }
+                rootNode.continuations.mapNotNullTo(pending) { it.target }
+            }
+            while (pending.isNotEmpty()) {
+                val state = pending.removeFirst()
+                if (!visited.add(state)) continue
+                val node = graph.graph.nodesByState.getValue(state)
+                rails.getValue(TopologySection(TopologySectionKind.SIGNAL, consumerId))
+                    .addAll(railsBySection[state.section].orEmpty())
+                node.continuations.forEach { continuation ->
+                    rails.getValue(TopologySection(TopologySectionKind.SIGNAL, consumerId))
+                        .addAll(continuation.traversedRailIds)
+                }
+                node.deviceIds.filter { it != consumerId }.forEach { providerId ->
+                    dependencyPairs += providerId to consumerId
+                }
+                node.continuations.mapNotNullTo(pending) { it.target }
             }
         }
+        signalConsumers = dependencyPairs.groupBy({ it.first }, { it.second })
         val unavailableObjects = blocks.unavailableBlockIds.mapTo(linkedSetOf()) { TopologySection(TopologySectionKind.BLOCK, it) }
         (regions.unavailableRegionIds + publication.routeTables.unavailableRegionIds()).forEach {
             unavailableObjects += TopologySection(TopologySectionKind.REGION, it)
         }
-        val usableSignals = bindings.mapTo(hashSetOf()) { it.signalId }
-        signalDependencies.keys.filter { it !in usableSignals }.forEach {
+        val usableSignals = hashSetOf<String>()
+        publication.definitions.fixedBlockSignals.filter { signal ->
+            signal.controlledBlockId !in blocks.unavailableBlockIds
+        }.mapTo(usableSignals) { it.signalId }
+        publication.definitions.protectionSignals.filter { signal ->
+            publication.protectionSignals.routeIdsBySignal[signal.signalId].orEmpty().isNotEmpty()
+        }.mapTo(usableSignals) { it.signalId }
+        logicalSignalIds.filter { it !in usableSignals }.forEach {
             unavailableObjects += TopologySection(TopologySectionKind.SIGNAL, it)
         }
         unavailableObjects.forEach { key ->

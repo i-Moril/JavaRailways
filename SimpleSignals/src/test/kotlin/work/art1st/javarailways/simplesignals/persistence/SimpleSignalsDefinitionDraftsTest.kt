@@ -115,8 +115,6 @@ class SimpleSignalsDefinitionDraftsTest {
         a.attachedSignals + b.attachedSignals)
 
     private fun document(suffix: String, revision: Long): SimpleSignalsWorldDefinitions {
-        val stop = ConfiguredSignalOutput(0.0, "stop")
-        val levels = listOf(FixedBlockSignalClearLevel(0.0, ConfiguredSignalOutput(12.0, "clear")))
         val region = ProtectionRegionDefinition("test:region-$suffix", revision, listOf(
             ProtectionBoundaryDefinition("test:entry-$suffix", RailPositionSnapshot(rail, ViewDirection.AB, 1.0)),
             ProtectionBoundaryDefinition("test:exit-$suffix", RailPositionSnapshot(rail, ViewDirection.BA, 5.0))))
@@ -125,9 +123,10 @@ class SimpleSignalsDefinitionDraftsTest {
         return SimpleSignalsWorldDefinitions(world, 7, listOf(region), listOf(ProtectionRouteTableDefinition(
             "test:table-$suffix", revision, region.regionId, revision, listOf(route))),
             listOf(FixedBlockDefinition("test:block-$suffix", revision, listOf(FixedBlockTraversal(rail, ViewDirection.AB, 6.0, 9.0)))),
-            listOf(FixedBlockSignalDefinition("test:fixed-$suffix", revision, "test:block-$suffix", 0.0, stop, levels)),
+            listOf(FixedBlockSignalDefinition("test:fixed-$suffix", revision, "test:block-$suffix", 0.0,
+                "automatic:block")),
             listOf(ProtectionSignalDefinition("test:protection-$suffix", revision, ProtectionSignalKind.FIXED_ROUTE,
-                route.routeId, 0.0, stop, stop, levels)),
+                route.routeId, 0.0, "automatic:block")),
             listOf(RouteIndicatorDefinition("test:indicator-$suffix", revision, "test:entry-$suffix",
                 "none", mapOf(route.routeId to "selected"), DeviceModelDefinition("test:indicator",
                     ModelPlacement.RailAttached(RailPositionSnapshot(rail, ViewDirection.AB, 1.0))))),

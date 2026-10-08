@@ -7,7 +7,7 @@
 这里不重新定义进路、限速或资源管理。
 其中 `default` 的名称、适用范围和选择规则，以及轨道附着/地面摆放、方向相关的偏移预设和可选跟随
 轨道倾斜的行为已经确认；完整模型包格式见[已批准的模型包契约](model-packages.md)。
-设备模型引用和摆放存档已实现；package-bound 主信号的模型也已从统一 signal catalog 接入。
+设备模型引用和摆放存档已实现；主信号的模型也已从统一 signal catalog 接入。
 交互式 Wand 仍属于后续工作。
 
 SimpleSignals 负责模型包、摆放位置、外观映射，以及何时创建或关闭模型。
@@ -67,12 +67,12 @@ Wand 的两种编辑操作含义不同：改变轨道附着的 AB/BA 方向时�
 定义提交后只替换逻辑绑定；模型操作对象由世界运行时持续持有，按设备差异更新。
 模型引用、摆放参数及精确拓扑根都未变化时，复用已计算的姿态；
 引用或摆放改变、或拓扑根替换时，在工作线程重新准备。全部可输出外观仍须校验，不能因为复用姿态就跳过。
-未绑定主信号和 presentation-only 设备保存选用的模型 ID 与实际摆放值；package-bound 主信号只保存
-`packageSignalId` 与实际摆放值，模型 ID 从 catalog signal 推导。两者都不保存曲线、最终计算坐标、模型树或预设名称。
+presentation-only 设备保存选用的模型 ID 与实际摆放值；固定闭塞／保护主信号只保存
+`signalType` 与实际摆放值，模型 ID 从 catalog signal 推导。两者都不保存曲线、最终计算坐标、模型树或预设名称。
 
 ### 设备模型引用与摆放存档（CURRENT）
 
-未绑定 Kotlin provider 的主信号、附属信号和进路表示器使用显式 `model: DeviceModelDefinition?`：
+附属信号和进路表示器使用显式 `model: DeviceModelDefinition?`：
 
 ```kotlin
 DeviceModelDefinition(modelId: String, placement: ModelPlacement)
@@ -83,9 +83,9 @@ DeviceModelDefinition(modelId: String, placement: ModelPlacement)
 这只是稳定引用，不是文件路径或 JVM 类名。`model=null` 表示不走显式模型路径。
 定义构造校验引用语法；绑定准备另行检查已加载的包与全部可输出外观名，不在构造时读文件。
 
-固定闭塞／保护主信号若设置 `packageSignalId`，则 `model` 必须为 null，可选 `placement` 只保存世界实例位置；
-模型和逻辑都从该 package signal 解析。未设置 `packageSignalId` 时 `placement` 必须为 null，显式模型仍完整保存在
-`model`。current schema 1 中两字段都必须出现，即使值为 null，避免旧的重复 modelId 形状被静默接受。
+固定闭塞／保护主信号必须保存 namespaced `type`，可选 `placement` 只保存世界实例位置；模型和逻辑都从该
+catalog signal type 解析。current schema 1 不接受主信号 `model`、provider union、规则表或 `packageSignalId`；
+`placement` 即使为 null 也必须出现，避免旧的重复 modelId 形状被静默接受。
 
 磁盘上的可选 `model` 位于每个设备内，只有 `modelId` 与 `placement`，摆放用稳定的 `kind` 区分：
 
@@ -277,7 +277,7 @@ ModelPlacementCalculator.calculate(placement: RailAttached, curve: Curve?): Mode
 整次发现结果只在启用时安装一次，不做 ZIP、热重载、定时扫描或独立模型存档。
 
 世界模型准备接收当前完整定义、model-only 表和可选的同一不可变 signal catalog：显式设备解析 `modelId`；
-package-bound 主信号从 `packageSignalId` 同时取得 catalog model/logic。准备阶段校验可确定的全部可能输出
+主信号从 `signalType` 同时取得 catalog model/logic。准备阶段校验可确定的全部可能输出
 外观；JS 输出还在同 epoch 求值后对该 catalog model 的 variant 表检查。随后计算轨道附着姿态，
 保存共享模型及其场景表。地面摆放不查曲线。这一步不调用
 `ModelPresentationService.create`；纯 validate 因此不会登记任何模型对象。

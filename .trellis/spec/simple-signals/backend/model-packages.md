@@ -18,7 +18,7 @@ YAML 部件树、外观、场景、variant 与宿主摆放 metadata 的解析和
 
 统一信号包的发现、严格文件解析、模型 materialization、两阶段跨包 signal 引用解析、JS 源捕获、
 插件启动及世界逻辑／模型绑定已经实现（`CURRENT`）。Wand 和热重载尚未接线（`TARGET`）。后文
-`manifest.yml/models/parts` 是未绑定 Kotlin provider、附属信号和进路表示器继续使用的 model-only loader；
+`manifest.yml/models/parts` 是附属信号和进路表示器继续使用的 model-only loader；
 两个布局仍不能混合读取。统一包模型已经接入生产显示准备，但真实 Folia／客户端画面仍未验证。
 
 ```text
@@ -36,14 +36,14 @@ YAML 部件树、外观、场景、variant 与宿主摆放 metadata 的解析和
 - `logic/<路径>.yml` 与同目录同 stem 的 `logic/<路径>.js` 共同定义一个逻辑，`logicId` 同样从 YAML 相对路径派生。
   YAML 只允许 `scan-distance-metres`；扫描距离属于逻辑，不属于模型、signal 类型、已放置设备或 SimpleATO。
   缺任一配对文件均拒绝整个候选，JS 在 catalog 准备时捕获，运行期不重读。
-- `signal/**/*.yml` 每个文件定义一个玩家可见信号类型；其 `signalId` 从文件相对路径派生，文件包含非空
+- `signal/**/*.yml` 每个文件定义一个玩家可见信号类型；其 `signalType` 从文件相对路径派生，文件包含非空
   `display-name` 以及 namespaced `model`、`logic` 引用。只有 signal 文件进入未来 Wand／UI；存在但未被 signal
   引用的模型或逻辑仍可被跨包 signal 引用，不自动成为可放置信号类型。
 - 一个模型可以被多个 signal 使用，一个逻辑也可以被多个 signal 使用。signal 可引用其他包的 `modelId`／`logicId`；
   引用不使用 JVM 类名、相对逃逸路径或加载顺序。
-- 当前世界设备以 `packageSignalId` 保存公开 package `signalId`，并只保存自己的可选 `placement`；modelId 和 logicId
+- 当前世界设备以 JSON `type`／Kotlin `signalType` 保存公开 catalog signal identity，并只保存自己的可选 `placement`；modelId 和 logicId
   都从同一个不可变 catalog signal 取得，不在设备中重复。定义中的 `signalId` 继续是已放置逻辑节点的 deviceId，
-  不是 package signal 类型，不能按同名、模型或路径猜绑定。设备不保存 JS 源码、宿主类名、任意文件路径或每设备扫描距离。
+  不是 catalog signal type，不能按同名、模型或路径猜绑定。设备不保存 JS 源码、宿主类名、任意文件路径或每设备扫描距离。
 
 `SignalPackLoader.load(directory: Path): SignalPackCatalog` 同步准备根目录的直接子目录。调用方负责把文件读取放在
 低频 worker；该函数不创建 executor、世界对象或 live publication。严格 current schema 1 示例为：
@@ -95,7 +95,7 @@ JS 的执行 foundation、同步信号阶段目标和树形输入见[JS 信号�
    递归发现跟随目录符号链接，但每个候选节点都先转换为 real path 并证明仍在包目录内；
    这使逃逸链接成为错误，而不是被静默忽略。
 4. **签名与结果**：`SignalPackLoader.load(Path): SignalPackCatalog`。catalog 分别以完整 ID 索引
-   `models`、`logics`、`signals`；`SignalPackSignal` 同时暴露 `signalId`、`modelId`、`logicId`及已解析对象。
+   `models`、`logics`、`signals`；`SignalPackSignal` 同时暴露 `signalType`、`modelId`、`logicId`及已解析对象。
    所有表均为不可变快照。
 5. **不变量与版本**：一个 logic 必须恰有同 stem 的 YAML 和 JS；一个 signal 必须解析到一个
    modelId 和一个 logicId。候选准备不发布部分结果。未发布格式仍为 schema 1，不提供旧
@@ -111,8 +111,8 @@ JS 的执行 foundation、同步信号阶段目标和树形输入见[JS 信号�
    `.`/`..` 段、文件与目录符号链接逃逸、实际模型 materialization、model import/cycle/variant、
    捕获后不重读源文件和返回表不可变；生产绑定还须证明同一 catalog signal 同时选择 JS 与模型、未知类型不创建 handle、
    非法改绑保留旧磁盘／publication／source／模型。
-10. **迁移与错误用法**：正确做法是由 `packageSignalId` 显式引出 modelId/logicId，并让世界 deviceId 保持独立；
-    错误做法是从已放置设备 ID、模型 ID 或文件名猜测逻辑，或在 package-bound 主信号内再保存可冲突的 modelId。
+10. **迁移与错误用法**：正确做法是由 `signalType` 显式引出 modelId/logicId，并让世界 deviceId 保持独立；
+    错误做法是从已放置设备 ID、模型 ID 或文件名猜测逻辑，或在主信号内再保存可冲突的 modelId。
 
 ## 一次加载如何工作
 

@@ -87,11 +87,16 @@ internal data class SignalObservationContinuation(
     val terminalReason: SignalObservationEndReason? = null,
     /** Relative to the source section's exit, only for an unsectioned [SignalObservationEndReason.CYCLE]. */
     val cycleStartDistanceMeters: Double? = null,
-    val cycleLengthMeters: Double? = null
+    val cycleLengthMeters: Double? = null,
+    /** Unsectioned physical rails crossed by this edge; used only for edit/topology invalidation. */
+    val traversedRailIds: Set<java.util.UUID> = emptySet()
 ) {
     init {
         require(distanceMeters.isFinite() && distanceMeters >= 0.0) {
             "signal observation continuation distance must be finite and non-negative"
+        }
+        require(traversedRailIds.isNotEmpty() || distanceMeters == 0.0) {
+            "a positive unsectioned continuation must retain its physical rail dependencies"
         }
         require((target == null) != (terminalReason == null)) {
             "a signal observation continuation must have exactly one target or terminal reason"

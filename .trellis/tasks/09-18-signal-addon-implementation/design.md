@@ -3,11 +3,11 @@
 ## Status and ownership
 
 2026-10-07 用户批准 JS 规则目标，随后将统一包修正为元数据 `pack.yml` 加 `model/`、`logic/`、`signal/`：
-文件相对路径派生稳定 namespaced modelId、logicId、signalId，玩家可见的一等 signal 文件引用模型与逻辑；
+文件相对路径派生稳定 namespaced modelId、logicId、signalType，玩家可见的一等 signal 文件引用模型与逻辑；
 跨包引用两阶段解析。复用 GraalJS，但不依赖 `BukkitPlugin` 私有实现。
 规则在物理快照之后的同步信号阶段读取完整分支树，扫描距离逐分支累计，不设节点／分支／时间／内存／整波预算；
 包作者承担脚本性能责任。扫描遇到同一有向状态时仅停止该分支并把原因交给 JS，不采用 DAG 拒环、SCC 或 fixed-point。
-这些仍是 `TARGET`，当前 Java/Kotlin provider、模型包和 publication 是 `CURRENT`；精确契约归
+这些拆分边界仍是 `TARGET`；SimpleSignals 的当前主信号规则已经是 JS-only catalog type，精确契约归
 [JS 规则 owner 文档](../../spec/simple-signals/backend/js-signal-rules.md)，不改变既有资源／ATO owner。
 
 2026-10-05 新决定取代下文早期默认进路分支：无匹配列车请求时保护信号保持停车。
@@ -183,11 +183,11 @@ baseline and changed occupants plus directed ENTER/LEFT crossings in the coheren
 The plugin maps changed area IDs to immutable section observations containing the block identity,
 definition revision, compiled length and conservative occupants. Before the first baseline the
 snapshot is unknown, and an unchanged epoch does not invoke plugin code or replace the snapshot.
-Fixed-block rules map this state plus downstream outputs to an opaque model variant and speed; changed outputs invalidate only
+Catalog signal types map this state plus downstream outputs through JavaScript to an opaque model variant and speed; changed outputs invalidate only
 the same source's current route declarations, whose complete active set produces route-position speed restrictions through SimpleATO's existing
-most-restrictive pipeline. The first production provider is configured in the world definition: occupied output is explicit, while an empty block
-chooses the highest configured clear level whose downstream-speed threshold is satisfied by the minimum published downstream limit. Speeds,
-level count and model variants remain configuration data rather than a hard-coded national vocabulary. Protection regions join the same private read
+most-restrictive pipeline. A placed primary stores only its reusable catalog `signalType`; that catalog type selects one model and one JavaScript
+logic definition. Occupancy, section length, branch selection and downstream signal limits are projected as immutable same-epoch input, while speeds
+and model variants remain script output rather than a hard-coded national vocabulary. Protection regions join the same private read
 surface only when concrete interlocking rules need them, because a branching region has no useful
 single physical length.
 
@@ -279,7 +279,7 @@ one shared perception, and owns current-speed braking. The plugin does not reeva
 arbitrary JS every tick. Scripts receive immutable views and append restrictions/model choices to an evaluation-local decision;
 they never mutate the Minecraft world or Basic registry directly.
 
-`CURRENT` built-in providers use a precompiled one-way invalidation graph and reject their explicit dependency cycles. The JS
+The removed built-in providers historically used a precompiled one-way invalidation graph. The current JS-only runtime
 `TARGET` must not generalize that implementation restriction into a rail-topology DAG. Loading or editing a signal prepares a
 read-only forward observation plan from the existing section/topology indexes; an epoch fills occupancy, downstream output,
 turnout selection and protection-route readiness from one coherent post-physics frame. The plan presents all candidate continuations
@@ -331,8 +331,8 @@ JS 目标包的作者目录固定分为元数据 `pack.yml`、`model/`、`logic/
 跨包 signal 引用两阶段解析。`model/**/*.yml` 通过 BukkitPlugin 公共普通模型 compiler materialize；同包 model import
 只贡献目标 parts 的 identity-position group，不继承目标 default、variants 或 placement，首批不支持跨包 model import。
 既有 `manifest.yml/models/parts` loader 也复用同一 compiler，但两种目录发现与身份合同仍保持独立。
-现有世界 `FixedBlockSignalDefinition.signalId`／`ProtectionSignalDefinition.signalId` 仍表示已放置逻辑节点，
-不是上述 package signal 类型。生产绑定批次须先将其语义清晰化为 deviceId 或增加显式类型字段，不能同名猜绑定。
+现有世界 `FixedBlockSignalDefinition.signalId`／`ProtectionSignalDefinition.signalId` 表示已放置逻辑节点；必填的
+`signalType` 表示上述 catalog signal 类型，不能按同名、模型或路径猜绑定。catalog 来自文件包还是未来附属插件不进入世界定义。
 这是未发布 current model，保持版本1且不读取此前 foundation 布局，不能为开发提交建立兼容代际。
 
 [主插件模型契约](../../spec/bukkit-plugin/backend/model-presentation-api.md)描述按 ID 查询轨道曲线、
@@ -465,7 +465,7 @@ Development data migration, if required, is a separate auditable one-time tool w
 
 - Region derivation is proportional to the affected topology subgraph during create/update/load, never per tick.
 - Route matching is linear in the relevant frozen-route range plus indexed resource hits.
-- `CURRENT` built-in dependency invalidation remains proportional to its affected one-way provider-to-consumer chain. The JS
+- Current JS dependency invalidation remains proportional to its affected downstream-to-upstream chain. The JS
   `TARGET` prepares only the declared-distance branch tree and uses reverse indexes for dirtying; a repeated directed scan state
   terminates that branch and reports the reason instead of rejecting the whole rail loop or trying to settle an SCC.
 - Basic admission is one physical projection plus additions and one atomic claim.

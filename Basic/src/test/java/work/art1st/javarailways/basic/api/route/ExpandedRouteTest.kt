@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.route
+package work.art1st.javarailways.basic.api.route
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows

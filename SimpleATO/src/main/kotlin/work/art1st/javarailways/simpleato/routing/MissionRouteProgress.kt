@@ -1,6 +1,6 @@
 package work.art1st.javarailways.simpleato.routing
 
-import work.art1st.javarailways.basic.route.RailViewRef
+import work.art1st.javarailways.basic.api.route.RailViewRef
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection

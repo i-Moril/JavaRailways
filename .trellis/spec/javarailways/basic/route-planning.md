@@ -20,11 +20,33 @@ data class RouteSegment(
 )
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/route/ExpandedRoute.kt`。segment arcs是该view-local meters，finite且`0<=start<=end`；`ExpandedRoute`segments defensive copy、nonempty、total length positive。SimpleATO adapter移除Topology planner为端点方向保留的零长度marker，只把正长度段交给既有timetable/mission consumers。
+来源：`Basic/src/main/java/work/art1st/javarailways/basic/api/route/ExpandedRoute.kt`。segment arcs是该view-local meters，finite且`0<=start<=end`；`ExpandedRoute`segments defensive copy、nonempty、total length positive。SimpleATO adapter移除Topology planner为端点方向保留的零长度marker，只把正长度段交给既有timetable/mission consumers。
 
 `OperationalRoutePlanner.buildRoute(...): RouteBuildResult.Success(route)|Failure(reason)`使用Basic Dijkstra的actual metre cost。same rail goal在start后direct；在start前只可经合法loop重新进入。`PlannedRoute`只保存route identity、mission revision和已经由同一次immutable topology query选出的`ExpandedRoute`；它不保存信号边界、保护点、资源claim或道岔准备参数。
 
 后续Basic准入仍独立验证冻结traversal连续且每个continuation合法，并把沿途rail intervals、受控transition与route-bound shared resources加入唯一claim集合。物理占用范围只是资源binding的验证数据，不是第二份footprint。Basic不得要求调用方另报资源清单，也不得在验证时另行寻路或用保护区域替调用方选择路径。
+
+### 公开路线值与内部实现的边界
+
+当前 `basic.api.route` 直接拥有 `RailViewRef`、`RouteSegment`、`ExpandedRoute` 和 `PlannedRoute`，
+SimpleATO 的 `CompiledLineLeg.route`、`AtoMissionLeg.plannedRoute` 和停站解析接口使用这些同一类型。
+不再通过公开签名泄漏隐藏的 `basic.route` 类型，也不创建用于跨包转换的第二套路线。
+`RouteBuildResult`、寻路实现、进度计算、`toSnapshot` 转换以及准备时间/道岔默认参数仍属于内部实现包。
+
+一次正常调用由 SimpleATO 选择路线，产出有序的 view-local 段，再包装为带 `routeId/revision` 的 `PlannedRoute`。
+它们只校验数值和集合形状：段允许零长，路线必须非空且总长有限、严格为正；端点 ID 和 route ID 必须非空白，
+revision 必须非负。构造失败抛 `IllegalArgumentException`，不改变世界或资源状态。
+例如一个 BA 段的 5–10 米是沿 BA view 的弧长，不是 canonical AB 坐标；同一 rail 可在环线路线中重复出现。
+
+这些值不保存 world、拓扑版本、live rail 或授权，`revision` 也不代表拓扑版本。
+构造 `PlannedRoute` 不证明物理连续性、可达性或资源已获准；绑定拓扑版本的 `RouteSnapshot` 仍由后续准入独立校验。
+除 `RailViewRef.from(view)` 读取调用方提供的 view 外，构造与读取都是无 I/O 的纯值操作，可跨线程共享；
+调用 `from` 时须遵守该 view 所属世界的线程规则。对象没有注册/卸载生命周期，不新增持久化格式或版本。
+
+`ExpandedRoute` 构造时以 `O(n)` 复制并校验段列表；输出列表不可修改，私有 data-class copy 不能绕过复制。
+`totalLength` 每次读取为 `O(n)` 求和，本批不增加缓存、不改变算法。
+现有 `ExpandedRouteTest` 保留集合隔离断言，独立 Java consumer 同时检查值的构造和 SimpleATO 公开返回类型；
+Dokka 须生成四个值类型的页面，而不是放开整个实现包。非法值及实际连通性继续由既有路线/准入回归覆盖。
 
 ## 不可变拓扑寻路与限制
 

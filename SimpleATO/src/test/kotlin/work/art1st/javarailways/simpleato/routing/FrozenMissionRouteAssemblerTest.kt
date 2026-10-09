@@ -11,10 +11,10 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
-import work.art1st.javarailways.basic.route.ExpandedRoute
-import work.art1st.javarailways.basic.route.PlannedRoute
-import work.art1st.javarailways.basic.route.RailViewRef
-import work.art1st.javarailways.basic.route.RouteSegment
+import work.art1st.javarailways.basic.api.route.ExpandedRoute
+import work.art1st.javarailways.basic.api.route.PlannedRoute
+import work.art1st.javarailways.basic.api.route.RailViewRef
+import work.art1st.javarailways.basic.api.route.RouteSegment
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection

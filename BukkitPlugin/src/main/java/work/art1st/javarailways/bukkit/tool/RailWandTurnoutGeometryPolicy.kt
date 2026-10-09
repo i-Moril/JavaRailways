@@ -5,7 +5,7 @@ import org.joml.Vector3dc
 import work.art1st.javarailways.basic.basicWorldDataOrNull
 import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
 import work.art1st.javarailways.basic.rail.TurnoutTopology
-import work.art1st.javarailways.basic.route.RailViewRef
+import work.art1st.javarailways.basic.api.route.RailViewRef
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.physics.CoreWorld

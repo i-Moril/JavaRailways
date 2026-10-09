@@ -81,7 +81,7 @@ import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotPr
 import work.art1st.javarailways.simpleato.timetable.*
 import work.art1st.javarailways.simpleato.routing.MissionRouteLayout
 import work.art1st.javarailways.basic.route.RouteAllocationTiming
-import work.art1st.javarailways.basic.route.ExpandedRoute
+import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.IntervalOccupancyState

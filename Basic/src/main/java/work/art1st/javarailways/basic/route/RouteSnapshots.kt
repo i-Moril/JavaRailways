@@ -2,6 +2,7 @@ package work.art1st.javarailways.basic.route
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.route.ExpandedRoute
 
 /** Capture this expanded route as an immutable, revisioned ATO route input. */
 fun ExpandedRoute.toSnapshot(

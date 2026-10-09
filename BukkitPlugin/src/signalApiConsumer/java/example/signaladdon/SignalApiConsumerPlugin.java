@@ -53,6 +53,10 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode;
 import work.art1st.javarailways.basic.api.route.RouteBoundary;
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService;
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent;
+import work.art1st.javarailways.basic.api.route.ExpandedRoute;
+import work.art1st.javarailways.basic.api.route.PlannedRoute;
+import work.art1st.javarailways.basic.api.route.RailViewRef;
+import work.art1st.javarailways.basic.api.route.RouteSegment;
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions;
 import work.art1st.javarailways.basic.api.observation.RailwayAreaOccupancyEngine;
 import work.art1st.javarailways.basic.api.observation.RailwayObservation;
@@ -78,6 +82,10 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublis
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot;
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding;
 import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding;
+import work.art1st.javarailways.simpleato.api.line.CompiledLineLeg;
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionLeg;
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint;
+import work.art1st.javarailways.simpleato.api.mission.WayPointRef;
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult;
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource;
 
@@ -395,6 +403,19 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
 
     Services services() {
         return Objects.requireNonNull(services, "plugin is not enabled");
+    }
+
+    /** Compile-only coverage for the public route types shared by line and mission APIs. */
+    private static AtoMissionLeg compileOperationalRouteApi(UUID railId) {
+        var traversal = new ExpandedRoute(
+            "origin", "destination",
+            List.of(new RouteSegment(new RailViewRef(railId, ViewDirection.BA), 5.0, 125.0))
+        );
+        var lineLeg = new CompiledLineLeg(
+            "origin-station", "destination-station", "origin", "destination", traversal
+        );
+        var plannedRoute = new PlannedRoute("example.signaladdon:route/main", 1L, lineLeg.getRoute());
+        return new AtoMissionLeg(0, new AtoMissionPoint.Via(new WayPointRef("destination")), plannedRoute);
     }
 
     private static RouteResourceIntent routeIntentExample(RailwayStateStamp observationStamp) {

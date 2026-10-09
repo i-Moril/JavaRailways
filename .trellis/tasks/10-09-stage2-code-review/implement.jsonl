@@ -2,3 +2,5 @@
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/initial-findings.md", "reason": "Initial source audit leads; reverify before changing code"}
 {"file": ".trellis/spec/javarailways/basic/world-runtime.md", "reason": "World accessors and one explicit Basic container; remove legacy index only"}
 {"file": ".trellis/spec/javarailways/basic/rail-infrastructure.md", "reason": "Metadata grouped model and preserving untargeted groups"}
+{"file": ".trellis/spec/javarailways/basic/api-boundaries.md", "reason": "CR-005 minimum public route value closure and Dokka boundary"}
+{"file": ".trellis/spec/javarailways/basic/route-planning.md", "reason": "CR-005 preserve route representation, algorithms and validation semantics"}

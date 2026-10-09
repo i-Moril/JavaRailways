@@ -28,18 +28,6 @@ data class RouteAllocationTiming(
     }
 }
 
-/** Immutable timetable-owned route after Basic has validated its physical traversal. */
-data class PlannedRoute(
-    val routeId: String,
-    val revision: Long,
-    val expandedRoute: ExpandedRoute
-) {
-    init {
-        require(routeId.isNotBlank())
-        require(revision >= 0L)
-    }
-}
-
 data class TurnoutSafetyDefaults(
     val protectionDistanceMeters: Double = DEFAULT_PROTECTION_DISTANCE_METERS,
     val lockingDistanceMeters: Double = DEFAULT_LOCKING_DISTANCE_METERS,

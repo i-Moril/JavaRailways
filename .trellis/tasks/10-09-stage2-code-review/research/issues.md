@@ -47,10 +47,14 @@
 
 ## CR-005：公共 API 的实现类型泄漏
 
-- 状态：已确认；P2，正式边界与可维护性问题，不能只凭包名决定搬迁。
+- 状态：已修复，待用户检查；P2，正式边界与可维护性问题，不能只凭包名决定搬迁。
 - 证据：`SimpleATO/.../api/line/LinePlanner.kt:25` 的 ExpandedRoute 和 `api/mission/AtoMission.kt:82` 的 PlannedRoute 位于 Basic 非 api 包，Dokka 隐藏这些实现包。
 - 处置：审核 route 值的正式归属；将必要通用值纳入最小公开契约并迁移 consumer，不新增一套重复 route/snapshot。
 - 验证：公开签名搜索、直接 consumer 编译、Java consumer、Dokka 和现有模块边界门禁。
+- 实施：ExpandedRoute、RouteSegment、RailViewRef、PlannedRoute 直接迁入 basic.api.route；RouteBuildResult、准备时间/道岔默认参数、寻路与 toSnapshot 转换留在隐藏实现包。同步 Line/mission/station 等签名、consumer imports 和 API KDoc；明确候选路线不代表授权或物理验证证明。未增加 alias、重复模型、存档或版本变化。
+- 复核：独立 trellis-check 确认四个值的校验、防御复制和 private copy 可见性未变，并补齐字段 KDoc。既有 ExpandedRouteTest 只移动包，Java consumer 新增公开路线构造及 Line/mission 签名编译片段；未增加测试数量。
+- 验证结果：Basic 382、SimpleATO 351、SimpleATOBukkit 2、BukkitPlugin 356、SimpleSignals 485、TunnelBridgeBuilder 31，共1607项实际执行，零失败/错误/跳过。Core:test为UP-TO-DATE（212项、6跳过），BukkitPluginDev编译通过/test为NO-SOURCE；Java consumer、Basic/SimpleATO Dokka、宿主shadowJar、插件JAR和模块边界门禁通过。确认Dokka生成四个新公开类型页面；其他既有缺文档/链接warning未在本批整顿。未部署或做游戏内验证。
+- 验证环境观察：首轮 SimpleSignals 108项类加载失败，缺失类在当前Basic JAR中存在；测试从14:41:28Z开始，JAR于14:41:49Z被改写。repo-local `.gradle-user-home/daemon/9.0.0/daemon-24739.out.log:13724` 显示同一checkout另一个VS Code Java环境Gradle build于14:41:48–49Z运行，支持外部构建改写运行中产物的解释，具体写入任务尚未确认。源码稳定后完整重跑通过；主门禁的`--no-parallel`不能约束另一daemon。未停止IDE或改其配置，后续验证应避免同checkout并发构建。
 
 ## CR-006：运营编辑适配器归属未收口
 

@@ -4,3 +4,4 @@
 {"file": ".trellis/spec/javarailways/basic/route-planning.md", "reason": "Current immutable planner must remain unchanged"}
 {"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "No schema bump or compatibility expansion for runtime API cleanup"}
 {"file": ".trellis/spec/javarailways/basic/rail-infrastructure.md", "reason": "Verify grouped copies preserve speed categories and null authoring"}
+{"file": ".trellis/spec/javarailways/basic/api-boundaries.md", "reason": "CR-005 exported signatures must resolve to documented public value types"}

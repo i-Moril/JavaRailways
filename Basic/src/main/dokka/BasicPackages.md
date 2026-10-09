@@ -37,6 +37,9 @@ Infrastructure dependency以persistent rail ID、stable topology-node key和runt
 
 # Package work.art1st.javarailways.basic.api.route
 
+运营规划使用的不可变候选路线值：稳定有向轨道引用、view-local 米制区间、展开路线和调用方 plan revision。
+它们不绑定 live world/topology、不证明连通性或资源所有权；资源准入仍需单独验证。
+
 冻结 route intent、route-metre authority/release boundary、插件附加资源、设备准备参数及 grant result。调用方不提交完整 footprint；Basic 按权威拓扑推导不可删除的 rail、turnout 与 route-bound physical resources，并把经过认证的插件 additions 合并进同一个原子 claim。保护区域与固定闭塞属于具体信号插件，不在本 package 定义。
 
 # Package work.art1st.javarailways.basic.api.route.planning

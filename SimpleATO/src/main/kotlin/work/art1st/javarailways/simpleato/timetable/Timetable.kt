@@ -17,7 +17,7 @@ import work.art1st.javarailways.simpleato.api.station.StationCallResolutionResul
 import work.art1st.javarailways.simpleato.api.station.StationCallResolver
 import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.basic.basicWorldData
-import work.art1st.javarailways.basic.route.ExpandedRoute
+import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.basic.route.RouteBuildResult
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection

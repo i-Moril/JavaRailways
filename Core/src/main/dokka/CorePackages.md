@@ -26,6 +26,16 @@ Core 事件 payload。事件对象不等同于 Bukkit Event，派发线程取决
 
 按主线程和 physics worker 分离的同步事件总线。注册返回的 token 必须与扩展插件生命周期配对关闭。
 
+# Package work.art1st.javarailways.core.api.threading
+
+线程身份和 fail-fast 契约。`ThreadGuard` 只判断当前线程，不负责调度或授予 owner 权限；普通 consumer
+不能安装或清除平台 bridge。
+
+# Package work.art1st.javarailways.core.api.threading.host
+
+可信平台宿主的启动/停用集成面。第一个 bridge registration 获得 identity-bound token；重复注册被拒绝，
+关闭 token 幂等且只能移除自己的注册。该包不是普通附属插件的调度入口。
+
 # Package work.art1st.javarailways.core.api.util.plugin
 
 为 World、Train、Car 等宿主挂载扩展数据的低层机制。当前 registry 在启动阶段固定槽位，尚不是第三方插件的稳定服务入口。

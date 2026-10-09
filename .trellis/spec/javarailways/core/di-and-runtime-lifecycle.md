@@ -21,7 +21,7 @@ fun interface WorldParentContext {
 标准startup：
 
 ```text
-register process Plugin slots / install ThreadGuard bridge
+register process Plugin slots / retain ThreadGuard host-registration token
 → create TickManager + PhysicsCoordinator
 → CoreWorld create/load（attach DI + coordinator）
 → attach all world/train/car extension data并initialize

@@ -55,7 +55,8 @@ import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.util.plugin.Plugin
 import work.art1st.javarailways.core.api.util.plugin.PluginRegistry
 import work.art1st.javarailways.core.di.ensureJavaRailwaysKoinStarted
-import work.art1st.javarailways.core.util.ThreadGuard
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardRegistration
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.bukkit.util.PaperPlatformDispatcher
 import work.art1st.javarailways.bukkit.util.PlatformCapabilities
@@ -141,6 +142,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
 
     private var trainReverseEventRegistration: EventRegistration? = null
     private var trainDebugMainEventRegistration: EventRegistration? = null
+    private var threadGuardRegistration: ThreadGuardRegistration? = null
 
     /** 运营对象工具（停车点、限速、方向限制、信号等） */
     lateinit var railObjectWand: RailObjectWand
@@ -174,7 +176,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         SimpleATOBukkitModule.install()
         PluginRegistry.register(this)
         INSTANCE = this
-        ThreadGuard.installPlatformBridge(BukkitThreadGuardBridge)
+        threadGuardRegistration = ThreadGuardHost.registerPlatformBridge(BukkitThreadGuardBridge)
         viewDistanceManager = ViewDistanceManager(javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks)
         railTargetService = BukkitRailTargetService(this)
         playerOperationServiceImpl = DefaultPlayerOperationService(logger)
@@ -338,7 +340,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         runShutdownStep("packet entity runtime") { packetEntityRuntime?.close() }
         packetEntityMotion = null
         packetEntityRuntime = null
-        runShutdownStep("thread guard bridge") { ThreadGuard.clearPlatformBridge() }
+        runShutdownStep("thread guard bridge") { threadGuardRegistration?.close() }
+        threadGuardRegistration = null
     }
 
     private inline fun runShutdownStep(component: String, action: () -> Unit) {

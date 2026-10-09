@@ -10,8 +10,9 @@ import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
-import work.art1st.javarailways.core.util.ThreadGuard
-import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.threading.ThreadGuard
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 import work.art1st.javarailways.core.util.TickManagerImpl
 import java.util.concurrent.Executors
 
@@ -120,13 +121,13 @@ class CoreTrainReversedPersistenceTest {
 
     private fun CoreTrain.reverseOnMainThread() {
         val owner = Thread.currentThread()
-        ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
+        val registration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
             override fun isMainThread(): Boolean = Thread.currentThread() === owner
         })
         try {
             reverse()
         } finally {
-            ThreadGuard.clearPlatformBridge()
+            registration.close()
         }
     }
 }

@@ -1,7 +1,7 @@
 package work.art1st.javarailways.bukkit.util
 
 import org.bukkit.Bukkit
-import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 

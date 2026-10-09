@@ -94,5 +94,7 @@ override fun register(obj: TickingObject) {
 
 ```bash
 ./gradlew :Core:test --tests 'work.art1st.javarailways.core.physics.tick.*' \
-  --tests 'work.art1st.javarailways.core.util.*' --tests '*CoreTrainPublicationBoundaryTest'
+  --tests 'work.art1st.javarailways.core.util.*' \
+  --tests 'work.art1st.javarailways.core.api.threading.*' \
+  --tests '*CoreTrainPublicationBoundaryTest'
 ```

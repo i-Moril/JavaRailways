@@ -42,7 +42,7 @@ import work.art1st.javarailways.core.physics.rail.topology.CoreTopologyInputAdap
 import work.art1st.javarailways.core.physics.rail.topology.TopologyInput
 import work.art1st.javarailways.core.physics.rail.topology.TopologyInputRail
 import work.art1st.javarailways.core.physics.rail.topology.TopologyStateBuilder
-import work.art1st.javarailways.core.util.ThreadGuard
+import work.art1st.javarailways.core.api.threading.ThreadGuard
 import work.art1st.javarailways.core.physics.train.SavedTrainV1
 import work.art1st.javarailways.core.physics.tick.LatestTrainFrameMailbox
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator

@@ -5,7 +5,7 @@ import org.joml.Vector3dc
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.util.annotation.Heavy
-import work.art1st.javarailways.core.util.ThreadGuard
+import work.art1st.javarailways.core.api.threading.ThreadGuard
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil

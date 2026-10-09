@@ -61,8 +61,8 @@ import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
-import work.art1st.javarailways.core.util.ThreadGuard
-import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
 
 class TimetableDispatcherTest {
@@ -675,13 +675,13 @@ class TimetableDispatcherTest {
             ))
         ))
 
+        val startRegistration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
+            override fun isMainThread(): Boolean = true
+        })
         val result = try {
-            ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
-                override fun isMainThread(): Boolean = true
-            })
             dispatcher.startService(world, "reverse-start", "s1")
         } finally {
-            ThreadGuard.clearPlatformBridge()
+            startRegistration.close()
         }
 
         assertTrue(result is TimetableServiceStartResult.Started, result.toString())
@@ -691,13 +691,13 @@ class TimetableDispatcherTest {
         assertFalse(train.isReversed)
         val stagedAto = train.controller as SimpleATO
         tickAndPublish(stagedAto, 1_000.0)
+        val tickRegistration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
+            override fun isMainThread(): Boolean = true
+        })
         try {
-            ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
-                override fun isMainThread(): Boolean = true
-            })
             dispatcher.tick(world)
         } finally {
-            ThreadGuard.clearPlatformBridge()
+            tickRegistration.close()
         }
         assertTrue(train.isReversed)
         assertEquals(0.0, train.speed, 1.0e-9)

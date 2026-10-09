@@ -47,8 +47,8 @@ import work.art1st.javarailways.core.physics.train.createStraightRailFromSegment
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
-import work.art1st.javarailways.core.util.ThreadGuard
-import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 
 class DepotResetCoordinatorTest {
     private val worlds = mutableListOf<CoreWorld>()
@@ -436,13 +436,13 @@ class DepotResetCoordinatorTest {
     }
 
     private fun <T> onMainThread(block: () -> T): T {
-        ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
+        val registration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
             override fun isMainThread(): Boolean = true
         })
         return try {
             block()
         } finally {
-            ThreadGuard.clearPlatformBridge()
+            registration.close()
         }
     }
 

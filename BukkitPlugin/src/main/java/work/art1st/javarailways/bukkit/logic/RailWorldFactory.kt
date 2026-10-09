@@ -41,7 +41,7 @@ import work.art1st.javarailways.bukkit.operation.RegionTrainOperationDispatcher
 import work.art1st.javarailways.bukkit.persistence.RailRenderMetaStore
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.util.annotation.Heavy
-import work.art1st.javarailways.core.util.ThreadGuard
+import work.art1st.javarailways.core.api.threading.ThreadGuard
 import work.art1st.javarailways.core.util.TickManagerImpl
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import java.util.concurrent.Executors

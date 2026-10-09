@@ -15,20 +15,24 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
-import work.art1st.javarailways.core.util.ThreadGuard
-import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardRegistration
 
 class BukkitTrainOperationGatewayTest {
+    private var threadGuardRegistration: ThreadGuardRegistration? = null
+
     @BeforeEach
     fun installMainThreadBridge() {
-        ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
+        threadGuardRegistration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
             override fun isMainThread(): Boolean = true
         })
     }
 
     @AfterEach
     fun clearMainThreadBridge() {
-        ThreadGuard.clearPlatformBridge()
+        threadGuardRegistration?.close()
+        threadGuardRegistration = null
     }
 
     @Test

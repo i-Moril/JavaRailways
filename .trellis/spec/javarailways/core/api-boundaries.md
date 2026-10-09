@@ -12,7 +12,22 @@
 - Dokka publication 只保留 `work.art1st.javarailways.core.api.*`；普通 `public` implementation 不成为 API。
 - 认可的跨线程 value 类型：`RailPositionSnapshot(UUID, ViewDirection, Double)`、`RailTraversalSegmentSnapshot`、revision-rooted `TopologyState`及其`RailCrossingPoint/AtGradeRailCrossing`、`ActiveRailContinuationsSnapshot`、`RailObjectRef(namespace,id)`、`RailObjectSnapshot`、`TrainSnapshot`、`Vector3Snapshot`、`RenderableFrameSnapshot`、`CarFrameSnapshot`、`TrainFrameSnapshot`、`RailwayOccupancySnapshot`、`RailwayWorldFrameSnapshot`。`RailwayEpochProcessor`是同步value-only callback，不暴露live Core对象。
 - live 类型：`World`、`Train`、`Rail`、`RailView`。`World.allTrains` 与 `RailView.nextRails` 不得当 immutable collection 缓存。
-- `@MainThread`、`@Heavy`、`@Concurrent`、`@Pure` 只表达 contract，不调度；只有实现显式调用 `ThreadGuard.ensure*` 才 runtime fail-fast。
+- `@MainThread`、`@Heavy`、`@Concurrent`、`@Pure` 只表达 contract，不调度；只有实现显式调用 `core.api.threading.ThreadGuard.ensure*` 才 runtime fail-fast。
+- `core.api.threading` 是普通 consumer 的只读线程身份契约：`ThreadContext` 仅用于诊断，`ThreadGuard` 只提供 `is*`、`currentContext` 和 `ensure*`，不公开注册、清除或自行进入 owner context 的能力。
+- `core.api.threading.host` 只供可信平台宿主的启动/停用集成。`ThreadGuardHost.registerPlatformBridge` 的 first live registration wins，重复注册失败；返回的 identity token 幂等关闭且只能清理自己的 exact bridge，旧 token 不能清掉后续注册。bridge 查询非阻塞且不执行调度，volatile publication 只负责并发可见性。
+- Core async-tick marker 保持 implementation-private。SimpleATO headless timetable simulation 当前直接使用 `core.util.IsolatedSimulationThreadMarker` 这一 first-party implementation seam，以拥有独立 world 为前提；它不是第三方 API，不能复制到普通附属插件、live server callback 或 Bukkit 访问。后续若要消除这项 util leakage，需要另行设计有 capability 的模拟 owner，而不是把 marker 包成公共 guard helper。
+
+### ThreadGuard 工作方式与失败边界
+
+正常启动时，唯一平台宿主先注册一个非阻塞 bridge并保存返回的registration；普通consumer随后只调用
+`ThreadGuard.is*`／`currentContext`／`ensure*`。停用时宿主先停止依赖该判定的runtime，最后关闭registration。
+Core内部用一个`volatile` current entry发布bridge；register和token close在同一个registry monitor下串行，token另用
+原子closed位保证重复close无动作。查询、上下文分类和guard均为`O(1)`且不取得该monitor；register/close只在低频生命周期
+使用，重复注册抛`IllegalStateException`且不替换当前bridge，无bridge时main-thread查询为false，旧token或重复close为no-op。
+
+正确做法是先用owner scheduler进入所需线程，再让guard断言；错误做法是让consumer安装bridge、公开一个“进入主线程上下文”
+helper，或用guard替代调度。可信宿主SPI不能从JVM层阻止抢先注册，因此插件加载顺序和代码审查仍是边界的一部分；一旦宿主
+成功注册，其他调用者不能覆盖或用自己的token清除它。该限制不涉及存档或schema版本。
 
 `RailPositionSnapshot` 的真实签名和单位（`Core/src/main/java/work/art1st/javarailways/core/api/physics/rail/RailPositionSnapshot.kt`）：
 
@@ -46,6 +61,7 @@ CoreTrain 复用已有原子 publication，不另建 snapshot。不能提供帧�
 | 跨线程读取 | capture 已认可 value DTO，collection defensive copy | 仅凭 `Snapshot` 名称传 `RenderableStateSnapshot` |
 | API 变更 | 搜索所有 consumer，生成 Dokka并运行 downstream tests | 只因 Core compile 成功即合并 |
 | 平台 side effect | stable request/value → adapter scheduler | Core 接收 Bukkit/Paper 类型 |
+| 线程身份检查 | consumer 用 `core.api.threading.ThreadGuard` + owner scheduler；平台宿主持有 registration token | 普通 consumer 注册/清空 bridge、进入 marker，或把 guard 当 scheduler |
 
 API KDoc 必须写 identity、单位、调用线程、blocking、live/value、failure/result、注册与释放；无法写清这些字段的类型不得新增到候选面。
 
@@ -78,6 +94,7 @@ fun capture(location: RailLocation, facing: ViewDirection): RailPositionSnapshot
 - `Core/src/test/java/work/art1st/javarailways/core/api/physics/ImmutableSnapshotTest.kt`：断言 snapshot 不保留 live World/Rail/Train/Car。
 - `Core/src/test/java/work/art1st/javarailways/core/physics/tick/LatestTrainFrameMailboxTest.kt`：断言 collection defensive copy。
 - API 改动搜索 `Basic/src/main`、`BukkitPlugin/src/main`、`TunnelBridgeBuilder/src/main` 的 imports。
+- ThreadGuard 改动还要搜索 `SimpleATO/src/main` 与 `SimpleSignals/src/main`；普通跨模块 guard 使用只允许 `core.api.threading`。已记录的 SimpleATO isolated-simulation internal seam 不得扩散或包装 live Bukkit callback。
 
 ```bash
 ./gradlew :Core:test :Basic:test

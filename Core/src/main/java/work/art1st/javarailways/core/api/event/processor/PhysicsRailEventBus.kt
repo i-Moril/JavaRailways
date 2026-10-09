@@ -2,7 +2,7 @@ package work.art1st.javarailways.core.api.event.processor
 
 import work.art1st.javarailways.core.api.event.PhysicsRailEvent
 import work.art1st.javarailways.core.api.util.annotation.AsyncEventApi
-import work.art1st.javarailways.core.util.ThreadGuard
+import work.art1st.javarailways.core.api.threading.ThreadGuard
 
 /**
  * Process-wide synchronous bus for events emitted by JavaRailways physics workers.

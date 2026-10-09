@@ -5,7 +5,7 @@ import org.joml.Vector3dc
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 import work.art1st.javarailways.core.physics.rail.CoreRail
-import work.art1st.javarailways.core.util.ThreadGuard
+import work.art1st.javarailways.core.api.threading.ThreadGuard
 import java.util.UUID
 
 object HeavyRailQueries {

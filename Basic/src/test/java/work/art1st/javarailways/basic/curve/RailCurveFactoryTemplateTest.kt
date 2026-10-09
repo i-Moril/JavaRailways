@@ -11,8 +11,9 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 import kotlin.math.acos
-import work.art1st.javarailways.core.util.ThreadGuard
-import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.threading.ThreadGuard
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 
 class RailCurveFactoryTemplateTest {
     @Test
@@ -539,7 +540,7 @@ class RailCurveFactoryTemplateTest {
     @Test
     fun `build fails on installed main thread`() {
         val mainThread = Thread.currentThread()
-        ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
+        val registration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
             override fun isMainThread(): Boolean = Thread.currentThread() === mainThread
         })
         try {
@@ -549,7 +550,7 @@ class RailCurveFactoryTemplateTest {
                 RailCurveFactory.build(from, to, RailCurveBuildOptions())
             }
         } finally {
-            ThreadGuard.clearPlatformBridge()
+            registration.close()
         }
     }
 }

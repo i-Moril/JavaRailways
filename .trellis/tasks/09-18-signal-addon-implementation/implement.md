@@ -1,5 +1,30 @@
 # Stage 2 implementation plan
 
+## 2026-10-09 Core ThreadGuard API follow-up
+
+- [x] Promote ordinary thread identity checks to the minimal `core.api.threading` consumer surface: `ThreadGuard` exposes
+  only `is*`, diagnostic `currentContext` and fail-fast `ensure*`; `ThreadContext` is diagnostic. Core, Basic, SimpleATO,
+  SimpleSignals and Bukkit guard consumers use this path, and the unpublished former `core.util` guard/context/bridge entry
+  points are removed without aliases. The consumer guard cannot register, clear or enter an owner context.
+- [x] Split trusted host integration into `core.api.threading.host`. The first live platform bridge registration wins and
+  a duplicate fails; BukkitPlugin retains the returned identity token and closes it at the original shutdown position.
+  Token close is idempotent and can remove only its exact registration, so an old token cannot clear a later bridge.
+  Bridge lookup remains non-blocking, process-visible and non-scheduling.
+- [x] Keep async-tick entry private to Core. SimpleATO headless timetable simulation deliberately retains the scoped
+  `core.util.IsolatedSimulationThreadMarker` first-party implementation seam for its exclusively owned world; this is not a
+  third-party API and was not repackaged as a capability-free public helper. Core/SimpleSignals deterministic tests may
+  exercise the same seam. Eliminating this remaining util leakage requires a separate capability design.
+- [x] Extend the existing artifact boundary gate with exact ThreadGuard checks: the Core JAR must expose the consumer and
+  trusted-host API classes and retain none of the former entry points; the consumer guard class must not expose install,
+  clear or isolated-context members; SimpleSignals bytecode must not reference the former guard path.
+  No broad domain inventory or package-wide string ban was added. No runtime policy, schema, version or compatibility path
+  changes in this batch.
+- [x] Validation passed with `/workspace/.gradle`: Core 46 suites / 212 tests, Basic 63 / 389, SimpleATO 46 / 351,
+  SimpleSignals 47 / 485 and BukkitPlugin 85 / 353, with zero failures/errors (existing Core/Basic
+  skips remain 6/1). Core Dokka generation, Java signal-API consumer compilation, SimpleSignals plugin JAR verification,
+  the exact artifact boundary gate and `git diff --check` passed. Existing Dokka coverage/JDK warnings and two one-off
+  physics-overload diagnostics are not live deployment evidence. No Paper/Folia runtime behavior changed or was tested.
+
 ## 2026-10-09 module-boundary and packaging gate
 
 - [x] Add one root `verifySignalModuleBoundaries` direct-declaration/artifact regression guard. It rejects the current
@@ -617,7 +642,7 @@ Current extraction progress:
 
 ## Validation
 
-- [ ] Complete module-boundary/one-owner audit for Basic, SimpleATO, SimpleATOBukkit and `SimpleSignals`. The current root gate closes only the declared direct main-project reverse edges and selected artifact references; it cannot prove semantic ownership or public-contract-only use. In particular, SimpleSignals still imports the existing `core.util.ThreadGuard` non-API type. Moving or exposing that contract requires its own reviewed API batch and is not hidden by this packaging check.
+- [ ] Complete module-boundary/one-owner audit for Basic, SimpleATO, SimpleATOBukkit and `SimpleSignals`. The current root gate closes only the declared direct main-project reverse edges and selected artifact references; it cannot prove semantic ownership or public-contract-only use. The known SimpleSignals `ThreadGuard` leak is now closed through `core.api.threading`, but the broader semantic ownership audit remains open.
 - [x] Packaging checks for the independently installed `SimpleSignals` plugin prove it has its own descriptor/JAR, compile-only host dependencies and no shadowed host classes. The same gate proves the embedded `SimpleATOBukkit` library has no plugin descriptor or `JavaPlugin`/`ServicesManager` lifecycle, while `BukkitPlugin:shadowJar` contains `SimpleATOBukkitModule.class` under the sole JavaRailways descriptor. It does not treat the adapter library JAR as another server artifact. `SimpleSignals:verifyPluginJar` remains the focused artifact check; live Paper/Folia dependency resolution and enable remain separate.
 - [ ] Region tests cover simple turnout, multi-turnout throat, leak, ambiguity, direction, topology invalidation and unsupported overlap.
 - [x] Resource tests cover mandatory Basic physical floor, valid additions, omitted/invalid additions, disjoint paths and atomic conflict denial.

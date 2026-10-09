@@ -14,8 +14,9 @@ import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
-import work.art1st.javarailways.core.util.ThreadGuard
-import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.threading.ThreadGuard
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 
 class CoreTrainTailBogieTest {
     @Test
@@ -168,13 +169,13 @@ class CoreTrainTailBogieTest {
 
     private fun CoreTrain.reverseOnMainThread() {
         val owner = Thread.currentThread()
-        ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
+        val registration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
             override fun isMainThread(): Boolean = Thread.currentThread() === owner
         })
         try {
             reverse()
         } finally {
-            ThreadGuard.clearPlatformBridge()
+            registration.close()
         }
     }
 }

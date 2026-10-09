@@ -39,7 +39,7 @@ import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunState
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
-import work.art1st.javarailways.core.util.IsolatedMainThreadMarker
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import work.art1st.javarailways.core.util.TickManagerImpl
 import java.util.concurrent.Executors
 
@@ -101,7 +101,7 @@ class IsolatedTimetableSimulationWorld private constructor(
     private var hasSimulated = false
 
     fun simulate(request: IsolatedTimetableSimulationRequest): IsolatedTimetableSimulationResult =
-        IsolatedMainThreadMarker.run {
+        IsolatedSimulationThreadMarker.run {
             check(!hasSimulated) { "an isolated simulation world is single-use" }
             hasSimulated = true
             try {
@@ -250,7 +250,7 @@ class IsolatedTimetableSimulationWorld private constructor(
             var routeAdmissionHost: IsolatedRouteAdmissionHost? = null
             var topologySubscription: AutoCloseable? = null
             try {
-                val world = IsolatedMainThreadMarker.run {
+                val world = IsolatedSimulationThreadMarker.run {
                     CoreWorld.load(
                         coreInfrastructure,
                         runtime = null,

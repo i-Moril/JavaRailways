@@ -12,8 +12,9 @@ import work.art1st.javarailways.core.api.event.processor.PhysicsRailEventBus
 import work.art1st.javarailways.core.api.event.processor.Priority
 import work.art1st.javarailways.core.api.util.annotation.AsyncEventApi
 import work.art1st.javarailways.core.util.AsyncTickThreadMarker
-import work.art1st.javarailways.core.util.ThreadGuard
-import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.threading.ThreadGuard
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 
 @OptIn(AsyncEventApi::class)
 class RailEventBusTest {
@@ -92,7 +93,6 @@ class RailEventBusTest {
         } finally {
             mainRegistration.close()
             physicsRegistration.close()
-            ThreadGuard.clearPlatformBridge()
         }
     }
 
@@ -148,13 +148,13 @@ class RailEventBusTest {
 
     private fun withMainThread(block: () -> Unit) {
         val owner = Thread.currentThread()
-        ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
+        val registration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
             override fun isMainThread(): Boolean = Thread.currentThread() === owner
         })
         try {
             block()
         } finally {
-            ThreadGuard.clearPlatformBridge()
+            registration.close()
         }
     }
 

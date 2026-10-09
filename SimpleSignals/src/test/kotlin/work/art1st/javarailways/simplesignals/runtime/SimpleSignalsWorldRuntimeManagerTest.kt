@@ -55,7 +55,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinu
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
-import work.art1st.javarailways.core.util.IsolatedMainThreadMarker
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
@@ -3066,7 +3066,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         )
 
         val failure = assertThrows(IllegalStateException::class.java) {
-            IsolatedMainThreadMarker.run {
+            IsolatedSimulationThreadMarker.run {
                 manager.applyDefinitionPatch(
                     fixture.worldId,
                     0L,

@@ -8,8 +8,8 @@ import work.art1st.javarailways.core.api.event.DerailEvent
 import work.art1st.javarailways.core.api.event.processor.EventListener
 import work.art1st.javarailways.core.api.event.processor.HandlesEvent
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
-import work.art1st.javarailways.core.util.IsolatedMainThreadMarker
 
 class CoreTrainDerailEventTest {
     @Test
@@ -39,8 +39,8 @@ class CoreTrainDerailEventTest {
             val frame = train.publishFrame(7L)
             if (!previousFrame.derailed && frame.derailed) train.queuePublishedDerailNotification()
 
-            IsolatedMainThreadMarker.run { world.publishPendingDerailEvents() }
-            IsolatedMainThreadMarker.run { world.publishPendingDerailEvents() }
+            IsolatedSimulationThreadMarker.run { world.publishPendingDerailEvents() }
+            IsolatedSimulationThreadMarker.run { world.publishPendingDerailEvents() }
 
             assertEquals(1, listener.count)
             assertEquals("physics failure", listener.reason)

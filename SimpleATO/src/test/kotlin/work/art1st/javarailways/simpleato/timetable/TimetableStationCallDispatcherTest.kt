@@ -47,11 +47,13 @@ import work.art1st.javarailways.core.physics.train.createStraightRailFromSegment
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
-import work.art1st.javarailways.core.util.ThreadGuard
-import work.art1st.javarailways.core.util.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardRegistration
 
 class TimetableStationCallDispatcherTest {
     private val worlds = mutableListOf<work.art1st.javarailways.core.physics.CoreWorld>()
+    private var threadGuardRegistration: ThreadGuardRegistration? = null
 
     private val profile = AtoSafetyProfile(
         accelerationMetersPerSecondSquared = 1.0,
@@ -63,7 +65,7 @@ class TimetableStationCallDispatcherTest {
 
     @BeforeEach
     fun installMainThreadBridge() {
-        ThreadGuard.installPlatformBridge(object : ThreadGuardPlatformBridge {
+        threadGuardRegistration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
             override fun isMainThread(): Boolean = true
         })
     }
@@ -72,7 +74,8 @@ class TimetableStationCallDispatcherTest {
     fun unregisterWorlds() {
         worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
         worlds.clear()
-        ThreadGuard.clearPlatformBridge()
+        threadGuardRegistration?.close()
+        threadGuardRegistration = null
     }
 
     @Test

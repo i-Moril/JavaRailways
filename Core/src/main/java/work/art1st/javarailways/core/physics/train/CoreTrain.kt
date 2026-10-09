@@ -36,7 +36,7 @@ import work.art1st.javarailways.core.physics.rail.SweptRailSpan
 import work.art1st.javarailways.core.api.util.Destroyable
 import work.art1st.configLib.persistence.PersistentBy
 import work.art1st.javarailways.core.util.CommitBuffer
-import work.art1st.javarailways.core.util.ThreadGuard
+import work.art1st.javarailways.core.api.threading.ThreadGuard
 import work.art1st.javarailways.core.util.trait.TrainComponentTrait
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicLong

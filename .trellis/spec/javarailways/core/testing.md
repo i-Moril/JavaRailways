@@ -42,7 +42,7 @@ consumer test通过`testFixtures(project(":Core"))`复用；production不得依�
 | --- | --- | --- |
 | coordinator test | awaited ticket或明确exception | `close()` |
 | process-wide bus registration | token closed | `finally close` |
-| ThreadGuard bridge install | previous bridge restored/cleared | 不污染后续test |
+| ThreadGuard host registration | exact token在finally关闭且可重复close | 不用全局clear，不污染后续test |
 | world materialization失败 | 无partial registered train | close created resources |
 | concurrent barrier | latch/future确定时序 | 不用固定sleep猜测 |
 

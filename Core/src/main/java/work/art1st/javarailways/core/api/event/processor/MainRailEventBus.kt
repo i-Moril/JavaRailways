@@ -1,7 +1,7 @@
 package work.art1st.javarailways.core.api.event.processor
 
 import work.art1st.javarailways.core.api.event.MainThreadRailEvent
-import work.art1st.javarailways.core.util.ThreadGuard
+import work.art1st.javarailways.core.api.threading.ThreadGuard
 
 /**
  * Process-wide synchronous bus for events owned by the platform main thread.

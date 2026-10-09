@@ -8,9 +8,9 @@
 | --- | --- | --- |
 | `Core` | 平台无关物理、车辆、轨道、事件、Tick 与底层 API | `Core/src/main/java/work/art1st/javarailways/core/api/`、`Core/src/main/java/work/art1st/javarailways/core/physics/CoreWorld.kt` |
 | `Basic` | 曲线、公共轨道方向、通用寻路、安全与资源内核，以及自动/手动共用的actuation、制动包络和route/perception snapshot primitive；长期保留平台无关底层机制、通用图算法、拓扑/物理资源推导、资源仲裁、设备准备与释放 | `Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`、`Basic/src/main/java/work/art1st/javarailways/basic/api/` |
-| `SimpleATO` | 迁移中的平台无关运营模块；当前拥有Destination、Station、Depot/rolling-stock、Line、Timetable、Dispatcher、ATO安全参数/mission/constraint/coordinator、具体controller、手动导航、运营选路/准入client和限制归约 | `SimpleATO/build.gradle.kts`、`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/` |
+| `SimpleATO` | 平台无关运营模块；当前拥有Destination、Station、Depot/rolling-stock、Line、Timetable、Dispatcher、ATO安全参数/mission/constraint/coordinator、具体controller、手动导航、运营选路/准入client和限制归约；消费Basic公共轨道方向 | `SimpleATO/build.gradle.kts`、`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/` |
 | `SimpleATOBukkit` | 独立源码/测试边界的Paper/Folia adapter library；由BukkitPlugin直接组合并嵌入同一主插件JAR，不具有第二个插件descriptor或lifecycle | `SimpleATOBukkit/build.gradle.kts`、`SimpleATOBukkitModule.kt` |
-| `SimpleSignals` | 独立安装的具体信号系统插件；当前拥有部署生命周期、host capability discovery、严格世界定义sidecar、保护区域定义/拓扑切割、固定保护进路表及planning runtime；authoring、固定闭塞与 rendering 后续实现 | `SimpleSignals/build.gradle`、`SimpleSignalsPlugin.kt`、`persistence/SimpleSignalsWorldDefinitionStore.kt`、`region/ProtectionRegionCatalog.kt` |
+| `SimpleSignals` | 独立信号插件；当前拥有保护区域/固定进路/固定闭塞、JS信号包、模型绑定与显示、定义持久化和Wand编辑；具体未完成交互与现场验证见模块README及活动任务 | `SimpleSignals/build.gradle`、`SimpleSignalsPlugin.kt`、`runtime/SimpleSignalsWorldRuntime.kt`、`authoring/SignalWandHandler.kt` |
 | `ConfigLib` | kotlinx.serialization 的持久化代理辅助 | `ConfigLib/src/main/kotlin/work/art1st/configLib/persistence/Persistence.kt` |
 | `Annotation` | 独立 KSP 代码生成实验 | `Annotation/src/main/kotlin/work/art1st/javarailways/annotation/processor/PersistentByProcessor.kt` |
 | `BukkitPlugin` | Paper/Folia composition、命令/工具、渲染、世界生命周期与持久化 | `BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/BukkitPlugin.kt`、`BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/logic/WorldManager.kt` |

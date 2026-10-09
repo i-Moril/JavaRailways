@@ -1,5 +1,25 @@
 # Stage 2 implementation plan
 
+## 当前状态汇总（2026-10-09，基线 6cf5805d）
+
+本节是当前进度入口；下方日期批次保留当时范围和验证结果。旧批次中的“待实现”或默认进路等描述，
+不能越过后续修正被当作当前合同。文档规则见[文档职责](../../spec/javarailways/shared/documentation-ownership.md)。
+
+- **已有实现和离线回归**：SimpleATO领域迁出、SimpleATOBukkit源码/嵌入边界、SimpleSignals独立打包；
+  保护区域/固定闭塞/进路、JS信号包与树形观察、信号模型显示、区间/进路/主信号/附属设备Wand。
+  “领域迁出”不代表所有运营Bukkit编辑适配器均已迁移，后者仍由审查任务跟踪。
+- **拓扑编辑后的局部重验已经实现**：生产订阅在`SimpleSignalsWorldRuntime.kt`接入拓扑变化，先失效相关检查，
+  后台编译并恢复有效定义；`SectionTopologyRevalidationTest`覆盖相关区间禁行、修复和无关区间保留。
+  机制见[局部重验](../../spec/simple-signals/backend/section-topology-revalidation.md)，不再列为待开发功能。
+- **编辑和显示仍有缺口**：边界地面标记/完整叠加、测距、摆放预设与实例编辑界面、进路删除和新建进路显示器的完整外观映射界面。
+  旧“guided Wand”总项包含多个交互，不能代表所有工具都没实现；模型显示的离线实现与现场验收分开记录。
+- **仍需专项核实**：连续territory出口精确授权策略、完整返库任务与反向流程覆盖、生命周期/存档综合验收。
+  后文未勾选的综合项不直接证明某个子能力没有实现，须按生产调用和测试核实后处置。
+- **审查进行中**：[Stage 2代码审查](../10-09-stage2-code-review/prd.md)跟踪旧路径、metadata、API与适配器归属、文档及复杂度；
+  `6cf5805d`仅完成无调用Java原型清理，不代表模块语义审查完成。
+- **现场未验证**：真实Paper/Folia加载/调度、玩家对话框和工具交互、客户端模型/资源包、现场卸载恢复与性能。
+  未运行服务器或客户端；本汇总不宣布Stage 2完成，不用临时smoke实现替代正式版。
+
 ## 2026-10-09 Core ThreadGuard API follow-up
 
 - [x] Promote ordinary thread identity checks to the minimal `core.api.threading` consumer surface: `ThreadGuard` exposes
@@ -571,7 +591,7 @@ Current extraction progress:
     最终离线 `:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava` 成功，40套/407项全部实际执行，零失败/错误/跳过。聚焦中编译实际执行，最终编译与Java consumer复用缓存，JAR隔离实际检查。
     日志 `/tmp/javarailways-route-recording-check.log`，XML在 `SimpleSignals/build/test-results/test/`。本批范围见[录制批次](research/current-route-recording-batch.md)，机制/复杂度见[录制契约](../../spec/simple-signals/backend/current-route-recording.md)。
     当时不改Core/Basic/ATO/API/sidecar形状，不加兼容、可选录制模式或新请求/结果层；后续已完成进路替换，并取消默认进路配置（见本文件顶部修正批次）。删除、信号机工具和完整可视化仍待后续。未做live Folia/客户端或规模实测，Stage2不归档。
-- [ ] 在 `SimpleSignals` 接入信号模型显示：把实体操作安排到目标线程，只更新实际变化并保留最新待显示状态，
+- [x] 在 `SimpleSignals` 接入信号模型显示（实现与离线回归完成，真实Folia/客户端验证仍未完成）：把实体操作安排到目标线程，只更新实际变化并保留最新待显示状态，
   丢弃旧显示序号，世界卸载或插件停用时可重复安全清理。复用主插件平台 API 前先审查具体跨插件需求，
   不通过 `SimpleATOBukkit` 转发显示。
   - [x] 根据当前代码编写模型与轨道定位接口草稿，以及信号状态到模型的处理流程；包含伪代码、复杂度和必需测试。接口与数据类型仍待审查，不能据此认定渲染功能已完成。

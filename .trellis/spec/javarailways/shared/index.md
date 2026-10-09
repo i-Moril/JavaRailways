@@ -13,15 +13,17 @@
 - [ ] 跨模块调用优先使用 `core.api.*`、`basic.api.*` 或明确的 Bukkit add-on API；发现能力缺口时先判断是否应扩展 API。
 - [ ] 涉及任何跨重启数据时先阅读[版本号与发布基线](./versioning.md)，确认发布状态和最小独立持久化边界，再阅读[持久化与 Schema 演进](./persistence.md)。
 - [ ] 确认没有把 `docs-site` 的独立 Git/CI 边界当作根仓库普通目录。
+- [ ] 修改规范、公开参考、README 或阶段清单前，确认[文档职责与同步规则](./documentation-ownership.md)，避免复制另一份行为契约。
 
 ## 子文档索引
 
 | 文档 | 用途 |
 | --- | --- |
-| [模块与构建边界](./modules-and-build.md) | 十个 Gradle 子项目、依赖方向、JVM 与打包关系 |
+| [模块与构建边界](./modules-and-build.md) | Gradle 子项目、依赖方向、JVM 与打包关系 |
 | [版本号与发布基线](./versioning.md) | 未发布格式不随开发提交升版；升版必须有发布/冻结基线依据 |
 | [持久化与 Schema 演进](./persistence.md) | 世界快照、配置、extension payload、WebUI recovery 的统一政策 |
 | [全局质量检查](./quality.md) | 根构建、CI 对齐和按改动范围选择验证命令 |
+| [文档职责与同步规则](./documentation-ownership.md) | Trellis、Dokka、网页文档和代码地图的边界；当前进度与历史证据 |
 
 跨 package 思考清单见[共享 guides](../../guides/index.md)。
 

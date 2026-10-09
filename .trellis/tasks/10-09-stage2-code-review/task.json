@@ -1,8 +1,8 @@
 {
   "id": "stage2-code-review",
   "name": "stage2-code-review",
-  "title": "Stage 2 code and documentation review",
-  "description": "Audit Stage 2 module ownership, legacy code, consistency, complexity and documentation responsibilities before formal in-game testing.",
+  "title": "Project-wide code and documentation review",
+  "description": "Audit all project modules including Core and Basic, track explicit review coverage, and distinguish Stage 2 in-game testing blockers from deferred maintenance.",
   "status": "in_progress",
   "dev_type": null,
   "scope": null,

@@ -2,7 +2,7 @@ package work.art1st.javarailways.bukkit.tool
 
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.basicWorldData
-import work.art1st.javarailways.basic.rail.RailMetadata
+import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import work.art1st.javarailways.bukkit.extension.rail.RailTemplateSnapshot
 import work.art1st.javarailways.bukkit.logic.RailVisualBootstrap
 import work.art1st.javarailways.bukkit.persistence.PersistedRailRenderMeta
@@ -20,7 +20,7 @@ internal class PreparedRailWorldUndo(
     val before: RailWorldUndoSnapshot,
     val expectedAfter: RailWorldUndoSnapshot,
     val metadataRemovals: Set<UUID>,
-    val metadataAdditions: Map<UUID, RailMetadata>,
+    val metadataAdditions: Map<UUID, RailInfrastructureMetadata>,
     val renderAdditionsByRail: Map<UUID, PersistedRailRenderMeta>,
     private val preparedRenderSave: RailRenderMetaStore.PreparedSave? = null
 ) : AutoCloseable {
@@ -68,16 +68,16 @@ internal class PreparedRailWorldUndoBuilder private constructor(
     private val wayPoints = before.wayPoints.associateByTo(linkedMapOf(), WayPoint::id)
     private val templatesToPrepare = linkedMapOf<UUID, RailTemplateSnapshot>()
 
-    fun putMetadata(railId: UUID, value: RailMetadata) {
+    fun putMetadata(railId: UUID, value: RailInfrastructureMetadata) {
         metadata[railId] = value
     }
 
-    fun metadataFor(railId: UUID): RailMetadata =
-        metadata[railId] ?: RailMetadata.EMPTY
+    fun metadataFor(railId: UUID): RailInfrastructureMetadata =
+        metadata[railId] ?: RailInfrastructureMetadata.EMPTY
 
-    fun metadataSnapshot(): Map<UUID, RailMetadata> = metadata.toMap()
+    fun metadataSnapshot(): Map<UUID, RailInfrastructureMetadata> = metadata.toMap()
 
-    fun replaceMetadataSnapshot(replacement: Map<UUID, RailMetadata>) {
+    fun replaceMetadataSnapshot(replacement: Map<UUID, RailInfrastructureMetadata>) {
         metadata.clear()
         metadata.putAll(replacement)
     }
@@ -202,7 +202,7 @@ internal class PreparedRailWorldUndoBuilder private constructor(
     fun build(): PreparedRailWorldUndo {
         val indexedAssemblyLengths = linkedMapOf<Pair<String, Int>, MutableList<Pair<Int, Double>>>()
         metadata.forEach { (railId, railMetadata) ->
-            railMetadata.assembly?.let { assembly ->
+            railMetadata.authoring?.assembly?.let { assembly ->
                 val curve = targetCurves[railId] ?: return@let
                 indexedAssemblyLengths.computeIfAbsent(assembly.groupId to assembly.laneIndex) { mutableListOf() }
                     .add(assembly.segmentIndex to curve.totalArcLength)
@@ -213,7 +213,7 @@ internal class PreparedRailWorldUndoBuilder private constructor(
         }
         templatesToPrepare.forEach { (railId, template) ->
             val curve = requireNotNull(targetCurves[railId])
-            val assembly = metadata[railId]?.assembly
+            val assembly = metadata[railId]?.authoring?.assembly
             val assemblyLengths = assembly?.let {
                 assemblyLengthsByLane[it.groupId to it.laneIndex]
             }.orEmpty()

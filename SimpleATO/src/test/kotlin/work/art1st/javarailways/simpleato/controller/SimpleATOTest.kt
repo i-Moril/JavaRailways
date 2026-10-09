@@ -265,7 +265,9 @@ class SimpleATOTest {
     fun `configured rail limit overrides actuator maximum speed`() {
         val fixture = fixture("rail-limit")
         val rail = fixture.train.head.location.rail
-        rail.metadata = rail.metadata.copy(speedLimitMetersPerSecond = 0.01)
+        rail.metadata = rail.metadata.copy(
+            speedLimits = SpeedLimitMetadata(listOf(SpeedLimitEntry(0.01, SpeedLimitType.CURVE)))
+        )
 
         tickAndPublish(fixture.ato, 1_000.0)
 

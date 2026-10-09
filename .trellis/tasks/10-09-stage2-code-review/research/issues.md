@@ -25,7 +25,7 @@
 
 ## CR-003：旧寻路与目的地索引残留
 
-- 状态：修复与回归完成，待提交后用户检查；P2，不宣称旧残留已造成运行错误。
+- 状态：已修复，用户已同意继续；提交`9ab81d46`及空行修正`9f6aac89`。P2，不宣称旧残留已造成运行错误。
 - 证据：`Basic/.../pathFinding/PathFinder.kt:13`、`BasicWorldData.kt:20` 和 `SimpleATO/.../controller/SimpleATO.kt:1105`；RailMap 仍被创建和读取，初审未发现生产写入。
 - 处置：统一使用当前拓扑寻路与 RailObjectStore；迁移 RailMap 文件中的有效 World 访问扩展，保留有价值的回归断言后移除旧路径。
 - 验证：全仓 producer/consumer 搜索、Basic/SimpleATO 及下游回归；不得直接删整文件和全部旧测试。
@@ -37,10 +37,13 @@
 
 ## CR-004：metadata 的平铺/分组双重调用模型
 
-- 状态：已确认；P2，可维护性问题，尚未证实数据丢失 bug。
+- 状态：已修复，待用户检查；P2，可维护性及字段保留问题。
 - 证据：`Basic/.../rail/RailInfrastructureMetadataStore.kt:17-80` 旧 constructor/getter/copy 与 data class current shape 并存，RailWand 生产调用混用。
 - 处置：业务调用统一为分组 current model；单独保留确有用途的一次性迁移 decode 边界，不新增 runtime compatibility 或 schema 升版。
 - 验证：metadata 更新/复制、轨道编辑和持久化 fixture；先阅读版本基线规范。
+- 实施：删除平铺 constructor/getter/custom copy 和 RailMetadata alias，所有业务与测试改用分组字段；旧速度映射只在 LegacyRailMetadataV1.toCurrent 内展开。三个轨道重建入口共用 withRebuiltCurveSpeedLimits，只更新 CURVE/curveSafety，不再由 authoring design 和 effective minimum 重建全部限速。
+- 回归：新增6项测试，覆盖分组编辑保留、真实 split/merge 保留较高 CURVE、authoring 缺省、固定 grouped JSON、六种迁移速度组合、共用重建函数保留非 CURVE 分类与空 authoring；同时加强撤销断言。首轮编译发现遗漏测试/重建调用，补齐后重新验证。
+- 验证结果：本轮合计实际执行 Basic 382、SimpleATO 351、SimpleATOBukkit 2、BukkitPlugin 356、SimpleSignals 485、TunnelBridgeBuilder 31，共1607项，零失败/错误/跳过；Core:test复用既有结果（212项、6跳过），BukkitPluginDev编译通过、test为NO-SOURCE。Java consumer、宿主shadowJar、SimpleSignals插件JAR检查、模块边界门禁及Basic Dokka通过；Dokka既有缺文档/链接warning仍保留。未部署、未做游戏内验证。
 
 ## CR-005：公共 API 的实现类型泄漏
 

@@ -59,7 +59,7 @@ import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignalMaterializer
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataTopology
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataStore
-import work.art1st.javarailways.basic.rail.RailMetadata
+import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import work.art1st.javarailways.basic.rail.RailOperatingMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitEntry
 import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
@@ -187,11 +187,24 @@ internal fun railGeometryParametersChanged(
     abs(newRadiusMeters - currentRadiusMeters) >= 1.0e-6 ||
     newSuperelevationEnabled != currentSuperelevationEnabled
 
+internal fun RailInfrastructureMetadata.withRebuiltCurveSpeedLimits(
+    rebuilt: RailSpeedLimits
+): RailInfrastructureMetadata = copy(
+    speedLimits = SpeedLimitMetadata(buildList {
+        addAll(speedLimits.entries.filterNot { it.type == SpeedLimitType.CURVE })
+        val designSpeed = authoring?.designSpeedMetersPerSecond
+        if (designSpeed == null || rebuilt.operatingLimitMetersPerSecond < designSpeed) {
+            add(SpeedLimitEntry(rebuilt.operatingLimitMetersPerSecond, SpeedLimitType.CURVE))
+        }
+    }),
+    curveSafety = CurveSafetyMetadata(rebuilt.derailSpeedMetersPerSecond)
+)
+
 internal fun curveSpeedAutomaticForRebuiltLane(
     laneIndex: Int,
     selectedLaneIndex: Int,
     selectedAutomatic: Boolean,
-    oldLane: List<RailMetadata>
+    oldLane: List<RailInfrastructureMetadata>
 ): Boolean = if (laneIndex == selectedLaneIndex) {
     selectedAutomatic
 } else {
@@ -202,7 +215,7 @@ internal fun curveSpeedLimitForRebuiltLane(
     laneIndex: Int,
     selectedLaneIndex: Int,
     editedCurveSpeedLimitKmH: Double,
-    oldLane: List<RailMetadata>
+    oldLane: List<RailInfrastructureMetadata>
 ): Double {
     if (laneIndex == selectedLaneIndex) return editedCurveSpeedLimitKmH
     return oldLane.firstNotNullOfOrNull { metadata ->
@@ -308,8 +321,8 @@ sealed class WandAction {
     ) : WandAction()
     data class RestoreRailMetadata(
         val worldId: UUID,
-        val metadataBefore: Map<UUID, RailMetadata>,
-        val expectedAfter: Map<UUID, RailMetadata>
+        val metadataBefore: Map<UUID, RailInfrastructureMetadata>,
+        val expectedAfter: Map<UUID, RailInfrastructureMetadata>
     ) : WandAction()
     data class RestoreDecorations(
         val worldId: UUID,
@@ -323,7 +336,7 @@ sealed class WandAction {
 data class RailWorldUndoSnapshot(
     val rails: List<CoreRail.SavedRailV1>,
     val renderMetas: List<PersistedRailRenderMeta>,
-    val railMetadata: Map<UUID, RailMetadata>,
+    val railMetadata: Map<UUID, RailInfrastructureMetadata>,
     val operatingDirections: Map<UUID, ViewDirection>,
     val destinations: List<OperationalDestination>,
     val wayPoints: List<WayPoint>
@@ -1313,7 +1326,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val orientedCurve: PrimeCurve,
         val orientedAsAb: Boolean,
         val originalCurve: PrimeCurve,
-        val metadata: RailMetadata
+        val metadata: RailInfrastructureMetadata
     )
 
     private data class ConnectionCurveBuild(
@@ -1326,7 +1339,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val movedEnd: Char,
         val oldStart: Anchor,
         val oldEnd: Anchor,
-        val oldMetadata: RailMetadata
+        val oldMetadata: RailInfrastructureMetadata
     )
 
     @OptIn(Heavy::class)
@@ -1395,16 +1408,24 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         selectedExistingEndpoint?.let { listOf(it to createdEndpointA) }.orEmpty()
                     )
                     val railId = railCreation.creations.single().railId
-                    val metadata = RailMetadata(
-                        designSpeedMetersPerSecond = turnoutGeometry.divergingSpeedKmH / 3.6,
-                        speedLimitMetersPerSecond = built.second.operatingLimitMetersPerSecond,
-                        derailSpeedMetersPerSecond = built.second.derailSpeedMetersPerSecond,
-                        geometry = RailGeometryMetadata(
-                            curveKind = RailCurveKind.FIVE_SEGMENT,
-                            curveRadiusMeters = turnoutGeometry.radiusMeters,
-                            automaticSuperelevation = false,
-                            allowableCantDeficiencyMeters = cantDeficiencyMeters
-                        )
+                    val metadata = RailInfrastructureMetadata(
+                        authoring = RailAuthoringMetadata(
+                            designSpeedMetersPerSecond = turnoutGeometry.divergingSpeedKmH / 3.6,
+                            geometry = RailGeometryMetadata(
+                                curveKind = RailCurveKind.FIVE_SEGMENT,
+                                curveRadiusMeters = turnoutGeometry.radiusMeters,
+                                automaticSuperelevation = false,
+                                allowableCantDeficiencyMeters = cantDeficiencyMeters
+                            )
+                        ),
+                        speedLimits = SpeedLimitMetadata(buildList {
+                            val designSpeed = turnoutGeometry.divergingSpeedKmH / 3.6
+                            add(SpeedLimitEntry(designSpeed, SpeedLimitType.SUBGRADE))
+                            built.second.operatingLimitMetersPerSecond.takeIf { it < designSpeed }?.let {
+                                add(SpeedLimitEntry(it, SpeedLimitType.CURVE))
+                            }
+                        }),
+                        curveSafety = CurveSafetyMetadata(built.second.derailSpeedMetersPerSecond)
                     )
                     val prepareUndo = {
                         PreparedRailWorldUndoBuilder.capture(
@@ -1514,7 +1535,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val baNext: List<RailView>,
         val abActive: RailView?,
         val baActive: RailView?,
-        val metadata: RailMetadata
+        val metadata: RailInfrastructureMetadata
     )
 
     private fun snapshotCurveBuildSettings(state: WandPlayerState): CurveBuildSettingsSnapshot {
@@ -1687,10 +1708,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     build.replacementCurves.entries.zip(replacementIds).forEach { (entry, newId) ->
                         undoBuilder.putMetadata(
                             newId,
-                            undoBuilder.metadataFor(entry.key).copy(
-                                speedLimitMetersPerSecond = entry.value.speedLimits.operatingLimitMetersPerSecond,
-                                derailSpeedMetersPerSecond = entry.value.speedLimits.derailSpeedMetersPerSecond
-                            )
+                            undoBuilder.metadataFor(entry.key).withRebuiltCurveSpeedLimits(entry.value.speedLimits)
                         )
                     }
                     val segmentCount = build.newLanes.firstOrNull()?.size ?: 0
@@ -1719,11 +1737,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             }
                             undoBuilder.putMetadata(
                                 railId,
-                                railMetadata(settingsSnapshot, part.speedLimits, parallel).copy(
-                                    assembly = assembly,
-                                    gradeLockedAtA = segmentIndex == 0 && isGradeLocked(startAnchors[laneIndex]),
-                                    gradeLockedAtB = segmentIndex == segmentCount - 1 && isGradeLocked(endAnchors[laneIndex])
-                                )
+                                railMetadata(settingsSnapshot, part.speedLimits, parallel).let { metadata ->
+                                    metadata.copy(authoring = requireNotNull(metadata.authoring).copy(
+                                        assembly = assembly,
+                                        gradeLockedAtA = segmentIndex == 0 && isGradeLocked(startAnchors[laneIndex]),
+                                        gradeLockedAtB = segmentIndex == segmentCount - 1 && isGradeLocked(endAnchors[laneIndex])
+                                    ))
+                                }
                             )
                             connectionDecorationTemplate?.let { undoBuilder.prepareRender(railId, it) }
                         }
@@ -2089,8 +2109,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 for (input in rebuildInputs) {
                     val newStart = if (input.movedEnd == 'A') updatedEndpoint else input.oldStart
                     val newEnd = if (input.movedEnd == 'B') updatedEndpoint else input.oldEnd
-                    val inputSettings = if (input.oldMetadata.assembly?.role == RailAssemblyRole.LEADING_TANGENT ||
-                        input.oldMetadata.assembly?.role == RailAssemblyRole.TRAILING_TANGENT
+                    val inputSettings = if (input.oldMetadata.authoring?.assembly?.role == RailAssemblyRole.LEADING_TANGENT ||
+                        input.oldMetadata.authoring?.assembly?.role == RailAssemblyRole.TRAILING_TANGENT
                     ) {
                         settingsSnapshot.copy(
                             curveRadius = 0.0,
@@ -2126,13 +2146,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     .associate { (input, creation) -> input.railId to creation.railId }
                 val newMetadata = rebuildInputs.zip(railCreation.creations).associate { (input, creation) ->
                     val builtCurve = curvesByRailId.getValue(input.railId)
-                    creation.railId to input.oldMetadata.copy(
-                        speedLimitMetersPerSecond = builtCurve.speedLimits.operatingLimitMetersPerSecond,
-                        derailSpeedMetersPerSecond = builtCurve.speedLimits.derailSpeedMetersPerSecond,
-                        gradeLockedAtA = if (input.movedEnd == 'A') isGradeLocked(updatedEndpoint)
-                        else input.oldMetadata.gradeLockedAtA,
-                        gradeLockedAtB = if (input.movedEnd == 'B') isGradeLocked(updatedEndpoint)
-                        else input.oldMetadata.gradeLockedAtB
+                    creation.railId to input.oldMetadata.withRebuiltCurveSpeedLimits(builtCurve.speedLimits).copy(
+                        authoring = (input.oldMetadata.authoring ?: RailAuthoringMetadata()).copy(
+                            gradeLockedAtA = if (input.movedEnd == 'A') isGradeLocked(updatedEndpoint)
+                            else (input.oldMetadata.authoring?.gradeLockedAtA == true),
+                            gradeLockedAtB = if (input.movedEnd == 'B') isGradeLocked(updatedEndpoint)
+                            else (input.oldMetadata.authoring?.gradeLockedAtB == true)
+                        )
                     )
                 }
                 val prepareUndo = {
@@ -2515,13 +2535,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     @OptIn(Heavy::class)
     private fun calculateSpeedLimits(
         curve: PrimeCurve,
-        metadata: RailMetadata?,
+        metadata: RailInfrastructureMetadata?,
         settings: CurveBuildSettingsSnapshot
     ): RailSpeedLimits {
         val automatic = RailSpeedCalculator.calculate(
             curve = curve,
             requestedLimitMetersPerSecond = Double.MAX_VALUE,
-            allowableCantDeficiencyMeters = metadata?.geometry?.allowableCantDeficiencyMeters
+            allowableCantDeficiencyMeters = metadata?.let {
+                (it.authoring?.geometry ?: RailGeometryMetadata()).allowableCantDeficiencyMeters
+            }
                 ?: settings.allowableCantDeficiencyMm / 1000.0,
             derailLateralAccelerationMetersPerSecondSquared =
                 plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared,
@@ -2551,7 +2573,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     private fun partitionBuiltCurve(
         built: BuiltCurve,
         settings: CurveBuildSettingsSnapshot,
-        metadata: RailMetadata? = null
+        metadata: RailInfrastructureMetadata? = null
     ): List<BuiltRailPart> {
         if (built.logicalBreakFractions.size != 2) {
             return listOf(BuiltRailPart(built.curve, built.speedLimits, RailAssemblyRole.CURVE))
@@ -2606,7 +2628,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         settings: CurveBuildSettingsSnapshot,
         speedLimits: RailSpeedLimits,
         parallel: ParallelRailMetadata? = null
-    ): RailMetadata {
+    ): RailInfrastructureMetadata {
         val subgrade = settings.designSpeedKmH / 3.6
         val limits = buildList {
             add(SpeedLimitEntry(subgrade, SpeedLimitType.SUBGRADE))
@@ -2614,7 +2636,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 add(SpeedLimitEntry(speedLimits.operatingLimitMetersPerSecond, SpeedLimitType.CURVE))
             }
         }
-        return RailMetadata(
+        return RailInfrastructureMetadata(
             authoring = RailAuthoringMetadata(
                 designSpeedMetersPerSecond = subgrade,
                 geometry = RailGeometryMetadata(
@@ -2649,10 +2671,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private fun lockedGrades(chain: List<GradeChainRail>): Map<Int, Double> = buildMap {
         chain.forEachIndexed { index, input ->
-            val startLocked = if (input.orientedAsAb) input.rail.metadata.gradeLockedAtA
-                else input.rail.metadata.gradeLockedAtB
-            val endLocked = if (input.orientedAsAb) input.rail.metadata.gradeLockedAtB
-                else input.rail.metadata.gradeLockedAtA
+            val startLocked = if (input.orientedAsAb) (input.rail.metadata.authoring?.gradeLockedAtA == true)
+                else (input.rail.metadata.authoring?.gradeLockedAtB == true)
+            val endLocked = if (input.orientedAsAb) (input.rail.metadata.authoring?.gradeLockedAtB == true)
+                else (input.rail.metadata.authoring?.gradeLockedAtA == true)
             if (startLocked) {
                 put(index, railWandVerticalGrade(input.orientedCurve.getPointAt(0.0).tangent))
             }
@@ -2803,10 +2825,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         val built = entry.value
                         undoBuilder.putMetadata(
                             creation.railId,
-                            undoBuilder.metadataFor(old).copy(
-                                speedLimitMetersPerSecond = built.speedLimits.operatingLimitMetersPerSecond,
-                                derailSpeedMetersPerSecond = built.speedLimits.derailSpeedMetersPerSecond
-                            )
+                            undoBuilder.metadataFor(old).withRebuiltCurveSpeedLimits(built.speedLimits)
                         )
                     }
                     undoBuilder.removeRails(oldToNew.keys)
@@ -3067,7 +3086,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             RailSpeedCalculator.calculate(
                 curve = rail.curve,
                 requestedLimitMetersPerSecond = Double.MAX_VALUE,
-                allowableCantDeficiencyMeters = rail.metadata.geometry.allowableCantDeficiencyMeters,
+                allowableCantDeficiencyMeters = (rail.metadata.authoring?.geometry ?: RailGeometryMetadata()).allowableCantDeficiencyMeters,
                 derailLateralAccelerationMetersPerSecondSquared =
                     plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared,
                 physics = plugin.physicsConfig.railSpeedPhysics()
@@ -3082,15 +3101,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         return RailActualValues(
             subgradeSpeedKmH = (rails.firstNotNullOfOrNull {
                 it.metadata.speedLimits.value(SpeedLimitType.SUBGRADE)
-            } ?: first.metadata.designSpeedMetersPerSecond ?: 80.0 / 3.6) * 3.6,
+            } ?: first.metadata.authoring?.designSpeedMetersPerSecond ?: 80.0 / 3.6) * 3.6,
             curveOperatingSpeedKmH = actualCurveLimit * 3.6,
             automaticCurveOperatingSpeedKmH = (automaticLimits.minOrNull() ?: 0.0) * 3.6,
             radiusMeters = measurements.minimumHorizontalRadiusMeters ?: 0.0,
             superelevationMm = measurements.maximumSuperelevationMeters * 1000.0,
             maximumAbsoluteGrade = measurements.maximumAbsoluteGrade,
             automaticCurveSpeed = automaticCurveSpeed,
-            automaticRadius = first.metadata.geometry.curveRadiusMeters == null,
-            superelevationEnabled = first.metadata.geometry.automaticSuperelevation ||
+            automaticRadius = first.metadata.authoring?.geometry?.curveRadiusMeters == null,
+            superelevationEnabled = (first.metadata.authoring?.geometry?.automaticSuperelevation == true) ||
                 measurements.maximumSuperelevationMeters > 1.0e-9
         )
     }
@@ -3284,21 +3303,21 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun railAssemblyLanes(world: CoreWorld, rail: CoreRail): List<List<CoreRail>> {
-        val assembly = rail.metadata.assembly
+        val assembly = rail.metadata.authoring?.assembly
         if (assembly != null) {
             val lanes = world.allRails
-                .filter { it.metadata.assembly?.groupId == assembly.groupId }
-                .groupBy { it.metadata.assembly!!.laneIndex }
+                .filter { it.metadata.authoring?.assembly?.groupId == assembly.groupId }
+                .groupBy { it.metadata.authoring?.assembly!!.laneIndex }
             if (lanes.size != assembly.laneCount) return emptyList()
             return (0 until assembly.laneCount).map { laneIndex ->
-                lanes[laneIndex].orEmpty().sortedBy { it.metadata.assembly!!.segmentIndex }
+                lanes[laneIndex].orEmpty().sortedBy { it.metadata.authoring?.assembly!!.segmentIndex }
                     .takeIf { it.size == assembly.segmentCount } ?: return emptyList()
             }
         }
-        val parallel = rail.metadata.geometry.parallel ?: return listOf(listOf(rail))
+        val parallel = rail.metadata.authoring?.geometry?.parallel ?: return listOf(listOf(rail))
         val rails = world.allRails
-            .filter { it.metadata.geometry.parallel?.groupId == parallel.groupId }
-            .sortedBy { it.metadata.geometry.parallel!!.index }
+            .filter { it.metadata.authoring?.geometry?.parallel?.groupId == parallel.groupId }
+            .sortedBy { it.metadata.authoring?.geometry?.parallel!!.index }
         return if (rails.size == parallel.count) rails.map(::listOf) else emptyList()
     }
 
@@ -3482,7 +3501,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return
         }
 
-        val geometry = selectedRail.metadata.geometry
+        val geometry = (selectedRail.metadata.authoring?.geometry ?: RailGeometryMetadata())
         if (geometry.curveKind == RailCurveKind.UNKNOWN) {
             player.sendActionBar(RailWandI18n.component(
                 player,
@@ -3508,9 +3527,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val starts = oldLanes.map { anchorFromRailEndpoint(player.world, it.first(), 'A') }
         val ends = oldLanes.map { anchorFromRailEndpoint(player.world, it.last(), 'B') }
         val oldIds = oldRails.mapTo(linkedSetOf()) { it.id }
-        val selectedLane = selectedRail.metadata.assembly?.laneIndex
-            ?: selectedRail.metadata.geometry.parallel?.index ?: 0
-        val selectedRole = selectedRail.metadata.assembly?.role ?: RailAssemblyRole.CURVE
+        val selectedLane = selectedRail.metadata.authoring?.assembly?.laneIndex
+            ?: selectedRail.metadata.authoring?.geometry?.parallel?.index ?: 0
+        val selectedRole = selectedRail.metadata.authoring?.assembly?.role ?: RailAssemblyRole.CURVE
         val worldId = player.world.uid
         val pendingOperation = heavyOperationGate.tryStart(
             player.uniqueId,
@@ -3562,7 +3581,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val editPlan = capturePreparedExplicitConnectionPlan(
                     coreWorld, railCreation, replacementEndpoints, explicitConnections
                 )
-                val oldAssemblyId = selectedRail.metadata.assembly?.groupId
+                val oldAssemblyId = selectedRail.metadata.authoring?.assembly?.groupId
                 val segmentCount = builtLanes.first().size
                 val assemblyId = if (segmentCount > 1) oldAssemblyId ?: UUID.randomUUID().toString() else null
                 val parallelIds = List(segmentCount) {
@@ -3586,7 +3605,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         curveSpeedLimitIsCreationMinimum = false
                     )
                     parts.forEachIndexed { segmentIndex, part ->
-                        val oldForRole = oldLane.firstOrNull { it.metadata.assembly?.role == part.role }
+                        val oldForRole = oldLane.firstOrNull { it.metadata.authoring?.assembly?.role == part.role }
                             ?: oldLane[minOf(segmentIndex, oldLane.lastIndex)]
                         val newId = newLaneIds[laneIndex][segmentIndex]
                         targetSourceByNew[newId] = oldForRole.id
@@ -3614,13 +3633,13 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             rebuiltMetadata.copy(
                                 authoring = requireNotNull(rebuiltMetadata.authoring).copy(
                                     assembly = assemblyMeta,
-                                    createdBySplit = oldForRole.metadata.createdBySplit,
-                                    gradeLockedAtA = oldLane.first().metadata.gradeLockedAtA && segmentIndex == 0,
-                                    gradeLockedAtB = oldLane.last().metadata.gradeLockedAtB && segmentIndex == segmentCount - 1
+                                    createdBySplit = oldForRole.metadata.authoring?.createdBySplit,
+                                    gradeLockedAtA = oldLane.first().metadata.authoring?.gradeLockedAtA == true && segmentIndex == 0,
+                                    gradeLockedAtB = oldLane.last().metadata.authoring?.gradeLockedAtB == true && segmentIndex == segmentCount - 1
                                 ),
                                 operating = rebuiltMetadata.operating.copy(
-                                    turnoutAtA = oldLane.first().metadata.turnoutAtA.takeIf { segmentIndex == 0 },
-                                    turnoutAtB = oldLane.last().metadata.turnoutAtB.takeIf { segmentIndex == segmentCount - 1 }
+                                    turnoutAtA = oldLane.first().metadata.operating.turnoutAtA.takeIf { segmentIndex == 0 },
+                                    turnoutAtB = oldLane.last().metadata.operating.turnoutAtB.takeIf { segmentIndex == segmentCount - 1 }
                                 )
                             )
                         )
@@ -3629,7 +3648,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     val oldToNew = oldLanes.flatMapIndexed { laneIndex, oldLane ->
                         oldLane.mapIndexed { oldIndex, old ->
                             val targetIndex = builtLanes[laneIndex].indexOfFirst {
-                                it.role == old.metadata.assembly?.role
+                                it.role == old.metadata.authoring?.assembly?.role
                             }.takeIf { it >= 0 } ?: minOf(oldIndex, builtLanes[laneIndex].lastIndex)
                             old.id to newLaneIds[laneIndex][targetIndex]
                         }
@@ -3746,7 +3765,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     val oldToNew = oldLanes.flatMapIndexed { laneIndex, oldLane ->
                         oldLane.mapIndexed { oldIndex, old ->
                             val replacement = createdLanes[laneIndex].firstOrNull {
-                                it.metadata.assembly?.role == old.metadata.assembly?.role
+                                it.metadata.authoring?.assembly?.role == old.metadata.authoring?.assembly?.role
                             } ?: createdLanes[laneIndex][minOf(oldIndex, createdLanes[laneIndex].lastIndex)]
                             old.id to replacement.id
                         }
@@ -3757,7 +3776,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         val oldLane = oldLanes[laneIndex]
                         newLane.mapIndexedNotNull { segmentIndex, newRail ->
                             val oldForRole = oldLane.firstOrNull {
-                                it.metadata.assembly?.role == newRail.metadata.assembly?.role
+                                it.metadata.authoring?.assembly?.role == newRail.metadata.authoring?.assembly?.role
                             } ?: oldLane[minOf(segmentIndex, oldLane.lastIndex)]
                             liveWorld.basicWorldData.operatingDirections[oldForRole.id]?.let {
                                 newRail.id to it
@@ -3782,7 +3801,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     undo.publishRenderSidecar()
 
                     val replacementLane = createdLanes[selectedLane.coerceIn(createdLanes.indices)]
-                    val replacement = replacementLane.firstOrNull { it.metadata.assembly?.role == selectedRole }
+                    val replacement = replacementLane.firstOrNull { it.metadata.authoring?.assembly?.role == selectedRole }
                         ?: replacementLane.first()
                     val state = getState(livePlayer)
                     state.selectedRails.clear()
@@ -3855,11 +3874,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             it.metadata.speedLimits.value(SpeedLimitType.CURVE)
         }?.times(3.6)?.let { "%.0f km/h".format(it) }
             ?: RailWandI18n.format(player, "message.none")
-        val derailLabel = selectedLogicalRails.mapNotNull { it.metadata.derailSpeedMetersPerSecond }
+        val derailLabel = selectedLogicalRails.mapNotNull { it.metadata.curveSafety.baseCurveDerailSpeedMetersPerSecond }
             .minOrNull()?.times(3.6)?.let { "%.0f km/h".format(it) } ?: "∞"
-        val radiusLabel = rail.metadata.geometry.curveRadiusMeters?.let { "%.0f m".format(it) }
+        val radiusLabel = rail.metadata.authoring?.geometry?.curveRadiusMeters?.let { "%.0f m".format(it) }
             ?: RailWandI18n.format(player, "message.automatic")
-        val parallelLabel = rail.metadata.geometry.parallel?.let {
+        val parallelLabel = rail.metadata.authoring?.geometry?.parallel?.let {
             RailWandI18n.format(player, "message.parallel", it.index + 1, it.count)
         } ?: RailWandI18n.format(player, "message.single")
         player.sendActionBar(RailWandI18n.component(
@@ -4805,7 +4824,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun splitPointSafetyError(coreWorld: CoreWorld, rail: CoreRail, arcLength: Double): String? {
-        if (rail.metadata.assembly != null && railAssemblyLanes(coreWorld, rail).isEmpty()) {
+        if (rail.metadata.authoring?.assembly != null && railAssemblyLanes(coreWorld, rail).isEmpty()) {
             return "safety.incomplete_logical_curve"
         }
         val basicData = coreWorld.basicWorldDataOrNull
@@ -5162,7 +5181,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun railEndpointMetadata(rail: CoreRail, end: Char): Map<String, String> = buildMap {
-        if (if (end == 'A') rail.metadata.gradeLockedAtA else rail.metadata.gradeLockedAtB) {
+        if (if (end == 'A') (rail.metadata.authoring?.gradeLockedAtA == true) else (rail.metadata.authoring?.gradeLockedAtB == true)) {
             put(GRADE_LOCKED_METADATA_KEY, true.toString())
         }
     }
@@ -5174,8 +5193,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[world] as? CoreWorld ?: return emptyList()
         return RailRenderMetaStore.load(world).flatMap { meta ->
             val rail = coreWorld.getRail(meta.railId) ?: return@flatMap emptyList()
-            val split = rail.metadata.createdBySplit
-            val assembly = rail.metadata.assembly
+            val split = rail.metadata.authoring?.createdBySplit
+            val assembly = rail.metadata.authoring?.assembly
             val hasSiblingPair = split != null && findSplitPair(coreWorld, split.operationId) != null
             listOfNotNull(
                 getRailEndpointAnchor(world, railEndpointAnchorId(rail.id, 'A'))
@@ -5193,9 +5212,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     }
 
     private fun findSplitPair(coreWorld: CoreWorld, operationId: String): Pair<CoreRail, CoreRail>? {
-        val siblings = coreWorld.allRails.filter { it.metadata.createdBySplit?.operationId == operationId }
-        val before = siblings.singleOrNull { it.metadata.createdBySplit?.segmentIndex == 0 } ?: return null
-        val after = siblings.singleOrNull { it.metadata.createdBySplit?.segmentIndex == 1 } ?: return null
+        val siblings = coreWorld.allRails.filter { it.metadata.authoring?.createdBySplit?.operationId == operationId }
+        val before = siblings.singleOrNull { it.metadata.authoring?.createdBySplit?.segmentIndex == 0 } ?: return null
+        val after = siblings.singleOrNull { it.metadata.authoring?.createdBySplit?.segmentIndex == 1 } ?: return null
         return before to after
     }
 
@@ -5218,7 +5237,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private fun getSplitAnchors(world: World): List<Anchor> {
         val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[world] as? CoreWorld ?: return emptyList()
-        return coreWorld.allRails.mapNotNull { it.metadata.createdBySplit?.operationId }
+        return coreWorld.allRails.mapNotNull { it.metadata.authoring?.createdBySplit?.operationId }
             .distinct()
             .mapNotNull { getSplitAnchor(world, splitAnchorId(it)) }
     }
@@ -5409,9 +5428,9 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val entities = ConcurrentHashMap.newKeySet<TextDisplay>()
         speedLimitEntities[player.uniqueId] = entities
         val groups = coreWorld.allRails.groupBy { rail ->
-            rail.metadata.assembly?.let { "${it.groupId}:${it.laneIndex}" } ?: rail.id.toString()
+            rail.metadata.authoring?.assembly?.let { "${it.groupId}:${it.laneIndex}" } ?: rail.id.toString()
         }.values.map { rails ->
-            rails.sortedBy { it.metadata.assembly?.segmentIndex ?: 0 }
+            rails.sortedBy { it.metadata.authoring?.assembly?.segmentIndex ?: 0 }
         }
         val worldId = player.world.uid
         val maximumGradeLabel = RailWandI18n.format(player, "display.maximum_grade")
@@ -5440,7 +5459,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         RailSpeedCalculator.calculate(
                             curve = rail.curve,
                             requestedLimitMetersPerSecond = Double.MAX_VALUE,
-                            allowableCantDeficiencyMeters = rail.metadata.geometry.allowableCantDeficiencyMeters,
+                            allowableCantDeficiencyMeters = (rail.metadata.authoring?.geometry ?: RailGeometryMetadata()).allowableCantDeficiencyMeters,
                             derailLateralAccelerationMetersPerSecondSquared =
                                 plugin.physicsConfig.overspeed.derailLateralAccelerationMetersPerSecondSquared,
                             physics = plugin.physicsConfig.railSpeedPhysics()
@@ -5598,7 +5617,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         coreWorld: CoreWorld,
         rails: List<CoreRail.SavedRailV1>,
         renderMetas: List<PersistedRailRenderMeta>,
-        railMetadata: Map<UUID, RailMetadata>
+        railMetadata: Map<UUID, RailInfrastructureMetadata>
     ): RailWorldUndoSnapshot = RailWorldUndoSnapshot(
         rails = normalizeRailWandUndoRails(rails).sortedBy { it.id },
         renderMetas = renderMetas.sortedBy { it.railId.toString() },

@@ -6,7 +6,11 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.WayPoint
-import work.art1st.javarailways.basic.rail.RailMetadata
+import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
+import work.art1st.javarailways.basic.rail.RailAuthoringMetadata
+import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
+import work.art1st.javarailways.basic.rail.SpeedLimitEntry
+import work.art1st.javarailways.basic.rail.SpeedLimitType
 import work.art1st.javarailways.bukkit.extension.rail.RailDecorationLayout
 import work.art1st.javarailways.bukkit.extension.rail.RailTemplateSnapshot
 import work.art1st.javarailways.bukkit.logic.RailVisualBootstrap
@@ -122,7 +126,7 @@ class WandActionUndoSupportTest {
         val before = RailWorldUndoSnapshot(
             rails = emptyList(),
             renderMetas = emptyList(),
-            railMetadata = mapOf(removedRail to RailMetadata.EMPTY),
+            railMetadata = mapOf(removedRail to RailInfrastructureMetadata.EMPTY),
             operatingDirections = mapOf(removedRail to ViewDirection.AB),
             destinations = listOf(destination),
             wayPoints = listOf(destination.toWayPoint(), standAloneWayPoint)
@@ -136,7 +140,7 @@ class WandActionUndoSupportTest {
             .build()
 
         assertEquals(before, prepared.before)
-        assertEquals(emptyMap<UUID, RailMetadata>(), prepared.expectedAfter.railMetadata)
+        assertEquals(emptyMap<UUID, RailInfrastructureMetadata>(), prepared.expectedAfter.railMetadata)
         assertEquals(emptyMap<UUID, ViewDirection>(), prepared.expectedAfter.operatingDirections)
         assertEquals(emptyList<OperationalDestination>(), prepared.expectedAfter.destinations)
         assertEquals(emptyList<WayPoint>(), prepared.expectedAfter.wayPoints)
@@ -147,10 +151,12 @@ class WandActionUndoSupportTest {
     fun `prepared replacement keeps source metadata before removing the old rail`() {
         val oldRail = UUID.randomUUID()
         val replacementRail = UUID.randomUUID()
-        val sourceMetadata = RailMetadata(
-            designSpeedMetersPerSecond = 30.0,
-            speedLimitMetersPerSecond = 20.0,
-            gradeLockedAtA = true
+        val sourceMetadata = RailInfrastructureMetadata(
+            authoring = RailAuthoringMetadata(designSpeedMetersPerSecond = 30.0, gradeLockedAtA = true),
+            speedLimits = SpeedLimitMetadata(listOf(
+                SpeedLimitEntry(30.0, SpeedLimitType.SUBGRADE),
+                SpeedLimitEntry(20.0, SpeedLimitType.CURVE)
+            ))
         )
         val before = RailWorldUndoSnapshot(
             rails = emptyList(),
@@ -162,15 +168,21 @@ class WandActionUndoSupportTest {
         )
         val builder = PreparedRailWorldUndoBuilder.fromSnapshots(before, emptyList())
         builder.migrateMappedRailReplacement(mapOf(oldRail to replacementRail))
-        val replacementMetadata = builder.metadataFor(oldRail).copy(speedLimitMetersPerSecond = 15.0)
+        val replacementMetadata = builder.metadataFor(oldRail).copy(speedLimits = SpeedLimitMetadata(listOf(
+            SpeedLimitEntry(30.0, SpeedLimitType.SUBGRADE),
+            SpeedLimitEntry(15.0, SpeedLimitType.CURVE)
+        )))
 
         builder.putMetadata(replacementRail, replacementMetadata)
         builder.removeRails(setOf(oldRail))
         val prepared = builder.build()
 
-        assertEquals(30.0, prepared.expectedAfter.railMetadata.getValue(replacementRail).designSpeedMetersPerSecond)
-        assertEquals(15.0, prepared.expectedAfter.railMetadata.getValue(replacementRail).speedLimitMetersPerSecond)
-        assertTrue(prepared.expectedAfter.railMetadata.getValue(replacementRail).gradeLockedAtA)
+        assertEquals(sourceMetadata.authoring, replacementMetadata.authoring)
+        assertEquals(sourceMetadata.operating, replacementMetadata.operating)
+        assertEquals(sourceMetadata.curveSafety, replacementMetadata.curveSafety)
+        assertEquals(30.0, prepared.expectedAfter.railMetadata.getValue(replacementRail).authoring?.designSpeedMetersPerSecond)
+        assertEquals(15.0, prepared.expectedAfter.railMetadata.getValue(replacementRail).speedLimits.effectiveLimitMetersPerSecond())
+        assertTrue(prepared.expectedAfter.railMetadata.getValue(replacementRail).authoring?.gradeLockedAtA == true)
         assertEquals(mapOf(replacementRail to ViewDirection.AB), prepared.expectedAfter.operatingDirections)
     }
 

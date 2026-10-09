@@ -7,11 +7,37 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotCodec
+import work.art1st.javarailways.basic.rail.SpeedLimitType
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotCodec
 
 class RailInfrastructureMetadataMigrationTest {
+    @Test
+    fun `legacy flat speed fields map only to their declared groups`() {
+        for ((design, effective, expectedSubgrade, expectedCurve) in listOf(
+            listOf(30.0, 20.0, 30.0, 20.0),
+            listOf(30.0, 30.0, 30.0, null),
+            listOf(30.0, 40.0, 30.0, null),
+            listOf(30.0, null, 30.0, null),
+            listOf(null, 20.0, null, 20.0),
+            listOf(null, null, null, null)
+        )) {
+            val current = LegacyRailMetadataV1(
+                designSpeedMetersPerSecond = design,
+                speedLimitMetersPerSecond = effective,
+                derailSpeedMetersPerSecond = 45.0,
+                gradeLockedAtA = true
+            ).toCurrent()
+
+            assertEquals(expectedSubgrade, current.speedLimits.value(SpeedLimitType.SUBGRADE))
+            assertEquals(expectedCurve, current.speedLimits.value(SpeedLimitType.CURVE))
+            assertEquals(design, current.authoring?.designSpeedMetersPerSecond)
+            assertEquals(true, current.authoring?.gradeLockedAtA)
+            assertEquals(45.0, current.curveSafety.baseCurveDerailSpeedMetersPerSecond)
+        }
+    }
+
     @Test
     fun `migrates the real outer V1 and Basic V1 ownership boundary directly`() {
         val migrated = RailInfrastructureMetadataMigration.migrate(
@@ -27,7 +53,7 @@ class RailInfrastructureMetadataMigrationTest {
         assertEquals(2, core.formatVersion)
         assertEquals(1, migrated.migratedRailCount)
         assertEquals(listOf("standalone"), basic.wayPoints.map { it.id })
-        assertEquals(30.0, basic.railMetadata.single().metadata.designSpeedMetersPerSecond)
+        assertEquals(30.0, basic.railMetadata.single().metadata.authoring?.designSpeedMetersPerSecond)
         assertEquals(null, basic.railMetadata.single().metadata.operating.turnoutAtA)
         assertEquals(ViewDirection.AB, basic.operatingDirections.single().permittedDirection)
         assertFalse(migrated.file.simpleAtoSnapshotJson.contains("operatingDirections"))
@@ -45,7 +71,7 @@ class RailInfrastructureMetadataMigrationTest {
         val basic = BasicInfrastructureSnapshotCodec.decode(migrated.file.basicSnapshotJson)
 
         assertFalse(migrated.file.coreSnapshotJson.contains("\"metadata\""))
-        assertEquals(20.0, basic.railMetadata.single().metadata.speedLimitMetersPerSecond)
+        assertEquals(20.0, basic.railMetadata.single().metadata.speedLimits.effectiveLimitMetersPerSecond())
         assertEquals(ViewDirection.BA, basic.operatingDirections.single().permittedDirection)
     }
 

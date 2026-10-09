@@ -1,6 +1,11 @@
 package work.art1st.javarailways.basic.safety
 
-import work.art1st.javarailways.basic.rail.RailMetadata
+import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
+import work.art1st.javarailways.basic.rail.RailAuthoringMetadata
+import work.art1st.javarailways.basic.rail.CurveSafetyMetadata
+import work.art1st.javarailways.basic.rail.SpeedLimitEntry
+import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
+import work.art1st.javarailways.basic.rail.SpeedLimitType
 import work.art1st.javarailways.basic.testing.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
@@ -28,10 +33,13 @@ class SpeedSafetyMonitorTest {
             world,
             PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
         )
-        rail.metadata = RailMetadata(
-            designSpeedMetersPerSecond = 15.0,
-            speedLimitMetersPerSecond = 8.0,
-            derailSpeedMetersPerSecond = 12.0
+        rail.metadata = RailInfrastructureMetadata(
+            authoring = RailAuthoringMetadata(designSpeedMetersPerSecond = 15.0),
+            speedLimits = SpeedLimitMetadata(listOf(
+                SpeedLimitEntry(15.0, SpeedLimitType.SUBGRADE),
+                SpeedLimitEntry(8.0, SpeedLimitType.CURVE)
+            )),
+            curveSafety = CurveSafetyMetadata(12.0)
         )
         val train = createTrainWithConfig("T0", rail, world, listOf(8.0))
         FixedSpeedController(train, world).also {
@@ -56,10 +64,10 @@ class SpeedSafetyMonitorTest {
             world,
             PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
         )
-        rail.metadata = RailMetadata(
-            designSpeedMetersPerSecond = 8.0,
-            speedLimitMetersPerSecond = 8.0,
-            derailSpeedMetersPerSecond = 10.0
+        rail.metadata = RailInfrastructureMetadata(
+            authoring = RailAuthoringMetadata(designSpeedMetersPerSecond = 8.0),
+            speedLimits = SpeedLimitMetadata(listOf(SpeedLimitEntry(8.0, SpeedLimitType.SUBGRADE))),
+            curveSafety = CurveSafetyMetadata(10.0)
         )
         val train = createTrainWithConfig("T1", rail, world, listOf(8.0))
         FixedSpeedController(train, world).also {
@@ -94,10 +102,13 @@ class SpeedSafetyMonitorTest {
             world,
             PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
         )
-        rail.metadata = RailMetadata(
-            designSpeedMetersPerSecond = 22.0,
-            speedLimitMetersPerSecond = 18.0,
-            derailSpeedMetersPerSecond = 20.0
+        rail.metadata = RailInfrastructureMetadata(
+            authoring = RailAuthoringMetadata(designSpeedMetersPerSecond = 22.0),
+            speedLimits = SpeedLimitMetadata(listOf(
+                SpeedLimitEntry(22.0, SpeedLimitType.SUBGRADE),
+                SpeedLimitEntry(18.0, SpeedLimitType.CURVE)
+            )),
+            curveSafety = CurveSafetyMetadata(20.0)
         )
         val train = createTrainWithConfig("offset", rail, world, listOf(8.0))
         world.basicWorldData.trainSpeedProfiles.put(train.id, TrainSpeedProfile(5.0))

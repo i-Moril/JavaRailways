@@ -120,7 +120,7 @@ object RailVisualBootstrap {
         val total = rail.curve.totalArcLength
         if (total <= 0.0) return emptyList()
         val segmentCount = kotlin.math.ceil(total / RailArcVisualSegment.SEGMENT_ARC_LENGTH).toInt()
-        val assembly = rail.metadata.assembly
+        val assembly = rail.metadata.authoring?.assembly
         val allArcs = if (assembly == null) {
             RailDecorationLayout.endpointInclusiveArcs(
                 totalArcLength = total,
@@ -128,12 +128,12 @@ object RailVisualBootstrap {
             )
         } else {
             val candidates = rail.world.allRails.filter { candidate ->
-                candidate.metadata.assembly?.let {
+                candidate.metadata.authoring?.assembly?.let {
                     it.groupId == assembly.groupId && it.laneIndex == assembly.laneIndex
                 } == true
             }
             val siblings = (0 until assembly.segmentCount).map { segmentIndex ->
-                val atIndex = candidates.filter { it.metadata.assembly!!.segmentIndex == segmentIndex }
+                val atIndex = candidates.filter { it.metadata.authoring?.assembly!!.segmentIndex == segmentIndex }
                 require(atIndex.isNotEmpty()) { "Incomplete rail assembly ${assembly.groupId}" }
                 if (segmentIndex == assembly.segmentIndex) atIndex.firstOrNull { it.id == rail.id } ?: atIndex.first()
                 else atIndex.first()

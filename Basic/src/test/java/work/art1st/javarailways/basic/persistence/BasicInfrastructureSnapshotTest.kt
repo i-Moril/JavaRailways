@@ -57,7 +57,13 @@ class BasicInfrastructureSnapshotTest {
         val base = BasicInfrastructureSnapshotV2(
             2, 7L,
             listOf(SavedWayPointV1("standalone", "Standalone", rail.id.toString(), 20.0)),
-            listOf(SavedRailInfrastructureMetadataV1.capture(rail.id, RailInfrastructureMetadata(designSpeedMetersPerSecond = 30.0)))
+            listOf(SavedRailInfrastructureMetadataV1.capture(
+                rail.id,
+                RailInfrastructureMetadata(
+                    authoring = RailAuthoringMetadata(designSpeedMetersPerSecond = 30.0),
+                    speedLimits = SpeedLimitMetadata(listOf(SpeedLimitEntry(30.0, SpeedLimitType.SUBGRADE)))
+                )
+            ))
         )
         val invalidInputs = listOf(
             listOf(direction.copy(railId = "invalid-uuid")),

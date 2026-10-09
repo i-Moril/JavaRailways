@@ -21,6 +21,12 @@ data class RailInfrastructureMetadata(
 
 来源：`Basic/src/main/java/work/art1st/javarailways/basic/rail/RailInfrastructureMetadataStore.kt`。
 
+业务代码只使用上述分组模型，不保留平铺constructor/getter/custom copy或`RailMetadata`别名。
+更新某一组时使用嵌套`copy`并保留其余组，例如只修改authoring不能把speedLimits重新折算为单一有效速度，
+否则会丢失限速类别和原始数值。authoring缺失仍用null表达；读取旧geometry默认值的调用方显式提供默认值。
+既有一次性迁移在自身decode边界将旧设计速度转换为SUBGRADE；有效限速在无设计速度或低于设计速度时转换为CURVE，
+业务模型不提供旧形状转换入口。序列化仍是相同四组字段，本批不改变schema/version或新增兼容窗口。
+
 - authoring：design speed m/s、geometry、assembly、split lineage、A/B grade locks、automatic curve speed policy。
 - operating：只保存A/B turnout endpoint metadata；不得保存运行方向。
 - speed与derail归[speed safety](./speed-and-derail-safety.md)。

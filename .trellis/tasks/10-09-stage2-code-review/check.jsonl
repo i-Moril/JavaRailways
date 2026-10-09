@@ -2,3 +2,5 @@
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/initial-findings.md", "reason": "Check evidence and prevent deleting valid safety paths"}
 {"file": ".trellis/spec/javarailways/basic/world-runtime.md", "reason": "Confirm accessor behavior preserved without legacy index"}
 {"file": ".trellis/spec/javarailways/basic/route-planning.md", "reason": "Current immutable planner must remain unchanged"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "No schema bump or compatibility expansion for runtime API cleanup"}
+{"file": ".trellis/spec/javarailways/basic/rail-infrastructure.md", "reason": "Verify grouped copies preserve speed categories and null authoring"}

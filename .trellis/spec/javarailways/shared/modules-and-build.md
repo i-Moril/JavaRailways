@@ -30,7 +30,7 @@
 
 - `Core` 依赖 `ConfigLib`；`Basic` 以 `compileOnly` 依赖 `Core`/`ConfigLib`，测试通过 `testFixtures(project(":Core"))` 获取 fixture。
 - `SimpleATO` 当前以 `compileOnly` 依赖 `Core`/`Basic`，测试直接依赖两者及其 test fixtures；依赖方向不得反转为 Basic→SimpleATO。
-- `SimpleATOBukkit`以`api`依赖SimpleATO，当前只因启动组合使用Core compile classpath；只有实际SimpleATO平台适配需要时才添加Paper或其他platform dependency。它不依赖`BukkitPlugin`，而由`BukkitPlugin`以`implementation`嵌入，避免module cycle。具体信号插件按需要依赖SimpleATO/Basic公开API；真实跨插件需求经评审后才使用BukkitPlugin的公开platform facade，不能让Basic或SimpleATO反向依赖某个国家信号插件。
+- `SimpleATOBukkit`以`api`依赖SimpleATO，使用Core compile classpath与Basic的通用UI/WayPoint能力；只有实际SimpleATO平台适配需要时才添加Paper或其他platform dependency。它不依赖`BukkitPlugin`，而由`BukkitPlugin`以`implementation`嵌入，避免module cycle。门禁允许adapter向底层Basic依赖，仍禁止反向依赖宿主或具体信号插件。具体信号插件按需要依赖SimpleATO/Basic公开API；真实跨插件需求经评审后才使用BukkitPlugin的公开platform facade，不能让Basic或SimpleATO反向依赖某个国家信号插件。
 - `SimpleSignals`对Core、Basic、SimpleATO、BukkitPlugin和Paper只使用`compileOnly`，通过`depend.add("JavaRailways")`与ServicesManager建立运行时边界；宿主不依赖或嵌入该模块。
 - `BukkitPlugin` 是唯一 platform composition root，可组合 `Core`、`Basic`、`SimpleATO`、`SimpleATOBukkit`、`ConfigLib`，但向 add-on 暴露能力时应放在 `work.art1st.javarailways.bukkit.api.*`，例如 `RailTargetService`、`PlayerOperationService`。
 - `BukkitPluginDev` 和 `TunnelBridgeBuilder` 对 JavaRailways 模块使用 `compileOnly`；后者由 `depend.add("JavaRailways")` 声明运行时 owner，不得把主插件业务类 shadow 进 add-on JAR。

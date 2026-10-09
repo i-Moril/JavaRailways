@@ -32,9 +32,36 @@ BukkitPlugin.onEnable
 `AtoStallReport`与`DepotResetReport`，把报告写入主插件提供的数据目录。world composition、通用车辆
 渲染、最终启动/停止顺序、RailWand和手动驾驶仍由`BukkitPlugin`拥有。
 
+## 运营目标编辑适配
+
+当前 `tool/RailObjectDestinationEditor` 拥有 RailObjectWand 中 Destination、Station berth 和 Depot point 的
+表单字段、按角色显示、会话初值、输入解析及保存/删除适配；宿主直接构造编辑器，并把其 `configUI` 交给现有 DialogRenderer。
+它不是新的插件服务或第二套 UI 系统，也不创建 Bukkit 生命周期。通用 DialogRenderer、选点、每玩家编辑/待创建身份、
+PDC 编解码、rail-scoped edit permit、玩家消息和标记实体仍由宿主拥有。
+
+正常编辑先由宿主解析选中的 WayPoint 与 canonical Destination，再调用 `seedSession` 填入配置会话；
+通用 DialogRenderer 使用编辑器注册的 `railObject.waypoint.edit` 组与宿主 locale resolver 展示字段。
+提交时 `readEdit` 把会话值解析为 `OperationalDestination`，宿主取得确切轨道编辑许可后才调用
+`save(world, wayPoint, updated, pending)`；成功后宿主刷新标记和消息。删除同样在许可内调用 `remove`。
+
+字段可见性由既有 ConfigKey 的 role 依赖决定，不另建 UI 状态机。Station/Depot 的 canonical ID 与业务投影由
+[SimpleATO Destination service](../../javarailways/simpleato/destinations.md)负责；编辑适配器保留对话框未显示的角色字段，
+不分别写 Station/Depot store。已有 canonical 对象使用 service.replace，新对象使用 service.register；
+standalone WayPoint 转换前移除旧 anchor，注册失败恢复原 anchor 并向宿主抛出错误。
+删除 canonical 对象使用 service.remove；只有 standalone anchor 才直接从 Basic WayPointStore 删除。
+
+会话初值和解析不改变世界；非法字段/角色构造失败不进入 mutation。save/remove 必须在宿主串行模拟上下文和编辑许可内执行，
+不能从 UI 展示线程直接调用。编辑器不持有 live world、player、entity 或新增异步任务，也没有额外注册/卸载流程；
+会话继续由现有配置 registry 管理。字段数固定，表单读取/可见性为固定规模；标签解析按输入长度线性处理，
+投影更新与失败回滚复用 service，不扫描轨道或新增 tick 工作。
+
+既有 Destination 映射测试验证未显示字段与方向保留；动态 UI 测试直接使用生产注册/seed，验证三种角色和 trigger key，
+不在测试里复制一套 ConfigGroup。真实 service 回归验证 standalone 转换及注册失败恢复。
+迁移只调整源码归属，PDC 状态、配置组/key token、数据格式和版本不变；不得保留宿主中的第二份编辑实现或反向依赖 BukkitPlugin。
+
 ## 依赖与打包不变量
 
-- `SimpleATOBukkit`可依赖`SimpleATO`以及实际使用的Core/Paper公开API；不得为了预留未来功能加入未使用的
+- `SimpleATOBukkit`可依赖`SimpleATO`以及实际使用的Core/Basic/Paper能力；运营编辑器使用Basic已有的通用UI、WayPoint与world data，不另造模型或store。不得为了预留未来功能加入未使用的
   platform dependency，也不得依赖`BukkitPlugin`，否则形成
   `BukkitPlugin -> SimpleATOBukkit -> BukkitPlugin`循环。
 - `BukkitPlugin`使用`implementation(project(":SimpleATOBukkit"))`，最终主插件JAR必须包含

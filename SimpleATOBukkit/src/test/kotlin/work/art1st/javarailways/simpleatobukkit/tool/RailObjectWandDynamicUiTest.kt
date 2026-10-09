@@ -1,40 +1,25 @@
-package work.art1st.javarailways.bukkit.tool
+package work.art1st.javarailways.simpleatobukkit.tool
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.simpleato.api.destination.DestinationRoleType
-import work.art1st.javarailways.basic.api.ui.config.ConfigGroup
-import work.art1st.javarailways.basic.api.ui.config.ConfigItemImpl
 import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
 import java.util.UUID
 
 class RailObjectWandDynamicUiTest {
     @Test
     fun `waypoint dialog only exposes fields for the selected type`() {
-        val keys = RailObjectWand.WayPointEditKeys()
-        val registry = ConfigUIRegistry()
-        registry.register(
-            ConfigGroup(
-                id = RailObjectWand.WayPointEditKeys.GROUP_ID,
-                label = "waypoint.dialog.title",
-                items = mutableListOf(
-                    ConfigItemImpl(keys.name),
-                    ConfigItemImpl(keys.role),
-                    ConfigItemImpl(keys.approachDirection),
-                    ConfigItemImpl(keys.stationId),
-                    ConfigItemImpl(keys.berthId),
-                    ConfigItemImpl(keys.doorSide),
-                    ConfigItemImpl(keys.depotId),
-                    ConfigItemImpl(keys.stablingPointId),
-                    ConfigItemImpl(keys.stablingUsableLength),
-                    ConfigItemImpl(keys.stablingAllowedTags)
-                )
-            )
-        )
+        val editor = RailObjectDestinationEditor()
+        val keys = editor.keys
+        val registry = editor.configUI
         val playerId = UUID.randomUUID()
         val session = registry.getPlayerSession(playerId)
-        val pendingName = initialWayPointDialogName("pending:internal", pending = true)
-        session.setValue(keys.name, pendingName)
+        editor.seedSession(
+            playerId,
+            work.art1st.javarailways.basic.WayPoint("pending:internal", "", UUID.randomUUID(), 2.0),
+            destination = null,
+            pending = true
+        )
         assertEquals("destination", session.getValue(keys.name))
         assertEquals("existing", initialWayPointDialogName("existing", pending = false))
 
@@ -45,7 +30,7 @@ class RailObjectWandDynamicUiTest {
         assertEquals(
             setOf(keys.role.id),
             registry.buildGroupForPlayer(
-                RailObjectWand.WayPointEditKeys.GROUP_ID,
+                WayPointEditKeys.GROUP_ID,
                 playerId
             ).triggerKeyIds
         )
@@ -77,7 +62,7 @@ class RailObjectWandDynamicUiTest {
     }
 
     private fun visibleIds(registry: ConfigUIRegistry, playerId: UUID): Set<String> =
-        registry.buildGroupForPlayer(RailObjectWand.WayPointEditKeys.GROUP_ID, playerId)
+        registry.buildGroupForPlayer(WayPointEditKeys.GROUP_ID, playerId)
             .effectiveItems
             .mapTo(linkedSetOf()) { it.key.id }
 }

@@ -58,9 +58,13 @@
 
 ## CR-006：运营编辑适配器归属未收口
 
-- 状态：已确认；P2，尚未证实影响游戏运行。
+- 状态：已修复，待用户检查；P2，尚未证实影响游戏运行。
 - 证据：`BukkitPlugin/.../tool/RailObjectWand.kt:832,870` 处理 Destination/Station/Depot 编辑，而 SimpleATOBukkit 目前以接线/诊断为主。
 - 处置：将运营编辑及对应状态/测试放入 SimpleATOBukkit；宿主保留通用工具入口、公共方向编辑和平台基础能力，不制造双 owner 或反向模块依赖。
+- 实施：SimpleATOBukkit/tool 接管 Destination 字段映射、配置组/动态可见性、会话初始化与解析、保存/删除及 standalone 转换回滚。RailObjectWand 直接组合 editor 和现有 DialogRenderer，保留玩家待编辑/待创建身份、PDC、选点、原 rail-scoped permit、消息、标记和 quit cleanup；无新服务发现/异步任务/插件生命周期。角色隐藏字段映射除包名外保持原实现。
+- 依赖：adapter 新增实际需要的 Basic compileOnly；根门禁只允许 adapter→Basic，继续禁止 adapter→BukkitPlugin/SimpleSignals。Core fixtures、ConfigLib 和 JOML 只补到测试 classpath；不新增 Paper dependency、格式/版本或兼容路径。
+- 回归与复核：既有4项测试迁移，动态 UI 使用生产注册/seed 而非复制 ConfigGroup；新增2项真实 service 用例验证完整表单→canonical/WayPoint/Station/RailObject投影→删除，以及失败恢复原 standalone anchor。独立 trellis-check 将成功用例改为实际 seed/read，并使用独立预期字段，避免与生产共用转换函数。fixture 使用真实运行对象，未使用的路线/时刻表入口若被调用则失败，不声称覆盖进路执行。
+- 验证：初次编译/执行暴露测试所需 ConfigLib/JOML 缺失，补齐后完整门禁成功。实际执行 SimpleATOBukkit 8、BukkitPlugin 352、SimpleSignals 485，共845项零失败/错误/跳过；Core 212（6跳过）、Basic 382、SimpleATO 351、TunnelBridgeBuilder 31为UP-TO-DATE。BukkitPluginDev编译通过/test为NO-SOURCE；Java consumer、宿主shadowJar、插件JAR与模块边界门禁通过。任务context与whitespace检查通过；未部署或进行游戏内验证。
 - 验证：依赖图、Wand 路由/状态、模块测试和打包门禁；现场交互留到正式游戏测试。
 
 ## CR-007：风格、玩家文案与复杂职责热点

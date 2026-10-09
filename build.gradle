@@ -131,7 +131,7 @@ tasks.register('verifySignalModuleBoundaries') {
         assertNoProjectDependencies(
             ':SimpleATOBukkit',
             ['api', 'implementation', 'compileOnly', 'compileOnlyApi', 'runtimeOnly'],
-            [':Basic', ':BukkitPlugin', ':SimpleSignals']
+            [':BukkitPlugin', ':SimpleSignals']
         )
         assertNoProjectDependencies(
             ':BukkitPlugin',

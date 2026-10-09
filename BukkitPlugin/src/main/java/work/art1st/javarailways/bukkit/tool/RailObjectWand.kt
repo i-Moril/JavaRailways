@@ -24,19 +24,11 @@ import org.joml.Vector3dc
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.basic.rail.DirectionRestrictionResolver
-import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.DestinationRoleType
-import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
-import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
-import work.art1st.javarailways.basic.api.operation.DoorSide
-import work.art1st.javarailways.basic.api.ui.config.ConfigConstraints
-import work.art1st.javarailways.basic.api.ui.config.ConfigGroup
-import work.art1st.javarailways.basic.api.ui.config.ConfigItemImpl
-import work.art1st.javarailways.basic.api.ui.config.ConfigKey
-import work.art1st.javarailways.basic.api.ui.config.ConfigValueType
-import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
+import work.art1st.javarailways.simpleatobukkit.tool.RailObjectDestinationEditor
+import work.art1st.javarailways.simpleatobukkit.tool.WayPointEditKeys
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.ui.dialog.DialogRenderer
 import work.art1st.javarailways.bukkit.util.BukkitAsyncTasks
@@ -55,20 +47,6 @@ enum class RailObjectWandMode(
 ) : WandModeSpec {
     WAY_POINT("路径点模式", "右键创建/编辑路径点 | 左键选择并删除 | Shift+F 切换模式"),
     DIRECTION_RESTRICTION("方向限制模式", "右键添加方向限制 | 左键删除 | Shift+F 切换模式")
-}
-
-enum class WayPointApproachOption(val direction: ViewDirection?) {
-    UNRESTRICTED(null),
-    A_TO_B(ViewDirection.AB),
-    B_TO_A(ViewDirection.BA);
-
-    companion object {
-        fun from(direction: ViewDirection?): WayPointApproachOption = when (direction) {
-            ViewDirection.AB -> A_TO_B
-            ViewDirection.BA -> B_TO_A
-            null -> UNRESTRICTED
-        }
-    }
 }
 
 data class RailObjectWandState(
@@ -148,9 +126,6 @@ internal object DirectionRestrictionParticleLayout {
     }
 }
 
-internal fun initialWayPointDialogName(wayPointId: String, pending: Boolean): String =
-    if (pending) "destination" else wayPointId
-
 internal object WayPointApproachParticleLayout {
     fun arcLengths(
         destinationArcInView: Double,
@@ -197,19 +172,14 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     private val visibleApproachWayPoints = ConcurrentHashMap<UUID, MutableSet<String>>()
     private val particleViewers = ConcurrentHashMap.newKeySet<UUID>()
     @Volatile private var directionParticleFrame: Long = 0L
-    private val configUI = ConfigUIRegistry()
-    private val dialogRenderer = DialogRenderer(configUI)
-    private lateinit var editKeys: WayPointEditKeys
+    private val destinationEditor = RailObjectDestinationEditor()
+    private val dialogRenderer = DialogRenderer(destinationEditor.configUI)
 
     override fun createDefaultState(): RailObjectWandState = RailObjectWandState()
 
     override fun encodeState(state: RailObjectWandState): String = RailObjectWandStateCodec.encode(state)
 
     override fun decodeState(encoded: String): RailObjectWandState? = RailObjectWandStateCodec.decode(encoded)
-
-    override fun onBeforeRegisterEvents() {
-        registerConfig()
-    }
 
     override fun onAfterRegisterEvents() {
         plugin.platformDispatcher.runGlobalAtFixedRate(PARTICLE_REFRESH_TICKS, PARTICLE_REFRESH_TICKS) {
@@ -229,158 +199,6 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             }
         }
         plugin.logger.info("RailObjectWand initialized")
-    }
-
-    private fun registerConfig() {
-        editKeys = WayPointEditKeys()
-        configUI.register(ConfigGroup(
-            id = "railObject.waypoint.edit",
-            label = "waypoint.dialog.title",
-            description = "waypoint.dialog.description",
-            items = mutableListOf(
-                ConfigItemImpl(editKeys.name),
-                ConfigItemImpl(editKeys.role),
-                ConfigItemImpl(editKeys.approachDirection),
-                ConfigItemImpl(editKeys.stationId),
-                ConfigItemImpl(editKeys.berthId),
-                ConfigItemImpl(editKeys.doorSide),
-                ConfigItemImpl(editKeys.depotId),
-                ConfigItemImpl(editKeys.stablingPointId),
-                ConfigItemImpl(editKeys.stablingUsableLength),
-                ConfigItemImpl(editKeys.stablingAllowedTags)
-            )
-        ))
-    }
-
-    class WayPointEditKeys {
-        val name = ConfigKey.build<String>("railObject.waypoint.name") {
-            label = "waypoint.id.label"
-            defaultValue("destination")
-            valueType = ConfigValueType.STRING
-            constraints = ConfigConstraints.StringLength(1, 64)
-            group = GROUP_ID
-            order = 0
-            dependsOn = listOf(ROLE_KEY_ID)
-            visibleWhen = roleVisible(DestinationRoleType.REGULAR)
-        }
-        val role = ConfigKey.build<DestinationRoleType>(ROLE_KEY_ID) {
-            label = "waypoint.type.label"
-            description = "waypoint.type.description"
-            defaultValue(DestinationRoleType.REGULAR)
-            valueType = ConfigValueType.ENUM
-            constraints = ConfigConstraints.EnumOptions(
-                DestinationRoleType.entries,
-                mapOf(
-                    DestinationRoleType.REGULAR to "waypoint.type.regular",
-                    DestinationRoleType.STATION_BERTH to "waypoint.type.station",
-                    DestinationRoleType.DEPOT_STABLING_POINT to "waypoint.type.depot"
-                )
-            )
-            group = GROUP_ID
-            order = 1
-        }
-        val approachDirection = ConfigKey.build<WayPointApproachOption>("railObject.waypoint.direction") {
-            label = "waypoint.approach.label"
-            description = "waypoint.approach.description"
-            defaultValue(WayPointApproachOption.UNRESTRICTED)
-            valueType = ConfigValueType.ENUM
-            constraints = ConfigConstraints.EnumOptions(
-                WayPointApproachOption.entries,
-                mapOf(
-                    WayPointApproachOption.UNRESTRICTED to "waypoint.approach.any",
-                    WayPointApproachOption.A_TO_B to "waypoint.approach.ab",
-                    WayPointApproachOption.B_TO_A to "waypoint.approach.ba"
-                )
-            )
-            group = GROUP_ID
-            order = 2
-        }
-        val stationId = stringKey(
-            "railObject.waypoint.stationId",
-            "waypoint.station_id.label",
-            3,
-            DestinationRoleType.STATION_BERTH
-        )
-        val berthId = stringKey(
-            "railObject.waypoint.berthId",
-            "waypoint.berth_id.label",
-            4,
-            DestinationRoleType.STATION_BERTH
-        )
-        val doorSide = ConfigKey.build<DoorSide>("railObject.waypoint.doorSide") {
-            label = "waypoint.door_side.label"
-            description = "waypoint.door_side.description"
-            defaultValue(DoorSide.LEFT)
-            valueType = ConfigValueType.ENUM
-            constraints = ConfigConstraints.EnumOptions(
-                DoorSide.entries,
-                mapOf(
-                    DoorSide.NONE to "waypoint.door.none",
-                    DoorSide.LEFT to "waypoint.door.left",
-                    DoorSide.RIGHT to "waypoint.door.right",
-                    DoorSide.BOTH to "waypoint.door.both"
-                )
-            )
-            group = GROUP_ID
-            order = 5
-            dependsOn = listOf(ROLE_KEY_ID)
-            visibleWhen = roleVisible(DestinationRoleType.STATION_BERTH)
-        }
-        val depotId = stringKey(
-            "railObject.waypoint.depotId",
-            "waypoint.depot_id.label",
-            6,
-            DestinationRoleType.DEPOT_STABLING_POINT
-        )
-        val stablingPointId = stringKey(
-            "railObject.waypoint.stablingPointId",
-            "waypoint.stabling_id.label",
-            7,
-            DestinationRoleType.DEPOT_STABLING_POINT
-        )
-        val stablingUsableLength = ConfigKey.build<Double>(
-            "railObject.waypoint.stablingUsableLength"
-        ) {
-            label = "waypoint.stabling_length.label"
-            description = "waypoint.stabling_length.description"
-            defaultValue(0.0)
-            valueType = ConfigValueType.NUMBER
-            constraints = ConfigConstraints.NumberRange(0.0, 1000.0, 1.0, "m")
-            group = GROUP_ID
-            order = 8
-            dependsOn = listOf(ROLE_KEY_ID)
-            visibleWhen = roleVisible(DestinationRoleType.DEPOT_STABLING_POINT)
-        }
-        val stablingAllowedTags = stringKey(
-            "railObject.waypoint.stablingAllowedTags",
-            "waypoint.stabling_tags.label",
-            9,
-            DestinationRoleType.DEPOT_STABLING_POINT
-        )
-
-        companion object {
-            const val GROUP_ID = "railObject.waypoint.edit"
-            const val ROLE_KEY_ID = "railObject.waypoint.role"
-
-            private fun roleVisible(role: DestinationRoleType): (work.art1st.javarailways.basic.api.ui.config.ConfigSnapshot) -> Boolean =
-                { snapshot -> snapshot.get<DestinationRoleType>(ROLE_KEY_ID) == role }
-
-            private fun stringKey(
-                id: String,
-                textKey: String,
-                itemOrder: Int,
-                role: DestinationRoleType
-            ) = ConfigKey.build<String>(id) {
-                label = textKey
-                defaultValue("")
-                valueType = ConfigValueType.STRING
-                constraints = ConfigConstraints.StringLength(0, 64)
-                group = GROUP_ID
-                order = itemOrder
-                dependsOn = listOf(ROLE_KEY_ID)
-                visibleWhen = roleVisible(role)
-            }
-        }
     }
 
     override fun handleWandInteract(player: Player, state: RailObjectWandState, event: PlayerInteractEvent) {
@@ -574,11 +392,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
 
         if (state.pendingDeleteWayPoint == wayPoint.id) {
             if (!mutateRailScoped(player, coreWorld, setOf(wayPoint.railId)) {
-                    if (coreWorld.simpleAtoWorldData.destinations[wayPoint.id] != null) {
-                        OperationalDestinationService(coreWorld).remove(wayPoint.id)
-                    } else {
-                        coreWorld.basicWorldData.wayPoints.remove(wayPoint.id)
-                    }
+                    destinationEditor.remove(coreWorld, wayPoint)
                 }
             ) {
                 return
@@ -839,25 +653,9 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val wayPoint = coreWorld.basicWorldData.wayPoints[wayPointId] ?: pending ?: return
         editingWayPoint[player.uniqueId] = wayPointId
         val destination = coreWorld.simpleAtoWorldData.destinations[wayPointId]
-        val role = destination?.role ?: DestinationRole.Regular
-        val session = configUI.getPlayerSession(player.uniqueId)
-        // Config sessions validate programmatic values immediately; use the field's valid default
-        // for a new pending destination instead of trying to seed a forbidden empty string.
-        session.setValue(editKeys.name, initialWayPointDialogName(wayPoint.id, pending != null))
-        session.setValue(editKeys.role, preferredRole ?: role.type)
-        session.setValue(
-            editKeys.approachDirection,
-            WayPointApproachOption.from(destination?.approachDirection)
+        destinationEditor.seedSession(
+            player.uniqueId, wayPoint, destination, pending != null, preferredRole
         )
-        val stationRole = role as? DestinationRole.StationBerthRole
-        session.setValue(editKeys.stationId, stationRole?.stationId?.value.orEmpty())
-        session.setValue(editKeys.berthId, stationRole?.berthId.orEmpty())
-        session.setValue(editKeys.doorSide, stationRole?.doorSide ?: DoorSide.LEFT)
-        val depotRole = role as? DestinationRole.DepotStablingPointRole
-        session.setValue(editKeys.depotId, depotRole?.depotId.orEmpty())
-        session.setValue(editKeys.stablingPointId, depotRole?.stablingPointId.orEmpty())
-        session.setValue(editKeys.stablingUsableLength, depotRole?.usableLengthMeters ?: 0.0)
-        session.setValue(editKeys.stablingAllowedTags, depotRole?.allowedTags?.sorted()?.joinToString(",").orEmpty())
         dialogRenderer.showConfigDialog(
             player,
             WayPointEditKeys.GROUP_ID,
@@ -870,35 +668,11 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     private fun applyWayPointDialog(player: Player) {
         val oldId = editingWayPoint.remove(player.uniqueId) ?: return
         val coreWorld = getCoreWorld(player) ?: return
-        val session = configUI.getPlayerSession(player.uniqueId)
-        val rawName = session.getValue(editKeys.name) ?: oldId
         val pending = pendingWayPoints[player.uniqueId]?.takeIf { it.id == oldId }
         val wayPoint = coreWorld.basicWorldData.wayPoints[oldId] ?: pending ?: return
         val original = coreWorld.simpleAtoWorldData.destinations[oldId]
         val updated = try {
-            applyRailObjectDestinationEdit(
-                wayPoint,
-                original,
-                RailObjectDestinationEdit(
-                    id = rawName,
-                    roleType = session.getValue(editKeys.role) ?: DestinationRoleType.REGULAR,
-                    approachDirection = (session.getValue(editKeys.approachDirection)
-                        ?: WayPointApproachOption.UNRESTRICTED).direction,
-                    stationId = session.getValue(editKeys.stationId).orEmpty(),
-                    berthId = session.getValue(editKeys.berthId).orEmpty(),
-                    doorSide = session.getValue(editKeys.doorSide) ?: DoorSide.LEFT,
-                    depotId = session.getValue(editKeys.depotId).orEmpty(),
-                    stablingPointId = session.getValue(editKeys.stablingPointId).orEmpty(),
-                    stablingUsableLengthMeters = session.getValue(editKeys.stablingUsableLength)
-                        ?.takeIf { it > 0.0 },
-                    stablingAllowedTags = session.getValue(editKeys.stablingAllowedTags)
-                        .orEmpty()
-                        .split(',')
-                        .map(String::trim)
-                        .filter(String::isNotEmpty)
-                        .toSet()
-                )
-            )
+            destinationEditor.readEdit(player.uniqueId, wayPoint, original)
         } catch (failure: Exception) {
             player.sendActionBar(
                 Component.text("Destination 配置无效: ${failure.message}", NamedTextColor.RED)
@@ -908,20 +682,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         try {
             if (!mutateRailScoped(player, coreWorld, setOf(wayPoint.railId)) {
                     if (pending != null) pendingWayPoints.remove(player.uniqueId)
-                    val destinationService = OperationalDestinationService(coreWorld)
-                    if (original != null) {
-                        destinationService.replace(oldId, updated)
-                    } else if (pending != null) {
-                        destinationService.register(updated)
-                    } else {
-                        coreWorld.basicWorldData.wayPoints.remove(oldId)
-                        try {
-                            destinationService.register(updated)
-                        } catch (failure: Exception) {
-                            coreWorld.basicWorldData.wayPoints.add(wayPoint)
-                            throw failure
-                        }
-                    }
+                    destinationEditor.save(coreWorld, wayPoint, updated, pending != null)
                 }
             ) {
                 return
@@ -1091,7 +852,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         visibleDirectionRails.remove(player.uniqueId)
         visibleApproachWayPoints.remove(player.uniqueId)
         particleViewers.remove(player.uniqueId)
-        configUI.removePlayerSession(player.uniqueId)
+        destinationEditor.configUI.removePlayerSession(player.uniqueId)
     }
 
     private class MarkerHandle(

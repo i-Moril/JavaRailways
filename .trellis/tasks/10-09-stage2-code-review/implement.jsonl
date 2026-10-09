@@ -4,3 +4,6 @@
 {"file": ".trellis/spec/javarailways/basic/rail-infrastructure.md", "reason": "Metadata grouped model and preserving untargeted groups"}
 {"file": ".trellis/spec/javarailways/basic/api-boundaries.md", "reason": "CR-005 minimum public route value closure and Dokka boundary"}
 {"file": ".trellis/spec/javarailways/basic/route-planning.md", "reason": "CR-005 preserve route representation, algorithms and validation semantics"}
+{"file": ".trellis/spec/simpleato-bukkit/backend/index.md", "reason": "CR-006 adapter ownership and one-way composition dependency"}
+{"file": ".trellis/spec/javarailways/simpleato/destinations.md", "reason": "CR-006 preserve canonical destination service and projection rollback"}
+{"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "CR-006 keep generic dialog, edit permit and PDC behavior in host"}

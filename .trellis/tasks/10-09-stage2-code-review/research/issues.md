@@ -114,3 +114,78 @@
 - 证据：`SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/authoring/SectionWandHandlerTest.kt:72-82` 名称宣称 clears old selection，但没有先建立 firstPoint，也未检查清除后的下一次 backend 输入；生产 handler 第 132 行的清除缺失仍不能由这些断言检出。
 - 最小建议：改写原测试，先成功选第一点，再触发 stale，恢复新 capture 后继续点击，断言 backend 收到 firstPoint=null；不删除有价值的 stale 拒绝覆盖，不按数量减测试。
 - 编辑器结论：本次未确认 SignalWandHandler/SectionWandHandler 的生产行为缺陷；已有 backend/actions 与事件协调分层，不进行无证据大拆分。
+
+## 批次 C1：Core runtime / Basic observation（2026-10-09）
+
+基线 `56025ea5`。以下为源码可达性及测试断言检查，不是现场或新定向回归复现；具体已查/未查范围见 [coverage.md](coverage.md)。既有 Core/Basic 测试已强制重跑通过，但没有覆盖以下新发现的失败序列。运行时代码未修改。
+
+### CR-013：卸载异常后已关闭世界仍留在主 tick 集合
+
+- 状态：已确认静态可达，待修复；建议 P1，正式游戏测试前应处理宿主生命周期。
+- 证据：`BukkitPlugin/.../logic/WorldManager.kt:339-366` capture/await/save 失败会执行资源关闭的 finally，但跳过 finally 外的 marker 清理和 railWorlds.remove；`:715-716` withdraw 只撤 UUID lookup。
+- 触发/影响：物理已 STALLED 后卸载，capture 直接抛；或 final save 失败。旧世界留在 owner map，后续 `tickStart:388-390` wake 关闭的 coordinator 再次抛，可能打断其他世界的遍历；同 BukkitWorld 的 register 又被 `:144` containsKey 挡住。
+- 最小建议：owner map/marker 撤出覆盖保存及清理异常的外层 finally，各资源关闭不得因前一个失败而跳过；保留保存失败诊断，不吞异常伪造成功。
+- 回归缺口：capture failure、write failure、teardown failure 下 map/lookup/资源都完成清理，同世界可重载，其他世界可继续 tick；已有 lookup 单测不覆盖真实 unload。
+
+### CR-014：final save 未停止 timer fallback，等待一次 ticket 不等于冻结世界
+
+- 状态：已确认静态可达竞态，尚未定向复现；建议 P1，存档一致性风险。
+- 证据：`WorldManager.kt:333-347` 标记 unloading 并等待一次 ticket，直到 `:357` 才 close；`Core/.../physics/tick/PhysicsCoordinator.kt:338-348` timer 只检查 started/status/heartbeat，不知 unloading；默认 heartbeat 75ms、timer 周期50ms。
+- 触发/影响：epoch E 完成后，较慢的逐 owner capture/磁盘等待允许 fallback 启动 E+1。`WorldManager.kt:608-626` 顺序抓取多份快照，`CoreWorld.kt:1437-1444` 用调用方旧 epoch 标记 live trains，`CoreTrain.kt:823-835` 逐项保存。物理更新可能与 capture 交错，无法保证 final snapshot 同一 epoch；即使 capture 已结束，写盘等待期间仍可启动新物理工作。
+- 最小建议：coordinator 拥有 stop-wake/quiesce 边界，在同一状态锁禁止新主线程/timer epoch 并返回当前 exact ticket，await 后再 capture/save，最后 close。重复 capture/await、只停平台 tick 或随意加 timeout 均不能替代该边界。
+- 回归缺口：注入 clock/latch，在 stop-wake 后推进 heartbeat，确认没有新 epoch且各 snapshot owner读到相同稳定状态。
+
+### CR-015：世界部分初始化失败遗留已注册渲染监听器
+
+- 状态：已确认静态可达，待修复；P2，加载失败恢复/资源归属问题。
+- 证据：`WorldManager.kt:161-169` factory 调用在保护 try 外；`RailWorldFactory.kt:63-77` 创建 tick/coordinator/world/render manager，`:208-210` 才 restore；factory 没有失败清理。`render/chunk/RenderChunkManager.kt:57-75` 构造注册 listener/安排刷新，close 才注销。
+- 触发/影响：语法、版本和 infrastructure revision 都合法的 split 文件，Basic WayPoint 引用 Core 不存在的 rail UUID。decode/pairing 不交叉验证该引用，直到 `BasicInfrastructureSnapshotV2.restore:93-99` 才抛；已注册 listener 无人关闭，重复加载失败会重复注册。线程池是否启动依失败位置，不把它夸大为每次必然泄漏活线程。
+- 最小建议：factory 自持 partial-init resources并逆序清理，保持原异常；单纯把外层 try 上移不够，失败时调用方尚未拿到 world。
+- 回归缺口：真实构造/restore注入失败后 listener注销、resources关闭、world未发布，修复输入后可加载。Basic restore 单测不覆盖宿主清理。
+
+### CR-016：in-flight close 后 CLOSED 终态可被 STALLED 覆盖
+
+- 状态：已确认静态可达，待定向回归；P2，终态/发布撤销契约问题。
+- 证据：`PhysicsCoordinator.kt:589-600` 设置 CLOSED并shutdownNow，正在等待worker的 coordinator 被中断后，`:514-516` catch无条件写STALLED；overload分支`:492-494`同样不保留CLOSED。正常尾部`:502-509`也未与close/stall边界复查ticket发布资格。
+- 影响：close后的最终status可能变为STALLED，而不是CLOSED；不代表重新运行，STALLED仍拒绝wake且executors已shutdown。若processor消化中断继续返回，关闭后发布资格也需回归验证，不能仅靠interrupt撤销。
+- 最小建议：终态转换保留CLOSED，最终publication在与close/stall一致的边界验证ticket仍有效，不用额外无依据重试/预算。
+- 回归缺口：真实worker进入latch后close，ticket exceptional且status始终CLOSED；另测忽略中断的processor返回后不得推进latest frame。
+
+### CR-017：Koin world scope 没有成对释放
+
+- 状态：已确认生命周期遗漏，待确认最小处置；P2，world卸载/反复加载的引用保留。
+- 证据：`Core/.../di/WorldParentContext.kt:18-19` 创建registry scope并declare(world)，CoreWorld构造时attach；`JavaRailwaysKoin.kt:21,46-53`缓存进程级parent。生产源码没有对应child scope close/delete；WorldManager teardown不释放scope。
+- 影响：卸载后全局DI registry仍持有旧CoreWorld及其extensions，新实例使用新scope ID继续累积。这里存在registry外部引用根，不是把普通循环引用误判为泄漏。
+- 最小建议：先核实world scope是否仍有生产读取者；无consumer则评估删除失效绑定，有consumer则由composition持有可关闭attach token，在失败启动和正常卸载关闭。不要让CoreWorld越权关闭所有平台资源。
+- 回归缺口：反复attach/unload及失败启动后不存在旧scope/world声明；现有真实Koin persistence tests也未清理scope。
+
+### CR-018：联结后 car renderer 比较了不同 train 的 revision
+
+- 状态：已确认受支持入口静态可达，未运行渲染复现；P2，是否阻塞游戏测试取决于联结验收范围。
+- 证据：`CoreTrain.kt:574` revision按train递增；`:528` linkWith保留并移动原car对象；`WorldManager.kt:549`只给car传裸train revision；`extension/train/CarExtension.kt:50,113,117`按car保存一个latestFrameRevision且无换属主入口。Bukkit TrainExtension.linkWith为Unit。
+- 触发/影响：旧列车车厢已应用高revision，新低revision列车作为survivor接入它，之后新属主frame全部被误判stale直到计数追平；旧属主排队的region frame也缺属主校验。默认collision是DERAIL，仓库没有生产listener请求LINK，不能描述为默认碰撞必现；公开CoreTrain.linkWith或CollisionEvent.requestLink可触发此能力。
+- 最小建议：单独设计可区分publication stream身份/换属主代际的frame门禁，或car-owned revision；只清零计数会接受旧pending frame，不足以修复。
+- 回归缺口：低revision survivor接入高revision车厢后立即更新；延迟旧owner task不能覆盖新owner。既有CoreTrainLinkTest只检查端点清理。
+
+### CR-019：tail-release遗留没有行为的拓扑字段与错误分支
+
+- 状态：已确认，待局部清理；P3，维护性而非授权漏洞。
+- 证据：`Basic/.../infrastructure/RouteGrantTailRelease.kt:9,59,127` 的STALE_TOPOLOGY未产生，topologyRevision除非负校验外无读取，KDoc却声称该controller验证topology。
+- 最小建议：清理误导的内部字段/分支与注释；真正的局部失效归admission engine按rail依赖处理，不能为“使用字段”恢复全局revision相等检查。
+- 保留覆盖：无关拓扑编辑后旧frozen route仍可grant/extend/tail-release的现行回归。
+
+### CR-020：Core/Basic测试有效性及资源释放缺口
+
+- 状态：具体下列缺口已确认，待改写/补齐；P3，不批删测试，不把disabled计为绿色覆盖。
+- `Core/.../train/TrainUniformMotionTest.kt:30-50`：expected与actual都来自本地constantSpeed累加，未断言train实际位置，speed断言被注释；仅剩未脱轨断言仍有有限价值。应改为真实epoch后published位置/速度断言；同文件6项环线测试disabled，作为待恢复覆盖，不直接删除。
+- `CoreWorldRailTopologyTransactionTest.kt:439-488`：两项reader阻塞测试sleep(50)前没有确认reader已进入读取路径；reader未调度也会通过isDone断言。应改成确定性进入/阻塞证据并finally释放writer，保留拓扑原子性行为覆盖。
+- `CoreTrainDerailEventTest.kt:36-40`：测试复制coordinator条件并自行queue通知，删掉生产`PhysicsCoordinator.kt:439-440`调用仍能绿。应由真实stepSimulation触发，再断言派发前0、后1、重复仍1；保留reason/epoch/token cleanup。
+- `PhysicsCoordinatorTest.kt:474`：entered.await无期限，回归时可挂住整套测试；使用有界barrier断言，不删除exact ticket用例。
+- `CoreTrainPublicationBoundaryTest`、`ImmutableSnapshotTest`、`CoreTrainDerailEventTest`及部分Koin persistence测试未成对关闭world resources；多数fixture未start，不能断言已产生大量活线程。补finally ownership，修正TrainTestUtils KDoc声称Koin parent但实际NoOp的注释。
+- `RailwayObservationTest`未直接断言bodyTraversal投影和caller-owned各集合防御复制；现有排序/immutable断言有效，不能整项删除。stamp简单字段测试只作为合并候选，暂不认定无价值。
+
+### C1 验证与限制
+
+- 主会话实际运行 `:Core:test :Basic:test --rerun-tasks`，14个task全部执行，BUILD SUCCESSFUL（35s）；Core212项含6跳过，Basic382项全部执行，零失败/错误。已有Kotlin unchecked cast/no cast needed等warning未在本批修改。
+- 本批没有新问题的定向可执行复现，没有跑BukkitPlugin测试、部署或游戏验证；运行时代码未修改。多数已读publication/ticket/epoch/集合与局部失效校验保护实际不变量，没有确认应删除的过度兜底。
+- Core/Basic均仍是部分覆盖；下批继续Core算法和拓扑，完整覆盖清单而非测试数量决定审查是否完成。

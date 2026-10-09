@@ -1,2 +1,3 @@
 {"file": ".trellis/spec/javarailways/shared/quality.md", "reason": "Scoped validation and preservation of dirty work"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/initial-findings.md", "reason": "Initial source audit leads; reverify before changing code"}
+{"file": ".trellis/spec/javarailways/basic/world-runtime.md", "reason": "World accessors and one explicit Basic container; remove legacy index only"}

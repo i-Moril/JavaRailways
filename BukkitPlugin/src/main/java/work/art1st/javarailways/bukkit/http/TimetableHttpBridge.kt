@@ -26,7 +26,7 @@ import work.art1st.javarailways.simpleato.api.line.LinePlanner
 import work.art1st.javarailways.simpleato.api.line.LineRevisionConflict
 import work.art1st.javarailways.simpleato.api.station.StationId
 import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionProvider
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.simpleato.persistence.SavedTimetableV1
 import work.art1st.javarailways.simpleato.persistence.TimetableSnapshotCodec
 import work.art1st.javarailways.simpleato.timetable.LineMaximumSpeedResolver

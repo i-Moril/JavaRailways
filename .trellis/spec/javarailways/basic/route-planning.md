@@ -78,10 +78,9 @@ val runsFirstToSecond = if (facing == ViewDirection.AB) railRunsFirstToSecond el
 
 ## 禁止实现
 
-- 新mission/timetable调用legacy label BFS `PathFinder`；
+- 重新引入legacy label BFS `PathFinder`作为mission/timetable生产寻路（旧实现及专用索引已删除）；
 - 以rail hop count作为最短；
 - 返回partial unreachable route；
-- 任意并发读写`RailMap`；
 - 在准入时跳过stable topology revalidation；
 - 新功能继续把`RailView.nextRails`或Basic复制的adjacency当成第二个authoritative graph；
 - 在Dijkstra扩展期间调用插件callback，或让插件直接修改Core `TopologyState`；

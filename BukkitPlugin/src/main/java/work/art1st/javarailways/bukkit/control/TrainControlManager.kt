@@ -15,7 +15,7 @@ import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import org.joml.Vector3d
 import work.art1st.javarailways.basic.control.RealisticManualController
 import work.art1st.javarailways.basic.control.TrainDriveDirection
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.timetable.TimetableControlMode
 import work.art1st.javarailways.simpleato.timetable.TimetableControlTransferResult

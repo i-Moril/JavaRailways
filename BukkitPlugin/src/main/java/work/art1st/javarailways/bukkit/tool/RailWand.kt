@@ -43,8 +43,8 @@ import work.art1st.javarailways.basic.curve.StandardTurnoutFactory
 import work.art1st.javarailways.basic.curve.SuperelevationConfig
 import work.art1st.javarailways.basic.curve.VerticalCurveRebuilder
 import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
-import work.art1st.javarailways.basic.pathFinding.basicWorldDataOrNull
+import work.art1st.javarailways.basic.basicWorldData
+import work.art1st.javarailways.basic.basicWorldDataOrNull
 import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.basic.rail.CurveSafetyMetadata

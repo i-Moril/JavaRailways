@@ -2,7 +2,6 @@ package work.art1st.javarailways.basic
 
 import work.art1st.javarailways.basic.api.ato.provider.RailObjectStore
 import work.art1st.javarailways.basic.api.safety.WorldSafetyInterlock
-import work.art1st.javarailways.basic.pathFinding.RailMap
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataStore
 import work.art1st.javarailways.basic.rail.OperatingDirectionStore
@@ -17,7 +16,6 @@ import java.util.concurrent.ConcurrentHashMap
  * ATO 协调器、策略以及其他运营状态由 SimpleATO 持有。
  */
 data class BasicWorldData(
-    val railMap: RailMap = RailMap(),
     val wayPoints: WayPointStore = WayPointStore(),
     val safetyInterlock: WorldSafetyInterlock = WorldSafetyInterlock(),
     val railObjects: RailObjectStore = RailObjectStore(),

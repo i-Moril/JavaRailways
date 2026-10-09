@@ -8,7 +8,7 @@ import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.simpleato.api.depot.DepotResetAssignment
 import work.art1st.javarailways.simpleato.api.depot.DepotResetPlanningResult
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.SweptRailSpan

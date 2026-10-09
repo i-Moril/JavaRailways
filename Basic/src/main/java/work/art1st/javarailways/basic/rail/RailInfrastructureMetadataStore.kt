@@ -1,7 +1,7 @@
 package work.art1st.javarailways.basic.rail
 
 import kotlinx.serialization.Serializable
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import java.util.UUID

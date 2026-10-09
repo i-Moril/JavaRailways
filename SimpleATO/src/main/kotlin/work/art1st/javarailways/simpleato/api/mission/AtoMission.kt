@@ -1,6 +1,6 @@
 package work.art1st.javarailways.simpleato.api.mission
 
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.route.PlannedRoute
 import work.art1st.javarailways.basic.route.RouteBuildResult
 import work.art1st.javarailways.core.api.physics.World

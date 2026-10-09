@@ -64,7 +64,7 @@ import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.admission.RollingRouteAuthorityPlanner
 import work.art1st.javarailways.simpleato.admission.RouteAuthorityAdmissionClient
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.infrastructure.PhysicalRouteDependencyCompilation
 import work.art1st.javarailways.basic.infrastructure.PhysicalRouteDependencyCompiler
 import work.art1st.javarailways.basic.route.toSnapshot

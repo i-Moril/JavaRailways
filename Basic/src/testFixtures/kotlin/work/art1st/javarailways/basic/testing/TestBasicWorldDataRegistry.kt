@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.pathFinding
+package work.art1st.javarailways.basic.testing
 
 import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
@@ -31,11 +31,3 @@ object TestBasicWorldDataRegistry {
     }
 }
 
-/** 兼容旧测试：只注册 RailMap 时自动包装成 BasicWorldData。 */
-object TestRailMapRegistry {
-    fun getOrCreate(world: World): RailMap = TestBasicWorldDataRegistry.getOrCreate(world).railMap
-
-    fun register(world: World, map: RailMap) {
-        TestBasicWorldDataRegistry.register(world, BasicWorldData(railMap = map))
-    }
-}

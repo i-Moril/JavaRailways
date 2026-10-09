@@ -23,7 +23,8 @@ import work.art1st.javarailways.simpleato.api.constraint.CurrentSpeedLimitConstr
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
-import work.art1st.javarailways.basic.pathFinding.RailDestination
+import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
+import work.art1st.javarailways.core.physics.rail.RailLocationWithoutFacing
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitEntry
@@ -408,10 +409,9 @@ class SimpleATOTest {
         )
         CoreRail.connect(head.rail, nextRail)
         val ref = RailObjectRef("test", "duplicate")
-        fixture.data.railMap.addDestination(
-            nextRail.viewAB,
-            RailDestination(nextRail.viewAB, "legacy", ref)
-        )
+        nextRail.signals.add(OperationalSpeedLimitSignal(
+            ref, RailLocationWithoutFacing(nextRail, 0.0), nextRail.viewAB.viewDirection, null
+        ))
         fixture.data.railObjects.register(object : RailObject {
             override val ref = ref
             override val lifecycleState = RailObjectLifecycleState.ACTIVE
@@ -446,10 +446,9 @@ class SimpleATOTest {
         val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
         TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
         val ref = RailObjectRef("test", "cross-tick-duplicate")
-        data.railMap.addDestination(
-            straight.viewAB,
-            RailDestination(straight.viewAB, "straight", ref)
-        )
+        straight.signals.add(OperationalSpeedLimitSignal(
+            ref, RailLocationWithoutFacing(straight, 0.0), straight.viewAB.viewDirection, null
+        ))
         data.railObjects.register(object : RailObject {
             override val ref = ref
             override val lifecycleState = RailObjectLifecycleState.ACTIVE

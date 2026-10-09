@@ -11,7 +11,7 @@ import work.art1st.javarailways.bukkit.api.operation.OperationResult
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.operation.UndoableOperation
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.rail.resolveLogicalRailLaneIds
 import work.art1st.javarailways.core.api.physics.rail.Rail
 import work.art1st.javarailways.tunnelbridgebuilder.TunnelBridgeBuilderPlugin

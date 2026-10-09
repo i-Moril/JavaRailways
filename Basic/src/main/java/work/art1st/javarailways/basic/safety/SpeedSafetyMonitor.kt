@@ -1,6 +1,6 @@
 package work.art1st.javarailways.basic.safety
 
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.rail.SpeedLimitType
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.tick.PublishedTrainFrameProcessor

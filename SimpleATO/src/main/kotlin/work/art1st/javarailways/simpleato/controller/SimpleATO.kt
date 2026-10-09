@@ -45,7 +45,7 @@ import work.art1st.javarailways.simpleato.api.station.StationCallResolver
 import work.art1st.javarailways.simpleato.api.station.StationCallSubmissionResult
 import work.art1st.javarailways.simpleato.timetable.LineMaximumSpeedResolver
 import work.art1st.javarailways.simpleato.timetable.TimetableService
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
 import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.simpleato.routing.MissionRouteLayout
@@ -1102,7 +1102,6 @@ class SimpleATO(
             val objects = buildList<RailObject> {
                 addAll(view.staticRailObjects)
                 addAll(view.dynamicRailObjects)
-                addAll(worldData.railMap.destinationsOn(view))
                 addAll(worldData.railObjects.objectsOnRail(view.rail.id))
             }
             objects.forEach objectLoop@{ railObject ->

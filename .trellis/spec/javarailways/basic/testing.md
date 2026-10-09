@@ -20,7 +20,7 @@ fun register(world: World, data: BasicWorldData) {
 }
 ```
 
-来源：`Basic/src/testFixtures/kotlin/work/art1st/javarailways/basic/pathFinding/TestBasicWorldDataRegistry.kt`。
+来源：`Basic/src/testFixtures/kotlin/work/art1st/javarailways/basic/testing/TestBasicWorldDataRegistry.kt`。
 
 Basic tests优先复用Core `createTestWorld/createStraightRailFromSegments/createTrainWithConfig/AsyncTickTestSupport`；production不得依赖fixture，新test不复制private/reflection builder。
 
@@ -51,7 +51,7 @@ assertEquals((0L until 100L).toList(), revisions)
 
 ## 禁止实现
 
-- disabled `PathFinderTest` loop算通过；
+- 把disabled或已删除旧实现的测试算作当前拓扑planner覆盖；
 - `Thread.sleep`猜physics/topology完成；
 - same helper生成expected与actual persisted token；
 - 只断言异常类型、不断言失败后stores/resources不变；

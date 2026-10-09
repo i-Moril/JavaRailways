@@ -2,7 +2,7 @@ package work.art1st.javarailways.simpleato.routing
 
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.route.planning.OperatingDirectionOverlay
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.route.ExpandedRoute
 import work.art1st.javarailways.basic.route.OperationalRouteLocation
 import work.art1st.javarailways.basic.route.RailViewRef

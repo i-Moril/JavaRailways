@@ -1,7 +1,7 @@
 package work.art1st.javarailways.simpleato.testing
 
 import work.art1st.javarailways.basic.BasicWorldData
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
+import work.art1st.javarailways.basic.testing.TestBasicWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData

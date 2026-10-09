@@ -1,8 +1,8 @@
 package work.art1st.javarailways.basic.safety
 
 import work.art1st.javarailways.basic.rail.RailMetadata
-import work.art1st.javarailways.basic.pathFinding.TestBasicWorldDataRegistry
-import work.art1st.javarailways.basic.pathFinding.basicWorldData
+import work.art1st.javarailways.basic.testing.TestBasicWorldDataRegistry
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import org.junit.jupiter.api.Assertions.assertEquals

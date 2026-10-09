@@ -85,3 +85,32 @@
 - 状态：待审查，目前没有已确认应删除的具体安全校验。
 - 处置：逐条写明触发条件、保护的不变量及替代机制；保留 epoch、资源授权、原子发布、卸载和按分支拒环。物理扫描环与输出依赖环不能混为一谈。
 - 验证：真实可达调用链及对应测试，不能以“几乎不会发生”代替证据。
+
+## 2026-10-09：SimpleSignals 事务与编辑流程专项审查
+
+- 范围：定义候选准备、edit permit、持久化 staging、host source replacement、runtime publication，以及 Signal/Section Wand 会话与既有回归；只读检查，未运行测试或修改运行时代码。
+- 职责结论：manager 仍是唯一正式定义提交入口；runtime 用单个 RuntimeState 同时替换 publication、occupancy 和 model binding，Wand/backend 不另存正式定义。不因文件长度拆分事务 owner。
+- CR-007：RailWand 显示/预览优先拆分、撤销恢复另批评估；Dispatcher 只优先评估 ticket 公共机制及 checkpoint 映射，保留唯一状态机。两项已追加到根 TODO，可延期，不作为 Stage 2 游戏测试前置。
+- CR-009：base publication、exact topology、catalog identity、session guard 和 unload 检查分别保护不同竞态；本次未确认可直接删除的安全兜底。InventoryDrag 监听差异不能证明会改变手持 SectionWandTool，不新增无证据限制。
+
+### CR-010：保存准备的目录创建失败会泄漏 world reservation
+
+- 状态：已确认，待修复；P2，编辑保存恢复问题，不是行车授权错误。
+- 证据：`SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/persistence/SimpleSignalsWorldDefinitionStore.kt:86-95` 先加入 preparedWorlds，随后在 try 外调用 Files.createDirectories；失败绕过 catch 内的 remove。
+- 影响：例如 worlds 路径被普通文件占用，第一次保存失败后，即使外部修复路径，同一 store/world 的后续保存仍被 already prepared 拒绝，直到重新创建 store。
+- 最小建议：将目录创建纳入同一个准备失败释放边界；不新增重试、兼容模型或版本号。
+- 验证缺口：补真实文件系统回归，先制造目录路径冲突，再修复路径，使用同一 store/world 保存并加载成功；保留既有 primary replace 失败/旧 disk-live 配对测试。
+
+### CR-011：最后一次编辑取消被误分类为保存失败
+
+- 状态：已确认，待修复；P3，typed status/诊断问题，不会写盘或放行。
+- 证据：`SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntime.kt:1650,1673,1699-1700` callback 入口 guard 失效返回 WORLD_UNAVAILABLE，beforeCommit 内最后 guard 失效只抛普通异常，callbackStarted 将其归为 PERSISTENCE_FAILED。
+- 最小建议：显式区分取消/失效与真实持久化异常，保留最后一次 guard；不拆出第二事务协调器。
+- 验证缺口：既有 manager test 的 recording commit cancellation 在 callback 入口前失效；需覆盖进入 callback 后、primary rename 前失效，断言取消状态及 disk/source/publication 均不变。
+
+### CR-012：过期选择测试没有验证清除已选第一点
+
+- 状态：已确认，待改写；P3，低质量测试断言缺口。
+- 证据：`SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/authoring/SectionWandHandlerTest.kt:72-82` 名称宣称 clears old selection，但没有先建立 firstPoint，也未检查清除后的下一次 backend 输入；生产 handler 第 132 行的清除缺失仍不能由这些断言检出。
+- 最小建议：改写原测试，先成功选第一点，再触发 stale，恢复新 capture 后继续点击，断言 backend 收到 firstPoint=null；不删除有价值的 stale 拒绝覆盖，不按数量减测试。
+- 编辑器结论：本次未确认 SignalWandHandler/SectionWandHandler 的生产行为缺陷；已有 backend/actions 与事件协调分层，不进行无证据大拆分。

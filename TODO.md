@@ -23,3 +23,5 @@
 - RailObjectWand 连续设置方向
 - 需要一把测量尺
 - Waypoint方向显示，在锚点附近不清晰
+- [ ] RailWand 职责拆分（可延期，不阻塞 Stage 2 游戏测试）：优先将显示/预览及其实体生命周期提取为独立内部组件；撤销/恢复另批评估，保持轨道、metadata、运行方向和 Destination 的完整事务，不仅把函数移到模式类再回调主类。
+- [ ] TimetableDispatcher 局部整理（可延期，不阻塞 Stage 2 游戏测试）：优先核查 operation ticket 请求、身份检查、轮询/取消的重复机制及 checkpoint 数据映射；保留唯一车次状态机和资源生命周期协调，不将共享 ActiveRun 暴露给多个管理器任意修改，不整体重写。

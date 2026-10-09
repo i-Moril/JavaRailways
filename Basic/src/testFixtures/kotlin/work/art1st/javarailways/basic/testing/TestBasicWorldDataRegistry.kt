@@ -30,4 +30,3 @@ object TestBasicWorldDataRegistry {
         registry.remove(world)
     }
 }
-

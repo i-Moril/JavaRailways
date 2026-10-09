@@ -6,6 +6,10 @@ Basic拥有`TrainActuator`、`ControlDemand`、`ActuationStep`和`GradeAwareBrak
 物理执行或制动能力，不选择ATO策略。`AtoSafetyProfile`、`AbstractATO`、planner、constraint类型/manager与world ATO
 coordinator属于SimpleATO；确定性的恒加减速actuator也只作为SimpleATO测试fixture存在。
 
+生产物理执行使用`control/HandleTrainActuator.kt`和共享纵向动力学，不使用旧的
+`controller.command.AccelerateCommand`／`BasicControlCommand`原型。它们没有生产或测试调用，已在代码审查中删除；
+Basic不再需要Lombok依赖。Core的`api.control.ControlCommand`是独立通用契约，不随原型清理删除。
+
 Basic另外拥有`WorldSafetyInterlock`：一个world-local、线程安全、只从false锁存到true的通用fail-closed latch。
 SimpleATO coordinator在首次Stall时锁住它，管理员完成恢复后才reset；Basic手动控制器每tick先读取它，锁住时施加紧急制动。
 因此SimpleATO故障仍会阻止手动列车继续运行，但Basic不依赖SimpleATO类型。

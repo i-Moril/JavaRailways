@@ -18,7 +18,9 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "10-09-stage2-code-review"
+  ],
   "parent": "09-18-independent-signal-system",
   "relatedFiles": [],
   "notes": "Stage 1 host APIs completed at ae55fa6d and archived by 1f7b9623. Stage 2 consumes those contracts; it must not reimplement host resource, inspection, restriction, applied-plan dependency, or owner-lifecycle machinery.",

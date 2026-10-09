@@ -56,9 +56,12 @@ BukkitPlugin.onEnable
 ```bash
 ./gradlew :SimpleATOBukkit:test
 ./gradlew :BukkitPlugin:test :BukkitPlugin:shadowJar
+./gradlew verifySignalModuleBoundaries
 python3 ./.trellis/scripts/get_context.py --mode packages
 git diff --check
 ```
 
 确认`BukkitPlugin`仍以`implementation(project(":SimpleATOBukkit"))`依赖本模块，仓库没有第二个
-SimpleATO Bukkit descriptor、`JavaPlugin`入口或独立部署artifact配置。
+SimpleATO Bukkit descriptor、`JavaPlugin`入口或独立部署artifact配置。根级门禁读取实际 adapter/main JAR
+以及直接项目依赖，自动确认 adapter 没有 descriptor、`JavaPlugin`/`ServicesManager`或具体信号插件引用，
+并确认主插件 JAR 已嵌入`SimpleATOBukkitModule.class`而仍只有 JavaRailways descriptor。

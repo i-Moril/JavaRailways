@@ -49,6 +49,7 @@ jobs:
           :SimpleSignals:check
           :SimpleATO:test
           :SimpleATOBukkit:test
+          :verifySignalModuleBoundaries
           :WebUI:test
           :BukkitPlugin:shadowJar
           :WebUI:shadowJar

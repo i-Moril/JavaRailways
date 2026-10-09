@@ -1,5 +1,23 @@
 # Stage 2 implementation plan
 
+## 2026-10-09 module-boundary and packaging gate
+
+- [x] Add one root `verifySignalModuleBoundaries` direct-declaration/artifact regression guard. It rejects the current
+  Basic/SimpleATO/adapter/host reverse project edges, and ensures any SimpleSignals host project dependency is not declared
+  in `api`, `implementation`, `compileOnlyApi` or `runtimeOnly`; even `compileOnly` cannot point at SimpleATOBukkit. It
+  intentionally does not encode exact domain-class inventories or force
+  SimpleSignals to depend forever on every current host module.
+- [x] Reuse `SimpleSignals:verifyPluginJar` for its independent descriptor and no-shadow assertion, then additionally scan
+  SimpleSignals bytecode for a forbidden SimpleATOBukkit forwarding dependency. Inspect the adapter and host artifacts to
+  prove SimpleATOBukkit has no descriptor, `JavaPlugin`, `ServicesManager` or SimpleSignals reference; the JavaRailways
+  shadow JAR must embed `SimpleATOBukkitModule.class`, retain the sole host descriptor and exclude SimpleSignals classes.
+- [x] Put the gate in the repository CI build and document the same command in the shared/module owner specs and
+  SimpleSignals README. This batch changes no runtime behavior, schema, version or compatibility path. A focused local
+  `:verifySignalModuleBoundaries` run passed against the actual JARs. The affected module gate was then rerun from source:
+  SimpleSignals 47 suites / 485 tests and SimpleATOBukkit 2 suites / 2 tests passed with zero failures, errors or skips;
+  plugin JAR verification also executed. Existing Gradle/JDK/native warnings and one physics-overload diagnostic are not
+  deployment or performance evidence. Live Paper/Folia loading and client rendering remain separate validation.
+
 ## 2026-10-09 Signal Wand ground-placement follow-up
 
 - [x] Extend the existing two-step Signal Wand placement without changing logical binding: right-click air keeps the
@@ -599,8 +617,8 @@ Current extraction progress:
 
 ## Validation
 
-- [ ] Module-boundary tests prove Basic, SimpleATO, SimpleATOBukkit and `SimpleSignals` have one owner per state and valid dependency direction.
-- [ ] Packaging checks for the independently installed `SimpleSignals` plugin prove it has its own descriptor/JAR, compile-only host dependencies and no shadowed host classes; embedded `SimpleATOBukkit` needs no separate deployable-artifact verification.
+- [ ] Complete module-boundary/one-owner audit for Basic, SimpleATO, SimpleATOBukkit and `SimpleSignals`. The current root gate closes only the declared direct main-project reverse edges and selected artifact references; it cannot prove semantic ownership or public-contract-only use. In particular, SimpleSignals still imports the existing `core.util.ThreadGuard` non-API type. Moving or exposing that contract requires its own reviewed API batch and is not hidden by this packaging check.
+- [x] Packaging checks for the independently installed `SimpleSignals` plugin prove it has its own descriptor/JAR, compile-only host dependencies and no shadowed host classes. The same gate proves the embedded `SimpleATOBukkit` library has no plugin descriptor or `JavaPlugin`/`ServicesManager` lifecycle, while `BukkitPlugin:shadowJar` contains `SimpleATOBukkitModule.class` under the sole JavaRailways descriptor. It does not treat the adapter library JAR as another server artifact. `SimpleSignals:verifyPluginJar` remains the focused artifact check; live Paper/Folia dependency resolution and enable remain separate.
 - [ ] Region tests cover simple turnout, multi-turnout throat, leak, ambiguity, direction, topology invalidation and unsupported overlap.
 - [x] Resource tests cover mandatory Basic physical floor, valid additions, omitted/invalid additions, disjoint paths and atomic conflict denial.
 - [ ] Fixed/moving transition tests cover whole next block versus exact post-exit boundary and sufficient train-tail clearance.

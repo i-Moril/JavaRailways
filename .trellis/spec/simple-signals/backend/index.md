@@ -469,11 +469,17 @@ JS 明确设置速度和不透明模型名，物理／下游变化只触发受�
 ```bash
 ./gradlew :SimpleSignals:check
 ./gradlew :BukkitPlugin:compileSignalApiConsumerJava
+./gradlew verifySignalModuleBoundaries
 git diff --check
 ```
 
 `verifyPluginJar` 必须证明 artifact 含 `plugin.yml`，且不含 Core、Basic、SimpleATO 或 BukkitPlugin
 宿主 package。服务发现测试必须覆盖完整 capability 集合和缺少必需 capability 时的 fail-fast。
+根级 `verifySignalModuleBoundaries` 只补充直接声明和产物回归：SimpleSignals的宿主项目依赖若存在，不能
+声明在`api`／`implementation`／`compileOnlyApi`／`runtimeOnly`；SimpleSignals也不能以`compileOnly`
+依赖或在字节码中引用SimpleATOBukkit；adapter不得包含
+descriptor、`JavaPlugin`/`ServicesManager`或SimpleSignals引用；主JAR必须嵌入adapter class且不得嵌入
+SimpleSignals。该任务由CI执行；它不证明完整semantic one-owner或公开API边界，也不代替Paper/Folia实际加载。
 自动测试和 JAR 检查不能替代真实服务器的 Paper library resolution、插件 enable、管理员命令与客户端模型画面。
 当前已在 Paper 1.21.11 验证前三项；客户端交互与 Folia 26.1.2 仍未验证。
 保护区域测试必须覆盖简单/多道岔连通内部、outside reconnect、重叠、AB/BA路线窗口、缺少entry/exit和catalog失败不替换旧snapshot。

@@ -48,6 +48,10 @@
 - `SimpleSignals`生成带独立`plugin.yml`的普通部署JAR；该JAR不shadow Core、Basic、SimpleATO或BukkitPlugin class。
 - `TunnelBridgeBuilder:shadowJar` 只产出 add-on；JavaRailways 与语言运行库由插件依赖/Paper libraries 提供。
 - 根 Dokka 当前聚合 `Core`、`Basic` 与 `SimpleATO` 的候选 API；`SimpleATO` 只公开 `work.art1st.javarailways.simpleato.api.*`，迁移期内部package仍保持suppression。
+- 根级`verifySignalModuleBoundaries`是上述信号拆分的直接声明／产物回归门禁：检查main配置中的直接
+  Gradle项目反向依赖、SimpleATOBukkit的descriptor/lifecycle/service-discovery引用，以及SimpleSignals与
+  JavaRailways shadow JAR的隔离／嵌入方向。CI必须执行该任务；语义ownership、公开API包边界和真实
+  Paper/Folia加载仍须分别审查。
 
 ## 变更检查
 

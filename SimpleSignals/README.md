@@ -3,6 +3,12 @@
 独立的信号插件，依赖 JavaRailways。Basic 管理物理资源和实际授权，SimpleATO 消费行车限制；
 SimpleSignals 定义保护区域、固定进路、固定闭塞及其信号规则。信号显示允许不等于已经获得资源授权。
 
+SimpleSignals 使用自己的 `plugin.yml` 和普通 `SimpleSignals-*.jar` 独立安装；JavaRailways 主插件不会把它
+嵌入自己的 JAR。Core、Basic、SimpleATO 和 BukkitPlugin 只作为编译期宿主依赖，运行时由
+`depend: [JavaRailways]` 提供。仓库的 `./gradlew verifySignalModuleBoundaries` 同时检查声明依赖和实际 JAR：
+SimpleSignals 不携带宿主类，SimpleATOBukkit 不产生第二个 Bukkit 生命周期而由主插件嵌入，并阻止已声明的
+main配置直接反向依赖。语义ownership和公开API使用仍由代码审查负责。
+
 ## 目前能做什么
 
 后端已支持三种保护区域设备：

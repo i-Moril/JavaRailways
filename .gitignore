@@ -89,7 +89,10 @@ http-client.private.env.json
 .gradle
 **/build/
 !**/src/**/build/
+# IDE-generated output in top-level modules, not source directories named bin.
+/*/bin/
 BukkitPlugin/run-folia/
+/SimpleSignals/logs/
 
 # Ignore Gradle GUI config
 gradle-app.setting

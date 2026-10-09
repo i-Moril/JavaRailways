@@ -42,9 +42,16 @@ internal interface SignalWandBackend {
     fun place(
         capture: SignalWandCapture,
         binding: SignalWandBinding,
-        point: RailPositionSnapshot,
+        placement: ModelPlacement,
         active: () -> Boolean
     ): SignalWandOutcome
+
+    fun place(
+        capture: SignalWandCapture,
+        binding: SignalWandBinding,
+        point: RailPositionSnapshot,
+        active: () -> Boolean
+    ): SignalWandOutcome = place(capture, binding, ModelPlacement.RailAttached(point), active)
     fun delete(
         capture: SignalWandCapture,
         binding: SignalWandBinding,
@@ -130,7 +137,7 @@ internal class RuntimeSignalWandBackend(
     override fun place(
         capture: SignalWandCapture,
         binding: SignalWandBinding,
-        point: RailPositionSnapshot,
+        placement: ModelPlacement,
         active: () -> Boolean
     ): SignalWandOutcome {
         val captured = capture as Capture
@@ -138,7 +145,6 @@ internal class RuntimeSignalWandBackend(
         require(selectionCurrent()) { "Signal selection expired; select again" }
         require(binding.worldId == captured.worldId) { "The bound entrance belongs to another world" }
         val publication = captured.publication
-        val placement = ModelPlacement.RailAttached(point)
         val patch: SimpleSignalsDefinitionPatch
         val replacementId: String
         val created: Boolean

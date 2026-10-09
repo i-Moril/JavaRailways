@@ -4,11 +4,16 @@ import net.kyori.adventure.text.Component
 import org.bukkit.Location
 import org.bukkit.NamespacedKey
 import org.bukkit.World
+import org.bukkit.block.Block
+import org.bukkit.block.BlockFace
 import org.bukkit.command.Command
 import org.bukkit.entity.Player
+import org.bukkit.event.Event
+import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerChangedWorldEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.block.Action
+import org.bukkit.inventory.EquipmentSlot
 import org.bukkit.persistence.PersistentDataContainer
 import org.bukkit.plugin.Plugin
 import org.bukkit.inventory.meta.ItemMeta
@@ -21,6 +26,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.bukkit.api.rail.RailTarget
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
+import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
@@ -34,6 +40,7 @@ import java.util.ArrayDeque
 import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import kotlin.math.sqrt
 
 /** Deterministic owner/worker/UI coverage; live Folia dialog rendering remains a deployment check. */
 class SignalWandHandlerTest {
@@ -233,6 +240,59 @@ class SignalWandHandlerTest {
         assertTrue(f.messages.isEmpty())
         f.drainOwners()
         assertTrue(f.messages.single().toString().contains("updated"))
+        assertEquals(ModelPlacement.RailAttached(
+            RailPositionSnapshot(f.rail.id, work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB, 2.0)),
+            f.placements.single())
+    }
+
+    @Test fun `ground placement uses face centre and upright player facing without rail lookup`() = Fixture().use { f ->
+        val placement = SignalWandHandler.groundPlacement(10, 63, -4, BlockFace.EAST, 0f)
+        val pose = placement.pose
+        assertEquals(11.0, pose.x(), 1e-12)
+        assertEquals(63.5, pose.y(), 1e-12)
+        assertEquals(-3.5, pose.z(), 1e-12)
+        assertEquals(0.0, pose.rotationX(), 1e-12)
+        assertEquals(-sqrt(0.5), pose.rotationY(), 1e-12)
+        assertEquals(0.0, pose.rotationZ(), 1e-12)
+        assertEquals(sqrt(0.5), pose.rotationW(), 1e-12)
+
+        f.handler.click(f.player, f.tool, Action.RIGHT_CLICK_BLOCK, placement)
+        assertEquals(0, f.targetCalls)
+        assertEquals(1, f.workers.size)
+        f.drainWorkers()
+        assertEquals(listOf(placement), f.placements)
+        assertEquals(1, f.performs)
+        f.drainOwners()
+        assertTrue(f.messages.single().toString().contains("updated"))
+    }
+
+    @Test fun `block event captures ground placement while shift right click keeps settings priority`() = Fixture().use { f ->
+        val block = proxy(Block::class.java) { name, _ -> when (name) {
+            "getX" -> 10
+            "getY" -> 63
+            "getZ" -> -4
+            else -> error("Unexpected block method $name")
+        } }
+        val place = PlayerInteractEvent(f.player, Action.RIGHT_CLICK_BLOCK, null, block, BlockFace.EAST,
+            EquipmentSlot.HAND)
+
+        f.handler.onInteract(place)
+
+        assertEquals(Event.Result.DENY, place.useItemInHand())
+        assertEquals(0, f.targetCalls)
+        f.drainWorkers()
+        assertEquals(SignalWandHandler.groundPlacement(10, 63, -4, BlockFace.EAST, 90f), f.placements.single())
+        f.drainOwners()
+
+        f.sneaking = true
+        val settings = PlayerInteractEvent(f.player, Action.RIGHT_CLICK_BLOCK, null, block, BlockFace.UP,
+            EquipmentSlot.HAND)
+        f.handler.onInteract(settings)
+
+        assertEquals(Event.Result.DENY, settings.useItemInHand())
+        assertTrue(f.settings.isNotEmpty())
+        assertEquals(1, f.performs)
+        assertEquals(0, f.targetCalls)
     }
 
     @Test fun `left click binds entrance into item state and increments revision`() = Fixture().use { f ->
@@ -386,6 +446,7 @@ class SignalWandHandlerTest {
         val newItemId = UUID(0, 3)
         var permitted = true
         var online = true
+        var sneaking = false
         var pluginEnabled = true
         var ownerThread = true
         var current = true
@@ -397,6 +458,7 @@ class SignalWandHandlerTest {
         var targetCalls = 0
         var performs = 0
         var deletes = 0
+        val placements = mutableListOf<ModelPlacement>()
         var available: List<AvailableSignalType>? = DEFAULT_TYPES
         var modelIds: List<String>? = listOf("test:model")
         val messages = mutableListOf<Component>()
@@ -425,6 +487,8 @@ class SignalWandHandlerTest {
                 "hasPermission" -> permitted
                 "getWorld" -> world
                 "isOnline" -> online
+                "isSneaking" -> sneaking
+                "getLocation" -> Location(world, 0.0, 0.0, 0.0, 90f, 0f)
                 "getEyeLocation" -> Location(world, 0.0, 0.0, 0.0, -90f, 0f)
                 "sendMessage" -> { messages += args!![0] as Component; null }
                 "sendActionBar" -> { actionBars += args!![0] as Component; null }
@@ -463,9 +527,11 @@ class SignalWandHandlerTest {
                 check(!ownerThread)
                 return resolvedChoices
             }
-            override fun place(capture: SignalWandCapture, binding: SignalWandBinding, point: RailPositionSnapshot, active: () -> Boolean): SignalWandOutcome {
+            override fun place(capture: SignalWandCapture, binding: SignalWandBinding,
+                placement: ModelPlacement, active: () -> Boolean): SignalWandOutcome {
                 check(!ownerThread)
                 assertTrue(active())
+                placements += placement
                 performs++
                 return SignalWandOutcome("updated")
             }

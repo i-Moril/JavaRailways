@@ -1145,10 +1145,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
             backend.availableSignalTypes()!!.map { it.signalType })
         val capture = backend.capture(fixture.worldId, "automatic:slow")
         val position = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 0.25)
+        val placement = ModelPlacement.Ground(ModelPose(9.0, 65.0, 4.0, 0.0, 0.0, 0.0, 1.0))
 
         val binding = backend.resolveEntrance(capture, SignalWandControlKind.FIXED_BLOCK,
             SignalWandMode.PLACEMENT, position).single().binding
-        val outcome = backend.place(capture, binding, position) { true }
+        val outcome = backend.place(capture, binding, placement) { true }
 
         assertTrue(outcome.message.contains("Updated signal"), outcome.message)
         val live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
@@ -1156,7 +1157,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(2, live.definitionRevision)
         assertEquals(2, edited.revision)
         assertEquals("automatic:slow", edited.signalType)
-        assertEquals(ModelPlacement.RailAttached(position), edited.placement)
+        assertEquals(placement, edited.placement)
         assertEquals(live, (definitions.load(fixture.worldId) as
             work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
         assertEquals(1, infrastructure.permitAcquisitionCount)
@@ -1406,7 +1407,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val generatedId = "test:current-created"
         val backend = RuntimeSignalWandBackend(manager, infrastructure.service) { generatedId }
         val entrance = fixture.region.boundaries.first().position
-        val placement = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 1.0)
+        val placement = ModelPlacement.Ground(ModelPose(8.0, 66.0, 3.0, 0.0, 0.0, 0.0, 1.0))
 
         var capture = backend.capture(fixture.worldId, "automatic:block")
         var choices = backend.resolveEntrance(capture, SignalWandControlKind.PROTECTION_CURRENT_ENTRY,
@@ -1422,7 +1423,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(5, updated.revision)
         assertEquals(7.0, updated.inspectionLeadTimeSeconds)
         assertEquals("automatic:block", updated.signalType)
-        assertEquals(ModelPlacement.RailAttached(placement), updated.placement)
+        assertEquals(placement, updated.placement)
         assertEquals("automatic:head", manager.authoringRuntime(fixture.worldId)!!.currentModels()!!.prepared
             .signals.getValue(second.signalId).single().model.id)
 
@@ -1478,7 +1479,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
         val backend = RuntimeSignalWandBackend(manager, infrastructure.service) { "test:fixed-created" }
         val entrance = fixture.region.boundaries.first().position
-        val placement = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 1.0)
+        val placement = ModelPlacement.Ground(ModelPose(7.0, 67.0, 2.0, 0.0, 0.0, 0.0, 1.0))
         var capture = backend.capture(fixture.worldId, "automatic:block")
         var choices = backend.resolveEntrance(capture, SignalWandControlKind.PROTECTION_FIXED_ROUTE,
             SignalWandMode.PLACEMENT, entrance)
@@ -1500,11 +1501,13 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val created = live.protectionSignals.single { it.signalId == "test:fixed-created" }
         assertEquals(lower.routeId, created.bindingId)
         assertEquals(ProtectionSignalKind.FIXED_ROUTE, created.kind)
+        assertEquals(placement, created.placement)
         val updated = live.protectionSignals.single { it.signalId == existing.signalId }
         assertEquals(7, updated.revision)
         assertEquals(upper.routeId, updated.bindingId)
         assertEquals(11.0, updated.inspectionLeadTimeSeconds)
         assertEquals("automatic:slow", updated.signalType)
+        assertEquals(placement, updated.placement)
 
         val runtime = manager.authoringRuntime(fixture.worldId)!!
         val unavailableRegion = ProtectionRegionDefinition(fixture.region.regionId, 2,
@@ -1631,7 +1634,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         manager.loadSignalPacks(writeAutomaticSignalPack("proceed", modelVariants = listOf("stop", "proceed")))
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
         val backend = RuntimeSignalWandBackend(manager, infrastructure.service) { "test:attached-wand-created" }
-        val updatedPosition = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 2.0)
+        val updatedPlacement = ModelPlacement.Ground(
+            ModelPose(6.0, 68.0, 1.0, 0.0, 0.0, 0.0, 1.0))
 
         var capture = backend.capture(fixture.worldId, "automatic:slow", "demo_signals:home")
         var choices = backend.resolveEntrance(capture, SignalWandControlKind.ATTACHED_SIGNAL,
@@ -1641,7 +1645,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val existingChoice = choices.single {
             ((it.binding as AttachedSignalWandBinding).intent as? ExistingAttachedSignal)?.signalId == original.signalId
         }
-        val updateOutcome = backend.place(capture, existingChoice.binding, updatedPosition) { true }
+        val updateOutcome = backend.place(capture, existingChoice.binding, updatedPlacement) { true }
         assertTrue(updateOutcome.message.contains("Updated"), updateOutcome.message)
         assertTrue(updateOutcome.message.contains("with model demo_signals:home"), updateOutcome.message)
         var live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
@@ -1649,7 +1653,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(3, updated.revision)
         assertEquals(primary.signalId, updated.primarySignalId)
         assertEquals("demo_signals:home", updated.model.modelId)
-        assertEquals(ModelPlacement.RailAttached(updatedPosition), updated.model.placement)
+        assertEquals(updatedPlacement, updated.model.placement)
         assertTrue(assertThrows(IllegalArgumentException::class.java) {
             backend.capture(fixture.worldId, "automatic:block", "demo_signals:missing")
         }.message!!.contains("Unknown presentation model"))
@@ -1658,7 +1662,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val stalePrimary = AttachedSignalWandBinding(fixture.worldId, primary.signalId, 2,
             ExistingAttachedSignal(original.signalId, updated.revision))
         assertTrue(assertThrows(IllegalArgumentException::class.java) {
-            backend.place(capture, stalePrimary, updatedPosition) { true }
+            backend.place(capture, stalePrimary, updatedPlacement) { true }
         }.message!!.contains("primary signal revision changed"))
         assertSame(beforeStalePrimary, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
 
@@ -1666,7 +1670,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         choices = backend.resolveEntrance(capture, SignalWandControlKind.ATTACHED_SIGNAL,
             SignalWandMode.PLACEMENT, primaryPosition)
         val newChoice = choices.single { (it.binding as AttachedSignalWandBinding).intent === NewAttachedSignal }
-        assertTrue(backend.place(capture, newChoice.binding, updatedPosition) { true }.message.contains("Created"))
+        assertTrue(backend.place(capture, newChoice.binding, updatedPlacement) { true }.message.contains("Created"))
         live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         assertEquals(setOf(original.signalId, "test:attached-wand-created"), live.attachedSignals.map { it.signalId }.toSet())
 
@@ -1701,7 +1705,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
         val backend = RuntimeSignalWandBackend(manager, infrastructure.service)
         val entrance = fixture.region.boundaries.first().position
-        val placement = RailPositionSnapshot(fixture.entry, ViewDirection.AB, 1.5)
+        val placement = ModelPlacement.Ground(ModelPose(5.0, 69.0, 0.0, 0.0, 0.0, 0.0, 1.0))
 
         var capture = backend.capture(fixture.worldId, "automatic:slow", "demo_signals:home")
         val binding = backend.resolveEntrance(capture, SignalWandControlKind.ROUTE_INDICATOR,
@@ -1716,7 +1720,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(indicator.noRouteModelVariant, updated.noRouteModelVariant)
         assertEquals(indicator.modelVariantsByRouteId, updated.modelVariantsByRouteId)
         assertEquals("demo_signals:home", updated.model!!.modelId)
-        assertEquals(ModelPlacement.RailAttached(placement), updated.model.placement)
+        assertEquals(placement, updated.model.placement)
         capture = backend.capture(fixture.worldId, "automatic:block", "demo_signals:home")
         val beforeStaleIndicator = manager.authoringRuntime(fixture.worldId)!!.authoringPublication()
         assertTrue(assertThrows(IllegalArgumentException::class.java) {

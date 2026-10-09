@@ -16,6 +16,8 @@ import net.kyori.adventure.text.event.ClickCallback
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.Material
 import org.bukkit.NamespacedKey
+import org.bukkit.block.Block
+import org.bukkit.block.BlockFace
 import org.bukkit.command.Command
 import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
@@ -40,12 +42,17 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataContainer
 import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.Plugin
+import org.joml.Matrix3d
+import org.joml.Quaterniond
+import org.joml.Vector3d
 import work.art1st.javarailways.bukkit.api.rail.RailTarget
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
+import work.art1st.javarailways.bukkit.api.model.ModelPose
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simplesignals.region.SIMPLE_SIGNALS_NAMESPACED_ID
+import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
 import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
 import work.art1st.javarailways.simplesignals.signalpack.AvailableSignalType
 import java.util.Optional
@@ -54,6 +61,8 @@ import java.util.concurrent.CompletionStage
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 /** Primary-signal authoring with item-bound settings and Folia owner scheduling. */
 internal class SignalWandHandler(
@@ -114,7 +123,7 @@ internal class SignalWandHandler(
             giveTool(sender, state)
             refreshStatus(sender)
             sender.sendMessage(Component.text(
-                "Signal Wand created. Shift-right-click for mode/type; left-click an entrance to bind, then right-click a rail to place."
+                "Signal Wand created. Shift-right-click for mode/type; left-click a binding target, then right-click air/rail or a block face to place."
             ))
         } catch (failure: Exception) {
             sender.sendMessage(Component.text(failure.message ?: "Cannot create signal wand"))
@@ -132,7 +141,10 @@ internal class SignalWandHandler(
         if (player.isSneaking && (event.action == Action.RIGHT_CLICK_AIR || event.action == Action.RIGHT_CLICK_BLOCK)) {
             openSettings(player, state)
         } else {
-            click(player, state, event.action)
+            val groundPlacement = if (event.action == Action.RIGHT_CLICK_BLOCK) {
+                event.clickedBlock?.let { clicked -> groundPlacement(clicked, event.blockFace, player.location.yaw) }
+            } else null
+            click(player, state, event.action, groundPlacement)
         }
     }
 
@@ -221,7 +233,12 @@ internal class SignalWandHandler(
         }))
     }
 
-    internal fun click(player: Player, state: SignalWandState, action: Action) {
+    internal fun click(
+        player: Player,
+        state: SignalWandState,
+        action: Action,
+        groundPlacement: ModelPlacement.Ground? = null
+    ) {
         val playerId = player.uniqueId
         choiceTokens.remove(playerId)
         if (!canUse(player) || toolInHand(player) != state) {
@@ -256,7 +273,11 @@ internal class SignalWandHandler(
             player.sendMessage(Component.text("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}"))
             return
         }
-        val sight = player.eyeLocation.direction
+        val sight = if (operation == SignalWandOperation.PLACE && groundPlacement != null) {
+            null
+        } else {
+            player.eyeLocation.direction
+        }
         fun active(): Boolean = sessions.current(playerId, session) && operational()
         fun ownerCurrent(): Boolean = active() && player.isOnline && player.world.uid == worldId &&
             player.hasPermission(PERMISSION) && toolInHand(player) == state
@@ -285,7 +306,7 @@ internal class SignalWandHandler(
             sessions.invalidate(playerId, session)
             refreshStatus(player)
             player.sendMessage(Component.text(
-                "Bound ${binding.description()}; right-click a rail to place the signal"
+                "Bound ${binding.description()}; right-click air/rail or a block face to place the signal"
             ))
         }
         fun completeBinding(binding: SignalWandBinding) = entity(player) { completeBindingOnOwner(binding) }
@@ -314,6 +335,18 @@ internal class SignalWandHandler(
                 }
             }
         }
+        if (operation == SignalWandOperation.PLACE && groundPlacement != null) {
+            worker {
+                if (!active()) return@worker
+                try {
+                    require(backend.current(captured)) { "Signal selection expired; select again" }
+                    complete(backend.place(captured, checkNotNull(state.binding), groundPlacement, ::active).message)
+                } catch (failure: Exception) {
+                    complete("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
+                }
+            }
+            return
+        }
         try {
             findTarget(player).whenComplete { target, failure ->
                 entity(player) {
@@ -331,7 +364,9 @@ internal class SignalWandHandler(
                             val curve: Curve = targets.findCurve(worldId, selected.rail().id)
                                 .orElseThrow { IllegalArgumentException("Rail no longer exists") }
                             val tangent = curve.getPointAt(selected.arcLength()).tangent
-                            val dot = tangent.x() * sight.x + tangent.y() * sight.y + tangent.z() * sight.z
+                            val selectedSight = checkNotNull(sight)
+                            val dot = tangent.x() * selectedSight.x + tangent.y() * selectedSight.y +
+                                tangent.z() * selectedSight.z
                             require(abs(dot) >= 0.15) { "Look along the rail into the controlled section" }
                             val point = RailPositionSnapshot(selected.rail().id,
                                 if (dot >= 0) ViewDirection.AB else ViewDirection.BA, selected.arcLength())
@@ -343,7 +378,8 @@ internal class SignalWandHandler(
                                     } else continueChoice(choices, deleting = false)
                                 }
                                 SignalWandOperation.PLACE -> complete(
-                                    backend.place(captured, checkNotNull(state.binding), point, ::active).message)
+                                    backend.place(captured, checkNotNull(state.binding),
+                                        ModelPlacement.RailAttached(point), ::active).message)
                                 SignalWandOperation.DELETE -> {
                                     val choices = backend.resolveEntrance(captured, state.controlKind, state.mode, point)
                                     if (state.controlKind == SignalWandControlKind.FIXED_BLOCK) {
@@ -609,6 +645,36 @@ internal class SignalWandHandler(
 
         private const val DISPLAY_NAME_LIMIT = 64
         private const val MARKER_VALUE: Byte = 1
+
+        /**
+         * Places the model root at the clicked face centre. It stays upright and points its local +X axis
+         * along the player's horizontal facing; local +Y remains world-up and local +Z is the player's right.
+         */
+        internal fun groundPlacement(block: Block, face: BlockFace, playerYawDegrees: Float): ModelPlacement.Ground =
+            groundPlacement(block.x, block.y, block.z, face, playerYawDegrees)
+
+        internal fun groundPlacement(
+            blockX: Int,
+            blockY: Int,
+            blockZ: Int,
+            face: BlockFace,
+            playerYawDegrees: Float
+        ): ModelPlacement.Ground {
+            require(playerYawDegrees.isFinite()) { "Player facing must be finite" }
+            val yaw = Math.toRadians(playerYawDegrees.toDouble())
+            val forward = Vector3d(-sin(yaw), 0.0, cos(yaw))
+            val up = Vector3d(0.0, 1.0, 0.0)
+            val right = Vector3d(forward).cross(up)
+            val rotation = Quaterniond().setFromNormalized(
+                Matrix3d().setColumn(0, forward).setColumn(1, up).setColumn(2, right)
+            ).normalize()
+            return ModelPlacement.Ground(ModelPose(
+                blockX + 0.5 + face.modX * 0.5,
+                blockY + 0.5 + face.modY * 0.5,
+                blockZ + 0.5 + face.modZ * 0.5,
+                rotation.x, rotation.y, rotation.z, rotation.w
+            ))
+        }
     }
 }
 

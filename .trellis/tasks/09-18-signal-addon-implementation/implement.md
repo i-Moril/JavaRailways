@@ -1,5 +1,22 @@
 # Stage 2 implementation plan
 
+## 2026-10-09 Signal Wand ground-placement follow-up
+
+- [x] Extend the existing two-step Signal Wand placement without changing logical binding: right-click air keeps the
+  rail-targeted `RailAttached` path, while right-clicking a real block face captures its centre and the player's horizontal
+  facing on the owner thread and passes one immutable upright `Ground(ModelPose)` to the worker.
+- [x] Generalize the internal Wand backend placement input to the already-supported `ModelPlacement` union. Fixed-block,
+  protection current-entry/fixed-route primaries, attached signals and existing route indicators reuse their exact existing
+  catalog/runtime/publication/topology guards, edit permit, manager patch, persistence and retained model lifecycle.
+- [x] Ground placement performs no rail lookup and changes display only; the left-click section/entry/primary binding remains
+  authoritative. No schema/version/compatibility path, renderer, placeholder rule, offset/style UI or route-indicator mapping
+  authoring was added.
+- [ ] Live Paper/Folia block-face interaction and client rendering remain deployment verification; offline gate evidence is
+  bounded to deterministic handler/runtime-manager tests for now. The final offline gate passed 47 suites / 485 tests with
+  zero failures/errors/skips, `:BukkitPlugin:compileSignalApiConsumerJava`, plugin JAR verification and scoped
+  `git diff --check`; independent review found no remaining production finding and added the event-level block/Shift-right
+  regression before the final gate.
+
 ## 2026-10-08 Signal Wand presentation-device follow-up
 
 - [x] Add separate model-only catalog selection to the strict Wand item state, settings and status bar. The selected

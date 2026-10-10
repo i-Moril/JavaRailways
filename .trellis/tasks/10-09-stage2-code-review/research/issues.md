@@ -249,9 +249,10 @@
 
 ### CR-028：曲线raw/decode输入验证缺口
 
-- P2；静态确认，构造缺口已被curve spec标为TRANSITIONAL。
+- P2；已修复（2026-10-10）。原审查时为静态确认，构造缺口已被curve spec标为TRANSITIONAL。
 - `PrimeCurveImpl.kt:24-33`缺少样本数、零起点、严格递增、finite/frame校验；`:336-351`手写Vector3dSerializer缺失x/y/z直接补0。
 - 建议共享构造/decode边界一次验证；不在getPointAt热路径重复兜底，不机械升版。补固定损坏输入测试。
+- 处置：Core复制后统一验证≥2、精确零起点、finite严格递增arc、finite xyz及可归一化非平行frame；load共用构造器，缺xyz明确拒绝，合法非unit/非正交frame及相同位置不同arc保留。先修Core LINE stream重复末点和Basic ConstraintSolver共享接头重复，不在decoder去重。新增16项中14在旧代码失败，2有效控制通过；修复后全部通过，独立检查及7模块强制组合门禁成功，详见[记录](../implement.md#cr-028-修复与组合验证2026-10-10)。无格式/版本或runtime兼容改动；真实旧开发服数据与离线迁移尚未验证，不能据此直接部署。
 
 ### CR-029：extension仍按存档FQCN反射加载
 

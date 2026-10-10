@@ -143,7 +143,8 @@ object ConstraintSolver {
             if (len < 0.01) return
             val tan2dn = Vector3d(tan2d).normalize()
             val m = maxOf(2, (len / step).toInt())
-            for (i in 0..m) {
+            val firstIndex = if (pts.isEmpty()) 0 else 1
+            for (i in firstIndex..m) {
                 val t = i.toDouble() / m
                 val arc = s + len * t
                 val y = heightAt(arc)
@@ -171,7 +172,9 @@ object ConstraintSolver {
             localPoints[0] = accurateLocalRawPoint(curve, 0.0)
             localPoints[localPoints.lastIndex] = accurateLocalRawPoint(curve, curve.totalLength)
         }
-        localPoints.forEach { lp ->
+        localPoints.forEachIndexed { index, lp ->
+            // The preceding straight already emitted this shared junction.
+            if (index == 0 && pts.isNotEmpty()) return@forEachIndexed
             val lx = lp.position.x(); val lz = lp.position.z()
             val gx = curveOrigin.x() + lx * fx.x() + lz * fz.x()
             val gz = curveOrigin.z() + lx * fx.z() + lz * fz.z()

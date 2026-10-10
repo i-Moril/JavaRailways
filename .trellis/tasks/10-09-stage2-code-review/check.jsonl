@@ -2,10 +2,12 @@
 {"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "No schema bump, migration or runtime compatibility in current input/geometry fixes"}
 {"file": ".trellis/spec/javarailways/core/api-boundaries.md", "reason": "No unnecessary public identity or transaction framework"}
 {"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "Check path, endpoints, facing and bogie arc spacing without relocation; do not claim exact coupler validation"}
-{"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "CR-025 sparse LINE/DISCRETE true projection, reversed frame and diagnostic message"}
+{"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "CR-028 shared once-per-construction strict raw/decode validation and unique LINE stream; retain valid nonorthogonal frames"}
 {"file": ".trellis/spec/javarailways/core/rail-topology-and-occupancy.md", "reason": "CR-027 strict current references, nullable selection, order and per-rail pre-mutation checks"}
 {"file": ".trellis/spec/javarailways/core/runtime-publication.md", "reason": "CR-016 publication and close must share exact-ticket terminal validation"}
 {"file": ".trellis/spec/javarailways/core/di-and-runtime-lifecycle.md", "reason": "Check real in-flight close, bounded cleanup and CLOSED retention"}
 {"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "Distinguish strict rail endpoint decoding from unresolved full materialization lifecycle"}
-{"file": ".trellis/spec/javarailways/core/testing.md", "reason": "Shared decoder tested through both real entries; nearest tests use genuinely sparse fixtures"}
+{"file": ".trellis/spec/javarailways/core/testing.md", "reason": "CR-020 real bounded physics epochs, end-of-track derail dispatch and live-mutation snapshot isolation; no count padding"}
+{"file": ".trellis/spec/javarailways/basic/curve-authoring.md", "reason": "CR-028 raw validation must not reject current formal authoring producers"}
+{"file": ".trellis/spec/javarailways/basic/testing.md", "reason": "CR-028 verify real generator junctions, reverse/rebuild and immutable geometry"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/core-module-review.md", "reason": "Check bounded CR-025/027 algorithms/inputs while CR-023 remains partial and product decisions stay separate"}

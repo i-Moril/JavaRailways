@@ -43,6 +43,8 @@ data class RailCurveBuildOptions(
 
 Final `RailGeometryMeasurementService.measure(curves,gaugeMeters)`重测minimum horizontal radius m、max superelevation m、max absolute grade；authoring input不能代替final measurement。
 
+`ConstraintSolver.generateCurve`按straightA → curve → straightB顺序拼接采样；前段已经输出共享接头时，后段跳过自己的第一个点，避免同一arc出现两次。不是全量按位置去重：相同位置不同递增arc仍是合法Core输入。Core构造/load统一验证零起点、finite严格递增arc及可用frame；LINE `stream()`也只输出一次共享端点，因此reverse/vertical rebuild/parallel offset可以直接消费，不在decoder修复producer错误。几何生成/校验留在worker，查询热路径不重复扫描。
+
 ## 项目内正确示例
 
 入口硬性拒绝main thread：
@@ -70,7 +72,7 @@ fun build(from: Anchor, to: Anchor, options: RailCurveBuildOptions): RailCurveBu
 ## 必需测试与验证
 
 - `RailCurveFactoryTemplateTest.kt`：classification、manual templates、invalid、main-thread fail、endpoint/tangent/roll、left/right/reverse。
-- `ConstraintSolverTest.kt`、`StandardRailCurveTest.kt`：radius/clothoid/cant gradient。
+- `ConstraintSolverTest.kt`、`StandardRailCurveTest.kt`：radius/clothoid/cant gradient，以及straight-curve-straight共享接头只出现一次、arc严格递增且首尾几何保留。
 - `VerticalProfileSmootherTest.kt`/`VerticalCurveRebuilderTest.kt`：hard constraints与3D arc。
 - `ParallelAnchorGeometryTest.kt`：matching/continuity。
 - `RailCurvePartitionerTest.kt`、`RailGeometryMeasurementServiceTest.kt`：roles/tolerance/final values。

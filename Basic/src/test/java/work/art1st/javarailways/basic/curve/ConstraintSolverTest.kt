@@ -4,6 +4,7 @@ import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import kotlin.math.*
 
 class ConstraintSolverTest {
@@ -88,6 +89,34 @@ class ConstraintSolverTest {
     }
 
     @Nested inner class GenerateCurve {
+        @Test fun `straight curve junctions occur once with strictly increasing arcs`() {
+            val circularLength = 10.0 * PI
+            val result = ConstraintSolveResult.Success(
+                R = 20.0, straightA = 10.0,
+                L1 = 0.0, Lc = circularLength, L2 = 0.0,
+                straightB = 10.0, theta = PI / 2,
+                totalLength = 20.0 + circularLength, totalAngle = PI / 2
+            )
+            val from = Vector3d()
+            val to = Vector3d(30.0, 0.0, 30.0)
+
+            val points = ConstraintSolver.generateCurve(
+                result, from, Vector3d(1.0, 0.0, 0.0),
+                to, Vector3d(0.0, 0.0, 1.0), step = 1.0
+            )
+
+            assertEquals(0.0, points.first().arcLength)
+            assertEquals(result.totalLength, points.last().arcLength, 1e-9)
+            assertEquals(0.0, points.first().position.distance(from), 1e-9)
+            assertEquals(0.0, points.last().position.distance(to), 1e-9)
+            assertEquals(1, points.count { it.arcLength == 10.0 })
+            assertEquals(1, points.count { it.arcLength == 10.0 + circularLength })
+            for ((lo, hi) in points.zipWithNext()) {
+                assertTrue(hi.arcLength > lo.arcLength, "${lo.arcLength} -> ${hi.arcLength}")
+            }
+            assertEquals(result.totalLength, PrimeCurve.fromPoints(points).totalArcLength, 1e-9)
+        }
+
         @Test fun `start matches from`() {
             val from = Vector3d(10.0, 70.0, 20.0); val fromTan = Vector3d(1.0, 0.0, 0.0)
             val to = Vector3d(150.0, 70.0, 100.0); val toTan = Vector3d(0.0, 0.0, 1.0)

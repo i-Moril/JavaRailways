@@ -2,7 +2,7 @@
 
 ## 1. 状态、范围、触发条件与Owner
 
-- **Status**：`TRANSITIONAL`；二分与插值算法是当前行为，但`PrimeCurve.fromPoints`仍信任caller，尚未在Core入口集中执行本页要求的raw-point校验。
+- **Status**：`CURRENT`；构造与存档load共用一次raw-point校验，二分与插值消费已经验证并复制的point list。
 - **Owner**：Core拥有immutable curve、弧长位置查询与rail-segment零点搜索；Basic拥有production curve authoring。
 - **Non-goals**：不定义Basic曲线求解器、玩家编辑UI或最近轨道的spatial broad phase。
 
@@ -26,7 +26,7 @@ canonical AB arc length s
 
 ### 3.1 按弧长定位采样区间
 
-算法要求`PrimeCurveImpl`的point list按`arcLength`严格递增；当前构造器依赖caller满足该前提。`findSegmentStartIndex(s)`使用upper-bound式二分，返回满足`point[i].arcLength <= s`的最大左端index，并限制到`lastIndex - 1`。因此查询复杂度为`O(log n)`，且必须选择“包含s的左侧区间”，不能改成最近采样点；最近点在两点直线后半段会选择终点，使插值区间退化为零。
+`PrimeCurveImpl`先复制caller的point list及各向量，再在构造边界验证弧长和frame；存档load也调用该构造器，不维护另一套宽松规则。`findSegmentStartIndex(s)`使用upper-bound式二分，返回满足`point[i].arcLength <= s`的最大左端index，并限制到`lastIndex - 1`。因此查询复杂度为`O(log n)`，且必须选择“包含s的左侧区间”，不能改成最近采样点；最近点在两点直线后半段会选择终点，使插值区间退化为零。
 
 `s == totalArcLength`单独返回最后一点。其他位置取得相邻`lo/hi`：
 
@@ -76,7 +76,8 @@ Production authoring由Basic curve factory拥有；Core `PrimeCurveGenerator`仅
 ## 5. 不变量、生命周期、线程与版本
 
 - `PrimeCurve`是immutable canonical AB value；reverse是view，不复制另一份权威几何。
-- raw point输入必须非空、finite、arc严格单调，tangent/normal可用；构造后point order不得变化。
+- raw point至少两项，第一项arc精确为0，全部arc finite且严格递增；没有额外最小步长。position/tangent/normal的xyz全部finite，两个frame向量的length²必须finite且大于0，归一化后的cross length²也必须finite且大于0。
+- raw frame不必预先unit或正交，原值保留；DISCRETE内部插值负责归一化/Gram-Schmidt。相同几何位置但不同递增arc允许存在，不以位置去重。构造后point order不得变化。
 - curve位置、split/concatenate和persistence均使用米制弧长；BA只在读取view时转换。
 - `getPointAt`可在高频路径使用，但`stream/getNearestPoint`标记`@Heavy`，不得用全量采样代替弧长索引。
 
@@ -91,14 +92,15 @@ Production authoring由Basic curve factory拥有；Core `PrimeCurveGenerator`仅
 | persistence | 保存AB arc + `ViewDirection` | 不保存裸BA view-local arc |
 | nearest query | worker执行并做exact geometry check | main thread/hot tick禁止 |
 
-Raw points进入Core前必须由authoring owner验证非空、finite、arc严格单调、tangent/normal可用；任何caller都不得绕过该输入边界。
+Raw points由Core构造边界统一拒绝上述非法输入；authoring owner仍负责工程几何约束，不能依赖decode去重或修复坏样本。`Vector3dSerializer`要求显式x/y/z，缺任一分量抛`SerializationException`，不将缺失补成0。
 
 ## 7. 性能、复杂度与退化行为
 
 - 单次`PrimeCurveImpl.getPointAt`为`O(log n)`区间查找加`O(1)`插值；不得退化成线性扫描point list。
+- 构造/load复制并校验为一次`O(n)`时间及`O(n)`存储；查询热路径不重复全量校验。
 - `RailSegments.searchRailLocation`最坏对每个待查segment执行2次端点查询和50次中点查询，即`O(segmentCount * 50 * log n)`；找到第一个满足位置后立即结束。
 - 单条curve最近点为`O(n)`真实线段投影加一次`O(log n)`弧长定位，额外空间`O(1)`；不按毫米加密采样或新建几何索引，仍是离开main/hot tick的`@Heavy`操作。
-- `stream()`对直线按步长生成虚拟点、对离散段读取存储点，属于`@Heavy`；spatial/nearest任务必须离开main/hot tick并先用coarse index缩小范围。
+- `stream()`对直线按步长生成虚拟点、对离散段读取存储点，每个共享端点及最终端点只输出一次，属于`@Heavy`；spatial/nearest任务必须离开main/hot tick并先用coarse index缩小范围。
 - 数值保护或50次迭代后仍不满足tolerance返回null，不得返回一个未经tolerance验证的“近似成功”。
 
 ## 8. Good / Base / Bad cases
@@ -133,7 +135,7 @@ Bad：
 - `PrimeCurveSurgeryTest.kt`：split+concatenate endpoint、frame、总长。
 - `RailLocationPersistTest.kt`：AB/BA round-trip与tangent。
 - `RailSegments` tests：端点命中、异号收敛、同号null、跨多个segment选择第一个、50次后仍须满足tolerance。
-- 新raw-input入口：empty/nonfinite/non-monotonic/non-orthogonal failure tests。
+- `PrimeCurveInputValidationTest.kt`：短列表、非零起点、非finite/不递增arc、非finite/不可归一化/平行frame拒绝；有效非正交frame、同位置不同arc及输入复制保留；固定损坏current JSON和缺失xyz拒绝；LINE stream不重复末点。
 
 ```bash
 ./gradlew :Core:test --tests '*PrimeCurveTest' --tests '*PrimeCurveSurgeryTest' --tests '*RailLocationPersistTest'
@@ -141,7 +143,7 @@ Bad：
 
 ## 10. 迁移、未决事项与Wrong/Correct
 
-当前机制无需持久化数据迁移。实现工作需要先把raw-point校验收敛到不可绕过的Core构造边界；在此之前不得把“strictly increasing由Core保证”描述成已实现。未来可替换point-list索引或插值实现，但必须保持canonical AB、包含区间语义、复杂度上界和现有数值测试；若要支持“同号但接触零”的搜索，必须新增不同签名/算法及明确采样或导数前提，不能静默改变当前二分合同。
+本次未改变JSON形状或schema版本，也未新增runtime compatibility。当前正式producer必须输出唯一递增arc；Core LINE stream及Basic ConstraintSolver已在生成端去除重复共享端点，不在reader猜测去重。若开发服实际存有旧重复arc，必须取得一致副本后离线dry-run并保留恢复点，不能声称严格loader已兼容；当前未验证远端样本。未来可替换point-list索引或插值实现，但必须保持canonical AB、包含区间语义、复杂度上界和现有数值测试；若要支持“同号但接触零”的搜索，必须新增不同签名/算法及明确采样或导数前提，不能静默改变当前二分合同。
 
 ```text
 错误：在采样点中找距离s最近的点并把它作为插值左端

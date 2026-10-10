@@ -3,6 +3,7 @@ package work.art1st.javarailways.core.physics.rail.curve
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.descriptors.element
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -32,11 +33,41 @@ open class PrimeCurveImpl : PrimeCurve {
                 segmentType = p.segmentType
             )
         }
+        require(pointList.size >= 2) { "A curve requires at least two raw points" }
+        require(pointList.first().arcLength == 0.0) { "The first curve arc length must be zero" }
+        pointList.forEachIndexed { index, point ->
+            require(point.arcLength.isFinite() &&
+                (index == 0 || point.arcLength > pointList[index - 1].arcLength)) {
+                "Curve point $index arc length must be finite and strictly increasing"
+            }
+            requireFiniteComponents(point.position, index, "position")
+            requireFiniteComponents(point.tangent, index, "tangent")
+            requireFiniteComponents(point.normal, index, "normal")
+            val tangentLengthSquared = point.tangent.lengthSquared()
+            val normalLengthSquared = point.normal.lengthSquared()
+            require(tangentLengthSquared.isFinite() && tangentLengthSquared > 0.0) {
+                "Curve point $index tangent must be normalizable"
+            }
+            require(normalLengthSquared.isFinite() && normalLengthSquared > 0.0) {
+                "Curve point $index normal must be normalizable"
+            }
+            val crossLengthSquared = Vector3d(point.tangent).normalize()
+                .cross(Vector3d(point.normal).normalize()).lengthSquared()
+            require(crossLengthSquared.isFinite() && crossLengthSquared > 0.0) {
+                "Curve point $index tangent and normal must not be parallel"
+            }
+        }
     }
 
     private constructor()
 
     companion object {
+        private fun requireFiniteComponents(vector: Vector3dc, index: Int, field: String) {
+            require(vector.x().isFinite() && vector.y().isFinite() && vector.z().isFinite()) {
+                "Curve point $index $field must have finite components"
+            }
+        }
+
         @JvmStatic
         internal fun fromRawPoints(points: List<Curve.RawPoint>): PrimeCurveImpl {
             return PrimeCurveImpl(points)
@@ -311,7 +342,7 @@ open class PrimeCurveImpl : PrimeCurve {
                 hi.segmentType == Curve.SegmentType.LINE_END) {
                 val range = hi.arcLength - lo.arcLength
                 val n = maxOf(1, (range / STREAM_LINE_STEP).toInt())
-                for (j in 0..n) {
+                for (j in 0 until n) {
                     val arc = (lo.arcLength + range * j.toDouble() / n).coerceIn(lo.arcLength, hi.arcLength)
                     builder.add(getPointAt(arc))
                 }
@@ -364,9 +395,9 @@ object Vector3dSerializer : KSerializer<Vector3d> {
     }
 
     override fun deserialize(decoder: Decoder): Vector3d {
-        var x = 0.0
-        var y = 0.0
-        var z = 0.0
+        var x: Double? = null
+        var y: Double? = null
+        var z: Double? = null
         decoder.decodeStructure(descriptor) {
             while (true) {
                 when (val index = decodeElementIndex(descriptor)) {
@@ -378,6 +409,10 @@ object Vector3dSerializer : KSerializer<Vector3d> {
                 }
             }
         }
-        return Vector3d(x, y, z)
+        return Vector3d(
+            x ?: throw SerializationException("Missing x coordinate in Vector3d"),
+            y ?: throw SerializationException("Missing y coordinate in Vector3d"),
+            z ?: throw SerializationException("Missing z coordinate in Vector3d")
+        )
     }
 }

@@ -62,8 +62,10 @@
 - [x] 独立批次CR-016：关闭终态和最终publication在既有coordinator状态边界复核，补in-flight worker及忽略中断的processor回归；不混入CR-014 quiesce接口。
 - [x] 独立批次CR-025：最近点扫描真实piecewise-linear线段做投影，reverse复用canonical结果，复用既有frame插值；保留CurveException message，不加密stream、不新增索引或改raw-input合同。
 - [x] 独立批次CR-027：load和prepared snapshot共用单端点严格解析，A/B均解析后才写；拒绝坏引用/远离端点/重复或超容量/非法active，保留合法null与顺序。运行时remove/structural-undo的合法fallback不变，不声称全world恢复事务已解决。
-- [ ] 独立批次CR-028：构造/decode共享一次raw-point输入校验，Vector3d缺字段拒绝；先同步修Core LINE stream重复末点与Basic ConstraintSolver重复接头，不在decode去重兜底、不加热路径扫描。raw frame要求finite/可归一化/非平行，不额外禁止合法非正交输入；位置相同不等于弧长重复。
+- [x] 独立批次CR-028：构造/decode共享一次raw-point输入校验，Vector3d缺字段拒绝；同步修Core LINE stream重复末点与Basic ConstraintSolver重复接头，不在decode去重兜底、不加热路径扫描。raw frame要求finite/可归一化/非平行，不额外禁止合法非正交输入；位置相同不等于弧长重复。
 - [ ] 独立批次CR-032机械项：仅清空文件、无consumer helper/pool、未读临时list及废注释；先逐项核实引用与持久化影响，事件/Seat/linksplit和需设计的旧factory/editor另列。
+- [ ] 独立批次CR-020局部：将匀速/脱轨/快照测试改为真实epoch及live mutation后的值断言，补对应world资源finally；不增加测试数量，不把6项disabled环线算绿色。其余reader时序、Koin fixture及Basic observation缺口另列，不因局部改写结案。
+- [ ] 后续独立批次CR-014：既有coordinator状态锁内永久停止新wake并捕获exact ticket，正常完成在途epoch之后才允许最终capture；先做Core边界与有界真实worker测试，再单独接入宿主卸载。不是close/abort，不新增超时、通用生命周期框架或公开Core API。
 - 后续单列CR-027/028严格输入、CR-025/026算法事实、CR-013至CR-017生命周期及CR-020/032局部测试/残留清理；若核实需要新的产品选择或迁移要求，标记并跳过，不用猜测兜底替代。
 
 ### CR-024 修复与组合门禁（2026-10-10）
@@ -97,6 +99,14 @@
 - 复用prepared原有规则抽出一个内部endpoint decoder；CoreRail的A/B全部decode并resolve之后才写live连接，prepared仍保留全图对称检查，load仍通过TopologyStateBuilder。具体输入/错误规则由[Core persistence](../../spec/javarailways/core/persistence.md)拥有，未引入通用恢复框架、格式/版本或runtime compatibility。
 - 新增23个参数化执行：8种坏输入分别经过load/prepared、4种端点方向、2种顺序/null/第二支选择、1种B端坏输入时双端保持；既有缺失active-target的损坏fixture改为拒绝并补资源关闭，不削弱live remove/undo有效fallback回归。旧生产代码11项失败（8种bad load、null恢复、双端保持、既有orphan），prepared严格控制全通过。绿灯各项全通过。
 - 独立检查与上方CR-025/027冻结源码四模块/Dokka组合门禁通过。无全world原子load或DI资源清理保证，无开发服数据迁移/部署/游戏验证；坏旧开发数据如实际存在，应离线审计后手动修正，不恢复静默丢引用。
+
+### CR-028 修复与组合验证（2026-10-10）
+
+- 生产校验改动前执行新Core input类，实际15项中13失败、2项有效控制通过；该命令未加`--continue`，Core失败后Basic test未执行，不能把Basic compile误记成test通过。随后单独执行Basic ConstraintSolver整类，12项中新增junction回归失败、11项既有测试通过。
+- 实现只改Core构造/decoder/LINE stream及Basic共享接头生成；测试保留红灯输入。曲线复制后一次验证≥2、精确零起点、finite严格递增arc、finite xyz及可归一化非平行frame；不要求原始frame已unit/正交，不以位置去重，不加查询热路径检查，不改格式/版本。机制由[Core geometry](../../spec/javarailways/core/curve-geometry.md)与[Basic authoring](../../spec/javarailways/basic/curve-authoring.md)拥有。
+- CR-028/032机械项/020局部测试源码冻结后强制重跑：`--offline --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process :Core:test :Basic:test :SimpleATO:test :SimpleATOBukkit:test :BukkitPlugin:test :SimpleSignals:test :TunnelBridgeBuilder:test`，cache为`/workspace/.gradle`。首次停在测试编译，快照测试错误使用接口不存在的`forward`；改用既有Core端部location成员后重新冻结并完整重跑，BUILD SUCCESSFUL（3m10s），54任务全部执行。
+- XML：Core51 suites/286项（280执行、6跳过）、Basic59/383、SimpleATO46/351、SimpleATOBukkit5/8、Bukkit84/352、SimpleSignals47/485、Tunnel8/31，零失败/错误。共1896项、1890执行；CR-028新增16项全部通过。结果属于三批组合源码，不冒充孤立commit gate；后续CR-014不在此结果中。
+- 独立检查确认规则/输入复制/共享decoder、真实junction与机械删除范围，manifest 13+13及whitespace通过。既有deprecated/unchecked、Gradle metaspace、Graal POM被当zip及WebUI npm漏洞/bundle提示未在此修复；未执行WebUI测试、Dokka或游戏验证。严格loader可能拒绝旧重复arc数据，真实开发服样本与离线迁移仍未验证，不添加runtime兼容或声称可以直接部署。
 
 ### CR-022 修复与验证（2026-10-10）
 

@@ -153,11 +153,11 @@ SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重�
 7. **线程与发布**：入口仍要求simulation main owner。失败world从未进入`WorldManager`可见map，也不得start/wake physics；清理不发布替代world，不吞掉坏snapshot诊断。
 8. **性能与退化**：构造资源栈固定最多三个close动作，为O(1)；正常成功路径只有三次注册及一次clear。失败不扫描其他world、不重试I/O，也不增加常驻线程或锁。
 9. **必需测试**：验证render→physics→tick逆序、主异常与suppressed顺序、成功移交后不误关；验证render listener已注册后initial refresh失败会注销，且注销失败只作为suppressed。模块完整测试与`shadowJar`仍是最终门禁。
-10. **开放项与错误示例**：Koin child scope释放仍由CR-017处理，不能假称本机制已关闭它。错误做法是在调用方包围factory、只关闭最后一个资源、用清理异常覆盖restore异常，或让render构造器注册副作用后抛出而无人持有；正确做法是各owner在对象可见性边界内归还自己已取得的资源。
+10. **开放项与错误示例**：world context registration现由Core返回并加入同一构造栈；它只关闭DI binding。错误做法是在调用方包围factory、只关闭最后一个资源、用清理异常覆盖restore异常，或让render构造器注册副作用后抛出而无人持有；正确做法是各owner在对象可见性边界内归还自己已取得的资源。
 
 ### 卸载失败隔离（CURRENT）
 
-1. **范围、触发与owner**：`WorldManager.unregisterRailWorld(BukkitWorld)`负责已发布world的宿主卸载。适用于正常world unload与插件停用逐world清理；未返回world的factory partial-init、Koin child scope和Folia region task完成不在此机制内。
+1. **范围、触发与owner**：`WorldManager.unregisterRailWorld(BukkitWorld)`负责已发布world的宿主卸载。适用于正常world unload与插件停用逐world清理；未返回world的factory partial-init和Folia region task完成不在此机制内。Core-owned world context token在宿主consumer关闭后由此入口释放。
 2. **正常流程**：simulation/main owner先把world加入unloading集合并撤销UUID lookup，捕获当时`railWorlds[bukkitWorld]`的exact对象；随后停止新physics epoch、等待exact ticket、捕获并写split snapshot，再依次撤订阅/service并关闭physics、render与generic tick owner，清异常标记，最后移除旧owner map。
 3. **内部机制**：保存和每个teardown动作分别交给同一个顺序执行器。执行器记录首个`Throwable`，继续运行后续动作，并把之后不同的异常按顺序加入首个异常的suppressed列表；全部动作结束后才重新抛出。map删除使用`remove(bukkitWorld, capturedWorld)`，所以清理期间即使同一key已换成新world，也不会被旧清理删除。
 4. **接口与数据**：正式入口仍只有`fun unregisterRailWorld(bukkitWorld: BukkitWorld)`；用于失败矩阵测试的internal overload只替换持久化、marker、render和tick动作，不改变生产owner或形成add-on API。`physicsEpoch`仍来自成功完成的exact `PhysicsTicket`，不是schema version。
@@ -166,6 +166,6 @@ SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重�
 7. **性能与退化**：动作数由固定owner集合决定，为O(1) teardown；只有snapshot capture/write成本随world数据增长。失败时不重试、不复制snapshot，也不新增后台队列；退化行为是尽力释放固定资源后向调用方报告原失败。
 8. **具体情形**：正常卸载写完最终snapshot后关闭全部owner；磁盘写失败仍从主tick集合移除旧world；render close失败仍关闭tick并清marker；清理回调重入并发布replacement时，exact identity删除保留replacement。
 9. **必需测试**：持久化失败必须断言主异常身份、suppressed顺序、后续cleanup、physics CLOSED、map/lookup清除和同UUID重绑；teardown首先失败必须断言后续动作继续，并在final map remove前替换binding后验证新owner仍存在。模块测试与`shadowJar`门禁同时执行。
-10. **迁移、开放项与错误示例**：无持久化格式迁移。CR-015已由上节构造owner修复，CR-017仍开放。错误做法是只用一个`finally`包最外层close、在其外删除map，或用`railWorlds.remove(key)`删除可能已经替换的binding；正确做法是逐项失败隔离并按captured identity删除。
+10. **迁移、开放项与错误示例**：无持久化格式迁移。CR-015/017均已接入各自owner。错误做法是只用一个`finally`包最外层close、在其外删除map，或用`railWorlds.remove(key)`删除可能已经替换的binding；正确做法是逐项失败隔离、释放world context并按captured identity删除。
 
 线程相关权威证据：`WorldManager.kt`、`BukkitThreadGuardBridge.kt`、`PlatformDispatcher.kt`、`docs-site/docs/architecture/threading-model.md`。

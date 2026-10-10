@@ -149,6 +149,15 @@
 - 强制关闭增量编译后，5项定向回归全部通过；最终同一源码执行`:BukkitPlugin:test :BukkitPlugin:shadowJar`，27个task全部执行并`BUILD SUCCESSFUL`（2m08s）。XML为87 suites/359项全部执行、零跳过/失败/错误。既有Bukkit deprecated/unchecked、JDK native/Unsafe、Gradle deprecated及WebUI 5项依赖漏洞/大bundle warning保留；未部署、连接开发服或做Folia/客户端验证。
 - inline `trellis-check`复核production owner链、构造器不可见窗口、异常优先级、正式测试断言和两份lifecycle契约；task manifest仍为15+15项，scoped whitespace通过。本批没有扩大到CR-017或全仓文档整理。
 
+### CR-017 World context registration释放（2026-10-10）
+
+- `WorldParentContext.attachWorld`改为返回窄范围幂等`WorldContextRegistration`。Koin child以world runtime ID创建、link parent并declare world；attach内部失败自行关闭partial scope。`CoreWorld`只持有/释放该binding，不实现通用`AutoCloseable`，也不越权关闭caller-owned physics/tick。
+- Core constructor在coordinator attach失败时回滚binding；`CoreWorld.load`在rail/train恢复失败、world尚未返回时同样回滚并保留主异常。Bukkit factory取得world后立即把binding加入LIFO，失败顺序为render→binding→physics→tick；manager发布失败和正常unload均在service/physics/render停止使用后释放binding，再关闭tick。
+- 独立检查补出并修复既有owner索引漏洞：manager在`loadedWorlds.publish`后失败时，旧代码只撤UUID lookup、不撤owner map。现在按exact world identity同时删除两者，迟到清理不会删除同UUID replacement；相关registry测试改为直接验证两个索引和幂等/replacement行为。
+- 新增`CoreWorldRuntimeBindingTest`与`KoinWorldParentContextTest`，扩充factory/unload和真实Koin persistence清理测试。无持久化shape/version、兼容路径、部署或远端操作。
+- 实现代理的5类定向回归及检查代理的非增量复跑均通过。最终源码强制执行`:Core:test :Basic:test :SimpleATO:test :BukkitPlugin:test :BukkitPlugin:shadowJar`，36个task全部执行并`BUILD SUCCESSFUL`（2m41s）；XML合计245 suites/1387项，其中1381执行、6项既有Core跳过，零失败/错误。task manifest 15+15、scoped whitespace通过。
+- 独立检查唯一新增发现是上面的owner map撤销缺口，修复后由最终全量门禁覆盖；其余API最小性、Koin create/link/declare/close、constructor/load回滚、factory/register/unload顺序、主异常/suppressed及测试质量均无阻塞项。既有编译deprecated/unchecked、Gradle heap/metaspace、JDK native/Unsafe、WebUI 5项依赖漏洞与大bundle warning保留；未运行游戏/Folia/客户端验证。
+
 ### CR-022 修复与验证（2026-10-10）
 
 - 根因：`TrainEnd`构造即注册rail，world身份检查与extension初始化却可能随后失败；调用方只有构造返回后才进入failed-load清理，因此无法取得失败对象撤销注册。旧测试缺少构造期失败后的索引/资源断言。

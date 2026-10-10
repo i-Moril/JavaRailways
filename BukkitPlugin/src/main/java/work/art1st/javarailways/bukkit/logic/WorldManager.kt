@@ -235,20 +235,31 @@ class WorldManager internal constructor(
             (railWorld as? CoreWorld)?.physicsCoordinator?.start()
             loadedWorlds.publish(bukkitWorld, railWorld)
             modelPresentationService?.registerWorld(bukkitWorld.uid, bukkitWorld, railWorld, railWorld.renderChunkManager)
-        } catch (failure: Exception) {
-            loadedWorlds.withdraw(bukkitWorld)
-            modelPresentationService?.removeWorld(bukkitWorld.uid, bukkitWorld)
-            signalEpochSourceService?.removeWorld(bukkitWorld.uid)
-            infrastructureResourceService?.removeWorld(bukkitWorld.uid)
-            observationService?.removeWorld(bukkitWorld.uid)
-            (railWorld as? CoreWorld)?.let { coreWorld ->
-                topologySubscriptions.remove(coreWorld)?.close()
-                speedSafetyMonitors.remove(coreWorld)
-                    ?.let(coreWorld.physicsCoordinator::unregisterPublishedFrameProcessor)
-                coreWorld.physicsCoordinator.close()
+        } catch (failure: Throwable) {
+            fun attemptCleanup(action: () -> Unit) {
+                try {
+                    action()
+                } catch (cleanupFailure: Throwable) {
+                    if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+                }
             }
-            runCatching { railWorld.renderChunkManager.close() }
-            runCatching { (railWorld.tickManager as? AutoCloseable)?.close() }
+            attemptCleanup { loadedWorlds.remove(bukkitWorld, railWorld) }
+            attemptCleanup { modelPresentationService?.removeWorld(bukkitWorld.uid, bukkitWorld) }
+            attemptCleanup { signalEpochSourceService?.removeWorld(bukkitWorld.uid) }
+            attemptCleanup { infrastructureResourceService?.removeWorld(bukkitWorld.uid) }
+            attemptCleanup { observationService?.removeWorld(bukkitWorld.uid) }
+            val coreWorld = railWorld as? CoreWorld
+            if (coreWorld != null) {
+                attemptCleanup { topologySubscriptions.remove(coreWorld)?.close() }
+                attemptCleanup {
+                    speedSafetyMonitors.remove(coreWorld)
+                        ?.let(coreWorld.physicsCoordinator::unregisterPublishedFrameProcessor)
+                }
+                attemptCleanup { coreWorld.physicsCoordinator.close() }
+            }
+            attemptCleanup { railWorld.renderChunkManager.close() }
+            attemptCleanup { coreWorld?.releaseRuntimeBinding() }
+            attemptCleanup { (railWorld.tickManager as? AutoCloseable)?.close() }
             throw failure
         }
     }
@@ -342,6 +353,7 @@ class WorldManager internal constructor(
             },
             clearAbnormalMarkers = AbnormalTrainMarker::clearWorld,
             closeRender = { world -> world.renderChunkManager.close() },
+            releaseRuntimeBinding = CoreWorld::releaseRuntimeBinding,
             closeTick = { world -> (world.tickManager as? AutoCloseable)?.close() }
         )
     }
@@ -352,6 +364,7 @@ class WorldManager internal constructor(
         captureAndSave: (CoreWorld) -> Unit,
         clearAbnormalMarkers: (BukkitWorld) -> Unit,
         closeRender: (World) -> Unit,
+        releaseRuntimeBinding: (CoreWorld) -> Unit = CoreWorld::releaseRuntimeBinding,
         closeTick: (World) -> Unit
     ) {
         ThreadGuard.ensureMainThread("WorldManager.unregisterRailWorld")
@@ -389,6 +402,7 @@ class WorldManager internal constructor(
             attempt { observationService?.removeWorld(bukkitWorld.uid) }
             attempt { coreWorld?.physicsCoordinator?.close() }
             attempt { closeRender(ownedWorld) }
+            attempt { coreWorld?.let(releaseRuntimeBinding) }
             attempt { closeTick(ownedWorld) }
         }
         attempt { clearAbnormalMarkers(bukkitWorld) }
@@ -748,6 +762,11 @@ internal class LoadedRailWorldRegistry(private val railWorlds: MutableMap<Bukkit
 
     fun withdraw(bukkitWorld: BukkitWorld) {
         railWorlds[bukkitWorld]?.let { byId.remove(bukkitWorld.uid, it) }
+    }
+
+    fun remove(bukkitWorld: BukkitWorld, railWorld: World) {
+        railWorlds.remove(bukkitWorld, railWorld)
+        byId.remove(bukkitWorld.uid, railWorld)
     }
 
     fun clearLookup() {

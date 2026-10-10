@@ -28,43 +28,54 @@ class WorldPersistenceRoundTripTest {
         val tickManager = TickManagerImpl(scheduler, System.currentTimeMillis())
         val worldParent = KoinWorldParentContext(javaRailwaysParentScope())
         val world = CoreWorld.createEmpty(tickManager, worldParent)
-        val segments = PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
-        val rail = createStraightRailFromSegments(world, segments)
-        val sourceTrain = createTrainWithConfig("persist-t1", rail, world, listOf(8.0), isLoop = false)
-        world.renameTrain(sourceTrain, "Player Express")
-
-        val infrastructure = world.saveInfrastructure(1L)
-        val runtime = world.saveRuntime(1L, 2L)
-        val decodedInfrastructure = WorldSnapshotCodec.decodeInfrastructure(
-            WorldSnapshotCodec.encodeInfrastructure(infrastructure)
-        )
-        val decodedRuntime = WorldSnapshotCodec.decodeRuntime(
-            WorldSnapshotCodec.encodeRuntime(runtime)
-        )
-
         val scheduler2 = Executors.newSingleThreadScheduledExecutor()
         val tickManager2 = TickManagerImpl(scheduler2, System.currentTimeMillis())
-        val loaded = CoreWorld.load(
-            decodedInfrastructure,
-            decodedRuntime,
-            CoreWorld.SnapshotDependency(
-                tickManager2,
-                KoinWorldParentContext(javaRailwaysParentScope())
-            )
-        )
+        var loaded: CoreWorld? = null
+        try {
+            val segments = PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
+            val rail = createStraightRailFromSegments(world, segments)
+            val sourceTrain = createTrainWithConfig("persist-t1", rail, world, listOf(8.0), isLoop = false)
+            world.renameTrain(sourceTrain, "Player Express")
 
-        assertEquals("Player Express", loaded.getTrain("persist-t1")?.name)
-        assertEquals("persist-t1", loaded.getTrain("Player Express")?.id)
-        assertNotNull(loaded.getRail(rail.id))
-        assertTrue(!WorldSnapshotCodec.encodeInfrastructure(infrastructure).contains("\"metadata\""))
-        val roundInfrastructure = loaded.saveInfrastructure(1L)
-        val roundRuntime = loaded.saveRuntime(1L, 2L)
-        assertEquals(infrastructure.rails.size, roundInfrastructure.rails.size)
-        assertEquals(runtime.trains.size, roundRuntime.trains.size)
-        assertEquals(
-            WorldSnapshotCodec.encodeInfrastructure(infrastructure),
-            WorldSnapshotCodec.encodeInfrastructure(roundInfrastructure)
-        )
+            val infrastructure = world.saveInfrastructure(1L)
+            val runtime = world.saveRuntime(1L, 2L)
+            val decodedInfrastructure = WorldSnapshotCodec.decodeInfrastructure(
+                WorldSnapshotCodec.encodeInfrastructure(infrastructure)
+            )
+            val decodedRuntime = WorldSnapshotCodec.decodeRuntime(
+                WorldSnapshotCodec.encodeRuntime(runtime)
+            )
+
+            val restored = CoreWorld.load(
+                decodedInfrastructure,
+                decodedRuntime,
+                CoreWorld.SnapshotDependency(
+                    tickManager2,
+                    KoinWorldParentContext(javaRailwaysParentScope())
+                )
+            )
+            loaded = restored
+
+            assertEquals("Player Express", restored.getTrain("persist-t1")?.name)
+            assertEquals("persist-t1", restored.getTrain("Player Express")?.id)
+            assertNotNull(restored.getRail(rail.id))
+            assertTrue(!WorldSnapshotCodec.encodeInfrastructure(infrastructure).contains("\"metadata\""))
+            val roundInfrastructure = restored.saveInfrastructure(1L)
+            val roundRuntime = restored.saveRuntime(1L, 2L)
+            assertEquals(infrastructure.rails.size, roundInfrastructure.rails.size)
+            assertEquals(runtime.trains.size, roundRuntime.trains.size)
+            assertEquals(
+                WorldSnapshotCodec.encodeInfrastructure(infrastructure),
+                WorldSnapshotCodec.encodeInfrastructure(roundInfrastructure)
+            )
+        } finally {
+            loaded?.physicsCoordinator?.close()
+            loaded?.releaseRuntimeBinding()
+            tickManager2.close()
+            world.physicsCoordinator.close()
+            world.releaseRuntimeBinding()
+            tickManager.close()
+        }
     }
 
     @Test

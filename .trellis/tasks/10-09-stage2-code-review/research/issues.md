@@ -157,11 +157,16 @@
 
 ### CR-017：Koin world scope 没有成对释放
 
-- 状态：已确认生命周期遗漏，待确认最小处置；P2，world卸载/反复加载的引用保留。
+- 状态：已修复（2026-10-10）；P2，world卸载/反复加载的引用保留。
 - 证据：`Core/.../di/WorldParentContext.kt:18-19` 创建registry scope并declare(world)，CoreWorld构造时attach；`JavaRailwaysKoin.kt:21,46-53`缓存进程级parent。生产源码没有对应child scope close/delete；WorldManager teardown不释放scope。
 - 影响：卸载后全局DI registry仍持有旧CoreWorld及其extensions，新实例使用新scope ID继续累积。这里存在registry外部引用根，不是把普通循环引用误判为泄漏。
 - 最小建议：先核实world scope是否仍有生产读取者；无consumer则评估删除失效绑定，有consumer则由composition持有可关闭attach token，在失败启动和正常卸载关闭。不要让CoreWorld越权关闭所有平台资源。
 - 回归缺口：反复attach/unload及失败启动后不存在旧scope/world声明；现有真实Koin persistence tests也未清理scope。
+- 处置：`attachWorld`返回显式幂等registration；Koin child使用runtime ID、link parent并由registration close/delete，
+  NoOp返回共享空registration。CoreWorld持有registration并在coordinator attach或snapshot恢复失败时只回滚这一资源；
+  Bukkit factory、发布失败和正常卸载分别按实际取得顺序接入，DI均在render之后、tick之前释放。所有失败保持原异常，
+  后续清理错误进入suppressed；不把CoreWorld改为通用AutoCloseable，也不关闭caller-owned snapshot dependency。独立检查另修正了manager已发布后
+  启动失败只撤UUID lookup、不撤owner map的遗留；现在按exact world identity同时删除两个索引，不会删除同UUID replacement。
 
 ### CR-018：联结后 car renderer 比较了不同 train 的 revision
 

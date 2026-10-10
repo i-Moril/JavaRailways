@@ -3,6 +3,7 @@ package work.art1st.javarailways.bukkit.api.internal
 import org.bukkit.World as BukkitWorld
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -84,14 +85,16 @@ class BukkitRailTargetServiceTest {
             assertEquals(3.0, retained.getPointAt(3.0).position.x(), 1e-9)
 
             registry.publish(newBukkitWorld, second)
-            registry.withdraw(oldBukkitWorld)
+            registry.remove(oldBukkitWorld, first)
+            assertFalse(manager.railWorlds.containsKey(oldBukkitWorld))
             assertSame(second, manager.loadedRailWorld(worldId), "old cleanup cannot withdraw a new binding")
             assertTrue(service.findCurve(worldId, oldRail.id).isEmpty)
             assertSame(newRail.curve, service.findCurve(worldId, newRail.id).orElseThrow())
 
-            // Failed-load cleanup is harmless before publication and removes a published candidate.
-            registry.withdraw(newBukkitWorld)
-            registry.withdraw(newBukkitWorld)
+            // Failed-start cleanup removes only its exact candidate from both owner indexes.
+            registry.remove(newBukkitWorld, second)
+            registry.remove(newBukkitWorld, second)
+            assertFalse(manager.railWorlds.containsKey(newBukkitWorld))
             assertThrows(IllegalStateException::class.java) { service.findCurve(worldId, newRail.id) }
             registry.publish(newBukkitWorld, second)
             manager.stop()

@@ -13,6 +13,7 @@ class WorldConstructionResourcesTest {
         val primary = IllegalStateException("restore failed")
         resources.own { events += "tick" }
         resources.own { events += "physics" }
+        resources.own { events += "binding" }
         resources.own { events += "render" }
 
         val thrown = assertThrows(IllegalStateException::class.java) {
@@ -20,7 +21,7 @@ class WorldConstructionResourcesTest {
         }
 
         assertSame(primary, thrown)
-        assertEquals(listOf("render", "physics", "tick"), events)
+        assertEquals(listOf("render", "binding", "physics", "tick"), events)
     }
 
     @Test

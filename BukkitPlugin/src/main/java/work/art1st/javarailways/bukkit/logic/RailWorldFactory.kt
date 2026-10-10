@@ -99,7 +99,7 @@ object RailWorldFactory {
             CoreWorld.load(infrastructure, runtime, dependency)
         } else {
             CoreWorld.createEmpty(tickManager, worldParent, physicsCoordinator)
-        }
+        }.also { construction.own(it::releaseRuntimeBinding) }
         val renderChunkManager = RenderChunkManager(bukkitWorld)
             .also { construction.own(it::close) }
         coreWorld.registerExtensionData(

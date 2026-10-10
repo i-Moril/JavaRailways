@@ -24,6 +24,7 @@ import work.art1st.javarailways.core.api.util.plugin.Extendable
 import work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.javarailways.core.api.util.tick.TickManager
 import work.art1st.javarailways.core.di.WorldParentContext
+import work.art1st.javarailways.core.di.WorldContextRegistration
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.AtGradeRailCrossingIndex
@@ -73,6 +74,7 @@ class CoreWorld(
         work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener>()
     private val trainsByName = ConcurrentHashMap<String, CoreTrain>()
     val runtimeId: String = UUID.randomUUID().toString()
+    private val worldContextRegistration: WorldContextRegistration
 
     private val publishedTrainFrames = LatestTrainFrameMailbox(DEFAULT_TRAIN_FRAME_MAILBOX_CAPACITY)
     private var activeRailSelectionRevision = 0L
@@ -100,8 +102,18 @@ class CoreWorld(
                 "duplicate train name: ${train.name}"
             }
         }
-        worldParent.attachWorld(this)
-        physicsCoordinator.attachWorld(this)
+        val registration = worldParent.attachWorld(this)
+        try {
+            physicsCoordinator.attachWorld(this)
+        } catch (failure: Throwable) {
+            try {
+                registration.close()
+            } catch (cleanupFailure: Throwable) {
+                if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+            }
+            throw failure
+        }
+        worldContextRegistration = registration
     }
 
     private constructor(
@@ -143,26 +155,44 @@ class CoreWorld(
                 dependency.physicsCoordinator,
                 dependency.worldParent
             )
-            world.railTopologyTransaction {
-                val railDependency = CoreRail.SavedRailV1.Dependency(world)
-                val loadedRails = infrastructure.rails.map { it.loadDisconnected(railDependency) }
-                infrastructure.rails.zip(loadedRails).forEach { (savedRail, rail) ->
-                    savedRail.restoreConnections(rail, railDependency)
+            try {
+                world.railTopologyTransaction {
+                    val railDependency = CoreRail.SavedRailV1.Dependency(world)
+                    val loadedRails = infrastructure.rails.map { it.loadDisconnected(railDependency) }
+                    infrastructure.rails.zip(loadedRails).forEach { (savedRail, rail) ->
+                        savedRail.restoreConnections(rail, railDependency)
+                    }
                 }
-            }
-            runtime?.trains.orEmpty().forEach { savedTrain ->
-                val train = try {
-                    savedTrain.load(world)
-                } catch (failure: Exception) {
-                    throw IllegalStateException(
-                        "Failed to restore train '${savedTrain.name}' [${savedTrain.id}]",
-                        failure
-                    )
+                runtime?.trains.orEmpty().forEach { savedTrain ->
+                    val train = try {
+                        savedTrain.load(world)
+                    } catch (failure: Exception) {
+                        throw IllegalStateException(
+                            "Failed to restore train '${savedTrain.name}' [${savedTrain.id}]",
+                            failure
+                        )
+                    }
+                    world.addTrain(train)
                 }
-                world.addTrain(train)
+                return world
+            } catch (failure: Throwable) {
+                try {
+                    world.releaseRuntimeBinding()
+                } catch (cleanupFailure: Throwable) {
+                    if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+                }
+                throw failure
             }
-            return world
         }
+    }
+
+    /**
+     * Releases only this world's parent-context runtime attachment. The platform owner calls this
+     * after services, physics, and rendering no longer need DI, but before disposing the tick owner.
+     * It does not close the coordinator, tick manager, trains, or other platform-owned resources.
+     */
+    fun releaseRuntimeBinding() {
+        worldContextRegistration.close()
     }
 
     @MainThread

@@ -41,6 +41,7 @@ class WorldManagerUnloadTest {
         val fixture = Fixture()
         val primary = IllegalStateException("persistence failed")
         val renderFailure = IllegalArgumentException("render failed")
+        val bindingFailure = IllegalStateException("binding failed")
         val tickFailure = IllegalStateException("tick failed")
         val markerFailure = UnsupportedOperationException("marker failed")
         try {
@@ -59,6 +60,10 @@ class WorldManagerUnloadTest {
                         fixture.events += "render"
                         throw renderFailure
                     },
+                    releaseRuntimeBinding = {
+                        fixture.events += "binding"
+                        throw bindingFailure
+                    },
                     closeTick = {
                         fixture.events += "tick"
                         throw tickFailure
@@ -67,8 +72,8 @@ class WorldManagerUnloadTest {
             }
 
             assertSame(primary, thrown)
-            assertEquals(listOf(renderFailure, tickFailure, markerFailure), thrown.suppressed.toList())
-            assertEquals(listOf("persist", "render", "tick", "marker"), fixture.events)
+            assertEquals(listOf(renderFailure, bindingFailure, tickFailure, markerFailure), thrown.suppressed.toList())
+            assertEquals(listOf("persist", "render", "binding", "tick", "marker"), fixture.events)
             fixture.assertOldOwnerRemovedAndReloadable()
         } finally {
             fixture.close()
@@ -89,6 +94,7 @@ class WorldManagerUnloadTest {
                         fixture.events += "render"
                         throw renderFailure
                     },
+                    releaseRuntimeBinding = { fixture.events += "binding" },
                     closeTick = {
                         fixture.events += "tick"
                         fixture.publishReplacementOnOriginalKey()
@@ -98,7 +104,7 @@ class WorldManagerUnloadTest {
 
             assertSame(renderFailure, thrown)
             assertEquals(emptyList<Throwable>(), thrown.suppressed.toList())
-            assertEquals(listOf("persist", "render", "tick", "marker"), fixture.events)
+            assertEquals(listOf("persist", "render", "binding", "tick", "marker"), fixture.events)
             fixture.assertReplacementPreserved()
         } finally {
             fixture.close()

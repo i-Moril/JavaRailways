@@ -153,6 +153,7 @@ class PhysicsCoordinator(
     private var lastControllerNanos: Map<String, Long> = emptyMap()
 
     private var started = false
+    private var acceptingWakes = true
     private var nextEpoch = 1L
     private var previousPhysicsStartNanos = 0L
     private var lastMainWakeNanos = nanoTime()
@@ -169,6 +170,7 @@ class PhysicsCoordinator(
     fun start() {
         synchronized(stateLock) {
             check(status != PhysicsCoordinatorStatus.CLOSED) { "PhysicsCoordinator is closed" }
+            check(acceptingWakes) { "PhysicsCoordinator shutdown has begun" }
             if (started) return
             check(world != null) { "PhysicsCoordinator must be attached to a world before start" }
             world!!.rebuildSweptOccupancyIndex(0L)
@@ -247,6 +249,18 @@ class PhysicsCoordinator(
      */
     fun captureCurrentTicket(): PhysicsTicket = synchronized(stateLock) {
         ensureUsableLocked()
+        inFlight ?: latestCompleted
+    }
+
+    /**
+     * Permanently stops new epochs and captures the exact in-flight or latest completed ticket.
+     * This does not cancel work or wait: the owner must await this ticket successfully before
+     * capturing its final snapshot, then [close] the coordinator. A failed/stalled/closed
+     * coordinator cannot provide a previous successful ticket as a safe shutdown boundary.
+     */
+    fun beginShutdown(): PhysicsTicket = synchronized(stateLock) {
+        ensureUsableLocked()
+        acceptingWakes = false
         inFlight ?: latestCompleted
     }
 
@@ -335,16 +349,15 @@ class PhysicsCoordinator(
         return firstVelocity.sub(secondVelocity).length()
     }
 
-    private fun timerWake() {
-        val shouldWake = synchronized(stateLock) {
-            if (!started || status != PhysicsCoordinatorStatus.RUNNING) {
-                false
-            } else {
-                nanoTime() - lastMainWakeNanos >= TimeUnit.MILLISECONDS.toNanos(mainHeartbeatTimeoutMillis)
+    @JvmSynthetic
+    internal fun timerWake() {
+        synchronized(stateLock) {
+            if (!started || !acceptingWakes || status != PhysicsCoordinatorStatus.RUNNING) return
+            if (nanoTime() - lastMainWakeNanos >= TimeUnit.MILLISECONDS.toNanos(mainHeartbeatTimeoutMillis)) {
+                // Keep eligibility and request allocation under the same state lock: shutdown
+                // either captures this timer epoch or makes this wake a quiet no-op.
+                requestStep(PhysicsWakeSource.TIMER_FALLBACK)
             }
-        }
-        if (shouldWake) {
-            requestStep(PhysicsWakeSource.TIMER_FALLBACK)
         }
     }
 
@@ -355,6 +368,7 @@ class PhysicsCoordinator(
         val deltaMillis: Double
         synchronized(stateLock) {
             ensureUsableLocked()
+            check(acceptingWakes) { "PhysicsCoordinator shutdown has begun" }
             inFlight?.let { return it }
             check(started) { "PhysicsCoordinator has not been started" }
 
@@ -599,6 +613,7 @@ class PhysicsCoordinator(
         synchronized(stateLock) {
             if (status == PhysicsCoordinatorStatus.CLOSED) return
             status = PhysicsCoordinatorStatus.CLOSED
+            acceptingWakes = false
             inFlight?.completion?.completeExceptionally(
                 PhysicsStalledException("PhysicsCoordinator closed while an epoch was running")
             )

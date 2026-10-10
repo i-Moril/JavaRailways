@@ -129,11 +129,12 @@
 
 ### CR-014：final save 未停止 timer fallback，等待一次 ticket 不等于冻结世界
 
-- 状态：已确认静态可达竞态，尚未定向复现；建议 P1，存档一致性风险。
+- 状态：正常卸载物理边界已修复（2026-10-10）；P1存档一致性风险。下列保留原审查基线，异常清理与其他owner生命周期仍由CR-013/015/017跟踪。
 - 证据：`WorldManager.kt:333-347` 标记 unloading 并等待一次 ticket，直到 `:357` 才 close；`Core/.../physics/tick/PhysicsCoordinator.kt:338-348` timer 只检查 started/status/heartbeat，不知 unloading；默认 heartbeat 75ms、timer 周期50ms。
 - 触发/影响：epoch E 完成后，较慢的逐 owner capture/磁盘等待允许 fallback 启动 E+1。`WorldManager.kt:608-626` 顺序抓取多份快照，`CoreWorld.kt:1437-1444` 用调用方旧 epoch 标记 live trains，`CoreTrain.kt:823-835` 逐项保存。物理更新可能与 capture 交错，无法保证 final snapshot 同一 epoch；即使 capture 已结束，写盘等待期间仍可启动新物理工作。
 - 最小建议：coordinator 拥有 stop-wake/quiesce 边界，在同一状态锁禁止新主线程/timer epoch 并返回当前 exact ticket，await 后再 capture/save，最后 close。重复 capture/await、只停平台 tick 或随意加 timeout 均不能替代该边界。
 - 回归缺口：注入 clock/latch，在 stop-wake 后推进 heartbeat，确认没有新 epoch且各 snapshot owner读到相同稳定状态。
+- 处置：`beginShutdown()`在既有状态锁内永久禁止新wake并返回exact ticket，宿主成功await后才capture/save；timer资格检查及分配同锁，保留在途epoch正常完成。新增4次执行验证真实worker、已启动timer/未启动bootstrap、在途失败不回退；7模块强制重跑1900项（1894执行、6跳过）零失败/错误，见[验证记录](../implement.md#cr-014-停止新物理工作后保存与验证2026-10-10)。未直接执行宿主多owner final-save I/O/Folia，不将物理停wake说成全世界所有任务已静止。
 
 ### CR-015：世界部分初始化失败遗留已注册渲染监听器
 
@@ -145,7 +146,7 @@
 
 ### CR-016：in-flight close 后 CLOSED 终态可被 STALLED 覆盖
 
-- 状态：已修复（2026-10-10）；P2，终态/发布撤销契约问题。CR-014 final-save quiesce仍独立待修。
+- 状态：已修复（2026-10-10）；P2，终态/发布撤销契约问题。CR-014 final-save物理停wake已在后续独立批次修复，不改变close的abort语义。
 - 证据：`PhysicsCoordinator.kt:589-600` 设置 CLOSED并shutdownNow，正在等待worker的 coordinator 被中断后，`:514-516` catch无条件写STALLED；overload分支`:492-494`同样不保留CLOSED。正常尾部`:502-509`也未与close/stall边界复查ticket发布资格。
 - 影响：close后的最终status可能变为STALLED，而不是CLOSED；不代表重新运行，STALLED仍拒绝wake且executors已shutdown。若processor消化中断继续返回，关闭后发布资格也需回归验证，不能仅靠interrupt撤销。
 - 最小建议：终态转换保留CLOSED，最终publication在与close/stall一致的边界验证ticket仍有效，不用额外无依据重试/预算。
@@ -184,7 +185,7 @@
 - `PhysicsCoordinatorTest.kt:474`：entered.await无期限，回归时可挂住整套测试；使用有界barrier断言，不删除exact ticket用例。
 - `CoreTrainPublicationBoundaryTest`、`ImmutableSnapshotTest`、`CoreTrainDerailEventTest`及部分Koin persistence测试未成对关闭world resources；多数fixture未start，不能断言已产生大量活线程。补finally ownership，修正TrainTestUtils KDoc声称Koin parent但实际NoOp的注释。
 - `RailwayObservationTest`未直接断言bodyTraversal投影和caller-owned各集合防御复制；现有排序/immutable断言有效，不能整项删除。stamp简单字段测试只作为合并候选，暂不认定无价值。
-- 已完成局部：真实匀速epoch/published几何与速度、真实尽头脱轨→coordinator事件排队、live mutation快照隔离，以及这四类world fixture的paired cleanup；共18项保持不变（12执行/6disabled），独立检查和7模块强制组合回归成功，见[记录](../implement.md#cr-020-局部测试改写与验证2026-10-10)。无界barrier、reader确定时序、Koin/Basic测试仍待修；publication reverse/derail还需直接验证immutable frame在正确边界变化，不以本批仅加finally结案。
+- 已完成局部：真实匀速epoch/published几何与速度、真实尽头脱轨→coordinator事件排队、live mutation快照隔离，以及这四类world fixture的paired cleanup；共18项保持不变（12执行/6disabled），独立检查和7模块强制组合回归成功，见[记录](../implement.md#cr-020-局部测试改写与验证2026-10-10)。后续CR-014将coordinator既有2处无界barrier改为5 s有界断言，并随7模块门禁通过；reader确定时序、Koin/Basic测试仍待修，publication reverse/derail还需直接验证immutable frame在正确边界变化，不以局部finally结案。
 
 ### C1 验证与限制
 

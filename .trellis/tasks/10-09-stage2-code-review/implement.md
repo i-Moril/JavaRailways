@@ -65,8 +65,8 @@
 - [x] 独立批次CR-028：构造/decode共享一次raw-point输入校验，Vector3d缺字段拒绝；同步修Core LINE stream重复末点与Basic ConstraintSolver重复接头，不在decode去重兜底、不加热路径扫描。raw frame要求finite/可归一化/非平行，不额外禁止合法非正交输入；位置相同不等于弧长重复。
 - [x] 独立批次CR-032机械项：仅清空文件、无consumer helper/pool、未读临时list及废注释；逐项核实引用与持久化影响，事件/Seat/linksplit和需设计的旧factory/editor另列，不结案整个CR-032。
 - [x] 独立批次CR-020局部：将匀速/脱轨/快照测试改为真实epoch及live mutation后的值断言，补对应world资源finally；不增加测试数量，不把6项disabled环线算绿色。其余reader时序、Koin fixture及Basic observation缺口另列，不因局部改写结案。
-- [ ] 后续独立批次CR-014：既有coordinator状态锁内永久停止新wake并捕获exact ticket，正常完成在途epoch之后才允许最终capture；先做Core边界与有界真实worker测试，再单独接入宿主卸载。不是close/abort，不新增超时、通用生命周期框架或公开Core API。
-- 后续单列CR-027/028严格输入、CR-025/026算法事实、CR-013至CR-017生命周期及CR-020/032局部测试/残留清理；若核实需要新的产品选择或迁移要求，标记并跳过，不用猜测兜底替代。
+- [x] 独立批次CR-014：既有coordinator状态锁内永久停止新wake并捕获exact ticket，正常完成在途epoch之后才允许最终capture；Core边界连同宿主唯一卸载调用接入，补有界真实worker测试。不是close/abort，不新增超时、通用生命周期框架或正式Core API；7模块强制门禁通过，方法和限制见下。
+- 后续单列CR-023剩余恢复一致性、CR-026速度语义、CR-013/015/017生命周期及CR-020/032局部测试/残留清理；若核实需要新的产品选择或迁移要求，标记并跳过，不用猜测兜底替代。
 
 ### CR-024 修复与组合门禁（2026-10-10）
 
@@ -110,7 +110,7 @@
 
 ### CR-032 机械清理与验证（2026-10-10）
 
-- 删除5个确认无作用文件：3个仅package的rail/persistence空壳、未使用BinarySearch、空DummyAsset；另4文件只移除Quaternion pool、forwardPositive未读list、CoreWorld未用signals constructor字段及CoreCar废SavedCar注释。向量池、CoreRail实际Signal、current SavedCarV1/CarConfigV1不变；不清理用户生成物或空目录占位。
+- 删除5个确认无作用文件：3个空文件/空类的rail/persistence空壳、未使用BinarySearch、空DummyAsset；另4文件只移除Quaternion pool、forwardPositive未读list、CoreWorld未用signals constructor字段及CoreCar废SavedCar注释。向量池、CoreRail实际Signal、current SavedCarV1/CarConfigV1不变；不清理用户生成物或空目录占位。
 - 全仓生产/测试/资源配置引用核对及独立检查通过；5项删除均可从Git恢复。CoreWorld implementation constructor参数去掉unused值，仓库调用使用保留的secondary constructor，正式World API、持久化形状及版本不变。
 - 绿色证据复用上方CR-028/032/020冻结源码7模块强制组合门禁（54任务、1896项/6跳过、零失败/错误），未为死代码删除新增无行为测试。该门禁不包括随后CR-014改动；没有部署/游戏验证。
 - 旧RailTopologyEditor/factory构建链及其专用测试、其余可维护性候选仍待分批处理；Core事件保留、Seat处置与联结/解编设计不在删除范围。导航.codeabs漂移仍属CR-002/033，未改docs-site原有脏状态。
@@ -121,7 +121,16 @@
 - 脱轨用例沿100m尽头线路实际执行2000m/s×50ms，经过BogieException→CoreTrain→coordinator发布/排队；检查未drain时0、真实main drain后1、重复drain/后续idle epoch仍1，并保留reason/epoch/controller移除及原几何。listener只记录，assertion在外部，避免event bus吞测试错误。
 - 快照用例实际改变live位置/lifecycle及真实30m跨段摆位，检查旧value隔离；publication用例本批仅补finally关闭，fixture KDoc改为真实NoOp。五文件共18项（12执行、6个原disabled环线），数量未增加；没有新增runtime接口/测试替代实现。
 - 独立检查与上方CR-028/032/020组合门禁通过；首次测试编译错误已用现有`train.head.location.forward`修正后完整重跑，不新增extension/cast。CR-014随后改动不在本门禁内。
-- CR-020仍部分完成：reader sleep/未证明进入读取路径、coordinator无界barrier、Koin fixture、Basic observation collection/bodyTraversal及publication reverse/derail immutable-frame断言继续跟踪；不把本批finally当全面有效性证明。无部署/游戏验证。
+- CR-020仍部分完成：本批结束时reader sleep/未证明进入读取路径、coordinator无界barrier、Koin fixture、Basic observation collection/bodyTraversal及publication reverse/derail immutable-frame断言继续跟踪；随后CR-014处理了coordinator的2处无界barrier，其余缺口不因finally结案。无部署/游戏验证。
+
+### CR-014 停止新物理工作后保存与验证（2026-10-10）
+
+- `beginShutdown()`在既有stateLock内永久关闭wake入口并返回exact in-flight/latest-completed ticket；不等待、不取消、不改变RUNNING，使已开始epoch可以正常完成。MAIN/SIMULATION入口拒绝新请求，timer在同一锁内检查资格并分配ticket，关闭入口后静默返回；不能通过start重新开放。Bukkit唯一正常卸载入口改为成功await该ticket后capture/save，最后仍close；不引入第二协调器、超时或公开World接口。
+- 补3个逻辑测试/4次执行：真实阻塞worker返回同一ticket并正常完成0.5 m运动，world/train/occupancy同epoch；已启动timer正控制与未启动bootstrap均永久停wake；在途失败保持exceptional/STALLED及前次frame/metrics，不用旧成功ticket伪装安全保存。既有2处无界barrier同步改为5 s有界断言，不为超时单独堆测试。没有单独旧代码红灯执行，不虚报。
+- 源码冻结后强制运行上方相同7模块命令，`GRADLE_USER_HOME=/workspace/.gradle`，`--offline --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`；BUILD SUCCESSFUL（3m19s），54任务全部执行。XML为Core51 suites/290项（284执行、6跳过）、Basic59/383、SimpleATO46/351、SimpleATOBukkit5/8、Bukkit84/352、SimpleSignals47/485、Tunnel8/31；共300 suites/1900项、1894执行，零失败/错误，coordinator类28项全通过。
+- 契约同步Core publication/DI生命周期及Bukkit生命周期；停止的仅是物理wake，不是所有编辑/通用tick/region task。Core真实并发边界已测，宿主接入经过源码追踪及既有消费测试，但未直接执行真实多owner final-save I/O或Folia场景；异常ticket也不证明所有worker已退出。CR-013异常清理、CR-015部分构造、CR-017 DI释放仍独立待处理，close仍是abort而非quiesce。
+- 独立检查无本批阻塞项：3条源码hash与冻结值相同，复核7模块XML/28项coordinator回归及10条scoped diff的契约和状态一致性；manifest 15+15和whitespace检查通过。未为复核启动额外构建或修改源码。
+- 未修改schema/version、事件/Seat/联结接口或构建配置，未运行Dokka/WebUI测试、部署、开发服迁移或游戏验证；既有编译/依赖warning保留。前轮成功Gradle daemon生成的667 MiB heap dump已非覆盖式移至ignored `.local/gradle-diagnostics/java_pid576750.hprof`保留，未读内容、未提交、未删除。
 
 ### CR-022 修复与验证（2026-10-10）
 

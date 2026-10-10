@@ -135,7 +135,9 @@ SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重�
 ## 世界 lifecycle
 
 - world load 的 split snapshot `Missing` 可创建新 world；`Corrupted` 禁用该 world 的 JavaRailways 功能并要求修复，不能当空世界覆盖。
-- unload 先标记 unloading、等待 exact physics ticket、捕获/写最终 snapshot，再 unregister safety processor、close coordinator/render/tick owner。
+- unload先标记unloading并撤loaded-world lookup，再用coordinator `beginShutdown()`在其原stateLock内永久禁止新main/timer/simulation epoch并捕获exact ticket；在锁外成功await该ticket后才捕获/写最终snapshot，最后close coordinator/render/tick owner。beginShutdown保持RUNNING以允许在途正常publication，不是close/abort；失败ticket必须报告失败，不回退旧epoch，也不拿失败作为worker全部退出的证明。
 - platform commit 执行前重新解析 affinity；目标跨 region 时 reschedule，而不是在旧 owner 上执行。
+
+上面的physics保存边界已接入正常卸载；CR-013保存/teardown异常后的完整owner-map/逐项资源清理和CR-015 factory partial-init仍独立待修。没有因此承诺Bukkit跨region清理完成、全部world初始化失败可重试或Koin scope已经成对释放。
 
 线程相关权威证据：`WorldManager.kt`、`BukkitThreadGuardBridge.kt`、`PlatformDispatcher.kt`、`docs-site/docs/architecture/threading-model.md`。

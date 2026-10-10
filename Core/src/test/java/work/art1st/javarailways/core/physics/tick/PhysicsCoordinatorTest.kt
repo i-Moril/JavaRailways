@@ -597,13 +597,177 @@ class PhysicsCoordinatorTest {
         coordinator.start()
         try {
             val startedTicket = coordinator.wakeFromMainThread()
-            entered.await()
+            assertTrue(entered.await(5, TimeUnit.SECONDS), "controller should enter the epoch")
             val duplicateWakeTicket = coordinator.wakeFromMainThread()
             val capturedAtTickEnd = coordinator.captureCurrentTicket()
             assertTrue(startedTicket === duplicateWakeTicket)
             assertTrue(startedTicket === capturedAtTickEnd)
             release.countDown()
             capturedAtTickEnd.await()
+        } finally {
+            release.countDown()
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `begin shutdown waits for the exact running epoch and prevents later wakes`() {
+        val clock = AtomicLong(1_000_000_000L)
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            nanoTime = clock::get,
+            mainHeartbeatTimeoutMillis = 1L,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("shutdown-running", rail, world, listOf(10.0))
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val invocations = AtomicInteger()
+        train.setController(object : TrainController(train, world) {
+            override fun tick(deltaT: Double) {
+                invocations.incrementAndGet()
+                entered.countDown()
+                check(release.await(5, TimeUnit.SECONDS)) { "timed out waiting to release shutdown worker" }
+                speed = 10.0
+                train.moveTrainForward(activeSpeed * deltaT * 0.001)
+            }
+        })
+        coordinator.start()
+        try {
+            val previousFrame = world.latestWorldFrame()
+            val previousHead = train.head.location.arcLength
+            val runningTicket = coordinator.stepSimulation(50.0)
+            assertTrue(entered.await(5, TimeUnit.SECONDS), "worker should be running before shutdown begins")
+
+            val shutdownTicket = coordinator.beginShutdown()
+            assertSame(runningTicket, shutdownTicket)
+            assertSame(shutdownTicket, coordinator.beginShutdown())
+            assertTrue(!shutdownTicket.isDone, "beginShutdown must not complete or cancel the running epoch")
+            assertSame(previousFrame, world.latestWorldFrame())
+            assertEquals(PhysicsCoordinatorStatus.RUNNING, coordinator.status)
+            assertThrows(IllegalStateException::class.java) { coordinator.wakeFromMainThread() }
+            assertThrows(IllegalStateException::class.java) { coordinator.stepSimulation(50.0) }
+            assertThrows(IllegalStateException::class.java) { coordinator.start() }
+            clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(100L))
+            coordinator.timerWake()
+
+            release.countDown()
+            val metrics = shutdownTicket.completion.get(5, TimeUnit.SECONDS)
+            val finalFrame = world.latestWorldFrame()
+            assertEquals(shutdownTicket.epoch, metrics.epoch)
+            assertEquals(shutdownTicket.epoch, finalFrame.physicsEpoch)
+            assertEquals(shutdownTicket.epoch, finalFrame.occupancy.physicsEpoch)
+            assertEquals(shutdownTicket.epoch, finalFrame.trains.single().physicsEpoch)
+            assertEquals(previousHead + 0.5, train.head.location.arcLength, 1e-6)
+            assertSame(shutdownTicket, coordinator.captureCurrentTicket())
+            assertSame(shutdownTicket, coordinator.beginShutdown())
+
+            clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(100L))
+            repeat(3) { coordinator.timerWake() }
+            assertSame(shutdownTicket, coordinator.captureCurrentTicket())
+            assertSame(finalFrame, world.latestWorldFrame())
+            assertSame(metrics, coordinator.latestMetrics())
+            assertEquals(1, invocations.get())
+            assertEquals(PhysicsCoordinatorStatus.RUNNING, coordinator.status)
+        } finally {
+            release.countDown()
+            coordinator.close()
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `idle shutdown is idempotent and cannot be reopened by start`(started: Boolean) {
+        val clock = AtomicLong(1_000_000_000L)
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            nanoTime = clock::get,
+            mainHeartbeatTimeoutMillis = 1L,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        try {
+            if (started) {
+                coordinator.start()
+                clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(100L))
+                coordinator.timerWake()
+                val metrics = coordinator.captureCurrentTicket().completion.get(5, TimeUnit.SECONDS)
+                assertEquals(PhysicsWakeSource.TIMER_FALLBACK, metrics.source)
+                assertEquals(1L, metrics.epoch)
+            }
+            val completedTicket = coordinator.captureCurrentTicket()
+            val finalFrame = world.latestWorldFrame()
+
+            val shutdownTicket = coordinator.beginShutdown()
+            assertSame(completedTicket, shutdownTicket)
+            assertTrue(shutdownTicket.isDone)
+            assertEquals(if (started) 1L else 0L, shutdownTicket.completion.get(5, TimeUnit.SECONDS).epoch)
+            assertSame(shutdownTicket, coordinator.beginShutdown())
+            assertThrows(IllegalStateException::class.java) { coordinator.start() }
+            assertThrows(IllegalStateException::class.java) { coordinator.wakeFromMainThread() }
+            assertThrows(IllegalStateException::class.java) { coordinator.stepSimulation(50.0) }
+            clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(100L))
+            coordinator.timerWake()
+            assertSame(finalFrame, world.latestWorldFrame())
+            assertSame(shutdownTicket, coordinator.captureCurrentTicket())
+            assertEquals(PhysicsCoordinatorStatus.RUNNING, coordinator.status)
+
+            coordinator.close()
+            assertThrows(IllegalStateException::class.java) { coordinator.beginShutdown() }
+        } finally {
+            coordinator.close()
+        }
+    }
+
+    @Test
+    fun `failed shutdown ticket never falls back to the previous successful epoch`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("shutdown-failure", rail, world, listOf(10.0))
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val invocations = AtomicInteger()
+        train.setController(object : TrainController(train, world) {
+            override fun tick(deltaT: Double) {
+                if (invocations.incrementAndGet() == 1) return
+                entered.countDown()
+                check(release.await(5, TimeUnit.SECONDS)) { "timed out waiting to fail shutdown worker" }
+                error("shutdown worker failed")
+            }
+        })
+        coordinator.start()
+        try {
+            coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+            val previousFrame = world.latestWorldFrame()
+            val previousMetrics = coordinator.latestMetrics()
+            val runningTicket = coordinator.stepSimulation(50.0)
+            assertTrue(entered.await(5, TimeUnit.SECONDS), "worker should enter the failing epoch")
+            val shutdownTicket = coordinator.beginShutdown()
+            assertSame(runningTicket, shutdownTicket)
+            assertTrue(!shutdownTicket.isDone)
+
+            release.countDown()
+            val failure = assertThrows(ExecutionException::class.java) {
+                shutdownTicket.completion.get(5, TimeUnit.SECONDS)
+            }
+            assertTrue(failure.cause is PhysicsStalledException)
+            assertEquals(PhysicsCoordinatorStatus.STALLED, coordinator.status)
+            assertSame(previousFrame, world.latestWorldFrame())
+            assertSame(previousMetrics, coordinator.latestMetrics())
+            assertThrows(PhysicsStalledException::class.java) { coordinator.beginShutdown() }
+            assertThrows(PhysicsStalledException::class.java) { coordinator.captureCurrentTicket() }
+            assertThrows(PhysicsStalledException::class.java) { coordinator.wakeFromMainThread() }
+            coordinator.timerWake()
+            assertSame(previousFrame, world.latestWorldFrame())
         } finally {
             release.countDown()
             coordinator.close()
@@ -797,7 +961,7 @@ class PhysicsCoordinatorTest {
     ) : TrainController(train, world) {
         override fun tick(deltaT: Double) {
             entered.countDown()
-            release.await()
+            check(release.await(5, TimeUnit.SECONDS)) { "timed out waiting to release blocking controller" }
         }
     }
 

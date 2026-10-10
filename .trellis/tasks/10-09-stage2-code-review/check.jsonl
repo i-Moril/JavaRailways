@@ -11,3 +11,5 @@
 {"file": ".trellis/spec/javarailways/basic/curve-authoring.md", "reason": "CR-028 raw validation must not reject current formal authoring producers"}
 {"file": ".trellis/spec/javarailways/basic/testing.md", "reason": "CR-028 verify real generator junctions, reverse/rebuild and immutable geometry"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/core-module-review.md", "reason": "Check bounded CR-025/027 algorithms/inputs while CR-023 remains partial and product decisions stay separate"}
+{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "CR-014 one-way wake gate and normal unload caller; no false all-resource cleanup or region completion guarantee"}
+{"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "Final save remains failure-reporting, exact-epoch capture; no persistence version or compatibility path"}

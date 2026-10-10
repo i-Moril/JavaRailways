@@ -336,7 +336,7 @@ class WorldManager internal constructor(
         railWorlds[bukkitWorld]?.let { rw ->
             val coreWorld = rw as? CoreWorld
             try {
-                val ticket = coreWorld?.physicsCoordinator?.captureCurrentTicket()
+                val ticket = coreWorld?.physicsCoordinator?.beginShutdown()
                 ticket?.await()
                 coreWorld?.let {
                     val snapshots = captureSnapshots(it, ticket?.epoch ?: 0L)

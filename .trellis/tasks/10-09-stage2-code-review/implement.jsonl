@@ -11,3 +11,5 @@
 {"file": ".trellis/spec/javarailways/basic/curve-authoring.md", "reason": "CR-028 strict Core input requires Basic producers to emit shared junctions once"}
 {"file": ".trellis/spec/javarailways/basic/testing.md", "reason": "Real authoring/rebuild controls must remain valid under Core boundary validation"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/core-module-review.md", "reason": "Scoped Core audit fixes including CR-025/027; unresolved product decisions stay separate"}
+{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "CR-014 stop new physics wakes before awaiting the exact final-save ticket; keep other lifecycle defects separate"}
+{"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "Final snapshot capture must follow successful exact-ticket await; no schema or transport change"}

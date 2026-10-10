@@ -42,7 +42,7 @@ register process Plugin slots / retain ThreadGuard host-registration token
 | `PublishedTrainFrameProcessor` | world composition | unload时coordinator close前unregister |
 | Event listener | plugin/service token owner | platform bridge清除前`EventRegistration.close` |
 | generic `TickingObject` | service/extension | deferred unregister/destroy |
-| PhysicsCoordinator | world composition | stop wake→await/save→`close()` |
+| PhysicsCoordinator | world composition | `beginShutdown()`→成功await exact ticket→save→`close()` |
 | TickManager/render owner | platform world owner | processor/coordinator后close |
 | Plugin slot | process startup | 当前不释放；same class reload替换 |
 
@@ -51,11 +51,15 @@ register process Plugin slots / retain ThreadGuard host-registration token
 | 条件 | 必须结果 |
 | --- | --- |
 | first wake前composition未完成 | 不start、不wake；startup失败并cleanup已创建resources |
-| world unload | 禁止新dispatch，capture/await exact ticket，final snapshot，逐项unregister/close |
+| world unload | 禁止新dispatch，beginShutdown原子停止wake/capture exact ticket，成功await后final snapshot，逐项unregister/close |
 | in-flight close | ticket exceptional；consumer不执行post-epoch side effects |
 | extension/processor startup失败 | reverse-order cleanup；world不进入manager可见map |
 | persistence decode | pure codec/DTO/prevalidation；不attach DI或start executor |
 | test world结束 | unregister global/world state并finally close coordinator/TickManager |
+
+Physics正常shutdown由coordinator原状态锁拥有：只永久关闭新wake，不提前改变RUNNING，因此在途epoch仍可发布；timer检查与分配在同一锁内。await/save在锁外，失败ticket不能退回旧成功结果；`close`仍是中断/撤销而非quiesce。其详细顺序由[runtime publication](./runtime-publication.md)拥有。
+
+当前宿主正常卸载已使用该physics边界；这不代表全部lifecycle已达标。保存/teardown异常后的owner map与各资源独立释放、factory partial-init cleanup及Koin child scope处置仍有审查待修项；不能把本页要求当成这些错误路径已全部实现。
 
 ## 项目内正确示例
 
@@ -89,7 +93,7 @@ CoreWorld.load(
 - startup integration：first epoch可见所有required processors/extensions；失败启动无线程/registration残留。
 - unload integration：final ticket/snapshot成功后processor不再调用，三个coordinator executors与TickManager关闭。
 - `WorldPersistenceRoundTripTest.kt`：load使用explicit dependency且不需要Koin decode。
-- `PhysicsCoordinatorTest.kt`：attach一次、start幂等、close幂等、in-flight close failure。
+- `PhysicsCoordinatorTest.kt`：attach一次、start幂等、close幂等、in-flight close failure，以及beginShutdown捕获正常/失败ticket、永久gate、idle/bootstrap和timer准入。
 
 ```bash
 ./gradlew :Core:test --tests '*WorldPersistenceRoundTripTest' --tests '*PhysicsCoordinatorTest'

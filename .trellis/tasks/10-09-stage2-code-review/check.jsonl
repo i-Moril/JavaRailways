@@ -5,11 +5,11 @@
 {"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "CR-028 shared once-per-construction strict raw/decode validation and unique LINE stream; retain valid nonorthogonal frames"}
 {"file": ".trellis/spec/javarailways/core/rail-topology-and-occupancy.md", "reason": "CR-027 strict current references, nullable selection, order and per-rail pre-mutation checks"}
 {"file": ".trellis/spec/javarailways/core/runtime-publication.md", "reason": "CR-016 publication and close must share exact-ticket terminal validation"}
-{"file": ".trellis/spec/javarailways/core/di-and-runtime-lifecycle.md", "reason": "Check real in-flight close, bounded cleanup and CLOSED retention"}
+{"file": ".trellis/spec/javarailways/core/di-and-runtime-lifecycle.md", "reason": "Check in-flight close and CR-015 bounded pre-publication cleanup without claiming Koin scope release"}
 {"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "Distinguish strict rail endpoint decoding from unresolved full materialization lifecycle"}
 {"file": ".trellis/spec/javarailways/core/testing.md", "reason": "CR-020 real bounded physics epochs, end-of-track derail dispatch and live-mutation snapshot isolation; no count padding"}
 {"file": ".trellis/spec/javarailways/basic/curve-authoring.md", "reason": "CR-028 raw validation must not reject current formal authoring producers"}
 {"file": ".trellis/spec/javarailways/basic/testing.md", "reason": "CR-028 verify real generator junctions, reverse/rebuild and immutable geometry"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/core-module-review.md", "reason": "Check bounded CR-025/027 algorithms/inputs while CR-023 remains partial and product decisions stay separate"}
-{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "CR-014 one-way wake gate and normal unload caller; no false all-resource cleanup or region completion guarantee"}
+{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "CR-014 unload gate and CR-015 constructor/factory ownership; no false DI or region completion guarantee"}
 {"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "Final save remains failure-reporting, exact-epoch capture; no persistence version or compatibility path"}

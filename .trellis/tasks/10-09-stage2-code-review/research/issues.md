@@ -139,11 +139,12 @@
 
 ### CR-015：世界部分初始化失败遗留已注册渲染监听器
 
-- 状态：已确认静态可达，待修复；P2，加载失败恢复/资源归属问题。
+- 状态：已修复（2026-10-10）；P2，加载失败恢复/资源归属问题。Koin child scope仍由CR-017独立处理。
 - 证据：`WorldManager.kt:161-169` factory 调用在保护 try 外；`RailWorldFactory.kt:63-77` 创建 tick/coordinator/world/render manager，`:208-210` 才 restore；factory 没有失败清理。`render/chunk/RenderChunkManager.kt:57-75` 构造注册 listener/安排刷新，close 才注销。
 - 触发/影响：语法、版本和 infrastructure revision 都合法的 split 文件，Basic WayPoint 引用 Core 不存在的 rail UUID。decode/pairing 不交叉验证该引用，直到 `BasicInfrastructureSnapshotV2.restore:93-99` 才抛；已注册 listener 无人关闭，重复加载失败会重复注册。线程池是否启动依失败位置，不把它夸大为每次必然泄漏活线程。
 - 最小建议：factory 自持 partial-init resources并逆序清理，保持原异常；单纯把外层 try 上移不够，失败时调用方尚未拿到 world。
-- 回归缺口：真实构造/restore注入失败后 listener注销、resources关闭、world未发布，修复输入后可加载。Basic restore 单测不覆盖宿主清理。
+- 原回归缺口：Basic restore单测不覆盖宿主清理。现已分别用production factory实际调用的LIFO owner验证资源关闭/异常规则，并用真实`RenderChunkManager`构造验证listener撤销；factory只有成功返回后才可能被调用方发布。相同world修复输入后的完整重载仍受CR-017遗留Koin scope影响，不能在本项伪称已验证。
+- 处置：factory从tick创建开始以固定LIFO栈持有tick/physics/render，完整成功后才移交；任一后续restore/materialize/metadata失败保留主异常并按render→physics→tick清理。render构造器在listener注册后的initial refresh失败时自行close，close保证最终注销且将后续失败suppressed。新增5项回归验证逆序、异常身份/suppressed、成功移交及构造期listener撤销；不将其描述为Koin scope修复。
 
 ### CR-016：in-flight close 后 CLOSED 终态可被 STALLED 覆盖
 

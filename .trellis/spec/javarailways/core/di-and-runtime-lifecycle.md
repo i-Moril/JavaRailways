@@ -59,7 +59,7 @@ register process Plugin slots / retain ThreadGuard host-registration token
 
 Physics正常shutdown由coordinator原状态锁拥有：只永久关闭新wake，不提前改变RUNNING，因此在途epoch仍可发布；timer检查与分配在同一锁内。await/save在锁外，失败ticket不能退回旧成功结果；`close`仍是中断/撤销而非quiesce。其详细顺序由[runtime publication](./runtime-publication.md)拥有。
 
-当前宿主正常卸载已使用该physics边界；保存/teardown失败也会保留首个异常、继续逐项释放其余资源并移除exact owner map绑定。这仍不代表全部lifecycle已达标：factory partial-init cleanup及Koin child scope处置仍有审查待修项，不能把本页要求当成这些错误路径已全部实现。
+当前宿主正常卸载已使用该physics边界；保存/teardown失败也会保留首个异常、继续逐项释放其余资源并移除exact owner map绑定。Bukkit world factory同样在返回前逆序关闭已取得的render、physics与tick资源；对象构造内部产生的listener由该对象在抛出前撤销。这仍不代表全部lifecycle已达标：Koin child scope处置仍有审查待修项，不能把宿主资源关闭等同于DI scope已释放。
 
 ## 项目内正确示例
 

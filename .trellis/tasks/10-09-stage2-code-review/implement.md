@@ -141,6 +141,14 @@
 - 既有Basic unchecked/safe-call、Bukkit deprecated/多余断言、JDK native/Unsafe、Gradle deprecated及WebUI 5项依赖漏洞/大bundle warning未在本批处理；没有Dokka、Folia/客户端、真实磁盘失败或游戏验证，不把离线门禁写成现场生命周期验证。
 - 不处理CR-015 factory尚未返回world时的partial-init资源、CR-017 Koin child scope、Folia region task完成或远端数据；无持久化shape/version、事件、Seat、联结或构建配置变化。
 
+### CR-015 构造失败资源归还（2026-10-10）
+
+- `RailWorldFactory`新增窄范围LIFO构造owner：每成功取得tick、physics、render就登记其close；全部restore/materialize/render metadata完成才release并返回。失败保持原异常，按render→physics→tick继续清理，清理错误进入suppressed；调用方无需也不能清理未返回的world。
+- `RenderChunkManager`补齐对象尚未返回时的责任：listener注册或initial-player refresh失败会立即close。close逐player隔离清理错误并保证最终尝试listener注销，首错保持主异常；注销函数仅作为internal构造注入点供正式回归观察，不形成add-on API。
+- 新增`WorldConstructionResourcesTest`三项与`RenderChunkManagerConstructionTest`两项，验证逆序、异常身份/suppressed、成功移交不误关，以及listener已经注册后的refresh失败撤销。无持久化/version、运行期兼容、自动修复、重试或Koin scope变更；CR-017仍开放。
+- 强制关闭增量编译后，5项定向回归全部通过；最终同一源码执行`:BukkitPlugin:test :BukkitPlugin:shadowJar`，27个task全部执行并`BUILD SUCCESSFUL`（2m08s）。XML为87 suites/359项全部执行、零跳过/失败/错误。既有Bukkit deprecated/unchecked、JDK native/Unsafe、Gradle deprecated及WebUI 5项依赖漏洞/大bundle warning保留；未部署、连接开发服或做Folia/客户端验证。
+- inline `trellis-check`复核production owner链、构造器不可见窗口、异常优先级、正式测试断言和两份lifecycle契约；task manifest仍为15+15项，scoped whitespace通过。本批没有扩大到CR-017或全仓文档整理。
+
 ### CR-022 修复与验证（2026-10-10）
 
 - 根因：`TrainEnd`构造即注册rail，world身份检查与extension初始化却可能随后失败；调用方只有构造返回后才进入failed-load清理，因此无法取得失败对象撤销注册。旧测试缺少构造期失败后的索引/资源断言。

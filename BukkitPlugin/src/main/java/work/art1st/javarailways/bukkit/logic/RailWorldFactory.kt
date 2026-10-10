@@ -60,13 +60,39 @@ object RailWorldFactory {
         basicRuntime: BasicRuntimeSnapshotV3? = null
     ): World {
         ThreadGuard.ensureMainThread("RailWorldFactory.createForBukkit")
+        val construction = WorldConstructionResources()
+        return try {
+            createOwned(
+                bukkitWorld,
+                infrastructure,
+                runtime,
+                basicInfrastructure,
+                simpleAtoInfrastructure,
+                basicRuntime,
+                construction
+            )
+        } catch (failure: Throwable) {
+            construction.fail(failure)
+        }
+    }
+
+    @OptIn(Heavy::class)
+    private fun createOwned(
+        bukkitWorld: BukkitWorld,
+        infrastructure: CoreWorld.SavedInfrastructureV2?,
+        runtime: CoreWorld.SavedRuntimeV1?,
+        basicInfrastructure: BasicInfrastructureSnapshotV2?,
+        simpleAtoInfrastructure: SimpleATOInfrastructureSnapshotV1?,
+        basicRuntime: BasicRuntimeSnapshotV3?,
+        construction: WorldConstructionResources
+    ): World {
         val tickManager = TickManagerImpl(
             Executors.newSingleThreadScheduledExecutor(),
             System.currentTimeMillis()
-        )
+        ).also { construction.own(it::close) }
         val physicsCoordinator = PhysicsCoordinator(
             workerThreads = BukkitPlugin.INSTANCE.physicsConfig.workerThreads
-        )
+        ).also { construction.own(it::close) }
         val worldParent = KoinWorldParentContext(javaRailwaysParentScope())
         val dependency = CoreWorld.SnapshotDependency(tickManager, worldParent, physicsCoordinator)
         val coreWorld = if (infrastructure != null) {
@@ -75,6 +101,7 @@ object RailWorldFactory {
             CoreWorld.createEmpty(tickManager, worldParent, physicsCoordinator)
         }
         val renderChunkManager = RenderChunkManager(bukkitWorld)
+            .also { construction.own(it::close) }
         coreWorld.registerExtensionData(
             BukkitPlugin.INSTANCE,
             BukkitWorldData(renderChunkManager, bukkitWorld)
@@ -214,6 +241,31 @@ object RailWorldFactory {
         if (restored.size != persisted.size) {
             RailRenderMetaStore.saveAll(bukkitWorld, restored)
         }
+        construction.release()
         return coreWorld
+    }
+}
+
+internal class WorldConstructionResources {
+    private val cleanup = ArrayDeque<() -> Unit>()
+
+    fun own(close: () -> Unit) {
+        cleanup.addFirst(close)
+    }
+
+    fun release() {
+        cleanup.clear()
+    }
+
+    fun fail(primary: Throwable): Nothing {
+        cleanup.forEach { close ->
+            try {
+                close()
+            } catch (cleanupFailure: Throwable) {
+                if (cleanupFailure !== primary) primary.addSuppressed(cleanupFailure)
+            }
+        }
+        cleanup.clear()
+        throw primary
     }
 }

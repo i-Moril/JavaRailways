@@ -39,6 +39,7 @@ class RenderChunkManager(
     private val playerLookup: (UUID) -> Player? = Bukkit::getPlayer,
     private val settingsFor: (Player) -> ViewDistanceSettings = { it.railViewDistanceSettings },
     registerListener: (Listener) -> Unit = { Bukkit.getPluginManager().registerEvents(it, BukkitPlugin.INSTANCE) },
+    private val unregisterListener: (Listener) -> Unit = HandlerList::unregisterAll,
     initialPlayers: Collection<Player> = Bukkit.getOnlinePlayers().toList()
 ) : Listener {
     val world: World by WeakReferenceWrapper(world)
@@ -55,24 +56,45 @@ class RenderChunkManager(
     private val authoritativePassengerRefreshes = AtomicLong()
 
     init {
-        registerListener(this)
-        // Seed once per world load; later joins/moves and model changes use the existing reverse index.
-        initialPlayers.forEach { player -> dispatcher.runForEntity(player, action = { refreshPlayer(player, force = true) }) }
+        try {
+            registerListener(this)
+            // Seed once per world load; later joins/moves and model changes use the existing reverse index.
+            initialPlayers.forEach { player ->
+                dispatcher.runForEntity(player, action = { refreshPlayer(player, force = true) })
+            }
+        } catch (failure: Throwable) {
+            try {
+                close()
+            } catch (cleanupFailure: Throwable) {
+                if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+            }
+            throw failure
+        }
     }
 
     fun close() {
+        var failure: Throwable? = null
         visibleByPlayer.keys.toList().forEach { playerId ->
-            val player = playerLookup(playerId)
-            if (player == null) {
-                visibleByPlayer.remove(playerId)
-            } else {
-                dispatcher.runForEntity(player, action = { clearPlayer(player) })
+            try {
+                val player = playerLookup(playerId)
+                if (player == null) {
+                    visibleByPlayer.remove(playerId)
+                } else {
+                    dispatcher.runForEntity(player, action = { clearPlayer(player) })
+                }
+            } catch (cleanupFailure: Throwable) {
+                failure = accumulateFailure(failure, cleanupFailure)
             }
         }
         pendingAudienceUpdates.clear()
         renderablePositions.clear()
         audienceIndex.clear()
-        HandlerList.unregisterAll(this)
+        try {
+            unregisterListener(this)
+        } catch (cleanupFailure: Throwable) {
+            failure = accumulateFailure(failure, cleanupFailure)
+        }
+        failure?.let { throw it }
     }
 
     fun getRenderablesAround(position: Vector3dc, radius: Double): Collection<Renderable> {
@@ -379,6 +401,12 @@ class RenderChunkManager(
         val dy = a.y - b.y()
         val dz = a.z - b.z()
         return dx * dx + dy * dy + dz * dz
+    }
+
+    private fun accumulateFailure(primary: Throwable?, next: Throwable): Throwable {
+        if (primary == null) return next
+        if (next !== primary) primary.addSuppressed(next)
+        return primary
     }
 
     private fun distanceSquared(a: Vector3dc, b: Vector3dc): Double {

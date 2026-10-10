@@ -135,11 +135,25 @@ SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重�
 ## 世界 lifecycle
 
 - world load 的 split snapshot `Missing` 可创建新 world；`Corrupted` 禁用该 world 的 JavaRailways 功能并要求修复，不能当空世界覆盖。
+- world factory从创建`TickManager`起负责尚未发布的构造资源；后续Core load、extension restore、materialize或render metadata恢复失败时，按render→physics→tick逆序关闭。资源只有在factory完整成功返回时才移交给`WorldManager`。
 - unload先标记unloading并撤loaded-world lookup，再用coordinator `beginShutdown()`在其原stateLock内永久禁止新main/timer/simulation epoch并捕获exact ticket；在锁外成功await该ticket后才捕获/写最终snapshot，最后close coordinator/render/tick owner。beginShutdown保持RUNNING以允许在途正常publication，不是close/abort；失败ticket必须报告失败，不回退旧epoch，也不拿失败作为worker全部退出的证明。
 - snapshot capture/write或任一teardown步骤失败时，仍须分别尝试撤销topology/frame订阅、三个宿主service、physics/render/tick owner、异常标记与owner map。最先发生的异常保持为主异常，后续清理异常作为suppressed保留；不得因清理成功吞掉保存失败，也不得让旧world留在主tick集合阻止同UUID重新绑定。owner map删除使用卸载开始时捕获的exact world identity，不能误删随后绑定的新world。
 - platform commit 执行前重新解析 affinity；目标跨 region 时 reschedule，而不是在旧 owner 上执行。
 
-上面的physics保存边界和CR-013失败清理已接入正常卸载入口；CR-015 factory partial-init仍独立待修。没有因此承诺Bukkit跨region清理完成、全部world初始化失败可重试或Koin scope已经成对释放。
+上面的physics保存边界、CR-013卸载失败清理和CR-015 factory partial-init清理均已接入生产入口。没有因此承诺Bukkit跨region清理完成、失败输入可自动修复或Koin scope已经成对释放。
+
+### 构造失败资源归还（CURRENT）
+
+1. **范围、触发与owner**：`RailWorldFactory.createForBukkit`拥有尚未返回的world构造；从第一个tick executor创建成功起，到完整world返回前，调用方没有对象可清理，因此factory不能把失败归责给`WorldManager`。
+2. **正常流程**：创建顺序为tick→physics→Core world/DI attach→render listener→extensions/restore/materialize/render metadata；全部成功后清空构造资源栈并返回world，此刻资源所有权一次性移交给已发布world lifecycle。
+3. **内部机制**：`WorldConstructionResources`只记录本factory已成功取得的close动作，使用LIFO执行，因此后取得的render先于physics和tick关闭。它不是公共API、通用事务或extension rollback框架。
+4. **构造器边界**：`RenderChunkManager`可能在注册listener后、完成initial-player refresh前抛出，此时factory尚未取得对象；构造器自身调用`close`，最终注销listener。`close`保留首个异常、继续清理其他player并把注销异常记为suppressed。
+5. **接口与数据**：正式factory签名、split snapshot、revision/epoch及world map均不变；未新增schema version、兼容输入、自动重试或空world fallback。
+6. **失败矩阵**：tick创建失败时无资源；physics创建失败只关tick；Core load或DI attach失败关physics/tick；render构造内部失败由其自身撤listener，再由factory关physics/tick；之后任一步失败关render/physics/tick。构造主异常始终保留，清理异常按发生顺序suppressed。
+7. **线程与发布**：入口仍要求simulation main owner。失败world从未进入`WorldManager`可见map，也不得start/wake physics；清理不发布替代world，不吞掉坏snapshot诊断。
+8. **性能与退化**：构造资源栈固定最多三个close动作，为O(1)；正常成功路径只有三次注册及一次clear。失败不扫描其他world、不重试I/O，也不增加常驻线程或锁。
+9. **必需测试**：验证render→physics→tick逆序、主异常与suppressed顺序、成功移交后不误关；验证render listener已注册后initial refresh失败会注销，且注销失败只作为suppressed。模块完整测试与`shadowJar`仍是最终门禁。
+10. **开放项与错误示例**：Koin child scope释放仍由CR-017处理，不能假称本机制已关闭它。错误做法是在调用方包围factory、只关闭最后一个资源、用清理异常覆盖restore异常，或让render构造器注册副作用后抛出而无人持有；正确做法是各owner在对象可见性边界内归还自己已取得的资源。
 
 ### 卸载失败隔离（CURRENT）
 
@@ -152,6 +166,6 @@ SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重�
 7. **性能与退化**：动作数由固定owner集合决定，为O(1) teardown；只有snapshot capture/write成本随world数据增长。失败时不重试、不复制snapshot，也不新增后台队列；退化行为是尽力释放固定资源后向调用方报告原失败。
 8. **具体情形**：正常卸载写完最终snapshot后关闭全部owner；磁盘写失败仍从主tick集合移除旧world；render close失败仍关闭tick并清marker；清理回调重入并发布replacement时，exact identity删除保留replacement。
 9. **必需测试**：持久化失败必须断言主异常身份、suppressed顺序、后续cleanup、physics CLOSED、map/lookup清除和同UUID重绑；teardown首先失败必须断言后续动作继续，并在final map remove前替换binding后验证新owner仍存在。模块测试与`shadowJar`门禁同时执行。
-10. **迁移、开放项与错误示例**：无持久化格式迁移。CR-015/017仍开放。错误做法是只用一个`finally`包最外层close、在其外删除map，或用`railWorlds.remove(key)`删除可能已经替换的binding；正确做法是逐项失败隔离并按captured identity删除。
+10. **迁移、开放项与错误示例**：无持久化格式迁移。CR-015已由上节构造owner修复，CR-017仍开放。错误做法是只用一个`finally`包最外层close、在其外删除map，或用`railWorlds.remove(key)`删除可能已经替换的binding；正确做法是逐项失败隔离并按captured identity删除。
 
 线程相关权威证据：`WorldManager.kt`、`BukkitThreadGuardBridge.kt`、`PlatformDispatcher.kt`、`docs-site/docs/architecture/threading-model.md`。

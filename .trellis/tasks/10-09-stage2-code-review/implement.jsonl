@@ -5,11 +5,11 @@
 {"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "CR-028 copy and validate raw points once; repair producer junctions instead of decoder deduplication"}
 {"file": ".trellis/spec/javarailways/core/rail-topology-and-occupancy.md", "reason": "CR-027 shared strict endpoint decoding and unchanged live remove/undo fallback"}
 {"file": ".trellis/spec/javarailways/core/runtime-publication.md", "reason": "CR-016 CLOSED is terminal and late epoch candidates must not publish"}
-{"file": ".trellis/spec/javarailways/core/di-and-runtime-lifecycle.md", "reason": "CR-016 close invalidates in-flight ticket without redesigning lifecycle APIs"}
+{"file": ".trellis/spec/javarailways/core/di-and-runtime-lifecycle.md", "reason": "CR-016 terminal close plus CR-015 pre-publication resource ownership; Koin scope remains separate"}
 {"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "CR-027 rejects corrupt declared rail references without claiming whole-world load atomicity"}
 {"file": ".trellis/spec/javarailways/core/testing.md", "reason": "CR-020 real published motion, coordinator-driven derail notification and paired world cleanup"}
 {"file": ".trellis/spec/javarailways/basic/curve-authoring.md", "reason": "CR-028 strict Core input requires Basic producers to emit shared junctions once"}
 {"file": ".trellis/spec/javarailways/basic/testing.md", "reason": "Real authoring/rebuild controls must remain valid under Core boundary validation"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/core-module-review.md", "reason": "Scoped Core audit fixes including CR-025/027; unresolved product decisions stay separate"}
-{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "CR-014 stop new physics wakes before awaiting the exact final-save ticket; keep other lifecycle defects separate"}
+{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "CR-014 final-save gate and CR-015 reverse cleanup before world publication; keep CR-017 separate"}
 {"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "Final snapshot capture must follow successful exact-ticket await; no schema or transport change"}

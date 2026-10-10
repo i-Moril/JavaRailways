@@ -232,13 +232,13 @@ util/TickManagerImpl.kt
 
 - `java/work/art1st/javarailways/core/physics/train/CoreRenderCommitDecouplingTest.kt`： 保留：CoreCar/Bogie不进入generic mailbox的能力边界。
 
-- `java/work/art1st/javarailways/core/physics/train/CoreTrainAsymmetricTurnoutTest.kt`： 改写publish时序；检查本次移动的实际推进/脱轨，而非旧值。
+- `java/work/art1st/javarailways/core/physics/train/CoreTrainAsymmetricTurnoutTest.kt`： 已改写为exact coordinator epoch后的车头/车尾推进、body path、重锚及未脱轨断言；全部fixture成对关闭。
 
 - `java/work/art1st/javarailways/core/physics/train/CoreTrainDerailEventTest.kt`： 保留wrong-thread；通知用真实coordinator触发，不复制生产queue分支。
 
 - `java/work/art1st/javarailways/core/physics/train/CoreTrainLinkTest.kt`： 保留端点清理；补车序/方向/frame/失败事务及换属主。
 
-- `java/work/art1st/javarailways/core/physics/train/CoreTrainMultiCarDiagnosticTest.kt`： 改写private buffer反射/公式自洽；用真实发布和独立数值。
+- `java/work/art1st/javarailways/core/physics/train/CoreTrainMultiCarDiagnosticTest.kt`： 已删除private buffer反射；用commit前后公开状态、真实physics epoch和固定fixture数值验证两车摆位/移动/间距及默认offset。
 
 - `java/work/art1st/javarailways/core/physics/train/CoreTrainPersistenceStateTest.kt`： zero-distance项改真实PhysicsCoordinator；保留位置恢复。
 

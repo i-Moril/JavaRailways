@@ -161,6 +161,12 @@
 - `CoreWorld.isQueuedForRailTopologyAccess`保持`internal`及`@JvmSynthetic`，只暴露锁队列事实，不提供锁控制、runtime fallback或公共addon合同；选择该最小seam是为了避免反射和任意延时。writer release、future有界等待、executor关闭及world资源关闭都在`finally`兜底。
 - 定向强制重跑`CoreWorldRailTopologyTransactionTest`共22项、零跳过/失败/错误；独立检查又补强提交后的revision/具体rail ID inventory断言，并让writer、reader、executor及每个world的coordinator/tick manager清理失败可见且不覆盖主断言失败。冻结源码完整`:Core:test`执行53个suite/308项（302执行、6个既有disabled环线），零失败/错误，9个Gradle task全部执行并`BUILD SUCCESSFUL`。task manifest 15+15及scoped whitespace检查通过；既有4处`RailLocationPersistTest`冗余cast和Gradle deprecated warning保留。CR-020其余Koin/Basic collection/bodyTraversal及publication reverse/derail immutable-frame缺口仍开放。
 
+### CR-020 道岔与多车测试有效性（2026-10-10）
+
+- 非对称道岔三项运动回归不再在manual move后读取未提交的旧`isDerailed`。fixture使用关闭automatic fallback的真实`PhysicsCoordinator`；单步及80步场景均有界等待exact ticket，随后检查同一frame的epoch、车头/车尾rail/facing/AB弧长、固定实际位移、旧反向active path缺失时仍使用列车自身tail path、已发布车尾重锚及最终未脱轨。原拓扑/存档用例也补paired world cleanup，fixture构造失败会关闭已创建owner；测试体已有失败时，清理错误只作为suppressed附着。
+- 多车诊断删除对`CoreCar._position`/`CommitBuffer`的反射。2 m×2明确fixture先断言`setLocation`在publication前不可见，再以maintenance commit后的`head=80.0`、`tail=75.4`、car center `79.0/76.4`等独立固定值检查实际摆位；随后真实10 m/s×50 ms epoch检查全部公开状态前移0.5 m且2.6 m车心距/4.6 m编组端距保持。默认bogie offset和端部offset直接检查`±0.6/0.4 m`，不再从同一生产公式生成expected。
+- 两文件仍为原11项测试，没有加数量填充；focused非增量强制执行11项全部通过。冻结源码再以`GRADLE_USER_HOME=/workspace/.gradle`、`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`完整执行`:Core:test :Basic:test`，15个task全部执行并`BUILD SUCCESSFUL`（46s）：Core 308项（302执行、6个既有disabled环线）、Basic 384项全执行，零失败/错误。task manifest 15+15和scoped whitespace检查通过；保留既有Core冗余cast、Basic unchecked/safe-call/non-null assertion、Gradle deprecated及daemon metaspace warning。CR-020继续保持partial，未覆盖Koin/Basic collection/bodyTraversal及publication reverse/derail immutable-frame缺口；未部署或游戏验证。
+
 ### CR-014 停止新物理工作后保存与验证（2026-10-10）
 
 - `beginShutdown()`在既有stateLock内永久关闭wake入口并返回exact in-flight/latest-completed ticket；不等待、不取消、不改变RUNNING，使已开始epoch可以正常完成。MAIN/SIMULATION入口拒绝新请求，timer在同一锁内检查资格并分配ticket，关闭入口后静默返回；不能通过start重新开放。Bukkit唯一正常卸载入口改为成功await该ticket后capture/save，最后仍close；不引入第二协调器、超时或公开World接口。

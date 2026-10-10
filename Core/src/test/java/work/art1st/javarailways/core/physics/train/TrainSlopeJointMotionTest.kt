@@ -1,7 +1,5 @@
 package work.art1st.javarailways.core.physics.train
 
-import work.art1st.javarailways.core.physics.createRailForTest
-
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -9,12 +7,14 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.control.train.MockTrainController
+import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.util.TickManagerImpl
 
 class TrainSlopeJointMotionTest {
     @Test
-    fun `multi car train moves from level rail onto connected slope`() {
-        val world = createTestWorld()
+    fun `multi car train moves from level rail onto connected slope`() = withWorld { world ->
         val level = world.createRailForTest(line(Vector3d(0.0, 64.0, 0.0), Vector3d(50.0, 64.0, 0.0)))
         val slope = world.createRailForTest(line(Vector3d(50.0, 64.0, 0.0), Vector3d(80.0, 70.0, 0.0)))
         CoreRail.connect(level, slope)
@@ -33,8 +33,7 @@ class TrainSlopeJointMotionTest {
     }
 
     @Test
-    fun `long train moves from level rail onto connected slope`() {
-        val world = createTestWorld()
+    fun `long train moves from level rail onto connected slope`() = withWorld { world ->
         val level = world.createRailForTest(line(Vector3d(0.0, 64.0, 0.0), Vector3d(120.0, 64.0, 0.0)))
         val slope = world.createRailForTest(line(Vector3d(120.0, 64.0, 0.0), Vector3d(180.0, 70.0, 0.0)))
         CoreRail.connect(level, slope)
@@ -50,6 +49,15 @@ class TrainSlopeJointMotionTest {
 
         assertTrue(train.head.location.rail == slope, "head should enter slope rail")
         assertTrue(train.head.location.position.y() > 64.0, "head should climb after entering slope")
+    }
+
+    private fun withWorld(block: (CoreWorld) -> Unit) {
+        val world = createTestWorld()
+        (world.tickManager as TickManagerImpl).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                world.physicsCoordinator.use { block(world) }
+            }
+        }
     }
 
     private fun line(start: Vector3d, end: Vector3d): PrimeCurve {

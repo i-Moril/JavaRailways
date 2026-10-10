@@ -255,7 +255,7 @@ util/TickManagerImpl.kt
 
 - `java/work/art1st/javarailways/core/physics/train/TrainNameTest.kt`： 保留双索引/metadata；补invalid name失败保持。
 
-- `java/work/art1st/javarailways/core/physics/train/TrainSlopeJointMotionTest.kt`： 保留短/长编组crossing；可参数化fixture。窄查确认两项createTestWorld仍无配对关闭，后续清理。
+- `java/work/art1st/javarailways/core/physics/train/TrainSlopeJointMotionTest.kt`：保留短/长编组crossing两项及原运动断言；已补physics→binding→tick的配对use清理，setup失败由共享createTestWorld负责。此项不证明全部fixture已审计。
 
 - `java/work/art1st/javarailways/core/physics/train/TrainSlopeMotionTest.kt`： 保留实际位移/高度断言。
 

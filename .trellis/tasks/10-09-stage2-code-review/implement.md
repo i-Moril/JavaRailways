@@ -312,6 +312,14 @@ env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
 - 窄查确认`TrainSlopeJointMotionTest`两项仍创建world而无配对关闭；共享`createTestWorld`仍隐式创建dependency，调用方无法保护其world构造前的失败清理，另批评估，不顺带改共享fixture。RailWand完整split/merge事务集成与既有disabled环线仍待处理，CR-020保持partial。
 - focused两类共7项全部执行、零失败（36 s，9个task全部执行）。冻结源码以`GRADLE_USER_HOME=/workspace/.gradle`及`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`运行`:Core:test :Basic:test`，`BUILD SUCCESSFUL`（1m4s，15个task全部执行）。Core 53 suites/308项（302执行、6项既有disabled）、Basic 59 suites/385项全执行，零失败/错误。task manifest 15+15及scoped whitespace检查通过，保留既有Core cast、Basic unchecked/safe-call/non-null assertion和Gradle deprecated warning。无production/API/schema改动、部署或游戏验证。
 
+### CR-020 共享world fixture setup与坡道清理（2026-10-10）
+
+- 限定共享`TrainTestUtils.createTestWorld`的setup与`TrainSlopeJointMotionTest`两项清理；原运动循环和断言保留，未改production/runtime/schema。Koin初始化保留并放在分配前；默认coordinator由nullable默认参数改为函数try内部创建，避免进入函数以前的分配不受helper保护。失败时只关闭helper-owned physics和tick/scheduler，显式传入的physics仍由caller拥有；保留原异常并附suppressed。成功返回后资源转交caller。
+- nullable参数保持JVM一参描述符、Kotlin无参及具名调用；共享fixture消费者重新编译验证。坡道局部`withWorld`在helper成功后按physics→runtime binding→tick关闭，返回Unit，原2项测试数量不变。`CoreWorld`构造失败已负责parent registration回滚；helper补dependency所有权，不复制该回滚逻辑。
+- focused坡道两项通过，9个task全部执行（39 s）。创建失败/清理异常的分支以控制流静态核查：Koin失败在分配前，scheduler失败没有后续资源，tick/默认physics/world失败进入owned-resource清理。未新增构造注入hook或模拟不可正常触发的分配故障；这些异常分支不能记为动态测试覆盖。完整消费者门禁结果待下方补充。
+- 冻结最终源码以`GRADLE_USER_HOME=/workspace/.gradle`、`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`运行`:Core:test :Basic:test :BukkitPlugin:test :SimpleATO:compileTestKotlin :SimpleATOBukkit:compileTestKotlin`；35个task全部执行，`BUILD SUCCESSFUL`（2m43s）。Core 53 suites/308项（302执行、6项既有disabled）、Basic 59/385、BukkitPlugin 89/361，均零失败/错误。`javap`确认共享helper的一参及default bridge描述符；task manifest 15+15和scoped diff-check通过。保留既有Kotlin/Gradle/平台API warning；Gradle提示512 MiB heap/384 MiB metaspace的daemon将在build完成后退出，未修改构建配置。
+- CR-020仍partial；其余fixture未宣称全审，RailWand完整split/merge事务集成、disabled环线及既有未闭合项继续跟踪。无部署或游戏验证。
+
 ## 验证与关闭
 
 - 任务文档：`python3 .trellis/scripts/task.py validate .trellis/tasks/10-09-stage2-code-review`、`git diff --check`。

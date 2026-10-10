@@ -9,18 +9,38 @@ import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.util.TickManagerImpl
 import java.util.concurrent.Executors
 
 /**
  * 创建用于测试的 World：空轨道/列车，单线程 TickManager，使用 NoOpWorldParentContext 而非运行时宿主父 scope。
+ * 成功后调用方负责关闭 world 的 physics、runtime binding 和 tick manager。
+ * 创建失败时清理本函数分配的资源；显式传入的 coordinator 始终由调用方负责。
  */
-fun createTestWorld(physicsCoordinator: work.art1st.javarailways.core.physics.tick.PhysicsCoordinator =
-    work.art1st.javarailways.core.physics.tick.PhysicsCoordinator(1)): CoreWorld {
+fun createTestWorld(physicsCoordinator: PhysicsCoordinator? = null): CoreWorld {
     ensureJavaRailwaysKoinStarted()
     val scheduler = Executors.newSingleThreadScheduledExecutor()
-    val tickManager = TickManagerImpl(scheduler, System.currentTimeMillis())
-    return CoreWorld.createEmpty(tickManager, NoOpWorldParentContext, physicsCoordinator)
+    var tickManager: TickManagerImpl? = null
+    var ownedPhysics: PhysicsCoordinator? = null
+    try {
+        val tick = TickManagerImpl(scheduler, System.currentTimeMillis())
+        tickManager = tick
+        val physics = physicsCoordinator ?: PhysicsCoordinator(1).also { ownedPhysics = it }
+        return CoreWorld.createEmpty(tick, NoOpWorldParentContext, physics)
+    } catch (failure: Throwable) {
+        try {
+            ownedPhysics?.close()
+        } catch (cleanupFailure: Throwable) {
+            if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+        }
+        try {
+            tickManager?.close() ?: scheduler.shutdownNow()
+        } catch (cleanupFailure: Throwable) {
+            if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+        }
+        throw failure
+    }
 }
 
 /**

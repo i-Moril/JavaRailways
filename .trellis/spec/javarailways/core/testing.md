@@ -22,7 +22,7 @@ object AsyncTickTestSupport {
 }
 ```
 
-consumer test通过`testFixtures(project(":Core"))`复用；production不得依赖fixture。`createTestWorld()`创建TickManager与PhysicsCoordinator，caller在`finally/use`关闭并清world/global registrations。
+consumer test通过`testFixtures(project(":Core"))`复用；production不得依赖fixture。`createTestWorld(physicsCoordinator: PhysicsCoordinator? = null)`在受保护的setup中创建TickManager和默认PhysicsCoordinator；Koin初始化在资源分配前。创建失败只释放helper拥有的coordinator及tick/scheduler，保留原异常并附suppressed；显式传入的coordinator仍由caller拥有。成功返回后caller在`finally/use`按physics→runtime binding→tick关闭并清world/global registrations。nullable默认值使默认coordinator不会在进入函数前分配，Kotlin无参/具名及JVM一参调用保持可用。
 
 ## 测试矩阵与 assertion points
 
@@ -60,7 +60,7 @@ consumer test通过`testFixtures(project(":Core"))`复用；production不得依�
 
 换向恢复同时保留source/restored bogie精确比较及独立固定位置/BA方向断言；数值容差遵循`Curve.TOLERANCE`的摆位求解合同。失败恢复通过已有`WorldParentContext.attachWorld`捕获实际目标world，验证binding释放、train ID/name索引、rail车端及mailbox无失败列车，并完成下一真实epoch检查world frame/occupancy为空；此单列车fixture不证明多列车world load整体回滚。endpoint恢复的8类拒绝输入、4种端部组合和2种active选择均保留。
 
-`RailConnectTest`与`CoreTrainTailBogieTest`的原7项用例使用局部`withWorld`组合显式dependency的`use`：在创建world前纳入tick/physics owner，成功返回后登记binding，按physics→binding→tick释放，setup或断言失败同样保留主异常和suppressed。helper返回`Unit`以保证表达式体仍被JUnit发现；原连接、尾架、支路、换向及间距断言保持。其他fixture的生命周期清理（已窄查确认`TrainSlopeJointMotionTest`两项仍未成对关闭）与RailWand完整事务集成继续单独跟踪，不能把这两类清理写成全套fixture完成。
+`RailConnectTest`与`CoreTrainTailBogieTest`的原7项用例使用局部`withWorld`组合显式dependency的`use`：在创建world前纳入tick/physics owner，成功返回后登记binding，按physics→binding→tick释放，setup或断言失败同样保留主异常和suppressed。helper返回`Unit`以保证表达式体仍被JUnit发现；原连接、尾架、支路、换向及间距断言保持。`TrainSlopeJointMotionTest`两项沿用共享helper，在成功返回后以局部`use`关闭上述三类资源，setup失败由共享helper负责；原坡道运动断言保留。这些局部清理不代表全部fixture已经审计，RailWand完整事务集成继续单独跟踪。
 
 ## 项目内正确示例
 

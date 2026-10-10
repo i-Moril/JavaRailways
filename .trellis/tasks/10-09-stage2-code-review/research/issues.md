@@ -190,6 +190,8 @@
 
 ### CR-020：Core/Basic测试有效性及资源释放缺口
 
+- 共享`createTestWorld`改为nullable默认coordinator，在受保护setup中创建默认physics，失败只清理helper-owned physics/tick/scheduler、保留主异常及suppressed；显式传入的physics仍由caller负责。保留Koin初始化及JVM一参/Kotlin无参和具名调用。`TrainSlopeJointMotionTest`两项按physics→binding→tick关闭，原运动断言/数量不变。此局部资源子项闭合，不代表所有fixture已审计；RailWand完整事务集成、disabled环线及其他未闭合项仍跟踪，CR-020保持partial。默认physics创建失败及清理异常按控制流静态核查，未通过新增注入hook模拟。
+
 - 后续局部清理`RailConnectTest`两项与`CoreTrainTailBogieTest`五项：显式tick/physics在world创建前进入局部use，成功world的binding随后登记，physics→binding→tick逆序释放并保留主异常/suppressed。原7项行为断言及数量不变，无production/API/schema变化。该两类fixture子项闭合；窄查确认`TrainSlopeJointMotionTest`两项仍无配对关闭，共享createTestWorld的隐式dependency setup所有权及RailWand完整split/merge事务集成继续开放，CR-020保持partial。验证见[执行记录](../implement.md#cr-020-连接与尾架fixture清理2026-10-10)。
 
 - 本批补齐`CoreTrainReversedPersistenceTest`与`SavedRailConnectionsTest`的setup/load/断言失败清理，按physics→binding→tick释放并保留主异常。换向恢复保留source/restored bogie精确比较，另检查固定head/tail/car位置及BA方向；失败恢复由现有parent binding seam观察实际目标world，验证ID/name、rail ends、mailbox及下一真实epoch的world frame/occupancy不保留失败列车，binding已释放。23项endpoint参数覆盖及2项列车恢复测试保留，未改production/schema。此处只覆盖单列车失败，不证明整个多列车world加载事务原子性。CR-020仍partial；窄查确认`RailConnectTest`、`CoreTrainTailBogieTest`仍创建world却未关闭，RailWand完整split/merge事务集成继续开放。

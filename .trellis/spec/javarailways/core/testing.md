@@ -46,6 +46,10 @@ consumer test通过`testFixtures(project(":Core"))`复用；production不得依�
 | world materialization失败 | 无partial registered train | close created resources |
 | concurrent barrier | latch/future确定时序 | 不用固定sleep猜测 |
 
+实际行为回归由`TrainUniformMotionTest`等待真实`stepSimulation`的exact ticket后验证head/tail/每车published frame的位移和速度；不能以local累加值充当actual。`CoreTrainDerailEventTest`从真实尽头行驶失败触发coordinator发布/排队，先检查physics完成但main尚未drain时无事件，再检查重复drain及下一idle epoch仍只一次。listener内记录值、断言放在listener外，避免总线异常隔离吞掉assertion。`ImmutableSnapshotTest`捕获后实际改变live对象位置/lifecycle和列车摆位，再验证旧值不变。
+
+这些用例不替代其他未覆盖场景：disabled环线仍明确跳过，publication reverse/derail的immutable-frame边界与reader确定性阻塞需单独补齐；不能因为补了finally就宣称全部publication断言已充分。
+
 ## 项目内正确示例
 
 `Phase`类并发测试应采用exact future/ticket；Core fixture的marker只包lexical block：

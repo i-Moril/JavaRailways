@@ -177,13 +177,14 @@
 
 ### CR-020：Core/Basic测试有效性及资源释放缺口
 
-- 状态：具体下列缺口已确认，待改写/补齐；P3，不批删测试，不把disabled计为绿色覆盖。
+- 状态：部分修复（2026-10-10）；P3，不批删测试，不把disabled计为绿色覆盖。下列保留原审查基线证据，当前处置见本节末。
 - `Core/.../train/TrainUniformMotionTest.kt:30-50`：expected与actual都来自本地constantSpeed累加，未断言train实际位置，speed断言被注释；仅剩未脱轨断言仍有有限价值。应改为真实epoch后published位置/速度断言；同文件6项环线测试disabled，作为待恢复覆盖，不直接删除。
 - `CoreWorldRailTopologyTransactionTest.kt:439-488`：两项reader阻塞测试sleep(50)前没有确认reader已进入读取路径；reader未调度也会通过isDone断言。应改成确定性进入/阻塞证据并finally释放writer，保留拓扑原子性行为覆盖。
 - `CoreTrainDerailEventTest.kt:36-40`：测试复制coordinator条件并自行queue通知，删掉生产`PhysicsCoordinator.kt:439-440`调用仍能绿。应由真实stepSimulation触发，再断言派发前0、后1、重复仍1；保留reason/epoch/token cleanup。
 - `PhysicsCoordinatorTest.kt:474`：entered.await无期限，回归时可挂住整套测试；使用有界barrier断言，不删除exact ticket用例。
 - `CoreTrainPublicationBoundaryTest`、`ImmutableSnapshotTest`、`CoreTrainDerailEventTest`及部分Koin persistence测试未成对关闭world resources；多数fixture未start，不能断言已产生大量活线程。补finally ownership，修正TrainTestUtils KDoc声称Koin parent但实际NoOp的注释。
 - `RailwayObservationTest`未直接断言bodyTraversal投影和caller-owned各集合防御复制；现有排序/immutable断言有效，不能整项删除。stamp简单字段测试只作为合并候选，暂不认定无价值。
+- 已完成局部：真实匀速epoch/published几何与速度、真实尽头脱轨→coordinator事件排队、live mutation快照隔离，以及这四类world fixture的paired cleanup；共18项保持不变（12执行/6disabled），独立检查和7模块强制组合回归成功，见[记录](../implement.md#cr-020-局部测试改写与验证2026-10-10)。无界barrier、reader确定时序、Koin/Basic测试仍待修；publication reverse/derail还需直接验证immutable frame在正确边界变化，不以本批仅加finally结案。
 
 ### C1 验证与限制
 

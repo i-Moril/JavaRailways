@@ -13,7 +13,7 @@ import work.art1st.javarailways.core.util.TickManagerImpl
 import java.util.concurrent.Executors
 
 /**
- * 创建用于测试的 World：空轨道/列车，单线程 TickManager，与运行时使用相同的 Koin 父 scope。
+ * 创建用于测试的 World：空轨道/列车，单线程 TickManager，使用 NoOpWorldParentContext 而非运行时宿主父 scope。
  */
 fun createTestWorld(physicsCoordinator: work.art1st.javarailways.core.physics.tick.PhysicsCoordinator =
     work.art1st.javarailways.core.physics.tick.PhysicsCoordinator(1)): CoreWorld {

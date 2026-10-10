@@ -64,7 +64,7 @@
 - [x] 独立批次CR-027：load和prepared snapshot共用单端点严格解析，A/B均解析后才写；拒绝坏引用/远离端点/重复或超容量/非法active，保留合法null与顺序。运行时remove/structural-undo的合法fallback不变，不声称全world恢复事务已解决。
 - [x] 独立批次CR-028：构造/decode共享一次raw-point输入校验，Vector3d缺字段拒绝；同步修Core LINE stream重复末点与Basic ConstraintSolver重复接头，不在decode去重兜底、不加热路径扫描。raw frame要求finite/可归一化/非平行，不额外禁止合法非正交输入；位置相同不等于弧长重复。
 - [x] 独立批次CR-032机械项：仅清空文件、无consumer helper/pool、未读临时list及废注释；逐项核实引用与持久化影响，事件/Seat/linksplit和需设计的旧factory/editor另列，不结案整个CR-032。
-- [ ] 独立批次CR-020局部：将匀速/脱轨/快照测试改为真实epoch及live mutation后的值断言，补对应world资源finally；不增加测试数量，不把6项disabled环线算绿色。其余reader时序、Koin fixture及Basic observation缺口另列，不因局部改写结案。
+- [x] 独立批次CR-020局部：将匀速/脱轨/快照测试改为真实epoch及live mutation后的值断言，补对应world资源finally；不增加测试数量，不把6项disabled环线算绿色。其余reader时序、Koin fixture及Basic observation缺口另列，不因局部改写结案。
 - [ ] 后续独立批次CR-014：既有coordinator状态锁内永久停止新wake并捕获exact ticket，正常完成在途epoch之后才允许最终capture；先做Core边界与有界真实worker测试，再单独接入宿主卸载。不是close/abort，不新增超时、通用生命周期框架或公开Core API。
 - 后续单列CR-027/028严格输入、CR-025/026算法事实、CR-013至CR-017生命周期及CR-020/032局部测试/残留清理；若核实需要新的产品选择或迁移要求，标记并跳过，不用猜测兜底替代。
 
@@ -114,6 +114,14 @@
 - 全仓生产/测试/资源配置引用核对及独立检查通过；5项删除均可从Git恢复。CoreWorld implementation constructor参数去掉unused值，仓库调用使用保留的secondary constructor，正式World API、持久化形状及版本不变。
 - 绿色证据复用上方CR-028/032/020冻结源码7模块强制组合门禁（54任务、1896项/6跳过、零失败/错误），未为死代码删除新增无行为测试。该门禁不包括随后CR-014改动；没有部署/游戏验证。
 - 旧RailTopologyEditor/factory构建链及其专用测试、其余可维护性候选仍待分批处理；Core事件保留、Seat处置与联结/解编设计不在删除范围。导航.codeabs漂移仍属CR-002/033，未改docs-site原有脏状态。
+
+### CR-020 局部测试改写与验证（2026-10-10）
+
+- 匀速原用例改为100个有界等待的真实50ms simulation epoch，每轮独立计算expected位移，并检查head/tail/每车公开位置及immutable frame、controller/train/frame速度与epoch；不再以两个local累加值自证。
+- 脱轨用例沿100m尽头线路实际执行2000m/s×50ms，经过BogieException→CoreTrain→coordinator发布/排队；检查未drain时0、真实main drain后1、重复drain/后续idle epoch仍1，并保留reason/epoch/controller移除及原几何。listener只记录，assertion在外部，避免event bus吞测试错误。
+- 快照用例实际改变live位置/lifecycle及真实30m跨段摆位，检查旧value隔离；publication用例本批仅补finally关闭，fixture KDoc改为真实NoOp。五文件共18项（12执行、6个原disabled环线），数量未增加；没有新增runtime接口/测试替代实现。
+- 独立检查与上方CR-028/032/020组合门禁通过；首次测试编译错误已用现有`train.head.location.forward`修正后完整重跑，不新增extension/cast。CR-014随后改动不在本门禁内。
+- CR-020仍部分完成：reader sleep/未证明进入读取路径、coordinator无界barrier、Koin fixture、Basic observation collection/bodyTraversal及publication reverse/derail immutable-frame断言继续跟踪；不把本批finally当全面有效性证明。无部署/游戏验证。
 
 ### CR-022 修复与验证（2026-10-10）
 

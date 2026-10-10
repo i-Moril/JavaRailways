@@ -3,61 +3,101 @@ package work.art1st.javarailways.core.physics.train
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.event.DerailEvent
 import work.art1st.javarailways.core.api.event.processor.EventListener
 import work.art1st.javarailways.core.api.event.processor.HandlesEvent
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
+import work.art1st.javarailways.core.api.physics.exception.BogieException
+import work.art1st.javarailways.core.control.train.MockTrainController
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
+import java.util.concurrent.TimeUnit
 
 class CoreTrainDerailEventTest {
     @Test
     fun `wrong-thread derail fails before changing train state`() {
         val world = createTestWorld()
-        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
-        val train = createTrainWithConfig("wrong-thread", rail, world, listOf(10.0))
+        try {
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
+            val train = createTrainWithConfig("wrong-thread", rail, world, listOf(10.0))
 
-        assertThrows(IllegalStateException::class.java) { train.derail("wrong thread") }
+            assertThrows(IllegalStateException::class.java) { train.derail("wrong thread") }
 
-        assertFalse(train.isDerailed)
-        assertFalse(train.publishedFrame.derailed)
-        assertEquals(null, train.derailReason)
+            assertFalse(train.isDerailed)
+            assertFalse(train.publishedFrame.derailed)
+            assertEquals(null, train.derailReason)
+        } finally {
+            world.physicsCoordinator.close()
+            (world.tickManager as? AutoCloseable)?.close()
+        }
     }
 
     @Test
     fun `physics derail publishes one main event after publication`() {
-        val world = createTestWorld()
-        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
-        val train = createTrainWithConfig("physics-event", rail, world, listOf(10.0))
-        val listener = DerailCounter()
-        val registration = MainRailEventBus.register(listener)
+        val coordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val world = createTestWorld(coordinator)
         try {
-            train.markDerailedFromPhysics("physics failure")
-            train.publishPhysicsState()
-            val previousFrame = train.publishedFrame
-            val frame = train.publishFrame(7L)
-            if (!previousFrame.derailed && frame.derailed) train.queuePublishedDerailNotification()
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
+            val train = createTrainWithConfig("physics-event", rail, world, listOf(10.0))
+            val initialHead = train.headLocation
+            val initialTail = train.tailLocation
+            // A 100 m movement runs the head bogie beyond the unconnected end of this rail.
+            train.setController(MockTrainController(train, world, constantSpeed = 2000.0))
+            val listener = DerailCounter()
+            val registration = MainRailEventBus.register(listener)
+            try {
+                coordinator.start()
+                val ticket = coordinator.stepSimulation(50.0)
+                ticket.completion.get(5, TimeUnit.SECONDS)
 
-            IsolatedSimulationThreadMarker.run { world.publishPendingDerailEvents() }
-            IsolatedSimulationThreadMarker.run { world.publishPendingDerailEvents() }
+                assertTrue(train.isDerailed)
+                assertTrue(train.publishedFrame.derailed)
+                assertEquals(BogieException::class.java.name, train.derailReason)
+                assertEquals(ticket.epoch, train.publishedFrame.physicsEpoch)
+                assertEquals(initialHead, train.headLocation)
+                assertEquals(initialTail, train.tailLocation)
+                assertEquals(null, train.controller)
+                assertEquals(0, listener.count, "physics publication must not dispatch a main event")
 
-            assertEquals(1, listener.count)
-            assertEquals("physics failure", listener.reason)
-            assertEquals(7L, train.publishedFrame.physicsEpoch)
+                IsolatedSimulationThreadMarker.run { world.publishPendingDerailEvents() }
+
+                assertEquals(1, listener.count)
+                assertEquals(train.derailReason, listener.reason)
+                assertEquals(ticket.epoch, listener.publishedEpoch)
+                assertTrue(listener.publishedDerailed)
+                assertTrue(listener.publicDerailed)
+
+                IsolatedSimulationThreadMarker.run { world.publishPendingDerailEvents() }
+                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                IsolatedSimulationThreadMarker.run { world.publishPendingDerailEvents() }
+                assertEquals(1, listener.count, "draining or publishing another epoch must not repeat the event")
+            } finally {
+                registration.close()
+            }
         } finally {
-            registration.close()
+            coordinator.close()
+            (world.tickManager as? AutoCloseable)?.close()
         }
     }
 
     private class DerailCounter : EventListener {
         var count = 0
         var reason: String? = null
+        var publishedEpoch: Long? = null
+        var publishedDerailed = false
+        var publicDerailed = false
 
         @HandlesEvent
         fun onDerail(event: DerailEvent) {
             count++
             reason = event.msg
+            val frame = event.train.publishedFrame
+            publishedEpoch = frame?.physicsEpoch
+            publishedDerailed = frame?.derailed == true
+            publicDerailed = event.train.isDerailed
         }
     }
 }

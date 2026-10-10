@@ -1,15 +1,16 @@
 package work.art1st.javarailways.core.physics.train
 
 import work.art1st.javarailways.core.control.train.MockTrainController
-import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.api.physics.curve.Curve
+import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.core.api.physics.exception.BogieException
-import work.art1st.javarailways.core.api.physics.exception.PhysicsException
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 /**
@@ -30,24 +31,46 @@ class TrainUniformMotionTest {
     fun `straight track - constant speed and distance`() {
         val length = 500.0
         val segments = PrimeCurveGenerator.buildStraight(length)
-        val world = createTestWorld()
-        val rail = createStraightRailFromSegments(world, segments)
-        val carLengths = listOf(10.0, 10.0)
-        val constantSpeed = 20.0 // m/s
-        val train = createTrainWithConfig("t1", rail, world, carLengths, isLoop = false)
-        train.setController(MockTrainController(train, world, constantSpeed))
+        val coordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val world = createTestWorld(coordinator)
+        try {
+            val rail = createStraightRailFromSegments(world, segments)
+            val constantSpeed = 20.0 // m/s
+            val train = createTrainWithConfig("t1", rail, world, listOf(10.0, 10.0), isLoop = false)
+            val controller = MockTrainController(train, world, constantSpeed)
+            train.setController(controller)
+            val startHeadX = train.headLocation.position.x()
+            val startTailX = train.tailLocation.position.x()
+            val startCarXs = train.cars.map { it.position.x() }
+            coordinator.start()
 
-        val numTicks = 100
-        var totalDistance = 0.0
-        for (i in 0 until numTicks) {
-            //assertEquals(constantSpeed, train.speed, speedTolerance, "tick $i speed")
-            train.controller!!.tick(tickMs)
-            totalDistance += constantSpeed * tickSeconds
+            repeat(100) { index ->
+                val ticket = coordinator.stepSimulation(tickMs)
+                val metrics = ticket.completion.get(5, TimeUnit.SECONDS)
+                val expectedDistance = constantSpeed * (index + 1) * tickSeconds
+                val frame = train.publishedFrame
+
+                assertEquals(ticket.epoch, metrics.epoch)
+                assertEquals(ticket.epoch, frame.physicsEpoch)
+                assertEquals(constantSpeed, controller.speed, speedTolerance, "tick $index controller speed")
+                assertEquals(constantSpeed, train.speed, speedTolerance, "tick $index train speed")
+                assertEquals(constantSpeed, frame.speedMetersPerSecond, speedTolerance)
+                assertEquals(startHeadX + expectedDistance, train.headLocation.position.x(), distanceTolerance, "tick $index head")
+                assertEquals(startTailX + expectedDistance, train.tailLocation.position.x(), distanceTolerance, "tick $index tail")
+                assertEquals(RailPositionSnapshot.capture(train.headLocation, ViewDirection.AB), frame.head)
+                assertEquals(RailPositionSnapshot.capture(train.tailLocation, ViewDirection.AB), frame.tail)
+                assertEquals(train.cars.size, frame.cars.size)
+                train.cars.forEachIndexed { carIndex, car ->
+                    assertEquals(startCarXs[carIndex] + expectedDistance, car.position.x(), distanceTolerance, "tick $index car $carIndex")
+                    assertEquals(car.id, frame.cars[carIndex].carId)
+                    assertEquals(startCarXs[carIndex] + expectedDistance, frame.cars[carIndex].state.positionX, distanceTolerance, "tick $index frame car $carIndex")
+                }
+                assertFalse(train.isDerailed)
+            }
+        } finally {
+            coordinator.close()
+            (world.tickManager as? AutoCloseable)?.close()
         }
-
-        val expectedDistance = constantSpeed * numTicks * tickSeconds
-        assertEquals(expectedDistance, totalDistance, distanceTolerance)
-        assertFalse(train.isDerailed)
     }
 
     @Test

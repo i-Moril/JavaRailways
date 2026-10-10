@@ -305,6 +305,13 @@ env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
 - 2项列车测试及23项endpoint参数/普通用例保留；定向25项全通过（9个task执行，36 s）。完整Core+Basic门禁结果由下方补充。窄查确认`RailConnectTest`两处及`CoreTrainTailBogieTest`五处world创建仍缺配对关闭；RailWand完整split/merge事务集成仍待补，CR-020保持partial。未部署、连接开发服或游戏验证。
 - 最终冻结源码使用`GRADLE_USER_HOME=/workspace/.gradle`、`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`运行`:Core:test :Basic:test`，15个task全部执行，`BUILD SUCCESSFUL`（1m10s）；Core 53 suites/308项（302执行、6项既有disabled），Basic 59/385全执行，零失败/错误。task manifest 15+15及scoped `git diff --check`通过。保留既有cast、unchecked/safe-call、Gradle deprecated等warning；无下游API变化，不运行Dokka/平台部署。
 
+### CR-020 连接与尾架fixture清理（2026-10-10）
+
+- 只改`RailConnectTest`两项及`CoreTrainTailBogieTest`五项的fixture生命周期，保留原连接、尾架、支路、换向间距/压缩修正断言与7项数量，不扩展physics epoch或geometry覆盖。
+- 两类局部`withWorld`沿用既有显式dependency及嵌套`use`模式；tick/physics在`CoreWorld.createEmpty`前已有owner，成功world登记binding，按physics→binding→tick释放。setup/body失败仍继续清理，保留主异常及suppressed；helper显式`Unit`返回，防止表达式体返回断言值而被JUnit漏发现。移除未使用的CoreRail/ThreadGuard imports。
+- 窄查确认`TrainSlopeJointMotionTest`两项仍创建world而无配对关闭；共享`createTestWorld`仍隐式创建dependency，调用方无法保护其world构造前的失败清理，另批评估，不顺带改共享fixture。RailWand完整split/merge事务集成与既有disabled环线仍待处理，CR-020保持partial。
+- focused两类共7项全部执行、零失败（36 s，9个task全部执行）。冻结源码以`GRADLE_USER_HOME=/workspace/.gradle`及`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`运行`:Core:test :Basic:test`，`BUILD SUCCESSFUL`（1m4s，15个task全部执行）。Core 53 suites/308项（302执行、6项既有disabled）、Basic 59 suites/385项全执行，零失败/错误。task manifest 15+15及scoped whitespace检查通过，保留既有Core cast、Basic unchecked/safe-call/non-null assertion和Gradle deprecated warning。无production/API/schema改动、部署或游戏验证。
+
 ## 验证与关闭
 
 - 任务文档：`python3 .trellis/scripts/task.py validate .trellis/tasks/10-09-stage2-code-review`、`git diff --check`。

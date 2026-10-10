@@ -1,7 +1,5 @@
 package work.art1st.javarailways.core.physics.rail
 
-import work.art1st.javarailways.core.physics.createRailForTest
-
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -9,12 +7,16 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
-import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.di.NoOpWorldParentContext
+import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.physics.createRailForTest
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
+import work.art1st.javarailways.core.util.TickManagerImpl
+import java.util.concurrent.Executors
 
 class RailConnectTest {
     @Test
-    fun `save stores connections at semantic endpoints`() {
-        val world = createTestWorld()
+    fun `save stores connections at semantic endpoints`() = withWorld { world ->
         val first = world.createRailForTest(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
         val second = world.createRailForTest(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
 
@@ -33,8 +35,7 @@ class RailConnectTest {
     }
 
     @Test
-    fun `connecting the same adjacent rails twice does not duplicate next rails`() {
-        val world = createTestWorld()
+    fun `connecting the same adjacent rails twice does not duplicate next rails`() = withWorld { world ->
         val first = world.createRailForTest(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
         val second = world.createRailForTest(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
 
@@ -54,6 +55,19 @@ class RailConnectTest {
         assertEquals(afterConnect.revision, world.topologyRevision)
         assertSame(afterConnect, world.topologyState)
         assertEquals(1, afterConnect.edges.size)
+    }
+
+    private fun withWorld(block: (CoreWorld) -> Unit) {
+        TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
+            var world: CoreWorld? = null
+            AutoCloseable { world?.releaseRuntimeBinding() }.use {
+                PhysicsCoordinator(1, automaticFallback = false).use { physics ->
+                    val created = CoreWorld.createEmpty(tick, NoOpWorldParentContext, physics)
+                    world = created
+                    block(created)
+                }
+            }
+        }
     }
 
     private fun straightCurve(from: Vector3d, to: Vector3d): PrimeCurve {

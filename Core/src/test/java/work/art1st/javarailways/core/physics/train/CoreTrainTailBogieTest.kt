@@ -1,7 +1,5 @@
 package work.art1st.javarailways.core.physics.train
 
-import work.art1st.javarailways.core.physics.createRailForTest
-
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -9,19 +7,22 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
-import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.di.NoOpWorldParentContext
+import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
-import work.art1st.javarailways.core.api.threading.ThreadGuard
-import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
-import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.util.TickManagerImpl
+import java.util.concurrent.Executors
 
 class CoreTrainTailBogieTest {
     @Test
-    fun `tail bogie uses last car in forward direction`() {
-        val world = createTestWorld()
+    fun `tail bogie uses last car in forward direction`() = withWorld { world ->
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
         val train = createTrainWithConfig("t-tail", rail, world, listOf(10.0, 10.0), isLoop = false)
 
@@ -29,8 +30,7 @@ class CoreTrainTailBogieTest {
     }
 
     @Test
-    fun `tail bogie switches to first car when reversed`() {
-        val world = createTestWorld()
+    fun `tail bogie switches to first car when reversed`() = withWorld { world ->
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
         val train = createTrainWithConfig("t-tail-reversed", rail, world, listOf(10.0, 10.0), isLoop = false)
 
@@ -40,8 +40,7 @@ class CoreTrainTailBogieTest {
     }
 
     @Test
-    fun `trailing bogies preserve siding path while first bogie enters merged main line`() {
-        val world = createTestWorld()
+    fun `trailing bogies preserve siding path while first bogie enters merged main line`() = withWorld { world ->
         val main = world.createRailForTest(
             straightCurve(Vector3d(-30.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         )
@@ -75,8 +74,7 @@ class CoreTrainTailBogieTest {
     }
 
     @Test
-    fun `curved consist can move after stopping and reversing`() {
-        val world = createTestWorld()
+    fun `curved consist can move after stopping and reversing`() = withWorld { world ->
         val rail = world.createRailForTest(PrimeCurveGenerator.buildCircle(30.0, segmentCount = 1).single())
         rail.viewAB.mutableNextRails.add(rail.viewAB)
         rail.viewAB.activeRail = rail.viewAB
@@ -126,8 +124,7 @@ class CoreTrainTailBogieTest {
     }
 
     @Test
-    fun `reversed train keeps cars spaced while moving`() {
-        val world = createTestWorld()
+    fun `reversed train keeps cars spaced while moving`() = withWorld { world ->
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(1000.0))
         val train = createTrainWithConfig("t-reverse-spacing", rail, world, listOf(10.0, 10.0, 10.0), isLoop = false)
 
@@ -152,6 +149,19 @@ class CoreTrainTailBogieTest {
                 1e-9,
                 "car $index operating direction should flip"
             )
+        }
+    }
+
+    private fun withWorld(block: (CoreWorld) -> Unit) {
+        TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
+            var world: CoreWorld? = null
+            AutoCloseable { world?.releaseRuntimeBinding() }.use {
+                PhysicsCoordinator(1, automaticFallback = false).use { physics ->
+                    val created = CoreWorld.createEmpty(tick, NoOpWorldParentContext, physics)
+                    world = created
+                    block(created)
+                }
+            }
         }
     }
 

@@ -202,7 +202,7 @@ util/TickManagerImpl.kt
 
 - `java/work/art1st/javarailways/core/physics/rail/PreparedRailWorldSnapshotPlanTest.kt`： 保留：snapshot restore严格校验、选择保留与失败不提交。
 
-- `java/work/art1st/javarailways/core/physics/rail/RailConnectTest.kt`： 保留：连接方向/结构；补fixture资源清理。
+- `java/work/art1st/javarailways/core/physics/rail/RailConnectTest.kt`： 保留连接方向/结构两项；已用显式dependency和局部use保护setup/body失败，physics→binding→tick成对释放，主异常与suppressed保留。
 
 - `java/work/art1st/javarailways/core/physics/rail/RailDirectionRestrictionTest.kt`： 保留：Core方向中立；删除同用例内重复一行断言。
 
@@ -247,7 +247,7 @@ util/TickManagerImpl.kt
 - `java/work/art1st/javarailways/core/physics/train/CoreTrainReversedPersistenceTest.kt`： 已保留精确bogie恢复并增加独立固定位置/BA方向；失败项经parent binding捕获实际目标world，验证ID/name、rail ends、mailbox及下一真实epoch frame/occupancy为空，binding关闭。全部setup/load资源由嵌套use保护；只证明该单列车失败清理。
 - `java/work/art1st/javarailways/core/physics/rail/SavedRailConnectionsTest.kt`： 保留23项endpoint拒绝/组合/active恢复覆盖，全部world setup/load/body由嵌套use管理physics→binding→tick清理，失败不覆盖主异常。
 
-- `java/work/art1st/javarailways/core/physics/train/CoreTrainTailBogieTest.kt`： 保留尾架、支路、reversed间距/压缩修正；补fixture关闭。
+- `java/work/art1st/javarailways/core/physics/train/CoreTrainTailBogieTest.kt`： 保留尾架、支路、reversed间距/压缩修正原五项；已用显式dependency和局部use保护setup/body失败，physics→binding→tick成对释放，未扩展geometry或epoch断言。
 
 - `java/work/art1st/javarailways/core/physics/train/DummyAsset.kt`： 空helper零引用，删除候选。
 
@@ -255,7 +255,7 @@ util/TickManagerImpl.kt
 
 - `java/work/art1st/javarailways/core/physics/train/TrainNameTest.kt`： 保留双索引/metadata；补invalid name失败保持。
 
-- `java/work/art1st/javarailways/core/physics/train/TrainSlopeJointMotionTest.kt`： 保留短/长编组crossing；可参数化fixture。
+- `java/work/art1st/javarailways/core/physics/train/TrainSlopeJointMotionTest.kt`： 保留短/长编组crossing；可参数化fixture。窄查确认两项createTestWorld仍无配对关闭，后续清理。
 
 - `java/work/art1st/javarailways/core/physics/train/TrainSlopeMotionTest.kt`： 保留实际位移/高度断言。
 

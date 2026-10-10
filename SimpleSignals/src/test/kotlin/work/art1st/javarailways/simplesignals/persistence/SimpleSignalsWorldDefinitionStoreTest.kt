@@ -321,6 +321,32 @@ class SimpleSignalsWorldDefinitionStoreTest {
     }
 
     @Test
+    fun `directory preparation failure releases the world for a later save`() {
+        val store = SimpleSignalsWorldDefinitionStore(directory.toFile())
+        val worldsPath = directory.resolve("worlds")
+        Files.writeString(worldsPath, "blocks directory creation")
+
+        assertThrows(Exception::class.java) {
+            store.prepareSave(WORLD_ID, definitions(1L))
+        }
+
+        Files.delete(worldsPath)
+        store.prepareSave(WORLD_ID, definitions(1L)).use {
+            assertThrows(IllegalStateException::class.java) {
+                store.prepareSave(WORLD_ID, definitions(1L))
+            }
+        }
+        store.save(WORLD_ID, definitions(1L))
+
+        val loaded = assertInstanceOf(
+            SimpleSignalsWorldDefinitionLoadResult.Loaded::class.java,
+            store.load(WORLD_ID)
+        )
+        assertEquals(1L, loaded.definitions.definitionRevision)
+        assertEquals(SimpleSignalsWorldDefinitionSource.PRIMARY, loaded.source)
+    }
+
+    @Test
     fun `save after backup recovery does not replace the last valid backup with corrupt primary`() {
         val store = SimpleSignalsWorldDefinitionStore(directory.toFile())
         val primary = store.primaryFile(WORLD_ID)

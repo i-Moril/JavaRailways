@@ -74,6 +74,9 @@ Wand 编辑流程的图搜索、候选编译、JSON 和文件 I/O 均在 worker�
 捕获 runtime 对象、定义版本和本次拓扑；世界卸载重载、外部编辑或失效玩家动作不能提交旧选择。
 成功提交只替换已经准备好的状态。定义比较和保存仍可随定义规模增长，但不阻塞物理线程等待平台交互。
 同一拓扑 root 的派生连接索引在候选间复用；普通点击不能反复从全世界 rails 重建索引。
+两点选择在已保存第一点之后发现publication过期时，同时清除`firstPoint`与其capture；下一次点击必须重新capture，且backend收到的
+第一点为null，不能把旧位置嫁接到新publication。定义事务进入host原子source callback后仍执行最后一次authoring guard；该guard失效
+返回`WORLD_UNAVAILABLE`且不改disk/source/publication，只有真实staging或primary commit I/O失败才返回`PERSISTENCE_FAILED`。
 
 信号工具通过固定闭塞 snapshot 的 rail 反向索引筛选候选，只允许距有向入口0.75米内且视线朝向区间内部的左键绑定。
 共享入口歧义、区间内部点击和单向闭塞反向入口拒绝；入口尚无主信号时仍可形成稳定绑定并在右键时创建，

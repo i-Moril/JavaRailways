@@ -3810,6 +3810,52 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
+    fun `authoring cancellation inside atomic callback remains world unavailable and changes nothing`() {
+        val fixture = Fixture()
+        val store = store()
+        store.save(
+            fixture.worldId,
+            SimpleSignalsWorldDefinitions(
+                fixture.worldId,
+                1L,
+                emptyList(),
+                emptyList()
+            )
+        )
+        val primaryBefore = Files.readString(store.primaryFile(fixture.worldId))
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(
+            plugin(),
+            infrastructure.service,
+            CapturingRoutePlanningService(),
+            store,
+            sources
+        )
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val runtime = checkNotNull(manager.authoringRuntime(fixture.worldId))
+        val publicationBefore = runtime.authoringPublication()
+        val sourcesBefore = sources.sources.getValue(fixture.worldId)
+        val commitCountBefore = sources.atomicCommitCount
+        var guardCalls = 0
+
+        val cancelled = manager.applyDefinitionPatch(
+            fixture.worldId,
+            1L,
+            SimpleSignalsDefinitionPatch(upsertRegions = listOf(fixture.region)),
+            authoringGuard = { ++guardCalls < 3 }
+        )
+
+        assertEquals(3, guardCalls, "the final guard must run after entering the atomic callback")
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE, cancelled.status)
+        assertSame(publicationBefore, runtime.authoringPublication())
+        assertSame(sourcesBefore, sources.sources.getValue(fixture.worldId))
+        assertEquals(commitCountBefore, sources.atomicCommitCount)
+        assertEquals(primaryBefore, Files.readString(store.primaryFile(fixture.worldId)))
+        assertEquals(1, infrastructure.permitCloseCount)
+    }
+
+    @Test
     fun `non operational fixed blocks can be added updated and removed atomically at runtime`() {
         val fixture = Fixture()
         val infrastructure = MutableTopologyService(fixture.currentTopology)

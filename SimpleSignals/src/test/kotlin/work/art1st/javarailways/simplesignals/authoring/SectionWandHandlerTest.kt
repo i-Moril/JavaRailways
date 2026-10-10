@@ -71,12 +71,24 @@ class SectionWandHandlerTest {
 
     @Test fun `stale publication rejects worker result and clears old selection`() {
         val f = Fixture()
+        val first = RailPositionSnapshot(f.railId, ViewDirection.AB, 2.0)
+        f.nextOutcome = SectionWandOutcome("first", first, f.capture)
+        f.clickAndDrain()
+        assertEquals(listOf(null), f.firstInputs)
+
+        f.target = CompletableFuture()
         f.handler.click(f.player, f.tool!!, false)
         f.completeTarget(); f.drainOwner()
         f.current = false
         f.drainWorkers(); f.drainOwner()
-        assertEquals(0, f.performs)
-        assertEquals(0, f.curveCalls)
+        assertEquals(1, f.performs)
+
+        f.current = true
+        f.advanceCapture()
+        f.nextOutcome = SectionWandOutcome("recovered")
+        f.clickAndDrain()
+        assertEquals(listOf(null, null), f.firstInputs)
+        assertEquals(2, f.performs)
         assertTrue(f.messages.isNotEmpty())
     }
 
@@ -231,6 +243,7 @@ class SectionWandHandlerTest {
         var given = 0
         var lastGiven: SectionWandTool? = null
         var lastFirst: RailPositionSnapshot? = null
+        val firstInputs = mutableListOf<RailPositionSnapshot?>()
         var refresh: (() -> Unit)? = null
         var openRefresh = 0
         var closedRefresh = 0
@@ -239,7 +252,7 @@ class SectionWandHandlerTest {
         val messages = mutableListOf<Component>()
         val workers = ArrayDeque<() -> Unit>()
         val owners = ArrayDeque<() -> Unit>()
-        val capture = object : SectionWandCapture { override val worldId = this@Fixture.worldId }
+        var capture: SectionWandCapture = newCapture()
         var nextOutcome = SectionWandOutcome("edited")
         val world: World = proxy(World::class.java) { name, _ -> when (name) {
             "getUID" -> worldId
@@ -278,13 +291,15 @@ class SectionWandHandlerTest {
         }
         private val backend = object : SectionWandBackend {
             override fun capture(worldId: UUID) = capture
-            override fun current(capture: SectionWandCapture): Boolean = current
+            override fun current(capture: SectionWandCapture): Boolean =
+                current && capture === this@Fixture.capture
             override fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
                 firstPoint: RailPositionSnapshot?, point: RailPositionSnapshot, active: () -> Boolean): SectionWandOutcome {
                 check(!ownerThread)
                 assertTrue(active())
                 performs++
                 lastFirst = firstPoint
+                firstInputs += firstPoint
                 return nextOutcome
             }
         }
@@ -301,6 +316,7 @@ class SectionWandHandlerTest {
                 check(ownerThread); assertTrue(drawing.batch(offset).size <= 512); draws++
             })
         fun completeTarget() { target.complete(Optional.of(RailTarget(rail, 5.0, 0.0))) }
+        fun advanceCapture() { capture = newCapture() }
         fun drainOwner() { ownerThread = true; while (owners.isNotEmpty()) owners.removeFirst().invoke() }
         fun drainWorkers() {
             ownerThread = false
@@ -310,6 +326,10 @@ class SectionWandHandlerTest {
             target = CompletableFuture()
             handler.click(player, tool!!, false)
             completeTarget(); drainOwner(); drainWorkers(); drainOwner()
+        }
+
+        private fun newCapture() = object : SectionWandCapture {
+            override val worldId = this@Fixture.worldId
         }
     }
 

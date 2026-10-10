@@ -204,6 +204,14 @@ env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
 - 独立检查：`trellis-check`复核构造注册/清理、相同实例二次add及真实回归断言，未发现代码修改项；manifest的一处extension回滚表述已改为constructor-owned registrations。任务manifest（8+8项）、文档链接及变更空白检查均通过。
 - 边界：无公开API或持久化格式/版本变化，无事件接入、Seat删除、编组几何或宿主factory修复；未运行Dokka、opt-in stress、平台测试或游戏验证，未连接开发服。仅CR-022记为修复，不把本批绿色回归记为Core通过或全项目审查完成。
 
+### CR-010/011/012 SimpleSignals准备失败、取消分类与Wand stale回归（2026-10-10）
+
+- CR-010把`Files.createDirectories(worldsDirectory)`移入prepared-world reservation的同一失败释放边界；目录创建、staging删除／写入／复制任一失败都会移除本world reservation，不增加重试状态机。真实临时文件系统回归用普通文件占用`worlds`路径，确认失败后修复路径，并由同一store/world重新prepare、close、save和load成功。
+- CR-011保留host atomic source callback内、primary rename前的最后authoring guard，以独立取消标记把该失效分类为`WORLD_UNAVAILABLE`；未设置该标记的真实commit I/O异常仍为`PERSISTENCE_FAILED`。manager回归让第三次guard调用在callback已进入后失败，断言primary文本、runtime publication identity、host source publication identity和atomic commit计数均不变，permit正常关闭。
+- CR-012不改已有正确生产清理。原stale-selection测试先让backend真实返回第一点及capture，再令publication失效；安装新的capture后继续点击，通过记录backend每次输入直接断言恢复调用的`firstPoint == null`，不再只以消息和零调用间接声称已清理。
+- 完整非增量`:SimpleSignals:test`执行33个Gradle task并`BUILD SUCCESSFUL`（3m13s）；XML合计487项，零跳过／失败／错误，production与test Kotlin/Java compile均执行。首次3类定向运行134项时，新CR-011测试错误地对合法空source publication调用`single()`而失败；改为比较完整source list identity后，单项及完整模块门禁通过。
+- 独立检查补强成功prepare后的reservation生命周期断言；冻结源码完整门禁仍为487项零失败／错误／跳过，task validate与变更空白检查通过。无持久化shape、schema version、runtime compatibility、公共API或协调器变化；未部署、连接开发服或运行Folia/客户端测试。既有Java toolchain探测、Kotlin读取Graal POM、deprecated/unchecked、WebUI 5项依赖漏洞／大bundle和一次测试期physics overload日志保留。
+
 以下八步于 2026-10-09 获用户批准；第 1、3、4、5、6 步及第 2 步根仓入口文档批次已完成。剩余文档问题留到全仓代码审查，第 6 步提交后等待用户检查，再推进第 7 步。步骤不是提交数量，每步可拆成独立可验证的提交。
 
 1. [x] **无调用原型清理（CR-001）**：`6cf5805d` 已获用户认可，删除三个 Java 原型及 Lombok 残留。

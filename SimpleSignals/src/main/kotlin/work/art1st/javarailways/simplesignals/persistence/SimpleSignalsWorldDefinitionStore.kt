@@ -90,8 +90,8 @@ internal class SimpleSignalsWorldDefinitionStore(
         val backup = backupFile(worldId)
         val temporary = temporaryFile(worldId)
         val backupTemporary = backupTemporaryFile(worldId)
-        Files.createDirectories(worldsDirectory)
         try {
+            Files.createDirectories(worldsDirectory)
             Files.deleteIfExists(temporary)
             Files.deleteIfExists(backupTemporary)
             Files.writeString(

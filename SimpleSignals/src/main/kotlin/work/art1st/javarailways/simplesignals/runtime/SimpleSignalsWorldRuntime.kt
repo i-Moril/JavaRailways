@@ -1640,6 +1640,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                 var staleTopologyDuringCommit = false
                 var topologyUnavailableDuringCommit = false
                 var staleSignalPacksDuringCommit = false
+                var authoringCancelledDuringCommit = false
                 try {
                     signalEpochSources.replaceSourcesAtomically(
                         plugin,
@@ -1670,7 +1671,10 @@ internal class SimpleSignalsWorldRuntimeManager(
                             candidateOccupancy,
                             candidateModels
                         ) {
-                            check(authoringGuard()) { "authoring selection is no longer active" }
+                            if (!authoringGuard()) {
+                                authoringCancelledDuringCommit = true
+                                error("authoring selection is no longer active")
+                            }
                             stagedSave.commitPrimary()
                         }
                         if (committed == SimpleSignalsDefinitionCommitStatus.STALE_BASE) {
@@ -1694,6 +1698,8 @@ internal class SimpleSignalsWorldRuntimeManager(
                     val status = when {
                         staleSignalPacksDuringCommit ->
                             SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE
+                        authoringCancelledDuringCommit ->
+                            SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE
                         topologyUnavailableDuringCommit ->
                             SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE
                         staleBase -> SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED
@@ -1705,6 +1711,8 @@ internal class SimpleSignalsWorldRuntimeManager(
                     val prefix = when {
                         staleSignalPacksDuringCommit ->
                             "signal catalog changed before the prepared edit could be committed"
+                        authoringCancelledDuringCommit ->
+                            "authoring selection became unavailable before the prepared edit could be committed"
                         status == SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED ->
                             "definitions could not be saved"
                         status == SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED ->

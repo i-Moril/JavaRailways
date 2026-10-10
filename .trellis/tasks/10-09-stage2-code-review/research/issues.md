@@ -95,25 +95,28 @@
 
 ### CR-010：保存准备的目录创建失败会泄漏 world reservation
 
-- 状态：已确认，待修复；P2，编辑保存恢复问题，不是行车授权错误。
+- 状态：已修复并独立复核；P2，编辑保存恢复问题，不是行车授权错误。
 - 证据：`SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/persistence/SimpleSignalsWorldDefinitionStore.kt:86-95` 先加入 preparedWorlds，随后在 try 外调用 Files.createDirectories；失败绕过 catch 内的 remove。
 - 影响：例如 worlds 路径被普通文件占用，第一次保存失败后，即使外部修复路径，同一 store/world 的后续保存仍被 already prepared 拒绝，直到重新创建 store。
 - 最小建议：将目录创建纳入同一个准备失败释放边界；不新增重试、兼容模型或版本号。
 - 验证缺口：补真实文件系统回归，先制造目录路径冲突，再修复路径，使用同一 store/world 保存并加载成功；保留既有 primary replace 失败/旧 disk-live 配对测试。
+- 处置：目录创建已纳入prepared reservation的同一try/catch释放边界；真实临时文件系统测试以普通文件占用`worlds`，失败后删除冲突，并用同一store/world重新prepare、close、save和load。
 
 ### CR-011：最后一次编辑取消被误分类为保存失败
 
-- 状态：已确认，待修复；P3，typed status/诊断问题，不会写盘或放行。
+- 状态：已修复并独立复核；P3，typed status/诊断问题，不会写盘或放行。
 - 证据：`SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntime.kt:1650,1673,1699-1700` callback 入口 guard 失效返回 WORLD_UNAVAILABLE，beforeCommit 内最后 guard 失效只抛普通异常，callbackStarted 将其归为 PERSISTENCE_FAILED。
 - 最小建议：显式区分取消/失效与真实持久化异常，保留最后一次 guard；不拆出第二事务协调器。
 - 验证缺口：既有 manager test 的 recording commit cancellation 在 callback 入口前失效；需覆盖进入 callback 后、primary rename 前失效，断言取消状态及 disk/source/publication 均不变。
+- 处置：最后一道authoring guard用独立取消标记分类为`WORLD_UNAVAILABLE`；真实I/O异常仍走`PERSISTENCE_FAILED`。manager回归控制第三次guard在atomic callback内失效，并检查primary、source identity、publication identity及commit计数不变。
 
 ### CR-012：过期选择测试没有验证清除已选第一点
 
-- 状态：已确认，待改写；P3，低质量测试断言缺口。
+- 状态：已改写并独立复核；P3，低质量测试断言缺口。
 - 证据：`SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/authoring/SectionWandHandlerTest.kt:72-82` 名称宣称 clears old selection，但没有先建立 firstPoint，也未检查清除后的下一次 backend 输入；生产 handler 第 132 行的清除缺失仍不能由这些断言检出。
 - 最小建议：改写原测试，先成功选第一点，再触发 stale，恢复新 capture 后继续点击，断言 backend 收到 firstPoint=null；不删除有价值的 stale 拒绝覆盖，不按数量减测试。
 - 编辑器结论：本次未确认 SignalWandHandler/SectionWandHandler 的生产行为缺陷；已有 backend/actions 与事件协调分层，不进行无证据大拆分。
+- 处置：原测试现先真实保存第一点，再令publication过期，随后安装新capture继续点击；直接记录每次backend输入并断言恢复调用的`firstPoint`为null。生产清理逻辑无需修改。
 
 ## 批次 C1：Core runtime / Basic observation（2026-10-09）
 

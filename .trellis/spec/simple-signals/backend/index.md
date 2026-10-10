@@ -101,6 +101,8 @@ codec固定`encodeDefaults = true`和`ignoreUnknownKeys = false`。严格拒绝�
 best-effort把staged旧primary轮转为`.bak`。commit point之后的backup/cleanup失败不把已提交primary误报成失败；commit point
 之前的异常不修改primary/backup。不支持atomic move的文件系统只对对应replace使用普通move fallback。启动读取/编译是world load
 低频路径且当前同步执行；route callback只读取已编译publication，不做JSON I/O。
+同一world同时只允许一个prepared save；该reservation从目录创建开始覆盖整个staging，并在目录创建、编码、写入或复制任一准备失败时
+立即释放。修复外部文件系统问题后，同一个store/world可重新准备，不要求重建插件runtime或增加重试状态机。
 
 ## 保护区域领域
 

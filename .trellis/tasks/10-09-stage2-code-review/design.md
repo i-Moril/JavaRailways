@@ -37,3 +37,7 @@
 ## 工作区与回退
 
 根仓和 docs-site 分别记录基线及变更。已有修改不纳入新提交；若与审查修复重叠，先协调。每批可独立验证和撤回，禁止大规模顺带格式化。
+
+## 后续无争议修复边界
+
+用户允许连续小提交后统一检查，仍一项问题一个明确边界。CR-023分开处理已明确的加载路径/端部校验与尚未解决的相邻车钩几何，由[train physics](../../spec/javarailways/core/train-physics.md)拥有几何合同；CR-024只使collision broad phase包含其既有exact容差，归[rail occupancy](../../spec/javarailways/core/rail-topology-and-occupancy.md)；CR-016只保持CLOSED终态并拒绝关闭后的迟到publication，归[runtime publication](../../spec/javarailways/core/runtime-publication.md)。并行实现使用互不重叠文件，所有构建串行且在稳定源码上运行；每批只暂存自己的实现/测试/契约，不混入其他在途代码。

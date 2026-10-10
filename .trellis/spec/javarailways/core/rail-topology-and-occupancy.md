@@ -43,7 +43,9 @@ data class RailInterval(
 
 ## Occupancy、release与结果矩阵
 
-`SweptRailSpan(trainId,railId,minArcAB,maxArcAB)`在完整epoch后只形成一次immutable index；默认32 m bucket、collision query最多32 train candidates，exact overlap后返回`SweptOccupancyQueryResult(collidingTrainId,checkedCandidates,candidateLimitReached)`。同一index由`RailwayOccupancySnapshot`绑定到world frame的physics epoch并共享给Core collision与Basic admission/release consumer，后者通过`blockingTrainIds`查询任意canonical `RailInterval`且不设candidate cap。区间查询以`tolerance`扩展首尾bucket，再对去重candidate做exact overlap；返回不可变、按train ID排序的完整blocker集合。consumer不得从frame trains另建第二份world swept-occupancy index。
+`SweptRailSpan(trainId,railId,minArcAB,maxArcAB)`在完整epoch后只形成一次immutable index；默认32 m bucket、collision query最多32 train candidates，exact overlap后返回`SweptOccupancyQueryResult(collidingTrainId,checkedCandidates,candidateLimitReached)`。同一index由`RailwayOccupancySnapshot`绑定到world frame的physics epoch并共享给Core collision与Basic admission/release consumer，后者通过`blockingTrainIds`查询任意canonical `RailInterval`且不设candidate cap；返回不可变、按train ID排序的完整blocker集合。consumer不得从frame trains另建第二份world swept-occupancy index。
+
+建索引只按span自身范围分桶；碰撞与区间查询均以调用方`tolerance`向两端扩展查询bucket，再去重并做exact overlap。这样跨bucket但落在5 mm默认容差内的接触不会在broad phase漏掉；扩桶可能带来容差外候选，不能省略exact过滤。碰撞候选仍按距离、train ID排序并受既有cap约束，不增加第二份索引或扩大存储footprint。
 
 `TrainFrameSnapshot.occupiedIntervals`不是上述swept index的副本。它从epoch结束后的head、tail与bogie位置一次生成，保留既有相邻rail端点补全规则，供“当前仍在区间内吗”这类终态判断；`sweptSpans`继续用于碰撞与准入的整epoch保守查询。两者都按每根rail的canonical AB闭区间表达，跨轨道占用是多个interval，不存在跨整段路线的全局AB。
 
@@ -153,7 +155,7 @@ snapshot restore还必须覆盖stable UUID、same-ID replacement、exact prospec
 
 - `CoreWorldRailTopologyTransactionTest.kt`：明确latch/barrier验证reader不可见中间态（不新增sleep猜测）。
 - `CoreTrainAsymmetricTurnoutTest.kt`：body occupancy、active branch fallback。
-- `SweptOccupancyIndexTest.kt`：bucket、tolerance、candidate cap、stable nearest ordering。
+- `SweptOccupancyIndexTest.kt`：bucket、双向跨bucket容差内接触、容差外候选exact排除、自定义tolerance、candidate cap、stable nearest ordering。
 - `RailIntervalReleaseDetectorTest.kt`：`BEFORE→OCCUPIED→RELEASED`且方向无关。
 - split/merge tests断言rollback后rail map、links、index和Basic projection一致。
 

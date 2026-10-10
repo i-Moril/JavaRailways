@@ -74,6 +74,45 @@ class SweptOccupancyIndexTest {
     }
 
     @Test
+    fun `collision query finds tolerance contact across either bucket boundary`() {
+        val a = span("A", railA, 31.0, 31.996)
+        val b = span("B", railA, 32.0, 33.0)
+        val occupancy = SweptOccupancyIndex(listOf(a, b), bucketSize = 32.0)
+
+        val fromA = occupancy.queryFirstCollision("A", listOf(a))
+        val fromB = occupancy.queryFirstCollision("B", listOf(b))
+
+        assertEquals(SweptOccupancyQueryResult("B", 1, false), fromA)
+        assertEquals(SweptOccupancyQueryResult("A", 1, false), fromB)
+    }
+
+    @Test
+    fun `collision query rejects neighboring bucket candidate outside tolerance`() {
+        val a = span("A", railA, 31.0, 31.996)
+        val b = span("B", railA, 32.002, 33.0)
+        val occupancy = SweptOccupancyIndex(listOf(a, b), bucketSize = 32.0)
+
+        val fromA = occupancy.queryFirstCollision("A", listOf(a))
+        val fromB = occupancy.queryFirstCollision("B", listOf(b))
+
+        assertEquals(SweptOccupancyQueryResult(null, 1, false), fromA)
+        assertEquals(SweptOccupancyQueryResult(null, 1, false), fromB)
+    }
+
+    @Test
+    fun `collision bucket expansion uses requested tolerance`() {
+        val a = span("A", railA, 31.0, 31.991)
+        val b = span("B", railA, 32.0, 33.0)
+        val occupancy = SweptOccupancyIndex(listOf(a, b), bucketSize = 32.0)
+
+        assertNull(occupancy.queryFirstCollision("A", listOf(a)).collidingTrainId)
+        assertEquals(
+            SweptOccupancyQueryResult("B", 1, false),
+            occupancy.queryFirstCollision("A", listOf(a), tolerance = 0.01)
+        )
+    }
+
+    @Test
     fun `overlap is prioritized ahead of a capped broad-phase candidate list`() {
         val spans = buildList {
             add(span("A", railA, 15.0, 16.0))

@@ -1,8 +1,11 @@
-{"file": ".trellis/spec/javarailways/shared/quality.md", "reason": "Independent Core constructor fix review and scoped test gate"}
-{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "No schema bump, migration or runtime compatibility in CR-022"}
+{"file": ".trellis/spec/javarailways/shared/quality.md", "reason": "Independent persisted placement review and scoped Core/Basic test gate"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "No schema bump, migration or runtime compatibility in CR-023"}
 {"file": ".trellis/spec/javarailways/core/api-boundaries.md", "reason": "No unnecessary public identity or transaction framework"}
-{"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "Check endpoint cleanup, existing trains and caller-owned cars on failure"}
-{"file": ".trellis/spec/javarailways/core/extension-data.md", "reason": "Check partial initialization and cleanup failure propagation"}
-{"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "Real duplicate load must leave world/rail indexes unchanged"}
-{"file": ".trellis/spec/javarailways/core/testing.md", "reason": "Regression tests must fail on old code and close all fixture resources"}
-{"file": ".trellis/tasks/10-09-stage2-code-review/research/core-module-review.md", "reason": "Limit this batch to CR-022; other audit defects remain pending"}
+{"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "Check path, endpoints, facing and bogie arc spacing without relocation; do not claim exact coupler validation"}
+{"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "Check numerical tolerance against real valid curved placements"}
+{"file": ".trellis/spec/javarailways/core/rail-topology-and-occupancy.md", "reason": "CR-024 query broad phase must include exact tolerance; CR-023 must use rail identity"}
+{"file": ".trellis/spec/javarailways/core/runtime-publication.md", "reason": "CR-016 publication and close must share exact-ticket terminal validation"}
+{"file": ".trellis/spec/javarailways/core/di-and-runtime-lifecycle.md", "reason": "Check real in-flight close, bounded cleanup and CLOSED retention"}
+{"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "Corrupt current input must fail before successful publication with owned cleanup"}
+{"file": ".trellis/spec/javarailways/core/testing.md", "reason": "Useful corrupt fixtures and real success controls, not round-trip-only evidence"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/core-module-review.md", "reason": "Keep CR-023 partial, CR-024 and CR-016 bounded; other defects and decisions stay separate"}

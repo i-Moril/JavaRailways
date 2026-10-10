@@ -1,8 +1,11 @@
-{"file": ".trellis/spec/javarailways/shared/quality.md", "reason": "Focused Core/Basic verification and preservation of unrelated work"}
-{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "CR-022 does not change stored shape, versions or compatibility paths"}
-{"file": ".trellis/spec/javarailways/core/api-boundaries.md", "reason": "Keep constructor fix internal without growing public APIs"}
-{"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "CoreTrain owns constructor side effects and complete lifecycle cleanup"}
-{"file": ".trellis/spec/javarailways/core/extension-data.md", "reason": "Initialization failure cleans constructor-owned registrations, not caller-owned cars or arbitrary extension effects"}
-{"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "Failed SavedTrain constructor must not pollute world or rail indexes"}
-{"file": ".trellis/spec/javarailways/core/testing.md", "reason": "Use observable constructor failures and paired fixture cleanup"}
-{"file": ".trellis/tasks/10-09-stage2-code-review/research/core-module-review.md", "reason": "CR-022 evidence and explicit non-goals for remaining Core defects"}
+{"file": ".trellis/spec/javarailways/shared/quality.md", "reason": "Focused Core/Basic regression gate and preservation of unrelated work"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "CR-023 tightens current placement validation without format or version changes"}
+{"file": ".trellis/spec/javarailways/core/api-boundaries.md", "reason": "Keep undisputed Core fixes internal without growing public APIs"}
+{"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "Validate persisted path, bogie arc spacing and endpoints; exact coupler geometry remains open"}
+{"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "Reuse rail-distance and finite geometric tolerances, not world-position-only matches"}
+{"file": ".trellis/spec/javarailways/core/rail-topology-and-occupancy.md", "reason": "CR-024 tolerance-expanded collision buckets and CR-023 occupied path identity"}
+{"file": ".trellis/spec/javarailways/core/runtime-publication.md", "reason": "CR-016 CLOSED is terminal and late epoch candidates must not publish"}
+{"file": ".trellis/spec/javarailways/core/di-and-runtime-lifecycle.md", "reason": "CR-016 close invalidates in-flight ticket without redesigning lifecycle APIs"}
+{"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "Reject corrupt current placements before successful load publication; preserve failure cleanup"}
+{"file": ".trellis/spec/javarailways/core/testing.md", "reason": "Fixed corrupt inputs, real reverse/curve/turnout paths and paired fixture cleanup"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/core-module-review.md", "reason": "CR-023/024/016 evidence and separation from unresolved product decisions"}

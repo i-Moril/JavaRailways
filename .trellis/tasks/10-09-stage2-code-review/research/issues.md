@@ -221,6 +221,7 @@
 - `Core/.../rail/SweptOccupancyIndex.kt:83`未扩展ownSpan查询桶，exact阶段却使用tolerance。
 - **已复现**：A=[31,31.996]、B=[32,33]、bucket=32、tolerance=.005；overlap=true，碰撞query返回null，blockingTrainIds返回B。
 - 建议复用容差扩展的桶范围；不新增index或改变candidate cap。
+- **已修复（2026-10-10）**：查询复用共享的容差扩桶helper，建索引仍使用零扩展；新增3项真实查询回归在旧实现全失败、修复后全通过（该类11项）。独立检查及Core/Basic组合门禁通过，详见[验证记录](../implement.md#cr-024-修复与组合门禁2026-10-10)；不改变candidate cap。
 
 ### CR-025：最近采样点冒充几何最近点
 

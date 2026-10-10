@@ -80,7 +80,7 @@ class SweptOccupancyIndex(
 
         val candidateSpans = LinkedHashMap<String, MutableList<SweptRailSpan>>()
         for (ownSpan in ownSpans) {
-            for (bucket in bucketRange(ownSpan)) {
+            for (bucket in bucketRange(ownSpan, tolerance)) {
                 for (candidate in buckets[BucketKey(ownSpan.railId, bucket)].orEmpty()) {
                     if (candidate.trainId == trainId) continue
                     candidateSpans.getOrPut(candidate.trainId) { ArrayList() }.add(candidate)
@@ -167,15 +167,15 @@ class SweptOccupancyIndex(
         val separation: Double
     )
 
-    private fun bucketRange(span: SweptRailSpan): LongRange {
-        val first = floor(span.minArcAB / bucketSize).toLong()
-        val last = floor(span.maxArcAB / bucketSize).toLong()
-        return first..last
-    }
+    private fun bucketRange(span: SweptRailSpan, tolerance: Double = 0.0): LongRange =
+        bucketRange(span.minArcAB, span.maxArcAB, tolerance)
 
-    private fun bucketRange(interval: RailInterval, tolerance: Double): LongRange {
-        val first = floor((interval.minArcLengthInAbMeters - tolerance) / bucketSize).toLong()
-        val last = floor((interval.maxArcLengthInAbMeters + tolerance) / bucketSize).toLong()
+    private fun bucketRange(interval: RailInterval, tolerance: Double): LongRange =
+        bucketRange(interval.minArcLengthInAbMeters, interval.maxArcLengthInAbMeters, tolerance)
+
+    private fun bucketRange(minArcAB: Double, maxArcAB: Double, tolerance: Double): LongRange {
+        val first = floor((minArcAB - tolerance) / bucketSize).toLong()
+        val last = floor((maxArcAB + tolerance) / bucketSize).toLong()
         return first..last
     }
 

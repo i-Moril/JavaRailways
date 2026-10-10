@@ -123,7 +123,7 @@ class CoreTrainConstructionTest {
                     }
 
                     override fun save(): Pair<String, SerializableExtensionData>? = null
-                    override fun splitFrom(carNum: Int, newId: String): TrainExtension = error("not used")
+                    override fun splitBefore(carId: String, newId: String): TrainExtension = error("not used")
                     override fun linkWith(otherTrain: Train) = error("not used")
                 })
             }

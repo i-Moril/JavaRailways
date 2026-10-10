@@ -6,7 +6,7 @@
 
 用途：保证rigid consist沿同一active path解算，worker mutation经epoch发布；碰撞、方向与结构变更不把partial geometry暴露给consumer。
 
-联结与解编是保留的正式能力（用户于2026-10-10确认），不能仅因暂无生产caller而作为原型删除。正式能力定位不代表当前实现已通过验收：现有link/split的事务、方向与失败保持问题仍须修复。此决定不改变默认碰撞DERAIL行为，也不授权自动联结。
+联结与解编是保留的正式能力（用户于2026-10-10确认），不能仅因暂无生产caller而作为原型删除。`splitBefore`的失败原子性与稳定car ID语义已收口；`linkWith`的事务与方向问题仍须单独修复。此决定不改变默认碰撞DERAIL行为，也不授权自动联结。
 
 ## Owner、签名、单位与 lifecycle
 
@@ -68,6 +68,16 @@ head-forward mission route前面，以满足Basic“冻结路线从物理车尾�
 
 构造未返回时，传入cars仍由调用方拥有；此清理不调用完整`destroy()`或`discardFailedLoad()`，不销毁cars/bogies。已返回列车的加载恢复失败仍由[持久化加载边界](./persistence.md)处理。`TrainExtension`没有通用destroy/rollback协议，本边界不承诺撤销extension任意外部副作用；正常的列车销毁及结构变更也不能用此局部清理替代。
 
+## 解编事务
+
+`Train.cars`是稳定的编组/持久化顺序，reverse不重排该列表；`Train.isReversed`是公开的当前运营方向状态，`Train.operatingCars`只是`cars + isReversed`的只读派生，不是第二份可变顺序。`splitBefore(carId,newId)`在after-commit main-thread task中执行，并先等待捕获到的exact physics ticket完成，再读取或修改编组。它在稳定`cars`中的目标car之前切分，原列车保留目标之前的稳定前缀，新列车取目标及其后缀。目标未知、在当前编组内不唯一或是第一辆时拒绝，最后一辆之前可以合法分割出单车列车。两列均继承原`isReversed`；reverse前后传入同一`carId`必须得到同一稳定连接面，Core不根据当前运营head偷换保留方。
+
+事务先验证目标car和world ID/name命名空间，为两个非空cars集合解决head/tail，并预计算原列车的body traversal、occupancy与immutable frame。随后按原slot顺序调用各`TrainExtension.splitBefore(carId,newId)`得到专属新实例，并用这些结果构造新列车。任一边界、身份、extension prepare/initialize或新列车构造失败时，原列车cars/方向/controller/extensions、frame、car publication owner、world map及rail车端保持原样；新构造注册由构造器既有失败清理撤销。
+
+Core没有能撤销任意插件外部副作用的通用协议，因此`TrainExtension.splitBefore`是prepare-like边界：不得修改原extension或发布外部效果，必须返回尚未attach的独立实例。新实例保留同一slot identity，只在新列车构造期间initialize；该次initialize仍属于prepare，只能写返回extension自身，不得修改两列共享的cars或发布平台效果。这是extension实现者的合同，不通过猜测原extension内部状态实现伪回滚。成功后新`CoreTrain`取得转移cars的publication stream ownership，原列车以预计算结果更新两端、占用和frame，不销毁任何car。新列车没有controller，因此分离cars/bogies的运动状态在提交时清零；两列结构frame沿用切分前已完成的同一physics epoch，不能发布“新车speed为0但车体仍携带旧非零速度”的混合帧，也不能把新车留在epoch 0。新列车构造成功后的commit-only区间不再调用可扩展代码或几何求解：只应用预计算字段、清零分离侧运动、翻转`CommitBuffer`，更新rail端队列、原子publication引用和latest-wins mailbox。
+
+运营层今后可以在车辆/编组元数据中声明固定可分割连接面，并在调用Core前加上运用、车型或玩家权限检查。本批只提供物理层稳定car ID分割原语，不实现SimpleATO元数据或规则。
+
 ## 存档摆位恢复与当前缺口
 
 `restorePersistedPlacement`先验证保存的位置，再恢复derived car state和车端；不重新摆车来覆盖损坏输入。它复用body publication的`placementSegments(savedTail, savedHead)`：沿tail→head的active path一次展开，不能从head反向沿当前道岔选择重算，因为两个方向的选择可以不对称。
@@ -121,11 +131,12 @@ override fun destroy() {
 - structure mutation直接改cars/map而无serialized task、prevalidation与rollback；
 - 用`world.removeTrain`代替destroy；
 - 将构造失败清理放在调用方取得列车之后，或让失败构造销毁调用方传入的cars；
-- 未验证/未测试的split实现当成熟API。
+- 让split在身份、端点、extension或新列车构造可失败阶段前修改原编组，或将extension副作用伪装成Core可回滚的事务。
 
 ## 必需测试与验证
 
 - `CoreTrainTailBogieTest.kt`、`CoreTrainAsymmetricTurnoutTest.kt`：turnout/reverse/tail spacing。
+- `CoreTrainSplitTest.kt`：正/反方向与末节解编，非法边界、身份、端点、extension prepare/initialize失败时的原状态保持，slot和publication ownership。
 - `TrainSlopeMotionTest.kt`、`TrainSlopeJointMotionTest.kt`、`CoreCarPositioningRegressionTest.kt`：3D geometry。
 - `TrainUniformMotionTest.kt`：真实50 ms coordinator epoch同时断言0.5 m位移、car/bogie frame的m/s速度、停车清零及换向后tangent符号。
 - `PhysicsCoordinatorTest.kt`：stationary collision、pair once、next-epoch decision。

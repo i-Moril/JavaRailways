@@ -384,7 +384,7 @@ class TrainExtension : CoreTrainExtension {
         }
     }
 
-    override fun splitFrom(carNum: Int, newId: String): CoreTrainExtension = TrainExtension()
+    override fun splitBefore(carId: String, newId: String): CoreTrainExtension = TrainExtension()
 
     override fun linkWith(otherTrain: Train) = Unit
 

@@ -215,6 +215,7 @@
 - `Core/.../physics/train/CoreTrain.kt:498-514`先截断cars，再用已改变的length计算分离部分；extension选择/初始化也未形成事务。
 - **已复现**：4车`splitFrom(3)`抛ClassCastException，原车变2车，世界仍只有原列车。
 - 建议单独修编组事务和失败保持；不能只改takeLast。没有现有split回归。
+- **已修复（2026-10-10）**：未发布且无caller的整数接口已删除，收口为`splitBefore(carId,newId)`：在稳定编组/持久化顺序的唯一目标car前分割，正反向对同一car ID产生同一连接面，两列继承原`isReversed`。Core在变更原编组前预校验car/train身份、两半端点/占用/路径和原车frame并prepare同slot extension，新列车完整构造成功后才发布原列车新结构。未知/第一/末节、重复car ID及train身份、两半几何、extension prepare/initialize失败的真实回归覆盖cars身份、controller、frame、world/rail索引、mailbox和publication owner。extension外部副作用因无通用rollback协议，明确为prepare-like实现者合同；见[train physics](../../../spec/javarailways/core/train-physics.md#解编事务)和[CR-021验证](../implement.md#cr-021-解编事务修复与验证2026-10-10)。`linkWith`的CR-030仍开放。
 
 ### CR-022：列车构造失败遗留ACTIVE车端
 
@@ -302,7 +303,7 @@
 ### CR-033：文档、诊断与可维护性不一致
 
 - P2/P3；扩展CR-002/007/020，不重复宣称已修。
-- 错误诊断丢message/cause/context；Train.cars顺序、可用frame/占用语义KDoc不符；train-physics遗漏实际bogie/coupler二分原理；持久化把目标预校验写成现状。
+- 错误诊断丢message/cause/context；可用frame/占用语义KDoc不符；train-physics遗漏实际bogie/coupler二分原理；持久化把目标预校验写成现状。`Train.cars`已在CR-021明确为稳定编组/持久化顺序，并用公开`isReversed`/`operatingCars`表达运营顺序，不再是本项开放问题。
 - 两处结构准备实际O(N²)，高于spec承诺；CoreWorld重复prepared校验适合局部抽取，不按行数大拆manager。
 - 网页模块归属/API范围和性能结论过期；.codeabs含已删路径/TODO。Dokka本轮成功但缺文档和declare链接warning仍在。
 - 测试处置扩展见Core报告：保留真实不变量；改写空跑、回显、复制生产分支和反射锁private实现的测试；废路径测试随实现删除。没有按数量批删依据。

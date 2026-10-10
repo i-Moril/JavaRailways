@@ -47,7 +47,7 @@
 1. [x] 首批修CR-022：列车构造失败不遗留ACTIVE车端，前置身份校验并成对清理副作用；用真实失败路径断言world/rail索引不变，不改持久化格式。实现及验证见下，提交后等用户检查。
 2. [ ] 修加载/恢复一致性（CR-023/027/028）及Core相关生命周期问题；涉及宿主或格式边界的修复单独划批，并先核对真实存档迁移要求。
 3. [ ] 分批修LINE投影、碰撞容差与运动速度事实（CR-025/024/026），同步有价值但断言无效的测试。
-4. [ ] 联结/解编先给出端部、方向和失败事务方案，再修CR-021/030及关联渲染换属主问题，不改变默认碰撞策略。
+4. [ ] 联结/解编先给出端部、方向和失败事务方案，再修CR-021/030及关联渲染换属主问题，不改变默认碰撞策略。CR-021解编已完成；CR-030联结仍待单独方案与修复。
 5. [ ] 三种事件按保留目标设计接入：先给出阶段、payload、线程、生命周期及验证方案，再实施；复用现有事件/观察机制，不复制物理计算或状态。
 6. [ ] 随修复同步受影响契约/KDoc，另批处理确认废路径和低质量测试；未确认的Core Seat处置不混入。
 
@@ -211,6 +211,15 @@ env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
 - CR-012不改已有正确生产清理。原stale-selection测试先让backend真实返回第一点及capture，再令publication失效；安装新的capture后继续点击，通过记录backend每次输入直接断言恢复调用的`firstPoint == null`，不再只以消息和零调用间接声称已清理。
 - 完整非增量`:SimpleSignals:test`执行33个Gradle task并`BUILD SUCCESSFUL`（3m13s）；XML合计487项，零跳过／失败／错误，production与test Kotlin/Java compile均执行。首次3类定向运行134项时，新CR-011测试错误地对合法空source publication调用`single()`而失败；改为比较完整source list identity后，单项及完整模块门禁通过。
 - 独立检查补强成功prepare后的reservation生命周期断言；冻结源码完整门禁仍为487项零失败／错误／跳过，task validate与变更空白检查通过。无持久化shape、schema version、runtime compatibility、公共API或协调器变化；未部署、连接开发服或运行Folia/客户端测试。既有Java toolchain探测、Kotlin读取Graal POM、deprecated/unchecked、WebUI 5项依赖漏洞／大bundle和一次测试期physics overload日志保留。
+
+### CR-021 解编事务修复与验证（2026-10-10）
+
+- 语义：用户确认收口为`splitBefore(carId,newId)`。`Train.cars`是不随reverse重排的稳定编组/持久化顺序；目标car之前的稳定前缀留在原车，目标及后缀进入新车。未知/首车拒绝，末节前合法。公开`isReversed`与只读派生`operatingCars`表达当前运营顺序；两列继承原方向，因此同一car ID在正反向分割后仍得到同一稳定两半。
+- 机制：after-commit任务先等待exact physics ticket，再验证边界和新ID/name，严格解决两半端点/路径并预生成原车body traversal、occupancy与frame，然后按slot prepare extension并构造新车。新车构造失败复用已验证的constructor cleanup；成功后到原车发布之间是commit-only区间，只应用预计算字段、清零无controller的新车car/bogie运动、翻转CommitBuffer并更新端点队列/原子frame/mailbox，不再求解几何、调用extension或检查身份。两列结构frame沿用切分前同一已完成physics epoch；转移cars由新train stream取得，未销毁car，原controller保留。
+- extension边界：`splitBefore`必须返回独立实例且不修改原extension/外部世界；返回实例的首次initialize仍属prepare，不得修改共享cars或发布平台效果。Core没有伪造通用plugin rollback，该合同写入`TrainExtension` KDoc和[train physics](../../spec/javarailways/core/train-physics.md#解编事务)。
+- 回归：`CoreTrainSplitTest`的12项覆盖正/反向对同一car ID的稳定两半及各自operating view、末节单车、未知/首车、重复car ID、重复train身份、两半各自的端点/路径不可解、extension prepare/initialize失败，以及移动中切分的同epoch/新车零运动帧；断言对象身份、方向、controller、extension slot、frame、world/rail索引、mailbox及publication owner，12项全部通过。
+- 公共API及完整门禁：冻结源码非增量强制重跑`:Core:test :Basic:test :BukkitPlugin:test`，并编译`SimpleATO`、`SimpleATOBukkit`、Bukkit生产源码和内置Java signal API consumer，生成Core Dokka；35个Gradle task全部执行并`BUILD SUCCESSFUL`（2m23s）。Core 54 suites/311项（305执行、6个既有disabled）、Basic 59/384及BukkitPlugin 89/361全部执行，合计1056项、零失败/错误。另用临时Java consumer实际调用`getCars()`、`isReversed()`和默认`getOperatingCars()`通过`javac`/`javap`。Dokka、Kotlin与WebUI仅出现既有warning；未将warning、WebUI依赖报告或bundle尺寸顺带纳入CR-021。task validate与`git diff --check`通过。
+- 边界：删除未发布无caller的整数接口，不保留compatibility alias、不升持久化版本；不改碰撞/link策略、持久化shape或runtime compatibility，不实现SimpleATO可分割面元数据/规则。没有部署、Folia/客户端或开发服验证。CR-030 link事务仍开放；CR-033不再跟踪cars顺序语义。
 
 以下八步于 2026-10-09 获用户批准；第 1、3、4、5、6 步及第 2 步根仓入口文档批次已完成。剩余文档问题留到全仓代码审查，第 6 步提交后等待用户检查，再推进第 7 步。步骤不是提交数量，每步可拆成独立可验证的提交。
 

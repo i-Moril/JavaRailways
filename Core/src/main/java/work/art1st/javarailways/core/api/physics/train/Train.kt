@@ -21,8 +21,15 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
     /** World-unique, player-assigned name used by timetable selectors. */
     val name: String
 
-    /** Cars from head to tail in the current operating direction. */
+    /** Cars in stable consist and persistence order. Reversing the train does not reorder this list. */
     val cars: List<Car>
+
+    /** Whether the operating direction is opposite to the stable [cars] order. */
+    val isReversed: Boolean
+
+    /** Cars from the current operating head to tail, derived without introducing mutable state. */
+    val operatingCars: List<Car>
+        get() = if (isReversed) cars.asReversed() else cars
 
     /** Published speed in metres per second; non-negative. */
     val speed: Double

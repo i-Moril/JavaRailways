@@ -29,6 +29,14 @@ class ExtensionDataContainer<Base> : Extendable<Base> {
         extensionData[plugin.identifier] = data
     }
 
+    internal fun <T : Base> setExtensionDataAt(slot: Int, data: T) {
+        require(slot >= 0) { "extension slot must be non-negative" }
+        while (extensionData.size <= slot) {
+            extensionData.add(null)
+        }
+        extensionData[slot] = data
+    }
+
     override fun <T : Base> registerExtensionData(plugin: Plugin, data: T) {
         setExtensionData(plugin, data)
     }

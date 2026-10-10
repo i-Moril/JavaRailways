@@ -190,6 +190,8 @@
 
 ### CR-020：Core/Basic测试有效性及资源释放缺口
 
+- 本批补齐`CoreTrainReversedPersistenceTest`与`SavedRailConnectionsTest`的setup/load/断言失败清理，按physics→binding→tick释放并保留主异常。换向恢复保留source/restored bogie精确比较，另检查固定head/tail/car位置及BA方向；失败恢复由现有parent binding seam观察实际目标world，验证ID/name、rail ends、mailbox及下一真实epoch的world frame/occupancy不保留失败列车，binding已释放。23项endpoint参数覆盖及2项列车恢复测试保留，未改production/schema。此处只覆盖单列车失败，不证明整个多列车world加载事务原子性。CR-020仍partial；窄查确认`RailConnectTest`、`CoreTrainTailBogieTest`仍创建world却未关闭，RailWand完整split/merge事务集成继续开放。
+
 - 状态：部分修复（2026-10-10）；P3，不批删测试，不把disabled计为绿色覆盖。下列保留原审查基线证据，当前处置见本节末。
 - 本批更正进度：`CoreTrainPersistenceStateTest`的zero-distance在此前仍只驱动generic TickManager，尚未执行physics controller；不能由“匀速测试已改真实epoch”推断它也完成。本批才改为关闭fallback的真实coordinator，6个有界exact ticket、controller调用计数、frame epoch/revision、固定80/70/75 m摆位及car/bogie零速度断言。source/restored位置比较保留并增加独立位置预期。
 - 同批仅修`WorldPersistenceRoundTripTest`、`SplitWorldSnapshotTest`和上述persistence state三文件的ownership：显式physics/tick在source/load setup前纳入use；world返回后保留binding，以physics→binding→tick顺序清理，失败保留主异常并附suppressed。真实Koin roundtrip保留，共享parent不关闭；无production或schema/version变化，7项测试数量不变。`CoreTrainReversedPersistenceTest`、`SavedRailConnectionsTest`等其余fixture及RailWand完整事务集成仍未闭合，CR-020保持partial。验证见[执行记录](../implement.md#cr-020-持久化fixture与零距离真实epoch2026-10-10)。

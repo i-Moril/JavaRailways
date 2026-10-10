@@ -20,7 +20,6 @@ import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus
-import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.util.TickManagerImpl
 import java.util.UUID
 import java.util.concurrent.Executors
@@ -49,8 +48,7 @@ class SavedRailConnectionsTest {
     @ParameterizedTest
     @EnumSource(InvalidConnection::class)
     fun `prepared restore rejects the same invalid declared endpoint state`(invalid: InvalidConnection) {
-        val world = createTestWorld()
-        try {
+        withWorld { world ->
             val root = world.topologyState
             val failure = assertThrows(IllegalArgumentException::class.java) {
                 world.prepareRailWorldSnapshotRestore(emptyList(), invalidRails(invalid))
@@ -59,9 +57,6 @@ class SavedRailConnectionsTest {
             assertTrue(world.allRails.isEmpty())
             assertSame(root, world.topologyState)
             assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
-        } finally {
-            world.physicsCoordinator.close()
-            (world.tickManager as AutoCloseable).close()
         }
     }
 
@@ -119,21 +114,16 @@ class SavedRailConnectionsTest {
         }
         withLoadedWorld(rails, ::verify)
 
-        val world = createTestWorld()
-        try {
+        withWorld { world ->
             val plan = world.prepareRailWorldSnapshotRestore(emptyList(), rails)
             world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) }
             verify(world)
-        } finally {
-            world.physicsCoordinator.close()
-            (world.tickManager as AutoCloseable).close()
         }
     }
 
     @Test
     fun `invalid second endpoint is rejected before either endpoint is changed`() {
-        val world = createTestWorld()
-        try {
+        withWorld { world ->
             val source = world.createRailForTest(line(Vector3d(), Vector3d(10.0, 0.0, 0.0)))
             val before = world.createRailForTest(line(Vector3d(-10.0, 0.0, 0.0), Vector3d()))
             val after = world.createRailForTest(line(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
@@ -157,9 +147,6 @@ class SavedRailConnectionsTest {
             assertSame(after.viewAB, source.viewAB.activeRail)
             assertSame(root, world.topologyState)
             assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
-        } finally {
-            world.physicsCoordinator.close()
-            (world.tickManager as AutoCloseable).close()
         }
     }
 
@@ -222,18 +209,30 @@ class SavedRailConnectionsTest {
     )
 
     private fun <T> withLoadedWorld(rails: List<CoreRail.SavedRailV1>, action: (CoreWorld) -> T): T {
-        val coordinator = PhysicsCoordinator(1, automaticFallback = false)
-        val tickManager = TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), System.currentTimeMillis())
-        try {
-            val world = CoreWorld.load(
+        return withWorld(load = { tick, physics ->
+            CoreWorld.load(
                 CoreWorld.SavedInfrastructureV2(CoreWorld.INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION, 7L, rails),
                 null,
-                CoreWorld.SnapshotDependency(tickManager, NoOpWorldParentContext, coordinator)
+                CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics)
             )
-            return action(world)
-        } finally {
-            coordinator.close()
-            tickManager.close()
+        }, action = action)
+    }
+
+    private fun <T> withWorld(
+        load: (TickManagerImpl, PhysicsCoordinator) -> CoreWorld = { tick, physics ->
+            CoreWorld.createEmpty(tick, NoOpWorldParentContext, physics)
+        },
+        action: (CoreWorld) -> T
+    ): T {
+        return TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
+            var world: CoreWorld? = null
+            AutoCloseable { world?.releaseRuntimeBinding() }.use {
+                PhysicsCoordinator(1, automaticFallback = false).use { physics ->
+                    val created = load(tick, physics)
+                    world = created
+                    action(created)
+                }
+            }
         }
     }
 

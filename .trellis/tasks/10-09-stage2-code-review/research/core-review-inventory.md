@@ -244,7 +244,8 @@ util/TickManagerImpl.kt
 
 - `java/work/art1st/javarailways/core/physics/train/CoreTrainPublicationBoundaryTest.kt`： 保留AB/BA/placement/reverse/derail；reverse/derail已补pending→buffer→frame→commit、旧immutable frame隔离、revision/epoch及物理/运营方向断言，资源清理失败保留原异常。真实coordinator接线由motion/derail integration另行覆盖。
 
-- `java/work/art1st/javarailways/core/physics/train/CoreTrainReversedPersistenceTest.kt`： 保留精确bogie恢复；失败项增加world/rail索引cleanup断言。
+- `java/work/art1st/javarailways/core/physics/train/CoreTrainReversedPersistenceTest.kt`： 已保留精确bogie恢复并增加独立固定位置/BA方向；失败项经parent binding捕获实际目标world，验证ID/name、rail ends、mailbox及下一真实epoch frame/occupancy为空，binding关闭。全部setup/load资源由嵌套use保护；只证明该单列车失败清理。
+- `java/work/art1st/javarailways/core/physics/rail/SavedRailConnectionsTest.kt`： 保留23项endpoint拒绝/组合/active恢复覆盖，全部world setup/load/body由嵌套use管理physics→binding→tick清理，失败不覆盖主异常。
 
 - `java/work/art1st/javarailways/core/physics/train/CoreTrainTailBogieTest.kt`： 保留尾架、支路、reversed间距/压缩修正；补fixture关闭。
 

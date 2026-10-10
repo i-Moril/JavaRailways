@@ -56,7 +56,9 @@ consumer test通过`testFixtures(project(":Core"))`复用；production不得依�
 
 `CoreTrainPersistenceStateTest`的零距离回归必须用关闭timer fallback的真实coordinator，逐次有界等待exact ticket，并记录controller实际执行次数、frame epoch/revision递增、固定摆位和car/bogie零速度；generic TickManager的pre/postTick不能证明physics controller被执行。恢复用例保留source/restored比较，同时检查fixture独立给定的head/tail/car位置。
 
-`WorldPersistenceRoundTripTest`保留真实Koin child scope的source→JSON→load集成；`SplitWorldSnapshotTest`与`CoreTrainPersistenceStateTest`使用显式NoOp dependency。各测试在创建world以前就拥有tick/coordinator，并覆盖source设置、loaded world构造及断言失败；按physics→world runtime binding→tick顺序释放。`use`负责保留主异常和suppressed清理异常，共享Koin parent不由单项fixture关闭；load失败释放binding但不关闭caller-owned tick/coordinator，fixture必须关闭这些显式dependency。其余persistence fixture的资源清理仍单独跟踪，不能把本组三文件写成全套fixture完成。
+`WorldPersistenceRoundTripTest`保留真实Koin child scope的source→JSON→load集成；`SplitWorldSnapshotTest`、`CoreTrainPersistenceStateTest`、`CoreTrainReversedPersistenceTest`与`SavedRailConnectionsTest`使用显式dependency。各测试在创建world以前就拥有tick/coordinator，并覆盖source设置、loaded world构造及断言失败；按physics→world runtime binding→tick顺序释放。`use`负责保留主异常和suppressed清理异常，共享Koin parent不由单项fixture关闭；load失败释放binding但不关闭caller-owned tick/coordinator，fixture必须关闭这些显式dependency。
+
+换向恢复同时保留source/restored bogie精确比较及独立固定位置/BA方向断言；数值容差遵循`Curve.TOLERANCE`的摆位求解合同。失败恢复通过已有`WorldParentContext.attachWorld`捕获实际目标world，验证binding释放、train ID/name索引、rail车端及mailbox无失败列车，并完成下一真实epoch检查world frame/occupancy为空；此单列车fixture不证明多列车world load整体回滚。endpoint恢复的8类拒绝输入、4种端部组合和2种active选择均保留。其他fixture（如`RailConnectTest`、`CoreTrainTailBogieTest`）的资源清理与RailWand事务集成仍单独跟踪，不能把本批写成全套fixture完成。
 
 ## 项目内正确示例
 

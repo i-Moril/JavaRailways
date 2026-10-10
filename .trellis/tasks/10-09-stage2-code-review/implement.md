@@ -297,6 +297,14 @@ env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
 - 三类定向执行7项成功，9个task全部执行（10 s）；最终源码冻结后以`GRADLE_USER_HOME=/workspace/.gradle`、`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false`强制运行`:Core:test :Basic:test`，15个task全部执行，`BUILD SUCCESSFUL`（20 s）。XML：Core 53 suites/308项（302执行、6个既有disabled），Basic 59 suites/385项全执行，零失败/错误。既有Core cast、Basic unchecked/多余safe-call与Gradle deprecated warning保留。
 - 未改production/API、持久化shape/version，无部署/游戏验证。其余`CoreTrainReversedPersistenceTest`、`SavedRailConnectionsTest`等fixture资源缺口及RailWand完整split/merge集成仍单独跟踪，不以本批结案CR-020或整模块审查。
 
+### CR-020 换向恢复与endpoint fixture清理（2026-10-10）
+
+- 只改`CoreTrainReversedPersistenceTest`与`SavedRailConnectionsTest`；沿用既有局部`use`组合，使tick/coordinator在world create/load以前就有owner，成功world按physics→binding→tick释放，主异常保留、清理错误suppressed。失败load已有production binding回滚，不新增runtime hook、生产修改或格式/版本变化。
+- 换向恢复保留逐bogie的source/restored精确比较，再检查独立给定的head=10 m、tail=64 m、稳定存储顺序car中心55/37/19 m及BA facing。固定值按既有`Curve.TOLERANCE`几何合同比较；首轮新增1e-9断言以10.0009765625 m失败，确认是既有二分摆位容差，未更改精确bogie比较或生产算法。
+- 原“无部分注册”用例不再只读异常字符串：通过`WorldParentContext.attachWorld`捕获真实失败load目标，检查binding已释放、列车ID和不同name均不存在、rail车端/mailbox为空；下一真实exact ticket完成后检查已发布world frame epoch及空train/occupancy，未用反射或复制生产清理。单列车失败不能代表多列车world load整体回滚。
+- 2项列车测试及23项endpoint参数/普通用例保留；定向25项全通过（9个task执行，36 s）。完整Core+Basic门禁结果由下方补充。窄查确认`RailConnectTest`两处及`CoreTrainTailBogieTest`五处world创建仍缺配对关闭；RailWand完整split/merge事务集成仍待补，CR-020保持partial。未部署、连接开发服或游戏验证。
+- 最终冻结源码使用`GRADLE_USER_HOME=/workspace/.gradle`、`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`运行`:Core:test :Basic:test`，15个task全部执行，`BUILD SUCCESSFUL`（1m10s）；Core 53 suites/308项（302执行、6项既有disabled），Basic 59/385全执行，零失败/错误。task manifest 15+15及scoped `git diff --check`通过。保留既有cast、unchecked/safe-call、Gradle deprecated等warning；无下游API变化，不运行Dokka/平台部署。
+
 ## 验证与关闭
 
 - 任务文档：`python3 .trellis/scripts/task.py validate .trellis/tasks/10-09-stage2-code-review`、`git diff --check`。

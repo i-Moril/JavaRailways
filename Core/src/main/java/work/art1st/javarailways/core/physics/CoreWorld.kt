@@ -168,11 +168,18 @@ class CoreWorld(
     }
 
     @MainThread
+    internal fun validateNewTrainIdentity(id: String, name: String) {
+        require(trains[name] == null && trainsByName[id] == null) {
+            "train name and technical ID namespaces must not overlap: $name"
+        }
+        require(trainsByName[name] == null) { "duplicate train name in world: $name" }
+        require(trains[id] == null) { "duplicate train id in world: $id" }
+    }
+
+    @MainThread
     internal fun addTrain(train: CoreTrain) {
         if (trains[train.id] === train && trainsByName[train.name] === train) return
-        require(trains[train.name] == null && trainsByName[train.id] == null) {
-            "train name and technical ID namespaces must not overlap: ${train.name}"
-        }
+        validateNewTrainIdentity(train.id, train.name)
         require(trainsByName.putIfAbsent(train.name, train).let { it == null || it === train }) {
             "duplicate train name in world: ${train.name}"
         }

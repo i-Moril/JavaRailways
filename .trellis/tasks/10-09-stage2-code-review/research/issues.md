@@ -192,7 +192,7 @@
 
 ## C2：Core 整模块审查（2026-10-10）
 
-基线`8f1d845d`。以下均未修复；完整解释、测试处置、已核查的不变量与复现输出见[Core报告](./core-module-review.md)，覆盖见[文件清单](./core-review-inventory.md)。本轮闭合Core，不代表Basic或全项目完成。
+审查基线`8f1d845d`，当时以下问题均未修复；后续处置见各项状态。完整解释、测试处置、已核查的不变量与复现输出见[Core报告](./core-module-review.md)，覆盖见[文件清单](./core-review-inventory.md)。本轮闭合Core，不代表Basic或全项目完成。
 
 ### CR-021：splitFrom失败前破坏原编组
 
@@ -206,7 +206,7 @@
 - P1；正常错误输入/重复名称可触发，不依赖随机UUID碰撞。
 - `CoreTrain.kt:142-166`先注册两个TrainEnd再addTrain；`TrainPersistence.kt:40-58`的cleanup不覆盖constructor抛错。
 - **已复现**：重复SavedTrain load被身份检查拒绝，rail车端数却从4变6，world未接纳新列车。
-- 建议身份/基础校验前置，构造副作用成对撤销；与CR-015宿主factory部分初始化清理分别修复。
+- **已修复（2026-10-10，首批Core代码改进）**：身份检查及两个端部位置计算前置，初始化失败仅撤销本构造已注册的controller、车端及world索引，不销毁调用方cars。实际机制见[train physics契约](../../../spec/javarailways/core/train-physics.md#构造与失败清理)，验证见[本批记录](../implement.md#cr-022-修复与验证2026-10-10)。原诊断证据保留；CR-015宿主factory部分初始化清理另批处理。
 
 ### CR-023：current存档车端与车厢脱节仍被接受
 

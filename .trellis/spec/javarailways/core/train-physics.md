@@ -39,6 +39,14 @@ head-forward mission route前面，以满足Basic“冻结路线从物理车尾�
 
 完整删除由`CoreTrain.destroy()`拥有：deferred structural task → remove controller → destroy head/tail/cars/extensions → `world.removeTrain(this)`。`World.removeTrain`只删index，不能独立代表destroy。
 
+## 构造与失败清理
+
+`CoreTrain`构造在main thread完成。先通过`CoreWorld.validateNewTrainIdentity(id, name)`检查ID/name唯一性及交叉命名空间冲突，再计算head/tail两个位置；任一位置无法放置时抛`CannotCreateTrainException`，此时尚未注册任何`TrainEnd`。`addTrain`复用同一身份校验，仍允许同一实例的重复添加（world加载链会调用）。校验查world索引，不额外遍历列车。
+
+随后依次创建注册head/tail、添加world索引、初始化train extensions、生成初始published frame。该阶段失败时，构造器仅撤销自己已完成的注册：移除controller，分别destroy已创建的车端，只在本次`addTrain`成功后移除world索引。清理逐项尝试，失败附加到原异常的`suppressed`后继续，最终重抛原异常。不能在身份拒绝后无条件`removeTrain`，否则可能删除同ID的原列车及其frame。
+
+构造未返回时，传入cars仍由调用方拥有；此清理不调用完整`destroy()`或`discardFailedLoad()`，不销毁cars/bogies。已返回列车的加载恢复失败仍由[持久化加载边界](./persistence.md)处理。`TrainExtension`没有通用destroy/rollback协议，本边界不承诺撤销extension任意外部副作用；正常的列车销毁及结构变更也不能用此局部清理替代。
+
 ## Collision、derail、reverse矩阵
 
 | 触发 | 当前epoch结果 | 后续结果/side effect |
@@ -81,6 +89,7 @@ override fun destroy() {
 - 用整epoch `sweptSpans`判断epoch末列车是否仍占用一个监测区；
 - structure mutation直接改cars/map而无serialized task、prevalidation与rollback；
 - 用`world.removeTrain`代替destroy；
+- 将构造失败清理放在调用方取得列车之后，或让失败构造销毁调用方传入的cars；
 - 未验证/未测试的split实现当成熟API。
 
 ## 必需测试与验证
@@ -89,6 +98,7 @@ override fun destroy() {
 - `TrainSlopeMotionTest.kt`、`TrainSlopeJointMotionTest.kt`、`CoreCarPositioningRegressionTest.kt`：3D geometry。
 - `PhysicsCoordinatorTest.kt`：stationary collision、pair once、next-epoch decision。
 - `CoreTrainDerailEventTest.kt`、`CoreTrainPublicationBoundaryTest.kt`：publication before event/getter。
+- `CoreTrainConstructionTest.kt`：直接构造/存档加载的ID、name及交叉命名空间拒绝不污染world/rail索引；tail无法放置不注册head；extension初始化失败清理车端和controller、保留原列车及调用方cars，并允许同身份成功重试。
 - 新link/split/destroy变更必须断言cars、ends、controller、world indexes和extensions全量cleanup。
 
 ```bash

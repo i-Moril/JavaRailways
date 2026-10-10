@@ -140,30 +140,42 @@ open class CoreTrain @MainThread internal constructor(
         get() = publishedPlacementIntervals
 
     init {
-        head = TrainEnd(
-            persistedHeadLocation
-                ?: headBogie.location.forward(headCar.headBogieToEndPointOffset)
-                ?: throw CannotCreateTrainException(),
-            this, TrainEnd.Type.HEAD
-        )
-        tail = TrainEnd(
-            persistedTailLocation
-                ?: tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset)
-                ?: throw CannotCreateTrainException(),
-            this, TrainEnd.Type.TAIL
-        )
-        world.addTrain(this)
-        this.initialize(savedExtensionData)
-        publishedSweptSpans = spansFromLocations(currentRailLocations())
-        publishedPlacementIntervals = intervalsFromSpans(publishedSweptSpans)
-        publishedBodyTraversal = try {
-            traversalSnapshots(placementSegments(tail.location, head.location))
-        } catch (_: IllegalStateException) {
-            // Command-style construction may relocate an initially unaligned consist immediately.
-            // Such an initial frame is not admissible; the first committed placement is strict.
-            emptyList()
+        world.validateNewTrainIdentity(id, name)
+        val initialHeadLocation = persistedHeadLocation
+            ?: headBogie.location.forward(headCar.headBogieToEndPointOffset)
+            ?: throw CannotCreateTrainException()
+        val initialTailLocation = persistedTailLocation
+            ?: tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset)
+            ?: throw CannotCreateTrainException()
+        var createdHead: TrainEnd? = null
+        var createdTail: TrainEnd? = null
+        var attachedToWorld = false
+        try {
+            head = TrainEnd(initialHeadLocation, this, TrainEnd.Type.HEAD).also { createdHead = it }
+            tail = TrainEnd(initialTailLocation, this, TrainEnd.Type.TAIL).also { createdTail = it }
+            world.addTrain(this)
+            attachedToWorld = true
+            this.initialize(savedExtensionData)
+            publishedSweptSpans = spansFromLocations(currentRailLocations())
+            publishedPlacementIntervals = intervalsFromSpans(publishedSweptSpans)
+            publishedBodyTraversal = try {
+                traversalSnapshots(placementSegments(tail.location, head.location))
+            } catch (_: IllegalStateException) {
+                // Command-style construction may relocate an initially unaligned consist immediately.
+                // Such an initial frame is not admissible; the first committed placement is strict.
+                emptyList()
+            }
+            publishedFrameRef.set(captureFrame(revision = 0L, physicsEpoch = 0L))
+        } catch (failure: Throwable) {
+            // Only this constructor's registrations are owned here; its caller still owns the cars.
+            runCatching { removeController() }.exceptionOrNull()?.let(failure::addSuppressed)
+            runCatching { createdHead?.destroy() }.exceptionOrNull()?.let(failure::addSuppressed)
+            runCatching { createdTail?.destroy() }.exceptionOrNull()?.let(failure::addSuppressed)
+            if (attachedToWorld) {
+                runCatching { world.removeTrain(this) }.exceptionOrNull()?.let(failure::addSuppressed)
+            }
+            throw failure
         }
-        publishedFrameRef.set(captureFrame(revision = 0L, physicsEpoch = 0L))
     }
 
     val headCar

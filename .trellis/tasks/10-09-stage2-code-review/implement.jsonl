@@ -1,9 +1,8 @@
-{"file": ".trellis/spec/javarailways/shared/quality.md", "reason": "Scoped validation and preservation of dirty work"}
-{"file": ".trellis/tasks/10-09-stage2-code-review/research/initial-findings.md", "reason": "Initial source audit leads; reverify before changing code"}
-{"file": ".trellis/spec/javarailways/basic/world-runtime.md", "reason": "World accessors and one explicit Basic container; remove legacy index only"}
-{"file": ".trellis/spec/javarailways/basic/rail-infrastructure.md", "reason": "Metadata grouped model and preserving untargeted groups"}
-{"file": ".trellis/spec/javarailways/basic/api-boundaries.md", "reason": "CR-005 minimum public route value closure and Dokka boundary"}
-{"file": ".trellis/spec/javarailways/basic/route-planning.md", "reason": "CR-005 preserve route representation, algorithms and validation semantics"}
-{"file": ".trellis/spec/simpleato-bukkit/backend/index.md", "reason": "CR-006 adapter ownership and one-way composition dependency"}
-{"file": ".trellis/spec/javarailways/simpleato/destinations.md", "reason": "CR-006 preserve canonical destination service and projection rollback"}
-{"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "CR-006 keep generic dialog, edit permit and PDC behavior in host"}
+{"file": ".trellis/spec/javarailways/shared/quality.md", "reason": "Focused Core/Basic verification and preservation of unrelated work"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "CR-022 does not change stored shape, versions or compatibility paths"}
+{"file": ".trellis/spec/javarailways/core/api-boundaries.md", "reason": "Keep constructor fix internal without growing public APIs"}
+{"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "CoreTrain owns constructor side effects and complete lifecycle cleanup"}
+{"file": ".trellis/spec/javarailways/core/extension-data.md", "reason": "Initialization failure cleans constructor-owned registrations, not caller-owned cars or arbitrary extension effects"}
+{"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "Failed SavedTrain constructor must not pollute world or rail indexes"}
+{"file": ".trellis/spec/javarailways/core/testing.md", "reason": "Use observable constructor failures and paired fixture cleanup"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/core-module-review.md", "reason": "CR-022 evidence and explicit non-goals for remaining Core defects"}

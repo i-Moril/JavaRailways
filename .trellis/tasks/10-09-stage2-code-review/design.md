@@ -30,6 +30,10 @@
 
 定向评估见[旧事件](./research/core-event-api-assessment.md)和[座位](./research/core-seat-api-assessment.md)。事件改为保留并规划接入；不能用现有观察服务覆盖部分用途，推出全部事件都可删除。观察服务不等价于逐physics epoch或呈现完成通知，具体接线复用已有事实来源而不另算一套。Core Seat原型的删除仍只是待用户检查的建议，不受本次事件决定影响。
 
+## 首批 Core 修复边界：CR-022
+
+只处理CoreTrain构造未返回时遗留的车端、world索引及本次注册的controller；不复用会销毁调用方cars的完整destroy/failed-load清理，不新增泛化事务或extension回滚协议。重复身份、端部位置失败和初始化异常都在该边界验证；编组几何完整性、宿主world构造资源、link/split及事件接入另批处理。机制和失败合同由[train physics](../../spec/javarailways/core/train-physics.md)拥有；无持久化字段/版本或公开API变更。
+
 ## 工作区与回退
 
 根仓和 docs-site 分别记录基线及变更。已有修改不纳入新提交；若与审查修复重叠，先协调。每批可独立验证和撤回，禁止大规模顺带格式化。

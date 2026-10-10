@@ -19,7 +19,7 @@
 1. [x] 建立覆盖清单：按当前 settings.gradle 模块及仓库横向范围列出子系统；每批记录具体生产入口、关键函数/状态所有者、测试证据、未覆盖部分和检查深度。当前记录见 `research/coverage.md`，不按文件数或测试数计算完成率。
 2. [x] Core 首轮完整审查：tick/物理状态发布及线程生命周期、曲线与弧长定位、轨道连接/道岔、列车物理解算、持久化与公共 API；核对不变量、重复状态、算法复杂度、四类文档和测试有效性。审查完成不等于缺陷已修复或模块通过验收。
    - [x] C1 runtime/epoch/publication/lifecycle及Basic observation消费边界静态审查；CR-013至CR-020已记录，未修代码。Core212项（6跳过）、Basic382项强制重跑零失败；新失败路径尚未定向复现，Core/Basic均未完成整模块审查。
-   - [x] C2（2026-10-10）闭合完整 Core：136 个生产文件、49 个测试源文件和5个fixture，另查build、Dokka输入、14份Core规范及相关网页/导航。全部文件清单见`research/core-review-inventory.md`；七维报告见`research/core-module-review.md`。6条定向诊断已复现；Core/Basic强制重跑和Core Dokka成功，文档warning仍存在。CR-021至CR-034待修，运行时代码未改。
+   - [x] C2（2026-10-10）闭合完整 Core：136 个生产文件、49 个测试源文件和5个fixture，另查build、Dokka输入、14份Core规范及相关网页/导航。全部文件清单见`research/core-review-inventory.md`；七维报告见`research/core-module-review.md`。6条定向诊断已复现；Core/Basic强制重跑和Core Dokka成功，文档warning仍存在。当时CR-021至CR-034待修、运行时代码未改；后续CR-022处置另记于下。
 3. [ ] Basic：从物理观察投影到拓扑/通用寻路，再检查基础设施资源、占用、编辑许可、world 生命周期和持久化；追踪 Core → Basic → consumer，确认权威归属及同 epoch/拓扑的一致性。
 4. [ ] SimpleATO / SimpleATOBukkit：ATO 感知/制动与控制、运营方向/停车点、路线与时刻表、资源申请释放、控制权切换，以及平台适配；Dispatcher 大拆仍延期，不妨碍审查其正确性。
 5. [ ] SimpleSignals：继续启动/世界加载卸载/停用、异步工作退出、拓扑失效与后台恢复、catalog/model 安装和编辑交错；此前事务与 Wand 检查仅是部分覆盖，CR-010/011/012待修复。
@@ -35,7 +35,7 @@
 - [x] 联结/解编确认保留为正式能力；CR-021/030不再作为删除候选，当前缺陷尚未修复。
 - [x] 确认目前无仓库外插件；旧事件和座位按潜在扩展价值与状态所有权评估，而非直接按无caller删除。
 - [x] 完成[旧事件](./research/core-event-api-assessment.md)与[Core/Bukkit座位](./research/core-seat-api-assessment.md)定向评估；事件初稿删除建议已按后续讨论撤回，不把评估完成记为缺陷修复。
-- [x] 用户确认三个事件保留并考虑接入；已同步任务与Core规范，本批不改公开接口或运行时代码。
+- [x] 用户确认三个事件保留并考虑接入；已同步任务与Core规范，该决定记录批次未改公开接口或运行时代码。
 - [ ] 用户检查Core Seat API收口建议，再按决定单独实施；本次未批准删除座位原型。
 - [x] 记录开发服`192.168.1.230`的手动存档迁移要求；暂不在JAR打包自动迁移、不连接/修改远端，不据此升级schema。
 - [ ] 涉及格式变更前取得真实一致存档副本，以离线dry-run/独立输出及current校验验证迁移；实际远端apply另行授权。
@@ -44,12 +44,28 @@
 
 以下是建议执行顺序，非一批提交；每批开始前说明目的、方法和不涉及的内容，验证并提交后等用户检查。
 
-1. [ ] 首批优先修CR-022：列车构造失败不遗留ACTIVE车端，前置身份校验并成对清理副作用；用真实失败路径断言world/rail索引不变，不改持久化格式。
+1. [x] 首批修CR-022：列车构造失败不遗留ACTIVE车端，前置身份校验并成对清理副作用；用真实失败路径断言world/rail索引不变，不改持久化格式。实现及验证见下，提交后等用户检查。
 2. [ ] 修加载/恢复一致性（CR-023/027/028）及Core相关生命周期问题；涉及宿主或格式边界的修复单独划批，并先核对真实存档迁移要求。
 3. [ ] 分批修LINE投影、碰撞容差与运动速度事实（CR-025/024/026），同步有价值但断言无效的测试。
 4. [ ] 联结/解编先给出端部、方向和失败事务方案，再修CR-021/030及关联渲染换属主问题，不改变默认碰撞策略。
 5. [ ] 三种事件按保留目标设计接入：先给出阶段、payload、线程、生命周期及验证方案，再实施；复用现有事件/观察机制，不复制物理计算或状态。
 6. [ ] 随修复同步受影响契约/KDoc，另批处理确认废路径和低质量测试；未确认的Core Seat处置不混入。
+
+### CR-022 修复与验证（2026-10-10）
+
+- 根因：`TrainEnd`构造即注册rail，world身份检查与extension初始化却可能随后失败；调用方只有构造返回后才进入failed-load清理，因此无法取得失败对象撤销注册。旧测试缺少构造期失败后的索引/资源断言。
+- 实现：`CoreWorld`共享内部身份校验；`CoreTrain`先验证身份并解析两个端部位置，再注册端部/world并初始化。失败逐项清理本次controller和车端，world仅在成功接纳后撤销；调用方cars不销毁，不复用完整destroy/failed-load清理。合同同步到[train physics](../../spec/javarailways/core/train-physics.md#构造与失败清理)，不新增通用事务或extension回滚协议。
+- 定向红→绿：新增正式`CoreTrainConstructionTest`，旧运行时代码10/10失败，修复后10/10通过。四种身份冲突分别检查直接构造/存档加载，另测尾端位置拒绝及extension初始化失败/同身份成功重试；断言精确车端身份、原列车frame/controller及caller-owned cars，不只断言抛异常。
+- 完整门禁：以下命令`BUILD SUCCESSFUL`，14个任务全部执行；Core47 suites/222项（216执行、6跳过），Basic59 suites/382项全部执行，零失败/错误。首次定向绿灯遇生成的Kotlin增量缓存损坏，改用非增量/in-process重跑，未删除缓存或修改构建配置。既有编译warning和daemon metaspace提示仍存在，不在本批顺带治理。
+
+```bash
+env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
+  -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process \
+  :Core:test :Basic:test
+```
+
+- 独立检查：`trellis-check`复核构造注册/清理、相同实例二次add及真实回归断言，未发现代码修改项；manifest的一处extension回滚表述已改为constructor-owned registrations。任务manifest（8+8项）、文档链接及变更空白检查均通过。
+- 边界：无公开API或持久化格式/版本变化，无事件接入、Seat删除、编组几何或宿主factory修复；未运行Dokka、opt-in stress、平台测试或游戏验证，未连接开发服。仅CR-022记为修复，不把本批绿色回归记为Core通过或全项目审查完成。
 
 以下八步于 2026-10-09 获用户批准；第 1、3、4、5、6 步及第 2 步根仓入口文档批次已完成。剩余文档问题留到全仓代码审查，第 6 步提交后等待用户检查，再推进第 7 步。步骤不是提交数量，每步可拆成独立可验证的提交。
 

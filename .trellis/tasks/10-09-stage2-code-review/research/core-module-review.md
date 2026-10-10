@@ -2,7 +2,7 @@
 
 日期：2026-10-10。源码基线：`dev/signal-system` / `8f1d845d`。
 
-结论：**Core整模块首轮静态审查完成，但不能判为通过，缺陷尚未修复。** 合并先前C1的runtime/publication检查与本轮全量源码、测试、契约检查；不是只抽查Stage 2 diff。Basic仍只有局部覆盖。
+结论：**Core整模块首轮静态审查完成，但不能判为通过。** 合并先前C1的runtime/publication检查与本轮全量源码、测试、契约检查；不是只抽查Stage 2 diff。下文保留审查基线证据；后续CR-022已修复，其余问题仍待处置，见[修复状态](#后续修复cr-022)。Basic仍只有局部覆盖。
 
 ## 范围、方法与证据等级
 
@@ -11,7 +11,7 @@
 - 结合真实producer/consumer检查：Core→Basic occupancy；Core→SimpleATO运营点迁移；Core→Bukkit加载、卸载及render frame。跨层追踪不等于其他模块审查完成。
 - 对删除候选检索全仓生产、测试、注册/资源、持久化及文档；公开声明无仓库caller不等于不存在外部使用者。
 - 下文“已复现”使用实际Core类和真实simulation，只在`/tmp`放诊断；“静态确认”有明确源码路径但未执行对应失败序列；“候选/缺口”不冒充已触发故障。
-- 未修改运行时代码、未删除测试、未改schema version、未增加兼容路径、未部署。docs-site与其他已有脏文件保持不动。
+- 原审查未修改运行时代码、未删除测试、未改schema version、未增加兼容路径、未部署；后续代码修复单独记录。docs-site与其他已有脏文件保持不动。
 
 问题稳定编号见[台账C2](./issues.md#c2core-整模块审查2026-10-10)。P1是应优先处理的状态/生命周期错误，P2是具体正确性或维护风险，P3为可延期治理；不把每个P2自动定为全项目游戏测试阻塞。
 
@@ -25,7 +25,7 @@
 
 ### 优先处理：加载/失败后状态不可信
 
-- **CR-022，P1，已复现：列车构造失败留下ACTIVE车端。** `CoreTrain.kt:142-166`先创建注册head/tail，再检查world身份；`SavedTrainV1.load`的try在构造之后。重复ID/name不是不可能错误：文件和命令可能重复。身份拒绝后rail中车端从4增至6，且孤儿车端ref与原列车重复。应前置身份校验并撤销constructor副作用，不只加强构造完成后的cleanup。
+- **CR-022，P1，已复现，后续已修复：列车构造失败留下ACTIVE车端。** 审查基线的`CoreTrain.kt:142-166`先创建注册head/tail，再检查world身份；`SavedTrainV1.load`的try在构造之后。重复ID/name不是不可能错误：文件和命令可能重复。身份拒绝后rail中车端从4增至6，且孤儿车端ref与原列车重复。修复采用前置身份/端部位置检查及constructor自有注册清理，见[后续记录](#后续修复cr-022)。
 - **CR-023，P1，已复现：损坏current存档可发布脱节的占用。** `CoreTrain.kt:345-361`只检查每车bogie间距，直接接受存档head/tail。有效bogie仍在50.5m，改head/tail为180/140m后load成功，`bodyTraversal`与`occupiedIntervals`却是[140,180]。必须校验完整编组、相邻车/车端和方向；round-trip不能覆盖这种损坏输入。
 - **CR-027，P2，静态确认：load容错与严格restore不一致。** `CoreRail.kt:136-168`忽略无效UUID/缺失rail，只按最近端点恢复，不验证共点；对称但远离的接头可形成看似合法edge。prepared snapshot restore已严格校验引用和距离，应在同一输入边界统一，而不是业务层多加兜底。
 - **CR-028，P2，静态确认：raw曲线及向量decode未验证完整输入。** `PrimeCurveImpl.kt:24-33`不校验至少两点、零起点、严格递增弧长、finite/frame；手写Vector3dSerializer缺少分量会补0。前者已被curve spec标TRANSITIONAL，不伪装成新发现；后者与网页“missing必填立即失败”不符。集中在构造/decode验证，不放进每次求点热路径。
@@ -185,13 +185,19 @@ duplicate.endpointsBefore=4; duplicate.endpointsAfter=6
 
 复现构造：32m bucket的两span；0→10m两点LINE；500m直轨上4×10m真实CoreTrain，用10m/s controller执行50ms simulation；保存有效cars后做split；以相同cars、不同ID和head/tail=180/140恢复；再尝试重复身份恢复并读rail端点索引。所有coordinator/TickManager在finally关闭。已有测试全绿与这些错误可并存，不能以绿色测试否定诊断。
 
-缓存使用`/workspace/.gradle`；没有服务启动、Folia实体/客户端或opt-in容量验证。源码没有变化，无需把编译成功包装为已修复。
+原审查缓存使用`/workspace/.gradle`；没有服务启动、Folia实体/客户端或opt-in容量验证。该审查批次源码没有变化，无需把编译成功包装为已修复。
+
+## 后续修复：CR-022
+
+2026-10-10用户批准首批Core代码改进。已修复构造失败注册泄漏，新增正式`CoreTrainConstructionTest`；10个定向用例在旧实现全部失败、修复后全部通过，覆盖直接构造与存档加载的四种身份冲突、尾端无法放置、extension初始化失败及同身份重试。world/rail、原列车及caller-owned cars/controller的断言使用真实对象和physics tick，不是临时玩法实现。
+
+机制与失败合同由[train physics](../../../spec/javarailways/core/train-physics.md#构造与失败清理)拥有，执行命令及完整回归结果见[本批验证](../implement.md#cr-022-修复与验证2026-10-10)。不改持久化格式、公开API或事件，不覆盖CR-023编组几何及宿主factory资源清理；本项修复不代表Core其余缺陷已修或Basic整模块审查完成。
 
 ## 下一步与待用户检查
 
-用户已要求下一步先改进Core；本批仅记录，不实施运行时代码。按[执行计划](../implement.md#下一步core-改进批次)逐批说明、验证、提交并等用户检查，优先顺序为：
+用户已要求下一步先改进Core；首批CR-022代码修复完成，等待用户检查后才推进后续。按[执行计划](../implement.md#下一步core-改进批次)逐批说明、验证、提交并等用户检查，优先顺序为：
 
-1. 首批CR-022列车构造失败清理，再处理加载/恢复/卸载一致性（CR-023/027/028及C1生命周期）。
+1. 后续处理加载/恢复/卸载一致性（CR-023/027/028及C1生命周期），分别划批，不扩张首批CR-022。
 2. 正式算法事实：LINE投影、碰撞容差、motion velocity。
 3. split/link已确认保留，先明确端部/方向与事务验收方案，再修事务；三个事件保留，先明确接入契约再接线。Seat去留仍待确认；废路径/测试、文档和诊断另成小批。
 

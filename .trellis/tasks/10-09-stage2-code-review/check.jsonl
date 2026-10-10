@@ -1,9 +1,8 @@
-{"file": ".trellis/spec/javarailways/shared/quality.md", "reason": "Independent scope and validation check"}
-{"file": ".trellis/tasks/10-09-stage2-code-review/research/initial-findings.md", "reason": "Check evidence and prevent deleting valid safety paths"}
-{"file": ".trellis/spec/javarailways/basic/world-runtime.md", "reason": "Confirm accessor behavior preserved without legacy index"}
-{"file": ".trellis/spec/javarailways/basic/route-planning.md", "reason": "Current immutable planner must remain unchanged"}
-{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "No schema bump or compatibility expansion for runtime API cleanup"}
-{"file": ".trellis/spec/javarailways/basic/rail-infrastructure.md", "reason": "Verify grouped copies preserve speed categories and null authoring"}
-{"file": ".trellis/spec/javarailways/basic/api-boundaries.md", "reason": "CR-005 exported signatures must resolve to documented public value types"}
-{"file": ".trellis/spec/simpleato-bukkit/backend/index.md", "reason": "CR-006 substantive editor transfer without reverse dependency or second lifecycle"}
-{"file": ".trellis/spec/javarailways/simpleato/destinations.md", "reason": "CR-006 validation and role fields/projection/rollback preservation"}
+{"file": ".trellis/spec/javarailways/shared/quality.md", "reason": "Independent Core constructor fix review and scoped test gate"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "No schema bump, migration or runtime compatibility in CR-022"}
+{"file": ".trellis/spec/javarailways/core/api-boundaries.md", "reason": "No unnecessary public identity or transaction framework"}
+{"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "Check endpoint cleanup, existing trains and caller-owned cars on failure"}
+{"file": ".trellis/spec/javarailways/core/extension-data.md", "reason": "Check partial initialization and cleanup failure propagation"}
+{"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "Real duplicate load must leave world/rail indexes unchanged"}
+{"file": ".trellis/spec/javarailways/core/testing.md", "reason": "Regression tests must fail on old code and close all fixture resources"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/core-module-review.md", "reason": "Limit this batch to CR-022; other audit defects remain pending"}

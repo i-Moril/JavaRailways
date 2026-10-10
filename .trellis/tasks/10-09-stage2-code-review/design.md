@@ -24,11 +24,11 @@
 ## Core 审查后的产品边界（2026-10-10）
 
 - **已确认**：联结/解编保留为正式能力；CR-021/030按功能缺陷修复，不按废原型清理。详细端部/方向组合和事务实现仍须先给出方案，不改变默认碰撞策略。
-- **已确认事实，待设计取舍**：没有仓库外插件；旧事件仍按真实扩展用途评估，Core Seat与Bukkit乘坐实现按状态所有权评估。不为了复活空事件新增tick广播，不把两份座位列表都作为权威。评估建议在用户检查前不成为删除或迁移授权。
+- **已确认**：没有仓库外插件不代表没有扩展需求。用户要求保留PreTickEvent/PostTickEvent/RenderableEvent并考虑接入，旧删除建议撤回；接入前明确阶段和线程语义，见[Core事件规范](../../spec/javarailways/core/event-bus.md)。Core Seat与Bukkit乘坐的分层建议仍待确认，不把两份座位列表都作为权威。
 - **已确认**：开发服存档需能手动迁移，暂不要求JAR内自动迁移。格式变更先获取一致的真实infrastructure/runtime文件对（或该服实际使用的等价存档集合），记录来源shape并保留原件/恢复点；离线dry-run报告未知type、无法映射的引用及丢失风险，输出到独立目录，拒绝静默丢数据。迁移后用current严格codec及业务引用校验匹配数据，核对rail/train身份、位置、extension及涉及的运营数据。真实样本验证前不得宣称已支持该服迁移。
 - **计划协调，不修改他人任务**：工作区既有未跟踪任务`09-24-explicit-rail-endpoint-connections`仍写JAR打包/startup自动迁移。本轮不改动该任务；后续推进其持久化工作前应按本次确认重新对齐验收，不把旧计划当作自动迁移授权。
 
-定向评估见[旧事件](./research/core-event-api-assessment.md)和[座位](./research/core-seat-api-assessment.md)。建议删除未接线的三个泛事件声明及Core Seat原型，保留实际领域事件、现有观察服务和Bukkit座位。已有观察服务不等价于逐physics epoch通知或呈现完成通知；座位目录也不等价于平台乘坐事实。不提前新增这些尚无具体需求的接口，上述删除建议仍待用户检查。
+定向评估见[旧事件](./research/core-event-api-assessment.md)和[座位](./research/core-seat-api-assessment.md)。事件改为保留并规划接入；不能用现有观察服务覆盖部分用途，推出全部事件都可删除。观察服务不等价于逐physics epoch或呈现完成通知，具体接线复用已有事实来源而不另算一套。Core Seat原型的删除仍只是待用户检查的建议，不受本次事件决定影响。
 
 ## 工作区与回退
 

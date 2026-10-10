@@ -4,15 +4,15 @@
 - Scope: internal；定向覆盖 Core `api/event/**`、`api/event/processor/**`、PhysicsCoordinator/CoreWorld/TickManager 与 Basic、SimpleATO、SimpleSignals、Bukkit 宿主的直接消费链。座椅、迁移及其他模块整体验收不在本次范围。
 - Date: 2026-10-10
 - Baseline: `dev/signal-system` / `7ff3a8d3`；本轮源码未改动。
-- Status: 静态研究与产品建议；任何删除、重命名、增加 publisher 或公共接口变更均未获本次评估批准，也未实施。
+- Status: 静态证据未变；用户于2026-10-10确认三个事件保留并考虑接入，初稿删除建议撤回。接入具体契约尚未冻结，代码未实施。
 
 ## Findings
 
-### 推荐
+### 当前结论与用户决定
 
-建议删除这三个未接线的历史声明，同时保留已有领域事件及“明确阶段、明确 payload 的通知”这一产品概念。不建议为使旧类生效而新增泛 tick 广播，也不建议把 `RailwayEpochProcessor` 包装成任意附属插件的动态 listener registry。
+保留`PreTickEvent`、`PostTickEvent`和`RenderableEvent`，在Core改进阶段明确契约并考虑正式接入。初稿将“没有接线、定义含糊”推为删除建议，论据不足；用户已明确选择保留扩展能力。复用现有总线和观察来源，不把`RailwayEpochProcessor`包装成任意附属插件的动态listener registry。
 
-这个建议不是由“没有当前 caller”单独推出：主循环 tick 已与 physics epoch 分离，平台呈现又由目标 region 异步执行。三种旧声明没有 world/epoch/revision、具体变更或可靠的完成阶段，不能承载其名称容易令人期待的控制/完成保证。已有服务覆盖了当前具体插件需求，仍未公开的独特需求应先得到明确产品要求，再按真实 owner 设计最小接口。
+主循环tick已与physics epoch分离，平台呈现又由目标region异步执行，因此接入时必须明确所指阶段。空通知不一定需要payload：若只是宿主循环通知，可以按该语义设计；若作为逐世界物理hook，则须明确world/epoch等上下文和调用线程。现有服务覆盖部分用途，不等价于全部扩展事件；`RenderableEvent`是分组接口，没有独立publisher本身不是删除依据。
 
 **没有 publisher 是当前事实，不表示未来事件用途不存在。** 前置控制、完成物理结果观察、离散业务转换、模型生命周期和呈现完成分别有合理用途；它们应按各自语义评估，不能把三个旧名称当成已经支持这些用途。
 
@@ -48,7 +48,7 @@
 - Basic/SimpleATO 现有 command 合同是在 physics boundary 激活 immutable revisioned request；实际 `SimpleATO/controller/SimpleATO.kt:469`/`:517` 统一 drain mission 与普通 command。信号限制由 epoch N 的 source 处理、在 N+1 的 controller 规划前消费，不能改成依赖主循环 pre-event 才更新。
 - 真正需要“每个 world 的每次 physics epoch 开始前执行”的新扩展点，目前没有通用、可动态注册的公共 service。`PreTickEvent` 若只在 `WorldManager.tickStart` 发布，会漏掉 fallback epoch，并可能在 physics 已开始后发生；若改在 coordinator 发布，又违反它目前的 `MainThreadRailEvent` 类型。
 
-推荐移除旧声明，不承诺 generic pre-tick hook。若用户明确要求未来的前置决策能力，先明确由 train controller、现有 signal/inspection source，还是新的特定政策 owner 接收输入；保证在该 owner 的 physics boundary 激活。需要新接口时再约定 stable identity、目标 epoch、合法 result、失败行为与卸载生命周期；本评估没有提出新增通用框架。
+保留PreTickEvent，接入前先明确它是宿主循环通知还是物理前置hook。若要影响本轮运动，须由真实controller/source等owner在物理边界接收输入，不能只在宿主循环随意发布就承诺覆盖fallback。目标epoch、payload、线程、失败与卸载规则在接入方案中说明；本次不冻结新签名或新增通用框架。
 
 ### `PostTickEvent`：完成物理观察已存在；“所有平台 commit 完成”不存在
 
@@ -61,7 +61,7 @@
 
 替代的限制同样明确：该观察发生于 Dispatcher 与 generic postTick **之前**；它不表达运营调度决策完成，不表达每个车厢的姿态或实体应用完成。宿主只在自己的循环中发布观察，因此不承诺 fallback 期间每个 physics epoch 都送达，也不提供逐 epoch backlog。需要无遗漏的边界越过、精确每 epoch 计量或离散原因时，不能仅由连续两份 latest observation 差分代替真实领域 hook。
 
-推荐保留“成功物理发布后通知”的概念，通过已有服务承担；删除含糊的 `PostTickEvent` 空壳，不增加一个重复的第二订阅通道。若未来确需“Dispatcher 已完成的特定运营变更”，应在相应运营 owner 定义具体领域事件；若需“模型显示已应用”，应由 platform/render owner 提供明确结果。把旧事件在 generic `postTick` 结尾发布并沿用 commits-complete 文案，会制造当前实现无法兑现的保证。
+保留PostTickEvent，先确定它表示物理发布后、宿主协调后还是其他明确阶段，再选择发布位置。与观察服务重叠的部分复用同一发布事实，不另算物理观察；未重叠用途不得声称已有等价替代。模型显示应用完成须由平台owner报告，不能把generic postTick结尾当成全部呈现完成。具体payload/线程与是否覆盖每个fallback epoch留到接入方案明确。
 
 ### `RenderableEvent`：呈现与生命周期合理，旧基类没有具体契约
 
@@ -70,7 +70,7 @@
 - `SimpleSignals/.../presentation/SignalModelBinding.kt:269` 已真实提交 `ModelPresentation`，并抑制未变化的显示。当前具体呈现并不依赖 Core render event。
 - 精确 train-car/bogie 物理姿态可在 `Train.publishedFrame`（`Core/api/physics/train/Train.kt:48`）读取，但它是某次读取时的 published value，不提供动态订阅和平台应用完成保证。公共 `RailwayObservation` 不含这些 render-car 字段，内部 `PublishedTrainFrameProcessor` 也不能直接推介给第三方作为 renderer hook。
 
-未来 renderable/model 创建、移除、交互、应用成功/失败通知各有独特用途；现有 service 只对部分创建/提交/清理动作提供能力，并没有为每次 submit 提供 applied acknowledgement 或所有列车模型 lifecycle 广播。推荐删除无具体事件的旧 grouping interface。若用户需要上述某一能力，再由宿主模型/列车生命周期 owner 定义具体稳定身份与结果；几何观察传 value frame，平台副作用由目标 entity/region owner 执行。不要在 physics worker 发布 live `Renderable`，也不要以全世界 renderable 每 tick 广播替代有语义的通知。
+RenderableEvent保留为分组接口，本身不必独立发布；创建、移除、更新等具体事件由真实生命周期owner定义并接入。上述用途有价值，现有service没有覆盖所有通知，不能据此删除抽象；也不表示本次已批准一次实现全部子事件。几何观察使用一致value frame，live对象访问遵守线程约束，平台副作用由目标entity/region owner执行，不以全世界renderable每tick广播替代具体语义。
 
 ### 两种 processor 的可替代范围
 
@@ -89,10 +89,11 @@
 - 日志、metrics、纯附属业务观察：隔离 observer 失败，不给它改变已发布物理事实的权限；较慢处理不得为每个 tick 累积无界 queue。
 - `Bukkit/util/BukkitThreadGuardBridge.kt:13` 的 main identity 含 serialized simulation context。通过 `MainRailEventBus` guard 不等于拥有任意实体或 location 的 Folia 访问权限。
 
-### 必要待用户决定项
+### 已确定与接入前待明确事项
 
-1. 是否接受上述三个类从候选 API 删除，同时将普通后置观察指向现有 `RailwayObservationService`。用户已确认无仓库外插件，故没有已知外部迁移对象，但这并不替用户决定未来产品功能。
-2. 是否已有必须近期支持的具体需求：每次 physics epoch 前的第三方决策、无遗漏的物理变更流、Dispatcher 完成后的运营领域通知、列车模型生命周期，或每次显示应用完成结果。若没有明确需求，可先清理空壳；若有，应先确定其中实际所需项，再单独评审 owner/thread/payload/failure/lifecycle，不能一次性新增全套事件体系。
+1. 已确定：三个事件保留并考虑接入，不删除；Core改进是下一步工作，现有代码仍未接线。
+2. 接入前明确：Pre/Post对应的阶段、世界范围与是否覆盖每个physics epoch；发布线程、payload、允许的监听动作、失败与卸载生命周期，以及与现有观察服务的复用关系。
+3. RenderableEvent具体子事件的范围与发布owner尚待方案确定；分组接口保留不等于承诺实现全部模型生命周期/呈现完成通知。本次仅记录方向，不冻结API。
 
 ## Files Found
 

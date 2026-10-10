@@ -6,6 +6,12 @@
 
 用途：两套 process-wide bus 是同步 dispatcher，不是 scheduler。契约防止错误线程 side effect、重复注册、泄漏 listener，以及把 exception isolation误当 rollback。
 
+## 保留与接入目标（TARGET）
+
+用户于2026-10-10确认保留`PreTickEvent`、`PostTickEvent`和`RenderableEvent`，后续应考虑正式接入，而非作为无调用残留删除。当前三者只有声明、没有真实接线；以下目标不表示已实现，也不冻结新签名或发布位置。
+
+接入前须明确Pre/Post指宿主循环还是物理epoch、世界范围、数据和访问线程；后置通知不得把“物理结果已发布”承诺成“平台呈现已完成”。`RenderableEvent`是分组接口，没有独立publisher并非缺陷；具体事件按真实生命周期定义，live对象访问仍遵守线程约束。复用现有总线和发布事实，核对与观察服务的重叠，不新增重复计算或第二份状态。不得仅因暂无consumer就取消扩展能力，也不得将尚未接线的声明宣传为可用hook。
+
 ## Owner、签名与 lifecycle
 
 ```kotlin

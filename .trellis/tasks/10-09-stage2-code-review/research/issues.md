@@ -273,8 +273,8 @@
 - P3；全仓consumer/注册/测试/持久化搜索确认候选，详见Core报告清理分组。
 - 明确机械候选：3个空rail/persistence文件、BinarySearch、Quaternion池、forwardPositive未读list、DummyAsset、CoreWorld未用signals字段、废注释。
 - 需连同专用测试处理：旧RailTopologyEditor split/merge路径、prototype TrainFactory构建链；保留现行prepared pipeline、mergeEligibilityError/SplitResult与current SavedCar使用的CarConfigV1。
-- 用户确认目前无仓库外插件；无publisher的Pre/PostTick/RenderableEvent、无调用异常/seat等公开面仍按扩展价值评估，不直接按无caller删除。联结/解编已确认保留。Signal和DynamicRenderable.lastState有真实consumer，不删。
-- [旧事件专项评估](./core-event-api-assessment.md)建议删除三个未接线泛事件声明，保留真实领域事件；现有observation只承担其已声明的阶段/数据，不作为逐epoch或呈现完成通知。建议待用户检查，尚未实施。
+- 用户确认目前无仓库外插件；未用异常/seat等公开面仍按扩展价值评估，不直接按无caller删除。联结/解编已确认保留。Signal和DynamicRenderable.lastState有真实consumer，不删。
+- [旧事件专项评估](./core-event-api-assessment.md)初稿删除建议已撤回：用户要求保留PreTickEvent/PostTickEvent/RenderableEvent并考虑接入，从废代码删除候选中排除。暂无publisher只说明未接线；分组接口不必独立发布。接入阶段/线程契约尚未冻结，现有observation不作为所有事件用途的等价替代。
 
 ### CR-033：文档、诊断与可维护性不一致
 

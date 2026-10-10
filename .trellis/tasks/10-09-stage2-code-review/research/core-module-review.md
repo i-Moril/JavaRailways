@@ -18,7 +18,7 @@
 ## 用户确认（2026-10-10）
 
 - 联结/解编保留为正式能力；CR-021/030是待修缺陷，不再待决定是否删除该能力。此确认不改变默认碰撞DERAIL，也不表示现有实现已验收。
-- 目前没有仓库外插件；已补[旧事件扩展价值评估](./core-event-api-assessment.md)及[Core/Bukkit座位评估](./core-seat-api-assessment.md)。建议删除三个未接线泛事件声明及Core Seat原型，保留实际领域事件与Bukkit唯一座位来源；这是待用户检查的设计建议，不是已获批删除或已修复。
+- 目前没有仓库外插件；已补[旧事件扩展价值评估](./core-event-api-assessment.md)及[Core/Bukkit座位评估](./core-seat-api-assessment.md)。用户进一步确认三个事件保留并考虑接入，旧删除建议撤回；阶段/线程等具体契约待接入批次明确。Core Seat原型删除仍只是待用户检查的建议，本次未批准。
 - 开发服`192.168.1.230`的存档必须能手动迁移；暂不要求JAR内自动迁移。迁移按真实一致样本、离线dry-run、保留原件/恢复点与迁移后校验处理；本轮未读取或验证服务器数据，也未获远端修改授权。
 
 ## 1. 逻辑正确性
@@ -118,7 +118,7 @@
 - TrainFactory、TrainBuildDependency/CarBuildDependency、TrainConfigV1/BogieConfigV1的prototype链及反射填map测试。**保留CarConfigV1**，它仍是SavedCarV1 current shape且buildCar用于真实恢复。
 - PrimeCurveGenerator全是测试consumer，应迁testFixtures，不删下游物理回归。
 
-公开面需要单独评估：无publisher的PreTick/PostTick/RenderableEvent、无调用PersistenceException/LoadPersistentDataException、CannotSplitException/Collision、canLink/COLLISION_SPEED及未接线Seat。用户确认目前无仓库外插件，但旧事件/座位仍须评估未来扩展用途与合理分层；联结/解编能力已经确认保留。不要为了“让事件不死”新增publisher改变时序，也不要连同未用helper删除已确认保留的能力。
+PreTick/PostTick/RenderableEvent已确认保留并考虑接入，从删除候选中排除；暂无publisher不等于没有扩展价值，分组接口也不必独立发布。接入前明确真实阶段/线程，不承诺平台呈现已同步完成。其余公开面仍单独评估：无调用PersistenceException/LoadPersistentDataException、CannotSplitException/Collision、canLink/COLLISION_SPEED及未接线Seat。联结/解编已经确认保留，不连同未用helper删除能力。
 
 明确不删：Core Signal由Basic限速和Core扫描使用，DynamicRenderable.lastState由Bukkit初始render读取，CorruptedDataException有真实reader使用。
 
@@ -189,10 +189,10 @@ duplicate.endpointsBefore=4; duplicate.endpointsAfter=6
 
 ## 下一步与待用户检查
 
-先交付本模块报告，不自动实施。若优先修Core，建议：
+用户已要求下一步先改进Core；本批仅记录，不实施运行时代码。按[执行计划](../implement.md#下一步core-改进批次)逐批说明、验证、提交并等用户检查，优先顺序为：
 
-1. 加载/构造/卸载失败的一致性与清理（CR-022/023/027/028及C1生命周期）。
+1. 首批CR-022列车构造失败清理，再处理加载/恢复/卸载一致性（CR-023/027/028及C1生命周期）。
 2. 正式算法事实：LINE投影、碰撞容差、motion velocity。
-3. split/link已确认保留，先明确端部/方向与事务验收方案，再修事务；Seat/旧事件先交定向评估建议。废路径/测试、文档和诊断另成小批。
+3. split/link已确认保留，先明确端部/方向与事务验收方案，再修事务；三个事件保留，先明确接入契约再接线。Seat去留仍待确认；废路径/测试、文档和诊断另成小批。
 
-若继续审查，下一完整模块为Basic；只在其源码、测试、文档范围闭合后报告。全项目审查未结束，也尚不具备仅据Core报告宣布Stage 2正式游戏验收就绪的依据。
+Core改进后恢复整模块审查时，下一模块为Basic；只在其源码、测试、文档范围闭合后报告。全项目审查未结束，也尚不具备仅据Core报告宣布Stage 2正式游戏验收就绪的依据。

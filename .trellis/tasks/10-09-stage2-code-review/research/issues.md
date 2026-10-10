@@ -145,11 +145,12 @@
 
 ### CR-016：in-flight close 后 CLOSED 终态可被 STALLED 覆盖
 
-- 状态：已确认静态可达，待定向回归；P2，终态/发布撤销契约问题。
+- 状态：已修复（2026-10-10）；P2，终态/发布撤销契约问题。CR-014 final-save quiesce仍独立待修。
 - 证据：`PhysicsCoordinator.kt:589-600` 设置 CLOSED并shutdownNow，正在等待worker的 coordinator 被中断后，`:514-516` catch无条件写STALLED；overload分支`:492-494`同样不保留CLOSED。正常尾部`:502-509`也未与close/stall边界复查ticket发布资格。
 - 影响：close后的最终status可能变为STALLED，而不是CLOSED；不代表重新运行，STALLED仍拒绝wake且executors已shutdown。若processor消化中断继续返回，关闭后发布资格也需回归验证，不能仅靠interrupt撤销。
 - 最小建议：终态转换保留CLOSED，最终publication在与close/stall一致的边界验证ticket仍有效，不用额外无依据重试/预算。
 - 回归缺口：真实worker进入latch后close，ticket exceptional且status始终CLOSED；另测忽略中断的processor返回后不得推进latest frame。
+- 处置：成功发布与close在同一状态边界验证RUNNING及exact ticket；失败/overload同样保留已有终态，持锁顺序为topology→coordinator。新增3项回归在旧实现全失败、修复后全通过（该类24项）；独立检查及Core/Basic组合门禁通过，详见[验证记录](../implement.md#cr-016-修复与验证2026-10-10)。不承诺close撤销已完成的train commit或processor副作用。
 
 ### CR-017：Koin world scope 没有成对释放
 

@@ -481,41 +481,50 @@ class PhysicsCoordinator(
                 collisionClaims = collisionClaims.size,
                 overloadCountInWindow = overloadCount
             )
-            lastMetrics = metrics
-            lastControllerNanos = controllerDurations.toMap()
-
             if (overloadCount >= overloadsBeforeStall) {
                 val failure = PhysicsStalledException(
                     "Physics stalled after $overloadCount epochs reached " +
                         "${epochOverloadThresholdMillis}ms within ${overloadWindowMillis}ms"
                 )
                 synchronized(stateLock) {
+                    if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
+                    lastMetrics = metrics
+                    lastControllerNanos = controllerDurations.toMap()
                     status = PhysicsCoordinatorStatus.STALLED
                     inFlight = null
+                    ticket.completion.completeExceptionally(failure)
                 }
-                ticket.completion.completeExceptionally(failure)
                 return
             }
 
-            // This is the final coherent publication boundary for a successful epoch. Ticket
-            // completion below guarantees platform consumers cannot observe it before all work ends.
-            if (capturedWorldFrame != null) {
-                world?.publishCapturedWorldFrame(capturedWorldFrame)
+            // Topology transactions can stall physics while holding their write lock, so acquire
+            // topology before stateLock. Close and exact-ticket publication then serialize here.
+            val attachedWorld = checkNotNull(world)
+            attachedWorld.withRailTopologyReadLock {
+                synchronized(stateLock) {
+                    if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
+                        return@withRailTopologyReadLock
+                    }
+                    if (capturedWorldFrame != null) {
+                        attachedWorld.publishCapturedWorldFrame(capturedWorldFrame)
+                    }
+                    lastMetrics = metrics
+                    lastControllerNanos = controllerDurations.toMap()
+                    latestCompleted = ticket
+                    inFlight = null
+                    ticket.completion.complete(metrics)
+                }
             }
-            synchronized(stateLock) {
-                latestCompleted = ticket
-                inFlight = null
-            }
-            ticket.completion.complete(metrics)
         } catch (t: Throwable) {
             val failure = if (t is PhysicsStalledException) t else {
                 PhysicsStalledException("Physics epoch ${ticket.epoch} failed", t)
             }
             synchronized(stateLock) {
+                if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
                 status = PhysicsCoordinatorStatus.STALLED
                 inFlight = null
+                ticket.completion.completeExceptionally(failure)
             }
-            ticket.completion.completeExceptionally(failure)
         }
     }
 

@@ -57,7 +57,7 @@
 
 - [ ] 当前批次CR-023（部分修复）：加载成功发布前验证同一tail→head路径上的rail身份、facing、bogie顺序/弧长间距及车端offset；保留精确合法摆位，不重新寻路/摆车。当前保存的bogie不能唯一恢复车体中心的求解锚点，合法曲线还原已有约10 mm中心差与约6.15 mm车钩残差，因此精确相邻车钩校验继续单列，不加宽5 mm容差掩盖问题。补固定损坏输入及有效reverse/curve/turnout回归；仅改Core内部加载校验/测试，不改JSON形状/版本，不接触远端。
 - [x] 独立批次CR-024：collision查询复用既有容差扩展桶范围，保留exact overlap/candidate cap，补跨桶5mm内外的真实查询回归。
-- [ ] 独立批次CR-016：关闭终态和最终publication在既有coordinator状态边界复核，补in-flight worker及忽略中断的processor回归；不混入CR-014 quiesce接口。
+- [x] 独立批次CR-016：关闭终态和最终publication在既有coordinator状态边界复核，补in-flight worker及忽略中断的processor回归；不混入CR-014 quiesce接口。
 - 后续单列CR-027/028严格输入、CR-025/026算法事实、CR-013至CR-017生命周期及CR-020/032局部测试/残留清理；若核实需要新的产品选择或迁移要求，标记并跳过，不用猜测兜底替代。
 
 ### CR-024 修复与组合门禁（2026-10-10）
@@ -65,6 +65,12 @@
 - collision查询与区间查询共享容差扩桶helper；索引写入footprint不变，exact过滤、排序与candidate cap不变，机制见[rail occupancy](../../spec/javarailways/core/rail-topology-and-occupancy.md#occupancyrelease与结果矩阵)。3项新增回归在旧实现全部失败；修复后该类11项全部通过。
 - CR-024/016/023互不重叠源码冻结后串行验证：定向3类共49项全通过；随后强制重跑Core/Basic，15个Gradle任务执行，`BUILD SUCCESSFUL`（1m19s）。Core48 suites/242项（236执行、6跳过），Basic59 suites/382项全执行，零失败/错误。命令沿用下方非增量/in-process/offline门禁；本结果对应三批组合worktree，不宣称只含CR-024的孤立提交已单独重跑。
 - 独立`trellis-check`复核实现/测试及契约；task manifest 11+11项、scoped whitespace检查通过。既有编译warning/daemon metaspace提示保留；无公开API、格式/版本、部署或游戏验证。CR-016/023分别提交并记录，不因组合门禁把CR-023精确车钩问题结案。
+
+### CR-016 修复与验证（2026-10-10）
+
+- 最终publication、metrics、latest-completed及ticket完成在原stateLock内检查RUNNING+exact ticket；外层只加CoreWorld内部read-lock scope，保持既有topology→coordinator顺序，不增加第二锁或公开API。失败/overload迟到返回不能覆盖CLOSED，具体合同见[runtime publication](../../spec/javarailways/core/runtime-publication.md)。
+- 新增真实worker及消化中断的processor正常/overload共3项有界回归，旧实现全失败、修复后全通过（PhysicsCoordinatorTest共24项）；独立静态检查与上方CR-024/016/023冻结源码组合门禁通过。此提交只含CR-016代码、测试和受影响文档。
+- close不是quiesce，也不回滚早先已发布的train frame或processor外部副作用；CR-014及宿主卸载/构造清理未在此修复。无格式/版本、事件接入、部署或游戏验证。
 
 ### CR-022 修复与验证（2026-10-10）
 

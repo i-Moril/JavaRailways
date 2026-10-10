@@ -2,9 +2,12 @@ package work.art1st.javarailways.core.physics.tick
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.event.CollisionEvent
 import work.art1st.javarailways.core.api.event.processor.EventListener
@@ -30,6 +33,7 @@ import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 class PhysicsCoordinatorTest {
     @Test
@@ -319,6 +323,128 @@ class PhysicsCoordinatorTest {
 
         assertThrows(IllegalStateException::class.java) {
             coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor { })
+        }
+    }
+
+    @Test
+    fun `close remains terminal after an in flight worker returns late`() {
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("close-in-flight-worker", rail, world, listOf(10.0))
+        val coordinatorThread = AtomicReference<Thread>()
+        val workerThread = AtomicReference<Thread>()
+        val entered = CountDownLatch(1)
+        val interrupted = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val ticks = AtomicInteger()
+        coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor {
+            coordinatorThread.set(Thread.currentThread())
+        })
+        train.setController(object : TrainController(train, world) {
+            override fun tick(deltaT: Double) {
+                if (ticks.incrementAndGet() == 1) return
+                workerThread.set(Thread.currentThread())
+                entered.countDown()
+                try {
+                    check(release.await(5, TimeUnit.SECONDS)) { "timed out waiting to release worker" }
+                } catch (_: InterruptedException) {
+                    interrupted.countDown()
+                    check(release.await(5, TimeUnit.SECONDS)) { "timed out waiting for late worker return" }
+                }
+            }
+        })
+        coordinator.start()
+        try {
+            coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+            val previousWorldFrame = world.latestWorldFrame()
+            val previousTrainFrame = train.publishedFrame
+            val ticket = coordinator.stepSimulation(50.0)
+            assertTrue(entered.await(5, TimeUnit.SECONDS), "worker should be running before close")
+
+            coordinator.close()
+            val failure = assertThrows(ExecutionException::class.java) {
+                ticket.completion.get(5, TimeUnit.SECONDS)
+            }
+            assertTrue(failure.cause is PhysicsStalledException)
+            assertTrue(interrupted.await(5, TimeUnit.SECONDS), "close should interrupt the running worker")
+            release.countDown()
+            coordinatorThread.get().join(5_000L)
+            workerThread.get().join(5_000L)
+
+            assertTrue(!coordinatorThread.get().isAlive, "coordinator should exit after close")
+            assertTrue(!workerThread.get().isAlive, "late worker should exit after release")
+            assertEquals(PhysicsCoordinatorStatus.CLOSED, coordinator.status)
+            assertSame(previousWorldFrame, world.latestWorldFrame())
+            assertSame(previousTrainFrame, train.publishedFrame)
+            assertThrows(IllegalStateException::class.java) { coordinator.captureCurrentTicket() }
+            assertThrows(IllegalStateException::class.java) { coordinator.stepSimulation(50.0) }
+            coordinator.close()
+            assertEquals(PhysicsCoordinatorStatus.CLOSED, coordinator.status)
+        } finally {
+            release.countDown()
+            coordinator.close()
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `close rejects late epoch processor publication even after interruption is consumed`(overloaded: Boolean) {
+        val clock = AtomicLong()
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            nanoTime = clock::get,
+            epochOverloadThresholdMillis = 1L,
+            overloadsBeforeStall = 1,
+            automaticFallback = false
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val coordinatorThread = AtomicReference<Thread>()
+        val entered = CountDownLatch(1)
+        val interrupted = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor { frame ->
+            coordinatorThread.set(Thread.currentThread())
+            if (frame.physicsEpoch > 1L) {
+                entered.countDown()
+                try {
+                    check(release.await(5, TimeUnit.SECONDS)) { "timed out waiting to release epoch processor" }
+                } catch (_: InterruptedException) {
+                    interrupted.countDown()
+                    check(release.await(5, TimeUnit.SECONDS)) { "timed out waiting for late processor return" }
+                }
+                if (overloaded) clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(2L))
+            }
+        })
+        coordinator.start()
+        try {
+            coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+            val previousFrame = world.latestWorldFrame()
+            val previousMetrics = coordinator.latestMetrics()
+            val ticket = coordinator.stepSimulation(50.0)
+            assertTrue(entered.await(5, TimeUnit.SECONDS), "processor should be running before close")
+
+            coordinator.close()
+            val failure = assertThrows(ExecutionException::class.java) {
+                ticket.completion.get(5, TimeUnit.SECONDS)
+            }
+            assertTrue(failure.cause is PhysicsStalledException)
+            assertTrue(interrupted.await(5, TimeUnit.SECONDS), "processor should consume shutdown interruption")
+            release.countDown()
+            coordinatorThread.get().join(5_000L)
+
+            assertTrue(!coordinatorThread.get().isAlive, "coordinator should exit after late processor return")
+            assertEquals(PhysicsCoordinatorStatus.CLOSED, coordinator.status)
+            assertSame(previousFrame, world.latestWorldFrame())
+            assertSame(previousMetrics, coordinator.latestMetrics())
+            assertTrue(ticket.completion.isCompletedExceptionally)
+        } finally {
+            release.countDown()
+            coordinator.close()
         }
     }
 

@@ -1231,6 +1231,10 @@ class CoreWorld(
             )
         }
 
+    /** Keeps coordinator publication in topology-before-coordinator lock order. */
+    internal fun <T> withRailTopologyReadLock(action: () -> T): T =
+        railTopologyLock.read(action)
+
     /**
      * Publishes an earlier [captureWorldFrame] result only if no constituent state changed while
      * synchronous epoch processors ran.

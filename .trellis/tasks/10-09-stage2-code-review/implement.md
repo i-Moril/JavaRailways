@@ -166,6 +166,21 @@
 - 实现代理的5类定向回归及检查代理的非增量复跑均通过。最终源码强制执行`:Core:test :Basic:test :SimpleATO:test :BukkitPlugin:test :BukkitPlugin:shadowJar`，36个task全部执行并`BUILD SUCCESSFUL`（2m41s）；XML合计245 suites/1387项，其中1381执行、6项既有Core跳过，零失败/错误。task manifest 15+15、scoped whitespace通过。
 - 独立检查唯一新增发现是上面的owner map撤销缺口，修复后由最终全量门禁覆盖；其余API最小性、Koin create/link/declare/close、constructor/load回滚、factory/register/unload顺序、主异常/suppressed及测试质量均无阻塞项。既有编译deprecated/unchecked、Gradle heap/metaspace、JDK native/Unsafe、WebUI 5项依赖漏洞与大bundle warning保留；未运行游戏/Folia/客户端验证。
 
+### CR-026 Core同epoch速度传播与验证（2026-10-10）
+
+- 保留公开`Train.moveTrainForward(deltaS)`签名；`TrainController`仅对CoreTrain使用内部distance+post-command speed seam。head bogie在移动后按当前train-local rail tangent注入m/s速度，随后沿car刚体和整列连接点传播；公开/manual distance-only路径不从距离猜速度。stationary、collision freeze、derail/运动失败和只换向epoch都清零整列active motion，再由既有epoch barrier连同geometry发布。
+- 修复传播时暴露的两个原逻辑错误：Kotlin infix `cross`原表达式实际按错误优先级结合，car中心速度在直线退化为0；角速度原用单位方向丢失bogie杆长。现在显式括号并用实际head→tail bogie chord计算`r × deltaV / |r|²`，保持rad/s单位。机制/限制同步到[train physics](../../spec/javarailways/core/train-physics.md)和[controller](../../spec/javarailways/core/train-controller.md)；无公开API、Bukkit补算、持久化或版本变化。
+- `TrainUniformMotionTest`在既有真实100×50 ms用例中逐车/逐bogie检查immutable frame速度（20 m/s对应每epoch 1 m），另用真实coordinator依次验证10 m/s×50 ms=0.5 m、停车清除旧速度、只换向epoch空traversal/零速度及下一epoch沿反向tangent发布-10 m/s。不是live field或local accumulator替代。
+- 第一次完整Core运行暴露zero-speed清理仍经过重合bogie角速度公式而生成NaN；改为零速直接清理全部car/bogie motion后重跑。最终`:Core:test` BUILD SUCCESSFUL：53 suites/297项，291执行、6个既有disabled环线，零失败/错误。focused motion/publication类14项（8执行、6跳过）亦通过；task manifest与`git diff --check`通过。尚未运行下游/Bukkit、Dokka、Folia/客户端或游戏验证，等待独立检查决定最终组合门禁。
+
+独立检查补充：原实现只覆盖`TrainController`基类tick；审查确认Basic `RealisticManualController`与SimpleATO `AbstractATO`覆盖tick并继续调用公开distance-only入口，因此仍会按合同发布0，ATO freeze还需显式清除旧motion。该跨模块/受保护API改动不在本次Core检查代理授权内，CR-026在补齐这些production caller前不能标记全量完成。Core范围内已修正：显式placement/maintenance/restore、主线程reverse/derail及无controller epoch清除旧速度；曲线刚体约束统一使用实际bogie chord；为公开frame velocity补充m/s单位KDoc。新增真实coordinator回归覆盖`deltaS=0 + 非零末速度`、controller解除后的清零、曲线切线/角速度/刚体关系、distance-only placement及collision suppression。最终完整门禁记录由主代理在跨模块补齐后更新。
+
+跨模块补齐：`moveControlledTrain`提升为有KDoc的protected subclass seam；`RealisticManualController`提交同一个dynamics result的distance/speed，`AbstractATO`提交同一个actuator step并在预先Stall或异常时显式提交0/0 freeze。`WorldManager`不再携带冗余train speed，`CarExtension`把car/bogie各自frame的world-space m/s统一除20后传给Bukkit模型；车体不再由train speed×模型direction重建另一份速度事实。新增Basic真实manual epoch、SimpleATO真实actuate→exception freeze epoch和Bukkit完整car frame conversion回归。四模块focused命令BUILD SUCCESSFUL：Core 2类38项（32执行、6个既有disabled）、Basic 11项、SimpleATO 1项、Bukkit 2项，共52项、46执行、零失败/错误。完整模块门禁、Dokka及独立检查仍由主代理决定；无游戏/Folia/客户端验证。
+
+最终复核先发现SimpleATO完整套件47项失败：ATO demand和actuator step正确，但motion-only publication用CoreCar/CoreBogie原先共享的dirty标记同时翻转未写入的geometry CommitBuffer槽，bogie位置回退，下一次几何搜索以`BogieException`脱轨。修复为car geometry/motion及bogie location/velocity分别维护dirty状态；几何先完整求解，再由求解后轨道切线生成整列速度，两类状态仍在同一epoch barrier发布。Core回归同时断言零位移非零末速度epoch不改变任何car/bogie frame位置；此前47项SimpleATO失败在修复后消失。
+
+冻结源码最终命令使用`GRADLE_USER_HOME=/workspace/.gradle`和`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`，执行`:Core:test :Basic:test :SimpleATO:test :SimpleATOBukkit:test :BukkitPlugin:test :Core:dokkaGeneratePublicationHtml :BukkitPlugin:shadowJar`，39个task全部执行并`BUILD SUCCESSFUL`（3m39s）。XML合计Core 53 suites/299项（293执行、6个既有disabled）、Basic 59/384、SimpleATO 47/352、SimpleATOBukkit 5/8、BukkitPlugin 89/361，共253 suites/1404项、1398执行，零失败/错误；Dokka与shadow JAR成功。保留既有Dokka未文档化/链接、编译deprecated/unchecked、Gradle metaspace/JDK探测、WebUI 5项依赖漏洞和大bundle warning；未运行Folia、客户端实体运动或游戏现场验证。
+
 ### CR-019 无行为拓扑字段清理（2026-10-10）
 
 - `RouteGrantTailRelease`删除未读取的`topologyRevision`、只用于该字段的非负校验和从未产生的`STALE_TOPOLOGY`失败种类；两个生产构造点与测试fixture不再传入该值。KDoc只声明真实执行的world、单调physics epoch、train identity、冻结路线游标和claim release职责。

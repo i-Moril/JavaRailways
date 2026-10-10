@@ -22,12 +22,13 @@ interface ControlCommand {
 `abstract class TrainController(train: Train, world: World)`：
 
 - `tick(deltaT: Double)`由owning world `PhysicsCoordinator` worker调用。
-- 无command：`train.moveTrainForward(speed * deltaT * 0.001)`。
-- 有command：先`command.tick(deltaT)`，再move `command.deltaS`、设置speed；`isFinished`后清command。
+- 无command：计算`deltaS = speed * deltaT * 0.001`；CoreTrain同时接收该epoch当前speed，其他Train仍调用公开distance API。
+- 有command：先`command.tick(deltaT)`，读取并设置本次`command.speed`，再用同一post-tick speed和`command.deltaS`移动；`isFinished`后清command。
 - speed经`CommitBuffer<Double>`；`publishPhysicsState()`只在所有workers结束后flip。
 - profiling identity固定 `profileCategory="train-controller"`、`profileId=train.id`；同train只允许一个registered controller。
 - train用weak reference；train不live时访问fail-fast。
 - `CoreTrain.setController(value)`负责unregister old/register new；replace由serialized simulation owner在barrier下协调。
+- protected `moveControlledTrain(deltaS,speedMetersPerSecond)`是所有override `tick`的controller子类合同：两个值必须来自同一个physics tick。CoreTrain走内部速度传播，非Core Train才回退公开distance-only调用。
 
 ## 输入/结果矩阵
 
@@ -47,16 +48,21 @@ interface ControlCommand {
 
 ```kotlin
 if (pendingCommand == null) {
-    train.moveTrainForward(speed * deltaT * 0.001)
+    moveControlledTrain(speed * deltaT * 0.001, speed)
 } else {
     val cmd = pendingCommand!!
     cmd.tick(deltaT)
-    train.moveTrainForward(cmd.deltaS)
     speed = cmd.speed
+    moveControlledTrain(cmd.deltaS, cmd.speed)
 }
 ```
 
-来源：`Core/src/main/java/work/art1st/javarailways/core/api/control/TrainController.kt`。该换算防止50 ms Tick被误当50 seconds。
+来源：`Core/src/main/java/work/art1st/javarailways/core/api/control/TrainController.kt`。该换算防止50 ms Tick被误当50 seconds；
+post-command speed与本次geometry属于同一physics epoch，不能晚一tick或由render adapter补算。
+
+覆盖`tick`的生产controller同样必须调用该protected seam。当前Basic realistic manual和SimpleATO ATO都提交同一次
+dynamics/actuator step的distance与post-step speed；ATO freeze提交0 m与0 m/s。公开distance-only入口只保留给没有时间基准的
+显式移动，不能作为controller subclass的替代入口。
 
 ## 禁止实现
 
@@ -66,6 +72,7 @@ if (pendingCommand == null) {
 ```
 
 不得把现有negative command silent return扩散为API约定；不得在worker对任意non-Core `Train`调用`@MainThread reverse()`。
+controller子类不得直接调用`train.moveTrainForward`，否则Core只能把该次manual距离移动的frame velocity按0发布。
 
 ## 必需测试与验证
 

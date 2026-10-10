@@ -74,8 +74,8 @@ abstract class AbstractATO(
                 return
             }
             val step = actuator.step(activeSpeed, demand, deltaTimeSeconds)
-            train.moveTrainForward(step.distanceMeters)
             speed = step.speedMetersPerSecond
+            moveControlledTrain(step.distanceMeters, step.speedMetersPerSecond)
             lastTravelDistanceMeters = step.distanceMeters
             activeLifetimeTravelDistanceMeters += step.distanceMeters
         } catch (failure: Exception) {
@@ -93,8 +93,9 @@ abstract class AbstractATO(
     protected open fun constraintSnapshot(): Map<ConstraintOwner, List<AtoConstraint>> = emptyMap()
 
     private fun freeze() {
-        val frozen = actuator.freeze()
-        speed = frozen.speedMetersPerSecond
+        actuator.freeze()
+        speed = 0.0
+        moveControlledTrain(0.0, 0.0)
         lastTravelDistanceMeters = 0.0
     }
 

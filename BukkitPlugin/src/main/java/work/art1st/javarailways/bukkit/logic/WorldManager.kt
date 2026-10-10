@@ -596,8 +596,7 @@ class WorldManager internal constructor(
                         publicationStreamId = train.publicationStreamId,
                         car = train.cars[index],
                         frame = trainFrame.cars[index],
-                        revision = trainFrame.revision,
-                        trainSpeedMetersPerSecond = trainFrame.speedMetersPerSecond
+                        revision = trainFrame.revision
                     )
                 )
             }
@@ -625,8 +624,7 @@ class WorldManager internal constructor(
                     pending.car.carRendererOrNull?.applyPublishedFrame(
                         frame,
                         pending.publicationStreamId,
-                        pending.revision,
-                        pending.trainSpeedMetersPerSecond
+                        pending.revision
                     )
                 }
             } finally {
@@ -732,8 +730,7 @@ class WorldManager internal constructor(
         val publicationStreamId: UUID,
         val car: CoreCar,
         val frame: CarFrameSnapshot,
-        val revision: Long,
-        val trainSpeedMetersPerSecond: Double
+        val revision: Long
     )
 
     private data class PendingPlatformCommit(

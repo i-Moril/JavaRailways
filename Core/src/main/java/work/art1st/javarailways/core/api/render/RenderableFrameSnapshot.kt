@@ -22,7 +22,9 @@ data class Vector3Snapshot(
 
 /**
  * Flat value-only render state. Keeping vector components inline avoids four short-lived value
- * objects for every car and bogie on every physics frame.
+ * objects for every car and bogie on every physics frame. Velocity components are world-space
+ * metres per second; a platform adapter must perform its own unit conversion without deriving a
+ * replacement direction or magnitude from other train fields.
  */
 data class RenderableFrameSnapshot(
     val positionX: Double,

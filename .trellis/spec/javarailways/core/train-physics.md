@@ -23,6 +23,25 @@ override fun moveTrainForward(deltaS: Double) {
 
 来源：`Core/src/main/java/work/art1st/javarailways/core/physics/train/CoreTrain.kt`。
 
+公开的`moveTrainForward(deltaS)`只有距离、没有时间基准，因此不得从`deltaS`猜测速度；该路径移动几何时把本次
+car/bogie速度按0发布。`TrainController.moveControlledTrain`对`CoreTrain`改用implementation-only
+`moveTrainForwardFromController(deltaS, speedMetersPerSecond)`，其中speed是command完成本次`tick(deltaT)`后的
+当前m/s值。内部CoreTrain方法不进入`core.api`；protected controller seam是子类合同，非Core `Train`才回退公开distance调用。
+基类、Basic realistic manual与SimpleATO ATO均使用该入口，覆盖`tick`的新controller不得绕开。
+
+controller移动head bogie后，Core用其**新位置**的train-local facing tangent乘当前speed，得到首个head bogie速度；
+随后沿有序编组传递tail/head端速度。car刚体角速度使用实际head→tail bogie chord `r`计算
+`omega = r × (vTail - vHead) / |r|²`，单位为rad/s；car中心和下一车连接点速度再用
+`v(point) = vHead + omega × offset`求得。括号是合同的一部分：Kotlin infix `cross`的优先级不能让表达式退化成
+`(vHead + omega) × offset`。bogie/car velocity与geometry各自维护dirty状态和CommitBuffer槽位，避免
+motion-only epoch翻转未写入的geometry槽；两类状态仍在同一个epoch barrier发布。consumer不得按位移或train标量速度重算。
+
+零速controller epoch、collision/derail拒绝移动、运动异常、无controller的下一physics epoch及只发布换向的epoch均把
+整列active motion清零，防止上一epoch非零速度残留。`deltaS == 0`但controller仍报告非零当前speed时保留**epoch结束瞬时速度**
+语义：这可表达本tick末才建立的速度，不表示本tick发生了位移；collision/reverse等明确冻结分支仍强制为0。无时间基准的
+公开/manual移动、`setLocation`/maintenance placement、存档placement恢复与主线程reverse/derail始终发布0。换向后的下一次
+移动从反向后的active rail facing tangent重新注入速度。
+
 运动顺序：检查published swept collision → 扫active route signal并同步发event → 解head bogie/cars/tail → 写active buffers/swept spans及两端有序traversal；`PhysicsException`转physics derail。tail从train-local forward path重算，不依赖reverse branch当前selection。
 
 每次正距离移动已经取得head的`peekCurve(deltaS)`有序segments；同一列表同时供signal扫描、swept
@@ -96,6 +115,8 @@ override fun destroy() {
 - collision同epoch检测并立即link/derail；
 - tail沿独立reverse active branch求位置；
 - 从合并swept span或epoch终点反推head/tail经过顺序；
+- 从`deltaS`推测速度，或由Bukkit/其他consumer补算Core car/bogie速度；
+- 用单位车身方向代替实际bogie chord计算角速度（会丢失杆长并破坏rad/s单位）；
 - 用整epoch `sweptSpans`判断epoch末列车是否仍占用一个监测区；
 - structure mutation直接改cars/map而无serialized task、prevalidation与rollback；
 - 用`world.removeTrain`代替destroy；
@@ -106,6 +127,7 @@ override fun destroy() {
 
 - `CoreTrainTailBogieTest.kt`、`CoreTrainAsymmetricTurnoutTest.kt`：turnout/reverse/tail spacing。
 - `TrainSlopeMotionTest.kt`、`TrainSlopeJointMotionTest.kt`、`CoreCarPositioningRegressionTest.kt`：3D geometry。
+- `TrainUniformMotionTest.kt`：真实50 ms coordinator epoch同时断言0.5 m位移、car/bogie frame的m/s速度、停车清零及换向后tangent符号。
 - `PhysicsCoordinatorTest.kt`：stationary collision、pair once、next-epoch decision。
 - `CoreTrainDerailEventTest.kt`、`CoreTrainPublicationBoundaryTest.kt`：publication before event/getter。
 - `CoreTrainConstructionTest.kt`：直接构造/存档加载的ID、name及交叉命名空间拒绝不污染world/rail索引；tail无法放置不注册head；extension初始化失败清理车端和controller、保留原列车及调用方cars，并允许同身份成功重试。

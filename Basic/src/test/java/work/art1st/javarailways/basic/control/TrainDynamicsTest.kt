@@ -12,6 +12,7 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 
 class TrainDynamicsTest {
     private val trainProfile = TestTrainProfile()
@@ -224,6 +225,56 @@ class TrainDynamicsTest {
 
             assertEquals("EB", controller.handle)
         } finally {
+            TestBasicWorldDataRegistry.unregister(world)
+        }
+    }
+
+    @Test
+    fun `manual controller publishes dynamics speed with the same epoch distance`() {
+        val coordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val world = createTestWorld(coordinator)
+        val basicData = BasicWorldData()
+        TestBasicWorldDataRegistry.register(world, basicData)
+        try {
+            val rail = createStraightRailFromSegments(
+                world,
+                PrimeCurveGenerator.buildStraight(200.0)
+            )
+            val train = createTrainWithConfig("manual-frame-motion", rail, world, listOf(10.0))
+            val controller = RealisticManualController(
+                train,
+                world,
+                trainProfile,
+                listOf(carProfile),
+                9.80665
+            )
+            controller.setDirection(TrainDriveDirection.FORWARD)
+            controller.setHandle("P2")
+            train.setController(controller)
+            val startX = train.headLocation.position.x()
+            coordinator.start()
+
+            coordinator.stepSimulation(50.0).await()
+
+            val expected = TrainDynamics.step(
+                TrainDynamics.State(),
+                trainProfile,
+                listOf(TrainDynamics.CarInput(carProfile)),
+                "P2",
+                9.80665,
+                0.05
+            )
+            assertEquals(startX + expected.distance, train.headLocation.position.x(), 1.0e-9)
+            assertEquals(expected.state.speed, train.publishedFrame.speedMetersPerSecond, 1.0e-12)
+            train.publishedFrame.cars.single().let { car ->
+                assertEquals(expected.state.speed, car.state.velocityX, 1.0e-12)
+                car.bogies.forEach { bogie ->
+                    assertEquals(expected.state.speed, bogie.velocityX, 1.0e-12)
+                }
+            }
+        } finally {
+            coordinator.close()
+            (world.tickManager as? AutoCloseable)?.close()
             TestBasicWorldDataRegistry.unregister(world)
         }
     }

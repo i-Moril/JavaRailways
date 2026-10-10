@@ -46,7 +46,7 @@ class CoreBogie @MainThread internal constructor(
     override var location: RailLocationWithFacing by _location
         private set
     internal val activeLocation
-        get() = if (physicsDirty) _location.getActive() else _location.get()
+        get() = if (locationPhysicsDirty) _location.getActive() else _location.get()
 
     override val position
         get() = location.position
@@ -60,13 +60,14 @@ class CoreBogie @MainThread internal constructor(
     override var velocity: Vector3dc by _velocity
         internal set
     internal val activeVelocity
-        get() = if (physicsDirty) _velocity.getActive() else _velocity.get()
+        get() = if (velocityPhysicsDirty) _velocity.getActive() else _velocity.get()
 
     override val world
         get() = location.rail.world
 
     override var lastState: RenderableStateSnapshot = takeSnapshot()
-    private var physicsDirty = false
+    private var locationPhysicsDirty = false
+    private var velocityPhysicsDirty = false
 
     init {
         this.initialize(savedExtensionData)
@@ -79,10 +80,13 @@ class CoreBogie @MainThread internal constructor(
 
     /** Publishes Core state off the Bukkit main thread after all physics workers complete. */
     internal fun publishPhysicsState() {
-        if (physicsDirty) {
+        if (locationPhysicsDirty) {
             _location.commit()
+            locationPhysicsDirty = false
+        }
+        if (velocityPhysicsDirty) {
             _velocity.commit()
-            physicsDirty = false
+            velocityPhysicsDirty = false
         }
         if (directionPhysicsDirty) {
             sameDirectionBuffer.commit()
@@ -92,7 +96,13 @@ class CoreBogie @MainThread internal constructor(
 
     internal fun updateLocation(location: RailLocationWithFacing) {
         this.location = location
-        physicsDirty = true
+        locationPhysicsDirty = true
+    }
+
+    /** Updates the active physics velocity; publication remains at the epoch barrier. */
+    internal fun updateVelocity(velocity: Vector3dc) {
+        this.velocity = Vector3d(velocity)
+        velocityPhysicsDirty = true
     }
 
     @MainThread

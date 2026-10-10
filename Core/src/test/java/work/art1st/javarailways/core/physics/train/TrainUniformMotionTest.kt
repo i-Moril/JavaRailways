@@ -1,12 +1,19 @@
 package work.art1st.javarailways.core.physics.train
 
+import org.joml.Vector3d
 import work.art1st.javarailways.core.control.train.MockTrainController
+import work.art1st.javarailways.core.api.control.ControlCommand
+import work.art1st.javarailways.core.api.control.TrainController
+import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
+import work.art1st.javarailways.core.physics.createRailForTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
@@ -64,9 +71,150 @@ class TrainUniformMotionTest {
                     assertEquals(startCarXs[carIndex] + expectedDistance, car.position.x(), distanceTolerance, "tick $index car $carIndex")
                     assertEquals(car.id, frame.cars[carIndex].carId)
                     assertEquals(startCarXs[carIndex] + expectedDistance, frame.cars[carIndex].state.positionX, distanceTolerance, "tick $index frame car $carIndex")
+                    assertFrameVelocity(frame.cars[carIndex].state, constantSpeed, 0.0, 0.0, "tick $index car $carIndex")
+                    frame.cars[carIndex].bogies.forEachIndexed { bogieIndex, bogie ->
+                        assertFrameVelocity(bogie, constantSpeed, 0.0, 0.0, "tick $index car $carIndex bogie $bogieIndex")
+                    }
                 }
                 assertFalse(train.isDerailed)
             }
+        } finally {
+            coordinator.close()
+            (world.tickManager as? AutoCloseable)?.close()
+        }
+    }
+
+    @Test
+    fun `published velocity follows reversal and clears when stopped`() {
+        val coordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val world = createTestWorld(coordinator)
+        try {
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
+            val train = createTrainWithConfig("velocity-direction", rail, world, listOf(10.0, 10.0), isLoop = false)
+            val command = MutableSpeedCommand(10.0)
+            val controller = CommandController(train, world, command)
+            train.setController(controller)
+            coordinator.start()
+
+            val startX = train.headLocation.position.x()
+            coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
+            assertEquals(startX + 0.5, train.headLocation.position.x(), distanceTolerance)
+            assertPublishedVelocity(train, 10.0)
+
+            command.requestedDistance = 0.0
+            val instantaneousX = train.headLocation.position.x()
+            val instantaneousCarPositions = train.publishedFrame.cars.map { car ->
+                car.state.positionVector() to car.bogies.map(RenderableFrameSnapshot::positionVector)
+            }
+            coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
+            assertEquals(instantaneousX, train.headLocation.position.x(), distanceTolerance)
+            assertPublishedVelocity(train, 10.0)
+            train.publishedFrame.cars.zip(instantaneousCarPositions).forEach { (car, expected) ->
+                assertVectorEquals(expected.first, car.state.positionVector(), distanceTolerance, "motion-only car geometry")
+                car.bogies.zip(expected.second).forEach { (bogie, expectedPosition) ->
+                    assertVectorEquals(expectedPosition, bogie.positionVector(), distanceTolerance, "motion-only bogie geometry")
+                }
+            }
+
+            command.requestedDistance = null
+            command.requestedSpeed = 0.0
+            val stoppedX = train.headLocation.position.x()
+            coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
+            assertEquals(stoppedX, train.headLocation.position.x(), distanceTolerance)
+            assertPublishedVelocity(train, 0.0)
+
+            controller.reverse()
+            coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
+            assertTrue(train.publishedFrame.headTraversal.isEmpty())
+            assertPublishedVelocity(train, 0.0)
+
+            command.requestedSpeed = 10.0
+            val reversedHeadX = train.headLocation.position.x()
+            coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
+            assertEquals(reversedHeadX - 0.5, train.headLocation.position.x(), distanceTolerance)
+            assertPublishedVelocity(train, -10.0)
+
+            train.setController(null)
+            coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
+            assertPublishedVelocity(train, 0.0)
+        } finally {
+            coordinator.close()
+            (world.tickManager as? AutoCloseable)?.close()
+        }
+    }
+
+    @Test
+    fun `curved frame velocity follows bogie tangents and rigid body rotation`() {
+        val radius = 30.0
+        val speed = 10.0
+        val coordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val world = createTestWorld(coordinator)
+        try {
+            val rail = world.createRailForTest(
+                PrimeCurveGenerator.buildCircle(radius, segmentCount = 1, step = 0.02).single()
+            )
+            val train = createTrainWithConfig("curved-velocity", rail, world, listOf(10.0))
+            train.setController(MockTrainController(train, world, speed))
+            coordinator.start()
+
+            coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
+
+            val car = train.cars.first()
+            val frame = train.publishedFrame.cars.first()
+            val headFrame = frame.bogies.first()
+            val tailFrame = frame.bogies.last()
+            val expectedHeadVelocity = Vector3d(car.headBogie.location.tangent).mul(speed)
+            assertFrameVelocity(
+                headFrame,
+                expectedHeadVelocity.x(),
+                expectedHeadVelocity.y(),
+                expectedHeadVelocity.z(),
+                "curved head bogie"
+            )
+
+            val headToTail = tailFrame.positionVector().sub(headFrame.positionVector())
+            val velocityDifference = tailFrame.velocityVector().sub(headFrame.velocityVector())
+            val omega = Vector3d(car.motionState.angularVelocity)
+            val rigidBodyDifference = Vector3d(omega).cross(headToTail)
+            assertVectorEquals(velocityDifference, rigidBodyDifference, 1e-7, "omega cross chord")
+            assertEquals(speed / radius, omega.length(), 2e-3, "circle angular velocity")
+            assertTrue(frame.state.velocityVector().length() > speed * 0.9)
+
+            train.cars.zip(train.publishedFrame.cars).forEachIndexed { carIndex, (liveCar, carFrame) ->
+                carFrame.bogies.zip(liveCar.bogies).forEachIndexed { bogieIndex, (bogieFrame, bogie) ->
+                    val velocity = bogieFrame.velocityVector()
+                    val tangent = Vector3d(bogie.location.tangent)
+                    assertTrue(velocity.dot(tangent) > 0.0, "car $carIndex bogie $bogieIndex must move forward")
+                    assertEquals(
+                        0.0,
+                        Vector3d(velocity).cross(tangent).length(),
+                        1e-8,
+                        "car $carIndex bogie $bogieIndex velocity must follow its rail tangent"
+                    )
+                }
+            }
+        } finally {
+            coordinator.close()
+            (world.tickManager as? AutoCloseable)?.close()
+        }
+    }
+
+    @Test
+    fun `explicit placement clears velocity from the previous controller epoch`() {
+        val coordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val world = createTestWorld(coordinator)
+        try {
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
+            val train = createTrainWithConfig("placement-velocity", rail, world, listOf(10.0))
+            train.setController(MockTrainController(train, world, 10.0))
+            coordinator.start()
+            coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
+            assertPublishedVelocity(train, 10.0)
+
+            train.setLocation(requireNotNull(train.head.location.forward(5.0)))
+            train.commitMaintenancePlacement()
+
+            assertPublishedVelocity(train, 0.0)
         } finally {
             coordinator.close()
             (world.tickManager as? AutoCloseable)?.close()
@@ -142,5 +290,57 @@ class TrainUniformMotionTest {
             "head position on curve: expected arcLength ~ $expectedArcLength, got $actualArcLength (totalDistance=$totalDistance)"
         }
         assertFalse(train.isDerailed)
+    }
+
+    private fun assertPublishedVelocity(train: CoreTrain, expectedX: Double) {
+        train.publishedFrame.cars.forEachIndexed { carIndex, car ->
+            assertFrameVelocity(car.state, expectedX, 0.0, 0.0, "car $carIndex")
+            car.bogies.forEachIndexed { bogieIndex, bogie ->
+                assertFrameVelocity(bogie, expectedX, 0.0, 0.0, "car $carIndex bogie $bogieIndex")
+            }
+        }
+    }
+
+    private fun assertFrameVelocity(
+        frame: RenderableFrameSnapshot,
+        expectedX: Double,
+        expectedY: Double,
+        expectedZ: Double,
+        message: String
+    ) {
+        assertEquals(expectedX, frame.velocityX, speedTolerance, "$message velocity x")
+        assertEquals(expectedY, frame.velocityY, speedTolerance, "$message velocity y")
+        assertEquals(expectedZ, frame.velocityZ, speedTolerance, "$message velocity z")
+    }
+
+    private fun assertVectorEquals(expected: Vector3d, actual: Vector3d, tolerance: Double, message: String) {
+        assertEquals(expected.x(), actual.x(), tolerance, "$message x")
+        assertEquals(expected.y(), actual.y(), tolerance, "$message y")
+        assertEquals(expected.z(), actual.z(), tolerance, "$message z")
+    }
+
+    private class MutableSpeedCommand(
+        var requestedSpeed: Double,
+        var requestedDistance: Double? = null
+    ) : ControlCommand {
+        private var deltaTMilliseconds = 0.0
+
+        override fun tick(deltaT: Double) {
+            deltaTMilliseconds = deltaT
+        }
+
+        override val speed: Double get() = requestedSpeed
+        override val deltaS: Double get() = requestedDistance ?: requestedSpeed * deltaTMilliseconds * 0.001
+        override val isFinished: Boolean get() = false
+    }
+
+    private class CommandController(
+        train: CoreTrain,
+        world: World,
+        command: ControlCommand
+    ) : TrainController(train, world) {
+        init {
+            setCommand(command)
+        }
     }
 }

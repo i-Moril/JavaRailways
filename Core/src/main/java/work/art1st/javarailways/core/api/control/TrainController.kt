@@ -72,17 +72,38 @@ abstract class TrainController(
         return false
     }
 
+    /** Publishes a stopped motion state when collision arbitration freezes this controller. */
+    internal fun freezeMotionForPhysicsEpoch() {
+        (train as? CoreTrain)?.clearActiveMotionFromPhysics()
+    }
+
     override fun tick(deltaT: Double) {
         if (pendingCommand == null) {
-            train.moveTrainForward(speed * deltaT * 0.001)
+            moveControlledTrain(speed * deltaT * 0.001, speed)
         } else {
             val cmd = pendingCommand!!
             cmd.tick(deltaT)
-            train.moveTrainForward(cmd.deltaS)
             speed = cmd.speed
+            moveControlledTrain(cmd.deltaS, cmd.speed)
             if (cmd.isFinished) {
                 pendingCommand = null
             }
+        }
+    }
+
+    /**
+     * Applies one controller result using metres and metres per second from the same physics tick.
+     *
+     * Controller subclasses that override [tick] must use this seam instead of calling
+     * [Train.moveTrainForward] directly. Core can then publish authoritative car/bogie velocity;
+     * non-Core implementations retain the public distance-only fallback.
+     */
+    protected fun moveControlledTrain(deltaS: Double, speedMetersPerSecond: Double) {
+        val controlledTrain = train
+        if (controlledTrain is CoreTrain) {
+            controlledTrain.moveTrainForwardFromController(deltaS, speedMetersPerSecond)
+        } else {
+            controlledTrain.moveTrainForward(deltaS)
         }
     }
 

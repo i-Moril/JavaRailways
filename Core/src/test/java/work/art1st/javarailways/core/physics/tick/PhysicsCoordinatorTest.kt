@@ -22,6 +22,7 @@ import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.CoreTrain
+import work.art1st.javarailways.core.control.train.MockTrainController
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import java.util.concurrent.Callable
@@ -786,7 +787,7 @@ class PhysicsCoordinatorTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val moving = createTrainWithConfig("A", rail, world, listOf(10.0))
         val stationary = createTrainWithConfig("B", rail, world, listOf(10.0))
-        moving.setController(ConstantSpeedController(moving, world))
+        moving.setController(MockTrainController(moving, world, 10.0))
         val listener = CollisionCounter()
         val registration = PhysicsRailEventBus.register(listener)
         coordinator.start()
@@ -794,6 +795,12 @@ class PhysicsCoordinatorTest {
         try {
             coordinator.wakeFromMainThread().await()
             assertEquals(1, listener.count.get())
+            assertTrue(
+                moving.publishedFrame.cars.flatMap { listOf(it.state) + it.bogies }.all { frame ->
+                    frame.velocityX == 0.0 && frame.velocityY == 0.0 && frame.velocityZ == 0.0
+                },
+                "collision suppression must not publish the previous requested speed"
+            )
             coordinator.wakeFromMainThread().await()
 
             assertTrue(moving.isDerailed)

@@ -249,6 +249,7 @@
 - P2；`CoreBogie.kt:58-77`与`CoreCar.kt:399-443`没有向首个head bogie注入速度。
 - **已复现**：真实50ms simulation、train标量速度10m/s，car/bogie velocity仍为零。Bukkit对body另补算部分掩盖问题，bogie仍使用frame velocity。
 - 建议统一Core epoch运动学输入/发布；不能让各consumer各自再补一份事实。没有证据说明ATO标量速度因此错误。
+- **已修复（2026-10-10）**：保留公开distance-only API并将Core同epoch distance/speed入口定义为protected controller子类合同；基类、Basic `RealisticManualController`和SimpleATO `AbstractATO`均使用它，ATO Stall/异常freeze显式提交0 m/0 m/s。从移动后head rail tangent注入速度，沿刚体编组传播，collision/derail/停车/换向/解除controller及显式placement清除旧速度；同步修正既有infix `cross`优先级及实际bogie chord的rad/s角速度。Bukkit body/bogie现在都从各自frame world-space m/s统一`/20`为blocks/tick，不再用train speed×direction补算或把bogie m/s原样传入。真实coordinator及frame转换回归覆盖上述入口；四模块focused 52项中46执行、6个既有disabled，零失败/错误。无持久化或版本号变化；Folia/客户端现场呈现仍未验证。
 
 ### CR-027：正式load静默丢连接，且不验证接头共点
 

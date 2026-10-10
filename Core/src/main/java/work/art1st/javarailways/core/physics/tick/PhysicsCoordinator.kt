@@ -427,6 +427,8 @@ class PhysicsCoordinator(
                                     controller.tick(deltaMillis)
                                 }
                                 controllerDurations[controller.profileId] = nanoTime() - controllerStart
+                            } else {
+                                controller.freezeMotionForPhysicsEpoch()
                             }
                         }
                         workerDurations[index] = nanoTime() - workerStart
@@ -445,6 +447,10 @@ class PhysicsCoordinator(
             // Collision decisions can mutate a stationary train without a controller. Its pending
             // state belongs to this epoch and must cross the same publication boundary.
             world?.allTrains?.filterIsInstance<CoreTrain>()?.forEach { train ->
+                // A detached train has no controller worker to replace its previous motion. Its
+                // geometry is stationary for this epoch, so publish a stopped state instead of
+                // retaining the last controller velocity in the world frame.
+                if (train.controller == null) train.clearActiveMotionFromPhysics()
                 if (publishedTrains.add(train)) train.publishPhysicsState()
             }
             publishedTrains.forEach { train ->

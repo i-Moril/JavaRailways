@@ -101,7 +101,7 @@ class CoreCar @MainThread internal constructor(
     override var position: Vector3dc by _position
         private set
     private val activePositon
-        get() = _position.getActive()
+        get() = if (geometryPhysicsDirty) _position.getActive() else _position.get()
 
     private val _direction: CommitBuffer<Vector3dc> = CommitBuffer(Vector3d(1.0, 0.0, 0.0))
     // 渲染的朝向，与速度方向无关
@@ -110,13 +110,13 @@ class CoreCar @MainThread internal constructor(
     override val operatingDirection: Vector3dc
         get() = if (isReversed) -direction else direction
     private val activeDirection
-        get() = _direction.getActive()
+        get() = if (geometryPhysicsDirty) _direction.getActive() else _direction.get()
 
     private val _normal: CommitBuffer<Vector3dc> = CommitBuffer(Vector3d(0.0, 1.0, 0.0))
     override var normal: Vector3dc by _normal
         private set
     private val activeNormal
-        get() = _normal.getActive()
+        get() = if (geometryPhysicsDirty) _normal.getActive() else _normal.get()
 
     private var _motionState: CommitBuffer<MotionState> = CommitBuffer(MotionState(Vector3d(0.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
     var motionState: MotionState by _motionState
@@ -125,7 +125,8 @@ class CoreCar @MainThread internal constructor(
         get() = motionState.tangentialVelocity
 
     override var lastState: RenderableStateSnapshot = takeSnapshot()
-    private var physicsDirty: Boolean = false
+    private var geometryPhysicsDirty: Boolean = false
+    private var motionPhysicsDirty: Boolean = false
 
     private val reversedBuffer = CommitBuffer(false)
     private var reversedPhysicsDirty = false
@@ -308,7 +309,7 @@ class CoreCar @MainThread internal constructor(
                 targetTailDistance - candidateDistance
             }
         }
-        physicsDirty = true
+        geometryPhysicsDirty = true
         val headBogieConnectorPosition = connectorPosition(headBogieNewLocation)
         val tailBogieNewLocation = placeTailBogieBehindHead(headBogieNewLocation)
         val tailBogieConnectorPosition = connectorPosition(tailBogieNewLocation)
@@ -328,7 +329,7 @@ class CoreCar @MainThread internal constructor(
      */
     @Throws(BogieException::class)
     protected fun calculatePositionByTailBogie(tailBogieNewLocation: RailLocationWithFacing): IntermediateResult {
-        physicsDirty = true
+        geometryPhysicsDirty = true
         val tailBogieConnectorPosition = connectorPosition(tailBogieNewLocation)
         val headBogieNewLocation = findHeadBogieByTail(tailBogieNewLocation)
         val headBogieConnectorPosition = connectorPosition(headBogieNewLocation)
@@ -413,24 +414,22 @@ class CoreCar @MainThread internal constructor(
 
     // 设置完转向架位置、commit前调用，更新motionState
     private fun updateMotionStateByHeadBogie() {
-        // tail到head方向单位矢量
-        val d = if (activeIsReversed) -activeDirection else activeDirection
+        motionPhysicsDirty = true
         // headBogie原始速度
         val v0 = activeHeadBogie.activeVelocity
-        // headBogie沿杆方向速度
-        val vd0s = v0 dot d
+        val headToTail = activeTailBogie.activeLocation.position - activeHeadBogie.activeLocation.position
         val tailBogieTangent = activeTailBogie.activeLocation.tangent
-        // tailBogie方向与car方向夹角
-        val cosTheta = tailBogieTangent dot d
-        // 更新tailBogie的速度矢量`
-        val v1 = tailBogieTangent * (vd0s / cosTheta)
-        activeTailBogie.velocity = v1
-        // v1 = v0 + \omega x d
-        // 不考虑绕杆自转，有
-        // \omega = d x (v1 - v0) / |d|^2
-        val omega = d cross (v1 - v0) // |d|=1
+        // Preserve the rigid bogie chord: (v1 - v0) dot r = 0 while v1 stays on the
+        // tail rail tangent. The actual chord, rather than the rendered car direction, is the
+        // constraint used again below to derive angular velocity.
+        val v1 = tailBogieTangent * ((v0 dot headToTail) / (tailBogieTangent dot headToTail))
+        activeTailBogie.updateVelocity(v1)
+        // v1 = v0 + omega x r, where r runs from the head bogie to the tail bogie.
+        // With no spin around the car's longitudinal axis:
+        // omega = r x (v1 - v0) / |r|^2. Using the actual chord keeps radians/second units.
+        val omega = (headToTail cross (v1 - v0)) / headToTail.lengthSquared()
         val centreToHead = _position.getActive() - activeHeadBogie.activeLocation.position
-        val vCar = v0 + omega cross centreToHead
+        val vCar = v0 + (omega cross centreToHead)
         motionState = MotionState(vCar, omega)
     }
 
@@ -445,17 +444,33 @@ class CoreCar @MainThread internal constructor(
         val cosTheta = headBogieTangent dot d
         // 更新tailBogie的速度矢量
         val v1 = headBogieTangent * (vd0s / cosTheta)
-        activeHeadBogie.velocity = v1
+        activeHeadBogie.updateVelocity(v1)
         updateMotionStateByHeadBogie()
+    }
+
+    /** Recomputes active car and bogie velocity without changing consist geometry. */
+    internal fun updateMotionStateByHeadVelocity(headVelocity: Vector3dc) {
+        updateMotionStateByHead(headVelocity)
+    }
+
+    /** Active tail velocity used to propagate motion through the consist. */
+    internal fun activeTailVelocity(): Vector3dc = tailVelocity()
+
+    /** Clears motion without requiring valid non-zero bogie geometry. */
+    internal fun clearMotionState() {
+        motionPhysicsDirty = true
+        bogies.forEach { it.updateVelocity(Vector3d()) }
+        motionState = MotionState(Vector3d(), Vector3d())
     }
 
     private fun tailVelocity() : Vector3dc {
         // tail到head方向单位矢量
         val d = if (activeIsReversed) -_direction.getActive() else _direction.getActive()
-        val v = _motionState.getActive().tangentialVelocity
-        val omega = _motionState.getActive().angularVelocity
+        val activeMotionState = if (motionPhysicsDirty) _motionState.getActive() else _motionState.get()
+        val v = activeMotionState.tangentialVelocity
+        val omega = activeMotionState.angularVelocity
         // v1 = v0 + \omega x d
-        return v + omega cross (-d * (length / 2))
+        return v + (omega cross (-d * (length / 2)))
     }
 
     @MainThread
@@ -473,7 +488,7 @@ class CoreCar @MainThread internal constructor(
     /** Restore derived car state without moving the exact persisted bogie locations. */
     internal fun restorePersistedState(reversed: Boolean) {
         isReversed = reversed
-        physicsDirty = true
+        geometryPhysicsDirty = true
         val headLocation = headBogie.location
         val tailLocation = tailBogie.location
         val headConnectorPosition = connectorPosition(headLocation)
@@ -494,12 +509,15 @@ class CoreCar @MainThread internal constructor(
     /** Publishes Core state after all workers finish reading the previous epoch. */
     internal fun publishPhysicsState() {
         bogies.forEach { it.publishPhysicsState() }
-        if (physicsDirty) {
+        if (geometryPhysicsDirty) {
             _position.commit()
             _direction.commit()
             _normal.commit()
+            geometryPhysicsDirty = false
+        }
+        if (motionPhysicsDirty) {
             _motionState.commit()
-            physicsDirty = false
+            motionPhysicsDirty = false
         }
         if (reversedPhysicsDirty) {
             reversedBuffer.commit()

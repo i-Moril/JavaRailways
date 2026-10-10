@@ -24,7 +24,7 @@ SimpleATO同时拥有`AbstractATO`、mission、constraint与world Stall coordina
    入口净空门控在基础线路、mission、station及信号约束合成以后、最终planner以前检查同一份约束；
    未就绪时安装该入口停车约束，同时交接不可变结果，不阻止Dispatcher继续准备资源；
 5. SimpleATO `AbstractATO`先执行invariant validation，再调用Basic真实手柄actuator；它逐级选择配置中的P/N/B档并通过共享
-   `TrainDynamicsExecutor`移动Core train；
+   `TrainDynamicsExecutor`得到同一次step的distance与post-step speed，再经protected controller seam移动Core train；
 6. 成功epoch结束时`AbstractATO`原子发布train snapshot、累计距离和controller value state，Dispatcher只读取这份publication。
 
 Mission、constraint和station-call的mutable集合都只存在于该controller实例，不在
@@ -92,6 +92,7 @@ Core尚未调用commit/publication时，旧快照必须保持不变；publicatio
 
 - mission resolve失败或stale revision不改变active mission，也不误触发world Stall；
 - physics invariant或controller异常由同一SimpleATO world coordinator fail-close并freeze，同时锁住Basic物理interlock；
+- 已Stall、validation异常或actuation异常的freeze epoch必须调用同一controller seam发布0 m/s和0 m位移，清除上一成功epoch的car/bogie motion；只改train标量speed不算完成freeze；
 - 不得在Basic恢复具体SimpleATO subclass、兼容alias或callback bridge；
 - 不得让Bukkit直接更新active mission/constraint集合；
 - 不得为本次inspection线程ownership迁移增加第二套冻结路线生命周期、资源registry或控制器。
@@ -99,6 +100,7 @@ Core尚未调用commit/publication时，旧快照必须保持不变；publicatio
 ## 必需测试
 
 - `SimpleATOTest`覆盖mission boundary、constraint归约、publication原子性、Stall与freeze；
+- `AbstractATOMotionPublicationTest`用真实PhysicsCoordinator证明actuator distance/speed进入同一frame，并证明下一异常freeze epoch把train/car/bogie frame速度全部清零；
 - `InspectionRuntimeTest`覆盖两列车并发投影/独立dirty消费、旧route view完成后新route baseline、折返/移除/reset；
 - 区间限制覆盖只有范围而没有入口声明的首次投影、稳定声明失效、范围越界/重复限制 ID 拒绝、
   入口前制动目标、入口后持续上限、车头在终点及越过终点；折返使用新绑定范围，不提前释放已有资源；

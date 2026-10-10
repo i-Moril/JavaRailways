@@ -12,8 +12,8 @@
 正常实时流程是：Bukkit从当前有效模型解析`TrainProfile`和逐车`CarProfile`，注入
 `physics.yml`的`track.gravity`，然后构造Basic controller/actuator。人工控制把玩家选择的
 P/N/B手柄交给`TrainDynamicsExecutor`；SimpleATO先归约许可速度，再由`HandleTrainActuator`选择一个配置中
-存在的手柄。两者最终都只调用`TrainDynamics.step`，再把相同公式得到的距离交给Core
-`Train.moveTrainForward`。
+存在的手柄。两者最终都只调用`TrainDynamics.step`，再把同一个`StepResult`的距离和post-step速度通过
+`TrainController.moveControlledTrain`交给Core；不得绕回公开的distance-only `Train.moveTrainForward`而丢失本epoch速度。
 
 隔离时刻表模拟在capture时冻结同一profile和重力，克隆世界中不得回查Bukkit renderer或live service。
 详细行程预览也调用同一纯函数，但其“最大牵引/最大常用制动”驾驶策略仍是独立的粗略策略。
@@ -67,6 +67,7 @@ data class BrakingGradeSegment(val lengthMeters: Double, val grade: Double)
 
 - profile数量必须与`train.cars`数量完全一致，顺序与`train.cars`一致。
 - executor/controller/actuator是单列车、单physics worker拥有的有状态对象；profile和重力在安装后不可变。
+- `RealisticManualController`提交的distance与speed必须来自同一个dynamics step；Core在同一epoch据此发布car/bogie速度。
 - 换向只改变`operatingDirection`和列车head/tail语义，不改变`Car.direction`模型朝向。
 - 重力只来自composition注入；Basic不得读取YAML或Bukkit singleton。
 - `track.gravity`是schema 2的必填正数字段；它由旧`track.gravity-mps2`破坏性重命名而来，不保留runtime兼容读取。
@@ -106,6 +107,7 @@ data class BrakingGradeSegment(val lengthMeters: Double, val grade: Double)
 - 上/平/下坡：惰行加速度和制动允许速度顺序正确。
 - 换向：`Car.direction`不变、`operatingDirection`反向，executor的坡度力符号翻转。
 - executor一致性：相同step前状态下，人工/ATO包装结果等于直接`TrainDynamics.step`。
+- manual publication：真实50 ms physics epoch的head位移、train frame speed及全部car/bogie frame velocity与同一次dynamics step一致。
 - actuator：逐级P/N/B、最弱安全档、EB边界、preview不提交状态、反应时间覆盖换档/apply/jerk。
 - 包络：分段边界、扫描截断、无正减速度fail-closed和256段上限。
 - composition：生产和隔离均无`KinematicTrainActuator`，捕获后不访问live renderer/Bukkit。

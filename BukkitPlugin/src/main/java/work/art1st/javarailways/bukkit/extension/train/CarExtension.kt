@@ -49,7 +49,6 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var forceNextModelUpdate: Boolean = false
     private val publishedFrameGate = CarFramePublicationGate()
     private var latestFrame: CarFrameSnapshot? = null
-    private var latestTrainSpeedMetersPerSecond: Double = 0.0
     private var builtModelGeneration: Long = -1L
     private val detailAudience: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
 
@@ -88,10 +87,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     /** Synchronous commit entry point used by explicit Core command paths. */
     @Synchronized
     override fun commit() {
-        applyFrameState(
-            captureLiveFrame(),
-            latestTrainSpeedMetersPerSecond
-        )
+        applyFrameState(captureLiveFrame())
     }
 
     /** Applies one value-only frame; revisions are ordered only within their exact runtime train. */
@@ -99,32 +95,24 @@ class CarExtension : TrainComponentExtension<Car>() {
     internal fun applyPublishedFrame(
         frame: CarFrameSnapshot,
         publicationStreamId: UUID,
-        revision: Long,
-        trainSpeedMetersPerSecond: Double
+        revision: Long
     ) {
         require(revision >= 0L) { "published car frame revision must be non-negative" }
-        require(trainSpeedMetersPerSecond.isFinite() && trainSpeedMetersPerSecond >= 0.0)
         ensureFrameLocationOwned(frame)
         if (!publishedFrameGate.accept(self as CoreCar, publicationStreamId, revision)) return
         applyFrameState(
             frame,
-            trainSpeedMetersPerSecond,
-            locationOwnershipChecked = true,
-            speedChecked = true
+            locationOwnershipChecked = true
         )
     }
 
     private fun applyFrameState(
         frame: CarFrameSnapshot,
-        trainSpeedMetersPerSecond: Double,
-        locationOwnershipChecked: Boolean = false,
-        speedChecked: Boolean = false
+        locationOwnershipChecked: Boolean = false
     ) {
         if (!locationOwnershipChecked) ensureFrameLocationOwned(frame)
-        if (!speedChecked) require(trainSpeedMetersPerSecond.isFinite() && trainSpeedMetersPerSecond >= 0.0)
         val oldPosition = latestFrame?.state?.positionVector() ?: self.lastState.position
         latestFrame = frame
-        latestTrainSpeedMetersPerSecond = trainSpeedMetersPerSecond
         self.world.renderChunkManager.update(self, oldPosition, frame.state.positionVector())
         super.commit()
     }
@@ -210,9 +198,8 @@ class CarExtension : TrainComponentExtension<Car>() {
         val position = state.positionVector()
         val direction = state.directionVector()
         val normal = state.normalVector()
-        val velocity = Vector3d(direction).mul(
-            latestTrainSpeedMetersPerSecond / SERVER_TICKS_PER_SECOND
-        )
+        val motion = frame.bukkitMotion()
+        val velocity = motion.bodyVelocityBlocksPerTick
         modelUpdateSequence += 1L
         val nearDetailAudience = detailAudience.isNotEmpty()
         val movingWithAudience = velocity.lengthSquared() > MOVING_EPSILON_SQUARED && hasAudience()
@@ -253,12 +240,12 @@ class CarExtension : TrainComponentExtension<Car>() {
             ))
         }
 
-        frame.bogies.zip(bogieModels).forEach { (bogieState, bogieModel) ->
+        frame.bogies.zip(bogieModels).forEachIndexed { index, (bogieState, bogieModel) ->
             val bogieTransform = CompactTransform(
                 position = bogieRootPosition(bogieState),
                 rotation = rotationFrom(bogieState.directionVector(), bogieState.normalVector())
             )
-            bogieModel.updateState(bogieTransform, bogieState.velocityVector())
+            bogieModel.updateState(bogieTransform, motion.bogieVelocitiesBlocksPerTick[index])
         }
 
     }
@@ -417,9 +404,22 @@ class CarExtension : TrainComponentExtension<Car>() {
         private const val NEAR_UPDATE_INTERVAL = 1
         private const val FAR_UPDATE_INTERVAL = 4
         private const val MOVING_EPSILON_SQUARED = 1.0e-6
-        private const val SERVER_TICKS_PER_SECOND = 20.0
     }
 }
+
+/** Bukkit entity motion derived exclusively from one immutable Core frame. */
+internal data class BukkitCarFrameMotion(
+    val bodyVelocityBlocksPerTick: Vector3d,
+    val bogieVelocitiesBlocksPerTick: List<Vector3d>
+)
+
+/** Converts Core world-space metres/second to Bukkit blocks/tick without changing direction. */
+internal fun CarFrameSnapshot.bukkitMotion(): BukkitCarFrameMotion = BukkitCarFrameMotion(
+    bodyVelocityBlocksPerTick = state.velocityVector().div(SERVER_TICKS_PER_SECOND),
+    bogieVelocitiesBlocksPerTick = bogies.map { it.velocityVector().div(SERVER_TICKS_PER_SECOND) }
+)
+
+private const val SERVER_TICKS_PER_SECOND = 20.0
 
 /** Per-car ordering gate for frames emitted by one exact process-local train stream. */
 internal class CarFramePublicationGate {

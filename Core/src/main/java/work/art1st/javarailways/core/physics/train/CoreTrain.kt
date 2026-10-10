@@ -1,5 +1,6 @@
 package work.art1st.javarailways.core.physics.train
 
+import org.joml.times
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.event.DerailEvent
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
@@ -219,13 +220,32 @@ open class CoreTrain @MainThread internal constructor(
      */
     @OptIn(AsyncEventApi::class)
     override fun moveTrainForward(deltaS: Double) {
-        if (activeDerailState.derailed) return
+        moveTrainForwardFromController(deltaS, 0.0)
+    }
+
+    /**
+     * Moves from a controller tick whose post-command speed is known in metres per second.
+     * This implementation seam keeps the public distance-only API from inventing a velocity.
+     */
+    @OptIn(AsyncEventApi::class)
+    internal fun moveTrainForwardFromController(deltaS: Double, speedMetersPerSecond: Double) {
+        require(speedMetersPerSecond.isFinite() && speedMetersPerSecond >= 0.0) {
+            "speedMetersPerSecond must be finite and non-negative"
+        }
+        if (activeDerailState.derailed) {
+            updateActiveMotion(0.0)
+            return
+        }
 
         require(deltaS >= 0.0) { "deltaS must >= 0" }
 
-        if (world.physicsCoordinator.detectSweptCollision(this)) return
+        if (world.physicsCoordinator.detectSweptCollision(this)) {
+            updateActiveMotion(0.0)
+            return
+        }
 
         if (deltaS == 0.0) {
+            updateActiveMotion(speedMetersPerSecond)
             pendingSweptSpans = spansFromLocations(currentRailLocations())
             pendingHeadTraversal = emptyList()
             pendingTailTraversal = emptyList()
@@ -243,6 +263,7 @@ open class CoreTrain @MainThread internal constructor(
             val traversedSegments = head.location.peekCurve(deltaS).toList()
             headBogie.moveForward(deltaS)
             val tailTraversal = updateAfterHeadBogie(deltaS)
+            updateActiveMotion(speedMetersPerSecond)
             pendingSweptSpans = mergeSweptSpans(
                 spansFromLocations(previousLocations + activeRailLocations()) +
                     traversedSegments
@@ -252,8 +273,31 @@ open class CoreTrain @MainThread internal constructor(
             pendingHeadTraversal = traversalSnapshots(traversedSegments)
             pendingTailTraversal = traversalSnapshots(tailTraversal)
         } catch (e: PhysicsException) {
+            updateActiveMotion(0.0)
             markDerailedFromPhysics(e.toString())
         }
+    }
+
+    /** Propagates an authoritative scalar speed along the active train-local path. */
+    private fun updateActiveMotion(speedMetersPerSecond: Double) {
+        if (speedMetersPerSecond == 0.0) {
+            cars.forEach(CoreCar::clearMotionState)
+            return
+        }
+        val orderedCars = if (activeIsReversed) cars.asReversed() else cars
+        var previousCar = orderedCars.first()
+        previousCar.updateMotionStateByHeadVelocity(
+            previousCar.activeHeadBogie.activeLocation.tangent * speedMetersPerSecond
+        )
+        for (car in orderedCars.drop(1)) {
+            car.updateMotionStateByHeadVelocity(previousCar.activeTailVelocity())
+            previousCar = car
+        }
+    }
+
+    /** Clears the complete active consist motion when the coordinator suppresses movement. */
+    internal fun clearActiveMotionFromPhysics() {
+        updateActiveMotion(0.0)
     }
 
     @Throws(PhysicsException::class)
@@ -315,6 +359,9 @@ open class CoreTrain @MainThread internal constructor(
     /** Publish a validated maintenance placement without retaining its teleport sweep. */
     @MainThread
     fun commitMaintenancePlacement() {
+        // Maintenance placement has no elapsed-time basis. Never republish velocity left by the
+        // last controller epoch as though the teleported geometry had moved at that speed.
+        updateActiveMotion(0.0)
         pendingSweptSpans = activePlacementEnvelope()
         commit()
     }
@@ -355,6 +402,9 @@ open class CoreTrain @MainThread internal constructor(
             headLocation.forward(-headCar.headBogieToEndPointOffset)
                 ?: throw CannotMoveForwardException(this)
         )
+        // Explicit placement is distance-only. Clear the prior controller epoch before solving
+        // the rest of the consist, because the geometry solver reads the active head velocity.
+        updateActiveMotion(0.0)
         updateAfterHeadBogie()
     }
 
@@ -369,6 +419,7 @@ open class CoreTrain @MainThread internal constructor(
         validatePersistedPlacementPath(savedTail, savedHead, reversed)
         isReversed = reversed
         cars.forEach { it.restorePersistedState(reversed) }
+        updateActiveMotion(0.0)
         head.location = savedHead
         tail.location = savedTail
         pendingSweptSpans = spansFromLocations(activeRailLocations())
@@ -551,6 +602,8 @@ open class CoreTrain @MainThread internal constructor(
         tail.location = activeTailBogie.activeLocation.forward(
             -activeTailCar.activeTailBogieToEndPointOffset
         ) ?: throw CannotMoveForwardException(this)
+        // Direction reversal is published as a movement-free epoch.
+        updateActiveMotion(0.0)
         world.tickManager.scheduleMainThreadPostTickTask {
             MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
         }
@@ -563,6 +616,7 @@ open class CoreTrain @MainThread internal constructor(
             ?: throw CannotMoveForwardException(this)
         tail.location = tailBogie.activeLocation.forward(-tailCar.tailBogieToEndPointOffset)
             ?: throw CannotMoveForwardException(this)
+        updateActiveMotion(0.0)
     }
 
     /**
@@ -840,6 +894,8 @@ open class CoreTrain @MainThread internal constructor(
         }
         if (!changed) return
         removeController()
+        updateActiveMotion(0.0)
+        publishPhysicsState()
         world.publishTrainFrame(publishMetadataFrame())
         MainRailEventBus.publish(DerailEvent(this, reason))
     }

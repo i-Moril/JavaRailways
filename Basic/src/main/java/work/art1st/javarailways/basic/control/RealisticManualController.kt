@@ -108,7 +108,7 @@ class RealisticManualController(
         }
         val result = dynamics.step(activeSpeed, currentHandle, deltaSeconds)
         speed = result.state.speed
-        train.moveTrainForward(result.distance)
+        moveControlledTrain(result.distance, result.state.speed)
     }
 
     private fun shiftedHandle(current: String, delta: Int): String {

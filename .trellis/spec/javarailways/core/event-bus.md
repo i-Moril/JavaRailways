@@ -32,9 +32,17 @@ interface EventRegistration : AutoCloseable {
 - `MainRailEventBus.publish` 调 `ThreadGuard.ensureMainThread`；`PhysicsRailEventBus.publish` 调 `ensureAsyncTickThread` 并要求 `@AsyncEventApi` opt-in。
 - 两者都在调用线程同步执行；registry process-wide，不是 world-local。
 - `@HandlesEvent` member 必须只有 receiver + 一个对应 root subtype 参数；非法 handler当前不会注册。private handler可被反射调用。
-- priority 固定 `HIGHEST → HIGH → NORMAL → LOW → LOWEST`。同 declared type/priority 保持插入序；不同 supertype不承诺总顺序。
+- priority 固定 `HIGHEST → HIGH → MEDIUM → LOW → LOWEST`。同 declared type/priority 保持插入序；不同 supertype不承诺总顺序。
 - callback `Throwable` 被记录后继续后续 listener；无 cancellation、无 state rollback。
-- `close()` 幂等，只移除该次 registration；已在执行的 callback 可完成。
+- `close()` 幂等，只移除该次 registration；此前已捕获派发快照中的 callback 仍可执行，关闭不等待在途 callback。
+
+### 注册变更与并发派发
+
+`TypedRailEventBus`先在锁外反射提取handler，再用同一个registry monitor串行执行register的bucket查找/添加、token close、unregister和空bucket清理。这样cleanup不能在register取得bucket后、添加handler前把bucket移出map。map使用`ConcurrentHashMap`，各priority列表使用`CopyOnWriteArrayList`；publish只读取这些并发容器和迭代快照，不取得registry monitor，callback也在该锁外执行，可关闭自己或注册其他listener。
+
+token的`isClosed`是原子可见的close标记，不是派发/清理完成屏障；`unregister(listener)`按listener对象身份移除所有匹配handler，但不将其既有token标记为closed。token close只移除自己保存的handler身份，旧token不能删除后来注册的handler。多handler的register/close与并发publish之间不承诺一次派发的全有或全无，跨priority/type也不是单个全局snapshot。
+
+注册反射和CopyOnWrite数组复制属于低频生命周期成本；close/unregister还遍历事件bucket清理空列表。publish沿事件继承图查找bucket并遍历匹配handler；本次同步不增加其registry锁等待。并发回归使用局部bus与有界barrier/future验证返回的live token仍可派发；它是调度压力回归，没有确定性强制旧实现的丢listener交错，不能据此宣称旧实现必红或生产触发已复现。
 
 注册 owner 必须执行 `start/register/retain token → stop/close/clear token`；测试在 `finally` close。
 

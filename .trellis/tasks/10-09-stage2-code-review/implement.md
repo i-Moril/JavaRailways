@@ -320,6 +320,12 @@ env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
 - 冻结最终源码以`GRADLE_USER_HOME=/workspace/.gradle`、`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`运行`:Core:test :Basic:test :BukkitPlugin:test :SimpleATO:compileTestKotlin :SimpleATOBukkit:compileTestKotlin`；35个task全部执行，`BUILD SUCCESSFUL`（2m43s）。Core 53 suites/308项（302执行、6项既有disabled）、Basic 59/385、BukkitPlugin 89/361，均零失败/错误。`javap`确认共享helper的一参及default bridge描述符；task manifest 15+15和scoped diff-check通过。保留既有Kotlin/Gradle/平台API warning；Gradle提示512 MiB heap/384 MiB metaspace的daemon将在build完成后退出，未修改构建配置。
 - CR-020仍partial；其余fixture未宣称全审，RailWand完整split/merge事务集成、disabled环线及既有未闭合项继续跟踪。无部署或游戏验证。
 
+### CR-034 事件注册与空桶清理同步（2026-10-10）
+
+- 静态根因是bucket lookup与handler add之间没有注册变更锁，close/unregister可移除空bucket。`TypedRailEventBus`在锁外准备反射handler，随后同一monitor保护register、token close、unregister及空桶清理；publish保留ConcurrentHashMap和CopyOnWriteArrayList读取，callback在该锁外运行。token关闭按精确handler身份，幂等；`isClosed`只表示关闭标记，不承诺callback完成。
+- 三项局部bus回归：100轮同event type并发注册/关闭/注销后验证live token仍可派发且关闭后不再派发；同listener旧token不能删除后来注册；callback自关并有界等待另线程注册后，下一次事件只交给replacement。没有sleep、反射私有字段或生产测试hook，executor有界关闭。barrier不强制旧实现的临界交错，未宣称旧版本必红或宿主生产故障已复现。
+- 首次focused编译发现JDK17的ExecutorService不实现AutoCloseable，改为显式AutoCloseable资源包装并验证shutdownNow后的有界终止；无构建配置改动。最终focused 7项全通过，测试执行0.688 s、重编译总47 s。冻结源码以`GRADLE_USER_HOME=/workspace/.gradle`和`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`运行`:Core:test :Basic:test`，15个task全部执行，`BUILD SUCCESSFUL`（1m21s）；Core 53 suites/311项（305执行、6项既有disabled），Basic 59 suites/385项全执行，零失败/错误。task manifest 15+15与scoped whitespace检查通过；既有Core cast、Basic unchecked/safe-call/non-null assertion与Gradle deprecated warning保留。公开签名、持久化shape/version、事件接入均不变，未部署或游戏验证。
+
 ## 验证与关闭
 
 - 任务文档：`python3 .trellis/scripts/task.py validate .trellis/tasks/10-09-stage2-code-review`、`git diff --check`。

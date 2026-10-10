@@ -32,9 +32,10 @@ internal class TypedRailEventBus<E : Event>(
     }
 
     private val handlers = ConcurrentHashMap<KClass<*>, HandlerList>()
+    private val registrationLock = Any()
 
     fun register(listener: EventListener): EventRegistration {
-        val added = ArrayList<Pair<KClass<*>, Handler>>()
+        val prepared = ArrayList<Triple<KClass<*>, Priority, Handler>>()
         listener::class.functions.forEach { function ->
             if (!function.hasAnnotation<HandlesEvent>()) return@forEach
             val parameters = function.parameters
@@ -45,8 +46,12 @@ internal class TypedRailEventBus<E : Event>(
             val priority = function.findAnnotation<HandlesEvent>()!!.priority
             function.isAccessible = true
             val handler = Handler(listener, function)
-            handlers.computeIfAbsent(eventType) { HandlerList() }.get(priority).add(handler)
-            added += eventType to handler
+            prepared += Triple(eventType, priority, handler)
+        }
+        synchronized(registrationLock) {
+            prepared.forEach { (eventType, priority, handler) ->
+                handlers.computeIfAbsent(eventType) { HandlerList() }.get(priority).add(handler)
+            }
         }
 
         return object : EventRegistration {
@@ -56,22 +61,26 @@ internal class TypedRailEventBus<E : Event>(
                 get() = closed.get()
 
             override fun close() {
-                if (!closed.compareAndSet(false, true)) return
-                added.forEach { (eventType, handler) ->
-                    handlers[eventType]?.lists?.forEach { it.remove(handler) }
+                synchronized(registrationLock) {
+                    if (!closed.compareAndSet(false, true)) return
+                    prepared.forEach { (eventType, priority, handler) ->
+                        handlers[eventType]?.get(priority)?.remove(handler)
+                    }
+                    removeEmptyHandlerLists()
                 }
-                removeEmptyHandlerLists()
             }
         }
     }
 
     fun unregister(listener: EventListener) {
-        handlers.values.forEach { handlerList ->
-            handlerList.lists.forEach { list ->
-                list.removeIf { it.listener === listener }
+        synchronized(registrationLock) {
+            handlers.values.forEach { handlerList ->
+                handlerList.lists.forEach { list ->
+                    list.removeIf { it.listener === listener }
+                }
             }
+            removeEmptyHandlerLists()
         }
-        removeEmptyHandlerLists()
     }
 
     fun publish(event: E) {
@@ -93,6 +102,7 @@ internal class TypedRailEventBus<E : Event>(
     }
 
     private fun removeEmptyHandlerLists() {
+        // Caller holds registrationLock, so a bucket cannot detach between lookup and add.
         handlers.entries.removeIf { (_, value) -> value.lists.all { it.isEmpty() } }
     }
 

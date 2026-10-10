@@ -43,7 +43,7 @@
 - **CR-021，P2，已复现：splitFrom先改坏原编组再失败。** 四车splitFrom(3)抛ClassCastException而原车只剩两车；carNum=1也被接受后清空原车。extension枚举/初始化还存在后续问题。仓库无正式split调用；用户已确认保留此正式能力，需独立编组事务、预校验和失败保持，不是改一个takeLast就完成。
 - **CR-030，P2，静态确认：link未规范化方向且丢弃失败结果。** `CoreTrain.kt:521-540`直接拼cars，reversed survivor的operating head与从first解算不一致；任务Future被丢弃，部分mutation后失败不可见。需明确端部/方向组合、结果和回滚。与C1 **CR-018** car renderer换属主后比较不同train revision的问题分别修。默认collision=DERAIL且无生产listener请求LINK，不描述为默认碰撞必现。
 - **CR-031，P2/P3，静态确定：Core Seat.position自递归。** `CoreCar.kt:65`匿名Seat getter读取自身position。没有生产Core Seat consumer，Bukkit模型座位是另一条路径；按用户要求先评估座位分层再决定API去留，不能说游戏座位当前必坏。
-- **CR-034，P2候选：EventBus register与空桶cleanup竞态。** 取得HandlerList后add前，该list可被close/unregister从map移除；新listener加入脱离map的list。没有定向复现，当前宿主注册/关闭串行，未找到正常生产并发触发。只需低频注册变更串行化或明确owner，不把锁加到publish热路径。
+- **CR-034，P2，静态确认并已修复：EventBus register与空桶cleanup竞态。** 原实现取得HandlerList后add前，该list可被close/unregister从map移除。现以同一monitor串行化注册变更和空桶清理，publish及callback不取得该锁。局部bus有界并发回归、token身份和callback重入覆盖见implement记录；没有确定性复现旧临界交错，也未找到正常生产触发证据，不把压力测试当作旧版本必红的证明。
 
 ## 2. 可维护性与可读性
 

@@ -322,8 +322,8 @@
 - 网页模块归属/API范围和性能结论过期；.codeabs含已删路径/TODO。Dokka本轮成功但缺文档和declare链接warning仍在。
 - 测试处置扩展见Core报告：保留真实不变量；改写空跑、回显、复制生产分支和反射锁private实现的测试；废路径测试随实现删除。没有按数量批删依据。
 
-### CR-034：EventBus并发注册/空桶清理可能丢listener
+### CR-034：EventBus并发注册/空桶清理丢listener交错
 
-- P2候选；公开API静态可达交错，未定向复现；当前宿主启动/关闭串行，没有正常生产并发触发证据。
-- `TypedRailEventBus.kt:48,95-96`取HandlerList与add不原子，cleanup可能移除刚取到但尚未写入的bucket。
-- 建议只在低频register/close/unregister串行化，或明确并强制owner；不在publish热路径增加大锁。
+- P2，静态确认的注册竞态已修复；没有确定性定向复现，也没有正常生产并发触发证据，当前宿主启动/关闭串行。
+- 原实现取得HandlerList后在map操作外add；close/unregister的空桶cleanup可在两步间移除该bucket，令返回的live registration不再可派发。现以同一monitor串行化低频register/close/unregister及空桶cleanup，反射元数据提取在锁外，publish和callback不取得该锁。
+- 三项局部bus回归覆盖100轮同event type并发register/close/unregister后live token可派发、旧token不影响后续同listener注册，以及callback自关并等待另一线程注册。barrier只协调起跑，不强制旧实现的临界交错；测试通过不等于旧版本必红。token标记和copy-on-write在途快照语义见[事件契约](../../../spec/javarailways/core/event-bus.md)。完整验证记录见implement的CR-034批次；不改变事件接入、schema或公开签名。

@@ -44,11 +44,11 @@ consumer test通过`testFixtures(project(":Core"))`复用；production不得依�
 | process-wide bus registration | token closed | `finally close` |
 | ThreadGuard host registration | exact token在finally关闭且可重复close | 不用全局clear，不污染后续test |
 | world materialization失败 | 无partial registered train | close created resources |
-| concurrent barrier | latch/future确定时序 | 不用固定sleep猜测 |
+| concurrent barrier | latch/future确定时序；锁阻塞测试证明具体线程已进入对应锁队列 | 不用固定sleep或仅凭task started猜测 |
 
 实际行为回归由`TrainUniformMotionTest`等待真实`stepSimulation`的exact ticket后验证head/tail/每车published frame的位移和速度；50 ms用例必须把m/s换算成实际位移并检查每个car/bogie frame，而不只检查controller/train标量speed。停止/解除controller的下一epoch必须证明上一epoch非零速度已清除；换向用例先验证只换向epoch的空traversal/零速度，再验证下一移动epoch按新rail facing tangent发布反号速度；曲线用例检查bogie切线、刚体chord与角速度，distance-only placement检查不会继承旧速度。不能以local累加值或live field充当frame actual。`CoreTrainDerailEventTest`从真实尽头行驶失败触发coordinator发布/排队，先检查physics完成但main尚未drain时无事件，再检查重复drain及下一idle epoch仍只一次。listener内记录值、断言放在listener外，避免总线异常隔离吞掉assertion。`ImmutableSnapshotTest`捕获后实际改变live对象位置/lifecycle和列车摆位，再验证旧值不变。
 
-这些用例不替代其他未覆盖场景：disabled环线仍明确跳过，publication reverse/derail的immutable-frame边界与reader确定性阻塞需单独补齐；不能因为补了finally就宣称全部publication断言已充分。
+这些用例不替代其他未覆盖场景：disabled环线仍明确跳过，publication reverse/derail的immutable-frame边界需单独补齐；不能因为补了finally就宣称全部publication断言已充分。拓扑锁阻塞回归捕获具体reader线程，并通过内部只读诊断确认该线程已进入`ReentrantReadWriteLock`等待队列后再检查future未完成；单纯在read调用前countDown仍可能在线程被抢占时产生假阳性。
 
 ## 项目内正确示例
 

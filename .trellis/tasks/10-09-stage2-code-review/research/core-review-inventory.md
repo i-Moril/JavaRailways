@@ -188,7 +188,7 @@ util/TickManagerImpl.kt
 
 - `java/work/art1st/javarailways/core/physics/CoreWorldAtGradeRailCrossingTest.kt`： 保留：几何交叉不产生跨线continuation、fault/恢复及增量观测。
 
-- `java/work/art1st/javarailways/core/physics/CoreWorldRailTopologyTransactionTest.kt`： 保留并改写两个sleep reader：确定性barrier/finally。
+- `java/work/art1st/javarailways/core/physics/CoreWorldRailTopologyTransactionTest.kt`： 已改写两个sleep reader：具体reader线程进入拓扑锁等待队列后再断言阻塞，并以finally有界释放/关闭。
 
 - `java/work/art1st/javarailways/core/physics/CoreWorldThreadGuardTest.kt`： 保留结构入口wrong-thread及owner范围。
 

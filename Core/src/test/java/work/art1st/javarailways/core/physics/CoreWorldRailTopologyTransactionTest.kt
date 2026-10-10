@@ -17,6 +17,8 @@ import work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.UUID
 
@@ -438,53 +440,143 @@ class CoreWorldRailTopologyTransactionTest {
     @Test
     fun `world frame cannot observe changed topology before its revision is published`() {
         val world = createTestWorld()
-        val revisionBefore = world.topologyRevision
-        val changed = CountDownLatch(1)
-        val release = CountDownLatch(1)
+        var primaryFailure: Throwable? = null
+        try {
+            val revisionBefore = world.topologyRevision
+            val createdRailId = UUID.randomUUID()
+            val frame = readWhileTopologyMutationIsBlocked(
+                world = world,
+                mutation = {
+                    world.createRailInTransaction(createdRailId, straightCurve(0.0, 10.0))
+                },
+                read = { world.publishWorldFrame(0L) },
+                prematureCompletionMessage = "world frame crossed an incomplete topology transaction"
+            )
 
-        val writer = CompletableFuture.runAsync {
-            world.railTopologyTransaction {
-                world.createRailInTransaction(UUID.randomUUID(), straightCurve(0.0, 10.0))
-                changed.countDown()
-                check(release.await(5, TimeUnit.SECONDS))
-            }
+            assertEquals(revisionBefore + 1L, frame.topologyRevision)
+            assertEquals(world.topologyRevision, frame.topologyRevision)
+            assertEquals(setOf(createdRailId), world.allRails.mapTo(linkedSetOf()) { it.id })
+        } catch (failure: Throwable) {
+            primaryFailure = failure
+            throw failure
+        } finally {
+            closeWorldRuntime(world, primaryFailure)
         }
-        check(changed.await(5, TimeUnit.SECONDS))
-        val reader = CompletableFuture.supplyAsync { world.publishWorldFrame(0L) }
-
-        Thread.sleep(50)
-        assertFalse(reader.isDone, "world frame crossed an incomplete topology transaction")
-        release.countDown()
-
-        val frame = reader.get(5, TimeUnit.SECONDS)
-        writer.get(5, TimeUnit.SECONDS)
-        assertEquals(revisionBefore + 1L, frame.topologyRevision)
-        assertEquals(world.topologyRevision, frame.topologyRevision)
     }
 
     @Test
     fun `world readers cannot observe an infrastructure transaction mid-commit`() {
         val world = createTestWorld()
-        world.createRailForTest(straightCurve(0.0, 10.0))
-        val changed = CountDownLatch(1)
-        val release = CountDownLatch(1)
+        var primaryFailure: Throwable? = null
+        try {
+            val initialRail = world.createRailForTest(straightCurve(0.0, 10.0))
+            val revisionBefore = world.topologyRevision
+            val createdRailId = UUID.randomUUID()
+            val railCount = readWhileTopologyMutationIsBlocked(
+                world = world,
+                mutation = {
+                    world.createRailInTransaction(createdRailId, straightCurve(10.0, 20.0))
+                },
+                read = { world.allRails.size },
+                prematureCompletionMessage = "reader observed a partially committed rail topology"
+            )
 
-        val writer = CompletableFuture.runAsync {
-            world.railTopologyTransaction {
-                world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 20.0))
-                changed.countDown()
-                check(release.await(5, TimeUnit.SECONDS))
+            assertEquals(2, railCount)
+            assertEquals(revisionBefore + 1L, world.topologyRevision)
+            assertEquals(
+                setOf(initialRail.id, createdRailId),
+                world.allRails.mapTo(linkedSetOf()) { it.id }
+            )
+        } catch (failure: Throwable) {
+            primaryFailure = failure
+            throw failure
+        } finally {
+            closeWorldRuntime(world, primaryFailure)
+        }
+    }
+
+    private fun <T> readWhileTopologyMutationIsBlocked(
+        world: CoreWorld,
+        mutation: () -> Unit,
+        read: () -> T,
+        prematureCompletionMessage: String
+    ): T {
+        val mutationReached = CountDownLatch(1)
+        val releaseMutation = CountDownLatch(1)
+        val readerThread = CompletableFuture<Thread>()
+        val executor = Executors.newFixedThreadPool(2)
+        var writer: Future<*>? = null
+        var reader: Future<T>? = null
+        var primaryFailure: Throwable? = null
+        try {
+            val activeWriter = executor.submit {
+                world.railTopologyTransaction {
+                    mutation()
+                    mutationReached.countDown()
+                    check(releaseMutation.await(10, TimeUnit.SECONDS))
+                }
+            }
+            writer = activeWriter
+            assertTrue(mutationReached.await(5, TimeUnit.SECONDS), "writer did not reach the in-progress transaction")
+            val activeReader = executor.submit<T> {
+                readerThread.complete(Thread.currentThread())
+                read()
+            }
+            reader = activeReader
+            awaitRailTopologyQueue(world, readerThread.get(5, TimeUnit.SECONDS))
+            assertFalse(activeReader.isDone, prematureCompletionMessage)
+            releaseMutation.countDown()
+
+            return activeReader.get(5, TimeUnit.SECONDS).also {
+                activeWriter.get(5, TimeUnit.SECONDS)
+            }
+        } catch (failure: Throwable) {
+            primaryFailure = failure
+            throw failure
+        } finally {
+            releaseMutation.countDown()
+            val cleanupFailures = mutableListOf<Throwable>()
+            captureCleanupFailure(cleanupFailures) { writer?.get(5, TimeUnit.SECONDS) }
+            captureCleanupFailure(cleanupFailures) { reader?.get(5, TimeUnit.SECONDS) }
+            executor.shutdownNow()
+            captureCleanupFailure(cleanupFailures) {
+                check(executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    "topology transaction test executor did not terminate"
+                }
+            }
+            cleanupFailures.firstOrNull()?.let { cleanupFailure ->
+                cleanupFailures.drop(1).forEach(cleanupFailure::addSuppressed)
+                primaryFailure?.addSuppressed(cleanupFailure) ?: throw cleanupFailure
             }
         }
-        check(changed.await(5, TimeUnit.SECONDS))
-        val reader = CompletableFuture.supplyAsync { world.allRails.size }
+    }
 
-        Thread.sleep(50)
-        assertFalse(reader.isDone, "reader observed a partially committed rail topology")
-        release.countDown()
+    private fun captureCleanupFailure(failures: MutableList<Throwable>, action: () -> Unit) {
+        try {
+            action()
+        } catch (failure: Throwable) {
+            failures += failure
+        }
+    }
 
-        assertEquals(2, reader.get(5, TimeUnit.SECONDS))
-        writer.get(5, TimeUnit.SECONDS)
+    private fun closeWorldRuntime(world: CoreWorld, primaryFailure: Throwable?) {
+        val failures = mutableListOf<Throwable>()
+        captureCleanupFailure(failures) { world.physicsCoordinator.close() }
+        captureCleanupFailure(failures) { (world.tickManager as AutoCloseable).close() }
+        failures.firstOrNull()?.let { cleanupFailure ->
+            failures.drop(1).forEach(cleanupFailure::addSuppressed)
+            primaryFailure?.addSuppressed(cleanupFailure) ?: throw cleanupFailure
+        }
+    }
+
+    private fun awaitRailTopologyQueue(world: CoreWorld, readerThread: Thread) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (!world.isQueuedForRailTopologyAccess(readerThread)) {
+            check(System.nanoTime() < deadline) {
+                "reader thread did not queue for rail topology access"
+            }
+            Thread.onSpinWait()
+        }
     }
 
     @Test

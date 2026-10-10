@@ -73,6 +73,7 @@
 - 边界：没有Folia实体/客户端现场验证；不修link/split事务本身、不改变默认collision policy、不增加持久化字段/版本或公开add-on API。
 - [x] 独立批次CR-032机械项：仅清空文件、无consumer helper/pool、未读临时list及废注释；逐项核实引用与持久化影响，事件/Seat/linksplit和需设计的旧factory/editor另列，不结案整个CR-032。
 - [x] 独立批次CR-020局部：将匀速/脱轨/快照测试改为真实epoch及live mutation后的值断言，补对应world资源finally；不增加测试数量，不把6项disabled环线算绿色。其余reader时序、Koin fixture及Basic observation缺口另列，不因局部改写结案。
+- [x] 独立批次CR-020 reader时序：两个拓扑事务reader回归捕获具体reader线程，并等待该线程确实进入`railTopologyLock`等待队列后才断言阻塞；删除固定sleep，finally释放writer及关闭future/executor/world。为避免反射，仅增加Core内部锁队列诊断，不成为公开API。
 - [x] 独立批次CR-014：既有coordinator状态锁内永久停止新wake并捕获exact ticket，正常完成在途epoch之后才允许最终capture；Core边界连同宿主唯一卸载调用接入，补有界真实worker测试。不是close/abort，不新增超时、通用生命周期框架或正式Core API；7模块强制门禁通过，方法和限制见下。
 - 后续单列CR-023剩余恢复一致性、CR-026速度语义、CR-015/017生命周期及CR-020/032局部测试/残留清理；CR-013失败清理见下。若核实需要新的产品选择或迁移要求，标记并跳过，不用猜测兜底替代。
 
@@ -153,6 +154,12 @@
 - 快照用例实际改变live位置/lifecycle及真实30m跨段摆位，检查旧value隔离；publication用例本批仅补finally关闭，fixture KDoc改为真实NoOp。五文件共18项（12执行、6个原disabled环线），数量未增加；没有新增runtime接口/测试替代实现。
 - 独立检查与上方CR-028/032/020组合门禁通过；首次测试编译错误已用现有`train.head.location.forward`修正后完整重跑，不新增extension/cast。CR-014随后改动不在本门禁内。
 - CR-020仍部分完成：本批结束时reader sleep/未证明进入读取路径、coordinator无界barrier、Koin fixture、Basic observation collection/bodyTraversal及publication reverse/derail immutable-frame断言继续跟踪；随后CR-014处理了coordinator的2处无界barrier，其余缺口不因finally结案。无部署/游戏验证。
+
+### CR-020 拓扑reader确定性时序（2026-10-10）
+
+- 两个原回归不再用`Thread.sleep(50)`猜reader是否已被调度。测试使用独立双线程executor，writer在持有拓扑写锁且完成结构修改后发信号；reader先发布自身具体`Thread`，随后调用真实`publishWorldFrame`或`allRails`读取。主测试通过Core内部`ReentrantReadWriteLock.hasQueuedThread(readerThread)`诊断等待该线程确实进入同一锁的等待队列，再断言future未完成并释放writer。
+- `CoreWorld.isQueuedForRailTopologyAccess`保持`internal`及`@JvmSynthetic`，只暴露锁队列事实，不提供锁控制、runtime fallback或公共addon合同；选择该最小seam是为了避免反射和任意延时。writer release、future有界等待、executor关闭及world资源关闭都在`finally`兜底。
+- 定向强制重跑`CoreWorldRailTopologyTransactionTest`共22项、零跳过/失败/错误；独立检查又补强提交后的revision/具体rail ID inventory断言，并让writer、reader、executor及每个world的coordinator/tick manager清理失败可见且不覆盖主断言失败。冻结源码完整`:Core:test`执行53个suite/308项（302执行、6个既有disabled环线），零失败/错误，9个Gradle task全部执行并`BUILD SUCCESSFUL`。task manifest 15+15及scoped whitespace检查通过；既有4处`RailLocationPersistTest`冗余cast和Gradle deprecated warning保留。CR-020其余Koin/Basic collection/bodyTraversal及publication reverse/derail immutable-frame缺口仍开放。
 
 ### CR-014 停止新物理工作后保存与验证（2026-10-10）
 

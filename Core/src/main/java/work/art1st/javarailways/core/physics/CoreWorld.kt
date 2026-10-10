@@ -1265,6 +1265,11 @@ class CoreWorld(
     internal fun <T> withRailTopologyReadLock(action: () -> T): T =
         railTopologyLock.read(action)
 
+    /** Internal diagnostic for proving that a concrete thread is waiting on the topology lock. */
+    @JvmSynthetic
+    internal fun isQueuedForRailTopologyAccess(thread: Thread): Boolean =
+        railTopologyLock.hasQueuedThread(thread)
+
     /**
      * Publishes an earlier [captureWorldFrame] result only if no constituent state changed while
      * synchronous epoch processors ran.

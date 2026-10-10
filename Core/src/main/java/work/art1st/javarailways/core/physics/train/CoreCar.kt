@@ -565,11 +565,4 @@ class CoreCar @MainThread internal constructor(
             )
         )
     }
-//
-//    @Serializable
-//    data class SavedCarV1(
-//        val config: ConfigV1,
-//        // val bogieALocation: RailLocationWithFacing,
-//        // val bogieBLocation: RailLocationWithFacing,
-//    )
 }

@@ -23,7 +23,6 @@ import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.api.util.plugin.Extendable
 import work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.javarailways.core.api.util.tick.TickManager
-import work.art1st.javarailways.core.control.signal.Signal
 import work.art1st.javarailways.core.di.WorldParentContext
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.rail.CoreRail
@@ -60,7 +59,6 @@ import kotlin.concurrent.write
 class CoreWorld(
     private val rails: MutableMap<UUID, CoreRail>,
     private val trains: MutableMap<String, CoreTrain>,
-    private val signals: MutableMap<String, Signal>,
     override val tickManager: TickManager,
     val physicsCoordinator: PhysicsCoordinator,
     worldParent: WorldParentContext,
@@ -110,7 +108,7 @@ class CoreWorld(
         tickManager: TickManager,
         physicsCoordinator: PhysicsCoordinator,
         worldParent: WorldParentContext
-    ) : this(LinkedHashMap(), ConcurrentHashMap(), hashMapOf(), tickManager, physicsCoordinator, worldParent)
+    ) : this(LinkedHashMap(), ConcurrentHashMap(), tickManager, physicsCoordinator, worldParent)
 
     companion object {
         const val INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION = 2

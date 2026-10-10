@@ -72,13 +72,11 @@ data class RailLocationWithFacing internal constructor(
         var arcLength = arcLength + deltaS
         var curve = point.curve
         var railView = this.railView
-        val list = ArrayList<Pair<RailView, Curve>>()
         while (true) {
             if (arcLength <= curve.totalArcLength) {
                 val newPoint = curve.getPointAt(arcLength)
                 return RailLocationWithFacing(railView, newPoint, 0.0)
             }
-            list.add(Pair(railView, curve))
             arcLength -= curve.totalArcLength
 
             railView = railView.activeRail ?: return null

@@ -1,6 +1,5 @@
 package work.art1st.javarailways.core.util
 
-import org.joml.Quaterniond
 import org.joml.Vector3d
 import java.util.ArrayDeque
 
@@ -28,15 +27,6 @@ object ObjectPools {
         return try { block(a, b) } finally { release(b); release(a) }
     }
 
-    // --- Quaterniond ---
-
-    fun acquireQuaterniond(): Quaterniond = quatPool.get().let { pool ->
-        if (pool.isNotEmpty()) pool.pop()!!.identity() else Quaterniond()
-    }
-
-    fun release(q: Quaterniond) { quatPool.get().push(q) }
-
     // --- internal ---
     private val vecPool = ThreadLocal.withInitial { ArrayDeque<Vector3d>(64) }
-    private val quatPool = ThreadLocal.withInitial { ArrayDeque<Quaterniond>(8) }
 }

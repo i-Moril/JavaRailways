@@ -2,9 +2,13 @@ package work.art1st.javarailways.core.physics.train
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotSame
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 
 class CoreTrainPublicationBoundaryTest {
@@ -126,52 +130,147 @@ class CoreTrainPublicationBoundaryTest {
     }
 
     @Test
-    fun `physics reverse remains private until train state is published`() {
-        val world = createTestWorld()
-        try {
-            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
-            val train = createTrainWithConfig("reverse-publication", rail, world, listOf(10.0))
-            val publishedHead = train.headLocation
-            val publishedTail = train.tailLocation
+    fun `physics reverse remains private until train state is published`() = withWorld { world ->
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        val train = createTrainWithConfig("reverse-publication", rail, world, listOf(10.0))
+        val oldFrame = train.publishedFrame
+        val oldCar = oldFrame.cars.single()
+        val publishedHead = train.headLocation
+        val publishedTail = train.tailLocation
+        val nextEpoch = oldFrame.physicsEpoch + 1L
 
-            train.reverseFromPhysics()
+        train.reverseFromPhysics()
 
-            assertFalse(train.isReversed)
-            assertFalse(train.cars.single().isReversed)
-            assertEquals(publishedHead, train.headLocation)
-            assertEquals(publishedTail, train.tailLocation)
+        assertFalse(train.isReversed)
+        assertFalse(train.cars.single().isReversed)
+        assertEquals(publishedHead, train.headLocation)
+        assertEquals(publishedTail, train.tailLocation)
+        assertSame(oldFrame, train.publishedFrame)
+        assertFalse(oldFrame.reversed)
+        assertEquals(RailPositionSnapshot(rail.id, ViewDirection.AB, 20.0), oldFrame.head)
+        assertEquals(RailPositionSnapshot(rail.id, ViewDirection.AB, 10.0), oldFrame.tail)
 
-            train.publishPhysicsState()
+        train.publishPhysicsState()
 
-            assertTrue(train.isReversed)
-            assertTrue(train.cars.single().isReversed)
-            assertEquals(publishedTail.position, train.headLocation.position)
-            assertEquals(publishedHead.position, train.tailLocation.position)
-        } finally {
-            world.physicsCoordinator.close()
-            (world.tickManager as? AutoCloseable)?.close()
+        assertTrue(train.isReversed)
+        assertTrue(train.cars.single().isReversed)
+        assertEquals(publishedTail.position, train.headLocation.position)
+        assertEquals(publishedHead.position, train.tailLocation.position)
+        // Buffer publication changes live getters; the atomic immutable frame has its own boundary.
+        assertSame(oldFrame, train.publishedFrame)
+        assertFalse(oldFrame.reversed)
+        assertEquals(ViewDirection.AB, oldFrame.head.facing)
+
+        val reversedFrame = train.publishFrame(nextEpoch)
+
+        assertSame(reversedFrame, train.publishedFrame)
+        assertNotSame(oldFrame, reversedFrame)
+        assertEquals(oldFrame.revision + 1L, reversedFrame.revision)
+        assertEquals(nextEpoch, reversedFrame.physicsEpoch)
+        assertTrue(reversedFrame.reversed)
+        assertFalse(reversedFrame.derailed)
+        assertEquals(RailPositionSnapshot(rail.id, ViewDirection.BA, 10.0), reversedFrame.head)
+        assertEquals(RailPositionSnapshot(rail.id, ViewDirection.BA, 20.0), reversedFrame.tail)
+        // Operating reversal preserves the car's physical A-to-B rendering direction and identity.
+        assertEquals(oldCar.carId, reversedFrame.cars.single().carId)
+        assertEquals(oldCar.state, reversedFrame.cars.single().state)
+        assertEquals(listOf(20.0, 10.0), reversedFrame.cars.single().bogies.map { it.positionX })
+        reversedFrame.cars.single().bogies.forEach { bogie ->
+            assertEquals(1.0, bogie.directionX, 1e-6)
+            assertEquals(0.0, bogie.velocityX, 1e-6)
         }
+        assertEquals(15.0, reversedFrame.cars.single().state.positionX, 1e-6)
+        assertEquals(1.0, reversedFrame.cars.single().state.directionX, 1e-6)
+        assertTrue(reversedFrame.headTraversal.isEmpty())
+        assertTrue(reversedFrame.tailTraversal.isEmpty())
+        assertEquals(ViewDirection.BA, reversedFrame.bodyTraversal.single().facing)
+
+        train.reverseFromPhysics()
+        assertSame(reversedFrame, train.publishedFrame)
+        train.commit()
+
+        val restoredFrame = train.publishedFrame
+        assertEquals(reversedFrame.revision + 1L, restoredFrame.revision)
+        assertEquals(nextEpoch, restoredFrame.physicsEpoch, "command commit retains the last physics epoch")
+        assertFalse(restoredFrame.reversed)
+        assertEquals(oldFrame.head, restoredFrame.head)
+        assertEquals(oldFrame.tail, restoredFrame.tail)
+        assertEquals(oldCar.state, restoredFrame.cars.single().state)
+        assertEquals(listOf(20.0, 10.0), restoredFrame.cars.single().bogies.map { it.positionX })
+        assertFalse(oldFrame.reversed)
+        assertEquals(RailPositionSnapshot(rail.id, ViewDirection.AB, 20.0), oldFrame.head)
+        assertEquals(RailPositionSnapshot(rail.id, ViewDirection.AB, 10.0), oldFrame.tail)
+        assertEquals(15.0, oldFrame.cars.single().state.positionX, 1e-6)
+        assertEquals(1.0, oldFrame.cars.single().state.directionX, 1e-6)
+        assertTrue(reversedFrame.reversed)
+        assertEquals(RailPositionSnapshot(rail.id, ViewDirection.BA, 10.0), reversedFrame.head)
     }
 
     @Test
-    fun `physics derail remains private until train state is published`() {
+    fun `physics derail remains private until train state is published`() = withWorld { world ->
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        val train = createTrainWithConfig("derail-publication", rail, world, listOf(10.0))
+        val oldFrame = train.publishedFrame
+        val nextEpoch = oldFrame.physicsEpoch + 1L
+
+        train.markDerailedFromPhysics("test derail")
+
+        assertFalse(train.isDerailed)
+        assertEquals(null, train.derailReason)
+        assertSame(oldFrame, train.publishedFrame)
+        assertFalse(oldFrame.derailed)
+
+        train.publishPhysicsState()
+
+        assertTrue(train.isDerailed)
+        assertEquals("test derail", train.derailReason)
+        assertSame(oldFrame, train.publishedFrame)
+        assertFalse(oldFrame.derailed)
+
+        val derailedFrame = train.publishFrame(nextEpoch)
+
+        assertSame(derailedFrame, train.publishedFrame)
+        assertNotSame(oldFrame, derailedFrame)
+        assertEquals(oldFrame.revision + 1L, derailedFrame.revision)
+        assertEquals(nextEpoch, derailedFrame.physicsEpoch)
+        assertTrue(derailedFrame.derailed)
+        assertFalse(derailedFrame.reversed)
+        assertEquals(RailPositionSnapshot(rail.id, ViewDirection.AB, 20.0), derailedFrame.head)
+        assertEquals(RailPositionSnapshot(rail.id, ViewDirection.AB, 10.0), derailedFrame.tail)
+        assertEquals(oldFrame.cars, derailedFrame.cars)
+        assertEquals(oldFrame.bodyTraversal, derailedFrame.bodyTraversal)
+        assertFalse(oldFrame.derailed)
+        assertEquals(0L, oldFrame.physicsEpoch)
+
+        train.commit()
+        assertEquals(derailedFrame.revision + 1L, train.publishedFrame.revision)
+        assertEquals(nextEpoch, train.publishedFrame.physicsEpoch)
+        assertTrue(train.publishedFrame.derailed)
+        assertFalse(oldFrame.derailed)
+        assertEquals("test derail", train.derailReason)
+    }
+
+    private inline fun withWorld(action: (CoreWorld) -> Unit) {
         val world = createTestWorld()
+        var primaryFailure: Throwable? = null
         try {
-            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
-            val train = createTrainWithConfig("derail-publication", rail, world, listOf(10.0))
-
-            train.markDerailedFromPhysics("test derail")
-
-            assertFalse(train.isDerailed)
-            assertEquals(null, train.derailReason)
-
-            train.publishPhysicsState()
-
-            assertTrue(train.isDerailed)
-            assertEquals("test derail", train.derailReason)
+            action(world)
+        } catch (failure: Throwable) {
+            primaryFailure = failure
+            throw failure
         } finally {
-            world.physicsCoordinator.close()
-            (world.tickManager as? AutoCloseable)?.close()
+            var cleanupFailure: Throwable? = null
+            try {
+                world.physicsCoordinator.close()
+            } catch (failure: Throwable) {
+                cleanupFailure = failure
+            }
+            try {
+                (world.tickManager as AutoCloseable).close()
+            } catch (failure: Throwable) {
+                cleanupFailure?.addSuppressed(failure) ?: run { cleanupFailure = failure }
+            }
+            cleanupFailure?.let { failure -> primaryFailure?.addSuppressed(failure) ?: throw failure }
         }
     }
 }

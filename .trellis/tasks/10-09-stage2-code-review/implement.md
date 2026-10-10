@@ -167,6 +167,13 @@
 - 多车诊断删除对`CoreCar._position`/`CommitBuffer`的反射。2 m×2明确fixture先断言`setLocation`在publication前不可见，再以maintenance commit后的`head=80.0`、`tail=75.4`、car center `79.0/76.4`等独立固定值检查实际摆位；随后真实10 m/s×50 ms epoch检查全部公开状态前移0.5 m且2.6 m车心距/4.6 m编组端距保持。默认bogie offset和端部offset直接检查`±0.6/0.4 m`，不再从同一生产公式生成expected。
 - 两文件仍为原11项测试，没有加数量填充；focused非增量强制执行11项全部通过。冻结源码再以`GRADLE_USER_HOME=/workspace/.gradle`、`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`完整执行`:Core:test :Basic:test`，15个task全部执行并`BUILD SUCCESSFUL`（46s）：Core 308项（302执行、6个既有disabled环线）、Basic 384项全执行，零失败/错误。task manifest 15+15和scoped whitespace检查通过；保留既有Core冗余cast、Basic unchecked/safe-call/non-null assertion、Gradle deprecated及daemon metaspace warning。CR-020继续保持partial，未覆盖Koin/Basic collection/bodyTraversal及publication reverse/derail immutable-frame缺口；未部署或游戏验证。
 
+### CR-020 换向脱轨不可变帧发布边界（2026-10-10）
+
+- 在`CoreTrainPublicationBoundaryTest`原reverse/derail两项中补齐三个独立阶段：physics mutation未提交、`publishPhysicsState`只翻转live buffer、`publishFrame`替换atomic immutable frame。前两步保持旧frame identity；第三步验证revision精确加一、传入epoch、rail/facing/固定20 m与10 m端部位置、反向body traversal或脱轨标记。后续`commit`同时推进state/frame且保留最近epoch，旧帧继续保留原值。
+- 换向保留车厢稳定物理方向和car/bogie位置；reason只属于live train而未在当前frame建字段，测试不虚构frame reason。直接调用既有内部发布原语，不伪造coordinator ticket；真实coordinator调用、事件一次性排队与速度清理由已有集成回归覆盖。原6项测试数量不变，无production/API/schema改动；两项paired cleanup不覆盖主失败。
+- 首轮focused 6项有1失败：新断言对整car frame逐字段比较，把fixture原尾bogie的`-0.0`与零速清理后的`+0.0`认作差异。改成独立固定位置、物理方向及带容差零速度断言，保留旧frame和边界断言，不改production。
+- 修正后focused 6项全执行通过（29 s，9个task全部执行）；冻结源码用`GRADLE_USER_HOME=/workspace/.gradle`与`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`完整执行`:Core:test :Basic:test`，`BUILD SUCCESSFUL`（53 s，15个task全部执行）。Core 53 suites/308项（302执行、6个既有disabled环线）、Basic 59 suites/384项全执行，零失败/错误。task manifest 15+15及scoped diff check通过；保留既有Core冗余cast、Basic unchecked/safe-call/non-null assertion与Gradle deprecated warning。CR-020保持partial，Koin fixture、Basic observation collection/bodyTraversal及RailWand完整split/merge事务缺口继续开放，无部署/游戏验证。
+
 ### CR-014 停止新物理工作后保存与验证（2026-10-10）
 
 - `beginShutdown()`在既有stateLock内永久关闭wake入口并返回exact in-flight/latest-completed ticket；不等待、不取消、不改变RUNNING，使已开始epoch可以正常完成。MAIN/SIMULATION入口拒绝新请求，timer在同一锁内检查资格并分配ticket，关闭入口后静默返回；不能通过start重新开放。Bukkit唯一正常卸载入口改为成功await该ticket后capture/save，最后仍close；不引入第二协调器、超时或公开World接口。

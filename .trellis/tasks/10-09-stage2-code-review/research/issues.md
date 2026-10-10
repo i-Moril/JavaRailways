@@ -199,6 +199,7 @@
 - `RailwayObservationTest`未直接断言bodyTraversal投影和caller-owned各集合防御复制；现有排序/immutable断言有效，不能整项删除。stamp简单字段测试只作为合并候选，暂不认定无价值。
 - 已完成局部：真实匀速epoch/published几何与速度、真实尽头脱轨→coordinator事件排队、live mutation快照隔离，以及这四类world fixture的paired cleanup；共18项保持不变（12执行/6disabled），独立检查和7模块强制组合回归成功，见[记录](../implement.md#cr-020-局部测试改写与验证2026-10-10)。后续CR-014将coordinator既有2处无界barrier改为5 s有界断言；本轮又完成上述reader确定时序。Koin/Basic测试仍待修，publication reverse/derail还需直接验证immutable frame在正确边界变化，不以这些局部修复结案。
 - 后续局部改写：`CoreTrainAsymmetricTurnoutTest`的三项运动用例改为真实coordinator ticket完成后检查同epoch frame、固定实际位移、车尾路径/重锚和未脱轨，80次回归具有最终累计发布断言；`CoreTrainMultiCarDiagnosticTest`删除private `CommitBuffer`反射，用公开commit边界、真实50 ms epoch和固定2 m车fixture数值验证两车摆位、移动、间距及默认offset。两文件所有world/coordinator/tick owner均成对关闭，清理错误不覆盖已有测试失败；原11项测试数量不变。CR-020仍部分完成，Koin/Basic collection/bodyTraversal及publication reverse/derail immutable-frame缺口继续开放。
+- 当前补齐`CoreTrainPublicationBoundaryTest`原reverse/derail两项的immutable-frame边界：pending mutation和buffer publication都保留旧frame identity，显式frame publication推进revision/epoch并发布正确方向或脱轨状态；后续`commit`证明同时发布且保持epoch，旧帧仍保留原值。车厢物理方向与运营方向区分，reason继续检查live API。未改生产代码/增加用例，CR-020仍partial；Koin fixture、Basic collection/bodyTraversal及RailWand完整事务集成缺口保留。验证见[执行记录](../implement.md#cr-020-换向脱轨不可变帧发布边界2026-10-10)。
 
 ### C1 验证与限制
 

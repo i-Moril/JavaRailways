@@ -242,7 +242,7 @@ util/TickManagerImpl.kt
 
 - `java/work/art1st/javarailways/core/physics/train/CoreTrainPersistenceStateTest.kt`： zero-distance项改真实PhysicsCoordinator；保留位置恢复。
 
-- `java/work/art1st/javarailways/core/physics/train/CoreTrainPublicationBoundaryTest.kt`： 保留AB/BA/placement/reverse/derail；补finally和speed边界。
+- `java/work/art1st/javarailways/core/physics/train/CoreTrainPublicationBoundaryTest.kt`： 保留AB/BA/placement/reverse/derail；reverse/derail已补pending→buffer→frame→commit、旧immutable frame隔离、revision/epoch及物理/运营方向断言，资源清理失败保留原异常。真实coordinator接线由motion/derail integration另行覆盖。
 
 - `java/work/art1st/javarailways/core/physics/train/CoreTrainReversedPersistenceTest.kt`： 保留精确bogie恢复；失败项增加world/rail索引cleanup断言。
 

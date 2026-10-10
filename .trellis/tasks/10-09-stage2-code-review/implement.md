@@ -66,7 +66,7 @@
 - [x] 独立批次CR-032机械项：仅清空文件、无consumer helper/pool、未读临时list及废注释；逐项核实引用与持久化影响，事件/Seat/linksplit和需设计的旧factory/editor另列，不结案整个CR-032。
 - [x] 独立批次CR-020局部：将匀速/脱轨/快照测试改为真实epoch及live mutation后的值断言，补对应world资源finally；不增加测试数量，不把6项disabled环线算绿色。其余reader时序、Koin fixture及Basic observation缺口另列，不因局部改写结案。
 - [x] 独立批次CR-014：既有coordinator状态锁内永久停止新wake并捕获exact ticket，正常完成在途epoch之后才允许最终capture；Core边界连同宿主唯一卸载调用接入，补有界真实worker测试。不是close/abort，不新增超时、通用生命周期框架或正式Core API；7模块强制门禁通过，方法和限制见下。
-- 后续单列CR-023剩余恢复一致性、CR-026速度语义、CR-013/015/017生命周期及CR-020/032局部测试/残留清理；若核实需要新的产品选择或迁移要求，标记并跳过，不用猜测兜底替代。
+- 后续单列CR-023剩余恢复一致性、CR-026速度语义、CR-015/017生命周期及CR-020/032局部测试/残留清理；CR-013失败清理见下。若核实需要新的产品选择或迁移要求，标记并跳过，不用猜测兜底替代。
 
 ### CR-024 修复与组合门禁（2026-10-10）
 
@@ -131,6 +131,15 @@
 - 契约同步Core publication/DI生命周期及Bukkit生命周期；停止的仅是物理wake，不是所有编辑/通用tick/region task。Core真实并发边界已测，宿主接入经过源码追踪及既有消费测试，但未直接执行真实多owner final-save I/O或Folia场景；异常ticket也不证明所有worker已退出。CR-013异常清理、CR-015部分构造、CR-017 DI释放仍独立待处理，close仍是abort而非quiesce。
 - 独立检查无本批阻塞项：3条源码hash与冻结值相同，复核7模块XML/28项coordinator回归及10条scoped diff的契约和状态一致性；manifest 15+15和whitespace检查通过。未为复核启动额外构建或修改源码。
 - 未修改schema/version、事件/Seat/联结接口或构建配置，未运行Dokka/WebUI测试、部署、开发服迁移或游戏验证；既有编译/依赖warning保留。前轮成功Gradle daemon生成的667 MiB heap dump已非覆盖式移至ignored `.local/gradle-diagnostics/java_pid576750.hprof`保留，未读内容、未提交、未删除。
+
+### CR-013 卸载失败清理（2026-10-10）
+
+- 正常入口仍先标记unloading并撤UUID lookup；卸载开始时捕获exact owner world，保存及每项teardown通过同一局部顺序执行器分别尝试。首个异常保持主异常，后续异常按发生顺序加入suppressed；无论capture/write、render/tick或marker失败，最后都按exact identity移除旧owner map，避免旧world继续进入主tick或挡住同UUID重载。
+- 生产保存仍是`beginShutdown`→成功await exact ticket→capture→等待旧periodic write→写最终split snapshot；没有把失败改为成功、自动重试或空存档。topology订阅、speed processor、三个宿主service、physics、render、tick及异常标记均保持原owner，只将原本嵌套finally改为逐项失败隔离。内部重载仅是测试seam，不新增正式API或通用lifecycle框架。
+- 新增2项正式回归：持久化步骤失败作为主异常，同时让render/tick/marker失败并核对suppressed顺序；teardown自身首先失败时，后续tick/marker仍执行，并在final map remove前重绑相同Bukkit key以验证exact identity不会删除replacement。capture与write在卸载协调器中进入同一个持久化回调，失败后的控制流完全相同，因此不复制两项只改异常文本的低质量测试；两种生产异常均由这一边界覆盖。两项都断言physics关闭及对应map/lookup结果。
+- 最终源码上完整运行`:BukkitPlugin:test`，BUILD SUCCESSFUL（1m40s），26个task中10个执行；XML为85 suites/354项全部执行，零跳过/失败/错误。最终生产源码同时通过`:BukkitPlugin:shadowJar`，无测试替代运行时代码。scoped whitespace、任务manifest 15+15及Trellis契约复核通过；静态复核合并了上面无独立覆盖的重复参数执行，未发现本批阻塞项。
+- 既有Basic unchecked/safe-call、Bukkit deprecated/多余断言、JDK native/Unsafe、Gradle deprecated及WebUI 5项依赖漏洞/大bundle warning未在本批处理；没有Dokka、Folia/客户端、真实磁盘失败或游戏验证，不把离线门禁写成现场生命周期验证。
+- 不处理CR-015 factory尚未返回world时的partial-init资源、CR-017 Koin child scope、Folia region task完成或远端数据；无持久化shape/version、事件、Seat、联结或构建配置变化。
 
 ### CR-022 修复与验证（2026-10-10）
 

@@ -329,41 +329,75 @@ class WorldManager internal constructor(
     }
 
     fun unregisterRailWorld(bukkitWorld: BukkitWorld) {
+        unregisterRailWorld(
+            bukkitWorld = bukkitWorld,
+            captureAndSave = { coreWorld ->
+                val ticket = coreWorld.physicsCoordinator.beginShutdown()
+                ticket.await()
+                val snapshots = captureSnapshots(coreWorld, ticket.epoch)
+                snapshotWrites.remove(bukkitWorld)?.get()
+                snapshotWriter.submit {
+                    WorldPersistence.saveSplitSnapshots(bukkitWorld.uid, snapshots)
+                }.get()
+            },
+            clearAbnormalMarkers = AbnormalTrainMarker::clearWorld,
+            closeRender = { world -> world.renderChunkManager.close() },
+            closeTick = { world -> (world.tickManager as? AutoCloseable)?.close() }
+        )
+    }
+
+    /** Test seam for the unload failure matrix; production ownership remains in the public overload. */
+    internal fun unregisterRailWorld(
+        bukkitWorld: BukkitWorld,
+        captureAndSave: (CoreWorld) -> Unit,
+        clearAbnormalMarkers: (BukkitWorld) -> Unit,
+        closeRender: (World) -> Unit,
+        closeTick: (World) -> Unit
+    ) {
         ThreadGuard.ensureMainThread("WorldManager.unregisterRailWorld")
         unloadingWorlds.add(bukkitWorld)
         loadedWorlds.withdraw(bukkitWorld)
-        modelPresentationService?.removeWorld(bukkitWorld.uid, bukkitWorld)
-        railWorlds[bukkitWorld]?.let { rw ->
-            val coreWorld = rw as? CoreWorld
+
+        val ownedWorld = railWorlds[bukkitWorld]
+        var firstFailure: Throwable? = null
+        fun attempt(action: () -> Unit) {
             try {
-                val ticket = coreWorld?.physicsCoordinator?.beginShutdown()
-                ticket?.await()
-                coreWorld?.let {
-                    val snapshots = captureSnapshots(it, ticket?.epoch ?: 0L)
-                    snapshotWrites.remove(bukkitWorld)?.get()
-                    val worldId = bukkitWorld.uid
-                    snapshotWriter.submit {
-                        WorldPersistence.saveSplitSnapshots(worldId, snapshots)
-                    }.get()
-                }
-            } finally {
-                coreWorld?.let { world ->
-                    topologySubscriptions.remove(world)?.close()
-                    speedSafetyMonitors.remove(world)?.let(world.physicsCoordinator::unregisterPublishedFrameProcessor)
-                }
-                infrastructureResourceService?.removeWorld(bukkitWorld.uid)
-                signalEpochSourceService?.removeWorld(bukkitWorld.uid)
-                observationService?.removeWorld(bukkitWorld.uid)
-                coreWorld?.physicsCoordinator?.close()
-                try {
-                    rw.renderChunkManager.close()
-                } finally {
-                    (rw.tickManager as? AutoCloseable)?.close()
+                action()
+            } catch (failure: Throwable) {
+                val primary = firstFailure
+                if (primary == null) {
+                    firstFailure = failure
+                } else if (failure !== primary) {
+                    primary.addSuppressed(failure)
                 }
             }
         }
-        AbnormalTrainMarker.clearWorld(bukkitWorld)
-        railWorlds.remove(bukkitWorld)
+
+        attempt { modelPresentationService?.removeWorld(bukkitWorld.uid, bukkitWorld) }
+        if (ownedWorld != null) {
+            val coreWorld = ownedWorld as? CoreWorld
+            if (coreWorld != null) {
+                attempt { captureAndSave(coreWorld) }
+                attempt { topologySubscriptions.remove(coreWorld)?.close() }
+                attempt {
+                    speedSafetyMonitors.remove(coreWorld)
+                        ?.let(coreWorld.physicsCoordinator::unregisterPublishedFrameProcessor)
+                }
+            }
+            attempt { infrastructureResourceService?.removeWorld(bukkitWorld.uid) }
+            attempt { signalEpochSourceService?.removeWorld(bukkitWorld.uid) }
+            attempt { observationService?.removeWorld(bukkitWorld.uid) }
+            attempt { coreWorld?.physicsCoordinator?.close() }
+            attempt { closeRender(ownedWorld) }
+            attempt { closeTick(ownedWorld) }
+        }
+        attempt { clearAbnormalMarkers(bukkitWorld) }
+        attempt {
+            if (ownedWorld != null) {
+                railWorlds.remove(bukkitWorld, ownedWorld)
+            }
+        }
+        firstFailure?.let { throw it }
     }
 
     @EventHandler

@@ -121,11 +121,12 @@
 
 ### CR-013：卸载异常后已关闭世界仍留在主 tick 集合
 
-- 状态：已确认静态可达，待修复；建议 P1，正式游戏测试前应处理宿主生命周期。
+- 状态：已修复（2026-10-10）；P1宿主生命周期问题。CR-015 factory partial-init和CR-017 Koin scope仍独立开放。
 - 证据：`BukkitPlugin/.../logic/WorldManager.kt:339-366` capture/await/save 失败会执行资源关闭的 finally，但跳过 finally 外的 marker 清理和 railWorlds.remove；`:715-716` withdraw 只撤 UUID lookup。
 - 触发/影响：物理已 STALLED 后卸载，capture 直接抛；或 final save 失败。旧世界留在 owner map，后续 `tickStart:388-390` wake 关闭的 coordinator 再次抛，可能打断其他世界的遍历；同 BukkitWorld 的 register 又被 `:144` containsKey 挡住。
 - 最小建议：owner map/marker 撤出覆盖保存及清理异常的外层 finally，各资源关闭不得因前一个失败而跳过；保留保存失败诊断，不吞异常伪造成功。
 - 回归缺口：capture failure、write failure、teardown failure 下 map/lookup/资源都完成清理，同世界可重载，其他世界可继续 tick；已有 lookup 单测不覆盖真实 unload。
+- 处置：卸载捕获exact owner world，保存和每项资源关闭分别尝试；首个异常原样抛出，后续异常进入suppressed，最终按exact identity撤owner map。新增持久化失败与teardown失败2项回归，断言后续cleanup、physics关闭、map/lookup清除及同UUID重新绑定；capture/write失败共享同一卸载后继控制流，不复制只改异常文本的测试。定向测试通过，最终模块门禁见[执行记录](../implement.md#cr-013-卸载失败清理2026-10-10)。不把该修复扩写为factory/Koin/Folia全部生命周期完成。
 
 ### CR-014：final save 未停止 timer fallback，等待一次 ticket 不等于冻结世界
 

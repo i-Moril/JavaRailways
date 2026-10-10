@@ -136,8 +136,22 @@ SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重�
 
 - world load 的 split snapshot `Missing` 可创建新 world；`Corrupted` 禁用该 world 的 JavaRailways 功能并要求修复，不能当空世界覆盖。
 - unload先标记unloading并撤loaded-world lookup，再用coordinator `beginShutdown()`在其原stateLock内永久禁止新main/timer/simulation epoch并捕获exact ticket；在锁外成功await该ticket后才捕获/写最终snapshot，最后close coordinator/render/tick owner。beginShutdown保持RUNNING以允许在途正常publication，不是close/abort；失败ticket必须报告失败，不回退旧epoch，也不拿失败作为worker全部退出的证明。
+- snapshot capture/write或任一teardown步骤失败时，仍须分别尝试撤销topology/frame订阅、三个宿主service、physics/render/tick owner、异常标记与owner map。最先发生的异常保持为主异常，后续清理异常作为suppressed保留；不得因清理成功吞掉保存失败，也不得让旧world留在主tick集合阻止同UUID重新绑定。owner map删除使用卸载开始时捕获的exact world identity，不能误删随后绑定的新world。
 - platform commit 执行前重新解析 affinity；目标跨 region 时 reschedule，而不是在旧 owner 上执行。
 
-上面的physics保存边界已接入正常卸载；CR-013保存/teardown异常后的完整owner-map/逐项资源清理和CR-015 factory partial-init仍独立待修。没有因此承诺Bukkit跨region清理完成、全部world初始化失败可重试或Koin scope已经成对释放。
+上面的physics保存边界和CR-013失败清理已接入正常卸载入口；CR-015 factory partial-init仍独立待修。没有因此承诺Bukkit跨region清理完成、全部world初始化失败可重试或Koin scope已经成对释放。
+
+### 卸载失败隔离（CURRENT）
+
+1. **范围、触发与owner**：`WorldManager.unregisterRailWorld(BukkitWorld)`负责已发布world的宿主卸载。适用于正常world unload与插件停用逐world清理；未返回world的factory partial-init、Koin child scope和Folia region task完成不在此机制内。
+2. **正常流程**：simulation/main owner先把world加入unloading集合并撤销UUID lookup，捕获当时`railWorlds[bukkitWorld]`的exact对象；随后停止新physics epoch、等待exact ticket、捕获并写split snapshot，再依次撤订阅/service并关闭physics、render与generic tick owner，清异常标记，最后移除旧owner map。
+3. **内部机制**：保存和每个teardown动作分别交给同一个顺序执行器。执行器记录首个`Throwable`，继续运行后续动作，并把之后不同的异常按顺序加入首个异常的suppressed列表；全部动作结束后才重新抛出。map删除使用`remove(bukkitWorld, capturedWorld)`，所以清理期间即使同一key已换成新world，也不会被旧清理删除。
+4. **接口与数据**：正式入口仍只有`fun unregisterRailWorld(bukkitWorld: BukkitWorld)`；用于失败矩阵测试的internal overload只替换持久化、marker、render和tick动作，不改变生产owner或形成add-on API。`physicsEpoch`仍来自成功完成的exact `PhysicsTicket`，不是schema version。
+5. **生命周期与线程规则**：入口必须通过`ThreadGuard.ensureMainThread`；UUID lookup在任何blocking await/I/O前撤出。保存失败也必须关闭资源并撤owner map；失败不能回退旧成功epoch或重新开放wake。新binding只能由后续load重新发布，旧清理不能按UUID宽泛删除它。
+6. **失败矩阵**：physics/capture/write失败保留为主异常，后续cleanup仍执行；订阅/service/render/tick/marker失败时继续下一项；多个失败时首个为主、其余为suppressed；无已发布owner时只做lookup/marker撤出，不猜测或创建world。任何失败都不得被记录成保存成功。
+7. **性能与退化**：动作数由固定owner集合决定，为O(1) teardown；只有snapshot capture/write成本随world数据增长。失败时不重试、不复制snapshot，也不新增后台队列；退化行为是尽力释放固定资源后向调用方报告原失败。
+8. **具体情形**：正常卸载写完最终snapshot后关闭全部owner；磁盘写失败仍从主tick集合移除旧world；render close失败仍关闭tick并清marker；清理回调重入并发布replacement时，exact identity删除保留replacement。
+9. **必需测试**：持久化失败必须断言主异常身份、suppressed顺序、后续cleanup、physics CLOSED、map/lookup清除和同UUID重绑；teardown首先失败必须断言后续动作继续，并在final map remove前替换binding后验证新owner仍存在。模块测试与`shadowJar`门禁同时执行。
+10. **迁移、开放项与错误示例**：无持久化格式迁移。CR-015/017仍开放。错误做法是只用一个`finally`包最外层close、在其外删除map，或用`railWorlds.remove(key)`删除可能已经替换的binding；正确做法是逐项失败隔离并按captured identity删除。
 
 线程相关权威证据：`WorldManager.kt`、`BukkitThreadGuardBridge.kt`、`PlatformDispatcher.kt`、`docs-site/docs/architecture/threading-model.md`。

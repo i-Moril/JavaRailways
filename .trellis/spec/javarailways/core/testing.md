@@ -52,7 +52,11 @@ consumer test通过`testFixtures(project(":Core"))`复用；production不得依�
 
 `CoreTrainPublicationBoundaryTest`的reverse/derail回归分别观察pending mutation、`publishPhysicsState`翻转live buffer和`publishFrame`替换atomic frame三步：前两步保留原frame identity，最后一步检查新revision、传入epoch及方向/脱轨值，同时保留旧frame验证不变。`commit`必须同时推进buffer与frame且保持最近physics epoch。运营换向交换车头/车尾及rail facing，但保留车厢稳定物理渲染方向；脱轨reason属于live API，当前frame只有`derailed`，不能假设frame携带reason。这里直接验证内部发布原语，coordinator真实epoch与事件排队由已有集成回归负责。
 
-这些用例不替代其他未覆盖场景：disabled环线仍明确跳过，Koin fixture及RailWand完整split/merge事务集成继续跟踪；Basic observation集合复制与有序bodyTraversal已由[Basic测试契约](../basic/testing.md)所列回归覆盖，Basic整模块审查仍未完成。不能因为补了资源关闭就宣称全部publication断言已充分。清理失败必须在没有主失败时暴露，有主失败时作为suppressed附着，不能覆盖原始断言。拓扑锁阻塞回归捕获具体reader线程，并通过内部只读诊断确认该线程已进入`ReentrantReadWriteLock`等待队列后再检查future未完成；单纯在read调用前countDown仍可能在线程被抢占时产生假阳性。
+这些用例不替代其他未覆盖场景：disabled环线仍明确跳过，其余persistence fixture及RailWand完整split/merge事务集成继续跟踪；Basic observation集合复制与有序bodyTraversal已由[Basic测试契约](../basic/testing.md)所列回归覆盖，Basic整模块审查仍未完成。不能因为补了资源关闭就宣称全部publication断言已充分。清理失败必须在没有主失败时暴露，有主失败时作为suppressed附着，不能覆盖原始断言。拓扑锁阻塞回归捕获具体reader线程，并通过内部只读诊断确认该线程已进入`ReentrantReadWriteLock`等待队列后再检查future未完成；单纯在read调用前countDown仍可能在线程被抢占时产生假阳性。
+
+`CoreTrainPersistenceStateTest`的零距离回归必须用关闭timer fallback的真实coordinator，逐次有界等待exact ticket，并记录controller实际执行次数、frame epoch/revision递增、固定摆位和car/bogie零速度；generic TickManager的pre/postTick不能证明physics controller被执行。恢复用例保留source/restored比较，同时检查fixture独立给定的head/tail/car位置。
+
+`WorldPersistenceRoundTripTest`保留真实Koin child scope的source→JSON→load集成；`SplitWorldSnapshotTest`与`CoreTrainPersistenceStateTest`使用显式NoOp dependency。各测试在创建world以前就拥有tick/coordinator，并覆盖source设置、loaded world构造及断言失败；按physics→world runtime binding→tick顺序释放。`use`负责保留主异常和suppressed清理异常，共享Koin parent不由单项fixture关闭；load失败释放binding但不关闭caller-owned tick/coordinator，fixture必须关闭这些显式dependency。其余persistence fixture的资源清理仍单独跟踪，不能把本组三文件写成全套fixture完成。
 
 ## 项目内正确示例
 

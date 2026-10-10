@@ -289,6 +289,14 @@ env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
 
 每批开始前说明目的/方法，完成后单独验证、提交并打开预览；当前按用户于2026-10-10确认的节奏连续小提交，最后统一检查。若后续复核发现需要改变产品行为或扩大重构范围，先修改计划并交用户确认；不因总体计划获批就自行扩张。
 
+### CR-020 持久化fixture与零距离真实epoch（2026-10-10）
+
+- 本批限定`WorldPersistenceRoundTripTest`、`SplitWorldSnapshotTest`及`CoreTrainPersistenceStateTest`三文件，原7项测试保留。复核确认此前zero-distance仍驱动generic TickManager，实际controller注册于PhysicsCoordinator；过去已完成的匀速改写不能覆盖这项空跑，台账补充更正而不改写旧验证历史。
+- zero-distance使用显式`PhysicsCoordinator(1, automaticFallback=false)`，计数controller实际tick，6次50 ms exact ticket各以5 s上限等待；逐epoch检查ticket/metrics/frame匹配、revision推进、head/tail/car固定80/70/75 m和car/bogie零速度。存档恢复保留source实际比较，再检查固定位置；真实Koin JSON roundtrip增加独立18/10/14 m及AB方向预期。
+- 各fixture在CoreWorld create/load以前就拥有显式tick/physics；private local helper只组合已有`use`，保留主异常与suppressed，physics先停，再释放该world runtime binding，最后关闭tick及其scheduler。`CoreWorld.load`失败已自行回滚binding但不会关闭caller dependency，因此坏train restore测试也显式关闭传入physics/tick。共享Koin parent保持原owner，测试不关闭它。
+- 三类定向执行7项成功，9个task全部执行（10 s）；最终源码冻结后以`GRADLE_USER_HOME=/workspace/.gradle`、`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false`强制运行`:Core:test :Basic:test`，15个task全部执行，`BUILD SUCCESSFUL`（20 s）。XML：Core 53 suites/308项（302执行、6个既有disabled），Basic 59 suites/385项全执行，零失败/错误。既有Core cast、Basic unchecked/多余safe-call与Gradle deprecated warning保留。
+- 未改production/API、持久化shape/version，无部署/游戏验证。其余`CoreTrainReversedPersistenceTest`、`SavedRailConnectionsTest`等fixture资源缺口及RailWand完整split/merge集成仍单独跟踪，不以本批结案CR-020或整模块审查。
+
 ## 验证与关闭
 
 - 任务文档：`python3 .trellis/scripts/task.py validate .trellis/tasks/10-09-stage2-code-review`、`git diff --check`。

@@ -180,9 +180,9 @@ util/TickManagerImpl.kt
 
 - `java/work/art1st/javarailways/core/control/train/MockTrainController.kt`： 保留测试helper；永不finished command不能代表completion覆盖。
 
-- `java/work/art1st/javarailways/core/persistence/SplitWorldSnapshotTest.kt`： 保留materialization/rail身份/topology；改finally关闭。
+- `java/work/art1st/javarailways/core/persistence/SplitWorldSnapshotTest.kt`： 保留materialization/rail身份/topology；source/load setup前取得显式tick/coordinator owner，以use在失败/成功路径关闭physics、binding和tick。
 
-- `java/work/art1st/javarailways/core/persistence/WorldPersistenceRoundTripTest.kt`： 保留实际恢复；加强独立预期/fixed bad input/finally cleanup。
+- `java/work/art1st/javarailways/core/persistence/WorldPersistenceRoundTripTest.kt`： 保留真实Koin恢复和bad input；source/load setup均有显式resource owner与use清理，不关闭共享parent；添加固定18/10/14 m位置及AB方向预期。其余固定坏输入增强仍按持久化范围跟踪。
 
 - `java/work/art1st/javarailways/core/physics/CoreWorldActiveContinuationsPublicationTest.kt`： 保留：active选择与structural revision分离；可增强往返切换。
 
@@ -240,7 +240,7 @@ util/TickManagerImpl.kt
 
 - `java/work/art1st/javarailways/core/physics/train/CoreTrainMultiCarDiagnosticTest.kt`： 已删除private buffer反射；用commit前后公开状态、真实physics epoch和固定fixture数值验证两车摆位/移动/间距及默认offset。
 
-- `java/work/art1st/javarailways/core/physics/train/CoreTrainPersistenceStateTest.kt`： zero-distance项改真实PhysicsCoordinator；保留位置恢复。
+- `java/work/art1st/javarailways/core/physics/train/CoreTrainPersistenceStateTest.kt`： zero-distance项本批才改为真实PhysicsCoordinator，以controller计数及exact ticket/frame epoch证明实际执行；固定80/70/75 m及零motion，恢复保留source比较并加独立位置预期。两项fixture均以use保护setup/load/body失败；先前“改真实coordinator”是待办而非已完成。
 
 - `java/work/art1st/javarailways/core/physics/train/CoreTrainPublicationBoundaryTest.kt`： 保留AB/BA/placement/reverse/derail；reverse/derail已补pending→buffer→frame→commit、旧immutable frame隔离、revision/epoch及物理/运营方向断言，资源清理失败保留原异常。真实coordinator接线由motion/derail integration另行覆盖。
 

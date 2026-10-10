@@ -191,6 +191,8 @@
 ### CR-020：Core/Basic测试有效性及资源释放缺口
 
 - 状态：部分修复（2026-10-10）；P3，不批删测试，不把disabled计为绿色覆盖。下列保留原审查基线证据，当前处置见本节末。
+- 本批更正进度：`CoreTrainPersistenceStateTest`的zero-distance在此前仍只驱动generic TickManager，尚未执行physics controller；不能由“匀速测试已改真实epoch”推断它也完成。本批才改为关闭fallback的真实coordinator，6个有界exact ticket、controller调用计数、frame epoch/revision、固定80/70/75 m摆位及car/bogie零速度断言。source/restored位置比较保留并增加独立位置预期。
+- 同批仅修`WorldPersistenceRoundTripTest`、`SplitWorldSnapshotTest`和上述persistence state三文件的ownership：显式physics/tick在source/load setup前纳入use；world返回后保留binding，以physics→binding→tick顺序清理，失败保留主异常并附suppressed。真实Koin roundtrip保留，共享parent不关闭；无production或schema/version变化，7项测试数量不变。`CoreTrainReversedPersistenceTest`、`SavedRailConnectionsTest`等其余fixture及RailWand完整事务集成仍未闭合，CR-020保持partial。验证见[执行记录](../implement.md#cr-020-持久化fixture与零距离真实epoch2026-10-10)。
 - `Core/.../train/TrainUniformMotionTest.kt:30-50`：expected与actual都来自本地constantSpeed累加，未断言train实际位置，speed断言被注释；仅剩未脱轨断言仍有有限价值。应改为真实epoch后published位置/速度断言；同文件6项环线测试disabled，作为待恢复覆盖，不直接删除。
 - `CoreWorldRailTopologyTransactionTest.kt:439-488`：两项reader阻塞测试原先在sleep(50)前没有确认reader已进入读取路径；reader未调度也会通过isDone断言。现已捕获具体reader线程，并等待`railTopologyLock.hasQueuedThread(readerThread)`证明其实际阻塞于事务写锁，再检查未完成；finally释放writer并有界清理future/executor/world。最小内部诊断不进入公开API。
 - `CoreTrainDerailEventTest.kt:36-40`：测试复制coordinator条件并自行queue通知，删掉生产`PhysicsCoordinator.kt:439-440`调用仍能绿。应由真实stepSimulation触发，再断言派发前0、后1、重复仍1；保留reason/epoch/token cleanup。

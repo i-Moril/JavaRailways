@@ -215,6 +215,8 @@
 - `CoreTrain.kt:345-361,686-691`只校验车内bogie欧氏间距，无完整车端/相邻车连续性校验。
 - **已复现**：保留实际bogie弧长50.5m，却将saved head/tail设为180/140m；load成功并发布bodyTraversal/occupiedIntervals=[140,180]。
 - 建议在load发布前校验完整编组；补固定损坏current fixture，不添加猜测兼容/版本升级。
+- **部分修复（2026-10-10，P1剩余项保留）**：同一tail→head路径的exact rail/facing、bogie顺序/弧长间距与两端offset现在在成功恢复发布前验证；固定损坏输入与合法straight/curve/reverse/asymmetric-turnout共14项正式回归通过。6种坏输入已在旧实现确认全部被接受，另3项精确spacing/end-offset回归随实现补齐；不把后3项描述成已跑红灯。独立检查及Core/Basic组合门禁通过，详见[记录](../implement.md#cr-023-部分修复与剩余缺口2026-10-10)。
+- 剩余：精确相邻车钩间距仍无法由当前restore可靠校验。R=30 m、bogie弧长6 m的合法3车编组，还原centre偏移约10 mm、首车钩残差约6.15 mm；临时诊断同时确认内部车bogies共同平移1 m、仍保持路径/顺序及两端位置时会被旧load接受。根因是保存位置缺少求解锚点、当前运动/换向与restore的centre恢复不一致，不能放宽5 mm车钩容差来假装解决。未新增持久化字段/兼容/版本，后续先统一几何还原规则。
 
 ### CR-024：碰撞broad phase漏掉跨bucket的容差内接触
 

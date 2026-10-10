@@ -353,24 +353,82 @@ open class CoreTrain @MainThread internal constructor(
         updateAfterHeadBogie()
     }
 
-    /** Rebuild derived car/end state without re-solving or moving exact persisted bogie locations. */
+    /** Validate the saved path before rebuilding state without moving exact persisted bogies. */
     internal fun restorePersistedPlacement(reversed: Boolean) {
-        isReversed = reversed
-        cars.forEach { it.restorePersistedState(reversed) }
-        cars.forEach { car ->
-            val actualBogieDistance = car.bogieA.location.position.distance(car.bogieB.location.position)
-            val configuredBogieDistance = kotlin.math.abs(car.bogieAOffset - car.bogieBOffset)
-            if (kotlin.math.abs(actualBogieDistance - configuredBogieDistance) >
-                PERSISTED_BOGIE_POSITION_TOLERANCE_METERS
-            ) throw CannotCreateTrainException()
-        }
-        head.location = requireNotNull(persistedHeadLocation) {
+        val savedHead = requireNotNull(persistedHeadLocation) {
             "persisted train $id is missing its head location"
         }
-        tail.location = requireNotNull(persistedTailLocation) {
+        val savedTail = requireNotNull(persistedTailLocation) {
             "persisted train $id is missing its tail location"
         }
+        validatePersistedPlacementPath(savedTail, savedHead, reversed)
+        isReversed = reversed
+        cars.forEach { it.restorePersistedState(reversed) }
+        head.location = savedHead
+        tail.location = savedTail
         pendingSweptSpans = spansFromLocations(activeRailLocations())
+    }
+
+    /**
+     * Use the same tail-to-head active path as body publication. Backward selection at a turnout
+     * can differ from the occupied forward path. World positions alone cannot prove rail identity
+     * or facing, and bogie spacing is rail arc distance rather than the chord across a curve.
+     * This checks path, bogie spacing and end offsets; it does not prove inter-car coupler geometry.
+     */
+    private fun validatePersistedPlacementPath(
+        savedTail: RailLocationWithFacing,
+        savedHead: RailLocationWithFacing,
+        reversed: Boolean
+    ) {
+        val segments = placementSegments(savedTail, savedHead)
+        val pathLength = segments.sumOf { it.totalArcLength }
+        var segmentIndex = 0
+        var precedingLength = 0.0
+        var previousDistance = 0.0
+
+        fun distanceAlongPath(location: RailLocationWithFacing): Double {
+            while (segmentIndex < segments.size) {
+                val segment = segments[segmentIndex]
+                if (segment.railView === location.railView &&
+                    location.arcLength >= segment.startArcLength - Curve.TOLERANCE &&
+                    location.arcLength <= segment.endArcLength + Curve.TOLERANCE
+                ) {
+                    val distance = precedingLength + location.arcLength - segment.startArcLength
+                    check(distance + Curve.TOLERANCE >= previousDistance) {
+                        "persisted train $id has bogies out of order on its tail-to-head path"
+                    }
+                    previousDistance = distance
+                    return distance
+                }
+                precedingLength += segment.totalArcLength
+                segmentIndex++
+            }
+            error("persisted train $id has a bogie outside its tail-to-head path or facing")
+        }
+
+        val tailToHeadCars = if (reversed) cars else cars.asReversed()
+        tailToHeadCars.forEachIndexed { index, car ->
+            val tailBogie = if (reversed) car.bogieA else car.bogieB
+            val headBogie = if (reversed) car.bogieB else car.bogieA
+            val tailDistance = distanceAlongPath(tailBogie.location)
+            val headDistance = distanceAlongPath(headBogie.location)
+            val configuredSpacing = car.bogieAOffset - car.bogieBOffset
+            check(kotlin.math.abs(headDistance - tailDistance - configuredSpacing) <= Curve.TOLERANCE) {
+                "persisted train $id car ${car.id} has inconsistent bogie arc spacing"
+            }
+            if (index == 0) {
+                val tailOffset = if (reversed) car.bogieAToEndPointOffset else car.bogieBToEndPointOffset
+                check(kotlin.math.abs(tailDistance - tailOffset) <= Curve.TOLERANCE) {
+                    "persisted train $id has an inconsistent tail endpoint offset"
+                }
+            }
+            if (index == tailToHeadCars.lastIndex) {
+                val headOffset = if (reversed) car.bogieBToEndPointOffset else car.bogieAToEndPointOffset
+                check(kotlin.math.abs(pathLength - headDistance - headOffset) <= Curve.TOLERANCE) {
+                    "persisted train $id has an inconsistent head endpoint offset"
+                }
+            }
+        }
     }
 
     /** Remove constructor side effects when persisted placement validation fails. */
@@ -811,7 +869,6 @@ open class CoreTrain @MainThread internal constructor(
 
     companion object {
         const val COLLISION_SPEED = 2.78 // ~10km/h
-        private const val PERSISTED_BOGIE_POSITION_TOLERANCE_METERS = 1.0
         private const val TAIL_END_SEARCH_MARGIN_METERS = 1.0
 
         @JvmStatic

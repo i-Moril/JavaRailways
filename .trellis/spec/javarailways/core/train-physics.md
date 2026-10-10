@@ -47,6 +47,14 @@ head-forward mission route前面，以满足Basic“冻结路线从物理车尾�
 
 构造未返回时，传入cars仍由调用方拥有；此清理不调用完整`destroy()`或`discardFailedLoad()`，不销毁cars/bogies。已返回列车的加载恢复失败仍由[持久化加载边界](./persistence.md)处理。`TrainExtension`没有通用destroy/rollback协议，本边界不承诺撤销extension任意外部副作用；正常的列车销毁及结构变更也不能用此局部清理替代。
 
+## 存档摆位恢复与当前缺口
+
+`restorePersistedPlacement`先验证保存的位置，再恢复derived car state和车端；不重新摆车来覆盖损坏输入。它复用body publication的`placementSegments(savedTail, savedHead)`：沿tail→head的active path一次展开，不能从head反向沿当前道岔选择重算，因为两个方向的选择可以不对称。
+
+单调cursor按operating顺序从车尾向车头扫描各车tail/head bogie，要求exact `RailView`身份（包含facing）、位置落在该segment且距离不倒退；累计segment弧长得到统一路径距离。车内两bogie间距按配置的**轨道弧长**校验，不能拿曲线两点的欧氏弦长代替；首尾bogie到saved endpoint的offset也以同一距离校验，误差均不超过`Curve.TOLERANCE`（5 mm）。除已有路径展开外只顺序访问一次segments/bogies，校验在load执行，不增加正常tick扫描。失败交回既有failed-load清理，不改变调用方的合法精确位置。
+
+**仍未实现完整相邻车钩几何验证。** SavedCar只保存bogie及配置，没有记录当时以head或tail恢复车体中心的求解锚点；现有运动/换向与restore使用锚点不同，合法曲线还原也可能产生大于5 mm的车钩残差。因此路径顺序及车内间距正确仍不能证明相邻车相接，内部某车平移而保持顺序的损坏输入可能被接受。解决中心还原的一致性后才能关闭此缺口；不得加宽车钩容差或声称当前load已完成整编组预校验。
+
 ## Collision、derail、reverse矩阵
 
 | 触发 | 当前epoch结果 | 后续结果/side effect |
@@ -99,6 +107,7 @@ override fun destroy() {
 - `PhysicsCoordinatorTest.kt`：stationary collision、pair once、next-epoch decision。
 - `CoreTrainDerailEventTest.kt`、`CoreTrainPublicationBoundaryTest.kt`：publication before event/getter。
 - `CoreTrainConstructionTest.kt`：直接构造/存档加载的ID、name及交叉命名空间拒绝不污染world/rail索引；tail无法放置不注册head；extension初始化失败清理车端和controller、保留原列车及调用方cars，并允许同身份成功重试。
+- `CoreTrainPersistedPlacementTest.kt`：固定损坏车端JSON；脱节/重排/错误rail或facing、bogie弧长及两端offset拒绝并保持原world/rail/frame/mailbox；合法直线/曲线AB与BA、非对称道岔精确位置保留。相邻车钩缺口不能计作已覆盖。
 - 新link/split/destroy变更必须断言cars、ends、controller、world indexes和extensions全量cleanup。
 
 ```bash

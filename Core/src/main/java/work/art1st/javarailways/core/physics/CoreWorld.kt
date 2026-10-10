@@ -272,9 +272,11 @@ class CoreWorld(
 
     @MainThread
     override fun removeTrain(train: Train) {
-        publishedTrainFrames.remove(train.id)
-        trains.remove(train.id)
+        if (trains.remove(train.id, train)) {
+            publishedTrainFrames.remove(train.id)
+        }
         trainsByName.remove(train.name, train)
+        (train as? CoreTrain)?.retirePublicationOwnership()
     }
 
     /**

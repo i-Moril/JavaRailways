@@ -41,6 +41,7 @@ import work.art1st.javarailways.core.util.trait.TrainComponentTrait
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import java.util.UUID
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 
 /**
@@ -57,6 +58,9 @@ open class CoreTrain @MainThread internal constructor(
     private val persistedHeadLocation: RailLocationWithFacing? = null,
     private val persistedTailLocation: RailLocationWithFacing? = null,
 ) : Train, TrainComponentTrait<Train, TrainExtension>, Destroyable, Synchronizable, Extendable<TrainExtension> by extensionDataContainer, PersistentBy<SavedTrainV1> {
+    /** Process-local implementation identity for render handoff; not persistence or `core.api`. */
+    val publicationStreamId: UUID = UUID.randomUUID()
+
     @Volatile
     private var _name: String = validateTrainName(initialName)
     override val name: String
@@ -166,6 +170,7 @@ open class CoreTrain @MainThread internal constructor(
                 emptyList()
             }
             publishedFrameRef.set(captureFrame(revision = 0L, physicsEpoch = 0L))
+            cars.forEach { it.transferPublicationOwnership(publicationStreamId) }
         } catch (failure: Throwable) {
             // Only this constructor's registrations are owned here; its caller still owns the cars.
             runCatching { removeController() }.exceptionOrNull()?.let(failure::addSuppressed)
@@ -606,6 +611,7 @@ open class CoreTrain @MainThread internal constructor(
             otherTrain.removeController()
             otherTrain.head.destroy()
             otherTrain.tail.destroy()
+            otherTrain.cars.forEach { it.transferPublicationOwnership(publicationStreamId) }
             world.removeTrain(otherTrain)
         }
     }
@@ -816,6 +822,10 @@ open class CoreTrain @MainThread internal constructor(
 
     fun removeController() {
         setController(null)
+    }
+
+    internal fun retirePublicationOwnership() {
+        cars.forEach { it.retirePublicationOwnership(publicationStreamId) }
     }
 
     @MainThread

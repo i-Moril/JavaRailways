@@ -586,12 +586,14 @@ class WorldManager internal constructor(
     private fun dispatchPublishedTrainFrames(bukkitWorld: BukkitWorld, coreWorld: CoreWorld) {
         coreWorld.drainPublishedTrainFrames().forEach { trainFrame ->
             val train = coreWorld.getTrain(trainFrame.trainId) ?: return@forEach
+            if (train.publishedFrame !== trainFrame) return@forEach
             if (train.cars.size != trainFrame.cars.size) return@forEach
             if (trainFrame.cars.indices.any { train.cars[it].id != trainFrame.cars[it].carId }) return@forEach
             for (index in trainFrame.cars.indices) {
                 queueCarFrame(
                     PendingCarFrame(
                         bukkitWorld = bukkitWorld,
+                        publicationStreamId = train.publicationStreamId,
                         car = train.cars[index],
                         frame = trainFrame.cars[index],
                         revision = trainFrame.revision,
@@ -616,9 +618,13 @@ class WorldManager internal constructor(
         )
         BukkitPlugin.INSTANCE.platformDispatcher.runAt(location) {
             try {
-                if (!stopping && pending.bukkitWorld !in unloadingWorlds) {
-                    pending.car.carRendererOrNull?.applyFrame(
+                if (!stopping &&
+                    pending.bukkitWorld !in unloadingWorlds &&
+                    pending.car.isOwnedByPublicationStream(pending.publicationStreamId)
+                ) {
+                    pending.car.carRendererOrNull?.applyPublishedFrame(
                         frame,
+                        pending.publicationStreamId,
                         pending.revision,
                         pending.trainSpeedMetersPerSecond
                     )
@@ -723,6 +729,7 @@ class WorldManager internal constructor(
 
     private data class PendingCarFrame(
         val bukkitWorld: BukkitWorld,
+        val publicationStreamId: UUID,
         val car: CoreCar,
         val frame: CarFrameSnapshot,
         val revision: Long,

@@ -18,6 +18,8 @@ import work.art1st.javarailways.core.api.util.plugin.Extendable
 import work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
 import work.art1st.configLib.persistence.PersistentBy
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.absoluteValue
 import kotlin.math.max
 
@@ -42,6 +44,19 @@ class CoreCar @MainThread internal constructor(
     savedExtensionData: Map<String, SerializableExtensionData>,
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Car>> = ExtensionDataContainer()
 ) : Car, Reversible, DynamicRenderableTrait<Car>, Extendable<RenderableExtension<Car>> by extensionDataContainer, PersistentBy<SavedCarV1> {
+
+    private val publicationOwnerStream = AtomicReference<UUID?>()
+
+    /** Atomic implementation-only render ownership proof; process-local and never persisted. */
+    fun isOwnedByPublicationStream(streamId: UUID): Boolean = publicationOwnerStream.get() == streamId
+
+    internal fun transferPublicationOwnership(streamId: UUID) {
+        publicationOwnerStream.set(streamId)
+    }
+
+    internal fun retirePublicationOwnership(streamId: UUID) {
+        publicationOwnerStream.compareAndSet(streamId, null)
+    }
 
     /**
      * 车厢内的座位列表，position/direction 由车厢当前状态实时计算。

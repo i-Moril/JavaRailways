@@ -47,7 +47,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var modelStateApplied: Boolean = false
     private var detailStateCurrent: Boolean = false
     private var forceNextModelUpdate: Boolean = false
-    private var latestFrameRevision: Long = -1L
+    private val publishedFrameGate = CarFramePublicationGate()
     private var latestFrame: CarFrameSnapshot? = null
     private var latestTrainSpeedMetersPerSecond: Double = 0.0
     private var builtModelGeneration: Long = -1L
@@ -86,21 +86,50 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     /** Synchronous commit entry point used by explicit Core command paths. */
+    @Synchronized
     override fun commit() {
-        applyFrame(
+        applyFrameState(
             captureLiveFrame(),
-            latestFrameRevision + 1L,
             latestTrainSpeedMetersPerSecond
         )
     }
 
-    /** Applies one value-only frame; stale revisions cannot move a model backwards. */
+    /** Applies one value-only frame; revisions are ordered only within their exact runtime train. */
     @Synchronized
-    fun applyFrame(
+    internal fun applyPublishedFrame(
         frame: CarFrameSnapshot,
+        publicationStreamId: UUID,
         revision: Long,
         trainSpeedMetersPerSecond: Double
     ) {
+        require(revision >= 0L) { "published car frame revision must be non-negative" }
+        require(trainSpeedMetersPerSecond.isFinite() && trainSpeedMetersPerSecond >= 0.0)
+        ensureFrameLocationOwned(frame)
+        if (!publishedFrameGate.accept(self as CoreCar, publicationStreamId, revision)) return
+        applyFrameState(
+            frame,
+            trainSpeedMetersPerSecond,
+            locationOwnershipChecked = true,
+            speedChecked = true
+        )
+    }
+
+    private fun applyFrameState(
+        frame: CarFrameSnapshot,
+        trainSpeedMetersPerSecond: Double,
+        locationOwnershipChecked: Boolean = false,
+        speedChecked: Boolean = false
+    ) {
+        if (!locationOwnershipChecked) ensureFrameLocationOwned(frame)
+        if (!speedChecked) require(trainSpeedMetersPerSecond.isFinite() && trainSpeedMetersPerSecond >= 0.0)
+        val oldPosition = latestFrame?.state?.positionVector() ?: self.lastState.position
+        latestFrame = frame
+        latestTrainSpeedMetersPerSecond = trainSpeedMetersPerSecond
+        self.world.renderChunkManager.update(self, oldPosition, frame.state.positionVector())
+        super.commit()
+    }
+
+    private fun ensureFrameLocationOwned(frame: CarFrameSnapshot) {
         BukkitThreadOwnership.ensureLocation(
             Location(
                 self.world.bukkitWorldData.bukkitWorld,
@@ -108,16 +137,8 @@ class CarExtension : TrainComponentExtension<Car>() {
                 frame.state.positionY,
                 frame.state.positionZ
             ),
-            "CarExtension.applyFrame"
+            "CarExtension.applyPublishedFrame"
         )
-        if (revision <= latestFrameRevision) return
-        require(trainSpeedMetersPerSecond.isFinite() && trainSpeedMetersPerSecond >= 0.0)
-        val oldPosition = latestFrame?.state?.positionVector() ?: self.lastState.position
-        latestFrame = frame
-        latestFrameRevision = revision
-        latestTrainSpeedMetersPerSecond = trainSpeedMetersPerSecond
-        self.world.renderChunkManager.update(self, oldPosition, frame.state.positionVector())
-        super.commit()
     }
 
     @Synchronized
@@ -397,5 +418,20 @@ class CarExtension : TrainComponentExtension<Car>() {
         private const val FAR_UPDATE_INTERVAL = 4
         private const val MOVING_EPSILON_SQUARED = 1.0e-6
         private const val SERVER_TICKS_PER_SECOND = 20.0
+    }
+}
+
+/** Per-car ordering gate for frames emitted by one exact process-local train stream. */
+internal class CarFramePublicationGate {
+    private var publicationStreamId: UUID? = null
+    private var latestRevision: Long = -1L
+
+    fun accept(car: CoreCar, streamId: UUID, revision: Long): Boolean {
+        require(revision >= 0L) { "published car frame revision must be non-negative" }
+        if (!car.isOwnedByPublicationStream(streamId)) return false
+        if (publicationStreamId == streamId && revision <= latestRevision) return false
+        publicationStreamId = streamId
+        latestRevision = revision
+        return true
     }
 }

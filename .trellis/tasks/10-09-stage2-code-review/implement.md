@@ -63,6 +63,14 @@
 - [x] 独立批次CR-025：最近点扫描真实piecewise-linear线段做投影，reverse复用canonical结果，复用既有frame插值；保留CurveException message，不加密stream、不新增索引或改raw-input合同。
 - [x] 独立批次CR-027：load和prepared snapshot共用单端点严格解析，A/B均解析后才写；拒绝坏引用/远离端点/重复或超容量/非法active，保留合法null与顺序。运行时remove/structural-undo的合法fallback不变，不声称全world恢复事务已解决。
 - [x] 独立批次CR-028：构造/decode共享一次raw-point输入校验，Vector3d缺字段拒绝；同步修Core LINE stream重复末点与Basic ConstraintSolver重复接头，不在decode去重兜底、不加热路径扫描。raw frame要求finite/可归一化/非平行，不额外禁止合法非正交输入；位置相同不等于弧长重复。
+- [x] 独立批次CR-018：car render revision按opaque runtime train stream隔离；Core以原子owner token覆盖构造、link和remove，Bukkit region task不读取live train map/cars，换属主后接受new-low并拒绝delayed-old。direct commit不污染published gate，无持久化/版本或link policy变化。
+
+### CR-018 修复与验证（2026-10-10）
+
+- 实现：`CoreTrain`每实例生成process-local UUID；`CoreCar`原子保存当前owner。构造成功后绑定，link在几何更新成功后转移，`CoreWorld.removeTrain`使用exact instance删除并按exact token退休；重复移除旧实例不会删除同ID replacement或其mailbox frame。Bukkit只把UUID带到region task，先验证current published frame对象，再以owner token + per-stream revision gate拒绝迟到帧；direct commit保持独立同步路径。
+- 回归：`CoreTrainLinkTest`覆盖构造/link/remove及同ID replacement exactness；`CarFrameRevisionGateTest`按真实old-high → link → new-low → delayed-old顺序证明旧stream不能切回。删除了只用注释声称direct commit行为的低质量测试。
+- 最终稳定源码验证：`GRADLE_USER_HOME=/workspace/.gradle ./gradlew :Core:test :BukkitPlugin:test --offline --no-build-cache --no-parallel --rerun-tasks -Dkotlin.compiler.execution.strategy=in-process`成功，Core 296 tests（6 skipped）、BukkitPlugin 360 tests，零failure/error；随后单独`:BukkitPlugin:shadowJar`成功，`git diff --check`成功。一次在源码仍被审查修改时启动的组合test+shadowJar产生test-fixture `NoClassDefFoundError`，不计正式结果；稳定源码串行重跑已消除。
+- 边界：没有Folia实体/客户端现场验证；不修link/split事务本身、不改变默认collision policy、不增加持久化字段/版本或公开add-on API。
 - [x] 独立批次CR-032机械项：仅清空文件、无consumer helper/pool、未读临时list及废注释；逐项核实引用与持久化影响，事件/Seat/linksplit和需设计的旧factory/editor另列，不结案整个CR-032。
 - [x] 独立批次CR-020局部：将匀速/脱轨/快照测试改为真实epoch及live mutation后的值断言，补对应world资源finally；不增加测试数量，不把6项disabled环线算绿色。其余reader时序、Koin fixture及Basic observation缺口另列，不因局部改写结案。
 - [x] 独立批次CR-014：既有coordinator状态锁内永久停止新wake并捕获exact ticket，正常完成在途epoch之后才允许最终capture；Core边界连同宿主唯一卸载调用接入，补有界真实worker测试。不是close/abort，不新增超时、通用生命周期框架或正式Core API；7模块强制门禁通过，方法和限制见下。

@@ -170,11 +170,12 @@
 
 ### CR-018：联结后 car renderer 比较了不同 train 的 revision
 
-- 状态：已确认受支持入口静态可达，未运行渲染复现；P2，是否阻塞游戏测试取决于联结验收范围。
+- 状态：已修复（2026-10-10）；P2。自动测试覆盖换属主时序，Folia实体/客户端呈现仍待游戏内验证。
 - 证据：`CoreTrain.kt:574` revision按train递增；`:528` linkWith保留并移动原car对象；`WorldManager.kt:549`只给car传裸train revision；`extension/train/CarExtension.kt:50,113,117`按car保存一个latestFrameRevision且无换属主入口。Bukkit TrainExtension.linkWith为Unit。
 - 触发/影响：旧列车车厢已应用高revision，新低revision列车作为survivor接入它，之后新属主frame全部被误判stale直到计数追平；旧属主排队的region frame也缺属主校验。默认collision是DERAIL，仓库没有生产listener请求LINK，不能描述为默认碰撞必现；公开CoreTrain.linkWith或CollisionEvent.requestLink可触发此能力。
 - 最小建议：单独设计可区分publication stream身份/换属主代际的frame门禁，或car-owned revision；只清零计数会接受旧pending frame，不足以修复。
 - 回归缺口：低revision survivor接入高revision车厢后立即更新；延迟旧owner task不能覆盖新owner。既有CoreTrainLinkTest只检查端点清理。
+- 处置：每个`CoreTrain`生成不持久化的opaque runtime stream UUID，`CoreCar`用原子引用保存当前owner token；构造成功绑定、link转移、remove按exact token退休。Bukkit pending frame只携带UUID，不再让region task遍历live world/train集合；owner token匹配后才更新per-car stream/revision gate，同ID runtime重建另用新UUID，mailbox frame还须与当前train的published frame对象一致。正式回归执行old-high → link → new-low → delayed-old并验证旧stream不能切回；direct commit继续绕开published gate。无公开`core.api`、持久化、版本或link policy变化。
 
 ### CR-019：tail-release遗留没有行为的拓扑字段与错误分支
 

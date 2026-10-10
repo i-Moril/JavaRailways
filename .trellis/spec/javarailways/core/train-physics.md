@@ -37,7 +37,9 @@ head-forward mission route前面，以满足Basic“冻结路线从物理车尾�
 
 公开`tail`、`bodyTraversal`与`tailTraversal`的长期安全语义是“保守安全车尾”，而不是强制精确几何车尾。当前实现发布精确train-end；未来低精度模式可让安全车尾落后于真实车尾并延迟释放，但禁止让它沿行驶方向领先真实车尾。与此一致，`bodyTraversal`和`occupiedIntervals`必须覆盖epoch末真实车体；允许多占，不允许漏占。
 
-完整删除由`CoreTrain.destroy()`拥有：deferred structural task → remove controller → destroy head/tail/cars/extensions → `world.removeTrain(this)`。`World.removeTrain`只删index，不能独立代表destroy。
+完整删除由`CoreTrain.destroy()`拥有：deferred structural task → remove controller → destroy head/tail/cars/extensions → `world.removeTrain(this)`。`World.removeTrain`只删index并退休process-local render ownership proof，不能独立代表destroy。
+
+每个runtime `CoreTrain`另有不持久化的publication stream UUID；每个`CoreCar`用原子引用保存当前stream owner，供平台region线程在不读取live train集合时拒绝迟到render task。构造完整成功后绑定cars；link把被并入cars转移到survivor后再移除旧train；split的新`CoreTrain`构造负责取得其cars；任何`CoreWorld.removeTrain`按exact旧token退休仍属于该train的cars，因此已经转移的cars不会被旧owner清空。该token不改变link/split事务语义，也不是公开`core.api`、epoch或schema version。
 
 ## 构造与失败清理
 

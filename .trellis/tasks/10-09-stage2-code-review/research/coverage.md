@@ -1,6 +1,15 @@
 # 全项目审查覆盖记录
 
-本清单描述实际覆盖，不按文件数/测试数计算审查百分比。状态分为未开始、部分覆盖、该批检查完成（不等于模块通过）。源码静态检查、定向复现、既有测试执行和游戏现场验证分别记录。
+本清单描述实际覆盖，不按文件数/测试数计算审查百分比。状态分为未开始、部分覆盖、模块首轮完整审查完成（不等于模块通过）。源码静态检查、定向复现、既有测试执行和游戏现场验证分别记录。
+
+## 当前模块交付（2026-10-10）
+
+- **Core 首轮完整审查完成，缺陷未修。** 合并C1与本轮C2，按当前源码清单闭合全部136个生产文件、49个测试源文件（包括2个helper和1份opt-in stress）、5个fixture；另查build、Dokka输入、全部14份Core规范及对应网页/代码地图。数量只用于发现漏审文件，不是质量分数。
+- [整模块报告](./core-module-review.md)：逻辑、可维护性/可读性、文档、错误处理/过度兜底、残留代码、规范一致性、测试七维结论；含优先级和建议。
+- [逐文件清单](./core-review-inventory.md)：明确分区、文件和文档范围；不是只列已发现问题的文件。
+- 本轮真实复现：split失败破坏原编组、跨bucket容差漏碰撞、LINE最近点偏移、移动时car/bogie速度仍为0、损坏车端存档发布错误占用、重复列车构造遗留ACTIVE端点。临时诊断只在`/tmp`，不进入正式实现/测试套件。
+- 本轮强制重跑`:Core:test :Basic:test`及Core Dokka：BUILD SUCCESSFUL，18个Gradle任务执行；Core46 suites/212项（206执行、6跳过），Basic59 suites/382项全执行，零失败/错误。Dokka仍有缺KDoc/无法解析链接warning，不能认定文档合规。未执行opt-in stress matrix，也未部署或做游戏/Folia验证。
+- **Basic仍仅部分覆盖。** 本轮重跑其测试是Core边界验证，不等于阅读完Basic；下一次以完整Basic为报告单位。
 
 ## 批次 C1：Core runtime 与 Basic observation 边界
 
@@ -33,7 +42,7 @@
 
 ## 各模块状态与后续范围
 
-- **Core：部分覆盖。** C1覆盖runtime/epoch/publication与部分生命周期。待查曲线/二分弧长定位、轨道连接/编辑/拓扑构建、完整train movement/collision/reverse/link/split、event bus、extension registry、持久化codec/prevalidation及其余测试；DI、frame和fixture的新问题也尚未修复。
+- **Core：首轮完整静态审查完成，待修复/回归。** C1+C2覆盖全部当前生产/测试/fixture及对应文档；6条诊断已复现，其余结论明确标静态证据或待验证。CR-013至CR-018、CR-020的Core部分与CR-021至CR-034仍待处置，不能写成Core通过。平台全生命周期及现场行为未因跨层追踪而完成。
 - **Basic：部分覆盖。** C1只覆盖observation消费及部分生命周期/释放边界，之前metadata/API清理不算全模块通过。待查通用寻路与投影、resource registry/admission/edit permit完整并发链、actuator/动力学、安全限速/脱轨、curve authoring、WayPoint/方向/metadata、ConfigUI及持久化。
 - **SimpleATO：部分历史路径覆盖。** 本批只追消费边界；先前路线API/运营编辑迁移不是完整审查。待按ATO控制、感知/制动、运营数据/路线、时刻表/车站/车辆段/控制权及simulation/persistence逐项审查。
 - **SimpleATOBukkit：部分历史路径覆盖。** 编辑迁移已有回归；待查全部接线、诊断、适配线程/错误/lifecycle及测试。
@@ -48,4 +57,4 @@
 
 ## 下一批边界
 
-继续Core：曲线/弧长定位与拓扑构建/编辑算法，按各自契约检查真实算法、不变量和测试断言；C1问题先进入台账，不以发现问题替代余下审查。Basic完整审查待Core相关基础路径清楚后逐批推进。是否先修C1高优先级问题由用户检查后决定。
+按用户要求以完整模块交付：接下来完整审查Basic，而非再提交一个局部调用链报告。是否先修Core高优先级问题由用户检查后决定；全项目审查、全部问题修复和正式游戏验收仍未完成。

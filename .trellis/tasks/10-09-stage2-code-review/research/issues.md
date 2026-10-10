@@ -189,3 +189,100 @@
 - 主会话实际运行 `:Core:test :Basic:test --rerun-tasks`，14个task全部执行，BUILD SUCCESSFUL（35s）；Core212项含6跳过，Basic382项全部执行，零失败/错误。已有Kotlin unchecked cast/no cast needed等warning未在本批修改。
 - 本批没有新问题的定向可执行复现，没有跑BukkitPlugin测试、部署或游戏验证；运行时代码未修改。多数已读publication/ticket/epoch/集合与局部失效校验保护实际不变量，没有确认应删除的过度兜底。
 - Core/Basic均仍是部分覆盖；下批继续Core算法和拓扑，完整覆盖清单而非测试数量决定审查是否完成。
+
+## C2：Core 整模块审查（2026-10-10）
+
+基线`8f1d845d`。以下均未修复；完整解释、测试处置、已核查的不变量与复现输出见[Core报告](./core-module-review.md)，覆盖见[文件清单](./core-review-inventory.md)。本轮闭合Core，不代表Basic或全项目完成。
+
+### CR-021：splitFrom失败前破坏原编组
+
+- P2；公开能力可达，但仓库无正式调用，纳入split验收时才是该能力阻塞。
+- `Core/.../physics/train/CoreTrain.kt:498-514`先截断cars，再用已改变的length计算分离部分；extension选择/初始化也未形成事务。
+- **已复现**：4车`splitFrom(3)`抛ClassCastException，原车变2车，世界仍只有原列车。
+- 建议单独修编组事务和失败保持；不能只改takeLast。没有现有split回归。
+
+### CR-022：列车构造失败遗留ACTIVE车端
+
+- P1；正常错误输入/重复名称可触发，不依赖随机UUID碰撞。
+- `CoreTrain.kt:142-166`先注册两个TrainEnd再addTrain；`TrainPersistence.kt:40-58`的cleanup不覆盖constructor抛错。
+- **已复现**：重复SavedTrain load被身份检查拒绝，rail车端数却从4变6，world未接纳新列车。
+- 建议身份/基础校验前置，构造副作用成对撤销；与CR-015宿主factory部分初始化清理分别修复。
+
+### CR-023：current存档车端与车厢脱节仍被接受
+
+- P1；占用事实错误，不只是渲染问题。
+- `CoreTrain.kt:345-361,686-691`只校验车内bogie欧氏间距，无完整车端/相邻车连续性校验。
+- **已复现**：保留实际bogie弧长50.5m，却将saved head/tail设为180/140m；load成功并发布bodyTraversal/occupiedIntervals=[140,180]。
+- 建议在load发布前校验完整编组；补固定损坏current fixture，不添加猜测兼容/版本升级。
+
+### CR-024：碰撞broad phase漏掉跨bucket的容差内接触
+
+- P2；生产coordinator碰撞路径可达。仅证明容差内近接触漏检，不宣称正长度相交也会漏检。
+- `Core/.../rail/SweptOccupancyIndex.kt:83`未扩展ownSpan查询桶，exact阶段却使用tolerance。
+- **已复现**：A=[31,31.996]、B=[32,33]、bucket=32、tolerance=.005；overlap=true，碰撞query返回null，blockingTrainIds返回B。
+- 建议复用容差扩展的桶范围；不新增index或改变candidate cap。
+
+### CR-025：最近采样点冒充几何最近点
+
+- P2；`Curve.kt:56-57`、`PrimeCurveImpl.kt:271-292`；SimpleATO OperationalDestination替换迁移及RailWand正式消费。
+- **已复现**：两点LINE上4.4m得到4.0m；getPointAt(position)拒绝真实线上点，CurveException.message还是null。
+- 建议按真实piecewise-linear segment投影求最近点；补稀疏LINE非整米和运营迁移断言，不把stream加密成1mm。
+
+### CR-026：位置前进但car/bogie速度始终从零推导
+
+- P2；`CoreBogie.kt:58-77`与`CoreCar.kt:399-443`没有向首个head bogie注入速度。
+- **已复现**：真实50ms simulation、train标量速度10m/s，car/bogie velocity仍为零。Bukkit对body另补算部分掩盖问题，bogie仍使用frame velocity。
+- 建议统一Core epoch运动学输入/发布；不能让各consumer各自再补一份事实。没有证据说明ATO标量速度因此错误。
+
+### CR-027：正式load静默丢连接，且不验证接头共点
+
+- P2；静态确认，未定向执行。
+- `CoreRail.kt:136-168`对malformed/missing引用mapNotNull，并只选最近端点；相互引用但远离的rail仍可能形成拓扑edge。
+- `PreparedRailWorldSnapshotPlan.kt:265-297`却严格验证引用/距离/对称，两个current入口不一致。
+- 建议load边界复用严格物理校验，不保留默认旧开发数据容错；现有spec承认遗留容错，不把目标误写成已实现。
+
+### CR-028：曲线raw/decode输入验证缺口
+
+- P2；静态确认，构造缺口已被curve spec标为TRANSITIONAL。
+- `PrimeCurveImpl.kt:24-33`缺少样本数、零起点、严格递增、finite/frame校验；`:336-351`手写Vector3dSerializer缺失x/y/z直接补0。
+- 建议共享构造/decode边界一次验证；不在getPointAt热路径重复兜底，不机械升版。补固定损坏输入测试。
+
+### CR-029：extension仍按存档FQCN反射加载
+
+- P2；正式codec路径确认，未做恶意输入运行诊断；不宣称远程代码执行漏洞。
+- `WorldSnapshotCodec.kt:19-25`使用Class.forName，完整decode后才检查formatVersion；正式Bukkit saved render payload没有稳定type registry。
+- Core persistence/extension-data规范却写stable registry已存在，shared规范/网页才正确承认遗留反射。
+- 建议namespaced type显式注册，未知type失败；是否保留开发服数据先确认并采用可审计一次性迁移，不默认加legacy reader或升版。
+
+### CR-030：link缺方向规范化、事务结果和失败回滚
+
+- P2；静态确认。默认碰撞DERAIL且无生产listener请求LINK，不描述为默认碰撞必现。
+- `CoreTrain.kt:521-540`直接拼cars/按first解算，与reversed survivor operating head不一致；丢弃Future，失败部分mutation不能由调用方判断。
+- 建议单独明确支持的端部/方向组合，预校验并可观察成功/失败；与CR-018换属主render stream身份一起验证，但不是同一个问题。
+
+### CR-031：Core Seat.position自递归
+
+- P2/P3；静态确定，未执行；无当前生产Core Seat consumer，Bukkit座位是另一条路径。
+- `CoreCar.kt:61-70`匿名Seat getter中Vector3d(position)读取自身，访问会递归至栈溢出。
+- 先决定保留还是移除未接线API；保留则显式引用car，不据此宣称当前游戏座位坏了。
+
+### CR-032：Core旧实现/无用内部代码残留
+
+- P3；全仓consumer/注册/测试/持久化搜索确认候选，详见Core报告清理分组。
+- 明确机械候选：3个空rail/persistence文件、BinarySearch、Quaternion池、forwardPositive未读list、DummyAsset、CoreWorld未用signals字段、废注释。
+- 需连同专用测试处理：旧RailTopologyEditor split/merge路径、prototype TrainFactory构建链；保留现行prepared pipeline、mergeEligibilityError/SplitResult与current SavedCar使用的CarConfigV1。
+- 无publisher的Pre/PostTick/RenderableEvent、无调用异常/seat等公开面另评估删除，不虚构外部调用已被排除。Signal和DynamicRenderable.lastState有真实consumer，不删。
+
+### CR-033：文档、诊断与可维护性不一致
+
+- P2/P3；扩展CR-002/007/020，不重复宣称已修。
+- 错误诊断丢message/cause/context；Train.cars顺序、可用frame/占用语义KDoc不符；train-physics遗漏实际bogie/coupler二分原理；持久化把目标预校验写成现状。
+- 两处结构准备实际O(N²)，高于spec承诺；CoreWorld重复prepared校验适合局部抽取，不按行数大拆manager。
+- 网页模块归属/API范围和性能结论过期；.codeabs含已删路径/TODO。Dokka本轮成功但缺文档和declare链接warning仍在。
+- 测试处置扩展见Core报告：保留真实不变量；改写空跑、回显、复制生产分支和反射锁private实现的测试；废路径测试随实现删除。没有按数量批删依据。
+
+### CR-034：EventBus并发注册/空桶清理可能丢listener
+
+- P2候选；公开API静态可达交错，未定向复现；当前宿主启动/关闭串行，没有正常生产并发触发证据。
+- `TypedRailEventBus.kt:48,95-96`取HandlerList与add不原子，cleanup可能移除刚取到但尚未写入的bucket。
+- 建议只在低频register/close/unregister串行化，或明确并强制owner；不在publish热路径增加大锁。

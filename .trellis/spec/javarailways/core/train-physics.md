@@ -6,6 +6,8 @@
 
 用途：保证rigid consist沿同一active path解算，worker mutation经epoch发布；碰撞、方向与结构变更不把partial geometry暴露给consumer。
 
+联结与解编是保留的正式能力（用户于2026-10-10确认），不能仅因暂无生产caller而作为原型删除。正式能力定位不代表当前实现已通过验收：现有link/split的事务、方向与失败保持问题仍须修复。此决定不改变默认碰撞DERAIL行为，也不授权自动联结。
+
 ## Owner、签名、单位与 lifecycle
 
 `CoreTrain`拥有有序cars、head/tail、epoch-end placement spans、published swept spans和controller registration。`moveTrainForward(deltaS: Double)` 仅physics worker调用，`deltaS`单位米且`>=0`：

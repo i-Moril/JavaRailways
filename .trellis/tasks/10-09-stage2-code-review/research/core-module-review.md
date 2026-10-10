@@ -15,6 +15,12 @@
 
 问题稳定编号见[台账C2](./issues.md#c2core-整模块审查2026-10-10)。P1是应优先处理的状态/生命周期错误，P2是具体正确性或维护风险，P3为可延期治理；不把每个P2自动定为全项目游戏测试阻塞。
 
+## 用户确认（2026-10-10）
+
+- 联结/解编保留为正式能力；CR-021/030是待修缺陷，不再待决定是否删除该能力。此确认不改变默认碰撞DERAIL，也不表示现有实现已验收。
+- 目前没有仓库外插件；已补[旧事件扩展价值评估](./core-event-api-assessment.md)及[Core/Bukkit座位评估](./core-seat-api-assessment.md)。建议删除三个未接线泛事件声明及Core Seat原型，保留实际领域事件与Bukkit唯一座位来源；这是待用户检查的设计建议，不是已获批删除或已修复。
+- 开发服`192.168.1.230`的存档必须能手动迁移；暂不要求JAR内自动迁移。迁移按真实一致样本、离线dry-run、保留原件/恢复点与迁移后校验处理；本轮未读取或验证服务器数据，也未获远端修改授权。
+
 ## 1. 逻辑正确性
 
 ### 优先处理：加载/失败后状态不可信
@@ -34,9 +40,9 @@
 
 ### 公开但未接入默认玩法的能力
 
-- **CR-021，P2，已复现：splitFrom先改坏原编组再失败。** 四车splitFrom(3)抛ClassCastException而原车只剩两车；carNum=1也被接受后清空原车。extension枚举/初始化还存在后续问题。仓库无正式split调用；若保留并验收，需要独立编组事务、预校验和失败保持，不是改一个takeLast就完成。
+- **CR-021，P2，已复现：splitFrom先改坏原编组再失败。** 四车splitFrom(3)抛ClassCastException而原车只剩两车；carNum=1也被接受后清空原车。extension枚举/初始化还存在后续问题。仓库无正式split调用；用户已确认保留此正式能力，需独立编组事务、预校验和失败保持，不是改一个takeLast就完成。
 - **CR-030，P2，静态确认：link未规范化方向且丢弃失败结果。** `CoreTrain.kt:521-540`直接拼cars，reversed survivor的operating head与从first解算不一致；任务Future被丢弃，部分mutation后失败不可见。需明确端部/方向组合、结果和回滚。与C1 **CR-018** car renderer换属主后比较不同train revision的问题分别修。默认collision=DERAIL且无生产listener请求LINK，不描述为默认碰撞必现。
-- **CR-031，P2/P3，静态确定：Core Seat.position自递归。** `CoreCar.kt:65`匿名Seat getter读取自身position。没有生产Core Seat consumer，Bukkit模型座位是另一条路径；先决定保留API还是清掉原型，不能说游戏座位当前必坏。
+- **CR-031，P2/P3，静态确定：Core Seat.position自递归。** `CoreCar.kt:65`匿名Seat getter读取自身position。没有生产Core Seat consumer，Bukkit模型座位是另一条路径；按用户要求先评估座位分层再决定API去留，不能说游戏座位当前必坏。
 - **CR-034，P2候选：EventBus register与空桶cleanup竞态。** 取得HandlerList后add前，该list可被close/unregister从map移除；新listener加入脱离map的list。没有定向复现，当前宿主注册/关闭串行，未找到正常生产并发触发。只需低频注册变更串行化或明确owner，不把锁加到publish热路径。
 
 ## 2. 可维护性与可读性
@@ -112,7 +118,7 @@
 - TrainFactory、TrainBuildDependency/CarBuildDependency、TrainConfigV1/BogieConfigV1的prototype链及反射填map测试。**保留CarConfigV1**，它仍是SavedCarV1 current shape且buildCar用于真实恢复。
 - PrimeCurveGenerator全是测试consumer，应迁testFixtures，不删下游物理回归。
 
-公开面需要单独确认：无publisher的PreTick/PostTick/RenderableEvent、无调用PersistenceException/LoadPersistentDataException、CannotSplitException/Collision、canLink/COLLISION_SPEED及未接线Seat。实验API无发布兼容承诺，但仍不能把未知外部consumer不存在当事实；不要为了“让事件不死”新增publisher改变时序。
+公开面需要单独评估：无publisher的PreTick/PostTick/RenderableEvent、无调用PersistenceException/LoadPersistentDataException、CannotSplitException/Collision、canLink/COLLISION_SPEED及未接线Seat。用户确认目前无仓库外插件，但旧事件/座位仍须评估未来扩展用途与合理分层；联结/解编能力已经确认保留。不要为了“让事件不死”新增publisher改变时序，也不要连同未用helper删除已确认保留的能力。
 
 明确不删：Core Signal由Basic限速和Core扫描使用，DynamicRenderable.lastState由Bukkit初始render读取，CorruptedDataException有真实reader使用。
 
@@ -187,6 +193,6 @@ duplicate.endpointsBefore=4; duplicate.endpointsAfter=6
 
 1. 加载/构造/卸载失败的一致性与清理（CR-022/023/027/028及C1生命周期）。
 2. 正式算法事实：LINE投影、碰撞容差、motion velocity。
-3. split/link/Seat先明确保留能力及验收范围，再分别修事务；废路径/测试、文档和诊断另成小批。
+3. split/link已确认保留，先明确端部/方向与事务验收方案，再修事务；Seat/旧事件先交定向评估建议。废路径/测试、文档和诊断另成小批。
 
 若继续审查，下一完整模块为Basic；只在其源码、测试、文档范围闭合后报告。全项目审查未结束，也尚不具备仅据Core报告宣布Stage 2正式游戏验收就绪的依据。

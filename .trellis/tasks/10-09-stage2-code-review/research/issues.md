@@ -196,7 +196,7 @@
 
 ### CR-021：splitFrom失败前破坏原编组
 
-- P2；公开能力可达，但仓库无正式调用，纳入split验收时才是该能力阻塞。
+- P2；公开能力可达，但仓库无正式调用。用户于2026-10-10确认解编保留为正式能力，本项是该能力验收阻塞，不再待确认是否删除。
 - `Core/.../physics/train/CoreTrain.kt:498-514`先截断cars，再用已改变的length计算分离部分；extension选择/初始化也未形成事务。
 - **已复现**：4车`splitFrom(3)`抛ClassCastException，原车变2车，世界仍只有原列车。
 - 建议单独修编组事务和失败保持；不能只改takeLast。没有现有split回归。
@@ -252,26 +252,29 @@
 - P2；正式codec路径确认，未做恶意输入运行诊断；不宣称远程代码执行漏洞。
 - `WorldSnapshotCodec.kt:19-25`使用Class.forName，完整decode后才检查formatVersion；正式Bukkit saved render payload没有稳定type registry。
 - Core persistence/extension-data规范却写stable registry已存在，shared规范/网页才正确承认遗留反射。
-- 建议namespaced type显式注册，未知type失败；是否保留开发服数据先确认并采用可审计一次性迁移，不默认加legacy reader或升版。
+- 建议namespaced type显式注册，未知type失败；用户于2026-10-10确认保留`192.168.1.230`开发服数据，提供可审计/dry-run/可恢复的手动迁移，暂不要求JAR内自动迁移。真实样本尚未获取/验证，不默认加legacy reader或升版。
 
 ### CR-030：link缺方向规范化、事务结果和失败回滚
 
 - P2；静态确认。默认碰撞DERAIL且无生产listener请求LINK，不描述为默认碰撞必现。
 - `CoreTrain.kt:521-540`直接拼cars/按first解算，与reversed survivor operating head不一致；丢弃Future，失败部分mutation不能由调用方判断。
 - 建议单独明确支持的端部/方向组合，预校验并可观察成功/失败；与CR-018换属主render stream身份一起验证，但不是同一个问题。
+- 用户于2026-10-10确认联结保留为正式能力；该确认不改变默认碰撞DERAIL或授权自动联结，当前缺陷未修。
 
 ### CR-031：Core Seat.position自递归
 
 - P2/P3；静态确定，未执行；无当前生产Core Seat consumer，Bukkit座位是另一条路径。
 - `CoreCar.kt:61-70`匿名Seat getter中Vector3d(position)读取自身，访问会递归至栈溢出。
-- 先决定保留还是移除未接线API；保留则显式引用car，不据此宣称当前游戏座位坏了。
+- 用户要求先评估Core Seat与Bukkit座位的合理分层，再决定未接线API去留；不据此宣称当前游戏座位坏了。
+- [专项评估](./core-seat-api-assessment.md)建议以Bukkit模型SEAT为唯一定义/乘坐来源、删除Core Seat原型，不新增无具体consumer的共享目录。建议待用户检查，尚未实施。
 
 ### CR-032：Core旧实现/无用内部代码残留
 
 - P3；全仓consumer/注册/测试/持久化搜索确认候选，详见Core报告清理分组。
 - 明确机械候选：3个空rail/persistence文件、BinarySearch、Quaternion池、forwardPositive未读list、DummyAsset、CoreWorld未用signals字段、废注释。
 - 需连同专用测试处理：旧RailTopologyEditor split/merge路径、prototype TrainFactory构建链；保留现行prepared pipeline、mergeEligibilityError/SplitResult与current SavedCar使用的CarConfigV1。
-- 无publisher的Pre/PostTick/RenderableEvent、无调用异常/seat等公开面另评估删除，不虚构外部调用已被排除。Signal和DynamicRenderable.lastState有真实consumer，不删。
+- 用户确认目前无仓库外插件；无publisher的Pre/PostTick/RenderableEvent、无调用异常/seat等公开面仍按扩展价值评估，不直接按无caller删除。联结/解编已确认保留。Signal和DynamicRenderable.lastState有真实consumer，不删。
+- [旧事件专项评估](./core-event-api-assessment.md)建议删除三个未接线泛事件声明，保留真实领域事件；现有observation只承担其已声明的阶段/数据，不作为逐epoch或呈现完成通知。建议待用户检查，尚未实施。
 
 ### CR-033：文档、诊断与可维护性不一致
 

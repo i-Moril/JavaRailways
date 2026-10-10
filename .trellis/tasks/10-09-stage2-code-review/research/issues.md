@@ -295,8 +295,11 @@
 
 - P3；全仓consumer/注册/测试/持久化搜索确认候选，详见Core报告清理分组。
 - 明确机械候选：3个空rail/persistence文件、BinarySearch、Quaternion池、forwardPositive未读list、DummyAsset、CoreWorld未用signals字段、废注释。
-- **部分完成（2026-10-10，机械项）**：上述5文件删除及4处局部清理已通过全仓引用/配置核对、独立检查及7模块强制组合回归，见[记录](../implement.md#cr-032-机械清理与验证2026-10-10)。真实Signal、向量池、SavedCarV1/CarConfigV1保留；无格式/版本改动，删除可从Git恢复。下列旧factory/editor等候选仍待处理，不将CR-032整体结案。
-- 需连同专用测试处理：旧RailTopologyEditor split/merge路径、prototype TrainFactory构建链；保留现行prepared pipeline、mergeEligibilityError/SplitResult与current SavedCar使用的CarConfigV1。
+- **部分完成（2026-10-10，本批废路径已清理）**：机械项见[首批记录](../implement.md#cr-032-机械清理与验证2026-10-10)；随后经二次全仓consumer/序列化核对，已删除旧
+  `RailTopologyEditor` split/merge mutation、prototype `TrainFactory`构建链及只验证这两条废路径的3项测试，见[第二批记录](../implement.md#cr-032-废railtopologyeditortrainfactory路径清理2026-10-10)。
+  保留现行prepared pipeline、`mergeEligibilityError/SplitResult`真实RailWand consumer与独立eligibility测试，以及
+  current `SavedTrainV1/SavedCarV1/SavedBogieV1/CarConfigV1`恢复链。冻结回归Core 308（6 skipped）+ Basic 384零失败，Bukkit直接consumer编译、Core Dokka/JAR检查通过；无格式/版本改动。
+- 现有测试只分别证明prepared plan、stale、Core transaction rollback与eligibility；尚无完整RailWand split/merge跨层事务测试，且其余公开面/维护候选仍单独评估，因此不将CR-032或Core审查整体结案。
 - 用户确认目前无仓库外插件；未用异常/seat等公开面仍按扩展价值评估，不直接按无caller删除。联结/解编已确认保留。Signal和DynamicRenderable.lastState有真实consumer，不删。
 - [旧事件专项评估](./core-event-api-assessment.md)初稿删除建议已撤回：用户要求保留PreTickEvent/PostTickEvent/RenderableEvent并考虑接入，从废代码删除候选中排除。暂无publisher只说明未接线；分组接口不必独立发布。接入阶段/线程契约尚未冻结，现有observation不作为所有事件用途的等价替代。
 

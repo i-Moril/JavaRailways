@@ -30,6 +30,8 @@ data class SavedRuntimeV1(
 - `infrastructureRevision>=0`仅配对同批documents；`physicsEpoch>=0`仅记录capture publication时序，均非schema version。
 - `SavedRailV1/SavedTrainV1`是outer文档nested DTO，不自动独立升版。
 - runtime可缺失；存在时version exact current且revision等于infrastructure。
+- train恢复只经`SavedTrainV1 -> SavedCarV1 -> CarConfigV1.buildCar`构造current runtime；Core不维护另一套按字符串prototype
+  组装列车的`TrainFactory/TrainConfig/BogieConfig`注册表。删除该未接线构建链不改变上述current DTO字段、serializer或format version。
 
 `WorldSnapshotCodec`固定 `ignoreUnknownKeys=false`、`encodeDefaults=true`。writer只写current。
 

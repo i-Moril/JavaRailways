@@ -118,6 +118,10 @@
 - TrainFactory、TrainBuildDependency/CarBuildDependency、TrainConfigV1/BogieConfigV1的prototype链及反射填map测试。**保留CarConfigV1**，它仍是SavedCarV1 current shape且buildCar用于真实恢复。
 - PrimeCurveGenerator全是测试consumer，应迁testFixtures，不删下游物理回归。
 
+2026-10-10后续：上述editor/factory两组废实现与3项专用测试已成组删除；未删除
+`RailTopologyEditor` 本身，因`SplitResult/mergeEligibilityError`仍有RailWand production consumer。正式prepared topology和current
+`Saved*V1/CarConfigV1`恢复测试保留，无schema/version改动；执行与产物证据见[任务记录](../implement.md#cr-032-废railtopologyeditortrainfactory路径清理2026-10-10)。
+
 PreTick/PostTick/RenderableEvent已确认保留并考虑接入，从删除候选中排除；暂无publisher不等于没有扩展价值，分组接口也不必独立发布。接入前明确真实阶段/线程，不承诺平台呈现已同步完成。其余公开面仍单独评估：无调用PersistenceException/LoadPersistentDataException、CannotSplitException/Collision、canLink/COLLISION_SPEED及未接线Seat。联结/解编已经确认保留，不连同未用helper删除能力。
 
 明确不删：Core Signal由Basic限速和Core扫描使用，DynamicRenderable.lastState由Bukkit初始render读取，CorruptedDataException有真实reader使用。

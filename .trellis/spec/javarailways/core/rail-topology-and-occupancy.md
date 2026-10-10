@@ -17,6 +17,9 @@
   完整normalized topology candidate；world commit只复核exact root、delta rail identities/count、changed endpoint与diamond result，应用delta并publish
   prepared root。它不执行完整live inventory fingerprint、`TopologyStateBuilder.build`或同步fallback。bootstrap/load以及Core内部低层同步
   transaction仍可从live rail inventory完整构建；这些入口不得重新用于玩家在线编辑。
+- split/merge的结构mutation只由RailWand的prepared connection plan在单一outer transaction内执行；Core不再保留另一套
+  `splitWithPreparedRails`/`mergeWithPreparedRail`复制连接并尝试局部rollback。`RailTopologyEditor`仅保留两端merge资格校验和
+  `SplitResult`值，不能作为第二个transaction owner或替代prepared stale/impact校验。
 - prepared update同时冻结该delta涉及的旧rail instance/absent identity、prepared新curve identity、两端structural continuation、raw crossing pair与全局rail count。
   同一次worker prepare还冻结exact base root对应的完整`SavedRailV1`列表，并由prepared target root、明确endpoint顺序、active branch与新curve
   生成完整target列表；RailWand用这两份值构造undo，不得在owner commit重新遍历live rail。该完整快照是undo输入，不参与commit的delta验证。
@@ -157,7 +160,7 @@ snapshot restore还必须覆盖stable UUID、same-ID replacement、exact prospec
 - `CoreTrainAsymmetricTurnoutTest.kt`：body occupancy、active branch fallback。
 - `SweptOccupancyIndexTest.kt`：bucket、双向跨bucket容差内接触、容差外候选exact排除、自定义tolerance、candidate cap、stable nearest ordering。
 - `RailIntervalReleaseDetectorTest.kt`：`BEFORE→OCCUPIED→RELEASED`且方向无关。
-- split/merge tests断言rollback后rail map、links、index和Basic projection一致。
+- RailWand prepared split/merge tests断言失败后rail map、links、index和Basic projection一致；Core低层测试只覆盖仍由Core拥有的prepared plan和merge资格校验。
 
 ```bash
 ./gradlew :Core:test --tests 'work.art1st.javarailways.core.physics.rail.*' --tests '*CoreWorldRailTopologyTransactionTest'

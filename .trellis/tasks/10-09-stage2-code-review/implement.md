@@ -123,6 +123,29 @@
 - 绿色证据复用上方CR-028/032/020冻结源码7模块强制组合门禁（54任务、1896项/6跳过、零失败/错误），未为死代码删除新增无行为测试。该门禁不包括随后CR-014改动；没有部署/游戏验证。
 - 旧RailTopologyEditor/factory构建链及其专用测试、其余可维护性候选仍待分批处理；Core事件保留、Seat处置与联结/解编设计不在删除范围。导航.codeabs漂移仍属CR-002/033，未改docs-site原有脏状态。
 
+### CR-032 废RailTopologyEditor/TrainFactory路径清理（2026-10-10）
+
+- 全仓核对production、test、resource、反射、序列化与文档引用后，删除旧
+  `RailTopologyEditor.splitWithPreparedRails/mergeWithPreparedRail`及它们的两项专用测试。保留RailWand真实消费的
+  `SplitResult/mergeEligibilityError`；后者的branch拒绝回归改为直接构造线路拓扑，不再借助已删的split执行方法。
+  正式split/merge仍由RailWand在单一outer Core transaction内安装prepared rails、应用exact connection plan并同步metadata/undo。
+- 删除零production/serialization consumer的`TrainFactory`、`TrainBuildDependency/CarBuildDependency`、
+  `TrainConfigV1/BogieConfigV1`、它们的`TrainConfig/CarConfig/BogieConfig`alias及反射填prototype map的
+  `TrainConfigurationLoadTest`。保留current `SavedTrainV1/SavedCarV1/SavedBogieV1/CarConfigV1`全部字段、
+  extension payload、serializer、`SavedCarV1.load -> CarConfigV1.buildCar`恢复链和既有current fixtures。这是删除未接线并行实现，
+  不是根据测试数量删测试。
+- 同步Core persistence/topology与Bukkit interaction权威契约；历史审查记录保留原问题并增加完成状态。
+  无持久化shape/schema/version/runtime compatibility改动，不触及link/splitBefore、Seat、事件或其他CR。
+- 现有回归分别覆盖prepared explicit-connection plan成功/stale、Core transaction rollback与独立merge eligibility；尚无
+  RailWand完整split/merge操作跨Core topology、Basic metadata、render sidecar、玩家状态及undo的成功/拒绝/rollback集成测试。
+  被删除的旧editor测试只验证废执行器，不能作为现行管线覆盖；该缺口继续留在CR-020/033，不以本次死代码清理结案。
+- 冻结源码使用`GRADLE_USER_HOME=/workspace/.gradle`与`--offline --no-build-cache --no-parallel --rerun-tasks
+  -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`运行`:Core:test :Basic:test :BukkitPlugin:compileKotlin
+  :Core:dokkaGeneratePublicationHtml :Core:jar`，21个task全部执行并`BUILD SUCCESSFUL`（1m39s）。Core 308项（302执行、6个既有disabled）、
+  Basic 384项全执行，零failure/error；BukkitPlugin及其SimpleATO/SimpleATOBukkit生产依赖链编译成功，Core Dokka成功。
+  生产JAR直接检查确认废factory/dependency/config/editor helper类消失，上述current persistence类及
+  `RailTopologyEditor$SplitResult`仍存在。保留既有Dokka未文档化/link、Kotlin deprecated/unchecked和Gradle metaspace警告；未部署或游戏验证。
+
 ### CR-020 局部测试改写与验证（2026-10-10）
 
 - 匀速原用例改为100个有界等待的真实50ms simulation epoch，每轮独立计算expected位移，并检查head/tail/每车公开位置及immutable frame、controller/train/frame速度与epoch；不再以两个local累加值自证。

@@ -212,7 +212,7 @@ util/TickManagerImpl.kt
 
 - `java/work/art1st/javarailways/core/physics/rail/RailLocationPersistTest.kt`： 保留：canonical AB恢复；补固定损坏引用并整理无用cast。
 
-- `java/work/art1st/javarailways/core/physics/rail/RailTopologyEditorTest.kt`： 旧split/merge专用测试随废实现删除；现行prepared覆盖保留。
+- `java/work/art1st/javarailways/core/physics/rail/RailTopologyEditorTest.kt`： 已删除旧split/merge mutation的2项专用测试；保留不依赖废路径的merge eligibility branch拒绝回归。现有Core/Bukkit测试覆盖prepared plan、stale与transaction rollback组件，但没有覆盖完整RailWand split/merge跨层事务，继续列为测试缺口。
 
 - `java/work/art1st/javarailways/core/physics/rail/SweptOccupancyIndexTest.kt`： 保留：候选排序/上限/blocking；补collision跨bucket容差。
 
@@ -250,7 +250,7 @@ util/TickManagerImpl.kt
 
 - `java/work/art1st/javarailways/core/physics/train/DummyAsset.kt`： 空helper零引用，删除候选。
 
-- `java/work/art1st/javarailways/core/physics/train/TrainConfigurationLoadTest.kt`： 随无生产consumer的prototype构建链删除，不保留反射填map框架。
+- `java/work/art1st/javarailways/core/physics/train/TrainConfigurationLoadTest.kt`： 已随无生产consumer的prototype构建链删除；不保留反射填map框架，current SavedTrain/SavedCar/CarConfig恢复由既有persistence回归覆盖。
 
 - `java/work/art1st/javarailways/core/physics/train/TrainNameTest.kt`： 保留双索引/metadata；补invalid name失败保持。
 

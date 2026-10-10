@@ -9,7 +9,8 @@
 - RailWand结构替换先从immutable `TopologyState`捕获exact source-rail replacement plan，再申请world-local edit permit。
   Plan绑定同一root及最终影响中的既有rail实例；permit必须跨Core transaction、Basic metadata、render sidecar persistence
   与undo record写入持有。Split/merge/delete各用一个外层Core transaction覆盖结构mutation、Basic metadata、render sidecar、
-  玩家state persistence与undo写入；嵌套RailTopologyEditor加入该transaction，确保结构变更后的任一异常触发Core fail-close。
+  玩家state persistence与undo写入；RailWand在该transaction内安装prepared rails并应用exact connection plan，不再调用并行的
+  `RailTopologyEditor` split/merge mutation。结构变更后的任一异常仍由同一Core transaction触发fail-close。
   Split/merge/delete使用source replacement plan；turnout create、selected-anchor connect、endpoint/grade/geometry rebuild
   使用Core在安装前生成的prepared explicit-connection plan。新独立rail保持断开；selected-anchor只连接选中endpoint及明确的
   批内相邻段；rebuild用旧到新endpoint映射保留已有连接。任何路径都不得按距离搜索附近endpoint或推断turnout stem/branch。

@@ -194,7 +194,7 @@ internal class RouteResourceAdmissionEngine(
                     check(reservation.complete()) { "resource reservation disappeared" }
                     if (oldGrant == null) {
                         route.tailRelease = RouteGrantTailRelease(
-                            worldId, intent.route.topologyRevision, intent.trainId,
+                            worldId, intent.trainId,
                             observation.stamp.physicsEpoch, route.cursor,
                             LiveClaimTailRelease(
                                 registry, hostClaimOwner, intent.owner,
@@ -775,7 +775,6 @@ internal class RouteResourceAdmissionEngine(
         )
         val newTailRelease = RouteGrantTailRelease(
             worldId,
-            intent.route.topologyRevision,
             intent.trainId,
             observation.stamp.physicsEpoch,
             initialized.cursor,

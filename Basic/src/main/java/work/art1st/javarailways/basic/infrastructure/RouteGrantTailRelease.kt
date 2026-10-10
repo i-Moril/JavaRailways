@@ -6,7 +6,6 @@ import work.art1st.javarailways.core.api.util.annotation.MainThread
 
 internal enum class RouteGrantTailReleaseFailureKind {
     WRONG_WORLD,
-    STALE_TOPOLOGY,
     DECREASING_PHYSICS_EPOCH,
     TRAIN_MISSING,
     ROUTE_CURSOR_FAILED,
@@ -48,15 +47,15 @@ internal sealed interface RouteGrantTailReleaseUpdate {
  * Internal tail-release controller for one admitted route grant after infrastructure is ready.
  *
  * The world-local service resolves the named train once per observation dispatch and supplies the
- * coherent stamp plus that exact frame. This controller still verifies world, topology, epoch and
- * train identity before projecting the authoritative tail. It creates neither a claim nor a
- * footprint: [LiveClaimTailRelease] only shrinks the current committed registry resources. After
- * that queue empties, this controller keeps projecting and committing the same frozen-route cursor
- * without touching the registry so its live grant can later accept another committed suffix.
+ * coherent stamp plus that exact frame. This controller verifies world, epoch and train identity
+ * before projecting the authoritative tail along the already validated frozen route. It creates
+ * neither a claim nor a footprint: [LiveClaimTailRelease] only shrinks the current committed
+ * registry resources. After that queue empties, this controller keeps projecting and committing
+ * the same frozen-route cursor without touching the registry so its live grant can later accept
+ * another committed suffix.
  */
 internal class RouteGrantTailRelease(
     private val worldId: String,
-    private val topologyRevision: Long,
     private val trainId: String,
     initialPhysicsEpoch: Long,
     private val routeProgressCursor: RouteProgressCursor,
@@ -124,7 +123,6 @@ internal class RouteGrantTailRelease(
 
     init {
         require(worldId.isNotBlank())
-        require(topologyRevision >= 0L)
         require(trainId.isNotBlank())
         require(initialPhysicsEpoch >= 0L)
     }

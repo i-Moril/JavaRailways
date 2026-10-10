@@ -166,6 +166,13 @@
 - 实现代理的5类定向回归及检查代理的非增量复跑均通过。最终源码强制执行`:Core:test :Basic:test :SimpleATO:test :BukkitPlugin:test :BukkitPlugin:shadowJar`，36个task全部执行并`BUILD SUCCESSFUL`（2m41s）；XML合计245 suites/1387项，其中1381执行、6项既有Core跳过，零失败/错误。task manifest 15+15、scoped whitespace通过。
 - 独立检查唯一新增发现是上面的owner map撤销缺口，修复后由最终全量门禁覆盖；其余API最小性、Koin create/link/declare/close、constructor/load回滚、factory/register/unload顺序、主异常/suppressed及测试质量均无阻塞项。既有编译deprecated/unchecked、Gradle heap/metaspace、JDK native/Unsafe、WebUI 5项依赖漏洞与大bundle warning保留；未运行游戏/Folia/客户端验证。
 
+### CR-019 无行为拓扑字段清理（2026-10-10）
+
+- `RouteGrantTailRelease`删除未读取的`topologyRevision`、只用于该字段的非负校验和从未产生的`STALE_TOPOLOGY`失败种类；两个生产构造点与测试fixture不再传入该值。KDoc只声明真实执行的world、单调physics epoch、train identity、冻结路线游标和claim release职责。
+- 不修改`RailwayStateStamp`、`RouteSnapshot`、准入验证、物理编译、route-bound catalog、registry或受影响路线失效路径。tail release继续消费任意更新topology revision下的同world后续epoch；相关拓扑事务若实际影响路线，仍由准入engine的依赖失效机制处理。
+- 既有集成回归`unrelated transaction preserves pending grant tail release and extension of older frozen route`继续覆盖旧冻结路线在无关topology revision提升后完成READY、扩展并释放资源。本批无公开API、持久化、版本、抽象或产品行为变化。
+- 实现阶段非增量定向执行`RouteGrantTailReleaseTest` 5项和`RouteResourceAdmissionEngineTest` 43项，48项全部通过。独立检查随后在最终源码上用`--rerun-tasks`完整执行`:Basic:test`，59个suite/383项全部执行，零跳过/失败/错误，12个Gradle task全部执行并`BUILD SUCCESSFUL`（22s）；`compileKotlin`/`compileTestKotlin`、Trellis task manifest与scoped whitespace检查通过。既有Basic unchecked/冗余safe-call、测试冗余non-null assertion、JDK toolchain探测和Gradle deprecated warning未在本批处理；未运行Core测试、下游模块、部署或游戏验证。
+
 ### CR-022 修复与验证（2026-10-10）
 
 - 根因：`TrainEnd`构造即注册rail，world身份检查与extension初始化却可能随后失败；调用方只有构造返回后才进入failed-load清理，因此无法取得失败对象撤销注册。旧测试缺少构造期失败后的索引/资源断言。

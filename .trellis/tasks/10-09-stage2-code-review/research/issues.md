@@ -179,10 +179,11 @@
 
 ### CR-019：tail-release遗留没有行为的拓扑字段与错误分支
 
-- 状态：已确认，待局部清理；P3，维护性而非授权漏洞。
+- 状态：已修复（2026-10-10）；P3，维护性而非授权漏洞。
 - 证据：`Basic/.../infrastructure/RouteGrantTailRelease.kt:9,59,127` 的STALE_TOPOLOGY未产生，topologyRevision除非负校验外无读取，KDoc却声称该controller验证topology。
 - 最小建议：清理误导的内部字段/分支与注释；真正的局部失效归admission engine按rail依赖处理，不能为“使用字段”恢复全局revision相等检查。
 - 保留覆盖：无关拓扑编辑后旧frozen route仍可grant/extend/tail-release的现行回归。
+- 处置：删除内部tail-release controller未读取的`topologyRevision`、不可产生的`STALE_TOPOLOGY`失败种类及相关调用参数；KDoc改为只声明它真实执行的world/epoch/train/冻结游标校验。准入、物理编译、catalog、registry和route invalidation中的真实拓扑校验保持不变；既有集成回归继续证明无关拓扑事务后旧冻结路线可以完成READY、扩展并按车尾释放。
 
 ### CR-020：Core/Basic测试有效性及资源释放缺口
 

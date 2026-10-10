@@ -195,7 +195,6 @@ class RouteGrantTailReleaseTest {
             initialized.cursor,
             RouteGrantTailRelease(
                 worldId,
-                topologyRevision,
                 trainId,
                 initialPhysicsEpoch = 7L,
                 routeProgressCursor = initialized.cursor,

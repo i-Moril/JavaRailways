@@ -42,6 +42,12 @@ canonical AB arc length s
 
 该算法依赖condition在segment上连续，并且目标根能由端点异号证明。若condition非单调，算法只承诺返回它收敛到的一个根；若函数接触零后返回同号，当前合同不会发现它，caller不能把这种情况伪装成可靠碰撞/安全证明。
 
+### 3.3 几何最近点
+
+`PrimeCurveImpl.getNearestPoint(position)`直接扫描存储的相邻piecewise-linear线段，不在`stream()`虚拟采样点中取最近点。每段计算投影比例`clamp(dot(query-start, end-start) / |end-start|², 0, 1)`，比较投影距离平方；几何零长度段按start处理，不除以零。只在距离更小时替换candidate，因此等距结果保留canonical AB顺序的第一项。最后把比例换算为该段弧长，调用一次既有`getPointAt(s)`，保持position/frame/curve身份与普通弧长查询一致。
+
+`ReversedCurve`委托original求同一几何最近点，再以`total-s`取得反向view point；不能重新按反向虚拟采样量化。按position精确定位仍使用最近点与`Curve.TOLERANCE`判断接受/拒绝，`CurveException`保留诊断message，不隐藏失败原因。
+
 ## 4. 接口、数据结构与单位
 
 `Rail.curve: PrimeCurve` 是 canonical immutable AB curve。`Curve.Point/RawPoint` 字段为：
@@ -91,6 +97,7 @@ Raw points进入Core前必须由authoring owner验证非空、finite、arc严格
 
 - 单次`PrimeCurveImpl.getPointAt`为`O(log n)`区间查找加`O(1)`插值；不得退化成线性扫描point list。
 - `RailSegments.searchRailLocation`最坏对每个待查segment执行2次端点查询和50次中点查询，即`O(segmentCount * 50 * log n)`；找到第一个满足位置后立即结束。
+- 单条curve最近点为`O(n)`真实线段投影加一次`O(log n)`弧长定位，额外空间`O(1)`；不按毫米加密采样或新建几何索引，仍是离开main/hot tick的`@Heavy`操作。
 - `stream()`对直线按步长生成虚拟点、对离散段读取存储点，属于`@Heavy`；spatial/nearest任务必须离开main/hot tick并先用coarse index缩小范围。
 - 数值保护或50次迭代后仍不满足tolerance返回null，不得返回一个未经tolerance验证的“近似成功”。
 
@@ -122,6 +129,7 @@ Bad：
 ## 9. 必需测试与验证
 
 - `PrimeCurveTest.kt`：full-length interpolation、直线后半段仍选择左侧区间、reversed arc/tangent、input copy、normal/tangent正交。
+- `PrimeCurveNearestPointTest.kt`：稀疏LINE非整数与离线投影、端点clamp、多段DISCRETE三维内部点、几何零长度段、position查询容差和异常message；reverse nearest必须使用真正稀疏fixture而非恰好命中已有离散样本。
 - `PrimeCurveSurgeryTest.kt`：split+concatenate endpoint、frame、总长。
 - `RailLocationPersistTest.kt`：AB/BA round-trip与tangent。
 - `RailSegments` tests：端点命中、异号收敛、同号null、跨多个segment选择第一个、50次后仍须满足tolerance。

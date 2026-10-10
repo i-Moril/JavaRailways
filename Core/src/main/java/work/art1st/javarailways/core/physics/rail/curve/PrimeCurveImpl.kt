@@ -12,6 +12,7 @@ import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.encoding.decodeStructure
 import kotlinx.serialization.encoding.encodeStructure
 import org.joml.Vector3d
+import org.joml.Vector3dc
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 import work.art1st.javarailways.core.util.ObjectPools
@@ -62,6 +63,35 @@ open class PrimeCurveImpl : PrimeCurve {
 
     @Transient
     override val reversed: PrimeCurve = ReversedCurve(this)
+
+    @Heavy
+    override fun getNearestPoint(position: Vector3dc): Curve.Point {
+        val nearestArc = ObjectPools.withTwoVector3d { segment, relative ->
+            var bestArc = pointList.first().arcLength
+            var bestDistanceSquared = Double.POSITIVE_INFINITY
+            // Both LINE and DISCRETE positions interpolate along these stored segments.
+            for (index in 0 until pointList.lastIndex) {
+                val lo = pointList[index]
+                val hi = pointList[index + 1]
+                hi.position.sub(lo.position, segment)
+                position.sub(lo.position, relative)
+                val lengthSquared = segment.lengthSquared()
+                val t = if (lengthSquared == 0.0) 0.0 else
+                    (relative.dot(segment) / lengthSquared).coerceIn(0.0, 1.0)
+                val distanceSquared = relative.fma(-t, segment).lengthSquared()
+                if (distanceSquared < bestDistanceSquared) {
+                    bestDistanceSquared = distanceSquared
+                    bestArc = when (t) {
+                        0.0 -> lo.arcLength
+                        1.0 -> hi.arcLength
+                        else -> lo.arcLength + (hi.arcLength - lo.arcLength) * t
+                    }
+                }
+            }
+            bestArc
+        }
+        return getPointAt(nearestArc)
+    }
 
     override fun getPointAt(arcLength: Double): Curve.Point {
         require(arcLength in 0.0..totalArcLength) {

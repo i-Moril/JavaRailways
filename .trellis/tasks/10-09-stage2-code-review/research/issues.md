@@ -231,6 +231,7 @@
 - P2；`Curve.kt:56-57`、`PrimeCurveImpl.kt:271-292`；SimpleATO OperationalDestination替换迁移及RailWand正式消费。
 - **已复现**：两点LINE上4.4m得到4.0m；getPointAt(position)拒绝真实线上点，CurveException.message还是null。
 - 建议按真实piecewise-linear segment投影求最近点；补稀疏LINE非整米和运营迁移断言，不把stream加密成1mm。
+- **已修复（2026-10-10）**：直接投影真实相邻线段，复用getPointAt返回frame；reverse委托canonical结果，CurveException保留message。新增6项几何回归中5项在旧代码失败、修复后通过；既有reverse用例改为真正稀疏LINE，改fixture后没有再次跑旧代码红灯。Core/Basic/SimpleATO/Bukkit强制回归与Core Dokka通过，详见[验证记录](../implement.md#cr-025-修复与下游组合门禁2026-10-10)。raw-input校验CR-028单列。
 
 ### CR-026：位置前进但car/bogie速度始终从零推导
 

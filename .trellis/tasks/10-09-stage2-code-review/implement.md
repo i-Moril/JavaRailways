@@ -60,6 +60,8 @@
   - [ ] 统一车体中心恢复规则后，补精确相邻车钩几何校验；不以本批路径校验结案CR-023。
 - [x] 独立批次CR-024：collision查询复用既有容差扩展桶范围，保留exact overlap/candidate cap，补跨桶5mm内外的真实查询回归。
 - [x] 独立批次CR-016：关闭终态和最终publication在既有coordinator状态边界复核，补in-flight worker及忽略中断的processor回归；不混入CR-014 quiesce接口。
+- [x] 独立批次CR-025：最近点扫描真实piecewise-linear线段做投影，reverse复用canonical结果，复用既有frame插值；保留CurveException message，不加密stream、不新增索引或改raw-input合同。
+- [ ] 独立批次CR-027：load和prepared snapshot共用单端点严格解析，A/B均解析后才写；拒绝坏引用/远离端点/重复或超容量/非法active，保留合法null与顺序。运行时remove/structural-undo的合法fallback不变，不声称全world恢复事务已解决。
 - 后续单列CR-027/028严格输入、CR-025/026算法事实、CR-013至CR-017生命周期及CR-020/032局部测试/残留清理；若核实需要新的产品选择或迁移要求，标记并跳过，不用猜测兜底替代。
 
 ### CR-024 修复与组合门禁（2026-10-10）
@@ -80,6 +82,13 @@
 - 新增14项正式测试：1个固定损坏JSON、8种损坏DTO、直线/曲线AB/BA共4个合法控制及1个非对称道岔。坏输入断言具体异常原因和train ID，以及原world/rail/frame/mailbox保留；合法输入断言精确位置及方向。旧代码红灯阶段只运行其中最初11项，6种坏输入全部被接受；另有1个临时coupler诊断，后已移除。最后补的spacing及两端offset共3项没有单独旧代码红灯，不虚报。
 - 定向14项与上方Core/Basic冻结源码组合门禁全通过，独立检查确认临时diagnostic/println已移除。仅此加载校验子项完成，CR-023继续部分修复/P1剩余项，不把通过测试误写为完整编组校验。
 - 剩余依据：R=30 m、bogie弧长6 m、合法3车编组在restore前后centre偏移约10 mm，第一车钩残差约6.15 mm，已经超过5 mm；内部车两bogie共同前移1 m仍可能保持顺序和车端。当前SavedCar不包含求解锚点，而运动/换向与restore的centre恢复不同，先解决该一致性，不猜新增格式/宽容差方案。无远端、部署、游戏验证。
+
+### CR-025 修复与下游组合门禁（2026-10-10）
+
+- 直接扫描存储线段并投影，选定arc后仅调用一次既有frame插值；reverse委托canonical nearest，异常message正常传入Exception。算法/复杂度见[curve geometry](../../spec/javarailways/core/curve-geometry.md#33-几何最近点)，未改签名、格式、索引或raw-input校验。
+- 6项新增回归涵盖稀疏LINE/三维DISCRETE/端点/零几何长度段/容差/诊断，旧实现5失败；既有reverse测试初次改25.4仍命中dense样本，红灯未失败，随后修正为两点LINE并验证位置/frame/view身份。最终两类13项全通过，不虚报稀疏reverse已经单独红灯。
+- CR-025/027冻结源码组合门禁：`--offline --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process :Core:test :Basic:test :SimpleATO:test :BukkitPlugin:test :Core:dokkaGeneratePublicationHtml`，`GRADLE_USER_HOME=/workspace/.gradle`。36个任务全部执行，BUILD SUCCESSFUL（3m13s）；Core50 suites/271项（265执行、6跳过）、Basic59/382、SimpleATO46/351、Bukkit84/352，零失败/错误。结果对应两批组合源码，不是孤立提交测试。直接消费nearest的运营迁移/Wand/undo既有回归随之执行。
+- 独立检查通过，manifest/whitespace通过。Dokka仍有既有缺KDoc/declare链接warning，构建链WebUI报告npm依赖漏洞与大bundle提示，另属后续全模块审查，未执行audit fix/升级依赖或声称全仓合规。无部署/游戏验证；CR-027单独提交。
 
 ### CR-022 修复与验证（2026-10-10）
 

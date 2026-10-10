@@ -167,12 +167,31 @@ class PrimeCurveTest {
     @Test
     @OptIn(work.art1st.javarailways.core.api.util.annotation.Heavy::class)
     fun `reversed curve nearest point reports reversed arc and tangent`() {
-        val curve = PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1).single().reversed
+        val curve = PrimeCurve.fromPoints(
+            listOf(
+                Curve.RawPoint(
+                    Vector3d(0.0, 0.0, 0.0),
+                    Vector3d(1.0, 0.0, 0.0),
+                    Vector3d(0.0, 1.0, 0.0),
+                    0.0,
+                    Curve.SegmentType.LINE_START
+                ),
+                Curve.RawPoint(
+                    Vector3d(100.0, 0.0, 0.0),
+                    Vector3d(1.0, 0.0, 0.0),
+                    Vector3d(0.0, 1.0, 0.0),
+                    100.0,
+                    Curve.SegmentType.LINE_END
+                )
+            )
+        ).reversed
 
-        val point = curve.getNearestPoint(Vector3d(25.0, 0.0, 0.0))
+        val point = curve.getNearestPoint(Vector3d(25.4, 0.0, 0.0))
 
-        assertEquals(75.0, point.arcLength, tolerance)
+        assertEquals(74.6, point.arcLength, 1.0e-9)
+        assertEquals(25.4, point.position.x(), 1.0e-9)
         assertEquals(-1.0, point.tangent.x(), 1.0e-9)
+        assertEquals(1.0, point.normal.y(), 1.0e-9)
         assertTrue(point.curve === curve)
     }
 }

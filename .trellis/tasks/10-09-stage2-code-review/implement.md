@@ -174,6 +174,14 @@
 - 首轮focused 6项有1失败：新断言对整car frame逐字段比较，把fixture原尾bogie的`-0.0`与零速清理后的`+0.0`认作差异。改成独立固定位置、物理方向及带容差零速度断言，保留旧frame和边界断言，不改production。
 - 修正后focused 6项全执行通过（29 s，9个task全部执行）；冻结源码用`GRADLE_USER_HOME=/workspace/.gradle`与`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`完整执行`:Core:test :Basic:test`，`BUILD SUCCESSFUL`（53 s，15个task全部执行）。Core 53 suites/308项（302执行、6个既有disabled环线）、Basic 59 suites/384项全执行，零失败/错误。task manifest 15+15及scoped diff check通过；保留既有Core冗余cast、Basic unchecked/safe-call/non-null assertion与Gradle deprecated warning。CR-020保持partial，Koin fixture、Basic observation collection/bodyTraversal及RailWand完整split/merge事务缺口继续开放，无部署/游戏验证。
 
+### CR-020 Basic observation集合与车身路径（2026-10-10）
+
+- 原BA投影验证独立固定40/50 m canonical AB弧长及BA tail→head非空body；原跨轨用例验证head、tail、body各自的有序rail身份/facing/独立几何弧长，并保留与Core原列表完全相等的投影断言。首轮focused 7项有1失败：保守车尾为39.996430664 m，与理想40 m差3.57 mm，属于既有5 mm placement tolerance；几何预期使用该现有容差，投影相等仍精确，不改production。
+- 原train排序/复制用例改为直接调用Basic `RailwayObservation.create`后修改caller train集合，避免只验证Core已做的复制。新增一项合并回归直接向Basic `RailwayTrainObservation.create`传入五项非空caller-owned mutable集合，清空后检查occupiedIntervals/bodyTraversal/sweptSpans/headTraversal/tailTraversal的独立完整预期与不可修改输出；没有按字段复制五项测试。类内world均经本地Unit fixture配对关闭physics/tick，主错误及cleanup suppressed保留。
+- 修正后focused 7项全执行通过（43 s，12个task全部执行）；冻结源码使用`GRADLE_USER_HOME=/workspace/.gradle`、`--offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`完整运行`:Core:test :Basic:test`，`BUILD SUCCESSFUL`（51 s，15个task全部执行）。Core 53 suites/308项（302执行、6项既有disabled）、Basic 59 suites/385项全执行，零失败/错误；test source SHA-256为`dc6c5273f608a39e95c2e0a3f0dc7a13ec6e576c1c19971732ade23a9d02849f`且前后相同。任务manifest 15+15和scoped diff check通过；既有冗余cast/unchecked/safe-call/non-null assertion及Gradle deprecated warning保留。
+- 独立检查确认五项非空mutable集合直接进入Basic构造边界、清空caller集合后的完整值及只读断言有效；BA body与多轨路径有独立几何预期，Core投影仍精确相等。检查修正Core testing规范中过时的Basic缺口描述，并再次强制执行focused 7项（43 s，12个task全部执行），零失败/跳过；test source SHA-256保持不变，task manifest 15+15及scoped diff check通过。没有代码修正，不重复已通过的冻结全量gate。
+- 只关闭CR-020的Basic observation collection/bodyTraversal子项；Koin fixture及RailWand完整split/merge事务集成缺口继续开放，Basic整模块审查未完成。无production/API/schema改动、部署或游戏验证。
+
 ### CR-014 停止新物理工作后保存与验证（2026-10-10）
 
 - `beginShutdown()`在既有stateLock内永久关闭wake入口并返回exact in-flight/latest-completed ticket；不等待、不取消、不改变RUNNING，使已开始epoch可以正常完成。MAIN/SIMULATION入口拒绝新请求，timer在同一锁内检查资格并分配ticket，关闭入口后静默返回；不能通过start重新开放。Bukkit唯一正常卸载入口改为成功await该ticket后capture/save，最后仍close；不引入第二协调器、超时或公开World接口。

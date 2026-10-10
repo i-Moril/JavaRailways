@@ -52,7 +52,7 @@ consumer test通过`testFixtures(project(":Core"))`复用；production不得依�
 
 `CoreTrainPublicationBoundaryTest`的reverse/derail回归分别观察pending mutation、`publishPhysicsState`翻转live buffer和`publishFrame`替换atomic frame三步：前两步保留原frame identity，最后一步检查新revision、传入epoch及方向/脱轨值，同时保留旧frame验证不变。`commit`必须同时推进buffer与frame且保持最近physics epoch。运营换向交换车头/车尾及rail facing，但保留车厢稳定物理渲染方向；脱轨reason属于live API，当前frame只有`derailed`，不能假设frame携带reason。这里直接验证内部发布原语，coordinator真实epoch与事件排队由已有集成回归负责。
 
-这些用例不替代其他未覆盖场景：disabled环线仍明确跳过，Koin fixture及Basic observation集合/bodyTraversal继续跟踪；不能因为补了资源关闭就宣称全部publication断言已充分。清理失败必须在没有主失败时暴露，有主失败时作为suppressed附着，不能覆盖原始断言。拓扑锁阻塞回归捕获具体reader线程，并通过内部只读诊断确认该线程已进入`ReentrantReadWriteLock`等待队列后再检查future未完成；单纯在read调用前countDown仍可能在线程被抢占时产生假阳性。
+这些用例不替代其他未覆盖场景：disabled环线仍明确跳过，Koin fixture及RailWand完整split/merge事务集成继续跟踪；Basic observation集合复制与有序bodyTraversal已由[Basic测试契约](../basic/testing.md)所列回归覆盖，Basic整模块审查仍未完成。不能因为补了资源关闭就宣称全部publication断言已充分。清理失败必须在没有主失败时暴露，有主失败时作为suppressed附着，不能覆盖原始断言。拓扑锁阻塞回归捕获具体reader线程，并通过内部只读诊断确认该线程已进入`ReentrantReadWriteLock`等待队列后再检查future未完成；单纯在read调用前countDown仍可能在线程被抢占时产生假阳性。
 
 ## 项目内正确示例
 

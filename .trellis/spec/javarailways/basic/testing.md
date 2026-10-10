@@ -24,6 +24,8 @@ fun register(world: World, data: BasicWorldData) {
 
 Basic tests优先复用Core `createTestWorld/createStraightRailFromSegments/createTrainWithConfig/AsyncTickTestSupport`；production不得依赖fixture，新test不复制private/reflection builder。
 
+`RailwayObservationTest`同时验证两层边界：真实Core已发布帧投影保留BA canonical AB弧长及多轨有序body/head/tail traversal；直接调用Basic `RailwayTrainObservation.create`时，传入caller-owned非空mutable集合，再修改原集合，断言五项interval/traversal值及只读输出。外层`RailwayObservation.create`也直接接收mutable train集合验证复制与排序，不能仅凭Core先做的防御复制声称Basic边界已覆盖。该类所有world经局部fixture成对关闭physics/tick，清理错误保留为已有主失败的suppressed。
+
 ## Assertion matrix
 
 | 主题 | 必需assertion points |

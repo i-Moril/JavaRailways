@@ -35,7 +35,7 @@ data class SavedRuntimeV1(
 
 ## Decode、prevalidation、materialization
 
-以下是目标顺序，不代表所有检查已在创建world之前完成。当前train load在构造返回后、成功frame/mailbox发布前执行[摆位校验](./train-physics.md#存档摆位恢复与当前缺口)，验证同一路径/方向/顺序、车内bogie弧长和车端offset；失败沿既有discardFailedLoad撤销本次列车副作用。完整相邻车钩一致性仍未保证；rail连接严格预校验和extension稳定type registry也仍有已知差距，不能把下图当作现状验收结论。
+以下是目标顺序，不代表所有检查已在创建world之前完成。当前train load在构造返回后、成功frame/mailbox发布前执行[摆位校验](./train-physics.md#存档摆位恢复与当前缺口)，验证同一路径/方向/顺序、车内bogie弧长和车端offset；失败沿既有discardFailedLoad撤销本次列车副作用。rail连接使用下方严格端点解析，但完整相邻车钩一致性、全world materialization失败清理和extension稳定type registry仍有已知差距，不能把下图当作现状验收结论。
 
 ```text
 bytes/text → read boundary version → optional pure upcast（仅任务明确支持）
@@ -55,7 +55,9 @@ bytes/text → read boundary version → optional pure upcast（仅任务明确�
 | breaking shape/unit/meaning | 升最小boundary；decode边界单向upcast | business只见current |
 | unknown extension type/version | stable registry fail-fast | 禁止反射/忽略 |
 
-Rail connection orphan的遗留容错不得扩展到新引用；目标contract是prevalidation显式分类并由migration/strict policy决定。`physicsEpoch`不能被解释为restart后coordinator sequence自动续接。
+Rail connection restore与prepared snapshot restore共用Core内部`decodeSavedRailEndpoint`，只解析存档明确声明的rail ID，不扫描附近轨道补连接。每端引用必须是有效UUID、目标存在、真实端点在`Curve.TOLERANCE`内共点，且不重复/不超过两项；非null active必须在本端连接中，合法null与声明顺序原样保留。单rail的A/B均完整解析和resolve后才修改任一live endpoint；全图对称性仍由prepared validator或load的TopologyStateBuilder验证。坏引用拒绝，不静默删除/选首支路；合法运行时remove和preserve-active undo的fallback是不同边界，不受此规则改变。此保证不是全world load rollback；开发数据如需修复须离线审计迁移，不在JAR猜测兼容。
+
+`physicsEpoch`不能被解释为restart后coordinator sequence自动续接。
 
 ## 项目内正确示例
 
@@ -88,6 +90,7 @@ json.decodeFromString(CoreWorld.SavedRuntimeV1.serializer(), data).also {
 - `WorldPersistenceRoundTripTest.kt`：version/invalid JSON/train identity。
 - `CoreTrainReversedPersistenceTest.kt`：AB/BA exact placement与failed load cleanup。
 - `SplitWorldSnapshotTest.kt`：revision pairing与完整resource close。
+- `SavedRailConnectionsTest.kt`：load/prepared两入口拒绝坏引用/接头/active；AA/AB/BA/BB连接、顺序与null/第二支选择；B端坏输入在A/B mutation前拒绝。
 
 ```bash
 ./gradlew :Core:test --tests 'work.art1st.javarailways.core.persistence.*' \

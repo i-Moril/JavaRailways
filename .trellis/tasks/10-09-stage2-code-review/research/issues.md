@@ -241,10 +241,11 @@
 
 ### CR-027：正式load静默丢连接，且不验证接头共点
 
-- P2；静态确认，未定向执行。
+- 初审：P2；静态确认，当时未定向执行；后续修复与验证见下。
 - `CoreRail.kt:136-168`对malformed/missing引用mapNotNull，并只选最近端点；相互引用但远离的rail仍可能形成拓扑edge。
 - `PreparedRailWorldSnapshotPlan.kt:265-297`却严格验证引用/距离/对称，两个current入口不一致。
 - 建议load边界复用严格物理校验，不保留默认旧开发数据容错；现有spec承认遗留容错，不把目标误写成已实现。
+- **已修复（2026-10-10）**：load与prepared共用单端点严格decoder，单rail两端均完成解析/resolve后再写；保留合法null、顺序和第二支active，拒绝坏引用/重复/超容量/远离端点。旧resolver及仅供它使用的getDirection移除；live remove/structural-undo fallback及全图reciprocity校验保留。新增23项与修正的损坏load用例通过，其中11项在旧load已确认失败；独立检查和Core/Basic/直接consumer组合门禁通过，见[记录](../implement.md#cr-027-修复与验证2026-10-10)。不宣称全world失败无资源副作用，CR-015/017仍单列。
 
 ### CR-028：曲线raw/decode输入验证缺口
 

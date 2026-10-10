@@ -1,6 +1,5 @@
 package work.art1st.javarailways.core.physics.rail
 
-import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
@@ -13,12 +12,6 @@ import work.art1st.javarailways.core.physics.rail.topology.TopologyStateBuilder
 import java.util.Collections
 import java.util.LinkedHashSet
 import java.util.UUID
-
-/** One exact target endpoint state decoded from a saved rail snapshot. */
-internal data class SnapshotEndpointState(
-    val connectedEndpoints: List<RailEndpointRef>,
-    val activeEndpoint: RailEndpointRef?
-)
 
 /**
  * Off-thread prepared structural part of one whole-world snapshot restore.
@@ -260,35 +253,11 @@ class PreparedRailWorldSnapshotPlan private constructor(
             savedById: Map<UUID, CoreRail.SavedRailV1>,
             curvesById: Map<UUID, work.art1st.javarailways.core.api.physics.curve.PrimeCurve>
         ): Map<RailEndpointRef, SnapshotEndpointState> {
-            fun endpointPosition(railId: UUID, endpoint: RailEndpoint) = curvesById.getValue(railId).let { curve ->
-                curve.getPointAt(if (endpoint == RailEndpoint.A) 0.0 else curve.totalArcLength).position
-            }
-            fun targetEndpoint(source: RailEndpointRef, targetRailId: UUID): RailEndpointRef {
-                val sourcePosition = endpointPosition(source.railId, source.endpoint)
-                val distanceA = sourcePosition.distance(endpointPosition(targetRailId, RailEndpoint.A))
-                val distanceB = sourcePosition.distance(endpointPosition(targetRailId, RailEndpoint.B))
-                val endpoint = if (distanceA < distanceB) RailEndpoint.A else RailEndpoint.B
-                require(minOf(distanceA, distanceB) <= Curve.TOLERANCE) {
-                    "snapshot connection endpoints are not colocated: $source -> $targetRailId"
-                }
-                return RailEndpointRef(targetRailId, endpoint)
-            }
             val states = linkedMapOf<RailEndpointRef, SnapshotEndpointState>()
             savedById.forEach { (railId, saved) ->
                 fun add(endpoint: RailEndpoint, nextIds: List<String>, activeId: String?) {
                     val source = RailEndpointRef(railId, endpoint)
-                    val targets = nextIds.map { text ->
-                        val targetId = UUID.fromString(text)
-                        require(targetId in savedById) { "snapshot connection references missing rail $targetId" }
-                        targetEndpoint(source, targetId)
-                    }
-                    require(targets.distinct().size == targets.size && targets.size <= 2)
-                    val active = activeId?.let(UUID::fromString)?.let { activeRailId ->
-                        requireNotNull(targets.singleOrNull { it.railId == activeRailId }) {
-                            "snapshot active rail $activeRailId is not connected at $source"
-                        }
-                    }
-                    states[source] = SnapshotEndpointState(targets, active)
+                    states[source] = decodeSavedRailEndpoint(source, nextIds, activeId, curvesById::get)
                 }
                 add(RailEndpoint.A, saved.nextRailAtA, saved.activeTrackAtA)
                 add(RailEndpoint.B, saved.nextRailAtB, saved.activeTrackAtB)

@@ -5,13 +5,14 @@ import kotlinx.serialization.Serializable
 import org.joml.Vector3dc
 import work.art1st.javarailways.core.control.signal.Signal
 import work.art1st.javarailways.core.physics.CoreWorld
-import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.physics.train.TrainEnd
 import work.art1st.javarailways.core.api.physics.curve.Curve.Companion.TOLERANCE
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.exception.CannotConnectRailException
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl
 import work.art1st.javarailways.core.api.physics.rail.Rail
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.render.RenderableExtension
 import work.art1st.javarailways.core.api.util.annotation.Concurrent
 import work.art1st.javarailways.core.api.util.annotation.MainThread
@@ -131,40 +132,30 @@ class CoreRail @MainThread private constructor(
         }
 
         private fun restoreConnectionsInTransaction(rail: CoreRail, dependency: Dependency) {
-            val pointA = rail.curve.getPointAt(0.0)
-            val pointB = rail.curve.getPointAt(rail.curve.totalArcLength)
-            val nextAtA = nextRailAtA.mapNotNull { resolveRailView(pointA, it, dependency) }
-            val nextAtB = nextRailAtB.mapNotNull { resolveRailView(pointB, it, dependency) }
+            val curveById = { railId: UUID -> dependency.world.getRail(railId)?.curve }
+            val stateA = decodeSavedRailEndpoint(
+                RailEndpointRef(rail.id, RailEndpoint.A), nextRailAtA, activeTrackAtA, curveById
+            )
+            val stateB = decodeSavedRailEndpoint(
+                RailEndpointRef(rail.id, RailEndpoint.B), nextRailAtB, activeTrackAtB, curveById
+            )
+            fun awayView(endpoint: RailEndpointRef): RailView {
+                val target = requireNotNull(dependency.world.getRail(endpoint.railId))
+                return if (endpoint.endpoint == RailEndpoint.A) target.viewAB else target.viewBA
+            }
+            // Validate and resolve both ends before changing either live endpoint.
+            val nextAtA = stateA.connectedEndpoints.map(::awayView)
+            val nextAtB = stateB.connectedEndpoints.map(::awayView)
+            val activeAtA = stateA.activeEndpoint?.let(::awayView)
+            val activeAtB = stateB.activeEndpoint?.let(::awayView)
             rail.viewBA.activeRail = null
             rail.viewBA.mutableNextRails.clear()
             rail.viewBA.mutableNextRails.addAll(nextAtA)
-            rail.viewBA.activeRail = activeTrackAtA
-                ?.takeIf { nextRailAtA.contains(it) }
-                ?.let { resolveRailView(pointA, it, dependency) }
-                ?.takeIf { nextAtA.contains(it) }
-                ?: nextAtA.firstOrNull()
+            rail.viewBA.activeRail = activeAtA
             rail.viewAB.activeRail = null
             rail.viewAB.mutableNextRails.clear()
             rail.viewAB.mutableNextRails.addAll(nextAtB)
-            rail.viewAB.activeRail = activeTrackAtB
-                ?.takeIf { nextRailAtB.contains(it) }
-                ?.let { resolveRailView(pointB, it, dependency) }
-                ?.takeIf { nextAtB.contains(it) }
-                ?: nextAtB.firstOrNull()
-        }
-
-        private fun resolveRailView(point: Curve.Point, railId: String, dependency: Dependency): RailView? {
-            val uuid = runCatching { UUID.fromString(railId) }.getOrNull() ?: return null
-            val rail = dependency.world.getRail(uuid) ?: return null
-            return getDirection(point, rail)
-        }
-
-        // 获取在端点处连接的RailView
-        fun getDirection(point: Curve.Point, nextRail: CoreRail) : RailView {
-            val distA = nextRail.viewAB.startPoint.position.distance(point.position)
-            val distB = nextRail.viewAB.endPoint.position.distance(point.position)
-            if (distA < distB) return nextRail.viewAB
-            return nextRail.viewBA
+            rail.viewAB.activeRail = activeAtB
         }
 
         data class Dependency(

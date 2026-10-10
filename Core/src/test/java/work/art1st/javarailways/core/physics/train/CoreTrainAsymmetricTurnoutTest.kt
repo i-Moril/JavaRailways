@@ -65,7 +65,7 @@ class CoreTrainAsymmetricTurnoutTest {
     }
 
     @Test
-    fun `loading after active target disappeared selects first surviving candidate`() {
+    fun `loading rejects a declared active target that disappeared`() {
         val sourceWorld = createTestWorld()
         val stem = rail(sourceWorld, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         val removed = rail(sourceWorld, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, -5.0))
@@ -79,15 +79,19 @@ class CoreTrainAsymmetricTurnoutTest {
 
         val restoredWorld = createTestWorld()
         val dependency = CoreRail.SavedRailV1.Dependency(restoredWorld)
-        val restored = restoredWorld.railTopologyTransaction {
-            val disconnected = saved.associateWith { it.loadDisconnected(dependency) }
-            disconnected.forEach { (snapshot, rail) -> snapshot.restoreConnections(rail, dependency) }
-            disconnected
+        try {
+            assertThrows(IllegalArgumentException::class.java) {
+                restoredWorld.railTopologyTransaction {
+                    val disconnected = saved.associateWith { it.loadDisconnected(dependency) }
+                    disconnected.forEach { (snapshot, rail) -> snapshot.restoreConnections(rail, dependency) }
+                }
+            }
+        } finally {
+            restoredWorld.physicsCoordinator.close()
+            (restoredWorld.tickManager as AutoCloseable).close()
+            sourceWorld.physicsCoordinator.close()
+            (sourceWorld.tickManager as AutoCloseable).close()
         }
-        val restoredStem = restoredWorld.getRail(stem.id)!!
-
-        assertEquals(listOf(first.id, second.id), restoredStem.viewAB.nextRails.map { it.rail.id })
-        assertEquals(first.id, restoredStem.viewAB.activeRail?.rail?.id)
     }
 
     @Test

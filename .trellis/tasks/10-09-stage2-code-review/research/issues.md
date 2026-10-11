@@ -315,6 +315,7 @@
   保留现行prepared pipeline、`mergeEligibilityError/SplitResult`真实RailWand consumer与独立eligibility测试，以及
   current `SavedTrainV1/SavedCarV1/SavedBogieV1/CarConfigV1`恢复链。冻结回归Core 308（6 skipped）+ Basic 384零失败，Bukkit直接consumer编译、Core Dokka/JAR检查通过；无格式/版本改动。
 - 现有测试只分别证明prepared plan、stale、Core transaction rollback与eligibility；尚无完整RailWand split/merge跨层事务测试，且其余公开面/维护候选仍单独评估，因此不将CR-032或Core审查整体结案。
+- 测试工具归属调整（2026-10-11）：`PrimeCurveGenerator`移到Core `testFixtures`，保留原包名/方法/算法，六模块测试继续复用；全仓检查没有production/注册/资源入口，五个下游已有fixture依赖。JAR归属检查通过；全量发现的SimpleATO三项既有失败已由CR-035单独定位和修复，完整模块352项及独立完整类37项通过。详见implement对应批次。不新增生产兼容副本，CR-032其余候选仍保持原评估边界。
 - 用户确认目前无仓库外插件；未用异常/seat等公开面仍按扩展价值评估，不直接按无caller删除。联结/解编已确认保留。Signal和DynamicRenderable.lastState有真实consumer，不删。
 - [旧事件专项评估](./core-event-api-assessment.md)初稿删除建议已撤回：用户要求保留PreTickEvent/PostTickEvent/RenderableEvent并考虑接入，从废代码删除候选中排除。暂无publisher只说明未接线；分组接口不必独立发布。接入阶段/线程契约尚未冻结，现有observation不作为所有事件用途的等价替代。
 
@@ -332,3 +333,10 @@
 - P2，静态确认的注册竞态已修复；没有确定性定向复现，也没有正常生产并发触发证据，当前宿主启动/关闭串行。
 - 原实现取得HandlerList后在map操作外add；close/unregister的空桶cleanup可在两步间移除该bucket，令返回的live registration不再可派发。现以同一monitor串行化低频register/close/unregister及空桶cleanup，反射元数据提取在锁外，publish和callback不取得该锁。
 - 三项局部bus回归覆盖100轮同event type并发register/close/unregister后live token可派发、旧token不影响后续同listener注册，以及callback自关并等待另一线程注册。barrier只协调起跑，不强制旧实现的临界交错；测试通过不等于旧版本必红。token标记和copy-on-write在途快照语义见[事件契约](../../../spec/javarailways/core/event-bus.md)。完整验证记录见implement的CR-034批次；不改变事件接入、schema或公开签名。
+
+### CR-035：时刻表车库测试使用零半径折返线路
+
+- 发现时动态确认：`SimpleATO/TimetableDispatcherTest`的入库可用性交接、无兼容空停车点、周期边界3项失败，诊断含约130m接缝处尾架在train-local forward path不可达。隔离已提交基线`4b906f85`强制执行全类37项，复现相同3项失败名称和断言消息；不是CR-032测试工具迁移引入。
+- 初次发现尚未区分测试轨道几何无效、Core跨接缝定位错误或运营调用错误，因此没有放宽断言、跳过测试或改回旧几何规避。原始对照及命令见implement的CR-032批次。没有游戏现场复现。
+- 后续定位（2026-10-11）：上述待定位状态为历史记录。三项均用重合的`0→140`及`140→0`直线组成零半径180°折返。10m轴距列车head进入返回段0.5m时，尾架必须退至原段129.5m，旧尾端已在129.85125m；Core按前向路径拒绝合理，不能扩大搜索距离规避。仅将三处fixture改为两个140m半圆组成的平滑环线，显式连接两个接头；原业务动作、目标弧长、断言和37项数量保留。最终完整类37项全通过，完整模块及独立检查结果见implement。本项是测试几何修复，不是生产算法修复。
+- 已修复并验证：完整SimpleATO 352项与独立完整类37项均通过，零跳过/失败/error；只修测试几何，本项闭合，不代表生产跨接缝或游戏场景全覆盖。

@@ -8,7 +8,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * 测试用：生成直线和圆弧 PrimeCurve，切成若干段，每段一个 PrimeCurve。
+ * 共享测试工具：生成直线和圆弧 PrimeCurve，切成若干段，每段一个 PrimeCurve。
  */
 object PrimeCurveGenerator {
 

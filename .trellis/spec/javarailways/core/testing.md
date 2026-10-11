@@ -11,6 +11,7 @@
 Core `java-test-fixtures`导出：
 
 - `Core/src/testFixtures/kotlin/work/art1st/javarailways/core/physics/train/TrainTestUtils.kt`：world/rail/train、AB/BA/loop builders；
+- `Core/src/testFixtures/kotlin/work/art1st/javarailways/core/physics/rail/curve/PrimeCurveGenerator.kt`：测试直线/圆弧分段生成器，保留原包名供现有consumer复用；只随test-fixtures产物发布，不进入Core runtime JAR；
 - `Core/src/testFixtures/kotlin/work/art1st/javarailways/core/util/AsyncTickTestSupport.kt`：安装与production worker相同marker。
 
 真实worker helper：
@@ -23,6 +24,10 @@ object AsyncTickTestSupport {
 ```
 
 consumer test通过`testFixtures(project(":Core"))`复用；production不得依赖fixture。`createTestWorld(physicsCoordinator: PhysicsCoordinator? = null)`在受保护的setup中创建TickManager和默认PhysicsCoordinator；Koin初始化在资源分配前。创建失败只释放helper拥有的coordinator及tick/scheduler，保留原异常并附suppressed；显式传入的coordinator仍由caller拥有。成功返回后caller在`finally/use`按physics→runtime binding→tick关闭并清world/global registrations。nullable默认值使默认coordinator不会在进入函数前分配，Kotlin无参/具名及JVM一参调用保持可用。
+
+fixture使用JOML构造测试几何时，Core以`testFixturesImplementation`声明同版本依赖；生产`compileOnly`和普通`testImplementation`都不能代替fixture自己的编译依赖。生成器的公开方法不直接暴露JOML类型，不因此扩大为`testFixturesApi`。
+
+用于正常运动或运营成功用例的轨道fixture必须允许刚体列车通过接缝；拓扑连通不等于几何可行。例如，把两条完全重合、方向相反的直线首尾相接会形成零半径180°折返，保持轴距可能要求尾转向架倒退，不能据此要求Core放宽前向定位。需要环线时复用圆弧生成器形成平滑连接；两个半圆共享两个端点时，用`RailView.connect(outbound.viewAB, returning.viewBA)`和`RailView.connect(returning.viewAB, outbound.viewBA)`显式连接两处接头，不依赖最近端点推断。专门测试非法几何的用例则明确断言失败，不将其混入正常入库或时刻表成功场景。
 
 ## 测试矩阵与 assertion points
 

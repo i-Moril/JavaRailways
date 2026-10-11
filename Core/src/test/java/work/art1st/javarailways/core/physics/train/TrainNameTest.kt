@@ -3,12 +3,12 @@ package work.art1st.javarailways.core.physics.train
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 
 class TrainNameTest {
     @Test
-    fun `train names are unique per world and lookup uses the player name`() {
-        val world = createTestWorld()
+    fun `train names are unique per world and lookup uses the player name`() = withWorld { world ->
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
@@ -26,6 +26,15 @@ class TrainNameTest {
 
         assertThrows(IllegalArgumentException::class.java) {
             world.renameTrain(second, "Local 1")
+        }
+    }
+
+    private fun withWorld(block: (CoreWorld) -> Unit) {
+        val world = createTestWorld()
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                world.physicsCoordinator.use { block(world) }
+            }
         }
     }
 }

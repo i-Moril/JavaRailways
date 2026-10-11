@@ -15,8 +15,7 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 
 class CoreCarPositioningRegressionTest {
     @Test
-    fun `command style train relocation on circle succeeds`() {
-        val world = createTestWorld()
+    fun `command style train relocation on circle succeeds`() = withWorld { world ->
         val rail = createCurvedRail(world, 20.0)
         val train = createCommandStyleTrain(world, rail, carLength = 10.0)
         val targetLocation = RailLocationWithFacing(rail.viewAB, 25.0)
@@ -27,8 +26,7 @@ class CoreCarPositioningRegressionTest {
     }
 
     @Test
-    fun `relocation immediately uses normals at the new bogie locations`() {
-        val world = createTestWorld()
+    fun `relocation immediately uses normals at the new bogie locations`() = withWorld { world ->
         val curve = PrimeCurve.fromPoints(listOf(
             Curve.RawPoint(Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0),
             Curve.RawPoint(Vector3d(50.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 0.98, 0.20).normalize(), 50.0),
@@ -48,14 +46,22 @@ class CoreCarPositioningRegressionTest {
     }
 
     @Test
-    fun `test helper train relocation on circle succeeds`() {
-        val world = createTestWorld()
+    fun `test helper train relocation on circle succeeds`() = withWorld { world ->
         val rail = createCurvedRail(world, 20.0)
         val train = createTrainWithConfig("test-helper-train", rail, world, listOf(10.0), isLoop = true)
         val targetLocation = RailLocationWithFacing(rail.viewAB, 25.0)
 
         assertDoesNotThrow {
             train.setLocation(targetLocation)
+        }
+    }
+
+    private fun withWorld(block: (CoreWorld) -> Unit) {
+        val world = createTestWorld()
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                world.physicsCoordinator.use { block(world) }
+            }
         }
     }
 

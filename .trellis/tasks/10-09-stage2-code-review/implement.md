@@ -2,7 +2,7 @@
 
 当前阶段：in_progress。用户于 2026-10-09 批准修复已知问题；2026-10-10进一步批准连续小提交后统一检查，不要求等待全部审查结束才修复已确认项。
 
-最新批次（2026-10-11）：五类轨道测试world资源清理已完成，原11项业务动作/断言保留，独立静态检查及Core/Basic全量门禁通过，详见文末。列车名称/车体摆位等其余fixture仍待后续；Seat、事件接入、link事务和真实存档迁移不视为已批准。
+最新批次（2026-10-11）：`TrainNameTest`、`CoreCarPositioningRegressionTest`的world清理已完成，原4项业务动作/断言保留，独立静态检查与Core/Basic全量门禁通过，详见文末。其余fixture及接缝发布断言仍需继续核实；Seat、事件接入、link事务和真实存档迁移不视为已批准。
 
 ## A. 完成审查
 
@@ -447,3 +447,9 @@ env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
 - 每类使用返回Unit的局部`withWorld`，沿用[Core测试契约](../../spec/javarailways/core/testing.md)既有默认world setup失败所有权；成功后的fixture构造和断言均在三层use内，按physics→binding→tick释放并保留主异常/suppressed。Persist私有`createStraightRail(world)`接收受管world，不再内部创建后只返回rail。没有生产代码、共享fixture、模型、schema版本或新规则变更，既有规范已覆盖本批，不重复新增条款。
 - 独立只读check确认业务体与HEAD不变、JUnit表达式体仍返回Unit、资源归属正确，无需补修；未重复运行Gradle。主会话冻结五文件，使用`GRADLE_USER_HOME=/workspace/.gradle ./gradlew :Core:test :Basic:test --offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`，`BUILD SUCCESSFUL`（54s、15 tasks全部执行）。新鲜XML Core 54 suites/319项、Basic 59 suites/385项均全执行，零跳过/失败/error；五类11项全部实际执行通过。五文件SHA-256与实施交付值一致，scoped diff-check和task manifest 15+15通过；既有warning保留，无独立lint配置，未部署或进行游戏/opt-in stress验证。
 - 本批资源子项闭合，`TrainNameTest`和`CoreCarPositioningRegressionTest`等其余fixture仍待清理，接缝测试发布断言、RailWand完整事务集成及Basic整模块审查未完成，不归档总任务。
+
+### CR-020 名称与车体摆位fixture清理（2026-10-11）
+
+- `TrainNameTest`、`CoreCarPositioningRegressionTest`两文件仅增加局部Unit `withWorld`和physics→binding→tick的use释放（23增/8删）；原1+3共4项业务动作、断言、几何和参数不变。setup失败沿共享fixture既有owner合同，成功后setup及assert均在释放作用域内；主异常和suppressed由use保留。
+- 独立只读check确认上述边界、JUnit返回类型和冻结hash，无需补修；不改生产代码/共享fixture或持久化。既有Core testing规范已经定义本次规则，不重复增补。主会话以`GRADLE_USER_HOME=/workspace/.gradle ./gradlew :Core:test :Basic:test --offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`完成强制门禁，`BUILD SUCCESSFUL`（54s、15 tasks全部执行）；新鲜XML Core 54 suites/319项、Basic 59 suites/385项全执行，零跳过/失败/error，两类4项全部实际执行通过。源码前后SHA-256一致：Name `fe43616e7ffcb5d0d3f52c38ef4f03ccfbb8b08370db2da1aa3a1d819c8cddb6`，Positioning `18000b7d516646cbc56442bd1ccc9cc96c9af6404e980e9b7cb54b946454261f`。scoped diff-check和task manifest 15+15通过，无独立lint配置，既有warning保留；未部署或进行游戏/opt-in stress验证。
+- 仅关闭两类资源子项；接缝运动真实epoch/发布断言、其余fixture所有权复核、RailWand完整事务集成和Basic整模块审查继续跟踪，CR-020保持partial，不归档总任务。

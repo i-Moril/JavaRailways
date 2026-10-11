@@ -39,3 +39,7 @@
 - Fixed confirmation initially could not load test classes after source switching; no samples produced. Failure log retained; isolated testClasses --rerun-tasks rebuild followed by successful repeats. Final fixed source/harness hashes match frozen quality-gate state.
 - Comparison: results/comparison.md and comparison.json; targeted repeat data: results/confirmation.json. compare.py regenerates summaries from raw reports.
 - Code/spec/regression/performance work complete. User approved commit-plan.md and ending this Trellis task on 2026-10-11; proceed with scoped work commit, archive and journal. No push or deployment authorized.
+
+## Closeout
+- User approved commit and task completion on 2026-10-11. Work commit: `24035887` (`fix(core): enforce rigid train connector geometry`).
+- Only this task is archived; unrelated dirty/untracked work and other tasks remain untouched. No push or deployment.

@@ -49,7 +49,7 @@
 
 总体：CoreWorld/CoreTrain负责各自权威状态，publication和prepared edit已有明确边界；不能只按1478/841行判面条代码。真正应治理的是失败事务、废弃平行路径和重复验证。
 
-- CoreWorld含多处重复prepared replacement校验、冗长fully-qualified类型和结构提交逻辑。适合抽局部共同校验/按职责整理函数，不适合新增几个共同修改同一状态的manager。
+- CoreWorld原有普通/prepared事务重复的replacement完整性校验与fault/stall处理已复用现有私有函数（2026-10-11，验证见implement记录）；两条路径各自的恢复判断保持不变。冗长fully-qualified类型和其他结构提交可读性仍可局部整理，不适合新增几个共同修改同一状态的manager。
 - split/link缺少同一结构事务；“先mutation、再排任务、异常藏在Future”比文件长度更值得修。
 - 旧RailTopologyEditor split/merge还保留全world复制/rollback，但正式Wand已使用prepared方案。应先删除废路径，而非重构两套算法。
 - **CR-033，两处重复扫描已修复（2026-10-11，验证见implement记录）**：`TopologyStateBuilder`连通分量起点一次按原key排序并跳过已访问组；`PreparedRailConnectionPlan`用capture局部rail ID map查prepared端点。不新增长期catalog，不改变确定性ID、连接选择或校验顺序。这是结构编辑路径，未做耗时profiling，不宣称每tick或实际毫秒收益。

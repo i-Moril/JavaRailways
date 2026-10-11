@@ -122,26 +122,50 @@ class PreparedRailCreationBatchTest {
     @Test
     fun `partial replacement rollback faults instead of publishing incomplete topology`() {
         val world = createTestWorld()
-        val firstSource = world.createRailForTest(line(0.0, 0.0, 10.0, 0.0))
-        val secondSource = world.createRailForTest(line(20.0, 0.0, 30.0, 0.0))
-        val prepared = world.prepareRailCreationBatch(
-            listOf(line(0.0, 1.0, 10.0, 1.0), line(20.0, 1.0, 30.0, 1.0)),
-            setOf(firstSource.id, secondSource.id)
-        )
-        val revisionBefore = world.topologyRevision
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                world.physicsCoordinator.use {
+                    val firstSource = world.createRailForTest(line(0.0, 0.0, 10.0, 0.0))
+                    val secondSource = world.createRailForTest(line(20.0, 0.0, 30.0, 0.0))
+                    val prepared = world.prepareRailCreationBatch(
+                        listOf(line(0.0, 1.0, 10.0, 1.0), line(20.0, 1.0, 30.0, 1.0)),
+                        setOf(firstSource.id, secondSource.id)
+                    )
+                    val revisionBefore = world.topologyRevision
+                    val rootBefore = world.topologyState
 
-        assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction {
-                val replacements = world.installPreparedRails(prepared)
-                world.removeRail(firstSource)
-                replacements.forEach(world::removeRail)
+                    val failure = assertThrows(IllegalStateException::class.java) {
+                        world.railTopologyTransaction {
+                            val replacements = world.installPreparedRails(prepared)
+                            world.removeRail(firstSource)
+                            replacements.forEach(world::removeRail)
+                        }
+                    }
+
+                    assertEquals(
+                        "Prepared replacement transaction ended with an incomplete rail set; " +
+                            "created present=[], excluded present=[${secondSource.id}]",
+                        failure.message
+                    )
+                    assertSame(rootBefore, world.topologyState)
+                    assertEquals(revisionBefore, world.topologyRevision)
+                    assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
+                    assertTrue(world.getRail(firstSource.id) == null)
+                    assertSame(secondSource, world.getRail(secondSource.id))
+                    assertTrue(prepared.creations.none { world.getRail(it.railId) != null })
+                    val editFailure = assertThrows(RailTopologyFaultedException::class.java) {
+                        world.railTopologyTransaction { }
+                    }
+                    assertEquals(
+                        RailTopologyFaultReason.TRANSACTION_FAILED_AFTER_STRUCTURAL_MUTATION,
+                        editFailure.fault.reason
+                    )
+                    assertEquals(revisionBefore, editFailure.fault.lastPublishedRevision)
+                    assertEquals("java.lang.IllegalStateException", editFailure.fault.failureType)
+                    assertEquals(failure.message, editFailure.fault.failureMessage)
+                }
             }
         }
-
-        assertEquals(revisionBefore, world.topologyRevision)
-        assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
-        assertTrue(world.getRail(firstSource.id) == null)
-        assertSame(secondSource, world.getRail(secondSource.id))
     }
 
     private fun line(fromX: Double, fromZ: Double, toX: Double, toZ: Double): PrimeCurve {

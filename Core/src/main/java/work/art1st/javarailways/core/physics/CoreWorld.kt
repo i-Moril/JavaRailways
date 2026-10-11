@@ -964,17 +964,7 @@ class CoreWorld(
                         nestedFailure
                     )
                 }
-                context.replacementRequirements.firstOrNull { requirement ->
-                    !requirement.isCompleteIn(rails.keys)
-                }?.let { incomplete ->
-                    throw IllegalStateException(
-                        "Prepared replacement transaction ended with an incomplete rail set; " +
-                            "created present=" +
-                            incomplete.createdRailIds.filter(rails::containsKey).sortedBy(UUID::toString) +
-                            ", excluded present=" +
-                            incomplete.excludedRailIds.filter(rails::containsKey).sortedBy(UUID::toString)
-                    )
-                }
+                validateReplacementRequirements(context)
                 val after = captureRailTopologyFingerprint()
                 if (after != context.before) {
                     val nextRevision = Math.addExact(publishedTopologyState.revision, 1L)
@@ -998,18 +988,7 @@ class CoreWorld(
                 result
             } catch (failure: Throwable) {
                 if (captureRailTopologyFingerprint() != context.before) {
-                    railTopologyHealth = RailTopologyHealth.Faulted(
-                        RailTopologyFault(
-                            reason = RailTopologyFaultReason.TRANSACTION_FAILED_AFTER_STRUCTURAL_MUTATION,
-                            lastPublishedRevision = publishedTopologyState.revision,
-                            failureType = failure::class.qualifiedName ?: failure::class.simpleName ?: "unknown",
-                            failureMessage = failure.message
-                        )
-                    )
-                    physicsCoordinator.stall(
-                        "Rail topology transaction failed after structural mutation; reload the world to recover",
-                        failure
-                    )
+                    faultTopologyAfterFailedMutation(failure)
                 }
                 throw failure
             } finally {

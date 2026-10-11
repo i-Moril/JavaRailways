@@ -36,6 +36,12 @@
 
 用户随后确认联结和解编都采用提交前决策事件及提交后成功事件，拒绝不可被后续监听器撤销；未来SimpleATO只在成功事件更新正式运营记录。撤回解编无需前置检查的中间提案；车型和运营限制由插件检查，不依赖其与SimpleATO的监听顺序保证失败时无运营变更。具体行为由上述train physics契约统一拥有。
 
+## CR-030后续决定：车辆行为随车厢保留（2026-10-11）
+
+用户否决把调用者理解为列车：仅collision产生联结尝试，插件通过事件决定；主编组缺省优先碰撞前静止一方。撤回主动`Train.linkWith`及“唯一controller优先”的提案；平局与失败处置尚未获批。
+
+模型行为由Bukkit现有`CarExtension`持有各自独立JS状态，列车适配器只捕获操作目标、分发并汇总，Core结构提交不重建车厢扩展。原列车级JS重建/取消旧延迟动作，以及只保留主JS状态两种中间建议均撤回，当前目标以[每车JS合同](../../spec/bukkit-plugin/backend/car-behavior.md)为准。SimpleATO运营元数据归属不变；先迁移车辆行为和动作生命周期，再完整切换联结事务。包声明、保存形状和任意JS状态序列化不在这次文档批次改动。
+
 ## 首批 Core 修复边界：CR-022
 
 只处理CoreTrain构造未返回时遗留的车端、world索引及本次注册的controller；不复用会销毁调用方cars的完整destroy/failed-load清理，不新增泛化事务或extension回滚协议。重复身份、端部位置失败和初始化异常都在该边界验证；编组几何完整性、宿主world构造资源、link/split及事件接入另批处理。机制和失败合同由[train physics](../../spec/javarailways/core/train-physics.md)拥有；无持久化字段/版本或公开API变更。

@@ -16,8 +16,7 @@ import java.util.UUID
 
 class PreparedRailCreationBatchTest {
     @Test
-    fun `exact crossing detection happens during preparation and not installation`() {
-        val world = createTestWorld()
+    fun `exact crossing detection happens during preparation and not installation`() = withWorld { world ->
         world.createRailForTest(line(-5.0, 0.0, 5.0, 0.0))
         val beforePrepare = world.atGradeExactDetectionCountForTesting()
 
@@ -33,8 +32,7 @@ class PreparedRailCreationBatchTest {
     }
 
     @Test
-    fun `batch detects new against new crossing and publishes once in input order`() {
-        val world = createTestWorld()
+    fun `batch detects new against new crossing and publishes once in input order`() = withWorld { world ->
         val curves = listOf(
             line(-5.0, 0.0, 5.0, 0.0),
             line(0.0, -5.0, 0.0, 5.0)
@@ -50,23 +48,22 @@ class PreparedRailCreationBatchTest {
     }
 
     @Test
-    fun `world mismatch rejects before mutation`() {
-        val source = createTestWorld()
-        val target = createTestWorld()
-        val prepared = source.prepareRailCreation(line(0.0, 0.0, 10.0, 0.0))
+    fun `world mismatch rejects before mutation`() = withWorld { source ->
+        withWorld { target ->
+            val prepared = source.prepareRailCreation(line(0.0, 0.0, 10.0, 0.0))
 
-        val failure = assertThrows(PreparedRailCreationRejectedException::class.java) {
-            target.installPreparedRails(prepared)
+            val failure = assertThrows(PreparedRailCreationRejectedException::class.java) {
+                target.installPreparedRails(prepared)
+            }
+
+            assertEquals(PreparedRailCreationRejectionReason.WORLD_MISMATCH, failure.reason)
+            assertTrue(target.allRails.isEmpty())
+            assertEquals(0L, target.topologyRevision)
         }
-
-        assertEquals(PreparedRailCreationRejectionReason.WORLD_MISMATCH, failure.reason)
-        assertTrue(target.allRails.isEmpty())
-        assertEquals(0L, target.topologyRevision)
     }
 
     @Test
-    fun `stale topology rejects whole batch before mutation`() {
-        val world = createTestWorld()
+    fun `stale topology rejects whole batch before mutation`() = withWorld { world ->
         val prepared = world.prepareRailCreationBatch(
             listOf(line(0.0, 0.0, 10.0, 0.0), line(20.0, 0.0, 30.0, 0.0))
         )
@@ -84,8 +81,7 @@ class PreparedRailCreationBatchTest {
     }
 
     @Test
-    fun `dirty outer transaction rejects prepared install without installing its rails`() {
-        val world = createTestWorld()
+    fun `dirty outer transaction rejects prepared install without installing its rails`() = withWorld { world ->
         val prepared = world.prepareRailCreation(line(20.0, 0.0, 30.0, 0.0))
         lateinit var failure: PreparedRailCreationRejectedException
 
@@ -102,8 +98,7 @@ class PreparedRailCreationBatchTest {
     }
 
     @Test
-    fun `complete replacement rollback keeps world healthy`() {
-        val world = createTestWorld()
+    fun `complete replacement rollback keeps world healthy`() = withWorld { world ->
         val source = world.createRailForTest(line(0.0, 0.0, 10.0, 0.0))
         val prepared = world.prepareRailCreation(line(0.0, 1.0, 10.0, 1.0), setOf(source.id))
         val revisionBefore = world.topologyRevision
@@ -120,49 +115,53 @@ class PreparedRailCreationBatchTest {
     }
 
     @Test
-    fun `partial replacement rollback faults instead of publishing incomplete topology`() {
+    fun `partial replacement rollback faults instead of publishing incomplete topology`() = withWorld { world ->
+        val firstSource = world.createRailForTest(line(0.0, 0.0, 10.0, 0.0))
+        val secondSource = world.createRailForTest(line(20.0, 0.0, 30.0, 0.0))
+        val prepared = world.prepareRailCreationBatch(
+            listOf(line(0.0, 1.0, 10.0, 1.0), line(20.0, 1.0, 30.0, 1.0)),
+            setOf(firstSource.id, secondSource.id)
+        )
+        val revisionBefore = world.topologyRevision
+        val rootBefore = world.topologyState
+
+        val failure = assertThrows(IllegalStateException::class.java) {
+            world.railTopologyTransaction {
+                val replacements = world.installPreparedRails(prepared)
+                world.removeRail(firstSource)
+                replacements.forEach(world::removeRail)
+            }
+        }
+
+        assertEquals(
+            "Prepared replacement transaction ended with an incomplete rail set; " +
+                "created present=[], excluded present=[${secondSource.id}]",
+            failure.message
+        )
+        assertSame(rootBefore, world.topologyState)
+        assertEquals(revisionBefore, world.topologyRevision)
+        assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
+        assertTrue(world.getRail(firstSource.id) == null)
+        assertSame(secondSource, world.getRail(secondSource.id))
+        assertTrue(prepared.creations.none { world.getRail(it.railId) != null })
+        val editFailure = assertThrows(RailTopologyFaultedException::class.java) {
+            world.railTopologyTransaction { }
+        }
+        assertEquals(
+            RailTopologyFaultReason.TRANSACTION_FAILED_AFTER_STRUCTURAL_MUTATION,
+            editFailure.fault.reason
+        )
+        assertEquals(revisionBefore, editFailure.fault.lastPublishedRevision)
+        assertEquals("java.lang.IllegalStateException", editFailure.fault.failureType)
+        assertEquals(failure.message, editFailure.fault.failureMessage)
+    }
+
+    private fun withWorld(block: (CoreWorld) -> Unit): Unit {
         val world = createTestWorld()
         (world.tickManager as AutoCloseable).use {
             AutoCloseable { world.releaseRuntimeBinding() }.use {
                 world.physicsCoordinator.use {
-                    val firstSource = world.createRailForTest(line(0.0, 0.0, 10.0, 0.0))
-                    val secondSource = world.createRailForTest(line(20.0, 0.0, 30.0, 0.0))
-                    val prepared = world.prepareRailCreationBatch(
-                        listOf(line(0.0, 1.0, 10.0, 1.0), line(20.0, 1.0, 30.0, 1.0)),
-                        setOf(firstSource.id, secondSource.id)
-                    )
-                    val revisionBefore = world.topologyRevision
-                    val rootBefore = world.topologyState
-
-                    val failure = assertThrows(IllegalStateException::class.java) {
-                        world.railTopologyTransaction {
-                            val replacements = world.installPreparedRails(prepared)
-                            world.removeRail(firstSource)
-                            replacements.forEach(world::removeRail)
-                        }
-                    }
-
-                    assertEquals(
-                        "Prepared replacement transaction ended with an incomplete rail set; " +
-                            "created present=[], excluded present=[${secondSource.id}]",
-                        failure.message
-                    )
-                    assertSame(rootBefore, world.topologyState)
-                    assertEquals(revisionBefore, world.topologyRevision)
-                    assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
-                    assertTrue(world.getRail(firstSource.id) == null)
-                    assertSame(secondSource, world.getRail(secondSource.id))
-                    assertTrue(prepared.creations.none { world.getRail(it.railId) != null })
-                    val editFailure = assertThrows(RailTopologyFaultedException::class.java) {
-                        world.railTopologyTransaction { }
-                    }
-                    assertEquals(
-                        RailTopologyFaultReason.TRANSACTION_FAILED_AFTER_STRUCTURAL_MUTATION,
-                        editFailure.fault.reason
-                    )
-                    assertEquals(revisionBefore, editFailure.fault.lastPublishedRevision)
-                    assertEquals("java.lang.IllegalStateException", editFailure.fault.failureType)
-                    assertEquals(failure.message, editFailure.fault.failureMessage)
+                    block(world)
                 }
             }
         }

@@ -190,6 +190,8 @@
 
 ### CR-020：Core/Basic测试有效性及资源释放缺口
 
+- 曲线回显弱测试子项已修复（2026-10-11）：`PrimeCurveTest`保留原两项强回归，将五项弱测试合并为三项手写稀疏LINE/DISCRETE位置与frame断言，7项降为5项；独立静态检查、完整Core319/Basic385项全执行通过，零失败/错误/跳过。生产算法未改，详见implement对应批次。坡道测试、其余fixture清理及RailWand完整事务集成仍开放，本项保持partial。
+
 - 六项既有disabled环线已改为保留原参数的六组真实epoch参数化回归（2026-10-11）：解析车头位置、published traversal累计里程/绕圈及刚体轴距/车钩断言替代本地累加自证，补setup/退出资源关闭；其他四项enabled保持。首轮完整类10项全执行、零跳过/失败，测试体约2s；全量及独立检查结果见implement对应批次。该子项不替代其余fixture或RailWand完整事务集成，CR-020仍partial。下方disabled相关描述保留为历史批次状态。
 
 - `PreparedRailCreationBatchTest`剩余6项world资源清理已补齐（2026-10-11），原7项统一使用private Unit helper，双world嵌套保证第二个setup失败时首个也释放；动作/断言/数量保持，详见implement对应批次。该类子项闭合，不代表其他fixture、disabled环线或RailWand完整事务集成已完成，CR-020保持partial。

@@ -4,18 +4,15 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import kotlin.math.abs
+import kotlin.math.sqrt
 
 /**
- * 测试 PrimeCurve.getIndexAt 的正确性。
- * 通过生成直线，调用 getPointAt(arcLength)，检查返回的 point.arcLength 与传入 arcLength 的差值。
+ * 用稀疏轨道样本验证弧长查找、位置与 frame 插值，以及反向查询。
  */
 class PrimeCurveTest {
-
-    private val tolerance = Curve.TOLERANCE // 5e-3
 
     @Test
     fun `two point line segment interpolates across full length`() {
@@ -45,123 +42,81 @@ class PrimeCurveTest {
     }
 
     @Test
-    fun `test getPointAt on straight line - boundary values`() {
-        val length = 100.0
-        val segments = PrimeCurveGenerator.buildStraight(length, segmentCount = 1)
-        val curve = segments.first()
-
-        // 测试边界值：0.0 和 totalArcLength
-        val point0 = curve.getPointAt(0.0)
-        assertNotNull(point0, "getPointAt(0.0) should not be null")
-        assertEquals(0.0, point0.arcLength, tolerance, "point at arcLength 0.0 should have arcLength = 0.0")
-
-        val totalArcLength = curve.totalArcLength
-        val pointEnd = curve.getPointAt(totalArcLength)
-        assertNotNull(pointEnd, "getPointAt(totalArcLength) should not be null")
-        assertEquals(totalArcLength, pointEnd.arcLength, tolerance, "point at totalArcLength should have arcLength = totalArcLength")
-    }
-
-    @Test
-    fun `test getPointAt on straight line - middle values`() {
-        val length = 100.0
-        val segments = PrimeCurveGenerator.buildStraight(length, segmentCount = 1)
-        val curve = segments.first()
-        val totalArcLength = curve.totalArcLength
-
-        // 测试中间值：25%, 50%, 75% 位置
-        val testArcLengths = listOf(
-            totalArcLength * 0.25,
-            totalArcLength * 0.5,
-            totalArcLength * 0.75
+    fun `sparse line preserves position and frame at boundaries and between samples`() {
+        // The displacement (6, 8, 0) is exactly 10m; this is a translated 3-4-5 slope.
+        val tangent = Vector3d(0.6, 0.8, 0.0)
+        val normal = Vector3d(-0.8, 0.6, 0.0)
+        val curve = PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(1.0, 2.0, 3.0), tangent, normal, 0.0, Curve.SegmentType.LINE_START),
+            Curve.RawPoint(Vector3d(7.0, 10.0, 3.0), tangent, normal, 10.0, Curve.SegmentType.LINE_END)
+        ))
+        val expectedPositions = listOf(
+            0.0 to Vector3d(1.0, 2.0, 3.0),
+            0.001 to Vector3d(1.0006, 2.0008, 3.0),
+            2.5 to Vector3d(2.5, 4.0, 3.0),
+            9.999 to Vector3d(6.9994, 9.9992, 3.0),
+            10.0 to Vector3d(7.0, 10.0, 3.0)
         )
 
-        for (arcLength in testArcLengths) {
-            val point = curve.getPointAt(arcLength)
-            assertNotNull(point, "getPointAt($arcLength) should not be null")
-            val diff = abs(point.arcLength - arcLength)
-            assertTrue(diff <= tolerance, 
-                "For arcLength=$arcLength, got point.arcLength=${point.arcLength}, difference=$diff exceeds tolerance=$tolerance")
+        assertEquals(10.0, curve.totalArcLength)
+        expectedPositions.forEach { (arc, expectedPosition) ->
+            val point = curve.getPointAt(arc)
+            assertEquals(arc, point.arcLength, 1e-9)
+            assertEquals(0.0, expectedPosition.distance(point.position), 1e-9, "position at $arc")
+            assertEquals(0.0, tangent.distance(point.tangent), 1e-9, "tangent at $arc")
+            assertEquals(0.0, normal.distance(point.normal), 1e-9, "normal at $arc")
+            assertSame(curve, point.curve)
         }
     }
 
     @Test
-    fun `test getPointAt on straight line - multiple random values`() {
-        val length = 100.0
-        val segments = PrimeCurveGenerator.buildStraight(length, segmentCount = 1)
-        val curve = segments.first()
-        val totalArcLength = curve.totalArcLength
-
-        // 测试多个随机值，覆盖整个范围
-        val testCount = 50
-        for (i in 0 until testCount) {
-            val arcLength = (totalArcLength * i) / (testCount - 1)
-            val point = curve.getPointAt(arcLength)
-            assertNotNull(point, "getPointAt($arcLength) should not be null")
-            val diff = abs(point.arcLength - arcLength)
-            assertTrue(diff <= tolerance,
-                "For arcLength=$arcLength, got point.arcLength=${point.arcLength}, difference=$diff exceeds tolerance=$tolerance")
-        }
-    }
-
-    @Test
-    fun `test getPointAt on straight line - values between points`() {
-        val length = 100.0
-        val segments = PrimeCurveGenerator.buildStraight(length, segmentCount = 1, step = 1.0)
-        val curve = segments.first()
-        val totalArcLength = curve.totalArcLength
-
-        // 测试正好在两个点之间的值（例如 0.5, 1.5, 2.5 等）
-        // 这些值应该返回最接近的点
-        val step = 1.0
-        val testArcLengths = (0 until (totalArcLength / step).toInt()).map { 
-            (it + 0.5) * step 
-        }
-
-        for (arcLength in testArcLengths) {
-            if (arcLength > totalArcLength) break
-            val point = curve.getPointAt(arcLength)
-            assertNotNull(point, "getPointAt($arcLength) should not be null")
-            // 对于中间值，差值应该不超过步长的一半
-            val expectedMaxDiff = step / 2.0
-            val diff = abs(point.arcLength - arcLength)
-            assertTrue(diff <= maxOf(expectedMaxDiff, tolerance),
-                "For arcLength=$arcLength (between points), got point.arcLength=${point.arcLength}, difference=$diff exceeds expected max=$expectedMaxDiff")
-        }
-    }
-
-    @Test
-    fun `test getPointAt on straight line - near boundary`() {
-        val length = 100.0
-        val segments = PrimeCurveGenerator.buildStraight(length, segmentCount = 1)
-        val curve = segments.first()
-        val totalArcLength = curve.totalArcLength
-
-        // 测试接近边界的小值
-        val smallValues = listOf(0.001, 0.01, 0.1, tolerance / 2)
-        for (arcLength in smallValues) {
-            if (arcLength > totalArcLength) break
-            val point = curve.getPointAt(arcLength)
-            assertNotNull(point, "getPointAt($arcLength) should not be null")
-            val diff = abs(point.arcLength - arcLength)
-            assertTrue(diff <= tolerance,
-                "For small arcLength=$arcLength, got point.arcLength=${point.arcLength}, difference=$diff exceeds tolerance=$tolerance")
-        }
-
-        // 测试接近边界的大值
-        val largeValues = listOf(
-            totalArcLength - tolerance / 2,
-            totalArcLength - 0.1,
-            totalArcLength - 0.01,
-            totalArcLength - 0.001
+    fun `sparse discrete frames normalize and project while the endpoint retains its raw frame`() {
+        // Positions and arc lengths both advance by 5m on a straight track. Raw frames may be
+        // non-unit/non-orthogonal: removing the X component leaves bank angles 0, 90, 0 degrees.
+        val curve = PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(0.0, 0.0, 0.0), Vector3d(2.0, 0.0, 0.0), Vector3d(1.0, 1.0, 0.0), 0.0),
+            Curve.RawPoint(Vector3d(5.0, 0.0, 0.0), Vector3d(2.0, 0.0, 0.0), Vector3d(1.0, 0.0, 1.0), 5.0),
+            Curve.RawPoint(Vector3d(10.0, 0.0, 0.0), Vector3d(2.0, 0.0, 0.0), Vector3d(1.0, 1.0, 0.0), 10.0)
+        ))
+        val diagonal = sqrt(0.5) // 45-degree bank, independently known unit direction.
+        val expectedNormals = listOf(
+            0.0 to Vector3d(0.0, 1.0, 0.0),
+            2.5 to Vector3d(0.0, diagonal, diagonal),
+            5.0 to Vector3d(0.0, 0.0, 1.0),
+            7.5 to Vector3d(0.0, diagonal, diagonal)
         )
-        for (arcLength in largeValues) {
-            if (arcLength < 0) continue
-            val point = curve.getPointAt(arcLength)
-            assertNotNull(point, "getPointAt($arcLength) should not be null")
-            val diff = abs(point.arcLength - arcLength)
-            assertTrue(diff <= tolerance,
-                "For large arcLength=$arcLength (near totalArcLength=$totalArcLength), got point.arcLength=${point.arcLength}, difference=$diff exceeds tolerance=$tolerance")
+
+        assertEquals(10.0, curve.totalArcLength)
+        expectedNormals.forEach { (arc, expectedNormal) ->
+            val point = curve.getPointAt(arc)
+            assertEquals(arc, point.arcLength, 1e-9)
+            assertEquals(0.0, Vector3d(arc, 0.0, 0.0).distance(point.position), 1e-9, "position at $arc")
+            assertEquals(0.0, Vector3d(1.0, 0.0, 0.0).distance(point.tangent), 1e-9, "tangent at $arc")
+            assertEquals(0.0, expectedNormal.distance(point.normal), 1e-9, "normal at $arc")
+            assertSame(curve, point.curve)
         }
+
+        val end = curve.getPointAt(10.0)
+        assertEquals(10.0, end.arcLength, 1e-9)
+        assertEquals(0.0, Vector3d(10.0, 0.0, 0.0).distance(end.position), 1e-9)
+        assertEquals(0.0, Vector3d(2.0, 0.0, 0.0).distance(end.tangent), 1e-9)
+        assertEquals(0.0, Vector3d(1.0, 1.0, 0.0).distance(end.normal), 1e-9)
+        assertSame(curve, end.curve)
+    }
+
+    @Test
+    fun `discrete tangent between orthogonal raw directions points at forty five degrees`() {
+        // Raw directions are independent inputs; the stored positions and arc span both cover 5m.
+        val curve = PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0),
+            Curve.RawPoint(Vector3d(5.0, 0.0, 0.0), Vector3d(0.0, 0.0, 1.0), Vector3d(0.0, 1.0, 0.0), 5.0)
+        ))
+
+        val middle = curve.getPointAt(2.5)
+
+        assertEquals(0.0, Vector3d(2.5, 0.0, 0.0).distance(middle.position), 1e-9)
+        assertEquals(0.0, Vector3d(sqrt(0.5), 0.0, sqrt(0.5)).distance(middle.tangent), 1e-9)
+        assertEquals(0.0, Vector3d(0.0, 1.0, 0.0).distance(middle.normal), 1e-9)
     }
 
     @Test

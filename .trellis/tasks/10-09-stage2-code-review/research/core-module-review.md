@@ -144,7 +144,7 @@ PreTick/PostTick/RenderableEvent已确认保留并考虑接入，从删除候选
 - CoreTrainPersistenceStateTest“zero distance controller tick”驱动generic TickManager，控制器实际只注册PhysicsCoordinator，因此空跑；改真实physics epoch。
 - CoreTrainDerailEventTest自己复制生产条件并queue通知，无法发现coordinator漏排；改真实stepSimulation和派发前后一次性断言。
 - CoreTrainAsymmetricTurnoutTest多个move后在commit前检查published旧值，最后一次commit后无断言；改publish后实际推进/未脱轨。
-- PrimeCurveTest五项主要检查arcLength回显，即使position错也能过；合并成少量独立position/tangent/normal断言，保留LINE/DISCRETE差异。
+- PrimeCurveTest五项主要检查arcLength回显，即使position错也能过；已于2026-10-11替换为三项稀疏LINE/DISCRETE独立位置、切线/法线插值断言，保留原两项强回归，7项合并为5项。独立静态检查及Core/Basic全量回归通过，见[执行记录](../implement.md#cr-020-曲线弱测试改写2026-10-11)，不据此关闭其余测试缺口。
 - CoreTrainMultiCarDiagnosticTest反射读取private buffer、offset expected复制公式；改真实发布前后和固定数值预期。
 - CoreWorldRailTopologyTransactionTest两个reader用sleep(50)而无已进入读取证据；改确定性barrier/finally，保留原子性覆盖。PhysicsCoordinatorTest无期限await要加有界断言。
 - CoreTrainReversedPersistenceTest“没有部分注册”只看异常文本；需检查实际world/rail索引。load round-trip补独立位置/方向/extension预期与finally清理；future/bad-current用固定fixture。

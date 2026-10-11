@@ -2,6 +2,8 @@
 
 当前阶段：in_progress。用户于 2026-10-09 批准修复已知问题；2026-10-10进一步批准连续小提交后统一检查，不要求等待全部审查结束才修复已确认项。
 
+最新批次（2026-10-11）：`PrimeCurveTest`五项弧长回显弱测试已替换为三项手写稀疏LINE/DISCRETE位置与frame回归，原两项强用例保留，7项合并为5项；不改生产算法。独立静态检查及完整Core/Basic门禁通过，详见文末。随后仍需处理坡道测试及其余fixture清理；Seat、事件接入、link事务和真实存档迁移不视为已批准。
+
 ## A. 完成审查
 
 - [x] 记录当前 HEAD、根仓与 docs-site 脏状态；加载第一批涉及的 Basic/BukkitPlugin 规范。
@@ -424,3 +426,10 @@ env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
 5. 知识落地：runtime-publication与train-controller owner spec已同步，任务台账保留失败与红→绿证据；构造诊断属于另一笔提交。检索未发现`src/templates/markdown/spec/`镜像，不为本次debug创建另一套规范副本。
 
 - 最终独立check强制复跑`PhysicsCoordinatorTest`29项及`CoreTrainConstructionTest`11项，共40项全执行通过、零跳过/失败/error（31s、9 tasks全部执行）；六文件hash不变，无需自修。`javap`确认旧`()V`及新增`(Ljava/lang/String;)V`，无参路径仍为null消息，仅String字段无live对象。scoped diff-check、task manifest 15+15通过，无独立lint配置；既有metaspace退出提示不影响本次成功结果，不顺带调整构建参数。CR-036与构造诊断子项闭合，不代表Core/全仓审查完成。
+
+### CR-020 曲线弱测试改写（2026-10-11）
+
+- 仅改`PrimeCurveTest.kt`：保留两点LINE后半段和反向最近点两项强回归，将五项主要验证弧长回显的测试合并为三项实际位置/frame检查，7项降为5项，66增/111删。移除错误的“最近样本”说明，不增加helper或参数化框架，不改生产代码。
+- 手写10m斜直线位移(6,8,0)，独立给定端点、近端点和内部位置；DISCRETE位置/弧长0/5/10m，验证非单位切线归一化、非正交法线投影及45度bank插值；另用正交raw切线的中点45度验证方向插值。样本位置/弧长一致，expected不调用生产插值或生成器。终点保留raw frame的既有行为明确保留，不擅自统一归一化。既有curve-geometry规范已定义这些规则，本批没有新合同，不复制到另一份spec。
+- 独立只读check确认手写数值、合法输入、左右区间/内部节点/边界覆盖及原强用例保留，无需补修；未重复运行Gradle。主会话冻结源码运行`GRADLE_USER_HOME=/workspace/.gradle ./gradlew :Core:test :Basic:test --offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`，`BUILD SUCCESSFUL`（54s、15 tasks全部执行）。新鲜XML Core 54 suites/319项、Basic 59 suites/385项均全执行，零跳过/失败/error；源码前后SHA-256均为`c20d401f31a6de1c4cebc82884c04b942d734c5ea702745d07da9253cc3874e7`。scoped diff-check和task manifest 15+15通过，无独立lint配置，既有warning保留。没有部署或游戏验证，opt-in stress不在普通test门禁中。
+- 本子项闭合，CR-020仍partial：坡道运动用例及其余未配对关闭fixture、RailWand完整split/merge跨层事务集成继续跟踪；Basic整模块审查仍未完成。

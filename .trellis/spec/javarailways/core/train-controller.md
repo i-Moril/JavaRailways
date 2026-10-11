@@ -30,6 +30,8 @@ interface ControlCommand {
 - `CoreTrain.setController(value)`负责unregister old/register new；replace由serialized simulation owner在barrier下协调。
 - protected `moveControlledTrain(deltaS,speedMetersPerSecond)`是所有override `tick`的controller子类合同：两个值必须来自同一个physics tick。CoreTrain走内部速度传播，非Core Train才回退公开distance-only调用。
 
+`protected open onPhysicsStatePublished()`在本controller的speed/train buffers翻转后调用，用于发布controller自身值状态；它仍先于统一的train frame发布。Core内部将纯buffer翻转与hook通知拆成`publishPhysicsBuffers()`和`notifyPhysicsStatePublished()`：coordinator仅在与close同步并重验exact ticket的锁内执行前者，锁外执行后者，保留逐controller原顺序。原`publishPhysicsState()`及兼容`commit()`仍按先buffers后hook顺序调用，不改子类覆写签名。hook不在关闭锁中，不得假设close会等待其完成或撤销其外部效果；完整门禁及失败边界见[runtime publication](./runtime-publication.md)。
+
 ## 输入/结果矩阵
 
 | 条件 | 结果 | side effect |

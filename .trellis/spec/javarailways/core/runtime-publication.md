@@ -58,6 +58,10 @@ world frame的capture与publication是两个阶段，但不是两个可独立观
 
 最终成功路径先持world topology read lock，再持coordinator `stateLock`；确认仍为`RUNNING`且`inFlight === ticket`后，才执行candidate复核/发布、更新metrics与latest-completed、清除in-flight并完成该ticket。失败及overload终态转换也只允许同一running ticket执行，因此close或stall先取得状态边界后，迟到epoch不能再发布世界帧、替换诊断metrics或覆盖终态。不得倒置为state→topology：topology transaction的失败路径已有write-lock→stall/state顺序。
 
+关闭门禁也覆盖最终world frame之前的Core发布，而不是只在world publication拒绝迟到结果。每个controller先按topology read lock→stateLock顺序验证同一running ticket并调用纯Core的`publishPhysicsBuffers()`，释放两锁后调用`notifyPhysicsStatePublished()`，保持原逐controller“flip→hook”顺序。随后无controller列车翻转、train frame/mailbox发布在同序门禁内完成；published-frame processors仍在锁外执行，返回后occupancy重建与candidate capture再次经过同序门禁。任一门禁发现close/stall或ticket已撤销就结束该epoch，不得先发布列车、最后才拒绝世界帧。只做锁外状态检查仍会留下检查后关闭的竞态。
+
+这些门禁不新增图或列车扫描；每controller新增一次短状态锁边界，另外的frame/capture锁区执行原有Core发布工作。第三方controller hook、published-frame processor及railway-epoch processor均不在stateLock内，不能用把整个epoch锁住的方式使关闭等待任意扩展代码。已发布部分不回滚，锁外回调已经开始或随后返回的外部效果也不撤销；这里保证的是close取得状态边界后，不再由后续Core发布阶段翻转buffer、推进train frame/mailbox或重建occupancy。
+
 `beginShutdown(): PhysicsTicket`在原`stateLock`内永久关闭wake入口并返回`inFlight ?: latestCompleted`；它自身不等待、不取消工作，也不把status改成CLOSED/STALLED，已经捕获的正常epoch仍可完成最终publication。重复调用在RUNNING时返回同一稳定边界，`start()`不可重新开启；新main/simulation wake明确拒绝。timer在同一锁内完成eligibility检查与request分配，shutdown要么捕获已经分配的timer epoch，要么让该wake静默no-op，不存在检查后再越过gate启动的窗口。
 
 宿主在锁外成功await这一个ticket以后才捕获/写最终快照，最后close；在途epoch失败时该ticketexceptional，后续capture/beginShutdown因STALLED拒绝，不能回退到上一个成功epoch假装可以保存。此边界只停止新的physics epoch，不是所有编辑、generic tick、Bukkit区域任务的全局冻结；平台仍负责unloading门禁和各资源释放。
@@ -100,6 +104,7 @@ override fun register(obj: TickingObject) {
 - railway-epoch processor阻塞测试：exact ticket保持未完成且latest world frame不前移；释放后才一起完成。
 - processor failure test：ticket exceptional、coordinator Stall且latest world frame保持上一成功epoch。
 - in-flight close：有界barrier/真实worker及消化中断的processor返回后仍为CLOSED，ticket exceptional，世界帧与最终metrics不前移；同时覆盖正常返回与overload路径，不用sleep猜测完成。
+- workers结束后的发布前关闭：利用现有nanoTime注入及真实coordinator线程在发布前建立一次barrier，关闭后消化中断并释放；真实moving train的live位置/速度、旧train/world frame身份、空mailbox和metrics均不前移。必须验证未修实现实际失败，不能仅靠随机线程交错或重复运行证明竞态已修。
 - beginShutdown：真实moving worker暂停时捕获exact ticket并保持未完成/RUNNING，释放后world/train/occupancy同epoch且实际前移；后续main/simulation/start拒绝、timer no-op、frame/metrics稳定。另验证idle/bootstrap幂等、真实timer准入控制及失败在途ticket不能返回旧成功值；timer通过internal implementation seam和注入clock测试，不靠sleep。
 
 ```bash

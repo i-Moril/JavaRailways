@@ -109,13 +109,21 @@ abstract class TrainController(
 
     /** Called by PhysicsCoordinator after every worker has finished reading the previous epoch. */
     internal fun publishPhysicsState() {
+        publishPhysicsBuffers()
+        notifyPhysicsStatePublished()
+    }
+
+    /** Core-only buffer flip, serialized with coordinator close; does not invoke extension hooks. */
+    internal fun publishPhysicsBuffers() {
         if (speedDirty) {
             speedBuffer.commit()
             speedDirty = false
         }
         (train as? CoreTrain)?.publishPhysicsState()
-        onPhysicsStatePublished()
     }
+
+    /** Runs outside coordinator publication locks, after this controller's buffers have flipped. */
+    internal fun notifyPhysicsStatePublished() = onPhysicsStatePublished()
 
     /** Publishes controller-owned value state only after speed and train geometry are committed. */
     protected open fun onPhysicsStatePublished() = Unit

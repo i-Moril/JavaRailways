@@ -33,6 +33,7 @@ import java.util.concurrent.Future
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -389,6 +390,77 @@ class PhysicsCoordinatorTest {
         } finally {
             release.countDown()
             coordinator.close()
+        }
+    }
+
+    @Test
+    fun `close before buffer publication rejects a completed worker epoch`() {
+        val coordinatorThread = AtomicReference<Thread>()
+        val publicationArmed = AtomicBoolean()
+        val entered = CountDownLatch(1)
+        val interrupted = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            nanoTime = {
+                // Only the coordinator's first clock read after workers finish is armed.
+                // Main-thread request allocation and worker timing cannot enter this barrier.
+                if (Thread.currentThread() === coordinatorThread.get() && publicationArmed.compareAndSet(true, false)) {
+                    entered.countDown()
+                    try {
+                        check(release.await(5, TimeUnit.SECONDS)) { "timed out waiting to publish buffers" }
+                    } catch (_: InterruptedException) {
+                        interrupted.countDown()
+                        check(release.await(5, TimeUnit.SECONDS)) { "timed out waiting after close" }
+                    }
+                }
+                System.nanoTime()
+            },
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+        val train = createTrainWithConfig("close-before-publication", rail, world, listOf(10.0))
+        train.setController(MockTrainController(train, world, 10.0))
+        coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor {
+            coordinatorThread.set(Thread.currentThread())
+        })
+        coordinator.start()
+        try {
+            coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+            val previousWorldFrame = world.latestWorldFrame()
+            val previousTrainFrame = train.publishedFrame
+            val previousMetrics = coordinator.latestMetrics()
+            val previousHead = train.headLocation
+            assertEquals(20.5, previousHead.position.x())
+            assertEquals(10.0, train.speed)
+            assertSame(previousTrainFrame, world.drainPublishedTrainFrames().single())
+            publicationArmed.set(true)
+            val ticket = coordinator.stepSimulation(50.0)
+            assertTrue(entered.await(5, TimeUnit.SECONDS), "workers must finish before close")
+
+            coordinator.close()
+            val failure = assertThrows(ExecutionException::class.java) {
+                ticket.completion.get(5, TimeUnit.SECONDS)
+            }
+            assertTrue(failure.cause is PhysicsStalledException)
+            assertTrue(interrupted.await(5, TimeUnit.SECONDS))
+            release.countDown()
+            coordinatorThread.get().join(5_000L)
+
+            assertTrue(!coordinatorThread.get().isAlive)
+            assertEquals(PhysicsCoordinatorStatus.CLOSED, coordinator.status)
+            assertSame(previousWorldFrame, world.latestWorldFrame())
+            assertSame(previousTrainFrame, train.publishedFrame)
+            assertSame(previousHead, train.headLocation)
+            assertEquals(10.0, train.speed)
+            assertTrue(world.drainPublishedTrainFrames().isEmpty(), "closed epoch must not enqueue a visual frame")
+            assertSame(previousMetrics, coordinator.latestMetrics())
+        } finally {
+            release.countDown()
+            coordinator.close()
+            world.releaseRuntimeBinding()
         }
     }
 

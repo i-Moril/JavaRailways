@@ -439,38 +439,65 @@ class PhysicsCoordinator(
 
             val coordinatorStart = nanoTime()
             // Publish only after every worker has finished reading the previous epoch.
+            val attachedWorld = checkNotNull(world)
             val publishedTrains = LinkedHashSet<CoreTrain>()
             snapshot.forEach { controller ->
-                controller.publishPhysicsState()
-                (controller.train as? CoreTrain)?.let(publishedTrains::add)
+                val published = attachedWorld.withRailTopologyReadLock {
+                    synchronized(stateLock) {
+                        if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
+                            false
+                        } else {
+                            controller.publishPhysicsBuffers()
+                            (controller.train as? CoreTrain)?.let(publishedTrains::add)
+                            true
+                        }
+                    }
+                }
+                if (!published) return
+                // Preserve per-controller ordering without holding close behind an extension hook.
+                controller.notifyPhysicsStatePublished()
             }
             // Collision decisions can mutate a stationary train without a controller. Its pending
             // state belongs to this epoch and must cross the same publication boundary.
-            world?.allTrains?.filterIsInstance<CoreTrain>()?.forEach { train ->
-                // A detached train has no controller worker to replace its previous motion. Its
-                // geometry is stationary for this epoch, so publish a stopped state instead of
-                // retaining the last controller velocity in the world frame.
-                if (train.controller == null) train.clearActiveMotionFromPhysics()
-                if (publishedTrains.add(train)) train.publishPhysicsState()
-            }
-            publishedTrains.forEach { train ->
-                val previousFrame = train.publishedFrame
-                val frame = train.publishFrame(ticket.epoch)
-                if (!previousFrame.derailed && frame.derailed) {
-                    train.queuePublishedDerailNotification()
+            val framesPublished = attachedWorld.withRailTopologyReadLock {
+                synchronized(stateLock) {
+                    if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
+                        false
+                    } else {
+                        attachedWorld.allTrains.filterIsInstance<CoreTrain>().forEach { train ->
+                            // Detached trains publish stopped state rather than old controller velocity.
+                            if (train.controller == null) train.clearActiveMotionFromPhysics()
+                            if (publishedTrains.add(train)) train.publishPhysicsState()
+                        }
+                        publishedTrains.forEach { train ->
+                            val previousFrame = train.publishedFrame
+                            val frame = train.publishFrame(ticket.epoch)
+                            if (!previousFrame.derailed && frame.derailed) {
+                                train.queuePublishedDerailNotification()
+                            }
+                            if (shouldPublishMotionFrame(train, previousFrame)) {
+                                attachedWorld.publishTrainFrame(frame)
+                            }
+                        }
+                        true
+                    }
                 }
-                if (shouldPublishMotionFrame(train, previousFrame)) {
-                    world?.publishTrainFrame(frame)
-                }
             }
+            if (!framesPublished) return
             runPublishedFrameProcessors(publishedTrains.toList(), ticket.epoch)
-            world?.rebuildSweptOccupancyIndex(ticket.epoch)
-            val occupancyStats = world?.sweptOccupancyStats() ?: (0 to 0)
-            val capturedWorldFrame = world?.captureWorldFrame(ticket.epoch)
-            if (capturedWorldFrame != null) {
-                railwayEpochProcessors.toList().forEach { processor ->
-                    processor.process(capturedWorldFrame)
+            val capturedWorldFrame = attachedWorld.withRailTopologyReadLock {
+                synchronized(stateLock) {
+                    if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
+                        null
+                    } else {
+                        attachedWorld.rebuildSweptOccupancyIndex(ticket.epoch)
+                        attachedWorld.captureWorldFrame(ticket.epoch)
+                    }
                 }
+            } ?: return
+            val occupancyStats = attachedWorld.sweptOccupancyStats()
+            railwayEpochProcessors.toList().forEach { processor ->
+                processor.process(capturedWorldFrame)
             }
             val coordinatorNanos = nanoTime() - coordinatorStart
             val wallNanos = nanoTime() - epochStartNanos
@@ -519,15 +546,12 @@ class PhysicsCoordinator(
 
             // Topology transactions can stall physics while holding their write lock, so acquire
             // topology before stateLock. Close and exact-ticket publication then serialize here.
-            val attachedWorld = checkNotNull(world)
             attachedWorld.withRailTopologyReadLock {
                 synchronized(stateLock) {
                     if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
                         return@withRailTopologyReadLock
                     }
-                    if (capturedWorldFrame != null) {
-                        attachedWorld.publishCapturedWorldFrame(capturedWorldFrame)
-                    }
+                    attachedWorld.publishCapturedWorldFrame(capturedWorldFrame)
                     lastMetrics = metrics
                     lastControllerNanos = controllerDurations.toMap()
                     latestCompleted = ticket

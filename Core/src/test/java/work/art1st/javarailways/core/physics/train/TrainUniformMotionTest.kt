@@ -14,11 +14,15 @@ import work.art1st.javarailways.core.physics.createRailForTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
+import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import java.util.concurrent.TimeUnit
-import kotlin.math.abs
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * 直线与曲线轨道上列车匀速运动测试。
@@ -221,75 +225,71 @@ class TrainUniformMotionTest {
         }
     }
 
-    @Test
-    @Disabled("环线多段接缝浮点与弧长断言待与 PrimeCurveGenerator 对齐后再启用")
-    fun `circle R=30 - several loops, speed and position`() {
-        runCircleTest(30.0, numLoops = 2, carLengths = listOf(10.0, 10.0))
-    }
-
-    @Test
-    @Disabled("环线多段接缝浮点与弧长断言待与 PrimeCurveGenerator 对齐后再启用")
-    fun `circle R=60 - several loops`() {
-        runCircleTest(60.0, numLoops = 2, carLengths = listOf(10.0, 10.0))
-    }
-
-    @Test
-    @Disabled("环线多段接缝浮点与弧长断言待与 PrimeCurveGenerator 对齐后再启用")
-    fun `circle R=100 - several loops`() {
-        runCircleTest(100.0, numLoops = 2, carLengths = listOf(10.0, 10.0))
-    }
-
-    @Test
-    @Disabled("环线多段接缝浮点与弧长断言待与 PrimeCurveGenerator 对齐后再启用")
-    fun `circle R=200 - several loops`() {
-        runCircleTest(200.0, numLoops = 2, carLengths = listOf(10.0, 10.0))
-    }
-
-    @Test
-    @Disabled("环线多段接缝浮点与弧长断言待与 PrimeCurveGenerator 对齐后再启用")
-    fun `circle R=500 - several loops`() {
-        runCircleTest(500.0, numLoops = 2, carLengths = listOf(10.0, 10.0))
-    }
-
-    @Test
-    @Disabled("环线多段接缝浮点与弧长断言待与 PrimeCurveGenerator 对齐后再启用")
-    fun `circle R=100 - 5 cars 20m each, several loops`() {
-        runCircleTest(100.0, numLoops = 2, carLengths = List(5) { 20.0 })
-    }
-
-    private fun runCircleTest(radius: Double, numLoops: Int, carLengths: List<Double>) {
-        val segments = PrimeCurveGenerator.buildCircle(radius)
-        val world = createTestWorld()
-        val rail = createLoopRailFromSegments(world, segments)
-        val totalArcLength = totalArcLengthFromFirstRail(rail, isLoop = true)
-        val constantSpeed = 15.0
-        val train = createTrainWithConfig("t-circle-$radius", rail, world, carLengths, isLoop = true)
-        train.setController(MockTrainController(train, world, constantSpeed))
-        val startArcLength = headCurveArcLengthInRangeMultiSegment(train, rail, isLoop = true)
-
-        val timePerLoop = totalArcLength / constantSpeed
-        val ticksPerLoop = (timePerLoop / tickSeconds).toInt().coerceAtLeast(1)
-        val numTicks = numLoops * ticksPerLoop + 50
-
-        var totalDistance = 0.0
-        for (i in 0 until numTicks) {
-            assertEquals(constantSpeed, train.speed, speedTolerance, "tick $i speed")
-            train.controller!!.tick(tickMs)
-            totalDistance += constantSpeed * tickSeconds
+    @ParameterizedTest(name = "circle R={0}, {1} cars of {2}m")
+    @CsvSource("30.0, 2, 10.0", "60.0, 2, 10.0", "100.0, 2, 10.0", "200.0, 2, 10.0", "500.0, 2, 10.0", "100.0, 5, 20.0")
+    fun `circle - two loops preserve speed position and rigid geometry`(radius: Double, carCount: Int, carLength: Double) {
+        val coordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val world = try {
+            createTestWorld(coordinator)
+        } catch (failure: Throwable) {
+            try {
+                coordinator.close()
+            } catch (cleanupFailure: Throwable) {
+                failure.addSuppressed(cleanupFailure)
+            }
+            throw failure
         }
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                coordinator.use {
+                    // 0.1m samples keep interpolation error below the existing 5mm position tolerance.
+                    val rails = PrimeCurveGenerator.buildCircle(radius, step = 0.1).map(world::createRailForTest)
+                    rails.indices.forEach { index ->
+                        RailView.connect(rails[index].viewAB, rails[(index + 1) % rails.size].viewBA)
+                    }
+                    val railsById = rails.associateBy { it.id }
+                    val speed = 15.0
+                    val train = createTrainWithConfig("t-circle-$radius", rails.first(), world, List(carCount) { carLength }, isLoop = true)
+                    train.setController(MockTrainController(train, world, speed))
+                    val circumference = 2 * PI * radius
+                    val ticksPerLoop = (circumference / speed / tickSeconds).toInt().coerceAtLeast(1)
+                    val numTicks = 2 * ticksPerLoop + 50
+                    // The fixture places the head at total car length + 10m, independent of the observed frame.
+                    val startArcLength = carCount * carLength + 10.0
+                    var travelledDistance = 0.0
+                    coordinator.start()
 
-        val expectedDistance = constantSpeed * numTicks * tickSeconds
-        assertEquals(expectedDistance, totalDistance, distanceTolerance)
-
-        val expectedArcLength = (startArcLength + totalDistance) % totalArcLength
-        val actualArcLength = headCurveArcLengthInRangeMultiSegment(train, rail, isLoop = true)
-        val arcLengthDiff = abs(actualArcLength - expectedArcLength).coerceAtMost(
-            abs(actualArcLength - expectedArcLength - totalArcLength)
-        ).coerceAtMost(abs(actualArcLength - expectedArcLength + totalArcLength))
-        assertEquals(0.0, arcLengthDiff, positionTolerance) {
-            "head position on curve: expected arcLength ~ $expectedArcLength, got $actualArcLength (totalDistance=$totalDistance)"
+                    repeat(numTicks) { index ->
+                        val ticket = coordinator.stepSimulation(tickMs)
+                        ticket.completion.get(5, TimeUnit.SECONDS)
+                        val frame = train.publishedFrame
+                        assertEquals(ticket.epoch, frame.physicsEpoch)
+                        assertEquals(speed, frame.speedMetersPerSecond, speedTolerance, "tick $index speed")
+                        assertFalse(frame.derailed, "tick $index derailment")
+                        val angle = (startArcLength + speed * (index + 1) * tickSeconds) / radius
+                        val expectedHead = Vector3d(radius * cos(angle), 0.0, radius * sin(angle))
+                        val headRail = requireNotNull(railsById[frame.head.railId])
+                        val actualHead = Vector3d(headRail.curve.getPointAt(frame.head.arcLengthInAbMeters).position)
+                        assertVectorEquals(expectedHead, actualHead, positionTolerance, "tick $index analytic head")
+                        travelledDistance += frame.headTraversal.sumOf { segment ->
+                            assertEquals(ViewDirection.AB, segment.facing)
+                            segment.endArcLengthInAbMeters - segment.startArcLengthInAbMeters
+                        }
+                        frame.cars.forEachIndexed { carIndex, car ->
+                            val head = car.bogies.first().positionVector()
+                            val tail = car.bogies.last().positionVector()
+                            assertEquals(carLength, head.distance(tail), Curve.TOLERANCE, "tick $index car $carIndex axle distance")
+                            if (carIndex > 0) {
+                                val precedingTail = frame.cars[carIndex - 1].bogies.last().positionVector()
+                                assertEquals(0.0, precedingTail.distance(head), Curve.TOLERANCE, "tick $index car $carIndex zero-length coupler")
+                            }
+                        }
+                    }
+                    assertEquals(speed * numTicks * tickSeconds, travelledDistance, distanceTolerance, "published traversal distance across seams")
+                    assertTrue(travelledDistance > 2 * circumference, "must complete two full loops")
+                }
+            }
         }
-        assertFalse(train.isDerailed)
     }
 
     private fun assertPublishedVelocity(train: CoreTrain, expectedX: Double) {

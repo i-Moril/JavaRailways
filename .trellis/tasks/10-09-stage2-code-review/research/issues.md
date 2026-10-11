@@ -190,6 +190,8 @@
 
 ### CR-020：Core/Basic测试有效性及资源释放缺口
 
+- 六项既有disabled环线已改为保留原参数的六组真实epoch参数化回归（2026-10-11）：解析车头位置、published traversal累计里程/绕圈及刚体轴距/车钩断言替代本地累加自证，补setup/退出资源关闭；其他四项enabled保持。首轮完整类10项全执行、零跳过/失败，测试体约2s；全量及独立检查结果见implement对应批次。该子项不替代其余fixture或RailWand完整事务集成，CR-020仍partial。下方disabled相关描述保留为历史批次状态。
+
 - `PreparedRailCreationBatchTest`剩余6项world资源清理已补齐（2026-10-11），原7项统一使用private Unit helper，双world嵌套保证第二个setup失败时首个也释放；动作/断言/数量保持，详见implement对应批次。该类子项闭合，不代表其他fixture、disabled环线或RailWand完整事务集成已完成，CR-020保持partial。
 
 - 共享`createTestWorld`改为nullable默认coordinator，在受保护setup中创建默认physics，失败只清理helper-owned physics/tick/scheduler、保留主异常及suppressed；显式传入的physics仍由caller负责。保留Koin初始化及JVM一参/Kotlin无参和具名调用。`TrainSlopeJointMotionTest`两项按physics→binding→tick关闭，原运动断言/数量不变。此局部资源子项闭合，不代表所有fixture已审计；RailWand完整事务集成、disabled环线及其他未闭合项仍跟踪，CR-020保持partial。默认physics创建失败及清理异常按控制流静态核查，未通过新增注入hook模拟。

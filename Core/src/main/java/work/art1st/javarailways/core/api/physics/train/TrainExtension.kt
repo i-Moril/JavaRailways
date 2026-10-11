@@ -1,6 +1,7 @@
 package work.art1st.javarailways.core.api.physics.train
 
 import work.art1st.javarailways.core.api.util.plugin.Extension
+import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
 
 interface TrainExtension : Extension<Train> {
     /**
@@ -13,7 +14,11 @@ interface TrainExtension : Extension<Train> {
      * train; returning this host's existing extension instance is invalid. That first initialize
      * call is still inside split preparation and may initialize only the returned extension's own
      * state—it must not mutate the shared cars or publish platform effects before it returns.
+     * The preparing host still uses the original operating direction; the selected result
+     * direction and complete final frame are installed only after initialization succeeds.
      */
+    @TrainStructureApi
     fun splitBefore(carId: String, newId: String): TrainExtension
+    @TrainStructureApi
     fun linkWith(otherTrain: Train)
 }

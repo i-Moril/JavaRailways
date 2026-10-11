@@ -9,6 +9,12 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import org.junit.jupiter.params.provider.CsvSource
+import work.art1st.javarailways.core.api.event.TrainSplitEvent
+import work.art1st.javarailways.core.api.event.TrainSplitSuccessEvent
+import work.art1st.javarailways.core.api.event.processor.EventListener
+import work.art1st.javarailways.core.api.event.processor.HandlesEvent
+import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.exception.CannotCreateTrainException
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
@@ -17,6 +23,7 @@ import work.art1st.javarailways.core.api.physics.train.TrainExtension
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
+import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -25,7 +32,198 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
+@OptIn(TrainStructureApi::class)
 class CoreTrainSplitTest {
+    @ParameterizedTest
+    @CsvSource(
+        "false,false,false", "false,false,true", "false,true,false", "false,true,true",
+        "true,false,false", "true,false,true", "true,true,false", "true,true,true"
+    )
+    fun `plugins select both directions and success observes complete committed results`(
+        originalReversed: Boolean,
+        retainedReversed: Boolean,
+        separatedReversed: Boolean
+    ) = withConsist { world, _, train ->
+        if (originalReversed) reverse(train)
+        val originalCars = train.cars.toList()
+        val originalStates = train.publishedFrame.cars
+        val originalFrame = train.publishedFrame
+        var decision: TrainSplitEvent? = null
+        var success: TrainSplitSuccessEvent? = null
+        var successCalls = 0
+        var completeAtSuccess = false
+        withEvents(
+            onDecision = {
+                decision = it
+                it.requestRetainedDirection(retainedReversed)
+                it.requestSeparatedDirection(separatedReversed)
+                it.requestRetainedDirection(retainedReversed)
+                it.requestSeparatedDirection(separatedReversed)
+            },
+            onSuccess = {
+                success = it
+                successCalls++
+                val detached = it.separatedTrain as CoreTrain
+                completeAtSuccess = world.getTrain(train.id) === train &&
+                    world.getTrain(detached.id) === detached &&
+                    train.publishedFrame.reversed == retainedReversed &&
+                    detached.publishedFrame.reversed == separatedReversed &&
+                    train.publishedFrame.cars.map { car -> car.carId } == listOf("car-0", "car-1") &&
+                    detached.publishedFrame.cars.map { car -> car.carId } == listOf("car-2", "car-3") &&
+                    train.cars.all { car -> car.isOwnedByPublicationStream(train.publicationStreamId) } &&
+                    detached.cars.all { car -> car.isOwnedByPublicationStream(detached.publicationStreamId) } &&
+                    world.drainPublishedTrainFrames().map { frame -> frame.trainId }.toSet() == setOf(train.id, detached.id)
+            }
+        ) {
+            // Exercise the public Train API, without casting at the call site.
+            val publicTrain: Train = train
+            val future = publicTrain.splitBefore("car-2", "selected-directions")
+            withMainThread { world.tickManager.postTick() }
+            val detached = future.get(5, TimeUnit.SECONDS) as CoreTrain
+            assertEquals(retainedReversed, train.isReversed)
+            assertEquals(separatedReversed, detached.isReversed)
+            assertEquals(originalCars.take(2), train.cars)
+            assertEquals(originalCars.drop(2), detached.cars)
+            assertEquals(originalFrame.physicsEpoch, train.publishedFrame.physicsEpoch)
+            assertEquals(originalFrame.physicsEpoch, detached.publishedFrame.physicsEpoch)
+            assertCarFramesEqual(originalStates, train.publishedFrame.cars + detached.publishedFrame.cars)
+            listOf(train, detached).forEach { result ->
+                assertEquals(result.isReversed, result.publishedFrame.reversed)
+                assertEquals(result.isReversed, result.cars.first().isReversed)
+                assertEquals(
+                    RailPositionSnapshot.capture(result.head.location, result.head.location.facing),
+                    result.publishedFrame.head
+                )
+                assertEquals(
+                    RailPositionSnapshot.capture(result.tail.location, result.tail.location.facing),
+                    result.publishedFrame.tail
+                )
+                assertEquals(result.head.location.facing, result.publishedFrame.bodyTraversal.single().facing)
+                assertEquals(result.publishedFrame.tail.arcLengthInAbMeters,
+                    result.publishedFrame.bodyTraversal.single().startArcLengthInAbMeters, 1e-9)
+                assertEquals(result.publishedFrame.head.arcLengthInAbMeters,
+                    result.publishedFrame.bodyTraversal.single().endArcLengthInAbMeters, 1e-9)
+                result.cars.forEach { car ->
+                    assertEquals(result.head.location.facing, car.bogieA.location.facing)
+                    assertEquals(0.0, car.bogieA.direction.distance(originalCars.first().bogieA.direction), 1e-9)
+                }
+            }
+            assertEquals(1, successCalls)
+            assertTrue(completeAtSuccess)
+            val successEvent = requireNotNull(success)
+            assertSame(train, successEvent.train)
+            assertSame(detached, successEvent.separatedTrain)
+            assertEquals(originalReversed, successEvent.originalReversed)
+            assertEquals(originalCars.map { it.id }, successEvent.originalCarIds)
+            assertThrows(UnsupportedOperationException::class.java) {
+                (decision!!.originalCarIds as MutableList<String>).clear()
+            }
+            withMainThread {
+                assertThrows(IllegalStateException::class.java) { decision!!.requestSeparatedDirection(false) }
+                assertThrows(IllegalStateException::class.java) { decision!!.reject("too late") }
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `opposing direction requests reject regardless of registration order`(firstReversed: Boolean) =
+        withConsist { world, rail, train ->
+            val extension = RecordingSplitExtension()
+            train.extensionDataContainer.setExtensionDataAt(2, extension)
+            val afterExtension = State.capture(world, rail, train)
+            var successCalls = 0
+            withEvents(onDecision = { it.requestSeparatedDirection(firstReversed) }, onSuccess = { successCalls++ }) {
+                withEvents(onDecision = { it.requestSeparatedDirection(!firstReversed) }) {
+                    val failure = executeFailedSplit(train, "car-2", "conflict")
+                    assertTrue(failure is IllegalStateException)
+                    assertTrue(failure.message!!.contains("Conflicting separated"))
+                }
+            }
+            assertEquals(0, extension.splitCalls.get())
+            assertEquals(0, successCalls)
+            afterExtension.assertUnchanged(world, rail, train)
+        }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `veto cannot be cleared by later direction requests`(rejectFirst: Boolean) =
+        withConsist { world, rail, train ->
+            val before = State.capture(world, rail, train)
+            val rejecting: (TrainSplitEvent) -> Unit = { it.reject("fixed unit") }
+            val selecting: (TrainSplitEvent) -> Unit = { it.requestRetainedDirection(true) }
+            var successCalls = 0
+            withEvents(onDecision = if (rejectFirst) rejecting else selecting, onSuccess = { successCalls++ }) {
+                withEvents(onDecision = if (rejectFirst) selecting else rejecting) {
+                    val failure = executeFailedSplit(train, "car-2", "vetoed")
+                    assertTrue(failure.message!!.contains("fixed unit"))
+                }
+            }
+            assertEquals(0, successCalls)
+            before.assertUnchanged(world, rail, train)
+        }
+
+    @Test
+    fun `decision listener failure continues dispatch but leaves original state intact`() =
+        withConsist { world, rail, train ->
+            val before = State.capture(world, rail, train)
+            var laterCalls = 0
+            var successCalls = 0
+            var decision: TrainSplitEvent? = null
+            withEvents(onDecision = {
+                it.requestRetainedDirection(true)
+                throw IllegalStateException("compatibility check crashed")
+            }, onSuccess = { successCalls++ }) {
+                withEvents(onDecision = { decision = it; laterCalls++ }) {
+                    val failure = executeFailedSplit(train, "car-2", "listener-failure")
+                    assertTrue(failure.message!!.contains("listener failed"))
+                }
+            }
+            assertEquals(1, laterCalls)
+            assertEquals(0, successCalls)
+            withMainThread {
+                assertThrows(IllegalStateException::class.java) { decision!!.reject("late") }
+            }
+            before.assertUnchanged(world, rail, train)
+        }
+
+    @Test
+    fun `success listener failure does not fail committed split or stop later notification`() =
+        withConsist { world, _, train ->
+            var laterCalls = 0
+            withEvents(onSuccess = { throw IllegalStateException("operating record update crashed") }) {
+                withEvents(onSuccess = { laterCalls++ }) {
+                    val detached = executeSplit(train, "car-2", "success-despite-listener")
+                    assertSame(detached, world.getTrain(detached.id))
+                    assertEquals(2, train.length)
+                    assertEquals(2, detached.length)
+                }
+            }
+            assertEquals(1, laterCalls)
+        }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `selected reversals remain unapplied when extension preparation or initialization fails`(
+        failDuringInitialization: Boolean
+    ) = withConsist { world, rail, train ->
+        val expected = IllegalStateException("extension rejected prepare")
+        val extension = if (failDuringInitialization) RecordingSplitExtension(initializationFailure = expected)
+            else RecordingSplitExtension(splitFailure = expected)
+        train.extensionDataContainer.setExtensionDataAt(2, extension)
+        val before = State.capture(world, rail, train)
+        var successCalls = 0
+        withEvents(onDecision = {
+            it.requestRetainedDirection(true)
+            it.requestSeparatedDirection(true)
+        }, onSuccess = { successCalls++ }) {
+            assertSame(expected, executeFailedSplit(train, "car-2", "failed-selected-direction"))
+        }
+        assertEquals(0, successCalls)
+        before.assertUnchanged(world, rail, train)
+        assertTrue(world.drainPublishedTrainFrames().isEmpty())
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = [false, true])
     fun `same car id produces stable halves while operating views follow direction`(reversed: Boolean) =
@@ -101,43 +299,61 @@ class CoreTrainSplitTest {
         assertEquals(1, separated.length)
     }
 
-    @Test
-    fun `moving split publishes one completed epoch and clears detached motion`() {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `moving split retains controller and clears detached and direction-change motion`(reverseRetained: Boolean) {
         val coordinator = PhysicsCoordinator(1, automaticFallback = false)
-        val world = createTestWorld(coordinator)
-        try {
-            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
-            val train = createTrainWithConfig("moving-source", rail, world, List(4) { 10.0 })
-            train.setController(ConstantSpeedController(train, 10.0))
-            coordinator.start()
-            val completedEpoch = coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS).epoch
-            assertEquals(completedEpoch, train.publishedFrame.physicsEpoch)
-            assertEquals(10.0, train.publishedFrame.speedMetersPerSecond)
-            assertTrue(train.publishedFrame.cars.all { it.state.velocityX > 0.0 })
+        val world = try {
+            createTestWorld(coordinator)
+        } catch (failure: Throwable) {
+            runCatching(coordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                coordinator.use {
+                    val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+                    val train = createTrainWithConfig("moving-source", rail, world, List(4) { 10.0 })
+                    train.setController(ConstantSpeedController(train, 10.0))
+                    coordinator.start()
+                    val completedEpoch = coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS).epoch
+                    assertEquals(completedEpoch, train.publishedFrame.physicsEpoch)
+                    assertEquals(10.0, train.publishedFrame.speedMetersPerSecond)
+                    assertTrue(train.publishedFrame.cars.all { it.state.velocityX > 0.0 })
 
-            val separated = executeSplit(train, carId = "car-2", newId = "stopped-separated")
+                    lateinit var separated: CoreTrain
+                    withEvents(onDecision = { it.requestRetainedDirection(reverseRetained) }) {
+                        separated = executeSplit(train, carId = "car-2", newId = "stopped-separated")
+                    }
 
-            assertEquals(completedEpoch, train.publishedFrame.physicsEpoch)
-            assertEquals(completedEpoch, separated.publishedFrame.physicsEpoch)
-            assertEquals(10.0, train.publishedFrame.speedMetersPerSecond)
-            assertEquals(0.0, separated.publishedFrame.speedMetersPerSecond)
-            separated.publishedFrame.cars.forEach { car ->
-                assertEquals(0.0, car.state.velocityX)
-                assertEquals(0.0, car.state.velocityY)
-                assertEquals(0.0, car.state.velocityZ)
-                car.bogies.forEach { bogie ->
-                    assertEquals(0.0, bogie.velocityX)
-                    assertEquals(0.0, bogie.velocityY)
-                    assertEquals(0.0, bogie.velocityZ)
+                    assertEquals(completedEpoch, train.publishedFrame.physicsEpoch)
+                    assertEquals(completedEpoch, separated.publishedFrame.physicsEpoch)
+                    assertEquals(10.0, train.publishedFrame.speedMetersPerSecond)
+                    assertEquals(reverseRetained, train.isReversed)
+                    assertTrue(train.controller is ConstantSpeedController)
+                    train.publishedFrame.cars.forEach { car ->
+                        assertEquals(if (reverseRetained) 0.0 else 10.0, car.state.velocityX, 1e-9)
+                        car.bogies.forEach { bogie ->
+                            assertEquals(if (reverseRetained) 0.0 else 10.0, bogie.velocityX, 1e-9)
+                        }
+                    }
+                    assertEquals(0.0, separated.publishedFrame.speedMetersPerSecond)
+                    separated.publishedFrame.cars.forEach { car ->
+                        assertEquals(0.0, car.state.velocityX)
+                        assertEquals(0.0, car.state.velocityY)
+                        assertEquals(0.0, car.state.velocityZ)
+                        car.bogies.forEach { bogie ->
+                            assertEquals(0.0, bogie.velocityX)
+                            assertEquals(0.0, bogie.velocityY)
+                            assertEquals(0.0, bogie.velocityZ)
+                        }
+                    }
+                    assertEquals(
+                        setOf(train.id, separated.id),
+                        world.drainPublishedTrainFrames().mapTo(linkedSetOf()) { it.trainId }
+                    )
                 }
             }
-            assertEquals(
-                setOf(train.id, separated.id),
-                world.drainPublishedTrainFrames().mapTo(linkedSetOf()) { it.trainId }
-            )
-        } finally {
-            coordinator.close()
-            (world.tickManager as AutoCloseable).close()
         }
     }
 
@@ -244,32 +460,50 @@ class CoreTrainSplitTest {
 
             val failure = executeFailedSplit(train, "car-1", "separated-geometry-failure")
 
-            assertTrue(failure is IllegalStateException)
+            assertTrue(failure is CannotCreateTrainException)
             before.assertUnchanged(world, rail, train)
         }
 
     private fun executeSplit(train: CoreTrain, carId: String, newId: String): CoreTrain {
         val future = train.splitBefore(carId, newId)
-        train.world.tickManager.postTick()
-        return future.get() as CoreTrain
+        withMainThread { train.world.tickManager.postTick() }
+        return future.get(5, TimeUnit.SECONDS) as CoreTrain
     }
 
     private fun executeFailedSplit(train: CoreTrain, carId: String, newId: String): Throwable {
         val future = train.splitBefore(carId, newId)
-        train.world.tickManager.postTick()
-        return assertThrows(ExecutionException::class.java) { future.get() }.cause!!
+        withMainThread { train.world.tickManager.postTick() }
+        return assertThrows(ExecutionException::class.java) { future.get(5, TimeUnit.SECONDS) }.cause!!
     }
 
     private fun reverse(train: CoreTrain) {
+        withMainThread { train.reverse() }
+    }
+
+    private fun <T> withMainThread(action: () -> T): T {
         val owner = Thread.currentThread()
         val registration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
             override fun isMainThread(): Boolean = Thread.currentThread() === owner
         })
         try {
-            train.reverse()
+            return action()
         } finally {
             registration.close()
         }
+    }
+
+    private fun withEvents(
+        onDecision: (TrainSplitEvent) -> Unit = {},
+        onSuccess: (TrainSplitSuccessEvent) -> Unit = {},
+        action: () -> Unit
+    ) {
+        MainRailEventBus.register(object : EventListener {
+            @HandlesEvent
+            fun decide(event: TrainSplitEvent) = onDecision(event)
+
+            @HandlesEvent
+            fun succeeded(event: TrainSplitSuccessEvent) = onSuccess(event)
+        }).use { action() }
     }
 
     private fun createCar(
@@ -301,12 +535,13 @@ class CoreTrainSplitTest {
 
     private fun withWorld(action: (CoreWorld, CoreRail) -> Unit) {
         val world = createTestWorld()
-        try {
-            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
-            action(world, rail)
-        } finally {
-            world.physicsCoordinator.close()
-            (world.tickManager as AutoCloseable).close()
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                world.physicsCoordinator.use {
+                    val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+                    action(world, rail)
+                }
+            }
         }
     }
 
@@ -369,6 +604,7 @@ class CoreTrainSplitTest {
         val frame: Any,
         val reversed: Boolean,
         val carDirections: List<Boolean>,
+        val bogieLocations: List<Any>,
         val controller: Any?,
         val worldTrains: List<CoreTrain>,
         val railEnds: List<TrainEnd>,
@@ -384,6 +620,9 @@ class CoreTrainSplitTest {
             assertSame(frame, train.publishedFrame)
             assertEquals(reversed, train.isReversed)
             assertEquals(carDirections, train.cars.map { it.isReversed })
+            cars.flatMap { it.bogies }.zip(bogieLocations).forEach { (bogie, location) ->
+                assertSame(location, bogie.location)
+            }
             assertSame(controller, train.controller)
             assertEquals(worldTrains, world.allTrains.toList())
             assertEquals(railEnds, rail.trains.toList())
@@ -404,6 +643,7 @@ class CoreTrainSplitTest {
                 frame = train.publishedFrame,
                 reversed = train.isReversed,
                 carDirections = train.cars.map { it.isReversed },
+                bogieLocations = train.cars.flatMap { it.bogies }.map { it.location },
                 controller = train.controller,
                 worldTrains = world.allTrains.toList(),
                 railEnds = rail.trains.toList(),

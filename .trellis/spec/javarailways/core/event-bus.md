@@ -14,7 +14,9 @@
 
 ## Owner、签名与 lifecycle
 
-联结/解编两阶段事件属于另一个已确认但尚未实现的目标：提交前允许插件拒绝及指定编组信息，完整提交后才发成功事件，拒绝不可被后续监听器撤销。业务流程及失败/测试规则统一由[train physics](./train-physics.md)拥有。这不表示当前总线已有通用取消协议，也不改变下述现有handler异常隔离语义；新事件不得靠异常自动取消或监听优先级模拟事务。
+解编已接入`TrainSplitEvent`与`TrainSplitSuccessEvent`，联结两阶段事件仍待实现。提交前允许插件单向拒绝及指定两侧方向，完整提交后才通知成功；相关接口/事件标记`TrainStructureApi`（unstable）。业务流程、冲突、异常及测试规则由[train physics](./train-physics.md#解编事务)拥有，不增加公开通用取消协议。
+
+内部`MainRailEventBus.publishAndReportFailures(event): Boolean`复用同一dispatcher，仅额外汇总所有handler是否正常返回：出现任一异常时仍记录并继续后续handler，最后返回false。解编owner据此拒绝提交，而普通公开`publish(event): Unit`仍忽略此汇总结果、保持原有异常隔离语义。成功事件走普通publish，不能因通知异常使已完成事务失败；不能把现有总线的“继续派发”误当成结构操作仍可提交。状态只在本次同步调用中保留，不新增线程、队列或每tick扫描。
 
 ```kotlin
 object MainRailEventBus {
@@ -64,6 +66,7 @@ token的`isClosed`是原子可见的close标记，不是派发/清理完成屏�
 ```kotlin
 private val requestedResolution = AtomicReference(CollisionResolution.DERAIL)
 val resolution: CollisionResolution get() = requestedResolution.get()
+@TrainStructureApi
 fun requestLink() {
     requestedResolution.set(CollisionResolution.LINK)
 }

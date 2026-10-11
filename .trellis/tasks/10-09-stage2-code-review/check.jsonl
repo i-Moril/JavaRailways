@@ -1,14 +1,14 @@
 {"file": ".trellis/spec/javarailways/shared/quality.md", "reason": "Independent Core fixes review plus direct nearest-query consumer regression gate"}
 {"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "No schema bump, migration or runtime compatibility in current input/geometry fixes"}
-{"file": ".trellis/spec/javarailways/core/api-boundaries.md", "reason": "No unnecessary public identity or transaction framework"}
-{"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "Check path, endpoints, facing and bogie arc spacing without relocation; do not claim exact coupler validation"}
+{"file": ".trellis/spec/javarailways/core/api-boundaries.md", "reason": "Public Train split entry and unstable annotation, no implementation casts or generic transaction framework"}
+{"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "CR-030 split decisions and independent directions prepare before mutation; initialization failure preserves original geometry/frames/ownership"}
 {"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "CR-028 shared once-per-construction strict raw/decode validation and unique LINE stream; retain valid nonorthogonal frames"}
 {"file": ".trellis/spec/javarailways/core/rail-topology-and-occupancy.md", "reason": "CR-027 strict current references, nullable selection, order and per-rail pre-mutation checks"}
 {"file": ".trellis/spec/javarailways/core/runtime-publication.md", "reason": "CR-016 publication and close must share exact-ticket terminal validation"}
 {"file": ".trellis/spec/javarailways/core/di-and-runtime-lifecycle.md", "reason": "Check in-flight close and CR-015 bounded pre-publication cleanup without claiming Koin scope release"}
 {"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "Distinguish strict rail endpoint decoding from unresolved full materialization lifecycle"}
 {"file": ".trellis/spec/javarailways/core/testing.md", "reason": "CR-020 real bounded physics epochs, end-of-track derail dispatch and live-mutation snapshot isolation; no count padding"}
-{"file": ".trellis/spec/javarailways/core/event-bus.md", "reason": "CR-030 two-stage events must not rely on listener priority, swallowed exceptions, or reversible cancellation"}
+{"file": ".trellis/spec/javarailways/core/event-bus.md", "reason": "Monotonic veto and direction conflict; pre listener error continues dispatch but prevents commit, success error does not undo commit"}
 {"file": ".trellis/spec/javarailways/core/render-publication.md", "reason": "CR-030 mixed installation, split and restore must preserve exact physical model identity and coherent frames"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/core-link-transaction-plan.md", "reason": "Audit latest approved scope rather than superseded A-B-only historical proposal"}
 {"file": ".trellis/spec/javarailways/basic/curve-authoring.md", "reason": "CR-028 raw validation must not reject current formal authoring producers"}

@@ -29,7 +29,7 @@ import kotlin.math.absoluteValue
  * TODO: 尚未实现中间转向架的几何定位。
  */
 class CoreCar @MainThread internal constructor(
-    val id: String,
+    override val id: String,
     /* 转向架 - 转向架偏移量 */
     override val bogies: List<CoreBogie>,
     val bogiesOffsets: List<Double>,
@@ -534,6 +534,14 @@ class CoreCar @MainThread internal constructor(
     override fun reverse() {
         isReversed = !isReversed
         bogies.forEach { it.reverse() }
+    }
+
+    /** Preserve physical/model orientation while committing precomputed operating bogie facings. */
+    internal fun applyPreparedOperatingReversal(locations: List<RailLocationWithFacing>) {
+        isReversed = !isReversed
+        bogies.forEachIndexed { index, bogie ->
+            bogie.applyPreparedOperatingReversal(locations[index])
+        }
     }
 
     internal fun reverseFromPhysics() {

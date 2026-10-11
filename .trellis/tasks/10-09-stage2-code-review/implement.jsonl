@@ -1,6 +1,6 @@
 {"file": ".trellis/spec/javarailways/shared/quality.md", "reason": "Focused Core/Basic regression gate and preservation of unrelated work"}
 {"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "Current input/geometry fixes do not change schema shape or version"}
-{"file": ".trellis/spec/javarailways/core/api-boundaries.md", "reason": "Keep undisputed Core fixes internal without growing public APIs"}
+{"file": ".trellis/spec/javarailways/core/api-boundaries.md", "reason": "CR-030 split entry and events use public Train rather than CoreTrain casts; structure API remains explicitly unstable"}
 {"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "Validate persisted path, bogie arc spacing and endpoints; exact coupler geometry remains open"}
 {"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "CR-028 copy and validate raw points once; repair producer junctions instead of decoder deduplication"}
 {"file": ".trellis/spec/javarailways/core/rail-topology-and-occupancy.md", "reason": "CR-027 shared strict endpoint decoding and unchanged live remove/undo fallback"}
@@ -8,7 +8,7 @@
 {"file": ".trellis/spec/javarailways/core/di-and-runtime-lifecycle.md", "reason": "CR-016 terminal close plus CR-015 pre-publication resource ownership; Koin scope remains separate"}
 {"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "CR-027 rejects corrupt declared rail references without claiming whole-world load atomicity"}
 {"file": ".trellis/spec/javarailways/core/testing.md", "reason": "CR-020 real published motion, coordinator-driven derail notification and paired world cleanup"}
-{"file": ".trellis/spec/javarailways/core/event-bus.md", "reason": "CR-030 user-approved pre link/split monotonic veto and post-success notifications; handler exceptions are currently isolated, not automatic cancellation"}
+{"file": ".trellis/spec/javarailways/core/event-bus.md", "reason": "CR-030 monotonic veto/conflicting direction rejection; pre listener failure explicitly prevents commit, success notification failure does not undo commit"}
 {"file": ".trellis/spec/javarailways/core/render-publication.md", "reason": "CR-030 mixed installation must preserve stable model orientation and complete same-epoch frames"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/core-link-transaction-plan.md", "reason": "Read superseding user decisions first: all four end pairs, contact/no snap, event-driven plugin choices; old A-B-only proposal withdrawn"}
 {"file": ".trellis/spec/javarailways/basic/curve-authoring.md", "reason": "CR-028 strict Core input requires Basic producers to emit shared junctions once"}

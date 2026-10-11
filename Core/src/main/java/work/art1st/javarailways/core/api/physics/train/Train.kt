@@ -5,8 +5,10 @@ import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.RailLocation
 import work.art1st.javarailways.core.api.util.Destroyable
 import work.art1st.javarailways.core.api.util.annotation.MainThread
+import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
 import work.art1st.javarailways.core.api.util.plugin.Extendable
 import work.art1st.javarailways.core.api.util.tick.Synchronizable
+import java.util.concurrent.Future
 
 /**
  * Ordered set of rigid cars moving along connected rails.
@@ -61,6 +63,20 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
     /** Swap the operating head and tail. Structural effects are implementation-defined. */
     @MainThread
     fun reverse()
+
+    /**
+     * Schedule a split before [carId] in stable [cars] order, retaining this train's prefix.
+     *
+     * Non-blocking submission to the world's serialized main-thread structural queue. The returned
+     * future yields the new suffix train after both results are fully published. Unknown/ambiguous
+     * IDs, an empty prefix, conflicting world identity, rejected decisions and preparation failures
+     * complete it exceptionally without changing the original structure. Plugins receive a
+     * [work.art1st.javarailways.core.api.event.TrainSplitEvent] before preparation and a
+     * [work.art1st.javarailways.core.api.event.TrainSplitSuccessEvent] only after success.
+     * Never wait for this future on the thread that must drain the structural queue.
+     */
+    @TrainStructureApi
+    fun splitBefore(carId: String, newId: String): Future<Train>
 
     /** Enter a derailed state with a diagnostic [reason]. */
     @MainThread

@@ -1,6 +1,7 @@
 package work.art1st.javarailways.core.api.event
 
 import work.art1st.javarailways.core.api.util.annotation.AsyncEventApi
+import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
 import java.util.concurrent.atomic.AtomicReference
 
 /** Default collision outcome. Listeners may request a link; they never mutate trains directly. */
@@ -22,6 +23,7 @@ class CollisionEvent(
     val resolution: CollisionResolution
         get() = requestedResolution.get()
 
+    @TrainStructureApi
     fun requestLink() {
         requestedResolution.set(CollisionResolution.LINK)
     }

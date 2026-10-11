@@ -7,6 +7,13 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.core.api.event.TrainSplitEvent
+import work.art1st.javarailways.core.api.event.processor.EventListener
+import work.art1st.javarailways.core.api.event.processor.HandlesEvent
+import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
 import work.art1st.javarailways.core.control.train.MockTrainController
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
@@ -19,6 +26,41 @@ import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import java.util.concurrent.TimeUnit
 
 class CoreTrainAsymmetricTurnoutTest {
+    @Test
+    @OptIn(TrainStructureApi::class)
+    fun `reversed split publishes original turnout path without consulting unset reverse selection`() =
+        withFixture { fixture ->
+            val train = fixture.train
+            val oldTail = train.publishedFrame.tail
+            val originalCars = train.publishedFrame.cars
+            val originalSuffixHead = requireNotNull(train.cars.last().headBogie.location.forward(
+                train.cars.last().headBogieToEndPointOffset
+            ))
+            fixture.junction.viewBA.activeRail = null
+            val owner = Thread.currentThread()
+            val result = train.splitBefore("car-4", "reversed-suffix")
+            ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
+                override fun isMainThread() = Thread.currentThread() === owner
+            }).use {
+                MainRailEventBus.register(object : EventListener {
+                    @HandlesEvent
+                    fun decide(event: TrainSplitEvent) = event.requestSeparatedDirection(true)
+                }).use { fixture.world.tickManager.postTick() }
+            }
+            val detached = result.get(5, TimeUnit.SECONDS) as CoreTrain
+
+            assertTrue(detached.isReversed)
+            assertCarFramesEqual(originalCars, train.publishedFrame.cars + detached.publishedFrame.cars)
+            assertEquals(oldTail.railId, detached.publishedFrame.head.railId)
+            assertEquals(oldTail.arcLengthInAbMeters, detached.publishedFrame.head.arcLengthInAbMeters, 1e-9)
+            assertEquals(listOf(fixture.junction.id, fixture.previous.id),
+                detached.publishedFrame.bodyTraversal.map { it.railId })
+            assertEquals(listOf(ViewDirection.BA, ViewDirection.AB),
+                detached.publishedFrame.bodyTraversal.map { it.facing })
+            assertEquals(null, fixture.junction.viewBA.activeRail)
+            assertEquals(0.0, detached.tail.location.position.distance(originalSuffixHead.position), 1e-9)
+        }
+
     @Test
     fun `removing an active rail selects the first remaining candidate even in invalid multi-branch topology`() =
         withWorld { world ->

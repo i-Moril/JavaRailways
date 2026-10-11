@@ -84,12 +84,19 @@ internal class TypedRailEventBus<E : Event>(
     }
 
     fun publish(event: E) {
+        publishAndReportFailures(event)
+    }
+
+    /** Dispatch normally, additionally reporting whether every listener completed successfully. */
+    internal fun publishAndReportFailures(event: E): Boolean {
+        var successful = true
         event::class.allSuperTypes().forEach { eventType ->
             handlers[eventType]?.lists?.forEach { priorityHandlers ->
                 priorityHandlers.forEach { handler ->
                     try {
                         handler.function.call(handler.listener, event)
                     } catch (failure: Throwable) {
+                        successful = false
                         System.err.println(
                             "[JavaRailways] $busName event listener ${handler.listener::class.qualifiedName}." +
                                 "${handler.function.name} failed for ${event::class.qualifiedName}: ${failure.message}"
@@ -99,6 +106,7 @@ internal class TypedRailEventBus<E : Event>(
                 }
             }
         }
+        return successful
     }
 
     private fun removeEmptyHandlerLists() {

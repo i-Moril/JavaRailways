@@ -11,6 +11,13 @@ import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
+import work.art1st.javarailways.core.api.event.TrainSplitEvent
+import work.art1st.javarailways.core.api.event.processor.EventListener
+import work.art1st.javarailways.core.api.event.processor.HandlesEvent
+import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
+import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -22,6 +29,7 @@ import work.art1st.javarailways.core.util.TickManagerImpl
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
+@OptIn(TrainStructureApi::class)
 class CoreTrainMixedInstallationTest {
     @ParameterizedTest
     @ValueSource(booleans = [false, true])
@@ -63,22 +71,34 @@ class CoreTrainMixedInstallationTest {
 
     @ParameterizedTest
     @ValueSource(booleans = [false, true])
-    fun `mixed split preserves installation and exact placement through world codec`(reversed: Boolean) =
+    fun `mixed split independently reverses suffix and preserves installation through world codec`(reversed: Boolean) =
         withWorld { source ->
             val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(200.0, 1))
             val train = savedMixedTrain(rail, reversed).load(source)
             val originalCars = train.cars.toList()
+            val originalFrames = train.publishedFrame.cars
             val split = train.splitBefore("car-1", "separated")
-            source.tickManager.postTick()
+            val owner = Thread.currentThread()
+            ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
+                override fun isMainThread() = Thread.currentThread() === owner
+            }).use {
+                MainRailEventBus.register(object : EventListener {
+                    @HandlesEvent
+                    fun decide(event: TrainSplitEvent) {
+                        event.requestSeparatedDirection(!reversed)
+                    }
+                }).use { source.tickManager.postTick() }
+            }
             val separated = split.get(5, TimeUnit.SECONDS) as CoreTrain
             assertEquals(originalCars.take(1), train.cars)
             assertEquals(originalCars.drop(1), separated.cars)
             assertEquals(reversed, train.isReversed)
-            assertEquals(reversed, separated.isReversed)
+            assertEquals(!reversed, separated.isReversed)
+            assertCarFramesEqual(originalFrames, train.publishedFrame.cars + separated.publishedFrame.cars)
             assertEquals(if (reversed) 75.0 else 85.0, train.publishedFrame.head.arcLengthInAbMeters, Curve.TOLERANCE)
             assertEquals(if (reversed) 85.0 else 75.0, train.publishedFrame.tail.arcLengthInAbMeters, Curve.TOLERANCE)
-            assertEquals(if (reversed) 53.0 else 74.5, separated.publishedFrame.head.arcLengthInAbMeters, Curve.TOLERANCE)
-            assertEquals(if (reversed) 74.5 else 53.0, separated.publishedFrame.tail.arcLengthInAbMeters, Curve.TOLERANCE)
+            assertEquals(if (reversed) 74.5 else 53.0, separated.publishedFrame.head.arcLengthInAbMeters, Curve.TOLERANCE)
+            assertEquals(if (reversed) 53.0 else 74.5, separated.publishedFrame.tail.arcLengthInAbMeters, Curve.TOLERANCE)
 
             val infrastructure = source.saveInfrastructure(7L)
             val runtime = source.saveRuntime(7L, 0L)
@@ -94,7 +114,7 @@ class CoreTrainMixedInstallationTest {
                     original.publishedFrame.cars.zip(loaded.publishedFrame.cars).forEach { (before, after) ->
                         assertEquals(before.carId, after.carId)
                         assertEquals(before.state.positionVector(), after.state.positionVector())
-                        assertEquals(before.state.directionVector(), after.state.directionVector())
+                        assertEquals(0.0, before.state.directionVector().distance(after.state.directionVector()), 0.0)
                         assertEquals(before.bogies.map { it.positionVector() }, after.bogies.map { it.positionVector() })
                     }
                 }

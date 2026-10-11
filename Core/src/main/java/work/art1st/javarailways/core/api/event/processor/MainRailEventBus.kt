@@ -21,4 +21,10 @@ object MainRailEventBus {
         ThreadGuard.ensureMainThread("MainRailEventBus.publish(${event::class.simpleName})")
         dispatcher.publish(event)
     }
+
+    /** Structural decisions must not commit after an isolated listener failure. */
+    internal fun publishAndReportFailures(event: MainThreadRailEvent): Boolean {
+        ThreadGuard.ensureMainThread("MainRailEventBus.publish(${event::class.simpleName})")
+        return dispatcher.publishAndReportFailures(event)
+    }
 }

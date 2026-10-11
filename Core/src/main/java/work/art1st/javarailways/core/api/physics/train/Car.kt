@@ -10,6 +10,12 @@ import work.art1st.javarailways.core.api.util.plugin.Extendable
  */
 interface Car : DynamicRenderable, Extendable<RenderableExtension<Car>> {
     /**
+     * Stable persisted identity, unchanged by operating reversal or structural transfer.
+     * Not a world-wide uniqueness guarantee; splitting requires one unique match in its source train.
+     */
+    val id: String
+
+    /**
      * Published unit direction followed when the owning train advances by a positive distance.
      *
      * This is live Core physics state. It is deliberately separate from [direction], which is the

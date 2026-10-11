@@ -107,9 +107,13 @@ class CoreBogie @MainThread internal constructor(
 
     @MainThread
     override fun reverse() {
+        applyPreparedOperatingReversal(location.reversed)
+    }
+
+    /** Apply an already-resolved facing change without solving geometry during structural commit. */
+    internal fun applyPreparedOperatingReversal(reversedLocation: RailLocationWithFacing) {
         sameDirectionBuffer.set(!publishedSameDirectionAsFacing)
         sameDirectionBuffer.commit()
-        val reversedLocation = location.reversed
         _location.set(reversedLocation)
         _location.commit()
         _location.set(reversedLocation)

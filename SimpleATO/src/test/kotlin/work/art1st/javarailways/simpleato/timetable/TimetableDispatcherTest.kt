@@ -55,6 +55,7 @@ import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
@@ -64,6 +65,7 @@ import work.art1st.javarailways.core.util.AsyncTickTestSupport
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
+import kotlin.math.PI
 
 class TimetableDispatcherTest {
     @Test
@@ -711,10 +713,7 @@ class TimetableDispatcherTest {
         val dispatcher = dispatcher()
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
-        val rail = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(140.0, 0.0, 0.0))
-        val returnRail = rail(world, Vector3d(140.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
-        CoreRail.connect(rail, returnRail)
-        CoreRail.connect(returnRail, rail)
+        val (rail, returnRail) = depotLoop(world)
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
         val originArc = train.head.location.arcLength
         val destinations = OperationalDestinationService(world)
@@ -849,18 +848,7 @@ class TimetableDispatcherTest {
         val coordinator = AtoWorldCoordinator("dispatcher-store-capacity", reportSink = {})
         val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
         TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
-        val outboundRail = rail(
-            world,
-            Vector3d(0.0, 0.0, 0.0),
-            Vector3d(140.0, 0.0, 0.0)
-        )
-        val returnRail = rail(
-            world,
-            Vector3d(140.0, 0.0, 0.0),
-            Vector3d(0.0, 0.0, 0.0)
-        )
-        CoreRail.connect(outboundRail, returnRail)
-        CoreRail.connect(returnRail, outboundRail)
+        val (outboundRail, returnRail) = depotLoop(world)
         val train = createTrainWithConfig("T1", outboundRail, world, listOf(10.0))
         val originArc = train.head.location.arcLength
         val destinations = OperationalDestinationService(world)
@@ -971,18 +959,7 @@ class TimetableDispatcherTest {
         val dispatcher = dispatcher()
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
-        val outboundRail = rail(
-            world,
-            Vector3d(0.0, 0.0, 0.0),
-            Vector3d(140.0, 0.0, 0.0)
-        )
-        val returnRail = rail(
-            world,
-            Vector3d(140.0, 0.0, 0.0),
-            Vector3d(0.0, 0.0, 0.0)
-        )
-        CoreRail.connect(outboundRail, returnRail)
-        CoreRail.connect(returnRail, outboundRail)
+        val (outboundRail, returnRail) = depotLoop(world)
         val train = createTrainWithConfig("T1", outboundRail, world, listOf(10.0))
         val originArc = train.head.location.arcLength
         val destinations = OperationalDestinationService(world)
@@ -2191,6 +2168,16 @@ class TimetableDispatcherTest {
     private fun tickAndPublish(ato: SimpleATO, deltaMillis: Double = 50.0) {
         AsyncTickTestSupport.run { ato.tick(deltaMillis) }
         ato.commit()
+    }
+
+    private fun depotLoop(world: CoreWorld): Pair<CoreRail, CoreRail> {
+        // Two tangent-continuous semicircles keep both original 140 m route coordinates.
+        val (outboundCurve, returnCurve) = PrimeCurveGenerator.buildCircle(140.0 / PI, 2, step = 0.1)
+        val outboundRail = world.createRailForTest(outboundCurve)
+        val returnRail = world.createRailForTest(returnCurve)
+        RailView.connect(outboundRail.viewAB, returnRail.viewBA)
+        RailView.connect(returnRail.viewAB, outboundRail.viewBA)
+        return outboundRail to returnRail
     }
 
     private fun rail(world: CoreWorld, from: Vector3d, to: Vector3d): CoreRail =

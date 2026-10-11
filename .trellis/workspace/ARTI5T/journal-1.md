@@ -230,3 +230,26 @@ Complete reviewed protection-region authoring batch: shortest route tables, endp
 ### Next Steps
 
 - Wait for user review of 6ee799fb before choosing next Stage 2 batch; do not archive unfinished task.
+
+
+## Session 8: 修正列车三维坐标约束并比较性能
+<!-- trellis-session: v=2 fp=473e412694144edd -->
+
+**Date**: 2026-10-11
+**Task**: 修正列车三维坐标约束并比较性能
+**Package**: javarailways
+**Branch**: `codex/train-coordinate-performance`
+
+### Summary
+
+修复真实三维轴距、车钩及恢复检查；按用户范围排除极紧曲线特殊搜索。全量1093项零失败、6项已有跳过；84次前后及补测均通过50ms p95预算，曲线不宣称全面提速。证据和比较报告已归档至10-11-train-coordinate-performance。保留无关改动，未推送或部署。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `24035887` | fix(core): enforce rigid train connector geometry |
+
+### Status
+
+[OK] **Completed**

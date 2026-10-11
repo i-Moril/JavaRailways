@@ -52,7 +52,7 @@
 - CoreWorld含多处重复prepared replacement校验、冗长fully-qualified类型和结构提交逻辑。适合抽局部共同校验/按职责整理函数，不适合新增几个共同修改同一状态的manager。
 - split/link缺少同一结构事务；“先mutation、再排任务、异常藏在Future”比文件长度更值得修。
 - 旧RailTopologyEditor split/merge还保留全world复制/rollback，但正式Wand已使用prepared方案。应先删除废路径，而非重构两套算法。
-- `TopologyStateBuilder.kt:210-223`每个连通分量都扫描remaining取最小值，互不连接rail最坏O(N²)；`PreparedRailConnectionPlan.kt:301-302,381`逐端点扫描creations，同样O(N²)。这是结构编辑路径，未做性能profiling；排序种子/局部railId map足够，不新增长期catalog。
+- **CR-033，两处重复扫描已修复（2026-10-11，验证见implement记录）**：`TopologyStateBuilder`连通分量起点一次按原key排序并跳过已访问组；`PreparedRailConnectionPlan`用capture局部rail ID map查prepared端点。不新增长期catalog，不改变确定性ID、连接选择或校验顺序。这是结构编辑路径，未做耗时profiling，不宣称每tick或实际毫秒收益。
 - `CoreCar`车内/车间求解已分函数并有公式注释，但offset正负注释与实际默认相反；activePositon拼写、残缺注释和废SavedCar代码应机械整理。
 - `spansFromLocations`对bogie/端点有双重循环；render-publication复杂度应明确只描述新增frame/traversal阶段，不暗示整个move都是线性。
 - 公开Bogie泄漏实现RailLocationWithFacing仍是API债，现有Core源码不包含Java实现；不能为了Kotlin风格删除有意保留的下游Java consumer。

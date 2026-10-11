@@ -337,3 +337,11 @@ env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
 ### CR-023 剩余几何缺口收口（2026-10-11，独立任务）
 
 本项后续由[坐标约束与性能任务](../archive/2026-10/10-11-train-coordinate-performance/prd.md)实现：真实三维轴距与统一中心恢复，加载检查相邻车钩，固定损坏内部车厢平移输入验证拒绝和清理。运行几何及跨模块全量门禁已通过，详细原始证据和性能结果仅在该任务维护。此前本文件的“剩余车钩缺口”记录为历史状态；联结事务CR-030、全world加载回滚和其他未解决项保持原范围。
+
+### CR-033 结构准备重复扫描（2026-10-11）
+
+- `TopologyStateBuilder.addLoopAnchors`将每个连通分量的remaining最小值扫描改为一次按同一group key排序并跳过已访问组；分量遍历和最小anchor选择保持原样。`PreparedRailConnectionPlan.captureLocked`将逐端点的creations扫描改为本次capture局部rail ID map，复用其keys判断批内身份。batch构造器已有ID唯一约束；重复endpoint校验仍在建索引之前，其余错误优先级不变。
+- 只改两份production文件及对应测试；新增三项行为回归：独立环/孤立轨道的固定anchor和有序node/edge/projection、乱序三轨batch按身份连接并保留支路顺序及非首active选择、duplicate→symmetry→colocation错误顺序且不产生mutation。新增fixture按physics→binding→tick关闭；首次编译因TickManager静态类型非AutoCloseable失败，按既有fixture惯例显式转换后通过。
+- 定向两类17项全部通过（51 s，9 tasks中5执行、4up-to-date）。冻结源码以`GRADLE_USER_HOME=/workspace/.gradle ./gradlew :Core:test :Basic:test --offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`执行全量，`BUILD SUCCESSFUL`（1m11s，15 tasks全部执行）；XML Core 54 suites/319项（313执行、6个既有disabled），Basic 59 suites/385项全执行，零失败/错误。既有warning保留。
+- owner spec补充一次排序/局部索引原理及复杂度中的prepared rail数量`N`；独立静态检查指出apply亦需遍历批内轨道，已修正文档并明确另计occupancy查询成本。没有公共API、持久化shape/version或长期catalog变化；没有运行耗时benchmark，不宣称毫秒或每tick收益。CR-033其他文档/诊断/重复校验项目仍开放，无部署或游戏验证。
+- 独立检查强制重编译并复跑两类17项，全部执行、零失败/错误/跳过（42 s，9 tasks全部执行），无剩余阻塞项；scoped whitespace与task manifest 15+15通过，模块没有独立lint配置。提交前发现共享工作区位于`codex/train-coordinate-performance`；经用户确认，先将其几何修复及任务记录快进合入`dev/signal-system`（`00a44abd→84f35468`），再切回该分支提交本批。快进前后源码相同，未提交的其他任务内容保持原样。

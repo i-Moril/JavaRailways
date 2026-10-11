@@ -320,7 +320,7 @@
 
 - P2/P3；扩展CR-002/007/020，不重复宣称已修。
 - 错误诊断丢message/cause/context；可用frame/占用语义KDoc不符；train-physics遗漏实际bogie/coupler二分原理；持久化把目标预校验写成现状。`Train.cars`已在CR-021明确为稳定编组/持久化顺序，并用公开`isReversed`/`operatingCars`表达运营顺序，不再是本项开放问题。
-- 两处结构准备实际O(N²)，高于spec承诺；CoreWorld重复prepared校验适合局部抽取，不按行数大拆manager。
+- 两处结构准备的重复全表扫描已于2026-10-11改为一次sorted seeds与capture局部rail ID map，验证见implement对应批次；没有运行耗时profiling。CoreWorld重复prepared校验仍待治理，适合局部抽取，不按行数大拆manager；本项未整体关闭。
 - 网页模块归属/API范围和性能结论过期；.codeabs含已删路径/TODO。Dokka本轮成功但缺文档和declare链接warning仍在。
 - 测试处置扩展见Core报告：保留真实不变量；改写空跑、回显、复制生产分支和反射锁private实现的测试；废路径测试随实现删除。没有按数量批删依据。
 

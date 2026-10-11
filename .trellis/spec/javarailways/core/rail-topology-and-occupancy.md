@@ -147,7 +147,8 @@ active branch；回到player owner后，plan以captured endpoint state逐项复�
 比较与target topology构建为`O(N + M + K)`，其中`M`为snapshot连接数、`K`为相关crossing数；exact geometry成本仍沿用
 前述candidate-pruned bound。apply对surviving endpoints单次遍历并只写changed/created endpoints，不扫描图资源。
 
-设声明中endpoint数为`E`、连接引用总数为`M`、prepared exact crossing数为`K`，capture为`O(E + M + K)`，其后验证与apply为`O(E + M)`，且不执行几何邻近搜索；
+capture为prepared creations一次建立局部rail ID索引，端点位置验证复用该索引，不逐端点扫描batch；它不是长期缓存或新的catalog。
+设prepared rail数为`N`、声明中endpoint数为`E`、连接引用总数为`M`、prepared exact crossing数为`K`，capture为`O(N + E + M + K)`，其后连接验证与apply为`O(N + E + M)`（另计既有occupancy查询成本），且不执行几何邻近搜索；
 prepared crossing仍由前述creation batch检测。测试必须证明显式选择、附近未选rail排除、standalone保持断开、stale root拒绝、
 deterministic apply与replacement准确重映射。
 

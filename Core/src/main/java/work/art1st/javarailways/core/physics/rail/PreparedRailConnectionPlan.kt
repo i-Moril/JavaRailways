@@ -286,10 +286,10 @@ class PreparedRailConnectionPlan private constructor(
             require(finalByEndpoint.size == finalConnections.size) {
                 "Each explicitly changed endpoint may be declared only once"
             }
-            val createdIds = preparedBatch.creations.mapTo(linkedSetOf()) { it.railId }
+            val creationsById = preparedBatch.creations.associateBy(PreparedRailCreation::railId)
             fun isExistingTarget(railId: UUID): Boolean =
                 railId !in preparedBatch.excludedExistingRailIds && world.getRail(railId) != null
-            fun isTarget(railId: UUID): Boolean = railId in createdIds || isExistingTarget(railId)
+            fun isTarget(railId: UUID): Boolean = railId in creationsById || isExistingTarget(railId)
             finalByEndpoint.forEach { (endpoint, connection) ->
                 require(isTarget(endpoint.railId)) { "Unknown explicit endpoint: $endpoint" }
                 connection.connectedEndpoints.forEach { target ->
@@ -298,8 +298,8 @@ class PreparedRailConnectionPlan private constructor(
                     require(finalByEndpoint[target]?.connectedEndpoints?.contains(endpoint) == true) {
                         "Explicit connections must be declared symmetrically: $endpoint <-> $target"
                     }
-                    require(endpointPosition(world, preparedBatch, endpoint)
-                        .distance(endpointPosition(world, preparedBatch, target)) <= Curve.TOLERANCE
+                    require(endpointPosition(world, creationsById, endpoint)
+                        .distance(endpointPosition(world, creationsById, target)) <= Curve.TOLERANCE
                     ) { "Explicitly connected endpoints are not colocated: $endpoint <-> $target" }
                 }
                 require(connection.connectedEndpoints.size <= 2) {
@@ -376,9 +376,9 @@ class PreparedRailConnectionPlan private constructor(
 
         private fun endpointPosition(
             world: CoreWorld,
-            batch: PreparedRailCreationBatch,
+            creationsById: Map<UUID, PreparedRailCreation>,
             endpoint: RailEndpointRef
-        ) = batch.creations.firstOrNull { it.railId == endpoint.railId }?.curve?.let { curve ->
+        ) = creationsById[endpoint.railId]?.curve?.let { curve ->
             if (endpoint.endpoint == RailEndpoint.A) curve.getPointAt(0.0).position
             else curve.getPointAt(curve.totalArcLength).position
         } ?: endpointView(requireNotNull(world.getRail(endpoint.railId)), endpoint.endpoint).endPoint.position

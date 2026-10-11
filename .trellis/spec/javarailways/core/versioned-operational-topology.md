@@ -148,7 +148,7 @@ prepared 编辑在 worker 根据已有明确 delta 和图的反向索引预先�
 
 ## 7. 性能、复杂度与退化行为
 
-- graph normalization对输入rail slices与connections做一次`O(V + E)`遍历；为生成不依赖输入集合顺序的revision-local ID，还需`O(V log V)`确定性排序。该工作只发生在structural edit，不进入每tick路径。
+- graph normalization对输入rail slices与connections做一次`O(V + E)`遍历；为生成不依赖输入集合顺序的revision-local ID，还需`O(V log V)`确定性排序。连通分量起点按group key一次排序，跳过已访问组，不为每个分量重新扫描全部剩余组；纯环仍选该分量最小key作为anchor。该工作只发生在structural edit，不进入每tick路径。
 - endpoint/node、ordinary continuation及rail/crossing反向索引在root构造时线性建立；canonical port-set key另按各node
   的port数量排序。一次replacement impact定点查询为`O(R + K + sum(D log D))`，其中`R`为明确source rail及其projection
   数、`K`为source rail实际平交数、`D`为命中旧结构节点各自的port数量；它还会从source所在edge命中可能移位/消失的旧

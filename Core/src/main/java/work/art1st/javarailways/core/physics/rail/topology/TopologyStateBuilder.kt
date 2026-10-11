@@ -208,8 +208,8 @@ internal object TopologyStateBuilder {
 
         val result = initialKinds.toMutableMap()
         val remaining = groups.keys.toMutableSet()
-        while (remaining.isNotEmpty()) {
-            val seed = remaining.minBy(::groupKey)
+        for (seed in groups.keys.sortedBy(::groupKey)) {
+            if (seed !in remaining) continue
             val component = linkedSetOf<RailEndpointRef>()
             val queue = ArrayDeque<RailEndpointRef>()
             queue.add(seed)

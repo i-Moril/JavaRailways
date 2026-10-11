@@ -3,6 +3,7 @@ package work.art1st.javarailways.core.physics.rail
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -10,11 +11,77 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.physics.train.createTestWorld
 
 class PreparedRailConnectionPlanTest {
+    @Test
+    fun `unordered prepared batch connects by identity and preserves declared branch order`() = withWorld { world ->
+        val stem = world.createRailForTest(line(-10.0, 0.0))
+        val prepared = world.prepareRailCreationBatch(listOf(
+            line(10.0, 20.0), line(0.0, 30.0), line(0.0, 10.0)
+        ))
+        val (last, branch, first) = prepared.creations
+        val stemB = RailEndpointRef(stem.id, RailEndpoint.B)
+        val branchA = RailEndpointRef(branch.railId, RailEndpoint.A)
+        val firstA = RailEndpointRef(first.railId, RailEndpoint.A)
+        val firstB = RailEndpointRef(first.railId, RailEndpoint.B)
+        val lastA = RailEndpointRef(last.railId, RailEndpoint.A)
+        val plan = PreparedRailConnectionPlan.capture(world, prepared, listOf(
+            PreparedRailEndpointConnection(firstB, listOf(lastA)),
+            PreparedRailEndpointConnection(lastA, listOf(firstB)),
+            PreparedRailEndpointConnection(stemB, listOf(branchA, firstA), firstA),
+            PreparedRailEndpointConnection(firstA, listOf(stemB)),
+            PreparedRailEndpointConnection(branchA, listOf(stemB))
+        ))
+        val update = plan.prepareTopologyUpdate()
+
+        lateinit var installed: List<CoreRail>
+        world.railTopologyTransaction(update) {
+            installed = world.installPreparedRails(prepared)
+            plan.apply(world, installed)
+        }
+
+        assertEquals(listOf(last.railId, branch.railId, first.railId), installed.map { it.id })
+        val (lastRail, branchRail, firstRail) = installed
+        assertEquals(listOf(branchRail.viewAB, firstRail.viewAB), stem.viewAB.nextRails)
+        assertSame(firstRail.viewAB, stem.viewAB.nextActiveRail)
+        assertEquals(listOf(stem.viewBA), firstRail.viewBA.nextRails)
+        assertEquals(listOf(stem.viewBA), branchRail.viewBA.nextRails)
+        assertEquals(listOf(lastRail.viewAB), firstRail.viewAB.nextRails)
+        assertEquals(listOf(firstRail.viewBA), lastRail.viewBA.nextRails)
+        assertEquals(setOf(stemB), plan.affectedExistingEndpoints)
+        assertSame(update.targetRoot, world.topologyState)
+    }
+
+    @Test
+    fun `endpoint validation rejects duplicate declarations before symmetry and distance errors`() = withWorld { world ->
+        val prepared = world.prepareRailCreationBatch(listOf(line(0.0, 10.0), line(20.0, 30.0)))
+        val firstB = RailEndpointRef(prepared.creations[0].railId, RailEndpoint.B)
+        val secondA = RailEndpointRef(prepared.creations[1].railId, RailEndpoint.A)
+        val root = world.topologyState
+        val firstState = PreparedRailEndpointConnection(firstB, listOf(secondA))
+
+        val duplicate = assertThrows(IllegalArgumentException::class.java) {
+            PreparedRailConnectionPlan.capture(world, prepared, listOf(firstState, firstState))
+        }
+        assertEquals("Each explicitly changed endpoint may be declared only once", duplicate.message)
+        val asymmetric = assertThrows(IllegalArgumentException::class.java) {
+            PreparedRailConnectionPlan.capture(world, prepared, listOf(firstState))
+        }
+        assertEquals("Explicit connections must be declared symmetrically: $firstB <-> $secondA", asymmetric.message)
+        val separated = assertThrows(IllegalArgumentException::class.java) {
+            PreparedRailConnectionPlan.capture(world, prepared, listOf(
+                firstState, PreparedRailEndpointConnection(secondA, listOf(firstB))
+            ))
+        }
+        assertEquals("Explicitly connected endpoints are not colocated: $firstB <-> $secondA", separated.message)
+        assertSame(root, world.topologyState)
+        assertTrue(world.allRails.isEmpty())
+    }
+
     @Test
     fun `explicit connection selects only the named endpoint`() {
         val world = createTestWorld()
@@ -204,6 +271,15 @@ class PreparedRailConnectionPlanTest {
             world.removeRail(installed.single())
         }
         assertTrue(world.allRails.isEmpty())
+    }
+
+    private fun withWorld(block: (CoreWorld) -> Unit) {
+        val world = createTestWorld()
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                world.physicsCoordinator.use { block(world) }
+            }
+        }
     }
 
     private fun line(fromX: Double, toX: Double): PrimeCurve {

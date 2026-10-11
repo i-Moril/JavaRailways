@@ -8,6 +8,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.rail.topology.RailSliceRef
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNodeId
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.rail.topology.TrackEdgeId
 import work.art1st.javarailways.core.api.physics.rail.topology.TrackEdgeSlice
@@ -149,6 +150,42 @@ class TopologyStateBuilderTest {
         assertEquals(forward.nodes.keys.toList(), reversed.nodes.keys.toList())
         assertEquals(forward.edges.keys.toList(), reversed.edges.keys.toList())
         assertEquals(forward.railProjection.keys.toList(), reversed.railProjection.keys.toList())
+    }
+
+    @Test
+    fun `disconnected chains and cycles retain ordered nodes edges and loop anchors`() {
+        val rails = (1..5).map { rail(it, it * 10.0) }
+        val connections = listOf(
+            endpoint(rails[1], RailEndpoint.B) to endpoint(rails[2], RailEndpoint.A),
+            endpoint(rails[2], RailEndpoint.B) to endpoint(rails[1], RailEndpoint.A),
+            endpoint(rails[3], RailEndpoint.B) to endpoint(rails[4], RailEndpoint.A),
+            endpoint(rails[4], RailEndpoint.B) to endpoint(rails[3], RailEndpoint.A)
+        )
+
+        val state = build(17L, rails, connections)
+        val reordered = build(17L, rails.reversed(), connections.reversed())
+
+        assertEquals(state, reordered)
+        assertEquals((0..3).map { TopologyNodeId(17L, it) }, state.nodes.keys.toList())
+        assertEquals(state.nodes.keys.toList(), reordered.nodes.keys.toList())
+        assertEquals((0..2).map { TrackEdgeId(17L, it) }, state.edges.keys.toList())
+        assertEquals(state.edges.keys.toList(), reordered.edges.keys.toList())
+        assertEquals(rails.map { it.id }, state.railProjection.keys.toList())
+        assertEquals(state.railProjection.keys.toList(), reordered.railProjection.keys.toList())
+        assertEquals(2, state.nodes.values.count { it is TopologyNode.Terminus })
+        val anchors = state.nodes.values.filterIsInstance<TopologyNode.LoopAnchor>()
+        assertEquals(
+            listOf(
+                listOf(endpoint(rails[1], RailEndpoint.A), endpoint(rails[2], RailEndpoint.B)),
+                listOf(endpoint(rails[3], RailEndpoint.A), endpoint(rails[4], RailEndpoint.B))
+            ),
+            anchors.map { it.ports }
+        )
+        assertEquals(listOf(10.0, 50.0, 90.0), state.edges.values.map { it.lengthMeters })
+        state.edges.values.drop(1).zip(anchors).forEach { (edge, anchor) ->
+            assertEquals(anchor.id, edge.first.nodeId)
+            assertEquals(anchor.id, edge.second.nodeId)
+        }
     }
 
     @Test

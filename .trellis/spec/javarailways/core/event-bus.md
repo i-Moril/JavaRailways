@@ -14,6 +14,8 @@
 
 ## Owner、签名与 lifecycle
 
+联结/解编两阶段事件属于另一个已确认但尚未实现的目标：提交前允许插件拒绝及指定编组信息，完整提交后才发成功事件，拒绝不可被后续监听器撤销。业务流程及失败/测试规则统一由[train physics](./train-physics.md)拥有。这不表示当前总线已有通用取消协议，也不改变下述现有handler异常隔离语义；新事件不得靠异常自动取消或监听优先级模拟事务。
+
 ```kotlin
 object MainRailEventBus {
     fun register(listener: EventListener): EventRegistration

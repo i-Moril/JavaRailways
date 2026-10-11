@@ -21,14 +21,20 @@ data class SavedTrainV1(
     val tailLocation: RailLocationWithFacing.SavedRailLocationWithFacingV1
 ) : Loads<CoreTrain, CoreWorld> {
     override fun load(dependency: CoreWorld): CoreTrain {
+        val loadedCars = cars.map { savedCar ->
+            savedCar.load(dependency).also {
+                it.restorePersistedOperatingDirection(reversed xor savedCar.installedReversed)
+            }
+        }
         val train = CoreTrain(
             id,
-            cars.map { it.load(dependency) },
+            loadedCars,
             dependency,
             extension,
             name,
             persistedHeadLocation = headLocation.load(dependency),
-            persistedTailLocation = tailLocation.load(dependency)
+            persistedTailLocation = tailLocation.load(dependency),
+            initialReversed = reversed
         )
         return try {
             train.restorePersistedPlacement(reversed)
@@ -47,7 +53,9 @@ data class SavedCarV1(
     val id: String,
     val bogieA: SavedBogieV1,
     val bogieB: SavedBogieV1,
-    val config: CarConfigV1
+    val config: CarConfigV1,
+    /** Physical B faces the stable start of its owning train when true. */
+    val installedReversed: Boolean = false
 ) : Loads<CoreCar, CoreWorld> {
     override fun load(dependency: CoreWorld): CoreCar {
         val bogieA = bogieA.load(dependency)

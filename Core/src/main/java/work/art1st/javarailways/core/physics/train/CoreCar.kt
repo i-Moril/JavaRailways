@@ -542,6 +542,12 @@ class CoreCar @MainThread internal constructor(
         bogies.forEach { it.reverseFromPhysics() }
     }
 
+    /** Select physical ends before validating saved geometry; saved bogie facing is unchanged. */
+    internal fun restorePersistedOperatingDirection(reversed: Boolean) {
+        // Saved bogies already carry their operating rail facing. Do not reverse them again.
+        isReversed = reversed
+    }
+
     /** Restore derived car state without moving the exact persisted bogie locations. */
     internal fun restorePersistedState(reversed: Boolean) {
         isReversed = reversed
@@ -636,7 +642,10 @@ class CoreCar @MainThread internal constructor(
         return (this - normal * (normal dot this)).normalize()
     }
 
-    override fun save(): SavedCarV1 {
+    // A standalone car has no consist-relative installation direction.
+    override fun save(): SavedCarV1 = save(installedReversed = false)
+
+    internal fun save(installedReversed: Boolean): SavedCarV1 {
         val savedExtension = HashMap<String, SerializableExtensionData>()
         extensionDataContainer.extensionData.forEach { ext ->
             ext?.save()?.let { savedExtension[it.first] = it.second }
@@ -655,7 +664,8 @@ class CoreCar @MainThread internal constructor(
                 connectorLengthAtA,
                 connectorLengthAtB,
                 savedExtension
-            )
+            ),
+            installedReversed = installedReversed
         )
     }
 }

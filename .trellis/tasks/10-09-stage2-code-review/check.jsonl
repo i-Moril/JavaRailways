@@ -8,6 +8,9 @@
 {"file": ".trellis/spec/javarailways/core/di-and-runtime-lifecycle.md", "reason": "Check in-flight close and CR-015 bounded pre-publication cleanup without claiming Koin scope release"}
 {"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "Distinguish strict rail endpoint decoding from unresolved full materialization lifecycle"}
 {"file": ".trellis/spec/javarailways/core/testing.md", "reason": "CR-020 real bounded physics epochs, end-of-track derail dispatch and live-mutation snapshot isolation; no count padding"}
+{"file": ".trellis/spec/javarailways/core/event-bus.md", "reason": "CR-030 two-stage events must not rely on listener priority, swallowed exceptions, or reversible cancellation"}
+{"file": ".trellis/spec/javarailways/core/render-publication.md", "reason": "CR-030 mixed installation, split and restore must preserve exact physical model identity and coherent frames"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/core-link-transaction-plan.md", "reason": "Audit latest approved scope rather than superseded A-B-only historical proposal"}
 {"file": ".trellis/spec/javarailways/basic/curve-authoring.md", "reason": "CR-028 raw validation must not reject current formal authoring producers"}
 {"file": ".trellis/spec/javarailways/basic/testing.md", "reason": "CR-028 verify real generator junctions, reverse/rebuild and immutable geometry"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/core-module-review.md", "reason": "Check bounded CR-025/027 algorithms/inputs while CR-023 remains partial and product decisions stay separate"}

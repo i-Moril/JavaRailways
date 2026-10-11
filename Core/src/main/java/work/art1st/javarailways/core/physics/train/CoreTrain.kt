@@ -198,15 +198,9 @@ open class CoreTrain @MainThread internal constructor(
     val tailCar
         get() = if (isReversed) cars.first() else cars.last()
     val headBogie: CoreBogie
-        get() {
-            return if (isReversed) cars.last().bogieB
-            else cars.first().bogieA
-        }
+        get() = headCar.headBogie
     val tailBogie: CoreBogie
-        get() {
-            return if (isReversed) cars.first().bogieA
-            else cars.last().bogieB
-        }
+        get() = tailCar.tailBogie
     private val activeHeadCar: CoreCar
         get() = if (activeIsReversed) cars.last() else cars.first()
     private val activeTailCar: CoreCar
@@ -427,7 +421,7 @@ open class CoreTrain @MainThread internal constructor(
         }
         validatePersistedPlacementPath(savedTail, savedHead, reversed)
         isReversed = reversed
-        cars.forEach { it.restorePersistedState(reversed) }
+        cars.forEach { it.restorePersistedState(it.isReversed) }
         updateActiveMotion(0.0)
         head.location = savedHead
         tail.location = savedTail
@@ -476,8 +470,9 @@ open class CoreTrain @MainThread internal constructor(
         var followingDirection: Vector3d? = null
         var followingConnectorLength = 0.0
         tailToHeadCars.forEachIndexed { index, car ->
-            val tailBogie = if (reversed) car.bogieA else car.bogieB
-            val headBogie = if (reversed) car.bogieB else car.bogieA
+            val carReversed = car.isReversed
+            val tailBogie = car.tailBogie
+            val headBogie = car.headBogie
             val tailDistance = distanceAlongPath(tailBogie.location)
             val headDistance = distanceAlongPath(headBogie.location)
             val configuredSpacing = car.bogieAOffset - car.bogieBOffset
@@ -491,12 +486,12 @@ open class CoreTrain @MainThread internal constructor(
                 "persisted train $id car ${car.id} has inconsistent bogie connector spacing"
             }
             val direction = Vector3d(headPoint).sub(tailPoint).normalize()
-            val headOffset = if (reversed) -car.bogieBOffset else car.bogieAOffset
+            val headOffset = if (carReversed) -car.bogieBOffset else car.bogieAOffset
             val centre = Vector3d(headPoint).sub(Vector3d(direction).mul(headOffset))
             followingHead?.let { behindHead ->
                 val gap = Vector3d(centre).sub(Vector3d(direction).mul(car.length / 2.0)).sub(behindHead)
                 val connectorLength = followingConnectorLength +
-                    if (reversed) car.connectorLengthAtA else car.connectorLengthAtB
+                    car.tailConnectorLength
                 check(gap.length().isFinite() &&
                     kotlin.math.abs(gap.length() - connectorLength) <= Curve.TOLERANCE &&
                     gap.dot(requireNotNull(followingDirection)) >= -Curve.TOLERANCE) {
@@ -505,15 +500,15 @@ open class CoreTrain @MainThread internal constructor(
             }
             followingHead = Vector3d(centre).add(Vector3d(direction).mul(car.length / 2.0))
             followingDirection = direction
-            followingConnectorLength = if (reversed) car.connectorLengthAtB else car.connectorLengthAtA
+            followingConnectorLength = car.headConnectorLength
             if (index == 0) {
-                val tailOffset = if (reversed) car.bogieAToEndPointOffset else car.bogieBToEndPointOffset
+                val tailOffset = car.tailBogieToEndPointOffset
                 check(kotlin.math.abs(tailDistance - tailOffset) <= Curve.TOLERANCE) {
                     "persisted train $id has an inconsistent tail endpoint offset"
                 }
             }
             if (index == tailToHeadCars.lastIndex) {
-                val headOffset = if (reversed) car.bogieBToEndPointOffset else car.bogieAToEndPointOffset
+                val headOffset = car.headBogieToEndPointOffset
                 check(kotlin.math.abs(pathLength - headDistance - headOffset) <= Curve.TOLERANCE) {
                     "persisted train $id has an inconsistent head endpoint offset"
                 }
@@ -728,10 +723,10 @@ open class CoreTrain @MainThread internal constructor(
         require(splitCars.isNotEmpty())
         val splitHeadCar = if (reversed) splitCars.last() else splitCars.first()
         val splitTailCar = if (reversed) splitCars.first() else splitCars.last()
-        val splitHeadBogie = if (reversed) splitHeadCar.bogieB else splitHeadCar.bogieA
-        val splitTailBogie = if (reversed) splitTailCar.bogieA else splitTailCar.bogieB
-        val headOffset = if (reversed) splitHeadCar.bogieBToEndPointOffset else splitHeadCar.bogieAToEndPointOffset
-        val tailOffset = if (reversed) splitTailCar.bogieAToEndPointOffset else splitTailCar.bogieBToEndPointOffset
+        val splitHeadBogie = splitHeadCar.headBogie
+        val splitTailBogie = splitTailCar.tailBogie
+        val headOffset = splitHeadCar.headBogieToEndPointOffset
+        val tailOffset = splitTailCar.tailBogieToEndPointOffset
         val splitHead = splitHeadBogie.location.forward(headOffset) ?: throw CannotCreateTrainException()
         val splitTail = splitTailBogie.location.forward(-tailOffset) ?: throw CannotCreateTrainException()
         return SplitEndpoints(splitHead, splitTail)
@@ -1144,7 +1139,7 @@ open class CoreTrain @MainThread internal constructor(
         return SavedTrainV1(
             id,
             name,
-            cars.map { it.save() },
+            cars.map { it.save(installedReversed = it.isReversed xor isReversed) },
             isReversed,
             savedExtension,
             head.location.save(),

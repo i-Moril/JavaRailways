@@ -10,6 +10,7 @@ import org.joml.Vector3d
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.CoreBogie
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
@@ -19,8 +20,7 @@ import work.art1st.javarailways.core.util.AsyncTickTestSupport
 
 class RailDirectionRestrictionTest {
     @Test
-    fun `physical topology and bogie geometry remain direction neutral`() {
-        val world = createTestWorld()
+    fun `physical topology and bogie geometry remain direction neutral`() = withWorld { world ->
         val first = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(40.0, segmentCount = 1))
         val secondCurve = PrimeCurve.fromPoints(listOf(
             Curve.RawPoint(Vector3d(40.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0),
@@ -47,5 +47,14 @@ class RailDirectionRestrictionTest {
         AsyncTickTestSupport.run { train.moveTrainForward(0.54) }
         train.commit()
         assertFalse(train.isDerailed, train.derailReason)
+    }
+
+    private fun withWorld(block: (CoreWorld) -> Unit) {
+        val world = createTestWorld()
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                world.physicsCoordinator.use { block(world) }
+            }
+        }
     }
 }

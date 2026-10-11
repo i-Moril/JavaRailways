@@ -2,7 +2,7 @@
 
 当前阶段：in_progress。用户于 2026-10-09 批准修复已知问题；2026-10-10进一步批准连续小提交后统一检查，不要求等待全部审查结束才修复已确认项。
 
-最新批次（2026-10-11）：曲线弱测试改写已提交`9d105701`；`TrainSlopeMotionTest`已保留原四车爬坡场景，改为真实物理epoch及独立解析位移/速度断言，补齐setup失败和正常退出的资源清理。独立静态检查和Core/Basic全量门禁通过，生产算法未改，详见文末。其余fixture清理仍待后续；Seat、事件接入、link事务和真实存档迁移不视为已批准。
+最新批次（2026-10-11）：五类轨道测试world资源清理已完成，原11项业务动作/断言保留，独立静态检查及Core/Basic全量门禁通过，详见文末。列车名称/车体摆位等其余fixture仍待后续；Seat、事件接入、link事务和真实存档迁移不视为已批准。
 
 ## A. 完成审查
 
@@ -440,3 +440,10 @@ env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
 - 原手动controller.tick+train.commit及位移/爬升下界断言改为关闭fallback的真实coordinator，每步有界等待exact ticket，再检查同epoch frame的固定车头弧长、四车及八转向架解析位移和速度、未脱轨。位置增量相对初始immutable frame，独立固定head初始弧长50m；不宣称额外验证了绝对初始车厢/转向架摆位或连接坡道接缝。具体断言方法见[Core测试契约](../../spec/javarailways/core/testing.md)。setup失败关闭caller-owned coordinator，成功后按physics→binding→tick通过use释放，保留主异常/suppressed；失败清理按控制流静态检查，未增加注入hook测试。
 - 独立只读check确认解析期望、exact ticket/发布观察边界及资源owner正确，无需补修，不重复运行Gradle。主会话冻结源码运行`GRADLE_USER_HOME=/workspace/.gradle ./gradlew :Core:test :Basic:test --offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`，`BUILD SUCCESSFUL`（49s、15 tasks全部执行）。新鲜XML Core 54 suites/319项、Basic 59 suites/385项全部执行，零跳过/失败/error；本类1项实际执行通过。源码前后SHA-256均为`9e8194daa6fa9df9a5d62ca968c5d8b63a519879bb2f0a658f9fbb557bf995c3`。scoped diff-check及task manifest 15+15通过，既有warning保留，无独立lint配置；没有部署、游戏或opt-in stress验证。
 - 本子项闭合，CR-020其余world fixture、接缝运动测试的发布断言及RailWand完整事务集成仍未全部完成；Basic整模块审查仍待推进，不归档全项目审查任务。
+
+### CR-020 五类轨道测试fixture清理（2026-10-11）
+
+- `RailTopologyEditorTest`、`PhysOvalConnectionTest`、`RailLocationPersistTest`、`RailLocationPeekCurveTest`、`RailDirectionRestrictionTest`共五文件，67增/24删；原1/2/5/2/1共11项测试的业务动作、断言和几何保持不变。
+- 每类使用返回Unit的局部`withWorld`，沿用[Core测试契约](../../spec/javarailways/core/testing.md)既有默认world setup失败所有权；成功后的fixture构造和断言均在三层use内，按physics→binding→tick释放并保留主异常/suppressed。Persist私有`createStraightRail(world)`接收受管world，不再内部创建后只返回rail。没有生产代码、共享fixture、模型、schema版本或新规则变更，既有规范已覆盖本批，不重复新增条款。
+- 独立只读check确认业务体与HEAD不变、JUnit表达式体仍返回Unit、资源归属正确，无需补修；未重复运行Gradle。主会话冻结五文件，使用`GRADLE_USER_HOME=/workspace/.gradle ./gradlew :Core:test :Basic:test --offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`，`BUILD SUCCESSFUL`（54s、15 tasks全部执行）。新鲜XML Core 54 suites/319项、Basic 59 suites/385项均全执行，零跳过/失败/error；五类11项全部实际执行通过。五文件SHA-256与实施交付值一致，scoped diff-check和task manifest 15+15通过；既有warning保留，无独立lint配置，未部署或进行游戏/opt-in stress验证。
+- 本批资源子项闭合，`TrainNameTest`和`CoreCarPositioningRegressionTest`等其余fixture仍待清理，接缝测试发布断言、RailWand完整事务集成及Basic整模块审查未完成，不归档总任务。

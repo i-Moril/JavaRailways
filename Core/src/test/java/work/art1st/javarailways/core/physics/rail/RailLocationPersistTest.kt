@@ -8,14 +8,23 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createTestWorld
 
 class RailLocationPersistTest {
 
-    /** 创建一条直线 rail，起点 (0,64,0)，沿 +X 方向，长 100m。 */
-    private fun createStraightRail(): CoreRail {
+    private fun withWorld(block: (CoreWorld) -> Unit) {
         val world = createTestWorld()
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                world.physicsCoordinator.use { block(world) }
+            }
+        }
+    }
+
+    /** 创建一条直线 rail，起点 (0,64,0)，沿 +X 方向，长 100m。 */
+    private fun createStraightRail(world: CoreWorld): CoreRail {
         val tan = Vector3d(1.0, 0.0, 0.0)
         val nrm = Vector3d(0.0, 1.0, 0.0)
         val start = Vector3d(0.0, 64.0, 0.0)
@@ -28,8 +37,8 @@ class RailLocationPersistTest {
     }
 
     @Test
-    fun `AB direction round-trip preserves position`() {
-        val rail = createStraightRail()
+    fun `AB direction round-trip preserves position`() = withWorld { world ->
+        val rail = createStraightRail(world)
         val locAB = RailLocationWithFacing(rail.getView(ViewDirection.AB), 30.0)
 
         val saved = locAB.save()
@@ -43,8 +52,8 @@ class RailLocationPersistTest {
     }
 
     @Test
-    fun `BA direction round-trip preserves position`() {
-        val rail = createStraightRail()
+    fun `BA direction round-trip preserves position`() = withWorld { world ->
+        val rail = createStraightRail(world)
         // 在 BA 视图上弧长 30m 处 = 从终点往回 30m = 全局 X=70
         val locBA = RailLocationWithFacing(rail.getView(ViewDirection.BA), 30.0)
 
@@ -62,8 +71,8 @@ class RailLocationPersistTest {
     }
 
     @Test
-    fun `BA end location round-trip`() {
-        val rail = createStraightRail()
+    fun `BA end location round-trip`() = withWorld { world ->
+        val rail = createStraightRail(world)
         // BA 起点 = AB 终点 (X=100)
         val locEnd = RailLocationWithFacing(rail.getView(ViewDirection.BA), 0.0)
 
@@ -79,8 +88,8 @@ class RailLocationPersistTest {
     }
 
     @Test
-    fun `AB start location round-trip`() {
-        val rail = createStraightRail()
+    fun `AB start location round-trip`() = withWorld { world ->
+        val rail = createStraightRail(world)
         val locStart = RailLocationWithFacing(rail.getView(ViewDirection.AB), 0.0)
 
         val saved = locStart.save()
@@ -94,8 +103,8 @@ class RailLocationPersistTest {
     }
 
     @Test
-    fun `BA mid location tangent is negated AB tangent`() {
-        val rail = createStraightRail()
+    fun `BA mid location tangent is negated AB tangent`() = withWorld { world ->
+        val rail = createStraightRail(world)
         // AB 方向 50m 处 (X=50), AB 切线 = (+1, 0, 0)
         val locAB = RailLocationWithFacing(rail.getView(ViewDirection.AB), 50.0)
         assertEquals(1.0, locAB.tangent.x(), 0.01)

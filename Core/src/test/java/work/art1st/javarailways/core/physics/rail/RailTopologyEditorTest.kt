@@ -8,12 +8,12 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.train.createTestWorld
 
 class RailTopologyEditorTest {
     @Test
-    fun `merge is rejected when another rail connects to the split anchor`() {
-        val world = createTestWorld()
+    fun `merge is rejected when another rail connects to the split anchor`() = withWorld { world ->
         val before = rail(world, 0.0, 4.0)
         val after = rail(world, 4.0, 10.0)
         CoreRail.connect(before, after)
@@ -31,6 +31,15 @@ class RailTopologyEditorTest {
 
         assertFalse(error.isNullOrBlank())
         assertTrue(error!!.contains("其他轨道"))
+    }
+
+    private fun withWorld(block: (CoreWorld) -> Unit) {
+        val world = createTestWorld()
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                world.physicsCoordinator.use { block(world) }
+            }
+        }
     }
 
     private fun rail(world: work.art1st.javarailways.core.physics.CoreWorld, from: Double, to: Double): CoreRail =

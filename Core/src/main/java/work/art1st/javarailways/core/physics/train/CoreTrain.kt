@@ -149,10 +149,18 @@ open class CoreTrain @MainThread internal constructor(
         world.validateNewTrainIdentity(id, name)
         val initialHeadLocation = persistedHeadLocation
             ?: headBogie.location.forward(headCar.headBogieToEndPointOffset)
-            ?: throw CannotCreateTrainException()
+            ?: throw CannotCreateTrainException(headBogie.location.let { anchor ->
+                "Cannot place train HEAD endpoint: train=$id, anchorRail=${anchor.rail.id}, " +
+                    "anchorFacing=${anchor.facing}, anchorArcMeters=${anchor.arcLength}, " +
+                    "endOffsetMeters=${headCar.headBogieToEndPointOffset}"
+            })
         val initialTailLocation = persistedTailLocation
             ?: tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset)
-            ?: throw CannotCreateTrainException()
+            ?: throw CannotCreateTrainException(tailBogie.location.let { anchor ->
+                "Cannot place train TAIL endpoint: train=$id, anchorRail=${anchor.rail.id}, " +
+                    "anchorFacing=${anchor.facing}, anchorArcMeters=${anchor.arcLength}, " +
+                    "endOffsetMeters=${-tailCar.tailBogieToEndPointOffset}"
+            })
         var createdHead: TrainEnd? = null
         var createdTail: TrainEnd? = null
         var attachedToWorld = false

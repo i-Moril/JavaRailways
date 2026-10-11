@@ -397,3 +397,30 @@ env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
 - 两文件最终diff：CoreWorld 32增/40删，CoreCar 7增/9删。前者使用原类型的imports/短名，保留嵌套类型归属，不动Saved类型表达式；后者只改private名称及四组说明，保留中间转向架未实现TODO。现有train-physics规范已准确区分稳定车体偏移、运营头/尾与刚体求解；本批让源码注释与现有规范一致，没有新契约或需要重复写入spec的算法。
 - 冻结源码以`GRADLE_USER_HOME=/workspace/.gradle ./gradlew :Core:test :Basic:test --offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`强制运行完整回归，`BUILD SUCCESSFUL`（51s、15 tasks全部执行）。新鲜XML Core 54 suites/319项、Basic 59 suites/385项均全部执行、零跳过/失败/error。前后SHA-256一致：CoreWorld `813f83c988839e2eb014fae2758df454b86f4911d0826b8965a3a93d982747dd`，CoreCar `0e6de427876ac7ac9664599e2287c71281205b78e94e791feb2bd2c834da5873`。既有warning保留，未部署或游戏验证。
 - 独立check归一化比较：CoreWorld去imports并统一全限定名/空白后与HEAD一致，CoreCar去块注释并统一private拼写后与HEAD一致；private属性只在本类引用，新增注释与默认偏移和稳定direction逻辑相符。独立强制定向`CoreWorldRailTopologyTransactionTest`22项及`CoreTrainRigidGeometryTest`4项，共26项全执行通过、零跳过/失败/error（30s、9 tasks全部执行），两文件hash不变、无需自修。scoped diff-check和task manifest 15+15通过，无独立lint配置。其他异常诊断/文档及CR-033余项继续开放。
+
+### CR-033 列车构造端点失败诊断（2026-10-11）
+
+- `/jr train create`真实consumer会显示异常message；正常构造头/尾定位失败目前均为无message的`CannotCreateTrainException`。本批仅该异常、CoreTrain init两个抛点与既有ConstructionTest失败用例，保留无参JVM构造和默认null，增加可选不可变message；只在失败时记录失败端、列车和输入anchor位置/请求偏移，不持有live对象，不假造未生成端点的位置或cause。
+- 将原tail越界真实用例参数化为head/tail两组，保留原world/rail索引、mailbox、cars/bogies不变及可重试断言；不新增纯异常构造器测试。split/link五个抛点、异常类型、失败顺序和清理保持，其他异常/事务不扩张。先focused，再Core/Basic完整回归与Bukkit消费方编译/Dokka/JVM签名检查。
+- 三文件实现后首次强制focused完整`CoreTrainConstructionTest`11项全部执行通过、零跳过/失败/error（29s、9 tasks全部执行，测试体0.494s）。原tail失败参数新增head失败场景，使总执行项增加1，不是纯异常构造测试；没有改其他失败/重试断言。`javap -s`确认`()V`保留，新增`(String)V`，继承PhysicsException不变。静态独立检查无问题，两条失败分支仍在任何车端/world注册之前，文本只捕获输入anchor值，没有新增cause或live对象字段。
+- 组合门禁`:Core:test :Basic:test :BukkitPlugin:compileKotlin :Core:dokkaGeneratePublicationHtml`在49s后失败（15 tasks执行）：新鲜Core 54 suites/320项，零跳过、1失败，`PhysicsCoordinatorTest`的close/in-flight用例line384期望旧train frame revision2/epoch1，实际revision3/epoch2；旧world frame身份及CLOSED/线程退出断言通过。Dokka已执行成功，Basic测试/Bukkit编译未执行，不引用旧XML。三文件hash冻结不变；当前不能判定失败来源，暂停提交/重试，单独只读检查关闭与train frame发布时序。
+
+### CR-036 关闭与Core发布边界同步（2026-10-11）
+
+- 独立只读检查确认runEpoch workers完成后逐列车buffer/frame/mailbox发布未与close同步，最终world publication才核exact ticket；已完成Future.get可在close中断后正常返回，从而形成观测到的列车epoch2/worldepoch1。本批单独修PhysicsCoordinator及原关闭回归，不混入构造异常文本逻辑；不靠锁外if消除TOCTOU，不把第三方processor放进stateLock，不宣称close回滚此前已发布结果或撤销外部效果。
+- Core自有发布区复用stateLock并校验RUNNING及inFlight exact ticket，沿topology→stateLock顺序；补强既有close回归对真实train/world/mailbox边界的检查。若复现需引入生产hook或扩大锁内可扩展回调范围，先停止评估而非自行扩张。focused及完整组合门禁待补。
+- 实施前发现controller的internal发布方法末尾调用protected可重写hook，不能整体加锁。报告后批准增加`TrainController.kt`：拆纯Core buffers与锁外hook的internal原语，原入口仍先buffers后hook；coordinator逐controller短锁门禁翻转后锁外通知，保持既有逐controller可见顺序，再对其余Core train/frame/mailbox与processor后的occupancy/capture分别门禁。第三方processor不进stateLock，close仍非quiesce，不撤销此前Core flip或hook外部效果。
+- 批准保留原worker-close用例并新增一个具体发布竞态回归：用现有nanoTime注入按真实coordinator线程和一次arm barrier阻塞workers完成后的发布前位置，关闭后消化中断/释放，检查真实moving train的live位置、旧train/world frame、mailbox和metrics。先旧production单次证红再修复证绿，无生产hook、sleep或刷重试；不按调用次数猜位置。
+- 新测试首次编译因接口headLocation没有arcLength属性失败，未执行；只改测试为直线真实position.x后，在未修发布实现上实际执行一次即红（1项/1失败，30s、9 tasks执行）：旧world frame断言通过、旧train frame身份断言失败（line455），证实关闭后仍发布下一epoch列车帧。构造诊断三文件仍在工作区，但PhysicsCoordinator/TrainController尚未修改；不将其描述成完全隔离的旧提交执行。
+- 未修实现的红XML保留`/tmp/javarailways-cr036-red.xml`，SHA-256 `218c7a596ad5ea62ae9d03edc415c961def6cb2adb41fb67d21066562be755ae`。三文件修复后完整`PhysicsCoordinatorTest`29项全部执行通过、零跳过/失败/error（31s、9 tasks全部执行，测试体1.519s），保留原worker-close及两组processor-close覆盖；不是反复重跑原偶发失败刷绿。独立静态检查确认三个早退确实退出runEpoch、锁序一致、Core发布调用没有隐藏扩展回调，原controller逐个flip→hook顺序及commit包装保留。owner runtime-publication/train-controller规范同步门禁、复杂度及不quiesce限制；完整组合门禁及独立动态检查待补。
+- 冻结六份源码运行组合门禁`:Core:test :Basic:test :BukkitPlugin:compileKotlin :Core:dokkaGeneratePublicationHtml`（沿用约定offline/no-cache/no-parallel/rerun/nonincremental/in-process flags及`/workspace/.gradle`），`BUILD SUCCESSFUL`（1m18s、21 tasks全部执行）：Core 54 suites/321项、Basic 59 suites/385项均全执行、零跳过/失败/error；Bukkit与其SimpleATO/SimpleATOBukkit依赖重新编译、Dokka成功，既有warning保留。六份源码前后hash一致，exception无参`()V`及String构造均保留。此前构造诊断批次被中止的验证也在同一冻结源码上补齐；没有部署或游戏验证。新增race对真实位置/frame/mailbox/metrics有动态证据，speed始终10m/s的断言不当作独立dirty-speed故障注入，buffer保护同时依赖静态同区校验。
+
+#### CR-036 复盘：关闭保护不能只检查最终世界帧
+
+1. 根因类别：C（修改传播不完整）、D（可控竞态覆盖缺口）、E（错误依赖Future.get必响应中断）。此前关闭保护落在world publication，Core buffer/train frame/mailbox等更早的发布入口仍在门禁外。
+2. 既有修复的边界：终态没有被覆盖，最终world frame也确实未发布；不足的是没保护逐列车事实。直接整体加锁的草案在实施前因protected hook可阻塞而被否决，未引入运行时死锁后再补救。
+3. 预防机制：同一锁内验证exact running ticket和Core写入，扩展callback留锁外；使用现有时钟注入确定性barrier，单次未修实现红→修复绿，不用随机重跑。无需新增运行时hook、retry或另一套publication owner。
+4. 系统检查：controller buffers、无controller列车、frame/mailbox、processor后的occupancy/candidate及最终world/metrics均按同锁序检查，保持hook原顺序。close仍非quiesce，不把保护扩张为外部副作用回滚或全局原子epoch承诺。
+5. 知识落地：runtime-publication与train-controller owner spec已同步，任务台账保留失败与红→绿证据；构造诊断属于另一笔提交。检索未发现`src/templates/markdown/spec/`镜像，不为本次debug创建另一套规范副本。
+
+- 最终独立check强制复跑`PhysicsCoordinatorTest`29项及`CoreTrainConstructionTest`11项，共40项全执行通过、零跳过/失败/error（31s、9 tasks全部执行）；六文件hash不变，无需自修。`javap`确认旧`()V`及新增`(Ljava/lang/String;)V`，无参路径仍为null消息，仅String字段无live对象。scoped diff-check、task manifest 15+15通过，无独立lint配置；既有metaspace退出提示不影响本次成功结果，不顺带调整构建参数。CR-036与构造诊断子项闭合，不代表Core/全仓审查完成。

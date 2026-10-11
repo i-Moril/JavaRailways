@@ -68,6 +68,8 @@ head-forward mission route前面，以满足Basic“冻结路线从物理车尾�
 
 `CoreTrain`构造在main thread完成。先通过`CoreWorld.validateNewTrainIdentity(id, name)`检查ID/name唯一性及交叉命名空间冲突，再计算head/tail两个位置；任一位置无法放置时抛`CannotCreateTrainException`，此时尚未注册任何`TrainEnd`。`addTrain`复用同一身份校验，仍允许同一实例的重复添加（world加载链会调用）。校验查world索引，不额外遍历列车。
 
+`CannotCreateTrainException(message: String? = null)`保留JVM无参构造和默认null消息，另可接收不可变诊断文本；不持有live列车或位置对象。正常构造的head/tail定位返回null时才生成消息，记录失败端、列车ID、输入转向架anchor的rail/facing/弧长以及有符号端点位移（米）。anchor是本次定位的起点，不是尚未生成的失败端点坐标；例如120m线路上从119m请求+2.5m定位HEAD，应说明起点119m和请求+2.5m，而非声称已得到121.5m的合法轨道位置。这里没有被捕获的原异常，不人为增加cause。消息供玩家/维护者排错，不是稳定可解析协议；split/link的其他拒绝点不因此改变。此改动不增加成功路径扫描或改变失败注册/清理边界。
+
 随后依次创建注册head/tail、添加world索引、初始化train extensions、生成初始published frame。该阶段失败时，构造器仅撤销自己已完成的注册：移除controller，分别destroy已创建的车端，只在本次`addTrain`成功后移除world索引。清理逐项尝试，失败附加到原异常的`suppressed`后继续，最终重抛原异常。不能在身份拒绝后无条件`removeTrain`，否则可能删除同ID的原列车及其frame。
 
 构造未返回时，传入cars仍由调用方拥有；此清理不调用完整`destroy()`或`discardFailedLoad()`，不销毁cars/bogies。已返回列车的加载恢复失败仍由[持久化加载边界](./persistence.md)处理。`TrainExtension`没有通用destroy/rollback协议，本边界不承诺撤销extension任意外部副作用；正常的列车销毁及结构变更也不能用此局部清理替代。
@@ -169,7 +171,7 @@ override fun destroy() {
 - `TrainUniformMotionTest.kt`：真实50 ms coordinator epoch同时断言0.5 m位移、car/bogie frame的m/s速度、停车清零及换向后tangent符号。
 - `PhysicsCoordinatorTest.kt`：stationary collision、pair once、next-epoch decision。
 - `CoreTrainDerailEventTest.kt`、`CoreTrainPublicationBoundaryTest.kt`：publication before event/getter。
-- `CoreTrainConstructionTest.kt`：直接构造/存档加载的ID、name及交叉命名空间拒绝不污染world/rail索引；tail无法放置不注册head；extension初始化失败清理车端和controller、保留原列车及调用方cars，并允许同身份成功重试。
+- `CoreTrainConstructionTest.kt`：直接构造/存档加载的ID、name及交叉命名空间拒绝不污染world/rail索引；head或tail无法放置时诊断含对应端点及输入anchor/请求位移，不注册车端、不接管cars；extension初始化失败清理车端和controller、保留原列车及调用方cars，并允许同身份成功重试。
 - `CoreTrainPersistedPlacementTest.kt`：固定损坏车端JSON；脱节/重排/错误rail或facing、bogie连接点距离及两端offset拒绝并保持原world/rail/frame/mailbox；合法直线/曲线AB与BA、非对称道岔精确位置保留。内部车厢整体平移而保持顺序/轴距时，因相邻车钩不符而拒绝。
 - 新link/split/destroy变更必须断言cars、ends、controller、world indexes和extensions全量cleanup。
 

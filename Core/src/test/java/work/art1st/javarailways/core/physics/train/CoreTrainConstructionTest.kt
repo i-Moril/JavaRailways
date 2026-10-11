@@ -78,16 +78,28 @@ class CoreTrainConstructionTest {
         assertEquals(1, controller.ticks.get(), "the original controller must remain registered")
     }
 
-    @Test
-    fun `unplaceable tail does not register a head or take ownership of cars`() = withWorld { world, rail ->
-        val car = createCar(world, rail, headBogieArc = 4.0, tailBogieArc = 0.5)
+    @ParameterizedTest(name = "unplaceable {0} endpoint")
+    @CsvSource("HEAD, 119.0, 115.0, 119.0, 2.5", "TAIL, 4.0, 0.5, 0.5, -2.5")
+    fun `unplaceable endpoint does not register a head or take ownership of cars`(
+        endpoint: String,
+        headBogieArc: Double,
+        tailBogieArc: Double,
+        expectedAnchorArc: Double,
+        expectedEndOffset: Double
+    ) = withWorld { world, rail ->
+        val car = createCar(world, rail, headBogieArc, tailBogieArc)
         val destroys = AtomicInteger()
         observeDestruction(car, destroys)
         val bogieLocations = car.bogies.map { it.location }
 
-        assertThrows(CannotCreateTrainException::class.java) {
+        val failure = assertThrows(CannotCreateTrainException::class.java) {
             CoreTrain("unplaceable", listOf(car), world, emptyMap())
         }
+        assertEquals(
+            "Cannot place train $endpoint endpoint: train=unplaceable, anchorRail=${rail.id}, " +
+                "anchorFacing=AB, anchorArcMeters=$expectedAnchorArc, endOffsetMeters=$expectedEndOffset",
+            failure.message
+        )
 
         assertRailEnds(rail)
         assertTrue(world.allTrains.isEmpty())

@@ -326,6 +326,7 @@
 - P2/P3；扩展CR-002/007/020，不重复宣称已修。
 - 错误诊断丢message/cause/context；可用frame/占用语义KDoc不符；train-physics遗漏实际bogie/coupler二分原理；持久化把目标预校验写成现状。`Train.cars`已在CR-021明确为稳定编组/持久化顺序，并用公开`isReversed`/`operatingCars`表达运营顺序，不再是本项开放问题。
 - 诊断局部修复（2026-10-11）：`BogieException`与`InvalidActiveRailException`保留原构造签名，将传入对象的必要值复制为message；前者明确为published而非active位置。运动失败脱轨原因附列车ID/请求距离并保留类型与消息；原脱轨/非法选支路回归加强，验证见implement对应批次。未批量更改其他异常或宣称完整cause诊断治理完成。
+- 构造端点诊断补充（2026-10-11）：`CannotCreateTrainException`保留无参/null默认消息，正常构造head/tail不可放置时附失败端、train及输入anchor/请求位移（米），不持有live对象或假造cause。原失败测试参数化head/tail两场景，副作用断言保留；split/link其他抛点未改。完整组合及独立40项检查通过，见implement记录；其他异常诊断仍未整体治理。
 - 两处结构准备的重复全表扫描已于2026-10-11改为一次sorted seeds与capture局部rail ID map；普通/prepared事务重复的replacement完整性与fault/stall逻辑也已复用现有私有函数，验证见implement对应批次。没有运行耗时profiling，不按行数大拆manager；其余文档/诊断/可读性问题仍开放，本项未整体关闭。
 - 局部可读性整理（2026-10-11）：CoreWorld重复全限定名改imports/短名，CoreCar私有`activePositon`拼写及错误A/B偏移、运营头注释修正，保留中间转向架未实现说明。独立归一化比较确认除imports/注释/private拼写外与HEAD等价；不改分支、算法、公开API或异常。完整Core/Basic及定向检查见implement对应批次，CR-033其他诊断/文档项继续开放。
 - 网页模块归属/API范围和性能结论过期；.codeabs含已删路径/TODO。Dokka本轮成功但缺文档和declare链接warning仍在。
@@ -343,3 +344,10 @@
 - 初次发现尚未区分测试轨道几何无效、Core跨接缝定位错误或运营调用错误，因此没有放宽断言、跳过测试或改回旧几何规避。原始对照及命令见implement的CR-032批次。没有游戏现场复现。
 - 后续定位（2026-10-11）：上述待定位状态为历史记录。三项均用重合的`0→140`及`140→0`直线组成零半径180°折返。10m轴距列车head进入返回段0.5m时，尾架必须退至原段129.5m，旧尾端已在129.85125m；Core按前向路径拒绝合理，不能扩大搜索距离规避。仅将三处fixture改为两个140m半圆组成的平滑环线，显式连接两个接头；原业务动作、目标弧长、断言和37项数量保留。最终完整类37项全通过，完整模块及独立检查结果见implement。本项是测试几何修复，不是生产算法修复。
 - 已修复并验证：完整SimpleATO 352项与独立完整类37项均通过，零跳过/失败/error；只修测试几何，本项闭合，不代表生产跨接缝或游戏场景全覆盖。
+
+### CR-036：关闭门禁未覆盖逐列车发布
+
+- 单次动态门禁失败，尚未确定根因或是否基线可复现：`PhysicsCoordinatorTest`的`close remains terminal after an in flight worker returns late`在关闭、释放并join在途线程后，旧world frame身份不变，但train frame从revision2/epoch1变为revision3/epoch2（line384）。CLOSED状态与线程退出断言已通过；不得把它描述成CLOSED被覆盖。
+- 本次在CR-033构造失败诊断门禁出现，该fixture构造成功，静态改动范围没有改变其运行路径，但尚未做基线对照，不能直接称为既有问题或归因本批。先检查close、逐列车发布及world publication的时序，不跳过/放宽断言、不自动重试掩盖；原始门禁见implement对应批次。未部署或游戏复现。
+- 后续静态根因确认：`runEpoch`等待workers后逐controller/train翻转buffer、发布train frame/mailbox的区间没有与close共享的状态门禁；只有最终world frame发布检查exact running ticket。close先设置CLOSED并撤销inFlight；迟到worker完成时，已完成Future的get仍可能返回，导致列车发布继续，而最终world发布被拒绝，符合实际观测。该区间未被本批诊断修改；没有用单次重跑成功代替修复，也未宣称隔离旧基线动态复现。最小修复为Core发布区与close在同一stateLock内同步并重验exact ticket，遵守topology→stateLock锁序，第三方processor仍在锁外。
+- 已修复并验证（2026-10-11）：逐controller纯Core flip、其余列车/frame/mailbox及processor后occupancy/capture均使用同锁序exact-ticket门禁，扩展hook/processors仍锁外，controller原顺序保留。使用现有时钟注入的确定性新回归在未修发布实现单次实际失败、修复后通过；完整Core321/Basic385、Bukkit编译/Dokka及独立40项通过。本项闭合；close仍不回滚此前发布结果、不撤销扩展外部效果，未部署或游戏验证。

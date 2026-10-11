@@ -24,6 +24,7 @@ dependencies {
     implementation(kotlin("stdlib-jdk8"))
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlin:kotlin-reflect:2.3.0")
+    compileOnly("org.jetbrains:annotations:26.0.2")
     compileOnly("org.joml:joml:1.10.8")
     testImplementation("org.joml:joml:1.10.8")
     testFixturesImplementation("org.joml:joml:1.10.8")

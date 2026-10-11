@@ -17,7 +17,6 @@ import work.art1st.javarailways.core.api.event.processor.HandlesEvent
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
-import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -29,7 +28,6 @@ import work.art1st.javarailways.core.util.TickManagerImpl
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-@OptIn(TrainStructureApi::class)
 class CoreTrainMixedInstallationTest {
     @ParameterizedTest
     @ValueSource(booleans = [false, true])

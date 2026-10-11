@@ -1,7 +1,7 @@
 package work.art1st.javarailways.core.api.physics.train
 
+import org.jetbrains.annotations.ApiStatus
 import work.art1st.javarailways.core.api.util.plugin.Extension
-import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
 
 interface TrainExtension : Extension<Train> {
     /**
@@ -16,9 +16,16 @@ interface TrainExtension : Extension<Train> {
      * state—it must not mutate the shared cars or publish platform effects before it returns.
      * The preparing host still uses the original operating direction; the selected result
      * direction and complete final frame are installed only after initialization succeeds.
+     * This supported hook is experimental: signatures and semantics may change without source or
+     * binary compatibility guarantees, including for Java callers.
      */
-    @TrainStructureApi
+    @ApiStatus.Experimental
     fun splitBefore(carId: String, newId: String): TrainExtension
-    @TrainStructureApi
+
+    /**
+     * Coupling hook whose signature and semantics may change without source or binary
+     * compatibility guarantees, including for Java callers.
+     */
+    @ApiStatus.Experimental
     fun linkWith(otherTrain: Train)
 }

@@ -6,6 +6,6 @@
 
 调用前请特别检查声明上的线程注解和 KDoc。未标记为主线程 API 的声明也不代表可以安全地并发调用。
 
-联结/解编及对应事件单独以 `TrainStructureApi` 标记为 unstable：属于正式能力，但签名与语义仍可能调整，
-不保证后续源码或二进制兼容。Kotlin 使用方可通过 `@OptIn(TrainStructureApi::class)` 明确接受该约定；
-Java 使用方同样需要检查对应 KDoc。
+联结/解编及对应事件以 `org.jetbrains.annotations.ApiStatus.Experimental` 标记为 unstable：
+属于正式能力，但签名与语义仍可能调整，不保证后续源码或二进制兼容。
+该标记供文档与 IDE 检查使用，不要求 Kotlin `@OptIn`；Java/Kotlin 使用方均须遵守对应 KDoc。

@@ -13,7 +13,6 @@ import work.art1st.javarailways.core.api.event.processor.HandlesEvent
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
-import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
 import work.art1st.javarailways.core.control.train.MockTrainController
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
@@ -27,7 +26,6 @@ import java.util.concurrent.TimeUnit
 
 class CoreTrainAsymmetricTurnoutTest {
     @Test
-    @OptIn(TrainStructureApi::class)
     fun `reversed split publishes original turnout path without consulting unset reverse selection`() =
         withFixture { fixture ->
             val train = fixture.train

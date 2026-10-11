@@ -106,7 +106,7 @@ head-forward mission route前面，以满足Basic“冻结路线从物理车尾�
 
 ### 解编事件与方向提交（CURRENT）
 
-公开入口为`@TrainStructureApi fun Train.splitBefore(carId: String, newId: String): Future<Train>`，按稳定车厢ID切分，返回的future表示结构操作结果，不表示平台实体显示完成。`TrainStructureApi`采用WARNING级opt-in，标识联结/解编接口和事件不保证后续源码或二进制兼容；Kotlin调用方可以明确`@OptIn`，Java调用方也须遵守KDoc约定。该标记不扩大尚未修复的旧`CoreTrain.linkWith`的能力范围。
+公开入口为`@ApiStatus.Experimental fun Train.splitBefore(carId: String, newId: String): Future<Train>`，按稳定车厢ID切分，返回的future表示结构操作结果，不表示平台实体显示完成。复用JetBrains annotations的`ApiStatus.Experimental`标识联结/解编接口和事件不保证后续源码或二进制兼容，不引入自定义opt-in协议；Java/Kotlin调用方均须遵守KDoc约定。该标记不扩大尚未修复的旧`CoreTrain.linkWith`的能力范围。
 
 入口非阻塞地排入原有main-thread结构队列，等待已捕获physics ticket完成，检查切分边界和新身份后才派发`TrainSplitEvent(train,carId,newTrainId)`。事件内`originalCarIds`为不可变副本，`originalReversed`保存原方向；live train只能在owner线程读取。插件通过`reject(reason)`保留第一次拒绝原因，或分别调用`requestRetainedDirection(reversed)`、`requestSeparatedDirection(reversed)`。未指定时继承原方向；同值重复有效，异值冲突拒绝。派发后冻结，mutator同时检查main context，不能延后修改。总线继续隔离handler异常，结构owner显式检查派发结果；失败或拒绝使future以`IllegalStateException`异常完成且不进入extension准备。调用方不得在负责drain队列的线程等待future。
 

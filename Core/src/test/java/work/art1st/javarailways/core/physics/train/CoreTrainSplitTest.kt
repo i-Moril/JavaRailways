@@ -23,7 +23,6 @@ import work.art1st.javarailways.core.api.physics.train.TrainExtension
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
-import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -32,7 +31,6 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
-@OptIn(TrainStructureApi::class)
 class CoreTrainSplitTest {
     @ParameterizedTest
     @CsvSource(

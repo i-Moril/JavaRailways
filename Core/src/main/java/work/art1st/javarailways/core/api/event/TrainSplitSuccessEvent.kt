@@ -1,7 +1,7 @@
 package work.art1st.javarailways.core.api.event
 
+import org.jetbrains.annotations.ApiStatus
 import work.art1st.javarailways.core.api.physics.train.Train
-import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
 
 /**
  * Main-thread notification after both split results, indices, ownership and frames are committed.
@@ -11,8 +11,10 @@ import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
  * Plugins may now update operating records. This notification cannot cancel the completed split;
  * listener exceptions are logged and isolated and do not fail the successful operation's future.
  * Register through MainRailEventBus and close the registration when the owning plugin stops.
+ * This supported event is experimental: signatures and semantics may change without source or
+ * binary compatibility guarantees, including for Java callers.
  */
-@TrainStructureApi
+@ApiStatus.Experimental
 class TrainSplitSuccessEvent internal constructor(
     override val train: Train,
     val separatedTrain: Train,

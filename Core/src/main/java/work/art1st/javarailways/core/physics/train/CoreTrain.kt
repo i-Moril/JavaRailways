@@ -1,5 +1,6 @@
 package work.art1st.javarailways.core.physics.train
 
+import org.jetbrains.annotations.ApiStatus
 import org.joml.times
 import org.joml.Vector3d
 import work.art1st.javarailways.core.api.control.TrainController
@@ -27,7 +28,6 @@ import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
 import work.art1st.javarailways.core.api.render.Renderable
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.api.util.annotation.AsyncEventApi
-import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
 import work.art1st.javarailways.core.api.util.plugin.Extendable
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainer
@@ -675,7 +675,7 @@ open class CoreTrain @MainThread internal constructor(
      * stable suffix. Identity, endpoint geometry and all extension results are prepared before
      * either train is published.
      */
-    @TrainStructureApi
+    @ApiStatus.Experimental
     @OptIn(ExtensionData::class)
     @Throws(CannotCreateTrainException::class)
     override fun splitBefore(carId: String, newId: String): Future<Train> =
@@ -901,7 +901,7 @@ open class CoreTrain @MainThread internal constructor(
      * 新车以当前车的车头为车头
      */
     @Throws(CannotCreateTrainException::class)
-    @TrainStructureApi
+    @ApiStatus.Experimental
     fun linkWith(otherTrain: CoreTrain) {
         if (world != otherTrain.world) throw CannotCreateTrainException()
         world.tickManager.scheduleMainThreadAfterCommitTask {

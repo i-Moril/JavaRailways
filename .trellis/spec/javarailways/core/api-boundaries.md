@@ -65,7 +65,7 @@ CoreTrain 复用已有原子 publication，不另建 snapshot。不能提供帧�
 
 API KDoc 必须写 identity、单位、调用线程、blocking、live/value、failure/result、注册与释放；无法写清这些字段的类型不得新增到候选面。
 
-`Car.id`公开既有稳定持久化身份，运营换向不会改变；不承诺world范围唯一。`Train.splitBefore(carId,newId): Future<Train>`按稳定car ID排入owner结构队列，调用方可从`Train.cars`取得ID，不需要cast为CoreCar/CoreTrain。入口、extension结构钩子、`CollisionEvent.requestLink`及对应事件使用WARNING级`TrainStructureApi`明确标为unstable：正式能力，但不保证后续签名/语义或二进制兼容。Kotlin调用方可`@OptIn`，Java调用方遵守KDoc；不因该标记升级存档版本。解编前决策与成功通知是main线程live事件，不加入跨线程value类型清单；完整流程由[train physics](./train-physics.md#解编事务)拥有。
+`Car.id`公开既有稳定持久化身份，运营换向不会改变；不承诺world范围唯一。`Train.splitBefore(carId,newId): Future<Train>`按稳定car ID排入owner结构队列，调用方可从`Train.cars`取得ID，不需要cast为CoreCar/CoreTrain。入口、extension结构钩子、`CollisionEvent.requestLink`及对应事件使用现成的`org.jetbrains.annotations.ApiStatus.Experimental`明确标为unstable：正式能力，但不保证后续签名/语义或二进制兼容。该注解供文档和IDE检查使用，不要求Kotlin `@OptIn`，不增加运行时检查；Core显式以`compileOnly`声明JetBrains annotations依赖，不依赖根项目声明或传递依赖碰巧可见。Java/Kotlin调用方均遵守KDoc；不因该标记升级存档版本。解编前决策与成功通知是main线程live事件，不加入跨线程value类型清单；完整流程由[train physics](./train-physics.md#解编事务)拥有。
 
 ## 项目内正确示例
 

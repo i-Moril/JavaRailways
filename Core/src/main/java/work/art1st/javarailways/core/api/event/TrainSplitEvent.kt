@@ -1,7 +1,7 @@
 package work.art1st.javarailways.core.api.event
 
+import org.jetbrains.annotations.ApiStatus
 import work.art1st.javarailways.core.api.physics.train.Train
-import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
 import work.art1st.javarailways.core.api.threading.ThreadGuard
 
 /**
@@ -13,8 +13,10 @@ import work.art1st.javarailways.core.api.threading.ThreadGuard
  * Any listener failure also prevents submission, while remaining listeners still run.
  * The decision is frozen when dispatch returns; retaining it does not permit later edits.
  * Register through MainRailEventBus and close the registration when the owning plugin stops.
+ * This supported event is experimental: signatures and semantics may change without source or
+ * binary compatibility guarantees, including for Java callers.
  */
-@TrainStructureApi
+@ApiStatus.Experimental
 class TrainSplitEvent internal constructor(
     override val train: Train,
     val carId: String,

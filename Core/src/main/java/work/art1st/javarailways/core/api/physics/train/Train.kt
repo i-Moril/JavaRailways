@@ -1,11 +1,11 @@
 package work.art1st.javarailways.core.api.physics.train
 
+import org.jetbrains.annotations.ApiStatus
 import work.art1st.javarailways.core.api.physics.WorldElement
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.RailLocation
 import work.art1st.javarailways.core.api.util.Destroyable
 import work.art1st.javarailways.core.api.util.annotation.MainThread
-import work.art1st.javarailways.core.api.util.annotation.TrainStructureApi
 import work.art1st.javarailways.core.api.util.plugin.Extendable
 import work.art1st.javarailways.core.api.util.tick.Synchronizable
 import java.util.concurrent.Future
@@ -74,8 +74,10 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
      * [work.art1st.javarailways.core.api.event.TrainSplitEvent] before preparation and a
      * [work.art1st.javarailways.core.api.event.TrainSplitSuccessEvent] only after success.
      * Never wait for this future on the thread that must drain the structural queue.
+     * This supported API is experimental: signatures and semantics may change without source or
+     * binary compatibility guarantees, including for Java callers.
      */
-    @TrainStructureApi
+    @ApiStatus.Experimental
     fun splitBefore(carId: String, newId: String): Future<Train>
 
     /** Enter a derailed state with a diagnostic [reason]. */

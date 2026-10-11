@@ -12,7 +12,13 @@
 
 批次1、2已完成，下一批为批次3。用户已确认方向冲突拒绝、提交前监听器抛错不提交、成功通知抛错不回滚，并要求联结/解编API明确标记为unstable；owner合同见[train physics](../../spec/javarailways/core/train-physics.md)。批次2只接入解编事件，联结事件随批次3完整事务接入，不先交付无生产入口的声明。旧记录中“尚未批准开始”的表述仅代表当时边界，不再作为阻止已确认范围实现的依据。整体Core审查与Stage 2状态不因本批完成自动关闭。
 
-### 批次2验证记录
+### 不稳定 API 标记复用（批次2后续，2026-10-11）
+
+- 用户批准复用`org.jetbrains.annotations.ApiStatus.Experimental`，删除自定义`TrainStructureApi`与相应测试opt-in；仅标识接口可能变化，不新增Kotlin opt-in协议。Core显式`compileOnly`声明与根项目相同的JetBrains annotations版本，KDoc和owner spec同步；联结/解编行为、存档及版本不变。
+- 下方批次2中关于自定义注解和opt-in warning的内容是`e459ae8e`的历史记录，当前规则由本节及[API边界](../../spec/javarailways/core/api-boundaries.md)取代。CR-030的联结事务缺口不因此关闭。
+- 独立trellis-check只读复核通过：8处标记覆盖完整，仅删除对应3处测试opt-in，其余安全/线程opt-in保留；缓存注解的CLASS retention不引入运行时执行。强制执行`:Core:test :Basic:test :BukkitPlugin:test :TunnelBridgeBuilder:test :Core:dokkaGeneratePublicationHtml`，1119项（342/385/361/31）零失败/错误/跳过，2分30秒/41 tasks全部执行，缓存及强制参数同批次2。Dokka产物显示新注解，Core JAR与Dokka产物不含旧注解；JetBrains annotations未打包进Core JAR。已有Dokka/编译告警仍存在。本批未新增测试，不改变原测试断言或使用上一批结果冒充重跑；未部署。上下文校验和限定本批路径的`git diff --check`通过。
+
+### 批次2验证记录（历史：e459ae8e）
 
 - 新增`TrainSplitEvent`、`TrainSplitSuccessEvent`及WARNING级`TrainStructureApi`。`Car.id`公开既有ID，`Train.splitBefore`无需实现类转换；旧联结、extension结构钩子和collision联结请求也标记unstable，不改变它们当前能力或存档版本。
 - 解编等待既有physics ticket，经同步事件决策后预计算两侧几何/方向/frame，再prepare extension。完整提交后通知；总线仅新增内部汇总handler失败结果，普通publish语义不变，无每tick新扫描。

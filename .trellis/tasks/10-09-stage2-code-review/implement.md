@@ -12,6 +12,14 @@
 
 批次1、2已完成，下一批为批次3。用户已确认方向冲突拒绝、提交前监听器抛错不提交、成功通知抛错不回滚，并要求联结/解编API明确标记为unstable；owner合同见[train physics](../../spec/javarailways/core/train-physics.md)。批次2只接入解编事件，联结事件随批次3完整事务接入，不先交付无生产入口的声明。旧记录中“尚未批准开始”的表述仅代表当时边界，不再作为阻止已确认范围实现的依据。整体Core审查与Stage 2状态不因本批完成自动关闭。
 
+### 批次3前置：结构提交期间禁止新物理任务（2026-10-11）
+
+- [x] 修复已确认的准入缺口：捕获/等待ticket并不能阻止timer随后开启新epoch。新增coordinator内部词法作用域，先关新epoch准入并捕获ticket，锁外等待和执行结构操作，finally释放临时准入；不复用或恢复永久shutdown状态。本批仅接入现有解编，旧联结入口不切换。
+- 此前置不决定新的联结业务策略，不改存档、controller算法或所有维护入口。[当前联结研究](./research/core-link-current-contract.md)按`bd29118a`重新核实四端映射、extension union及Bukkit退休runtime/迟到动作处理；旧研究的已撤回建议不再用作实现依据。
+- 完整联结切换前需确认：无人选择时的主编组回退；collision请求联结失败后的处置；Bukkit主包保留及JS运行状态重建规则。四端、停车接触、无吸附和事件两阶段已经批准，不重复列为未决事项。
+- 独立trellis-check复核通过；按发现修正并发测试失败清理顺序，以及文档对等待交错证明力度的表述。新增7项执行：作用域内timer/main wake阻断及恢复、action异常、shutdown/stall/close不复活、真实split成功/veto（含决策/extension准备/成功通知中的timer触发）。等待位于锁外由源码审查确认，不宣称测试确定性覆盖每次await阻塞交错；未新增压力/游戏验证。
+- 验证：定向Coordinator/Split测试通过（45秒）；修正测试清理后强制重跑七模块，1973项（Core349、Basic385、SimpleATO352、SimpleATOBukkit8、SimpleSignals487、BukkitPlugin361、TunnelBridgeBuilder31），零失败/错误/跳过，3分48秒，54 tasks全执行。使用`GRADLE_USER_HOME=/workspace/.gradle`、offline/no-build-cache/no-parallel/rerun-tasks，禁用Kotlin incremental并采用in-process编译。既有依赖/弃用警告仍存在；本批无公开API或存档变化、未部署。上下文19+19条校验及限定路径`git diff --check`通过；CR-030及整个审查任务仍开放。
+
 ### 不稳定 API 标记复用（批次2后续，2026-10-11）
 
 - 用户批准复用`org.jetbrains.annotations.ApiStatus.Experimental`，删除自定义`TrainStructureApi`与相应测试opt-in；仅标识接口可能变化，不新增Kotlin opt-in协议。Core显式`compileOnly`声明与根项目相同的JetBrains annotations版本，KDoc和owner spec同步；联结/解编行为、存档及版本不变。

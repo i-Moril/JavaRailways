@@ -5,6 +5,7 @@ import work.art1st.javarailways.core.api.event.CollisionEvent
 import work.art1st.javarailways.core.api.event.CollisionResolution
 import work.art1st.javarailways.core.api.event.processor.PhysicsRailEventBus
 import work.art1st.javarailways.core.api.physics.RailwayEpochProcessor
+import work.art1st.javarailways.core.api.threading.ThreadGuard
 import work.art1st.javarailways.core.api.util.annotation.AsyncEventApi
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.train.CoreTrain
@@ -154,6 +155,7 @@ class PhysicsCoordinator(
 
     private var started = false
     private var acceptingWakes = true
+    private var structuralMutationDepth = 0
     private var nextEpoch = 1L
     private var previousPhysicsStartNanos = 0L
     private var lastMainWakeNanos = nanoTime()
@@ -250,6 +252,31 @@ class PhysicsCoordinator(
     fun captureCurrentTicket(): PhysicsTicket = synchronized(stateLock) {
         ensureUsableLocked()
         inFlight ?: latestCompleted
+    }
+
+    /**
+     * Holds new-epoch admission closed across a main-owner structural edit. Waiting and the edit
+     * run outside [stateLock], so the captured epoch can finish and callbacks never own that lock.
+     * This is not shutdown or rollback: finally only releases this temporary admission scope.
+     */
+    internal fun <T> withStructuralMutation(action: () -> T): T {
+        ThreadGuard.ensureMainThread("PhysicsCoordinator.withStructuralMutation")
+        val ticket = synchronized(stateLock) {
+            ensureUsableLocked()
+            check(acceptingWakes) { "PhysicsCoordinator shutdown has begun" }
+            structuralMutationDepth++
+            inFlight ?: latestCompleted
+        }
+        try {
+            ticket.await()
+            synchronized(stateLock) {
+                ensureUsableLocked()
+                check(acceptingWakes) { "PhysicsCoordinator shutdown has begun" }
+            }
+            return action()
+        } finally {
+            synchronized(stateLock) { structuralMutationDepth-- }
+        }
     }
 
     /**
@@ -352,7 +379,8 @@ class PhysicsCoordinator(
     @JvmSynthetic
     internal fun timerWake() {
         synchronized(stateLock) {
-            if (!started || !acceptingWakes || status != PhysicsCoordinatorStatus.RUNNING) return
+            if (!started || !acceptingWakes || structuralMutationDepth > 0 ||
+                status != PhysicsCoordinatorStatus.RUNNING) return
             if (nanoTime() - lastMainWakeNanos >= TimeUnit.MILLISECONDS.toNanos(mainHeartbeatTimeoutMillis)) {
                 // Keep eligibility and request allocation under the same state lock: shutdown
                 // either captures this timer epoch or makes this wake a quiet no-op.
@@ -371,6 +399,7 @@ class PhysicsCoordinator(
             check(acceptingWakes) { "PhysicsCoordinator shutdown has begun" }
             inFlight?.let { return it }
             check(started) { "PhysicsCoordinator has not been started" }
+            if (structuralMutationDepth > 0) return latestCompleted
 
             startNanos = nanoTime()
             rawDeltaMillis = fixedDeltaMillis ?: if (previousPhysicsStartNanos == 0L) {

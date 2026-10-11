@@ -66,6 +66,20 @@ world frame的capture与publication是两个阶段，但不是两个可独立观
 
 宿主在锁外成功await这一个ticket以后才捕获/写最终快照，最后close；在途epoch失败时该ticketexceptional，后续capture/beginShutdown因STALLED拒绝，不能回退到上一个成功epoch假装可以保存。此边界只停止新的physics epoch，不是所有编辑、generic tick、Bukkit区域任务的全局冻结；平台仍负责unloading门禁和各资源释放。
 
+### 结构变更的临时物理准入（CURRENT）
+
+仅等待`CoreWorld.awaitCurrentPhysicsEpoch()`不构成结构排他：捕获的ticket完成后，timer仍可能立即分配下一epoch。当前解编改用implementation-only的`PhysicsCoordinator.withStructuralMutation(action: () -> T): T`包住决策、准备、提交和成功通知；后续联结须复用同一边界，但旧联结入口尚未接入。本边界不升级成公开API，也不批量改变其他maintenance入口。
+
+正常流程是主线程进入作用域，在`stateLock`内确认RUNNING且未shutdown、增加临时准入计数并捕获`inFlight ?: latestCompleted`；释放锁后等待这一个ticket，成功后再次确认可用，再在锁外执行action。`finally`在短锁区递减计数。等待、插件监听器、extension初始化与几何计算均不能持有`stateLock`，否则会阻塞旧epoch完成或把扩展代码放入协调器全局锁。计数只表达词法作用域持有关系，不是任务队列或第二套事务状态。
+
+作用域持有期间，timer wake静默不分配epoch；已启动coordinator的显式wake只复用已有或最新完成ticket，不声称推进了一步。`captureCurrentTicket`仍可观察被等待的真实ticket，既有in-flight epoch照常完成。未启动、shutdown、STALLED或CLOSED的显式wake仍按原合同拒绝。作用域取得或等待失败则不执行action；action异常原样传播，仍释放临时准入。释放不修改永久`acceptingWakes`、status或ticket，因此不能撤销shutdown、复活close/stall或把失败ticket换成旧成功值。
+
+例如解编listener主动触发timer wake，新的物理任务不能读取准备中的cars；解编成功或被拒绝后，下一次合法wake才可产生新epoch。此边界只防止新physics epoch与该结构操作并发，不提供任意插件副作用回滚、平台渲染冻结或全仓所有编辑互斥，也不承诺close时任意已开始action会被中断。既有wall-clock delta/clamp/drop规则不变，不补跑暂停期间的欠账。准入检查/释放为O(1)，不新增图/列车扫描；唯一阻塞仍是等待实际在途ticket和执行原结构操作。
+
+回归使用注入clock及现有timer seam验证作用域内epoch不前移、显式wake复用ticket、结束后可推进；真实worker用例检查回调开始时ticket已完成，并确定性验证回调期间其他线程可取得状态锁。等待在锁外由源码审查确认，该用例不保证每次调度都实际阻塞在await。异常与shutdown/stall/close不能破坏原生命周期；真实split决策触发timer验证生产入口确实持有作用域。验证结果归任务记录；并发源码检查不等于现场压力测试。
+
+### 其他发布边界
+
 `close()`撤销ticket并中断executor，**不是quiesce**：它不回滚此前已经flip的单列车frame，也不撤销processor已执行的外部副作用；消化中断的worker/processor也可能稍后返回。即使失败ticket已完成，也不证明所有失败worker退出，不能拿失败结果捕获最终快照或把abort等价为成功shutdown边界。
 
 active continuation不是每tick重扫全图。`RailView.activeRail`的成功引用变化在world-local selection lock内推进一个`Long` runtime revision；Core按`(topologyRevision, selectionRevision)`缓存immutable snapshot。普通未变化epoch在`O(1)`内复用同一对象；仅拓扑或选择变化时遍历当前`P`个turnout port，验证live target仍属于该entry的`legalContinuations`，以`O(P log P)`稳定排序并发布新map。选择在processor期间发生即使最终切回原支路也会推进revision，因此candidate在publication复核时被拒绝，而不会把旧占用与新道岔方向拼接。

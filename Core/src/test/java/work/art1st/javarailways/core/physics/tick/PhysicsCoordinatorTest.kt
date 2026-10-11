@@ -18,6 +18,8 @@ import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.RailwayEpochProcessor
 import work.art1st.javarailways.core.api.util.tick.TickManager
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -29,6 +31,7 @@ import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
@@ -684,6 +687,131 @@ class PhysicsCoordinatorTest {
     }
 
     @Test
+    fun `structural mutation awaits current ticket and blocks new epochs without holding state lock`() {
+        val clock = AtomicLong(1_000_000_000L)
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            nanoTime = clock::get,
+            mainHeartbeatTimeoutMillis = 1L,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+            val train = createTrainWithConfig("structural-wait", rail, world, listOf(10.0))
+            train.setController(BlockingController(train, world, entered, release))
+            coordinator.start()
+            val ticket = coordinator.stepSimulation(50.0)
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val mutationStarted = CountDownLatch(1)
+            val mutationEntered = CountDownLatch(1)
+            val releaseMutation = CountDownLatch(1)
+            try {
+                val mutation = executor.submit {
+                    withMainThread {
+                        mutationStarted.countDown()
+                        coordinator.withStructuralMutation {
+                            check(ticket.isDone) { "mutation must await the captured epoch" }
+                            mutationEntered.countDown()
+                            check(releaseMutation.await(5, TimeUnit.SECONDS))
+                        }
+                    }
+                }
+                assertTrue(mutationStarted.await(5, TimeUnit.SECONDS))
+                release.countDown()
+                assertTrue(mutationEntered.await(5, TimeUnit.SECONDS))
+                val frame = world.latestWorldFrame()
+                assertEquals(ticket.epoch, frame.physicsEpoch)
+                clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(100L))
+                // These calls run on a different thread from the held mutation callback. They
+                // must return, and cannot allocate another epoch even though the timer is due.
+                coordinator.timerWake()
+                assertSame(ticket, coordinator.wakeFromMainThread())
+                assertSame(ticket, coordinator.captureCurrentTicket())
+                assertSame(frame, world.latestWorldFrame())
+                releaseMutation.countDown()
+                mutation.get(5, TimeUnit.SECONDS)
+
+                clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(100L))
+                coordinator.timerWake()
+                val next = coordinator.captureCurrentTicket()
+                assertEquals(ticket.epoch + 1L, next.epoch)
+                assertEquals(PhysicsWakeSource.TIMER_FALLBACK, next.completion.get(5, TimeUnit.SECONDS).source)
+            } finally {
+                releaseMutation.countDown()
+            }
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+            try {
+                assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+            } finally {
+                coordinator.close()
+                world.releaseRuntimeBinding()
+            }
+        }
+    }
+
+    @Test
+    fun `failed structural edit restores epoch admission`() {
+        val coordinator = PhysicsCoordinator(workerThreads = 1, automaticFallback = false)
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        try {
+            coordinator.start()
+            val expected = IllegalArgumentException("prepare failed")
+            withMainThread {
+                assertSame(expected, assertThrows(IllegalArgumentException::class.java) {
+                    coordinator.withStructuralMutation { throw expected }
+                })
+            }
+            val next = coordinator.stepSimulation(50.0)
+            assertEquals(1L, next.completion.get(5, TimeUnit.SECONDS).epoch)
+        } finally {
+            coordinator.close()
+            world.releaseRuntimeBinding()
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["shutdown", "stall", "close"])
+    fun `structural scope exit cannot reopen shutdown or terminal coordinator`(transition: String) {
+        val coordinator = PhysicsCoordinator(workerThreads = 1, automaticFallback = false)
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        try {
+            coordinator.start()
+            val previous = coordinator.stepSimulation(50.0)
+            previous.completion.get(5, TimeUnit.SECONDS)
+            val frame = world.latestWorldFrame()
+            withMainThread {
+                coordinator.withStructuralMutation {
+                    when (transition) {
+                        "shutdown" -> coordinator.beginShutdown()
+                        "stall" -> coordinator.stall("structural invariant failed")
+                        "close" -> coordinator.close()
+                    }
+                }
+            }
+            coordinator.timerWake()
+            assertThrows(IllegalStateException::class.java) { coordinator.wakeFromMainThread() }
+            assertSame(frame, world.latestWorldFrame())
+            assertEquals(
+                when (transition) {
+                    "stall" -> PhysicsCoordinatorStatus.STALLED
+                    "close" -> PhysicsCoordinatorStatus.CLOSED
+                    else -> PhysicsCoordinatorStatus.RUNNING
+                }, coordinator.status
+            )
+        } finally {
+            coordinator.close()
+            world.releaseRuntimeBinding()
+        }
+    }
+
+    @Test
     fun `begin shutdown waits for the exact running epoch and prevents later wakes`() {
         val clock = AtomicLong(1_000_000_000L)
         val coordinator = PhysicsCoordinator(
@@ -1030,6 +1158,13 @@ class PhysicsCoordinatorTest {
         fun onCollision(event: CollisionEvent) {
             count.incrementAndGet()
         }
+    }
+
+    private fun <T> withMainThread(action: () -> T): T {
+        val owner = Thread.currentThread()
+        return ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
+            override fun isMainThread(): Boolean = Thread.currentThread() === owner
+        }).use { action() }
     }
 
     private class BlockingController(

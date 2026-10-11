@@ -16,3 +16,4 @@
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/core-module-review.md", "reason": "Check bounded CR-025/027 algorithms/inputs while CR-023 remains partial and product decisions stay separate"}
 {"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "CR-014 unload gate and CR-015 constructor/factory ownership; no false DI or region completion guarantee"}
 {"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "Final save remains failure-reporting, exact-epoch capture; no persistence version or compatibility path"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/core-link-current-contract.md", "reason": "CR-030 refreshed proposal: verify actual temporary epoch exclusion, stable-end mapping and unresolved policy boundaries; do not mistake target coupling for current implementation"}

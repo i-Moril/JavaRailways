@@ -680,66 +680,67 @@ open class CoreTrain @MainThread internal constructor(
     @Throws(CannotCreateTrainException::class)
     override fun splitBefore(carId: String, newId: String): Future<Train> =
         world.tickManager.scheduleMainThreadAfterCommitTask {
-            world.awaitCurrentPhysicsEpoch()
-            val matchingIndices = cars.indices.filter { cars[it].id == carId }
-            if (matchingIndices.size != 1 || matchingIndices.single() == 0) {
-                throw CannotCreateTrainException()
-            }
-            val splitIndex = matchingIndices.single()
-            world.validateNewTrainIdentity(newId, newId)
-
-            val decision = TrainSplitEvent(this, carId, newId)
-            val listenersSucceeded = try {
-                MainRailEventBus.publishAndReportFailures(decision)
-            } finally {
-                decision.freeze()
-            }
-            check(listenersSucceeded) { "Split decision listener failed: train=$id car=$carId" }
-            check(!decision.isRejected) { "Split rejected: ${decision.rejectionReason}" }
-
-            val retainedCars = cars.take(splitIndex)
-            val separatedCars = cars.drop(splitIndex)
-            val sourcePath = placementSegments(tail.location, head.location)
-            val retainedSplit = prepareSplit(
-                prepareSplitGeometry(retainedCars, sourcePath), decision.retainedReversed,
-                id, name, frameRevision.get() + 1L, speed, isDerailed,
-                clearMotion = decision.retainedReversed != isReversed
-            )
-            val separatedSourceGeometry = prepareSplitGeometry(separatedCars, sourcePath)
-            val separatedSplit = prepareSplit(
-                separatedSourceGeometry, decision.separatedReversed,
-                newId, newId, 1L, 0.0, false, clearMotion = true
-            )
-            val separatedExtensions = ExtensionDataContainer<TrainExtension>()
-            extensionDataContainer.extensionData.forEachIndexed { slot, extension ->
-                extension ?: return@forEachIndexed
-                val separatedExtension = extension.splitBefore(carId, newId)
-                require(separatedExtension !== extension) {
-                    "split extension must be a dedicated instance: train=$id slot=$slot"
+            world.physicsCoordinator.withStructuralMutation {
+                val matchingIndices = cars.indices.filter { cars[it].id == carId }
+                if (matchingIndices.size != 1 || matchingIndices.single() == 0) {
+                    throw CannotCreateTrainException()
                 }
-                separatedExtensions.setExtensionDataAt(slot, separatedExtension)
-            }
+                val splitIndex = matchingIndices.single()
+                world.validateNewTrainIdentity(newId, newId)
 
-            val newTrain = CoreTrain(
-                id = newId,
-                cars = separatedCars,
-                world = world,
-                savedExtensionData = emptyMap(),
-                extensionDataContainer = separatedExtensions,
-                persistedHeadLocation = separatedSourceGeometry.headLocation,
-                persistedTailLocation = separatedSourceGeometry.tailLocation,
-                initialReversed = isReversed
-            )
-            newTrain.applyPreparedSplit(separatedSplit)
-            applyPreparedSplit(retainedSplit)
-            MainRailEventBus.publish(TrainSplitSuccessEvent(
-                train = this,
-                separatedTrain = newTrain,
-                carId = carId,
-                originalCarIds = decision.originalCarIds,
-                originalReversed = decision.originalReversed
-            ))
-            newTrain
+                val decision = TrainSplitEvent(this, carId, newId)
+                val listenersSucceeded = try {
+                    MainRailEventBus.publishAndReportFailures(decision)
+                } finally {
+                    decision.freeze()
+                }
+                check(listenersSucceeded) { "Split decision listener failed: train=$id car=$carId" }
+                check(!decision.isRejected) { "Split rejected: ${decision.rejectionReason}" }
+
+                val retainedCars = cars.take(splitIndex)
+                val separatedCars = cars.drop(splitIndex)
+                val sourcePath = placementSegments(tail.location, head.location)
+                val retainedSplit = prepareSplit(
+                    prepareSplitGeometry(retainedCars, sourcePath), decision.retainedReversed,
+                    id, name, frameRevision.get() + 1L, speed, isDerailed,
+                    clearMotion = decision.retainedReversed != isReversed
+                )
+                val separatedSourceGeometry = prepareSplitGeometry(separatedCars, sourcePath)
+                val separatedSplit = prepareSplit(
+                    separatedSourceGeometry, decision.separatedReversed,
+                    newId, newId, 1L, 0.0, false, clearMotion = true
+                )
+                val separatedExtensions = ExtensionDataContainer<TrainExtension>()
+                extensionDataContainer.extensionData.forEachIndexed { slot, extension ->
+                    extension ?: return@forEachIndexed
+                    val separatedExtension = extension.splitBefore(carId, newId)
+                    require(separatedExtension !== extension) {
+                        "split extension must be a dedicated instance: train=$id slot=$slot"
+                    }
+                    separatedExtensions.setExtensionDataAt(slot, separatedExtension)
+                }
+
+                val newTrain = CoreTrain(
+                    id = newId,
+                    cars = separatedCars,
+                    world = world,
+                    savedExtensionData = emptyMap(),
+                    extensionDataContainer = separatedExtensions,
+                    persistedHeadLocation = separatedSourceGeometry.headLocation,
+                    persistedTailLocation = separatedSourceGeometry.tailLocation,
+                    initialReversed = isReversed
+                )
+                newTrain.applyPreparedSplit(separatedSplit)
+                applyPreparedSplit(retainedSplit)
+                MainRailEventBus.publish(TrainSplitSuccessEvent(
+                    train = this,
+                    separatedTrain = newTrain,
+                    carId = carId,
+                    originalCarIds = decision.originalCarIds,
+                    originalReversed = decision.originalReversed
+                ))
+                newTrain
+            }
         }
 
     private data class SplitEndpoints(

@@ -108,7 +108,7 @@ head-forward mission route前面，以满足Basic“冻结路线从物理车尾�
 
 公开入口为`@ApiStatus.Experimental fun Train.splitBefore(carId: String, newId: String): Future<Train>`，按稳定车厢ID切分，返回的future表示结构操作结果，不表示平台实体显示完成。复用JetBrains annotations的`ApiStatus.Experimental`标识联结/解编接口和事件不保证后续源码或二进制兼容，不引入自定义opt-in协议；Java/Kotlin调用方均须遵守KDoc约定。该标记不扩大尚未修复的旧`CoreTrain.linkWith`的能力范围。
 
-入口非阻塞地排入原有main-thread结构队列，等待已捕获physics ticket完成，检查切分边界和新身份后才派发`TrainSplitEvent(train,carId,newTrainId)`。事件内`originalCarIds`为不可变副本，`originalReversed`保存原方向；live train只能在owner线程读取。插件通过`reject(reason)`保留第一次拒绝原因，或分别调用`requestRetainedDirection(reversed)`、`requestSeparatedDirection(reversed)`。未指定时继承原方向；同值重复有效，异值冲突拒绝。派发后冻结，mutator同时检查main context，不能延后修改。总线继续隔离handler异常，结构owner显式检查派发结果；失败或拒绝使future以`IllegalStateException`异常完成且不进入extension准备。调用方不得在负责drain队列的线程等待future。
+入口非阻塞地排入原有main-thread结构队列，在coordinator的内部`withStructuralMutation`作用域中捕获并等待physics ticket，同时禁止新epoch进入，直到成功通知完成或异常退出才释放；仅await不能替代该[临时准入边界](./runtime-publication.md#结构变更的临时物理准入current)。检查切分边界和新身份后才派发`TrainSplitEvent(train,carId,newTrainId)`。事件内`originalCarIds`为不可变副本，`originalReversed`保存原方向；live train只能在owner线程读取。插件通过`reject(reason)`保留第一次拒绝原因，或分别调用`requestRetainedDirection(reversed)`、`requestSeparatedDirection(reversed)`。未指定时继承原方向；同值重复有效，异值冲突拒绝。派发后冻结，mutator同时检查main context，不能延后修改。总线继续隔离handler异常，结构owner显式检查派发结果；失败或拒绝使future以`IllegalStateException`异常完成且不进入extension准备。调用方不得在负责drain队列的线程等待future。
 
 只有决定通过后，才准备两侧几何、extension和最终frame。先按原运营方向取得tail到head的占用路径，再在该有序路径上按bogie位置与车端offset定位切分端点，不能调用反向选路来向后推算车端；不在原占用路径内的bogie或端点拒绝解编。方向改变交换并反向表示head/tail，逆序原有body traversal并交换每段起止位置/方向，预计算bogie反向位置；不能从反向道岔选择重新寻路或调用摆车算法。所有可失败计算都在原状态变更前完成。成功构造分离列车后，提交区间只应用准备好的方向、位置表示和frame，不再执行扩展回调或几何求解。
 

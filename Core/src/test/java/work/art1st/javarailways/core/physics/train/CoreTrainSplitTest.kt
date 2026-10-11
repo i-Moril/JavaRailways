@@ -30,8 +30,78 @@ import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 class CoreTrainSplitTest {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `split holds epoch admission through decisions preparation and notification`(veto: Boolean) {
+        val clock = AtomicLong(1_000_000_000L)
+        val coordinator = PhysicsCoordinator(
+            workerThreads = 1,
+            nanoTime = clock::get,
+            mainHeartbeatTimeoutMillis = 1L,
+            epochOverloadThresholdMillis = 1_000_000L,
+            automaticFallback = false
+        )
+        val world = try {
+            createTestWorld(coordinator)
+        } catch (failure: Throwable) {
+            coordinator.close()
+            throw failure
+        }
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                coordinator.use {
+                    val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+                    val train = createTrainWithConfig("admission-source", rail, world, List(4) { 10.0 })
+                    val observedEpochs = mutableListOf<Long>()
+                    fun observeTimerWake() {
+                        clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(100L))
+                        coordinator.timerWake()
+                        observedEpochs += coordinator.captureCurrentTicket().epoch
+                    }
+                    train.extensionDataContainer.setExtensionDataAt(2, object : TrainExtension {
+                        override fun initialize(host: Train, savedExtensionData: Map<String, SerializableExtensionData>) = Unit
+                        override fun save(): Pair<String, SerializableExtensionData>? = null
+                        override fun linkWith(otherTrain: Train) = Unit
+                        override fun splitBefore(carId: String, newId: String): TrainExtension {
+                            observeTimerWake()
+                            return RecordingSplitExtension()
+                        }
+                    })
+                    coordinator.start()
+                    val previous = coordinator.stepSimulation(50.0)
+                    previous.completion.get(5, TimeUnit.SECONDS)
+                    withEvents(
+                        onDecision = {
+                            observeTimerWake()
+                            if (veto) it.reject("fixed unit")
+                        },
+                        onSuccess = { observeTimerWake() }
+                    ) {
+                        if (veto) {
+                            assertTrue(executeFailedSplit(train, "car-2", "admission-suffix") is IllegalStateException)
+                            assertEquals(4, train.length)
+                            assertNull(world.getTrain("admission-suffix"))
+                        } else {
+                            val detached = executeSplit(train, "car-2", "admission-suffix")
+                            assertEquals(previous.epoch, train.publishedFrame.physicsEpoch)
+                            assertEquals(previous.epoch, detached.publishedFrame.physicsEpoch)
+                        }
+                    }
+                    // Listener assertions belong outside dispatch, whose exception isolation must
+                    // not turn a failed assertion into an apparently passing integration test.
+                    assertEquals(List(if (veto) 1 else 3) { previous.epoch }, observedEpochs)
+                    clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(100L))
+                    coordinator.timerWake()
+                    val next = coordinator.captureCurrentTicket()
+                    assertEquals(previous.epoch + 1L, next.completion.get(5, TimeUnit.SECONDS).epoch)
+                }
+            }
+        }
+    }
+
     @ParameterizedTest
     @CsvSource(
         "false,false,false", "false,false,true", "false,true,false", "false,true,true",

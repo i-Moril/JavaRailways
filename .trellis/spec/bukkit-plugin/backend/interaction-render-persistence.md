@@ -110,7 +110,7 @@ worker的record比较、JSON编码、旧文件复制均为`O(render record count
 
 1. **范围与 owner**：Core拥有每个`CoreTrain`实例的process-local publication stream UUID及每节`CoreCar`的当前owner token；Bukkit只消费token并拥有per-car revision gate。该UUID不是train ID、physics epoch、schema version或持久化字段。
 2. **工作模型**：simulation owner从mailbox取得frame后，先要求当前train的`publishedFrame`仍是同一对象，再把train的UUID和car frame排入目标region。region执行时只做car的原子owner-token比较，不读取live world train map或mutable cars list。
-3. **内部机制**：car owner使用`AtomicReference<UUID?>`；构造成功绑定，link在结构任务中把被并入cars转移给survivor，`CoreWorld.removeTrain`按exact token退休仍属于被移除train的cars。per-car gate只在owner匹配后才切换stream和记录revision，因此旧task不能在新stream已接受后把gate切回。
+3. **内部机制**：car唯一owner为`AtomicReference<CoreTrain?>`，stream proof从owner的UUID派生，公开`Car.train`读取同一归属；构造成功绑定，结构转移更新引用，`CoreWorld.removeTrain`按exact旧train实例CAS退休，不清除已转移cars。per-car gate只在owner匹配后才切换stream和记录revision，因此旧task不能在新stream已接受后把gate切回。返回train身份不授权region读取其mutable集合。
 4. **接口与数据**：`CoreTrain.publicationStreamId`和`CoreCar.isOwnedByPublicationStream`是Core implementation seam，不进入`core.api`或Bukkit add-on API。`PendingCarFrame`只持immutable UUID、frame value、revision和已有car render target，不持有旧`CoreTrain`或冗余train speed；平台速度由car frame本身提供。
 5. **不变量与线程**：同一runtime train的UUID稳定且不同实例（含同ID重建/world reload）使用新UUID；同stream拒绝`revision <= latest`，换到当前owner的新stream可立即接受低revision。Core结构owner写token，任意region只原子读取；不得跨region遍历`CoreWorld.getTrain`或`CoreTrain.cars`证明ownership。
 6. **错误矩阵**：负revision在stale判定前拒绝；frame构造已经拒绝non-finite vector，错误location owner仍由`BukkitThreadOwnership`失败；owner token不匹配和同stream stale/equal只丢帧且不改变gate。当前frame对象不匹配时simulation owner丢弃，防止同train ID重建把旧mailbox frame绑定到新stream。

@@ -10,6 +10,7 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.Reversible
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.physics.train.Seat
+import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.render.RenderableExtension
 import work.art1st.javarailways.core.api.render.RenderableStateSnapshot
 import work.art1st.javarailways.core.api.util.annotation.MainThread
@@ -42,17 +43,19 @@ class CoreCar @MainThread internal constructor(
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Car>> = ExtensionDataContainer()
 ) : Car, Reversible, DynamicRenderableTrait<Car>, Extendable<RenderableExtension<Car>> by extensionDataContainer, PersistentBy<SavedCarV1> {
 
-    private val publicationOwnerStream = AtomicReference<UUID?>()
+    private val trainOwner = AtomicReference<CoreTrain?>()
+
+    override val train: Train? get() = trainOwner.get()
 
     /** Atomic implementation-only render ownership proof; process-local and never persisted. */
-    fun isOwnedByPublicationStream(streamId: UUID): Boolean = publicationOwnerStream.get() == streamId
+    fun isOwnedByPublicationStream(streamId: UUID): Boolean = trainOwner.get()?.publicationStreamId == streamId
 
-    internal fun transferPublicationOwnership(streamId: UUID) {
-        publicationOwnerStream.set(streamId)
+    internal fun transferPublicationOwnership(owner: CoreTrain) {
+        trainOwner.set(owner)
     }
 
-    internal fun retirePublicationOwnership(streamId: UUID) {
-        publicationOwnerStream.compareAndSet(streamId, null)
+    internal fun retirePublicationOwnership(owner: CoreTrain) {
+        trainOwner.compareAndSet(owner, null)
     }
 
     /**

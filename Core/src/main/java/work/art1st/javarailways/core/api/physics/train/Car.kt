@@ -16,6 +16,16 @@ interface Car : DynamicRenderable, Extendable<RenderableExtension<Car>> {
     val id: String
 
     /**
+     * Current owning train instance, or null before attachment or after its ownership is retired.
+     * Structural transfer updates this association without replacing the car.
+     *
+     * This non-blocking O(1) identity lookup is safe from any thread. The returned train is live,
+     * not a snapshot: reading it grants no permission to access mutable train state off its owner
+     * thread, and this association may change immediately after it is read.
+     */
+    val train: Train?
+
+    /**
      * Published unit direction followed when the owning train advances by a positive distance.
      *
      * This is live Core physics state. It is deliberately separate from [direction], which is the

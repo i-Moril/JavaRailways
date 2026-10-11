@@ -184,7 +184,7 @@ open class CoreTrain @MainThread internal constructor(
                 emptyList()
             }
             publishedFrameRef.set(captureFrame(revision = 0L, physicsEpoch = 0L))
-            cars.forEach { it.transferPublicationOwnership(publicationStreamId) }
+            cars.forEach { it.transferPublicationOwnership(this) }
         } catch (failure: Throwable) {
             // Only this constructor's registrations are owned here; its caller still owns the cars.
             runCatching { removeController() }.exceptionOrNull()?.let(failure::addSuppressed)
@@ -921,7 +921,7 @@ open class CoreTrain @MainThread internal constructor(
             otherTrain.removeController()
             otherTrain.head.destroy()
             otherTrain.tail.destroy()
-            otherTrain.cars.forEach { it.transferPublicationOwnership(publicationStreamId) }
+            otherTrain.cars.forEach { it.transferPublicationOwnership(this) }
             world.removeTrain(otherTrain)
         }
     }
@@ -1160,7 +1160,7 @@ open class CoreTrain @MainThread internal constructor(
     }
 
     internal fun retirePublicationOwnership() {
-        cars.forEach { it.retirePublicationOwnership(publicationStreamId) }
+        cars.forEach { it.retirePublicationOwnership(this) }
     }
 
     @MainThread

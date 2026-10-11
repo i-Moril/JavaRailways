@@ -2,6 +2,7 @@ package work.art1st.javarailways.core.physics.train
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -22,6 +23,7 @@ class CoreTrainLinkTest {
             val oldStream = follower.publicationStreamId
 
             assertTrue(movedCar.isOwnedByPublicationStream(oldStream))
+            assertSame(follower, movedCar.train)
             assertEquals(2, world.allTrains.size)
             assertEquals(4, rail.trains.size)
 
@@ -30,6 +32,9 @@ class CoreTrainLinkTest {
 
             assertFalse(movedCar.isOwnedByPublicationStream(oldStream))
             assertTrue(movedCar.isOwnedByPublicationStream(lead.publicationStreamId))
+            assertSame(lead, movedCar.train)
+            world.removeTrain(follower)
+            assertSame(lead, movedCar.train, "retiring the old owner must not clear transferred cars")
             assertEquals(listOf("lead"), world.allTrains.map { it.id })
             assertEquals(2, rail.trains.size)
             rail.trains.forEach { end ->
@@ -50,8 +55,10 @@ class CoreTrainLinkTest {
             val car = train.cars.single()
 
             assertTrue(car.isOwnedByPublicationStream(train.publicationStreamId))
+            assertSame(train, car.train)
             world.removeTrain(train)
             assertFalse(car.isOwnedByPublicationStream(train.publicationStreamId))
+            assertNull(car.train)
         } finally {
             world.physicsCoordinator.close()
             (world.tickManager as AutoCloseable).close()
@@ -73,6 +80,7 @@ class CoreTrainLinkTest {
             assertSame(replacement, world.getTrain("reused"))
             assertSame(replacement.publishedFrame, world.drainPublishedTrainFrames().single())
             assertTrue(replacement.cars.single().isOwnedByPublicationStream(replacement.publicationStreamId))
+            assertSame(replacement, replacement.cars.single().train)
         } finally {
             world.physicsCoordinator.close()
             (world.tickManager as AutoCloseable).close()

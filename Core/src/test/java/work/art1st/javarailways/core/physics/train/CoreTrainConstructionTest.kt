@@ -71,6 +71,7 @@ class CoreTrainConstructionTest {
         assertSame(originalFrame, world.drainPublishedTrainFrames().single())
         assertSame(controller, original.controller)
         assertSame(originalCar, original.cars.single())
+        assertSame(original, originalCar.train)
         assertEquals(originalBogieLocations, originalCar.bogies.map { it.location })
         assertEquals(0, destroys.get())
 
@@ -91,6 +92,7 @@ class CoreTrainConstructionTest {
         val destroys = AtomicInteger()
         observeDestruction(car, destroys)
         val bogieLocations = car.bogies.map { it.location }
+        assertNull(car.train)
 
         val failure = assertThrows(CannotCreateTrainException::class.java) {
             CoreTrain("unplaceable", listOf(car), world, emptyMap())
@@ -107,6 +109,7 @@ class CoreTrainConstructionTest {
         assertTrue(world.drainPublishedTrainFrames().isEmpty())
         assertEquals(bogieLocations, car.bogies.map { it.location })
         assertEquals(0, destroys.get())
+        assertNull(car.train)
     }
 
     @Test
@@ -120,6 +123,7 @@ class CoreTrainConstructionTest {
             val destroys = AtomicInteger()
             observeDestruction(car, destroys)
             val bogieLocations = car.bogies.map { it.location }
+            assertNull(car.train)
             val failure = IllegalStateException("extension initialization failed")
             lateinit var failedTrain: CoreTrain
             lateinit var failedController: CountingController
@@ -158,6 +162,7 @@ class CoreTrainConstructionTest {
             assertSame(originalFrame, world.drainPublishedTrainFrames().single())
             assertEquals(bogieLocations, car.bogies.map { it.location })
             assertEquals(0, destroys.get(), "a failed constructor must leave caller-owned cars intact")
+            assertNull(car.train)
 
             val retry = CoreTrain("failed-id", listOf(car), world, emptyMap(), "Failed")
             val retryController = CountingController(retry)
@@ -165,6 +170,7 @@ class CoreTrainConstructionTest {
             assertSame(retry, world.getTrain("failed-id"))
             assertSame(retry, world.getTrain("Failed"))
             assertSame(car, retry.cars.single())
+            assertSame(retry, car.train)
             assertEquals("failed-id", retry.publishedFrame.trainId)
             assertRailEnds(rail, original.head, original.tail, retry.head, retry.tail)
             step(world)

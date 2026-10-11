@@ -30,7 +30,7 @@
 
 正常流程为：取得结构变更准入及已完成epoch → 基础物理校验 → 决策事件 → 汇总拒绝及编组/方向选择 → 准备extension/frame → 一次提交 → 成功事件。插件不能绕过物理校验；准备失败保留原结构、方向、extension、索引及frame。可变草案仅在结构owner线程使用，现有总线不会自动取消，结构owner须显式检查派发失败。
 
-联结事件仍待实现：仅由碰撞产生尝试，插件决定是否联结、主编组及方向，不新增主动`Train.linkWith`入口。“调用方”指插件，不指参与碰撞的列车。未指定主编组时优先选碰撞前唯一静止的一方；必须捕获冻结前事实，不能等两侧均被停住再判断。双方同为静止/运动时的平局规则及失败处置待确认。缺省方向保持主编组实际运营朝向；插件冲突拒绝。车厢JS与动作随车厢保留，见[目标合同](../../bukkit-plugin/backend/car-behavior.md)；不因合并而重建JS或清空开门状态。
+联结事件仍待实现：仅由碰撞产生尝试，插件决定是否联结、主编组及方向，不新增主动`Train.linkWith`入口。“调用方”指插件，不指参与碰撞的列车。未指定主编组时优先选碰撞前唯一静止的一方；必须捕获冻结前事实，不能等两侧均被停住再判断。双方同为静止/运动时的平局规则待确认；用户已批准联结被拒绝或准备失败时回退默认脱轨。缺省方向保持主编组实际运营朝向；插件冲突拒绝。车厢JS与动作随车厢保留，见[目标合同](../../bukkit-plugin/backend/car-behavior.md)；不因合并而重建JS或清空开门状态。
 
 未来SimpleATO只在准备阶段捕获双方运营元数据与稳定车厢/连接面关联，成功后才正式更新记录；准备失败不得先删除另一列数据。元数据内容、保存/恢复协议及运用分配由SimpleATO另行设计，Core不新增时刻表字段，也不假定解编必然恢复旧运用。
 
@@ -90,7 +90,7 @@ head-forward mission route前面，以满足Basic“冻结路线从物理车尾�
 
 完整删除由`CoreTrain.destroy()`拥有：deferred structural task → remove controller → destroy head/tail/cars/extensions → `world.removeTrain(this)`。`World.removeTrain`只删index并退休process-local render ownership proof，不能独立代表destroy。
 
-每个runtime `CoreTrain`另有不持久化的publication stream UUID；每个`CoreCar`用原子引用保存当前stream owner，供平台region线程在不读取live train集合时拒绝迟到render task。构造完整成功后绑定cars；link把被并入cars转移到survivor后再移除旧train；split的新`CoreTrain`构造负责取得其cars；任何`CoreWorld.removeTrain`按exact旧token退休仍属于该train的cars，因此已经转移的cars不会被旧owner清空。该token不改变link/split事务语义，也不是公开`core.api`、epoch或schema version。
+每个runtime `CoreTrain`持有不持久化的publication stream UUID；`CoreCar`只用一个`AtomicReference<CoreTrain?>`保存当前owner，公开`Car.train`读取同一引用，render proof从该owner派生UUID，不维护两份归属或全世界索引。构造完整成功后才绑定cars；prepare失败保留旧owner；link转移后移除旧train，split新构造取得其cars。`CoreWorld.removeTrain`按exact旧train实例CAS退休，仅清除仍属自己的car；已转移或同ID替换不受影响。查询/转移均O(1)，整列绑定沿用原cars遍历。原用例覆盖构造/解编失败及成功、旧owner退休和同ID重建；不改变旧link事务、epoch或存档语义。
 
 ## 构造与失败清理
 

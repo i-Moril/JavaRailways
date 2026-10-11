@@ -334,10 +334,12 @@ class CoreTrainSplitTest {
             assertTrue(train.publishedFrame.sweptSpans.isNotEmpty())
             assertTrue(separated.publishedFrame.sweptSpans.isNotEmpty())
             train.cars.forEach { car ->
+                assertSame(train, car.train)
                 assertTrue(car.isOwnedByPublicationStream(train.publicationStreamId))
                 assertFalse(car.isOwnedByPublicationStream(separated.publicationStreamId))
             }
             separated.cars.forEach { car ->
+                assertSame(separated, car.train)
                 assertFalse(car.isOwnedByPublicationStream(train.publicationStreamId))
                 assertTrue(car.isOwnedByPublicationStream(separated.publicationStreamId))
             }
@@ -352,6 +354,10 @@ class CoreTrainSplitTest {
             assertEquals(setOf(train.id, separated.id), mailboxFrames.keys)
             assertSame(train.publishedFrame, mailboxFrames[train.id])
             assertSame(separated.publishedFrame, mailboxFrames[separated.id])
+
+            world.removeTrain(train)
+            train.cars.forEach { assertNull(it.train) }
+            separated.cars.forEach { assertSame(separated, it.train) }
         }
 
     @Test
@@ -698,7 +704,10 @@ class CoreTrainSplitTest {
             extensionSlots.forEachIndexed { index, extension ->
                 assertSame(extension, train.extensionDataContainer.extensionData[index])
             }
-            cars.forEach { car -> assertTrue(car.isOwnedByPublicationStream(train.publicationStreamId)) }
+            cars.forEach { car ->
+                assertSame(train, car.train)
+                assertTrue(car.isOwnedByPublicationStream(train.publicationStreamId))
+            }
         }
 
         companion object {

@@ -14,10 +14,12 @@
 
 ### 批次3调整：每车JS与碰撞触发联结（2026-10-11）
 
+- 用户已批准本批同时实施Bukkit每车JS改造与必要Core支持，并批准碰撞联结被拒绝/准备失败回退默认脱轨；双方同为静止/运动的主编组平局规则仍待确认，不阻塞每车行为前置。
+- [x] Core归属前置：新增`Car.train`只读身份查询；唯一原子owner替代单独stream UUID存储，渲染proof派生，构造成功/结构转移绑定，exact-instance CAS退休。复用6文件既有用例补断言，不增加测试数量，不涉及存档、JS或旧link算法。独立源码审查通过；定向测试32秒；Core/Basic/BukkitPlugin/TunnelBridgeBuilder完整回归及Core Dokka强制重跑通过，1126项（349/385/361/31），零失败/错误/跳过，2分21秒，41任务全部执行。cache使用`/workspace/.gradle`，offline/no-build-cache/no-parallel/rerun-tasks，禁用Kotlin incremental并使用in-process编译；既有构建警告仍存在。未部署，不能代替游戏验证。
 - [x] 记录用户决定及[目标合同/伪代码](../../spec/bukkit-plugin/backend/car-behavior.md)：每节车厢独立JS，复用CarExtension和现有运行时代码，结构变更保留双方状态及已接受动作。此次仅文档，不宣称实现完成。
-- [ ] 第一笔实现：迁移JS归属和车厢作用域action/sound，列车操作捕获固定目标及物理门侧、逐车调度并汇总；复用现有behavior/actions解析，先核对混包、快照和全部调用端，不另建并行JS引擎/loader。
-- [ ] 第二笔实现：完成延迟效果/完成结果与销毁卸载处理，验证开门中联结/解编不丢状态、不扩散目标，Context不并发；以实际可独立验证的边界调整拆分，不先提交未接线的新API充数。
-- [ ] 第三笔实现：collision专用四端联结事务及结果消费；捕获冻结前静止事实用于默认主编组，不增加主动Train.linkWith入口。主编组平局与失败处置需先冻结；此前“controller优先”和“调用列车优先”建议撤回。
+- [ ] Bukkit完整纵向迁移：JS归属、车厢action/sound、固定目标及物理门侧、逐车调度汇总、延迟效果完成与卸载销毁共同切换；不得提交“每车JS但延迟动作仍作用于整个列车”的半套运行时。复用现有Graal、CarExtension和解析，不另建引擎/loader。具体复用边界、调用端与验证见[实现研究](./research/car-behavior-implementation-plan.md)。
+- 当前数据门禁：混合编组需要保留每车来源包的脚本快照引用，现有车厢模型快照不含behavior/actions。格式改动前依原任务约定核对真实开发服一致存档；已询问本地副本路径或只读SSH目标/数据目录，尚未取得样本。Bukkit运行时代码尚未改动，不用主编组脚本回退或FOLLOW_PACKAGE-only临时实现替代。
+- [ ] 第三笔实现：collision专用四端联结事务及结果消费；捕获冻结前静止事实用于默认主编组，不增加主动Train.linkWith入口。主编组平局需先冻结，失败回退默认脱轨已批准；此前“controller优先”和“调用列车优先”建议撤回。
 - 验证要求：每笔独立审查，车辆行为批运行BukkitPlugin及其适配consumer回归；Core入口切换运行Core/Basic及七模块门禁。无需为本次纯文档重跑Gradle，不复用11a73930的1973项结果冒充本批测试。CR-030及整体审查保持开放。
 - 本次文档独立审查通过，按发现明确每车须汇总所有已接受效果，不能在第一条延迟效果后提前完成；当前完成时点仍按既有最晚效果启动边界，不冒称完整动画结束。限定路径空白检查、local link target检查及20+20条上下文校验通过；无产品代码、存档或版本改动。
 
@@ -25,7 +27,7 @@
 
 - [x] 修复已确认的准入缺口：捕获/等待ticket并不能阻止timer随后开启新epoch。新增coordinator内部词法作用域，先关新epoch准入并捕获ticket，锁外等待和执行结构操作，finally释放临时准入；不复用或恢复永久shutdown状态。本批仅接入现有解编，旧联结入口不切换。
 - 此前置不决定新的联结业务策略，不改存档、controller算法或所有维护入口。[当前联结研究](./research/core-link-current-contract.md)按`bd29118a`重新核实四端映射、extension union及Bukkit退休runtime/迟到动作处理；旧研究的已撤回建议不再用作实现依据。
-- 历史待决清单已由上方批次3调整取代：当前已确认静止一方优先及每车JS保留，不再询问是否销毁/重建列车JS。仍待主编组平局和collision联结失败处置；四端、停车接触、无吸附和事件两阶段已批准。
+- 历史待决清单已由上方批次3调整取代：当前已确认静止一方优先及每车JS保留，不再询问是否销毁/重建列车JS。仍待主编组平局；collision联结失败回退默认脱轨、四端、停车接触、无吸附和事件两阶段已批准。
 - 独立trellis-check复核通过；按发现修正并发测试失败清理顺序，以及文档对等待交错证明力度的表述。新增7项执行：作用域内timer/main wake阻断及恢复、action异常、shutdown/stall/close不复活、真实split成功/veto（含决策/extension准备/成功通知中的timer触发）。等待位于锁外由源码审查确认，不宣称测试确定性覆盖每次await阻塞交错；未新增压力/游戏验证。
 - 验证：定向Coordinator/Split测试通过（45秒）；修正测试清理后强制重跑七模块，1973项（Core349、Basic385、SimpleATO352、SimpleATOBukkit8、SimpleSignals487、BukkitPlugin361、TunnelBridgeBuilder31），零失败/错误/跳过，3分48秒，54 tasks全执行。使用`GRADLE_USER_HOME=/workspace/.gradle`、offline/no-build-cache/no-parallel/rerun-tasks，禁用Kotlin incremental并采用in-process编译。既有依赖/弃用警告仍存在；本批无公开API或存档变化、未部署。上下文19+19条校验及限定路径`git diff --check`通过；CR-030及整个审查任务仍开放。
 

@@ -44,6 +44,7 @@ class CoreTrainDerailEventTest {
             val train = createTrainWithConfig("physics-event", rail, world, listOf(10.0))
             val initialHead = train.headLocation
             val initialTail = train.tailLocation
+            val initialBogieLocation = train.headBogie.location
             // A 100 m movement runs the head bogie beyond the unconnected end of this rail.
             train.setController(MockTrainController(train, world, constantSpeed = 2000.0))
             val listener = DerailCounter()
@@ -55,7 +56,13 @@ class CoreTrainDerailEventTest {
 
                 assertTrue(train.isDerailed)
                 assertTrue(train.publishedFrame.derailed)
-                assertEquals(BogieException::class.java.name, train.derailReason)
+                val reason = requireNotNull(train.derailReason)
+                assertTrue(reason.contains("train=${train.id}"), reason)
+                assertTrue(reason.contains("deltaSMeters=100.0"), reason)
+                assertTrue(reason.contains(BogieException::class.java.name), reason)
+                assertTrue(reason.contains("published rail=${rail.id}"), reason)
+                assertTrue(reason.contains("facing=${initialBogieLocation.facing}"), reason)
+                assertTrue(reason.contains("arcLengthMeters=${initialBogieLocation.arcLength}"), reason)
                 assertEquals(ticket.epoch, train.publishedFrame.physicsEpoch)
                 assertEquals(initialHead, train.headLocation)
                 assertEquals(initialTail, train.tailLocation)

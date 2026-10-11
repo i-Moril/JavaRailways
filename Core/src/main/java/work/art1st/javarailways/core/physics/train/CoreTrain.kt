@@ -275,7 +275,7 @@ open class CoreTrain @MainThread internal constructor(
             pendingTailTraversal = traversalSnapshots(tailTraversal)
         } catch (e: PhysicsException) {
             updateActiveMotion(0.0)
-            markDerailedFromPhysics(e.toString())
+            markDerailedFromPhysics("Train movement failed: train=$id, deltaSMeters=$deltaS: $e")
         }
     }
 

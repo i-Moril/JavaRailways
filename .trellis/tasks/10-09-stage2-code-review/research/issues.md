@@ -322,6 +322,7 @@
 
 - P2/P3；扩展CR-002/007/020，不重复宣称已修。
 - 错误诊断丢message/cause/context；可用frame/占用语义KDoc不符；train-physics遗漏实际bogie/coupler二分原理；持久化把目标预校验写成现状。`Train.cars`已在CR-021明确为稳定编组/持久化顺序，并用公开`isReversed`/`operatingCars`表达运营顺序，不再是本项开放问题。
+- 诊断局部修复（2026-10-11）：`BogieException`与`InvalidActiveRailException`保留原构造签名，将传入对象的必要值复制为message；前者明确为published而非active位置。运动失败脱轨原因附列车ID/请求距离并保留类型与消息；原脱轨/非法选支路回归加强，验证见implement对应批次。未批量更改其他异常或宣称完整cause诊断治理完成。
 - 两处结构准备的重复全表扫描已于2026-10-11改为一次sorted seeds与capture局部rail ID map；普通/prepared事务重复的replacement完整性与fault/stall逻辑也已复用现有私有函数，验证见implement对应批次。没有运行耗时profiling，不按行数大拆manager；其余文档/诊断/可读性问题仍开放，本项未整体关闭。
 - 网页模块归属/API范围和性能结论过期；.codeabs含已删路径/TODO。Dokka本轮成功但缺文档和declare链接warning仍在。
 - 测试处置扩展见Core报告：保留真实不变量；改写空跑、回显、复制生产分支和反射锁private实现的测试；废路径测试随实现删除。没有按数量批删依据。

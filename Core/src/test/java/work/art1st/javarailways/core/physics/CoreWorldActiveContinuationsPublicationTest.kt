@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+import work.art1st.javarailways.core.api.physics.exception.InvalidActiveRailException
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.physics.rail.CoreRail
@@ -32,8 +33,21 @@ class CoreWorldActiveContinuationsPublicationTest {
         assertEquals(firstExit, firstFrame.activeContinuations.selectedContinuation(stemEntry))
         assertSame(firstFrame.activeContinuations, unchangedFrame.activeContinuations)
 
+        val failure = assertThrows(InvalidActiveRailException::class.java) {
+            stem.viewAB.selectNextRail(stem.viewBA)
+        }
+        val rejectedMessage = failure.message
+        assertEquals(
+            "Invalid active rail: source=${stem.id}/AB, selected=${stem.id}/BA",
+            rejectedMessage
+        )
+        assertSame(first.viewAB, stem.viewAB.nextActiveRail)
+        val rejectedFrame = publish(world, 3L)
+        assertSame(firstFrame.activeContinuations, rejectedFrame.activeContinuations)
+
         stem.viewAB.activeRail = second.viewAB
-        val changedFrame = publish(world, 3L)
+        val changedFrame = publish(world, 4L)
+        assertEquals(rejectedMessage, failure.message, "later selection must not rewrite captured diagnostics")
 
         assertEquals(secondExit, changedFrame.activeContinuations.selectedContinuation(stemEntry))
         assertTrue(
@@ -45,7 +59,7 @@ class CoreWorldActiveContinuationsPublicationTest {
         assertEquals(firstFrame.topologyRevision, changedFrame.topologyRevision)
 
         stem.viewAB.activeRail = null
-        val unselectedFrame = publish(world, 4L)
+        val unselectedFrame = publish(world, 5L)
         assertNull(unselectedFrame.activeContinuations.selectedContinuation(stemEntry))
     }
 

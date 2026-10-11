@@ -44,6 +44,10 @@ motion-only epoch翻转未写入的geometry槽；两类状态仍在同一个epoc
 
 运动顺序：检查published swept collision → 扫active route signal并同步发event → 解head bogie/cars/tail → 写active buffers/swept spans及两端有序traversal；`PhysicsException`转physics derail。tail从train-local forward path重算，不依赖reverse branch当前selection。
 
+运动失败的脱轨原因保留异常类型与消息，并附列车ID和本次请求距离（米）；它沿原有frame→Main事件链发布，不因诊断改动而重试或改变失败分类。
+`BogieException(Bogie)`在构造时复制转向架已发布位置的rail ID、facing与弧长为字符串，不持有live bogie；该位置不是失败时的active位置，不能用来声称精确故障坐标。比如请求100 m越过线路尽头时，诊断同时说明请求距离和此前已发布位置，而不是只留下异常类名。正常移动不构造这些诊断。
+原因文本供人阅读，不是可解析的稳定错误协议；既有脱轨事件回归须验证上下文可见、frame先发布、事件只发一次，不能仅检查抛异常。
+
 每次正距离移动已经取得head的`peekCurve(deltaS)`有序segments；同一列表同时供signal扫描、swept
 occupancy补全和head traversal publication使用。tail endpoint仍通过既有train-local forward search求解，
 并保留该search的`RailSegments`作为tail traversal；不得从反向`RailView`或移动后的active branch重建。

@@ -61,6 +61,8 @@ fixture使用JOML构造测试几何时，Core以`testFixturesImplementation`声�
 
 这些用例不替代其他未覆盖场景：其余persistence fixture及RailWand完整split/merge事务集成继续跟踪；Basic observation集合复制与有序bodyTraversal已由[Basic测试契约](../basic/testing.md)所列回归覆盖，Basic整模块审查仍未完成。不能因为补了资源关闭就宣称全部publication断言已充分。清理失败必须在没有主失败时暴露，有主失败时作为suppressed附着，不能覆盖原始断言。拓扑锁阻塞回归捕获具体reader线程，并通过内部只读诊断确认该线程已进入`ReentrantReadWriteLock`等待队列后再检查future未完成；单纯在read调用前countDown仍可能在线程被抢占时产生假阳性。
 
+`TrainSlopeMotionTest`保留四节10m车在水平200m、爬升20m直坡上的100个50ms步进，等待关闭fallback的真实coordinator exact ticket后检查同epoch frame。10m/s沿坡速度应发布为`(100, 10, 0) / sqrt(101)`；每节车及两转向架的位移从初始immutable frame出发，与独立坡度解析值比较，不能只断言爬升超过某个下界。车头另按固定初始弧长50m验证每步前进0.5m。本用例验证运动增量，不替代绝对初始摆位测试；setup失败也须关闭caller-owned coordinator，成功后按physics→binding→tick释放并保留主异常。连接坡道接缝由`TrainSlopeJointMotionTest`另行覆盖，不以直坡测试代替。
+
 `CoreTrainPersistenceStateTest`的零距离回归必须用关闭timer fallback的真实coordinator，逐次有界等待exact ticket，并记录controller实际执行次数、frame epoch/revision递增、固定摆位和car/bogie零速度；generic TickManager的pre/postTick不能证明physics controller被执行。恢复用例保留source/restored比较，同时检查fixture独立给定的head/tail/car位置。
 
 `WorldPersistenceRoundTripTest`保留真实Koin child scope的source→JSON→load集成；`SplitWorldSnapshotTest`、`CoreTrainPersistenceStateTest`、`CoreTrainReversedPersistenceTest`与`SavedRailConnectionsTest`使用显式dependency。各测试在创建world以前就拥有tick/coordinator，并覆盖source设置、loaded world构造及断言失败；按physics→world runtime binding→tick顺序释放。`use`负责保留主异常和suppressed清理异常，共享Koin parent不由单项fixture关闭；load失败释放binding但不关闭caller-owned tick/coordinator，fixture必须关闭这些显式dependency。

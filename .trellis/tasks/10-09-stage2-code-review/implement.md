@@ -2,7 +2,7 @@
 
 当前阶段：in_progress。用户于 2026-10-09 批准修复已知问题；2026-10-10进一步批准连续小提交后统一检查，不要求等待全部审查结束才修复已确认项。
 
-最新批次（2026-10-11）：`PrimeCurveTest`五项弧长回显弱测试已替换为三项手写稀疏LINE/DISCRETE位置与frame回归，原两项强用例保留，7项合并为5项；不改生产算法。独立静态检查及完整Core/Basic门禁通过，详见文末。随后仍需处理坡道测试及其余fixture清理；Seat、事件接入、link事务和真实存档迁移不视为已批准。
+最新批次（2026-10-11）：曲线弱测试改写已提交`9d105701`；`TrainSlopeMotionTest`已保留原四车爬坡场景，改为真实物理epoch及独立解析位移/速度断言，补齐setup失败和正常退出的资源清理。独立静态检查和Core/Basic全量门禁通过，生产算法未改，详见文末。其余fixture清理仍待后续；Seat、事件接入、link事务和真实存档迁移不视为已批准。
 
 ## A. 完成审查
 
@@ -433,3 +433,10 @@ env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
 - 手写10m斜直线位移(6,8,0)，独立给定端点、近端点和内部位置；DISCRETE位置/弧长0/5/10m，验证非单位切线归一化、非正交法线投影及45度bank插值；另用正交raw切线的中点45度验证方向插值。样本位置/弧长一致，expected不调用生产插值或生成器。终点保留raw frame的既有行为明确保留，不擅自统一归一化。既有curve-geometry规范已定义这些规则，本批没有新合同，不复制到另一份spec。
 - 独立只读check确认手写数值、合法输入、左右区间/内部节点/边界覆盖及原强用例保留，无需补修；未重复运行Gradle。主会话冻结源码运行`GRADLE_USER_HOME=/workspace/.gradle ./gradlew :Core:test :Basic:test --offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`，`BUILD SUCCESSFUL`（54s、15 tasks全部执行）。新鲜XML Core 54 suites/319项、Basic 59 suites/385项均全执行，零跳过/失败/error；源码前后SHA-256均为`c20d401f31a6de1c4cebc82884c04b942d734c5ea702745d07da9253cc3874e7`。scoped diff-check和task manifest 15+15通过，无独立lint配置，既有warning保留。没有部署或游戏验证，opt-in stress不在普通test门禁中。
 - 本子项闭合，CR-020仍partial：坡道运动用例及其余未配对关闭fixture、RailWand完整split/merge跨层事务集成继续跟踪；Basic整模块审查仍未完成。
+
+### CR-020 直坡运动真实epoch与fixture清理（2026-10-11）
+
+- 仅改`TrainSlopeMotionTest.kt`（54增/18删），仍为原1项四节10m车、水平200m/爬升20m轨道、10m/s、100个50ms步进；删除未使用import，不改生产算法或共享fixture。
+- 原手动controller.tick+train.commit及位移/爬升下界断言改为关闭fallback的真实coordinator，每步有界等待exact ticket，再检查同epoch frame的固定车头弧长、四车及八转向架解析位移和速度、未脱轨。位置增量相对初始immutable frame，独立固定head初始弧长50m；不宣称额外验证了绝对初始车厢/转向架摆位或连接坡道接缝。具体断言方法见[Core测试契约](../../spec/javarailways/core/testing.md)。setup失败关闭caller-owned coordinator，成功后按physics→binding→tick通过use释放，保留主异常/suppressed；失败清理按控制流静态检查，未增加注入hook测试。
+- 独立只读check确认解析期望、exact ticket/发布观察边界及资源owner正确，无需补修，不重复运行Gradle。主会话冻结源码运行`GRADLE_USER_HOME=/workspace/.gradle ./gradlew :Core:test :Basic:test --offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`，`BUILD SUCCESSFUL`（49s、15 tasks全部执行）。新鲜XML Core 54 suites/319项、Basic 59 suites/385项全部执行，零跳过/失败/error；本类1项实际执行通过。源码前后SHA-256均为`9e8194daa6fa9df9a5d62ca968c5d8b63a519879bb2f0a658f9fbb557bf995c3`。scoped diff-check及task manifest 15+15通过，既有warning保留，无独立lint配置；没有部署、游戏或opt-in stress验证。
+- 本子项闭合，CR-020其余world fixture、接缝运动测试的发布断言及RailWand完整事务集成仍未全部完成；Basic整模块审查仍待推进，不归档全项目审查任务。

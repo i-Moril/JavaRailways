@@ -24,11 +24,9 @@ import kotlin.math.absoluteValue
 
 /**
  * 车厢类
- * 车厢视为刚体杆，由若干转向架支撑
+ * 车厢视为刚体杆，当前由首尾两个转向架确定几何状态。
  * |A ---- BogieA --- Car(Centre) --- BogieB --- B|
- * TODO: 计算中间的转向架
- *
- * if (isReversed)： 相信分支预测器
+ * TODO: 尚未实现中间转向架的几何定位。
  */
 class CoreCar @MainThread internal constructor(
     val id: String,
@@ -99,7 +97,7 @@ class CoreCar @MainThread internal constructor(
     private val _position: CommitBuffer<Vector3dc> = CommitBuffer(Vector3d(0.0, 0.0, 0.0))
     override var position: Vector3dc by _position
         private set
-    private val activePositon
+    private val activePosition
         get() = if (geometryPhysicsDirty) _position.getActive() else _position.get()
 
     private val _direction: CommitBuffer<Vector3dc> = CommitBuffer(Vector3d(1.0, 0.0, 0.0))
@@ -147,7 +145,7 @@ class CoreCar @MainThread internal constructor(
     val bogieAToEndPointOffset
         get() = length / 2 - bogieAOffset
 
-    /* Should be negative */
+    /** 转向架 A 在稳定车体坐标中的有符号偏移，默认位于中心的 A 端一侧（正值）。 */
     override val bogieAOffset
         get() = bogiesOffsets.first()
 
@@ -161,7 +159,7 @@ class CoreCar @MainThread internal constructor(
     protected val bogieDistance
         get() = bogieAOffset - bogieBOffset
 
-    /* Should be positive */
+    /** 转向架 B 在稳定车体坐标中的有符号偏移，默认位于中心的 B 端一侧（负值）。 */
     override val bogieBOffset
         get() = bogiesOffsets.last()
 
@@ -398,7 +396,7 @@ class CoreCar @MainThread internal constructor(
 
 
     /**
-     * 此时bogieA已经被更新，根据新值计算下一个bogie的position
+     * 根据已更新的运营头转向架定位运营尾转向架及车体；运营头可能是 A 或 B。
      */
     @Throws(BogieException::class)
     fun updateByHeadBogie(
@@ -423,7 +421,7 @@ class CoreCar @MainThread internal constructor(
         } else {
             prevCar.activeDirection
         }
-        val prevCarTailPosition = getTailPosition(prevCar.activePositon, prevCarTailToHeadDirection, prevCar.length)
+        val prevCarTailPosition = getTailPosition(prevCar.activePosition, prevCarTailToHeadDirection, prevCar.length)
         val couplerLength = activeHeadConnectorLength + prevCar.activeTailConnectorLength
         val currentHeadEndToTailBogieDistance = length - activeTailBogieToEndPointOffset
         val tailBogieSearchDistance =

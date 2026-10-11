@@ -11,6 +11,8 @@ import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossi
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange
+import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.World
@@ -36,8 +38,10 @@ import work.art1st.javarailways.core.physics.rail.PreparedRailCreationBatch
 import work.art1st.javarailways.core.physics.rail.PreparedRailCreationRejectedException
 import work.art1st.javarailways.core.physics.rail.PreparedRailCreationRejectionReason
 import work.art1st.javarailways.core.physics.rail.PreparedRailConnectionPlan
+import work.art1st.javarailways.core.physics.rail.PreparedRailEndpointConnection
 import work.art1st.javarailways.core.physics.rail.PreparedRailTopologyUpdate
 import work.art1st.javarailways.core.physics.rail.PreparedRailWorldSnapshotPlan
+import work.art1st.javarailways.core.physics.rail.topologyAffectedRails
 import work.art1st.javarailways.core.physics.rail.topology.CoreTopologyInputAdapter
 import work.art1st.javarailways.core.physics.rail.topology.TopologyInput
 import work.art1st.javarailways.core.physics.rail.topology.TopologyInputRail
@@ -49,6 +53,8 @@ import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import java.util.LinkedHashMap
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
@@ -70,8 +76,7 @@ class CoreWorld(
     private val railTopologyLock = ReentrantReadWriteLock()
     private val activeRailSelectionLock = Any()
     private val railTopologyTransactionContext = ThreadLocal<RailTopologyTransactionContext?>()
-    private val topologyListeners = java.util.concurrent.CopyOnWriteArrayList<
-        work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener>()
+    private val topologyListeners = CopyOnWriteArrayList<RailTopologyChangeListener>()
     private val trainsByName = ConcurrentHashMap<String, CoreTrain>()
     val runtimeId: String = UUID.randomUUID().toString()
     private val worldContextRegistration: WorldContextRegistration
@@ -462,7 +467,7 @@ class CoreWorld(
     @JvmSynthetic
     fun capturePreparedRailConnectionPlan(
         preparedBatch: PreparedRailCreationBatch,
-        finalConnections: Collection<work.art1st.javarailways.core.physics.rail.PreparedRailEndpointConnection>
+        finalConnections: Collection<PreparedRailEndpointConnection>
     ): PreparedRailConnectionPlan = railTopologyLock.read {
         ensureTopologyHealthy()
         PreparedRailConnectionPlan.captureLocked(this, preparedBatch, finalConnections)
@@ -472,11 +477,8 @@ class CoreWorld(
     @JvmSynthetic
     fun capturePreparedRailConnectionPlan(
         preparedBatch: PreparedRailCreationBatch,
-        replacementEndpoints: Map<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef,
-            work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef>,
-        addedConnections: Collection<Pair<
-            work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef,
-            work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef>>
+        replacementEndpoints: Map<RailEndpointRef, RailEndpointRef>,
+        addedConnections: Collection<Pair<RailEndpointRef, RailEndpointRef>>
     ): PreparedRailConnectionPlan = railTopologyLock.read {
         ensureTopologyHealthy()
         PreparedRailConnectionPlan.captureExplicitLocked(
@@ -523,14 +525,11 @@ class CoreWorld(
         baseInput: TopologyInput,
         removedRailIds: Set<UUID>,
         addedRailCurves: Map<UUID, PrimeCurve>,
-        finalConnections: Map<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef,
-            Set<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef>>,
-        finalConnectionOrder: Map<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef,
-            List<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef>>,
-        finalActiveEndpoints: Map<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef,
-            work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef?>,
-        rawBaseCrossings: List<work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing>,
-        addedCrossings: List<work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing>
+        finalConnections: Map<RailEndpointRef, Set<RailEndpointRef>>,
+        finalConnectionOrder: Map<RailEndpointRef, List<RailEndpointRef>>,
+        finalActiveEndpoints: Map<RailEndpointRef, RailEndpointRef?>,
+        rawBaseCrossings: List<AtGradeRailCrossing>,
+        addedCrossings: List<AtGradeRailCrossing>
     ): PreparedRailTopologyUpdate {
         check(baseInput.revision == baseRoot.revision)
         require(addedRailCurves.keys.intersect(removedRailIds).isEmpty())
@@ -538,8 +537,7 @@ class CoreWorld(
         require(finalConnectionOrder.keys == finalConnections.keys)
         val targetRailIds = (baseInput.rails.mapTo(linkedSetOf(), TopologyInputRail::id) - removedRailIds) +
             addedRailCurves.keys
-        val continuations = linkedMapOf<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef,
-            MutableSet<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef>>()
+        val continuations = linkedMapOf<RailEndpointRef, MutableSet<RailEndpointRef>>()
         baseInput.continuations.forEach { (endpoint, targets) ->
             if (endpoint.railId !in removedRailIds) {
                 continuations[endpoint] = targets.filterTo(linkedSetOf()) { it.railId !in removedRailIds }
@@ -561,35 +559,29 @@ class CoreWorld(
                 crossing.first.railId in removedRailIds || crossing.second.railId in removedRailIds
             } + addedCrossings
         )
-        val expectedConnections = linkedMapOf<
-            work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef,
-            Set<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef>
-            >()
+        val expectedConnections = linkedMapOf<RailEndpointRef, Set<RailEndpointRef>>()
         baseInput.continuations.forEach { (endpoint, targets) ->
             if (endpoint.railId !in removedRailIds && targets.any { it.railId in removedRailIds }) {
                 expectedConnections[endpoint] = targets.filterTo(linkedSetOf()) { it.railId !in removedRailIds }
             }
         }
         addedRailCurves.keys.forEach { railId ->
-            work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint.entries.forEach { endpoint ->
+            RailEndpoint.entries.forEach { endpoint ->
                 expectedConnections.putIfAbsent(
-                    work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef(railId, endpoint),
+                    RailEndpointRef(railId, endpoint),
                     emptySet()
                 )
             }
         }
         expectedConnections.putAll(finalConnections)
-        val expectedCrossings = linkedMapOf<
-            work.art1st.javarailways.core.physics.rail.AtGradeRailCrossingIndex.RailPair,
-            work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing?
-            >()
+        val expectedCrossings = linkedMapOf<AtGradeRailCrossingIndex.RailPair, AtGradeRailCrossing?>()
         rawBaseCrossings.asSequence()
             .filter { crossing ->
                 crossing.first.railId in removedRailIds || crossing.second.railId in removedRailIds
             }
             .forEach { crossing ->
                 expectedCrossings[
-                    work.art1st.javarailways.core.physics.rail.AtGradeRailCrossingIndex.RailPair.of(
+                    AtGradeRailCrossingIndex.RailPair.of(
                         crossing.first.railId,
                         crossing.second.railId
                     )
@@ -597,7 +589,7 @@ class CoreWorld(
             }
         addedCrossings.forEach { crossing ->
             expectedCrossings[
-                work.art1st.javarailways.core.physics.rail.AtGradeRailCrossingIndex.RailPair.of(
+                AtGradeRailCrossingIndex.RailPair.of(
                     crossing.first.railId,
                     crossing.second.railId
                 )
@@ -788,20 +780,20 @@ class CoreWorld(
             )
         }
 
-        val endpointsToApply = LinkedHashSet<work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef>().apply {
+        val endpointsToApply = LinkedHashSet<RailEndpointRef>().apply {
             addAll(plan.changedExistingEndpoints)
             plan.createdOrReplacedRailIds.forEach { railId ->
-                work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint.entries.forEach { endpoint ->
-                    add(work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef(railId, endpoint))
+                RailEndpoint.entries.forEach { endpoint ->
+                    add(RailEndpointRef(railId, endpoint))
                 }
             }
             toList().forEach { endpoint ->
                 plan.targetEndpointStates.getValue(endpoint).connectedEndpoints.forEach(::add)
             }
         }
-        fun view(endpoint: work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef): RailView {
+        fun view(endpoint: RailEndpointRef): RailView {
             val rail = requireNotNull(rails[endpoint.railId]) { "missing snapshot target rail ${endpoint.railId}" }
-            return if (endpoint.endpoint == work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint.A) {
+            return if (endpoint.endpoint == RailEndpoint.A) {
                 rail.viewBA
             } else rail.viewAB
         }
@@ -979,9 +971,9 @@ class CoreWorld(
                     val changed = (oldEntries.keys + newEntries.keys).filterTo(linkedSetOf()) {
                         oldEntries[it] != newEntries[it]
                     }
-                    notifyTopologyChange(work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange(
+                    notifyTopologyChange(RailTopologyChange(
                         publishedTopologyState, candidate,
-                        work.art1st.javarailways.core.physics.rail.topologyAffectedRails(publishedTopologyState, candidate, changed)
+                        topologyAffectedRails(publishedTopologyState, candidate, changed)
                     ))
                     publishedTopologyState = candidate
                 }
@@ -1128,14 +1120,14 @@ class CoreWorld(
         get() = publishedTopologyState
 
     override fun registerTopologyChangeListener(
-        listener: work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener
+        listener: RailTopologyChangeListener
     ): AutoCloseable {
         railTopologyLock.read { topologyListeners.add(listener) }
-        val closed = java.util.concurrent.atomic.AtomicBoolean()
+        val closed = AtomicBoolean()
         return AutoCloseable { if (closed.compareAndSet(false, true)) topologyListeners.remove(listener) }
     }
 
-    private fun notifyTopologyChange(change: work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange) {
+    private fun notifyTopologyChange(change: RailTopologyChange) {
         topologyListeners.forEach { it.onTopologyChange(change) }
     }
 

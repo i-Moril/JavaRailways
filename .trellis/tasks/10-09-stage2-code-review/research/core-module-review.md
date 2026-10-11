@@ -49,11 +49,11 @@
 
 总体：CoreWorld/CoreTrain负责各自权威状态，publication和prepared edit已有明确边界；不能只按1478/841行判面条代码。真正应治理的是失败事务、废弃平行路径和重复验证。
 
-- CoreWorld原有普通/prepared事务重复的replacement完整性校验与fault/stall处理已复用现有私有函数（2026-10-11，验证见implement记录）；两条路径各自的恢复判断保持不变。冗长fully-qualified类型和其他结构提交可读性仍可局部整理，不适合新增几个共同修改同一状态的manager。
+- CoreWorld原有普通/prepared事务重复的replacement完整性校验与fault/stall处理已复用现有私有函数（2026-10-11，验证见implement记录）；两条路径各自的恢复判断保持不变。随后重复全限定名也已整理为imports/短名，未改事务表达式或顺序；其他结构提交可读性仍可局部整理，不适合新增几个共同修改同一状态的manager。
 - split/link缺少同一结构事务；“先mutation、再排任务、异常藏在Future”比文件长度更值得修。
 - 旧RailTopologyEditor split/merge还保留全world复制/rollback，但正式Wand已使用prepared方案。应先删除废路径，而非重构两套算法。
 - **CR-033，两处重复扫描已修复（2026-10-11，验证见implement记录）**：`TopologyStateBuilder`连通分量起点一次按原key排序并跳过已访问组；`PreparedRailConnectionPlan`用capture局部rail ID map查prepared端点。不新增长期catalog，不改变确定性ID、连接选择或校验顺序。这是结构编辑路径，未做耗时profiling，不宣称每tick或实际毫秒收益。
-- `CoreCar`车内/车间求解已分函数并有公式注释，但offset正负注释与实际默认相反；activePositon拼写、残缺注释和废SavedCar代码应机械整理。
+- `CoreCar`车内/车间求解已分函数并有公式注释；后续已修正offset正负、运营头说明及私有`activePositon`拼写（2026-10-11），中间转向架尚未实现的说明保留，不把注释整理冒充功能实现。废SavedCar代码已在机械清理批次处理；当前状态与证据以台账/implement为准。
 - `spansFromLocations`对bogie/端点有双重循环；render-publication复杂度应明确只描述新增frame/traversal阶段，不暗示整个move都是线性。
 - 公开Bogie泄漏实现RailLocationWithFacing仍是API债，现有Core源码不包含Java实现；不能为了Kotlin风格删除有意保留的下游Java consumer。
 

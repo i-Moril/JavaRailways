@@ -89,12 +89,27 @@ class CoreTrainPersistedPlacementTest {
 
         val expectedReason = when (corruption) {
             "swapped-bogies" -> "bogies out of order"
-            "bogie-spacing" -> "bogie arc spacing"
+            "bogie-spacing" -> "bogie connector spacing"
             "head-offset" -> "head endpoint offset"
             "tail-offset" -> "tail endpoint offset"
             else -> "outside its tail-to-head path"
         }
         assertRejectedWithoutRegistrations(world, invalid, original, expectedReason)
+    }
+
+    @Test
+    fun `an interior car gap is rejected even when axle spacing and path order remain valid`() = withWorld { world ->
+        val rail = world.createRailForTest(straight(0.0, 300.0))
+        val original = configuredTrain(world, rail, "original")
+        val saved = original.save().copy(id = "invalid", name = "Invalid")
+        val middle = saved.cars[1]
+        fun shifted(bogie: SavedBogieV1) = bogie.copy(location = bogie.location.copy(
+            arcLengthInCurveAB = bogie.location.arcLengthInCurveAB + 0.1
+        ))
+        val invalid = saved.copy(cars = listOf(saved.cars.first(), middle.copy(
+            bogieA = shifted(middle.bogieA), bogieB = shifted(middle.bogieB)
+        ), saved.cars.last()))
+        assertRejectedWithoutRegistrations(world, invalid, original, "adjacent coupler geometry")
     }
 
     @ParameterizedTest

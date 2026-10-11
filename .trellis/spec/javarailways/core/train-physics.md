@@ -78,13 +78,37 @@ Core没有能撤销任意插件外部副作用的通用协议，因此`TrainExte
 
 运营层今后可以在车辆/编组元数据中声明固定可分割连接面，并在调用Core前加上运用、车型或玩家权限检查。本批只提供物理层稳定car ID分割原语，不实现SimpleATO元数据或规则。
 
-## 存档摆位恢复与当前缺口
+## 三维刚体约束与局部距离求解
+
+CoreCar 拥有车内和车间几何求解。正常运行时 controller 先移动首节车的前转向架，CoreCar 固定这个新位置，求后转向架，再按运营顺序逐车满足车钩约束；后车纠偏不能反推或重建领车目标。显式摆位与恢复采用同一车体中心规则。
+
+车内约束使用连接点 `location.position + location.normal * floorHeight` 的三维直线距离，等于 `bogieAOffset - bogieBOffset`；不能用轨道弧长代替。车体中心统一从运营前转向架连接点，沿后→前的连接点弦方向减去相应前端配置偏移。正反向仅选择不同端点和偏移，不改变配置距离的意义。车间约束为两个车体端点的三维距离等于两端 connector length 之和，纵向投影仅用于辨认正确侧。
+
+### 本次解算的路径与候选
+
+每次解算捕获一个有序 RailSegments，并以累计弧长查询其中候选位置；内层车内求解复用外层同一条前向路径，不重新读取反向道岔选择。运行时先按上一位置加 deltaS 预测；后续车的内层轴距预测复用上一 tick 的轨道间距。若必须向后纠正，范围严格限制在上一转向架所在 RailView 的当前轨道内，以直接弧长定位，不能跨 reverse turnout。
+
+私有 `solveDistance(maximumDistance, prediction, tolerance, sample, condition)` 先验证预测候选的实际残差；不满足时从附近扩张区间，初始半径为 max(0.01m, |残差|)，每次加倍至捕获路径边界。找到异号区间后最多迭代60次：割线落在区间中间80%内时采用割线，否则取中点，保持区间收缩。候选连同已计算的几何和残差保存，命中时复用结果。只有有限残差满足精度才能成功，步长很小或耗尽次数不能视为收敛。该局部根搜索依赖目标附近连续、可包围的距离条件，不是任意自交线路上的全局最近根证明。用户明确将轴距接近曲线直径的极紧曲线排除本次支持范围；不为其非单调窄根区间增加特殊扫描，找不到可验证的根则明确失败。
+
+内层轴距容差为1e-6m，外层车钩为1e-5m，均小于最终公开几何容差 Curve.TOLERANCE=5mm；严格内层精度减少锚点换向后的中心误差。在有限线路末端，先用实际连接点距离求出最后可行尾转向架候选，不能只按名义轴距弧长裁剪，否则外层试探可能越过可解区间。
+
+候选几何计算不修改 CommitBuffer 或 dirty 标志；成功应用后才设置 geometryPhysicsDirty，运动状态保持原有独立 dirty/publication 合同。无包围区间、不满足残差或不能到达目标时抛既有 BogieException，运行入口沿 PhysicsException→derail 边界处理，不将求解失败标为成功；这不新增整个编组运动的事务回滚保证。
+
+### 计算成本、边界与验证
+
+每次曲线坐标查询仍为 O(log P)，候选路径定位为 O(K)，P为轨道采样点数、K为本次跨越段数。轴距搜索与车钩搜索仍可能嵌套；预测命中可减少次数，最坏成本包含扩张和60次区间修正，不能宣称单车严格 O(1)。所有缓存只属于本次求解，不跨 tick 或拓扑更新保留。
+
+直线匀速时预测通常直接满足残差；R30/6m轴距反例必须求真实弦长；S弯、坡道、normal/floorHeight、非对称偏移、零车钩、换向及有限轨道末端均须验证。新增 `CoreTrainRigidGeometryTest` 用真实 epoch 检查实际连接点间距、两端配置偏移、车钩长度/侧、精确领车目标及加载中心一致性，不能通过扩大5mm容差掩盖误差。
+
+## 存档摆位恢复
 
 `restorePersistedPlacement`先验证保存的位置，再恢复derived car state和车端；不重新摆车来覆盖损坏输入。它复用body publication的`placementSegments(savedTail, savedHead)`：沿tail→head的active path一次展开，不能从head反向沿当前道岔选择重算，因为两个方向的选择可以不对称。
 
-单调cursor按operating顺序从车尾向车头扫描各车tail/head bogie，要求exact `RailView`身份（包含facing）、位置落在该segment且距离不倒退；累计segment弧长得到统一路径距离。车内两bogie间距按配置的**轨道弧长**校验，不能拿曲线两点的欧氏弦长代替；首尾bogie到saved endpoint的offset也以同一距离校验，误差均不超过`Curve.TOLERANCE`（5 mm）。除已有路径展开外只顺序访问一次segments/bogies，校验在load执行，不增加正常tick扫描。失败交回既有failed-load清理，不改变调用方的合法精确位置。
+单调cursor按operating顺序从车尾向车头扫描各车tail/head bogie，要求exact RailView身份（包含facing）、位置落在该segment且距离不倒退。累计弧长只证明路径顺序及首尾bogie到saved endpoint的沿轨offset；车内间距按上述三维连接点距离校验。随后按相同前连接点锚定规则计算各车中心，校验相邻车体端点距离与车钩前后侧；各项允许误差不超过 Curve.TOLERANCE（5mm）。内部某车整体平移而保持轴距/顺序的损坏输入必须因车钩不符而拒绝。
 
-**仍未实现完整相邻车钩几何验证。** SavedCar只保存bogie及配置，没有记录当时以head或tail恢复车体中心的求解锚点；现有运动/换向与restore使用锚点不同，合法曲线还原也可能产生大于5 mm的车钩残差。因此路径顺序及车内间距正确仍不能证明相邻车相接，内部某车平移而保持顺序的损坏输入可能被接受。解决中心还原的一致性后才能关闭此缺口；不得加宽车钩容差或声称当前load已完成整编组预校验。
+除既有路径展开外，只顺序访问一次segments/bogies/cars；这些校验在load执行，不增加正常tick扫描。失败沿既有failed-load清理，合法保存的bogie/车端精确位置保留；这不代表整个多列车world materialization失败可原子回滚。
+
+存档字段及格式版本不变，也不保留旧弧长近似的运行时兼容分支；如需保留旧开发数据，应另行提供可审计、dry-run且保留恢复点的离线迁移。错误做法是用按弧长放置的旧数据证明新刚体合法，或先移动保存位置再静默接受；正确做法是在当前模型边界校验实际几何，并明确拒绝不一致输入。
 
 ## Collision、derail、reverse矩阵
 
@@ -142,7 +166,7 @@ override fun destroy() {
 - `PhysicsCoordinatorTest.kt`：stationary collision、pair once、next-epoch decision。
 - `CoreTrainDerailEventTest.kt`、`CoreTrainPublicationBoundaryTest.kt`：publication before event/getter。
 - `CoreTrainConstructionTest.kt`：直接构造/存档加载的ID、name及交叉命名空间拒绝不污染world/rail索引；tail无法放置不注册head；extension初始化失败清理车端和controller、保留原列车及调用方cars，并允许同身份成功重试。
-- `CoreTrainPersistedPlacementTest.kt`：固定损坏车端JSON；脱节/重排/错误rail或facing、bogie弧长及两端offset拒绝并保持原world/rail/frame/mailbox；合法直线/曲线AB与BA、非对称道岔精确位置保留。相邻车钩缺口不能计作已覆盖。
+- `CoreTrainPersistedPlacementTest.kt`：固定损坏车端JSON；脱节/重排/错误rail或facing、bogie连接点距离及两端offset拒绝并保持原world/rail/frame/mailbox；合法直线/曲线AB与BA、非对称道岔精确位置保留。内部车厢整体平移而保持顺序/轴距时，因相邻车钩不符而拒绝。
 - 新link/split/destroy变更必须断言cars、ends、controller、world indexes和extensions全量cleanup。
 
 ```bash

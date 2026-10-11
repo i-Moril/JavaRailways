@@ -1,0 +1,4 @@
+git_revision,track_shape,scenario,train_count,cars_per_train,worker_threads,repetition,warmup_epochs,measurement_epochs,wall_p50_ms,wall_p95_ms,wall_p99_ms,wall_max_ms,worker_max_p95_ms,worker_total_p95_ms,coordinator_p95_ms,average_spans,average_bucket_refs,average_candidate_checks,mailbox_peak,budget_ms,passed
+00a44abd16c284a2ec7f908a650637f70aeeebd3,curved,shared,500,15,4,1,200,1000,22.610132,29.941001,32.549208,52.10526,17.707823,66.165473,13.443229,500.0,2854.157,868.031,500,50.0,true
+00a44abd16c284a2ec7f908a650637f70aeeebd3,curved,shared,500,15,4,2,200,1000,21.221936,29.583016,41.832344,80.964809,16.929229,64.308927,14.105343,500.0,2854.157,868.031,500,50.0,true
+00a44abd16c284a2ec7f908a650637f70aeeebd3,curved,shared,500,15,4,3,200,1000,20.457352,31.701684,45.294959,77.151211,17.012284,65.931785,15.063861,500.0,2854.157,868.031,500,50.0,true

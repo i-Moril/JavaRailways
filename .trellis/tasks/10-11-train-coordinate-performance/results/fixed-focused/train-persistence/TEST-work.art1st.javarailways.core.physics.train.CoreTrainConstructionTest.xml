@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.CoreTrainConstructionTest" tests="10" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:27.664Z" hostname="dev" time="0.411">
+  <properties/>
+  <testcase name="extension initialization failure removes owned registrations and permits a successful retry()" classname="work.art1st.javarailways.core.physics.train.CoreTrainConstructionTest" time="0.049"/>
+  <testcase name="unplaceable tail does not register a head or take ownership of cars()" classname="work.art1st.javarailways.core.physics.train.CoreTrainConstructionTest" time="0.034"/>
+  <testcase name="id=original-id, name=Other, saved load=false" classname="work.art1st.javarailways.core.physics.train.CoreTrainConstructionTest" time="0.048"/>
+  <testcase name="id=other-id, name=Local, saved load=false" classname="work.art1st.javarailways.core.physics.train.CoreTrainConstructionTest" time="0.032"/>
+  <testcase name="id=other-id, name=original-id, saved load=false" classname="work.art1st.javarailways.core.physics.train.CoreTrainConstructionTest" time="0.044"/>
+  <testcase name="id=Local, name=Other, saved load=false" classname="work.art1st.javarailways.core.physics.train.CoreTrainConstructionTest" time="0.034"/>
+  <testcase name="id=original-id, name=Other, saved load=true" classname="work.art1st.javarailways.core.physics.train.CoreTrainConstructionTest" time="0.041"/>
+  <testcase name="id=other-id, name=Local, saved load=true" classname="work.art1st.javarailways.core.physics.train.CoreTrainConstructionTest" time="0.028"/>
+  <testcase name="id=other-id, name=original-id, saved load=true" classname="work.art1st.javarailways.core.physics.train.CoreTrainConstructionTest" time="0.037"/>
+  <testcase name="id=Local, name=Other, saved load=true" classname="work.art1st.javarailways.core.physics.train.CoreTrainConstructionTest" time="0.039"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

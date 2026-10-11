@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.CoreTrainPersistenceStateTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:28.422Z" hostname="dev" time="0.232">
+  <properties/>
+  <testcase name="saved train load reconstructs committed car positions()" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistenceStateTest" time="0.147"/>
+  <testcase name="zero distance controller tick does not toggle car position back to default()" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistenceStateTest" time="0.084"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

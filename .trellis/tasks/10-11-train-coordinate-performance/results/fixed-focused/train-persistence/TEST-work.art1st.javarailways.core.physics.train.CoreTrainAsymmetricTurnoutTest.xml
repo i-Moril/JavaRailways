@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.CoreTrainAsymmetricTurnoutTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:24.345Z" hostname="dev" time="0.22">
+  <properties/>
+  <testcase name="loading rejects a declared active target that disappeared()" classname="work.art1st.javarailways.core.physics.train.CoreTrainAsymmetricTurnoutTest" time="0.111"/>
+  <testcase name="moving a long train uses its own tail path when reverse active path is unset()" classname="work.art1st.javarailways.core.physics.train.CoreTrainAsymmetricTurnoutTest" time="0.035"/>
+  <testcase name="removing an active rail selects the first remaining candidate even in invalid multi-branch topology()" classname="work.art1st.javarailways.core.physics.train.CoreTrainAsymmetricTurnoutTest" time="0.007"/>
+  <testcase name="removing a rail crossed only by the train body is rejected()" classname="work.art1st.javarailways.core.physics.train.CoreTrainAsymmetricTurnoutTest" time="0.003"/>
+  <testcase name="exact saved train ends restore across the same unset reverse active path()" classname="work.art1st.javarailways.core.physics.train.CoreTrainAsymmetricTurnoutTest" time="0.008"/>
+  <testcase name="tail endpoint is re-anchored without accumulating head delta on repeated ticks()" classname="work.art1st.javarailways.core.physics.train.CoreTrainAsymmetricTurnoutTest" time="0.045"/>
+  <testcase name="removing an occupied rail is rejected without changing topology()" classname="work.art1st.javarailways.core.physics.train.CoreTrainAsymmetricTurnoutTest" time="0.002"/>
+  <testcase name="moving the same long train succeeds when reverse active path is selected()" classname="work.art1st.javarailways.core.physics.train.CoreTrainAsymmetricTurnoutTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

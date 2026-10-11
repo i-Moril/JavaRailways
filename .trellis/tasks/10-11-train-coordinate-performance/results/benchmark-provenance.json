@@ -1,0 +1,29 @@
+{
+  "buildInit": "allprojects {\n    layout.buildDirectory.set(file('/tmp/train-coordinate-build/' + (project == rootProject ? 'root' : project.name)))\n}\n",
+  "harnessSha256": "3405343cc0ec4b1077ff8629c539861bf7862ad686fef7c3f378ab61e38ef5ef",
+  "baselineSources": {
+    "CoreCar.kt": "418d1b93d9de7fd7157e93fc29168af491ef6bc14152e679905988b9418dccad",
+    "CoreTrain.kt": "81d89499823b7c9df2f42628bb624a1ace4d59cab4af0342e08ea6a26b25173f"
+  },
+  "fixtureCorrection": "Independent lines translated laterally by index*100m, same for both arms",
+  "discardedPreflight": "Original straight report retained separately; curved interrupted during AtGradeRailCrossingIndex setup before results; neither used in final comparison",
+  "commandTemplate": "./gradlew -I /tmp/train-coordinate-build.init.gradle :Core:physicsStressTest -PphysicsStress.trainCounts=100,500 -PphysicsStress.workerThreads=4 -PphysicsStress.carCount=15 -PphysicsStress.warmupEpochs=200 -PphysicsStress.measurementEpochs=1000 -PphysicsStress.repetitions=3 -PphysicsStress.trackShape={straight|curved} -PphysicsStress.scenarios=isolated,mixed,shared -PphysicsStress.speedMetersPerSecond=10 --console=plain",
+  "sourceSelection": "Before uses original CoreCar/CoreTrain from recorded baseline HEAD; after uses frozen fixed-provenance.json hashes. Corrected stress harness hash is identical in all four final invocations. Reports retain baseline HEAD because sources were uncommitted; source hashes distinguish the arms.",
+  "runOrder": [
+    "before-straight",
+    "before-curved",
+    "fixed correctness/full gate",
+    "after-straight",
+    "after-curved"
+  ],
+  "confirmationOrder": [
+    "confirmation-before-straight",
+    "confirmation-before-curved",
+    "fixed classpath startup failure (no samples; log retained)",
+    "isolated :Core:testClasses --rerun-tasks rebuild",
+    "confirmation-after-straight",
+    "confirmation-after-curved"
+  ],
+  "confirmationParameters": "500 trains, shared scenario only; all other parameters unchanged. Three repeats per invocation, four invocations, 12 additional runs; results separate from original matrix.",
+  "confirmationSourceCheck": "Final CoreCar/CoreTrain and harness SHA256 match fixed-provenance.json after finally restoration."
+}

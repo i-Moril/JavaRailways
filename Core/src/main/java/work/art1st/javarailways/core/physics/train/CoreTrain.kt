@@ -1,6 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
 import org.joml.times
+import org.joml.Vector3d
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.event.DerailEvent
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
@@ -428,8 +429,8 @@ open class CoreTrain @MainThread internal constructor(
     /**
      * Use the same tail-to-head active path as body publication. Backward selection at a turnout
      * can differ from the occupied forward path. World positions alone cannot prove rail identity
-     * or facing, and bogie spacing is rail arc distance rather than the chord across a curve.
-     * This checks path, bogie spacing and end offsets; it does not prove inter-car coupler geometry.
+     * or facing. Arc distance proves order and train-end offsets; the real 3D connector chord
+     * proves axle spacing and the consistently head-anchored centres prove adjacent couplers.
      */
     private fun validatePersistedPlacementPath(
         savedTail: RailLocationWithFacing,
@@ -463,15 +464,40 @@ open class CoreTrain @MainThread internal constructor(
         }
 
         val tailToHeadCars = if (reversed) cars else cars.asReversed()
+        var followingHead: Vector3d? = null
+        var followingDirection: Vector3d? = null
+        var followingConnectorLength = 0.0
         tailToHeadCars.forEachIndexed { index, car ->
             val tailBogie = if (reversed) car.bogieA else car.bogieB
             val headBogie = if (reversed) car.bogieB else car.bogieA
             val tailDistance = distanceAlongPath(tailBogie.location)
             val headDistance = distanceAlongPath(headBogie.location)
             val configuredSpacing = car.bogieAOffset - car.bogieBOffset
-            check(kotlin.math.abs(headDistance - tailDistance - configuredSpacing) <= Curve.TOLERANCE) {
-                "persisted train $id car ${car.id} has inconsistent bogie arc spacing"
+            val headPoint = Vector3d(headBogie.location.position)
+                .add(Vector3d(headBogie.location.normal).mul(car.floorHeight))
+            val tailPoint = Vector3d(tailBogie.location.position)
+                .add(Vector3d(tailBogie.location.normal).mul(car.floorHeight))
+            val spacing = headPoint.distance(tailPoint)
+            check(spacing.isFinite() && spacing > 0.0 &&
+                kotlin.math.abs(spacing - configuredSpacing) <= Curve.TOLERANCE) {
+                "persisted train $id car ${car.id} has inconsistent bogie connector spacing"
             }
+            val direction = Vector3d(headPoint).sub(tailPoint).normalize()
+            val headOffset = if (reversed) -car.bogieBOffset else car.bogieAOffset
+            val centre = Vector3d(headPoint).sub(Vector3d(direction).mul(headOffset))
+            followingHead?.let { behindHead ->
+                val gap = Vector3d(centre).sub(Vector3d(direction).mul(car.length / 2.0)).sub(behindHead)
+                val connectorLength = followingConnectorLength +
+                    if (reversed) car.connectorLengthAtA else car.connectorLengthAtB
+                check(gap.length().isFinite() &&
+                    kotlin.math.abs(gap.length() - connectorLength) <= Curve.TOLERANCE &&
+                    gap.dot(requireNotNull(followingDirection)) >= -Curve.TOLERANCE) {
+                    "persisted train $id car ${car.id} has inconsistent adjacent coupler geometry"
+                }
+            }
+            followingHead = Vector3d(centre).add(Vector3d(direction).mul(car.length / 2.0))
+            followingDirection = direction
+            followingConnectorLength = if (reversed) car.connectorLengthAtB else car.connectorLengthAtA
             if (index == 0) {
                 val tailOffset = if (reversed) car.bogieAToEndPointOffset else car.bogieBToEndPointOffset
                 check(kotlin.math.abs(tailDistance - tailOffset) <= Curve.TOLERANCE) {

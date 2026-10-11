@@ -239,7 +239,18 @@ class CoreTrainAsymmetricTurnoutTest {
             frame.tail.arcLengthInAbMeters,
             Curve.TOLERANCE
         )
-        assertEquals(frame.tail.railId, frame.bodyTraversal.first().railId)
+        val firstBodySegment = frame.bodyTraversal.first()
+        if (frame.tail.railId != firstBodySegment.railId) {
+            // Exact rigid placement can land on a rail endpoint. Body traversal omits the
+            // zero-length departing segment, so its first positive segment starts at the same joint.
+            val tailLocation = train.tail.location
+            assertEquals(tailLocation.railView.curve.totalArcLength, tailLocation.arcLength, 1e-9)
+            val continuation = requireNotNull(tailLocation.railView.activeRail)
+            assertEquals(continuation.rail.id, firstBodySegment.railId)
+            assertEquals(continuation.viewDirection, firstBodySegment.facing)
+            assertEquals(continuation.getRailLocationAt(0.0).arcLengthIn(ViewDirection.AB),
+                firstBodySegment.startArcLengthInAbMeters, 1e-9)
+        }
         assertEquals(frame.head.railId, frame.bodyTraversal.last().railId)
     }
 

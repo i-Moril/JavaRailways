@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.TrainSlopeMotionTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:30.747Z" hostname="dev" time="0.006">
+  <properties/>
+  <testcase name="multi car train climbs straight slope()" classname="work.art1st.javarailways.core.physics.train.TrainSlopeMotionTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

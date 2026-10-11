@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.CoreTrainLinkTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:28.133Z" hostname="dev" time="0.109">
+  <properties/>
+  <testcase name="linkWith removes linked train endpoints from rails()" classname="work.art1st.javarailways.core.physics.train.CoreTrainLinkTest" time="0.069"/>
+  <testcase name="removing a train retires its car publication ownership()" classname="work.art1st.javarailways.core.physics.train.CoreTrainLinkTest" time="0.015"/>
+  <testcase name="repeated removal of an old instance does not remove its same-id replacement()" classname="work.art1st.javarailways.core.physics.train.CoreTrainLinkTest" time="0.024"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

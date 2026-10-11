@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.CoreTrainTailBogieTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:30.237Z" hostname="dev" time="0.454">
+  <properties/>
+  <testcase name="tail bogie switches to first car when reversed()" classname="work.art1st.javarailways.core.physics.train.CoreTrainTailBogieTest" time="0.032"/>
+  <testcase name="tail bogie uses last car in forward direction()" classname="work.art1st.javarailways.core.physics.train.CoreTrainTailBogieTest" time="0.021"/>
+  <testcase name="trailing bogies preserve siding path while first bogie enters merged main line()" classname="work.art1st.javarailways.core.physics.train.CoreTrainTailBogieTest" time="0.003"/>
+  <testcase name="reversed train keeps cars spaced while moving()" classname="work.art1st.javarailways.core.physics.train.CoreTrainTailBogieTest" time="0.309"/>
+  <testcase name="curved consist can move after stopping and reversing()" classname="work.art1st.javarailways.core.physics.train.CoreTrainTailBogieTest" time="0.089"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

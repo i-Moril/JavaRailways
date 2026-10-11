@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.TrainSlopeJointMotionTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:30.742Z" hostname="dev" time="0.005">
+  <properties/>
+  <testcase name="long train moves from level rail onto connected slope()" classname="work.art1st.javarailways.core.physics.train.TrainSlopeJointMotionTest" time="0.003"/>
+  <testcase name="multi car train moves from level rail onto connected slope()" classname="work.art1st.javarailways.core.physics.train.TrainSlopeJointMotionTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

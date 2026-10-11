@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:28.388Z" hostname="dev" time="0.033">
+  <properties/>
+  <testcase name="[1] false" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.003"/>
+  <testcase name="[2] true" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.003"/>
+  <testcase name="[1] swapped-bogies" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.002"/>
+  <testcase name="[2] opposite-facing" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.001"/>
+  <testcase name="[3] disconnected-bogies" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.001"/>
+  <testcase name="[4] disconnected-ends" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.001"/>
+  <testcase name="[5] adjacent-car" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.001"/>
+  <testcase name="[6] bogie-spacing" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.001"/>
+  <testcase name="[7] head-offset" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.001"/>
+  <testcase name="[8] tail-offset" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.001"/>
+  <testcase name="valid turnout consist restores with a different backward branch selection()" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.002"/>
+  <testcase name="an interior car gap is rejected even when axle spacing and path order remain valid()" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.001"/>
+  <testcase name="[1] false" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.002"/>
+  <testcase name="[2] true" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.002"/>
+  <testcase name="fixed current input with detached ends is rejected without registrations()" classname="work.art1st.javarailways.core.physics.train.CoreTrainPersistedPlacementTest" time="0.005"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

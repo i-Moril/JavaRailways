@@ -16,6 +16,7 @@ import work.art1st.javarailways.core.api.util.tick.TickManager
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.geometryBreakpoints
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.CoreTrain
@@ -176,7 +177,8 @@ class PhysicsCapacityStressTest {
             val rail = sharedRail ?: createRail(
                 world,
                 movementDistance + TRACK_END_MARGIN_METERS,
-                config.trackShape
+                config.trackShape,
+                index * ISOLATED_TRACK_SPACING_METERS
             )
             val train = createTrainWithConfig("stress-$index", rail, world, carLengths)
             if (sharedRail != null) {
@@ -195,7 +197,12 @@ class PhysicsCapacityStressTest {
         }.also { check(it.size == trainCount) }
     }
 
-    private fun createRail(world: CoreWorld, lengthMeters: Double, trackShape: TrackShape): CoreRail =
+    private fun createRail(
+        world: CoreWorld,
+        lengthMeters: Double,
+        trackShape: TrackShape,
+        lateralOffsetMeters: Double = 0.0
+    ): CoreRail =
         createStraightRailFromSegments(
             world,
             when (trackShape) {
@@ -205,6 +212,17 @@ class PhysicsCapacityStressTest {
                     step = TRACK_SAMPLE_STEP_METERS
                 )
                 TrackShape.CURVED -> buildCurvedTrack(lengthMeters.coerceAtLeast(MINIMUM_TRACK_LENGTH_METERS))
+            }.map { curve ->
+                if (lateralOffsetMeters == 0.0) curve else PrimeCurve.fromPoints(
+                    curve.geometryBreakpoints().map { point ->
+                        Curve.RawPoint(
+                            position = Vector3d(point.position).add(0.0, 0.0, lateralOffsetMeters),
+                            tangent = point.tangent,
+                            normal = point.normal,
+                            arcLength = point.arcLength
+                        )
+                    }
+                )
             }
         )
 
@@ -592,6 +610,8 @@ class PhysicsCapacityStressTest {
         private const val SHARED_CLEARANCE_METERS = 5.0
         private const val CURVED_TRACK_AMPLITUDE_METERS = 20.0
         private const val CURVED_TRACK_WAVELENGTH_METERS = 500.0
+        // Isolated worlds contain separate physical lines, rather than overlapping duplicate rails.
+        private const val ISOLATED_TRACK_SPACING_METERS = 100.0
         private const val MIXED_STATIONARY_MODULUS = 4
         private const val SHARED_START_MARGIN_METERS = 10.0
         private val JSON = Json { prettyPrint = true }

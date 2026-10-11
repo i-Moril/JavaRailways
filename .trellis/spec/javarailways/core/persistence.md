@@ -37,7 +37,7 @@ data class SavedRuntimeV1(
 
 ## Decode、prevalidation、materialization
 
-以下是目标顺序，不代表所有检查已在创建world之前完成。当前train load在构造返回后、成功frame/mailbox发布前执行[摆位校验](./train-physics.md#存档摆位恢复与当前缺口)，验证同一路径/方向/顺序、车内bogie弧长和车端offset；失败沿既有discardFailedLoad撤销本次列车副作用。rail连接使用下方严格端点解析，但完整相邻车钩一致性、全world materialization失败清理和extension稳定type registry仍有已知差距，不能把下图当作现状验收结论。
+以下是目标顺序，不代表所有检查已在创建world之前完成。当前train load在构造返回后、成功frame/mailbox发布前执行[摆位校验](./train-physics.md#存档摆位恢复)，验证同一路径/方向/顺序、车内连接点三维距离、相邻车钩与车端offset；失败沿既有discardFailedLoad撤销本次列车副作用。rail连接使用下方严格端点解析，但全world materialization失败清理和extension稳定type registry仍有已知差距，不能把下图当作现状验收结论。
 
 ```text
 bytes/text → read boundary version → optional pure upcast（仅任务明确支持）

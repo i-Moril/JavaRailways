@@ -1,0 +1,39 @@
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.11' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Configure project :WebUI
+Invalid Java installation found at '/home/user/.jdks/ms-21.0.12' (IntelliJ) auto-detected. It will be re-checked in the next build. This might have performance impact if it keeps failing. Run the 'javaToolchains' task for more details.
+
+> Task :ConfigLib:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :ConfigLib:processResources NO-SOURCE
+> Task :Core:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :Core:processResources NO-SOURCE
+> Task :Core:processTestFixturesResources NO-SOURCE
+> Task :Core:processTestResources UP-TO-DATE
+> Task :ConfigLib:compileKotlin
+> Task :ConfigLib:compileJava NO-SOURCE
+> Task :ConfigLib:classes UP-TO-DATE
+> Task :ConfigLib:jar UP-TO-DATE
+> Task :Core:compileKotlin UP-TO-DATE
+> Task :Core:compileJava NO-SOURCE
+> Task :Core:classes UP-TO-DATE
+> Task :Core:jar UP-TO-DATE
+> Task :Core:compileTestFixturesKotlin UP-TO-DATE
+> Task :Core:compileTestFixturesJava NO-SOURCE
+> Task :Core:testFixturesClasses UP-TO-DATE
+> Task :Core:testFixturesJar UP-TO-DATE
+> Task :Core:compileTestKotlin UP-TO-DATE
+> Task :Core:compileTestJava NO-SOURCE
+> Task :Core:testClasses UP-TO-DATE
+> Task :Core:physicsStressTest
+
+[Incubating] Problems report is available at: file:///tmp/train-coordinate-build/root/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.0.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 1m 26s
+9 actionable tasks: 2 executed, 7 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.0.0/userguide/configuration_cache_enabling.html

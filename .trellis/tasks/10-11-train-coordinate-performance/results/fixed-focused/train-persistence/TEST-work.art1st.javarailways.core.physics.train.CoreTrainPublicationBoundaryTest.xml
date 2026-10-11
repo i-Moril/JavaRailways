@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="work.art1st.javarailways.core.physics.train.CoreTrainPublicationBoundaryTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-11T06:36:28.655Z" hostname="dev" time="0.211">
+  <properties/>
+  <testcase name="physics reverse remains private until train state is published()" classname="work.art1st.javarailways.core.physics.train.CoreTrainPublicationBoundaryTest" time="0.023"/>
+  <testcase name="public Train frame includes current conservative coupler spacing()" classname="work.art1st.javarailways.core.physics.train.CoreTrainPublicationBoundaryTest" time="0.088"/>
+  <testcase name="physics derail remains private until train state is published()" classname="work.art1st.javarailways.core.physics.train.CoreTrainPublicationBoundaryTest" time="0.024"/>
+  <testcase name="published rail positions preserve BA facing with canonical AB arc lengths()" classname="work.art1st.javarailways.core.physics.train.CoreTrainPublicationBoundaryTest" time="0.028"/>
+  <testcase name="train frame preserves ordered head and tail traversal across rail boundaries()" classname="work.art1st.javarailways.core.physics.train.CoreTrainPublicationBoundaryTest" time="0.024"/>
+  <testcase name="BA traversal keeps travel order while canonical AB arcs decrease()" classname="work.art1st.javarailways.core.physics.train.CoreTrainPublicationBoundaryTest" time="0.021"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

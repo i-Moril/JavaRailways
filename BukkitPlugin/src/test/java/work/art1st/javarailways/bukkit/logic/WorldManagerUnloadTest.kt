@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.World
@@ -16,9 +17,11 @@ import work.art1st.javarailways.core.api.threading.host.ThreadGuardRegistration
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus
 import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.bukkit.extension.WorldModelOperations
 import java.lang.reflect.Proxy
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CompletableFuture
 
 class WorldManagerUnloadTest {
     private var threadGuardRegistration: ThreadGuardRegistration? = null
@@ -44,6 +47,7 @@ class WorldManagerUnloadTest {
         val bindingFailure = IllegalStateException("binding failed")
         val tickFailure = IllegalStateException("tick failed")
         val markerFailure = UnsupportedOperationException("marker failed")
+        val modelFailure = IllegalStateException("model operations cleanup failed")
         try {
             val thrown = assertThrows(IllegalStateException::class.java) {
                 fixture.manager.unregisterRailWorld(
@@ -64,6 +68,10 @@ class WorldManagerUnloadTest {
                         fixture.events += "binding"
                         throw bindingFailure
                     },
+                    closeModelOperations = {
+                        fixture.closeModelOperations()
+                        throw modelFailure
+                    },
                     closeTick = {
                         fixture.events += "tick"
                         throw tickFailure
@@ -72,8 +80,10 @@ class WorldManagerUnloadTest {
             }
 
             assertSame(primary, thrown)
-            assertEquals(listOf(renderFailure, bindingFailure, tickFailure, markerFailure), thrown.suppressed.toList())
-            assertEquals(listOf("persist", "render", "binding", "tick", "marker"), fixture.events)
+            assertEquals(listOf(modelFailure, renderFailure, bindingFailure, tickFailure, markerFailure), thrown.suppressed.toList())
+            assertEquals(listOf("persist", "model-operations", "render", "binding", "tick", "marker"), fixture.events)
+            assertTrue(fixture.pendingModelOperation.isCompletedExceptionally)
+            assertFalse(fixture.pendingModelOperation.complete(Unit))
             fixture.assertOldOwnerRemovedAndReloadable()
         } finally {
             fixture.close()
@@ -95,6 +105,7 @@ class WorldManagerUnloadTest {
                         throw renderFailure
                     },
                     releaseRuntimeBinding = { fixture.events += "binding" },
+                    closeModelOperations = { fixture.closeModelOperations() },
                     closeTick = {
                         fixture.events += "tick"
                         fixture.publishReplacementOnOriginalKey()
@@ -104,7 +115,8 @@ class WorldManagerUnloadTest {
 
             assertSame(renderFailure, thrown)
             assertEquals(emptyList<Throwable>(), thrown.suppressed.toList())
-            assertEquals(listOf("persist", "render", "binding", "tick", "marker"), fixture.events)
+            assertEquals(listOf("persist", "model-operations", "render", "binding", "tick", "marker"), fixture.events)
+            assertTrue(fixture.pendingModelOperation.isCompletedExceptionally)
             fixture.assertReplacementPreserved()
         } finally {
             fixture.close()
@@ -121,6 +133,13 @@ class WorldManagerUnloadTest {
         private val registry = LoadedRailWorldRegistry(railWorlds)
         val manager = WorldManager(railWorlds, loadedWorlds = registry)
         val events = mutableListOf<String>()
+        private val modelOperations = WorldModelOperations()
+        val pendingModelOperation = modelOperations.track(CompletableFuture<Unit>())
+
+        fun closeModelOperations() {
+            events += "model-operations"
+            modelOperations.close()
+        }
 
         init {
             registry.publish(oldBukkitWorld, oldWorld)
@@ -146,6 +165,7 @@ class WorldManagerUnloadTest {
         }
 
         fun close() {
+            modelOperations.close()
             manager.stop()
             manager.finishStopping()
             closeWorld(oldWorld)

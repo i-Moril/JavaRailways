@@ -41,16 +41,21 @@ class TrainBehaviorRuntime(
         .build()
 
     init {
-        context.getBindings("js").putMember("__javaRailwaysTrain", TrainBehaviorApi(bindings))
-        context.eval("js", PRELUDE)
-        val source = Source.newBuilder("js", script.source, script.fileName).build()
-        context.eval(source)
+        try {
+            context.getBindings("js").putMember("__javaRailwaysTrain", TrainBehaviorApi(bindings))
+            context.eval("js", PRELUDE)
+            val source = Source.newBuilder("js", script.source, script.fileName).build()
+            context.eval(source)
+        } catch (failure: Exception) {
+            try { context.close(true) } catch (cleanup: Exception) { failure.addSuppressed(cleanup) }
+            throw failure
+        }
     }
 
     fun listActions(): List<TrainBehaviorActionDefinition> {
         val function = context.getBindings("js").getMember("__javaRailwaysListActions") ?: return emptyList()
         if (!function.canExecute()) return emptyList()
-        return try {
+        return run {
             val value = function.execute()
             if (!value.hasArrayElements()) return emptyList()
             (0 until value.arraySize).mapNotNull { index ->
@@ -61,13 +66,16 @@ class TrainBehaviorRuntime(
                 val requiresControl = entry.getMember("requiresControl")?.takeIf { it.isBoolean }?.asBoolean() ?: false
                 TrainBehaviorActionDefinition(name, displayName, executable, requiresControl)
             }
-        } catch (e: Exception) {
-            emptyList()
         }
     }
 
     fun runDefinedAction(name: String): TrainBehaviorCallResult {
         return call("__javaRailwaysRunAction", listOf(name))
+    }
+
+    fun callOptional(method: String, args: List<Any?>): TrainBehaviorCallResult {
+        if (!context.getBindings("js").hasMember(method)) return TrainBehaviorCallResult.Success(method)
+        return call(method, args)
     }
 
     fun call(method: String, args: List<Any?> = emptyList()): TrainBehaviorCallResult {

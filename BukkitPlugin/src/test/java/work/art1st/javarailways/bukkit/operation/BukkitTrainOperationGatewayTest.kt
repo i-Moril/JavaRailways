@@ -1,202 +1,72 @@
 package work.art1st.javarailways.bukkit.operation
 
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.operation.TrainOperation
-import work.art1st.javarailways.basic.api.operation.TrainOperationExecutionResult
-import work.art1st.javarailways.basic.api.operation.TrainOperationRequest
-import work.art1st.javarailways.basic.api.operation.TrainOperationTicketState
-import work.art1st.javarailways.basic.api.operation.DoorSide
-import work.art1st.javarailways.bukkit.extension.train.TrainModelOperationResult
-import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
-import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
-import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.basic.api.operation.*
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
-import work.art1st.javarailways.core.api.threading.host.ThreadGuardRegistration
+import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
+import work.art1st.javarailways.core.physics.train.*
+import java.util.concurrent.CompletableFuture
 
 class BukkitTrainOperationGatewayTest {
-    private var threadGuardRegistration: ThreadGuardRegistration? = null
-
-    @BeforeEach
-    fun installMainThreadBridge() {
-        threadGuardRegistration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
-            override fun isMainThread(): Boolean = true
-        })
-    }
-
-    @AfterEach
-    fun clearMainThreadBridge() {
-        threadGuardRegistration?.close()
-        threadGuardRegistration = null
-    }
-
     @Test
-    fun `returns pending ticket without waiting for region dispatch`() {
-        val world = createTestWorld()
-        val rail = createStraightRailFromSegments(
-            world,
-            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
-        )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
-        var scheduled: (() -> Unit)? = null
-        var executorCalled = false
-        val gateway = BukkitTrainOperationGateway(
-            world = world,
-            operationDispatcher = BukkitTrainOperationDispatcher { _, operation, onResult ->
-                scheduled = { onResult(runCatching(operation)) }
-            },
-            doorExecutor = BukkitDoorOperationExecutor { _, _, _, _ ->
-                executorCalled = true
-                TrainModelOperationResult.Accepted(0.0)
-            }
-        )
-
-        val accepted = gateway.execute(
-            request(train.id, TrainOperation.OpenDoors(DoorSide.LEFT))
-        ) as TrainOperationExecutionResult.Accepted
-
-        assertEquals(TrainOperationTicketState.PENDING, accepted.ticket.snapshot().state)
-        assertEquals(false, executorCalled)
-        scheduled!!.invoke()
-        assertEquals(true, executorCalled)
-        assertEquals(TrainOperationTicketState.PENDING, accepted.ticket.snapshot().state)
-    }
-
-    @Test
-    fun `asynchronous region rejection fails ticket`() {
-        val world = createTestWorld()
-        val rail = createStraightRailFromSegments(
-            world,
-            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
-        )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
-        val gateway = BukkitTrainOperationGateway(
-            world = world,
-            operationDispatcher = BukkitTrainOperationDispatcher { _, _, onResult ->
-                onResult(Result.success(TrainModelOperationResult.Rejected("model rejected")))
-            }
-        )
-
-        val accepted = gateway.execute(
-            request(train.id, TrainOperation.OpenDoors(DoorSide.LEFT))
-        ) as TrainOperationExecutionResult.Accepted
-        val snapshot = accepted.ticket.snapshot()
-
-        assertEquals(TrainOperationTicketState.FAILED, snapshot.state)
-        assertEquals("model rejected", snapshot.message)
-    }
-
-    @Test
-    fun `maps semantic door operation and confirms from model callback`() {
-        val world = createTestWorld()
-        val rail = createStraightRailFromSegments(
-            world,
-            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
-        )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
-        var observedSide: DoorSide? = null
-        var observedOpening: Boolean? = null
-        var completion: (() -> Unit)? = null
-        val gateway = BukkitTrainOperationGateway(
-            world,
-            BukkitDoorOperationExecutor { executedTrain, side, opening, onComplete ->
-                assertEquals(train, executedTrain)
-                observedSide = side
-                observedOpening = opening
-                completion = onComplete
-                TrainModelOperationResult.Accepted(0.6)
-            }
-        )
-        val request = request(train.id, TrainOperation.CloseDoors(DoorSide.BOTH))
-
-        val result = gateway.execute(request) as TrainOperationExecutionResult.Accepted
-
-        assertEquals(DoorSide.BOTH, observedSide)
-        assertEquals(false, observedOpening)
-        assertEquals(TrainOperationTicketState.PENDING, result.ticket.snapshot().state)
-        completion!!.invoke()
-        assertEquals(TrainOperationTicketState.SUCCEEDED, result.ticket.snapshot().state)
-    }
-
-    @Test
-    fun `maps model action operation and confirms from package callback`() {
-        val world = createTestWorld()
-        val rail = createStraightRailFromSegments(
-            world,
-            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
-        )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
-        var observedAction: String? = null
-        var completion: (() -> Unit)? = null
-        val gateway = BukkitTrainOperationGateway(
-            world = world,
-            modelActionExecutor = BukkitModelActionExecutor { executedTrain, actionName, onComplete ->
-                assertEquals(train, executedTrain)
-                observedAction = actionName
-                completion = onComplete
-                TrainModelOperationResult.Accepted(0.4)
-            }
-        )
-
-        val result = gateway.execute(
-            request(train.id, TrainOperation.ExecuteModelAction("power-off"))
-        ) as TrainOperationExecutionResult.Accepted
-
-        assertEquals("power-off", observedAction)
-        assertEquals(TrainOperationTicketState.PENDING, result.ticket.snapshot().state)
-        completion!!.invoke()
-        assertEquals(TrainOperationTicketState.SUCCEEDED, result.ticket.snapshot().state)
-    }
-
-    @Test
-    fun `cancelled ticket ignores a later model callback`() {
-        val world = createTestWorld()
-        val rail = createStraightRailFromSegments(
-            world,
-            PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
-        )
-        val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
-        var completion: (() -> Unit)? = null
-        val gateway = BukkitTrainOperationGateway(
-            world,
-            BukkitDoorOperationExecutor { _, _, _, onComplete ->
-                completion = onComplete
-                TrainModelOperationResult.Accepted(0.0)
-            }
-        )
-        val accepted = gateway.execute(
-            request(train.id, TrainOperation.OpenDoors(DoorSide.LEFT))
-        ) as TrainOperationExecutionResult.Accepted
-
-        accepted.ticket.cancel()
-        completion!!.invoke()
-
-        assertEquals(TrainOperationTicketState.CANCELLED, accepted.ticket.snapshot().state)
-    }
-
-    @Test
-    fun `rejects unsupported semantic operation`() {
-        val world = createTestWorld()
-        val gateway = BukkitTrainOperationGateway(world) { _, _, _, _ ->
-            TrainModelOperationResult.Accepted(0.0)
+    fun `ticket waits for model completion and cancellation is terminal`() = withTrain { world, train ->
+        val completion = CompletableFuture<Unit>()
+        var observed: TrainOperation? = null
+        var pending: (() -> Boolean)? = null
+        val gateway = BukkitTrainOperationGateway(world) { target, operation, isPending ->
+            assertSame(train, target)
+            observed = operation
+            pending = isPending
+            completion
         }
-
-        val result = gateway.execute(request("missing", TrainOperation.SetCabLights(true)))
-
-        assertTrue(result is TrainOperationExecutionResult.Rejected)
+        val operation = TrainOperation.CloseDoors(DoorSide.BOTH)
+        val result = gateway.execute(request(train.id, operation)) as TrainOperationExecutionResult.Accepted
+        assertEquals(operation, observed)
+        assertEquals(TrainOperationTicketState.PENDING, result.ticket.snapshot().state)
+        assertTrue(pending!!())
+        result.ticket.cancel()
+        assertFalse(pending())
+        completion.complete(Unit)
+        assertEquals(TrainOperationTicketState.CANCELLED, result.ticket.snapshot().state)
     }
 
-    private fun request(trainId: String, operation: TrainOperation) = TrainOperationRequest(
-        requestId = "request-1",
-        serviceRunId = "tt/service",
-        stationCallId = "call-1",
-        trainId = trainId,
-        missionRevision = 1L,
-        operation = operation
-    )
+    @Test
+    fun `model future failure cannot be reported as success`() = withTrain { world, train ->
+        val completion = CompletableFuture<Unit>()
+        val gateway = BukkitTrainOperationGateway(world) { _, _, _ -> completion }
+        val result = gateway.execute(request(train.id, TrainOperation.ExecuteModelAction("bell"))) as TrainOperationExecutionResult.Accepted
+        completion.completeExceptionally(IllegalStateException("car destroyed"))
+        assertEquals(TrainOperationTicketState.FAILED, result.ticket.snapshot().state)
+        assertEquals("car destroyed", result.ticket.snapshot().message)
+        completion.complete(Unit)
+        assertEquals(TrainOperationTicketState.FAILED, result.ticket.snapshot().state)
+    }
+
+    @Test
+    fun `synchronous completion succeeds but dispatch exception fails`() = withTrain { world, train ->
+        val success = BukkitTrainOperationGateway(world) { _, _, _ -> CompletableFuture.completedFuture(Unit) }
+        val request = request(train.id, TrainOperation.OpenDoors(DoorSide.LEFT))
+        assertEquals(TrainOperationTicketState.SUCCEEDED, (success.execute(request) as TrainOperationExecutionResult.Accepted).ticket.snapshot().state)
+        val failed = BukkitTrainOperationGateway(world) { _, _, _ -> error("dispatch failed") }
+        assertEquals(TrainOperationTicketState.FAILED, (failed.execute(request) as TrainOperationExecutionResult.Accepted).ticket.snapshot().state)
+        assertTrue(success.execute(request(train.id, TrainOperation.SetCabLights(true))) is TrainOperationExecutionResult.Rejected)
+    }
+
+    private fun withTrain(test: (work.art1st.javarailways.core.physics.CoreWorld, CoreTrain) -> Unit) {
+        ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge { override fun isMainThread() = true }).use {
+            val world = createTestWorld()
+            (world.tickManager as AutoCloseable).use {
+                AutoCloseable { world.releaseRuntimeBinding() }.use {
+                    world.physicsCoordinator.use {
+                        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
+                        test(world, createTrainWithConfig("T1", rail, world, listOf(10.0)))
+                    }
+                }
+            }
+        }
+    }
+
+    private fun request(id: String, operation: TrainOperation) = TrainOperationRequest("r", "service", "call", id, 1L, operation)
 }

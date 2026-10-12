@@ -139,6 +139,7 @@ SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重�
 - unload先标记unloading并撤loaded-world lookup，再用coordinator `beginShutdown()`在其原stateLock内永久禁止新main/timer/simulation epoch并捕获exact ticket；在锁外成功await该ticket后才捕获/写最终snapshot，最后close coordinator/render/tick owner。beginShutdown保持RUNNING以允许在途正常publication，不是close/abort；失败ticket必须报告失败，不回退旧epoch，也不拿失败作为worker全部退出的证明。
 - snapshot capture/write或任一teardown步骤失败时，仍须分别尝试撤销topology/frame订阅、三个宿主service、physics/render/tick owner、异常标记与owner map。最先发生的异常保持为主异常，后续清理异常作为suppressed保留；不得因清理成功吞掉保存失败，也不得让旧world留在主tick集合阻止同UUID重新绑定。owner map删除使用卸载开始时捕获的exact world identity，不能误删随后绑定的新world。
 - platform commit 执行前重新解析 affinity；目标跨 region 时 reschedule，而不是在旧 owner 上执行。
+- 每车JS行为见[车厢行为契约](car-behavior.md)。最终snapshot保存之后，先令该world尚未完成的模型操作future失败，再分别关闭每节车厢的行为及延迟效果，随后关闭physics/render/tick；不能等region队列执行才完成旧ticket。各车关闭独立尝试，某车失败不跳过其余车厢或后续owner。
 
 上面的physics保存边界、CR-013卸载失败清理和CR-015 factory partial-init清理均已接入生产入口。没有因此承诺Bukkit跨region清理完成、失败输入可自动修复或Koin scope已经成对释放。
 
@@ -163,7 +164,7 @@ SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重�
 4. **接口与数据**：正式入口仍只有`fun unregisterRailWorld(bukkitWorld: BukkitWorld)`；用于失败矩阵测试的internal overload只替换持久化、marker、render和tick动作，不改变生产owner或形成add-on API。`physicsEpoch`仍来自成功完成的exact `PhysicsTicket`，不是schema version。
 5. **生命周期与线程规则**：入口必须通过`ThreadGuard.ensureMainThread`；UUID lookup在任何blocking await/I/O前撤出。保存失败也必须关闭资源并撤owner map；失败不能回退旧成功epoch或重新开放wake。新binding只能由后续load重新发布，旧清理不能按UUID宽泛删除它。
 6. **失败矩阵**：physics/capture/write失败保留为主异常，后续cleanup仍执行；订阅/service/render/tick/marker失败时继续下一项；多个失败时首个为主、其余为suppressed；无已发布owner时只做lookup/marker撤出，不猜测或创建world。任何失败都不得被记录成保存成功。
-7. **性能与退化**：动作数由固定owner集合决定，为O(1) teardown；只有snapshot capture/write成本随world数据增长。失败时不重试、不复制snapshot，也不新增后台队列；退化行为是尽力释放固定资源后向调用方报告原失败。
+7. **性能与退化**：固定service/owner关闭为O(1)，未完成操作、车厢行为及已接受延迟效果关闭为O(P+N+E)，P为world追踪的未完成操作数、N为车厢数、E为仍登记的效果数；snapshot capture/write另随world数据量增长。失败时不重试、不复制snapshot，也不新增后台队列；退化行为是逐项尽力释放资源后向调用方报告原失败。
 8. **具体情形**：正常卸载写完最终snapshot后关闭全部owner；磁盘写失败仍从主tick集合移除旧world；render close失败仍关闭tick并清marker；清理回调重入并发布replacement时，exact identity删除保留replacement。
 9. **必需测试**：持久化失败必须断言主异常身份、suppressed顺序、后续cleanup、physics CLOSED、map/lookup清除和同UUID重绑；teardown首先失败必须断言后续动作继续，并在final map remove前替换binding后验证新owner仍存在。模块测试与`shadowJar`门禁同时执行。
 10. **迁移、开放项与错误示例**：无持久化格式迁移。CR-015/017均已接入各自owner。错误做法是只用一个`finally`包最外层close、在其外删除map，或用`railWorlds.remove(key)`删除可能已经替换的binding；正确做法是逐项失败隔离、释放world context并按captured identity删除。

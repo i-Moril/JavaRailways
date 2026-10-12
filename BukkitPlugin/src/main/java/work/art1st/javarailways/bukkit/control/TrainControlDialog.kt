@@ -16,25 +16,31 @@ import work.art1st.javarailways.basic.control.TrainDriveDirection
 import work.art1st.javarailways.simpleato.timetable.TimetableControlMode
 import work.art1st.javarailways.simpleato.timetable.TimetableControlTransferResult
 import work.art1st.javarailways.bukkit.BukkitPlugin
-import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
 import work.art1st.javarailways.bukkit.extension.train.renderer
 import work.art1st.javarailways.core.api.physics.train.Train
+import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
+import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 
 class TrainControlDialog(
     private val plugin: BukkitPlugin,
     private val manager: TrainControlManager
 ) {
     fun show(player: Player, train: Train) {
+        BukkitThreadGuardBridge.runInSimulationContext { train.renderer.loadBehaviorActions() }.whenComplete { actions, failure ->
+            plugin.platformDispatcher.runForEntity(player, action = {
+                if (failure != null) player.sendMessage(Component.text("动作列表加载失败: ${failure.message}", NamedTextColor.RED))
+                else showLoaded(player, train, actions)
+            })
+        }
+    }
+
+    private fun showLoaded(player: Player, train: Train, actions: List<TrainBehaviorActionDefinition>) {
         val ownerId = manager.ownerOf(train)
         val ownedByPlayer = ownerId == player.uniqueId
         val ownerName = ownerId?.let { Bukkit.getOfflinePlayer(it).name ?: it.toString().take(8) } ?: "无"
         val speedKmh = train.speed * 3.6
         val controller = manager.sessionFor(train)?.controller
-        val executableActions = train.renderer.resolveActions()
-            .values
-            .filter { it.executable && (!it.requiresControl || ownedByPlayer) }
-            .sortedBy { it.displayName }
-        val behaviorActions = train.renderer.behaviorActions()
+        val executableActions = actions
             .filter { it.executable && (!it.requiresControl || ownedByPlayer) }
             .sortedBy { it.displayName }
 
@@ -52,7 +58,7 @@ class TrainControlDialog(
         if (controller != null) {
             bodies.add(DialogBody.plainMessage(Component.text("方向: ${controller.direction.label}  挡位: ${controller.handle}", NamedTextColor.GRAY)))
         }
-        if (executableActions.isEmpty() && behaviorActions.isEmpty()) {
+        if (executableActions.isEmpty()) {
             bodies.add(DialogBody.plainMessage(Component.text("没有可执行动作", NamedTextColor.DARK_GRAY)))
         }
 
@@ -110,22 +116,18 @@ class TrainControlDialog(
             buttons.add(directionButton(controller, TrainDriveDirection.NEUTRAL, "方向 N"))
             buttons.add(directionButton(controller, TrainDriveDirection.REVERSE, "方向 R"))
         }
-        behaviorActions.forEach { action ->
-            buttons.add(actionButton(action.displayName, NamedTextColor.AQUA) { p ->
-                val applied = train.renderer.applyBehaviorAction(action.name)
-                p.sendActionBar(Component.text(
-                    if (applied) "已执行: ${action.displayName}" else "动作未生效: ${action.displayName}",
-                    if (applied) NamedTextColor.GREEN else NamedTextColor.YELLOW
-                ))
-            })
-        }
         executableActions.forEach { action ->
             buttons.add(actionButton(action.displayName, NamedTextColor.AQUA) { p ->
-                val applied = train.renderer.applyAction(action.name)
-                p.sendActionBar(Component.text(
-                    if (applied) "已执行: ${action.displayName}" else "动作未生效: ${action.displayName}",
-                    if (applied) NamedTextColor.GREEN else NamedTextColor.YELLOW
-                ))
+                BukkitThreadGuardBridge.runInSimulationContext {
+                    train.renderer.executeModelAction(action.name, hasControl = manager.ownerOf(train) == p.uniqueId)
+                }.whenComplete { _, failure ->
+                    plugin.platformDispatcher.runForEntity(p, action = {
+                        p.sendActionBar(Component.text(
+                            if (failure == null) "已执行: ${action.displayName}" else "动作失败: ${failure.message}",
+                            if (failure == null) NamedTextColor.GREEN else NamedTextColor.YELLOW
+                        ))
+                    })
+                }
             })
         }
 

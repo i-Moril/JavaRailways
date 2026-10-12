@@ -8,6 +8,16 @@
 
 当前已完成Core ownership、结构编辑epoch准入、源包精确解析及真实开发服只读取样。2026-10-12用户已确认自定义动作菜单取并集，仅操作声明该动作的车厢；整列开关门仍按全部目标汇总。主编组依次按插件指定、碰撞前唯一静止方、稳定train ID字典序选择。两项不再待决定；继续Bukkit完整纵向迁移，再接四端联结，不切换模块。
 
+### 每车JS纵向迁移及门禁（2026-10-12）
+
+- 已完成源码实现：`CarBehavior`复用原Graal运行时，`CarExtension`持有每车JS/效果；`CarOperationBatch`负责固定目标及并集动作预检/汇总，`TrainExtension`只捕获车厢及相对方向。gateway、UI、命令、换向、延迟tick、world卸载共同切换，不是仅替换JS持有者的半套实现。内部机制以[车厢行为规范](../../spec/bukkit-plugin/backend/car-behavior.md)为准。
+- 新增默认null的每车`packageSnapshotHash`，复用既有包快照store，不新增schema version、主编组包回退或旧数据reader；非空固定fixture通过current codec验证逐车引用。动态`defineAction`继续可见，不把声明永久缓存为初始化时的集合。
+- 独立只读检查已复核全部本批production链及测试。已修迟到region回调异常导致pending、捕获失败遗留world tracker、raw动画绕过closed/monitor、旧max-delay字段无consumer四项；并补实际卸载fence、关闭后动画拒绝、动态声明及源替换回归。Core/Basic源码和collision入口均未改。
+- 用户已于2026-10-12明确同意初始化禁止效果；初始化及声明查询期间的`action/sound`拒绝合同转为CURRENT，不再待决。实际执行调用正常收集效果；回归已包含顶层和首次声明扫描拒绝。本批仅收尾提交，不提前切换collision入口。
+- 首轮focused八类24项通过；之后最终强制门禁首次被默认512MiB heap/384MiB metaspace的Gradle GC thrashing中止，不能引用旧XML宣称全量成功。使用命令级`-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=1024m`重跑，不修改仓库/全局构建配置。
+- 最终冻结源码运行`:BukkitPlugin:test :BukkitPlugin:shadowJar :SimpleATO:compileTestKotlin :SimpleATOBukkit:compileTestKotlin :SimpleSignals:compileTestKotlin :TunnelBridgeBuilder:compileTestKotlin`，沿用`/workspace/.gradle`、offline/no-build-cache/no-parallel/rerun-tasks、Kotlin非增量及in-process；`BUILD SUCCESSFUL`，3分50秒，41tasks全部执行。新鲜XML为Bukkit93suites/376项，零失败/error/skipped；本次没有运行Core/Basic或其他consumer测试，不把编译视作测试。CarBehavior/CarExtension/WorldManager及两关键测试五份hash前后相同，限定diff-check通过。
+- 仍有既有Kotlin/API/Gradle弃用、WebUI五项audit及bundle警告；SimpleSignals测试编译提示把Graal POM当zip读取但最终成功。用户批准后只机械删除GatewayTest一处冗余`!!`，生产代码与完整门禁冻结值保持一致；最终另跑该类定向验证，2分32秒，26tasks中10执行/16up-to-date，`:BukkitPlugin:test`实际执行，新鲜XML为3项、零失败/error/skipped，生产与测试hash前后相同。本次过滤测试结果不替代先前376项完整门禁记录。无部署、真实Bukkit/Folia、完整XOR捕获或真实联结/解编状态持续性验证；CarBehavior重载回归不证明实际CarExtension的SNAPSHOT/FOLLOW_PACKAGE解析链。下一批仍是四端联结事务，不恢复Basic修复，不归档Core审查或Stage2。
+
 ## 已记录、后续待处理：Basic完整审查与首批修复（2026-10-12）
 
 - 已完成96个production Kotlin、53个测试源文件、2个fixture的首轮静态审查；构建与两份Dokka输入由主会话审查。整模块七维报告见[Basic报告](./research/basic-module-review.md)，不能把此次完整静态覆盖写成模块无缺陷；此前暂缓Core并非用户批准，当前已恢复原顺序。
@@ -36,7 +46,7 @@
 - 用户已批准本批同时实施Bukkit每车JS改造与必要Core支持，并批准碰撞联结被拒绝/准备失败回退默认脱轨；主编组平局已于2026-10-12确认按稳定train ID字典序选择，具体规则见Core owner spec。
 - [x] Core归属前置：新增`Car.train`只读身份查询；唯一原子owner替代单独stream UUID存储，渲染proof派生，构造成功/结构转移绑定，exact-instance CAS退休。复用6文件既有用例补断言，不增加测试数量，不涉及存档、JS或旧link算法。独立源码审查通过；定向测试32秒；Core/Basic/BukkitPlugin/TunnelBridgeBuilder完整回归及Core Dokka强制重跑通过，1126项（349/385/361/31），零失败/错误/跳过，2分21秒，41任务全部执行。cache使用`/workspace/.gradle`，offline/no-build-cache/no-parallel/rerun-tasks，禁用Kotlin incremental并使用in-process编译；既有构建警告仍存在。未部署，不能代替游戏验证。
 - [x] 记录用户决定及[目标合同/伪代码](../../spec/bukkit-plugin/backend/car-behavior.md)：每节车厢独立JS，复用CarExtension和现有运行时代码，结构变更保留双方状态及已接受动作。此次仅文档，不宣称实现完成。
-- [ ] Bukkit完整纵向迁移：JS归属、车厢action/sound、固定目标及物理门侧、逐车调度汇总、延迟效果完成与卸载销毁共同切换；不得提交“每车JS但延迟动作仍作用于整个列车”的半套运行时。复用现有Graal、CarExtension和解析，不另建引擎/loader。具体复用边界、调用端与验证见[实现研究](./research/car-behavior-implementation-plan.md)。
+- [x] Bukkit完整纵向迁移：JS归属、车厢action/sound、固定目标及物理门侧、逐车调度汇总、延迟效果完成与卸载销毁共同切换。复用现有Graal、CarExtension和解析，不另建引擎/loader；离线门禁通过，真实四端联结和Folia集成验证仍在后续批次。具体复用边界、调用端与验证见[实现研究](./research/car-behavior-implementation-plan.md)及文首证据。
 - 当前数据门禁：混合编组需要保留每车来源包的脚本快照引用，现有车厢模型快照不含behavior/actions。2026-10-12已按用户授权只读下载真实副本，99个文件复制前后及本地hash一致，12组current/.bak revision配对成立；6个world均无列车，本样本没有既存每车快照转换记录。来源版本、旧曲线异常及未完成的current codec/业务迁移验证见[存档研究](./research/dev-server-save-audit.md)。不要求远端临时造车，不用主编组脚本回退或FOLLOW_PACKAGE-only临时实现替代；非空车快照仍须固定fixture覆盖。
 - [ ] 第三笔实现：collision专用四端联结事务及结果消费；捕获冻结前静止事实用于默认主编组，不增加主动Train.linkWith入口。主编组规则已冻结，失败回退默认脱轨已批准；此前“controller优先”和“调用列车优先”建议撤回。
 - 验证要求：每笔独立审查，车辆行为批运行BukkitPlugin及其适配consumer回归；Core入口切换运行Core/Basic及七模块门禁。无需为本次纯文档重跑Gradle，不复用11a73930的1973项结果冒充本批测试。CR-030及整体审查保持开放。

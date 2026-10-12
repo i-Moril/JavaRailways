@@ -22,6 +22,15 @@ import work.art1st.javarailways.bukkit.extension.bukkitWorldData
 import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.bukkit.extension.renderChunkManager
 import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
+import work.art1st.javarailways.bukkit.behavior.CarBehavior
+import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
+import work.art1st.javarailways.bukkit.config.model.SavedTrainPackageSnapshot
+import work.art1st.javarailways.bukkit.persistence.TrainPackageSnapshotStore
+import work.art1st.javarailways.basic.api.operation.DoorSide
+import work.art1st.javarailways.core.api.util.tick.TickingObject
+import work.art1st.javarailways.core.api.util.tick.Synchronizable
+import work.art1st.javarailways.core.api.util.Destroyable
+import work.art1st.javarailways.bukkit.util.PlatformCommitAffinity
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -39,6 +48,19 @@ class CarExtension : TrainComponentExtension<Car>() {
 
     private var pendingHeldScenes: Map<String, String> = emptyMap()
     private var savedModelSnapshotHash: String? = null
+    private var savedPackageSnapshotHash: String? = null
+    private var savedPackageSnapshot: SavedTrainPackageSnapshot? = null
+    private var behaviorClosed = false
+    private val behavior by lazy {
+        CarBehavior(::resolveBehavior, ::resolveActions,
+            { name, scene -> ensureBehaviorOwned(); if (scene == null) applyAnimation(name) else applyAnimation(name, scene) },
+            { key, volume, pitch ->
+                val location = behaviorLocation()
+                BukkitThreadOwnership.ensureLocation(location, "CarExtension.sound")
+                location.world!!.playSound(location, key, volume.toFloat(), pitch.toFloat())
+            }, ::scheduleBehaviorEffect,
+            { BukkitPlugin.INSTANCE.logger.info("[CarBehavior:${self.id}] $it") })
+    }
     private var bodyModel: CompositeModel? = null
     private var bogieModels: List<CompositeModel> = emptyList()
     private var platformModels: List<PlatformModel> = emptyList()
@@ -48,7 +70,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     private var detailStateCurrent: Boolean = false
     private var forceNextModelUpdate: Boolean = false
     private val publishedFrameGate = CarFramePublicationGate()
-    private var latestFrame: CarFrameSnapshot? = null
+    @Volatile private var latestFrame: CarFrameSnapshot? = null
     private var builtModelGeneration: Long = -1L
     private val detailAudience: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
 
@@ -59,6 +81,7 @@ class CarExtension : TrainComponentExtension<Car>() {
             carModelName = savedState.carModelName
             pendingHeldScenes = savedState.heldScenes
             savedModelSnapshotHash = savedState.modelSnapshotHash
+            savedPackageSnapshotHash = savedState.packageSnapshotHash
         }
     }
 
@@ -72,7 +95,8 @@ class CarExtension : TrainComponentExtension<Car>() {
         return BukkitPlugin.EXTENSION_ID to SavedCarRenderState(
             carModelName = modelName,
             heldScenes = collectHeldScenes(),
-            modelSnapshotHash = snapshotHash
+            modelSnapshotHash = snapshotHash,
+            packageSnapshotHash = if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) pinCurrentPackageSnapshot() else null
         )
     }
 
@@ -82,6 +106,110 @@ class CarExtension : TrainComponentExtension<Car>() {
         return BukkitPlugin.INSTANCE.modelManager.createCarModelSnapshot(modelName)?.let { snapshot ->
             CarModelSnapshotStore.save(snapshot)
         }?.also { savedModelSnapshotHash = it }
+    }
+
+    @Synchronized
+    fun pinCurrentPackageSnapshot(): String? {
+        savedPackageSnapshotHash?.let { return it }
+        return sourcePackageName()?.let { BukkitPlugin.INSTANCE.modelManager.createTrainPackageSnapshot(it) }
+            ?.let { snapshot ->
+                TrainPackageSnapshotStore.save(snapshot).also { savedPackageSnapshot = snapshot; savedPackageSnapshotHash = it }
+            }
+    }
+
+    private fun sourcePackageName(): String? = carModelName?.substringBefore('/')?.takeIf { it.isNotBlank() }
+
+    @Synchronized
+    fun resolveActions(): Map<String, work.art1st.javarailways.bukkit.config.model.TrainActionConfig> {
+        val pinned = operationalSnapshot()
+        if (pinned != null) return pinned.actions
+        val source = sourcePackageName() ?: return emptyMap()
+        return BukkitPlugin.INSTANCE.modelManager.getTrainActions(source)
+    }
+
+    private fun resolveBehavior(): work.art1st.javarailways.bukkit.config.model.TrainBehaviorScript? {
+        operationalSnapshot()?.let { return it.behavior }
+        val source = sourcePackageName() ?: return null
+        return BukkitPlugin.INSTANCE.modelManager.getTrainBehavior(source)
+    }
+
+    private fun operationalSnapshot(): SavedTrainPackageSnapshot? {
+        if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy != TrainModelUpdatePolicy.SNAPSHOT) return null
+        if (savedPackageSnapshotHash == null) pinCurrentPackageSnapshot()
+        val hash = savedPackageSnapshotHash ?: return null
+        return savedPackageSnapshot ?: requireNotNull(TrainPackageSnapshotStore.load(hash)) {
+            "Pinned car package snapshot '$hash' is unavailable"
+        }.also { savedPackageSnapshot = it }
+    }
+
+    internal fun behaviorLocation(): Location {
+        val position = latestFrame?.state?.positionVector() ?: self.lastState.position
+        return Location(self.world.bukkitWorldData.bukkitWorld, position.x(), position.y(), position.z())
+    }
+
+    @Synchronized
+    internal fun behaviorActions(tail: Boolean): List<TrainBehaviorActionDefinition> {
+        ensureBehaviorOwned()
+        val yaml = resolveActions().values.map { TrainBehaviorActionDefinition(it.name, it.displayName, it.executable, it.requiresControl) }
+        return (yaml.associateBy { it.name } + behavior.metadata(tail).associateBy { it.name }).values.toList()
+    }
+
+    @Synchronized
+    internal fun executeDoor(side: DoorSide, opening: Boolean, tail: Boolean, done: (Result<Unit>) -> Unit): TrainModelOperationResult {
+        ensureBehaviorOwned()
+        return behavior.door(side, opening, tail, done)
+    }
+
+    @Synchronized
+    internal fun executeAction(name: String, tail: Boolean, done: (Result<Unit>) -> Unit): TrainModelOperationResult {
+        ensureBehaviorOwned()
+        return behavior.action(name, tail, done)
+    }
+
+    @Synchronized
+    internal fun executeAnimation(name: String, scene: String?): Boolean {
+        ensureBehaviorOwned()
+        return if (scene == null) applyAnimation(name) else applyAnimation(name, scene)
+    }
+
+    @Synchronized
+    internal fun executeBehavior(method: String, args: List<Any?>, tail: Boolean, done: (Result<Unit>) -> Unit, optional: Boolean = false): TrainModelOperationResult {
+        ensureBehaviorOwned()
+        return behavior.call(method, args, tail, done, optional)
+    }
+
+    private fun ensureBehaviorOwned() {
+        check(!behaviorClosed) { "car behavior is closed" }
+        BukkitThreadOwnership.ensureLocation(behaviorLocation(), "CarExtension.behavior")
+    }
+
+    @Synchronized
+    internal fun closeBehavior() {
+        if (behaviorClosed) return
+        behaviorClosed = true
+        // Accessing lazy here does not initialize a JS Context; close also covers never-used cars.
+        behavior.close()
+    }
+
+    private fun scheduleBehaviorEffect(delay: Double, action: () -> Unit): AutoCloseable {
+        val effect = object : TickingObject, Synchronizable, Destroyable, PlatformCommitAffinity {
+            private var elapsed = 0.0
+            private var destroyed = false
+            override fun tick(deltaT: Double) = synchronized(this@CarExtension) {
+                if (!destroyed) elapsed += deltaT.coerceAtLeast(0.0) / 1000.0
+            }
+            override fun commitLocation() = behaviorLocation()
+            override fun commit() = synchronized(this@CarExtension) {
+                if (!destroyed && elapsed >= delay) {
+                    try { action() } finally { destroy() }
+                }
+            }
+            override fun destroy() = synchronized(this@CarExtension) {
+                if (!destroyed) { destroyed = true; self.world.tickManager.unregister(this) }
+            }
+        }
+        self.world.tickManager.register(effect)
+        return AutoCloseable { effect.destroy() }
     }
 
     /** Synchronous commit entry point used by explicit Core command paths. */
@@ -134,11 +262,16 @@ class CarExtension : TrainComponentExtension<Car>() {
         // Retire and tear down the model before removing audience-index entries. Their removal is
         // dispatched per player and may race with an already queued visibility update; retirement
         // prevents either task from rebuilding an orphaned model after the train has gone.
-        super.destroy()
-        self.world.renderChunkManager.remove(
-            self,
-            latestFrame?.state?.positionVector() ?: self.position
-        )
+        var failure: Throwable? = null
+        fun attempt(action: () -> Unit) {
+            try { action() } catch (value: Throwable) {
+                if (failure == null) failure = value else if (failure !== value) failure.addSuppressed(value)
+            }
+        }
+        attempt(::closeBehavior)
+        attempt { super.destroy() }
+        attempt { self.world.renderChunkManager.remove(self, latestFrame?.state?.positionVector() ?: self.position) }
+        failure?.let { throw it }
     }
 
     override fun buildModel() {

@@ -11,7 +11,6 @@ import work.art1st.javarailways.basic.control.RealisticManualController
 import work.art1st.javarailways.basic.basicWorldDataOrNull
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.bukkit.BukkitPlugin
-import work.art1st.javarailways.bukkit.behavior.TrainBehaviorCallResult
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
 import work.art1st.javarailways.bukkit.debug.AbnormalTrainMarker
 import work.art1st.javarailways.bukkit.config.model.CarDefinition
@@ -548,27 +547,10 @@ object TrainCommand {
                 return true
             }
 
-        val applied = if (sceneName == null) {
-            train.renderer.applyAnimation(animationName)
-        } else {
-            train.renderer.applyAnimation(animationName, sceneName)
-        }
-        if (applied) {
-            sender.sendMessage(
-                if (sceneName == null) {
-                    "已触发列车动画: $animationName"
-                } else {
-                    "已触发列车动画: $animationName -> $sceneName"
-                }
-            )
-        } else {
-            sender.sendMessage(
-                if (sceneName == null) {
-                    "没有部件响应动画: $animationName"
-                } else {
-                    "没有部件响应动画: $animationName -> $sceneName"
-                }
-            )
+        train.renderer.applyAnimation(animationName, sceneName).whenComplete { _, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                sender.sendMessage(if (failure == null) "已触发列车动画: $animationName" else "动画失败: ${failure.message}")
+            })
         }
         return true
     }
@@ -602,11 +584,10 @@ object TrainCommand {
                 return true
             }
 
-        val applied = train.renderer.applyAction(actionName)
-        if (applied) {
-            sender.sendMessage("已触发列车动作: $actionName")
-        } else {
-            sender.sendMessage("没有可执行的列车动作: $actionName")
+        train.renderer.executeModelAction(actionName).whenComplete { _, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                sender.sendMessage(if (failure == null) "已完成列车动作: $actionName" else "动作失败: ${failure.message}")
+            })
         }
         return true
     }
@@ -635,14 +616,10 @@ object TrainCommand {
                 return true
             }
 
-        when (val result = train.renderer.callBehavior(methodName, args.drop(1).map(::parseBehaviorArg))) {
-            is TrainBehaviorCallResult.Success -> {
-                val suffix = result.returnValue?.let { " -> $it" } ?: ""
-                sender.sendMessage("已调用列车行为: ${result.method}$suffix")
-            }
-            is TrainBehaviorCallResult.Failure -> {
-                sender.sendMessage("列车行为调用失败: ${result.message}")
-            }
+        train.renderer.callBehavior(methodName, args.drop(1).map(::parseBehaviorArg)).whenComplete { _, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                sender.sendMessage(if (failure == null) "已调用每车行为: $methodName" else "行为调用失败: ${failure.message}")
+            })
         }
         return true
     }

@@ -37,7 +37,6 @@ import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
 import work.art1st.javarailways.bukkit.operation.BukkitTrainOperationGateway
-import work.art1st.javarailways.bukkit.operation.RegionTrainOperationDispatcher
 import work.art1st.javarailways.bukkit.persistence.RailRenderMetaStore
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.util.annotation.Heavy
@@ -182,10 +181,7 @@ object RailWorldFactory {
             signalRestrictionSnapshots = signalRestrictions,
             inspectionRuntime = inspectionRuntime,
             infrastructureDependencyService = infrastructureDependencyService,
-            operationGateway = BukkitTrainOperationGateway(
-                coreWorld,
-                operationDispatcher = RegionTrainOperationDispatcher(BukkitPlugin.INSTANCE)
-            ),
+            operationGateway = BukkitTrainOperationGateway(coreWorld),
             atoFactory = TimetableAtoFactory { train, world ->
                 val renderer = train.rendererOrNull
                     ?: throw IllegalArgumentException("Train ${train.id} has no model control profile")

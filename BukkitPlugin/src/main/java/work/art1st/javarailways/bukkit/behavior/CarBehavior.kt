@@ -1,0 +1,214 @@
+package work.art1st.javarailways.bukkit.behavior
+
+import work.art1st.javarailways.basic.api.operation.DoorSide
+import work.art1st.javarailways.bukkit.config.model.TrainActionConfig
+import work.art1st.javarailways.bukkit.config.model.TrainBehaviorScript
+import work.art1st.javarailways.bukkit.extension.train.TrainModelOperationResult
+
+/** One car's JS state and accepted effects. All entry points run under the car renderer monitor. */
+internal class CarBehavior(
+    private val script: () -> TrainBehaviorScript?,
+    private val actions: () -> Map<String, TrainActionConfig>,
+    private val animate: (String, String?) -> Boolean,
+    private val sound: (String, Double, Double) -> Unit,
+    private val schedule: (Double, () -> Unit) -> AutoCloseable,
+    private val log: (String) -> Unit
+) : AutoCloseable {
+    private var runtime: TrainBehaviorRuntime? = null
+    private var loadedScript: TrainBehaviorScript? = null
+    private var relativeTail = false
+    private var closed = false
+    private var initializing = false
+    private var collecting: Effects? = null
+    private val operations = linkedSetOf<Effects>()
+    private val scheduled = linkedSetOf<AutoCloseable>()
+    var definitions: List<TrainBehaviorActionDefinition> = emptyList()
+        private set
+
+    fun metadata(tail: Boolean): List<TrainBehaviorActionDefinition> = withEnd(tail) {
+        runtimeWithDeclarations()
+        definitions
+    }
+
+    fun door(side: DoorSide, opening: Boolean, tail: Boolean, done: (Result<Unit>) -> Unit): TrainModelOperationResult =
+        execute(tail, done, requireEffects = true) {
+            require(side != DoorSide.NONE) { "door side is NONE" }
+            val js = ensureRuntime()
+            if (js != null) js.call("door", listOf(side.name.lowercase(), if (opening) "open" else "closed"))
+            else {
+                val sides = if (side == DoorSide.BOTH) listOf("left", "right") else listOf(side.name.lowercase())
+                val success = sides.map { semantic ->
+                    val physical = if (!tail) semantic else if (semantic == "left") "right" else "left"
+                    action("door-$physical-${if (opening) "open" else "close"}")
+                }.all { it }
+                TrainBehaviorCallResult.Success("door", success)
+            }
+        }
+
+    fun action(name: String, tail: Boolean, done: (Result<Unit>) -> Unit): TrainModelOperationResult =
+        execute(tail, done, requireEffects = true) {
+            val js = runtimeWithDeclarations()
+            if (definitions.any { it.name == name }) requireNotNull(js).runDefinedAction(name)
+            else TrainBehaviorCallResult.Success(name, action(name))
+        }
+
+    fun call(method: String, args: List<Any?>, tail: Boolean, done: (Result<Unit>) -> Unit, optional: Boolean = false): TrainModelOperationResult =
+        execute(tail, done, requireEffects = false) {
+            val js = ensureRuntime()
+            if (optional) js?.callOptional(method, args) ?: TrainBehaviorCallResult.Success(method)
+            else js?.call(method, args) ?: TrainBehaviorCallResult.Failure("car has no behavior.js")
+        }
+
+    private fun execute(tail: Boolean, done: (Result<Unit>) -> Unit, requireEffects: Boolean,
+                        invoke: () -> TrainBehaviorCallResult): TrainModelOperationResult {
+        if (closed) return TrainModelOperationResult.Rejected("car behavior is closed")
+        check(collecting == null) { "recursive car behavior operation" }
+        val effects = Effects(done)
+        operations.add(effects)
+        collecting = effects
+        val failure = try {
+            val result = withEnd(tail, invoke)
+            when {
+                result is TrainBehaviorCallResult.Failure -> IllegalStateException(result.message)
+                result is TrainBehaviorCallResult.Success && result.returnValue == false -> IllegalStateException("behavior rejected operation")
+                requireEffects && effects.count == 0 -> IllegalStateException("behavior declared no model effects")
+                else -> null
+            }
+        } catch (failure: Exception) { failure }
+        finally { collecting = null }
+        if (failure != null) effects.fail(failure)
+        effects.seal()
+        return if (failure != null || effects.failure != null) {
+            TrainModelOperationResult.Rejected((failure ?: effects.failure)!!.message ?: "car action failed")
+        } else TrainModelOperationResult.Accepted
+    }
+
+    private fun action(name: String): Boolean {
+        check(!initializing) { "model effects are not allowed during behavior initialization" }
+        check(collecting != null) { "model effects are not allowed while reading action metadata" }
+        val config = actions()[name] ?: run {
+            collecting?.fail(IllegalStateException("car model action is unavailable: $name"))
+            return false
+        }
+        var applied = false
+        config.animations.forEach { animation ->
+            applied = effect(animation.at) { check(animate(animation.name, animation.scene)) { "animation unavailable: ${animation.name}" } } || applied
+        }
+        config.sounds.forEach { value ->
+            applied = effect(value.at) { sound(value.key, value.volume, value.pitch) } || applied
+        }
+        return applied
+    }
+
+    private fun effect(delay: Double, apply: () -> Unit): Boolean {
+        check(!initializing) { "model effects are not allowed during behavior initialization" }
+        val owner = checkNotNull(collecting) { "model effects are not allowed while reading action metadata" }
+        owner.accept()
+        val run = {
+            try {
+                check(!closed) { "car behavior is closed" }
+                apply()
+                owner.finish()
+            } catch (failure: Exception) {
+                owner.fail(failure)
+            }
+        }
+        if (delay <= 0.0) run() else {
+            try {
+                lateinit var handle: AutoCloseable
+                handle = schedule(delay) {
+                    scheduled.remove(handle)
+                    run()
+                }
+                scheduled.add(handle)
+            } catch (failure: Exception) {
+                owner.fail(failure)
+                throw failure
+            }
+        }
+        return owner.failure == null
+    }
+
+    private fun runtimeWithDeclarations(): TrainBehaviorRuntime? {
+        val previous = runtime
+        val current = ensureRuntime()
+        if (current != null && current === previous) {
+            initializing = true
+            try { definitions = current.listActions() } finally { initializing = false }
+        }
+        return current
+    }
+
+    private fun ensureRuntime(): TrainBehaviorRuntime? {
+        check(!closed) { "car behavior is closed" }
+        val source = script()
+        if (source == loadedScript) return runtime
+        // Resource reload is distinct from a consist transfer; already accepted physical effects remain.
+        runtime?.close()
+        runtime = null
+        definitions = emptyList()
+        loadedScript = null
+        if (source == null) return null
+        initializing = true
+        try {
+            val created = TrainBehaviorRuntime(source, object : TrainBehaviorBindings {
+                override fun action(name: String) = this@CarBehavior.action(name)
+                override fun sound(key: String, volume: Double, pitch: Double) = effect(0.0) { this@CarBehavior.sound(key, volume, pitch) }
+                override fun log(message: String) = this@CarBehavior.log(message)
+                override fun operatingEnd() = if (relativeTail) "tail" else "head"
+            })
+            try {
+                definitions = created.listActions()
+                runtime = created
+                loadedScript = source
+            } catch (failure: Exception) {
+                try { created.close() } catch (cleanup: Exception) { failure.addSuppressed(cleanup) }
+                throw failure
+            }
+            return created
+        } finally {
+            initializing = false
+        }
+    }
+
+    private inline fun <T> withEnd(tail: Boolean, call: () -> T): T {
+        val previous = relativeTail
+        relativeTail = tail
+        return try { call() } finally { relativeTail = previous }
+    }
+
+    override fun close() {
+        if (closed) return
+        closed = true
+        var failure: Throwable? = null
+        fun attempt(action: () -> Unit) {
+            try { action() } catch (value: Throwable) {
+                if (failure == null) failure = value else if (value !== failure) failure.addSuppressed(value)
+            }
+        }
+        operations.toList().forEach { attempt { it.fail(IllegalStateException("car behavior destroyed")) } }
+        scheduled.toList().forEach { attempt(it::close) }
+        scheduled.clear()
+        attempt { runtime?.close() }
+        runtime = null
+        failure?.let { throw it }
+    }
+
+    private inner class Effects(private val done: (Result<Unit>) -> Unit) {
+        var count = 0
+        var failure: Exception? = null
+        private var pending = 0
+        private var sealed = false
+        private var terminal = false
+        fun accept() { count++; pending++ }
+        fun finish() { pending--; complete() }
+        fun fail(value: Exception) { if (failure == null) failure = value; complete() }
+        fun seal() { sealed = true; complete() }
+        private fun complete() {
+            if (terminal || (!sealed && !closed) || (failure == null && pending != 0)) return
+            terminal = true
+            operations.remove(this)
+            done(failure?.let { Result.failure(it) } ?: Result.success(Unit))
+        }
+    }
+}

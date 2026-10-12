@@ -187,7 +187,9 @@ class JavaRailwaysCommand {
         if (plugin.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
             plugin.worldManager.railWorlds.values.flatMap { it.allTrains }.forEach { train ->
                 train.rendererOrNull?.pinCurrentPackageSnapshot()
-                train.cars.forEach { it.carRendererOrNull?.pinCurrentModelSnapshot() }
+                train.cars.forEach { car ->
+                    car.carRendererOrNull?.let { it.pinCurrentModelSnapshot(); it.pinCurrentPackageSnapshot() }
+                }
             }
         }
         val result = plugin.modelManager.loadAll()
@@ -579,8 +581,8 @@ class JavaRailwaysCommand {
                 }
                 val explicitTags = parseCsv(args.getOrNull(4))
                 val explicitCapabilities = parseCsv(args.getOrNull(5))
-                val inferredCapabilities = train.rendererOrNull?.behaviorActions().orEmpty()
-                    .map { it.name }
+                val inferredCapabilities = train.rendererOrNull?.resolveActions().orEmpty()
+                    .keys
                     .filter { it.startsWith("door-") }
                     .takeIf { it.isNotEmpty() }
                     ?.let { setOf("doors") }

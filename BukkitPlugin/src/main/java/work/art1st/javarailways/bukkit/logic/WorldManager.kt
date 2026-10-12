@@ -26,6 +26,7 @@ import work.art1st.javarailways.bukkit.debug.TrainDebugLog
 import work.art1st.javarailways.bukkit.extension.renderChunkManager
 import work.art1st.javarailways.bukkit.extension.train.CarExtension
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
+import work.art1st.javarailways.bukkit.extension.bukkitWorldData
 import work.art1st.javarailways.bukkit.extension.train.TrainExtension
 import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.persistence.WorldPersistence
@@ -365,6 +366,7 @@ class WorldManager internal constructor(
         clearAbnormalMarkers: (BukkitWorld) -> Unit,
         closeRender: (World) -> Unit,
         releaseRuntimeBinding: (CoreWorld) -> Unit = CoreWorld::releaseRuntimeBinding,
+        closeModelOperations: (World) -> Unit = { it.bukkitWorldData.closeModelOperations() },
         closeTick: (World) -> Unit
     ) {
         ThreadGuard.ensureMainThread("WorldManager.unregisterRailWorld")
@@ -400,6 +402,10 @@ class WorldManager internal constructor(
             attempt { infrastructureResourceService?.removeWorld(bukkitWorld.uid) }
             attempt { signalEpochSourceService?.removeWorld(bukkitWorld.uid) }
             attempt { observationService?.removeWorld(bukkitWorld.uid) }
+            attempt { closeModelOperations(ownedWorld) }
+            ownedWorld.allTrains.flatMap { it.cars }.forEach { car ->
+                attempt { car.carRendererOrNull?.closeBehavior() }
+            }
             attempt { coreWorld?.physicsCoordinator?.close() }
             attempt { closeRender(ownedWorld) }
             attempt { coreWorld?.let(releaseRuntimeBinding) }

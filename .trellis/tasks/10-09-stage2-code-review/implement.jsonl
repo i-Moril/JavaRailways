@@ -20,3 +20,7 @@
 {"file": ".trellis/spec/bukkit-plugin/backend/car-behavior.md", "reason": "TARGET per-car JS lifecycle, fixed action targets and physical sides, no runtime reset on consist transfer"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/car-behavior-implementation-plan.md", "reason": "Core current owner prerequisite; Bukkit vertical migration reuse, per-car snapshot sample gate and exact delayed-effect targets"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/dev-server-save-audit.md", "reason": "Actual old server shape and paired revisions, zero train conversion records, separate ownership/curve migration gaps and preserved readonly source"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/basic-module-review.md", "reason": "Complete Basic audit and grouped priority roadmap; static coverage is not acceptance"}
+{"file": ".trellis/spec/javarailways/basic/route-resource-admission.md", "reason": "Overlap-safe reversal rebase, suspended lifecycle, exact identities and candidate complexity"}
+{"file": ".trellis/spec/javarailways/basic/persistence.md", "reason": "Prevalidate parsed identities and waypoint values before any mutation; current version unchanged"}
+{"file": ".trellis/spec/javarailways/basic/testing.md", "reason": "Real engine lifecycle regressions, fixed malformed inputs and managed fixture ownership"}

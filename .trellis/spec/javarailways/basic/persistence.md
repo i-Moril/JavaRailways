@@ -93,6 +93,8 @@ capture 从 `BasicWorldData.operatingDirections` 取得稀疏快照并拒绝孤�
 restore 在写入任何 WayPoint、metadata 或方向之前完整验证全部记录，再恢复到空方向存储；
 具体存储与通知机制见[轨道公共运行方向](./operating-directions.md)。
 
+WayPoint 在预校验阶段解析 UUID、构造值并检查非空白 ID；metadata 与方向先解析 UUID，再按 UUID 检查重复和引用。大小写不同但表示同一 UUID 的两条 metadata 必须拒绝，不能在 `associate` 时覆盖。所有检查通过后才把已解析值写入三个空存储；后面的非法记录不能使前面的合法 WayPoint 提前落入目标。不添加通用回滚、额外弧长规则或旧数据 reader，当前 format 2 不变。两个固定非法 JSON 回归均须断言三个存储保持为空，并证明修正输入后可在同一目标正常恢复。
+
 ## 禁止实现
 
 - materialize后才检查后续Line/runtime引用；

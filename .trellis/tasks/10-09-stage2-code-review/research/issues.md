@@ -1,5 +1,43 @@
 # 问题台账
 
+## Basic 整模块新增项（2026-10-12）
+
+完整覆盖及七维结论见 [Basic 报告](./basic-module-review.md)，详细源码/触发条件见三份分区研究；以下只维护处置状态。
+
+### CR-037：换向释放漏掉嵌套保留区间
+
+- P1；本批已修复，待用户检查。环线滚动授权保留`R[0,100]`与`R[20,30]`后，原换向索引按起点排序却对非单调终点二分，可能在列车仍占用`R[50,60]`时把长区间释放边界置0。
+- 修复：按轨道/起点排序并建立前缀最大终点，对单调前缀二分后逐项判断真实重叠。保留exact资源身份、正常释放队列及每tick成本不变。
+- 实际回归通过真实engine执行环线140→150授权、停车换向、下一stationary epoch、到达清除点。旧实现实际失败在stationary epoch后所有claim已被释放；修复后原长区间继续保护至真实车尾清除。完整门禁见implement。
+
+### CR-038：暂停换向释放期间仍可普通扩展
+
+- P2；本批已修复，待用户检查。SimpleATO已有guard，但Basic公开service没有落实自身生命周期合同。
+- 修复：Basic在普通request进入贡献、游标、claim、准备流程前检查暂停标志并返回`ROUTE_STATE_MISMATCH`。回归检查原grant/claim/准备次数不变，后续观测仍保持暂停。无需新增恢复协议。
+
+### CR-039：Basic恢复预校验不完整
+
+- P2；本批已修复，待用户检查。后续空白WayPoint ID在store.add时才抛错，前面值已写入；metadata按原字符串查重，大小写UUID别名会在map构造时覆盖。宿主factory不发布失败world，不将其夸大为已观察到的在线损坏。
+- 修复：所有WayPoint先解析/构造/验证，metadata先解析UUID再查重和校验引用，通过后复用已解析值写入。两个手写非法JSON分别检查三store无副作用及修正后同target可恢复；format2及合法行为不变，无通用事务回滚或兼容reader。
+
+### CR-040：曲线距离与分段元数据不一致
+
+- P2；待下一批集中修复。五段/S曲线坡道输出水平station作为物理弧长；horizontal radius使用三维arc作分母；平行偏移/竖曲线重建继续复用centerline分段比例。
+- 证据与独立数值诊断见几何分区B1/B2/B3。应补最终三维arc与源station映射及坡度+曲率/偏移交叉回归，不修改Core查询热路径。
+- RailSpeedCalculator相似分母涉及三维速度与横向加速度模型，先明确物理坐标再决定修改，不能仅据半径显示错误断言不安全超速。
+
+### CR-041：嵌套配置UI有效视图与快照失真
+
+- P2；待集中修复。registry隐藏子组未移除已flatten条目；Bukkit renderer重新加入原始子组items，造成隐藏字段复现/重复；advertised snapshot实际访问live registry。
+- 先修统一effectiveItems消费及值捕获，补nested producer/consumer回归。注册线程owner尚须明确，不按ConcurrentHashMap推断所有列表线程安全，也不因此无差别加锁。
+
+### 复用原台账的Basic维护项
+
+- CR-002/033：网页Basic归属、Dokka缺文档/链接、曲线注释与寻路复杂度说明；docs-site用户脏状态保留。
+- CR-005：历史路线值泄漏修复保留；追加brakingEnvelope public factory暴露隐藏TrainDynamics profile类型的API归属评估，不能称全模块公开面已闭合。
+- CR-020：零进度helper空跑、传错tangent、wrapper非空重复测试及fixture关闭；保留有独立行为价值的回归，不按385项数量批删。
+- CR-032：空CurveEditor/重复顶层enum/旧internal suffix候选与旧保护payload分开处理；持久字段不机械删除，ManualController仍有真实开发调用。
+
 ## CR-001：无调用 Java 原型和 Lombok 构建残留
 
 - 优先级：P2（维护清理，非已证实的游戏测试阻塞）。

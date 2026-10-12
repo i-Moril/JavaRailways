@@ -2,7 +2,19 @@
 
 当前阶段：in_progress。用户于 2026-10-09 批准修复已知问题；2026-10-10进一步批准连续小提交后统一检查，不要求等待全部审查结束才修复已确认项。
 
-## 当前实施批次：CR-030混合朝向与结构事件（2026-10-11已批准开始）
+## 当前批次：Basic完整审查与高优先级修复（2026-10-12）
+
+- 按用户效率要求，暂缓Core每车JS/联结扩展链，完成Basic整模块审查。96个production Kotlin、53个测试源文件、2个fixture均有分区覆盖记录；构建与两份Dokka输入由主会话审查。整模块七维报告见[Basic报告](./research/basic-module-review.md)，不能把此次完整静态覆盖写成模块无缺陷。
+- 修复顺序：CR-037/038资源安全和换向生命周期 → CR-039恢复预校验 → CR-040几何 → CR-041配置UI。P3文档/废代码/弱测试维护不作为无限的游戏前置条件；Core剩余能力与其它模块审查仍开放。
+- 本轮源码修改：`PhysicalRouteResourceCompiler`用起点排序+前缀最大终点修正嵌套保留区间检索，保留exact identity与正常释放路径；`RouteResourceAdmissionEngine`拒绝暂停期间普通扩展。现有engine测试类增加两条行为回归，无新测试框架。
+- `BasicInfrastructureSnapshot`在mutation前构造/验证WayPoint及解析metadata UUID，按UUID查重，复用解析结果写入。现有snapshot测试类新增两个手写JSON回归，失败三store为空、修正后同target恢复成功；新用例按registry→physics→binding→tick释放。既有该类旧fixture清理未混入本批。
+- 首次loop回归失败来自测试actuator对空准备批抛异常，改成既有READY fixture后，未修改production的第二次执行确实在stationary epoch后`claimSnapshots.single()`失败：资源提前清空。修复后完整engine类通过；没有把fixture错误当作缺陷复现证据。
+- 冻结源码执行`:Core:test :Basic:test :Basic:dokkaGeneratePublicationHtml --offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`，缓存`/workspace/.gradle`。`BUILD SUCCESSFUL`，1分14秒，16tasks全部执行。新鲜XML：Core55suites/349项、Basic59suites/389项，全部执行，零失败/error/skipped。Basic较基线增加4项；Dokka仍有既有warning，模块没有独立lint任务，scoped diff-check通过。没有部署/游戏/Folia/性能profiling。
+- 独立只读复核：两组修复均无阻塞。资源检查确认prefix-max检索和候选过滤、exact身份、普通释放路径、暂停guard顺序与真实engine回归均正确；恢复检查确认当前fresh-world串行composition的预校验不遗漏后续setter输入失败，不承诺任意自定义回调副作用回滚。两份owner spec同步实际机制及复杂度，不增加版本或兼容路径。
+- 提交拆为完整审查记录、资源生命周期修复、恢复边界修复，最后统一交用户检查。完整审查任务与Stage2不归档。
+- 上下文manifest 26+26校验通过；准入规范超过32KiB注入上限，工具提示会截断，后续agent必须主动完整读取所需章节，不能依赖注入尾部包含算法/复杂度。该文档拆分属于维护事项，不混入本批源码修复。
+
+## 暂缓批次：CR-030混合朝向与结构事件（2026-10-11已批准开始）
 
 用户已批准开始实现此前确认的四端部联结、停车接触且无吸附、插件决策及联结/解编两阶段事件。按依赖分批验证与提交，不在此实现未来SimpleATO的时刻表联结业务，不改Seat或旧tick事件接线：
 

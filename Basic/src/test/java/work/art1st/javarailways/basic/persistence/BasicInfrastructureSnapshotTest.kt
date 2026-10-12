@@ -24,6 +24,64 @@ import java.util.UUID
 
 class BasicInfrastructureSnapshotTest {
     @Test
+    fun `later blank waypoint refuses all Basic materialization`() = withFreshWorld { world ->
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
+        val snapshot = BasicInfrastructureSnapshotCodec.decode(
+            """{"formatVersion":2,"infrastructureRevision":7,"wayPoints":[
+                {"id":"valid","displayName":"Valid","railId":"${rail.id}","arcLengthInAbMeters":10.0},
+                {"id":" ","displayName":"Invalid","railId":"${rail.id}","arcLengthInAbMeters":20.0}],
+                "railMetadata":[{"railId":"${rail.id}","metadata":{}}],
+                "operatingDirections":[{"railId":"${rail.id}","permittedDirection":"AB"}]}"""
+        )
+        assertThrows(IllegalArgumentException::class.java) { snapshot.restore(world) }
+        assertTrue(world.basicWorldData.wayPoints.all().isEmpty())
+        assertTrue(world.basicWorldData.railMetadata.snapshot().isEmpty())
+        assertTrue(world.basicWorldData.operatingDirections.entries().isEmpty())
+        snapshot.copy(wayPoints = snapshot.wayPoints.take(1)).restore(world)
+        assertEquals(listOf("valid"), world.basicWorldData.wayPoints.all().map { it.id })
+        assertEquals(ViewDirection.AB, world.basicWorldData.operatingDirections[rail.id])
+    }
+
+    @Test
+    fun `metadata UUID aliases refuse all Basic materialization`() = withFreshWorld { world ->
+        val original = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
+        val railId = "abcdef01-2345-6789-abcd-ef0123456789"
+        original.save().copy(id = railId).load(CoreRail.SavedRailV1.Dependency(world))
+        val snapshot = BasicInfrastructureSnapshotCodec.decode(
+            """{"formatVersion":2,"infrastructureRevision":7,"wayPoints":[
+                {"id":"valid","displayName":"Valid","railId":"$railId","arcLengthInAbMeters":10.0}],
+                "railMetadata":[
+                    {"railId":"$railId","metadata":{"authoring":{"designSpeedMetersPerSecond":20.0}}},
+                    {"railId":"${railId.uppercase()}","metadata":{"authoring":{"designSpeedMetersPerSecond":30.0}}}],
+                "operatingDirections":[{"railId":"$railId","permittedDirection":"BA"}]}"""
+        )
+        val failure = assertThrows(IllegalStateException::class.java) { snapshot.restore(world) }
+        assertTrue(failure.message.orEmpty().contains("duplicate Rail metadata"))
+        assertTrue(world.basicWorldData.wayPoints.all().isEmpty())
+        assertTrue(world.basicWorldData.railMetadata.snapshot().isEmpty())
+        assertTrue(world.basicWorldData.operatingDirections.entries().isEmpty())
+        snapshot.copy(railMetadata = snapshot.railMetadata.take(1)).restore(world)
+        assertEquals(20.0, world.basicWorldData.railMetadata.getValue(UUID.fromString(railId))
+            .authoring!!.designSpeedMetersPerSecond)
+    }
+
+    private fun withFreshWorld(block: (work.art1st.javarailways.core.physics.CoreWorld) -> Unit) {
+        val world = createTestWorld()
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                world.physicsCoordinator.use {
+                    try {
+                        TestBasicWorldDataRegistry.getOrCreate(world)
+                        block(world)
+                    } finally {
+                        TestBasicWorldDataRegistry.unregister(world)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun `current format 2 without directions defaults to both directions without a version change`() {
         val snapshot = BasicInfrastructureSnapshotCodec.decode(
             """{"formatVersion":2,"infrastructureRevision":7,"wayPoints":[],"railMetadata":[]}"""

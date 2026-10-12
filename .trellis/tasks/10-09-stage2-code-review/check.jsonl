@@ -20,3 +20,7 @@
 {"file": ".trellis/spec/bukkit-plugin/backend/car-behavior.md", "reason": "Verify both source car runtimes survive link/split, pending door completion and cross-region ownership"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/car-behavior-implementation-plan.md", "reason": "Check current Car.train identity contract separately from pending Bukkit runtime and snapshot migration; no partial JS backend or package fallback"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/dev-server-save-audit.md", "reason": "Do not equate stable fetched bytes/no-train sample with complete current-codec migration or nonempty-car snapshot validation"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/basic-module-review.md", "reason": "Verify complete coverage versus remaining defects and distinguish game/performance gaps"}
+{"file": ".trellis/spec/javarailways/basic/route-resource-admission.md", "reason": "Check nested retained intervals, suspension no-mutation and unchanged ordinary release"}
+{"file": ".trellis/spec/javarailways/basic/persistence.md", "reason": "Check canonical UUID duplicates and full prevalidation, no rollback framework or version bump"}
+{"file": ".trellis/spec/javarailways/basic/testing.md", "reason": "Check independent lifecycle/fixed JSON assertions and fixture cleanup"}

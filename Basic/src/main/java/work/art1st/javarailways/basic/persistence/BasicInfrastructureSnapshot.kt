@@ -90,26 +90,26 @@ data class BasicInfrastructureSnapshotV2(
         check(duplicateWayPointIds.isEmpty()) {
             "Infrastructure snapshot contains duplicate WayPoints: ${duplicateWayPointIds.joinToString()}"
         }
-        val missingWayPointRails = wayPoints.filter { saved ->
-            world.getRail(UUID.fromString(saved.railId)) == null
+        val restoredWayPoints = wayPoints.map { saved ->
+            saved.restore().also { require(it.id.isNotBlank()) { "WayPoint id must not be blank" } }
         }
+        val missingWayPointRails = restoredWayPoints.filter { world.getRail(it.railId) == null }
         check(missingWayPointRails.isEmpty()) {
             "Infrastructure snapshot contains WayPoints on missing rails: " +
                 missingWayPointRails.joinToString { "${it.id}@${it.railId}" }
         }
-        val duplicateMetadataIds = railMetadata.groupingBy { it.railId }.eachCount().filterValues { it > 1 }.keys
+        val parsedMetadata = railMetadata.map { it.parsedRailId() to it.metadata }
+        val duplicateMetadataIds = parsedMetadata.groupingBy { it.first }.eachCount().filterValues { it > 1 }.keys
         check(duplicateMetadataIds.isEmpty()) {
             "Infrastructure snapshot contains duplicate Rail metadata: ${duplicateMetadataIds.joinToString()}"
         }
-        val missingMetadataRails = railMetadata.filter { world.getRail(it.parsedRailId()) == null }
+        val missingMetadataRails = parsedMetadata.map { it.first }.filter { world.getRail(it) == null }
         check(missingMetadataRails.isEmpty()) {
             "Infrastructure snapshot contains metadata for missing rails: " +
-                missingMetadataRails.joinToString { it.railId }
+                missingMetadataRails.joinToString()
         }
-        wayPoints.forEach { world.basicWorldData.wayPoints.add(it.restore()) }
-        world.basicWorldData.railMetadata.restore(
-            railMetadata.associate { it.parsedRailId() to it.metadata }
-        )
+        restoredWayPoints.forEach { world.basicWorldData.wayPoints.add(it) }
+        world.basicWorldData.railMetadata.restore(parsedMetadata.toMap())
         world.basicWorldData.operatingDirections.restore(parsedDirections.toMap())
     }
 

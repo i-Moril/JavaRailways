@@ -30,6 +30,7 @@ Wall-clock delta首 epoch 50 ms，默认 clamp 200 ms；drop计入 `droppedDelta
 ```text
 apply prior collision decisions
 → snapshot controllers（profileId stable order）
+→ synchronous previous-epoch collision prepass（先标记双方，再启动worker；规则见train physics）
 → workers preparePhysicsTick/tick(deltaMillis)
 → await all workers
 → flip controller/train CommitBuffer

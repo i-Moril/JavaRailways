@@ -21,6 +21,16 @@
 - 暂停范围确认：源码追踪确认旧检测在move之前查询上一epoch包络，补车钩候选仍可能在实际接触后才触发；需评估本次physics步进在首次接触处截断，而不是结构prepare吸附。另独立检查发现Basic `TrainDynamicsExecutor`在构造时固定`carProfiles`，后续按current cars索引，联结后的数量/顺序变化会越界或错配，manual/ATO共用。两项为联结直接依赖，不扩张为Basic全模块审查；新增范围须先向用户说明确认。
 - 当时暂停的事务草稿涉及8个既有源码/测试文件及3个新事件/端部文件，尚未闭合Bukkit旧测试caller、碰撞候选与步进、动力学profile重绑定，不可交付。当时入口分析只有源码证据，没有已完成可执行复现；暂停期间保留改动等待范围决定。后续获批的参数前置及实际构建结果单独记于下节，不因此宣称草稿完成。
 
+### 碰撞查询前置及接触方案收束（2026-10-12，当前批次）
+
+- 最新位置修正TARGET与入口研究仍在工作树中，留待后续联结批次，不纳入本笔独立前置提交。本笔只交付下述查询时点修复；不引入intent barrier/路径历史，不升级为连续碰撞模拟。
+- 本轮实际源码收束为三个文件：`PhysicsCoordinator`在worker启动前用原controller snapshot查询上一完整epoch；`CoreTrain`移除重复worker query并提供内部active脱轨状态；既有`PhysicsCoordinatorTest`新增双controller冻结回归并将并行fixture沿真实连接分开放置、用已有maintenance commit清除初始化teleport sweep。只迁移发起查询方的脱轨拒绝，已脱轨目标仍是障碍。旧四端联结/events/extension/future消费草稿保持，不整体纳入本批。
+- 曾试写的车钩投影存在找不到投影面时沿分支长距离搜索的问题，已全部撤回；连同无producer的collisionOnly接口/测试及CoreWorld接线均恢复到本轮前状态。没有交付仅支持一条相邻rail的临时版本。车钩候选、静止锚点重算与真实联结闭环仍未完成。
+- 聚焦构建失败记录保留：临时投影代码编译失败；撤回后35项两项失败（脱轨决定应用后重复claim、并行fixture实际重叠）；随后两轮各一项摆位fixture失败（第一条rail弧长越界、teleport sweep未清）。修正后coordinator全类35项通过，38秒/9tasks全部执行，XML零failure/error/skipped。此结果仍含后续独立检查指出的多余other脱轨过滤，不能替代删除过滤后的最终门禁。
+- 独立检查确认other脱轨过滤会错误忽略物理障碍，已删除并补真实回归：已脱轨目标仍使接近列车冻结，下一epoch接近方脱轨，事件不重复。最终`:Core:test :Basic:test`完整门禁exit0，59秒/15tasks全部执行；Core55suites/353项、Basic59suites/393项，共746项，零failure/error/skipped，coordinator全类36项包含两条本轮新增回归。沿用`/workspace/.gradle`、offline/no-cache/no-parallel/rerun及Kotlin非增量/in-process和1536m heap/1024m metaspace；三源码SHA-256前后相同，限定diff-check通过。日志`/tmp/javarailways-prepass-check-Ancumr/core-basic.log`。这是含冻结联结草稿的当前工作树门禁，不是独立摘取commit tree验证；未跑其他模块、Dokka或游戏测试。独立检查无本批未修源码阻塞。不将前置修复写为CR-030或Stage2完成，不部署。查询由worker并行转为coordinator串行，未新增任务/屏障/索引，但未profiling，不能宣称性能不变；计时语义由owner spec说明。
+
+- 提交前另从HEAD `9b833d99`隔离摘取三份源码，排除旧联结草稿，source tree为`61c190a51769327fb5ac8350dc7303cd7ee0dc45`。独立强制`:Core:test :Basic:test`通过，1分2秒/15tasks全执行；Core353+Basic393=746项，零失败/error/skipped，Coordinator36项及两条新增回归实际执行。三源码hash前后一致，cached diff-check通过；日志`/tmp/javarailways-prepass-isolated-4KwKFJ/core-basic.log`。随提交的CURRENT契约与本节记录单独apply-check通过，未纳入TARGET或旧联结源码；未部署。
+
 ### 动力学参数实例绑定前置（2026-10-12）
 
 - 已提交：`2252a847`，用户检查解释后批准，只包含本节Basic两份源码/测试、纵向动力学规范及本执行记录，不包含未完成联结草稿。

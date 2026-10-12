@@ -44,7 +44,6 @@
 override fun moveTrainForward(deltaS: Double) {
     if (activeDerailState.derailed) return
     require(deltaS >= 0.0) { "deltaS must >= 0" }
-    if (world.physicsCoordinator.detectSweptCollision(this)) return
     // signal scan and consist solve follow
 }
 ```
@@ -70,7 +69,15 @@ motion-only epoch翻转未写入的geometry槽；两类状态仍在同一个epoc
 公开/manual移动、`setLocation`/maintenance placement、存档placement恢复与主线程reverse/derail始终发布0。换向后的下一次
 移动从反向后的active rail facing tangent重新注入速度。
 
-运动顺序：检查published swept collision → 扫active route signal并同步发event → 解head bogie/cars/tail → 写active buffers/swept spans及两端有序traversal；`PhysicsException`转physics derail。tail从train-local forward path重算，不依赖reverse branch当前selection。
+运动顺序：coordinator先检查published swept collision并标记参与双方，再启动worker；未冻结的controller扫active route signal并同步发event → 解head bogie/cars/tail → 写active buffers/swept spans及两端有序traversal。`PhysicsException`转physics derail。tail从train-local forward path重算，不依赖reverse branch当前selection。
+
+### 碰撞查询时点（CURRENT）
+
+正常epoch先应用此前碰撞决定、捕获controller列表，然后在启动任何worker前，以AsyncTick线程上下文按该列表查询上一完整epoch的共享碰撞索引。参与双方先加入既有pending集合，后续worker跳过其controller tick并冻结物理运动。原`moveTrainForwardFromController`不重复查询；这不是预测本tick位移，也不新增移动意图、任务或等待屏障。每个controller至多一次既有局部索引查询，不扫描全世界列车。查询从worker移到coordinator串行执行，自定义不调用move或本tick只换向的controller也先检测既有碰撞；不承诺查询总数或墙钟成本完全不变，实际开销尚未profiling。
+
+检测先检查发起查询列车的内部active脱轨状态。此前决定可能已在本epoch标记脱轨，但published frame仍是旧值；只读published状态会在这段窗口重复派发碰撞。该检查迁移原移动入口最前面的脱轨拒绝语义，内部查询不成为公开API。不能因为查询命中的另一列车已经脱轨就忽略它：它仍是物理障碍，正常列车撞上它仍须冻结/处理；在首个候选返回后直接忽略它还会遮蔽后续候选。事件仍在physics上下文同步派发；主线程结构处理和下一epoch决定语义不变。冻结不执行controller tick，因此不提前消耗其命令或新增该tick的ATO里程，但不会撤销上一碰撞步进已发布的经过事件和里程。
+
+预扫耗时计入总`wallNanos`，但不在现有`coordinatorNanos`的worker等待后计时窗口内；不能用该局部指标声称覆盖新增串行阶段。`PhysicsCoordinatorTest`以两列重叠、均有可移动controller的真实epoch断言两个tick调用均为0、双方head/tail不变；既有下一epoch脱轨及每pair一次事件仍须通过。并行worker测试的列车必须分开放置，否则被正确冻结不能作为并行性能fixture。此调整只闭合观察帧与worker启动之间的竞态，不代表车钩检测或联结重算已经完成。
 
 运动失败的脱轨原因保留异常类型与消息，并附列车ID和本次请求距离（米）；它沿原有frame→Main事件链发布，不因诊断改动而重试或改变失败分类。
 `BogieException(Bogie)`在构造时复制转向架已发布位置的rail ID、facing与弧长为字符串，不持有live bogie；该位置不是失败时的active位置，不能用来声称精确故障坐标。比如请求100 m越过线路尽头时，诊断同时说明请求距离和此前已发布位置，而不是只留下异常类名。正常移动不构造这些诊断。

@@ -22,6 +22,7 @@ import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.control.train.MockTrainController
@@ -42,6 +43,76 @@ import java.util.concurrent.atomic.AtomicReference
 
 class PhysicsCoordinatorTest {
     @Test
+    fun `published collision freezes stationary controller before its tick can accelerate`() {
+        val coordinator = PhysicsCoordinator(workerThreads = 2, automaticFallback = false)
+        var createdWorld: CoreWorld? = null
+        // use preserves the primary assertion failure while closing both owned resources.
+        AutoCloseable {
+            try { coordinator.close() } finally { createdWorld?.releaseRuntimeBinding() }
+        }.use {
+            val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+            createdWorld = world
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+            val first = createTrainWithConfig("first", rail, world, listOf(10.0))
+            val second = createTrainWithConfig("second", rail, world, listOf(10.0))
+            val calls = AtomicInteger()
+            listOf(first, second).forEach { train ->
+                train.setController(object : TrainController(train, world) {
+                    override fun tick(deltaT: Double) {
+                        calls.incrementAndGet()
+                        moveControlledTrain(0.5, 10.0)
+                    }
+                })
+            }
+            val before = listOf(first.publishedFrame, second.publishedFrame)
+            coordinator.start()
+            coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+            assertEquals(0, calls.get(), "neither controller may mutate beyond the collision observation")
+            listOf(first, second).forEachIndexed { index, train ->
+                assertEquals(before[index].head, train.publishedFrame.head)
+                assertEquals(before[index].tail, train.publishedFrame.tail)
+            }
+        }
+    }
+
+    @Test
+    fun `derailed train remains a collision obstacle for a controlled train`() = withMainThread {
+        val coordinator = PhysicsCoordinator(workerThreads = 2, automaticFallback = false)
+        var createdWorld: CoreWorld? = null
+        AutoCloseable {
+            try { coordinator.close() } finally { createdWorld?.releaseRuntimeBinding() }
+        }.use {
+            val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+            createdWorld = world
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
+            val moving = createTrainWithConfig("moving", rail, world, listOf(10.0))
+            val obstacle = createTrainWithConfig("derailed", rail, world, listOf(10.0))
+            obstacle.derail("test obstacle")
+            assertTrue(obstacle.isDerailed)
+            val calls = AtomicInteger()
+            moving.setController(object : TrainController(moving, world) {
+                override fun tick(deltaT: Double) {
+                    calls.incrementAndGet()
+                    moveControlledTrain(0.5, 10.0)
+                }
+            })
+            val before = moving.publishedFrame
+            val listener = CollisionCounter()
+            PhysicsRailEventBus.register(listener).use {
+                coordinator.start()
+                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                assertEquals(1, listener.count.get())
+                assertEquals(0, calls.get(), "a derailed obstacle must still freeze the approaching controller")
+                assertEquals(before.head, moving.publishedFrame.head)
+                assertEquals(before.tail, moving.publishedFrame.tail)
+                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                assertTrue(moving.isDerailed)
+                assertEquals(1, listener.count.get())
+            }
+        }
+    }
+
+    @Test
     fun `configured workers execute controller batches concurrently`() {
         val workerThreads = 4
         val controllerCount = 8
@@ -61,6 +132,8 @@ class PhysicsCoordinatorTest {
 
         repeat(controllerCount) { index ->
             val train = createTrainWithConfig("concurrent-$index", rail, world, listOf(10.0))
+            train.setLocation(checkNotNull(RailLocationWithFacing(rail.viewAB, 0.0).forward(20.0 + index * 30.0)))
+            train.commitMaintenancePlacement()
             train.setController(object : TrainController(train, world) {
                 override fun tick(deltaT: Double) {
                     val currentInFlight = inFlight.incrementAndGet()

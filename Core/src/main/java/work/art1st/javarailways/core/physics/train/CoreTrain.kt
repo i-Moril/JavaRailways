@@ -92,6 +92,9 @@ open class CoreTrain @MainThread internal constructor(
     private val activeDerailState: DerailState
         get() = if (derailPhysicsDirty) derailStateBuffer.getActive() else derailStateBuffer.get()
 
+    /** Coordinator-only read before workers start; includes prior decisions not yet published. */
+    internal val isDerailedForPhysics: Boolean get() = activeDerailState.derailed
+
     @Volatile
     internal var publishedSweptSpans: List<SweptRailSpan> = emptyList()
         private set
@@ -245,11 +248,6 @@ open class CoreTrain @MainThread internal constructor(
         }
 
         require(deltaS >= 0.0) { "deltaS must >= 0" }
-
-        if (world.physicsCoordinator.detectSweptCollision(this)) {
-            updateActiveMotion(0.0)
-            return
-        }
 
         if (deltaS == 0.0) {
             updateActiveMotion(speedMetersPerSecond)

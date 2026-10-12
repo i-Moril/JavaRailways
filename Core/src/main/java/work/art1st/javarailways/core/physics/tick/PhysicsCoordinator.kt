@@ -310,9 +310,10 @@ class PhysicsCoordinator(
         return failure
     }
 
-    /** Called by a train worker before movement; collision resolution is applied next epoch. */
+    /** Coordinator prepass over the previous publication; resolution is applied next epoch. */
     @OptIn(AsyncEventApi::class)
     internal fun detectSweptCollision(train: CoreTrain): Boolean {
+        if (train.isDerailedForPhysics) return false
         if (train.id in trainsPendingCollision) return true
         val attachedWorld = world ?: return false
         val result = attachedWorld.querySweptCollision(train)
@@ -440,6 +441,13 @@ class PhysicsCoordinator(
             epochCandidateChecks.set(0L)
             applyPendingCollisionDecisions(ticket.epoch)
             val snapshot = controllers.values.sortedBy { it.profileId }
+            // Freeze both participants before a controller can move away from the observed frame.
+            // This is the old published-index query, not a prediction of this epoch's movement.
+            AsyncTickThreadMarker.runInAsyncTickContext {
+                snapshot.forEach { controller ->
+                    (controller.train as? CoreTrain)?.let(::detectSweptCollision)
+                }
+            }
             val batches = partition(snapshot, workerCount)
             val workerDurations = LongArray(batches.size)
             val controllerDurations = ConcurrentHashMap<String, Long>()

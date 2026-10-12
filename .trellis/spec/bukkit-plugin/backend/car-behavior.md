@@ -16,6 +16,16 @@ BukkitPlugin拥有车辆模型行为；Core只拥有车厢、编组结构及物�
 
 ## 一次开门经过哪些步骤
 
+### 每车动力学参数的只读来源
+
+`CarExtension.resolveCarControl()`按本车完整模型名读取live control；SNAPSHOT且本车已引用package hash时，
+只读取该快照中本车basename对应的`carControls`。已引用文件或参数缺失明确失败，不借主编组或另一包的同名车辆。
+未固定来源时读取live配置，但不因此固定hash。查询不调用会保存/固定状态的`operationalSnapshot()`；
+`TrainPackageSnapshotStore.load`和路径查询也不创建目录，只有save负责创建。
+
+命令、人工controller、ATO factory及模拟capture均逐车解析；隔离模拟仍仅使用capture的值。
+列车级控制profile的选择不随每车固有参数迁移而改变，存档形状及版本不变。
+
 列车操作适配器在simulation owner捕获本次操作的确切车厢对象集合及换算门侧所需的每车方向，然后分别交给车厢行为。每节车厢使用自己的JS状态，将语义门侧转换成物理侧并调用模型action；动画、声音和延迟效果只针对这节车厢。列车层汇总这次操作的每车结果，不再拥有共享JS全局变量。
 
 动作进行中发生联结/解编，只改变车厢所属编组，保留`CarExtension`、JS执行环境及待执行效果。已接受的开门继续操作原车厢，已打开的门不自动关闭；新加入车厢不加入此前操作。下一条新命令才使用新编组集合与新运营方向。

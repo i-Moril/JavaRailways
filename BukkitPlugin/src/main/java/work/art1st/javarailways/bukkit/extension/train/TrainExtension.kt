@@ -5,7 +5,6 @@ import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
 import work.art1st.javarailways.bukkit.behavior.CarOperationBatch
 import work.art1st.javarailways.bukkit.config.TrainModelUpdatePolicy
-import work.art1st.javarailways.bukkit.config.model.CarControlConfig
 import work.art1st.javarailways.bukkit.config.model.DriverControlEnd
 import work.art1st.javarailways.bukkit.config.model.SavedTrainPackageSnapshot
 import work.art1st.javarailways.bukkit.config.model.TrainActionConfig
@@ -122,11 +121,6 @@ class TrainExtension : CoreTrainExtension {
         if (hasPinnedOperationalSnapshot()) return operationalSnapshot()?.control
             ?: error("Pinned train package snapshot '$savedPackageSnapshotHash' is unavailable")
         return BukkitPlugin.INSTANCE.modelManager.getTrainControl(resolvePackageName())
-    }
-
-    fun resolveCarControl(carModelName: String): CarControlConfig? {
-        if (hasPinnedOperationalSnapshot()) return operationalSnapshot()?.carControls?.get(carModelName.substringAfterLast('/'))
-        return BukkitPlugin.INSTANCE.modelManager.getCar(carModelName)?.control
     }
 
     private fun hasPinnedOperationalSnapshot() = BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT && savedPackageSnapshotHash != null

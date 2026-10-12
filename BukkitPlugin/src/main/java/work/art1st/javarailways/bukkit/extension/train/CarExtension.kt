@@ -25,6 +25,7 @@ import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
 import work.art1st.javarailways.bukkit.behavior.CarBehavior
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
 import work.art1st.javarailways.bukkit.config.model.SavedTrainPackageSnapshot
+import work.art1st.javarailways.bukkit.config.model.CarControlConfig
 import work.art1st.javarailways.bukkit.persistence.TrainPackageSnapshotStore
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.core.api.util.tick.TickingObject
@@ -118,6 +119,31 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     private fun sourcePackageName(): String? = carModelName?.substringBefore('/')?.takeIf { it.isNotBlank() }
+
+    /** Read-only profile lookup; structure preparation must not pin or save source packages. */
+    @Synchronized
+    fun resolveCarControl(): CarControlConfig? = resolveCarControl(
+        BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy,
+        TrainPackageSnapshotStore::load,
+        { BukkitPlugin.INSTANCE.modelManager.getCar(it)?.control }
+    )
+
+    @Synchronized
+    internal fun resolveCarControl(
+        policy: TrainModelUpdatePolicy,
+        loadSnapshot: (String) -> SavedTrainPackageSnapshot?,
+        liveControl: (String) -> CarControlConfig?
+    ): CarControlConfig? {
+        val modelName = carModelName ?: return null
+        val hash = savedPackageSnapshotHash
+        if (policy != TrainModelUpdatePolicy.SNAPSHOT || hash == null) return liveControl(modelName)
+        val snapshot = savedPackageSnapshot ?: requireNotNull(loadSnapshot(hash)) {
+            "Pinned car package snapshot '$hash' is unavailable"
+        }
+        return requireNotNull(snapshot.carControls[modelName.substringAfterLast('/')]) {
+            "Pinned car package snapshot '$hash' has no control profile for '$modelName'"
+        }
+    }
 
     @Synchronized
     fun resolveActions(): Map<String, work.art1st.javarailways.bukkit.config.model.TrainActionConfig> {

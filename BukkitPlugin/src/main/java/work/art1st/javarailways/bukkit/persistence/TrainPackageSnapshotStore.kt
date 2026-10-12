@@ -13,17 +13,24 @@ object TrainPackageSnapshotStore {
         explicitNulls = false
     }
 
-    private fun snapshotsDir(): File = File(BukkitPlugin.INSTANCE.dataFolder, "train-package-snapshots").also { it.mkdirs() }
-    fun snapshotFile(hash: String): File = File(snapshotsDir(), "$hash.json")
+    fun snapshotFile(hash: String): File = snapshotFile(BukkitPlugin.INSTANCE.dataFolder, hash)
+
+    internal fun snapshotFile(dataFolder: File, hash: String): File =
+        File(File(dataFolder, "train-package-snapshots"), "$hash.json")
 
     fun save(snapshot: SavedTrainPackageSnapshot): String {
         val file = snapshotFile(snapshot.hash)
+        file.parentFile.mkdirs()
         if (!file.exists()) file.writeText(json.encodeToString(snapshot))
         return snapshot.hash
     }
 
-    fun load(hash: String): SavedTrainPackageSnapshot? {
-        val file = snapshotFile(hash)
+    fun load(hash: String): SavedTrainPackageSnapshot? = load(BukkitPlugin.INSTANCE.dataFolder, hash) {
+        BukkitPlugin.INSTANCE.logger.warning(it)
+    }
+
+    internal fun load(dataFolder: File, hash: String, reportFailure: (String) -> Unit): SavedTrainPackageSnapshot? {
+        val file = snapshotFile(dataFolder, hash)
         if (!file.isFile || !file.canRead()) return null
         return try {
             json.decodeFromString<SavedTrainPackageSnapshot>(file.readText()).also {
@@ -33,7 +40,7 @@ object TrainPackageSnapshotStore {
                 require(it.hash == hash) { "Train package snapshot hash does not match file name" }
             }
         } catch (failure: Exception) {
-            BukkitPlugin.INSTANCE.logger.warning("Failed to load train package snapshot $hash: ${failure.message}")
+            reportFailure("Failed to load train package snapshot $hash: ${failure.message}")
             null
         }
     }

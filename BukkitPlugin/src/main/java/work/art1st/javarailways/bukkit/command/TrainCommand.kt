@@ -792,15 +792,14 @@ object TrainCommand {
     }
 
     private fun resolveControlProfile(train: CoreTrain): Pair<TrainControlConfig, List<CarControlConfig>> {
-        val carModelNames = train.cars.mapIndexed { index, car ->
-            car.carRendererOrNull?.carModelName
-                ?: throw IllegalArgumentException("列车 ${train.id} 的第 ${index + 1} 节车厢缺少 carModelName，无法解析控制配置")
-        }
         val renderer = train.rendererOrNull
             ?: throw IllegalArgumentException("列车 ${train.id} 没有渲染扩展，无法解析控制配置")
         val trainControl = renderer.resolveControl()
-        val carControls = carModelNames.mapIndexed { index, modelName ->
-            renderer.resolveCarControl(modelName)
+        val carControls = train.cars.mapIndexed { index, car ->
+            val carRenderer = car.carRendererOrNull
+            val modelName = carRenderer?.carModelName
+                ?: throw IllegalArgumentException("列车 ${train.id} 的第 ${index + 1} 节车厢缺少 carModelName，无法解析控制配置")
+            carRenderer.resolveCarControl()
                 ?: throw IllegalArgumentException("列车 ${train.id} 的第 ${index + 1} 节车厢模型 '$modelName' 没有控制配置")
         }
         return trainControl to carControls

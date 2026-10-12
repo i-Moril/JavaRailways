@@ -191,7 +191,7 @@ object RailWorldFactory {
                         ?: throw IllegalArgumentException(
                             "Train ${train.id} car #${index + 1} has no model control profile"
                         )
-                    renderer.resolveCarControl(modelName)
+                    car.carRendererOrNull?.resolveCarControl()
                         ?: throw IllegalArgumentException(
                             "Train ${train.id} car #${index + 1} model '$modelName' has no control profile"
                         )

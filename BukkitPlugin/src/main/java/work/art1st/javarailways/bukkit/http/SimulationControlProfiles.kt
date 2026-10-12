@@ -86,14 +86,13 @@ class SimulationControlProfileCatalog(private val plugin: BukkitPlugin) {
     private fun resolveWorldTrain(world: World, id: String): SimulationControlProfile {
         val train = world.allTrains.firstOrNull { it.id == id }
             ?: throw IllegalArgumentException("world train not found: $id")
-        val carModelNames = train.cars.mapIndexed { index, car ->
-            car.carRendererOrNull?.carModelName
-                ?: throw IllegalArgumentException("train $id car #${index + 1} has no model control profile")
-        }
         val renderer = train.rendererOrNull
             ?: throw IllegalArgumentException("train $id is not associated with a train template")
-        val carControls = carModelNames.map { modelName ->
-            renderer.resolveCarControl(modelName)
+        val carControls = train.cars.mapIndexed { index, car ->
+            val carRenderer = car.carRendererOrNull
+            val modelName = carRenderer?.carModelName
+                ?: throw IllegalArgumentException("train $id car #${index + 1} has no model control profile")
+            carRenderer.resolveCarControl()
                 ?: throw IllegalArgumentException("car model has no control profile: $modelName")
         }
         val cars = train.cars.mapIndexed { index, car ->

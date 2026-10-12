@@ -182,7 +182,16 @@ internal class PhysicalRouteResourceCompiler(
         val boundaries = retainedResources.associateWithTo(LinkedHashMap()) { 0.0 }
         val retainedRails = retainedResources.filterIsInstance<RailIntervalResource>()
             .groupBy(RailIntervalResource::railId)
-            .mapValues { (_, resources) -> resources.sortedBy(RailIntervalResource::startAbMeters) }
+            .mapValues { (_, resources) ->
+                val sorted = resources.sortedBy(RailIntervalResource::startAbMeters)
+                // Rolling extensions retain exact identities, so intervals may overlap or nest.
+                val maximumEnds = DoubleArray(sorted.size)
+                sorted.indices.forEach { index ->
+                    maximumEnds[index] = max(sorted[index].endAbMeters,
+                        if (index == 0) Double.NEGATIVE_INFINITY else maximumEnds[index - 1])
+                }
+                sorted to maximumEnds
+            }
 
         projection.occurrences.forEach { occurrence ->
             val clippedStart = max(range.startRouteMeters, occurrence.routeStartMeters)
@@ -192,16 +201,24 @@ internal class PhysicalRouteResourceCompiler(
             val secondCanonical = occurrence.canonicalAt(clippedEnd)
             val occurrenceStart = min(firstCanonical, secondCanonical)
             val occurrenceEnd = max(firstCanonical, secondCanonical)
-            val resources = retainedRails[occurrence.segment.railId].orEmpty()
-            var resourceIndex = resources.lowerBoundByEnd(occurrenceStart)
+            val (resources, maximumEnds) = retainedRails[occurrence.segment.railId] ?: return@forEach
+            var low = 0
+            var high = resources.size
+            while (low < high) {
+                val middle = (low + high) ushr 1
+                if (maximumEnds[middle] < occurrenceStart) low = middle + 1 else high = middle
+            }
+            var resourceIndex = low
             while (resourceIndex < resources.size) {
                 val resource = resources[resourceIndex]
                 if (resource.startAbMeters > occurrenceEnd) break
                 val overlapStart = max(occurrenceStart, resource.startAbMeters)
                 val overlapEnd = min(occurrenceEnd, resource.endAbMeters)
-                val firstRoute = occurrence.routeAtCanonical(overlapStart)
-                val secondRoute = occurrence.routeAtCanonical(overlapEnd)
-                boundaries[resource] = maxOf(boundaries.getValue(resource), firstRoute, secondRoute)
+                if (overlapEnd >= overlapStart) {
+                    val firstRoute = occurrence.routeAtCanonical(overlapStart)
+                    val secondRoute = occurrence.routeAtCanonical(overlapEnd)
+                    boundaries[resource] = maxOf(boundaries.getValue(resource), firstRoute, secondRoute)
+                }
                 resourceIndex++
             }
         }

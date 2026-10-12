@@ -96,6 +96,8 @@ The same request operation also grows an existing grant along that route. Basic 
 
 A stopped reversal uses an explicit two-step boundary instead of the append operation. `suspendReleaseForReversal` first freezes only tail release while retaining the same grant and complete registry claim. After Core publishes the changed train direction, `rebaseAfterReversal` requires a new route beginning at the authoritative new tail and a desired boundary equal to the observed head. Basic compiles that body range, requires every mandatory and contributed resource to be covered by the already-held claim, and performs no registry acquisition. It then replaces the route-relative cursor and rebuilds one release entry for every retained identity: an unchanged rail interval keeps its exact old identity even if only part overlaps the reversed body, its boundary is the final new-route overlap, and identities with no new-route evidence receive boundary 0. Only after all validation succeeds does Basic publish the new route binding and resume release under the same grant ID. Failure leaves release suspended and every resource held.
 
+暂停成功至重建成功之间，普通 `request` 返回 `ROUTE_STATE_MISMATCH`，不调用贡献者、准备设备、推进旧车尾游标或扩大授权。该检查由 Basic 执行，不能仅依赖运营调用方自律。
+
 Basic treats the submitted authority boundary exactly. It does not infer a stopping overlap from ATO tolerance, timetable semantics or train type. The signalling/timetable caller must keep its operational stop target far enough before the requested authority end when an overlap is required; a reversed body extending outside the retained claim is rejected rather than covered retroactively.
 
 ### 3.4 连续灯泡线与分次道岔使用
@@ -497,7 +499,7 @@ Observation dispatch builds one train-ID lookup only when at least one live gran
 实际持有查询复用本次申请已经建立的`remainingEntries` map的key view，不复制另一份历史集合或再遍历准备项。
 没有每tick全路线重复检测、历史设备表或新的释放控制器。过长申请在claim前拒绝；调用方的有界重试至多增加一次申请编译。
 
-折返是停车边界上的一次性低频操作。新body route只编译一次；已持有rail interval按rail建立排序索引，每个route occurrence二分定位第一个可能重叠项并只扫描实际候选，stable identity按map查找，最后对`H`个新释放项排序。因此成本为`O(R log H + K + H log H)`，其中`K`是实际区间重叠数；正常physics tick不承担该重建成本。
+折返是停车边界上的一次性低频操作。新body route只编译一次；已持有rail interval按rail和起点排序，并记录每个前缀的最大终点。每个route occurrence对这个单调的最大终点数组二分，扫描到起点超出body范围为止，再逐项判断真实重叠。滚动申请保留的区间可能嵌套，例如`[0,100]`与`[20,30]`；不能对起点排序结果的原始终点二分，否则查询`[50,60]`会漏掉仍占用的长区间。所有保留身份保持原样，只更新最后重叠位置对应的释放边界。stable identity按map查找，最后对`H`个新释放项排序。成本为`O(R log H + K + H log H)`，其中`K`是扫描候选数而非真实重叠数；极端嵌套时可达`O(RH)`候选扫描。正常physics tick不承担该重建成本，不添加通用区间树。
 
 Unchanged state performs no request compilation by itself. SimpleATO/resource inspection decides when a request is needed. Missing indexes, stale revisions or resource-handler failure fail closed; Basic must not fall back to a live-world full scan that silently grants authority.
 
@@ -536,6 +538,7 @@ Unchanged state performs no request compilation by itself. SimpleATO/resource in
 - First pending request has one route cursor and no committed grant; safe abort after successful rollback removes the unused route state, allowing a fresh request from a fresh observation.
 - The same public `request(intent)` accepts a farther boundary on the identical frozen route or a strict forward continuation after the old route end, rejects a mismatched owner/train/modified prefix/disconnected append/reversal and a concurrent pending attempt, and keeps the same cursor and grant ID after successful growth.
 - Reversal suspension stops observation-driven release before the physical direction changes; a valid rebase keeps grant/claim identity, proves retained coverage of the complete reversed body and resumes from a new-tail cursor, while an uncovered resource or invalid route releases nothing.
+- 环线分次申请产生嵌套保留身份后折返：新stationary epoch只释放无body证据的身份，包住body的长区间必须保留至新车尾到达真实清除点。暂停期间普通扩展被拒绝，grant/claim和准备次数不变，释放保持暂停。
 - Delayed `READY` on a newer safe epoch rebinds the grant stamp; an unrelated topology transaction still permits completion, extension and tail release. A transaction that actually intersects the route, a missing/moved train tail or a newly occupied requested range publishes no grant and retains the claim under Stall.
 - A frozen route captured before an unrelated edit may make its first request after actual-current-topology validation; a now-missing rail or illegal connection is rejected. An intersecting edit during contributor execution cannot slip through the claim boundary.
 - Two pending attempts cannot publish a grant after either one has stalled the world; the second claim stays retained and the Stall callback fires once.

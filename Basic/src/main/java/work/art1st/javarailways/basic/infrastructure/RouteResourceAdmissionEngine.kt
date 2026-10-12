@@ -283,6 +283,10 @@ internal class RouteResourceAdmissionEngine(
                 return rejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
                     "request must keep the same train")
             }
+            if (existing.reversalFromTrainState != null) {
+                return rejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
+                    "route must be rebased after reversal before requesting more authority")
+            }
             if (existing.projection.route != intent.route) {
                 if (!isAppendOnlyContinuation(existing.projection.route, intent.route)) {
                     return rejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,

@@ -441,6 +441,82 @@ class RouteResourceAdmissionEngineTest {
     }
 
     @Test
+    fun `ordinary extension cannot bypass reversal suspension`() {
+        var preparations = 0
+        val service = service(InfrastructurePreparationActuator {
+            preparations++
+            InfrastructurePreparationStart.Accepted(MutableTicket(InfrastructurePreparationState.READY))
+        })
+        val requester = Any()
+        val original = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent())).grant
+        assertInstanceOf(RouteGrantReversalResult.Accepted::class.java,
+            service.suspendReleaseForReversal(requester, original.grantId))
+        val claims = registry.claimSnapshots()
+        val admissions = service.activeAdmissions()
+        val rejected = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
+            service.request(requester, intent(authority = 40.0)))
+        assertEquals(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH, rejected.failure.code)
+        assertEquals(claims, registry.claimSnapshots())
+        assertEquals(admissions, service.activeAdmissions())
+        assertEquals(1, preparations)
+        observation = observation(8L, train("first", 21.0, 22.0, 8L))
+        assertTrue(service.consumeObservation(observation).isEmpty())
+        assertEquals(claims, registry.claimSnapshots())
+    }
+
+    @Test
+    fun `loop extension retains the occupied enclosing interval after stopped reversal`() {
+        val loopRail = UUID(0L, 102L)
+        topology = buildTestTopology(7L,
+            listOf(TestTopologyRail(railId, 100.0), TestTopologyRail(loopRail, 20.0)),
+            mapOf(
+                endpoint(railId, RailEndpoint.B) to setOf(endpoint(loopRail, RailEndpoint.A)),
+                endpoint(loopRail, RailEndpoint.A) to setOf(endpoint(railId, RailEndpoint.B)),
+                endpoint(loopRail, RailEndpoint.B) to setOf(endpoint(railId, RailEndpoint.A)),
+                endpoint(railId, RailEndpoint.A) to setOf(endpoint(loopRail, RailEndpoint.B))
+            ))
+        catalog.publish(topology, emptyList())
+        observation = observation(7L, train("first", 0.0, 10.0, 7L))
+        val loopRegistry = InfrastructureCoordinationRegistry({ topology.revision }, { true })
+        val service = RouteResourceAdmissionEngine(
+            "world", loopRegistry, hostClaimOwner, { topology }, { observation }, catalog,
+            { _, _ -> null }, InfrastructurePreparationActuator {
+                InfrastructurePreparationStart.Accepted(MutableTicket(InfrastructurePreparationState.READY))
+            },
+            { _, _ -> error("unexpected world stall") })
+        val requester = Any()
+        val forward = route(1L, listOf(
+            RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0),
+            RouteSegmentSnapshot(loopRail, ViewDirection.AB, 0.0, 20.0),
+            RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0)
+        ))
+        val original = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(route = forward, authority = 140.0))).grant
+        observation = observation(8L, train("first", 50.0, 60.0, 8L))
+        service.consumeObservation(observation)
+        assertInstanceOf(RouteAdmissionResult.Granted::class.java,
+            service.request(requester, intent(route = forward, authority = 150.0)))
+        val enclosing = RailIntervalResource(railId, 0.0, 100.0)
+        val nested = RailIntervalResource(railId, 20.0, 30.0)
+        val retained = setOf(enclosing, nested, RailIntervalResource(loopRail, 0.0, 20.0))
+        assertEquals(retained, loopRegistry.claimSnapshots().single().footprint.resources.toSet())
+        assertInstanceOf(RouteGrantReversalResult.Accepted::class.java,
+            service.suspendReleaseForReversal(requester, original.grantId))
+        observation = observation(9L, train("first", 60.0, 50.0, 9L, ViewDirection.BA, reversed = true))
+        val reversed = route(2L, listOf(RouteSegmentSnapshot(railId, ViewDirection.BA, 40.0, 100.0)))
+        assertInstanceOf(RouteGrantReversalResult.Accepted::class.java,
+            service.rebaseAfterReversal(requester, intent(route = reversed, authority = 10.0)))
+        assertEquals(retained, loopRegistry.claimSnapshots().single().footprint.resources.toSet())
+        observation = observation(10L, train("first", 60.0, 50.0, 10L, ViewDirection.BA, reversed = true))
+        service.consumeObservation(observation)
+        assertEquals(setOf(enclosing), loopRegistry.claimSnapshots().single().footprint.resources.toSet())
+        observation = observation(11L, train("first", 50.0, 40.0, 11L, ViewDirection.BA, reversed = true))
+        service.consumeObservation(observation)
+        assertTrue(loopRegistry.claimSnapshots().isEmpty())
+    }
+
+    @Test
     fun `reversal requiring a resource outside the retained claim rejects without release`() {
         observation = observation(7L, train("first", 10.0, 20.0, 7L))
         val service = service()

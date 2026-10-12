@@ -7,6 +7,8 @@
 
 > 2026-10-12更新：Core归属已由`9a81133f`交付；真实开发服副本已只读取得，详见[存档研究](./dev-server-save-audit.md)。6个world的current/.bak均无列车，因此这个样本没有既存每车脚本快照需要转换；不能由此推断非空车厢迁移已验证。下文“尚未取得样本”为研究时的历史状态，当前仍需处理已有outer/运营抽离迁移及真实旧曲线数据问题，不由本每车行为批次加入runtime旧格式fallback。
 
+> 同日用户已确认自定义动作菜单取并集，只操作声明该动作的车厢，整列门操作仍必须覆盖全部目标；原文intersection/union待决项已被取代。碰撞主编组平局按稳定train ID字典序选择，完整联结另批接入。当前开始Bukkit完整纵向迁移，不再等待这两项决定。
+
 ## Findings
 
 ### 建议提交边界
@@ -110,7 +112,7 @@ RegionTrainOperationDispatcher 改为 car target，simulation 捕获值包含 ta
 - Core：只读 nullable Car.train；其引用可跨 region 识别 identity，不授权读取 mutable train 状态。orientation 本批可复用现有 CoreCar seam，在 simulation 捕获，不必急于新增公共安装方向 API。
 - Basic：原则上无 public API 改动，保留现有 ticket/request/operation 形状。
 - Bukkit：内部 executor/dispatcher 由 train 改 car/captured target，completion 带结果；TrainExtension facade 的同步 Boolean 返回不能在异步逐车模式诚实保留，consumer 一起迁移。
-- 待主会话决定的技术选择：混合源包同名动作元数据用 intersection（所有目标均支持）还是 union+明确逐车不可用结果。不能猜测只有部分车辆支持时整列动作算成功。门语义缺失必须明示失败。
+- 历史待决项已由2026-10-12用户决定取代：自定义动作采用并集，仅声明支持者为目标；支持者失败仍失败，零支持者失败。整列门语义不因此缩小目标，缺失必须明示失败。
 - 元数据列表可在 car-owner 初始化时缓存不可变结果，UI 获取/刷新也通过逐车 dispatch；避免为每次 UI 查询建立一套新 Context。缓存失效跟随实际脚本替换/源包 generation，不跟随联结/解编。
 - JS Context 数随初始化车厢数增长；不应在本批无测量声称固定初始化成本。可复用 Engine/Source，但共享 Engine 必须有现有 plugin lifecycle owner；不为“优化”引入另一条线程池。
 

@@ -711,6 +711,7 @@ open class CoreTrain @MainThread internal constructor(
                     newId, newId, 1L, 0.0, false, clearMotion = true
                 )
                 val separatedExtensions = ExtensionDataContainer<TrainExtension>()
+                val controllerUpdates = controller?.prepareConsistChange(retainedCars.toList(), null).orEmpty().toList()
                 extensionDataContainer.extensionData.forEachIndexed { slot, extension ->
                     extension ?: return@forEachIndexed
                     val separatedExtension = extension.splitBefore(carId, newId)
@@ -730,6 +731,7 @@ open class CoreTrain @MainThread internal constructor(
                     persistedTailLocation = separatedSourceGeometry.tailLocation,
                     initialReversed = isReversed
                 )
+                controllerUpdates.forEach { it.install() }
                 newTrain.applyPreparedSplit(separatedSplit)
                 applyPreparedSplit(retainedSplit)
                 MainRailEventBus.publish(TrainSplitSuccessEvent(

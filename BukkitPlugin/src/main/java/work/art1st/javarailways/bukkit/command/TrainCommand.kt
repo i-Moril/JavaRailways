@@ -435,7 +435,8 @@ object TrainCommand {
             coreWorld,
             controlConfig,
             carControls,
-            BukkitPlugin.INSTANCE.physicsConfig.track.gravityMetersPerSecondSquared
+            BukkitPlugin.INSTANCE.physicsConfig.track.gravityMetersPerSecondSquared,
+            profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() }
         )
         train.setController(controller)
         playerControllers[sender.uniqueId] = controller
@@ -891,7 +892,8 @@ object TrainCommand {
                 train.world,
                 controlConfig,
                 carControls,
-                BukkitPlugin.INSTANCE.physicsConfig.track.gravityMetersPerSecondSquared
+                BukkitPlugin.INSTANCE.physicsConfig.track.gravityMetersPerSecondSquared,
+                profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() }
             ).also { train.setController(it) }
         }
         playerControllers[player.uniqueId] = controller

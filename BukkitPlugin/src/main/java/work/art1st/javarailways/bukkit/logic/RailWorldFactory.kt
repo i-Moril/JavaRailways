@@ -209,7 +209,8 @@ object RailWorldFactory {
                 SimpleATO(
                     train,
                     world,
-                    HandleTrainActuator(train, trainProfile, carProfiles, gravity),
+                    HandleTrainActuator(train, trainProfile, carProfiles, gravity,
+                        profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() }),
                     profile,
                     inspectionRuntime::maximumDeclaredLeadTimeSeconds
                 )

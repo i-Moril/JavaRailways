@@ -5,6 +5,11 @@ import work.art1st.javarailways.basic.api.ato.TrainActuator
 import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.core.api.control.TrainController
+import work.art1st.javarailways.core.api.control.ControllerConsistState
+import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
+import work.art1st.javarailways.core.api.physics.train.Car
+import work.art1st.javarailways.basic.control.ConsistDynamicsActuator
+import work.art1st.javarailways.basic.control.DynamicsProfileSource
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
@@ -17,9 +22,28 @@ abstract class AbstractATO(
     train: Train,
     world: World,
     protected val actuator: TrainActuator,
-    protected val safetyProfile: AtoSafetyProfile,
+    safetyProfile: AtoSafetyProfile,
     protected val atoCoordinator: AtoWorldCoordinator
 ) : TrainController(train, world) {
+    private val consistSafety = ControllerConsistState(safetyProfile)
+    protected val safetyProfile: AtoSafetyProfile get() = consistSafety.value
+
+    /**
+     * Prepare intrinsic actuator bindings and derived braking limits while physics is excluded.
+     * All lookups/derivation may fail here without changing controller state. Core later installs
+     * both reference updates before physics resumes; this is not a cross-thread multi-cell snapshot.
+     * Preserve non-braking safety overrides and actuator history. Actuators without intrinsic
+     * consist dynamics have no such bindings or limits to replace and return no updates.
+     */
+    override fun prepareConsistChange(cars: List<Car>, counterpart: TrainController?): List<PreparedControllerStateUpdate> {
+        val dynamics = actuator as? ConsistDynamicsActuator ?: return emptyList()
+        val prepared = dynamics.prepareDynamicsChange(cars, counterpart as? DynamicsProfileSource)
+        val safety = safetyProfile.copy(
+            serviceDecelerationMetersPerSecondSquared = requireNotNull(prepared.serviceDecelerationMetersPerSecondSquared),
+            reactionTimeSeconds = requireNotNull(prepared.reactionTimeSeconds)
+        )
+        return listOf(prepared.update, consistSafety.prepare(safety))
+    }
     protected data class PublishedAtoState(
         val trainSnapshot: TrainSnapshot,
         val lifetimeTravelDistanceMeters: Double,

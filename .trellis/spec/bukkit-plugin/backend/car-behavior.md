@@ -23,7 +23,8 @@ BukkitPlugin拥有车辆模型行为；Core只拥有车厢、编组结构及物�
 未固定来源时读取live配置，但不因此固定hash。查询不调用会保存/固定状态的`operationalSnapshot()`；
 `TrainPackageSnapshotStore.load`和路径查询也不创建目录，只有save负责创建。
 
-命令、人工controller、ATO factory及模拟capture均逐车解析；隔离模拟仍仅使用capture的值。
+命令、人工controller、ATO factory及模拟capture均逐车解析。live composition把该只读resolver注入Basic，
+只在结构准备缺少已有实例绑定时调用，不新增tick文件查询；隔离模拟仍仅使用capture的值。
 列车级控制profile的选择不随每车固有参数迁移而改变，存档形状及版本不变。
 
 列车操作适配器在simulation owner捕获本次操作的确切车厢对象集合及换算门侧所需的每车方向，然后分别交给车厢行为。每节车厢使用自己的JS状态，将语义门侧转换成物理侧并调用模型action；动画、声音和延迟效果只针对这节车厢。列车层汇总这次操作的每车结果，不再拥有共享JS全局变量。

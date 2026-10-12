@@ -78,6 +78,17 @@ observation stamp。下一次physics tick中controller从route绑定携带的wor
 
 ## Publication边界
 
+### 编组变化时的制动参数
+
+`AbstractATO.prepareConsistChange`在结构修改前要求Basic actuator准备新实例参数表，并用同一结果
+派生常用制动减速度和反应时间。通过`AtoSafetyProfile.copy`仅替换这两项，保留安全距离、停车容差和加速度设置；
+新参数表与安全profile均通过Core prepared state update安装。派生失败不改变当前profile、actuator历史或手柄，
+不在成功事件中事后补算。无真实动力学的测试actuator无需实现该capability。
+
+对方参数来源能力由非API具体`SimpleATO`代理给actuator，不给公开`AbstractATO`新增返回Basic内部profile的签名。
+解编保留侧保持原controller；分离侧不会自动复制mission或controller。联结安装仍须完整碰撞事务验收，
+不以这里的参数准备测试代替接触位置及资源/运营元数据的验证。
+
 `AbstractATO`把一次publication表示为protected immutable `PublishedAtoState`，并通过一次volatile reference
 读取返回完整快照。SimpleATO必须只调用一次reader，再从该对象读取train snapshot、累计距离和controller state；
 不得把字段拆成多次volatile读取，否则并发publication可能产生跨epoch混合。Dispatcher不能读取worker正在修改的

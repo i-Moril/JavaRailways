@@ -6,6 +6,7 @@ import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
 import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import work.art1st.javarailways.basic.api.ato.TrainActuator
 import work.art1st.javarailways.core.api.physics.train.Train
+import work.art1st.javarailways.core.api.physics.train.Car
 import kotlin.math.abs
 
 /** ATO actuator that selects configured handles and executes the same dynamics as manual control. */
@@ -14,14 +15,16 @@ class HandleTrainActuator(
     trainProfile: TrainDynamics.TrainProfile,
     carProfiles: List<TrainDynamics.CarProfile>,
     gravityMetersPerSecondSquared: Double,
-    initialSpeedMetersPerSecond: Double = train.speed
-) : TrainActuator {
+    initialSpeedMetersPerSecond: Double = train.speed,
+    profileResolver: ((Car) -> TrainDynamics.CarProfile?)? = null
+) : TrainActuator, ConsistDynamicsActuator {
     private val dynamics = TrainDynamicsExecutor(
         train,
         trainProfile,
         carProfiles,
         gravityMetersPerSecondSquared,
-        initialSpeedMetersPerSecond
+        initialSpeedMetersPerSecond,
+        profileResolver
     )
     private val powerHandles = trainProfile.powerHandles
         .filter { trainProfile.normalizedPowerScale(it) > 0.0 }
@@ -41,6 +44,18 @@ class HandleTrainActuator(
         private set
 
     val lastDynamicsResult: TrainDynamics.StepResult get() = dynamics.lastResult
+
+    override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = dynamics.dynamicsProfileFor(car)
+
+    override fun prepareDynamicsChange(cars: List<Car>, source: DynamicsProfileSource?): PreparedDynamicsChange {
+        val prepared = dynamics.prepareConsistChange(cars, source)
+        return PreparedDynamicsChange(
+            prepared.carProfiles,
+            prepared.update,
+            TrainDynamics.flatServiceDeceleration(dynamics.trainProfile, prepared.carProfiles, dynamics.gravityMetersPerSecondSquared),
+            serviceBrakeReactionTimeSeconds(dynamics.trainProfile, prepared.carProfiles, dynamics.gravityMetersPerSecondSquared)
+        )
+    }
 
     init {
         require(maximumSpeedMetersPerSecond.isFinite() && maximumSpeedMetersPerSecond > 0.0)

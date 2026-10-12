@@ -23,11 +23,33 @@
 
 ### 动力学参数实例绑定前置（2026-10-12）
 
+- 已提交：`2252a847`，用户检查解释后批准，只包含本节Basic两份源码/测试、纵向动力学规范及本执行记录，不包含未完成联结草稿。
 - 仅改Basic `TrainDynamicsExecutor`及既有`TrainDynamicsTest`：构造时以`IdentityHashMap<Car, CarProfile>`绑定实际车厢；每次按当前编组取本车参数和当前坡度，`carProfiles`getter也投影当前编组。参数缺失明确失败；不新增未接线的合并API、默认参数或按car ID回退。机制及剩余集成由[纵向动力学规范](../../spec/javarailways/basic/train-longitudinal-dynamics.md)拥有。
 - 新增两项有效回归，使用Train/Car delegation明确测试executor输入边界，非真实结构事务；独立固定15kN/20kN坡度力和5kN制动力，检查重排、子集、动态坡度及同ID不同实例失败后state/lastResult不变。旧production上两项均失败（54秒，原11项通过），修复后完整该类13项全部执行通过（56秒，12tasks全部执行），零failure/error/skipped。
 - 独立只读检查复核实现、参数消费者、测试数学与清理、冻结hash及新鲜XML，无本批阻塞，不重复构建。按约定缓存及强制非增量/in-process参数运行Core/Basic组合门禁，50秒/12tasks执行后失败：Core349项中1项失败，冻结草稿`CoreTrainLinkTest`在UNKNOWN_BACKGROUND执行`withStructuralMutation`，违反MAIN线程要求；Basic测试尚未执行。此失败链不调用本批Basic executor，但工作树全量门禁仍失败，不掩盖或顺带修冻结草稿。
 - 随后单独强制执行`:Basic:test`，`BUILD SUCCESSFUL`（54秒，12tasks全部执行）；新鲜XML为59suites/391项，零failure/error/skipped，生产/fixture/测试Kotlin重编译。两份源码前后SHA-256保持`de37cf2b…`与`a0c67560…`；限定diff-check与26+26上下文校验通过（两个既有超32KiB注入警告仍在）。已有编译/Gradle弃用warning保留。本结果证明Basic模块回归通过，不将组合门禁或冻结Core草稿记为通过。
-- 尚未提交、部署或游戏验证。联结/解编映射转移、逐车来源包与ATO安全值同步仍是后续集成；CR-030与整个审查任务保持开放。
+- 本节前置已提交，未部署或游戏验证。联结/解编映射转移、逐车来源包与ATO安全值同步仍是后续集成；CR-030与整个审查任务保持开放。
+
+### 已批准下一批：结构参数准备与安装（2026-10-12）
+
+- 用户批准继续：联结时合并双方实例参数，解编时按结果车厢划分；在结构准备阶段完成未知参数解析和ATO减速度/反应时间派生，提交阶段安装，保留controller、手柄、待处理命令和执行器历史。无controller的静止参与方也必须支持，缺项使用该车自身来源，不借主包。
+- 实现边界：Core提供不可覆写的状态引用及Core自己创建的准备更新值，提交只做Core内的引用赋值，不接受插件提供的提交lambda。Basic拥有实例表与手动/actuator接入；SimpleATO拥有安全profile的copy与安装，保留其余自定义安全字段；Bukkit提供逐车只读参数解析及composition接线。具体合同分别归Core controller、Basic纵向动力学与SimpleATO controller规范。
+- 解编的参数准备必须早于新`CoreTrain`构造（其成功时已转移ownership），原controller安装须晚于新train构造成功；联结准备必须早于反转车厢、停止controller或移除另一列。不得把参数同步推迟到成功事件。
+- 不新增registry、回滚框架、版本或每tick模型解析。快照读取与目录创建/保存分离，结构准备不调用惰性pin写路径。隔离模拟继续只消费冻结capture值，不装访问live Bukkit的supplier。
+- 本批不实现碰撞候选、接触点回退/步进截断或挤岔。仅为必要门禁迁移旧测试caller及MAIN线程fixture，不用其通过宣称collision入口完整。
+- 计划分开提交逐车来源解析与控制参数结构接缝；若接缝仍依赖未完成联结草稿而不能独立提交，则保留在途状态，不将草稿包装为已交付。每笔实际文件清单和验证结果完成后再交用户检查。
+
+### 本批实现与验证记录（2026-10-12）
+
+- 已写入Core final typed state cell/token、Basic exact-car候选表、manual/Handle准备接缝及SimpleATO安全profile copy。token只由Core生成安装动作，不接收插件commit回调；解编在新host构造前准备，构造成功后安装。原controller、手柄及executor历史保持。对方参数capability放在非API具体SimpleATO，未向公开AbstractATO泄漏Basic内部profile签名。
+- Bukkit已改为逐车只读来源解析，复用每车已有package hash及同一snapshot decoder；缺失已引用文件/参数明确失败，读取不pin、不mkdir、不借主包。所有实时装配入口注入缺项resolver，隔离模拟仍只用capture值。分离侧依旧没有controller，不新增参数registry，也不承诺以后重新装配时仍使用FOLLOW_PACKAGE旧捕获值。
+- 首轮构建在SimpleATO生成目录删除失败，保留该目录于`/tmp/javarailways-simpleato-classes-3vz2D8/main`后以fresh daemon重跑；第二轮暴露新测试误用Core internal方法，已改为公开registerExtensionData，不新增生产测试后门。两轮失败不记为通过。
+- 最终聚焦门禁通过：1分21秒、19 tasks全部执行；Core Link3/Split33、Basic Dynamics15、SimpleATO Consist2/Motion1，共54项，零failure/error/skipped。这些联结测试只覆盖内部草稿，不证明collision入口及接触处理完成。
+- 完整工作树门禁通过：七模块test、Core/SimpleATO Dokka及Bukkit shadowJar，exit0、3分39秒、57 tasks全部执行；新鲜XML为Core351、Basic393、SimpleATO354、SimpleATOBukkit8、SimpleSignals487、BukkitPlugin379、TunnelBridgeBuilder31，共2003项，零failure/error/skipped。沿用`/workspace/.gradle`及offline/no-cache/no-parallel/rerun、Kotlin非增量/in-process和命令级heap设置；九份关键生产源码hash与全量前一致。产物`BukkitPlugin/build/libs/JavaRailways-1.0-SNAPSHOT-all.jar`为64,438,174 bytes，包含未完成碰撞草稿，仅证明构建成功，不部署、不提供为正式游戏测试版。
+- 全量后仅补本批新增state-cell三处及AbstractATO override一处KDoc，两模块Dokka定向重跑exit0，57秒、8 tasks全部执行，四处新增warning消失，既有warning保留；不把注释后hash宣称为重新跑过2003项。独立只读检查确认当前参数前置及四份合同无阻塞；真实碰撞、manual↔ATO实际联结和Folia/客户端仍未验收。精确文件及hunk分界见[两笔提交计划](./research/consist-parameter-commit-plan.md)，用户已回复“继续”批准，现分别验证独立tree后提交，不重复请求确认。
+- 独立检查确认提交须做hunk分界：逐车来源解析不包含四处新constructor接线或TrainExtension联结草稿；参数结构前置只接入现有split，旧link替换、事件、PhysicsCoordinator结果消费及测试签名迁移继续留在碰撞草稿。当前全WIP通过不能证明独立提交基线通过，计划确认后须验证实际选定tree；不整体stage这些混合文件。
+- 第一笔已独立验证并提交为`b075dfb6`（9文件187+/30-）；临时clone基于`2252a847`，选定tree与正式提交均为`ee0accafa95c3b946e90261a5669f49b2c8f9021`。Bukkit全量379项（含新增来源回归3项）全部执行通过，零failure/error/skipped，1分47秒、25 tasks全部执行。依赖清单cmp一致后复制独立node_modules，只有`:WebUI:installFrontend`跳过，buildFrontend实际执行，不联网安装、不共享可写依赖。主工作树碰撞草稿和无关文件未改写；第二笔继续独立验证。
+- 第二笔独立门禁通过：基于`b075dfb6`构造参数准备与现有split接入，代码冻结tree `f93a030f2729e8ee1e00e4487957c9adcd499f35`；exit0，2分37秒、48 tasks全部执行。新鲜XML为Core351、Basic393、SimpleATO354、Bukkit379，共1477项全部执行，零failure/error/skipped；SimpleATOBukkit/SimpleSignals/TunnelBridgeBuilder测试源码编译及Core/SimpleATO Dokka实际执行通过，无本批新增KDoc warning，既有warning保留。未重跑三个consumer的测试或shadowJar，不将全WIP门禁混报为独立提交结果。仍仅跳过WebUI依赖安装、实际执行前端构建。验证后只补本执行记录和提交计划结果，最终patch由独立检查确认仅有这两份文档差异；生产/测试源码保持冻结。碰撞草稿仍不进入本笔，CR-030/整体审查/Stage2不关闭、不部署。
 
 ### 每车JS纵向迁移及门禁（2026-10-12）
 

@@ -131,7 +131,8 @@ class TrainControlManager(
                 controlConfig,
                 carControls,
                 plugin.physicsConfig.track.gravityMetersPerSecondSquared,
-                initialSpeedMetersPerSecond = transferSpeedMetersPerSecond
+                initialSpeedMetersPerSecond = transferSpeedMetersPerSecond,
+                profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() }
             ).also { coreTrain.setController(it) }
         }
         controller.markCurrentPhysicalDirectionAsForward()

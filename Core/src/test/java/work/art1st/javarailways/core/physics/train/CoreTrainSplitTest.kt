@@ -16,6 +16,9 @@ import work.art1st.javarailways.core.api.event.processor.EventListener
 import work.art1st.javarailways.core.api.event.processor.HandlesEvent
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.control.TrainController
+import work.art1st.javarailways.core.api.control.ControllerConsistState
+import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
+import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.physics.exception.CannotCreateTrainException
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.train.Train
@@ -33,6 +36,36 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 class CoreTrainSplitTest {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `retained controller state installs only after new train initialization succeeds`(failInitialization: Boolean) =
+        withConsist { world, _, train ->
+            val originalCars = train.cars.toList()
+            val controller = object : TrainController(train, world) {
+                val consist = ControllerConsistState<List<Car>>(originalCars)
+                override fun prepareConsistChange(cars: List<Car>, counterpart: TrainController?): List<PreparedControllerStateUpdate> {
+                    assertEquals(originalCars, train.cars)
+                    assertSame(originalCars, consist.value)
+                    originalCars.forEach { assertSame(train, it.train) }
+                    return listOf(consist.prepare(cars.toList()))
+                }
+            }
+            train.setController(controller)
+            if (failInitialization) {
+                train.extensionDataContainer.setExtensionDataAt(2, RecordingSplitExtension(
+                    initializationFailure = IllegalStateException("new host initialization failed")
+                ))
+                executeFailedSplit(train, "car-2", "controller-failed")
+                assertSame(originalCars, controller.consist.value)
+                assertEquals(originalCars, train.cars)
+                originalCars.forEach { assertSame(train, it.train) }
+            } else {
+                executeSplit(train, "car-2", "controller-separated")
+                assertEquals(originalCars.take(2), controller.consist.value)
+            }
+            assertSame(controller, train.controller)
+        }
+
     @ParameterizedTest
     @ValueSource(booleans = [false, true])
     fun `split holds epoch admission through decisions preparation and notification`(veto: Boolean) {

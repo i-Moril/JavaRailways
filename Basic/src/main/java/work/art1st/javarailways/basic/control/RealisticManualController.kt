@@ -2,6 +2,8 @@ package work.art1st.javarailways.basic.control
 
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.api.control.TrainController
+import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
+import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.train.Train
 import java.util.concurrent.atomic.AtomicReference
@@ -19,14 +21,16 @@ class RealisticManualController(
     private val controlProfile: TrainDynamics.TrainProfile,
     carProfiles: List<TrainDynamics.CarProfile>,
     gravityMetersPerSecondSquared: Double,
-    initialSpeedMetersPerSecond: Double = train.speed
-) : TrainController(train, world) {
+    initialSpeedMetersPerSecond: Double = train.speed,
+    profileResolver: ((Car) -> TrainDynamics.CarProfile?)? = null
+) : TrainController(train, world), DynamicsProfileSource {
     private val dynamics = TrainDynamicsExecutor(
         train,
         controlProfile,
         carProfiles,
         gravityMetersPerSecondSquared,
-        initialSpeedMetersPerSecond
+        initialSpeedMetersPerSecond,
+        profileResolver
     )
     private val handleRef = AtomicReference(NEUTRAL_HANDLE)
     private val directionRef = AtomicReference(TrainDriveDirection.NEUTRAL)
@@ -49,6 +53,11 @@ class RealisticManualController(
     val resistanceForce: Double get() = dynamics.lastResult.resistanceForce
     val gradeForce: Double get() = dynamics.lastResult.gradeForce
     val controlledTrain: Train get() = train
+
+    override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = dynamics.dynamicsProfileFor(car)
+
+    override fun prepareConsistChange(cars: List<Car>, counterpart: TrainController?): List<PreparedControllerStateUpdate> =
+        listOf(dynamics.prepareConsistChange(cars, counterpart as? DynamicsProfileSource).update)
 
     fun setHandle(value: String): Boolean {
         val normalized = value.uppercase()

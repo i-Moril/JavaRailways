@@ -19,11 +19,62 @@ import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.physics.train.Train
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
+import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
+import java.util.concurrent.TimeUnit
 import kotlin.math.sqrt
 
 class TrainDynamicsTest {
     private val trainProfile = TestTrainProfile()
     private val carProfile = TestCarProfile()
+
+    @Test
+    fun `prepared union uses counterpart exact bindings before resolving unknown cars`() = withDynamicsTrain { train ->
+        val first = train.cars[0]
+        val second = train.cars[1]
+        val incoming = ObservedCar(first, 0.0)
+        val own = TestCarProfile(mass = 20_000.0)
+        val other = TestCarProfile(mass = 30_000.0)
+        val resolved = TestCarProfile(mass = 40_000.0)
+        var resolutions = 0
+        val executor = TrainDynamicsExecutor(train, trainProfile, listOf(own, own), 10.0,
+            profileResolver = { car -> assertSame(incoming, car); resolutions++; resolved })
+        val source = object : DynamicsProfileSource {
+            override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = if (car === incoming) other else null
+        }
+
+        val union = executor.prepareConsistChange(listOf(incoming, second, first), source)
+        assertEquals(listOf(other, own, own), union.carProfiles)
+        assertEquals(0, resolutions)
+        assertEquals(listOf(own, own), executor.carProfiles, "prepare must not install")
+        assertEquals(listOf(resolved, own), executor.prepareConsistChange(listOf(incoming, first), null).carProfiles)
+        assertEquals(1, resolutions)
+        assertEquals(listOf(own, own), executor.carProfiles)
+    }
+
+    @Test
+    fun `manual split retains controller handle and partitions exact car bindings`() = withDynamicsTrain { train ->
+        val original = train.original as work.art1st.javarailways.core.physics.train.CoreTrain
+        val first = original.cars[0]
+        val second = original.cars[1]
+        val heavy = TestCarProfile(mass = 20_000.0)
+        val light = TestCarProfile(mass = 10_000.0)
+        val controller = RealisticManualController(original, original.world, trainProfile, listOf(heavy, light), 10.0)
+        controller.setHandle("P2")
+        original.setController(controller)
+        val future = original.splitBefore(second.id, "manual-subset")
+        val owner = Thread.currentThread()
+        ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
+            override fun isMainThread(): Boolean = Thread.currentThread() === owner
+        }).use { original.world.tickManager.postTick() }
+        val separated = future.get(5, TimeUnit.SECONDS)
+
+        assertSame(controller, original.controller)
+        assertEquals("P2", controller.handle)
+        assertSame(heavy, controller.dynamicsProfileFor(first))
+        assertEquals(null, controller.dynamicsProfileFor(second))
+        assertSame(separated, second.train)
+    }
 
     @Test
     fun `executor keeps profiles with car instances through reorder and subset`() = withDynamicsTrain { train ->
@@ -65,6 +116,9 @@ class TrainDynamicsTest {
         assertThrows(IllegalStateException::class.java) { executor.carProfiles }
         assertSame(state, executor.state)
         assertSame(lastResult, executor.lastResult)
+        assertThrows(IllegalStateException::class.java) { executor.prepareConsistChange(train.currentCars, null) }
+        assertSame(state, executor.state)
+        assertSame(lastResult, executor.lastResult)
     }
 
     private fun withDynamicsTrain(action: (MutableConsist) -> Unit) {
@@ -80,8 +134,8 @@ class TrainDynamicsTest {
     }
 
     /** Unit boundary: vary the current consist without exercising Core's structural transaction. */
-    private class MutableConsist(train: Train) : Train by train {
-        var currentCars: List<Car> = train.cars
+    private class MutableConsist(val original: Train) : Train by original {
+        var currentCars: List<Car> = original.cars
         override val cars: List<Car> get() = currentCars
     }
 

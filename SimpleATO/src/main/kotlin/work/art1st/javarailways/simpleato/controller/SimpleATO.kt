@@ -9,6 +9,9 @@ import work.art1st.javarailways.basic.api.ato.ControlDemand
 import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import work.art1st.javarailways.simpleato.api.ato.MinimumConstraintPlanner
 import work.art1st.javarailways.basic.api.ato.TrainActuator
+import work.art1st.javarailways.basic.control.DynamicsProfileSource
+import work.art1st.javarailways.basic.control.TrainDynamics
+import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.basic.api.ato.command.CommandOfferResult
 import work.art1st.javarailways.basic.api.ato.command.RevisionedCommandQueue
 import work.art1st.javarailways.simpleato.api.constraint.AtoConstraint
@@ -115,7 +118,10 @@ class SimpleATO(
     actuator: TrainActuator,
     safetyProfile: AtoSafetyProfile = AtoSafetyProfile(),
     private val inspectionMaximumLeadTimeSeconds: (String) -> Double
-) : AbstractATO(train, world, actuator, safetyProfile, world.simpleAtoWorldData.atoCoordinator) {
+) : AbstractATO(train, world, actuator, safetyProfile, world.simpleAtoWorldData.atoCoordinator), DynamicsProfileSource {
+    override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? =
+        (actuator as? DynamicsProfileSource)?.dynamicsProfileFor(car)
+
     private sealed interface Command {
         data class SetSpeedLimit(val key: String, val speed: Double) : Command
         data class StopAt(val key: String, val target: RailObjectRef, val offsetMeters: Double) : Command

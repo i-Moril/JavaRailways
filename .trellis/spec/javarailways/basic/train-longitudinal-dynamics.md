@@ -31,6 +31,11 @@ executor构造时把当前每个实际`Car`实例与输入的`CarProfile`配对�
 例如20吨车和10吨车交换位置后，各自质量仍跟随原实例，坡度则来自各自当前线路位置。
 公开`carProfiles`也按当前车厢顺序投影，供制动包络使用，已移出当前编组的车不再参与该列表。
 
+结构准备为新车厢列表生成一张新身份表：优先复用本执行器绑定，再查询对方的`DynamicsProfileSource`，
+最后仅为缺项调用composition注入的只读`profileResolver`。任何缺项都明确失败，不借同ID或默认参数。
+表通过Core的prepared state update随结构安装；执行器、`State`、`lastResult`及选中手柄保持原对象/值。
+这些Basic capability只供第一方controller/actuator协作，不是另一个公开插件注册接口。
+
 `HandleTrainActuator`只考虑配置中的正作用P档、N和非EB制动档，并每Tick向目标档移动一级。正常停车上限是
 最强非EB制动；只有目标为零且最强常用制动预演不能减速时才允许EB。每个候选只预演一次当前Tick，预演不得
 修改executor state。
@@ -56,7 +61,8 @@ class TrainDynamicsExecutor(
     trainProfile: TrainDynamics.TrainProfile,
     carProfiles: List<TrainDynamics.CarProfile>,
     gravityMetersPerSecondSquared: Double,
-    initialSpeedMetersPerSecond: Double = train.speed
+    initialSpeedMetersPerSecond: Double = train.speed,
+    profileResolver: ((Car) -> TrainDynamics.CarProfile?)? = null
 )
 
 data class BrakingGradeSegment(val lengthMeters: Double, val grade: Double)
@@ -72,7 +78,7 @@ data class BrakingGradeSegment(val lengthMeters: Double, val grade: Double)
 
 - 构造时profile数量与当前`train.cars`数量完全一致，并按当时顺序建立实例绑定；后续计算不依赖该旧顺序。
 - 绑定按对象身份，不按`Car.id`或`equals`；另一个同ID实例不能继承旧车参数。当前车厢缺少绑定时明确失败，不猜测默认参数。
-- executor/controller/actuator是单列车、单physics worker拥有的有状态对象；固有profile和重力在安装后不可变，动态坡度每次读取。
+- executor/controller/actuator是单列车、单physics worker拥有的有状态对象；固有profile单项和重力不可变，身份表只在排除worker的结构边界替换，动态坡度每次读取。
 - `RealisticManualController`提交的distance与speed必须来自同一个dynamics step；Core在同一epoch据此发布car/bogie速度。
 - 换向只改变`operatingDirection`和列车head/tail语义，不改变`Car.direction`模型朝向。
 - 重力只来自composition注入；Basic不得读取YAML或Bukkit singleton。
@@ -101,6 +107,7 @@ data class BrakingGradeSegment(val lengthMeters: Double, val grade: Double)
 扫描远端同时作为可制停边界，防止平坡horizon在已知下坡上不足。
 
 实例绑定构造与存储为`O(initial cars)`，单次查表平均`O(1)`；当前参数列表投影和一次动力学输入构造均为`O(current cars)`。
+结构准备为`O(result cars)`加缺项来源解析成本，安装为引用替换；不在每tick读取模型包或文件。
 这是参数身份关联，不是对动态线路条件做缓存；本批没有增加曲线阻力模型或执行耗时基准。
 
 ## 8. Good / Base / Bad Cases
@@ -128,9 +135,10 @@ data class BrakingGradeSegment(val lengthMeters: Double, val grade: Double)
 
 迁移已删除Bukkit中的`RealisticManualController`实现，不保留runtime兼容alias。`physics.yml`从schema 1升级到2时，
 使用`scripts/migrate_physics_config.py`先dry-run审查，再用`--apply`在保留`.bak`恢复点后把旧重力键单向改名。
-CR-030结构集成仍为`TARGET`：当前实例表只覆盖构造时车辆。联结需要在结构准备阶段合并双方实例绑定，
-解编需为结果编组划分绑定，并在提交时同步安装；还需按每车来源包解析参数，以及重算ATO保存的减速度和反应时间。
-不得用成功事件后的临时补齐或同ID回退冒充完成，也不能仅凭当前列表投影正确就宣称整套ATO安全参数已同步。
+本批接入解编保留侧的参数准备/安装、逐车来源解析及ATO安全参数重算；分离侧沿用新train不自动继承controller的合同，
+以后安装controller时由该侧车厢来源装配。联结参数准备调用点已写入CR-030草稿，
+但碰撞入口和接触位置处理仍未完成，不能宣称完整联结可用。
+不得用成功事件后的临时补齐或同ID回退冒充结构参数事务，也不能仅凭列表投影正确就宣称ATO安全参数同步。
 未来是否把共享ATO primitive从Basic进一步拆分仍独立待定，不为此预先增加抽象层。
 
 ### Wrong

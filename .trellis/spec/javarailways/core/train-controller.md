@@ -34,6 +34,22 @@ interface ControlCommand {
 
 ## 输入/结果矩阵
 
+### 编组参数的准备与安装
+
+`prepareConsistChange(cars: List<Car>, counterpart: TrainController?): List<PreparedControllerStateUpdate>`
+由 serialized simulation owner 在物理任务结束后调用。`cars`是准备后的确切车厢对象和顺序；
+`counterpart`在解编或对方没有控制器时为null。默认返回空列表，不强迫无编组相关参数的控制器实现额外逻辑。
+
+控制器用`ControllerConsistState<T>`保存当前不可变参数，并以`prepare(value)`生成更新token。
+准备期间允许计算和明确失败，但不能改写当前参数或产生外部效果。解编先准备，再构造新train；
+构造失败不安装更新。成功结构事务在排除physics worker的边界安装token。
+token的构造和安装由Core控制，只执行已准备值的引用赋值，不接收插件提交lambda；
+不能把查询、IO或可能失败的制动计算推迟到安装阶段。原控制器和控制输入不因此重建。
+
+该机制不承诺任意线程同时读取多个state cell的原子快照；可见性依赖既有physics等待、结构锁及下一次worker提交。
+准备复杂度由控制器决定，安装为O(更新数)。联结调用点仍属于CR-030碰撞事务草稿，
+不能用参数token的单独测试宣称碰撞入口及接触位置处理已完成。
+
 | 条件 | 结果 | side effect |
 | --- | --- | --- |
 | `deltaT >= 0`、无command | 按m/s×ms移动 | 仅active state |

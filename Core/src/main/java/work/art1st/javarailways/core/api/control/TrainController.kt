@@ -5,6 +5,8 @@ import work.art1st.javarailways.core.api.util.tick.Synchronizable
 import work.art1st.javarailways.core.api.util.tick.TickProfiled
 import work.art1st.javarailways.core.api.util.tick.TickingObject
 import work.art1st.javarailways.core.api.physics.train.Train
+import work.art1st.javarailways.core.api.physics.train.Car
+import org.jetbrains.annotations.ApiStatus
 import work.art1st.javarailways.core.api.util.WeakReferenceWrapper
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.util.CommitBuffer
@@ -53,6 +55,18 @@ abstract class TrainController(
         }
         pendingCommand = command
     }
+
+    /**
+     * Prepare controller state for [cars] without mutating either source, cars or external state.
+     * Called on the structural simulation owner with physics excluded. [counterpart] is the other
+     * coupling controller, or null for a split or a controllerless incoming train. Failure rejects
+     * the structural operation.
+     * Return only Core-created reference updates; Core installs them after all preparation succeeds.
+     * Default controllers have no consist-dependent state. No controller instance/input is replaced.
+     */
+    @ApiStatus.Experimental
+    open fun prepareConsistChange(cars: List<Car>, counterpart: TrainController?): List<PreparedControllerStateUpdate> =
+        emptyList()
 
     /** Queue a direction reversal for the next physics tick; pairs of pending requests cancel out. */
     open fun reverse() {

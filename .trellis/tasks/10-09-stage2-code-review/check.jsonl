@@ -19,3 +19,4 @@
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/core-link-current-contract.md", "reason": "CR-030 refreshed proposal: verify actual temporary epoch exclusion, stable-end mapping and unresolved policy boundaries; do not mistake target coupling for current implementation"}
 {"file": ".trellis/spec/bukkit-plugin/backend/car-behavior.md", "reason": "Verify both source car runtimes survive link/split, pending door completion and cross-region ownership"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/car-behavior-implementation-plan.md", "reason": "Check current Car.train identity contract separately from pending Bukkit runtime and snapshot migration; no partial JS backend or package fallback"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/dev-server-save-audit.md", "reason": "Do not equate stable fetched bytes/no-train sample with complete current-codec migration or nonempty-car snapshot validation"}

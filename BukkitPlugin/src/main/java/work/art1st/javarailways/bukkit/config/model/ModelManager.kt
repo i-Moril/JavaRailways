@@ -91,7 +91,7 @@ class ModelManager(
 
     fun getTrainAction(packageName: String?, actionName: String): TrainActionConfig? {
         if (packageName != null) {
-            trainPackages[packageName]?.actions?.get(actionName)?.let { return it }
+            return trainPackages[packageName]?.actions?.get(actionName)
         }
         for ((_, pkg) in trainPackages) {
             pkg.actions[actionName]?.let { return it }
@@ -101,14 +101,14 @@ class ModelManager(
 
     fun getTrainActions(packageName: String?): Map<String, TrainActionConfig> {
         if (packageName != null) {
-            trainPackages[packageName]?.actions?.let { return it }
+            return trainPackages[packageName]?.actions ?: emptyMap()
         }
         return trainPackages.values.flatMap { it.actions.entries }.associate { it.key to it.value }
     }
 
     fun getTrainBehavior(packageName: String?): TrainBehaviorScript? {
         if (packageName != null) {
-            trainPackages[packageName]?.behavior?.let { return it }
+            return trainPackages[packageName]?.behavior
         }
         return trainPackages.values.firstNotNullOfOrNull { it.behavior }
     }

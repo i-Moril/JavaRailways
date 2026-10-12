@@ -6,6 +6,14 @@
 
 BukkitPlugin拥有车辆模型行为；Core只拥有车厢、编组结构及物理事实；SimpleATO拥有时刻表、运营方向和运用元数据。复用现有`CarExtension`及Graal运行时代码，不新增全局车辆行为注册系统，不把运营业务搬入模型JS。本批不新增信号JS接口。
 
+## 当前前置能力：按指定源包解析
+
+`CURRENT`：`ModelManager.getTrainAction(packageName, name)`、`getTrainActions(packageName)`和`getTrainBehavior(packageName)`在`packageName != null`时只查询该包。包不存在时，三个查询分别返回`null`、空map、`null`；包存在但缺少动作名或脚本时，对应单项查询返回`null`，动作列表只包含该包的声明。不能继续搜索其他包。例如A包没有开门动作而B包有，指定A不会借用B的开门逻辑。
+
+内部直接读取已发布的包索引和动作map，指定包查询平均O(1)，不加载脚本或创建Context，也不引入新缓存/调度。包重载仍沿用现有registry发布边界。本前置不修改存档、版本或JS归属。`packageName == null`仍保留旧全局查询：单动作/脚本搜索各包，动作列表汇总各包；它不是已知源包缺失时的兜底，不能把指定包改为null绕过隔离。
+
+回归需使用两个不同包，断言同名动作命中指定包、仅另一包有的动作/脚本不泄漏、未知包返回不存在，以及null查询行为不变。每车runtime与延迟效果迁移仍为下文TARGET，不能因为本查询修复而标为完成。
+
 ## 一次开门经过哪些步骤
 
 列车操作适配器在simulation owner捕获本次操作的确切车厢对象集合及每车物理门侧，然后分别交给车厢行为。每节车厢使用自己的JS状态调用模型action；动画、声音和延迟效果只针对这节车厢。列车层汇总这次操作的每车结果，不再拥有共享JS全局变量。

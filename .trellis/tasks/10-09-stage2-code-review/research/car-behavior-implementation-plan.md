@@ -5,6 +5,8 @@
 - Date: 2026-10-11
 - Snapshot: 研究时 Core ownership worker 正在修改 Car.train；以下 Bukkit 证据来自尚未迁移的生产代码。行号可能随并行工作漂移。
 
+> 2026-10-12更新：Core归属已由`9a81133f`交付；真实开发服副本已只读取得，详见[存档研究](./dev-server-save-audit.md)。6个world的current/.bak均无列车，因此这个样本没有既存每车脚本快照需要转换；不能由此推断非空车厢迁移已验证。下文“尚未取得样本”为研究时的历史状态，当前仍需处理已有outer/运营抽离迁移及真实旧曲线数据问题，不由本每车行为批次加入runtime旧格式fallback。
+
 ## Findings
 
 ### 建议提交边界

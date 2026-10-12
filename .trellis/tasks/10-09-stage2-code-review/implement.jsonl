@@ -19,3 +19,4 @@
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/core-link-current-contract.md", "reason": "CR-030 refreshed stable-end mapping, temporary epoch admission prerequisite, extension union/retired Bukkit runtime, and explicitly unapproved coupling defaults"}
 {"file": ".trellis/spec/bukkit-plugin/backend/car-behavior.md", "reason": "TARGET per-car JS lifecycle, fixed action targets and physical sides, no runtime reset on consist transfer"}
 {"file": ".trellis/tasks/10-09-stage2-code-review/research/car-behavior-implementation-plan.md", "reason": "Core current owner prerequisite; Bukkit vertical migration reuse, per-car snapshot sample gate and exact delayed-effect targets"}
+{"file": ".trellis/tasks/10-09-stage2-code-review/research/dev-server-save-audit.md", "reason": "Actual old server shape and paired revisions, zero train conversion records, separate ownership/curve migration gaps and preserved readonly source"}

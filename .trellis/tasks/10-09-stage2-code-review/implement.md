@@ -18,10 +18,17 @@
 - [x] Core归属前置：新增`Car.train`只读身份查询；唯一原子owner替代单独stream UUID存储，渲染proof派生，构造成功/结构转移绑定，exact-instance CAS退休。复用6文件既有用例补断言，不增加测试数量，不涉及存档、JS或旧link算法。独立源码审查通过；定向测试32秒；Core/Basic/BukkitPlugin/TunnelBridgeBuilder完整回归及Core Dokka强制重跑通过，1126项（349/385/361/31），零失败/错误/跳过，2分21秒，41任务全部执行。cache使用`/workspace/.gradle`，offline/no-build-cache/no-parallel/rerun-tasks，禁用Kotlin incremental并使用in-process编译；既有构建警告仍存在。未部署，不能代替游戏验证。
 - [x] 记录用户决定及[目标合同/伪代码](../../spec/bukkit-plugin/backend/car-behavior.md)：每节车厢独立JS，复用CarExtension和现有运行时代码，结构变更保留双方状态及已接受动作。此次仅文档，不宣称实现完成。
 - [ ] Bukkit完整纵向迁移：JS归属、车厢action/sound、固定目标及物理门侧、逐车调度汇总、延迟效果完成与卸载销毁共同切换；不得提交“每车JS但延迟动作仍作用于整个列车”的半套运行时。复用现有Graal、CarExtension和解析，不另建引擎/loader。具体复用边界、调用端与验证见[实现研究](./research/car-behavior-implementation-plan.md)。
-- 当前数据门禁：混合编组需要保留每车来源包的脚本快照引用，现有车厢模型快照不含behavior/actions。格式改动前依原任务约定核对真实开发服一致存档；已询问本地副本路径或只读SSH目标/数据目录，尚未取得样本。Bukkit运行时代码尚未改动，不用主编组脚本回退或FOLLOW_PACKAGE-only临时实现替代。
+- 当前数据门禁：混合编组需要保留每车来源包的脚本快照引用，现有车厢模型快照不含behavior/actions。2026-10-12已按用户授权只读下载真实副本，99个文件复制前后及本地hash一致，12组current/.bak revision配对成立；6个world均无列车，本样本没有既存每车快照转换记录。来源版本、旧曲线异常及未完成的current codec/业务迁移验证见[存档研究](./research/dev-server-save-audit.md)。不要求远端临时造车，不用主编组脚本回退或FOLLOW_PACKAGE-only临时实现替代；非空车快照仍须固定fixture覆盖。
 - [ ] 第三笔实现：collision专用四端联结事务及结果消费；捕获冻结前静止事实用于默认主编组，不增加主动Train.linkWith入口。主编组平局需先冻结，失败回退默认脱轨已批准；此前“controller优先”和“调用列车优先”建议撤回。
 - 验证要求：每笔独立审查，车辆行为批运行BukkitPlugin及其适配consumer回归；Core入口切换运行Core/Basic及七模块门禁。无需为本次纯文档重跑Gradle，不复用11a73930的1973项结果冒充本批测试。CR-030及整体审查保持开放。
 - 本次文档独立审查通过，按发现明确每车须汇总所有已接受效果，不能在第一条延迟效果后提前完成；当前完成时点仍按既有最晚效果启动边界，不冒称完整动画结束。限定路径空白检查、local link target检查及20+20条上下文校验通过；无产品代码、存档或版本改动。
+
+### 批次3源包解析前置与真实样本（2026-10-12）
+
+- [x] 只读取得开发服真实存档及模型包；原压缩包及99项manifest保留于独立临时目录，未停服/触发保存/部署/远端写入。当前和备份均无列车；12组revision/epoch核对通过，不等于跨文件原子快照或current业务加载通过。详见[存档研究](./research/dev-server-save-audit.md)。旧outer/Basic归属转换及6条非法曲线记录独立于每车新增快照字段，继续作为旧服迁移缺口，不在runtime放宽校验。
+- [x] 源包隔离代码：只改`ModelManager`三处非null包名查询，缺失不再跨包借用动作/JS；null全局查询不变，已pin快照路径不变。复用`ModelManagerReloadTest`的包fixture，新增两项有效回归；不改存档/版本、loader、其他resolver或JS生命周期。这是正式解析修复，不是临时测试版，也不宣称每车迁移完成。
+- [x] 验证：独立trellis-check只读复核代码、consumer、测试、真实样本与文档通过；定向`ModelManagerReloadTest/PackageLoaderBehaviorTest/TrainPackageSnapshotTest`共5项通过（2分9秒），完整BukkitPlugin共363项通过（1分51秒），均零失败/错误/跳过、26任务全部执行。两次都使用`GRADLE_USER_HOME=/workspace/.gradle`、offline/no-build-cache/no-parallel/rerun-tasks，禁用Kotlin incremental并采用in-process编译；既有编译/Gradle弃用/依赖audit警告仍存在。限定路径diff空白检查、22+22条上下文校验通过；未做游戏验证或部署。
+- 后续：混合编组动作列表取并集/交集已向用户询问，未答复前不自行决定部分车厢动作成功政策；每车完整纵向迁移、CR-030与整体审查保持开放，不归档任务。
 
 ### 批次3前置：结构提交期间禁止新物理任务（2026-10-11）
 

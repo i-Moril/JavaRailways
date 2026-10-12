@@ -6,7 +6,28 @@
 
 继续原CR-030批次3：先完成Bukkit每车JS/动作/延迟效果/快照的完整纵向迁移，再接入collision四端联结事务及结果消费。Basic后续修复暂存，不插入该主线。此前将用户“提高效率”的要求直接解释为暂停Core转查Basic，是执行顺序误判，不是用户批准的计划调整。
 
-当前已完成Core ownership、结构编辑epoch准入、源包精确解析及真实开发服只读取样。2026-10-12用户已确认自定义动作菜单取并集，仅操作声明该动作的车厢；整列开关门仍按全部目标汇总。主编组依次按插件指定、碰撞前唯一静止方、稳定train ID字典序选择。两项不再待决定；继续Bukkit完整纵向迁移，再接四端联结，不切换模块。
+当前已完成Core ownership、结构编辑epoch准入、源包精确解析、真实开发服只读取样及Bukkit每车JS纵向迁移（`8b5e7483`）。2026-10-12用户确认自定义动作菜单取并集，仅操作声明该动作的车厢；整列开关门仍按全部目标汇总。最新联结规则要求碰撞前至少一方静止；主编组优先插件指定，否则选静止方，取消train ID字典序推测；成功结果速度为0。具体合同由Core train-physics拥有。继续四端联结，不切换模块。
+
+### 四端联结恢复实施（2026-10-12）
+
+- 最新确认：本批先修动力学参数归属，用实际车厢实例而非旧编组下标关联固有性能参数；计算仍遍历当前编组并读取各车当前坡度。联结须合并映射、解编须按结果车厢划分，不能只消除数组越界而漏掉新加入车厢或继续使用旧制动能力。本步骤是CR-030直接依赖，不恢复Basic全模块后续修复。碰撞事务草稿暂时冻结。
+- 实施分界：先独立修复executor对原有车厢的换序及子集计算，并让供制动包络使用的`carProfiles`按当前车厢投影。随后在结构准备/提交中接入双方参数合并、解编划分和ATO安全参数重算，以及按每车来源包解析；未知车厢实例必须明确失败，不按同名ID或默认车型补齐。首批完成不等于上述结构集成完成。
+- 后续参数来源接入点：Bukkit `RailWorldFactory`、`TrainControlManager`、`TrainCommand`和`SimulationControlProfiles`均需核对逐车来源解析；隔离模拟必须消费capture得到的参数，不回查live模型。`HandleTrainActuator`包络列表投影与SimpleATO构造时保存的安全profile是不同派生值，前者正确不能替代后者重算。
+- 独立新增待办（已确认方向，尚未实现）：挤岔时道岔对准列车实际通过支路；提供携带列车、道岔、通过支路及速度的挤岔事件，让插件决定是否脱轨。不擅自添加随机脱轨概率。本批不实施挤岔，也不据此默认决定碰撞接触点回退或步进截断；两种接触处理的具体选择仍待核实。
+- 用户已批准完整事务及碰撞结果消费计划。实施前核实旧冻结只清车体motion、不清controller scalar，双方必须停车的旧规则会使正常接近联结失败；发现后暂停，期间没有源码修改或构建。
+- 用户修订并确认至少一方碰撞前静止、默认静止方为主、结果取较低速度即0；撤回此前允许双方运动与train ID平局推断。先同步owner契约再恢复实施，不将临时几何冻结当作停车证明，不默认取消控制指令。
+- 本批范围为Core碰撞专用四端联结事务、联结两阶段事件、extension union准备和真实结果消费，以及必要Bukkit适配与回归；保持车厢实例/JS/已接受动作。实现及独立检查尚未完成，不关闭CR-030或Stage2，不部署。
+- 实际入口依赖：旧collision仅索引车体swept范围，非零connector接触时车体尚未重叠，内部事务成功不证明collision可达。需补真实coordinator回归，并在同一共享bucket索引内区分车体和仅碰撞使用的车钩范围；不另建全量索引，不改变普通occupiedIntervals/swept查询语义。时间步跨过接触点的问题仍须核实，不能通过扩大5mm容差、吸附或伪造内部触发隐藏。
+- 暂停范围确认：源码追踪确认旧检测在move之前查询上一epoch包络，补车钩候选仍可能在实际接触后才触发；需评估本次physics步进在首次接触处截断，而不是结构prepare吸附。另独立检查发现Basic `TrainDynamicsExecutor`在构造时固定`carProfiles`，后续按current cars索引，联结后的数量/顺序变化会越界或错配，manual/ATO共用。两项为联结直接依赖，不扩张为Basic全模块审查；新增范围须先向用户说明确认。
+- 当时暂停的事务草稿涉及8个既有源码/测试文件及3个新事件/端部文件，尚未闭合Bukkit旧测试caller、碰撞候选与步进、动力学profile重绑定，不可交付。当时入口分析只有源码证据，没有已完成可执行复现；暂停期间保留改动等待范围决定。后续获批的参数前置及实际构建结果单独记于下节，不因此宣称草稿完成。
+
+### 动力学参数实例绑定前置（2026-10-12）
+
+- 仅改Basic `TrainDynamicsExecutor`及既有`TrainDynamicsTest`：构造时以`IdentityHashMap<Car, CarProfile>`绑定实际车厢；每次按当前编组取本车参数和当前坡度，`carProfiles`getter也投影当前编组。参数缺失明确失败；不新增未接线的合并API、默认参数或按car ID回退。机制及剩余集成由[纵向动力学规范](../../spec/javarailways/basic/train-longitudinal-dynamics.md)拥有。
+- 新增两项有效回归，使用Train/Car delegation明确测试executor输入边界，非真实结构事务；独立固定15kN/20kN坡度力和5kN制动力，检查重排、子集、动态坡度及同ID不同实例失败后state/lastResult不变。旧production上两项均失败（54秒，原11项通过），修复后完整该类13项全部执行通过（56秒，12tasks全部执行），零failure/error/skipped。
+- 独立只读检查复核实现、参数消费者、测试数学与清理、冻结hash及新鲜XML，无本批阻塞，不重复构建。按约定缓存及强制非增量/in-process参数运行Core/Basic组合门禁，50秒/12tasks执行后失败：Core349项中1项失败，冻结草稿`CoreTrainLinkTest`在UNKNOWN_BACKGROUND执行`withStructuralMutation`，违反MAIN线程要求；Basic测试尚未执行。此失败链不调用本批Basic executor，但工作树全量门禁仍失败，不掩盖或顺带修冻结草稿。
+- 随后单独强制执行`:Basic:test`，`BUILD SUCCESSFUL`（54秒，12tasks全部执行）；新鲜XML为59suites/391项，零failure/error/skipped，生产/fixture/测试Kotlin重编译。两份源码前后SHA-256保持`de37cf2b…`与`a0c67560…`；限定diff-check与26+26上下文校验通过（两个既有超32KiB注入警告仍在）。已有编译/Gradle弃用warning保留。本结果证明Basic模块回归通过，不将组合门禁或冻结Core草稿记为通过。
+- 尚未提交、部署或游戏验证。联结/解编映射转移、逐车来源包与ATO安全值同步仍是后续集成；CR-030与整个审查任务保持开放。
 
 ### 每车JS纵向迁移及门禁（2026-10-12）
 
@@ -43,7 +64,7 @@
 
 ### 批次3调整：每车JS与碰撞触发联结（2026-10-11）
 
-- 用户已批准本批同时实施Bukkit每车JS改造与必要Core支持，并批准碰撞联结被拒绝/准备失败回退默认脱轨；主编组平局已于2026-10-12确认按稳定train ID字典序选择，具体规则见Core owner spec。
+- 用户已批准本批同时实施Bukkit每车JS改造与必要Core支持，并批准碰撞联结被拒绝/准备失败回退默认脱轨；主编组与速度规则以文首最新决定及Core owner spec为准，旧train ID字典序选择已撤回。
 - [x] Core归属前置：新增`Car.train`只读身份查询；唯一原子owner替代单独stream UUID存储，渲染proof派生，构造成功/结构转移绑定，exact-instance CAS退休。复用6文件既有用例补断言，不增加测试数量，不涉及存档、JS或旧link算法。独立源码审查通过；定向测试32秒；Core/Basic/BukkitPlugin/TunnelBridgeBuilder完整回归及Core Dokka强制重跑通过，1126项（349/385/361/31），零失败/错误/跳过，2分21秒，41任务全部执行。cache使用`/workspace/.gradle`，offline/no-build-cache/no-parallel/rerun-tasks，禁用Kotlin incremental并使用in-process编译；既有构建警告仍存在。未部署，不能代替游戏验证。
 - [x] 记录用户决定及[目标合同/伪代码](../../spec/bukkit-plugin/backend/car-behavior.md)：每节车厢独立JS，复用CarExtension和现有运行时代码，结构变更保留双方状态及已接受动作。此次仅文档，不宣称实现完成。
 - [x] Bukkit完整纵向迁移：JS归属、车厢action/sound、固定目标及物理门侧、逐车调度汇总、延迟效果完成与卸载销毁共同切换。复用现有Graal、CarExtension和解析，不另建引擎/loader；离线门禁通过，真实四端联结和Folia集成验证仍在后续批次。具体复用边界、调用端与验证见[实现研究](./research/car-behavior-implementation-plan.md)及文首证据。

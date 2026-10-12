@@ -1,8 +1,12 @@
 package work.art1st.javarailways.basic.control
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.joml.Vector3d
+import org.joml.Vector3dc
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
 import work.art1st.javarailways.basic.api.ato.ControlDemand
@@ -13,10 +17,77 @@ import work.art1st.javarailways.core.physics.train.createStraightRailFromSegment
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
+import work.art1st.javarailways.core.api.physics.train.Car
+import work.art1st.javarailways.core.api.physics.train.Train
+import kotlin.math.sqrt
 
 class TrainDynamicsTest {
     private val trainProfile = TestTrainProfile()
     private val carProfile = TestCarProfile()
+
+    @Test
+    fun `executor keeps profiles with car instances through reorder and subset`() = withDynamicsTrain { train ->
+        val heavyCar = ObservedCar(train.cars[0], 0.1)
+        val lightCar = ObservedCar(train.cars[1], -0.05)
+        train.currentCars = listOf(heavyCar, lightCar)
+        val heavy = TestCarProfile(mass = 20_000.0, brakeMaxForce = 40_000.0)
+        val light = TestCarProfile(mass = 10_000.0, brakeMaxForce = 5_000.0)
+        val executor = TrainDynamicsExecutor(train, trainProfile, listOf(heavy, light), 10.0)
+
+        assertEquals(15_000.0, executor.preview(10.0, "N", 0.1).gradeForce, 1.0e-9)
+        train.currentCars = listOf(lightCar, heavyCar)
+        assertSame(light, executor.carProfiles[0])
+        assertSame(heavy, executor.carProfiles[1])
+        assertEquals(15_000.0, executor.preview(10.0, "N", 0.1).gradeForce, 1.0e-9)
+
+        // Location/operating direction is sampled again, not captured with the profile.
+        lightCar.grade = 0.2
+        train.currentCars = listOf(lightCar)
+        assertEquals(listOf(light), executor.carProfiles)
+        val subset = executor.preview(10.0, "B2", 0.1)
+        assertEquals(20_000.0, subset.gradeForce, 1.0e-9)
+        assertEquals(5_000.0, subset.brakeForce, 1.0e-9)
+        assertEquals(TrainDynamics.State(), executor.state)
+    }
+
+    @Test
+    fun `executor rejects unknown instance with reused id without committing state`() = withDynamicsTrain { train ->
+        val executor = TrainDynamicsExecutor(train, trainProfile, listOf(carProfile, carProfile), 10.0)
+        executor.step(10.0, "P2", 0.1)
+        val state = executor.state
+        val lastResult = executor.lastResult
+        val replacement = ObservedCar(train.cars[0], 0.1)
+        assertEquals(train.cars[0].id, replacement.id)
+        train.currentCars = listOf(replacement)
+
+        assertThrows(IllegalStateException::class.java) { executor.preview(10.0, "B2", 0.1) }
+        assertThrows(IllegalStateException::class.java) { executor.step(10.0, "B2", 0.1) }
+        assertThrows(IllegalStateException::class.java) { executor.carProfiles }
+        assertSame(state, executor.state)
+        assertSame(lastResult, executor.lastResult)
+    }
+
+    private fun withDynamicsTrain(action: (MutableConsist) -> Unit) {
+        val world = createTestWorld()
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                world.physicsCoordinator.use {
+                    val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
+                    action(MutableConsist(createTrainWithConfig("profile-identity", rail, world, listOf(10.0, 10.0))))
+                }
+            }
+        }
+    }
+
+    /** Unit boundary: vary the current consist without exercising Core's structural transaction. */
+    private class MutableConsist(train: Train) : Train by train {
+        var currentCars: List<Car> = train.cars
+        override val cars: List<Car> get() = currentCars
+    }
+
+    private class ObservedCar(car: Car, var grade: Double) : Car by car {
+        override val operatingDirection: Vector3dc get() = Vector3d(sqrt(1.0 - grade * grade), grade, 0.0)
+    }
 
     @Test
     fun `configured gravity scales grade force without changing flat traction`() {

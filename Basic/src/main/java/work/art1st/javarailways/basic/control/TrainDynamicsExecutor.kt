@@ -1,6 +1,8 @@
 package work.art1st.javarailways.basic.control
 
 import work.art1st.javarailways.core.api.physics.train.Train
+import work.art1st.javarailways.core.api.physics.train.Car
+import java.util.IdentityHashMap
 
 /** Stateful adapter around the pure [TrainDynamics] step shared by manual and automatic control. */
 class TrainDynamicsExecutor(
@@ -10,7 +12,11 @@ class TrainDynamicsExecutor(
     val gravityMetersPerSecondSquared: Double,
     initialSpeedMetersPerSecond: Double = train.speed
 ) {
-    val carProfiles: List<TrainDynamics.CarProfile> = carProfiles.toList()
+    private val profilesByCar = IdentityHashMap<Car, TrainDynamics.CarProfile>()
+
+    /** Profiles for the current consist, in its current order; removed cars are not included. */
+    val carProfiles: List<TrainDynamics.CarProfile>
+        get() = train.cars.map(::profileFor)
 
     @Volatile
     var state: TrainDynamics.State = TrainDynamics.State(speed = initialSpeedMetersPerSecond)
@@ -24,9 +30,11 @@ class TrainDynamicsExecutor(
     init {
         require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
         require(initialSpeedMetersPerSecond.isFinite() && initialSpeedMetersPerSecond >= 0.0)
-        require(this.carProfiles.size == train.cars.size) {
-            "car profile count ${this.carProfiles.size} does not match train car count ${train.cars.size}"
+        val cars = train.cars.toList()
+        require(carProfiles.size == cars.size) {
+            "car profile count ${carProfiles.size} does not match train car count ${cars.size}"
         }
+        cars.forEachIndexed { index, car -> profilesByCar[car] = carProfiles[index] }
     }
 
     fun preview(
@@ -51,9 +59,13 @@ class TrainDynamicsExecutor(
         lastResult = it
     }
 
-    private fun carInputs(): List<TrainDynamics.CarInput> = train.cars.mapIndexed { index, car ->
+    private fun profileFor(car: Car): TrainDynamics.CarProfile = checkNotNull(profilesByCar[car]) {
+        "Train ${train.id} car '${car.id}' has no dynamics profile for this instance"
+    }
+
+    private fun carInputs(): List<TrainDynamics.CarInput> = train.cars.map { car ->
         TrainDynamics.CarInput(
-            control = carProfiles[index],
+            control = profileFor(car),
             grade = car.operatingDirection.y()
         )
     }

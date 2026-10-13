@@ -4,16 +4,122 @@ import work.art1st.javarailways.core.physics.createRailForTest
 
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+import work.art1st.javarailways.core.api.physics.exception.BogieException
+import work.art1st.javarailways.core.api.render.Vector3Snapshot
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
+import work.art1st.javarailways.core.physics.rail.RailSegment
+import work.art1st.javarailways.core.physics.rail.RailSegments
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 
 class CoreCarPositioningRegressionTest {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `finite captured path prepares either physical front without reading new turnout selection`(
+        reversed: Boolean
+    ) = withWorld { world ->
+        val stem = slopedRail(world, 0.0, 20.0)
+        val main = slopedRail(world, 20.0, 60.0)
+        val branch = world.createRailForTest(PrimeCurve.fromPoints(listOf(
+            rawPoint(Vector3d(20.0, 2.0, 0.0), Vector3d(40.0, 4.0, 20.0), 0.0),
+            rawPoint(Vector3d(60.0, 6.0, 20.0), Vector3d(40.0, 4.0, 20.0), Vector3d(40.0, 4.0, 20.0).length())
+        )))
+        CoreRail.connect(stem, main)
+        CoreRail.connect(stem, branch)
+        val car = preparedTestCar(world, stem)
+        val before = carState(car)
+        val path = RailSegments(listOf(
+            RailSegment(stem.viewAB, 10.0, stem.curve.totalArcLength),
+            RailSegment(main.viewAB, 0.0, 20.0)
+        ))
+        stem.viewAB.activeRail = branch.viewAB
+        main.viewBA.activeRail = null
+        val anchor = Vector3d(26.0, 3.1, 0.0)
+
+        val prepared = car.prepareFollowingCarOnPath(
+            path, reversed, anchor, 0.4, maximumTailDistance = 20.0,
+            predictedTailDistance = 8.0, predictedBogieSpacing = 5.0
+        )
+
+        val a = Vector3d(prepared.bogieALocation.position)
+            .add(Vector3d(prepared.bogieALocation.normal).mul(0.5))
+        val b = Vector3d(prepared.bogieBLocation.position)
+            .add(Vector3d(prepared.bogieBLocation.normal).mul(0.5))
+        val direction = prepared.direction.toVector3d()
+        val centre = prepared.position.toVector3d()
+        val headEnd = Vector3d(centre).add(Vector3d(direction).mul(if (reversed) -5.0 else 5.0))
+        assertEquals(5.0, a.distance(b), 1e-6, "3D axle chord")
+        assertEquals(0.0, Vector3d(centre).add(Vector3d(direction).mul(3.0)).distance(a), 1e-6)
+        assertEquals(0.0, Vector3d(centre).sub(Vector3d(direction).mul(2.0)).distance(b), 1e-6)
+        assertEquals(if (reversed) 1.2 else 0.6, headEnd.distance(anchor), 1e-5, "physical front connector")
+        assertEquals(0.0, prepared.normal.toVector3d().dot(direction), 1e-12)
+        assertEquals(1.0, prepared.normal.toVector3d().length(), 1e-12)
+        assertEquals(reversed, prepared.desiredReversed)
+        assertEquals(stem, if (reversed) prepared.bogieALocation.rail else prepared.bogieBLocation.rail)
+        assertEquals(main, if (reversed) prepared.bogieBLocation.rail else prepared.bogieALocation.rail)
+        assertTrue(direction.x() * (if (reversed) -1.0 else 1.0) > 0.99)
+        // Publishing after prepare also detects accidental active-buffer/dirty-flag changes.
+        car.publishPhysicsState()
+        assertEquals(before, carState(car), "prepare preserves actual direction, geometry and nonzero motion")
+        assertEquals(branch.viewAB, stem.viewAB.activeRail)
+        assertEquals(null, main.viewBA.activeRail)
+    }
+
+    @Test
+    fun `insufficient captured path fails without installing a partial car`() = withWorld { world ->
+        val rail = slopedRail(world, 0.0, 60.0)
+        val car = preparedTestCar(world, rail)
+        val before = carState(car)
+        val shortPath = RailSegments(listOf(RailSegment(rail.viewAB, 10.0, 12.0)))
+
+        assertThrows(BogieException::class.java) {
+            car.prepareFollowingCarOnPath(shortPath, true, Vector3d(26.0, 3.1, 0.0), 0.4,
+                maximumTailDistance = 20.0, predictedTailDistance = 8.0, predictedBogieSpacing = 5.0)
+        }
+
+        car.publishPhysicsState()
+        assertEquals(before, carState(car))
+    }
+
+    private fun preparedTestCar(world: CoreWorld, rail: CoreRail): CoreCar {
+        val start = RailLocationWithFacing(rail.viewAB, 10.0)
+        return CoreCar.create("prepared-car", CoreBogie.create(start), CoreBogie.create(start),
+            length = 10.0, floorHeight = 0.5, connectorLengthAtA = 0.2, connectorLengthAtB = 0.8,
+            bogieAOffset = 3.0, bogieBOffset = -2.0, world = world
+        ).also { car ->
+            car.updateByHeadBogie(start)
+            car.updateMotionStateByHeadVelocity(Vector3d(10.0, 1.0, 0.0))
+            car.publishPhysicsState()
+            assertTrue(car.velocity.length() > 1.0)
+        }
+    }
+
+    private fun carState(car: CoreCar): List<Any> = listOf(
+        car.save(), car.isReversed, Vector3Snapshot.capture(car.position),
+        Vector3Snapshot.capture(car.direction), Vector3Snapshot.capture(car.normal),
+        Vector3Snapshot.capture(car.velocity), Vector3Snapshot.capture(car.motionState.angularVelocity),
+        car.bogies.map { Vector3Snapshot.capture(it.velocity) }
+    )
+
+    private fun slopedRail(world: CoreWorld, start: Double, end: Double): CoreRail =
+        world.createRailForTest(PrimeCurve.fromPoints(listOf(
+            rawPoint(Vector3d(start, start * 0.1, 0.0), Vector3d(1.0, 0.1, 0.0), 0.0),
+            rawPoint(Vector3d(end, end * 0.1, 0.0), Vector3d(1.0, 0.1, 0.0),
+                (end - start) * kotlin.math.sqrt(1.01))
+        )))
+
+    private fun rawPoint(position: Vector3d, tangent: Vector3d, distance: Double) =
+        Curve.RawPoint(position, Vector3d(tangent).normalize(), Vector3d(0.0, 1.0, 0.0), distance)
+
     @Test
     fun `command style train relocation on circle succeeds`() = withWorld { world ->
         val rail = createCurvedRail(world, 20.0)

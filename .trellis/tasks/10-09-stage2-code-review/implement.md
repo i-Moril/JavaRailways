@@ -21,7 +21,14 @@
 - 暂停范围确认：源码追踪确认旧检测在move之前查询上一epoch包络，补车钩候选仍可能在实际接触后才触发；需评估本次physics步进在首次接触处截断，而不是结构prepare吸附。另独立检查发现Basic `TrainDynamicsExecutor`在构造时固定`carProfiles`，后续按current cars索引，联结后的数量/顺序变化会越界或错配，manual/ATO共用。两项为联结直接依赖，不扩张为Basic全模块审查；新增范围须先向用户说明确认。
 - 当时暂停的事务草稿涉及8个既有源码/测试文件及3个新事件/端部文件，尚未闭合Bukkit旧测试caller、碰撞候选与步进、动力学profile重绑定，不可交付。当时入口分析只有源码证据，没有已完成可执行复现；暂停期间保留改动等待范围决定。后续获批的参数前置及实际构建结果单独记于下节，不因此宣称草稿完成。
 
-### 碰撞查询前置及接触方案收束（2026-10-12，当前批次）
+### 有限路径几何准备前置（2026-10-13，当前批次）
+
+- 本批只改`CoreCar.kt`与`CoreCarPositioningRegressionTest.kt`，不切换碰撞入口、不纳入旧联结草稿。将现有刚体求解分为显式方向/有限路径的准备与private同方向安装；正常`updateByPrevCar`复用同一内核，保留原预测、容差、运动传播及显式摆位fallback。机制与边界由[train physics](../../spec/javarailways/core/train-physics.md#有限路径上的几何准备current)拥有。
+- 新增3项有效回归：坡道跨接缝、道岔改选后仍用捕获路径、两种假想物理前端与非对称offset/车钩；成功/有限路径不足失败后发布，原geometry、motion及方向均保持。保留既有测试，不以单纯返回成功证明刚体正确。假想反向仅准备，不声称已安装或完成四端联结。
+- 实施聚焦`CoreCarPositioningRegressionTest/CoreTrainRigidGeometryTest/CoreTrainAsymmetricTurnoutTest/CoreTrainMixedInstallationTest`四类24项通过（33秒/9tasks全执行，零失败/error/skipped）。使用`/workspace/.gradle`、offline/no-build-cache/no-parallel/rerun/nonincremental/in-process及1536m heap/1024m metaspace；两份源码hash冻结，限定diff-check通过。此结果来自含旧草稿工作树，独立候选树完整Core/Basic门禁待补。无部署或游戏验证。
+- 独立check无阻塞、无需自修；从HEAD `d2c2c98a`仅摘取两文件，候选tree `e6c944ca9889f42b7fe00491d866d27583afbaef`。强制`:Core:test :Basic:test`通过（49秒/15tasks全执行），新鲜XML为Core356+Basic393=749项，零失败/error/skipped；Positioning全类6项包含新增3项。两源码hash前后一致，无独立lint配置，Kotlin production/fixture/test重编译通过，限定diff-check通过。日志`/tmp/javarailways-car-prepare-check-8MvBx2/core-basic.log`。CURRENT契约已独立核对，不包含旧TARGET或联结源码；性能未profiling，不将固定额外分配写成零成本。车钩候选与静止锚点联结入口仍未完成，CR-030/Core审查/Stage2不关闭。
+
+### 碰撞查询前置及接触方案收束（2026-10-12）
 
 - 最新位置修正TARGET与入口研究仍在工作树中，留待后续联结批次，不纳入本笔独立前置提交。本笔只交付下述查询时点修复；不引入intent barrier/路径历史，不升级为连续碰撞模拟。
 - 本轮实际源码收束为三个文件：`PhysicsCoordinator`在worker启动前用原controller snapshot查询上一完整epoch；`CoreTrain`移除重复worker query并提供内部active脱轨状态；既有`PhysicsCoordinatorTest`新增双controller冻结回归并将并行fixture沿真实连接分开放置、用已有maintenance commit清除初始化teleport sweep。只迁移发起查询方的脱轨拒绝，已脱轨目标仍是障碍。旧四端联结/events/extension/future消费草稿保持，不整体纳入本批。

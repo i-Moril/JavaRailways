@@ -157,6 +157,16 @@ CoreCar 拥有车内和车间几何求解。正常运行时 controller 先移动
 
 候选几何计算不修改 CommitBuffer 或 dirty 标志；成功应用后才设置 geometryPhysicsDirty，运动状态保持原有独立 dirty/publication 合同。无包围区间、不满足残差或不能到达目标时抛既有 BogieException，运行入口沿 PhysicsException→derail 边界处理，不将求解失败标为成功；这不新增整个编组运动的事务回滚保证。
 
+### 有限路径上的几何准备（CURRENT）
+
+`CoreCar.prepareFollowingCarOnPath(segments, desiredReversed, predecessorTailPosition, predecessorTailConnectorLength, maximumTailDistance, predictedTailDistance, predictedBogieSpacing)`在调用方捕获的有限`RailSegments`上准备一节后车的位置。三个距离参数均为米：尾转向架距路径起点的搜索上界、预测位置，以及预测轨道轴距。`desiredReversed`表示物理B端作为本次求解前端，不读取车厢当前方向来猜测安装关系；前车车体尾端坐标与该端车钩长度由调用方明确提供。
+
+准备复用上述内外层刚体距离求解及有限末端裁剪，不读取新的道岔选择、不写车厢或转向架buffer。只在成功后计算一次最终normal并生成`PreparedCarGeometry`：固定物理A/B转向架位置、目标求解方向和车体position/direction/normal，三个向量使用既有`Vector3Snapshot`保存。结果只在同一结构/物理owner内短期使用，轨道位置仍引用live rail/view，不是可跨线程或拓扑修改长期保留的快照。调用方负责提供连通、有序、朝向一致的路径，并在使用结果期间维持对应结构边界。
+
+正常`updateByPrevCar`的运行分支也使用同一准备内核，保留原预测、搜索范围与残差精度，成功后安装几何，再按原规则传播motion。安装方法为private，只处理运行时未改变方向的结果，不承担假想反向编组的方向提交。显式摆位的旧取路径方式仍保留；不能据此声称所有摆位都已不读道岔选择。失败沿既有`BogieException`返回且准备本身不改变geometry、motion或方向；不能先移动原车厢再以异常回滚伪装准备。
+
+本次只分离数值准备与状态写入，不改变搜索复杂度或容差；每节成功求解增加一份短期结果和固定数量的向量值，不在每次数值迭代生成快照。回归须验证假想反向、三维刚体约束、跨接缝且道岔选择已变化时仍仅用给定路径，以及有限路径不足时原状态保持。车钩候选生产、碰撞越界修正、反向安装提交和四端联结仍属于上方TARGET，本节不代表联结事务已完成。
+
 ### 计算成本、边界与验证
 
 每次曲线坐标查询仍为 O(log P)，候选路径定位为 O(K)，P为轨道采样点数、K为本次跨越段数。轴距搜索与车钩搜索仍可能嵌套；预测命中可减少次数，最坏成本包含扩张和60次区间修正，不能宣称单车严格 O(1)。所有缓存只属于本次求解，不跨 tick 或拓扑更新保留。

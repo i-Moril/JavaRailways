@@ -1242,18 +1242,28 @@ open class CoreTrain @MainThread internal constructor(
         ThreadGuard.ensureMainThread("CoreTrain.derail")
         require(reason.isNotBlank())
         world.physicsCoordinator.withStructuralMutation {
+            check(world.getTrain(id) === this) { "Cannot derail a retired train '$id'" }
             val changed = synchronized(derailStateLock) {
                 if (activeDerailState.derailed) return@synchronized false
                 publishDerailState(DerailState(true, reason))
                 true
             }
             if (!changed) return@withStructuralMutation
-            removeController()
-            updateActiveMotion(0.0)
-            publishPhysicsState()
-            world.publishTrainFrame(publishMetadataFrame())
+            try {
+                removeController()
+                updateActiveMotion(0.0)
+                world.publishOwnerChanges(listOf(this))
+            } catch (failure: Throwable) {
+                throw world.physicsCoordinator.stall("Train derail publication failed: train=$id", failure)
+            }
             MainRailEventBus.publish(DerailEvent(this, reason))
         }
+    }
+
+    /** Submit an external request; owner callers can use [derail] synchronously in their phase. */
+    fun derailAsync(reason: String): CompletableFuture<Unit> {
+        require(reason.isNotBlank())
+        return world.physicsCoordinator.submitBetweenFrames { derail(reason) }
     }
 
     internal fun markDerailedFromPhysics(reason: String) {

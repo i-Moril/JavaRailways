@@ -2,6 +2,7 @@ package work.art1st.javarailways.core.physics.train
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -14,9 +15,60 @@ import work.art1st.javarailways.core.control.train.MockTrainController
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
+import work.art1st.javarailways.core.physics.CoreWorld
 import java.util.concurrent.TimeUnit
 
 class CoreTrainDerailEventTest {
+    @Test
+    fun `external derail waits for owner and notifies only after coherent stationary publication`() {
+        val coordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val world = createTestWorld(coordinator)
+        val listener = DerailCounter()
+        val registration = MainRailEventBus.register(listener)
+        try {
+            val rail = IsolatedSimulationThreadMarker.run {
+                createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
+            }
+            val train = createTrainWithConfig("external-event", rail, world, listOf(10.0))
+            train.setControllerForTest(MockTrainController(train, world, constantSpeed = 10.0))
+            coordinator.start()
+            val ticket = coordinator.stepSimulation(50.0)
+            ticket.completion.get(5, TimeUnit.SECONDS)
+            val previous = train.publishedFrame
+            val previousWorld = world.latestWorldFrame()
+            assertTrue(previous.cars.single().state.velocityX > 0.0)
+
+            val request = train.derailAsync("external request")
+            assertFalse(request.isDone)
+            assertFalse(train.isDerailed)
+            assertSame(previous, train.publishedFrame)
+            assertSame(previousWorld, world.latestWorldFrame())
+            world.onOwnerForTest { coordinator.drainBetweenFramesOperations() }
+            request.get(5, TimeUnit.SECONDS)
+
+            assertEquals(1, listener.count)
+            assertEquals("external request", listener.reason)
+            assertEquals(ticket.epoch, listener.publishedEpoch)
+            assertTrue(listener.coherentWorld)
+            assertTrue(listener.stationary)
+            assertEquals(null, train.controller)
+            assertFalse(previous.derailed)
+            assertSame(previous, previousWorld.trains.single())
+            val repeated = train.derailAsync("already derailed")
+            world.onOwnerForTest { coordinator.drainBetweenFramesOperations() }
+            repeated.get(5, TimeUnit.SECONDS)
+            coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+            IsolatedSimulationThreadMarker.run { world.publishPendingDerailEvents() }
+            assertEquals(1, listener.count)
+            assertTrue(train.publishedFrame.cars.all { it.state.velocityX == 0.0 })
+        } finally {
+            registration.close()
+            coordinator.close()
+            world.releaseRuntimeBinding()
+            (world.tickManager as? AutoCloseable)?.close()
+        }
+    }
+
     @Test
     fun `wrong-thread derail fails before changing train state`() {
         val world = createTestWorld()
@@ -96,6 +148,8 @@ class CoreTrainDerailEventTest {
         var publishedEpoch: Long? = null
         var publishedDerailed = false
         var publicDerailed = false
+        var coherentWorld = false
+        var stationary = false
 
         @HandlesEvent
         fun onDerail(event: DerailEvent) {
@@ -105,6 +159,15 @@ class CoreTrainDerailEventTest {
             publishedEpoch = frame?.physicsEpoch
             publishedDerailed = frame?.derailed == true
             publicDerailed = event.train.isDerailed
+            val world = event.train.world as CoreWorld
+            val worldFrame = world.latestWorldFrame()
+            coherentWorld = frame != null && worldFrame.trains.any { it === frame } &&
+                worldFrame.physicsEpoch == frame.physicsEpoch &&
+                worldFrame.occupancy.blockingTrainIds(frame.occupiedIntervals).contains(event.train.id)
+            stationary = frame?.cars?.all { car ->
+                car.state.velocityX == 0.0 && car.state.velocityY == 0.0 && car.state.velocityZ == 0.0 &&
+                    car.bogies.all { it.velocityX == 0.0 && it.velocityY == 0.0 && it.velocityZ == 0.0 }
+            } == true
         }
     }
 }

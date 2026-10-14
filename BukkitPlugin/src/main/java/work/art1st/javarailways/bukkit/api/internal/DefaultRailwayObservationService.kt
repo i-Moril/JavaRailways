@@ -25,12 +25,17 @@ internal class DefaultRailwayObservationService(
 
     private val lock = Any()
     private val nextRegistrationId = AtomicLong()
-    private val latestByWorld = linkedMapOf<UUID, RailwayObservation>()
+    private data class CurrentObservation(
+        val frame: RailwayWorldFrameSnapshot,
+        val observation: RailwayObservation,
+        val lastDeliveredEpoch: Long?
+    )
+    private val latestByWorld = linkedMapOf<UUID, CurrentObservation>()
     private val registrations = linkedMapOf<Long, Registration>()
     private var closed = false
 
     override fun latest(worldId: UUID): Optional<RailwayObservation> = synchronized(lock) {
-        Optional.ofNullable(latestByWorld[worldId])
+        Optional.ofNullable(latestByWorld[worldId]?.observation)
     }
 
     override fun subscribe(
@@ -59,7 +64,23 @@ internal class DefaultRailwayObservationService(
         }
     }
 
-    /** Publishes at most once for a completed world epoch and returns that exact observation. */
+    /** Updates the current owner view without sending another physical-epoch notification. */
+    fun current(worldId: UUID, frame: RailwayWorldFrameSnapshot): RailwayObservation? = synchronized(lock) {
+        if (closed) null else currentLocked(worldId, frame).observation
+    }
+
+    private fun currentLocked(worldId: UUID, frame: RailwayWorldFrameSnapshot): CurrentObservation {
+        val previous = latestByWorld[worldId]
+        if (previous?.frame === frame) return previous
+        require(previous == null || previous.frame.physicsEpoch <= frame.physicsEpoch) {
+            "observation epoch moved backwards for world $worldId"
+        }
+        return CurrentObservation(
+            frame, RailwayObservation.fromCore(worldId.toString(), frame), previous?.lastDeliveredEpoch
+        ).also { latestByWorld[worldId] = it }
+    }
+
+    /** Delivers at most once per physical epoch; same-epoch owner changes still update the view. */
     fun publish(
         worldId: UUID,
         frame: RailwayWorldFrameSnapshot,
@@ -68,21 +89,12 @@ internal class DefaultRailwayObservationService(
         require(frame.physicsEpoch == completedPhysicsEpoch) {
             "world frame epoch ${frame.physicsEpoch} does not match completed ticket $completedPhysicsEpoch"
         }
-        val observation = RailwayObservation.fromCore(worldId.toString(), frame)
-        val listeners = synchronized(lock) {
+        val (observation, listeners) = synchronized(lock) {
             if (closed) return null
-            val previous = latestByWorld[worldId]
-            require(previous == null || previous.stamp.physicsEpoch <= observation.stamp.physicsEpoch) {
-                "observation epoch moved backwards for world $worldId"
-            }
-            if (previous?.stamp?.physicsEpoch == observation.stamp.physicsEpoch) {
-                require(previous.stamp == observation.stamp) {
-                    "one physics epoch cannot be published with multiple topology revisions"
-                }
-                return null
-            }
-            latestByWorld[worldId] = observation
-            registrations.values.filter { it.worldId == worldId }.sortedBy(Registration::id)
+            val current = currentLocked(worldId, frame)
+            if (current.lastDeliveredEpoch == frame.physicsEpoch) return null
+            latestByWorld[worldId] = current.copy(lastDeliveredEpoch = frame.physicsEpoch)
+            current.observation to registrations.values.filter { it.worldId == worldId }.sortedBy(Registration::id)
         }
         listeners.forEach { registration ->
             try {

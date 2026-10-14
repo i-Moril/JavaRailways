@@ -10,6 +10,7 @@ import work.art1st.javarailways.basic.infrastructure.PhysicalTopologyExplicitCon
 import work.art1st.javarailways.basic.infrastructure.PhysicalTopologySnapshotRestoreImpactResolver
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPermit
+import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
@@ -18,6 +19,12 @@ import work.art1st.javarailways.core.physics.rail.PreparedRailCreationBatch
 import work.art1st.javarailways.core.physics.rail.PreparedRailTopologyUpdate
 import work.art1st.javarailways.core.physics.rail.PreparedRailWorldSnapshotPlan
 import java.util.UUID
+
+/** Keeps the entity-owned edit callback serialized and excludes physics through its cleanup. */
+internal fun <T> CoreWorld.processRailWandEdit(action: () -> T): T =
+    BukkitThreadGuardBridge.runInSimulationContext {
+        physicsCoordinator.processBetweenFrames { action() }
+    }
 
 /** Exact pre-edit state retained by the RailWand between permit check and structural commit. */
 internal class RailWandTopologyEditPlan private constructor(
@@ -87,6 +94,7 @@ internal class RailWandTopologyEditPlan private constructor(
     }
 
     fun <T> commitTopology(candidateWorld: CoreWorld, action: () -> T): T {
+        candidateWorld.physicsCoordinator.ensureBetweenFrames("RailWandTopologyEditPlan.commitTopology")
         requireCurrent(candidateWorld)
         return candidateWorld.railTopologyTransaction(
             requireNotNull(preparedTopologyUpdate) { "RailWand structural edit has no prepared target topology" },

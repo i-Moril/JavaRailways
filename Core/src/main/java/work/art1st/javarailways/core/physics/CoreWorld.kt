@@ -953,49 +953,59 @@ class CoreWorld(
         }
 
         ensureTopologyHealthy()
-        awaitCurrentPhysicsEpoch()
-        return railTopologyLock.write {
-            ensureTopologyHealthy()
-            val context = RailTopologyTransactionContext(captureRailTopologyFingerprint(), null)
-            railTopologyTransactionContext.set(context)
-            try {
-                val result = action()
-                context.nestedFailure?.let { nestedFailure ->
-                    throw IllegalStateException(
-                        "A nested rail topology transaction failed even though its caller caught the exception",
-                        nestedFailure
-                    )
-                }
-                validateReplacementRequirements(context)
-                val after = captureRailTopologyFingerprint()
-                if (after != context.before) {
-                    val nextRevision = Math.addExact(publishedTopologyState.revision, 1L)
-                    val candidateInput = CoreTopologyInputAdapter.capture(
-                            nextRevision,
-                            rails.values,
-                            atGradeRailCrossingIndex.snapshot()
+        return physicsCoordinator.withStructuralMutation {
+            val previousRoot = publishedTopologyState
+            val result = railTopologyLock.write {
+                ensureTopologyHealthy()
+                val context = RailTopologyTransactionContext(captureRailTopologyFingerprint(), null)
+                railTopologyTransactionContext.set(context)
+                try {
+                    val result = action()
+                    context.nestedFailure?.let { nestedFailure ->
+                        throw IllegalStateException(
+                            "A nested rail topology transaction failed even though its caller caught the exception",
+                            nestedFailure
                         )
-                    val candidate = TopologyStateBuilder.build(candidateInput)
-                    val oldEntries = checkNotNull(context.before).rails.associateBy { it.rail.id }
-                    val newEntries = after.rails.associateBy { it.rail.id }
-                    val changed = (oldEntries.keys + newEntries.keys).filterTo(linkedSetOf()) {
-                        oldEntries[it] != newEntries[it]
                     }
-                    notifyTopologyChange(RailTopologyChange(
-                        publishedTopologyState, candidate,
-                        topologyAffectedRails(publishedTopologyState, candidate, changed)
-                    ))
-                    publishedTopologyState = candidate
+                    validateReplacementRequirements(context)
+                    val after = captureRailTopologyFingerprint()
+                    if (after != context.before) {
+                        val nextRevision = Math.addExact(publishedTopologyState.revision, 1L)
+                        val candidateInput = CoreTopologyInputAdapter.capture(
+                                nextRevision,
+                                rails.values,
+                                atGradeRailCrossingIndex.snapshot()
+                            )
+                        val candidate = TopologyStateBuilder.build(candidateInput)
+                        val oldEntries = checkNotNull(context.before).rails.associateBy { it.rail.id }
+                        val newEntries = after.rails.associateBy { it.rail.id }
+                        val changed = (oldEntries.keys + newEntries.keys).filterTo(linkedSetOf()) {
+                            oldEntries[it] != newEntries[it]
+                        }
+                        notifyTopologyChange(RailTopologyChange(
+                            publishedTopologyState, candidate,
+                            topologyAffectedRails(publishedTopologyState, candidate, changed)
+                        ))
+                        publishedTopologyState = candidate
+                    }
+                    result
+                } catch (failure: Throwable) {
+                    if (captureRailTopologyFingerprint() != context.before) {
+                        faultTopologyAfterFailedMutation(failure)
+                    }
+                    throw failure
+                } finally {
+                    railTopologyTransactionContext.remove()
                 }
-                result
-            } catch (failure: Throwable) {
-                if (captureRailTopologyFingerprint() != context.before) {
-                    faultTopologyAfterFailedMutation(failure)
-                }
-                throw failure
-            } finally {
-                railTopologyTransactionContext.remove()
             }
+            if (publishedTopologyState !== previousRoot) {
+                try {
+                    publishOwnerChanges(emptyList())
+                } catch (failure: Throwable) {
+                    throw physicsCoordinator.stall("Topology observation publication failed", failure)
+                }
+            }
+            result
         }
     }
 
@@ -1013,34 +1023,44 @@ class CoreWorld(
             "Prepared topology is stale; rebuild it from the current root"
         }
         ensureTopologyHealthy()
-        awaitCurrentPhysicsEpoch()
-        return railTopologyLock.write {
-            ensureTopologyHealthy()
-            check(publishedTopologyState === prepared.baseRoot) {
-                "Prepared topology is stale; rebuild it from the current root"
-            }
-            val context = RailTopologyTransactionContext(null, prepared.inventoryMutationRailIds)
-            railTopologyTransactionContext.set(context)
-            try {
-                val result = action()
-                context.nestedFailure?.let { nestedFailure ->
-                    throw IllegalStateException(
-                        "A nested rail topology transaction failed even though its caller caught the exception",
-                        nestedFailure
-                    )
+        return physicsCoordinator.withStructuralMutation {
+            val previousRoot = publishedTopologyState
+            val result = railTopologyLock.write {
+                ensureTopologyHealthy()
+                check(publishedTopologyState === prepared.baseRoot) {
+                    "Prepared topology is stale; rebuild it from the current root"
                 }
-                validateReplacementRequirements(context)
-                validatePreparedTopologyResult(prepared)
-                prepared.topologyChange?.let(::notifyTopologyChange)
-                publishedTopologyState = prepared.targetRoot
-                result
-            } catch (failure: Throwable) {
-                val baseRestored = runCatching { matchesPreparedTopologyBase(prepared) }.getOrDefault(false)
-                if (!baseRestored) faultTopologyAfterFailedMutation(failure)
-                throw failure
-            } finally {
-                railTopologyTransactionContext.remove()
+                val context = RailTopologyTransactionContext(null, prepared.inventoryMutationRailIds)
+                railTopologyTransactionContext.set(context)
+                try {
+                    val result = action()
+                    context.nestedFailure?.let { nestedFailure ->
+                        throw IllegalStateException(
+                            "A nested rail topology transaction failed even though its caller caught the exception",
+                            nestedFailure
+                        )
+                    }
+                    validateReplacementRequirements(context)
+                    validatePreparedTopologyResult(prepared)
+                    prepared.topologyChange?.let(::notifyTopologyChange)
+                    publishedTopologyState = prepared.targetRoot
+                    result
+                } catch (failure: Throwable) {
+                    val baseRestored = runCatching { matchesPreparedTopologyBase(prepared) }.getOrDefault(false)
+                    if (!baseRestored) faultTopologyAfterFailedMutation(failure)
+                    throw failure
+                } finally {
+                    railTopologyTransactionContext.remove()
+                }
             }
+            if (publishedTopologyState !== previousRoot) {
+                try {
+                    publishOwnerChanges(emptyList())
+                } catch (failure: Throwable) {
+                    throw physicsCoordinator.stall("Topology observation publication failed", failure)
+                }
+            }
+            result
         }
     }
 
@@ -1242,6 +1262,20 @@ class CoreWorld(
             throw physicsCoordinator.stall("Owner train publication failed", failure)
         }
         changed.forEach(CoreTrain::notifyMaintenancePublication)
+    }
+
+    /** Refresh branch observations only when an owner operation actually changed selection. */
+    fun publishOwnerSelectionChanges() {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.publishOwnerSelectionChanges")
+        val changed = synchronized(activeRailSelectionLock) {
+            publishedWorldFrame.activeContinuations.selectionRevision != activeRailSelectionRevision
+        }
+        if (!changed) return
+        try {
+            publishOwnerChanges(emptyList())
+        } catch (failure: Throwable) {
+            throw physicsCoordinator.stall("Turnout selection publication failed", failure)
+        }
     }
 
     /** Rebuilt by the physics Coordinator after all train states are published. */

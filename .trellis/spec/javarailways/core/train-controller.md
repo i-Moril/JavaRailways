@@ -89,8 +89,8 @@ Bukkit换向命令在Future完成后经entity scheduler告知玩家，不把“�
 注册表检查和安装为每次O(1)，不新增逐tick扫描、物理epoch或持久化版本。
 
 物理原因脱轨不是外部控制请求：它在原physics publication屏障通过同一内部注册替换原语移除controller，
-不调用受owner作用域检查的公开setter，也不排队后等待自身。外部脱轨和删除暂时复用结构门禁，
-完整外部请求与观测发布迁移仍分别归后续第5批和第4批，不能据此宣称这些批次已完成。
+不调用受owner作用域检查的公开setter，也不排队后等待自身。外部脱轨和删除分别由第5批和第4批提供完整请求及共享发布，
+见[列车物理契约](./train-physics.md)；物理原因路径不因此改成外部队列。
 
 `BetweenFramesOperationsTest`用真实阻塞worker检查阶段外替换拒绝且旧引用不变、排队期间不提前tick新controller、
 exact ticket完成后的替换、下一epoch只执行新controller，以及旧请求拒绝和移除后无controller继续tick。

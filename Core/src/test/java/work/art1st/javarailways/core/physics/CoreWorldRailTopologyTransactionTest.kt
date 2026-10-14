@@ -3,9 +3,12 @@ package work.art1st.javarailways.core.physics
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
@@ -14,15 +17,66 @@ import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.PreparedRailEndpointConnection
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 
 class CoreWorldRailTopologyTransactionTest {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `outer topology commit excludes wakes and refreshes completed epoch observation`(preparedEdit: Boolean) {
+        val clock = AtomicLong(1L)
+        val coordinator = PhysicsCoordinator(1, nanoTime = clock::get, automaticFallback = false)
+        val world = createTestWorld(coordinator)
+        val wakeThread = Executors.newSingleThreadExecutor()
+        try {
+            val rail = IsolatedSimulationThreadMarker.run { world.createRailForTest(straightCurve(0.0, 10.0)) }
+            val oldRoot = world.topologyState
+            val prepared = world.prepareRailRemovalTopologyUpdate(oldRoot, setOf(rail.id))
+            coordinator.start()
+            val ticket = coordinator.stepSimulation(50.0)
+            ticket.completion.get(5, TimeUnit.SECONDS)
+            val previous = world.latestWorldFrame()
+            val edit = {
+                coordinator.ensureBetweenFrames("test topology commit")
+                IsolatedSimulationThreadMarker.run { world.railTopologyTransaction { world.removeRail(rail) } }
+                assertSame(previous, world.latestWorldFrame(), "nested edit must not publish an intermediate world")
+                clock.addAndGet(TimeUnit.SECONDS.toNanos(1))
+                wakeThread.submit {
+                    coordinator.timerWake()
+                    assertSame(ticket, coordinator.wakeFromMainThread())
+                }.get(5, TimeUnit.SECONDS)
+                assertEquals(ticket.epoch, coordinator.captureCurrentTicket().epoch)
+                "committed"
+            }
+            val result = IsolatedSimulationThreadMarker.run {
+                if (preparedEdit) world.railTopologyTransaction(prepared, edit)
+                else world.railTopologyTransaction(edit)
+            }
+            assertEquals("committed", result)
+            assertEquals(oldRoot.revision + 1L, world.topologyRevision)
+            assertEquals(world.topologyRevision, world.latestWorldFrame().topologyRevision)
+            assertEquals(ticket.epoch, world.latestWorldFrame().physicsEpoch)
+            assertEquals(previous.topologyRevision, oldRoot.revision)
+            assertTrue(world.allRails.isEmpty())
+            val next = coordinator.stepSimulation(50.0)
+            next.completion.get(5, TimeUnit.SECONDS)
+            assertEquals(ticket.epoch + 1L, next.epoch)
+        } finally {
+            wakeThread.shutdownNow()
+            coordinator.close()
+            world.releaseRuntimeBinding()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
     @Test
     fun `successful changed transactions notify once before publication with only touched junction dependencies`() {
         val world = createTestWorld()
@@ -30,10 +84,10 @@ class CoreWorldRailTopologyTransactionTest {
         val straight = world.createRailForTest(straightCurve(10.0, 20.0))
         val far = world.createRailForTest(straightCurve(20.0, 30.0))
         val isolated = world.createRailForTest(straightCurve(100.0, 110.0))
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             RailView.connect(source.viewAB, straight.viewBA)
             RailView.connect(straight.viewAB, far.viewBA)
-        }
+        } }
         val before = world.topologyState
         val changes = mutableListOf<work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange>()
         val registration = world.registerTopologyChangeListener { change ->
@@ -41,10 +95,10 @@ class CoreWorldRailTopologyTransactionTest {
             changes += change
         }
         lateinit var branch: CoreRail
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             branch = world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 40.0))
             RailView.connect(source.viewAB, branch.viewBA)
-        }
+        } }
         val change = changes.single()
         assertTrue(change.previous === before)
         assertTrue(change.current === world.topologyState)
@@ -54,14 +108,14 @@ class CoreWorldRailTopologyTransactionTest {
         assertThrows(UnsupportedOperationException::class.java) {
             (change.affectedRailIds as MutableSet).clear()
         }
-        world.railTopologyTransaction { }
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction { } }
         assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction { error("rejected before mutation") }
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction { error("rejected before mutation") } }
         }
         assertEquals(1, changes.size)
         registration.close()
         registration.close()
-        world.removeRail(isolated)
+        IsolatedSimulationThreadMarker.run { world.removeRail(isolated) }
         assertEquals(1, changes.size)
     }
 
@@ -71,14 +125,14 @@ class CoreWorldRailTopologyTransactionTest {
         val removed = world.createRailForTest(straightCurve(0.0, 10.0))
         val neighbor = world.createRailForTest(straightCurve(10.0, 20.0))
         val far = world.createRailForTest(straightCurve(20.0, 30.0))
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             RailView.connect(removed.viewAB, neighbor.viewBA)
             RailView.connect(neighbor.viewAB, far.viewBA)
-        }
+        } }
         val prepared = world.prepareRailRemovalTopologyUpdate(world.topologyState, setOf(removed.id))
         val changes = mutableListOf<work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange>()
         world.registerTopologyChangeListener(changes::add)
-        world.railTopologyTransaction(prepared) { world.removeRail(removed) }
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(prepared) { world.removeRail(removed) } }
         assertEquals(setOf(removed.id, neighbor.id), changes.single().affectedRailIds)
         assertTrue(changes.single() === prepared.topologyChange)
         assertFalse(removed.id in changes.single().current.railProjection)
@@ -102,10 +156,10 @@ class CoreWorldRailTopologyTransactionTest {
         val before = world.topologyState
         world.registerTopologyChangeListener { callbacks++ }
         assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
                 world.createRailInTransaction(UUID.randomUUID(), straightCurve(0.0, 10.0))
                 error("failed mutation")
-            }
+            } }
         }
         assertEquals(0, callbacks)
         assertTrue(world.topologyState === before)
@@ -142,9 +196,9 @@ class CoreWorldRailTopologyTransactionTest {
         val beforeRevision = world.topologyRevision
 
         assertThrows(IllegalArgumentException::class.java) {
-            world.railTopologyTransaction {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
                 world.createRailInTransaction(existing.id, straightCurve(10.0, 20.0))
-            }
+            } }
         }
 
         assertEquals(listOf(existing), world.allRails.toList())
@@ -161,13 +215,13 @@ class CoreWorldRailTopologyTransactionTest {
         assertEquals(1L, world.topologyRevision)
         assertTrue(world.getRail(first.id) === first)
 
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 20.0))
             world.createRailInTransaction(UUID.randomUUID(), straightCurve(20.0, 30.0))
-        }
+        } }
         assertEquals(2L, world.topologyRevision)
 
-        world.removeRail(first)
+        IsolatedSimulationThreadMarker.run { world.removeRail(first) }
         assertEquals(3L, world.topologyRevision)
     }
 
@@ -178,16 +232,16 @@ class CoreWorldRailTopologyTransactionTest {
         val first = world.createRailForTest(straightCurve(10.0, 20.0))
         val second = world.createRailForTest(straightCurve(10.0, 30.0))
 
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             RailView.connect(source.viewAB, first.viewBA)
             RailView.connect(source.viewAB, second.viewBA)
             source.viewAB.activeRail = first.viewAB
-        }
+        } }
         val structuralRevision = world.topologyRevision
 
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             source.viewAB.activeRail = second.viewAB
-        }
+        } }
 
         assertEquals(structuralRevision, world.topologyRevision)
     }
@@ -198,13 +252,13 @@ class CoreWorldRailTopologyTransactionTest {
         val before = world.topologyRevision
 
         assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction<Unit> { error("partial structural commit") }
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction<Unit> { error("partial structural commit") } }
         }
 
         assertEquals(before, world.topologyRevision)
         assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
 
-        world.railTopologyTransaction { }
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction { } }
         assertEquals(before, world.topologyRevision)
     }
 
@@ -214,17 +268,17 @@ class CoreWorldRailTopologyTransactionTest {
         val before = world.topologyRevision
 
         assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
                 world.createRailInTransaction(UUID.randomUUID(), straightCurve(0.0, 10.0))
                 error("partial structural commit")
-            }
+            } }
         }
 
         assertEquals(before, world.topologyRevision)
         assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
         assertThrows(IllegalStateException::class.java) { world.publishWorldFrame(0L) }
         val editFailure = assertThrows(RailTopologyFaultedException::class.java) {
-            world.railTopologyTransaction { }
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction { } }
         }
         assertEquals(
             RailTopologyFaultReason.TRANSACTION_FAILED_AFTER_STRUCTURAL_MUTATION,
@@ -243,13 +297,13 @@ class CoreWorldRailTopologyTransactionTest {
         val prepared = world.prepareRailRemovalTopologyUpdate(root, setOf(rail.id))
 
         assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction(prepared) { error("failed before mutation") }
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(prepared) { error("failed before mutation") } }
         }
 
         assertTrue(world.topologyState === root)
         assertTrue(world.getRail(rail.id) === rail)
         assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
-        world.railTopologyTransaction { }
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction { } }
     }
 
     @Test
@@ -261,9 +315,9 @@ class CoreWorldRailTopologyTransactionTest {
         val undeclaredId = UUID.randomUUID()
 
         val failure = assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction(prepared) {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(prepared) {
                 world.createRailInTransaction(undeclaredId, straightCurve(20.0, 30.0))
-            }
+            } }
         }
 
         assertTrue(failure.message.orEmpty().contains("undeclared rail identity"))
@@ -283,12 +337,12 @@ class CoreWorldRailTopologyTransactionTest {
         val prepared = plan.prepareTopologyUpdate()
 
         val failure = assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction(prepared) {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(prepared) {
                 val created = world.installPreparedRails(batch).single()
                 plan.apply(world, listOf(created))
                 world.removeRail(created)
                 error("failed after complete creation rollback")
-            }
+            } }
         }
 
         assertEquals("failed after complete creation rollback", failure.message)
@@ -312,10 +366,10 @@ class CoreWorldRailTopologyTransactionTest {
             prepared.targetRailSnapshot.mapTo(linkedSetOf(), CoreRail.SavedRailV1::id)
         )
 
-        world.railTopologyTransaction(prepared) {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(prepared) {
             val installed = world.installPreparedRails(batch)
             connectionPlan.apply(world, installed)
-        }
+        } }
         assertEquals(
             prepared.targetRailSnapshot.associateBy(CoreRail.SavedRailV1::id),
             world.allRails.map(CoreRail::save).associateBy(CoreRail.SavedRailV1::id)
@@ -328,11 +382,11 @@ class CoreWorldRailTopologyTransactionTest {
         val stem = world.createRailForTest(straightCurve(0.0, 10.0))
         val first = world.createRailForTest(straightCurve(10.0, 20.0))
         val second = world.createRailForTest(straightCurve(10.0, 30.0))
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             RailView.connect(stem.viewAB, first.viewBA)
             RailView.connect(stem.viewAB, second.viewBA)
             stem.viewAB.activeRail = first.viewAB
-        }
+        } }
         val batch = world.prepareRailCreation(straightCurve(40.0, 50.0))
         val stemB = RailEndpointRef(stem.id, RailEndpoint.B)
         val firstA = RailEndpointRef(first.id, RailEndpoint.A)
@@ -354,10 +408,10 @@ class CoreWorldRailTopologyTransactionTest {
             (targetStem.nextRailAtB as MutableList<String>).add(UUID.randomUUID().toString())
         }
 
-        world.railTopologyTransaction(prepared) {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(prepared) {
             val installed = world.installPreparedRails(batch)
             connectionPlan.apply(world, installed)
-        }
+        } }
         assertEquals(targetStem, stem.save())
     }
 
@@ -372,21 +426,21 @@ class CoreWorldRailTopologyTransactionTest {
         val root = world.topologyState
 
         assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction(plan.topologyUpdate) {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(plan.topologyUpdate) {
                 plan.apply(world)
                 first.viewAB.activeRail = null
                 first.viewAB.mutableNextRails.clear()
                 second.viewBA.activeRail = null
                 second.viewBA.mutableNextRails.clear()
                 error("failed after rollback")
-            }
+            } }
         }
 
         assertTrue(world.topologyState === root)
         assertTrue(first.viewAB.mutableNextRails.isEmpty())
         assertTrue(second.viewBA.mutableNextRails.isEmpty())
         assertEquals(PhysicsCoordinatorStatus.RUNNING, world.physicsCoordinator.status)
-        world.railTopologyTransaction { }
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction { } }
     }
 
     @Test
@@ -402,19 +456,19 @@ class CoreWorldRailTopologyTransactionTest {
         val revision = world.topologyRevision
 
         val failure = assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction(plan.topologyUpdate) {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(plan.topologyUpdate) {
                 plan.apply(world)
                 first.viewAB.activeRail = null
                 first.viewAB.mutableNextRails.clear()
                 error("failed after partial rollback")
-            }
+            } }
         }
 
         assertEquals("failed after partial rollback", failure.message)
         assertEquals(revision, world.topologyRevision)
         assertEquals(PhysicsCoordinatorStatus.STALLED, world.physicsCoordinator.status)
         val editFailure = assertThrows(RailTopologyFaultedException::class.java) {
-            world.railTopologyTransaction { }
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction { } }
         }
         assertEquals("failed after partial rollback", editFailure.fault.failureMessage)
     }
@@ -425,11 +479,11 @@ class CoreWorldRailTopologyTransactionTest {
         val before = world.topologyRevision
 
         val failure = assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
                 runCatching {
                     world.railTopologyTransaction<Unit> { error("nested failure") }
                 }
-            }
+            } }
         }
 
         assertTrue(failure.message.orEmpty().contains("nested rail topology transaction failed"))
@@ -510,11 +564,11 @@ class CoreWorldRailTopologyTransactionTest {
         var primaryFailure: Throwable? = null
         try {
             val activeWriter = executor.submit {
-                world.railTopologyTransaction {
+                IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
                     mutation()
                     mutationReached.countDown()
                     check(releaseMutation.await(10, TimeUnit.SECONDS))
-                }
+                } }
             }
             writer = activeWriter
             assertTrue(mutationReached.await(5, TimeUnit.SECONDS), "writer did not reach the in-progress transaction")
@@ -593,10 +647,12 @@ class CoreWorldRailTopologyTransactionTest {
             val mutationReached = CountDownLatch(1)
             val release = CountDownLatch(1)
             val writer = CompletableFuture.runAsync {
-                editedWorld.railTopologyTransaction(prepared) {
-                    editedWorld.removeRail(removed)
-                    mutationReached.countDown()
-                    check(release.await(5, TimeUnit.SECONDS))
+                IsolatedSimulationThreadMarker.run {
+                    editedWorld.railTopologyTransaction(prepared) {
+                        editedWorld.removeRail(removed)
+                        mutationReached.countDown()
+                        check(release.await(5, TimeUnit.SECONDS))
+                    }
                 }
             }
 

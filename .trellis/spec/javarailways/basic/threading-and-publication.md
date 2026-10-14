@@ -55,6 +55,17 @@ Core frame shape/epoch成功语义由[Core runtime](../core/runtime-publication.
 
 Bukkit adapter在exact physics ticket成功后的serialized simulation context同步发布；listener不在physics worker运行，必须快速返回，且不能直接执行entity/location/block/region side effect。world unload移除latest snapshot，plugin disable移除owner subscriptions。慢listener不得反向阻塞physics worker，也不得要求Core为每个subscriber保留逐epoch backlog。
 
+第5批区分“当前可查询值”和“一次物理epoch通知”：适配器现有每world记录保存确切Core frame引用、其投影与
+lastDeliveredEpoch。`current(worldId, frame)`按引用复用投影；帧间摆位或拓扑更新即使epoch相同，也替换当前查询值，
+不触发listener或车尾跟踪。`publish(worldId, frame, completedPhysicsEpoch)`先核对ticket epoch，再复用该当前投影，
+每个物理epoch只通知一次并返回供既有host consume链使用。提前查询新epoch不推进lastDeliveredEpoch，不能吞掉正常通知。
+不接受epoch倒退，关闭/卸载继续清除同一记录，不另建全世界索引或维护通知队列。
+
+生产准入的latestObservation supplier从Core当前完整world frame调用上述current，而不是只按epoch缓存。
+这样同一阶段内创建/删除/摆位后的申请会验证最新geometry/occupancy；同epoch结构改变不会触发旧的“一epoch只能有一topologyrevision”限制。
+不变frame查询为O(1)，新frame投影承担原来的列车/区间值复制成本，仍共享Core occupancy。
+测试必须包含同epoch实际摆位前后占用变化、旧value不变、提前查询后仍正常通知及sameepoch新拓扑不重复通知。
+
 当前Bukkit生产composition在`DefaultRailwayObservationService.publish`返回本次新建的同一observation后，直接调用
 world-local `RouteResourceAdmissionRuntime.consumeObservation`；这条host安全链不借用普通插件listener，也没有第二个
 队列或第二次Core frame投影。runtime内部一次建立train ID lookup并按logical owner稳定顺序驱动车尾释放；

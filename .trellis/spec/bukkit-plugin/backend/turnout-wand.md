@@ -32,10 +32,12 @@ BukkitPlugin 提供独立的 `TurnoutWand`，把玩家选择转换成已经存�
 
 ## 切换接口和生命周期
 
-工具调用既有 `InfrastructureResourceService.selectTurnout(plugin, worldId, request)`，请求为
+工具调用 `InfrastructureResourceService.selectTurnout(plugin, worldId, request): CompletableFuture<ManualTurnoutSelectionResult>`，请求为
 `ManualTurnoutSelectionRequest(topologyRevision, fromPort, toPort)`。
-Basic 检查结构版本和合法连接，通过短暂资源占用排除其他申请，再等待当前物理计算结束并检查端口附近车体占用，
-最后执行双侧选择并释放这次操作的短暂占用。工具不能直接调用 `selectNextRail`，也不重复实现占用判断。
+适配器将完整操作提交所属world的协调器，执行时复核插件和确切world/runtime；Basic同步apply检查帧间阶段、
+结构版本和合法连接，通过短暂资源占用排除其他申请，检查端口附近车体占用，最后执行双侧选择并释放短暂占用。
+真实变化后刷新同epoch的共享世界观测，再完成Future。工具在Future实际完成后回到player owner反馈，不能把排队当成扳动成功。
+工具不能直接调用 `selectNextRail`，也不重复实现占用判断。
 这条 API 不产生 `grant` 或移动授权，不更改车尾释放队列。具体安全算法仍由 Basic 所有。
 
 工具选择只在内存保存世界 UUID、准确拓扑根和稳定端点；不保存可变 Rail 对象或授权。

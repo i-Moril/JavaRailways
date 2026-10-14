@@ -190,7 +190,7 @@ CoreCar 拥有车内和车间几何求解。正常运行时 controller 先移动
 | swept overlap首次claim | pair冻结，发布一次`CollisionEvent` | 下一epoch应用`DERAIL/LINK` |
 | listener `requestLink()` | pending resolution=`LINK` | 下一epoch owner执行link transaction |
 | worker physics failure | active derail pending | epoch frame flip后queue main derail reason |
-| main `derail(reason)` | reason非blank，await physics后publish | frame后立即Main event，仅一次 |
+| external `derail(reason)` / `derailAsync(reason)` | 完整帧间操作，reason非blank、确切live train | 共享train/world/occupancy发布后Main event，仅一次 |
 | controller reverse奇数request | 在帧间owner执行方向准备/安装 | 完整快照及Main事件后完成Future，下一epoch正常movement |
 | 同一待执行操作捕获偶数次reverse | 帧间抵消 | 无direction mutation或额外publication |
 | `destroy()` / `destroyAsync()` | 提交完整帧间cleanup | 共享占用/world刷新后Future完成 |
@@ -225,6 +225,17 @@ Reverse改变operating head/tail，但保持`Car.direction`的模型/渲染朝�
 本批选择同步一致通知，而不新增批量dirty tracker和延迟通知队列；其它维护编辑的批量发布仍留给后续批次。
 应验证请求尚未执行时方向不变、偶数抵消、旧controller拒绝、真实worker下一步立即按新方向运动，以及监听器看到一致发布。
 错误做法是只替换train frame、保留旧world occupancy，或先改方向再进行可能失败的车端寻路。
+
+## 外部脱轨（CURRENT，第5批）
+
+`derail(reason)`保持同步owner入口，用现有结构门禁等待exact ticket并排除下一epoch；
+`derailAsync(reason): CompletableFuture<Unit>`将整个请求排入协调器有限FIFO。
+执行时检查非空reason和world仍持有同一train；重复脱轨不再次通知。先移除controller并清除车体/转向架运动，
+再复用`publishOwnerChanges(listOf(train))`刷新当前完整epoch的train/world/occupancy及mailbox，最后发Main `DerailEvent`。
+Future成功不表示平台渲染已经完成。发布失败保持Core Stall，不把部分结果伪装成无副作用拒绝。
+物理原因脱轨仍由原physics屏障发布及随后pending通知，不排队等待自身；两者不可混成同一调度路径。
+一次真实外部脱轨承担一列车准备和低频共享索引重建，无普通tick额外扫描。真实运动回归检查请求尚未执行时旧frame不变，
+事件看到同一epoch的零运动车体/转向架和共享快照，重复请求不重复通知，旧不可变frame保留。
 
 ## 帧间创建、删除与维护摆位（CURRENT，第4批）
 

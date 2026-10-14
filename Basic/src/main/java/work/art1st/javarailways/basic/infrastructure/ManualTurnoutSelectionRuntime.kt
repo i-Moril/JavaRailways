@@ -17,8 +17,9 @@ import work.art1st.javarailways.core.api.util.annotation.MainThread
 class ManualTurnoutSelectionRuntime(
     private val world: World,
     private val registry: InfrastructureCoordinationRegistry,
-    private val awaitCurrentPhysics: () -> Unit,
+    private val ensureBetweenFrames: () -> Unit,
     private val lockingDistanceMeters: Double,
+    private val publishSelection: () -> Unit,
     private val findBlockingTrainIds: (List<RailInterval>) -> Set<String> = { intervals ->
         world.allTrains.asSequence()
             .filter { train ->
@@ -37,6 +38,7 @@ class ManualTurnoutSelectionRuntime(
 
     @MainThread
     fun select(requester: Any, request: ManualTurnoutSelectionRequest): ManualTurnoutSelectionResult {
+        ensureBetweenFrames()
         if (closed) return result(
             ManualTurnoutSelectionStatus.WORLD_UNAVAILABLE,
             "manual turnout runtime is closed"
@@ -99,11 +101,10 @@ class ManualTurnoutSelectionRuntime(
         }
 
         try {
-            awaitCurrentPhysics()
             if (world.topologyState !== topology) {
                 return result(
                     ManualTurnoutSelectionStatus.STALE_TOPOLOGY,
-                    "topology changed while waiting for the current physics epoch"
+                    "topology changed while acquiring the turnout resource"
                 )
             }
             val lockIntervals = turnout.ports.map(::lockingInterval)
@@ -116,6 +117,7 @@ class ManualTurnoutSelectionRuntime(
                 )
             }
             prepared.apply()
+            publishSelection()
             return result(ManualTurnoutSelectionStatus.SELECTED)
         } finally {
             check(registry.releaseClaim(requester, owner).successful) {

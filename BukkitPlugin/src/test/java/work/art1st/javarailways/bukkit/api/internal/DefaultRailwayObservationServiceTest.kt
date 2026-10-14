@@ -4,9 +4,17 @@ import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
+import work.art1st.javarailways.core.api.physics.rail.RailInterval
+import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
+import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
+import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
 import java.lang.reflect.Proxy
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
@@ -90,6 +98,75 @@ class DefaultRailwayObservationServiceTest {
     }
 
     @Test
+    fun `current owner views retain one notification per physical epoch across topology changes`() {
+        val service = DefaultRailwayObservationService(Logger.getAnonymousLogger())
+        val worldId = UUID.randomUUID()
+        val epochs = mutableListOf<Long>()
+        service.subscribe(plugin("signal"), worldId) { _, observation -> epochs += observation.stamp.physicsEpoch }
+        val firstFrame = frame(1L)
+        val first = service.current(worldId, firstFrame)
+        assertSame(first, service.current(worldId, firstFrame))
+        assertTrue(epochs.isEmpty())
+        assertSame(first, service.publish(worldId, firstFrame, 1L))
+
+        val editedFrame = frame(1L, topologyRevision = 5L)
+        val edited = service.current(worldId, editedFrame)
+        assertEquals(5L, edited?.stamp?.topologyRevision)
+        assertNull(service.publish(worldId, editedFrame, 1L))
+        assertSame(edited, service.latest(worldId).orElseThrow())
+        assertEquals(listOf(1L), epochs)
+
+        val nextFrame = frame(2L, topologyRevision = 5L)
+        val next = service.current(worldId, nextFrame)
+        assertSame(next, service.publish(worldId, nextFrame, 2L))
+        assertEquals(listOf(1L, 2L), epochs)
+        assertThrows(IllegalArgumentException::class.java) { service.current(worldId, editedFrame) }
+        assertSame(next, service.latest(worldId).orElseThrow())
+        service.close()
+        assertNull(service.current(worldId, frame(3L)))
+    }
+
+    @Test
+    fun `maintenance placement immediately replaces current occupancy without another epoch notification`() {
+        val world = createTestWorld()
+        val service = DefaultRailwayObservationService(Logger.getAnonymousLogger())
+        val worldId = UUID.randomUUID()
+        try {
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(180.0, segmentCount = 1))
+            val train = createTrainWithConfig("placed", rail, world, listOf(10.0))
+            world.onOwnerForTest { world.publishOwnerChanges(listOf(train)) }
+            val beforeFrame = world.latestWorldFrame()
+            val previousIntervals = beforeFrame.trains.single().occupiedIntervals
+            val targetInterval = RailInterval(rail.id, 90.0, 100.0)
+            var notifications = 0
+            service.subscribe(plugin("signal"), worldId) { _, _ -> notifications++ }
+            val before = requireNotNull(service.publish(worldId, beforeFrame, beforeFrame.physicsEpoch))
+            assertEquals(listOf(train.id), before.occupancy.blockingTrainIds(previousIntervals))
+            assertTrue(before.occupancy.blockingTrainIds(listOf(targetInterval)).isEmpty())
+
+            world.onOwnerForTest {
+                train.setLocation(rail.viewAB.getRailLocationAt(100.0))
+                world.publishOwnerChanges(listOf(train))
+            }
+            val afterFrame = world.latestWorldFrame()
+            val current = requireNotNull(service.current(worldId, afterFrame))
+            assertEquals(before.stamp.physicsEpoch, current.stamp.physicsEpoch)
+            assertTrue(current.occupancy.blockingTrainIds(previousIntervals).isEmpty())
+            assertEquals(listOf(train.id), current.occupancy.blockingTrainIds(listOf(targetInterval)))
+            assertSame(current, service.latest(worldId).orElseThrow())
+            assertSame(current, service.current(worldId, afterFrame))
+            assertNull(service.publish(worldId, afterFrame, afterFrame.physicsEpoch))
+            assertEquals(1, notifications)
+            assertEquals(listOf(train.id), before.occupancy.blockingTrainIds(previousIntervals))
+        } finally {
+            service.close()
+            world.physicsCoordinator.close()
+            world.releaseRuntimeBinding()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
     fun `publication rejects a frame from a different ticket epoch`() {
         val service = DefaultRailwayObservationService(Logger.getAnonymousLogger())
         assertThrows(IllegalArgumentException::class.java) {
@@ -97,11 +174,11 @@ class DefaultRailwayObservationServiceTest {
         }
     }
 
-    private fun frame(epoch: Long) = RailwayWorldFrameSnapshot.create(
+    private fun frame(epoch: Long, topologyRevision: Long = 4L) = RailwayWorldFrameSnapshot.create(
         epoch,
-        4L,
+        topologyRevision,
         emptyList(),
-        ActiveRailContinuationsSnapshot.empty(4L)
+        ActiveRailContinuationsSnapshot.empty(topologyRevision)
     )
 
     private fun plugin(name: String): Plugin {

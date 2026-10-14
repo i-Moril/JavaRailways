@@ -1,10 +1,14 @@
 package work.art1st.javarailways.bukkit.tool
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.bukkit.plugin.Plugin
 import org.joml.Vector3d
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionStatus
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
@@ -21,6 +25,7 @@ import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import java.lang.reflect.Proxy
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 class TurnoutWandSelectionTest {
     private val worlds = mutableListOf<CoreWorld>()
@@ -105,18 +110,22 @@ class TurnoutWandSelectionTest {
                 resource is RailIntervalResource && fixture.world.getRail(resource.railId) != null ||
                     resource is StableInfrastructureResource && service.stableResourceExists(fixture.worldId, resource)
             }
-            service.attachInfrastructureRuntime(fixture.worldId, fixture.world, { null }, {}, 5.0) { reason, failure ->
+            service.attachInfrastructureRuntime(fixture.worldId, fixture.world, { null }, 5.0) { reason, failure ->
                 throw IllegalStateException(reason, failure)
             }
+            fun select(request: ManualTurnoutSelectionRequest): work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionResult {
+                val pending = service.selectTurnout(owner, fixture.worldId, request)
+                fixture.world.onOwnerForTest { fixture.world.physicsCoordinator.drainBetweenFramesOperations() }
+                return pending.get(5, TimeUnit.SECONDS)
+            }
             val request = requireNotNull(fixture.selection.request(fixture.worldId, fixture.world.topologyState, fixture.firstPort))
-            val success = service.selectTurnout(owner, fixture.worldId, request)
+            val success = select(request)
             assertEquals(ManualTurnoutSelectionStatus.SELECTED, success.status)
             assertEquals(TurnoutWandConnection(fixture.firstPort, true), currentTurnoutConnection(fixture.world, fixture.selection))
             assertTrue(service.liveClaims(fixture.worldId).isEmpty())
-            assertEquals(ManualTurnoutSelectionStatus.UNCHANGED, service.selectTurnout(owner, fixture.worldId, request).status)
+            assertEquals(ManualTurnoutSelectionStatus.UNCHANGED, select(request).status)
 
-            val rejected = service.selectTurnout(owner, fixture.worldId,
-                request.copy(topologyRevision = request.topologyRevision - 1, toPort = fixture.secondPort))
+            val rejected = select(request.copy(topologyRevision = request.topologyRevision - 1, toPort = fixture.secondPort))
             assertEquals(ManualTurnoutSelectionStatus.STALE_TOPOLOGY, rejected.status)
             assertEquals(TurnoutWandConnection(fixture.firstPort, true), currentTurnoutConnection(fixture.world, fixture.selection),
                 "rejected intent must never be shown as the current branch")
@@ -124,7 +133,7 @@ class TurnoutWandSelectionTest {
             val reverse = fixture.selection.copy(fromPort = fixture.secondPort)
             assertEquals(TurnoutWandConnection(fixture.stemPort, false), currentTurnoutConnection(fixture.world, reverse))
             val reverseRequest = requireNotNull(reverse.request(fixture.worldId, fixture.world.topologyState, fixture.stemPort))
-            assertEquals(ManualTurnoutSelectionStatus.SELECTED, service.selectTurnout(owner, fixture.worldId, reverseRequest).status)
+            assertEquals(ManualTurnoutSelectionStatus.SELECTED, select(reverseRequest).status)
             assertEquals(TurnoutWandConnection(fixture.stemPort, true), currentTurnoutConnection(fixture.world, reverse))
             assertEquals(TurnoutWandConnection(fixture.secondPort, true), currentTurnoutConnection(fixture.world, fixture.selection))
             assertTrue(service.liveClaims(fixture.worldId).isEmpty(), "reverse switching must also release its temporary claim")
@@ -176,8 +185,8 @@ class TurnoutWandSelectionTest {
         val stem = world.createRailForTest(curve(-10.0, 0.0, 0.0, 0.0))
         val first = world.createRailForTest(curve(0.0, 0.0, 10.0, -5.0))
         val second = world.createRailForTest(curve(0.0, 0.0, 10.0, 5.0))
-        CoreRail.connect(stem, first)
-        CoreRail.connect(stem, second)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, first) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, second) }
         stem.viewAB.selectNextRail(second.viewAB)
         return Fixture(world, UUID.randomUUID(), stem, first, second)
     }

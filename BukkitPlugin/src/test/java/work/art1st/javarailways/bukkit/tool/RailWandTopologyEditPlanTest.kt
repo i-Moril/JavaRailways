@@ -23,14 +23,50 @@ import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.util.TickManagerImpl
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.stream.Stream
+import java.time.Duration
+import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 
 class RailWandTopologyEditPlanTest {
+    @Test
+    fun `failed owner edit keeps physics excluded through cleanup and releases the frame gate`() {
+        val world = createTestWorld(PhysicsCoordinator(1, automaticFallback = false))
+        try {
+            world.physicsCoordinator.start()
+            val before = world.physicsCoordinator.captureCurrentTicket()
+            var cleaned = false
+            val failure = assertThrows(IllegalStateException::class.java) {
+                IsolatedSimulationThreadMarker.run {
+                    world.processRailWandEdit {
+                        try {
+                            assertSame(before, world.physicsCoordinator.wakeFromMainThread())
+                            error("edit failed")
+                        } finally {
+                            world.physicsCoordinator.ensureBetweenFrames("RailWand failed edit cleanup")
+                            assertSame(before, world.physicsCoordinator.wakeFromMainThread())
+                            cleaned = true
+                        }
+                    }
+                }
+            }
+            assertEquals("edit failed", failure.message)
+            assertTrue(cleaned)
+            val next = world.physicsCoordinator.stepSimulation(50.0)
+            assertTimeoutPreemptively(Duration.ofSeconds(5)) { next.await() }
+            assertEquals(before.epoch + 1L, world.latestWorldFrame().physicsEpoch)
+        } finally {
+            world.physicsCoordinator.close()
+            world.releaseRuntimeBinding()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
     @Test
     fun `paused track preparation stays unpublished while another world advances a moving train`() =
         delayedTrackPreparation(staleBeforeCommit = false)
@@ -41,7 +77,7 @@ class RailWandTopologyEditPlanTest {
 
     @OptIn(Heavy::class)
     private fun delayedTrackPreparation(staleBeforeCommit: Boolean) {
-        val editedWorld = createTestWorld()
+        val editedWorld = createTestWorld(PhysicsCoordinator(1, automaticFallback = false))
         val otherWorld = CoreWorld.createEmpty(
             TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), System.currentTimeMillis()),
             NoOpWorldParentContext,
@@ -58,6 +94,7 @@ class RailWandTopologyEditPlanTest {
             val origin = train.publishedFrame.head.arcLengthInAbMeters
             train.setControllerForTest(ManualController(train, otherWorld).also { it.setThrottle(1.0) })
             otherWorld.physicsCoordinator.start()
+            editedWorld.physicsCoordinator.start()
             val geometry = straightCurve(10.0, 20.0)
             // Suspend the real preparation's geometry sampling, not a lock-free callback proxy.
             val delayedGeometry = object : PrimeCurve by geometry {
@@ -101,7 +138,7 @@ class RailWandTopologyEditPlanTest {
             var actionEntered = false
             val apply = {
                 actionEntered = true
-                val installed = editedWorld.installPreparedRails(batch)
+                val installed = IsolatedSimulationThreadMarker.run { editedWorld.installPreparedRails(batch) }
                 plan.applyExplicitConnections(editedWorld, installed)
             }
             if (staleBeforeCommit) {
@@ -110,13 +147,25 @@ class RailWandTopologyEditPlanTest {
                 val currentRoot = editedWorld.topologyState
                 val currentRails = editedWorld.allRails.toList()
                 assertFalse(plan.isCurrent(editedWorld))
-                assertThrows(IllegalStateException::class.java) { plan.commitTopology(editedWorld, apply) }
+                assertThrows(IllegalStateException::class.java) {
+                    IsolatedSimulationThreadMarker.run {
+                        editedWorld.processRailWandEdit { plan.commitTopology(editedWorld, apply) }
+                    }
+                }
                 assertFalse(actionEntered)
                 assertSame(currentRoot, editedWorld.topologyState)
                 assertEquals(currentRails, editedWorld.allRails.toList())
                 assertEquals(null, editedWorld.getRail(createdId))
             } else {
-                plan.commitTopology(editedWorld, apply)
+                IsolatedSimulationThreadMarker.run {
+                    editedWorld.processRailWandEdit {
+                        val ticket = editedWorld.physicsCoordinator.captureCurrentTicket()
+                        assertSame(ticket, editedWorld.physicsCoordinator.wakeFromMainThread())
+                        plan.commitTopology(editedWorld, apply)
+                        assertSame(ticket, editedWorld.physicsCoordinator.wakeFromMainThread(),
+                            "physics must remain excluded through post-topology metadata and undo work")
+                    }
+                }
                 assertTrue(actionEntered)
                 assertEquals(baseRoot.revision + 1L, editedWorld.topologyState.revision)
                 assertEquals(setOf(existing.id, createdId), editedWorld.allRails.map { it.id }.toSet())
@@ -142,7 +191,7 @@ class RailWandTopologyEditPlanTest {
         try {
             val target = world.createRailForTest(straightCurve(0.0, 10.0))
             val connectedPeer = world.createRailForTest(straightCurve(10.0, 20.0))
-            CoreRail.connect(target, connectedPeer)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(target, connectedPeer) }
             val crossing = world.createRailForTest(
                 lineCurve(Vector3d(5.0, 0.0, -5.0), Vector3d(5.0, 0.0, 5.0))
             )
@@ -233,7 +282,7 @@ class RailWandTopologyEditPlanTest {
         try {
             val selected = world.createRailForTest(straightCurve(0.0, 10.0))
             val connectedPeer = world.createRailForTest(straightCurve(10.0, 30.0))
-            CoreRail.connect(selected, connectedPeer)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(selected, connectedPeer) }
             val crossing = world.createRailForTest(
                 lineCurve(Vector3d(15.0, 0.0, -5.0), Vector3d(15.0, 0.0, 5.0))
             )
@@ -273,7 +322,7 @@ class RailWandTopologyEditPlanTest {
         try {
             val source = world.createRailForTest(straightCurve(0.0, 10.0))
             val peer = world.createRailForTest(straightCurve(10.0, 20.0))
-            CoreRail.connect(source, peer)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(source, peer) }
             val prepared = world.prepareRailCreation(straightCurve(0.0, 10.0), setOf(source.id))
             val replacementId = prepared.creations.single().railId
             val connectionPlan = RailWandExplicitConnections.capture(
@@ -291,10 +340,14 @@ class RailWandTopologyEditPlanTest {
             )
 
             lateinit var replacement: work.art1st.javarailways.core.physics.rail.CoreRail
-            plan.commitTopology(world) {
-                replacement = world.installPreparedRails(prepared).single()
-                plan.applyExplicitConnections(world, listOf(replacement))
-                world.removeRail(source)
+            IsolatedSimulationThreadMarker.run {
+                world.processRailWandEdit {
+                    plan.commitTopology(world) {
+                        replacement = world.installPreparedRails(prepared).single()
+                        plan.applyExplicitConnections(world, listOf(replacement))
+                        world.removeRail(source)
+                    }
+                }
             }
 
             assertSame(peer.viewAB, replacement.viewAB.activeRail)
@@ -313,8 +366,8 @@ class RailWandTopologyEditPlanTest {
             val stem = world.createRailForTest(lineCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
             val straight = world.createRailForTest(lineCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
             val branch = world.createRailForTest(lineCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 5.0)))
-            CoreRail.connect(stem, straight)
-            CoreRail.connect(stem, branch)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, straight) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, branch) }
             stem.viewAB.activeRail = straight.viewAB
             val prepared = world.prepareRailCreation(straightCurve(0.0, 10.0), setOf(stem.id))
             val replacementId = prepared.creations.single().railId
@@ -330,10 +383,14 @@ class RailWandTopologyEditPlanTest {
             )
 
             lateinit var replacement: CoreRail
-            plan.commitTopology(world) {
-                replacement = world.installPreparedRails(prepared).single()
-                plan.applyExplicitConnections(world, listOf(replacement))
-                world.removeRail(stem)
+            IsolatedSimulationThreadMarker.run {
+                world.processRailWandEdit {
+                    plan.commitTopology(world) {
+                        replacement = world.installPreparedRails(prepared).single()
+                        plan.applyExplicitConnections(world, listOf(replacement))
+                        world.removeRail(stem)
+                    }
+                }
             }
 
             assertEquals(listOf(straight.viewAB, branch.viewAB), replacement.viewAB.nextRails)
@@ -352,7 +409,7 @@ class RailWandTopologyEditPlanTest {
         try {
             val source = world.createRailForTest(straightCurve(0.0, 10.0))
             val peer = world.createRailForTest(straightCurve(10.0, 20.0))
-            CoreRail.connect(source, peer)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(source, peer) }
             source.viewAB.activeRail = null
             val prepared = world.prepareRailCreation(straightCurve(0.0, 10.0), setOf(source.id))
             val connectionPlan = RailWandExplicitConnections.capture(
@@ -362,11 +419,11 @@ class RailWandTopologyEditPlanTest {
             )
 
             lateinit var replacement: CoreRail
-            world.railTopologyTransaction {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
                 replacement = world.installPreparedRails(prepared).single()
                 connectionPlan.apply(world, listOf(replacement))
                 world.removeRail(source)
-            }
+            } }
 
             assertEquals(listOf(peer.viewAB), replacement.viewAB.nextRails)
             assertEquals(null, replacement.viewAB.activeRail)
@@ -385,9 +442,9 @@ class RailWandTopologyEditPlanTest {
             val first = world.createRailForTest(straightCurve(0.0, 5.0))
             val second = world.createRailForTest(straightCurve(5.0, 10.0))
             val right = world.createRailForTest(straightCurve(10.0, 15.0))
-            CoreRail.connect(left, first)
-            CoreRail.connect(first, second)
-            CoreRail.connect(second, right)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(left, first) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(second, right) }
             val prepared = world.prepareRailCreationBatch(
                 listOf(straightCurve(0.0, 3.0), straightCurve(3.0, 7.0), straightCurve(7.0, 10.0)),
                 setOf(first.id, second.id)
@@ -407,12 +464,12 @@ class RailWandTopologyEditPlanTest {
             )
 
             lateinit var installed: List<CoreRail>
-            world.railTopologyTransaction {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
                 installed = world.installPreparedRails(prepared)
                 connectionPlan.apply(world, installed)
                 world.removeRail(first)
                 world.removeRail(second)
-            }
+            } }
             val (newFirst, middle, newLast) = installed
 
             assertSame(newFirst.viewAB, left.viewAB.activeRail)

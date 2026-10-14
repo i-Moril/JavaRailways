@@ -360,7 +360,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                 ));
             };
             Function<RouteResourceIntent, RouteAdmissionResult> requestRoute = routeAdmission::request;
-            Function<ManualTurnoutSelectionRequest, ManualTurnoutSelectionResult> selectTurnout =
+            Function<ManualTurnoutSelectionRequest, java.util.concurrent.CompletableFuture<ManualTurnoutSelectionResult>> selectTurnout =
                 selection -> services.infrastructure().selectTurnout(this, worldId, selection);
             getLogger().fine("Route-resource request: " + routeIntent.getRequestId());
             getLogger().fine("Inspection declarations: " + inspectionDeclarations.getDeclarations().size());

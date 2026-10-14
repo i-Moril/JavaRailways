@@ -110,7 +110,21 @@ world卸载先撤销loaded lookup，再在有效帧间阶段释放该world控制
 
 协调与映射操作为低频请求成本；队列/准入合同归[Core runtime](../../javarailways/core/runtime-publication.md)。
 需验证旧controller仍在途时不修改、下一worker只运行替代controller、方向失败不提前改显示、导航失败恢复及unavailable-world卸载仍退休本地引用。
-创建/删除和摆位已按下述第4批迁移；完整外部脱轨与基础设施编辑仍按后续批次迁移。
+创建/删除和摆位已按下述第4批迁移；外部脱轨与基础设施编辑已按第5批接入，联结/解编收口仍另行验证。
+
+### 基础设施完整操作的帧间边界（CURRENT，第5批）
+
+同步的Bound进路申请、progress、换向暂停/重基准和授权结束，在原simulation serialization内复用Core
+`withStructuralMutation`，进入后重新检查插件及确切world/runtime；整个操作包含可能的选岔准备，不能只包底层setter。
+退出前用`publishOwnerSelectionChanges()`按selection revision判断是否需要刷新；未变化轮询为O(1)，不逐次重建世界。
+手动选岔使用异步Future入口，具体合同见[Turnout Wand](./turnout-wand.md)。
+
+RailWand的几何/文件准备仍异步；八个普通prepared commit经统一回调，独立world undo是第九处。
+完整player-owner回调在既有simulation lock和`processBetweenFrames`内执行root复核、Core/metadata/undo提交、失败清理及permit释放，
+不将活Player/PDC/物品访问搬到global host队列。限速metadata更新和metadata undo也使用该边界。
+world undo的Future在阶段退出和清理以后才完成，使Compound undo的同步后继不会嵌套`processBetweenFrames`。
+门禁进入失败也须释放已准备undo/permit；不得只包Core install而让上层metadata或rollback跑在门禁外。
+这不改变持久化格式，也不代表一般entity/platform副作用具备事务回滚。
 
 ### 创建与删除的结果消费（CURRENT，第4批）
 

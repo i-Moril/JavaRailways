@@ -46,9 +46,11 @@ import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContribut
 import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributorRegistration
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.physics.World
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChangeListener
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal class DefaultInfrastructureResourceService(
@@ -62,6 +64,7 @@ internal class DefaultInfrastructureResourceService(
         val observeTopologyChanges: ((RailTopologyChangeListener) -> AutoCloseable)?,
         var routeAdmission: RouteResourceAdmissionRuntime? = null,
         var manualTurnoutSelection: ManualTurnoutSelectionRuntime? = null,
+        var physicalWorld: CoreWorld? = null,
         var stallWorld: ((String, Exception) -> Unit)? = null
     )
 
@@ -182,7 +185,6 @@ internal class DefaultInfrastructureResourceService(
         worldId: UUID,
         world: World,
         latestObservation: () -> RailwayObservation?,
-        awaitCurrentPhysics: () -> Unit,
         turnoutLockingDistanceMeters: Double,
         publishAdmissionUpdate: (ActiveRouteAdmissionUpdate) -> Unit = {},
         stallWorld: (String, Exception) -> Unit
@@ -217,8 +219,11 @@ internal class DefaultInfrastructureResourceService(
         val manualTurnoutSelection = ManualTurnoutSelectionRuntime(
             world,
             runtime.registry,
-            awaitCurrentPhysics,
-            turnoutLockingDistanceMeters
+            ensureBetweenFrames = {
+                (world as CoreWorld).physicsCoordinator.ensureBetweenFrames("ManualTurnoutSelectionRuntime.select")
+            },
+            lockingDistanceMeters = turnoutLockingDistanceMeters,
+            publishSelection = { (world as CoreWorld).publishOwnerChanges(emptyList()) }
         )
         synchronized(lock) {
             check(!closed && worlds[worldId] === runtime && runtime.routeAdmission == null &&
@@ -228,6 +233,7 @@ internal class DefaultInfrastructureResourceService(
             }
             runtime.routeAdmission = admission
             runtime.manualTurnoutSelection = manualTurnoutSelection
+            runtime.physicalWorld = world as? CoreWorld
             runtime.stallWorld = stallWorld
         }
     }
@@ -388,15 +394,25 @@ internal class DefaultInfrastructureResourceService(
         pluginOwner: Plugin,
         worldId: UUID,
         request: ManualTurnoutSelectionRequest
-    ): ManualTurnoutSelectionResult = BukkitThreadGuardBridge.runInSimulationContext {
+    ): CompletableFuture<ManualTurnoutSelectionResult> {
         val requester = requireEnabled(pluginOwner)
-        val runtime = synchronized(lock) {
-            if (closed) null else worlds[worldId]?.manualTurnoutSelection
-        } ?: return@runInSimulationContext ManualTurnoutSelectionResult(
+        fun unavailable() = ManualTurnoutSelectionResult(
             ManualTurnoutSelectionStatus.WORLD_UNAVAILABLE,
             detail = "manual turnout runtime is unavailable for world $worldId"
         )
-        runtime.select(requester, request)
+        val bound = synchronized(lock) { if (closed) null else worlds[worldId] }
+            ?: return CompletableFuture.completedFuture(unavailable())
+        val physicalWorld = bound.physicalWorld
+            ?: return CompletableFuture.completedFuture(unavailable())
+        val selection = bound.manualTurnoutSelection
+            ?: return CompletableFuture.completedFuture(unavailable())
+        return physicalWorld.physicsCoordinator.submitBetweenFrames {
+            val available = synchronized(lock) {
+                !closed && requester.isEnabled && worlds[worldId] === bound &&
+                    bound.physicalWorld === physicalWorld && bound.manualTurnoutSelection === selection
+            }
+            if (!available) unavailable() else selection.select(requester, request)
+        }
     }
 
     private inner class BoundRouteAdmissionService(
@@ -405,30 +421,35 @@ internal class DefaultInfrastructureResourceService(
         private val boundWorld: WorldRuntime
     ) : RouteResourceAdmissionService {
         override fun request(intent: RouteResourceIntent): RouteAdmissionResult =
-            BukkitThreadGuardBridge.runInSimulationContext {
-                admission()?.request(requester, intent) ?: routeAdmissionUnavailable()
-            }
+            withAdmission(::routeAdmissionUnavailable) { it.request(requester, intent) }
 
         override fun progress(handle: RouteAdmissionHandle): RouteAdmissionResult =
-            BukkitThreadGuardBridge.runInSimulationContext {
-                admission()?.progress(requester, handle) ?: routeAdmissionUnavailable()
-            }
+            withAdmission(::routeAdmissionUnavailable) { it.progress(requester, handle) }
 
         override fun suspendReleaseForReversal(grantId: RouteGrantId): RouteGrantReversalResult =
-            BukkitThreadGuardBridge.runInSimulationContext {
-                admission()?.suspendReleaseForReversal(requester, grantId)
-                    ?: routeReversalUnavailable()
-            }
+            withAdmission(::routeReversalUnavailable) { it.suspendReleaseForReversal(requester, grantId) }
 
         override fun rebaseAfterReversal(intent: RouteResourceIntent): RouteGrantReversalResult =
-            BukkitThreadGuardBridge.runInSimulationContext {
-                admission()?.rebaseAfterReversal(requester, intent)
-                    ?: routeReversalUnavailable()
-            }
+            withAdmission(::routeReversalUnavailable) { it.rebaseAfterReversal(requester, intent) }
 
         override fun endGrant(grantId: RouteGrantId): Boolean =
+            withAdmission({ false }) { it.endGrant(requester, grantId) }
+
+        private fun <T> withAdmission(unavailable: () -> T, action: (RouteResourceAdmissionRuntime) -> T): T =
             BukkitThreadGuardBridge.runInSimulationContext {
-                admission()?.endGrant(requester, grantId) ?: false
+                val expected = admission() ?: return@runInSimulationContext unavailable()
+                val apply = {
+                    if (admission() !== expected) unavailable() else action(expected)
+                }
+                // A value-only non-Core World has no physics owner to coordinate with.
+                val physicalWorld = boundWorld.physicalWorld
+                if (physicalWorld == null) apply() else physicalWorld.physicsCoordinator.withStructuralMutation {
+                    try {
+                        apply()
+                    } finally {
+                        physicalWorld.publishOwnerSelectionChanges()
+                    }
+                }
             }
 
         private fun admission(): RouteResourceAdmissionRuntime? = synchronized(lock) {

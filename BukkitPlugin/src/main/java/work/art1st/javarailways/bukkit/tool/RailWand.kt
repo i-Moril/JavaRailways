@@ -3399,50 +3399,61 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                 val livePlayer = plugin.server.getPlayer(player.uniqueId) ?: return@supply
                 if (livePlayer.world.uid != worldId) return@supply
                 val liveWorld = getCoreWorld(livePlayer) ?: return@supply
-                val liveRails = targetRails.map { original ->
-                    val live = liveWorld.getRail(original.id) ?: run {
-                        livePlayer.sendActionBar(RailWandI18n.component(
+                try {
+                    liveWorld.processRailWandEdit {
+                        val liveRails = targetRails.map { original ->
+                            val live = liveWorld.getRail(original.id) ?: run {
+                                livePlayer.sendActionBar(RailWandI18n.component(
+                                livePlayer,
+                                "message.rail_changed_retry"
+                            ).color(NamedTextColor.YELLOW))
+                                return@processRailWandEdit
+                            }
+                            if (live.curve !== curves[original.id] || live.metadata != before[original.id]) {
+                                livePlayer.sendActionBar(RailWandI18n.component(
+                                livePlayer,
+                                "message.rail_changed_retry"
+                            ).color(NamedTextColor.YELLOW))
+                                return@processRailWandEdit
+                            }
+                            live
+                        }
+                        val editPlan = RailWandTopologyEditPlan.captureRailScopedMutation(
+                            liveWorld,
+                            liveRails.map(CoreRail::id)
+                        )
+                        val editPermit = acquireTopologyEditPermit(livePlayer, editPlan) ?: return@processRailWandEdit
+                        editPermit.use {
+                            try {
+                                editPlan.requireCurrent(liveWorld)
+                                liveRails.forEach { rail -> rail.metadata = updates.getValue(rail.id) }
+                                refreshAnchorsForAllViewers()
+                                pushUndo(livePlayer, WandAction.RestoreRailMetadata(
+                                    livePlayer.world.uid,
+                                    before,
+                                    updates
+                                ))
+                                livePlayer.sendActionBar(RailWandI18n.component(
+                                    livePlayer,
+                                    "message.speed_updated"
+                                ).color(NamedTextColor.GREEN))
+                            } catch (failure: Exception) {
+                                liveRails.forEach { rail -> before[rail.id]?.let { rail.metadata = it } }
+                                livePlayer.sendMessage(RailWandI18n.component(
+                                    livePlayer,
+                                    "message.speed_update_rollback",
+                                    railWandFailureReason(failure)
+                                ).color(NamedTextColor.RED))
+                            }
+                        }
+                    }
+                } catch (failure: Exception) {
+                    plugin.logger.warning("Rail curve speed update frame boundary failed: ${failure.message ?: failure::class.simpleName}")
+                    livePlayer.sendMessage(RailWandI18n.component(
                         livePlayer,
-                        "message.rail_changed_retry"
-                    ).color(NamedTextColor.YELLOW))
-                        return@supply
-                    }
-                    if (live.curve !== curves[original.id] || live.metadata != before[original.id]) {
-                        livePlayer.sendActionBar(RailWandI18n.component(
-                        livePlayer,
-                        "message.rail_changed_retry"
-                    ).color(NamedTextColor.YELLOW))
-                        return@supply
-                    }
-                    live
-                }
-                val editPlan = RailWandTopologyEditPlan.captureRailScopedMutation(
-                    liveWorld,
-                    liveRails.map(CoreRail::id)
-                )
-                val editPermit = acquireTopologyEditPermit(livePlayer, editPlan) ?: return@supply
-                editPermit.use {
-                    try {
-                        editPlan.requireCurrent(liveWorld)
-                        liveRails.forEach { rail -> rail.metadata = updates.getValue(rail.id) }
-                        refreshAnchorsForAllViewers()
-                        pushUndo(livePlayer, WandAction.RestoreRailMetadata(
-                            livePlayer.world.uid,
-                            before,
-                            updates
-                        ))
-                        livePlayer.sendActionBar(RailWandI18n.component(
-                            livePlayer,
-                            "message.speed_updated"
-                        ).color(NamedTextColor.GREEN))
-                    } catch (failure: Exception) {
-                        liveRails.forEach { rail -> before[rail.id]?.let { rail.metadata = it } }
-                        livePlayer.sendMessage(RailWandI18n.component(
-                            livePlayer,
-                            "message.speed_update_rollback",
-                            railWandFailureReason(failure)
-                        ).color(NamedTextColor.RED))
-                    }
+                        "message.speed_update_failed",
+                        railWandFailureReason(failure)
+                    ).color(NamedTextColor.RED))
                 }
             },
             onFailure = { failure ->
@@ -4779,26 +4790,42 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             },
             onSuccess = { undo ->
                 preparedUndo.compareAndSet(undo, null)
-                val livePlayer = plugin.server.getPlayer(player.uniqueId)
-                if (livePlayer == null || livePlayer.world.uid != worldId ||
-                    getCoreWorld(livePlayer) !== expectedWorld || !editPlan.isCurrent(expectedWorld)
-                ) {
-                    permit.close()
-                    closePreparedUndoAsync(undo, operation)
-                    return@supply
-                }
-                val commitFailure = try {
-                    editPlan.requireCurrent(expectedWorld)
-                    commit(livePlayer, undo)
-                    null
+                var entered = false
+                try {
+                    expectedWorld.processRailWandEdit {
+                        entered = true
+                        try {
+                            val livePlayer = plugin.server.getPlayer(player.uniqueId)
+                            if (livePlayer == null || livePlayer.world.uid != worldId ||
+                                getCoreWorld(livePlayer) !== expectedWorld || !editPlan.isCurrent(expectedWorld)
+                            ) return@processRailWandEdit
+                            val commitFailure = try {
+                                editPlan.requireCurrent(expectedWorld)
+                                commit(livePlayer, undo)
+                                null
+                            } catch (error: Throwable) {
+                                runCatching(undo::rollbackRenderSidecar).exceptionOrNull()?.let(error::addSuppressed)
+                                error
+                            }
+                            commitFailure?.let { failure(livePlayer, it) }
+                        } finally {
+                            try {
+                                permit.close()
+                            } finally {
+                                closePreparedUndoAsync(undo, operation)
+                            }
+                        }
+                    }
                 } catch (error: Throwable) {
-                    runCatching(undo::rollbackRenderSidecar).exceptionOrNull()?.let(error::addSuppressed)
-                    error
-                } finally {
-                    permit.close()
-                    closePreparedUndoAsync(undo, operation)
+                    if (!entered) {
+                        try {
+                            permit.close()
+                        } finally {
+                            closePreparedUndoAsync(undo, operation)
+                        }
+                    }
+                    failure(plugin.server.getPlayer(player.uniqueId), error)
                 }
-                commitFailure?.let { failure(livePlayer, it) }
             },
             onFailure = { error ->
                 permit.close()
@@ -5856,21 +5883,23 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private fun undoRailMetadata(player: Player, action: WandAction.RestoreRailMetadata): Boolean {
         val coreWorld = getCoreWorld(player) ?: return false
-        val rails = action.metadataBefore.map { (railId, metadata) ->
-            val rail = coreWorld.getRail(railId) ?: return false
-            if (rail.metadata != action.expectedAfter[railId]) return false
-            rail to metadata
-        }
-        val editPlan = RailWandTopologyEditPlan.captureRailScopedMutation(
-            coreWorld,
-            rails.map { (rail) -> rail.id }
-        )
-        val editPermit = acquireTopologyEditPermit(player, editPlan) ?: return false
-        editPermit.use {
-            editPlan.requireCurrent(coreWorld)
-            rails.forEach { (rail, metadata) -> rail.metadata = metadata }
-            refreshAnchorsForAllViewers()
-            return true
+        return coreWorld.processRailWandEdit {
+            val rails = action.metadataBefore.map { (railId, metadata) ->
+                val rail = coreWorld.getRail(railId) ?: return@processRailWandEdit false
+                if (rail.metadata != action.expectedAfter[railId]) return@processRailWandEdit false
+                rail to metadata
+            }
+            val editPlan = RailWandTopologyEditPlan.captureRailScopedMutation(
+                coreWorld,
+                rails.map { (rail) -> rail.id }
+            )
+            val editPermit = acquireTopologyEditPermit(player, editPlan) ?: return@processRailWandEdit false
+            editPermit.use {
+                editPlan.requireCurrent(coreWorld)
+                rails.forEach { (rail, metadata) -> rail.metadata = metadata }
+                refreshAnchorsForAllViewers()
+                true
+            }
         }
     }
 
@@ -5917,73 +5946,79 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     plugin.platformDispatcher.runForEntity(
                         player,
                         action = {
-                            prepared.fold(
-                                onSuccess = { snapshotPlan ->
-                                    val livePlayer = plugin.server.getPlayer(player.uniqueId)
-                                    if (livePlayer == null || livePlayer.world.uid != action.worldId ||
-                                        getCoreWorld(livePlayer) !== coreWorld ||
-                                        captureRailWorldUndoSnapshot(livePlayer, coreWorld) != currentSnapshot
-                                    ) {
-                                        result.complete(false)
-                                        return@fold
-                                    }
-                                    val railsRemovedOrReplaced = snapshotPlan.removedOrReplacedRailIds
-                                        .mapNotNull(coreWorld::getRail)
-                                    val missingSourceRail =
-                                        railsRemovedOrReplaced.size != snapshotPlan.removedOrReplacedRailIds.size
-                                    val dispatcherStillUsesSourceRail = railsRemovedOrReplaced.isNotEmpty() &&
-                                        nonOccupancyTopologySafetyError(coreWorld, railsRemovedOrReplaced) != null
-                                    if (missingSourceRail || dispatcherStillUsesSourceRail) {
-                                        result.complete(false)
-                                        return@fold
-                                    }
-                                    val editPlan = runCatching {
-                                        RailWandTopologyEditPlan.capturePreparedSnapshotRestore(coreWorld, snapshotPlan)
-                                    }.getOrElse { failure ->
-                                        plugin.logger.warning(
-                                            "RailWand world undo plan became stale: ${failure.message}"
-                                        )
-                                        result.complete(false)
-                                        return@fold
-                                    }
-                                    val permit = acquireTopologyEditPermit(livePlayer, editPlan)
-                                    if (permit == null) {
-                                        result.complete(false)
-                                        return@fold
-                                    }
-                                    val applied = runCatching {
-                                        permit.use {
-                                            applyRailWorldSnapshot(livePlayer, coreWorld, target, editPlan)
-                                            val state = getState(livePlayer)
-                                            state.selectedRails.removeIf { coreWorld.getRail(it) == null }
-                                            state.selectedAnchors.removeIf { anchorId ->
-                                                railIdFromEndpointAnchor(anchorId)?.let {
-                                                    coreWorld.getRail(it) == null
-                                                } == true
+                            try {
+                                val applied = coreWorld.processRailWandEdit {
+                                    prepared.fold(
+                                        onSuccess = { snapshotPlan ->
+                                            val livePlayer = plugin.server.getPlayer(player.uniqueId)
+                                            if (livePlayer == null || livePlayer.world.uid != action.worldId ||
+                                                getCoreWorld(livePlayer) !== coreWorld ||
+                                                captureRailWorldUndoSnapshot(livePlayer, coreWorld) != currentSnapshot
+                                            ) {
+                                                return@fold false
                                             }
-                                            clearPendingSplit(state)
-                                            refreshAllAnchorsForPlayer(livePlayer)
-                                            updateAnchorDisplay(livePlayer)
-                                            persistState(livePlayer, state)
+                                            val railsRemovedOrReplaced = snapshotPlan.removedOrReplacedRailIds
+                                                .mapNotNull(coreWorld::getRail)
+                                            val missingSourceRail =
+                                                railsRemovedOrReplaced.size != snapshotPlan.removedOrReplacedRailIds.size
+                                            val dispatcherStillUsesSourceRail = railsRemovedOrReplaced.isNotEmpty() &&
+                                                nonOccupancyTopologySafetyError(coreWorld, railsRemovedOrReplaced) != null
+                                            if (missingSourceRail || dispatcherStillUsesSourceRail) {
+                                                return@fold false
+                                            }
+                                            val editPlan = runCatching {
+                                                RailWandTopologyEditPlan.capturePreparedSnapshotRestore(coreWorld, snapshotPlan)
+                                            }.getOrElse { failure ->
+                                                plugin.logger.warning(
+                                                    "RailWand world undo plan became stale: ${failure.message}"
+                                                )
+                                                return@fold false
+                                            }
+                                            val permit = acquireTopologyEditPermit(livePlayer, editPlan)
+                                            if (permit == null) {
+                                                return@fold false
+                                            }
+                                            val applied = runCatching {
+                                                permit.use {
+                                                    applyRailWorldSnapshot(livePlayer, coreWorld, target, editPlan)
+                                                    val state = getState(livePlayer)
+                                                    state.selectedRails.removeIf { coreWorld.getRail(it) == null }
+                                                    state.selectedAnchors.removeIf { anchorId ->
+                                                        railIdFromEndpointAnchor(anchorId)?.let {
+                                                            coreWorld.getRail(it) == null
+                                                        } == true
+                                                    }
+                                                    clearPendingSplit(state)
+                                                    refreshAllAnchorsForPlayer(livePlayer)
+                                                    updateAnchorDisplay(livePlayer)
+                                                    persistState(livePlayer, state)
+                                                }
+                                                true
+                                            }.getOrElse { failure ->
+                                                plugin.logger.warning(
+                                                    "RailWand world undo failed: " +
+                                                        (failure.message ?: failure::class.simpleName)
+                                                )
+                                                false
+                                            }
+                                            applied
+                                        },
+                                        onFailure = { failure ->
+                                            plugin.logger.warning(
+                                                "RailWand world undo preparation failed: " +
+                                                    (failure.message ?: failure::class.simpleName)
+                                            )
+                                            false
                                         }
-                                        true
-                                    }.getOrElse { failure ->
-                                        plugin.logger.warning(
-                                            "RailWand world undo failed: " +
-                                                (failure.message ?: failure::class.simpleName)
-                                        )
-                                        false
-                                    }
-                                    result.complete(applied)
-                                },
-                                onFailure = { failure ->
-                                    plugin.logger.warning(
-                                        "RailWand world undo preparation failed: " +
-                                            (failure.message ?: failure::class.simpleName)
                                     )
-                                    result.complete(false)
                                 }
-                            )
+                                result.complete(applied)
+                            } catch (failure: Exception) {
+                                plugin.logger.warning(
+                                    "RailWand world undo frame boundary failed: ${failure.message ?: failure::class.simpleName}"
+                                )
+                                result.complete(false)
+                            }
                         },
                         retired = { result.complete(false) }
                     )

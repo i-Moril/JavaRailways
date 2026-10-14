@@ -196,9 +196,8 @@ class WorldManager internal constructor(
                     worldId = bukkitWorld.uid,
                     world = railWorld,
                     latestObservation = {
-                        observationService?.latest(bukkitWorld.uid)?.orElse(null)
+                        observationService?.current(bukkitWorld.uid, railWorld.latestWorldFrame())
                     },
-                    awaitCurrentPhysics = { railWorld.awaitCurrentPhysicsEpoch() },
                     turnoutLockingDistanceMeters = railWorld.basicWorldData
                         .turnoutSafetyDefaults.lockingDistanceMeters,
                     stallWorld = { reason, failure ->

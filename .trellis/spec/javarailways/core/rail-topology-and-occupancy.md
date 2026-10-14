@@ -11,7 +11,7 @@
 - `CoreWorld`拥有rail map、`RailSpatialIndex`、增量`AtGradeRailCrossingIndex`与`ReentrantReadWriteLock`。两份索引共享curve真实piecewise-linear断点，不用`stream()`的1m直线虚拟点；spatial index沿相邻断点的线段填充cell，而不只记录断点所在cell。交叉检测从相同/相邻cell取候选后仍须做三维exact segment检查，并只在专用20 cm平交容差内发布近似交点；该常量不改变`Curve.TOLERANCE`或普通连接/occupancy容差。
 - `CoreRail`拥有canonical curve与AB/BA views；迁移期间`RailView.nextRails`是Core内部physical connection编辑模型，发布给consumer的authoritative连通结构是同一transaction产生的`TopologyState`；`nextActiveRail`是runtime selected branch，不进入structural state，但会经同一world-frame的`ActiveRailContinuationsSnapshot`作为只读物理观测发布。
 - Basic `allowedDirection`/route allocation不是Core physical topology。
-- structural owner调用 `CoreWorld.railTopologyTransaction(action)`：先await current `PhysicsTicket`，再持write lock；expensive curve build在transaction外。
+- structural owner调用 `CoreWorld.railTopologyTransaction(action)`：先用协调器帧间门禁阻止新epoch并等待exact `PhysicsTicket`，再持write lock；expensive curve build在transaction外。两重载均遵守此顺序，不能在write lock内等待worker。
 - live rail创建使用两阶段批量协议：平台worker调用`CoreWorld.prepareRailCreationBatch(curves, excludedIds)`，owner线程调用`installPreparedRails(batch)`；Core不持有executor或future。`CoreRail`构造本身不注册world。持久化restore在physics启动前只使用Core内部同步`createRailInTransaction`重建索引；同步测试建轨只存在于不打入runtime JAR的Core test fixture，runtime不暴露同步创建入口。
 - RailWand online editor在worker从captured immutable `TopologyState`与明确final delta还原一次transient builder input，构造并验证
   完整normalized topology candidate；world commit只复核exact root、delta rail identities/count、changed endpoint与diamond result，应用delta并publish
@@ -31,6 +31,15 @@
 - transaction exception不自动rollback。若异常前结构未变化，revision不变且world仍可用；若结构已经变化，revision仍保持旧值、world topology进入`RailTopologyHealth.Faulted`并Stall physics，禁止继续发布world frame或执行新结构事务，直到reload/recovery。fault record只保留稳定reason、最后成功revision、异常类型和消息，不长期持有原始`Throwable`；嵌套失败只存在于当前`RailTopologyTransactionContext`。不得把失败后的部分结构伪装成一个正常新revision。
 - `removeRail`检查target及affected rails的full train placement envelope，修复links/spatial index后移除。
 - `publishWorldFrame` 持 topology read lock 同时捕获 `topologyRevision` 与已发布列车 frames，因此不会观察到 structural transaction 的中间状态。
+
+第5批outer事务成功且root确实变化后，在释放write lock、仍持帧间门禁时复用`publishOwnerChanges(emptyList())`
+刷新同一已完成epoch的共享占用和世界帧。nested事务不提前刷新，no-op不重建；安装/发布失败沿用既有Fault/Stall边界，
+不回退到await-only，也不分配假physics epoch。完整操作gate不提供任意插件副作用的通用回滚。
+
+运行时选岔不改变结构revision。`CoreWorld.publishOwnerSelectionChanges()`要求帧间owner，仅在既有selection lock内
+比较已发布continuation的selectionRevision与当前计数；未变为O(1)返回，变化才沿用同一共享构建器刷新。
+因此普通进路pending轮询不重扫世界，真实选岔后的同批操作不会继续读取旧出口；失败令Core Stall。
+回归须检查主线程/timer在整个事务内不能开启新epoch、nested时仍是旧world frame、退出后共享root一致，以及无变化选岔保持world frame同一引用。
 
 Canonical interval签名（`Core/src/main/java/work/art1st/javarailways/core/api/physics/rail/RailIntervalOccupancy.kt`）：
 

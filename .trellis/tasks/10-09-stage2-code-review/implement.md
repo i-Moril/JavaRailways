@@ -16,7 +16,7 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 2. [x] 重命名完整迁移：调用入口、Bukkit结果消费、名称索引及下一正常frame/mailbox发布；增加重命名后有效LINK回归，不重建每次rename的全world索引，不放宽碰撞物理证据校验。LINK回归随原联结草稿保留在工作区，不混入独立的帧间基础提交。
 3. [x] controller生命周期与换向：整体迁移手动接管、Dispatcher和生产reverse caller；验证旧controller退出、新controller首次tick与结果方向，清除worker换向专用执行分支。现有停车/运营等待规则不擅自改变。
 4. [x] 列车创建/删除、初始及Depot维护摆位：统一阶段内prepare/apply与批次末frame/occupancy/world观测，保留失败原子性；覆盖创建未完成不可见、删除后无旧占用及摆位后下一步一致。
-5. [ ] 外部脱轨、手动扳道、基础设施编辑：迁移await-only入口，区分physics-origin结果与外部命令；验证完整事件批次中无新physics worker，保持拓扑事务和资源仲裁合同。
+5. [x] 外部脱轨、手动扳道、基础设施编辑：迁移await-only入口，区分physics-origin结果与外部命令；验证完整事件批次中无新physics worker，保持拓扑事务和资源仲裁合同。
 6. [ ] 联结/解编复用帧间阶段并完成CR-030复核：成功通知内提交rename正常完成，下一次碰撞使用一致观测；移除旧时序特判及过时契约，核对受影响API、测试与正式游戏测试交接。
 
 第3项拆为两笔可独立检查的子批次：3a先迁移控制器换向请求、同步换向apply与一致发布，删除worker换向/跳过movement分支；3b随后迁移控制器安装/替换/移除及手动接管、导航和Dispatcher复合入口。本轮先做3a，不将整项勾选完成。手动接管包含平台座位/钥匙检查与运营/控制器状态迁移，不能仅异步化底层setter后让上层继续按同步结果执行；其平台数据捕获与结果回送留在3b。
@@ -52,6 +52,12 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 独立候选`/tmp/javarailways-placement-5w8t4_bp`排除第5/6批和旧联结草稿。分段门禁新鲜XML为Core366、Basic394、SimpleATO356、Bukkit380、Tunnel31，共1527项零失败/error/skip；Dev无测试源码，compileKotlin及test(NO-SOURCE)完成。首次Core13失败来自新用例跨轨段定位及旧fixture阶段/mailbox假设，随后补齐Basic/Bukkit遗漏；另修复两项新清理的类型错误和真实epoch测试遗漏start。没有放宽业务断言、删测试或把失败记为通过。Core/Basic全套rerun通过后，仅修改下游测试再分段验证；最终下游成功门禁20秒(8执行/27up-to-date)，不冒称单次全套成功。沿用offline/共享workspace缓存；未打包前端、未部署。多文件主要是既有测试的单操作owner调用迁移，与生产guard保持同一可运行提交，不制造临时兼容层。
 
 第5批先拆出35项纯fixture文件迁移，只有单次拓扑操作的simulation owner标记及imports，不包住整项physics测试、不修改断言或测试集合；不依赖后续新API。独立候选`/tmp/javarailways-topology-test-entry.mAk4ej`全套Core366/Basic394/SimpleATO356/Bukkit380/Tunnel31，共1527项零失败/error/skip，1分44秒、39tasks全部执行；testcase名称与第4批候选逐项一致。生产源码仍为第4批HEAD，35份暂存源码与候选一致；这笔提交只验证fixture前置，不把后续第5批功能勾选完成。
+
+第5批运行时完整候选`/tmp/javarailways-infrastructure-xli53088`不含联结/解编第6批：外部脱轨完整发布后通知，拓扑事务门禁在write lock外；手动选岔CF及完整Bound同步进路操作均受门禁；RailWand保留entity owner并包完整commit/metadata/undo/清理，undo Future退出阶段后完成。查询当前observation按exact frame缓存，同epoch维护更新不重复物理通知。Bound仅在selection revision变化时刷新共享观测，普通poll为O(1)。先前漏包Bound的缺口由只读复核发现并修复，最终该项无剩余确定阻塞。
+
+最终冻结候选一次完整rerun通过：Core369、Basic394、SimpleATO356、Bukkit384、Tunnel31，共1534项零失败/error/skip；Dev编译/test(NO-SOURCE)、Java signalApiConsumer编译、Core Dokka通过（仍有已有warning），1分45秒、46tasks全部执行。首次导出新测试中含依赖第6批collision内部字段的附加断言，已仅在第5候选排除，保留在第6草稿；另补既有SavedRail恢复marker、新测试清理的AutoCloseable类型和启动前wake遗漏。没有改业务断言或放宽guard。使用约定offline/workspacecache/2workers/in-process配置，未前端打包、未部署或游戏验证；完整候选源码冻结后未再改运行时。
+
+第6批队列/发布草稿已实现并通过只读流程复核，但发现解编后的真实端部贴靠被下一epoch判碰撞。工作区真实执行Split及CollisionCoupling两类57项，55通过/2失败（32秒、9tasks全执行）；仅moving split两方向的下一步位置未移动，预期51实际50.5、预期30实际30.5，证实prepass冻结，不能将此门禁记为通过。联结成功事件的一致发布/排队rename及veto fallback回归通过。需用户确认“静止贴靠不算撞击、只有实际闭合/穿入才判撞”的一般规则；不新增split冷却/临时豁免、不隐藏共享占用、不用controller上次speed预测下次输入。已通过非阻塞问题请求确认，尚未批准或实现新算法；第6批保留未提交，不勾选完成，不关闭CR-030/Core审查/Stage2。
 
 ### 前一阶段执行顺序（保留历史记录）
 

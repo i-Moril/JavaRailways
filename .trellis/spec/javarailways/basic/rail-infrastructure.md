@@ -49,6 +49,15 @@ Basic不拥有按距离搜索并自动连接轨道的策略。RailWand把玩家�
 交给Core的`PreparedRailConnectionPlan`；Basic只将计划公布的准确既有endpoint/physical identity转换为edit impact。
 道岔几何维护继续由RailWand在编辑前验证边界frame、占用与route lock；不得通过附近endpoint搜索猜测第三条支路。
 
+## 手动选岔的执行边界（CURRENT，第5批）
+
+`ManualTurnoutSelectionRuntime.select(requester, request)`是同步Basic apply，不负责排队。
+由composition注入`ensureBetweenFrames`及`publishSelection`；先确认阶段，再在同一作用域内完成版本/端口校验、
+临时资源claim、物理锁闭区间检查、双侧选择与finally释放。不能把“等待当前ticket”注入当成完整排他。
+拒绝过期拓扑、非法端口、资源冲突或物理占用时不改变选择；成功变化后发布当前共享观测，不产生route grant。
+Basic保持既有锁闭区间算法与成本，不直接依赖Core实现或引入另一套仲裁；Bukkit负责异步请求及真实阶段进入。
+回归必须验证拒绝后选择/claim不变、成功后短暂claim释放、阶段外调用被拒绝，以及真实在途worker完成前不扳道。
+
 ## 项目内正确示例
 
 Metadata setter同时materialize ephemeral speed transition：

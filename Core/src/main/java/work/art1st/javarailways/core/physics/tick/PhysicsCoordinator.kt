@@ -355,9 +355,12 @@ class PhysicsCoordinator(
     /**
      * Holds new-epoch admission closed across a main-owner structural edit. Waiting and the edit
      * run outside [stateLock], so the captured epoch can finish and callbacks never own that lock.
+     * Implementation-layer platform adapters can enclose a synchronous compound operation here;
+     * nested owner calls reuse the same phase without draining queued requests. Host processing
+     * still uses [processBetweenFrames], whose callback must not be nested or self-wait queued work.
      * This is not shutdown or rollback: finally only releases this temporary admission scope.
      */
-    internal fun <T> withStructuralMutation(action: () -> T): T {
+    fun <T> withStructuralMutation(action: () -> T): T {
         ThreadGuard.ensureMainThread("PhysicsCoordinator.withStructuralMutation")
         return withFrameBoundary { action() }
     }

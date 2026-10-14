@@ -17,6 +17,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChang
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * World-local coordination for non-exclusive edit dependencies, exclusive live claims, and edits.
@@ -85,12 +86,15 @@ public interface InfrastructureResourceService {
      * Selects one legal turnout continuation after checking live route claims and physical occupancy.
      *
      * <p>The request uses stable rail-endpoint identities in one topology revision. The call is
-     * serialized with the railway simulation and may block until the current physics epoch finishes.
-     * A successful call mutates the live turnout selection, but never creates a route grant,
+     * nonblocking and queues the complete operation between physical frames. The future completes
+     * after claim checks, physical occupancy checks, selection and coherent world publication.
+     * A successful operation mutates the live turnout selection, but never creates a route grant,
      * movement authority, persisted plan, or long-lived resource claim. The returned result is a
-     * detached value; world unload or service shutdown returns {@code WORLD_UNAVAILABLE}.</p>
+     * detached value; a retired plugin/world binding returns {@code WORLD_UNAVAILABLE}. Coordinator
+     * shutdown or failed physics completes the future exceptionally. Do not wait for the future on
+     * the simulation owner that drains the queue; completion does not confer Bukkit entity ownership.</p>
      */
-    ManualTurnoutSelectionResult selectTurnout(
+    CompletableFuture<ManualTurnoutSelectionResult> selectTurnout(
         Plugin pluginOwner,
         UUID worldId,
         ManualTurnoutSelectionRequest request

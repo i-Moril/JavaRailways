@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
@@ -16,6 +18,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
 import java.util.UUID
 
 class CoreWorldActiveContinuationsPublicationTest {
@@ -25,6 +28,19 @@ class CoreWorldActiveContinuationsPublicationTest {
         val stemEntry = RailEndpointRef(stem.id, RailEndpoint.B)
         val firstExit = RailEndpointRef(first.id, RailEndpoint.A)
         val secondExit = RailEndpointRef(second.id, RailEndpoint.A)
+
+        world.onOwnerForTest {
+            stem.viewAB.activeRail = first.viewAB
+            world.publishOwnerSelectionChanges()
+            val before = world.latestWorldFrame()
+            world.publishOwnerSelectionChanges()
+            assertSame(before, world.latestWorldFrame(), "unchanged owner polls must not rebuild the world")
+            stem.viewAB.activeRail = second.viewAB
+            world.publishOwnerSelectionChanges()
+            assertEquals(before.physicsEpoch, world.latestWorldFrame().physicsEpoch)
+            assertEquals(secondExit, world.latestWorldFrame().activeContinuations.selectedContinuation(stemEntry))
+            assertEquals(firstExit, before.activeContinuations.selectedContinuation(stemEntry))
+        }
 
         stem.viewAB.activeRail = first.viewAB
         val firstFrame = publish(world, 1L)
@@ -83,13 +99,13 @@ class CoreWorldActiveContinuationsPublicationTest {
         lateinit var stem: CoreRail
         lateinit var first: CoreRail
         lateinit var second: CoreRail
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             stem = world.createRailInTransaction(UUID.randomUUID(), straightCurve(0.0, 10.0))
             first = world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 20.0))
             second = world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 30.0))
             RailView.connect(stem.viewAB, first.viewBA)
             RailView.connect(stem.viewAB, second.viewBA)
-        }
+        } }
         return Triple(stem, first, second)
     }
 

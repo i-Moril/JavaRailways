@@ -216,9 +216,19 @@ class TurnoutWand(plugin: BukkitPlugin) : AbstractWand<TurnoutWandState, Turnout
             message(player, "target.illegal")
             return
         }
-        val result = plugin.infrastructureResourceService.selectTurnout(plugin, player.world.uid, request)
-        player.sendMessage(Component.text(TurnoutWandI18n.result(player.locale(), result))
-            .color(if (result.successful) NamedTextColor.GREEN else NamedTextColor.YELLOW))
+        val worldId = player.world.uid
+        plugin.infrastructureResourceService.selectTurnout(plugin, worldId, request).whenComplete { result, failure ->
+            if (!plugin.isEnabled) return@whenComplete
+            plugin.platformDispatcher.runForEntity(player, action = {
+                if (!plugin.isEnabled || !player.isOnline || player.world.uid != worldId) return@runForEntity
+                if (failure != null) failed(player, failure)
+                else {
+                    player.sendMessage(Component.text(TurnoutWandI18n.result(player.locale(), result))
+                        .color(if (result.successful) NamedTextColor.GREEN else NamedTextColor.YELLOW))
+                    BukkitThreadGuardBridge.runInSimulationContext { showConnection(player, state) }
+                }
+            })
+        }
     }
 
     private fun showConnection(player: Player, state: TurnoutWandState) {

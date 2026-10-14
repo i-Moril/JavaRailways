@@ -143,6 +143,18 @@ class WorldPersistenceRoundTripTest {
         }
     }
 
+    @Test
+    fun `future root versions reject before malformed nested values`() {
+        val runtime = assertThrows(IllegalArgumentException::class.java) {
+            WorldSnapshotCodec.decodeRuntime("""{"formatVersion":99,"trains":[{"extension":{"TEST":{"typeId":"unknown:payload","schemaVersion":1,"payload":{}}}}]}""")
+        }
+        assertTrue(runtime.message!!.contains("Unsupported core runtime snapshot version"))
+        val infrastructure = assertThrows(IllegalArgumentException::class.java) {
+            WorldSnapshotCodec.decodeInfrastructure("""{"formatVersion":99,"rails":["malformed"]}""")
+        }
+        assertTrue(infrastructure.message!!.contains("Unsupported core infrastructure snapshot version"))
+    }
+
     private fun withWorld(
         load: (TickManagerImpl, PhysicsCoordinator) -> CoreWorld,
         block: (CoreWorld) -> Unit

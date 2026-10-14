@@ -45,7 +45,7 @@ Json {
 
 ## Extension identity 规则
 
-新持久化多态 payload 使用稳定、namespaced `typeId + schemaVersion + payload`。`typeId` 不随类名或 package 重构改变，registry 不扫描 classpath，也不根据存档字符串执行 `Class.forName()`。现有 `Core/src/main/java/work/art1st/javarailways/core/persistence/WorldSnapshotCodec.kt` 仍以 JVM class name 反射解码 extension data，`docs-site/docs/architecture/persistence.md` 也明确标记此风险；这是遗留边界，不是新实现范式。只有任务明确要求时才增加 allowlist legacy alias，并写明移除条件。
+持久化多态 payload 使用稳定、namespaced `typeId + schemaVersion + payload`。`typeId` 不随类名或 package 重构改变，registry 不扫描 classpath，也不根据存档字符串执行 `Class.forName()`。Core三类extension map现由[显式payload注册边界](../core/extension-data.md#已注册payload的持久化边界current)拥有，旧开发FQCN只通过一次性离线工具转换，不保留JAR旧reader。网页中仍描述反射的历史内容须在全仓文档审查同步，不能反向当作current实现依据。只有任务明确要求时才增加runtime allowlist legacy alias，并写明移除条件。
 
 `SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/timetable/TimetableExtension.kt` 的 `typeId + version` 表示 provider 行为/参数 contract。若只是旧参数形状迁移，优先 upcast 到当前 provider，而不是永久运行平行 provider。
 

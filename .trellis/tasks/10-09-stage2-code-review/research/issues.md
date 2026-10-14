@@ -337,6 +337,9 @@
 
 ### CR-029：extension仍按存档FQCN反射加载
 
+- **已修复并完成离线验收（2026-10-14）**：Core三类extension map统一显式注册的namespaced envelope，移除默认serializer反射和`Class.forName`；根版本先验后decode。Bukkit在恢复前注册两种实际payload，未知类型/版本拒绝；版本常量不变，不加runtime旧reader。固定current/unknown/conflict/nested-map/decoder调用顺序及Bukkit真实DTO回归通过，完整独立候选2069项全执行、零失败/error/skip。
+- 独立一次性脚本有明确FQCN allowlist、dry-run、独立新输出目录和hash/逐路径报告，6项测试通过。固定非空旧runtime转换2处，current Kotlin codec核对类型、包引用及held scene保留；真实本地12份空runtime为0转换且均可Core DTO decode。源码修复与本边界迁移验收完成，不代表真实旧服整个outer/Basic/曲线格式可加载；后者保留原迁移后续，不改远端。详细证据见[Core收尾记录](../implement.md#core缺陷收尾2026-10-14帧间六批完成之后)。以下为发现基线，当前反射缺陷由本条取代。
+
 - P2；正式codec路径确认，未做恶意输入运行诊断；不宣称远程代码执行漏洞。
 - `WorldSnapshotCodec.kt:19-25`使用Class.forName，完整decode后才检查formatVersion；正式Bukkit saved render payload没有稳定type registry。
 - Core persistence/extension-data规范却写stable registry已存在，shared规范/网页才正确承认遗留反射。
@@ -371,6 +374,8 @@
 
 ### CR-032：Core旧实现/无用内部代码残留
 
+- 本轮Core清理处置收口（2026-10-14）：已确认的内部废实现、测试工具归属及旧主动link入口已处理；`canLink`随`4c188936`删除。保留的公开异常、未接线事件/Seat及`COLLISION_SPEED`等低优先级公开声明不冒充行车逻辑，后续API治理单独评估，不继续阻塞Core已确认正确性缺陷收尾。完整RailWand事务测试归Bukkit跨层覆盖；下方“partial”是当时清理批次状态，不代表新发现未修Core运行缺陷，也不宣称全仓没有未用声明。
+
 - P3；全仓consumer/注册/测试/持久化搜索确认候选，详见Core报告清理分组。
 - 明确机械候选：3个空rail/persistence文件、BinarySearch、Quaternion池、forwardPositive未读list、DummyAsset、CoreWorld未用signals字段、废注释。
 - **部分完成（2026-10-10，本批废路径已清理）**：机械项见[首批记录](../implement.md#cr-032-机械清理与验证2026-10-10)；随后经二次全仓consumer/序列化核对，已删除旧
@@ -383,6 +388,8 @@
 - [旧事件专项评估](./core-event-api-assessment.md)初稿删除建议已撤回：用户要求保留PreTickEvent/PostTickEvent/RenderableEvent并考虑接入，从废代码删除候选中排除。暂无publisher只说明未接线；分组接口不必独立发布。接入阶段/线程契约尚未冻结，现有observation不作为所有事件用途的等价替代。
 
 ### CR-033：文档、诊断与可维护性不一致
+
+- 本轮Core局部收口（2026-10-14）：Train epoch-end占用及nullable默认frame KDoc已纠正，非平凡物理/帧间/联结原理已同步，CR-029补齐真实registry而非将目标当实现；诊断及局部结构整理的已修项见下。网页/.codeabs全量漂移、Dokka未文档化与跨模块风格治理依用户原要求留全仓文档审查，不声称本项所有文档债已清零，不以这些维护项无限延长Core功能缺陷修复。
 
 - P2/P3；扩展CR-002/007/020，不重复宣称已修。
 - 错误诊断丢message/cause/context；可用frame/占用语义KDoc不符；train-physics遗漏实际bogie/coupler二分原理；持久化把目标预校验写成现状。`Train.cars`已在CR-021明确为稳定编组/持久化顺序，并用公开`isReversed`/`operatingCars`表达运营顺序，不再是本项开放问题。

@@ -16,6 +16,13 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.bukkit.extension.train.SavedCarRenderState
+import work.art1st.javarailways.bukkit.extension.train.SavedTrainRenderState
+import work.art1st.javarailways.bukkit.extension.train.BukkitExtensionDataSerializers
+import work.art1st.javarailways.core.physics.train.CarConfigV1
+import work.art1st.javarailways.core.physics.train.SavedCarV1
+import work.art1st.javarailways.core.physics.train.SavedBogieV1
+import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.train.SavedTrainV1
@@ -157,6 +164,16 @@ class WorldSnapshotExtensionDataTest {
 
     @Test
     fun `world snapshot codec preserves bukkit render extension data`() {
+        BukkitExtensionDataSerializers.register()
+        BukkitExtensionDataSerializers.register()
+        val location = RailLocationWithFacing.SavedRailLocationWithFacingV1(
+            "00000000-0000-0000-0000-00000000000b", 0.0, ViewDirection.AB
+        )
+        val trainState = SavedTrainRenderState(packageName = "s100", packageSnapshotHash = "package-hash")
+        val carState = SavedCarRenderState("s100/passenger", mapOf("door" to "open"), "model-hash", "package-hash")
+        val car = SavedCarV1("car-a", SavedBogieV1(location, true, emptyMap()),
+            SavedBogieV1(location, true, emptyMap()),
+            CarConfigV1(10.0, 0.5, null, 3.0, null, -3.0, 0.3, 0.3, mapOf("BUKKIT" to carState)))
         val snapshot = CoreWorld.SavedRuntimeV1(
             formatVersion = CoreWorld.RUNTIME_SNAPSHOT_FORMAT_VERSION,
             infrastructureRevision = 1L,
@@ -165,26 +182,22 @@ class WorldSnapshotExtensionDataTest {
                 SavedTrainV1(
                     id = "00000000-0000-0000-0000-00000000000a",
                     name = "train-a",
-                    cars = emptyList(),
+                    cars = listOf(car),
                     reversed = false,
-                    extension = mapOf("BUKKIT" to SavedCarRenderState("s100/passenger")),
-                    headLocation = work.art1st.javarailways.core.physics.rail.RailLocationWithFacing.SavedRailLocationWithFacingV1(
-                        "00000000-0000-0000-0000-00000000000b", 0.0,
-                        work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB
-                    ),
-                    tailLocation = work.art1st.javarailways.core.physics.rail.RailLocationWithFacing.SavedRailLocationWithFacingV1(
-                        "00000000-0000-0000-0000-00000000000b", 0.0,
-                        work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB
-                    )
+                    extension = mapOf("BUKKIT" to trainState),
+                    headLocation = location,
+                    tailLocation = location
                 )
             )
         )
 
         val json = WorldSnapshotCodec.encodeRuntime(snapshot)
         val decoded = WorldSnapshotCodec.decodeRuntime(json)
-        val state = decoded.trains.single().extension.getValue("BUKKIT")
-
-        assertTrue(state is SavedCarRenderState)
-        assertEquals("s100/passenger", (state as SavedCarRenderState).carModelName)
+        assertEquals(snapshot, decoded)
+        assertEquals(trainState, decoded.trains.single().extension.getValue("BUKKIT"))
+        assertEquals(carState, decoded.trains.single().cars.single().config.extension.getValue("BUKKIT"))
+        assertTrue(json.contains("\"typeId\":\"javarailways:car_render_state\""))
+        assertTrue(json.contains("\"typeId\":\"javarailways:train_render_state\""))
+        assertFalse(json.contains("work.art1st"))
     }
 }

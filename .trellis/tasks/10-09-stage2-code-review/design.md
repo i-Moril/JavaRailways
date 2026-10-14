@@ -31,6 +31,8 @@
 
 ## Core 审查后的产品边界（2026-10-10）
 
+2026-10-14收尾的CR-029按现有持久化政策实施：Core唯一注册/编码边界，Bukkit启动注册具体payload，三类saved extension map复用同一serializer；根版本先验后decode。算法、签名、错误和复杂度由[extension契约](../../spec/javarailways/core/extension-data.md#已注册payload的持久化边界current)拥有。本次保留既有Train render body.version和Core2/1，不加JAR旧reader；旧FQCN只由独立离线allowlist转换。实际旧服没有列车，非空迁移用固定fixture补证；旧outer/Basic归属与非法曲线的完整迁移仍归原开发服迁移后续事项，不伪称已通过。下方较早“未取得样本”等段落保留为当时决定，现状见执行记录。
+
 - **已确认**：联结/解编保留为正式能力；CR-021/030按功能缺陷修复，不按废原型清理。详细端部/方向组合和事务实现仍须先给出方案，不改变默认碰撞策略。
 - **已确认**：没有仓库外插件不代表没有扩展需求。用户要求保留PreTickEvent/PostTickEvent/RenderableEvent并考虑接入，旧删除建议撤回；接入前明确阶段和线程语义，见[Core事件规范](../../spec/javarailways/core/event-bus.md)。Core Seat与Bukkit乘坐的分层建议仍待确认，不把两份座位列表都作为权威。
 - **已确认**：开发服存档需能手动迁移，暂不要求JAR内自动迁移。格式变更先获取一致的真实infrastructure/runtime文件对（或该服实际使用的等价存档集合），记录来源shape并保留原件/恢复点；离线dry-run报告未知type、无法映射的引用及丢失风险，输出到独立目录，拒绝静默丢数据。迁移后用current严格codec及业务引用校验匹配数据，核对rail/train身份、位置、extension及涉及的运营数据。真实样本验证前不得宣称已支持该服迁移。

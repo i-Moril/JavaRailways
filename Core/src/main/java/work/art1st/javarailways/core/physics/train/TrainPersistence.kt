@@ -3,6 +3,7 @@ package work.art1st.javarailways.core.physics.train
 import kotlinx.serialization.Serializable
 import work.art1st.configLib.persistence.Loads
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
+import work.art1st.javarailways.core.api.util.plugin.ExtensionDataMapSerializer
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 
@@ -16,6 +17,7 @@ data class SavedTrainV1(
     val name: String,
     val cars: List<SavedCarV1>,
     val reversed: Boolean,
+    @Serializable(with = ExtensionDataMapSerializer::class)
     val extension: Map<String, SerializableExtensionData>,
     val headLocation: RailLocationWithFacing.SavedRailLocationWithFacingV1,
     val tailLocation: RailLocationWithFacing.SavedRailLocationWithFacingV1
@@ -79,6 +81,7 @@ data class CarConfigV1(
     val bogieBOffset: Double,
     val connectorLengthAtA: Double,
     val connectorLengthAtB: Double,
+    @Serializable(with = ExtensionDataMapSerializer::class)
     val extension: Map<String, SerializableExtensionData>
 ) {
     internal fun buildCar(id: String, world: CoreWorld, bogieA: CoreBogie, bogieB: CoreBogie) : CoreCar {
@@ -109,6 +112,7 @@ data class CarConfigV1(
 data class SavedBogieV1(
     val location: RailLocationWithFacing.SavedRailLocationWithFacingV1,
     val isSameDirectionAsFacing: Boolean,
+    @Serializable(with = ExtensionDataMapSerializer::class)
     val extension: Map<String, SerializableExtensionData>
 ) : Loads<CoreBogie, CoreWorld> {
     override fun load(dependency: CoreWorld): CoreBogie {

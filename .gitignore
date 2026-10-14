@@ -105,6 +105,7 @@ gradle-app.setting
 
 # Cache of project
 .gradletasknamecache
+/scripts/**/__pycache__/
 
 # Eclipse Gradle plugin generated files
 # Eclipse Core

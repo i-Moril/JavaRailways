@@ -39,7 +39,7 @@ data class SavedRuntimeV1(
 
 ## Decode、prevalidation、materialization
 
-以下是目标顺序，不代表所有检查已在创建world之前完成。当前train load在构造返回后、成功frame/mailbox发布前执行[摆位校验](./train-physics.md#存档摆位恢复)，验证同一路径/方向/顺序、车内连接点三维距离、相邻车钩与车端offset；失败沿既有discardFailedLoad撤销本次列车副作用。rail连接使用下方严格端点解析，但全world materialization失败清理和extension稳定type registry仍有已知差距，不能把下图当作现状验收结论。
+以下是整体目标顺序，不代表所有检查已在创建world之前完成。当前codec先parse为JsonObject、检查exact root formatVersion，再对同一树严格decode；版本缺失、非整数或非current在任何extension decoder调用前拒绝。extension三类map使用[显式稳定类型注册](./extension-data.md#已注册payload的持久化边界current)，不再按存档FQCN反射。当前train load在构造返回后、成功frame/mailbox发布前执行[摆位校验](./train-physics.md#存档摆位恢复)，验证同一路径/方向/顺序、车内连接点三维距离、相邻车钩与车端offset；失败沿既有discardFailedLoad撤销本次列车副作用。rail连接使用下方严格端点解析，但全world materialization的完整预校验/失败回滚仍不能由codec保证，不把下图当作全部现状验收结论。
 
 ```text
 bytes/text → read boundary version → optional pure upcast（仅任务明确支持）
@@ -65,17 +65,16 @@ Rail connection restore与prepared snapshot restore共用Core内部`decodeSavedR
 
 ## 项目内正确示例
 
-codec在decode后再次验证document version：
+codec先验证根版本，再解码同一棵树：
 
 ```kotlin
-json.decodeFromString(CoreWorld.SavedRuntimeV1.serializer(), data).also {
-    require(it.formatVersion == CoreWorld.RUNTIME_SNAPSHOT_FORMAT_VERSION) {
-        "Unsupported core runtime snapshot version: ${it.formatVersion}"
-    }
-}
+json.decodeFromJsonElement(
+    CoreWorld.SavedRuntimeV1.serializer(),
+    currentDocument(data, CoreWorld.RUNTIME_SNAPSHOT_FORMAT_VERSION, "runtime")
+)
 ```
 
-来源：`Core/src/main/java/work/art1st/javarailways/core/persistence/WorldSnapshotCodec.kt`。它确保future writer不会被current business logic误读。
+来源：`Core/src/main/java/work/art1st/javarailways/core/persistence/WorldSnapshotCodec.kt`。`currentDocument`只解析JSON和检查版本，不materialize world或调用payload decoder；future root携带坏nested内容时必须先报root版本错误。解析树成本随文档长度增长，没有第二次文本解析，但会保留一次树内存；不能宣称版本预检不读取整份文本。
 
 ## 禁止实现
 

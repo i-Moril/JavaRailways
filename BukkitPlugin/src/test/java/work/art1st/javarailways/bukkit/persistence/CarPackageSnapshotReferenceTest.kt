@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.bukkit.extension.train.SavedCarRenderState
+import work.art1st.javarailways.bukkit.extension.train.BukkitExtensionDataSerializers
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -12,6 +13,7 @@ import work.art1st.javarailways.core.physics.train.*
 class CarPackageSnapshotReferenceTest {
     @Test
     fun `fixed current two-source car references survive nonempty train runtime codec`() {
+        BukkitExtensionDataSerializers.register()
         // Current-model fixture, not a claim that a legacy deployed train was migrated.
         val states = Json.decodeFromString<List<SavedCarRenderState>>("""
             [{"carModelName":"first/head","heldScenes":{"door-left":"open"},"packageSnapshotHash":"first-pinned-hash"},

@@ -39,6 +39,7 @@ import work.art1st.javarailways.bukkit.http.TimetableScriptSandbox
 import work.art1st.javarailways.bukkit.http.TimetableWebUiSidecar
 import work.art1st.javarailways.bukkit.http.WebUiLoginTokens
 import work.art1st.javarailways.bukkit.logic.WorldManager
+import work.art1st.javarailways.bukkit.extension.train.BukkitExtensionDataSerializers
 import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackend
 import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackendFactory
 import work.art1st.javarailways.bukkit.render.backend.PacketEntityMotion
@@ -157,6 +158,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     }
 
     override fun onEnable() {
+        BukkitExtensionDataSerializers.register()
         val packetRuntime = checkNotNull(packetEntityRuntime) {
             "Packet entity runtime was not loaded"
         }

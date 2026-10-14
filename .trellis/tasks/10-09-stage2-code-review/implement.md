@@ -12,12 +12,18 @@
 
 1. [x] CR-031局部修复：保留Seat API，只修匿名getter自递归，使用所属车厢位置；增加实际访问及真实运动后更新回归。不以此决定Core/Bukkit座位归属或删除API。
 2. [x] CR-020/033尾项：保留两项坡道接缝场景及步数，改真实50ms exact ticket和独立解析发布位置断言；纠正Train占用与nullable默认frame注释。不全面重写测试套件或Dokka。
-3. [ ] CR-029独立批次：按现有稳定namespaced payload政策明确注册serializer，版本先验、未知类型失败，移除FQCN反射；固定fixture与一次性离线extension转换验证，保持现有版本、不加JAR旧reader。真实样本extension记录为0，旧outer/Basic归属及六条非法曲线不伪称迁移完成。
-4. [ ] 最终收齐Core报告、coverage及问题处置：源码修复、接受的限制、待确定的新能力和跨仓/现场验证分别列出。保留旧事件而不擅自冻结接线合同；网页/.codeabs全量治理留全仓文档审查。全项目任务不归档、不部署。
+3. [x] CR-029独立批次：按现有稳定namespaced payload政策明确注册serializer，版本先验、未知类型失败，移除FQCN反射；固定fixture与一次性离线extension转换验证，保持现有版本、不加JAR旧reader。真实样本extension记录为0，旧outer/Basic归属及六条非法曲线不伪称迁移完成。
+4. [x] 最终收齐Core报告、coverage及问题处置：源码修复、接受的限制、待确定的新能力和跨仓/现场验证分别列出。保留旧事件而不擅自冻结接线合同；网页/.codeabs全量治理留全仓文档审查。全项目任务不归档、不部署。
 
 各批只改上述明确owner文件，复用已有机制，独立验证后小提交；用户无关dirty文件保持。首轮完整静态审查已有覆盖清单，本轮不重新展开Core/Basic全仓审查。
 
 首笔四份Kotlin源码导出独立候选`/tmp/javarailways-core-tail.vUuXOH`（tree `56fdb367c61ee3435fe50e84d781f09588cb74f2`），不含在途CR-029。强制`:Core:test :Basic:test :Core:dokkaGenerateHtml`通过（56秒、16tasks全部执行），新鲜XML Core405、Basic394共799项全部执行，零失败/error/skip；新增Seat回归1项、原两项坡道场景数量不变。暂存源码逐字节与已测候选相同；独立只读检查确认固定坐标、坡比、接缝相等边界及真实epoch/清理正确。沿用workspace缓存、offline/no-cache/rerun/nonincremental/in-process、2workers及1536m/1024m设置；Dokka既有warning保留。未运行平台实体、迁移或游戏验证。
+
+首笔提交`24cf744f`。CR-029随后形成独立候选`/tmp/javarailways-core-codec.IXTrz1`（tree `cfd1b748fd8f9974d3bc0b17c3a2e51da6a4c243`），未携带模型/TODO/docs-site等用户WIP。全量门禁首次通过：Core409、Basic394、SimpleATO356、SimpleATOBukkit8、SimpleSignals487、Bukkit384、Tunnel31，共2069项全执行、零失败/error/skip；Dev编译/test(NO-SOURCE)、Java API consumer、Core Dokka、实际WebUI frontend（复用现有node_modules且未联网安装）和Bukkit shadowJar全部完成。2分43秒、61tasks全部执行；使用约定workspace缓存、offline/no-cache/rerun/nonincremental/in-process/2workers设置，日志`/tmp/javarailways-core-codec.log`。JAR为64,557,000 bytes，包含显式registry、Bukkit注册入口及WebUI bundle；仅构建，未部署。既有warning不掩盖，也不当作全部文档合规。
+
+离线工具6项stdlib测试通过；独立复核修正outer版本前检、fixture物理偏移及imports，最终无确定阻塞。真实本地副本dry-run严格扫描12份runtime、0条extension转换，source/output hash全部一致，记录`/tmp/javarailways-core-extension-dry-run.json`。固定非空旧runtime转换2处，其他值保留，输出`/tmp/javarailways-core-converted-fixture`。随后在同一已测候选中用临时Java审计入口调用真实Bukkit注册及current Kotlin codec：12份真实空runtime与1份转换后非空fixture均成功，验证train/car类型、package hash和held scene保留（2秒、1task执行/23up-to-date，日志`/tmp/javarailways-core-runtime-verify.log`）。该入口只验证DTO，不创建world；不是完整旧outer/Basic迁移、非法曲线修复、真实非空编组或游戏验证，不进入runtime JAR。
+
+9份Kotlin、脚本/测试/固定JSON共13份暂存源与已测候选逐字节一致，之后仅同步规范/任务状态及忽略scripts的__pycache__。限定diff-check和27+27 manifest检查通过；过大规范的自动注入提醒仍保留，相关本批契约直接读取。本轮Core源码审查及已确认缺陷处置完成；接受的扫掠限制、未来事件/Seat归属、全仓文档与Bukkit完整事务覆盖、真实服整体迁移及现场/性能验证由下述报告明确分开，不再重复重开历史已修项，也不归档全项目任务。
 
 ### 最新优先项：统一帧间操作（2026-10-14用户确认，首批已实现）
 

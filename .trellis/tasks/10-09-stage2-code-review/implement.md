@@ -6,6 +6,19 @@
 
 ## 当前执行顺序（2026-10-12用户纠正后）
 
+### Core缺陷收尾（2026-10-14，帧间六批完成之后）
+
+用户要求继续收尾Core，并接受50ms物理步下同速贴靠的保守扫掠误报，不再扩大碰撞算法。复核当前源码而非历史未勾选框，剩余执行范围固定如下：
+
+1. [x] CR-031局部修复：保留Seat API，只修匿名getter自递归，使用所属车厢位置；增加实际访问及真实运动后更新回归。不以此决定Core/Bukkit座位归属或删除API。
+2. [x] CR-020/033尾项：保留两项坡道接缝场景及步数，改真实50ms exact ticket和独立解析发布位置断言；纠正Train占用与nullable默认frame注释。不全面重写测试套件或Dokka。
+3. [ ] CR-029独立批次：按现有稳定namespaced payload政策明确注册serializer，版本先验、未知类型失败，移除FQCN反射；固定fixture与一次性离线extension转换验证，保持现有版本、不加JAR旧reader。真实样本extension记录为0，旧outer/Basic归属及六条非法曲线不伪称迁移完成。
+4. [ ] 最终收齐Core报告、coverage及问题处置：源码修复、接受的限制、待确定的新能力和跨仓/现场验证分别列出。保留旧事件而不擅自冻结接线合同；网页/.codeabs全量治理留全仓文档审查。全项目任务不归档、不部署。
+
+各批只改上述明确owner文件，复用已有机制，独立验证后小提交；用户无关dirty文件保持。首轮完整静态审查已有覆盖清单，本轮不重新展开Core/Basic全仓审查。
+
+首笔四份Kotlin源码导出独立候选`/tmp/javarailways-core-tail.vUuXOH`（tree `56fdb367c61ee3435fe50e84d781f09588cb74f2`），不含在途CR-029。强制`:Core:test :Basic:test :Core:dokkaGenerateHtml`通过（56秒、16tasks全部执行），新鲜XML Core405、Basic394共799项全部执行，零失败/error/skip；新增Seat回归1项、原两项坡道场景数量不变。暂存源码逐字节与已测候选相同；独立只读检查确认固定坐标、坡比、接缝相等边界及真实epoch/清理正确。沿用workspace缓存、offline/no-cache/rerun/nonincremental/in-process、2workers及1536m/1024m设置；Dokka既有warning保留。未运行平台实体、迁移或游戏验证。
+
 ### 最新优先项：统一帧间操作（2026-10-14用户确认，首批已实现）
 
 Core专项源码排查确认：controller换向在worker执行并跳过一整轮movement，主线程reverse另有立即发布路径；controller切换直接改注册表；重命名直接替换train frame；创建/维护摆位直接commit；删除仅进入generic after-commit队列；外部脱轨、手动扳道和轨道事务仅等待当前ticket。上述行为不能统一保证帧间执行。用户批准将这些操作交给协调器安排帧间处理；由此调整当前CR-030主线的前置顺序，Basic全模块后续修复仍暂缓。

@@ -51,10 +51,13 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
     /** Published location at the current tail end. */
     val tailLocation: RailLocation
 
-    /** Direction-independent physical intervals occupied during the latest published physics step. */
+    /** Direction-independent conservative placement at the latest published epoch end, not its swept envelope. */
     val occupiedRailIntervals: List<RailInterval>
 
-    /** Latest complete immutable physical frame; null means aligned geometry is unavailable. */
+    /**
+     * Latest immutable physical frame, or null when an implementation does not provide one.
+     * Core publishes a non-null frame even before alignment; its body traversal can initially be empty.
+     */
     val publishedFrame: TrainFrameSnapshot? get() = null
 
     /** Move along the selected rail path by [deltaS] metres. Called by the owning physics worker. */

@@ -32,7 +32,7 @@ collision-only候选在claim、事件和冻结之前必须通过物理检查：�
 
 当前端部仅贴靠时，还要求本次实际向内位移之和大于0。稳定端A/B按该frame的运营方向映射到head/tail，从既有有序traversal累加弧长；朝该端移动为正，拉开为负。这里不以几何容差过滤微小运动，也不根据controller的下一步输入猜测。维护摆位或解编frame没有移动traversal，因此静止贴靠不会先冻结下一步，随后真实撞入仍走正常碰撞处理。索引只把严格正长度的车体swept区间交集视为直接碰撞；端点相等或容差内近邻也必须走上述检查。普通blocking查询仍保留闭区间及原容差。
 
-这是无额外历史或状态的最小规则，不是完整相对运动碰撞算法：两车同速贴靠时，正长度swept区间仍可能保守重叠并误报碰撞。该既有退化行为另行跟踪，本批不增加逐时刻相对扫掠、解编冷却或临时豁免。必需回归包括正反向移动解编后能拉开、零/非零车钩静止贴靠后真实撞入，以及两车各移动`1e-6m`的真实接触；不能用新增运动阈值漏掉低速碰撞。
+这是无额外历史或状态的最小规则，不是完整相对运动碰撞算法：两车同速贴靠时，正长度swept区间仍可能保守重叠并误报碰撞。用户于2026-10-14明确接受该限制，认为50ms物理步下可忽略，不作为本阶段修复阻塞；不增加逐时刻相对扫掠、解编冷却或临时豁免，也不宣称数学上不存在误报。必需回归包括正反向移动解编后能拉开、零/非零车钩静止贴靠后真实撞入，以及两车各移动`1e-6m`的真实接触；不能用新增运动阈值漏掉低速碰撞。
 
 若一方确实静止而当前端点判定不足，复用该frame的有序移动记录、车体路径及捕获短桥，只准备接近方领车的刚体候选，检查所得head落在同frame的headTraversal内，证明本步确实越过接触点。完整编组重算留在实际联结准备阶段，不对每个近邻预测整列。静止锚点同时要求碰撞前frame的标量及car/bogie速度为0、head/tail没有本步实际移动；不能将正位移后末速0误当作整步静止。两侧都移动时仍可发生body或当前车钩碰撞，但不允许联结，本批不增加连续双车接触时间求解。
 
@@ -154,6 +154,10 @@ head-forward mission route前面，以满足Basic“冻结路线从物理车尾�
 完整删除由`CoreTrain.destroyAsync()`提交协调器帧间操作：移除controller、销毁head/tail/cars/extensions、移除world索引，再刷新共享占用和世界帧。`destroy(): Unit`只提交同一操作；需要确认结果的调用方必须消费Future。`World.removeTrain`只删index并退休process-local render ownership proof，不能独立代表destroy。
 
 每个runtime `CoreTrain`持有不持久化的publication stream UUID；`CoreCar`只用一个`AtomicReference<CoreTrain?>`保存当前owner，公开`Car.train`读取同一引用，render proof从该owner派生UUID，不维护两份归属或全世界索引。构造完整成功后才绑定cars；prepare失败保留旧owner；link转移后移除旧train，split新构造取得其cars。`CoreWorld.removeTrain`按exact旧train实例CAS退休，仅清除仍属自己的car；已转移或同ID替换不受影响。查询/转移均O(1)，整列绑定沿用原cars遍历。原用例覆盖构造/解编失败及成功、旧owner退休和同ID重建；不改变旧link事务、epoch或存档语义。
+
+## 既有Core Seat的位置投影
+
+`CoreCar.addSeat()`保留现有未接入默认玩法的Seat API，不据此决定其与Bukkit乘坐的最终归属。座位位置从所属车厢已发布的position/direction/normal计算，沿原有`-length/4`及`floorHeight + 0.5m`偏移；匿名Seat的getter必须明确读取`this@CoreCar.position`，不能读取自身的`position`而递归。返回独立向量值，不修改车厢状态；普通位置查询不新增持久化、占用表或物理计算。`CoreCarPositioningRegressionTest`以固定水平10m车和真实50ms运动检查座位坐标随车厢发布更新；此测试不代替Bukkit实体/passenger验证。
 
 ## 构造与失败清理
 

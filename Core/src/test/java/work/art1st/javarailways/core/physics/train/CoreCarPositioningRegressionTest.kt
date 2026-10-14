@@ -16,14 +16,57 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.exception.BogieException
 import work.art1st.javarailways.core.api.render.Vector3Snapshot
+import work.art1st.javarailways.core.control.train.MockTrainController
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.RailSegment
 import work.art1st.javarailways.core.physics.rail.RailSegments
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
+import java.util.concurrent.TimeUnit
 
 class CoreCarPositioningRegressionTest {
+    @Test
+    fun `seat position follows the published car through a physical step`() {
+        val coordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val world = try {
+            createTestWorld(coordinator)
+        } catch (failure: Throwable) {
+            try {
+                coordinator.close()
+            } catch (cleanupFailure: Throwable) {
+                failure.addSuppressed(cleanupFailure)
+            }
+            throw failure
+        }
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                coordinator.use {
+                    val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
+                    // The fixture puts the 10m car's ends at x=20 and x=10, with a zero-height floor.
+                    val train = createTrainWithConfig("seat-position", rail, world, listOf(10.0))
+                    val car = train.cars.single()
+                    val seat = world.onOwnerForTest { car.addSeat() }
+                    val initialSeatPosition = Vector3d(seat.position)
+
+                    assertEquals(0.0, initialSeatPosition.distance(Vector3d(12.5, 0.5, 0.0)), 1e-6)
+                    assertEquals(15.0, train.publishedFrame.cars.single().state.positionX, 1e-6)
+                    train.setControllerForTest(MockTrainController(train, world, 10.0))
+                    coordinator.start()
+
+                    val ticket = coordinator.stepSimulation(50.0)
+                    ticket.completion.get(5, TimeUnit.SECONDS)
+
+                    assertEquals(ticket.epoch, train.publishedFrame.physicsEpoch)
+                    assertEquals(15.5, train.publishedFrame.cars.single().state.positionX, 1e-6)
+                    assertEquals(0.0, seat.position.distance(Vector3d(13.0, 0.5, 0.0)), 1e-6)
+                    assertEquals(12.5, initialSeatPosition.x, 1e-6, "an earlier position is not mutated")
+                }
+            }
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = [false, true])
     fun `finite captured path prepares either physical front without reading new turnout selection`(

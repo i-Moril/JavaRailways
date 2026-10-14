@@ -80,7 +80,7 @@ class CoreCar @MainThread internal constructor(
             override val car: Car get() = this@CoreCar
             override val seatIndex: Int get() = seatIndex
             override val position: Vector3dc
-                get() = Vector3d(position).add(
+                get() = Vector3d(this@CoreCar.position).add(
                     direction.mul(seatOffset, Vector3d())
                 ).add(
                     normal.mul(floorHeight + 0.5, Vector3d())

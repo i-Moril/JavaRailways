@@ -37,6 +37,8 @@ fixture使用JOML构造测试几何时，Core以`testFixturesImplementation`声�
 
 ## 测试矩阵与 assertion points
 
+`TrainSlopeJointMotionTest`的两项水平线接坡道场景使用真实50ms exact ticket，不手动调用controller.tick再以live位置冒充完整发布。保留原编组、60/90步与终态跨缝要求，逐步按独立水平长度和坡比解析期望rail、弧长及三维位置，并核对同epoch和未脱轨。物理step在owner作用域外；只为连接操作进入owner。既有完整刚体几何测试另行覆盖轴距和车钩，不把本接缝回归写成完整物理性能测试。
+
 | 主题 | 必需断言 |
 | --- | --- |
 | physics | exact ticket epoch、before/after publication、delta单位/clamp、failure→Stall、finally close |

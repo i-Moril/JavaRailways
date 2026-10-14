@@ -228,6 +228,8 @@
 
 ### CR-020：Core/Basic测试有效性及资源释放缺口
 
+- 最新Core尾项（2026-10-14）已补齐：`TrainSlopeJointMotionTest`原两项改为真实50ms exact ticket，固定初始车头和坡比逐帧检查epoch、rail、弧长、x/高度及未脱轨；原60/90步和最终跨缝要求保留。独立候选Core405/Basic394共799项全执行通过，零失败/error/skip，见执行记录。下方清单为按时序保留的历史，不逐条重开已完成项；RailWand完整跨层事务覆盖留Bukkit审查，不宣称它是新发现Core故障。
+
 - 名称/车体摆位fixture资源子项已修复（2026-10-11）：`TrainNameTest`、`CoreCarPositioningRegressionTest`补局部Unit withWorld及physics→binding→tick清理，原4项业务体/断言/fixture不变。独立静态检查及Core319/Basic385项全部执行通过，零失败/错误/跳过，见implement对应批次；其余资源所有权复核和接缝发布断言仍待推进，CR-020保持partial。
 
 - 五类轨道fixture资源子项已修复（2026-10-11）：`RailTopologyEditorTest`、`PhysOvalConnectionTest`、`RailLocationPersistTest`、`RailLocationPeekCurveTest`、`RailDirectionRestrictionTest`按既有合同配对释放world资源，Persist私有helper接受受管world。原11项业务动作/断言不变，独立静态检查及完整Core319/Basic385项全部执行通过，零失败/错误/跳过，见implement对应批次。`TrainNameTest`、`CoreCarPositioningRegressionTest`等其余fixture仍开放，不宣称整个资源清单完成。
@@ -355,10 +357,12 @@
 
 #### 后续边界：同速贴靠时的保守扫掠误报
 
-- P3后续评估，非本批新增机制。源码依据：`SweptOccupancyIndex`对严格正长度的同轨body swept交集直接认定碰撞；两个同速同向且端部贴靠的编组，其单帧扫掠区间可能正长度相交，即使它们在同一时刻并未互相穿入。此结论来自区间语义分析，未增加专项动态复现，不冒称已验证全部相对运动情况。
+- 本阶段接受的限制（2026-10-14用户确认），非待修阻塞或本批新增机制。源码依据：`SweptOccupancyIndex`对严格正长度的同轨body swept交集直接认定碰撞；两个同速同向且端部贴靠的编组，其单帧扫掠区间可能正长度相交，即使它们在同一时刻并未互相穿入。用户认为50ms物理步下可忽略，本阶段不再扩展；此结论来自区间语义分析，未增加专项动态复现，不冒称不存在误报。
 - 用户选择不增加复杂度后，本批只处理端点贴靠的实际闭合判定，保留保守正长度交集。若以后修复，须单独评估相对运动/经过时序算法，不能靠删掉真实body碰撞、split冷却、临时豁免或预测下一次输入绕过。
 
 ### CR-031：Core Seat.position自递归
+
+- **递归缺陷已修复并验证（2026-10-14）**：明确读取`this@CoreCar.position`，保持现有偏移/朝向及公开API。固定水平10m车的Seat坐标从`(12.5,0.5,0)`经真实50ms运动变为`(13,0.5,0)`，并核对同epoch车厢发布；独立候选Core405/Basic394全执行通过。下方源码行号保留为发现基线，不再代表当前getter。Core/Bukkit座位最终归属及删除建议仍未决定，不作为继续保留递归bug的理由，也不因该修复声称Bukkit乘坐完成现场验收。
 
 - P2/P3；静态确定，未执行；无当前生产Core Seat consumer，Bukkit座位是另一条路径。
 - `CoreCar.kt:61-70`匿名Seat getter中Vector3d(position)读取自身，访问会递归至栈溢出。

@@ -214,7 +214,8 @@ with two true entrances sharing one block token and occupancy; independent per-e
   keeps existing directed behavior. Reverse entry uses the same physical resource but may bind its own independently
   configured rule; no second direction-specific token. A reverse-facing display alone still does not enable this control.
 - Provide a separate measurement tool showing both the straight-line distance and the along-track
-  distance between two selected rail positions. Path choice at branches must be discussed rather than silently assumed.
+  distance between two selected rail positions. Confirmed 2026-10-14: choose the physical shortest path automatically,
+  independently of the current turnout selection, without moving turnouts or acquiring train resources.
 - Like RailWand, allow editing the signal Wand's default style for future placement and editing the style
   of an already placed signal. Default-setting changes must not silently restyle existing devices;
   existing per-device placement/preset-copy behavior remains applicable.
@@ -357,7 +358,7 @@ must not borrow the opposite end's output. These extension boundaries are record
   扁平数组或 SCC/fixed-point 方案。仍待逐批实现和验证的是具体 loader/runtime 类边界、未冻结的字段名、
   跨包解析诊断、上下文生命周期，以及它们与现有 publication/edit 事务的接线；以
   [JS owner 契约](../../spec/simple-signals/backend/js-signal-rules.md)为准。
-- Guided authoring interaction/API, measurement path selection,
+- Guided authoring interaction/API,
   protection-region route/device editing and editor visualization. Confirmed player-facing requirements are recorded above;
   these unresolved details must be reviewed before the authoring implementation batch.
 - Arbitrary model instance parameters. Production model binding is complete offline; actual Folia/client presentation remains to be verified.
@@ -401,7 +402,7 @@ Signal Wand 是一种通用物品，不按信号类型发放不同工具。信�
 宿主已经提供 `InfrastructureResourceService.selectTurnout`，不需要为此重复实现一套资源锁或行车授权。
 保护区域信号和附属信号的左键绑定、右键放置操作已确认，见上方要求。
 信号规则预设/模板选择暂时搁置，不实施该建议、不预留字段，也不作为道岔工具的前置条件。
-测距选路及其余可视化细节仍需后续讨论。
+测距选路已于2026-10-14确认采用物理最短路；其余可视化细节仍需后续讨论。
 
 None for the route-restriction foundation. Sources compile immutable neutral contributions before search; no plugin callback is evaluated during graph expansion. Owner/world registration now shares the existing signal lifecycle, and the plugin restores its strict current-model route-table sidecar before publishing the compiled source; invalid persisted policy leaves a rejecting source installed. Authoring and runtime route/resource policy remain later reviewable batches.
 

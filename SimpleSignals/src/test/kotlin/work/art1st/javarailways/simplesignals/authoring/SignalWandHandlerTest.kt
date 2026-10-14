@@ -27,6 +27,11 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.bukkit.api.rail.RailTarget
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
+import work.art1st.javarailways.bukkit.api.model.ModelDefinition
+import work.art1st.javarailways.bukkit.api.model.ModelPose
+import work.art1st.javarailways.simplesignals.presentation.LoadedPackageModel
+import work.art1st.javarailways.simplesignals.presentation.RailPlacementModel
+import work.art1st.javarailways.simplesignals.presentation.RailPlacementPreset
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
@@ -72,6 +77,12 @@ class SignalWandHandlerTest {
             binding = RouteIndicatorSignalWandBinding(f.worldId, "test:entry", "test:indicator", 4))
         assertEquals(attached, SignalWandHandler.decodeState(SignalWandHandler.encodeState(attached)))
         assertEquals(indicator, SignalWandHandler.decodeState(SignalWandHandler.encodeState(indicator)))
+        val preset = state.copy(railPreset = SignalWandRailPreset("test:primary", "right",
+            ModelPose(1.0, 2.0, 3.0, 0.0, 0.0, 1.0, 0.0), true))
+        val encodedPreset = SignalWandHandler.encodeState(preset)
+        assertEquals(preset, SignalWandHandler.decodeState(encodedPreset))
+        assertNull(SignalWandHandler.decodeState(encodedPreset.replace("\"rotationZ\":1.0", "\"rotationZ\":2.0")))
+        assertNull(SignalWandHandler.decodeState(encodedPreset.replace("\"name\":\"right\"", "\"name\":\" \"")))
         assertNull(SignalWandHandler.decodeState("not json"))
         assertNull(SignalWandHandler.decodeState(
             """{"itemId":"${state.itemId}","stateRevision":-1,"mode":"PLACEMENT","signalType":"test:a"}"""))
@@ -168,9 +179,9 @@ class SignalWandHandlerTest {
         assertEquals(listOf("Mode: placement", "Mode: deletion", "Control: fixed-block primary",
             "Control: protection current-entry primary", "Control: protection fixed-route primary",
             "Control: attached signal", "Control: route indicator",
-            "test:a — A", "test:z — Z", "Presentation model: test:model"),
+            "test:a — A", "test:z — Z", "Presentation model: test:model", "Rail placement: unadjusted"),
             f.settings.map { it.label })
-        assertEquals(listOf(true, false, true, false, false, false, false, false, true, false),
+        assertEquals(listOf(true, false, true, false, false, false, false, false, true, false, true),
             f.settings.map { it.selected })
         f.choose!!(SignalWandSettingAction.Type("test:a"))
         f.drainOwners()
@@ -184,6 +195,126 @@ class SignalWandHandlerTest {
         f.drainOwners()
         assertEquals(2L, f.tool.stateRevision)
         assertEquals("test:model", f.tool.presentationModelId)
+    }
+
+    @Test fun `rail preset settings copy sorted immutable values without editing devices and can explicitly reapply or clear`() = Fixture().use { f ->
+        val offset = ModelPose(0.0, 1.0, 2.0, 0.0, 0.0, 0.0, 1.0)
+        val source = linkedMapOf("right" to RailPlacementPreset(offset),
+            "left" to RailPlacementPreset(ModelPose.IDENTITY, false))
+        f.models = mapOf("test:primary" to railModel("test:primary", source, followRailTilt = true))
+        val capturedProjection = f.models.getValue("test:primary")
+        source.clear()
+        assertEquals(listOf("left", "right"), capturedProjection.presets.keys.toList())
+        assertThrows(UnsupportedOperationException::class.java) {
+            (capturedProjection.presets as MutableMap<String, RailPlacementPreset>).clear()
+        }
+        f.handler.openSettings(f.player, f.tool)
+        assertEquals(listOf("Rail placement: unadjusted", "Rail placement: left", "Rail placement: right"),
+            f.settings.takeLast(3).map { it.label })
+        f.choose!!(SignalWandSettingAction.RailPreset("test:primary", "right")); f.drainOwners()
+        assertEquals(SignalWandRailPreset("test:primary", "right", offset, true), f.tool.railPreset)
+        assertEquals(f.binding, f.tool.binding)
+        assertEquals(1L, f.tool.stateRevision)
+        assertEquals(0, f.performs)
+        assertTrue(f.workers.isEmpty())
+        assertTrue(SignalWandHandler.statusText(f.tool, f.available, f.modelIds).toString().contains("rail-only preset: right"))
+        f.handler.openSettings(f.player, f.tool)
+        assertTrue(f.settings.last().selected)
+
+        val replacement = RailPlacementPreset(ModelPose.IDENTITY, false)
+        f.models = mapOf("test:primary" to railModel("test:primary", mapOf("right" to replacement)))
+        assertEquals(offset, f.tool.railPreset!!.adjustment)
+        f.choose!!(SignalWandSettingAction.RailPreset("test:primary", "right")); f.drainOwners()
+        assertEquals(SignalWandRailPreset("test:primary", "right", ModelPose.IDENTITY, false), f.tool.railPreset)
+        f.handler.openSettings(f.player, f.tool)
+        f.choose!!(SignalWandSettingAction.ClearRailPreset); f.drainOwners()
+        assertNull(f.tool.railPreset)
+        assertEquals(f.binding, f.tool.binding)
+        assertEquals(0, f.performs)
+        f.click()
+        f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0)))
+        f.drainOwners(); f.drainWorkers(); f.drainOwners()
+        val placement = f.placements.single() as ModelPlacement.RailAttached
+        assertEquals(ModelPose.IDENTITY, placement.adjustment)
+        assertFalse(placement.followRailTilt)
+    }
+
+    @Test fun `preset callbacks reject stale items missing presets and changed effective model`() = Fixture().use { f ->
+        fun withPreset() = railModel("test:primary", mapOf("right" to RailPlacementPreset(ModelPose.IDENTITY)))
+        f.models = mapOf("test:primary" to withPreset())
+        val original = f.tool
+        f.handler.openSettings(f.player, original)
+        val firstCallback = f.choose!!
+        f.tool = original.copy(stateRevision = 1)
+        firstCallback(SignalWandSettingAction.RailPreset("test:primary", "right")); f.drainOwners()
+        assertNull(f.tool.railPreset)
+        f.tool = original
+        f.handler.openSettings(f.player, f.tool)
+        f.models = mapOf("test:primary" to railModel("test:primary", emptyMap()))
+        f.choose!!(SignalWandSettingAction.RailPreset("test:primary", "right")); f.drainOwners()
+        assertEquals(original, f.tool)
+        assertTrue(f.messages.last().toString().contains("no longer available"))
+        f.models = mapOf("test:primary" to withPreset())
+        f.handler.openSettings(f.player, f.tool)
+        f.primaryModels = mapOf("test:a" to "test:other")
+        f.choose!!(SignalWandSettingAction.RailPreset("test:primary", "right")); f.drainOwners()
+        assertEquals(original, f.tool)
+    }
+
+    @Test fun `effective model switches clear preferences but unrelated settings retain them`() = Fixture().use { f ->
+        val copied = SignalWandRailPreset("test:primary", "right", ModelPose.IDENTITY, false)
+        f.tool = f.tool.copy(railPreset = copied)
+        fun select(action: SignalWandSettingAction) {
+            f.handler.openSettings(f.player, f.tool)
+            f.choose!!(action); f.drainOwners()
+        }
+        select(SignalWandSettingAction.Model("test:model"))
+        assertEquals(copied, f.tool.railPreset) // primary model is selected by signal type
+        select(SignalWandSettingAction.Mode(SignalWandMode.DELETION))
+        assertEquals(copied, f.tool.railPreset)
+        f.primaryModels = mapOf("test:a" to "test:primary", "test:b" to "test:primary")
+        select(SignalWandSettingAction.Type("test:b"))
+        assertEquals(copied, f.tool.railPreset)
+        f.primaryModels = mapOf("test:a" to "test:other", "test:b" to "test:primary")
+        select(SignalWandSettingAction.Type("test:a"))
+        assertNull(f.tool.railPreset)
+        f.tool = f.tool.copy(railPreset = copied)
+        select(SignalWandSettingAction.ControlKind(SignalWandControlKind.ATTACHED_SIGNAL))
+        assertNull(f.tool.railPreset) // model-only namespace is not the signal-pack namespace
+        f.tool = f.tool.copy(railPreset = copied.copy(modelId = "test:model"))
+        select(SignalWandSettingAction.Type("test:b"))
+        assertEquals("test:model", f.tool.railPreset!!.modelId)
+        f.modelIds = listOf("test:model", "test:other")
+        select(SignalWandSettingAction.Model("test:other"))
+        assertNull(f.tool.railPreset)
+        assertEquals(0, f.performs)
+    }
+
+    @Test fun `rail placement uses copied preference after source removal while ground placement ignores it`() = Fixture().use { f ->
+        val adjustment = ModelPose(0.0, 1.0, 2.0, 0.0, 0.0, 1.0, 0.0)
+        f.models = mapOf("test:primary" to railModel("test:primary", mapOf("right" to RailPlacementPreset(adjustment, true))))
+        f.handler.openSettings(f.player, f.tool)
+        f.choose!!(SignalWandSettingAction.RailPreset("test:primary", "right")); f.drainOwners()
+        f.models = mapOf("test:primary" to railModel("test:primary", emptyMap()))
+        f.click()
+        f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0)))
+        f.drainOwners(); f.drainWorkers(); f.drainOwners()
+        val railPlacement = f.placements.single() as ModelPlacement.RailAttached
+        assertEquals(adjustment, railPlacement.adjustment)
+        assertTrue(railPlacement.followRailTilt)
+        assertEquals(2.0, railPlacement.position.arcLengthInAbMeters)
+        val ground = SignalWandHandler.groundPlacement(10, 63, -4, BlockFace.EAST, 0f)
+        f.handler.click(f.player, f.tool, Action.RIGHT_CLICK_BLOCK, ground)
+        f.drainWorkers(); f.drainOwners()
+        assertEquals(ground, f.placements.last())
+        assertEquals(1, f.targetCalls)
+        f.primaryModels = mapOf("test:a" to "test:other")
+        f.target = CompletableFuture()
+        f.click()
+        f.target.complete(Optional.of(RailTarget(f.rail, 3.0, 0.0)))
+        f.drainOwners(); f.drainWorkers(); f.drainOwners()
+        assertEquals(2, f.performs)
+        assertTrue(f.messages.last().toString().contains("model changed"))
     }
 
     @Test fun `settings callback rejects swapped revised removed unauthorized disabled and overflow state`() = Fixture().use { f ->
@@ -461,6 +592,8 @@ class SignalWandHandlerTest {
         val placements = mutableListOf<ModelPlacement>()
         var available: List<AvailableSignalType>? = DEFAULT_TYPES
         var modelIds: List<String>? = listOf("test:model")
+        var primaryModels = mapOf("test:a" to "test:primary", "test:b" to "test:other")
+        var models = listOf("test:primary", "test:other", "test:model").associateWith { railModel(it, emptyMap()) }
         val messages = mutableListOf<Component>()
         val actionBars = mutableListOf<Component>()
         val given = mutableListOf<SignalWandState>()
@@ -516,6 +649,11 @@ class SignalWandHandlerTest {
         private val backend = object : SignalWandBackend {
             override fun availableSignalTypes() = available
             override fun availableModelIds() = modelIds
+            override fun railPlacementModel(controlKind: SignalWandControlKind, signalType: String,
+                modelId: String?): RailPlacementModel? = models[when (controlKind) {
+                SignalWandControlKind.ATTACHED_SIGNAL, SignalWandControlKind.ROUTE_INDICATOR -> modelId
+                else -> primaryModels[signalType]
+            }]
             override fun capture(worldId: UUID, signalType: String, modelId: String?): SignalWandCapture {
                 require(available?.any { it.signalType == signalType } == true)
                 require(modelId == null || modelIds?.contains(modelId) == true)
@@ -580,6 +718,10 @@ class SignalWandHandlerTest {
     }
 
     companion object {
+        private fun railModel(id: String, presets: Map<String, RailPlacementPreset>, followRailTilt: Boolean = false) =
+            RailPlacementModel.from(LoadedPackageModel(id, ModelDefinition(emptyList()), emptyMap(), emptyMap(),
+                followRailTilt, presets))
+
         private val command = object : Command("simplesignals") {
             override fun execute(sender: org.bukkit.command.CommandSender, label: String, args: Array<out String>) = true
         }

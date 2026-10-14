@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simplesignals.signalpack
 
+import work.art1st.javarailways.simplesignals.presentation.RailPlacementModel
+
 /** Minimal immutable catalog projection suitable for commands and authoring tools. */
 internal class SignalTypeCatalogSnapshot private constructor(
     private val catalogIdentity: SignalPackCatalog,
@@ -12,6 +14,9 @@ internal class SignalTypeCatalogSnapshot private constructor(
     private val signalTypeIds = java.util.Set.copyOf(this.signalTypes.map(AvailableSignalType::signalType))
 
     fun contains(signalType: String): Boolean = signalTypeIds.contains(signalType)
+
+    fun railPlacementModel(signalType: String): RailPlacementModel? =
+        catalogIdentity.signals[signalType]?.model?.presentation?.let(RailPlacementModel::from)
 
     internal fun represents(catalog: SignalPackCatalog): Boolean = catalogIdentity === catalog
 

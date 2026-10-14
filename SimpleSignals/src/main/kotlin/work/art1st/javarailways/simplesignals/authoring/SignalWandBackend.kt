@@ -7,6 +7,7 @@ import work.art1st.javarailways.simplesignals.command.SimpleSignalsAdminCommand
 import work.art1st.javarailways.simplesignals.presentation.DeviceModelDefinition
 import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
 import work.art1st.javarailways.simplesignals.presentation.ModelTypeCatalogSnapshot
+import work.art1st.javarailways.simplesignals.presentation.RailPlacementModel
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionAuthoringStatus
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionPatch
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsRuntimePublication
@@ -31,6 +32,7 @@ internal data class SignalWandChoice(val binding: SignalWandBinding, val label: 
 internal interface SignalWandBackend {
     fun availableSignalTypes(): List<AvailableSignalType>?
     fun availableModelIds(): List<String>?
+    fun railPlacementModel(controlKind: SignalWandControlKind, signalType: String, modelId: String?): RailPlacementModel?
     fun capture(worldId: UUID, signalType: String, modelId: String? = null): SignalWandCapture
     fun current(capture: SignalWandCapture): Boolean
     fun resolveEntrance(
@@ -79,6 +81,13 @@ internal class RuntimeSignalWandBackend(
         manager.signalTypeCatalogSnapshot()?.signalTypes
 
     override fun availableModelIds(): List<String>? = manager.modelTypeCatalogSnapshot()?.modelIds
+
+    override fun railPlacementModel(controlKind: SignalWandControlKind, signalType: String,
+        modelId: String?): RailPlacementModel? = when (controlKind) {
+        SignalWandControlKind.ATTACHED_SIGNAL, SignalWandControlKind.ROUTE_INDICATOR ->
+            modelId?.let { manager.modelTypeCatalogSnapshot()?.railPlacementModel(it) }
+        else -> manager.signalTypeCatalogSnapshot()?.railPlacementModel(signalType)
+    }
 
     override fun capture(worldId: UUID, signalType: String, modelId: String?): SignalWandCapture {
         val catalog = manager.signalTypeCatalogSnapshot()

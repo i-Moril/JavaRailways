@@ -16,6 +16,7 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 两步绑定／摆放、新建、精确更新与级联删除；附属信号已支持从已摆放主信号选择后独立新建／更新／删除，
 既有进路表示器可从有向入口选择后改位、换模型或删除。右键空气/轨道使用轨道附着，右键真实方块面使用面中心和玩家水平朝向的地面姿态；
 二者复用相同定义事务和模型生命周期。进路表示器新建仍等待明确的进路外观映射作者界面。
+Signal Wand设置页已接入命名轨道摆放预设：选择时复制参数到物品，明确rail放置/更新时应用；不重写旧设备、不影响ground，也不新增tick扫描。自由实例参数编辑仍未实现，机制归[工具契约](section-authoring-wands.md#命名轨道摆放预设的设置页接线current)。
 用户已确认距离敏感规则使用 JS，不扩展距离条件配置表；[JS 规则契约](js-signal-rules.md)中的统一包加载、独立
 GraalJS 沙箱、有向区间图到不可变前视树的编译，以及真实 world publication 到连接图的准备均已实现。
 同步 signal epoch 填值、JS 求值以及 catalog-backed 主信号的模型绑定已接线；区间环和正长度无区间环都只停止命中分支。真实 Folia/客户端画面

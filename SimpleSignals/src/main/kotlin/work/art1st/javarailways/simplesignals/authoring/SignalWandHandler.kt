@@ -53,6 +53,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simplesignals.region.SIMPLE_SIGNALS_NAMESPACED_ID
 import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
+import work.art1st.javarailways.simplesignals.presentation.RailPlacementPreset
 import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
 import work.art1st.javarailways.simplesignals.signalpack.AvailableSignalType
 import java.util.Optional
@@ -157,6 +158,8 @@ internal class SignalWandHandler(
         if (available.isEmpty()) {
             player.sendMessage(Component.text("No signal types are available")); return
         }
+        val railModel = backend.railPlacementModel(openingState.controlKind, openingState.signalType,
+            openingState.presentationModelId)
         val settings = SignalWandMode.entries.map { mode ->
             SignalWandSetting(SignalWandSettingAction.Mode(mode), "Mode: ${mode.label}", mode == openingState.mode)
         } + SignalWandControlKind.entries.map { kind ->
@@ -168,6 +171,12 @@ internal class SignalWandHandler(
         } + backend.availableModelIds().orEmpty().map { modelId ->
             SignalWandSetting(SignalWandSettingAction.Model(modelId),
                 "Presentation model: $modelId", modelId == openingState.presentationModelId)
+        } + SignalWandSetting(SignalWandSettingAction.ClearRailPreset, "Rail placement: unadjusted",
+            openingState.railPreset == null) + railModel?.presets.orEmpty().keys.map { name ->
+            SignalWandSetting(SignalWandSettingAction.RailPreset(checkNotNull(railModel).modelId, name),
+                "Rail placement: $name", openingState.railPreset?.let {
+                    it.modelId == railModel.modelId && it.name == name
+                } == true)
         }
         showSettings(player, settings) { action ->
             entity(player) { selectSetting(player, openingState, action) }
@@ -195,6 +204,14 @@ internal class SignalWandHandler(
             backend.availableModelIds()?.contains(action.modelId) != true) {
             player.sendMessage(Component.text("Presentation model is no longer available: ${action.modelId}")); return
         }
+        val selectedPreset = if (action is SignalWandSettingAction.RailPreset) {
+            val model = backend.railPlacementModel(current.controlKind, current.signalType, current.presentationModelId)
+            val preset = model?.takeIf { it.modelId == action.modelId }?.presets?.get(action.name)
+            if (preset == null) {
+                player.sendMessage(Component.text("Rail placement preset is no longer available: ${action.name}")); return
+            }
+            SignalWandRailPreset(action.modelId, action.name, preset.adjustment, checkNotNull(preset.followRailTilt))
+        } else null
         val revision = try {
             Math.addExact(current.stateRevision, 1L)
         } catch (_: ArithmeticException) {
@@ -209,16 +226,26 @@ internal class SignalWandHandler(
             is SignalWandSettingAction.ControlKind -> current.copy(
                 stateRevision = revision,
                 controlKind = action.controlKind,
-                binding = if (action.controlKind == current.controlKind) current.binding else null
+                binding = if (action.controlKind == current.controlKind) current.binding else null,
+                railPreset = if (action.controlKind == current.controlKind) current.railPreset else null
             )
             is SignalWandSettingAction.Type -> current.copy(
                 stateRevision = revision,
-                signalType = action.signalType
+                signalType = action.signalType,
+                railPreset = current.railPreset?.takeIf { preset ->
+                    backend.railPlacementModel(current.controlKind, action.signalType,
+                        current.presentationModelId)?.modelId == preset.modelId
+                }
             )
             is SignalWandSettingAction.Model -> current.copy(
                 stateRevision = revision,
-                presentationModelId = action.modelId
+                presentationModelId = action.modelId,
+                railPreset = current.railPreset?.takeIf { preset ->
+                    backend.railPlacementModel(current.controlKind, current.signalType, action.modelId)?.modelId == preset.modelId
+                }
             )
+            is SignalWandSettingAction.RailPreset -> current.copy(stateRevision = revision, railPreset = selectedPreset)
+            SignalWandSettingAction.ClearRailPreset -> current.copy(stateRevision = revision, railPreset = null)
         }
         if (!replaceToolState(player, current, replacement)) {
             player.sendMessage(Component.text("Signal Wand settings expired; reopen the settings page")); return
@@ -230,6 +257,8 @@ internal class SignalWandHandler(
             is SignalWandSettingAction.ControlKind -> "Signal Wand control selected: ${action.controlKind.label}"
             is SignalWandSettingAction.Type -> "Signal Wand type selected: ${action.signalType}"
             is SignalWandSettingAction.Model -> "Signal Wand presentation model selected: ${action.modelId}"
+            is SignalWandSettingAction.RailPreset -> "Signal Wand rail placement selected: ${action.name}"
+            SignalWandSettingAction.ClearRailPreset -> "Signal Wand rail placement reset to unadjusted"
         }))
     }
 
@@ -377,9 +406,17 @@ internal class SignalWandHandler(
                                         completeBinding(choices.single().binding)
                                     } else continueChoice(choices, deleting = false)
                                 }
-                                SignalWandOperation.PLACE -> complete(
-                                    backend.place(captured, checkNotNull(state.binding),
-                                        ModelPlacement.RailAttached(point), ::active).message)
+                                SignalWandOperation.PLACE -> {
+                                    val placement = state.railPreset?.let { preset ->
+                                        require(backend.railPlacementModel(state.controlKind, state.signalType,
+                                            state.presentationModelId)?.modelId == preset.modelId) {
+                                            "Rail placement model changed; select a preset again or clear it"
+                                        }
+                                        ModelPlacement.RailAttached(point).applyPreset(
+                                            RailPlacementPreset(preset.adjustment, preset.followRailTilt))
+                                    } ?: ModelPlacement.RailAttached(point)
+                                    complete(backend.place(captured, checkNotNull(state.binding), placement, ::active).message)
+                                }
                                 SignalWandOperation.DELETE -> {
                                     val choices = backend.resolveEntrance(captured, state.controlKind, state.mode, point)
                                     if (state.controlKind == SignalWandControlKind.FIXED_BLOCK) {
@@ -520,7 +557,13 @@ internal class SignalWandHandler(
                 state.controlKind.name,
                 state.signalType,
                 state.binding?.toPersisted(),
-                state.presentationModelId
+                state.presentationModelId,
+                state.railPreset?.let { preset ->
+                    val pose = preset.adjustment
+                    PersistedSignalWandRailPreset(preset.modelId, preset.name,
+                        pose.x(), pose.y(), pose.z(), pose.rotationX(), pose.rotationY(), pose.rotationZ(),
+                        pose.rotationW(), preset.followRailTilt)
+                }
             )
         )
 
@@ -533,7 +576,10 @@ internal class SignalWandHandler(
                 SignalWandControlKind.valueOf(persisted.controlKind),
                 persisted.signalType,
                 persisted.binding?.toDomain(),
-                persisted.presentationModelId
+                persisted.presentationModelId,
+                persisted.railPreset?.let { preset -> SignalWandRailPreset(preset.modelId, preset.name,
+                    ModelPose(preset.x, preset.y, preset.z, preset.rotationX, preset.rotationY, preset.rotationZ,
+                        preset.rotationW), preset.followRailTilt) }
             )
         } catch (_: Exception) {
             null
@@ -579,16 +625,17 @@ internal class SignalWandHandler(
                 " | model: $it$modelSuffix"
             } ?: " | model: none"
             return Component.text("Signal Wand | mode: ${state.mode.label} | control: ${state.controlKind.label} | " +
-                "type: ${state.signalType}$suffix$model$binding")
+                "type: ${state.signalType}$suffix$model | rail-only preset: ${state.railPreset?.name ?: "none"}$binding")
         }
 
         internal fun decorate(meta: org.bukkit.inventory.meta.ItemMeta, state: SignalWandState) {
             meta.lore(listOf(
-                Component.text("Shift-right-click: mode, control, signal type and model"),
+                Component.text("Shift-right-click: mode, control, signal type, model and rail preset"),
                 Component.text("Mode: ${state.mode.label}"),
                 Component.text("Control: ${state.controlKind.label}"),
                 Component.text("Selected type: ${state.signalType}"),
                 Component.text("Presentation model: ${state.presentationModelId ?: "none"}"),
+                Component.text("Rail-only preset: ${state.railPreset?.name ?: "none"}"),
                 Component.text(state.binding?.let { "Bound: ${it.description()}" } ?: "Bound: none")
             ))
             meta.setEnchantmentGlintOverride(state.binding != null)
@@ -685,7 +732,8 @@ internal data class SignalWandState(
     val controlKind: SignalWandControlKind,
     val signalType: String,
     val binding: SignalWandBinding? = null,
-    val presentationModelId: String? = null
+    val presentationModelId: String? = null,
+    val railPreset: SignalWandRailPreset? = null
 ) {
     init {
         require(stateRevision >= 0L) { "stateRevision must be non-negative" }
@@ -700,6 +748,19 @@ internal data class SignalWandState(
             SignalWandControlKind.ATTACHED_SIGNAL -> binding is AttachedSignalWandBinding
             SignalWandControlKind.ROUTE_INDICATOR -> binding is RouteIndicatorSignalWandBinding
         }) { "binding kind must match controlKind" }
+    }
+}
+
+/** Item-bound copied values, not a reference to a model's current preset table. */
+internal data class SignalWandRailPreset(
+    val modelId: String,
+    val name: String,
+    val adjustment: ModelPose,
+    val followRailTilt: Boolean
+) {
+    init {
+        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(modelId)) { "preset modelId must be namespaced" }
+        require(name.isNotBlank()) { "preset name must not be blank" }
     }
 }
 
@@ -817,7 +878,17 @@ private data class PersistedSignalWandState(
     val controlKind: String,
     val signalType: String,
     val binding: PersistedSignalWandBinding? = null,
-    val presentationModelId: String? = null
+    val presentationModelId: String? = null,
+    val railPreset: PersistedSignalWandRailPreset? = null
+)
+
+@Serializable
+private data class PersistedSignalWandRailPreset(
+    val modelId: String,
+    val name: String,
+    val x: Double, val y: Double, val z: Double,
+    val rotationX: Double, val rotationY: Double, val rotationZ: Double, val rotationW: Double,
+    val followRailTilt: Boolean
 )
 
 @Serializable
@@ -922,6 +993,8 @@ internal sealed interface SignalWandSettingAction {
     data class ControlKind(val controlKind: SignalWandControlKind) : SignalWandSettingAction
     data class Type(val signalType: String) : SignalWandSettingAction
     data class Model(val modelId: String) : SignalWandSettingAction
+    data class RailPreset(val modelId: String, val name: String) : SignalWandSettingAction
+    data object ClearRailPreset : SignalWandSettingAction
 }
 
 private enum class SignalWandOperation { BIND, PLACE, DELETE }

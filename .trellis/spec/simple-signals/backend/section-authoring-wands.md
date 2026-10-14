@@ -12,7 +12,7 @@ Signal Wand 已把逻辑入口与模型位置分成两步，覆盖固定闭塞�
 SimpleATO 的 inspection threshold 取 `max(reachableDistance(leadTime), dynamicLookahead)`，route perception horizon 也取
 controller 制动／反应／安全距离与 `maxSpeed * leadTime` 的最大值，而不是把两者相加。同步信号求值本身没有 setup delay；
 因此0秒只是不抬高这两个既有 minimum horizon，固定闭塞授权 floor 和入口停车约束也不消失，所以该值不是临时占位。
-测距、inspection lead time 编辑、摆放预设/样式、进路表示器新建和完整轨道可视化仍未实现；
+命名轨道摆放预设已接入设置页；测距、inspection lead time 编辑、自由摆放/样式参数编辑、进路表示器新建和完整轨道可视化仍未实现；
 进路录制另见[录制合同](current-route-recording.md)。
 本批离线门禁与审查结果记录在任务 `implement.md`，不代表真实 Folia 客户端验证。
 
@@ -107,6 +107,20 @@ Wand 编辑流程的图搜索、候选编译、JSON 和文件 I/O 均在 worker�
 join、切槽、换手、背包点击、丢弃、拾取和交互后在玩家 owner 上刷新；离手、权限/插件/玩家失效、entity retired、quit
 或插件关闭时取消。状态栏任务与一次编辑 session 相互独立；它只是 SimpleSignals 工具显示，不是宿主级 action-bar 仲裁 API。
 
+### 命名轨道摆放预设的设置页接线（CURRENT）
+
+本批只把已有命名预设接到Signal Wand，不新增渲染器、任意角度输入或共享样式继承。主信号从当前`signalType`的catalog模型取得预设，附属信号/既有进路表示器从当前`presentationModelId`的model-only catalog取得预设。设置页按预设名稳定排序并列出清除选择项；提供不可变的模型身份、名称、局部`ModelPose`及已确定的倾斜值，不把模型树交给玩家UI。
+
+选择在玩家owner重新核对完整物品状态和当前catalog项，再将当时参数复制到物品偏好（概念形状：`modelId + name + adjustment + followRailTilt`），增加现有stateRevision并使旧continuation失效。显式预设的倾斜取预设值，再取其模型默认，再回退竖直；清除偏好保持原有无偏移/竖直轨道摆放行为。偏好随物品保存，不建立玩家全局设置或另一个存档边界，不升未发布PDC/世界schema，也不加旧开发reader。
+
+仅修改设置不改任何已放设备。下一次明确的rail放置/更新以本次选轨位置构造`RailAttached`，调用既有`applyPreset`复制保存的值，继续走原manager patch；不重读包中的预设来动态继承。原预设被修改或删除不改变物品中已有复制值和已摆设备；主动选择/重新选择预设时必须在当前表中找到。控制来源、类型或模型改变导致有效模型改变时清除旧偏好，不将前一模型预设静默用于另一模型。模式切换可以保留偏好，逻辑binding仍按原规则处理。
+
+Ground保持方块面捕获的绝对姿态，忽略rail预设。状态栏标明预设只适用于rail。主信号ID、控制区间/入口/进路、lead time、表示器映射和其他设备不因预设改变；旧物品回调、模型/catalog失效及事务拒绝仍保留原磁盘和live状态。
+
+例如选择右偏2米的预设后，包作者把该预设改为右偏3米，已有物品和设备仍保存2米；玩家在设置页重新选择才复制3米。切换到另一个实际模型时清除旧偏好；直接右键方块面则始终使用方块面姿态，不叠加这2米轨道偏移。
+
+预设投影为`RailPlacementModel(modelId, presets)`，`presets`是按名称排序的不可修改参数表；物品偏好为`SignalWandRailPreset(modelId, name, adjustment, followRailTilt)`。查询投影会复制并排序该模型的预设，P个预设成本为O(P log P)，只在设置/放置交互执行，不增加tick扫描。单次应用复制参数不扫描其他设备。必需断言包括选项排序和有效模型来源、PDC round-trip、过期选择拒绝、设置不写定义、复制值不随源改变、ground不变，以及真实manager保存参数且保留逻辑binding和无关设备。既有数值算法测试不复制一套；本批不声称完成自由实例参数编辑、测距或真实客户端验证。
+
 ## 6. 删除与失效处理
 
 信号工具在 catalog 未就绪、信号类型或 presentation model 未知、入口不唯一、生成 ID 碰撞、revision 溢出、捕获的 catalog／runtime／
@@ -176,6 +190,7 @@ JS 输出或模型 handle。PDC 中即使仍有格式合法但已删除的 `sign
 分界点地面子模型、完整 TextDisplay 叠加、非零 inspection lead time 的实例编辑及进路表示器映射作者界面
 继续按后续交互批次推进；三类主信号和附属信号的 rail/ground 两步新建／精确更新／删除，
 以及既有进路表示器的 rail/ground 改位／换模型／删除属于当前能力。
+测距工具仍为TARGET。已确认沿轨距离自动选择两选点间的物理最短路，不受当前道岔选择限制，不实际扳动道岔，也不申请列车资源；不能把当前选通路径距离冒充最短物理距离。
 
 错误做法：从 PDC 直接信任类型、用类型充当工具 marker、把选择放在命令参数、只替换模型、把0秒误称为临时占位并据此绕过
 动态前视／制动或授权 floor，

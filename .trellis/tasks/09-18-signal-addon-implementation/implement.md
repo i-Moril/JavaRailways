@@ -1,8 +1,27 @@
 # Stage 2 implementation plan
 
-## 当前状态汇总（2026-10-09，基线 6cf5805d）
+## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
-本节是当前进度入口；下方日期批次保留当时范围和验证结果。旧批次中的“待实现”或默认进路等描述，
+用户批准继续Stage2收尾。已切回本父任务；全项目代码审查仍作为独立子任务保留，不擅自重开Core或切入Basic余项，也不把完整旧服迁移自动加成新runtime开发前置。下方2026-10-09状态与历史未勾选项须按后续真实实现解释。
+
+- Core本轮源码审查及已确认缺陷处置已由`24cf744f`、`416c70ef`收尾；完整独立候选2069项通过（具体命令/限制只在[Core记录](../10-09-stage2-code-review/implement.md#core缺陷收尾2026-10-14帧间六批完成之后)维护）。该证据不替代Stage2缺失交互或现场验收。
+- 保护区域到连续移动区段的出口空间已由既有中立entry-clearance加当前车长/安全余量实现，不再按下方旧待办重复增加边界策略。flank/approach条目是具体联锁规则需要时才做，不造占位资源。
+- [ ] 返库集成回归：已写出真实50ms“前进—区间内停车—停车换向—经同一双向闭塞返库”用例，组合真实Core/Basic/Dispatcher/SimpleSignals policy。实跑暴露停车超调：目标/原claim末端100m，实际停在100.321998m，换向rebase因完整车身不在旧claim内而正确拒绝。用例未通过、暂不提交；不能靠放宽Basic校验或改停车点掩盖。下一批先记录短动态轨迹，再修正已证实的控制/制动包络问题，并检查Dispatcher不能把越界停车视作正常完成。Basic资源覆盖规则保持不变。详见[诊断](research/stage2-runtime-closeout-2026-10-14.md#7-physical-return-regression-exposes-stop-overshoot)。
+- [x] 先独立交付Signal Wand命名rail摆放预设选择，复用现有immutable catalog、PDC revision、`applyPreset`和manager patch；仅改变未来明确rail放置/更新，不自动改旧设备，ground保持原样。先写契约再实现，现见[工具契约](../../spec/simple-signals/backend/section-authoring-wands.md)，不冒称全部样式编辑完成。返库测试发现独立缺陷后调整提交顺序，避免将已知失败回归混进本笔功能。
+- 测距分岔选路已于2026-10-14由用户确认：自动选择物理最短路，不受当前道岔选择限制，不实际扳动道岔；本轮先完成上述两笔，再按此决定细化测距批次。其余边界地面模型/完整叠加、进路删除引用策略、新进路表示器映射作者交互仍须具体合同。热重载不因旧批次排除文字自动升级为本阶段必需范围；不临时制造model variant或预设默认值。
+
+本次保持批次独立验证与提交，不部署/修改远端、不增加runtime兼容或schema版本，不覆盖用户模型、TODO及docs-site脏状态。现状核对见[运行收尾研究](research/stage2-runtime-closeout-2026-10-14.md)和[工具收尾研究](research/stage2-authoring-closeout-2026-10-14.md)。
+
+### 命名轨道预设离线验收（2026-10-14）
+
+- 实现仅涉及SimpleSignals六个源码/测试文件：catalog提供按名排序、不可修改的模型预设参数；设置页复制偏好到现有物品PDC；明确rail放置复用`applyPreset`和已有manager事务。倾斜值在选择时确定，不引入动态继承、global settings、tick枚举或新渲染器。
+- Handler覆盖选择/清除、严格PDC、过期回调、源预设变化/删除、有效模型改变及ground旁路；真实manager覆盖主信号和既有表示器的预设参数保存、逻辑绑定、其他设备与JS输出保留。独立check将原有两条ground成功用例参数化，避免被新增rail断言挤掉。
+- 精确已暂存源码候选`/tmp/javarailways-stage2-presets.FnYi5c`不含未完成的返库测试。使用`GRADLE_USER_HOME=/workspace/.gradle`执行`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries --offline --no-build-cache --no-parallel --max-workers=2 -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=1024m' -x :WebUI:installFrontend -x :WebUI:buildFrontend --console=plain`，2分03秒、34项task实际执行；47套/493项测试，失败/错误/跳过均0，Java consumer和实际JAR边界检查通过。
+- 此门禁排除了WebUI前端安装/构建，不代表新前端产物或其他模块测试重新通过；存在既有Kotlin/Graal POM、JDK/Gradle警告。未部署或验证Paper/Folia客户端。包含返库WIP的当前工作区此前完整执行494项时493通过、1失败，后续聚焦返库重跑仍因已记录超调失败；不能用本候选绿色结果声称当前全部工作区或Stage2已通过。
+
+## 历史状态汇总（2026-10-09，基线 6cf5805d）
+
+本节保留当时的盘点；当前进度以顶部收尾批次及后续验证为准。旧批次中的“待实现”或默认进路等描述，
 不能越过后续修正被当作当前合同。文档规则见[文档职责](../../spec/javarailways/shared/documentation-ownership.md)。
 
 - **已有实现和离线回归**：SimpleATO领域迁出、SimpleATOBukkit源码/嵌入边界、SimpleSignals独立打包；
@@ -489,7 +508,7 @@ Current extraction progress:
   - [x] Follow-up audit correction: when the next turnout use is still held, return the existing neutral retry ceiling instead of an unqualified busy result. The real Core/Basic regression starts at a short 350 m grant with a 50 m train and turnout uses at 340 m and about 510.71 m; exact prefix growth retains the first claim/selection, then tail clearance permits delayed second preparation under the same grant. Same-target, earliest blocker, tolerance, non-advancing ceiling, too-short-loop and true pending busy cases pass. Reuses current held identities and unchanged SimpleATO at-most-one retry; no new public API/state or compatibility path. Independent check found no additional in-scope issue. Focused gate: 99 tests in 8 suites passed. Final offline affected-module gate passed; reports total 1366 tests in 252 suites, 1359 passed, 7 existing skips, zero failures/errors (Core/WebUI reused up-to-date results). Java consumer compile, plugin JAR isolation and diff check passed. Basic lifecycle uses coherent driven observations; Dispatcher regression responses are scripted, not an end-to-end physical simulation. No live Folia smoke.
   - [x] Follow-up audit correction: unchanged Basic monitored areas now retain physical state through prepared replacements; the first new complete baseline includes real crossings. SimpleSignals inherits unchanged clearance on the first serialized new callback from one world-local last-processed runtime, not during edit commit. Worker-canonicalized unchanged route references avoid deep geometry comparisons on physics and no predecessor/event replay chain exists. Removed unused `replaceDefinitions` rather than wrapping it; no persistence/API compatibility path. Production-class composition tests reproduce old LEFT during a paused commit, old callback completion after publication, first-replacement LEFT, 20 unconsumed edits, failed commit, changed/restored region and new-baseline inspection0; Basic also covers ENTER+LEFT, revision-only continuity, boundary/topology changes, remove/readd, world/epoch rejection and IDLE. Independent review found no additional in-scope defect. Final offline affected-module gate passed: 1377 tests reported in 253 suites, 1370 passed, 7 existing skips, zero failures/errors (Core/WebUI reports reused up-to-date). Java consumer compile, plugin JAR isolation and diff check passed. Tests compose real tracker/host/plugin with constructed frames and admission values, not a live Folia run or proof of changed Basic authority.
 - [x] Match protection-region windows on the exact frozen-route inspection binding, validate one complete entry/interior/exit traversal and compile an entry-to-exit authority floor. If the selected route has exactly one fixed block beginning at the exit, extend that floor through its exit; multiple same-point matches are conflicting definitions, not route branches, and fail closed. Basic derives the physical resources for the expanded route prefix, and no exclusive region token is added. See the [owner contract](../../spec/simple-signals/backend/protection-region-authority-transition.md).
-- [ ] Implement the remaining plugin policy that chooses a moving-block post-exit boundary without recursive Basic contributors. Fixed-block entry-to-exit floors and the protection-region-to-immediate-fixed-block transition are complete; moving-block policy and its exact clearance contract remain.
+- [x] Reconciled 2026-10-14: the existing neutral entry-clearance contract already supplies the no-fixed-successor policy. SimpleSignals contributes the region exit; SimpleATO raises the coherent request to exit + current train length + existing safety margin and checks actual reachable stopping space. No second moving-boundary scanner or recursive contributor is required. Mechanism: [entry clearance](../../spec/javarailways/simpleato/entry-clearance.md), [authority transition](../../spec/simple-signals/backend/protection-region-authority-transition.md); source and existing regression evidence: [closeout inventory](research/stage2-runtime-closeout-2026-10-14.md#2-the-moving-territory-post-exit-safety-mechanism-is-already-present). This closes stale implementation wording, not live-server validation.
 - [x] Submit fixed-block tokens only as additive resources through the host contributor; rely on Basic to derive every
   rail/turnout/diamond physical resource and its existing atomic claim/release lifecycle.
 - [ ] Add concrete flank/approach resources when the first interlocking rule requires them; do not invent generic placeholders.

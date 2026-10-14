@@ -4,6 +4,7 @@
 {"file":".trellis/spec/simple-signals/backend/index.md","reason":"Existing configurable rules, atomic publication, current-only persistence and plugin isolation"}
 {"file":".trellis/spec/simple-signals/backend/protection-region-signal-selection.md","reason":"Shared mixed rule graph, exact declaration identities and protection readiness"}
 {"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Independent explicit models and attached primary references with retained handles"}
+{"file":".trellis/spec/simple-signals/backend/section-authoring-wands.md","reason":"Named rail preset selection copies item-bound values; reuse exact-revision authoring and preserve ground placement"}
 {"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Per-signal versus shared-section edit seeds and old/new guarded transactions"}
 {"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Current-only persistence; no speculative version bump or old development reader"}
 {"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"No second occupancy scanner, resource arbiter or host API"}

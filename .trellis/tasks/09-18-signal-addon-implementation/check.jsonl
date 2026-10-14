@@ -4,6 +4,7 @@
 {"file":".trellis/spec/simple-signals/backend/index.md","reason":"Verify atomic current persistence, reactive updates and JAR isolation"}
 {"file":".trellis/spec/simple-signals/backend/protection-region-signal-selection.md","reason":"Verify declaration lookup and preserve request/grant/tail-clearance gates"}
 {"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Independent primary/attached outputs; placement does not rebind logic"}
+{"file":".trellis/spec/simple-signals/backend/section-authoring-wands.md","reason":"Check preset catalog source, copied PDC values, stale callbacks, ground bypass and existing manager transaction"}
 {"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Both endpoint consumers for block edits, exact endpoint consumers for rule edits"}
 {"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Check current-only persistence and explicitly authorized compatibility, not assumed development generations"}
 {"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"Check unnecessary wrappers, registries, caches or repeat scans"}

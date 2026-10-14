@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals.block
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simplesignals.route.DirectedRouteOccurrence
@@ -29,6 +30,46 @@ internal sealed interface FixedBlockAuthorityMatchResult {
  * Operational route endpoints may lie inside a block. Interior path discontinuities still reject.
  */
 internal object FixedBlockRouteMatcher {
+    /** Clips compiled geometry only; it does not choose a branch or recursively enter another block. */
+    fun terminalContinuation(snapshot: FixedBlockReadSnapshot, route: RouteSnapshot): List<RouteSegmentSnapshot> {
+        snapshot.requireUsable(route, route.totalLengthMeters)
+        val terminal = route.segments.lastOrNull() ?: return emptyList()
+        val projection = when (val projected = DirectedRouteProjector.project(route, snapshot.routeTopology)) {
+            is DirectedRouteProjectionResult.Projected -> projected.route
+            is DirectedRouteProjectionResult.Rejected -> error(projected.failure.detail)
+        }
+        val suffixes = ArrayList<List<RouteSegmentSnapshot>>()
+        for (block in snapshot.candidates(listOf(terminal.railId))) {
+            for (traversals in listOf(block.traversals, block.reverseTraversals)) {
+                val runs = mergeContiguousPieces(overlapPieces(traversals, projection.occurrencesByRail,
+                    route.totalLengthMeters))
+                val terminalRun = runs.singleOrNull { run ->
+                    kotlin.math.abs(run.routeEndMeters - route.totalLengthMeters) <= Curve.TOLERANCE &&
+                        run.blockEndMeters < block.lengthMeters - Curve.TOLERANCE
+                } ?: continue
+                var consumed = 0.0
+                val suffix = ArrayList<RouteSegmentSnapshot>()
+                for (traversal in traversals) {
+                    val end = consumed + traversal.lengthMeters
+                    if (end > terminalRun.blockEndMeters + Curve.TOLERANCE) {
+                        val railLength = snapshot.routeTopology.rails.getValue(traversal.railId).lengthMeters
+                        val startInView = when (traversal.facing) {
+                            ViewDirection.AB -> traversal.lowerAbMeters
+                            ViewDirection.BA -> railLength - traversal.upperAbMeters
+                        }
+                        val offset = (terminalRun.blockEndMeters - consumed).coerceAtLeast(0.0)
+                        suffix += RouteSegmentSnapshot(traversal.railId, traversal.facing,
+                            startInView + offset, startInView + traversal.lengthMeters)
+                    }
+                    consumed = end
+                }
+                suffixes += suffix
+            }
+        }
+        check(suffixes.size <= 1) { "operational endpoint has ambiguous fixed-block continuations" }
+        return java.util.List.copyOf(suffixes.singleOrNull().orEmpty())
+    }
+
     /** Matches every fixed block reached by the complete exact frozen route. */
     fun matchRoute(
         snapshot: FixedBlockReadSnapshot,

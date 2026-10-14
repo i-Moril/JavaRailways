@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals.block
 
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration
+import work.art1st.javarailways.simpleato.api.inspection.InspectionAuthorityRequestFloor
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBinding
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 import work.art1st.javarailways.simpleato.api.restriction.RouteSpeedRestriction
@@ -56,7 +57,10 @@ internal class FixedBlockInspectionSource(
                         inspectionLeadTimeSeconds = inspectionLeadTimeSeconds(captured, signalEntry),
                         minimumRequestedAuthorityEndRouteDistanceMeters = window.exitRouteDistanceMeters
                     )
-                } + protectionDeclarations(captured, input.route)
+                } + protectionDeclarations(captured, input.route),
+                authorityRequestFloors = normal.filterNot(FixedBlockRouteWindow::enteredAtBoundary).map { window ->
+                    InspectionAuthorityRequestFloor(window.entryRouteDistanceMeters, window.exitRouteDistanceMeters)
+                }
             )
         },
         routeInfrastructureDependencies = { route ->
@@ -67,6 +71,14 @@ internal class FixedBlockInspectionSource(
             java.util.Set.copyOf(windows.map { window ->
                 StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, window.blockId)
             })
+        },
+        terminalRouteContinuation = { route ->
+            val captured = snapshot()
+            val windows = matchRoute(captured, route)
+            val disabled = directionPolicy.disabledBlocks(captured,
+                windows.map { captured.blocksById.getValue(it.blockId) }.distinct())
+            directionPolicy.normalWindows(captured, windows, disabled)
+            FixedBlockRouteMatcher.terminalContinuation(captured, route)
         },
         updateHandler = { input ->
             val revision = nextRevision.getAndUpdate { current -> Math.addExact(current, 1L) }

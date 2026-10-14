@@ -23,6 +23,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainSnapshot
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
+import work.art1st.javarailways.simpleato.api.inspection.InspectionAuthorityRequestFloor
 import work.art1st.javarailways.simpleato.api.inspection.InspectionBindingInput
 import work.art1st.javarailways.simpleato.api.restriction.RouteSpeedRestriction
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult
@@ -49,6 +50,39 @@ import java.lang.reflect.Proxy
 import java.util.UUID
 
 class FixedBlockInspectionSourceTest {
+    @Test
+    fun `terminal completion clips complete compiled path and internal start has request floor without passed signal`() {
+        val block = FixedBlockDefinition("test:complete", 1L, listOf(
+            FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
+            FixedBlockTraversal(second, ViewDirection.AB, 0.0, 8.0)), true)
+        val captured = snapshot(block)
+        val source = FixedBlockInspectionSource({ captured }).source
+        val forward = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
+            RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 4.0))
+        val suffix = source.terminalRouteContinuation.continuation(forward).toList()
+        assertEquals(listOf(RouteSegmentSnapshot(second, ViewDirection.AB, 4.0, 8.0)), suffix)
+        val complete = RouteSnapshot(forward.routeId, forward.revision, forward.topologyRevision, forward.segments + suffix)
+        val entered = source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", complete))
+        assertEquals(18.0, entered.declarations.single().minimumRequestedAuthorityEndRouteDistanceMeters)
+        val internal = route(RouteSegmentSnapshot(first, ViewDirection.AB, 4.0, 10.0),
+            RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 8.0))
+        val binding = source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", internal))
+        assertTrue(binding.declarations.isEmpty(), "an already passed entrance is not a signal ahead")
+        assertEquals(14.0, binding.authorityRequestFloors.single().minimumEndRouteDistanceMeters)
+        val inspection = InspectionRuntime({ publication ->
+            TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, publication.revision)
+        }) { _, _, _ -> }
+        inspection.replaceSources(listOf(source))
+        inspection.synchronizeRoute(stamp(), "train", internal)
+        assertEquals(14.0, inspection.adjustRequestedAuthorityBoundary("train", FrozenRouteBinding.from(internal),
+            RouteBoundary(1.0)).distanceFromRouteStartMeters)
+        val reverse = route(RouteSegmentSnapshot(second, ViewDirection.BA, 2.0, 10.0),
+            RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 6.0))
+        assertEquals(listOf(RouteSegmentSnapshot(first, ViewDirection.BA, 6.0, 8.0)),
+            source.terminalRouteContinuation.continuation(reverse).toList())
+        assertTrue(source.terminalRouteContinuation.continuation(complete).isEmpty(), "an exit does not acquire its successor")
+    }
+
     @Test
     fun `direction mismatch refuses forward reverse internal and repeated routes without a signal rule`() {
         val block = FixedBlockDefinition("test:unavailable", 1L, listOf(
@@ -399,7 +433,7 @@ class FixedBlockInspectionSourceTest {
     }
 
     @Test
-    fun `starting within a block creates no entrance declaration or floor but still contributes its token`() {
+    fun `starting within a block creates no entrance signal declaration but keeps a request only floor and token`() {
         val block = FixedBlockDefinition("test:station", 1L,
             listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 9.0)))
         val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 5.0, 10.0))
@@ -408,8 +442,9 @@ class FixedBlockInspectionSourceTest {
             signalState = { error("entrance signal behind the occupant must not be read") },
             hasConfiguredSignal = { true },
             inspectionLeadTimeSeconds = { _, _ -> error("there is no entrance to prepare") }).source
-        assertEquals(emptyList<Any>(), source.bindingProvider.bind(
-            InspectionBindingInput(stamp(), "train", route)).declarations)
+        val declared = source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", route))
+        assertTrue(declared.declarations.isEmpty())
+        assertEquals(listOf(InspectionAuthorityRequestFloor(0.0, 4.0)), declared.authorityRequestFloors)
         val runtime = InspectionRuntime(
             publisher = { publication ->
                 publications += publication
@@ -418,7 +453,7 @@ class FixedBlockInspectionSourceTest {
         runtime.replaceSources(listOf(source))
         runtime.synchronizeRoute(stamp(), "train", route)
         val binding = FrozenRouteBinding.from(route)
-        assertEquals(RouteBoundary(1.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(1.0)))
+        assertEquals(RouteBoundary(4.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(1.0)))
         runtime.createTrainInspection("train").update(stamp(), binding, 0.0, 3.0, 20.0, 1.0, perception(route))
         assertEquals(emptyList<Any>(), publications.single().restrictions)
         assertEquals(block.blockId, fixedBlockPolicy(plugin()) { snapshot(block) }
@@ -483,7 +518,7 @@ class FixedBlockInspectionSourceTest {
         runtime.replaceSources(listOf(source))
         runtime.synchronizeRoute(stamp(), "train", route)
         val binding = FrozenRouteBinding.from(route)
-        assertEquals(RouteBoundary(1.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(1.0)))
+        assertEquals(RouteBoundary(4.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(1.0)))
         assertEquals(RouteBoundary(13.0), runtime.adjustRequestedAuthorityBoundary("train", binding, RouteBoundary(7.1)))
         runtime.createTrainInspection("train").update(stamp(), binding, 0.0, 10.0, 20.0, 1.0,
             perception(route, headAbMeters = 5.0, tailAbMeters = 5.0))

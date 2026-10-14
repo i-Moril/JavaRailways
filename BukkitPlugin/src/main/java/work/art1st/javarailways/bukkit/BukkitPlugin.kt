@@ -198,7 +198,13 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             observationService = railwayObservationServiceImpl,
             infrastructureResourceService = infrastructureResourceServiceImpl,
             signalEpochSourceService = signalEpochSourceServiceImpl,
-            modelPresentationService = modelPresentationServiceImpl
+            modelPresentationService = modelPresentationServiceImpl,
+            releaseManualControl = { world ->
+                if (::trainControlManager.isInitialized) trainControlManager.releaseWorldOnOwner(world)
+            },
+            retireManualControl = { world ->
+                if (::trainControlManager.isInitialized) trainControlManager.retireWorld(world)
+            }
         )
         server.pluginManager.registerEvents(worldManager, this)
         server.servicesManager.registerJavaRailwaysServices(

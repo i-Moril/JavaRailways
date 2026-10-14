@@ -15,6 +15,7 @@ import work.art1st.javarailways.core.physics.rail.SweptRailSpan
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.train.CoreTrain
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import kotlin.math.abs
 
@@ -95,6 +96,7 @@ class DepotResetCoordinator(
 
     @MainThread
     fun reset(depotIds: Set<DepotId>? = null): DepotResetResult {
+        (world as CoreWorld).physicsCoordinator.ensureBetweenFrames("DepotResetCoordinator.reset")
         val worldData = world.basicWorldData
         val operationalData = world.simpleAtoWorldData
         val resetId = "depot-reset-${System.currentTimeMillis()}"

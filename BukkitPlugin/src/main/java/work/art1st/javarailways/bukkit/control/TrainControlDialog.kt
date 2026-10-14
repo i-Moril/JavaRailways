@@ -65,40 +65,62 @@ class TrainControlDialog(
         val buttons = mutableListOf<ActionButton>()
         if (ownedByPlayer) {
             buttons.add(actionButton("释放控制权", NamedTextColor.YELLOW) { p ->
-                manager.releaseManualControl(p)
-                p.sendActionBar(Component.text("已释放列车控制权；需要显式 replan", NamedTextColor.YELLOW))
+                manager.releaseManualControl(p).whenComplete { _, failure ->
+                    plugin.platformDispatcher.runForEntity(p, action = {
+                        p.sendActionBar(Component.text(
+                            failure?.message ?: "已释放列车控制权；需要显式 replan", NamedTextColor.YELLOW
+                        ))
+                    })
+                }
             })
             if (manager.sessionFor(train)?.timetableMode == TimetableControlMode.MANUAL_ROUTED) {
                 buttons.add(actionButton("关闭时刻表进路辅助", NamedTextColor.RED) { p ->
-                    when (val result = manager.switchToFullManual(p)) {
-                        is TimetableControlTransferResult.Suspended -> p.sendActionBar(
-                            Component.text("已进入 FULL_MANUAL，不再申请新进路", NamedTextColor.YELLOW)
-                        )
-                        is TimetableControlTransferResult.Failure -> p.sendActionBar(
-                            Component.text(result.reason, NamedTextColor.RED)
-                        )
-                        else -> p.sendActionBar(
-                            Component.text("列车没有可切换的时刻表进路辅助", NamedTextColor.YELLOW)
-                        )
+                    manager.switchToFullManual(p).whenComplete { result, failure ->
+                        plugin.platformDispatcher.runForEntity(p, action = {
+                            if (failure != null) {
+                                p.sendActionBar(Component.text(failure.message.orEmpty(), NamedTextColor.RED))
+                                return@runForEntity
+                            }
+                            when (result) {
+                                is TimetableControlTransferResult.Suspended -> p.sendActionBar(
+                                    Component.text("已进入 FULL_MANUAL，不再申请新进路", NamedTextColor.YELLOW)
+                                )
+                                is TimetableControlTransferResult.Failure -> p.sendActionBar(
+                                    Component.text(result.reason, NamedTextColor.RED)
+                                )
+                                else -> p.sendActionBar(
+                                    Component.text("列车没有可切换的时刻表进路辅助", NamedTextColor.YELLOW)
+                                )
+                            }
+                        })
                     }
                 })
             }
         } else {
             buttons.add(actionButton("获取控制权", NamedTextColor.GREEN) { p ->
-                when (val result = manager.acquireManualControl(p, train)) {
-                    is TrainControlManager.AcquireResult.Acquired -> {
-                        p.sendActionBar(Component.text("已获取列车控制权", NamedTextColor.GREEN))
-                    }
-                    is TrainControlManager.AcquireResult.AlreadyControlled -> {
-                        val owner = Bukkit.getOfflinePlayer(result.ownerId).name ?: result.ownerId.toString().take(8)
-                        p.sendActionBar(Component.text("列车正由 $owner 控制", NamedTextColor.RED))
-                    }
-                    is TrainControlManager.AcquireResult.ConfigError -> {
-                        p.sendActionBar(Component.text(result.message, NamedTextColor.RED))
-                    }
-                    TrainControlManager.AcquireResult.MissingKey -> p.sendActionBar(Component.text("需要绑定的列车钥匙", NamedTextColor.RED))
-                    TrainControlManager.AcquireResult.NotDriverSeat -> p.sendActionBar(Component.text("请坐在该列车驾驶座上", NamedTextColor.RED))
-                    TrainControlManager.AcquireResult.TrainUnavailable -> p.sendActionBar(Component.text("列车暂不可控", NamedTextColor.RED))
+                manager.acquireManualControl(p, train).whenComplete { result, failure ->
+                    plugin.platformDispatcher.runForEntity(p, action = {
+                        if (failure != null) {
+                            p.sendActionBar(Component.text(failure.message.orEmpty(), NamedTextColor.RED))
+                            return@runForEntity
+                        }
+                        when (result) {
+                            is TrainControlManager.AcquireResult.Acquired -> {
+                                p.sendActionBar(Component.text("已获取列车控制权", NamedTextColor.GREEN))
+                            }
+                            is TrainControlManager.AcquireResult.AlreadyControlled -> {
+                                val owner = Bukkit.getOfflinePlayer(result.ownerId).name ?: result.ownerId.toString().take(8)
+                                p.sendActionBar(Component.text("列车正由 $owner 控制", NamedTextColor.RED))
+                            }
+                            is TrainControlManager.AcquireResult.ConfigError -> {
+                                p.sendActionBar(Component.text(result.message, NamedTextColor.RED))
+                            }
+                            TrainControlManager.AcquireResult.MissingKey -> p.sendActionBar(Component.text("需要绑定的列车钥匙", NamedTextColor.RED))
+                            TrainControlManager.AcquireResult.NotDriverSeat -> p.sendActionBar(Component.text("请坐在该列车驾驶座上", NamedTextColor.RED))
+                            TrainControlManager.AcquireResult.TrainUnavailable -> p.sendActionBar(Component.text("列车暂不可控", NamedTextColor.RED))
+                            null -> Unit
+                        }
+                    })
                 }
             })
         }
@@ -147,9 +169,15 @@ class TrainControlDialog(
 
     private fun directionButton(controller: RealisticManualController, direction: TrainDriveDirection, label: String): ActionButton {
         return actionButton(label, NamedTextColor.LIGHT_PURPLE) { p ->
-            controller.setDirection(direction)
             controller.coast()
-            p.sendActionBar(Component.text("方向已切换为 ${direction.label}", NamedTextColor.GREEN))
+            controller.setDirection(direction).whenComplete { _, failure ->
+                plugin.platformDispatcher.runForEntity(p, action = {
+                    p.sendActionBar(Component.text(
+                        failure?.message ?: "方向已切换为 ${direction.label}",
+                        if (failure == null) NamedTextColor.GREEN else NamedTextColor.RED
+                    ))
+                })
+            }
         }
     }
 

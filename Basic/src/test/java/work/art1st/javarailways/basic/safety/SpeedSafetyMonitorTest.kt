@@ -22,6 +22,7 @@ import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld as createCoreTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.core.physics.train.setControllerForTest
 
 class SpeedSafetyMonitorTest {
     private fun createTestWorld() = createCoreTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
@@ -43,7 +44,7 @@ class SpeedSafetyMonitorTest {
         )
         val train = createTrainWithConfig("T0", rail, world, listOf(8.0))
         FixedSpeedController(train, world).also {
-            train.setController(it)
+            train.setControllerForTest(it)
             it.publishSpeed(10.0)
         }
         val monitor = SpeedSafetyMonitor(
@@ -71,7 +72,7 @@ class SpeedSafetyMonitorTest {
         )
         val train = createTrainWithConfig("T1", rail, world, listOf(8.0))
         FixedSpeedController(train, world).also {
-            train.setController(it)
+            train.setControllerForTest(it)
             it.publishSpeed(12.0)
         }
         val monitor = SpeedSafetyMonitor(
@@ -113,7 +114,7 @@ class SpeedSafetyMonitorTest {
         val train = createTrainWithConfig("offset", rail, world, listOf(8.0))
         world.basicWorldData.trainSpeedProfiles.put(train.id, TrainSpeedProfile(5.0))
         FixedSpeedController(train, world).also {
-            train.setController(it)
+            train.setControllerForTest(it)
             it.publishSpeed(23.0)
         }
         val monitor = SpeedSafetyMonitor(world, SpeedSafetyMonitor.Config(true, 0.0, 1))

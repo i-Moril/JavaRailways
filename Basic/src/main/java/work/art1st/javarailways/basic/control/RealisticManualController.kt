@@ -6,6 +6,8 @@ import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.train.Train
+import work.art1st.javarailways.core.physics.train.CoreTrain
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicReference
 
 enum class TrainDriveDirection(val label: String) {
@@ -80,16 +82,28 @@ class RealisticManualController(
         if (directionRef.get() != TrainDriveDirection.REVERSE) movementSign = 1.0
     }
 
-    fun setDirection(direction: TrainDriveDirection) {
-        directionRef.set(direction)
+    fun setDirection(direction: TrainDriveDirection): CompletableFuture<Unit> {
+        val controlled = controlledTrain as? CoreTrain
+            ?: return CompletableFuture.failedFuture(IllegalStateException("Manual direction requires a Core train"))
+        return controlled.world.physicsCoordinator.submitBetweenFrames { applyDirection(direction) }
+    }
+
+    /** Atomic owner-side counterpart for an already admitted manual-control takeover. */
+    fun applyDirection(direction: TrainDriveDirection) {
+        val controlled = controlledTrain as CoreTrain
+        controlled.world.physicsCoordinator.ensureBetweenFrames("RealisticManualController.applyDirection")
+        check(controlled.world.getTrain(controlled.id) === controlled && controlled.controller === this) {
+            "Manual controller no longer owns train '${controlled.id}'"
+        }
         when (direction) {
             TrainDriveDirection.FORWARD, TrainDriveDirection.REVERSE -> {
-                val previousRunningDirection = runningDirectionRef.getAndSet(direction)
-                if (previousRunningDirection != direction) reverse()
+                if (runningDirectionRef.get() != direction) controlled.reverse()
+                runningDirectionRef.set(direction)
                 movementSign = if (direction == TrainDriveDirection.FORWARD) 1.0 else -1.0
             }
             TrainDriveDirection.NEUTRAL -> Unit
         }
+        directionRef.set(direction)
     }
 
     fun emergencyBrake() {

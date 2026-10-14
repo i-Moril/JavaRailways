@@ -84,6 +84,7 @@ import work.art1st.javarailways.basic.route.RouteAllocationTiming
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.World
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.physics.rail.IntervalOccupancyState
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.RailIntervalReleaseDetector
@@ -445,6 +446,7 @@ class TimetableDispatcher(
         world: World,
         timetableId: String
     ): TimetableEpochStartResult {
+        ensureOwner(world)
         bindWorld(world)
         if (world.simpleAtoWorldData.atoCoordinator.isStalled) {
             return TimetableEpochStartResult.Failure(
@@ -519,6 +521,7 @@ class TimetableDispatcher(
     /** Queue automatic services in cycle zero; manual services remain explicit-only. */
     @MainThread
     fun scheduleInitialCycle(timetableId: String): Boolean {
+        ensureOwner()
         val clock = timetableClocks[timetableId] ?: return false
         check(clock.epochDispatcherTick == dispatcherTick) {
             "initial cycle must be scheduled immediately after beginTimetable"
@@ -533,6 +536,7 @@ class TimetableDispatcher(
         timetableId: String,
         serviceId: String
     ): TimetableServiceStartResult {
+        ensureOwner(world)
         timetableClocks[timetableId]?.disabledServiceIds?.remove(serviceId)
         return startServiceForCycle(world, timetableId, serviceId, null)
     }
@@ -540,6 +544,7 @@ class TimetableDispatcher(
     /** Stop automatic recurrence without force-releasing any active run resources. */
     @MainThread
     fun stopFutureCycles(timetableId: String, serviceId: String? = null): Boolean {
+        ensureOwner()
         val clock = timetableClocks[timetableId] ?: return false
         val changed = if (serviceId == null) {
             timetableClocks.remove(timetableId) != null
@@ -884,6 +889,7 @@ class TimetableDispatcher(
         trainId: String,
         transferOwner: String
     ): TimetableControlTransferResult {
+        ensureOwner(world)
         require(trainId.isNotBlank())
         require(transferOwner.isNotBlank() && transferOwner == transferOwner.trim())
         bindWorld(world)
@@ -932,6 +938,7 @@ class TimetableDispatcher(
         transferOwner: String,
         controller: TrainController
     ): Boolean {
+        ensureOwner()
         val run = runs.values.firstOrNull {
             it.train.id == trainId && it.controlMode == TimetableControlMode.MANUAL_ROUTED
         } ?: return false
@@ -945,6 +952,7 @@ class TimetableDispatcher(
     /** Disable new timetable route requests while retaining tail-based release of old resources. */
     @MainThread
     fun switchToFullManual(trainId: String, transferOwner: String): TimetableControlTransferResult {
+        ensureOwner()
         val run = runs.values.firstOrNull { it.train.id == trainId && !it.state.isTerminal() }
             ?: return TimetableControlTransferResult.NotAssigned
         if (run.controlTransferOwner != transferOwner ||
@@ -975,6 +983,7 @@ class TimetableDispatcher(
         trainId: String,
         transferOwner: String
     ): TimetableControlTransferResult {
+        ensureOwner(world)
         require(trainId.isNotBlank())
         require(transferOwner.isNotBlank() && transferOwner == transferOwner.trim())
         bindWorld(world)
@@ -1016,6 +1025,7 @@ class TimetableDispatcher(
     /** Mark manual control as released. Re-entry still requires an explicit replan command. */
     @MainThread
     fun releaseControlTransfer(trainId: String, transferOwner: String): Boolean {
+        ensureOwner()
         val run = runs.values.firstOrNull {
             it.train.id == trainId && it.controlTransferOwner == transferOwner &&
                 it.controlMode != TimetableControlMode.AUTOMATIC
@@ -1040,6 +1050,7 @@ class TimetableDispatcher(
         originWayPointId: String,
         cycleIndex: Long? = null
     ): TimetableReplanResult {
+        ensureOwner(world)
         bindWorld(world)
         val run = findRun(id, cycleIndex)
             ?: return TimetableReplanResult.Failure("service run not found: $id")
@@ -1143,6 +1154,7 @@ class TimetableDispatcher(
     /** Called on the main thread after the current physics epoch has published. */
     @MainThread
     fun tick(world: World) {
+        ensureOwner(world)
         dispatcherTick++
         val coordinator = world.simpleAtoWorldData.atoCoordinator
         if (coordinator.isStalled) {
@@ -1649,6 +1661,7 @@ class TimetableDispatcher(
         id: TimetableServiceRunId,
         cycleIndex: Long? = null
     ): Boolean {
+        ensureOwner(world)
         bindWorld(world)
         val run = findRun(id, cycleIndex) ?: return false
         if (run.canBeReplaced() || run.state == TimetableServiceRunState.STOPPED ||
@@ -1687,6 +1700,7 @@ class TimetableDispatcher(
      */
     @MainThread
     fun discardFailedRunsForAtoReset(world: World): Int {
+        ensureOwner(world)
         check(world.simpleAtoWorldData.atoCoordinator.isStalled) {
             "failed runs may only be discarded while the World ATO is stalled"
         }
@@ -1704,6 +1718,7 @@ class TimetableDispatcher(
      */
     @MainThread
     fun forceDiscardTimetable(world: World, timetableId: String): Int {
+        ensureOwner(world)
         require(timetableId.isNotBlank())
         bindWorld(world)
         val selected = runs.values.filter { it.id.timetableId == timetableId }
@@ -1722,6 +1737,7 @@ class TimetableDispatcher(
      */
     @MainThread
     fun discardReleasedManualNavigation(world: World, trainId: String): Int {
+        ensureOwner(world)
         require(trainId.isNotBlank())
         val obsolete = runs.values.filter { run ->
             run.train.id == trainId && run.id.timetableId.startsWith(MANUAL_NAVIGATION_PREFIX) &&
@@ -1785,6 +1801,7 @@ class TimetableDispatcher(
      */
     @MainThread
     override fun applyDepotReset(world: World, trainIds: Set<String>): DepotResetDispatchSummary {
+        ensureOwner(world)
         check(world.simpleAtoWorldData.atoCoordinator.isStalled) {
             "Depot Reset is only legal while the World ATO is stalled"
         }
@@ -4011,6 +4028,10 @@ class TimetableDispatcher(
         if (currentWorld == null) {
             boundWorld = world
         }
+    }
+
+    private fun ensureOwner(world: World? = boundWorld) {
+        (world as? CoreWorld)?.physicsCoordinator?.ensureBetweenFrames("TimetableDispatcher mutation")
     }
 
     private fun compileAndInstallAppliedPlan(

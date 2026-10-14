@@ -33,6 +33,10 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 
 3b还须迁移Basic `RealisticManualController.setDirection`的请求显示字段及结果处理：它目前先改`directionRef/runningDirectionRef/movementSign`并忽略Future，失败后显示可能不同步；这些字段不直接决定tick物理位移方向，不以3a完成声称其复合调用链已迁移。创建/摆位的epoch0过渡缺口留第4批，3a在修改前明确拒绝，不倒退world epoch。
 
+3b平台适配已独立实现：Basic方向输入整项排队并在换向成功后更新有效/显示方向；手动接管/释放、导航及Dispatcher命令的完整操作排队，内部UUID helper同步执行，玩家反馈回entity owner。会话按实际train实例区分world，失去controller时仅撤本地旧session；world卸载先尝试帧间释放，再无条件退休本world本地session/待接管引用，避免Core不可用时阻断下一次接管。新Basic真实coordinator FIFO/失败回归和真实CLOSED世界卸载回归随该批交付。Core setter/registry强制校验及其行为回归下一笔提交，不因平台适配完成而提前勾选第3项。
+
+平台候选`/tmp/javarailways-control-adapters.qR0v7K`不含旧联结草稿或后续Core guard，五模块Core364/Basic394/SimpleATO354/BukkitPlugin380/Tunnel31共1523项零失败/error/skip，1分46秒、40tasks全执行，shadowJar通过。仅跳过无关frontend install/build，故该打包只验证JVM组合，不交付为含前端的部署工件；最终统一打包另行验证。工作区前一完整门禁Core通过、Basic因3处旧监测测试未进phase失败，已用正式helper修复后由本独立候选完整覆盖。独立check发现的guard后部分写入、卸载失败旧会话、live旧controller会话及跨线程timetableMode问题均已修复并复核，无新增阻塞；未游戏验证。
+
 首批实现复用原结构准入门禁，在Bukkit及隔离simulation统一等待exact ticket、显式drain一次FIFO批次并执行运营/postTick。重命名只改live名称及索引，由下一正常epoch发布；没有新增物理revision、逐次rename重建或collision特判。线程分类、controller等其余入口仍待后续批次。
 
 本批工作区门禁：Core389、Basic393、SimpleATO354、BukkitPlugin379项测试零失败/错误/跳过，Core Dokka V2生成通过（仍有已有文档warning）。初次定向测试因TrainName fixture缺少simulation owner失败1项，首次跨模块构建因4个SimpleATO初始摆位fixture仍直接rename失败；已将相关fixture放入真实帧间作用域，补跑通过。独立只读审查未发现本批新增阻塞。上述数字包括原联结草稿，不等同于隔离提交验证或游戏验证；不关闭CR-030、Core审查或Stage2。

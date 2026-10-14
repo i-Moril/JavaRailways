@@ -33,10 +33,12 @@ import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.CoreWorld
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 
 object TrainCommand {
     /** 玩家 UUID -> 手动控制器 */
-    private val playerControllers = mutableMapOf<UUID, RealisticManualController>()
+    private val playerControllers = ConcurrentHashMap<UUID, RealisticManualController>()
     private val heavyOperationGate = PlayerOperationGate()
 
     init {
@@ -427,32 +429,30 @@ object TrainCommand {
             return true
         }
 
-        val (controlConfig, carControls) = try {
-            resolveControlProfile(train)
-        } catch (e: IllegalArgumentException) {
-            sender.sendMessage("错误: ${e.message}")
-            return true
-        }
-        val controller = RealisticManualController(
-            train,
-            coreWorld,
-            controlConfig,
-            carControls,
-            BukkitPlugin.INSTANCE.physicsConfig.track.gravityMetersPerSecondSquared,
-            profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() }
-        )
-        train.setController(controller)
-        playerControllers[sender.uniqueId] = controller
-
+        val playerId = sender.uniqueId
+        val expectedController = train.controller
         val initialHandle = args.firstOrNull()
-        if (initialHandle != null && !controller.setHandle(initialHandle)) {
-            sender.sendMessage("未知手柄档位: $initialHandle")
-            sender.sendMessage("可用档位: ${availableHandles(controlConfig)}")
-        }
-
-        sender.sendMessage("控制器已连接至列车: ${train.id}")
-        sender.sendMessage("使用 /jr train handle <P1..P5|N|B1..B7|EB> 设置手柄")
-        sender.sendMessage("使用 /jr train stop 断开连接")
+        reportControllerOperation(sender, coreWorld.physicsCoordinator.submitBetweenFrames {
+            check(coreWorld.getTrain(train.id) === train && train.controller === expectedController &&
+                playerControllers[playerId] == null) { "列车或驾驶员控制状态已变化，请重试" }
+            val (controlConfig, carControls) = resolveControlProfile(train)
+            val controller = RealisticManualController(
+                train, coreWorld, controlConfig, carControls,
+                BukkitPlugin.INSTANCE.physicsConfig.track.gravityMetersPerSecondSquared,
+                profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() }
+            )
+            train.setController(controller)
+            playerControllers[playerId] = controller
+            buildList {
+                if (initialHandle != null && !controller.setHandle(initialHandle)) {
+                    add("未知手柄档位: $initialHandle")
+                    add("可用档位: ${availableHandles(controlConfig)}")
+                }
+                add("控制器已连接至列车: ${train.id}")
+                add("使用 /jr train handle <P1..P5|N|B1..B7|EB> 设置手柄")
+                add("使用 /jr train stop 断开连接")
+            }
+        })
         return true
     }
 
@@ -461,15 +461,31 @@ object TrainCommand {
             sender.sendMessage("此命令需要玩家执行")
             return true
         }
-        val controller = playerControllers.remove(sender.uniqueId)
+        val playerId = sender.uniqueId
+        val controller = playerControllers[playerId]
         if (controller == null) {
             sender.sendMessage("当前没有连接的控制器")
             return true
         }
 
-        (controller.controlledTrain as? CoreTrain)?.setController(null)
-        sender.sendMessage("控制器已断开连接")
+        val train = controller.controlledTrain as CoreTrain
+        reportControllerOperation(sender, train.world.physicsCoordinator.submitBetweenFrames {
+            check(playerControllers[playerId] === controller && train.world.getTrain(train.id) === train &&
+                train.controller === controller) { "控制器已变化，请重试" }
+            train.setController(null)
+            playerControllers.remove(playerId, controller)
+            listOf("控制器已断开连接")
+        })
         return true
+    }
+
+    private fun reportControllerOperation(player: Player, result: CompletableFuture<List<String>>) {
+        result.whenComplete { messages, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(player, action = {
+                if (failure != null) player.sendMessage("操作失败: ${failure.message}")
+                else messages.forEach(player::sendMessage)
+            })
+        }
     }
 
     private fun handleHandle(sender: CommandSender, args: List<String>): Boolean {
@@ -662,12 +678,21 @@ object TrainCommand {
                 return true
             }
 
-        playerControllers.entries.removeIf { it.value.controlledTrain == train }
-        BukkitPlugin.INSTANCE.trainControlManager.releaseTrain(train)
-        AbnormalTrainMarker.clearTrain(sender.world, train.id)
-        coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.remove(train.id)
-        train.destroy()
-        sender.sendMessage("已删除列车: ${train.id}")
+        val platformWorld = sender.world
+        val deletion = coreWorld.physicsCoordinator.submitBetweenFrames {
+            check(coreWorld.getTrain(train.id) === train) { "列车已变化，请重试" }
+            playerControllers.entries.removeIf { it.value.controlledTrain === train }
+            BukkitPlugin.INSTANCE.trainControlManager.releaseTrain(train)
+            coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.remove(train.id)
+            train.destroy()
+            listOf("已请求删除列车: ${train.id}")
+        }
+        deletion.thenRun {
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                AbnormalTrainMarker.clearTrain(platformWorld, train.id)
+            })
+        }
+        reportControllerOperation(sender, deletion)
         return true
     }
 
@@ -836,10 +861,11 @@ object TrainCommand {
 
     /** Release this driver's manual controller before an ad-hoc ATO navigation starts. */
     fun prepareForAtoNavigation(
-        player: Player,
+        playerId: UUID,
         train: CoreTrain
     ): AtoNavigationControlPreparation {
-        val controller = playerControllers[player.uniqueId]
+        train.world.physicsCoordinator.ensureBetweenFrames("TrainCommand.prepareForAtoNavigation")
+        val controller = playerControllers[playerId]
         if (controller != null) {
             val controlledTrain = controller.controlledTrain as? CoreTrain
             if (controlledTrain !== train) {
@@ -849,7 +875,7 @@ object TrainCommand {
                 )
             }
             controller.coast()
-            playerControllers.remove(player.uniqueId)
+            playerControllers.remove(playerId)
             if (train.controller === controller) train.setController(null)
         }
         val activeController = train.controller
@@ -869,45 +895,16 @@ object TrainCommand {
     }
 
     fun restoreAfterFailedAtoNavigation(
-        player: Player,
+        playerId: UUID,
         train: CoreTrain,
         controller: TrainController?
     ) {
+        train.world.physicsCoordinator.ensureBetweenFrames("TrainCommand.restoreAfterFailedAtoNavigation")
         if (controller == null || train.controller != null) return
         train.setController(controller)
         if (controller is RealisticManualController) {
-            playerControllers[player.uniqueId] = controller
+            playerControllers[playerId] = controller
         }
-    }
-
-    fun controllerForKeyedDriver(player: Player): RealisticManualController? {
-        val train = SeatModel.SeatInteractionListener.drivingTrainFor(player) as? CoreTrain ?: return null
-        if (!TrainKeyItem.playerHasKey(player)) return null
-
-        playerControllers[player.uniqueId]?.let { existing ->
-            if (existing.controlledTrain === train) return existing
-            existing.coast()
-        }
-
-        val existingTrainController = train.controller as? RealisticManualController
-        val controller = existingTrainController ?: run {
-            val (controlConfig, carControls) = try {
-                resolveControlProfile(train)
-            } catch (e: IllegalArgumentException) {
-                BukkitPlugin.INSTANCE.logger.warning("Failed to resolve control profile for train ${train.id}: ${e.message}")
-                return null
-            }
-            RealisticManualController(
-                train,
-                train.world,
-                controlConfig,
-                carControls,
-                BukkitPlugin.INSTANCE.physicsConfig.track.gravityMetersPerSecondSquared,
-                profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() }
-            ).also { train.setController(it) }
-        }
-        playerControllers[player.uniqueId] = controller
-        return controller
     }
 
     fun isDrivingControlledTrain(player: Player, controller: RealisticManualController): Boolean {

@@ -127,13 +127,18 @@ class IsolatedTimetableSimulationWorld private constructor(
     ): IsolatedTimetableSimulationResult {
         val dispatcher = world.simpleAtoWorldData.dispatcher
         world.simpleAtoWorldData.timetables.add(request.timetable)
-        when (val started = dispatcher.beginTimetable(world, request.timetable.id)) {
+        val initialized = physicsCoordinator.processBetweenFrames {
+            val started = dispatcher.beginTimetable(world, request.timetable.id)
+            started to (started is TimetableEpochStartResult.Started &&
+                dispatcher.scheduleInitialCycle(request.timetable.id))
+        }
+        when (val started = initialized.first) {
             is TimetableEpochStartResult.Failure -> return IsolatedTimetableSimulationResult.Failed(
                 0L, started.reason
             )
             is TimetableEpochStartResult.Started -> Unit
         }
-        if (!dispatcher.scheduleInitialCycle(request.timetable.id)) {
+        if (!initialized.second) {
             return IsolatedTimetableSimulationResult.Failed(0L, "could not schedule initial timetable cycle")
         }
 

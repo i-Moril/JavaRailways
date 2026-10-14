@@ -19,6 +19,10 @@ fun startService(world: World, timetableId: String, serviceId: String): Timetabl
 
 来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/TimetableDispatcher.kt`。
 
+修改controller或运行状态的同步入口在Core world上要求协调器帧间阶段；production宿主的Dispatcher tick已处于该阶段，
+命令将整项操作排队，而不把这些内部方法改成异步setter。隔离simulation启动时的beginTimetable与scheduleInitialCycle也由同一
+帧间作用域包住，不依赖尚未开始的host tick来drain自身请求。完整创建/摆位的发布迁移另见后续批次，不能由入口guard推断其已完成。
+
 `beginTimetable`先validation和blocking-run check，然后把validation已经得到的全部物理route交给Basic编译，
 先通过world-local `InfrastructureDependencyService`安装新物理路线与旧计划完整依赖的非独占并集，
 再通过同一world的`InspectionRuntime.collectRouteInfrastructureDependencies`收集插件引用的注册资源，

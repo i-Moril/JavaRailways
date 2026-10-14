@@ -90,6 +90,28 @@ wake physics + generic preTick
 
 只 capture 一次并等待该 ticket；不能在 physics failure 后消费旧 frame。snapshot capture 在 simulation owner 完成，JSON/IO 交给单线程 writer，per-world pending 采用 latest-only。
 
+### 控制器接管与命令的帧间适配（CURRENT，第3b批平台侧）
+
+玩家的座位、钥匙和UUID在entity owner捕获，随后将完整的接管、驾驶端对齐、Dispatcher控制交接及controller安装提交至
+world的`submitBetweenFrames`。不能只异步化setter而让上层继续假定安装完成。导航的临时目标、验证、释放、启动和失败恢复
+同样位于一项操作内；失败恢复须同时恢复controller和manual session，准备拒绝不能提前丢弃会话。时刻表start/reset/replan/stop、
+ATO reset及必要的Depot reset命令也整体排队。执行前检查loaded world、train、controller和已有session的确切身份；
+玩家反馈及测时报告回entity scheduler，console消息回global scheduler，不在队列中读取Player的world/location/inventory。
+
+`TrainControlManager.acquireManualControl`、外部release和switch方法返回Future，UUID形式的内部register、releaseTrain和导航prepare/restore
+保持同步，用于已进入帧间阶段的复合操作。会话表按实际train实例区分世界，不用可能跨world重复的train ID作唯一键。
+pending acquisition持有目标train身份，seat-vacate/quit/unbind或目标world退休会撤销它；旧请求不能在驾驶员已离开后安装controller。
+运行中controller已被物理脱轨或其他接管移除时，只删除仍是本请求的旧本地session，不改替代controller或Dispatcher，不能误报Acquired。
+跨线程读取的`ManualControlSession.timetableMode`由volatile发布；不据此授权entity线程访问controller可写状态。
+
+world卸载先撤销loaded lookup，再在有效帧间阶段释放该world控制权，且不drain已排队的外部请求，随后beginShutdown/最终捕获。
+本地session及待接管引用另作一次exact-world退休，即使physics已STALLED/CLOSED也执行，不尝试修改或恢复停止的物理系统。
+因此旧世界会话不会通过failed release阻断玩家接管另一world。插件停止时只取消平台扫描并清理管理器本地映射，不在world关闭后修改controller。
+
+协调与映射操作为低频请求成本；队列/准入合同归[Core runtime](../../javarailways/core/runtime-publication.md)。
+需验证旧controller仍在途时不修改、下一worker只运行替代controller、方向失败不提前改显示、导航失败恢复及unavailable-world卸载仍退休本地引用。
+创建/摆位、完整外部脱轨与基础设施编辑仍按后续批次迁移；本平台适配不表示这些操作已经收口。
+
 ## Folia 线程归属
 
 - `PlatformDispatcher.runGlobal*`：无 location 的 simulation/value 协调。

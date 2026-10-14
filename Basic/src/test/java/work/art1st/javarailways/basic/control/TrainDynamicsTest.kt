@@ -16,17 +16,76 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.core.physics.train.setControllerForTest
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ExecutionException
 import kotlin.math.sqrt
 
 class TrainDynamicsTest {
     private val trainProfile = TestTrainProfile()
     private val carProfile = TestCarProfile()
+
+    @Test
+    fun `manual direction requests commit FIFO and failures retain effective display direction`() {
+        PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
+            val world = createTestWorld(coordinator)
+            TestBasicWorldDataRegistry.register(world, BasicWorldData())
+            try {
+                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
+                val train = createTrainWithConfig("manual-direction", rail, world, listOf(10.0))
+                val controller = RealisticManualController(
+                    train, world, trainProfile, listOf(carProfile), 9.80665,
+                    initialSpeedMetersPerSecond = 10.0
+                )
+                train.setControllerForTest(controller)
+                world.onOwnerForTest { controller.applyDirection(TrainDriveDirection.FORWARD) }
+                coordinator.start()
+                coordinator.stepSimulation(50.0).await()
+                val displaySpeed = controller.displaySpeed
+                assertTrue(displaySpeed > 0.0)
+                val observed = mutableListOf<Pair<TrainDriveDirection, Boolean>>()
+                val reverse = controller.setDirection(TrainDriveDirection.REVERSE)
+                reverse.thenRun { observed += controller.direction to train.isReversed }
+                val neutral = controller.setDirection(TrainDriveDirection.NEUTRAL)
+                neutral.thenRun { observed += controller.direction to train.isReversed }
+                val forward = controller.setDirection(TrainDriveDirection.FORWARD)
+                forward.thenRun { observed += controller.direction to train.isReversed }
+                assertEquals(TrainDriveDirection.FORWARD, controller.direction)
+                assertEquals(displaySpeed, controller.displaySpeed)
+                world.onOwnerForTest { coordinator.drainBetweenFramesOperations() }
+                listOf(reverse, neutral, forward).forEach { it.get(5, TimeUnit.SECONDS) }
+                assertEquals(listOf(
+                    TrainDriveDirection.REVERSE to true,
+                    TrainDriveDirection.NEUTRAL to true,
+                    TrainDriveDirection.FORWARD to false
+                ), observed)
+                assertEquals(displaySpeed, controller.displaySpeed)
+
+                val rejected = controller.setDirection(TrainDriveDirection.REVERSE)
+                train.setControllerForTest(null)
+                val beforeRejected = train.publishedFrame
+                world.onOwnerForTest { coordinator.drainBetweenFramesOperations() }
+                assertThrows(ExecutionException::class.java) { rejected.get(5, TimeUnit.SECONDS) }
+                assertSame(beforeRejected, train.publishedFrame)
+                assertEquals(TrainDriveDirection.FORWARD, controller.direction)
+                assertEquals(displaySpeed, controller.displaySpeed)
+                coordinator.beginShutdown()
+                assertTrue(controller.setDirection(TrainDriveDirection.REVERSE).isCompletedExceptionally)
+                assertEquals(TrainDriveDirection.FORWARD, controller.direction)
+            } finally {
+                coordinator.close()
+                TestBasicWorldDataRegistry.unregister(world)
+                world.releaseRuntimeBinding()
+                (world.tickManager as AutoCloseable).close()
+            }
+        }
+    }
 
     @Test
     fun `prepared union uses counterpart exact bindings before resolving unknown cars`() = withDynamicsTrain { train ->
@@ -61,7 +120,7 @@ class TrainDynamicsTest {
         val light = TestCarProfile(mass = 10_000.0)
         val controller = RealisticManualController(original, original.world, trainProfile, listOf(heavy, light), 10.0)
         controller.setHandle("P2")
-        original.setController(controller)
+        original.setControllerForTest(controller)
         val future = original.splitBefore(second.id, "manual-subset")
         val owner = Thread.currentThread()
         ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
@@ -341,7 +400,8 @@ class TrainDynamicsTest {
             listOf(carProfile),
             9.80665
         )
-        controller.setDirection(TrainDriveDirection.FORWARD)
+        train.setControllerForTest(controller)
+        world.onOwnerForTest { controller.applyDirection(TrainDriveDirection.FORWARD) }
         controller.setHandle("P2")
 
         try {
@@ -373,9 +433,9 @@ class TrainDynamicsTest {
                 listOf(carProfile),
                 9.80665
             )
-            controller.setDirection(TrainDriveDirection.FORWARD)
+            train.setControllerForTest(controller)
+            world.onOwnerForTest { controller.applyDirection(TrainDriveDirection.FORWARD) }
             controller.setHandle("P2")
-            train.setController(controller)
             val startX = train.headLocation.position.x()
             coordinator.start()
 

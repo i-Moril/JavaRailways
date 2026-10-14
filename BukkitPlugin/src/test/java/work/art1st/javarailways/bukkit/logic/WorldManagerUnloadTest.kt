@@ -40,6 +40,36 @@ class WorldManagerUnloadTest {
     }
 
     @Test
+    fun `unavailable physics still retires exact local manual references before teardown`() {
+        val released = mutableListOf<CoreWorld>()
+        val retired = mutableListOf<CoreWorld>()
+        val fixture = Fixture({ released += it }, { retired += it })
+        val saveFailure = IllegalStateException("closed world cannot save")
+        try {
+            val oldWorld = fixture.closePhysics()
+            val thrown = assertThrows(IllegalStateException::class.java) {
+                fixture.manager.unregisterRailWorld(
+                    bukkitWorld = fixture.oldBukkitWorld,
+                    captureAndSave = { fixture.events += "persist"; throw saveFailure },
+                    clearAbnormalMarkers = { fixture.events += "marker" },
+                    closeRender = { fixture.events += "render" },
+                    closeModelOperations = { fixture.closeModelOperations() },
+                    closeTick = { fixture.events += "tick" }
+                )
+            }
+            assertTrue(thrown.message.orEmpty().contains("closed"))
+            assertTrue(thrown.suppressed.contains(saveFailure))
+            assertTrue(released.isEmpty(), "unavailable physics must not run physical lifecycle work")
+            assertEquals(1, retired.size)
+            assertSame(oldWorld, retired.single())
+            assertEquals(listOf("persist", "model-operations", "render", "tick", "marker"), fixture.events)
+            fixture.assertOldOwnerRemovedAndReloadable()
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
     fun `persistence failure preserves the primary error and completes every teardown step`() {
         val fixture = Fixture()
         val primary = IllegalStateException("persistence failed")
@@ -123,7 +153,10 @@ class WorldManagerUnloadTest {
         }
     }
 
-    private class Fixture {
+    private class Fixture(
+        onRelease: (CoreWorld) -> Unit = {},
+        onRetire: (CoreWorld) -> Unit = {}
+    ) {
         val worldId: UUID = UUID.randomUUID()
         val oldBukkitWorld: BukkitWorld = bukkitWorld(worldId)
         private val newBukkitWorld: BukkitWorld = bukkitWorld(worldId)
@@ -131,7 +164,10 @@ class WorldManagerUnloadTest {
         private val newWorld: CoreWorld = createTestWorld()
         private val railWorlds = ConcurrentHashMap<BukkitWorld, World>()
         private val registry = LoadedRailWorldRegistry(railWorlds)
-        val manager = WorldManager(railWorlds, loadedWorlds = registry)
+        val manager = WorldManager(
+            railWorlds, loadedWorlds = registry,
+            releaseManualControl = onRelease, retireManualControl = onRetire
+        )
         val events = mutableListOf<String>()
         private val modelOperations = WorldModelOperations()
         val pendingModelOperation = modelOperations.track(CompletableFuture<Unit>())
@@ -144,6 +180,8 @@ class WorldManagerUnloadTest {
         init {
             registry.publish(oldBukkitWorld, oldWorld)
         }
+
+        fun closePhysics(): CoreWorld = oldWorld.also { it.physicsCoordinator.close() }
 
         fun assertOldOwnerRemovedAndReloadable() {
             assertFalse(manager.railWorlds.containsKey(oldBukkitWorld))

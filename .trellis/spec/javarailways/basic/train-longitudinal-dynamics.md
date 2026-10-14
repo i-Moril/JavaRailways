@@ -81,6 +81,10 @@ data class BrakingGradeSegment(val lengthMeters: Double, val grade: Double)
 - executor/controller/actuator是单列车、单physics worker拥有的有状态对象；固有profile单项和重力不可变，身份表只在排除worker的结构边界替换，动态坡度每次读取。
 - `RealisticManualController`提交的distance与speed必须来自同一个dynamics step；Core在同一epoch据此发布car/bogie速度。
 - 换向只改变`operatingDirection`和列车head/tail语义，不改变`Car.direction`模型朝向。
+- 人工`setDirection(direction): CompletableFuture<Unit>`只提交帧间请求，执行时验证当前train/controller确切身份；
+  同步`applyDirection(direction)`仅供已进入帧间阶段的整项接管调用。需要反向时先完成Core换向，再更新有效方向及显示符号；
+  拒绝、旧controller或shutdown失败不提前改变方向字段。连续R/N/F按FIFO处理，N不改变上次有效运行方向。
+  请求Future完成表示该项操作执行结束，不允许队列owner等待自身待执行请求；物理tick不新增换向分支。
 - 重力只来自composition注入；Basic不得读取YAML或Bukkit singleton。
 - `track.gravity`是schema 2的必填正数字段；它由旧`track.gravity-mps2`破坏性重命名而来，不保留runtime兼容读取。
 - SimpleATO test source中的`KinematicTrainActuator`只可作为无真实车辆profile的纯规划/约束测试替身，production和

@@ -66,7 +66,9 @@ class WorldManager internal constructor(
     private val infrastructureResourceService: DefaultInfrastructureResourceService? = null,
     private val signalEpochSourceService: DefaultSignalEpochSourceService? = null,
     private val loadedWorlds: LoadedRailWorldRegistry = LoadedRailWorldRegistry(railWorlds),
-    private val modelPresentationService: DefaultModelPresentationService? = null
+    private val modelPresentationService: DefaultModelPresentationService? = null,
+    private val releaseManualControl: (CoreWorld) -> Unit = {},
+    private val retireManualControl: (CoreWorld) -> Unit = {}
 ) : Listener {
     /** Value-only lookup: no Bukkit access, owner dispatch or cross-world simulation lock. */
     internal fun loadedRailWorld(worldId: UUID): World? = loadedWorlds.find(worldId)
@@ -393,6 +395,14 @@ class WorldManager internal constructor(
         if (ownedWorld != null) {
             val coreWorld = ownedWorld as? CoreWorld
             if (coreWorld != null) {
+                attempt {
+                    coreWorld.physicsCoordinator.processBetweenFrames {
+                        // Retire this world's sessions before final capture, without draining
+                        // unrelated player requests once unloading has started.
+                        releaseManualControl(coreWorld)
+                    }
+                }
+                attempt { retireManualControl(coreWorld) }
                 attempt { captureAndSave(coreWorld) }
                 attempt { topologySubscriptions.remove(coreWorld)?.close() }
                 attempt {

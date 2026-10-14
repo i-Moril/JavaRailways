@@ -26,7 +26,7 @@ Step token：`Check(wayPointId)`、`At(tick,action)`。Action包括TakeFromDepot
 
 ## Validator gate与result
 
-`TimetableValidator.validate(timetable): TimetableValidationResult(errors:List<String>,routes:List<ExpandedRoute>)`汇总全部errors并保留`[timetable/service] step#n`上下文；`isSuccess=errors.isEmpty()`。
+`TimetableValidator.validate(timetable)`返回`TimetableValidationResult`，汇总全部errors并保留`[timetable/service] step#n`上下文；`isSuccess=errors.isEmpty()`。结果保留`routes: List<ExpandedRoute>`，并携带不可变、逐项对齐的`routeStoppingOffsetsMeters: List<Double?>`：纯途经为null，停车片段为实际生效偏移，供静态应用按真实停点计算余量。可空列表不能用禁止null的`List.copyOf`复制；机制与边界归[终点分离契约](terminal-route-completion.md)。
 
 | 条件 | error/result | mutation |
 | --- | --- | --- |

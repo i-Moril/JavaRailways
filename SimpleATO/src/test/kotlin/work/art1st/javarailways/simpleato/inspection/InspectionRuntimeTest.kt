@@ -32,6 +32,41 @@ import java.util.concurrent.atomic.AtomicLong
 
 class InspectionRuntimeTest {
     @Test
+    fun `unhandled terminal uses proposed margin while explicit empty owns boundary and conflicts fail closed`() {
+        val runtime = runtime()
+        val proposed = RouteSnapshot(route.routeId, route.revision, route.topologyRevision,
+            route.segments + RouteSegmentSnapshot(railId, ViewDirection.AB,
+                route.segments.last().endArcLengthMeters, route.segments.last().endArcLengthMeters + 5.0))
+        var calls = 0
+        val observedProposals = arrayListOf<RouteSnapshot>()
+        val owner = InspectionSource("test:owner", { error("no binding") }, { emptyList() },
+            terminalRouteContinuation = { original, moving ->
+                calls++
+                assertEquals(route, original)
+                observedProposals += moving
+                null
+            })
+        runtime.replaceSources(listOf(owner))
+        assertEquals(proposed, runtime.completeTerminalRoute(route, proposed))
+        assertEquals(1, calls)
+        assertEquals(listOf(proposed), observedProposals)
+        assertThrows(IllegalArgumentException::class.java) {
+            runtime.completeTerminalRoute(route, route, "physical end before required margin")
+        }
+        assertEquals(listOf(proposed, route), observedProposals)
+        runtime.replaceSources(listOf(owner.copy(terminalRouteContinuation = { _, _ -> emptyList() })))
+        assertEquals(route, runtime.completeTerminalRoute(route, proposed, "unselected junction"))
+        listOf(false, true).forEach { emptyFirst ->
+            runtime.replaceSources(listOf(
+                owner.copy(sourceId = "test:a", terminalRouteContinuation = { _, _ ->
+                    if (emptyFirst) emptyList() else proposed.segments.takeLast(1) }),
+                owner.copy(sourceId = "test:z", terminalRouteContinuation = { _, _ ->
+                    if (emptyFirst) proposed.segments.takeLast(1) else emptyList() })))
+            assertThrows(IllegalArgumentException::class.java) { runtime.completeTerminalRoute(route, proposed) }
+        }
+    }
+
+    @Test
     fun `terminal geometry combines compatible sources once against the original route and rejects divergence`() {
         val runtime = runtime()
         val route = RouteSnapshot("stop", 0L, 7L,
@@ -42,7 +77,7 @@ class InspectionRuntimeTest {
             sourceId = id,
             bindingProvider = { error("geometry preparation must not bind a live train") },
             updateHandler = { error("geometry preparation must not execute a signal") },
-            terminalRouteContinuation = { input ->
+            terminalRouteContinuation = { input, _ ->
                 seen += input
                 listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, start, end))
             }
@@ -55,11 +90,11 @@ class InspectionRuntimeTest {
         runtime.replaceSources(listOf(source("test:wrong", start = 101.0, end = 150.0)))
         assertThrows(IllegalArgumentException::class.java) { runtime.completeTerminalRoute(route) }
         runtime.replaceSources(listOf(source("test:first", end = 140.0),
-            source("test:other", end = 150.0).copy(terminalRouteContinuation = {
+            source("test:other", end = 150.0).copy(terminalRouteContinuation = { _, _ ->
                 listOf(RouteSegmentSnapshot(UUID(9L, 9L), ViewDirection.AB, 0.0, 20.0))
             })))
         assertThrows(IllegalArgumentException::class.java) { runtime.completeTerminalRoute(route) }
-        runtime.replaceSources(listOf(source("test:broken", end = 140.0).copy(terminalRouteContinuation = {
+        runtime.replaceSources(listOf(source("test:broken", end = 140.0).copy(terminalRouteContinuation = { _, _ ->
             error("withdrawn geometry")
         })))
         assertThrows(IllegalArgumentException::class.java) { runtime.completeTerminalRoute(route) }

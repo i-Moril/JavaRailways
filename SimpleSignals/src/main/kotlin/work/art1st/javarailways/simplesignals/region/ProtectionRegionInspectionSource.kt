@@ -25,6 +25,16 @@ internal class ProtectionRegionInspectionSource(
 
     val source = InspectionSource(
         sourceId = PROTECTION_REGION_INSPECTION_SOURCE_ID,
+        terminalRouteContinuation = { route, proposedMovingRoute ->
+            val captured = publication()
+            // A physical stopping margin cannot turn an invalid operating endpoint inside a
+            // protection region into a valid full crossing. Validate both original and proposal.
+            listOf(route, proposedMovingRoute).forEach { selected ->
+                val matched = captured.routeBindingCompiler.compile(selected)
+                check(matched.diagnostics.isEmpty()) { matched.diagnostics.joinToString() }
+            }
+            null
+        },
         bindingProvider = { input ->
             val captured = publication()
             val matched = captured.routeBindingCompiler.compile(input.route)

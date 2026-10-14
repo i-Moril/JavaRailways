@@ -106,13 +106,24 @@ class InspectionRuntime(
     }
 
     /** Low-frequency geometry completion; each source sees the same original route exactly once. */
-    fun completeTerminalRoute(route: RouteSnapshot): RouteSnapshot {
+    fun completeTerminalRoute(route: RouteSnapshot, proposedMovingRoute: RouteSnapshot = route,
+        movingContinuationFailure: String? = null): RouteSnapshot {
         val sources = sourcesById
         var suffix = emptyList<work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot>()
+        var handled = false
+        var explicitEnd = false
         sources.values.forEach { source ->
             try {
-                val candidate = java.util.List.copyOf(source.terminalRouteContinuation.continuation(route))
+                val offered = source.terminalRouteContinuation.continuation(route, proposedMovingRoute)
+                    ?: return@forEach
+                val candidate = java.util.List.copyOf(offered)
+                handled = true
+                if (candidate.isEmpty()) {
+                    require(suffix.isEmpty()) { "terminal policies disagree on an explicit authorization end" }
+                    explicitEnd = true
+                }
                 if (candidate.isNotEmpty()) {
+                    require(!explicitEnd) { "terminal policies disagree on an explicit authorization end" }
                     require(candidate.all { it.lengthMeters > 0.0 }) { "continuation contains an empty segment" }
                     val end = requireNotNull(route.segments.lastOrNull()) { "cannot extend an empty route" }
                     val start = candidate.first()
@@ -126,6 +137,10 @@ class InspectionRuntime(
                 throw IllegalArgumentException("inspection source ${source.sourceId} could not complete route " +
                     "${route.routeId}: ${failure.message ?: failure.javaClass.name}", failure)
             }
+        }
+        if (!handled) {
+            require(movingContinuationFailure == null) { movingContinuationFailure ?: "terminal margin is unavailable" }
+            return proposedMovingRoute
         }
         return if (suffix.isEmpty()) route else RouteSnapshot(route.routeId, route.revision,
             route.topologyRevision, route.segments + suffix)

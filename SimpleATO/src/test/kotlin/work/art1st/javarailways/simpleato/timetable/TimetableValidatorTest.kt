@@ -6,6 +6,7 @@ import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
@@ -40,6 +41,78 @@ import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 
 class TimetableValidatorTest {
+    @Test
+    fun `endpoint anchor retains existing track when actual destination stop has enough margin`() {
+        val world = createTestWorld()
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        world.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 10.0))
+        world.basicWorldData.wayPoints.add(WayPoint("end", "End", rail.id, 100.0))
+        val timetable = Timetable("offset", services = listOf(TimetableService("s", TrainSelector.TrainId("train"), listOf(
+            TimetableStep.Check("origin"),
+            TimetableStep.At(0L, TimetableAction.DestinationOptions("end", stoppingOffsetMetersBefore = 10.0)),
+            TimetableStep.At(0L, TimetableAction.GoTo("end"))
+        ))))
+        world.simpleAtoWorldData.timetables.add(timetable)
+        val validation = TimetableValidator(world).validate(timetable)
+        assertTrue(validation.isSuccess, validation.errors.toString())
+        assertEquals(listOf(10.0), validation.routeStoppingOffsetsMeters)
+        assertEquals(100.0, validation.routes.single().segments.last().endArcLength)
+        val dispatcher = TimetableDispatcher(UnavailableRouteAdmissionTestContext, emptyTrainRestrictionSnapshots,
+            emptyInspectionRuntime(), acceptingInfrastructureDependencyService(), authorityStoppingMarginMeters = 5.0)
+        assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, timetable.id) } is TimetableEpochStartResult.Started)
+    }
+
+    @Test
+    fun `validation distinguishes pass through legs and preserves station effective stopping offset`() {
+        val world = createTestWorld()
+        TestSimpleATOWorldDataRegistry.getOrCreate(world)
+        val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
+        world.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 10.0))
+        world.basicWorldData.wayPoints.add(WayPoint("via", "Via", rail.id, 60.0))
+        OperationalDestinationService(world).register(OperationalDestination("central@one", "Central", rail.id, 100.0,
+            ViewDirection.AB, DestinationRole.StationBerthRole(StationId("central"), berthId = "one",
+                doorSide = DoorSide.LEFT, stoppingOffsetMetersBefore = 10.0)))
+        fun timetable(offset: Double?) = Timetable("station-offset", services = listOf(TimetableService("s",
+            TrainSelector.TrainId("train"), listOf(TimetableStep.Check("origin"),
+                TimetableStep.At(0L, TimetableAction.CallStation("central", "one", stoppingOffsetMetersBefore = offset)),
+                TimetableStep.At(0L, TimetableAction.GoVia(listOf("via", "central@one")))))))
+        listOf(null to 10.0, 12.0 to 12.0).forEach { (override, effective) ->
+            val result = TimetableValidator(world).validate(timetable(override))
+            assertTrue(result.isSuccess, result.errors.toString())
+            assertEquals(listOf(null, effective), result.routeStoppingOffsetsMeters)
+            assertEquals(listOf(50.0, 40.0), result.routes.map { it.totalLength })
+        }
+        world.basicWorldData.wayPoints.add(WayPoint("beyond", "Beyond", rail.id, 100.0))
+        OperationalDestinationService(world).register(OperationalDestination("interior@one", "Interior", rail.id, 80.0,
+            ViewDirection.AB, DestinationRole.StationBerthRole(StationId("interior"), berthId = "one",
+                doorSide = DoorSide.LEFT, stoppingOffsetMetersBefore = 10.0)))
+        val interior = Timetable("interior-call", services = listOf(TimetableService("s", TrainSelector.TrainId("train"), listOf(
+            TimetableStep.Check("origin"),
+            TimetableStep.At(0L, TimetableAction.CallStation("interior", "one")),
+            TimetableStep.At(0L, TimetableAction.GoTo("beyond"))
+        ))))
+        val interiorResult = TimetableValidator(world).validate(interior)
+        assertTrue(interiorResult.isSuccess, interiorResult.errors.toString())
+        assertEquals(listOf(0.0), interiorResult.routeStoppingOffsetsMeters,
+            "an interior station does not replace the final GoTo stopping target")
+    }
+
+    @Test
+    fun `validation route offsets are aligned immutable and retained on invalid timetable`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            TimetableValidationResult(emptyList(), emptyList(), listOf(1.0))
+        }
+        val offsets = mutableListOf<Double?>()
+        val result = TimetableValidationResult(listOf("invalid"), emptyList(), offsets)
+        offsets.add(1.0)
+        assertFalse(result.isSuccess)
+        assertTrue(result.routeStoppingOffsetsMeters.isEmpty())
+        assertThrows(UnsupportedOperationException::class.java) {
+            (result.routeStoppingOffsetsMeters as MutableList<Double?>).add(1.0)
+        }
+    }
+
     @Test
     fun `validator rejects unknown infrastructure lines and missing line maximum speeds`() {
         val world = createTestWorld()
@@ -287,6 +360,7 @@ class TimetableValidatorTest {
         )
         val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
+            authorityStoppingMarginMeters = profile.safetyDistanceMeters,
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,

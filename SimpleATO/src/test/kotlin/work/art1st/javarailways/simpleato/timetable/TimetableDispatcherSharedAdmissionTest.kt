@@ -137,7 +137,7 @@ class TimetableDispatcherSharedAdmissionTest {
         fixture.dispatch()
 
         assertEquals(1, fixture.service.intents.size)
-        assertEquals(1, fixture.dependencies.mutations.size)
+        assertEquals(2, fixture.dependencies.mutations.size)
     }
 
     @Test
@@ -779,7 +779,7 @@ class TimetableDispatcherSharedAdmissionTest {
         assertTrue(fixture.service.grants.all { it.grantId === fixture.service.grantId })
         assertTrue(fixture.dependencies.mutations.size >= 2)
         assertEquals(0L, fixture.dependencies.mutations.first().owner.revision)
-        assertEquals(1L, fixture.dependencies.mutations.last().owner.revision)
+        assertEquals(3L, fixture.dependencies.mutations.last().owner.revision)
     }
 
     @Test
@@ -1112,6 +1112,7 @@ class TimetableDispatcherSharedAdmissionTest {
         val inspectionRuntime = InspectionRuntime(signalRestrictions) { _, _, failure -> throw failure }
         configureInspection(inspectionRuntime)
         return TimetableDispatcher(
+            authorityStoppingMarginMeters = profile.safetyDistanceMeters,
             routeAdmissionContextProvider = contextProvider,
             signalRestrictionSnapshots = signalRestrictions,
             inspectionRuntime = inspectionRuntime,

@@ -104,7 +104,7 @@ class TimetableDispatcherTest {
                     assertEquals(setOf(first.id, second.id), plans.applied.values.single().dependencies.railIds)
                     assertEquals(second.id, completed.segments.last().railId)
                     emptyList()
-                }, { selected ->
+                }, { selected, _ ->
                     assertEquals(setOf(first.id), plans.applied.values.single().dependencies.railIds)
                     val end = selected.segments.last()
                     listOf(work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot(
@@ -156,7 +156,7 @@ class TimetableDispatcherTest {
                 if (fail) error("stale block definitions")
                 assertEquals(origin + 30.0, selected.segments.last().endArcLengthMeters, 1.0e-9)
                 resources
-            }, terminalRouteContinuation = { selected ->
+            }, terminalRouteContinuation = { selected, _ ->
                 assertEquals(setOf(rail.id), plans.applied.values.single().dependencies.railIds,
                     "the selected physical route must be guarded before plugin geometry is read")
                 val end = selected.segments.last()
@@ -1656,7 +1656,7 @@ class TimetableDispatcherTest {
         assertTrue(world.onOwnerForTest { dispatcher.releaseControlTransfer(train.id, "driver-1") })
 
         world.onOwnerForTest {
-            train.setLocation(train.head.location.forward(40.0)!!)
+            train.setLocation(train.head.location.forward(40.0 + profile.safetyDistanceMeters)!!)
             train.commit()
         }
         world.onOwnerForTest { dispatcher.tick(world) }
@@ -2199,6 +2199,7 @@ class TimetableDispatcherTest {
     ): TimetableDispatcher {
         var boundWorld: CoreWorld? = null
         return TimetableDispatcher(
+            authorityStoppingMarginMeters = profile.safetyDistanceMeters,
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { boundWorld },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,

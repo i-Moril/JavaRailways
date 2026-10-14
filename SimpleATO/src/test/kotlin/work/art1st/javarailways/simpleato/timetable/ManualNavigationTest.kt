@@ -75,6 +75,7 @@ class ManualNavigationTest {
         var admissionWorld: CoreWorld? = null
         val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
+            authorityStoppingMarginMeters = profile.safetyDistanceMeters,
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { admissionWorld },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,

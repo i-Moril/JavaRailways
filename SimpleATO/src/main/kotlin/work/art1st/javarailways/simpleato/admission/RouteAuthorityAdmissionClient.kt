@@ -52,6 +52,9 @@ internal class RouteAuthorityAdmissionClient(
             )
         } ?: RouteAuthorityAdmissionState.EMPTY
 
+    /** Exact Basic publication retained by this client, never an operationally clipped boundary. */
+    val committedGrantSnapshot: RouteGrantSnapshot? get() = active?.committedGrant
+
     /**
      * Projects an already committed prefix onto an append candidate before its rolling extension.
      * This changes only the controller restriction binding, never Basic's grant or selected path.
@@ -373,14 +376,7 @@ internal class RouteAuthorityAdmissionClient(
         stamp: RailwayStateStamp,
         boundaryMeters: Double
     ) {
-        val restrictions = if (
-            boundaryMeters + COMPLETE_ROUTE_EPSILON_METERS >=
-            route.restrictionRoute.totalLengthMeters
-        ) {
-            emptyList()
-        } else {
-            listOf(MovementAuthorityRestriction(AUTHORITY_RESTRICTION_ID, boundaryMeters))
-        }
+        val restrictions = listOf(MovementAuthorityRestriction(AUTHORITY_RESTRICTION_ID, boundaryMeters))
         publish(
             route,
             restrictions,

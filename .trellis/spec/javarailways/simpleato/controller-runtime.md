@@ -49,8 +49,8 @@ controller同时拥有该列车唯一的`TrainRestrictionConstraintAdapter`。ad
 restriction snapshot；Dispatcher仅在route建立/延长时绑定冻结route、Mission revision及二者的坐标映射。每个physics tick
 由controller用当前Mission投影和上一成功signal observation stamp调用apply，adapter把结果原子替换进controller原有
 `ConstraintManager`。这不是第二份约束存储或第二个制动器：最终仍由同一个
-`MinimumConstraintPlanner`与车辆、停车、跟车等constraint一起取最严格值。部分Basic授权保留外部MA；当grant覆盖完整
-frozen mission route时，该来源发布更高revision空restriction，终点仍由mission Stop constraint精确停车。
+`MinimumConstraintPlanner`与车辆、停车、跟车等constraint一起取最严格值。部分和完整Basic授权都保留真实外部MA；
+完整frozen route授权不是撤销硬边界的理由。mission Stop constraint仍按原运营目标停车，真实余量与完成检查归[终点分离契约](terminal-route-completion.md)。
 
 运营停车目标不一定是物理路线末端。Mission投影无法表示车头时，controller与Dispatcher复用已绑定冻结物理路径作有界投影，保留实际停车误差；接续映射、执行条件及成本归[停车目标与授权终点分离](terminal-route-completion.md)，不能因位置仍在真实物理后缀内就将其误判为离开路线。
 

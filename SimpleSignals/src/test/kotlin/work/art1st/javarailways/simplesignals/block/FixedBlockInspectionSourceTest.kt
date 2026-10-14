@@ -51,6 +51,22 @@ import java.util.UUID
 
 class FixedBlockInspectionSourceTest {
     @Test
+    fun `moving margin cannot enter a new block and exact block exit owns an empty suffix`() {
+        val block = FixedBlockDefinition("test:margin", 1L,
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)), true)
+        val source = FixedBlockInspectionSource({ snapshot(block) }).source
+        val before = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 1.0))
+        val proposed = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 4.0))
+        assertThrows(IllegalStateException::class.java) {
+            source.terminalRouteContinuation.continuation(before, proposed)
+        }
+        val exit = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 8.0))
+        assertEquals(emptyList<RouteSegmentSnapshot>(),
+            source.terminalRouteContinuation.continuation(exit, proposed)?.toList())
+        assertEquals(null, source.terminalRouteContinuation.continuation(before, before))
+    }
+
+    @Test
     fun `terminal completion clips complete compiled path and internal start has request floor without passed signal`() {
         val block = FixedBlockDefinition("test:complete", 1L, listOf(
             FixedBlockTraversal(first, ViewDirection.AB, 2.0, 10.0),
@@ -59,7 +75,7 @@ class FixedBlockInspectionSourceTest {
         val source = FixedBlockInspectionSource({ captured }).source
         val forward = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
             RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 4.0))
-        val suffix = source.terminalRouteContinuation.continuation(forward).toList()
+        val suffix = requireNotNull(source.terminalRouteContinuation.continuation(forward, forward)).toList()
         assertEquals(listOf(RouteSegmentSnapshot(second, ViewDirection.AB, 4.0, 8.0)), suffix)
         val complete = RouteSnapshot(forward.routeId, forward.revision, forward.topologyRevision, forward.segments + suffix)
         val entered = source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", complete))
@@ -79,8 +95,9 @@ class FixedBlockInspectionSourceTest {
         val reverse = route(RouteSegmentSnapshot(second, ViewDirection.BA, 2.0, 10.0),
             RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 6.0))
         assertEquals(listOf(RouteSegmentSnapshot(first, ViewDirection.BA, 6.0, 8.0)),
-            source.terminalRouteContinuation.continuation(reverse).toList())
-        assertTrue(source.terminalRouteContinuation.continuation(complete).isEmpty(), "an exit does not acquire its successor")
+            requireNotNull(source.terminalRouteContinuation.continuation(reverse, reverse)).toList())
+        assertTrue(requireNotNull(source.terminalRouteContinuation.continuation(complete, complete)).isEmpty(),
+            "an exit does not acquire its successor")
     }
 
     @Test

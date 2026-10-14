@@ -2,13 +2,32 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
+### 当前优先批次：真实停站授权余量与越界完成检查
+
+用户已批准先处理之前延期的两项问题，取代下方“后续独立批次”的暂缓状态；停车精度仍是另一项未修复缺陷。
+
+用户进一步确认：安全距离作为全局设置，默认5米。静态应用与实际/隔离controller读取同一配置；具体新目标、失败边界和回归归[owner契约](../../spec/javarailways/simpleato/terminal-route-completion.md#当前实施目标全局安全距离与真实完成检查)。预计改动限于SimpleATO路径补全/准入/Dispatcher与测试、SimpleSignals中立终点接管/余量校验、宿主配置及真实/隔离composition；不改Core/Basic物理算法、世界格式或模型包。
+
+- [x] 核对真实物理余量的路径来源、现有安全距离、静态/动态依赖及失败语义，补充owner契约；未仅扩大控制标量、猜未选道岔分支或盲加10米。
+- [x] 实现移动闭塞停站实际轨道授权与完成转换检查：使用真实车头位置和Basic committed boundary，越界不能推进后续动作；复用既有路径/授权生命周期，未新增逐tick扫描器或第二个资源管理器。
+- [x] 独立check和受影响模块门禁通过，按授权机制及宿主配置拆分提交；未修改制动算法/停车目标/精度容差，未部署或增加schema版本，保留用户其他工作。
+
+#### 本批验证（2026-10-14）
+
+- 最终精确代码树`3d1faaf8721c077f75dff9d8810218376fc85038`，隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`；使用`GRADLE_USER_HOME=/workspace/.gradle`，offline、no-build-cache、no-parallel、max-workers=2。
+- 联合任务：`:Core:test :Basic:test :SimpleATO:test :SimpleATOBukkit:test :SimpleSignals:check :BukkitPlugin:test :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries :SimpleATO:dokkaGeneratePublicationHtml`；成功1分15秒，49项task中15执行/34 up-to-date。仅排除WebUI installFrontend/buildFrontend；本批未改前端。
+- XML结果：Core409、Basic394、SimpleATO376、SimpleATOBukkit8、SimpleSignals501、BukkitPlugin388，合计2076，零失败/错误/跳过。Core/Basic本次为up-to-date；其生产代码未改，不能宣称本次重新执行了803项测试。
+- 真实Core/Basic/Handle执行的50ms用例覆盖无信号策略停车、100→101米短接续、越过真实边界后禁止换向/归库，并保留原三个固定闭塞回归。站台/普通目的地禁止开门的负向用例执行实际Core位移及publication，但准入/驱动为原fixture替身，不能与真实集成证据混称。
+- 新增几何边界与source接管冲突回归；中间站不覆盖最终停车目标，静态/动态终到站偏移保持一致。首次联合回归发现的中间站语义问题已修复；新用例按实际异步准入阶段等待拒绝，不放宽停车条件。
+- 独立check未发现剩余生产阻塞；既有Dokka未文档化/链接、Graal POM及JDK/Gradle警告仍有输出。无Paper/Folia、客户端、部署或迁移验证。停车精度缺陷继续保留，Stage 2不标完成或归档。
+
 ### 用户纠正后的当前执行顺序
 
 用户确认：固定闭塞应真正取得信号允许通过的完整区间，运营停车目标独立；测试的闭塞本来为40～140米、停车点100米，不是玩家把边界放在停车点。此前仅凭物理授权被截到100米，就将问题归因于制动超调并要求先修动力包络的顺序已被此决定取代；100.322米是否满足停车精度与是否超出完整区间授权必须分开。
 
 - [x] 第一笔：实现[终端物理路径补全契约](../../spec/javarailways/simpleato/terminal-route-completion.md)，复用InspectionSource生命周期，在冻结准入路线时低频补全，并正确复用下一任务与既有授权后缀。Basic保持独立校验，不新增registry，不改持久化。
 - [x] 第二笔：SimpleSignals从已编译闭塞路径提供完整剩余路径与区间内部起步请求下界；接入真实50ms返库回归，证明物理claim真正到140米、停车目标仍100米、同一token跨停车换向保留/实际车尾清除后释放。
-- [ ] 后续独立批次：移动闭塞停站的真实物理授权余量与通用越界完成检查一起处理。试接通用检查暴露既有移动闭塞测试的“授权恰好到停车点”语义；本批不混入这项变更、不放宽epsilon，也不据此声称真实越界完成检查已实现。
+- [x] 此前暂缓、现已由上方当前批次实现：移动闭塞停站的真实物理授权余量与通用越界完成检查一起处理。试接通用检查暴露的“授权恰好到停车点”语义已用真实余量纠正，未放宽epsilon。
 
 以上源码接缝和限制见[专项研究](research/fixed-block-authority-stop-separation.md)。下方旧诊断与验收保留历史证据，不再作为未经用户确认的修复优先级。
 

@@ -55,7 +55,8 @@ fun interface InspectionRouteDependencyProvider {
  * aspect is involved. The host reconciles sources; Basic independently validates the complete path.
  */
 fun interface InspectionRouteContinuationProvider {
-    fun continuation(route: RouteSnapshot): Collection<RouteSegmentSnapshot>
+    /** null declines ownership; empty explicitly owns the terminal without additional geometry. */
+    fun continuation(route: RouteSnapshot, proposedMovingRoute: RouteSnapshot): Collection<RouteSegmentSnapshot>?
 }
 
 /**
@@ -74,7 +75,7 @@ data class InspectionSource(
     val routeInfrastructureDependencies: InspectionRouteDependencyProvider =
         InspectionRouteDependencyProvider { emptyList() },
     val terminalRouteContinuation: InspectionRouteContinuationProvider =
-        InspectionRouteContinuationProvider { emptyList() }
+        InspectionRouteContinuationProvider { _, _ -> null }
 ) {
     init {
         require(NAMESPACED_SIMPLE_ATO_ID.matches(sourceId)) { "sourceId must be namespaced" }

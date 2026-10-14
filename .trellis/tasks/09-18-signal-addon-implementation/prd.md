@@ -21,6 +21,10 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 ## Requirements
 
+### 全局安全距离与真实越界完成检查（2026-10-14）
+
+用户批准优先处理移动闭塞停站真实授权余量及通用完成检查，安全距离作为全局设置、默认5米。静态应用保护、实际ATO与隔离仿真共用同一值；余量必须获得真实轨道授权，不以控制标量替代，不选择未选分支或擅自跨信号边界。真正越过committed authority的停车不得推进开门、换向、后续动作或归库台账。精确机制及错误/测试边界归[终点分离owner契约](../../spec/javarailways/simpleato/terminal-route-completion.md#当前实施目标全局安全距离与真实完成检查)。本批不修制动算法/停车精度、不部署或升schema版本。
+
 ### 固定闭塞完整授权与运营停车（2026-10-14）
 
 用户确认：固定闭塞的正式物理授权应覆盖信号允许通过的完整区间，不因运营停车点位于内部就截短。停车目标独立保留；完整block token不能代替其余轨道的真实授权。补全、后续任务复用、区间内部起步与停车换向按[终点分离契约](../../spec/javarailways/simpleato/terminal-route-completion.md)实施。不一概删除终点控制补偿，不靠移动停车点、放宽Basic校验或盲加固定余量让测试通过。

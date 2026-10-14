@@ -81,7 +81,19 @@ class StoppedReturnToDepotIntegrationTest {
     @Test
     fun `next forward mission moves on held prefix before extending into the following complete block`() = runReturn(160.0)
 
-    private fun runReturn(secondStop: Double?) {
+    @Test
+    fun `moving authority freezes a real stopping margin through forward stop reverse and managed storage`() =
+        runReturn(null, fixedBlocks = false)
+
+    @Test
+    fun `next moving stop inside retained margin extends geometry with a new route revision`() =
+        runReturn(101.0, fixedBlocks = false)
+
+    @Test
+    fun `actual head beyond moving authority stalls before reverse or managed storage and retains claims`() =
+        runReturn(null, fixedBlocks = false, injectAuthorityBreach = true)
+
+    private fun runReturn(secondStop: Double?, fixedBlocks: Boolean = true, injectAuthorityBreach: Boolean = false) {
         val worldId = UUID.randomUUID()
         val world = createTestWorld(PhysicsCoordinator(1, automaticFallback = false))
         var registryToClose: InfrastructureCoordinationRegistry? = null
@@ -104,7 +116,7 @@ class StoppedReturnToDepotIntegrationTest {
             // a separate real0..40m block supplies its physical continuation, not a synthetic buffer.
             val depotBlock = FixedBlockDefinition("test:depot-block", 1L,
                 listOf(FixedBlockTraversal(rail.id, ViewDirection.AB, 0.0, 40.0)), bidirectional = true)
-            val blocks = listOf(depotBlock, block) + if (secondStop != null && secondStop > 140.0) listOf(
+            val blocks = if (!fixedBlocks) emptyList() else listOf(depotBlock, block) + if (secondStop != null && secondStop > 140.0) listOf(
                 FixedBlockDefinition("test:next-block", 1L,
                     listOf(FixedBlockTraversal(rail.id, ViewDirection.AB, 140.0, 200.0)), bidirectional = true)
             ) else emptyList()
@@ -123,7 +135,7 @@ class StoppedReturnToDepotIntegrationTest {
             })
             val policy = FixedBlockRouteResourcePolicy(plugin,
                 { FixedBlockDirectionPolicy(basic.operatingDirections::snapshot) }) { catalog.snapshot(topology) }
-            inspection.replaceSources(listOf(FixedBlockInspectionSource({ catalog.snapshot(topology) },
+            if (fixedBlocks) inspection.replaceSources(listOf(FixedBlockInspectionSource({ catalog.snapshot(topology) },
                 directionPolicy = FixedBlockDirectionPolicy(basic.operatingDirections::snapshot)).source))
             val token = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)
             val tokens = blocks.map { StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, it.blockId) }.toSet()
@@ -147,7 +159,7 @@ class StoppedReturnToDepotIntegrationTest {
                     submittedIntents += intent
                     if (result is work.art1st.javarailways.basic.api.route.RouteAdmissionResult.Granted &&
                         intent.route.segments.last().facing == ViewDirection.BA &&
-                        intent.route.segments.last().endArcLengthMeters == 240.0 &&
+                        intent.route.segments.last().endArcLengthMeters == (if (fixedBlocks) 240.0 else 222.0) &&
                         result.grant.committedAuthority.distanceFromRouteStartMeters == intent.route.totalLengthMeters
                     ) reverseGrantReachedDepotExit = true
                 }
@@ -169,6 +181,7 @@ class StoppedReturnToDepotIntegrationTest {
             val dispatcher = TimetableDispatcher(
                 TimetableRouteAdmissionContextProvider { observation?.let { TimetableRouteAdmissionContext(it, service) } },
                 restrictions, inspection, dependencies,
+                authorityStoppingMarginMeters = safety.safetyDistanceMeters,
                 allocationTiming = RouteAllocationTiming(0.0, 0.0, 2.0),
                 atoFactory = TimetableAtoFactory { selected, selectedWorld ->
                     SimpleATO(selected, selectedWorld,
@@ -247,40 +260,61 @@ class StoppedReturnToDepotIntegrationTest {
                 val bodyInBlock = frame.occupiedIntervals.any {
                     it.railId == rail.id && it.maxArcLengthInAbMeters > 40.0 && it.minArcLengthInAbMeters < 140.0
                 }
-                if (secondStop != null && frame.speedMetersPerSecond == 0.0 && !frame.reversed &&
+                if (secondStop != null && (train.controller as SimpleATO).currentMission?.legs?.last()?.point
+                        ?.target?.id == "second" && frame.speedMetersPerSecond == 0.0 && !frame.reversed &&
                     frame.head.arcLengthInAbMeters > secondStop - 1.0
                 ) {
                     secondStopped = true
-                    if (secondStop < 140.0) assertEquals(forwardRequestsAtFirstStop, submittedIntents.size,
+                    if (fixedBlocks && secondStop < 140.0) assertEquals(forwardRequestsAtFirstStop, submittedIntents.size,
                         "an operating target inside an already granted suffix needs no new Basic request")
                     else assertTrue(submittedIntents.size > checkNotNull(forwardRequestsAtFirstStop))
                 }
-                if (maximumHead > 90.0 && frame.speedMetersPerSecond == 0.0 && !frame.reversed && bodyInBlock) {
+                if (!stoppedInside && maximumHead > 90.0 && frame.speedMetersPerSecond == 0.0 && !frame.reversed && bodyInBlock) {
                     stoppedInside = true
                     assertTrue(bodyInBlock)
-                    val claim = tokenClaims().single()
+                    val claim = if (fixedBlocks) tokenClaims().single() else registry.claimSnapshots().single()
                     assertTrue(claim.footprint.resources.filterIsInstance<RailIntervalResource>().any {
-                        it.railId == rail.id && it.endAbMeters >= 140.0
+                        it.railId == rail.id && it.endAbMeters >= (if (fixedBlocks) 140.0 else 102.0)
                     }, "the real physical claim, not just its block token, must cover the complete section")
                     heldOwner = claim.owner
                     if (frame.head.arcLengthInAbMeters < 110.0 && forwardRequestsAtFirstStop == null) {
                         forwardRequestsAtFirstStop = submittedIntents.size
                     }
-                    val before = registry.claimSnapshots().map { it.footprint }
-                    val conflict = registry.acquireClaim(Any(), InfrastructureClaimRequest(topology.revision,
-                        InfrastructureOwner("test:opposing", 1), InfrastructureFootprint(listOf(token))))
-                    assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, conflict.status)
-                    assertEquals(before, registry.claimSnapshots().map { it.footprint })
+                    if (fixedBlocks) {
+                        val before = registry.claimSnapshots().map { it.footprint }
+                        val conflict = registry.acquireClaim(Any(), InfrastructureClaimRequest(topology.revision,
+                            InfrastructureOwner("test:opposing", 1), InfrastructureFootprint(listOf(token))))
+                        assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, conflict.status)
+                        assertEquals(before, registry.claimSnapshots().map { it.footprint })
+                    } else assertEquals(102.0, claim.footprint.resources.filterIsInstance<RailIntervalResource>()
+                        .maxOf { it.endAbMeters }, 1.0e-9)
+                    if (injectAuthorityBreach) {
+                        // Simulate a physical overrun, not an invented observation/grant. The next
+                        // real frame must fail closed before the pending Reverse/storage actions.
+                        train.moveTrainForward(3.0)
+                        train.commit()
+                        world.onOwnerForTest { dispatcher.tick(world) }
+                        assertTrue(train.publishedFrame.head.arcLengthInAbMeters > 102.0)
+                        assertTrue(coordinator.isStalled)
+                        assertEquals("RouteAuthorityViolation", coordinator.lastStall?.errorType)
+                        assertEquals(TimetableServiceRunState.FAILED, dispatcher.status(runId)?.state)
+                        assertFalse(train.publishedFrame.reversed)
+                        assertTrue(registry.claimSnapshots().isNotEmpty(), "a breach cannot release physical claims")
+                        assertFalse(data.depots.rollingStock(train.id)!!.state == RollingStockState.AVAILABLE)
+                        assertNull(data.depots.stablingPoint(home)?.occupantTrainId)
+                        return
+                    }
                 }
                 if (frame.reversed && bodyInBlock) {
                     reversedInside = true
                     assertTrue(stoppedInside, "the direction change must follow the actual in-block stop")
-                    assertEquals(heldOwner, tokenClaims().single().owner, "reversal must retain the same claim")
+                    assertEquals(heldOwner, (if (fixedBlocks) tokenClaims() else registry.claimSnapshots()).single().owner,
+                        "reversal must retain the same claim")
                 }
                 if (reversedInside && frame.tail.arcLengthInAbMeters < 40.0) {
                     tailCleared = true
                     assertTrue(tokenClaims().isEmpty(), "actual reversed tail clearance must release the block")
-                } else if (stoppedInside && bodyInBlock) {
+                } else if (fixedBlocks && stoppedInside && bodyInBlock) {
                     assertEquals(1, tokenClaims().size, "head exit or mission transition cannot release the block")
                 }
             }
@@ -290,7 +324,7 @@ class StoppedReturnToDepotIntegrationTest {
                 "rolling allocation must allow movement on the old grant before requesting the next block")
             assertTrue(reversedInside)
             assertTrue(tailCleared)
-            assertTrue(reverseGrantReachedDepotExit, "real reverse physical grant must reach depot block exit0m")
+            assertTrue(reverseGrantReachedDepotExit, "real reverse physical grant must reach its physical terminal boundary")
             assertEquals(TimetableServiceRunState.COMPLETED, dispatcher.status(runId)?.state,
                 "steps=$steps status=${dispatcher.status(runId)}")
             // This regression accepts fixed-block authorization and managed storage, not stopping
@@ -307,8 +341,10 @@ class StoppedReturnToDepotIntegrationTest {
                 it.railId == rail.id && it.minArcLengthInAbMeters >= 0.0 && it.maxArcLengthInAbMeters <= 40.0
             }, "the actual complete train must remain inside the authored depot block")
             val depotToken = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, depotBlock.blockId)
-            val depotClaim = registry.claimSnapshots().single { depotToken in it.footprint.resources }
+            val depotClaim = if (fixedBlocks) registry.claimSnapshots().single { depotToken in it.footprint.resources }
+                else registry.claimSnapshots().single()
             val claimedRails = depotClaim.footprint.resources.filterIsInstance<RailIntervalResource>()
+            if (!fixedBlocks) assertEquals(18.0, claimedRails.minOf { it.startAbMeters }, 1.0e-9)
             for (end in listOf(finalFrame.head, finalFrame.tail)) {
                 assertTrue(claimedRails.any {
                     it.railId == end.railId && end.arcLengthInAbMeters >= it.startAbMeters &&

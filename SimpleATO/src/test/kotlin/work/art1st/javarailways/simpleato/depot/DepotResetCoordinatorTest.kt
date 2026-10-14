@@ -83,6 +83,7 @@ class DepotResetCoordinatorTest {
         val world = createTestWorld().also(worlds::add)
         val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
+            authorityStoppingMarginMeters = profile.safetyDistanceMeters,
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,

@@ -8,6 +8,7 @@ import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolutionResult
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolver
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionSubmissionResult
 import work.art1st.javarailways.simpleato.api.mission.WayPointRef
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
@@ -17,6 +18,8 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
+import work.art1st.javarailways.basic.api.route.RouteGrantId
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainAllocation
 import work.art1st.javarailways.simpleato.api.depot.DepotStorageReservation
@@ -72,6 +75,9 @@ import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRouteAssembler
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRouteRejection
 import work.art1st.javarailways.simpleato.routing.FrozenMissionRouteResult
+import work.art1st.javarailways.simpleato.routing.TerminalRouteMargin
+import work.art1st.javarailways.simpleato.routing.TerminalMarginProposal
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionContext
 import work.art1st.javarailways.simpleato.persistence.SavedActiveRunCheckpointV1
 import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
@@ -276,9 +282,11 @@ class TimetableDispatcher(
     ),
     private val operationGateway: TrainOperationGateway = RejectingTrainOperationGateway,
     private val operationTimeoutTicks: Long = DEFAULT_OPERATION_TIMEOUT_TICKS,
-    private val atoFactory: TimetableAtoFactory? = null
+    private val atoFactory: TimetableAtoFactory? = null,
+    private val authorityStoppingMarginMeters: Double = AtoSafetyProfile().safetyDistanceMeters
 ) : DepotResetDispatchParticipant {
     init {
+        require(authorityStoppingMarginMeters.isFinite() && authorityStoppingMarginMeters >= 0.0)
         require(operationTimeoutTicks > 0L)
     }
     private val missionRevision = AtomicLong(0L)
@@ -469,7 +477,7 @@ class TimetableDispatcher(
         }
         val previousPlan = appliedTimetablePlans[timetableId]
         val installedPlan = when (
-            val installed = compileAndInstallAppliedPlan(world, timetableId, previousPlan, validation.routes)
+            val installed = compileAndInstallAppliedPlan(world, timetableId, previousPlan, validation)
         ) {
             is AppliedPlanInstallResult.Installed -> installed.plan
             is AppliedPlanInstallResult.Rejected ->
@@ -680,6 +688,9 @@ class TimetableDispatcher(
                         (failure.message ?: failure::class.java.simpleName)
                 )
             }
+        }
+        if (ato.authorityStoppingMarginMeters != authorityStoppingMarginMeters) {
+            return startupFailure("controller safety distance does not match the Dispatcher world configuration")
         }
         applyTimetableLineSpeedLimit(ato, timetable, service, runId)
         val controllerOwned = existingController == null || replaceableTrainRuns.any {
@@ -1097,6 +1108,9 @@ class TimetableDispatcher(
                 "failed to create replacement ATO: ${failure.message ?: failure::class.java.simpleName}"
             )
         }
+        if (replacementAto.authorityStoppingMarginMeters != authorityStoppingMarginMeters) {
+            return TimetableReplanResult.Failure("replacement controller safety distance does not match the Dispatcher world configuration")
+        }
         applyTimetableLineSpeedLimit(replacementAto, timetable, run.service, run.id)
         val target = WayPointRef(run.currentRuntime.targetWayPointId)
         if (target.id == originWayPointId) {
@@ -1187,6 +1201,14 @@ class TimetableDispatcher(
                 capturePublishedTrainSnapshot(run)
             } else {
                 publishedAtoState.trainSnapshot
+            }
+            if (!fullManual) when (run.state) {
+                TimetableServiceRunState.BERTHED, TimetableServiceRunState.DOORS_OPENING,
+                TimetableServiceRunState.DWELLING, TimetableServiceRunState.DOORS_CLOSING,
+                TimetableServiceRunState.READY_TO_DEPART, TimetableServiceRunState.HALTING,
+                TimetableServiceRunState.WAITING_EXTENSION_ACTION ->
+                    if (!validateCommittedAuthority(world, run)) return@forEach
+                else -> Unit
             }
             if (!controlTransferred) {
                 processStationNotifications(run)
@@ -1455,7 +1477,8 @@ class TimetableDispatcher(
             runtime.headProgressMeters = headProgress
             runtime.tailProgressMeters = runtime.layout.project(snapshot.tail, runtime.tailProgressMeters)
                 ?: runtime.tailProgressMeters
-            reportWaypointProgress(run, runtime, snapshot)
+            reportWaypointProgress(world, run, runtime, snapshot)
+            if (coordinator.isStalled) return@forEach
 
             val completedDestinationStop = run.destinationStop?.takeIf {
                 it.missionRuntime === runtime && destinationStopCompleted(run, runtime, snapshot, it)
@@ -1464,7 +1487,7 @@ class TimetableDispatcher(
                 beginDestinationStop(world, run, completedDestinationStop)
                 return@forEach
             }
-            if (missionCompleted(run, runtime, snapshot) &&
+            if (missionCompleted(world, run, runtime, snapshot) &&
                 (run.stationCall == null || run.stationCall?.departed == true) &&
                 run.destinationStop == null
             ) {
@@ -1477,6 +1500,7 @@ class TimetableDispatcher(
                 advanceService(world, run)
                 return@forEach
             }
+            if (coordinator.isStalled) return@forEach
             processSharedRouteAdmission(
                 world,
                 run,
@@ -1918,6 +1942,7 @@ class TimetableDispatcher(
         operation: TrainOperation,
         state: TimetableServiceRunState
     ) {
+        if (!validateCommittedAuthority(requireNotNull(boundWorld), run)) return
         val phase = when (operation) {
             is TrainOperation.OpenDoors -> "open-doors"
             is TrainOperation.CloseDoors -> "close-doors"
@@ -2143,6 +2168,7 @@ class TimetableDispatcher(
         run: ActiveRun,
         stop: DispatcherDestinationStop
     ) {
+        if (!validateCommittedAuthority(world, run)) return
         stop.started = true
         val side = stop.options.doorSide ?: DoorSide.NONE
         if (side == DoorSide.NONE) {
@@ -2169,6 +2195,7 @@ class TimetableDispatcher(
         run: ActiveRun,
         stop: DispatcherDestinationStop
     ) {
+        if (!validateCommittedAuthority(world, run)) return
         check(run.destinationStop === stop)
         run.currentWayPointId = stop.options.destinationId
         run.destinationStop = null
@@ -2184,6 +2211,7 @@ class TimetableDispatcher(
         operation: TrainOperation,
         state: TimetableServiceRunState
     ) {
+        if (!validateCommittedAuthority(world, run)) return
         val phase = when (operation) {
             is TrainOperation.OpenDoors -> "open-doors"
             is TrainOperation.CloseDoors -> "close-doors"
@@ -2335,6 +2363,7 @@ class TimetableDispatcher(
     }
 
     private fun beginReverse(world: World, run: ActiveRun) {
+        if (!validateCommittedAuthority(world, run)) return
         val snapshot = run.lastPublishedAtoState?.trainSnapshot
             ?: run.ato.publishedState.trainSnapshot
         if (!run.ato.isStopped(snapshot.speedMetersPerSecond)) {
@@ -2645,6 +2674,8 @@ class TimetableDispatcher(
 
     private fun processStationNotifications(run: ActiveRun) {
         run.ato.drainStationCallNotifications().forEach { notification ->
+            val world = requireNotNull(boundWorld)
+            if (world.simpleAtoWorldData.atoCoordinator.isStalled) return
             val stationCall = run.stationCall ?: return@forEach
             val activeRevision = stationCall.resolved.call.missionRevision
             when {
@@ -2670,6 +2701,9 @@ class TimetableDispatcher(
             }
             if (notification.physicsEpoch < stationCall.lastNotificationEpoch) return@forEach
             stationCall.lastNotificationEpoch = notification.physicsEpoch
+            if (notification.type != StationCallNotificationType.APPROACHING &&
+                !validateCommittedAuthority(world, run)
+            ) return
             when (notification.type) {
                 StationCallNotificationType.APPROACHING -> {
                     if (!stationCall.approaching) {
@@ -2793,7 +2827,7 @@ class TimetableDispatcher(
         runtime.tailProgressMeters = runtime.layout.project(snapshot.tail, runtime.tailProgressMeters)
             ?: runtime.tailProgressMeters
 
-        if (missionCompleted(run, runtime, snapshot) &&
+        if (missionCompleted(world, run, runtime, snapshot) &&
             (run.stationCall == null || run.stationCall?.cancelledForControlTransfer == true)
         ) {
             if (runtime === run.storageRuntime && !tryCompleteStorage(world, run, runtime)) return
@@ -2801,6 +2835,7 @@ class TimetableDispatcher(
             advanceService(world, run)
             return
         }
+        if (world.simpleAtoWorldData.atoCoordinator.isStalled) return
         processSharedRouteAdmission(world, run, runtime, snapshot, context, selectionContext)
         if (world.simpleAtoWorldData.atoCoordinator.isStalled) return
 
@@ -3085,7 +3120,32 @@ class TimetableDispatcher(
                     }
                 }
                 try {
-                    val completed = inspectionRuntime.completeTerminalRoute(result.route.selection.route)
+                    val stopOffset = run.stationCall?.takeIf {
+                        it.missionRuntime === runtime && isTerminalStationCall(it)
+                    }?.let {
+                        runtime.layout.totalLengthMeters - it.missionDistanceMeters + it.resolved.stoppingOffsetMetersBefore
+                    }
+                        ?: (runtime.mission.legs.lastOrNull()?.point as? AtoMissionPoint.Stop)?.offsetMetersBefore
+                        ?: 0.0
+                    val actualStop = result.route.operationalEndRouteDistanceMeters - stopOffset
+                    val proposal = terminalMarginProposal(world, result.route.selection.route,
+                        actualStop)
+                    when (val protection = checkNotNull(run.routeEditProtection).protect(world.topologyState, proposal.route)) {
+                        is FrozenRouteProtectionResult.Protected -> Unit
+                        is FrozenRouteProtectionResult.Rejected -> error(protection.detail)
+                    }
+                    var completed = inspectionRuntime.completeTerminalRoute(result.route.selection.route,
+                        proposal.route, proposal.failure)
+                    require(completed.totalLengthMeters + 1.0e-6 >=
+                        actualStop + authorityStoppingMarginMeters) {
+                        "selected terminal policy cannot provide the configured stopping margin"
+                    }
+                    val retained = run.admittedRoute?.route?.selection?.route
+                    if (retained != null && completed.revision == retained.revision &&
+                        completed.segments != retained.segments) {
+                        completed = RouteSnapshot(completed.routeId, Math.addExact(completed.revision, 1L),
+                            completed.topologyRevision, completed.segments)
+                    }
                     AdmissionRoute(result.route.copy(selection = result.route.selection.copy(route = completed)),
                         runtime.mission.revision).also { run.admissionCandidate = it }
                 } catch (failure: Exception) {
@@ -3100,6 +3160,15 @@ class TimetableDispatcher(
                 null
             }
         }
+    }
+
+    private fun terminalMarginProposal(world: World, route: work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot,
+        operatingEnd: Double): TerminalMarginProposal {
+        val topology = world.topologyState
+        val restrictions = world.simpleAtoWorldData.routePlanningRestrictions.compile(topology,
+            world.basicWorldData.operatingDirections.overlay(topology))
+        return TerminalRouteMargin.propose(topology, restrictions, route,
+            maxOf(route.totalLengthMeters, operatingEnd + authorityStoppingMarginMeters))
     }
 
     private fun handleAdmissionRejection(
@@ -3273,6 +3342,31 @@ class TimetableDispatcher(
         reason: String
     ) = stallRun(world, run, "ManualRoutedSafetyViolation", reason, snapshot)
 
+    /** Transition-only proof against actual Basic authority, never clamped operating progress. */
+    private fun validateCommittedAuthority(world: World, run: ActiveRun): Boolean {
+        if (world.simpleAtoWorldData.atoCoordinator.isStalled) return false
+        val grant = run.admissionClient?.committedGrantSnapshot ?: return true
+        val route = run.admissionCandidate ?: run.admittedRoute
+        val frame = run.train.publishedFrame
+        if (frame.derailed || route == null) {
+            stallRun(world, run, "RouteAuthorityViolation", "a route transition has no valid physical train/path")
+            return false
+        }
+        val runtime = run.currentRuntimeOrNull
+        val expected = if (runtime == null) route.route.headDistanceFromRouteStartMeters else route.progressFor(runtime)
+        val proof = CompletionProof(world.topologyState, route.route.selection.route, grant.grantId,
+            grant.committedAuthority.distanceFromRouteStartMeters, frame.head, expected)
+        if (frame.speedMetersPerSecond == 0.0 && run.completionProof == proof) return true
+        val physical = route.route.physicalHeadProgressMeters(world.topologyState, frame.head, expected)
+        if (physical == null || physical > grant.committedAuthority.distanceFromRouteStartMeters + 1.0e-6) {
+            stallRun(world, run, "RouteAuthorityViolation", "actual train head ${frame.head} is outside committed " +
+                "Basic authority ${grant.committedAuthority.distanceFromRouteStartMeters}; physical progress=$physical")
+            return false
+        }
+        if (frame.speedMetersPerSecond == 0.0) run.completionProof = proof
+        return true
+    }
+
     private fun stallRun(
         world: World,
         run: ActiveRun,
@@ -3360,6 +3454,7 @@ class TimetableDispatcher(
         run: ActiveRun,
         runtime: MissionRuntime
     ): Boolean {
+        if (!validateCommittedAuthority(world, run)) return false
         val reservation = run.storageReservation
         if (reservation == null) {
             stallRun(
@@ -3416,6 +3511,7 @@ class TimetableDispatcher(
     }
 
     private fun reportWaypointProgress(
+        world: World,
         run: ActiveRun,
         runtime: MissionRuntime,
         snapshot: TrainSnapshot
@@ -3444,6 +3540,7 @@ class TimetableDispatcher(
                 }
             }
             if (!reached) return
+            if (leg.point is AtoMissionPoint.Stop && !validateCommittedAuthority(world, run)) return
             runtime.reportedPointCount = index + 1
             val event = TimetableWaypointProgress(
                 runId = run.id,
@@ -3457,15 +3554,17 @@ class TimetableDispatcher(
     }
 
     private fun missionCompleted(
+        world: World,
         run: ActiveRun,
         runtime: MissionRuntime,
         snapshot: TrainSnapshot
     ): Boolean =
         runtime.headProgressMeters >=
             runtime.layout.totalLengthMeters - run.ato.missionStopToleranceMeters * 2.0 &&
-            run.ato.isStopped(snapshot.speedMetersPerSecond)
+            run.ato.isStopped(snapshot.speedMetersPerSecond) && validateCommittedAuthority(world, run)
 
     private fun advanceService(world: World, run: ActiveRun) {
+        if (!validateCommittedAuthority(world, run)) return
         while (run.nextStepIndex < run.service.steps.size) {
             when (val step = run.service.steps[run.nextStepIndex]) {
                 is TimetableStep.Check -> {
@@ -4102,16 +4201,15 @@ class TimetableDispatcher(
         world: World,
         timetableId: String,
         previous: AppliedTimetablePlan?,
-        validatedRoutes: List<ExpandedRoute>? = null
+        validatedRoutes: TimetableValidationResult? = null
     ): AppliedPlanInstallResult {
         val timetable = world.simpleAtoWorldData.timetables[timetableId]
             ?: return AppliedPlanInstallResult.Rejected("timetable not found: $timetableId")
-        val routes = validatedRoutes ?: TimetableValidator(world).validate(timetable).let { validation ->
-            if (!validation.isSuccess) {
-                return AppliedPlanInstallResult.Rejected(validation.errors.joinToString("; "))
-            }
-            validation.routes
+        val validation = validatedRoutes ?: TimetableValidator(world).validate(timetable)
+        if (!validation.isSuccess) {
+            return AppliedPlanInstallResult.Rejected(validation.errors.joinToString("; "))
         }
+        val routes = validation.routes
         val topology = world.topologyState
         val selectedSnapshots = routes.mapIndexed { index, route ->
             route.toSnapshot(
@@ -4179,11 +4277,50 @@ class TimetableDispatcher(
         // Protect the original selection before invoking plugin geometry. A concurrent definition
         // edit must not replace the provider between completion and dependency collection. Then
         // protect all newly added rails before collecting their registered resource references.
-        val snapshots = try {
-            selectedSnapshots.map(inspectionRuntime::completeTerminalRoute)
+        fun upgradeGuard(physical: InfrastructureDependencies): String? {
+            val expanded = InfrastructureDependencies(guard.dependencies.railIds + physical.railIds,
+                guard.dependencies.topologyNodeKeys + physical.topologyNodeKeys,
+                guard.dependencies.resourceIds + physical.resourceIds)
+            if (expanded == guard.dependencies) return null
+            val owner = InfrastructureOwner(guard.owner.ownerId, nextAppliedPlanRevision(guard.owner.revision))
+            val result = try {
+                infrastructureDependencyService.set(InfrastructureDependencyRequest(topology.revision, owner, expanded))
+            } catch (failure: Exception) { return failure.message ?: failure.javaClass.name }
+            if (!result.successful) return "${result.status}: ${result.detail}"
+            guard = AppliedTimetablePlan(owner, expanded)
+            appliedTimetablePlans[timetableId] = guard
+            return null
+        }
+        val proposals = try {
+            selectedSnapshots.mapIndexed { index, route ->
+                val offset = validation.routeStoppingOffsetsMeters[index]
+                if (offset == null || offset >= authorityStoppingMarginMeters) TerminalMarginProposal(route)
+                else terminalMarginProposal(world, route, route.totalLengthMeters - offset)
+            }
         } catch (failure: Exception) {
             return rejectGuardedPlan("could not complete applied timetable '$timetableId': " +
                 (failure.message ?: failure.javaClass.name))
+        }
+        when (val physical = PhysicalRouteDependencyCompiler.compile(topology, proposals.map { it.route })) {
+            is PhysicalRouteDependencyCompilation.Compiled -> upgradeGuard(physical.dependencies)?.let {
+                return rejectGuardedPlan("could not protect proposed terminal margin: $it")
+            }
+            is PhysicalRouteDependencyCompilation.Rejected -> return rejectGuardedPlan(physical.detail)
+            PhysicalRouteDependencyCompilation.NoDependencies -> return rejectGuardedPlan("terminal proposal lost its selected path")
+        }
+        val snapshots = try {
+            selectedSnapshots.zip(proposals).mapIndexed { index, (route, proposal) ->
+                inspectionRuntime.completeTerminalRoute(route, proposal.route, proposal.failure).also {
+                    val offset = validation.routeStoppingOffsetsMeters[index]
+                    val requiredEnd = if (offset == null) route.totalLengthMeters
+                        else route.totalLengthMeters - offset + authorityStoppingMarginMeters
+                    require(it.totalLengthMeters + 1.0e-6 >= requiredEnd) {
+                        "selected terminal policy cannot provide the configured stopping margin"
+                    }
+                }
+            }
+        } catch (failure: Exception) {
+            return rejectGuardedPlan("could not complete applied timetable '$timetableId': ${failure.message}")
         }
         val completedPhysical = when (val compiled = PhysicalRouteDependencyCompiler.compile(topology, snapshots)) {
             is PhysicalRouteDependencyCompilation.Compiled -> compiled.dependencies
@@ -4192,22 +4329,7 @@ class TimetableDispatcher(
             PhysicalRouteDependencyCompilation.NoDependencies -> return rejectGuardedPlan(
                 "completed timetable '$timetableId' lost its selected physical route")
         }
-        val completedGuard = InfrastructureDependencies(
-            guard.dependencies.railIds + completedPhysical.railIds,
-            guard.dependencies.topologyNodeKeys + completedPhysical.topologyNodeKeys,
-            guard.dependencies.resourceIds + completedPhysical.resourceIds)
-        if (completedGuard != guard.dependencies) {
-            val owner = InfrastructureOwner(guard.owner.ownerId, nextAppliedPlanRevision(guard.owner.revision))
-            val result = try {
-                infrastructureDependencyService.set(InfrastructureDependencyRequest(topology.revision, owner, completedGuard))
-            } catch (failure: Exception) {
-                return rejectGuardedPlan("could not protect completed timetable '$timetableId': ${failure.message}")
-            }
-            if (!result.successful) return rejectGuardedPlan(
-                "could not protect completed timetable '$timetableId': ${result.status}: ${result.detail}")
-            guard = AppliedTimetablePlan(owner, completedGuard)
-            appliedTimetablePlans[timetableId] = guard
-        }
+        upgradeGuard(completedPhysical)?.let { return rejectGuardedPlan("could not protect completed timetable '$timetableId': $it") }
         val signalResources = try {
             inspectionRuntime.collectRouteInfrastructureDependencies(snapshots)
         } catch (failure: Exception) {
@@ -4858,6 +4980,11 @@ class TimetableDispatcher(
             }
     }
 
+    private data class CompletionProof(val topology: TopologyState,
+        val route: work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot,
+        val grant: RouteGrantId, val boundaryMeters: Double, val head: RailPositionSnapshot,
+        val expectedProgressMeters: Double)
+
     private data class DispatcherStationCall(
         var resolved: ResolvedStationCall,
         val missionRuntime: MissionRuntime,
@@ -4974,6 +5101,7 @@ class TimetableDispatcher(
         var admissionClient: RouteAuthorityAdmissionClient? = null
         var admittedRoute: AdmissionRoute? = null
         var admissionCandidate: AdmissionRoute? = null
+        var completionProof: CompletionProof? = null
         var nextAdmissionAttemptTick: Long = 0L
         var admissionEnded: Boolean = false
 

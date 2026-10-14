@@ -218,10 +218,24 @@ sealed class TimetableAction {
     }
 }
 
-data class TimetableValidationResult(
+@ConsistentCopyVisibility
+data class TimetableValidationResult private constructor(
     val errors: List<String>,
-    val routes: List<ExpandedRoute>
+    val routes: List<ExpandedRoute>,
+    /** Offset before the endpoint anchor; null denotes a pass-through leg, aligned with [routes]. */
+    val routeStoppingOffsetsMeters: List<Double?>
 ) {
+    constructor(errors: Collection<String>, routes: Collection<ExpandedRoute>,
+        routeStoppingOffsetsMeters: Collection<Double?> = List(routes.size) { 0.0 }) : this(
+        java.util.List.copyOf(errors), java.util.List.copyOf(routes),
+        java.util.Collections.unmodifiableList(ArrayList(routeStoppingOffsetsMeters)))
+
+    init {
+        require(routes.size == routeStoppingOffsetsMeters.size) { "route stopping offsets must align with routes" }
+        require(routeStoppingOffsetsMeters.all { it == null || it.isFinite() && it >= 0.0 }) {
+            "route stopping offsets must be finite and non-negative"
+        }
+    }
     val isSuccess: Boolean get() = errors.isEmpty()
 }
 
@@ -231,6 +245,7 @@ class TimetableValidator(private val world: World) {
     fun validate(timetable: Timetable): TimetableValidationResult {
         val errors = mutableListOf<String>()
         val routes = mutableListOf<ExpandedRoute>()
+        val routeStoppingOffsets = mutableListOf<Double?>()
 
         if (timetable.id.isBlank()) errors.add("时刻表 id 不能为空")
         if (timetable.periodDays <= 0L) errors.add("时刻表周期天数必须 > 0: ${timetable.periodDays}")
@@ -247,10 +262,10 @@ class TimetableValidator(private val world: World) {
         val serviceIds = mutableSetOf<String>()
         for (service in timetable.services) {
             validateServiceLine(timetable, service, errors)
-            validateService(timetable.id, periodTicks, service, errors, routes)
+            validateService(timetable.id, periodTicks, service, errors, routes, routeStoppingOffsets)
             if (!serviceIds.add(service.id)) errors.add("重复 service id: ${service.id}")
         }
-        return TimetableValidationResult(errors, routes)
+        return TimetableValidationResult(errors, routes, routeStoppingOffsets)
     }
 
     private fun validateServiceLine(
@@ -273,7 +288,8 @@ class TimetableValidator(private val world: World) {
         periodTicks: Long,
         service: TimetableService,
         errors: MutableList<String>,
-        routes: MutableList<ExpandedRoute>
+        routes: MutableList<ExpandedRoute>,
+        routeStoppingOffsets: MutableList<Double?>
     ) {
         val prefix = "[$timetableId/${service.id}]"
         if (service.id.isBlank()) errors.add("$prefix service id 不能为空")
@@ -315,6 +331,7 @@ class TimetableValidator(private val world: World) {
                     }
                 }
                 is TimetableStep.At -> {
+                    var movementStoppingOffset = pendingDestinationOptions?.second?.stoppingOffsetMetersBefore ?: 0.0
                     if (step.tick < 0) errors.add("$prefix step#$index tick 不能为负: ${step.tick}")
                     if (step.tick >= periodTicks) {
                         errors.add("$prefix step#$index tick 超出周期: ${step.tick} >= $periodTicks")
@@ -380,7 +397,7 @@ class TimetableValidator(private val world: World) {
                             pendingStationCall?.let { (callIndex, call) ->
                                 (dynamicOriginCandidates ?: listOfNotNull(currentWayPointId))
                                     .forEach { origin ->
-                                        validateStationCallPrefix(
+                                        val stationOffset = validateStationCallPrefix(
                                             prefix,
                                             callIndex,
                                             origin,
@@ -389,6 +406,7 @@ class TimetableValidator(private val world: World) {
                                             requiredStartDirection,
                                             errors
                                         )
+                                        if (stationOffset != null) movementStoppingOffset = stationOffset
                                     }
                             }
                             val movementTargets = when (val movement = step.action) {
@@ -412,7 +430,9 @@ class TimetableValidator(private val world: World) {
                                         origin,
                                         firstTarget,
                                         errors,
-                                        routes
+                                        routes,
+                                        routeStoppingOffsets,
+                                        stoppingOffset = if (movementTargets.size == 1) movementStoppingOffset else null
                                     )
                                 }
                             }
@@ -477,8 +497,10 @@ class TimetableValidator(private val world: World) {
                         step.action,
                         errors,
                         routes,
+                        routeStoppingOffsets,
                         takeFromDepotSelector,
-                        requiredStartDirection
+                        requiredStartDirection,
+                        movementStoppingOffset
                     )
                     requiredStartDirection = when (step.action) {
                         TimetableAction.Reverse -> {
@@ -601,8 +623,10 @@ class TimetableValidator(private val world: World) {
         action: TimetableAction,
         errors: MutableList<String>,
         routes: MutableList<ExpandedRoute>,
+        routeStoppingOffsets: MutableList<Double?>,
         depotSelector: DepotTrainSelector?,
-        requiredStartDirection: ViewDirection?
+        requiredStartDirection: ViewDirection?,
+        movementStoppingOffset: Double
     ): String? {
         return when (action) {
             is TimetableAction.TakeFromDepot -> {
@@ -670,7 +694,8 @@ class TimetableValidator(private val world: World) {
                             currentWayPointId,
                             point.point.destinationId,
                             errors,
-                            routes
+                            routes,
+                            routeStoppingOffsets
                         )
                     }
                     routePoints.firstOrNull()?.point?.destinationId
@@ -693,7 +718,9 @@ class TimetableValidator(private val world: World) {
                     action.wayPointId,
                     errors,
                     routes,
-                    requiredStartDirection
+                    routeStoppingOffsets,
+                    requiredStartDirection,
+                    movementStoppingOffset
                 )
                 action.wayPointId.takeIf { wayPointExists(it) }
             }
@@ -704,7 +731,7 @@ class TimetableValidator(private val world: World) {
                 } else {
                     var cursor = currentWayPointId
                     var startDirection = requiredStartDirection
-                    action.wayPointIds.forEach { target ->
+                    action.wayPointIds.forEachIndexed { targetIndex, target ->
                         validateGoTo(
                             prefix,
                             stepIndex,
@@ -712,7 +739,9 @@ class TimetableValidator(private val world: World) {
                             target,
                             errors,
                             routes,
-                            startDirection
+                            routeStoppingOffsets,
+                            startDirection,
+                            if (targetIndex == action.wayPointIds.lastIndex) movementStoppingOffset else null
                         )
                         startDirection = null
                         if (wayPointExists(target)) cursor = target
@@ -748,9 +777,9 @@ class TimetableValidator(private val world: World) {
         movementAction: TimetableAction,
         requiredStartDirection: ViewDirection?,
         errors: MutableList<String>
-    ) {
-        val origin = fromWayPointId ?: return
-        val berthRef = runCatching { callAction.berthRef }.getOrNull() ?: return
+    ): Double? {
+        val origin = fromWayPointId ?: return null
+        val berthRef = runCatching { callAction.berthRef }.getOrNull() ?: return null
         val resolved = when (val result = StationCallResolver(world).resolve(
             StationCallRequest(
                 serviceRunId = "validation",
@@ -771,10 +800,10 @@ class TimetableValidator(private val world: World) {
             is StationCallResolutionResult.Success -> result
             is StationCallResolutionResult.Failure -> {
                 errors.add("$prefix step#$stepIndex 车站 destination 无法解析: ${result.message}")
-                return
+                return null
             }
         }
-        val berth = world.simpleAtoWorldData.stations.berth(berthRef) ?: return
+        val berth = world.simpleAtoWorldData.stations.berth(berthRef) ?: return null
         val arrivalDirection = resolved.resolved.plannedRoute.expandedRoute
             .segments.last().railViewRef.direction
         val berthArcInView = when (arrivalDirection) {
@@ -784,7 +813,7 @@ class TimetableValidator(private val world: World) {
         val targets = when (movementAction) {
             is TimetableAction.GoTo -> listOf(movementAction.wayPointId)
             is TimetableAction.GoVia -> movementAction.wayPointIds
-            else -> return
+            else -> return null
         }
         var cursor = origin
         var startDirection = requiredStartDirection
@@ -798,7 +827,7 @@ class TimetableValidator(private val world: World) {
                 requiredStartDirection = startDirection ?: destinationDirection(cursor)
             )) {
                 is RouteBuildResult.Success -> result.route
-                is RouteBuildResult.Failure -> return
+                is RouteBuildResult.Failure -> return null
             }
             var segmentStart = cumulative
             route.segments.forEach { segment ->
@@ -823,7 +852,12 @@ class TimetableValidator(private val world: World) {
                 "$prefix step#$stepIndex berth $berthRef 不在 destination 经路上 " +
                     "(stationDistance=$stationDistance, candidates=$candidates)"
             )
+            return null
         }
+        // An interior station call resumes toward the final destination after departure.
+        // Only a terminal berth replaces that destination's stopping target.
+        return (cumulative - stationDistance + resolved.resolved.stoppingOffsetMetersBefore).coerceAtLeast(0.0)
+            .takeIf { abs(cumulative - stationDistance) <= 0.5 }
     }
 
     private fun validateGoTo(
@@ -833,7 +867,9 @@ class TimetableValidator(private val world: World) {
         toWayPointId: String,
         errors: MutableList<String>,
         routes: MutableList<ExpandedRoute>,
-        requiredStartDirection: ViewDirection? = null
+        routeStoppingOffsets: MutableList<Double?>,
+        requiredStartDirection: ViewDirection? = null,
+        stoppingOffset: Double? = 0.0
     ) {
         if (!wayPointExists(toWayPointId)) {
             errors.add("$prefix step#$stepIndex destination 路径点不存在: $toWayPointId")
@@ -847,7 +883,10 @@ class TimetableValidator(private val world: World) {
             requiredStartDirection = requiredStartDirection
                 ?: destinationDirection(fromWayPointId)
         )) {
-            is RouteBuildResult.Success -> routes.add(result.route)
+            is RouteBuildResult.Success -> {
+                routes.add(result.route)
+                routeStoppingOffsets.add(stoppingOffset)
+            }
             is RouteBuildResult.Failure -> errors.add("$prefix step#$stepIndex 经路不可达: $fromWayPointId -> $toWayPointId (${result.reason})")
         }
     }

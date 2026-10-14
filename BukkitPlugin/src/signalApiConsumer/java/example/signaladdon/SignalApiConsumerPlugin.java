@@ -283,7 +283,7 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                         ));
                     },
                     route -> List.of(new StableInfrastructureResource("example.signaladdon:signal", "home")),
-                    route -> List.of()
+                    (route, proposedMovingRoute) -> null
                 ))
             );
             services.routePlanningSources().replaceRoutePlanningSources(

@@ -136,7 +136,7 @@ pending request时，SimpleATO轮询该handle而不是并行提交另一个请�
 完整`FrozenRouteSelectionResult.Selected`、一个nullable committed grant和至多一个pending handle；Basic的首次申请与同路线
 延长都调用同一个`RouteResourceAdmissionService.request`。第一次处理冻结选择时，client先以
 `simpleato:resource-admission`来源发布位于路线起点0 m的`MovementAuthorityRestriction`，因此尚无grant、首次pending或首次
-拒绝（包括选择属于另一列车的调用方错误）都不会产生可用前方权限。`Granted`是唯一能改变该来源的结果：部分授权把来源替换为返回的`committedAuthority`边界；授权已到完整frozen route末端时发布更高revision空restriction，明确撤销旧截断，由同一mission的终点Stop constraint停车。extension pending及rejected不发布新restriction，继续使用旧grant边界。pending只通过原handle调用`progress`，不重放intent。
+拒绝（包括选择属于另一列车的调用方错误）都不会产生可用前方权限。`Granted`是唯一能改变该来源的结果：无论部分还是完整授权，均发布返回的真实`committedAuthority`边界，不能因覆盖完整frozen route就清空该限制。运营停车目标和真实余量按[终点分离契约](terminal-route-completion.md)处理。extension pending及rejected不发布更宽restriction，继续使用旧grant边界。pending只通过原handle调用`progress`，不重放intent。
 
 client以route ID、train和world做常量时间预筛；完整有序traversal、revision和append-only关系仍由
 Basic的现有route state权威核对。新的observation epoch可以用于同路线延长或正向mission append。pending continuation保存

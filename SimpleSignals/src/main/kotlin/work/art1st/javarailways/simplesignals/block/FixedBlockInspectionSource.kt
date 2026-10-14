@@ -72,13 +72,27 @@ internal class FixedBlockInspectionSource(
                 StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, window.blockId)
             })
         },
-        terminalRouteContinuation = { route ->
+        terminalRouteContinuation = { route, proposedMovingRoute ->
             val captured = snapshot()
             val windows = matchRoute(captured, route)
             val disabled = directionPolicy.disabledBlocks(captured,
                 windows.map { captured.blocksById.getValue(it.blockId) }.distinct())
             directionPolicy.normalWindows(captured, windows, disabled)
-            FixedBlockRouteMatcher.terminalContinuation(captured, route)
+            val ownsTerminal = windows.any {
+                kotlin.math.abs(it.exitRouteDistanceMeters - route.totalLengthMeters) <= 1.0e-6
+            }
+            if (ownsTerminal) {
+                FixedBlockRouteMatcher.terminalContinuation(captured, route)
+            } else {
+                val proposedWindows = matchRoute(captured, proposedMovingRoute)
+                check(proposedWindows.none { it.exitRouteDistanceMeters > route.totalLengthMeters + 1.0e-6 }) {
+                    "moving terminal margin would enter a new fixed block"
+                }
+                // The shared source's existing compiler rejects incomplete protection traversal;
+                // the host also refuses to invent a replacement path while proposing the margin.
+                protectionDeclarations(captured, proposedMovingRoute)
+                null
+            }
         },
         updateHandler = { input ->
             val revision = nextRevision.getAndUpdate { current -> Math.addExact(current, 1L) }

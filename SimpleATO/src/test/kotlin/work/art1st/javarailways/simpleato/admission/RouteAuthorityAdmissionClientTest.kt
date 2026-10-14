@@ -94,14 +94,13 @@ class RouteAuthorityAdmissionClientTest {
     }
 
     @Test
-    fun `complete route grant clears Basic truncation instead of stopping before mission end`() {
+    fun `complete route grant retains its truthful physical authority boundary`() {
         val grant = grant(route.totalLengthMeters)
         service.onRequest = { RouteAdmissionResult.Granted(grant) }
 
         client.request(route.totalLengthMeters)
 
-        assertEquals(listOf(0.0), publisher.authorities())
-        assertTrue(publisher.snapshots.last().restrictions.isEmpty())
+        assertEquals(listOf(0.0, route.totalLengthMeters), publisher.authorities())
         assertEquals(RouteBoundary(route.totalLengthMeters), client.state.committedAuthority)
     }
 

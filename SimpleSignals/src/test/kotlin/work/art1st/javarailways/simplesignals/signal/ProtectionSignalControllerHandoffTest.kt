@@ -146,6 +146,7 @@ class ProtectionSignalControllerHandoffTest {
         val dispatcher = TimetableDispatcher(
             TimetableRouteAdmissionContextProvider { latestObservation?.let { TimetableRouteAdmissionContext(it, service) } },
             restrictions, inspection, dependencies,
+            authorityStoppingMarginMeters = profile.safetyDistanceMeters,
             atoFactory = TimetableAtoFactory { selectedTrain, selectedWorld ->
                 SimpleATO(selectedTrain, selectedWorld, actuator, profile,
                     inspection::maximumDeclaredLeadTimeSeconds)

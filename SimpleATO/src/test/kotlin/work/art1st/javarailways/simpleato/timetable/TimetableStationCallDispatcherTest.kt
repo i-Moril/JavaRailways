@@ -56,6 +56,81 @@ import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridg
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardRegistration
 
 class TimetableStationCallDispatcherTest {
+    @Test
+    fun `interior station stop does not replace final operating anchor stopping margin`() {
+        listOf(180.0, 179.0).forEach { anchorArc ->
+            val fixture = fixture(includeStationAction = true, berthStoppingOffsetMetersBefore = 0.25)
+            fixture.world.onOwnerForTest {
+                val anchor = checkNotNull(fixture.data.wayPoints["C"])
+                fixture.data.wayPoints.add(anchor.copy(arcLength = anchorArc))
+            }
+            val id = TimetableServiceRunId("tt", "service")
+            val started = fixture.world.onOwnerForTest {
+                fixture.dispatcher.startService(fixture.world, "tt", "service")
+            }
+            assertTrue(started is TimetableServiceStartResult.Started, started.toString())
+            if (anchorArc == 180.0) {
+                // startService installs a mission; its first coherent admission observation
+                // prepares physical geometry later. Reject that candidate, not the start call.
+                for (tick in 0 until 20) {
+                    fixture.tick()
+                    if (fixture.dispatcher.status(id)?.state == TimetableServiceRunState.REPLAN_REQUIRED) break
+                }
+                val status = checkNotNull(fixture.dispatcher.status(id))
+                assertEquals(TimetableServiceRunState.REPLAN_REQUIRED, status.state, status.toString())
+                assertFalse(status.routeGrantActive, "the interior berth cannot supply missing final stopping margin")
+                assertTrue(status.message.orEmpty().contains("terminal margin"), status.toString())
+            } else {
+                for (tick in 0 until 2_000) {
+                    fixture.tick()
+                    if (fixture.dispatcher.status(id)?.state == TimetableServiceRunState.COMPLETED) break
+                }
+                val status = checkNotNull(fixture.dispatcher.status(id))
+                assertEquals(TimetableServiceRunState.COMPLETED, status.state, status.toString())
+                val operatingEnd = (fixture.train.controller as SimpleATO).currentMission!!.legs.last()
+                    .plannedRoute.expandedRoute.segments.last()
+                assertEquals(anchorArc, operatingEnd.endArcLength, 1.0e-9)
+                assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
+            }
+        }
+    }
+
+    @Test
+    fun `actual authority breach prevents queued station arrival and ordinary destination door operations`() {
+        // This fixture uses scripted admission and a kinematic actuator. The overrun itself is a
+        // real Core movement/publication; the test isolates Dispatcher transition ordering.
+        listOf(true, false).forEach { station ->
+            val gateway = ControllableOperationGateway()
+            val fixture = fixture(firstTargetOffsetMeters = 40.0, includeStationAction = station,
+                doorSide = DoorSide.LEFT, operationGateway = gateway,
+                destinationOptions = if (station) null else TimetableAction.DestinationOptions(
+                    destinationId = "C", minimumDwellTicks = 5L, doorSide = DoorSide.LEFT))
+            val id = TimetableServiceRunId("tt", "service")
+            val started = fixture.world.onOwnerForTest {
+                fixture.dispatcher.startService(fixture.world, "tt", "service")
+            }
+            assertTrue(started is TimetableServiceStartResult.Started, started.toString())
+            var injected = false
+            for (tick in 0 until 2_000) {
+                val ato = fixture.train.controller as SimpleATO
+                AsyncTickTestSupport.run { ato.tick(50.0) }
+                ato.commit()
+                if (fixture.train.speed == 0.0 && fixture.train.head.location.arcLength > fixture.targetArc - 1.0) {
+                    fixture.train.moveTrainForward(3.0)
+                    fixture.train.commit()
+                    injected = true
+                }
+                fixture.world.onOwnerForTest { fixture.dispatcher.tick(fixture.world) }
+                if (injected) break
+            }
+            assertTrue(injected)
+            assertEquals("RouteAuthorityViolation", fixture.world.simpleAtoWorldData.atoCoordinator.lastStall?.errorType)
+            assertEquals(TimetableServiceRunState.FAILED, fixture.dispatcher.status(id)?.state)
+            assertTrue(gateway.requests.isEmpty(), "no door operation may run after actual authority breach")
+            assertTrue(fixture.dispatcher.status(id)?.routeGrantActive == true, "retain the physical claim")
+        }
+    }
+
     private val worlds = mutableListOf<work.art1st.javarailways.core.physics.CoreWorld>()
     private var threadGuardRegistration: ThreadGuardRegistration? = null
 
@@ -881,6 +956,7 @@ class TimetableStationCallDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
+            authorityStoppingMarginMeters = profile.safetyDistanceMeters,
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,
@@ -985,6 +1061,7 @@ class TimetableStationCallDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
+            authorityStoppingMarginMeters = profile.safetyDistanceMeters,
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,
@@ -1121,6 +1198,7 @@ class TimetableStationCallDispatcherTest {
         val world = createTestWorld().also(worlds::add)
         val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
+            authorityStoppingMarginMeters = profile.safetyDistanceMeters,
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { world },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,

@@ -206,16 +206,15 @@ class PhysicsCoordinator(
         }
     }
 
-    fun register(controller: TrainController) {
-        val previous = controllers.putIfAbsent(controller.profileId, controller)
-        check(previous == null || previous === controller) {
-            "A different train controller is already registered for '${controller.profileId}'"
+    /** Owner-side replacement, or physics-origin retirement at the publication barrier. */
+    internal fun replaceController(train: CoreTrain, previous: TrainController?, next: TrainController?) {
+        check(controllers[train.id] === previous) { "Controller registration changed for '${train.id}'" }
+        if (next == null) {
+            if (previous != null) controllers.remove(train.id, previous)
+            trainsPublishingMotionFrames.remove(train.id)
+        } else {
+            controllers[train.id] = next
         }
-    }
-
-    fun unregister(controller: TrainController) {
-        controllers.remove(controller.profileId, controller)
-        trainsPublishingMotionFrames.remove(controller.profileId)
     }
 
     fun registerPublishedFrameProcessor(processor: PublishedTrainFrameProcessor) {

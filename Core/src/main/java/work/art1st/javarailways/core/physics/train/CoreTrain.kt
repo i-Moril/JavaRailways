@@ -950,7 +950,7 @@ open class CoreTrain @MainThread internal constructor(
         publishedTailTraversal = pendingTailTraversal ?: emptyList()
         pendingHeadTraversal = null
         pendingTailTraversal = null
-        if (shouldRemoveController) removeController()
+        if (shouldRemoveController) applyController(null)
     }
 
     /** Publishes one complete frame after this train's physics buffers have been flipped. */
@@ -1139,20 +1139,30 @@ open class CoreTrain @MainThread internal constructor(
 
     override fun destroy() {
         world.tickManager.scheduleMainThreadAfterCommitTask {
-            removeController()
-            head.destroy()
-            tail.destroy()
-            cars.forEach { obj: CoreCar -> obj.destroy() }
-            world.removeTrain(this)
+            world.physicsCoordinator.withStructuralMutation {
+                removeController()
+                head.destroy()
+                tail.destroy()
+                cars.forEach { obj: CoreCar -> obj.destroy() }
+                world.removeTrain(this)
+            }
         }
     }
 
     open fun canLink(otherTrain: CoreTrain): Boolean = true
 
     fun setController(value: TrainController?) {
-        _controller?.let { world.physicsCoordinator.unregister(it) }
+        if (_controller === value) return
+        world.physicsCoordinator.ensureBetweenFrames("CoreTrain.setController")
+        check(world.getTrain(id) === this) { "Cannot control a retired train '$id'" }
+        require(value == null || value.train === this) { "Controller belongs to another train" }
+        applyController(value)
+    }
+
+    /** Common exact registration install; physics-origin derail calls it only at publication. */
+    private fun applyController(value: TrainController?) {
+        world.physicsCoordinator.replaceController(this, _controller, value)
         _controller = value
-        value?.let { world.physicsCoordinator.register(it) }
     }
 
     fun removeController() {
@@ -1167,18 +1177,19 @@ open class CoreTrain @MainThread internal constructor(
     override fun derail(reason: String) {
         ThreadGuard.ensureMainThread("CoreTrain.derail")
         require(reason.isNotBlank())
-        world.awaitCurrentPhysicsEpoch()
-        val changed = synchronized(derailStateLock) {
-            if (activeDerailState.derailed) return@synchronized false
-            publishDerailState(DerailState(true, reason))
-            true
+        world.physicsCoordinator.withStructuralMutation {
+            val changed = synchronized(derailStateLock) {
+                if (activeDerailState.derailed) return@synchronized false
+                publishDerailState(DerailState(true, reason))
+                true
+            }
+            if (!changed) return@withStructuralMutation
+            removeController()
+            updateActiveMotion(0.0)
+            publishPhysicsState()
+            world.publishTrainFrame(publishMetadataFrame())
+            MainRailEventBus.publish(DerailEvent(this, reason))
         }
-        if (!changed) return
-        removeController()
-        updateActiveMotion(0.0)
-        publishPhysicsState()
-        world.publishTrainFrame(publishMetadataFrame())
-        MainRailEventBus.publish(DerailEvent(this, reason))
     }
 
     internal fun markDerailedFromPhysics(reason: String) {

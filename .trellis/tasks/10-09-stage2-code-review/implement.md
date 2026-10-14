@@ -14,7 +14,7 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 
 1. [x] 协调器帧间阶段与操作请求基础：复用现有准入计数及exact ticket；宿主在该阶段运行运营和owner队列，阻止fallback穿插。提供真实simulation驱动，验证在途等待、FIFO、失败/关闭结果及回调嵌套提交。
 2. [x] 重命名完整迁移：调用入口、Bukkit结果消费、名称索引及下一正常frame/mailbox发布；增加重命名后有效LINK回归，不重建每次rename的全world索引，不放宽碰撞物理证据校验。LINK回归随原联结草稿保留在工作区，不混入独立的帧间基础提交。
-3. [ ] controller生命周期与换向：整体迁移手动接管、Dispatcher和生产reverse caller；验证旧controller退出、新controller首次tick与结果方向，清除worker换向专用执行分支。现有停车/运营等待规则不擅自改变。
+3. [x] controller生命周期与换向：整体迁移手动接管、Dispatcher和生产reverse caller；验证旧controller退出、新controller首次tick与结果方向，清除worker换向专用执行分支。现有停车/运营等待规则不擅自改变。
 4. [ ] 列车创建/删除、初始及Depot维护摆位：统一阶段内prepare/apply与批次末frame/occupancy/world观测，保留失败原子性；覆盖创建未完成不可见、删除后无旧占用及摆位后下一步一致。
 5. [ ] 外部脱轨、手动扳道、基础设施编辑：迁移await-only入口，区分physics-origin结果与外部命令；验证完整事件批次中无新physics worker，保持拓扑事务和资源仲裁合同。
 6. [ ] 联结/解编复用帧间阶段并完成CR-030复核：成功通知内提交rename正常完成，下一次碰撞使用一致观测；移除旧时序特判及过时契约，核对受影响API、测试与正式游戏测试交接。
@@ -42,6 +42,10 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 本批工作区门禁：Core389、Basic393、SimpleATO354、BukkitPlugin379项测试零失败/错误/跳过，Core Dokka V2生成通过（仍有已有文档warning）。初次定向测试因TrainName fixture缺少simulation owner失败1项，首次跨模块构建因4个SimpleATO初始摆位fixture仍直接rename失败；已将相关fixture放入真实帧间作用域，补跑通过。独立只读审查未发现本批新增阻塞。上述数字包括原联结草稿，不等同于隔离提交验证或游戏验证；不关闭CR-030、Core审查或Stage2。
 
 独立提交候选另从暂存tree导出到`/tmp/javarailways-frame-boundary.qqeivC`，排除旧联结草稿及其它用户改动。四模块全套测试Core362、Basic393、SimpleATO354、BukkitPlugin379，共1488项，零失败/错误/跳过；耗时1分36秒，32个task全执行，offline/no-build-cache/rerun/nonincremental/in-process、2workers及1536m heap/1024m metaspace。仅跳过无关WebUI install/buildFrontend，未打包前端或部署；主工作区此前已完成含前端的构建。独立候选的生产/测试Kotlin文件与暂存源码逐项比较一致，后续只更新任务文字。旧联结草稿的27项额外Core回归不计入本提交验证。
+
+3b Core约束收口：不同controller的安装先校验帧间作用域、live train及controller归属，协调器核对确切旧注册后才安装；删除无调用的register/unregister绕行入口。物理原因脱轨仅在原publication屏障调用内部替换原语；外部脱轨/删除暂以结构门禁保证setter约束，完整请求及共享观测仍归后续批次。真实阻塞worker回归覆盖排队前后身份及下一epoch执行者，无新增testcase。
+
+独立暂存候选`/tmp/javarailways-controller-guards.LwhlQc`全套Core364/Basic394/SimpleATO354/Bukkit380/Tunnel31，共1523项零失败/error/skip，1分58秒、40tasks全执行；Core Dokka通过但保留已有warning。沿用offline/no-cache/rerun/nonincremental/in-process、2workers及1536m/1024m配置，仅跳过frontend install/build，未打包或部署。暂存三份Kotlin源码与测试候选逐项一致；任务/spec随后同步。第3项完成不代表第4至6项、Core整体审查或游戏验证完成。
 
 ### 前一阶段执行顺序（保留历史记录）
 

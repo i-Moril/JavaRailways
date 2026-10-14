@@ -92,7 +92,7 @@ fun ensureBetweenFrames(operation: String)
 
 其余操作的外部入口尚未迁移；宿主把Dispatcher/postTick放入阶段只保证这些内部调用不与新physics epoch交错，不表示玩家控制、手动扳道等直接入口已受保护。后续完整迁移目标如下。
 
-第3a批已迁移控制器换向请求及同步换向apply，见[controller请求契约](./train-controller.md#帧间换向请求current第3a批)和[列车换向](./train-physics.md#帧间换向current第3a批)。真实换向在通知监听器前立即刷新既有共享占用及world frame，沿用最近完整physics epoch，不另分配epoch或重跑signal processor。每次实际换向有一次低频世界索引构建；本批不引入批量dirty tracker或通知队列，后续维护操作的批量发布仍按其owner接口实现。控制器生命周期与手动接管尚待3b批。
+第3a批已迁移控制器换向请求及同步换向apply，见[controller请求契约](./train-controller.md#帧间换向请求current第3a批)和[列车换向](./train-physics.md#帧间换向current第3a批)。真实换向在通知监听器前立即刷新既有共享占用及world frame，沿用最近完整physics epoch，不另分配epoch或重跑signal processor。每次实际换向有一次低频世界索引构建；本批不引入批量dirty tracker或通知队列，后续维护操作的批量发布仍按其owner接口实现。控制器生命周期与手动接管已完成第3b批迁移，见[控制器生命周期](./train-controller.md#控制器生命周期current第3b批)；创建、删除、维护摆位及基础设施入口仍继续逐批迁移。
 
 #### 正常请求与执行流程
 

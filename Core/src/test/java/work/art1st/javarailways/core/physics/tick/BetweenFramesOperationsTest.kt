@@ -25,6 +25,7 @@ import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.core.physics.train.setControllerForTest
 import java.util.concurrent.Callable
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
@@ -79,15 +80,24 @@ class BetweenFramesOperationsTest {
             try {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
                 val train = createTrainWithConfig("frame-operation", rail, world, listOf(10.0))
-                train.setController(object : TrainController(train, world) {
+                var oldTicks = 0
+                var newTicks = 0
+                val oldController = object : TrainController(train, world) {
                     override fun tick(deltaT: Double) {
+                        oldTicks++
                         entered.countDown()
                         check(release.await(5, TimeUnit.SECONDS))
                     }
-                })
+                }
+                val replacement = object : TrainController(train, world) {
+                    override fun tick(deltaT: Double) { newTicks++ }
+                }
+                train.setControllerForTest(oldController)
                 coordinator.start()
                 val ticket = coordinator.stepSimulation(50.0)
                 assertTrue(entered.await(5, TimeUnit.SECONDS))
+                assertThrows(IllegalStateException::class.java) { train.setController(replacement) }
+                assertSame(oldController, train.controller)
                 val result = coordinator.submitBetweenFrames {
                     assertTrue(ticket.isDone)
                     assertEquals(ticket.epoch, world.latestWorldFrame().physicsEpoch)
@@ -97,9 +107,13 @@ class BetweenFramesOperationsTest {
                         coordinator.wakeFromMainThread()
                     }.get(5, TimeUnit.SECONDS)
                     assertSame(ticket, otherThreadWake)
+                    assertSame(oldController, train.controller)
+                    train.setController(replacement)
                     "applied"
                 }
                 assertFalse(result.isDone)
+                assertSame(oldController, train.controller)
+                assertEquals(0, newTicks)
                 helper.submit { release.countDown() }
                 coordinator.processBetweenFrames { completed ->
                     assertSame(ticket, completed)
@@ -113,6 +127,21 @@ class BetweenFramesOperationsTest {
                 val next = coordinator.stepSimulation(50.0)
                 next.completion.get(5, TimeUnit.SECONDS)
                 assertEquals(ticket.epoch + 1, next.epoch)
+                assertEquals(1, oldTicks)
+                assertEquals(1, newTicks)
+                assertSame(replacement, train.controller)
+                val staleReplacement = coordinator.submitBetweenFrames {
+                    check(train.controller === oldController) { "captured controller was replaced" }
+                    train.setController(oldController)
+                }
+                val removal = coordinator.submitBetweenFrames { train.setController(null) }
+                coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
+                assertThrows(ExecutionException::class.java) { staleReplacement.get(5, TimeUnit.SECONDS) }
+                removal.get(5, TimeUnit.SECONDS)
+                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                assertEquals(1, oldTicks)
+                assertEquals(1, newTicks)
+                assertEquals(null, train.controller)
             } finally {
                 release.countDown()
                 coordinator.close()
@@ -187,7 +216,7 @@ class BetweenFramesOperationsTest {
                         moveControlledTrain(0.5, 10.0)
                     }
                 }
-                train.setController(controller)
+                train.setControllerForTest(controller)
                 coordinator.start()
                 val first = coordinator.stepSimulation(50.0)
                 first.completion.get(5, TimeUnit.SECONDS)
@@ -259,7 +288,7 @@ class BetweenFramesOperationsTest {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
                 val train = createTrainWithConfig("reverse-parity", rail, world, listOf(10.0))
                 val controller = object : TrainController(train, world) {}
-                train.setController(controller)
+                train.setControllerForTest(controller)
                 val oldFrame = train.publishedFrame
                 val first = controller.reverse()
                 val second = controller.reverse()
@@ -278,11 +307,11 @@ class BetweenFramesOperationsTest {
                 assertTrue(train.isReversed)
 
                 val stale = controller.reverse()
-                train.setController(null)
+                train.setControllerForTest(null)
                 coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
                 assertThrows(ExecutionException::class.java) { stale.get(5, TimeUnit.SECONDS) }
                 assertTrue(train.isReversed)
-                train.setController(controller)
+                train.setControllerForTest(controller)
                 val pending = controller.reverse()
                 coordinator.beginShutdown()
                 assertThrows(ExecutionException::class.java) { pending.get(5, TimeUnit.SECONDS) }

@@ -27,7 +27,7 @@ interface ControlCommand {
 - speed经`CommitBuffer<Double>`；`publishPhysicsState()`只在所有workers结束后flip。
 - profiling identity固定 `profileCategory="train-controller"`、`profileId=train.id`；同train只允许一个registered controller。
 - train用weak reference；train不live时访问fail-fast。
-- `CoreTrain.setController(value)`负责unregister old/register new；replace由serialized simulation owner在barrier下协调。
+- `CoreTrain.setController(value)`负责在帧间owner阶段同步安装、替换或移除控制器；协调器内部按确切旧实例校验并更新唯一注册表。
 - protected `moveControlledTrain(deltaS,speedMetersPerSecond)`是所有override `tick`的controller子类合同：两个值必须来自同一个physics tick。CoreTrain走内部速度传播，非Core Train才回退公开distance-only调用。
 
 `protected open onPhysicsStatePublished()`在本controller的speed/train buffers翻转后调用，用于发布controller自身值状态；它仍先于统一的train frame发布。Core内部将纯buffer翻转与hook通知拆成`publishPhysicsBuffers()`和`notifyPhysicsStatePublished()`：coordinator仅在与close同步并重验exact ticket的锁内执行前者，锁外执行后者，保留逐controller原顺序。原`publishPhysicsState()`及兼容`commit()`仍按先buffers后hook顺序调用，不改子类覆写签名。hook不在关闭锁中，不得假设close会等待其完成或撤销其外部效果；完整门禁及失败边界见[runtime publication](./runtime-publication.md)。
@@ -74,7 +74,27 @@ Bukkit换向命令在Future完成后经entity scheduler告知玩家，不把“�
 实际准备、发布和异常规则归[列车换向](./train-physics.md#帧间换向current第3a批)；提交和计数为O(1)，仅真实奇数次换向承担几何准备及世界占用刷新。
 例如两次请求在drain以前提交，最终方向不变；一次请求执行后，紧随的physics tick直接按新方向运动。
 错误做法是在worker修改方向、跳过整轮movement，或操作执行时不核对旧controller身份。
-控制器安装/替换/移除、手动接管的复合流程尚未完成第3b批，不能由本节推断其外部入口已全部迁移。
+控制器安装/替换/移除及手动接管复合流程已迁移至第3b批的帧间阶段，具体约束如下。
+
+## 控制器生命周期（CURRENT，第3b批）
+
+外部手动接管、释放和导航请求先由所属world的协调器排队；宿主等待完整ticket以后，
+在同一阶段内完成运营状态与控制器交接。内部同步`setController(value: TrainController?)`不再自行调度：
+不同实例的安装先验证帧间作用域、world仍持有该train实例，以及新controller确实属于该train。
+随后协调器`replaceController`核对注册表仍指向确切旧controller，更新注册表后才替换train引用。
+重复设置同一引用直接返回，不产生交接。校验失败在写入前抛出，不留下半安装状态。
+
+例如旧controller的worker尚未完成时，替换请求只排队，旧controller仍有效；帧间交接完成后，
+下一次worker快照只包含新controller。移除后两者都不再tick。不能先移除旧controller，再校验新controller的归属。
+注册表检查和安装为每次O(1)，不新增逐tick扫描、物理epoch或持久化版本。
+
+物理原因脱轨不是外部控制请求：它在原physics publication屏障通过同一内部注册替换原语移除controller，
+不调用受owner作用域检查的公开setter，也不排队后等待自身。外部脱轨和删除暂时复用结构门禁，
+完整外部请求与观测发布迁移仍分别归后续第5批和第4批，不能据此宣称这些批次已完成。
+
+`BetweenFramesOperationsTest`用真实阻塞worker检查阶段外替换拒绝且旧引用不变、排队期间不提前tick新controller、
+exact ticket完成后的替换、下一epoch只执行新controller，以及旧请求拒绝和移除后无controller继续tick。
+Basic方向输入在物理换向成功后才更新有效/显示方向；平台手动会话及Dispatcher完整操作见对应模块契约。
 
 ## 项目内正确示例
 

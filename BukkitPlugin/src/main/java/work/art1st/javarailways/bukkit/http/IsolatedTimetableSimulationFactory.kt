@@ -49,7 +49,8 @@ internal data class IsolatedTimetableSimulationSnapshot(
     val profilesByService: Map<String, SimulationControlProfile>,
     val gravityMetersPerSecondSquared: Double,
     val turnoutSafetyDefaults: TurnoutSafetyDefaults,
-    val timetableExtensions: TimetableExtensionRegistry
+    val timetableExtensions: TimetableExtensionRegistry,
+    val atoSafetyDistanceMeters: Double
 )
 
 /** Captures static configuration on the live thread, then creates a runtime with no live trains. */
@@ -59,18 +60,22 @@ internal fun interface IsolatedSimulationProfileResolver {
 
 internal class IsolatedTimetableSimulationFactory(
     private val profileResolver: IsolatedSimulationProfileResolver,
-    private val gravityMetersPerSecondSquared: Double
+    private val gravityMetersPerSecondSquared: Double,
+    private val atoSafetyDistanceMeters: Double = 5.0
 ) {
     init {
         require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
+        require(atoSafetyDistanceMeters.isFinite() && atoSafetyDistanceMeters >= 0.0)
     }
 
     constructor(
         profileCatalog: SimulationControlProfileCatalog,
-        gravityMetersPerSecondSquared: Double
+        gravityMetersPerSecondSquared: Double,
+        atoSafetyDistanceMeters: Double = 5.0
     ) : this(
         IsolatedSimulationProfileResolver { world, type, id -> profileCatalog.resolve(world, type, id) },
-        gravityMetersPerSecondSquared
+        gravityMetersPerSecondSquared,
+        atoSafetyDistanceMeters
     )
     fun capture(
         liveWorld: CoreWorld,
@@ -121,7 +126,8 @@ internal class IsolatedTimetableSimulationFactory(
             profiles,
             gravityMetersPerSecondSquared,
             liveWorld.basicWorldData.turnoutSafetyDefaults,
-            liveWorld.simpleAtoWorldData.timetableExtensions.createSimulationRegistry()
+            liveWorld.simpleAtoWorldData.timetableExtensions.createSimulationRegistry(),
+            atoSafetyDistanceMeters
         )
     }
 
@@ -149,6 +155,7 @@ internal class IsolatedTimetableSimulationFactory(
             dispatcherFactory = {
                     _, routeAdmissionContextProvider, signalRestrictions, inspectionRuntime, infrastructureDependencyService ->
                 TimetableDispatcher(
+                    authorityStoppingMarginMeters = snapshot.atoSafetyDistanceMeters,
                     routeAdmissionContextProvider = routeAdmissionContextProvider,
                     signalRestrictionSnapshots = signalRestrictions,
                     inspectionRuntime = inspectionRuntime,
@@ -160,6 +167,7 @@ internal class IsolatedTimetableSimulationFactory(
                         }
                         val gravity = snapshot.gravityMetersPerSecondSquared
                         val safety = AtoSafetyProfile(
+                            safetyDistanceMeters = snapshot.atoSafetyDistanceMeters,
                             serviceDecelerationMetersPerSecondSquared =
                                 TrainDynamics.flatServiceDeceleration(
                                     profile.trainControl,

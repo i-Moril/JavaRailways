@@ -109,6 +109,7 @@ object RailWorldFactory {
         val atoLogger = plugin.logger
         val pluginDataFolder = plugin.dataFolder
         val physicsConfig = plugin.physicsConfig
+        val atoSafetyDistanceMeters = plugin.javaRailwaysConfig.atoSafetyDistanceMeters
         val safetyInterlock = WorldSafetyInterlock()
         val signalRestrictions = TrainRestrictionSnapshotStore(bukkitWorld.uid.toString())
         // Controller failures use AbstractATO's coordinator report; Dispatcher reports binding failures.
@@ -177,6 +178,7 @@ object RailWorldFactory {
                 )
         }
         val dispatcher = TimetableDispatcher(
+            authorityStoppingMarginMeters = atoSafetyDistanceMeters,
             routeAdmissionContextProvider = routeAdmissionProvider,
             signalRestrictionSnapshots = signalRestrictions,
             inspectionRuntime = inspectionRuntime,
@@ -198,6 +200,7 @@ object RailWorldFactory {
                 }
                 val gravity = physicsConfig.track.gravityMetersPerSecondSquared
                 val profile = AtoSafetyProfile(
+                    safetyDistanceMeters = atoSafetyDistanceMeters,
                     serviceDecelerationMetersPerSecondSquared =
                         TrainDynamics.flatServiceDeceleration(trainProfile, carProfiles, gravity),
                     reactionTimeSeconds = HandleTrainActuator.serviceBrakeReactionTimeSeconds(

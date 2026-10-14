@@ -457,7 +457,8 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             } ?: throw HttpFailure(400, "profileAssignments is required")
             val factory = IsolatedTimetableSimulationFactory(
                 SimulationControlProfileCatalog(plugin),
-                plugin.physicsConfig.track.gravityMetersPerSecondSquared
+                plugin.physicsConfig.track.gravityMetersPerSecondSquared,
+                plugin.javaRailwaysConfig.atoSafetyDistanceMeters
             )
             val snapshot = await {
                 withWorld(worldName) { _, world ->

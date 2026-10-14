@@ -1,5 +1,5 @@
 # JavaRailways 主配置。
-# 本文件中的每个键都是必填项；如果删除或写错类型，插件会在启动时报错。
+# 除明确说明默认值的键外，每个键都是必填项；缺失或写错类型时启动报错。
 
 # 已保存列车在模型包更新后的跟随策略。
 # follow-package: 保留已保存的车厢模型名，但按当前包文件重新构建模型。
@@ -26,6 +26,12 @@ train-key-bind-distance: 20.0
 # true 时会写入 plugins/JavaRailways/debug/train_debug.csv。
 # 仅在短时间采样排障时开启。
 train-debug-log: false
+
+# 全局 ATO 安全距离（米），必须是有限非负数；缺省为 5.0。
+# 时刻表路线保护、实际驾驶及隔离模拟使用同一值。修改后重启生效。
+# 移动闭塞停车时为真实轨道授权保留余量，不改变运营停车目标。
+ato:
+  safety-distance-meters: 5.0
 
 # 轨道工程、曲线采样、物理 Worker、超速脱轨与道岔安全参数位于 physics.yml。
 

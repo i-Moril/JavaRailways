@@ -131,7 +131,8 @@ class IsolatedTimetableSimulationFactoryTest {
         )
         val factory = IsolatedTimetableSimulationFactory(
             IsolatedSimulationProfileResolver { _, _, _ -> profile() },
-            9.80665
+            9.80665,
+            atoSafetyDistanceMeters = 7.5
         )
         fun capture(timetable: Timetable) = factory.capture(source, timetable, listOf(
             TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")
@@ -140,6 +141,8 @@ class IsolatedTimetableSimulationFactoryTest {
         val fastTimetable = timetable("fast", 9.0)
         val slowSnapshot = capture(slowTimetable)
         val fastSnapshot = capture(fastTimetable)
+        assertEquals(7.5, slowSnapshot.atoSafetyDistanceMeters)
+        assertEquals(7.5, fastSnapshot.atoSafetyDistanceMeters)
 
         val slowTicks = factory.create(slowSnapshot, workerThreads = 1).use { simulation ->
             val result = simulation.simulate(IsolatedTimetableSimulationRequest(slowTimetable))

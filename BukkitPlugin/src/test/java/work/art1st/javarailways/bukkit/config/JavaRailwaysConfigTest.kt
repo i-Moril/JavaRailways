@@ -3,6 +3,7 @@ package work.art1st.javarailways.bukkit.config
 import org.bukkit.configuration.file.YamlConfiguration
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.InputStreamReader
 
@@ -17,6 +18,43 @@ class JavaRailwaysConfigTest {
         assertEquals(true, config.timetableHttpBridge.enabled)
         assertEquals(TimetableWebUiMode.MANAGED, config.timetableWebUi.mode)
         assertEquals("127.0.0.1", config.timetableHttpBridge.bindAddress)
+        assertEquals(5.0, config.atoSafetyDistanceMeters)
+    }
+
+    @Test
+    fun `missing ATO safety distance defaults to five meters`() {
+        assertEquals(5.0, JavaRailwaysConfig.fromYaml(validYaml()).atoSafetyDistanceMeters)
+    }
+
+    @Test
+    fun `ATO safety distance accepts explicit nonnegative numbers`() {
+        listOf(0.0, 7.5, 9).forEach { distance ->
+            val yaml = validYaml().apply { set("ato.safety-distance-meters", distance) }
+            assertEquals(distance.toDouble(), JavaRailwaysConfig.fromYaml(yaml).atoSafetyDistanceMeters)
+        }
+    }
+
+    @Test
+    fun `ATO safety distance rejects negative nonfinite and nonnumeric values`() {
+        listOf(-1.0, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY,
+            "5.0", true, listOf(5.0)).forEach { invalid ->
+            val yaml = validYaml().apply { set("ato.safety-distance-meters", invalid) }
+            val error = assertThrows(IllegalArgumentException::class.java) {
+                JavaRailwaysConfig.fromYaml(yaml)
+            }
+            assertTrue(error.message.orEmpty().contains("ato.safety-distance-meters"))
+        }
+    }
+
+    @Test
+    fun `ATO settings must be a section when present`() {
+        listOf("5.0", true, 5.0, listOf(5.0)).forEach { invalid ->
+            val yaml = validYaml().apply { set("ato", invalid) }
+            val error = assertThrows(IllegalArgumentException::class.java) {
+                JavaRailwaysConfig.fromYaml(yaml)
+            }
+            assertTrue(error.message.orEmpty().contains("ato"))
+        }
     }
 
     @Test

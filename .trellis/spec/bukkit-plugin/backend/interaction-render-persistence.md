@@ -167,6 +167,8 @@ worker 和信号回调都可读取这份值，不能从公开接口取得可写 
 
 ## Persistence 与配置
 
+- 全局`config.yml`的`ato.safety-distance-meters`默认5.0米，有限且非负，允许0；缺失取明确默认值，存在但类型/数值错误时拒绝加载。值加载为immutable配置，同步传给所有真实world和隔离仿真的Dispatcher与`AtoSafetyProfile`，不随train profile改变；制动能力仍按各车计算。用于静态保护及真实授权的机制归[SimpleATO停车目标与授权终点](../../javarailways/simpleato/terminal-route-completion.md)。这是带默认值的新增字段，不升级schema、不新增迁移/兼容reader，也不增加在线热切换。
+
 - world 保存分为 infrastructure/runtime 两文件，必须选择相同 `infrastructureRevision` 的最新 primary/backup pair。outer `InfrastructureFileV2` 包含 Core、Basic、SimpleATO 三个严格 current document，恢复顺序为 Core → Basic → SimpleATO；旧 outer format 不由 runtime reader 接受。Stage 2 ownership extraction 的真实旧源只有 outer V1 + Basic V1，纯迁移一步输出 outer V2 + Basic V2 + SimpleATO V1，不接受分批重构产生的中间版本。文件发现、dry-run、恢复点和 apply 仍由独立 09-24 迁移任务实现。写入使用 temp、backup、atomic replace fallback；transport 策略不等于 schema version。
 - runtime snapshot capture 对齐 Core/Basic/SimpleATO 的 infrastructure revision 与 physics epoch；外层 `RuntimeFileV2` 同时封装三个 current document，恢复顺序固定为 Core → Basic → SimpleATO。正常 loader 不读取旧 runtime V1，也不保留双写/nullable fallback；旧开发存档只通过单独、可审计的一次性迁移工具升级。参考 `WorldSnapshotExtensionDataTest.kt`。
 - sidecar（例如 `RailRenderMetaStore`、model snapshot、Wand PDC）各自是独立 boundary，只在自身 breaking change 时升级。

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.core.physics.train.setControllerForTest
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -132,7 +134,7 @@ class TimetableInitialPositionerTest {
         IsolatedSimulationThreadMarker.run {
             world.physicsCoordinator.processBetweenFrames { world.renameTrain(train, "s100-1") }
         }
-        train.setController(object : TrainController(train, world) {})
+        train.setControllerForTest(object : TrainController(train, world) {})
         world.basicWorldData.wayPoints.add(WayPoint("yard@1", "Yard", rail.id, 70.0))
         val timetable = Timetable(
             id = "tt",

@@ -50,7 +50,7 @@ class TrainUniformMotionTest {
             val constantSpeed = 20.0 // m/s
             val train = createTrainWithConfig("t1", rail, world, listOf(10.0, 10.0), isLoop = false)
             val controller = MockTrainController(train, world, constantSpeed)
-            train.setController(controller)
+            train.setControllerForTest(controller)
             val startHeadX = train.headLocation.position.x()
             val startTailX = train.tailLocation.position.x()
             val startCarXs = train.cars.map { it.position.x() }
@@ -98,7 +98,7 @@ class TrainUniformMotionTest {
             val train = createTrainWithConfig("velocity-direction", rail, world, listOf(10.0, 10.0), isLoop = false)
             val command = MutableSpeedCommand(10.0)
             val controller = CommandController(train, world, command)
-            train.setController(controller)
+            train.setControllerForTest(controller)
             coordinator.start()
 
             val startX = train.headLocation.position.x()
@@ -142,7 +142,7 @@ class TrainUniformMotionTest {
             assertEquals(reversedHeadX - 0.5, train.headLocation.position.x(), distanceTolerance)
             assertPublishedVelocity(train, -10.0)
 
-            train.setController(null)
+            train.setControllerForTest(null)
             coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
             assertPublishedVelocity(train, 0.0)
         } finally {
@@ -162,7 +162,7 @@ class TrainUniformMotionTest {
                 PrimeCurveGenerator.buildCircle(radius, segmentCount = 1, step = 0.02).single()
             )
             val train = createTrainWithConfig("curved-velocity", rail, world, listOf(10.0))
-            train.setController(MockTrainController(train, world, speed))
+            train.setControllerForTest(MockTrainController(train, world, speed))
             coordinator.start()
 
             coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
@@ -214,7 +214,7 @@ class TrainUniformMotionTest {
         try {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
             val train = createTrainWithConfig("placement-velocity", rail, world, listOf(10.0))
-            train.setController(MockTrainController(train, world, 10.0))
+            train.setControllerForTest(MockTrainController(train, world, 10.0))
             coordinator.start()
             coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
             assertPublishedVelocity(train, 10.0)
@@ -254,7 +254,7 @@ class TrainUniformMotionTest {
                     val railsById = rails.associateBy { it.id }
                     val speed = 15.0
                     val train = createTrainWithConfig("t-circle-$radius", rails.first(), world, List(carCount) { carLength }, isLoop = true)
-                    train.setController(MockTrainController(train, world, speed))
+                    train.setControllerForTest(MockTrainController(train, world, speed))
                     val circumference = 2 * PI * radius
                     val ticksPerLoop = (circumference / speed / tickSeconds).toInt().coerceAtLeast(1)
                     val numTicks = 2 * ticksPerLoop + 50

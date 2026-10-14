@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.station
 
+import work.art1st.javarailways.core.physics.train.setControllerForTest
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -208,7 +210,7 @@ class StationCallRuntimeTest {
         val station = Station(stationId, "Central", listOf(berthRef))
         world.simpleAtoWorldData.stations.register(station, listOf(berth))
         val ato = SimpleATO(train, world, KinematicTrainActuator(6.0, profile), profile) { 0.0 }
-        train.setController(ato)
+        train.setControllerForTest(ato)
         return Fixture(world, data, train, station, berth, ato)
     }
 

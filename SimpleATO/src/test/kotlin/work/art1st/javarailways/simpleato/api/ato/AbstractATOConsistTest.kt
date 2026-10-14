@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.api.ato
 
+import work.art1st.javarailways.core.physics.train.setControllerForTest
+
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
@@ -43,7 +45,7 @@ class AbstractATOConsistTest {
                     )
                     val actuator = HandleTrainActuator(train, TrainProfile, listOf(heavy, light), 10.0)
                     val controller = TestATO(train, actuator, safety)
-                    train.setController(controller)
+                    train.setControllerForTest(controller)
                     actuator.step(0.0, ControlDemand(30.0), 0.1)
                     val history = actuator.lastDynamicsResult
                     assertEquals("P1", actuator.selectedHandle)

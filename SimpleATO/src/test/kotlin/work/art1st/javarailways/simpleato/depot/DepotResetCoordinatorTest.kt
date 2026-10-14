@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.depot
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 import work.art1st.javarailways.core.physics.createRailForTest
@@ -47,8 +49,6 @@ import work.art1st.javarailways.core.physics.train.createStraightRailFromSegment
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
-import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
-import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 
 class DepotResetCoordinatorTest {
     private val worlds = mutableListOf<CoreWorld>()
@@ -141,7 +141,7 @@ class DepotResetCoordinatorTest {
             )
         )
         assertTrue(
-            dispatcher.startService(world, "tt", "s1") is TimetableServiceStartResult.Started
+            world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") } is TimetableServiceStartResult.Started
         )
         val ato = train.controller as SimpleATO
         AsyncTickTestSupport.run { ato.tick(50.0) }
@@ -149,7 +149,7 @@ class DepotResetCoordinatorTest {
         assertFalse(dispatcher.status(TimetableServiceRunId("tt", "s1"))?.routeGrantActive == true)
         coordinator.stall(report(coordinator.worldId, train.id))
 
-        val result = DepotResetCoordinator(world, dispatcher).reset(setOf(depotId))
+        val result = world.onOwnerForTest { DepotResetCoordinator(world, dispatcher).reset(setOf(depotId)) }
 
         assertTrue(result is DepotResetResult.Succeeded, result.report.toString())
         val success = result.report
@@ -241,8 +241,8 @@ class DepotResetCoordinatorTest {
             ),
             StablingPointRef(depotId, "risky")
         )
-        onMainThread { safeTrain.reverse() }
-        onMainThread { safeTrain.derail("test pre-reset state") }
+        world.onOwnerForTest { safeTrain.reverse() }
+        world.onOwnerForTest { safeTrain.derail("test pre-reset state") }
         val beforeSafeHead = safeTrain.head.location.arcLengthIn(ViewDirection.AB)
         val beforeRiskyHead = riskyTrain.head.location.arcLengthIn(ViewDirection.AB)
         val beforeRiskyBogies = riskyTrain.cars.flatMap { car -> car.bogies }
@@ -251,7 +251,7 @@ class DepotResetCoordinatorTest {
         val beforePoints = world.simpleAtoWorldData.depots.stablingPoints(depotId)
         coordinator.stall(report(coordinator.worldId, riskyTrain.id))
 
-        val result = onMainThread {
+        val result = world.onOwnerForTest {
             DepotResetCoordinator(world, TimetableDispatcher(
                 UnavailableRouteAdmissionTestContext,
                 emptyTrainRestrictionSnapshots,
@@ -360,7 +360,7 @@ class DepotResetCoordinatorTest {
         val beforeSecond = secondTrain.head.location
         coordinator.stall(report(coordinator.worldId, firstTrain.id))
 
-        val result = DepotResetCoordinator(
+        val result = world.onOwnerForTest { DepotResetCoordinator(
             world,
             TimetableDispatcher(
                 UnavailableRouteAdmissionTestContext,
@@ -368,7 +368,7 @@ class DepotResetCoordinatorTest {
                 emptyInspectionRuntime(),
                 acceptingInfrastructureDependencyService()
             )
-        ).reset(setOf(depotId))
+        ).reset(setOf(depotId)) }
 
         assertTrue(result is DepotResetResult.Failed)
         assertEquals("TRAIN_ENVELOPE", result.report.failureStage)
@@ -418,7 +418,7 @@ class DepotResetCoordinatorTest {
         val beforeStock = world.simpleAtoWorldData.depots.allRollingStock()
         val beforePoints = world.simpleAtoWorldData.depots.stablingPoints(depotId)
 
-        val result = DepotResetCoordinator(
+        val result = world.onOwnerForTest { DepotResetCoordinator(
             world,
             TimetableDispatcher(
                 UnavailableRouteAdmissionTestContext,
@@ -426,24 +426,13 @@ class DepotResetCoordinatorTest {
                 emptyInspectionRuntime(),
                 acceptingInfrastructureDependencyService()
             )
-        ).reset(setOf(depotId))
+        ).reset(setOf(depotId)) }
 
         assertTrue(result is DepotResetResult.Failed)
         assertEquals("TRAIN_RESOLUTION", result.report.failureStage)
         assertEquals(beforeStock, world.simpleAtoWorldData.depots.allRollingStock())
         assertEquals(beforePoints, world.simpleAtoWorldData.depots.stablingPoints(depotId))
         assertTrue(coordinator.isStalled)
-    }
-
-    private fun <T> onMainThread(block: () -> T): T {
-        val registration = ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
-            override fun isMainThread(): Boolean = true
-        })
-        return try {
-            block()
-        } finally {
-            registration.close()
-        }
     }
 
     private fun rail(world: CoreWorld, from: Vector3d, to: Vector3d): CoreRail =

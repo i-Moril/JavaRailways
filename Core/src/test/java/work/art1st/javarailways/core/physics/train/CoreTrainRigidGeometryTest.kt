@@ -61,7 +61,7 @@ class CoreTrainRigidGeometryTest {
             it.commitMaintenancePlacement()
         }
         assertGeometry(train, "$shape placement")
-        train.setController(MockTrainController(train, world, 10.0))
+        train.setControllerForTest(MockTrainController(train, world, 10.0))
         world.physicsCoordinator.start()
         repeat(60) { tick ->
             val head = train.headCar.headBogie.location
@@ -90,7 +90,7 @@ class CoreTrainRigidGeometryTest {
             assertEquals(expected.arcLength, train.headCar.headBogie.location.arcLength, 1e-9)
             assertGeometry(train, "$shape reversed tick $tick")
         }
-        train.setController(null)
+        train.setControllerForTest(null)
         val stoppedPositions = train.cars.map { Vector3d(it.position) }
         world.physicsCoordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
         train.cars.zip(stoppedPositions).forEach { (car, expected) ->
@@ -118,7 +118,7 @@ class CoreTrainRigidGeometryTest {
                 registration.close()
             }
             train.commitMaintenancePlacement()
-            train.setController(MockTrainController(train, world, 10.0))
+            train.setControllerForTest(MockTrainController(train, world, 10.0))
             world.physicsCoordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
             assertFalse(train.isDerailed, "valid movement near finite track end")
             assertGeometry(train, "$shape finite end")

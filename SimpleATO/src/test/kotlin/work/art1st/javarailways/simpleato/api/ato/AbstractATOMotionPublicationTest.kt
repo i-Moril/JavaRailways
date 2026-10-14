@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.api.ato
 
+import work.art1st.javarailways.core.physics.train.setControllerForTest
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -44,7 +46,7 @@ class AbstractATOMotionPublicationTest {
                 profile,
                 atoCoordinator
             )
-            train.setController(ato)
+            train.setControllerForTest(ato)
             val startX = train.headLocation.position.x()
             physics.start()
 

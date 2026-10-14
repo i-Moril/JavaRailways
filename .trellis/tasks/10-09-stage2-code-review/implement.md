@@ -2,6 +2,8 @@
 
 当前阶段：in_progress。用户于 2026-10-09 批准修复已知问题；2026-10-10进一步批准连续小提交后统一检查，不要求等待全部审查结束才修复已确认项。
 
+2026-10-14用户再次明确：这串帧间操作迁移可以连续完成，不必每笔提交后暂停等待。继续按3b→4→5→6执行，每批先说明目的/方法、独立检查和验证后小范围提交，最后统一交用户检查；新增产品规则仍需确认。本授权不扩大为Basic后续全模块修复、任意新功能或部署。
+
 ## 当前执行顺序（2026-10-12用户纠正后）
 
 ### 最新优先项：统一帧间操作（2026-10-14用户确认，首批已实现）
@@ -18,6 +20,10 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 6. [ ] 联结/解编复用帧间阶段并完成CR-030复核：成功通知内提交rename正常完成，下一次碰撞使用一致观测；移除旧时序特判及过时契约，核对受影响API、测试与正式游戏测试交接。
 
 第3项拆为两笔可独立检查的子批次：3a先迁移控制器换向请求、同步换向apply与一致发布，删除worker换向/跳过movement分支；3b随后迁移控制器安装/替换/移除及手动接管、导航和Dispatcher复合入口。本轮先做3a，不将整项勾选完成。手动接管包含平台座位/钥匙检查与运营/控制器状态迁移，不能仅异步化底层setter后让上层继续按同步结果执行；其平台数据捕获与结果回送留在3b。
+
+3b前置独立完成既有测试的单操作帧间迁移：新增两项共享test-fixtures helper，仅在控制器安装/移除、Dispatcher及维护调用周围进入真实owner阶段，已在阶段内的callback保留直接setter。没有增加、删除或放宽业务断言，不包住整项physics测试，也不把测试marker加入runtime。旧联结草稿测试及新3b行为回归不混入此前置提交。
+
+此前置候选导出至`/tmp/javarailways-owner-fixtures.BSmlzj`，HEAD生产源码未修改。Core364、Basic393、SimpleATO354、BukkitPlugin379、TunnelBridgeBuilder31，共1521项零失败/error/skip，1分44秒，39tasks全执行；逐项比较testcase名称与上一候选完全相同。首次编译发现DepotReset测试删除旧helper后遗留2处引用，已同步改为真实owner helper再完整验证。采用已有offline/no-cache/rerun/nonincremental/in-process、2workers及1536m/1024m配置，仅跳过无关frontend install/build。该结果只证明测试前置独立可用，不代表3b运行时代码、Core整体审查或游戏验证完成。
 
 3a已实现并通过独立候选门禁：控制器请求走现有帧间队列、同批奇偶抵消并返回独立Future副本；执行时拒绝旧控制器。同步换向复用解编的方向准备/安装，不沿反向道岔重新寻找车端；真实换向以既有构建器立即刷新共享occupancy/world后通知插件。删除worker换向及train/car/bogie方向dirty分支，下一正常epoch直接movement。每次实际换向有低频O(world)刷新，不新增普通tick扫描、假epoch或批量通知框架。
 

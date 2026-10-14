@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.controller
 
+import work.art1st.javarailways.core.physics.train.setControllerForTest
+
 import work.art1st.javarailways.core.physics.createRailForTest
 
 import org.joml.Vector3d
@@ -457,7 +459,7 @@ class SimpleATOTest {
             override val location = RailLocationWithFacing(branch.viewAB, 1.0)
         })
         val ato = SimpleATO(train, world, KinematicTrainActuator(10.0, profile), profile) { 0.0 }
-        train.setController(ato)
+        train.setControllerForTest(ato)
 
         tickAndPublish(ato, 50.0)
         approach.viewAB.selectNextRail(branch.viewAB)
@@ -530,7 +532,7 @@ class SimpleATOTest {
             safetyProfile = profile,
             inspectionMaximumLeadTimeSeconds = inspectionMaximumLeadTimeSeconds
         )
-        train.setController(ato)
+        train.setControllerForTest(ato)
         return Fixture(world, train, ato, coordinator, data)
     }
 

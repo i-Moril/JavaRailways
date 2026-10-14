@@ -32,7 +32,7 @@ class TrainSlopeMotionTest {
                     val curve = createStraightSlope(length = 200.0, rise = 20.0)
                     val rail = world.createRailForTest(curve)
                     val train = createTrainWithConfig("slope", rail, world, listOf(10.0, 10.0, 10.0, 10.0), isLoop = false)
-                    train.setController(MockTrainController(train, world, 10.0))
+                    train.setControllerForTest(MockTrainController(train, world, 10.0))
                     val initial = train.publishedFrame
                     // The 1:10 grade gives unit tangent (10, 1, 0) / sqrt(101).
                     val expectedVelocity = Vector3d(100.0 / sqrt(101.0), 10.0 / sqrt(101.0), 0.0)

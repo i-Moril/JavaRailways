@@ -1,6 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.di.ensureJavaRailwaysKoinStarted
@@ -11,7 +12,18 @@ import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.util.TickManagerImpl
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import java.util.concurrent.Executors
+
+/** Runs one test operation on the world's owner, excluding physics epochs for its lexical scope. */
+fun <T> CoreWorld.onOwnerForTest(action: () -> T): T =
+    IsolatedSimulationThreadMarker.run {
+        physicsCoordinator.processBetweenFrames { action() }
+    }
+
+/** Installs a test controller through the same frame boundary as the runtime owner. */
+fun CoreTrain.setControllerForTest(controller: TrainController?) =
+    world.onOwnerForTest { setController(controller) }
 
 /**
  * 创建用于测试的 World：空轨道/列车，单线程 TickManager，使用 NoOpWorldParentContext 而非运行时宿主父 scope。

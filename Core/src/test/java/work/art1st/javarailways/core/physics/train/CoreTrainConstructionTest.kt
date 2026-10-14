@@ -48,7 +48,7 @@ class CoreTrainConstructionTest {
             }
         }
         val controller = CountingController(original)
-        original.setController(controller)
+        original.setControllerForTest(controller)
         val destroys = AtomicInteger()
         observeDestruction(original.cars.single(), destroys)
         val originalFrame = original.publishedFrame
@@ -122,7 +122,7 @@ class CoreTrainConstructionTest {
         withWorld { world, rail ->
             val original = createTrainWithConfig("original-id", rail, world, listOf(10.0))
             val originalController = CountingController(original)
-            original.setController(originalController)
+            original.setControllerForTest(originalController)
             val originalFrame = original.publishedFrame
             val car = createCar(world, rail, headBogieArc = 72.5, tailBogieArc = 67.5)
             val destroys = AtomicInteger()
@@ -151,7 +151,9 @@ class CoreTrainConstructionTest {
             world.publishCurrentTrainFrame(original.id)
 
             val thrown = assertThrows(IllegalStateException::class.java) {
-                CoreTrain("failed-id", listOf(car), world, emptyMap(), "Failed", extensions)
+                world.onOwnerForTest {
+                    CoreTrain("failed-id", listOf(car), world, emptyMap(), "Failed", extensions)
+                }
             }
 
             assertSame(failure, thrown)
@@ -171,7 +173,7 @@ class CoreTrainConstructionTest {
 
             val retry = CoreTrain("failed-id", listOf(car), world, emptyMap(), "Failed")
             val retryController = CountingController(retry)
-            retry.setController(retryController)
+            retry.setControllerForTest(retryController)
             assertSame(retry, world.getTrain("failed-id"))
             assertSame(retry, world.getTrain("Failed"))
             assertSame(car, retry.cars.single())

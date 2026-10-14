@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 import work.art1st.javarailways.core.physics.createRailForTest
@@ -82,7 +84,7 @@ class TimetableStationCallDispatcherTest {
     fun `dispatcher dwells grants departure and releases berth behind the tail`() {
         val fixture = fixture()
         val id = TimetableServiceRunId("tt", "service")
-        val started = fixture.dispatcher.startService(fixture.world, id.timetableId, id.serviceId)
+        val started = fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, id.timetableId, id.serviceId) }
             as TimetableServiceStartResult.Started
         val call = StationCall(
             callId = "central-call",
@@ -146,7 +148,7 @@ class TimetableStationCallDispatcherTest {
     fun `terminal station navigation completes while remaining berthed`() {
         val fixture = fixture(includeStationAction = true, firstTargetOffsetMeters = 40.0)
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
 
         val observed = linkedSetOf<TimetableServiceRunState>()
@@ -173,7 +175,7 @@ class TimetableStationCallDispatcherTest {
             nextTargetOffsetMeters = 100.0
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
 
         val observed = linkedSetOf<TimetableServiceRunState>()
@@ -198,7 +200,7 @@ class TimetableStationCallDispatcherTest {
         val fixture = fixture(includeStationAction = true)
         val id = TimetableServiceRunId("tt", "service")
 
-        val started = fixture.dispatcher.startService(fixture.world, "tt", "service")
+        val started = fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
             as TimetableServiceStartResult.Started
 
         assertTrue(started.run.stationCallId != null)
@@ -224,7 +226,7 @@ class TimetableStationCallDispatcherTest {
         val observed = ArrayList<TimetableWaypointProgress>()
         val subscription = fixture.dispatcher.observeWaypointProgress(id) { observed += it }
         try {
-            fixture.dispatcher.startService(fixture.world, "tt", "service") as
+            fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
                 TimetableServiceStartResult.Started
             for (tick in 0 until 1_000) {
                 fixture.tick()
@@ -247,7 +249,7 @@ class TimetableStationCallDispatcherTest {
             stationMovementTick = 300L
         )
         val id = TimetableServiceRunId("tt", "service")
-        val started = fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        val started = fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
         assertEquals(TimetableServiceRunState.WAITING_TIMETABLE_TIME, started.run.state)
 
@@ -276,7 +278,7 @@ class TimetableStationCallDispatcherTest {
             operationGateway = gateway
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
         val observed = linkedSetOf<TimetableServiceRunState>()
         var openingCompleted = false
@@ -326,7 +328,7 @@ class TimetableStationCallDispatcherTest {
             operationGateway = gateway
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
         var openingCompleted = false
         var closeTick: Long? = null
@@ -370,7 +372,7 @@ class TimetableStationCallDispatcherTest {
             operationGateway = gateway
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
         var openingCompleted = false
         var closingCompleted = false
@@ -420,7 +422,7 @@ class TimetableStationCallDispatcherTest {
             operationGateway = gateway
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
         var reversedWhenCloseRequested: Boolean? = null
 
@@ -459,7 +461,7 @@ class TimetableStationCallDispatcherTest {
             berthStoppingOffsetMetersBefore = 0.5
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
 
         repeat(2_000) {
@@ -491,7 +493,7 @@ class TimetableStationCallDispatcherTest {
             operationGateway = gateway
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
 
         for (tick in 0 until 2_000) {
@@ -522,7 +524,7 @@ class TimetableStationCallDispatcherTest {
             operationTimeoutTicks = 3L
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
 
         for (tick in 0 until 1_000) {
@@ -554,7 +556,7 @@ class TimetableStationCallDispatcherTest {
             operationTimeoutTicks = 3L
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
         for (tick in 0 until 1_000) {
             fixture.tick()
@@ -564,7 +566,7 @@ class TimetableStationCallDispatcherTest {
         assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
         assertTrue(fixture.dispatcher.status(id)?.berthHeld == true)
         assertThrows(IllegalStateException::class.java) {
-            fixture.dispatcher.discardFailedRunsForAtoReset(fixture.world)
+            fixture.world.onOwnerForTest { fixture.dispatcher.discardFailedRunsForAtoReset(fixture.world) }
         }
         assertTrue(fixture.dispatcher.status(id) != null)
         assertTrue(fixture.train.controller != null)
@@ -579,7 +581,7 @@ class TimetableStationCallDispatcherTest {
             operationTimeoutTicks = 3L
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
 
         for (tick in 0 until 1_000) {
@@ -606,7 +608,7 @@ class TimetableStationCallDispatcherTest {
             operationGateway = gateway
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
         var closeFailed = false
 
@@ -646,7 +648,7 @@ class TimetableStationCallDispatcherTest {
             operationGateway = gateway
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
         for (tick in 0 until 1_000) {
             fixture.tick()
@@ -677,7 +679,7 @@ class TimetableStationCallDispatcherTest {
             operationGateway = gateway
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
         for (tick in 0 until 1_000) {
             fixture.tick()
@@ -687,20 +689,20 @@ class TimetableStationCallDispatcherTest {
         }
         assertEquals(TimetableServiceRunState.DOORS_OPENING, fixture.dispatcher.status(id)?.state)
 
-        val result = fixture.dispatcher.suspendForControlTransfer(
+        val result = fixture.world.onOwnerForTest { fixture.dispatcher.suspendForControlTransfer(
             fixture.world,
             fixture.train.id,
             "driver-1"
-        )
+        ) }
 
         assertTrue(result is TimetableControlTransferResult.Suspended)
         assertEquals(TrainOperationTicketState.CANCELLED, gateway.tickets.single().snapshot().state)
         assertEquals(TimetableServiceRunState.SUSPENDED, fixture.dispatcher.status(id)?.state)
         assertTrue(fixture.dispatcher.status(id)?.berthHeld == true)
         assertNull(fixture.train.controller)
-        assertTrue(fixture.dispatcher.releaseControlTransfer(fixture.train.id, "driver-1"))
+        assertTrue(fixture.world.onOwnerForTest { fixture.dispatcher.releaseControlTransfer(fixture.train.id, "driver-1") })
         assertTrue(
-            fixture.dispatcher.replanService(fixture.world, id, "A") is
+            fixture.world.onOwnerForTest { fixture.dispatcher.replanService(fixture.world, id, "A") } is
                 TimetableReplanResult.Failure
         )
         assertTrue(fixture.dispatcher.status(id)?.berthHeld == true)
@@ -715,7 +717,7 @@ class TimetableStationCallDispatcherTest {
             operationGateway = gateway
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
         for (tick in 0 until 1_000) {
             fixture.tick()
@@ -725,11 +727,11 @@ class TimetableStationCallDispatcherTest {
         }
         val ato = fixture.train.controller
 
-        val result = fixture.dispatcher.suspendForControlTransfer(
+        val result = fixture.world.onOwnerForTest { fixture.dispatcher.suspendForControlTransfer(
             fixture.world,
             fixture.train.id,
             "driver-1"
-        )
+        ) }
 
         assertTrue(result is TimetableControlTransferResult.Failure)
         assertEquals(TimetableServiceRunState.DOORS_OPENING, fixture.dispatcher.status(id)?.state)
@@ -746,7 +748,7 @@ class TimetableStationCallDispatcherTest {
             operationGateway = gateway
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
         for (tick in 0 until 1_000) {
             fixture.tick()
@@ -756,16 +758,16 @@ class TimetableStationCallDispatcherTest {
         }
         gateway.tickets.single().fail("door failed before dispatcher poll")
 
-        val transfer = fixture.dispatcher.suspendForControlTransfer(
+        val transfer = fixture.world.onOwnerForTest { fixture.dispatcher.suspendForControlTransfer(
             fixture.world,
             fixture.train.id,
             "driver-1"
-        )
+        ) }
 
         assertTrue(transfer is TimetableControlTransferResult.Suspended)
         assertNull(fixture.train.controller)
         assertEquals(TimetableServiceRunState.SUSPENDED, fixture.dispatcher.status(id)?.state)
-        fixture.dispatcher.tick(fixture.world)
+        fixture.world.onOwnerForTest { fixture.dispatcher.tick(fixture.world) }
         assertFalse(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
         assertEquals(TimetableServiceRunState.SUSPENDED, fixture.dispatcher.status(id)?.state)
     }
@@ -779,7 +781,7 @@ class TimetableStationCallDispatcherTest {
             operationGateway = gateway
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
         for (tick in 0 until 1_000) {
             fixture.tick()
@@ -787,11 +789,11 @@ class TimetableStationCallDispatcherTest {
         }
         val ato = fixture.train.controller
 
-        val transfer = fixture.dispatcher.suspendForControlTransfer(
+        val transfer = fixture.world.onOwnerForTest { fixture.dispatcher.suspendForControlTransfer(
             fixture.world,
             fixture.train.id,
             "driver-1"
-        )
+        ) }
 
         assertTrue(transfer is TimetableControlTransferResult.Failure)
         assertTrue((transfer as TimetableControlTransferResult.Failure).reason.contains("identity"))
@@ -807,7 +809,7 @@ class TimetableStationCallDispatcherTest {
             operationGateway = ThrowingSnapshotOperationGateway()
         )
         val id = TimetableServiceRunId("tt", "service")
-        fixture.dispatcher.startService(fixture.world, "tt", "service") as
+        fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") } as
             TimetableServiceStartResult.Started
         for (tick in 0 until 1_000) {
             fixture.tick()
@@ -819,11 +821,11 @@ class TimetableStationCallDispatcherTest {
         val status = fixture.dispatcher.status(id)!!
         assertTrue(status.operationTicketError?.contains("snapshot failed") == true)
 
-        val result = fixture.dispatcher.suspendForControlTransfer(
+        val result = fixture.world.onOwnerForTest { fixture.dispatcher.suspendForControlTransfer(
             fixture.world,
             fixture.train.id,
             "driver-1"
-        )
+        ) }
 
         assertTrue(result is TimetableControlTransferResult.Failure)
         assertTrue((result as TimetableControlTransferResult.Failure).reason.contains("snapshot"))
@@ -840,7 +842,7 @@ class TimetableStationCallDispatcherTest {
             nextTargetOffsetMeters = 110.0
         )
         val id = TimetableServiceRunId("tt", "service")
-        val started = fixture.dispatcher.startService(fixture.world, "tt", "service")
+        val started = fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
             as TimetableServiceStartResult.Started
         fixture.dispatcher.scheduleStationCall(
             fixture.world,
@@ -934,14 +936,14 @@ class TimetableStationCallDispatcherTest {
         world.simpleAtoWorldData.stations.register(Station(stationId, "Central", listOf(berthRef)), listOf(berth))
         val blockerId = TimetableServiceRunId("tt", "blocking")
         val mainId = TimetableServiceRunId("tt", "main")
-        dispatcher.startService(world, "tt", "blocking") as TimetableServiceStartResult.Started
+        world.onOwnerForTest { dispatcher.startService(world, "tt", "blocking") } as TimetableServiceStartResult.Started
         val blockingAto = blockingTrain.controller as SimpleATO
         for (ignored in 0 until 2_000) {
             tick(blockingAto)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
             if (dispatcher.status(blockerId)?.routeGrantActive == true) break
         }
-        val mainRun = dispatcher.startService(world, "tt", "main") as TimetableServiceStartResult.Started
+        val mainRun = world.onOwnerForTest { dispatcher.startService(world, "tt", "main") } as TimetableServiceStartResult.Started
         dispatcher.scheduleStationCall(
             world,
             mainId,
@@ -953,7 +955,7 @@ class TimetableStationCallDispatcherTest {
         var readyWaitTicks = 0
         for (tick in 0 until 1_000) {
             tick(mainAto)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
             val state = dispatcher.status(mainId)!!.state
             observed += state
             if (state == TimetableServiceRunState.READY_TO_DEPART) readyWaitTicks++
@@ -1026,8 +1028,8 @@ class TimetableStationCallDispatcherTest {
         world.simpleAtoWorldData.stations.register(Station(stationId, "Central", listOf(berthRef)), listOf(berth))
         val firstId = TimetableServiceRunId("tt", "first")
         val secondId = TimetableServiceRunId("tt", "second")
-        val firstRun = dispatcher.startService(world, "tt", "first") as TimetableServiceStartResult.Started
-        val secondRun = dispatcher.startService(world, "tt", "second") as TimetableServiceStartResult.Started
+        val firstRun = world.onOwnerForTest { dispatcher.startService(world, "tt", "first") } as TimetableServiceStartResult.Started
+        val secondRun = world.onOwnerForTest { dispatcher.startService(world, "tt", "second") } as TimetableServiceStartResult.Started
 
         assertTrue(
             dispatcher.scheduleStationCall(
@@ -1045,16 +1047,16 @@ class TimetableStationCallDispatcherTest {
         )
         tick(firstTrain.controller as SimpleATO)
         tick(secondTrain.controller as SimpleATO)
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
 
         assertTrue(dispatcher.status(firstId)?.berthHeld == true)
         assertEquals(TimetableServiceRunState.WAITING_BERTH, dispatcher.status(secondId)?.state)
         assertFalse(dispatcher.status(secondId)?.berthHeld == true)
         assertEquals(0.0, secondTrain.speed, 1.0e-9)
 
-        assertTrue(dispatcher.stopService(world, firstId))
+        assertTrue(world.onOwnerForTest { dispatcher.stopService(world, firstId) })
         tick(firstTrain.controller as SimpleATO)
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
         assertTrue(dispatcher.status(firstId)?.berthHeld == true)
         assertFalse(world.simpleAtoWorldData.atoCoordinator.isStalled)
     }
@@ -1346,7 +1348,7 @@ class TimetableStationCallDispatcherTest {
             val ato = train.controller as SimpleATO
             AsyncTickTestSupport.run { ato.tick(50.0) }
             ato.commit()
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
         }
     }
 }

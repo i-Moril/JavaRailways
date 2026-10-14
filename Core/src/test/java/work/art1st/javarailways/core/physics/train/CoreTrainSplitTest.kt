@@ -50,7 +50,7 @@ class CoreTrainSplitTest {
                     return listOf(consist.prepare(cars.toList()))
                 }
             }
-            train.setController(controller)
+            train.setControllerForTest(controller)
             if (failInitialization) {
                 train.extensionDataContainer.setExtensionDataAt(2, RecordingSplitExtension(
                     initializationFailure = IllegalStateException("new host initialization failed")
@@ -421,7 +421,7 @@ class CoreTrainSplitTest {
                 coordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
                     val train = createTrainWithConfig("moving-source", rail, world, List(4) { 10.0 })
-                    train.setController(ConstantSpeedController(train, 10.0))
+                    train.setControllerForTest(ConstantSpeedController(train, 10.0))
                     coordinator.start()
                     val completedEpoch = coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS).epoch
                     assertEquals(completedEpoch, train.publishedFrame.physicsEpoch)
@@ -636,7 +636,7 @@ class CoreTrainSplitTest {
 
     private fun withConsist(action: (CoreWorld, CoreRail, CoreTrain) -> Unit) = withWorld { world, rail ->
         val train = createTrainWithConfig("source", rail, world, List(4) { 10.0 })
-        train.setController(NoOpController(train))
+        train.setControllerForTest(NoOpController(train))
         action(world, rail, train)
     }
 

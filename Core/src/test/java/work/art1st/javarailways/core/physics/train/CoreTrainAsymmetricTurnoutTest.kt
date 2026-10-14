@@ -150,7 +150,7 @@ class CoreTrainAsymmetricTurnoutTest {
             val train = fixture.train
             val startHeadX = train.headLocation.position.x()
             val startTailX = train.tailLocation.position.x()
-            train.setController(MockTrainController(train, fixture.world, 2.0))
+            train.setControllerForTest(MockTrainController(train, fixture.world, 2.0))
             fixture.world.physicsCoordinator.start()
 
             repeat(80) { index ->
@@ -254,7 +254,7 @@ class CoreTrainAsymmetricTurnoutTest {
 
     private fun moveByPublishedEpoch(fixture: Fixture, speedMetersPerSecond: Double) =
         fixture.world.physicsCoordinator.let { coordinator ->
-            fixture.train.setController(MockTrainController(fixture.train, fixture.world, speedMetersPerSecond))
+            fixture.train.setControllerForTest(MockTrainController(fixture.train, fixture.world, speedMetersPerSecond))
             coordinator.start()
             coordinator.stepSimulation(50.0).also { ticket ->
                 ticket.completion.get(5, TimeUnit.SECONDS)

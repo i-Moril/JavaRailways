@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.tick
 
+import work.art1st.javarailways.core.physics.train.setControllerForTest
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertSame
@@ -57,7 +59,7 @@ class PhysicsCoordinatorTest {
             val second = createTrainWithConfig("second", rail, world, listOf(10.0))
             val calls = AtomicInteger()
             listOf(first, second).forEach { train ->
-                train.setController(object : TrainController(train, world) {
+                train.setControllerForTest(object : TrainController(train, world) {
                     override fun tick(deltaT: Double) {
                         calls.incrementAndGet()
                         moveControlledTrain(0.5, 10.0)
@@ -90,7 +92,7 @@ class PhysicsCoordinatorTest {
             obstacle.derail("test obstacle")
             assertTrue(obstacle.isDerailed)
             val calls = AtomicInteger()
-            moving.setController(object : TrainController(moving, world) {
+            moving.setControllerForTest(object : TrainController(moving, world) {
                 override fun tick(deltaT: Double) {
                     calls.incrementAndGet()
                     moveControlledTrain(0.5, 10.0)
@@ -134,7 +136,7 @@ class PhysicsCoordinatorTest {
             val train = createTrainWithConfig("concurrent-$index", rail, world, listOf(10.0))
             train.setLocation(checkNotNull(RailLocationWithFacing(rail.viewAB, 0.0).forward(20.0 + index * 30.0)))
             train.commitMaintenancePlacement()
-            train.setController(object : TrainController(train, world) {
+            train.setControllerForTest(object : TrainController(train, world) {
                 override fun tick(deltaT: Double) {
                     val currentInFlight = inFlight.incrementAndGet()
                     peakInFlight.accumulateAndGet(currentInFlight, ::maxOf)
@@ -178,7 +180,7 @@ class PhysicsCoordinatorTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("simulation-step", rail, world, listOf(10.0))
         val deltas = mutableListOf<Double>()
-        train.setController(object : TrainController(train, world) {
+        train.setControllerForTest(object : TrainController(train, world) {
             override fun tick(deltaT: Double) { synchronized(deltas) { deltas += deltaT } }
         })
         coordinator.start()
@@ -204,7 +206,7 @@ class PhysicsCoordinatorTest {
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("processor", rail, world, listOf(10.0))
-        train.setController(ConstantSpeedController(train, world))
+        train.setControllerForTest(ConstantSpeedController(train, world))
         val processedThreads = mutableListOf<String>()
         var completedEpoch = -1L
         coordinator.registerPublishedFrameProcessor(object : PublishedTrainFrameProcessor {
@@ -243,7 +245,7 @@ class PhysicsCoordinatorTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("render-dirty", rail, world, listOf(10.0))
         val initialFrame = train.publishedFrame
-        train.setController(ConstantSpeedController(train, world))
+        train.setControllerForTest(ConstantSpeedController(train, world))
         coordinator.start()
         try {
             val firstTicket = coordinator.wakeFromMainThread()
@@ -280,8 +282,8 @@ class PhysicsCoordinatorTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val trainB = createTrainWithConfig("world-frame-b", rail, world, listOf(10.0))
         val trainA = createTrainWithConfig("world-frame-a", rail, world, listOf(10.0))
-        trainA.setController(ConstantSpeedController(trainA, world))
-        trainB.setController(ConstantSpeedController(trainB, world))
+        trainA.setControllerForTest(ConstantSpeedController(trainA, world))
+        trainB.setControllerForTest(ConstantSpeedController(trainB, world))
         coordinator.start()
         try {
             val ticket = coordinator.stepSimulation(50.0)
@@ -423,7 +425,7 @@ class PhysicsCoordinatorTest {
         coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor {
             coordinatorThread.set(Thread.currentThread())
         })
-        train.setController(object : TrainController(train, world) {
+        train.setControllerForTest(object : TrainController(train, world) {
             override fun tick(deltaT: Double) {
                 if (ticks.incrementAndGet() == 1) return
                 workerThread.set(Thread.currentThread())
@@ -498,7 +500,7 @@ class PhysicsCoordinatorTest {
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("close-before-publication", rail, world, listOf(10.0))
-        train.setController(MockTrainController(train, world, 10.0))
+        train.setControllerForTest(MockTrainController(train, world, 10.0))
         coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor {
             coordinatorThread.set(Thread.currentThread())
         })
@@ -663,7 +665,7 @@ class PhysicsCoordinatorTest {
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("stationary-render", rail, world, listOf(10.0))
-        train.setController(MutableSpeedController(train, world, requestedSpeed = 0.0))
+        train.setControllerForTest(MutableSpeedController(train, world, requestedSpeed = 0.0))
         coordinator.start()
         try {
             repeat(3) { coordinator.wakeFromMainThread().await() }
@@ -686,7 +688,7 @@ class PhysicsCoordinatorTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("stopping-render", rail, world, listOf(10.0))
         val controller = MutableSpeedController(train, world, requestedSpeed = 10.0)
-        train.setController(controller)
+        train.setControllerForTest(controller)
         coordinator.start()
         try {
             coordinator.wakeFromMainThread().await()
@@ -714,7 +716,7 @@ class PhysicsCoordinatorTest {
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("slow-consumer", rail, world, listOf(10.0))
-        train.setController(ConstantSpeedController(train, world))
+        train.setControllerForTest(ConstantSpeedController(train, world))
         coordinator.start()
         try {
             repeat(32) { coordinator.wakeFromMainThread().await() }
@@ -742,7 +744,7 @@ class PhysicsCoordinatorTest {
         val train = createTrainWithConfig("blocking", rail, world, listOf(10.0))
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        train.setController(BlockingController(train, world, entered, release))
+        train.setControllerForTest(BlockingController(train, world, entered, release))
         coordinator.start()
         try {
             val startedTicket = coordinator.wakeFromMainThread()
@@ -776,7 +778,7 @@ class PhysicsCoordinatorTest {
         try {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
             val train = createTrainWithConfig("structural-wait", rail, world, listOf(10.0))
-            train.setController(BlockingController(train, world, entered, release))
+            train.setControllerForTest(BlockingController(train, world, entered, release))
             coordinator.start()
             val ticket = coordinator.stepSimulation(50.0)
             assertTrue(entered.await(5, TimeUnit.SECONDS))
@@ -900,7 +902,7 @@ class PhysicsCoordinatorTest {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         val invocations = AtomicInteger()
-        train.setController(object : TrainController(train, world) {
+        train.setControllerForTest(object : TrainController(train, world) {
             override fun tick(deltaT: Double) {
                 invocations.incrementAndGet()
                 entered.countDown()
@@ -1010,7 +1012,7 @@ class PhysicsCoordinatorTest {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         val invocations = AtomicInteger()
-        train.setController(object : TrainController(train, world) {
+        train.setControllerForTest(object : TrainController(train, world) {
             override fun tick(deltaT: Double) {
                 if (invocations.incrementAndGet() == 1) return
                 entered.countDown()
@@ -1060,7 +1062,7 @@ class PhysicsCoordinatorTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val moving = createTrainWithConfig("A", rail, world, listOf(10.0))
         val stationary = createTrainWithConfig("B", rail, world, listOf(10.0))
-        moving.setController(MockTrainController(moving, world, 10.0))
+        moving.setControllerForTest(MockTrainController(moving, world, 10.0))
         val listener = CollisionCounter()
         val registration = PhysicsRailEventBus.register(listener)
         coordinator.start()
@@ -1096,7 +1098,7 @@ class PhysicsCoordinatorTest {
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
-        train.setController(ConstantSpeedController(train, world))
+        train.setControllerForTest(ConstantSpeedController(train, world))
         val before = train.head.location.arcLength
         coordinator.start()
         try {
@@ -1149,7 +1151,7 @@ class PhysicsCoordinatorTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("clamped-delta", rail, world, listOf(10.0))
         val deltas = mutableListOf<Double>()
-        train.setController(object : TrainController(train, world) {
+        train.setControllerForTest(object : TrainController(train, world) {
             override fun tick(deltaT: Double) { deltas += deltaT }
         })
         coordinator.start()

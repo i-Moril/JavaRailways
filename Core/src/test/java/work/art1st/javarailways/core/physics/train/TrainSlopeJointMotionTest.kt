@@ -20,7 +20,7 @@ class TrainSlopeJointMotionTest {
         CoreRail.connect(level, slope)
 
         val train = createTrainWithConfig("slope-joint", level, world, listOf(10.0, 10.0), isLoop = false)
-        train.setController(MockTrainController(train, world, 10.0))
+        train.setControllerForTest(MockTrainController(train, world, 10.0))
 
         repeat(60) {
             train.controller!!.tick(50.0)
@@ -39,7 +39,7 @@ class TrainSlopeJointMotionTest {
         CoreRail.connect(level, slope)
 
         val train = createTrainWithConfig("long-slope-joint", level, world, List(4) { 17.8 }, isLoop = false)
-        train.setController(MockTrainController(train, world, 10.0))
+        train.setControllerForTest(MockTrainController(train, world, 10.0))
 
         repeat(90) {
             train.controller!!.tick(50.0)

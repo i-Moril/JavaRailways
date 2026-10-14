@@ -1,5 +1,9 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
+import work.art1st.javarailways.core.physics.train.setControllerForTest
+
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 import org.joml.Vector3d
@@ -152,7 +156,7 @@ class TimetableDispatcherSharedAdmissionTest {
                 if (finishPreparation) fixture.service.grant(fixture.service.intents.single())
                 else RouteAdmissionResult.Pending(pending, null)
             }
-            assertTrue(fixture.dispatcher.beginTimetable(fixture.world, "tt") is TimetableEpochStartResult.Started)
+            assertTrue(fixture.world.onOwnerForTest { fixture.dispatcher.beginTimetable(fixture.world, "tt") } is TimetableEpochStartResult.Started)
             val applied = registry.dependencySnapshots().single()
             assertEquals(setOf(fixture.rail.id), applied.dependencies.railIds)
             assertEquals(setOf(block), applied.dependencies.resourceIds)
@@ -165,13 +169,13 @@ class TimetableDispatcherSharedAdmissionTest {
             }
             assertEquals(1, fixture.service.intents.size, fixture.status().toString())
             assertEquals(!pendingInitially, fixture.status().routeGrantActive)
-            assertTrue(fixture.dispatcher.stopFutureCycles("tt"))
+            assertTrue(fixture.world.onOwnerForTest { fixture.dispatcher.stopFutureCycles("tt") })
             assertTrue(fixture.dispatcher.saveCheckpoint().clocks.isEmpty())
-            assertFalse(fixture.dispatcher.scheduleInitialCycle("tt"))
+            assertFalse(fixture.world.onOwnerForTest { fixture.dispatcher.scheduleInitialCycle("tt") })
             assertTrue(registry.dependencySnapshots().any { it == applied })
             assertEquals(TopologyEditStatus.CONFLICT, fixture.editDecision(TopologyEditImpact(emptyList(), emptyList(), listOf(block))))
             assertEquals(TopologyEditStatus.CONFLICT, fixture.editDecision(TopologyEditImpact(listOf(fixture.rail.id), emptyList(), emptyList())))
-            assertTrue(fixture.dispatcher.stopService(fixture.world, TimetableServiceRunId("tt", "service")))
+            assertTrue(fixture.world.onOwnerForTest { fixture.dispatcher.stopService(fixture.world, TimetableServiceRunId("tt", "service")) })
             for (ignored in 0 until 200) {
                 if (fixture.status().state == TimetableServiceRunState.STOPPED) break
                 fixture.tickAto()
@@ -184,17 +188,17 @@ class TimetableDispatcherSharedAdmissionTest {
             assertTrue(registry.dependencySnapshots().any { it == applied })
             if (pendingInitially) {
                 assertFalse(fixture.status().routeGrantActive)
-                assertTrue(fixture.dispatcher.beginTimetable(fixture.world, "tt") is TimetableEpochStartResult.Failure)
-                assertThrows(IllegalStateException::class.java) { fixture.dispatcher.forceDiscardTimetable(fixture.world, "tt") }
+                assertTrue(fixture.world.onOwnerForTest { fixture.dispatcher.beginTimetable(fixture.world, "tt") } is TimetableEpochStartResult.Failure)
+                assertThrows(IllegalStateException::class.java) { fixture.world.onOwnerForTest { fixture.dispatcher.forceDiscardTimetable(fixture.world, "tt") } }
                 assertTrue(registry.dependencySnapshots().any { it == applied })
             }
             finishPreparation = true
             fixture.dispatch()
             assertTrue(fixture.status().routeGrantActive)
             assertTrue(registry.dependencySnapshots().any { it == applied })
-            val rejected = fixture.dispatcher.beginTimetable(fixture.world, "tt")
+            val rejected = fixture.world.onOwnerForTest { fixture.dispatcher.beginTimetable(fixture.world, "tt") }
             assertTrue(rejected is TimetableEpochStartResult.Failure, rejected.toString())
-            assertThrows(IllegalStateException::class.java) { fixture.dispatcher.forceDiscardTimetable(fixture.world, "tt") }
+            assertThrows(IllegalStateException::class.java) { fixture.world.onOwnerForTest { fixture.dispatcher.forceDiscardTimetable(fixture.world, "tt") } }
             assertTrue(registry.dependencySnapshots().any { it == applied })
             assertTrue(fixture.dispatcher.saveCheckpoint().clocks.isEmpty())
             assertEquals(1, fixture.service.intents.size)
@@ -219,12 +223,12 @@ class TimetableDispatcherSharedAdmissionTest {
         val block = StableInfrastructureResource("simplesignals:fixed-block", "test:planned-block")
         val fixture = fixture(inspectionSources = listOf(staticBlockSource(block)), realEditGuards = true)
         val registry = checkNotNull(fixture.editRegistry)
-        assertTrue(fixture.dispatcher.beginTimetable(fixture.world, "tt") is TimetableEpochStartResult.Started)
+        assertTrue(fixture.world.onOwnerForTest { fixture.dispatcher.beginTimetable(fixture.world, "tt") } is TimetableEpochStartResult.Started)
         val applied = registry.dependencySnapshots().single()
         fixture.dependencies.removeFailure = InfrastructureDependencyMutationResult(
             InfrastructureDependencyMutationStatus.SERVICE_CLOSED, "test dependency service closed")
 
-        assertTrue(fixture.dispatcher.stopFutureCycles("tt"))
+        assertTrue(fixture.world.onOwnerForTest { fixture.dispatcher.stopFutureCycles("tt") })
 
         assertEquals(listOf(applied), registry.dependencySnapshots())
         assertTrue(fixture.world.simpleAtoWorldData.atoCoordinator.isStalled)
@@ -254,7 +258,7 @@ class TimetableDispatcherSharedAdmissionTest {
         assertEquals(setOf(block), applied.dependencies.resourceIds)
         assertEquals(setOf("service"), fixture.dispatcher.saveCheckpoint().clocks.single().disabledServiceIds)
 
-        assertTrue(fixture.dispatcher.stopFutureCycles("tt"))
+        assertTrue(fixture.world.onOwnerForTest { fixture.dispatcher.stopFutureCycles("tt") })
         repeat(5) { fixture.dispatch() }
 
         assertTrue(fixture.dispatcher.saveCheckpoint().clocks.isEmpty())
@@ -266,7 +270,7 @@ class TimetableDispatcherSharedAdmissionTest {
         assertTrue(fixture.dispatcher.statuses().isEmpty())
         assertEquals(null, fixture.train.controller)
 
-        assertEquals(1, fixture.dispatcher.forceDiscardTimetable(fixture.world, "tt"))
+        assertEquals(1, fixture.world.onOwnerForTest { fixture.dispatcher.forceDiscardTimetable(fixture.world, "tt") })
 
         assertTrue(fixture.dispatcher.recoveryRequiredRuns().isEmpty())
         assertTrue(registry.dependencySnapshots().isEmpty())
@@ -664,11 +668,11 @@ class TimetableDispatcherSharedAdmissionTest {
 
         fixture.start()
         fixture.dispatch()
-        val transfer = fixture.dispatcher.suspendForControlTransfer(
+        val transfer = fixture.world.onOwnerForTest { fixture.dispatcher.suspendForControlTransfer(
             fixture.world,
             fixture.train.id,
             "test:driver"
-        )
+        ) }
         assertTrue(transfer is TimetableControlTransferResult.Suspended)
 
         fixture.dispatch()
@@ -686,19 +690,19 @@ class TimetableDispatcherSharedAdmissionTest {
         fixture.service.onRequest = fixture.service::grant
         fixture.start()
 
-        val transfer = fixture.dispatcher.enterManualRoutedControl(
+        val transfer = fixture.world.onOwnerForTest { fixture.dispatcher.enterManualRoutedControl(
             fixture.world,
             fixture.train.id,
             "test:driver"
-        )
+        ) }
         assertTrue(transfer is TimetableControlTransferResult.ManualRouted)
         val manual = ManualController(fixture.train, fixture.world, maxSpeed = 5.0)
-        fixture.train.setController(manual)
-        assertTrue(fixture.dispatcher.bindManualRoutedController(
+        fixture.train.setControllerForTest(manual)
+        assertTrue(fixture.world.onOwnerForTest { fixture.dispatcher.bindManualRoutedController(
             fixture.train.id,
             "test:driver",
             manual
-        ))
+        ) })
 
         fixture.dispatch()
 
@@ -895,7 +899,7 @@ class TimetableDispatcherSharedAdmissionTest {
         )
         fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions, dependencies)
 
-        val storageStart = dispatcher.startService(world, "store", "first")
+        val storageStart = world.onOwnerForTest { dispatcher.startService(world, "store", "first") }
         assertTrue(storageStart is TimetableServiceStartResult.Started, storageStart.toString())
         val originalAto = fixture.ato
         fixture.tickAto()
@@ -915,7 +919,7 @@ class TimetableDispatcherSharedAdmissionTest {
         val owner = service.intents.first().owner
         val revisionBeforeDeparture = service.intents.maxOf { it.route.revision }
 
-        val departure = dispatcher.startService(world, "depart", "second")
+        val departure = world.onOwnerForTest { dispatcher.startService(world, "depart", "second") }
         assertTrue(departure is TimetableServiceStartResult.Started, departure.toString())
         for (ignored in 0 until 100) {
             fixture.dispatch()
@@ -974,7 +978,7 @@ class TimetableDispatcherSharedAdmissionTest {
             profile,
             { 0.0 }
         )
-        train.setController(externalAto)
+        train.setControllerForTest(externalAto)
         val service = FakeAdmissionService().also {
             it.onRequest = it::grant
             it.endResult = true
@@ -993,7 +997,7 @@ class TimetableDispatcherSharedAdmissionTest {
         fixture = Fixture(world, data, rail, train, dispatcher, service, signalRestrictions, dependencies)
 
         assertTrue(
-            dispatcher.startService(world, "first", "run") is TimetableServiceStartResult.Started
+            world.onOwnerForTest { dispatcher.startService(world, "first", "run") } is TimetableServiceStartResult.Started
         )
         fixture.tickAto()
         for (ignored in 0 until 4_000) {
@@ -1012,7 +1016,7 @@ class TimetableDispatcherSharedAdmissionTest {
         val firstOwner = service.intents.first().owner
         val requestCountAfterFirst = service.intents.size
 
-        val secondStart = dispatcher.startService(world, "second", "run")
+        val secondStart = world.onOwnerForTest { dispatcher.startService(world, "second", "run") }
         assertTrue(secondStart is TimetableServiceStartResult.Started, secondStart.toString())
         fixture.tickAto()
         fixture.dispatch()
@@ -1152,7 +1156,7 @@ class TimetableDispatcherSharedAdmissionTest {
 
         fun start() {
             assertTrue(
-                dispatcher.startService(world, "tt", "service") is TimetableServiceStartResult.Started
+                world.onOwnerForTest { dispatcher.startService(world, "tt", "service") } is TimetableServiceStartResult.Started
             )
             tickAto()
         }
@@ -1164,7 +1168,7 @@ class TimetableDispatcherSharedAdmissionTest {
 
         fun dispatch() {
             dispatchTicks++
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
         }
 
         fun status(): TimetableServiceRunSnapshot =

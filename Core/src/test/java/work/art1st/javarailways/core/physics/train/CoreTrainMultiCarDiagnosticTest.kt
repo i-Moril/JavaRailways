@@ -52,7 +52,7 @@ class CoreTrainMultiCarDiagnosticTest {
             val train = createCommandStyleTrain(managedWorld, rail, carCount = 2, carLength = 2.0)
             train.setLocation(RailLocationWithFacing(rail.viewAB, 80.0))
             train.commitMaintenancePlacement()
-            train.setController(MockTrainController(train, managedWorld, 10.0))
+            train.setControllerForTest(MockTrainController(train, managedWorld, 10.0))
             coordinator.start()
 
             val ticket = coordinator.stepSimulation(50.0)

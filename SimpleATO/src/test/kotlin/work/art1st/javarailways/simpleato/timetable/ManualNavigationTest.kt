@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -126,13 +128,13 @@ class ManualNavigationTest {
             val observed = ArrayList<TimetableWaypointProgress>()
             val subscription = dispatcher.observeWaypointProgress(runId) { observed += it }
             try {
-                assertTrue(dispatcher.startService(world, "navigate", "driver") is
+                assertTrue(world.onOwnerForTest { dispatcher.startService(world, "navigate", "driver") } is
                     TimetableServiceStartResult.Started)
                 for (tick in 0 until 2_000) {
                     val ato = train.controller as SimpleATO
                     AsyncTickTestSupport.run { ato.tick(50.0) }
                     ato.commit()
-                    dispatcher.tick(world)
+                    world.onOwnerForTest { dispatcher.tick(world) }
                     if (observed.size == 2) break
                 }
             } finally {

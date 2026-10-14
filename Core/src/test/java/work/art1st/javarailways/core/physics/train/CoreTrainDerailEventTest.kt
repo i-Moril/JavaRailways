@@ -46,7 +46,7 @@ class CoreTrainDerailEventTest {
             val initialTail = train.tailLocation
             val initialBogieLocation = train.headBogie.location
             // A 100 m movement runs the head bogie beyond the unconnected end of this rail.
-            train.setController(MockTrainController(train, world, constantSpeed = 2000.0))
+            train.setControllerForTest(MockTrainController(train, world, constantSpeed = 2000.0))
             val listener = DerailCounter()
             val registration = MainRailEventBus.register(listener)
             try {

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.tool
 
+import work.art1st.javarailways.core.physics.train.setControllerForTest
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -54,7 +56,7 @@ class RailWandTopologyEditPlanTest {
             val runningRail = otherWorld.createRailForTest(straightCurve(0.0, 100.0))
             val train = createTrainWithConfig("other-world-moving", runningRail, otherWorld, listOf(10.0))
             val origin = train.publishedFrame.head.arcLengthInAbMeters
-            train.setController(ManualController(train, otherWorld).also { it.setThrottle(1.0) })
+            train.setControllerForTest(ManualController(train, otherWorld).also { it.setThrottle(1.0) })
             otherWorld.physicsCoordinator.start()
             val geometry = straightCurve(10.0, 20.0)
             // Suspend the real preparation's geometry sampling, not a lock-free callback proxy.

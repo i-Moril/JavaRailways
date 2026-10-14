@@ -1,5 +1,8 @@
 package work.art1st.javarailways.bukkit.control
 
+import work.art1st.javarailways.core.physics.train.setControllerForTest
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.AfterEach
@@ -42,9 +45,9 @@ class TrainControlManagerDirectionTest {
         )
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
         val outgoing = ReverseTrackingController(train, world)
-        train.setController(outgoing)
+        train.setControllerForTest(outgoing)
 
-        alignTrainHeadToDriverSeat(train, DriverControlEnd.TAIL)
+        world.onOwnerForTest { alignTrainHeadToDriverSeat(train, DriverControlEnd.TAIL) }
 
         assertTrue(train.isReversed)
         assertFalse(outgoing.reverseRequested)
@@ -59,7 +62,7 @@ class TrainControlManagerDirectionTest {
         )
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
 
-        alignTrainHeadToDriverSeat(train, DriverControlEnd.HEAD)
+        world.onOwnerForTest { alignTrainHeadToDriverSeat(train, DriverControlEnd.HEAD) }
 
         assertFalse(train.isReversed)
     }

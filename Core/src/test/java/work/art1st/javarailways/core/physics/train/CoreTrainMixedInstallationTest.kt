@@ -40,7 +40,7 @@ class CoreTrainMixedInstallationTest {
             val bogies = cars.map { it.bogies.toList() }
             assertPlacement(train.publishedFrame, 0.0, reversed)
             val controller = ConstantSpeedController(train)
-            train.setController(controller)
+            train.setControllerForTest(controller)
             world.physicsCoordinator.start()
 
             val offset = if (reversed) -0.5 else 0.5

@@ -31,7 +31,7 @@ class CoreTrainPersistenceStateTest {
                     ticks++
                 }
             }
-            train.setController(controller)
+            train.setControllerForTest(controller)
             val coordinator = world.physicsCoordinator
             coordinator.start()
             var previousFrame = train.publishedFrame

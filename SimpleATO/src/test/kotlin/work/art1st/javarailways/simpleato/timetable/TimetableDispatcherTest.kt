@@ -1,5 +1,9 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
+import work.art1st.javarailways.core.physics.train.setControllerForTest
+
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 import work.art1st.javarailways.core.physics.createRailForTest
@@ -101,25 +105,25 @@ class TimetableDispatcherTest {
         val dispatcher = dispatcher(plans, inspection)
         assertTrue(TimetableValidator(world).validate(world.simpleAtoWorldData.timetables["tt-signal"]!!).isSuccess)
         assertTrue(plans.applied.isEmpty(), "draft storage publishes no dependencies")
-        assertTrue(dispatcher.beginTimetable(world, "tt-signal") is TimetableEpochStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "tt-signal") } is TimetableEpochStartResult.Started)
         val installed = plans.applied.values.single()
         assertEquals(setOf(rail.id), installed.dependencies.railIds)
         assertEquals(setOf(token), installed.dependencies.resourceIds)
 
         fail = true
-        val rejected = dispatcher.beginTimetable(world, "tt-signal") as TimetableEpochStartResult.Failure
+        val rejected = world.onOwnerForTest { dispatcher.beginTimetable(world, "tt-signal") } as TimetableEpochStartResult.Failure
         assertTrue(rejected.reason.contains("test:signals"))
         assertEquals(installed.dependencies, plans.applied.values.single().dependencies)
         assertTrue(plans.applied.values.single().owner.revision > installed.owner.revision)
         assertEquals(4, plans.mutations.size)
-        assertTrue(dispatcher.scheduleInitialCycle("tt-signal"), "failed replacement retains old clock")
+        assertTrue(world.onOwnerForTest { dispatcher.scheduleInitialCycle("tt-signal") }, "failed replacement retains old clock")
 
         fail = false
         resources = listOf(replacement)
-        assertTrue(dispatcher.beginTimetable(world, "tt-signal") is TimetableEpochStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "tt-signal") } is TimetableEpochStartResult.Started)
         assertEquals(setOf(replacement), plans.applied.values.single().dependencies.resourceIds)
         assertTrue(plans.applied.values.single().owner.revision > installed.owner.revision)
-        assertTrue(dispatcher.stopFutureCycles("tt-signal"))
+        assertTrue(world.onOwnerForTest { dispatcher.stopFutureCycles("tt-signal") })
         assertTrue(plans.applied.isEmpty())
     }
 
@@ -169,13 +173,13 @@ class TimetableDispatcherTest {
                     listOf(if (failing) nextToken else oldToken)
                 })))
             val dispatcher = dispatcher(service, inspection)
-            if (previous) assertTrue(dispatcher.beginTimetable(world, "guarded") is TimetableEpochStartResult.Started)
+            if (previous) assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "guarded") } is TimetableEpochStartResult.Started)
             val old = plans.applied.values.singleOrNull()
             val oldClocks = dispatcher.saveCheckpoint().clocks
             setCalls = 0
             failing = true
 
-            val result = dispatcher.beginTimetable(world, "guarded")
+            val result = world.onOwnerForTest { dispatcher.beginTimetable(world, "guarded") }
 
             assertTrue(result is TimetableEpochStartResult.Failure, "$previous/$cause: $result")
             assertEquals(oldClocks, dispatcher.saveCheckpoint().clocks)
@@ -187,7 +191,7 @@ class TimetableDispatcherTest {
                 assertThrows(IllegalStateException::class.java) {
                     dispatcher.restoreCheckpoint(world, SavedDispatcherV1(1, 0L, 0L, emptyList(), emptyList()))
                 }
-                dispatcher.tick(world)
+                world.onOwnerForTest { dispatcher.tick(world) }
                 assertSame(guard, plans.applied.values.single(), "stalled ticks must keep the tracked guard")
             } else if (old == null) {
                 assertTrue(plans.applied.isEmpty(), "$cause must clear first-apply protection")
@@ -208,8 +212,8 @@ class TimetableDispatcherTest {
         val plans = RecordingInfrastructureDependencyService()
         val dispatcher = dispatcher(plans)
 
-        assertTrue(dispatcher.beginTimetable(world, "empty") is TimetableEpochStartResult.Started)
-        assertTrue(dispatcher.scheduleInitialCycle("empty"))
+        assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "empty") } is TimetableEpochStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.scheduleInitialCycle("empty") })
         assertTrue(plans.applied.isEmpty())
     }
 
@@ -230,10 +234,10 @@ class TimetableDispatcherTest {
         val plans = RecordingInfrastructureDependencyService()
         val dispatcher = dispatcher(plans)
 
-        assertTrue(dispatcher.beginTimetable(world, "tt-plan") is TimetableEpochStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "tt-plan") } is TimetableEpochStartResult.Started)
         assertEquals(setOf(rail.id), plans.applied.values.single().dependencies.railIds)
 
-        assertTrue(dispatcher.stopFutureCycles("tt-plan"))
+        assertTrue(world.onOwnerForTest { dispatcher.stopFutureCycles("tt-plan") })
         assertTrue(plans.applied.isEmpty())
     }
 
@@ -259,10 +263,10 @@ class TimetableDispatcherTest {
         }
         val dispatcher = dispatcher(plans)
 
-        val result = dispatcher.beginTimetable(world, "tt-plan")
+        val result = world.onOwnerForTest { dispatcher.beginTimetable(world, "tt-plan") }
 
         assertTrue(result is TimetableEpochStartResult.Failure)
-        assertFalse(dispatcher.scheduleInitialCycle("tt-plan"))
+        assertFalse(world.onOwnerForTest { dispatcher.scheduleInitialCycle("tt-plan") })
         assertTrue(plans.applied.isEmpty())
     }
 
@@ -283,12 +287,12 @@ class TimetableDispatcherTest {
         val plans = RecordingInfrastructureDependencyService()
         val dispatcher = dispatcher(plans)
 
-        assertTrue(dispatcher.beginTimetable(world, "tt-plan") is TimetableEpochStartResult.Started)
-        assertTrue(dispatcher.scheduleInitialCycle("tt-plan"))
-        dispatcher.tick(world)
+        assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "tt-plan") } is TimetableEpochStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.scheduleInitialCycle("tt-plan") })
+        world.onOwnerForTest { dispatcher.tick(world) }
         assertNotNull(dispatcher.status(TimetableServiceRunId("tt-plan", "s1")))
 
-        assertTrue(dispatcher.stopFutureCycles("tt-plan"))
+        assertTrue(world.onOwnerForTest { dispatcher.stopFutureCycles("tt-plan") })
         assertTrue(plans.applied.isNotEmpty())
     }
 
@@ -347,7 +351,7 @@ class TimetableDispatcherTest {
         world.simpleAtoWorldData.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
 
         assertFalse(dispatcher.hasLiveRouteOn(setOf(rail.id)))
-        assertTrue(dispatcher.startService(world, "tt", "s1") is TimetableServiceStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") } is TimetableServiceStartResult.Started)
 
         assertTrue(dispatcher.hasLiveRouteOn(setOf(rail.id)))
         assertFalse(dispatcher.hasLiveRouteOn(setOf(unrelated.id)))
@@ -378,7 +382,7 @@ class TimetableDispatcherTest {
             lineSpeedLimits = listOf(TimetableLineSpeedLimit(lineId, 7.5))
         ))
 
-        assertTrue(dispatcher.startService(world, "tt", "s1") is TimetableServiceStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") } is TimetableServiceStartResult.Started)
         val ato = train.controller as SimpleATO
         tickAndPublish(ato)
 
@@ -404,13 +408,13 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
         world.simpleAtoWorldData.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
 
-        val started = dispatcher.startService(world, "tt", "s1")
+        val started = world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") }
         assertTrue(started is TimetableServiceStartResult.Started)
         val ato = train.controller as SimpleATO
         tickAndPublish(ato)
         assertEquals(0.0, train.speed)
 
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
         assertEquals(
             TimetableServiceRunState.RUNNING,
             dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state
@@ -425,15 +429,15 @@ class TimetableDispatcherTest {
         repeat(600) { tickAndPublish(ato) }
         assertEquals(0.0, train.speed)
         assertEquals(originArc + 30.0, train.head.location.arcLength, 0.4)
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
         assertEquals(
             TimetableServiceRunState.COMPLETED,
             dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state
         )
 
-        assertTrue(dispatcher.stopService(world, TimetableServiceRunId("tt", "s1")))
+        assertTrue(world.onOwnerForTest { dispatcher.stopService(world, TimetableServiceRunId("tt", "s1")) })
         tickAndPublish(ato)
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
         assertEquals(
             TimetableServiceRunState.STOPPED,
             dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state
@@ -503,12 +507,12 @@ class TimetableDispatcherTest {
             )
         )
 
-        assertTrue(dispatcher.beginTimetable(world, "tt") is TimetableEpochStartResult.Started)
-        assertTrue(dispatcher.scheduleInitialCycle("tt"))
-        repeat(4) { dispatcher.tick(world) }
+        assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "tt") } is TimetableEpochStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.scheduleInitialCycle("tt") })
+        repeat(4) { world.onOwnerForTest { dispatcher.tick(world) } }
         assertEquals(RollingStockState.AVAILABLE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
         assertEquals(null, dispatcher.status(TimetableServiceRunId("tt", "s1")))
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
         val started = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
 
         assertEquals(train.id, started.trainId)
@@ -552,11 +556,11 @@ class TimetableDispatcherTest {
         )
         data.wayPoints.add(WayPoint("empty-siding", "Empty siding", rail.id, 5.0))
 
-        val early = dispatcher.startService(world, "waypoint-tt", "s1")
+        val early = world.onOwnerForTest { dispatcher.startService(world, "waypoint-tt", "s1") }
         assertTrue(early is TimetableServiceStartResult.Failure)
         assertEquals(null, train.controller)
-        repeat(3) { dispatcher.tick(world) }
-        val started = dispatcher.startService(world, "waypoint-tt", "s1") as
+        repeat(3) { world.onOwnerForTest { dispatcher.tick(world) } }
+        val started = world.onOwnerForTest { dispatcher.startService(world, "waypoint-tt", "s1") } as
             TimetableServiceStartResult.Started
 
         assertEquals(train.id, started.run.trainId)
@@ -591,7 +595,7 @@ class TimetableDispatcherTest {
             )
         )
 
-        val result = dispatcher.startService(world, "waypoint-failure", "s1")
+        val result = world.onOwnerForTest { dispatcher.startService(world, "waypoint-failure", "s1") }
 
         assertTrue(result is TimetableServiceStartResult.Failure)
         assertTrue(world.simpleAtoWorldData.atoCoordinator.isStalled)
@@ -632,14 +636,14 @@ class TimetableDispatcherTest {
             ))
         ))
 
-        val result = dispatcher.startService(world, "physical-depot", "s1")
+        val result = world.onOwnerForTest { dispatcher.startService(world, "physical-depot", "s1") }
 
         assertTrue(result is TimetableServiceStartResult.Started, result.toString())
         assertEquals(train.id, (result as TimetableServiceStartResult.Started).run.trainId)
         assertEquals(null, world.simpleAtoWorldData.depots.rollingStock(train.id))
         assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled)
 
-        assertEquals(1, dispatcher.forceDiscardTimetable(world, "physical-depot"))
+        assertEquals(1, world.onOwnerForTest { dispatcher.forceDiscardTimetable(world, "physical-depot") })
         assertEquals(null, dispatcher.status(TimetableServiceRunId("physical-depot", "s1")))
         assertEquals(null, train.controller)
     }
@@ -681,7 +685,7 @@ class TimetableDispatcherTest {
             override fun isMainThread(): Boolean = true
         })
         val result = try {
-            dispatcher.startService(world, "reverse-start", "s1")
+            world.onOwnerForTest { dispatcher.startService(world, "reverse-start", "s1") }
         } finally {
             startRegistration.close()
         }
@@ -697,7 +701,7 @@ class TimetableDispatcherTest {
             override fun isMainThread(): Boolean = true
         })
         try {
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
         } finally {
             tickRegistration.close()
         }
@@ -782,12 +786,12 @@ class TimetableDispatcherTest {
             )
         )
 
-        val start = dispatcher.startService(world, "tt", "s1")
+        val start = world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") }
         assertTrue(start is TimetableServiceStartResult.Started, start.toString())
         val ato = train.controller as SimpleATO
         repeat(8_000) {
             tickAndPublish(ato)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
         }
 
         val status = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
@@ -821,7 +825,7 @@ class TimetableDispatcherTest {
                 )
             )
         )
-        val departure = dispatcher.startService(world, "tt-depart-again", "s1")
+        val departure = world.onOwnerForTest { dispatcher.startService(world, "tt-depart-again", "s1") }
         assertTrue(
             departure is TimetableServiceStartResult.Started,
             "$departure stall=${world.simpleAtoWorldData.atoCoordinator.lastStall?.message}"
@@ -829,7 +833,7 @@ class TimetableDispatcherTest {
         val departureAto = train.controller as SimpleATO
         repeat(2_000) {
             tickAndPublish(departureAto)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
         }
         val departureStatus = dispatcher.status(
             TimetableServiceRunId("tt-depart-again", "s1")
@@ -931,12 +935,12 @@ class TimetableDispatcherTest {
                 )
             )
         )
-        dispatcher.startService(world, "tt-store-capacity", "s1")
+        world.onOwnerForTest { dispatcher.startService(world, "tt-store-capacity", "s1") }
         val ato = train.controller as SimpleATO
 
         for (ignored in 0 until 8_000) {
             tickAndPublish(ato)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
             if (coordinator.isStalled) break
         }
 
@@ -1054,21 +1058,21 @@ class TimetableDispatcherTest {
             )
         )
 
-        assertTrue(dispatcher.beginTimetable(world, "tt-cycle") is TimetableEpochStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "tt-cycle") } is TimetableEpochStartResult.Started)
         assertTrue(
-            dispatcher.startService(world, "tt-cycle", "cyclic") is
+            world.onOwnerForTest { dispatcher.startService(world, "tt-cycle", "cyclic") } is
                 TimetableServiceStartResult.Started
         )
         val ato = train.controller as SimpleATO
         repeat(23_999) {
             tickAndPublish(ato)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
         }
         assertEquals(0L, dispatcher.status(TimetableServiceRunId("tt-cycle", "cyclic"))?.cycleIndex)
         assertEquals(RollingStockState.AVAILABLE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
 
         tickAndPublish(ato)
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
 
         val next = dispatcher.status(TimetableServiceRunId("tt-cycle", "cyclic"))!!
         assertEquals(1L, next.cycleIndex)
@@ -1078,10 +1082,10 @@ class TimetableDispatcherTest {
         assertEquals("tt-cycle/cyclic@cycle-1", world.simpleAtoWorldData.depots.rollingStock(train.id)?.assignmentId)
         assertTrue(!world.simpleAtoWorldData.atoCoordinator.isStalled)
 
-        assertTrue(dispatcher.stopFutureCycles("tt-cycle"))
+        assertTrue(world.onOwnerForTest { dispatcher.stopFutureCycles("tt-cycle") })
         repeat(24_000) {
             tickAndPublish(ato)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
         }
         assertEquals(1L, dispatcher.status(TimetableServiceRunId("tt-cycle", "cyclic"))?.cycleIndex)
         assertEquals(RollingStockState.AVAILABLE, world.simpleAtoWorldData.depots.rollingStock(train.id)?.state)
@@ -1143,13 +1147,13 @@ class TimetableDispatcherTest {
                 )
             )
         )
-        dispatcher.beginTimetable(world, "tt-overlap")
+        world.onOwnerForTest { dispatcher.beginTimetable(world, "tt-overlap") }
         assertTrue(
-            dispatcher.startService(world, "tt-overlap", "s1") is
+            world.onOwnerForTest { dispatcher.startService(world, "tt-overlap", "s1") } is
                 TimetableServiceStartResult.Started
         )
 
-        repeat(24_000) { dispatcher.tick(world) }
+        repeat(24_000) { world.onOwnerForTest { dispatcher.tick(world) } }
 
         assertTrue(coordinator.isStalled)
         assertEquals("DepotAllocationFailure", coordinator.lastStall?.errorType)
@@ -1201,7 +1205,7 @@ class TimetableDispatcherTest {
             )
         )
 
-        val result = dispatcher.startService(world, "tt", "s1")
+        val result = world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") }
 
         assertTrue(result is TimetableServiceStartResult.Failure)
         assertTrue(coordinator.isStalled)
@@ -1229,22 +1233,22 @@ class TimetableDispatcherTest {
                 services = listOf(service("s1", train.id, "A", "B", tick = 5L))
             )
         )
-        val epoch = dispatcher.beginTimetable(world, "tt") as TimetableEpochStartResult.Started
+        val epoch = world.onOwnerForTest { dispatcher.beginTimetable(world, "tt") } as TimetableEpochStartResult.Started
         assertEquals(48_000L, epoch.epoch.periodTicks)
         val id = TimetableServiceRunId("tt", "s1")
-        val started = dispatcher.startService(world, "tt", "s1") as
+        val started = world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") } as
             TimetableServiceStartResult.Started
         val ato = train.controller as SimpleATO
         assertEquals(TimetableServiceRunState.WAITING_TIMETABLE_TIME, started.run.state)
 
         repeat(4) {
             tickAndPublish(ato)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
             assertEquals(0.0, train.speed, 1.0e-9)
             assertEquals(TimetableServiceRunState.WAITING_TIMETABLE_TIME, dispatcher.status(id)?.state)
         }
         tickAndPublish(ato)
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
         assertEquals(5L, dispatcher.status(id)?.timetableElapsedTicks)
         assertEquals(0L, dispatcher.status(id)?.lastLatenessTicks)
         tickAndPublish(ato)
@@ -1263,10 +1267,10 @@ class TimetableDispatcherTest {
         lateData.wayPoints.add(WayPoint("A", "A", lateRail.id, lateOrigin))
         lateData.wayPoints.add(WayPoint("B", "B", lateRail.id, lateOrigin + 30.0))
         lateWorld.simpleAtoWorldData.timetables.add(timetable("late", "s1", lateTrain.id, "A", "B"))
-        lateDispatcher.beginTimetable(lateWorld, "late")
-        repeat(10) { lateDispatcher.tick(lateWorld) }
+        lateWorld.onOwnerForTest { lateDispatcher.beginTimetable(lateWorld, "late") }
+        repeat(10) { lateWorld.onOwnerForTest { lateDispatcher.tick(lateWorld) } }
 
-        val late = lateDispatcher.startService(lateWorld, "late", "s1") as
+        val late = lateWorld.onOwnerForTest { lateDispatcher.startService(lateWorld, "late", "s1") } as
             TimetableServiceStartResult.Started
 
         assertEquals(TimetableServiceRunState.WAITING_MISSION, late.run.state)
@@ -1289,10 +1293,10 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 40.0))
         world.simpleAtoWorldData.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
-        dispatcher.startService(world, "tt", "s1")
+        world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") }
 
-        train.setController(ManualController(train, world))
-        dispatcher.tick(world)
+        train.setControllerForTest(ManualController(train, world))
+        world.onOwnerForTest { dispatcher.tick(world) }
 
         assertTrue(coordinator.isStalled)
         assertEquals("ControllerIdentityViolation", coordinator.lastStall?.errorType)
@@ -1332,16 +1336,16 @@ class TimetableDispatcherTest {
                 )
             )
         )
-        assertTrue(dispatcher.startService(world, "tt", "s1") is TimetableServiceStartResult.Started)
-        val transfer = dispatcher.enterManualRoutedControl(world, train.id, "driver")
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") } is TimetableServiceStartResult.Started)
+        val transfer = world.onOwnerForTest { dispatcher.enterManualRoutedControl(world, train.id, "driver") }
         assertTrue(transfer is TimetableControlTransferResult.ManualRouted)
         val manual = ManualController(train, world, maxSpeed = 8.0)
-        train.setController(manual)
-        assertTrue(dispatcher.bindManualRoutedController(train.id, "driver", manual))
+        train.setControllerForTest(manual)
+        assertTrue(world.onOwnerForTest { dispatcher.bindManualRoutedController(train.id, "driver", manual) })
         manual.setThrottle(0.75)
         val targetArc = originArc + 60.0
 
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
         assertEquals(
             TimetableControlMode.MANUAL_ROUTED,
             dispatcher.status(TimetableServiceRunId("tt", "s1"))?.controlMode
@@ -1350,7 +1354,7 @@ class TimetableDispatcherTest {
             if (train.head.location.arcLength >= targetArc - 12.0) manual.setThrottle(-1.0)
             AsyncTickTestSupport.run { manual.tick(50.0) }
             manual.commit()
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
             if (dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state ==
                 TimetableServiceRunState.COMPLETED
             ) break
@@ -1361,7 +1365,7 @@ class TimetableDispatcherTest {
         ) {
             train.setLocation(rail.viewAB.getRailLocationAt(targetArc))
             train.commit()
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
         }
         val completed = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
         assertEquals(TimetableServiceRunState.COMPLETED, completed.state)
@@ -1386,18 +1390,18 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("A", "A", rail.id, originArc))
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 50.0))
         world.simpleAtoWorldData.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
-        dispatcher.startService(world, "tt", "s1")
-        dispatcher.enterManualRoutedControl(world, train.id, "driver")
+        world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") }
+        world.onOwnerForTest { dispatcher.enterManualRoutedControl(world, train.id, "driver") }
         val manual = ManualController(train, world, maxSpeed = 10.0)
-        train.setController(manual)
-        assertTrue(dispatcher.bindManualRoutedController(train.id, "driver", manual))
+        train.setControllerForTest(manual)
+        assertTrue(world.onOwnerForTest { dispatcher.bindManualRoutedController(train.id, "driver", manual) })
         manual.setThrottle(1.0)
 
         repeat(2) {
             AsyncTickTestSupport.run { manual.tick(1_000.0) }
             manual.commit()
         }
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
 
         assertFalse(coordinator.isStalled)
         assertTrue(dispatcher.status(TimetableServiceRunId("tt", "s1"))?.routeGrantActive == true)
@@ -1433,28 +1437,28 @@ class TimetableDispatcherTest {
                 )
             )
         )
-        dispatcher.startService(world, "tt", "s1")
-        dispatcher.enterManualRoutedControl(world, train.id, "driver")
+        world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") }
+        world.onOwnerForTest { dispatcher.enterManualRoutedControl(world, train.id, "driver") }
         val manual = ManualController(train, world, maxSpeed = 5.0)
-        train.setController(manual)
-        assertTrue(dispatcher.bindManualRoutedController(train.id, "driver", manual))
-        dispatcher.tick(world)
+        train.setControllerForTest(manual)
+        assertTrue(world.onOwnerForTest { dispatcher.bindManualRoutedController(train.id, "driver", manual) })
+        world.onOwnerForTest { dispatcher.tick(world) }
         assertTrue(dispatcher.status(TimetableServiceRunId("tt", "s1"))?.routeGrantActive == true)
-        val suspended = dispatcher.switchToFullManual(train.id, "driver")
+        val suspended = world.onOwnerForTest { dispatcher.switchToFullManual(train.id, "driver") }
         assertTrue(suspended is TimetableControlTransferResult.Suspended)
         manual.setThrottle(1.0)
 
         repeat(200) {
             AsyncTickTestSupport.run { manual.tick(50.0) }
             manual.commit()
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
         }
 
         val status = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
         assertEquals(TimetableControlMode.FULL_MANUAL, status.controlMode)
         assertEquals(TimetableServiceRunState.SUSPENDED, status.state)
         assertTrue(status.routeGrantActive)
-        assertTrue(dispatcher.releaseControlTransfer(train.id, "driver"))
+        assertTrue(world.onOwnerForTest { dispatcher.releaseControlTransfer(train.id, "driver") })
         assertEquals(
             TimetableServiceRunState.REPLAN_REQUIRED,
             dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state
@@ -1492,17 +1496,17 @@ class TimetableDispatcherTest {
         )
         val id = TimetableServiceRunId("manual-navigate-99", "navigate")
         assertTrue(
-            dispatcher.startService(world, id.timetableId, id.serviceId) is
+            world.onOwnerForTest { dispatcher.startService(world, id.timetableId, id.serviceId) } is
                 TimetableServiceStartResult.Started
         )
         assertTrue(
-            dispatcher.suspendForControlTransfer(world, train.id, "driver") is
+            world.onOwnerForTest { dispatcher.suspendForControlTransfer(world, train.id, "driver") } is
                 TimetableControlTransferResult.Suspended
         )
-        assertTrue(dispatcher.releaseControlTransfer(train.id, "driver"))
+        assertTrue(world.onOwnerForTest { dispatcher.releaseControlTransfer(train.id, "driver") })
         assertEquals(TimetableServiceRunState.REPLAN_REQUIRED, dispatcher.status(id)?.state)
 
-        assertEquals(1, dispatcher.discardReleasedManualNavigation(world, train.id))
+        assertEquals(1, world.onOwnerForTest { dispatcher.discardReleasedManualNavigation(world, train.id) })
         assertNull(dispatcher.status(id))
         assertNull(train.controller)
     }
@@ -1523,29 +1527,29 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
         world.simpleAtoWorldData.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
         val id = TimetableServiceRunId("tt", "s1")
-        val started = dispatcher.startService(world, "tt", "s1") as
+        val started = world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") } as
             TimetableServiceStartResult.Started
 
-        val suspended = dispatcher.suspendForControlTransfer(world, train.id, "driver-1")
+        val suspended = world.onOwnerForTest { dispatcher.suspendForControlTransfer(world, train.id, "driver-1") }
 
         assertTrue(suspended is TimetableControlTransferResult.Suspended)
         assertEquals(TimetableServiceRunState.SUSPENDED, dispatcher.status(id)?.state)
         assertEquals("driver-1", dispatcher.status(id)?.controlTransferOwner)
         assertNull(train.controller)
         assertTrue(
-            dispatcher.replanService(world, id, "A") is TimetableReplanResult.Failure,
+            world.onOwnerForTest { dispatcher.replanService(world, id, "A") } is TimetableReplanResult.Failure,
             "active transfer must not be replanned"
         )
-        assertFalse(dispatcher.releaseControlTransfer(train.id, "other-driver"))
-        assertTrue(dispatcher.releaseControlTransfer(train.id, "driver-1"))
+        assertFalse(world.onOwnerForTest { dispatcher.releaseControlTransfer(train.id, "other-driver") })
+        assertTrue(world.onOwnerForTest { dispatcher.releaseControlTransfer(train.id, "driver-1") })
         assertEquals(TimetableServiceRunState.REPLAN_REQUIRED, dispatcher.status(id)?.state)
-        val reacquired = dispatcher.enterManualRoutedControl(world, train.id, "driver-2")
+        val reacquired = world.onOwnerForTest { dispatcher.enterManualRoutedControl(world, train.id, "driver-2") }
         assertTrue(reacquired is TimetableControlTransferResult.Suspended)
         assertEquals(TimetableControlMode.FULL_MANUAL, dispatcher.status(id)?.controlMode)
         assertEquals("driver-2", dispatcher.status(id)?.controlTransferOwner)
-        assertTrue(dispatcher.releaseControlTransfer(train.id, "driver-2"))
+        assertTrue(world.onOwnerForTest { dispatcher.releaseControlTransfer(train.id, "driver-2") })
 
-        val replanned = dispatcher.replanService(world, id, "A") as TimetableReplanResult.Resumed
+        val replanned = world.onOwnerForTest { dispatcher.replanService(world, id, "A") } as TimetableReplanResult.Resumed
 
         assertTrue(replanned.run.missionRevision > started.run.missionRevision)
         assertEquals(TimetableServiceRunState.WAITING_MISSION, replanned.run.state)
@@ -1553,7 +1557,7 @@ class TimetableDispatcherTest {
         val replacementAto = train.controller as SimpleATO
         for (tick in 0 until 2_000) {
             tickAndPublish(replacementAto)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
             if (dispatcher.status(id)?.state == TimetableServiceRunState.COMPLETED) break
         }
         assertEquals(TimetableServiceRunState.COMPLETED, dispatcher.status(id)?.state)
@@ -1576,21 +1580,21 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("B", "B", rail.id, originArc + 30.0))
         world.simpleAtoWorldData.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
         val id = TimetableServiceRunId("tt", "s1")
-        dispatcher.startService(world, "tt", "s1") as TimetableServiceStartResult.Started
+        world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") } as TimetableServiceStartResult.Started
         tickAndPublish(train.controller as SimpleATO)
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
         assertTrue(dispatcher.status(id)?.routeGrantActive == true)
 
-        dispatcher.suspendForControlTransfer(world, train.id, "driver-1")
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.suspendForControlTransfer(world, train.id, "driver-1") }
+        world.onOwnerForTest { dispatcher.tick(world) }
 
         assertEquals(TimetableServiceRunState.SUSPENDED, dispatcher.status(id)?.state)
         assertTrue(dispatcher.status(id)?.routeGrantActive == true)
-        assertTrue(dispatcher.releaseControlTransfer(train.id, "driver-1"))
+        assertTrue(world.onOwnerForTest { dispatcher.releaseControlTransfer(train.id, "driver-1") })
 
         train.setLocation(train.head.location.forward(40.0)!!)
         train.commit()
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
 
         assertFalse(dispatcher.status(id)?.routeGrantActive == true)
         assertEquals(TimetableServiceRunState.REPLAN_REQUIRED, dispatcher.status(id)?.state)
@@ -1629,16 +1633,16 @@ class TimetableDispatcherTest {
             )
         )
 
-        assertTrue(dispatcher.startService(world, "tt", "s1") is TimetableServiceStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") } is TimetableServiceStartResult.Started)
         val ato = train.controller as SimpleATO
         tickAndPublish(ato)
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
         assertTrue(dispatcher.status(TimetableServiceRunId("tt", "s1"))?.routeGrantActive == true)
 
         var observedHeadOnlyPastVia = false
         repeat(4_000) {
             tickAndPublish(ato)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
             val grantActive = dispatcher.status(TimetableServiceRunId("tt", "s1"))?.routeGrantActive == true
             if (train.head.location.arcLength > viaArc + 0.2 &&
                 train.tailBogie.location.arcLength < viaArc - 0.2
@@ -1692,13 +1696,13 @@ class TimetableDispatcherTest {
             )
         )
 
-        assertTrue(dispatcher.startService(world, "tt", "s1") is TimetableServiceStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") } is TimetableServiceStartResult.Started)
         val ato = train.controller as SimpleATO
         var observedDwell = false
         var firstRevision = -1L
         repeat(5_000) {
             tickAndPublish(ato)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
             val status = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
             if (firstRevision < 0L) firstRevision = status.missionRevision
             if (status.state == TimetableServiceRunState.DWELLING) observedDwell = true
@@ -1731,9 +1735,9 @@ class TimetableDispatcherTest {
         data.wayPoints.add(WayPoint("B", "B", branch.id, 20.0))
         world.simpleAtoWorldData.timetables.add(Timetable("tt", services = listOf(service("s", train.id, "A", "B"))))
 
-        assertTrue(dispatcher.startService(world, "tt", "s") is TimetableServiceStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "s") } is TimetableServiceStartResult.Started)
         tickAndPublish(train.controller as SimpleATO)
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
 
         val status = dispatcher.status(TimetableServiceRunId("tt", "s"))
         assertTrue(status?.routeGrantActive == true, "$status occupied=${train.occupiedRailIntervals}")
@@ -1780,21 +1784,21 @@ class TimetableDispatcherTest {
             )
         )
 
-        assertTrue(dispatcher.startService(world, "tt", "blocking") is TimetableServiceStartResult.Started)
-        assertTrue(dispatcher.startService(world, "tt", "main") is TimetableServiceStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "blocking") } is TimetableServiceStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "main") } is TimetableServiceStartResult.Started)
         val blockingAto = blockingTrain.controller as SimpleATO
         val mainAto = mainTrain.controller as SimpleATO
         for (ignored in 0 until 2_000) {
             tickAndPublish(blockingAto)
             tickAndPublish(mainAto)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
             if (dispatcher.status(TimetableServiceRunId("tt", "blocking"))
                     ?.routeGrantActive == true
             ) break
         }
         repeat(2_000) {
             tickAndPublish(mainAto)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
         }
 
         val status = dispatcher.status(TimetableServiceRunId("tt", "main"))!!
@@ -1841,11 +1845,11 @@ class TimetableDispatcherTest {
             )
         )
 
-        assertTrue(dispatcher.startService(world, "tt", "s1") is TimetableServiceStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") } is TimetableServiceStartResult.Started)
         val firstAto = firstTrain.controller as SimpleATO
         repeat(2_000) {
             tickAndPublish(firstAto)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
         }
         assertEquals(
             TimetableServiceRunState.COMPLETED,
@@ -1854,11 +1858,11 @@ class TimetableDispatcherTest {
         )
         secondTrain.setLocation(RailLocationWithFacing(approach.viewAB, secondOriginArc))
         secondTrain.commitMaintenancePlacement()
-        assertTrue(dispatcher.startService(world, "tt", "s2") is TimetableServiceStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "s2") } is TimetableServiceStartResult.Started)
         val secondAto = secondTrain.controller as SimpleATO
         repeat(2_000) {
             tickAndPublish(secondAto)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
         }
 
         val firstStatus = dispatcher.status(TimetableServiceRunId("tt", "s1"))
@@ -1904,13 +1908,13 @@ class TimetableDispatcherTest {
         )
         val firstId = TimetableServiceRunId("tt-stall-boundary", "first")
         val secondId = TimetableServiceRunId("tt-stall-boundary", "second")
-        assertTrue(dispatcher.startService(world, firstId.timetableId, firstId.serviceId) is TimetableServiceStartResult.Started)
-        assertTrue(dispatcher.startService(world, secondId.timetableId, secondId.serviceId) is TimetableServiceStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, firstId.timetableId, firstId.serviceId) } is TimetableServiceStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, secondId.timetableId, secondId.serviceId) } is TimetableServiceStartResult.Started)
         tickAndPublish(firstTrain.controller as SimpleATO)
         tickAndPublish(secondTrain.controller as SimpleATO)
-        secondTrain.setController(null)
+        secondTrain.setControllerForTest(null)
 
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
 
         assertTrue(coordinator.isStalled)
         assertEquals(TimetableServiceRunState.FAILED, dispatcher.status(secondId)?.state)
@@ -1946,10 +1950,10 @@ class TimetableDispatcherTest {
             )
         )
 
-        dispatcher.beginTimetable(world, "tt")
-        repeat(100) { dispatcher.tick(world) }
-        assertTrue(dispatcher.startService(world, "tt", "late") is TimetableServiceStartResult.Started)
-        assertTrue(dispatcher.startService(world, "tt", "early") is TimetableServiceStartResult.Started)
+        world.onOwnerForTest { dispatcher.beginTimetable(world, "tt") }
+        repeat(100) { world.onOwnerForTest { dispatcher.tick(world) } }
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "late") } is TimetableServiceStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "early") } is TimetableServiceStartResult.Started)
         val lateAto = lateTrain.controller as SimpleATO
         val earlyAto = earlyTrain.controller as SimpleATO
         repeat(5_000) {
@@ -1963,7 +1967,7 @@ class TimetableDispatcherTest {
             )
             tickAndPublish(lateAto)
             tickAndPublish(earlyAto)
-            dispatcher.tick(world)
+            world.onOwnerForTest { dispatcher.tick(world) }
         }
 
         assertEquals(
@@ -2016,14 +2020,14 @@ class TimetableDispatcherTest {
             ))
         ))
 
-        assertTrue(dispatcher.beginTimetable(world, "tt-activation") is TimetableEpochStartResult.Started)
-        assertTrue(dispatcher.scheduleInitialCycle("tt-activation"))
-        dispatcher.tick(world)
+        assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "tt-activation") } is TimetableEpochStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.scheduleInitialCycle("tt-activation") })
+        world.onOwnerForTest { dispatcher.tick(world) }
         assertNull(dispatcher.status(TimetableServiceRunId("tt-activation", "service")))
         assertEquals(1, evaluations)
 
         enabled = true
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
 
         val started = dispatcher.status(TimetableServiceRunId("tt-activation", "service"))
         assertNotNull(started)
@@ -2097,19 +2101,19 @@ class TimetableDispatcherTest {
             ))
         ))
 
-        assertTrue(dispatcher.startService(world, "tt-extension", "service") is TimetableServiceStartResult.Started)
+        assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt-extension", "service") } is TimetableServiceStartResult.Started)
         val ato = train.controller as SimpleATO
         tickAndPublish(ato)
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
         repeat(600) { tickAndPublish(ato) }
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
 
         assertEquals(TimetableServiceRunState.WAITING_EXTENSION_ACTION,
             dispatcher.status(TimetableServiceRunId("tt-extension", "service"))?.state)
         assertEquals(1, evaluations)
         assertEquals(1, actionStarts)
 
-        dispatcher.tick(world)
+        world.onOwnerForTest { dispatcher.tick(world) }
         assertEquals(TimetableServiceRunState.COMPLETED,
             dispatcher.status(TimetableServiceRunId("tt-extension", "service"))?.state)
         assertEquals(1, evaluations)

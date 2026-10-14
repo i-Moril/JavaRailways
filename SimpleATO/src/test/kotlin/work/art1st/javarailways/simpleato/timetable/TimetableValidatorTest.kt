@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -344,7 +346,7 @@ class TimetableValidatorTest {
         world.simpleAtoWorldData.timetables.add(timetable)
 
         val validation = TimetableValidator(world).validate(timetable)
-        val start = dispatcher.startService(world, timetable.id, "service")
+        val start = world.onOwnerForTest { dispatcher.startService(world, timetable.id, "service") }
 
         assertFalse(validation.isSuccess)
         assertTrue(validation.errors.any { it.contains("车站 destination", ignoreCase = true) })

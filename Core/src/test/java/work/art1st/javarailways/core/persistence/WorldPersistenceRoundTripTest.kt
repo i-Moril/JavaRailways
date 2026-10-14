@@ -14,6 +14,7 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import work.art1st.javarailways.core.physics.train.SavedTrainV1
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
@@ -31,7 +32,11 @@ class WorldPersistenceRoundTripTest {
             val segments = PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
             val rail = createStraightRailFromSegments(world, segments)
             val sourceTrain = createTrainWithConfig("persist-t1", rail, world, listOf(8.0), isLoop = false)
-            world.renameTrain(sourceTrain, "Player Express")
+            IsolatedSimulationThreadMarker.run {
+                world.physicsCoordinator.processBetweenFrames {
+                    world.renameTrain(sourceTrain, "Player Express")
+                }
+            }
 
             val infrastructure = world.saveInfrastructure(1L)
             val runtime = world.saveRuntime(1L, 2L)

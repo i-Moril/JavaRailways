@@ -4,6 +4,27 @@
 
 ## 当前执行顺序（2026-10-12用户纠正后）
 
+### 最新优先项：统一帧间操作（2026-10-14用户确认，首批已实现）
+
+Core专项源码排查确认：controller换向在worker执行并跳过一整轮movement，主线程reverse另有立即发布路径；controller切换直接改注册表；重命名直接替换train frame；创建/维护摆位直接commit；删除仅进入generic after-commit队列；外部脱轨、手动扳道和轨道事务仅等待当前ticket。上述行为不能统一保证帧间执行。用户批准将这些操作交给协调器安排帧间处理；由此调整当前CR-030主线的前置顺序，Basic全模块后续修复仍暂缓。
+
+Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runtime-publication.md#非物理操作统一在帧间执行target2026-10-14用户确认)，跨模块迁移见[设计](./design.md#帧间操作统一协调2026-10-14用户确认首批已实现)。执行批次如下，每批说明实际方法并独立验证；完成状态见各项勾选：
+
+1. [x] 协调器帧间阶段与操作请求基础：复用现有准入计数及exact ticket；宿主在该阶段运行运营和owner队列，阻止fallback穿插。提供真实simulation驱动，验证在途等待、FIFO、失败/关闭结果及回调嵌套提交。
+2. [x] 重命名完整迁移：调用入口、Bukkit结果消费、名称索引及下一正常frame/mailbox发布；增加重命名后有效LINK回归，不重建每次rename的全world索引，不放宽碰撞物理证据校验。LINK回归随原联结草稿保留在工作区，不混入独立的帧间基础提交。
+3. [ ] controller生命周期与换向：整体迁移手动接管、Dispatcher和生产reverse caller；验证旧controller退出、新controller首次tick与结果方向，清除worker换向专用执行分支。现有停车/运营等待规则不擅自改变。
+4. [ ] 列车创建/删除、初始及Depot维护摆位：统一阶段内prepare/apply与批次末frame/occupancy/world观测，保留失败原子性；覆盖创建未完成不可见、删除后无旧占用及摆位后下一步一致。
+5. [ ] 外部脱轨、手动扳道、基础设施编辑：迁移await-only入口，区分physics-origin结果与外部命令；验证完整事件批次中无新physics worker，保持拓扑事务和资源仲裁合同。
+6. [ ] 联结/解编复用帧间阶段并完成CR-030复核：成功通知内提交rename正常完成，下一次碰撞使用一致观测；移除旧时序特判及过时契约，核对受影响API、测试与正式游戏测试交接。
+
+首批实现复用原结构准入门禁，在Bukkit及隔离simulation统一等待exact ticket、显式drain一次FIFO批次并执行运营/postTick。重命名只改live名称及索引，由下一正常epoch发布；没有新增物理revision、逐次rename重建或collision特判。线程分类、controller等其余入口仍待后续批次。
+
+本批工作区门禁：Core389、Basic393、SimpleATO354、BukkitPlugin379项测试零失败/错误/跳过，Core Dokka V2生成通过（仍有已有文档warning）。初次定向测试因TrainName fixture缺少simulation owner失败1项，首次跨模块构建因4个SimpleATO初始摆位fixture仍直接rename失败；已将相关fixture放入真实帧间作用域，补跑通过。独立只读审查未发现本批新增阻塞。上述数字包括原联结草稿，不等同于隔离提交验证或游戏验证；不关闭CR-030、Core审查或Stage2。
+
+独立提交候选另从暂存tree导出到`/tmp/javarailways-frame-boundary.qqeivC`，排除旧联结草稿及其它用户改动。四模块全套测试Core362、Basic393、SimpleATO354、BukkitPlugin379，共1488项，零失败/错误/跳过；耗时1分36秒，32个task全执行，offline/no-build-cache/rerun/nonincremental/in-process、2workers及1536m heap/1024m metaspace。仅跳过无关WebUI install/buildFrontend，未打包前端或部署；主工作区此前已完成含前端的构建。独立候选的生产/测试Kotlin文件与暂存源码逐项比较一致，后续只更新任务文字。旧联结草稿的27项额外Core回归不计入本提交验证。
+
+### 前一阶段执行顺序（保留历史记录）
+
 继续原CR-030批次3：先完成Bukkit每车JS/动作/延迟效果/快照的完整纵向迁移，再接入collision四端联结事务及结果消费。Basic后续修复暂存，不插入该主线。此前将用户“提高效率”的要求直接解释为暂停Core转查Basic，是执行顺序误判，不是用户批准的计划调整。
 
 当前已完成Core ownership、结构编辑epoch准入、源包精确解析、真实开发服只读取样及Bukkit每车JS纵向迁移（`8b5e7483`）。2026-10-12用户确认自定义动作菜单取并集，仅操作声明该动作的车厢；整列开关门仍按全部目标汇总。最新联结规则要求碰撞前至少一方静止；主编组优先插件指定，否则选静止方，取消train ID字典序推测；成功结果速度为0。具体合同由Core train-physics拥有。继续四端联结，不切换模块。

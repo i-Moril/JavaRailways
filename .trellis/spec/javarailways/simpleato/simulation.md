@@ -33,7 +33,7 @@ elapsed += STEP_SECONDS
 - restore Core infrastructure，attach fresh Basic data并restore Basic infrastructure；随后attach fresh SimpleATO data并restore SimpleATO infrastructure；
 - 不restore runtime trains/reservations/Dispatcher；`seed`从profile assignments创建train；
 - own TickManager/PhysicsCoordinator pools，`automaticFallback=false`；
-- logical Tick固定50 ms：preTick→`stepSimulation(50).await`→same Dispatcher→postTick→drain commits；
+- logical Tick固定50 ms：preTick→`stepSimulation(50).await`→coordinator帧间阶段（drain操作请求→publish observation→same Dispatcher→postTick）→drain platform commits；帧间阶段和production复用[同一入口](../core/runtime-publication.md#非物理操作统一在帧间执行target2026-10-14用户确认)，`automaticFallback=false`不替代阶段检查；
 - single-use；`close()`关闭physics+TickManager；create failure也cleanup。
 
 ## Simulation矩阵

@@ -17,6 +17,7 @@ import work.art1st.javarailways.core.api.render.RenderableExtension
 import work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
 import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
@@ -41,7 +42,11 @@ class CoreTrainConstructionTest {
         savedLoad: Boolean
     ) = withWorld { world, rail ->
         val original = createTrainWithConfig("original-id", rail, world, listOf(10.0))
-        world.renameTrain(original, "Local")
+        IsolatedSimulationThreadMarker.run {
+            world.physicsCoordinator.processBetweenFrames {
+                world.renameTrain(original, "Local")
+            }
+        }
         val controller = CountingController(original)
         original.setController(controller)
         val destroys = AtomicInteger()

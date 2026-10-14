@@ -226,8 +226,15 @@ class CoreWorld(
     /** Player-facing lookup prefers the world-unique train name, then accepts the technical ID internally. */
     override fun getTrain(name: String): CoreTrain? = trainsByName[name] ?: trains[name]
 
+    /**
+     * Rename one exact registered train during the coordinator's between-frames scope.
+     * External callers submit the complete operation through `submitBetweenFrames`; validation
+     * happens when it executes. The next normal physics publication carries the new name, so this
+     * metadata edit never replaces the physical frame or occupancy evidence on its own.
+     */
     @MainThread
     fun renameTrain(train: CoreTrain, newName: String) {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.renameTrain")
         require(trains[train.id] === train) { "train is not registered in this world: ${train.id}" }
         if (newName == train.name) return
         require(trains[newName] == null) { "train name conflicts with a technical ID: $newName" }
@@ -238,7 +245,6 @@ class CoreWorld(
         try {
             train.rename(newName)
             trainsByName.remove(oldName, train)
-            publishTrainFrame(train.publishMetadataFrame())
         } catch (failure: Exception) {
             trainsByName.remove(newName, train)
             throw failure

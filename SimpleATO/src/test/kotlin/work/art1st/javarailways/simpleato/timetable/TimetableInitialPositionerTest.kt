@@ -19,6 +19,7 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 class TimetableInitialPositionerTest {
     @Test
@@ -36,7 +37,9 @@ class TimetableInitialPositionerTest {
         )
         world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
         val train = createTrainWithConfig("uuid-1", rail, world, listOf(8.0), isLoop = false)
-        world.renameTrain(train, "s100-1")
+        IsolatedSimulationThreadMarker.run {
+            world.physicsCoordinator.processBetweenFrames { world.renameTrain(train, "s100-1") }
+        }
         world.basicWorldData.wayPoints.add(WayPoint("yard@1", "Yard 1", rail.id, 70.0))
         val timetable = Timetable(
             id = "tt",
@@ -75,8 +78,12 @@ class TimetableInitialPositionerTest {
         world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
         val first = createTrainWithConfig("uuid-1", rail, world, listOf(8.0), isLoop = false)
         val second = createTrainWithConfig("uuid-2", rail, world, listOf(8.0), isLoop = false)
-        world.renameTrain(first, "s100-1")
-        world.renameTrain(second, "s100-2")
+        IsolatedSimulationThreadMarker.run {
+            world.physicsCoordinator.processBetweenFrames {
+                world.renameTrain(first, "s100-1")
+                world.renameTrain(second, "s100-2")
+            }
+        }
         val destinations = OperationalDestinationService(world)
         listOf(80.0 to "1", 180.0 to "2").forEach { (arc, pointId) ->
             destinations.register(OperationalDestination(
@@ -122,7 +129,9 @@ class TimetableInitialPositionerTest {
         )
         world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB)
         val train = createTrainWithConfig("uuid-1", rail, world, listOf(8.0), isLoop = false)
-        world.renameTrain(train, "s100-1")
+        IsolatedSimulationThreadMarker.run {
+            world.physicsCoordinator.processBetweenFrames { world.renameTrain(train, "s100-1") }
+        }
         train.setController(object : TrainController(train, world) {})
         world.basicWorldData.wayPoints.add(WayPoint("yard@1", "Yard", rail.id, 70.0))
         val timetable = Timetable(
@@ -156,7 +165,9 @@ class TimetableInitialPositionerTest {
             PrimeCurveGenerator.buildStraight(120.0, segmentCount = 1)
         )
         val train = createTrainWithConfig("uuid-1", rail, world, listOf(8.0), isLoop = false)
-        world.renameTrain(train, "s100-1")
+        IsolatedSimulationThreadMarker.run {
+            world.physicsCoordinator.processBetweenFrames { world.renameTrain(train, "s100-1") }
+        }
         world.basicWorldData.wayPoints.add(WayPoint("undirected", "Undirected", rail.id, 70.0))
         val timetable = Timetable(
             id = "tt",

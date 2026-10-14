@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | [API 边界](./api-boundaries.md) | 改 `core.api.*`、Dokka 或 consumer imports | 候选 API、value/live 边界、dependency direction |
 | [事件总线](./event-bus.md) | 发布/监听 Main 或 Physics event | 同步派发、handler、priority、registration token |
-| [runtime publication](./runtime-publication.md) | 改 coordinator、ticket、epoch、TickManager、mailbox | physics/generic Tick 顺序与成功边界 |
+| [runtime publication](./runtime-publication.md) | 改 coordinator、ticket、epoch、帧间操作、TickManager、mailbox | physics/generic Tick 顺序、帧间操作TARGET与成功边界 |
 | [curve geometry](./curve-geometry.md) | 改 `Curve`/`PrimeCurve` 或 AB/BA 数值转换 | curve 输入输出、米制弧长与 surgery |
 | [rail topology 与 occupancy](./rail-topology-and-occupancy.md) | 改 connection、split/merge/remove、占用 | topology transaction、swept interval、release |
 | [版本化铁路拓扑](./versioned-operational-topology.md) | 改寻路图、结构节点、拓扑 snapshot 或外部 rail-slice 引用 | 唯一 immutable state、edge/node 归一化与原子 publication |

@@ -4,7 +4,7 @@
 {"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "Validate persisted path, bogie arc spacing and endpoints; exact coupler geometry remains open"}
 {"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "CR-028 copy and validate raw points once; repair producer junctions instead of decoder deduplication"}
 {"file": ".trellis/spec/javarailways/core/rail-topology-and-occupancy.md", "reason": "CR-027 shared strict endpoint decoding and unchanged live remove/undo fallback"}
-{"file": ".trellis/spec/javarailways/core/runtime-publication.md", "reason": "CR-016 CLOSED is terminal and late epoch candidates must not publish"}
+{"file": ".trellis/spec/javarailways/core/runtime-publication.md", "reason": "2026-10-14 frame-between operations: shared exact-ticket gate, FIFO owner queue, terminal futures outside lock and metadata next-epoch publication"}
 {"file": ".trellis/spec/javarailways/core/di-and-runtime-lifecycle.md", "reason": "CR-016 terminal close plus CR-015 pre-publication resource ownership; Koin scope remains separate"}
 {"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "CR-027 rejects corrupt declared rail references without claiming whole-world load atomicity"}
 {"file": ".trellis/spec/javarailways/core/testing.md", "reason": "CR-020 real published motion, coordinator-driven derail notification and paired world cleanup"}

@@ -40,6 +40,7 @@ import work.art1st.javarailways.bukkit.util.LatestAffinityTaskDispatcher
 import work.art1st.javarailways.bukkit.util.PlatformCommitAffinity
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.physics.tick.PhysicsTicket
 import work.art1st.javarailways.core.api.physics.train.CarFrameSnapshot
 import work.art1st.javarailways.core.api.util.tick.Synchronizable
 import work.art1st.javarailways.core.physics.train.CoreCar
@@ -453,63 +454,77 @@ class WorldManager internal constructor(
 
         railWorlds.forEach { (world, railWorld) ->
             var publishedPhysicsEpoch = 0L
-            (railWorld as? CoreWorld)?.let { coreWorld ->
-                // Capture once: if the fallback timer currently owns an epoch, TickEnd must wait
-                // for that exact ticket instead of rendering an older published state.
-                val physicsTicket = coreWorld.physicsCoordinator.captureCurrentTicket()
-                val physicsWaitNanos = measureNanoTime { physicsTicket.await() }
-                publishedPhysicsEpoch = physicsTicket.epoch
-                phaseBreakdown["world:${world.name}:physics_wait"] = physicsWaitNanos
-                blockedWaitAsyncNanos += physicsWaitNanos
+            val boundaryStartedNanos = System.nanoTime()
+            val processOwnerTick: (PhysicsTicket?) -> Unit = { physicsTicket ->
+                (railWorld as? CoreWorld)?.let { coreWorld ->
+                    val completedTicket = checkNotNull(physicsTicket)
+                    val physicsWaitNanos = System.nanoTime() - boundaryStartedNanos
+                    publishedPhysicsEpoch = completedTicket.epoch
+                    phaseBreakdown["world:${world.name}:physics_wait"] = physicsWaitNanos
+                    blockedWaitAsyncNanos += physicsWaitNanos
 
-                val observationPublishNanos = measureNanoTime {
-                    val observation = observationService?.publish(
-                        world.uid,
-                        coreWorld.latestWorldFrame(),
-                        physicsTicket.epoch
-                    )
-                    if (observation != null) {
-                        infrastructureResourceService?.consumeObservation(world.uid, observation)
+                    val operationsNanos = measureNanoTime {
+                        coreWorld.physicsCoordinator.drainBetweenFramesOperations()
+                    }
+                    phaseBreakdown["world:${world.name}:between_frames_operations"] = operationsNanos
+                    computeNanos += operationsNanos
+
+                    val observationPublishNanos = measureNanoTime {
+                        val observation = observationService?.publish(
+                            world.uid,
+                            coreWorld.latestWorldFrame(),
+                            completedTicket.epoch
+                        )
+                        if (observation != null) {
+                            infrastructureResourceService?.consumeObservation(world.uid, observation)
+                        }
+                    }
+                    phaseBreakdown["world:${world.name}:observation_publish"] = observationPublishNanos
+                    computeNanos += observationPublishNanos
+
+                    val speedSafetyNanos = measureNanoTime {
+                        coreWorld.publishPendingDerailEvents()
+                        speedSafetyMonitors[coreWorld]
+                            ?.drainRequests(publishedPhysicsEpoch)
+                            .orEmpty()
+                            .forEach { request ->
+                                val train = coreWorld.getTrain(request.trainId) ?: return@forEach
+                                if (train.publishedFrame.physicsEpoch == request.observedPhysicsEpoch) {
+                                    train.derail(request.reason)
+                                }
+                            }
+                    }
+                    phaseBreakdown["world:${world.name}:speed_safety"] = speedSafetyNanos
+                    computeNanos += speedSafetyNanos
+
+                    val renderCommitNanos = measureNanoTime {
+                        dispatchPublishedTrainFrames(world, coreWorld)
+                    }
+                    phaseBreakdown["world:${world.name}:train_visual_frame_consume"] = renderCommitNanos
+                    computeNanos += renderCommitNanos
+                }
+
+                val timetableDispatcherNanos = measureNanoTime {
+                    railWorld.simpleAtoWorldData.dispatcher.tick(railWorld)
+                }
+                phaseBreakdown["world:${world.name}:timetable_dispatcher"] = timetableDispatcherNanos
+                computeNanos += timetableDispatcherNanos
+
+                railWorld.tickManager.postTick()
+                railWorld.tickManager.latestMainThreadTickMetrics()?.let { metrics ->
+                    computeNanos += metrics.computeNanos
+                    blockedWaitAsyncNanos += metrics.blockedWaitAsyncNanos
+                    metrics.phaseBreakdownNanos.forEach { (phase, nanos) ->
+                        phaseBreakdown["world:${world.name}:$phase"] = nanos
                     }
                 }
-                phaseBreakdown["world:${world.name}:observation_publish"] = observationPublishNanos
-                computeNanos += observationPublishNanos
-
-                val speedSafetyNanos = measureNanoTime {
-                    coreWorld.publishPendingDerailEvents()
-                    speedSafetyMonitors[coreWorld]
-                        ?.drainRequests(publishedPhysicsEpoch)
-                        .orEmpty()
-                        .forEach { request ->
-                            val train = coreWorld.getTrain(request.trainId) ?: return@forEach
-                            if (train.publishedFrame.physicsEpoch == request.observedPhysicsEpoch) {
-                                train.derail(request.reason)
-                            }
-                        }
-                }
-                phaseBreakdown["world:${world.name}:speed_safety"] = speedSafetyNanos
-                computeNanos += speedSafetyNanos
-
-                val renderCommitNanos = measureNanoTime {
-                    dispatchPublishedTrainFrames(world, coreWorld)
-                }
-                phaseBreakdown["world:${world.name}:train_visual_frame_consume"] = renderCommitNanos
-                computeNanos += renderCommitNanos
             }
-
-            val timetableDispatcherNanos = measureNanoTime {
-                railWorld.simpleAtoWorldData.dispatcher.tick(railWorld)
-            }
-            phaseBreakdown["world:${world.name}:timetable_dispatcher"] = timetableDispatcherNanos
-            computeNanos += timetableDispatcherNanos
-
-            railWorld.tickManager.postTick()
-            railWorld.tickManager.latestMainThreadTickMetrics()?.let { metrics ->
-                computeNanos += metrics.computeNanos
-                blockedWaitAsyncNanos += metrics.blockedWaitAsyncNanos
-                metrics.phaseBreakdownNanos.forEach { (phase, nanos) ->
-                    phaseBreakdown["world:${world.name}:$phase"] = nanos
-                }
+            val coordinator = (railWorld as? CoreWorld)?.physicsCoordinator
+            if (coordinator == null) {
+                processOwnerTick(null)
+            } else {
+                // Keep fallback physics out through dispatcher and generic after-commit work.
+                coordinator.processBetweenFrames { processOwnerTick(it) }
             }
 
             val platformCommitNanos = measureNanoTime {

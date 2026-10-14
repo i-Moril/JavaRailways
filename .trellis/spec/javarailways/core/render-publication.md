@@ -60,7 +60,7 @@ occurrence保序且不按rail ID合并。每段保存stable rail UUID、`ViewDir
 | stale/equal revision | `DROPPED_STALE` | 无side effect |
 | capacity满且新train | 淘汰最老train frame并计metric | 不阻塞publisher |
 | stationary unchanged | coordinator不逐epochoffer | 保持last applied state |
-| rename/metadata command | owner显式`publishCurrentTrainFrame` | revision guard apply |
+| 帧间rename | 只更新live名称及索引，下一正常epoch发布frame并offer（即使静止） | revision guard apply |
 | ticket failure | 可能已有partial flip | consumer不得drain/apply为成功epoch |
 
 movement轨迹构造复用列车物理解算已经生成的head/tail有序`RailSegment`；body placement沿已提交
@@ -71,6 +71,8 @@ occurrence，附加时间与空间均为`O(H + T + B)`。不得从
 否则很短的移动仍可能跨过边界却没有证据。
 
 `CoreTrain.commit()`只flip Core pending state并生成frame，不调用Bukkit extension，也不自动offerworld mailbox。generic `TickManager.postTick`同样不等于platform commit。
+
+重命名的阶段入口由[runtime publication](./runtime-publication.md#非物理操作统一在帧间执行target2026-10-14用户确认)定义：名称操作完成后，旧immutable frame仍保存旧名称，直到下一物理epoch正常发布。不得为立即刷新名称另行调用`publishMetadataFrame/commit/publishCurrentTrainFrame`替换碰撞依赖的物理观测。coordinator用上一frame名称与当前名称的差异决定offer，无需额外dirty字段。
 
 ## 项目内正确示例
 

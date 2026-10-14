@@ -183,23 +183,26 @@ object TrainCommand {
             return true
         }
         val newName = args[1]
-        if (train.controller != null) {
-            sender.sendMessage("错误: 列车 ${train.name} 正被控制或分配给 service，不能重命名")
-            return true
-        }
-        val rollingStock = world.simpleAtoWorldDataOrNull?.depots?.rollingStock(train.id)
-        if (rollingStock?.state == RollingStockState.RESERVED ||
-            rollingStock?.state == RollingStockState.IN_SERVICE
-        ) {
-            sender.sendMessage("错误: 列车 ${train.name} 当前 Depot 状态为 ${rollingStock.state}，不能重命名")
-            return true
-        }
         return try {
-            val oldName = train.name
-            world.renameTrain(train, newName)
-            sender.sendMessage("列车已重命名: $oldName -> ${train.name}")
+            world.physicsCoordinator.submitBetweenFrames {
+                require(train.controller == null) {
+                    "列车 ${train.name} 正被控制或分配给 service，不能重命名"
+                }
+                val rollingStock = world.simpleAtoWorldDataOrNull?.depots?.rollingStock(train.id)
+                require(rollingStock?.state != RollingStockState.RESERVED &&
+                    rollingStock?.state != RollingStockState.IN_SERVICE) {
+                    "列车 ${train.name} 当前 Depot 状态为 ${rollingStock?.state}，不能重命名"
+                }
+                val oldName = train.name
+                world.renameTrain(train, newName)
+                "列车已重命名: $oldName -> ${train.name}"
+            }.whenComplete { message, failure ->
+                BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                    sender.sendMessage(if (failure == null) message else "错误: ${failure.message}")
+                })
+            }
             true
-        } catch (failure: IllegalArgumentException) {
+        } catch (failure: IllegalStateException) {
             sender.sendMessage("错误: ${failure.message}")
             true
         }

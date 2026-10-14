@@ -48,6 +48,19 @@ private data class PendingCollisionDecision(
     val resolution: CollisionResolution
 )
 
+private class BetweenFramesOperation<T>(val action: () -> T) {
+    val result = CompletableFuture<T>()
+
+    fun execute() {
+        if (result.isDone) return
+        try {
+            result.complete(action())
+        } catch (failure: Throwable) {
+            result.completeExceptionally(failure)
+        }
+    }
+}
+
 data class PhysicsEpochMetrics(
     val epoch: Long,
     val source: PhysicsWakeSource,
@@ -125,6 +138,11 @@ class PhysicsCoordinator(
     }
 
     private val stateLock = Any()
+    private val betweenFramesQueue = ArrayDeque<BetweenFramesOperation<*>>()
+    private val pendingBetweenFrames = linkedSetOf<BetweenFramesOperation<*>>()
+    private val betweenFramesDepth = ThreadLocal.withInitial { 0 }
+    private var processingBetweenFrames = false
+    private var betweenFramesDrained = false
     private val controllers = ConcurrentHashMap<String, TrainController>()
     private val publishedFrameProcessors = CopyOnWriteArrayList<PublishedTrainFrameProcessor>()
     private val railwayEpochProcessors = CopyOnWriteArrayList<RailwayEpochProcessor>()
@@ -255,12 +273,97 @@ class PhysicsCoordinator(
     }
 
     /**
+     * Queues owner work in FIFO order, including before [start]. Submission never runs the action.
+     * The host must call [processBetweenFrames]; success means the action finished, not that its
+     * changes have appeared in a later physics frame. Do not await a queued result on a physics
+     * worker or inside the owner processing scope. Shutdown, stall and close fail unexecuted work.
+     */
+    fun <T> submitBetweenFrames(action: () -> T): CompletableFuture<T> {
+        val operation = BetweenFramesOperation(action)
+        val rejection = synchronized(stateLock) {
+            when {
+                status != PhysicsCoordinatorStatus.RUNNING ->
+                    PhysicsStalledException("PhysicsCoordinator is ${status.name.lowercase()}")
+                !acceptingWakes -> IllegalStateException("PhysicsCoordinator shutdown has begun")
+                else -> {
+                    betweenFramesQueue.addLast(operation)
+                    pendingBetweenFrames.add(operation)
+                    null
+                }
+            }
+        }
+        if (rejection != null) operation.result.completeExceptionally(rejection)
+        return operation.result
+    }
+
+    /**
+     * Runs host work on the calling simulation owner after the exact physics ticket completes.
+     * The host calls [drainBetweenFramesOperations] once within this callback, then dispatches its
+     * remaining owner work. The same structural admission gate covers the wait and whole callback;
+     * no callback owns [stateLock]. Host callback failures propagate to the host.
+     */
+    fun <T> processBetweenFrames(action: (PhysicsTicket) -> T): T {
+        ThreadGuard.ensureMainThread("PhysicsCoordinator.processBetweenFrames")
+        synchronized(stateLock) {
+            check(!processingBetweenFrames) { "Between-frames processing is already active" }
+            processingBetweenFrames = true
+            betweenFramesDrained = false
+        }
+        try {
+            return withFrameBoundary(action)
+        } finally {
+            synchronized(stateLock) { processingBetweenFrames = false }
+        }
+    }
+
+    /**
+     * Applies one finite FIFO batch inside [processBetweenFrames], on that scope's owner.
+     * Nested submissions are deferred to the next scope. Each ordinary failure completes only
+     * its own future. Captured but unexecuted work remains subject to shutdown/stall/close.
+     * Completion callbacks execute outside [stateLock].
+     */
+    fun drainBetweenFramesOperations() {
+        ensureBetweenFrames("PhysicsCoordinator.drainBetweenFramesOperations")
+        val batch = synchronized(stateLock) {
+            ensureUsableLocked()
+            check(acceptingWakes) { "PhysicsCoordinator shutdown has begun" }
+            check(processingBetweenFrames && !betweenFramesDrained) {
+                "Between-frames operations must be drained once per processing scope"
+            }
+            betweenFramesDrained = true
+            betweenFramesQueue.toList().also { betweenFramesQueue.clear() }
+        }
+        batch.forEach { operation ->
+            synchronized(stateLock) {
+                ensureUsableLocked()
+                check(acceptingWakes) { "PhysicsCoordinator shutdown has begun" }
+                pendingBetweenFrames.remove(operation)
+            }
+            operation.execute()
+        }
+        synchronized(stateLock) {
+            ensureUsableLocked()
+            check(acceptingWakes) { "PhysicsCoordinator shutdown has begun" }
+        }
+    }
+
+    /** Asserts owner execution after the captured physics ticket completed, without scheduling. */
+    fun ensureBetweenFrames(operation: String) {
+        ThreadGuard.ensureMainThread(operation)
+        check(betweenFramesDepth.get() > 0) { "$operation must run between physics frames" }
+    }
+
+    /**
      * Holds new-epoch admission closed across a main-owner structural edit. Waiting and the edit
      * run outside [stateLock], so the captured epoch can finish and callbacks never own that lock.
      * This is not shutdown or rollback: finally only releases this temporary admission scope.
      */
     internal fun <T> withStructuralMutation(action: () -> T): T {
         ThreadGuard.ensureMainThread("PhysicsCoordinator.withStructuralMutation")
+        return withFrameBoundary { action() }
+    }
+
+    private fun <T> withFrameBoundary(action: (PhysicsTicket) -> T): T {
         val ticket = synchronized(stateLock) {
             ensureUsableLocked()
             check(acceptingWakes) { "PhysicsCoordinator shutdown has begun" }
@@ -273,7 +376,13 @@ class PhysicsCoordinator(
                 ensureUsableLocked()
                 check(acceptingWakes) { "PhysicsCoordinator shutdown has begun" }
             }
-            return action()
+            betweenFramesDepth.set(betweenFramesDepth.get() + 1)
+            return try {
+                action(ticket)
+            } finally {
+                val depth = betweenFramesDepth.get() - 1
+                if (depth == 0) betweenFramesDepth.remove() else betweenFramesDepth.set(depth)
+            }
         } finally {
             synchronized(stateLock) { structuralMutationDepth-- }
         }
@@ -285,10 +394,14 @@ class PhysicsCoordinator(
      * capturing its final snapshot, then [close] the coordinator. A failed/stalled/closed
      * coordinator cannot provide a previous successful ticket as a safe shutdown boundary.
      */
-    fun beginShutdown(): PhysicsTicket = synchronized(stateLock) {
-        ensureUsableLocked()
-        acceptingWakes = false
-        inFlight ?: latestCompleted
+    fun beginShutdown(): PhysicsTicket {
+        val (ticket, pending) = synchronized(stateLock) {
+            ensureUsableLocked()
+            acceptingWakes = false
+            (inFlight ?: latestCompleted) to removePendingBetweenFramesLocked()
+        }
+        failBetweenFrames(pending, IllegalStateException("PhysicsCoordinator shutdown has begun"))
+        return ticket
     }
 
     fun latestMetrics(): PhysicsEpochMetrics? = lastMetrics
@@ -301,12 +414,14 @@ class PhysicsCoordinator(
      */
     internal fun stall(message: String, cause: Throwable? = null): PhysicsStalledException {
         val failure = PhysicsStalledException(message, cause)
-        synchronized(stateLock) {
+        val pending = synchronized(stateLock) {
             if (status == PhysicsCoordinatorStatus.CLOSED) return failure
             status = PhysicsCoordinatorStatus.STALLED
             inFlight?.completion?.completeExceptionally(failure)
             inFlight = null
+            removePendingBetweenFramesLocked()
         }
+        failBetweenFrames(pending, failure)
         return failure
     }
 
@@ -367,6 +482,7 @@ class PhysicsCoordinator(
             return true
         }
         return trainsPublishingMotionFrames.remove(train.id) ||
+            previousFrame.trainName != train.name ||
             previousFrame.derailed != train.isDerailed ||
             previousFrame.reversed != train.isReversed
     }
@@ -570,14 +686,16 @@ class PhysicsCoordinator(
                     "Physics stalled after $overloadCount epochs reached " +
                         "${epochOverloadThresholdMillis}ms within ${overloadWindowMillis}ms"
                 )
-                synchronized(stateLock) {
+                val pending = synchronized(stateLock) {
                     if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
                     lastMetrics = metrics
                     lastControllerNanos = controllerDurations.toMap()
                     status = PhysicsCoordinatorStatus.STALLED
                     inFlight = null
                     ticket.completion.completeExceptionally(failure)
+                    removePendingBetweenFramesLocked()
                 }
+                failBetweenFrames(pending, failure)
                 return
             }
 
@@ -600,12 +718,14 @@ class PhysicsCoordinator(
             val failure = if (t is PhysicsStalledException) t else {
                 PhysicsStalledException("Physics epoch ${ticket.epoch} failed", t)
             }
-            synchronized(stateLock) {
+            val pending = synchronized(stateLock) {
                 if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
                 status = PhysicsCoordinatorStatus.STALLED
                 inFlight = null
                 ticket.completion.completeExceptionally(failure)
+                removePendingBetweenFramesLocked()
             }
+            failBetweenFrames(pending, failure)
         }
     }
 
@@ -676,8 +796,18 @@ class PhysicsCoordinator(
         }
     }
 
+    private fun removePendingBetweenFramesLocked(): List<BetweenFramesOperation<*>> =
+        pendingBetweenFrames.toList().also {
+            pendingBetweenFrames.clear()
+            betweenFramesQueue.clear()
+        }
+
+    private fun failBetweenFrames(operations: List<BetweenFramesOperation<*>>, failure: Throwable) {
+        operations.forEach { it.result.completeExceptionally(failure) }
+    }
+
     override fun close() {
-        synchronized(stateLock) {
+        val pending = synchronized(stateLock) {
             if (status == PhysicsCoordinatorStatus.CLOSED) return
             status = PhysicsCoordinatorStatus.CLOSED
             acceptingWakes = false
@@ -685,7 +815,9 @@ class PhysicsCoordinator(
                 PhysicsStalledException("PhysicsCoordinator closed while an epoch was running")
             )
             inFlight = null
+            removePendingBetweenFramesLocked()
         }
+        failBetweenFrames(pending, IllegalStateException("PhysicsCoordinator is closed"))
         fallbackTimer.shutdownNow()
         coordinatorExecutor.shutdownNow()
         workerPool.shutdownNow()

@@ -349,6 +349,7 @@
 - 2026-10-11基础批完成：混合车厢安装方向由每车/整列运营状态异或派生，首尾、解编及严格恢复按每车物理端选择；新增默认false的安装字段，不升版。5项定向回归与七模块全量门禁通过，见[执行记录](../implement.md)。四端联结事务、停车接触准入与两阶段事件尚未接入，CR-030保持开放，不因基础模型完成而结案；混装曲线/坡道仍须后续定向验收。
 - 同日第二批接入解编两阶段事件及独立方向选择；冲突或提交前handler异常阻止提交，成功通知异常不回滚。公开`Car.id`/`Train.splitBefore`，结构API及事件标记unstable。端点沿原占用路径定位，修复向后跨道岔时依赖反向选路的问题；验证记录见[执行计划](../implement.md)。联结两阶段事件、四端事务与collision结果消费仍未修复，CR-030保持开放。
 - 批次3前置补齐解编的物理准入：等待ticket之前暂时阻止新epoch，直到决策、准备、提交及成功通知结束，释放不改变shutdown/stall/close状态。仅接入解编，旧link仍未切换；保证范围与验证见[执行计划](../implement.md#批次3前置结构提交期间禁止新物理任务2026-10-11)。此技术前置不决定默认主编组、collision联结失败或JS状态政策，CR-030保持开放。
+- 2026-10-14通用审查代理发现并由主会话核实一项联结入口缺陷：`renameTrain`只发布新的metadata train frame，不重建同epoch occupancy/world frame。碰撞prepass要求world frame内的train frame与live `publishedFrame`实例相同才能携带topology revision；车体重叠候选仍可能触发LINK，但事务因revision为null拒绝，最终两车按失败回退脱轨。用户随后确认优先统一所有非物理操作的帧间执行阶段；撤回逐次rename重建全world快照或在碰撞中区别metadata的方案。现已实现帧间更新名称、下一正常frame发布新名称，真实coordinator的rename后LINK回归通过；回归与原联结草稿保留在工作区。具体批次和验收见[最新执行计划](../implement.md#最新优先项统一帧间操作2026-10-14用户确认首批已实现)。其余入口迁移未完成，无游戏验证，CR-030不闭合。
 
 ### CR-031：Core Seat.position自递归
 

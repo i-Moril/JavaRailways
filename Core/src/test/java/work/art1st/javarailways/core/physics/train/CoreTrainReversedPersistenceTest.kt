@@ -17,6 +17,7 @@ import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.util.TickManagerImpl
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -79,7 +80,11 @@ class CoreTrainReversedPersistenceTest {
                 PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
             )
             val train = createTrainWithConfig("invalid", rail, source, listOf(18.0), isLoop = false)
-            source.renameTrain(train, "Invalid Local")
+            IsolatedSimulationThreadMarker.run {
+                source.physicsCoordinator.processBetweenFrames {
+                    source.renameTrain(train, "Invalid Local")
+                }
+            }
             val infrastructure = source.saveInfrastructure(9L)
             val savedTrain = source.saveRuntime(9L, physicsEpoch = 13L).trains.single()
             val savedCar = savedTrain.cars.single().let { car ->

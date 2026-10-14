@@ -188,14 +188,17 @@ class IsolatedTimetableSimulationWorld private constructor(
         logicalMillis = Math.addExact(logicalMillis, LOGICAL_TICK_MILLIS)
         tickManager.preTick(logicalMillis)
         physicsCoordinator.stepSimulation(LOGICAL_TICK_MILLIS.toDouble()).await()
-        routeAdmissionHost.publish(
-            RailwayObservation.fromCore(
-                world.simpleAtoWorldData.atoCoordinator.worldId,
-                world.latestWorldFrame()
+        physicsCoordinator.processBetweenFrames {
+            physicsCoordinator.drainBetweenFramesOperations()
+            routeAdmissionHost.publish(
+                RailwayObservation.fromCore(
+                    world.simpleAtoWorldData.atoCoordinator.worldId,
+                    world.latestWorldFrame()
+                )
             )
-        )
-        world.simpleAtoWorldData.dispatcher.tick(world)
-        tickManager.postTick()
+            world.simpleAtoWorldData.dispatcher.tick(world)
+            tickManager.postTick()
+        }
         tickManager.drainPendingCommits().forEach { it.commit() }
     }
 

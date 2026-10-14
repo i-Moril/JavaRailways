@@ -67,9 +67,77 @@ world frame的capture与publication是两个阶段，但不是两个可独立观
 
 宿主在锁外成功await这一个ticket以后才捕获/写最终快照，最后close；在途epoch失败时该ticketexceptional，后续capture/beginShutdown因STALLED拒绝，不能回退到上一个成功epoch假装可以保存。此边界只停止新的physics epoch，不是所有编辑、generic tick、Bukkit区域任务的全局冻结；平台仍负责unloading门禁和各资源释放。
 
+### 非物理操作统一在帧间执行（TARGET，2026-10-14用户确认）
+
+迁移前重命名、主线程换向、controller切换、创建/删除、维护摆位、外部脱轨请求和基础设施编辑没有统一执行阶段。用户确认这些操作应由协调器安排在两个完整物理epoch之间执行。本节区分首批已实现能力与后续迁移目标；不能把已有`@MainThread`、generic after-commit队列或一次ticket等待当作已满足全部目标。
+
+#### 第一批已实现：协调阶段及重命名（CURRENT）
+
+`PhysicsCoordinator`提供以下implementation层入口，宿主和隔离simulation复用同一实现：
+
+```kotlin
+fun <T> submitBetweenFrames(action: () -> T): CompletableFuture<T>
+fun <T> processBetweenFrames(action: (PhysicsTicket) -> T): T
+fun drainBetweenFramesOperations()
+fun ensureBetweenFrames(operation: String)
+```
+
+提交可以来自其他线程或发生在`start()`以前，只排队，不执行action。宿主在模拟owner调用`processBetweenFrames`：复用现有准入计数关闭新epoch入口、捕获并等待exact ticket，再把这一个ticket交给owner callback。callback显式调用一次`drainBetweenFramesOperations`，随后执行观察发布、Dispatcher和generic postTick；阶段结束才释放准入。等待和所有action/Future完成回调均位于`stateLock`外，等待时间与操作执行时间在宿主metrics中分别记录。隔离simulation在每个确定性step后进入同一阶段，不需要平台scheduler。
+
+队列和待执行集合由`stateLock`保护；drain一次取出有限FIFO批次，不反复追赶后来提交的请求。成功/失败结果在该操作执行结束时完成；异常不会阻断同批其它独立操作。尚未开始的捕获批次仍登记在待执行集合，shutdown、stall（包括epoch失败/overload）和close都会使其Future异常完成，通知在锁外执行；已开始操作沿用现有非quiesce生命周期语义。正常操作失败由自己的owner保持状态，框架不承诺rollback。每次process最多drain一次，owner回调中提交的操作进入下一批，不得自等它的Future。
+
+`ensureBetweenFrames`同时检查现有simulation/main身份和等待成功后建立的线程局部词法作用域；它不调度任务，也不新增一套线程分类。内部`withStructuralMutation`与process共享同一准入/作用域实现，现有结构操作嵌套时不重复drain。
+
+`CoreWorld.renameTrain`现在是受该阶段检查的同步apply方法。Bukkit命令将controller/Depot状态校验及rename一起提交，完成后经已有entity scheduler反馈玩家。name与名称索引在执行时更新，已发布train/world frame、occupancy及physics epoch保持不动；下一正常epoch会捕获新名称。coordinator比较上一frame的名称，即使列车静止也向既有latest mailbox提交新frame，不新增metadata revision或dirty字段、不重建每次rename的世界索引。Future成功与下一frame发布是两个不同的时点。
+
+其余操作的外部入口尚未迁移；宿主把Dispatcher/postTick放入阶段只保证这些内部调用不与新physics epoch交错，不表示玩家控制、手动扳道等直接入口已受保护。后续完整迁移目标如下。
+
+#### 正常请求与执行流程
+
+外部命令或插件提交操作请求，由所属world的协调器保存待执行操作及其结果。宿主在模拟owner线程处理帧间阶段：先关闭新epoch准入并等待已捕获的完整ticket（包括信号阶段和world publication），再依次处理请求和现有运营/结构操作，完成必要的状态发布后释放准入。主线程wake与timer fallback使用同一个准入门禁。
+
+协调器负责阶段和顺序，操作仍由各自owner校验和修改状态；这里的“事件”是待执行操作，不意味着每个动作都新增一组公开EventBus通知。现有MainRailEventBus插件通知仍由宿主模拟owner线程派发，不搬到physics worker，也不通过伪造线程marker执行Bukkit回调。线程Guard的整体分类另批讨论。
+
+下列为流程伪代码，尚未冻结新API名称：
+
+```text
+submit operation -> coordinator queue + Future<result>
+
+host processes world:
+  coordinator enters between-frames scope
+    close epoch admission before capturing and awaiting current ticket
+    callback receives exact completed ticket
+    callback explicitly drains one queued batch on simulation owner
+    run dispatcher and existing after-commit operations within the same scope
+    publish boundary changes required by physical edits
+  release admission
+next physics epoch captures controllers and computes from the resulting state
+```
+
+等待与操作本体继续位于`stateLock`外。复用并推广现有`withStructuralMutation`的准入计数，不新增第二把控制epoch启动的锁、另一套ticket或独立事件线程。只处理本批捕获的请求集合，后续提交进入下一批；不添加人为数量上限。调用者使用Future观察成功或失败，不能在物理worker或正在处理该队列的owner上阻塞等待尚未执行的请求。处于帧间阶段的内部复合流程可以同步调用内部apply方法，避免把一次接管拆成多个有间隙的请求。
+
+#### 状态发布与生命周期
+
+- 纯名称修改更新名称及名称索引，供owner查询；标记后续正常train frame/mailbox应发布新名称。不得仅为名称变化在物理计算期间替换完整frame，也不为每次重命名重建全world occupancy。操作Future成功表示名称修改完成，不表示下一physics frame已经发布。
+- 换向、摆位、编组变化、创建/删除以及基础设施变更会改变下一步物理输入。批次结束前必须形成与修改结果一致的frame、occupancy及必要的world观测，随后才开放下一epoch。复用已有builder并按批次汇总更新，不能只换一个train frame后让旧world观测继续参与联结；具体增量/完整重建方式在对应批次根据实际owner接口实现。
+- controller接管、替换和移除在捕获下一epoch controller列表前完成；旧worker不能与接管交错。手动驾驶接管涉及的驾驶端对齐、控制参数及controller安装作为一次owner操作处理。
+- 控制器发起的换向也进入帧间流程，迁移后删除仅为执行换向而跳过整轮movement的worker分支。停车准入、运营等待、方向及几何约束仍由现有业务规则校验，不借迁移自行增删运营规则。
+- 操作持有exact world/train实例，在执行时验证仍存活且属于目标world；controller来源请求另验该controller仍拥有目标train。排队不提前占用名称或修改world索引。
+- 正常拒绝或准备失败只完成本操作的异常结果，继续处理独立请求；既有操作若留下无法恢复的物理/拓扑部分修改，沿用其fault/Stall合同，不伪造通用rollback。shutdown/close不得遗留永不完成的操作Future，未执行请求明确失败；不得在最终存档后继续执行。
+
+本阶段不处理平台entity/render任务，也不改变physics运动计算、物理原因脱轨或已规定的信号阶段。提交前/成功通知的插件异常规则继续由各操作合同拥有。
+
+#### 成本与必需验证
+
+提交及准入管理为每操作O(1)协调开销；队列执行为本批操作本身的成本之和。名称修改不扫描列车几何。几何、拓扑和占用更新沿用对应owner的实际成本，不能因为统一排队就声称整批O(1)。队列不存在普通tick对全world额外重建的要求。
+
+必须以确定性barrier验证：上一epoch在途时请求不修改状态；关闭准入后timer不能插入下一epoch；请求执行结束后下一worker看到修改后的完整状态。另覆盖FIFO、失败结果、关闭时未执行Future终结、owner回调嵌套提交不自等，以及不调用平台的确定性simulation驱动。功能验收包括重命名后正常LINK、控制器替换后旧controller不再tick、换向不在worker执行、删除/摆位后的共享occupancy与world观测一致。仅队列单测通过不能宣称调用链已经迁移。
+
+迁移采用统一边界基础设施→重命名→controller生命周期与换向→创建/删除和摆位→外部脱轨与基础设施编辑→联结/解编收口。每批迁移生产caller并验证后才删除旧入口/特判，不保留未发布开发API的长期兼容alias；无持久化格式或版本变化。`await ticket -> immediate edit`仍允许fallback穿插，不得作为新入口示例。
+
 ### 结构变更的临时物理准入（CURRENT）
 
-仅等待`CoreWorld.awaitCurrentPhysicsEpoch()`不构成结构排他：捕获的ticket完成后，timer仍可能立即分配下一epoch。当前解编改用implementation-only的`PhysicsCoordinator.withStructuralMutation(action: () -> T): T`包住决策、准备、提交和成功通知；后续联结须复用同一边界，但旧联结入口尚未接入。本边界不升级成公开API，也不批量改变其他maintenance入口。
+仅等待`CoreWorld.awaitCurrentPhysicsEpoch()`不构成结构排他：捕获的ticket完成后，timer仍可能立即分配下一epoch。当前解编使用implementation-only的`PhysicsCoordinator.withStructuralMutation(action: () -> T): T`包住决策、准备、提交和成功通知；它与上述`processBetweenFrames`共享同一个私有`withFrameBoundary`准入及exact-ticket实现。联结草稿也复用此结构入口。内部结构方法不升级成公开API，其余maintenance入口仍须逐批迁移。
 
 正常流程是主线程进入作用域，在`stateLock`内确认RUNNING且未shutdown、增加临时准入计数并捕获`inFlight ?: latestCompleted`；释放锁后等待这一个ticket，成功后再次确认可用，再在锁外执行action。`finally`在短锁区递减计数。等待、插件监听器、extension初始化与几何计算均不能持有`stateLock`，否则会阻塞旧epoch完成或把扩展代码放入协调器全局锁。计数只表达词法作用域持有关系，不是任务队列或第二套事务状态。
 

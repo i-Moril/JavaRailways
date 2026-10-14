@@ -4,7 +4,7 @@
 {"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "CR-030 split decisions and independent directions prepare before mutation; initialization failure preserves original geometry/frames/ownership"}
 {"file": ".trellis/spec/javarailways/core/curve-geometry.md", "reason": "CR-028 shared once-per-construction strict raw/decode validation and unique LINE stream; retain valid nonorthogonal frames"}
 {"file": ".trellis/spec/javarailways/core/rail-topology-and-occupancy.md", "reason": "CR-027 strict current references, nullable selection, order and per-rail pre-mutation checks"}
-{"file": ".trellis/spec/javarailways/core/runtime-publication.md", "reason": "CR-016 publication and close must share exact-ticket terminal validation"}
+{"file": ".trellis/spec/javarailways/core/runtime-publication.md", "reason": "Verify shared frame-between gate and FIFO queue, terminal results outside lock, host/simulation integration and rename without replacing collision frames"}
 {"file": ".trellis/spec/javarailways/core/di-and-runtime-lifecycle.md", "reason": "Check in-flight close and CR-015 bounded pre-publication cleanup without claiming Koin scope release"}
 {"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "Distinguish strict rail endpoint decoding from unresolved full materialization lifecycle"}
 {"file": ".trellis/spec/javarailways/core/testing.md", "reason": "CR-020 real bounded physics epochs, end-of-track derail dispatch and live-mutation snapshot isolation; no count padding"}

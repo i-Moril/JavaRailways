@@ -37,10 +37,7 @@ class CoreBogie @MainThread internal constructor(
         ): CoreBogie = CoreBogie(location, true, extensionData)
     }
     private val sameDirectionBuffer = CommitBuffer(isSameDirectionAsFacing)
-    private var directionPhysicsDirty = false
     private val publishedSameDirectionAsFacing: Boolean get() = sameDirectionBuffer.get()
-    private val activeSameDirectionAsFacing: Boolean
-        get() = if (directionPhysicsDirty) sameDirectionBuffer.getActive() else sameDirectionBuffer.get()
 
     private val _location = CommitBuffer(location)
     override var location: RailLocationWithFacing by _location
@@ -88,10 +85,6 @@ class CoreBogie @MainThread internal constructor(
             _velocity.commit()
             velocityPhysicsDirty = false
         }
-        if (directionPhysicsDirty) {
-            sameDirectionBuffer.commit()
-            directionPhysicsDirty = false
-        }
     }
 
     internal fun updateLocation(location: RailLocationWithFacing) {
@@ -117,12 +110,6 @@ class CoreBogie @MainThread internal constructor(
         _location.set(reversedLocation)
         _location.commit()
         _location.set(reversedLocation)
-    }
-
-    internal fun reverseFromPhysics() {
-        sameDirectionBuffer.set(!activeSameDirectionAsFacing)
-        directionPhysicsDirty = true
-        updateLocation(activeLocation.reversed)
     }
 
     override fun save(): SavedBogieV1 {

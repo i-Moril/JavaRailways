@@ -60,7 +60,12 @@ interface Train : WorldElement, Destroyable, Synchronizable, Extendable<TrainExt
     /** Move along the selected rail path by [deltaS] metres. Called by the owning physics worker. */
     fun moveTrainForward(deltaS: Double)
 
-    /** Swap the operating head and tail. Structural effects are implementation-defined. */
+    /**
+     * Synchronously swap the operating head and tail on the simulation owner, with physics
+     * excluded. May wait for the current complete physics frame. Core publishes coherent train,
+     * occupancy and world observations before notifying direction listeners. Does not advance
+     * the physics epoch or change controller commands; controllers use their queued reverse API.
+     */
     @MainThread
     fun reverse()
 

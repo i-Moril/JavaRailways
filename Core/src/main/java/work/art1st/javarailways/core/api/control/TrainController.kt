@@ -10,7 +10,7 @@ import org.jetbrains.annotations.ApiStatus
 import work.art1st.javarailways.core.api.util.WeakReferenceWrapper
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.util.CommitBuffer
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CompletableFuture
 
 /**
  * Base class for a controller evaluated by the owning world's physics Coordinator.
@@ -46,7 +46,9 @@ abstract class TrainController(
         get() = if (speedDirty) speedBuffer.getActive() else speedBuffer.get()
     protected var pendingCommand: ControlCommand? = null
         private set
-    private val pendingReverseRequests = AtomicInteger()
+    private val reverseRequestLock = Any()
+    private var pendingReverseRequests = 0
+    private var pendingReverse: CompletableFuture<Unit>? = null
 
     protected fun setCommand(command: ControlCommand) {
         if (command.speed < 0 || command.deltaS < 0) {
@@ -68,22 +70,44 @@ abstract class TrainController(
     open fun prepareConsistChange(cars: List<Car>, counterpart: TrainController?): List<PreparedControllerStateUpdate> =
         emptyList()
 
-    /** Queue a direction reversal for the next physics tick; pairs of pending requests cancel out. */
-    open fun reverse() {
-        pendingReverseRequests.incrementAndGet()
-    }
-
-    /** Applies control mutations on the owning physics worker, never on the Bukkit thread. */
-    internal fun preparePhysicsTick(): Boolean {
-        if (pendingReverseRequests.getAndSet(0) % 2 == 0) return true
-        val controlledTrain = train
-        if (controlledTrain is CoreTrain) {
-            controlledTrain.reverseFromPhysics()
-        } else {
-            controlledTrain.reverse()
+    /**
+     * Queue reversal on the world's simulation owner between complete physics frames.
+     * Pairs of requests captured by the same queued operation cancel out. The future completes
+     * after application (or cancellation by parity); a detached controller or unavailable world
+     * fails it. Do not wait on the owner responsible for processing this queue. Cancelling an
+     * individual returned future does not cancel other callers' requests. The next physics tick
+     * runs normally from the resulting direction; no movement-free epoch is inserted.
+     */
+    open fun reverse(): CompletableFuture<Unit> = synchronized(reverseRequestLock) {
+        val controlledTrain = train as? CoreTrain
+            ?: return@synchronized CompletableFuture.failedFuture(
+                IllegalStateException("Controller reversal requires a coordinated Core train")
+            )
+        pendingReverseRequests++
+        val operation = pendingReverse ?: controlledTrain.world.physicsCoordinator.submitBetweenFrames {
+            val requestCount = synchronized(reverseRequestLock) {
+                pendingReverseRequests.also {
+                    pendingReverseRequests = 0
+                    pendingReverse = null
+                }
+            }
+            check(controlledTrain.world.getTrain(controlledTrain.id) === controlledTrain &&
+                controlledTrain.controller === this) {
+                "Reversal controller no longer owns train '${controlledTrain.id}'"
+            }
+            if (requestCount % 2 != 0) controlledTrain.reverse()
+        }.also { submitted ->
+            pendingReverse = submitted
+            submitted.whenComplete { _, _ ->
+                synchronized(reverseRequestLock) {
+                    if (pendingReverse === submitted) {
+                        pendingReverse = null
+                        pendingReverseRequests = 0
+                    }
+                }
+            }
         }
-        // Publish the direction change as its own epoch. Movement resumes from that published state.
-        return false
+        operation.copy()
     }
 
     /** Publishes a stopped motion state when collision arbitration freezes this controller. */

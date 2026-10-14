@@ -130,17 +130,15 @@ class CoreCar @MainThread internal constructor(
     private var motionPhysicsDirty: Boolean = false
 
     private val reversedBuffer = CommitBuffer(false)
-    private var reversedPhysicsDirty = false
     var isReversed: Boolean
         get() = reversedBuffer.get()
         protected set(value) {
             reversedBuffer.set(value)
             reversedBuffer.commit()
             reversedBuffer.set(value)
-            reversedPhysicsDirty = false
         }
     internal val activeIsReversed: Boolean
-        get() = if (reversedPhysicsDirty) reversedBuffer.getActive() else reversedBuffer.get()
+        get() = isReversed
 
     val bogieA
         get() = bogies.first()
@@ -613,12 +611,6 @@ class CoreCar @MainThread internal constructor(
         }
     }
 
-    internal fun reverseFromPhysics() {
-        reversedBuffer.set(!activeIsReversed)
-        reversedPhysicsDirty = true
-        bogies.forEach { it.reverseFromPhysics() }
-    }
-
     /** Select physical ends before validating saved geometry; saved bogie facing is unchanged. */
     internal fun restorePersistedOperatingDirection(reversed: Boolean) {
         // Saved bogies already carry their operating rail facing. Do not reverse them again.
@@ -658,10 +650,6 @@ class CoreCar @MainThread internal constructor(
         if (motionPhysicsDirty) {
             _motionState.commit()
             motionPhysicsDirty = false
-        }
-        if (reversedPhysicsDirty) {
-            reversedBuffer.commit()
-            reversedPhysicsDirty = false
         }
     }
 

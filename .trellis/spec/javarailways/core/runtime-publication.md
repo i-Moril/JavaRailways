@@ -31,7 +31,7 @@ Wall-clock delta首 epoch 50 ms，默认 clamp 200 ms；drop计入 `droppedDelta
 apply prior collision decisions
 → snapshot controllers（profileId stable order）
 → synchronous previous-epoch collision prepass（先标记双方，再启动worker；规则见train physics）
-→ workers preparePhysicsTick/tick(deltaMillis)
+→ workers tick(deltaMillis)
 → await all workers
 → flip controller/train CommitBuffer
 → publish TrainFrameSnapshot
@@ -49,7 +49,7 @@ apply prior collision decisions
 | 多次 wake 且已有 in-flight | 返回同一 `PhysicsTicket` | capture一次，await该对象 |
 | ticket success | processor、occupancy与同 epoch world frame 均完成 | 可读取该 ticket 对应的一致 world frame，并运行 Dispatcher |
 | worker/processor/publication failure | coordinator `STALLED`，ticket exceptional | 不消费该epoch mailbox、不继续Dispatcher |
-| reverse request奇数 | 本epoch只发布方向，`preparePhysicsTick=false` | movement下一epoch恢复 |
+| controller reverse请求 | 进入帧间owner队列，不在worker换向 | 执行完成后下一physics epoch正常计算movement |
 | stationary/no controller | 仍参与 pending state/frame publication | 不从controller存在性推断可见性 |
 | deterministic step参数非法 | `require/check`失败，无新epoch | 修正caller输入 |
 
@@ -63,7 +63,7 @@ world frame的capture与publication是两个阶段，但不是两个可独立观
 
 这些门禁不新增图或列车扫描；每controller新增一次短状态锁边界，另外的frame/capture锁区执行原有Core发布工作。第三方controller hook、published-frame processor及railway-epoch processor均不在stateLock内，不能用把整个epoch锁住的方式使关闭等待任意扩展代码。已发布部分不回滚，锁外回调已经开始或随后返回的外部效果也不撤销；这里保证的是close取得状态边界后，不再由后续Core发布阶段翻转buffer、推进train frame/mailbox或重建occupancy。
 
-`beginShutdown(): PhysicsTicket`在原`stateLock`内永久关闭wake入口并返回`inFlight ?: latestCompleted`；它自身不等待、不取消工作，也不把status改成CLOSED/STALLED，已经捕获的正常epoch仍可完成最终publication。重复调用在RUNNING时返回同一稳定边界，`start()`不可重新开启；新main/simulation wake明确拒绝。timer在同一锁内完成eligibility检查与request分配，shutdown要么捕获已经分配的timer epoch，要么让该wake静默no-op，不存在检查后再越过gate启动的窗口。
+`beginShutdown(): PhysicsTicket`在原`stateLock`内永久关闭wake入口并返回`inFlight ?: latestCompleted`；它自身不等待、不取消在途physics epoch，也不把status改成CLOSED/STALLED，已经捕获的正常epoch仍可完成最终publication。尚未开始的帧间操作Future明确失败，不能在最终存档后执行。重复调用在RUNNING时返回同一稳定边界，`start()`不可重新开启；新main/simulation wake明确拒绝。timer在同一锁内完成eligibility检查与request分配，shutdown要么捕获已经分配的timer epoch，要么让该wake静默no-op，不存在检查后再越过gate启动的窗口。
 
 宿主在锁外成功await这一个ticket以后才捕获/写最终快照，最后close；在途epoch失败时该ticketexceptional，后续capture/beginShutdown因STALLED拒绝，不能回退到上一个成功epoch假装可以保存。此边界只停止新的physics epoch，不是所有编辑、generic tick、Bukkit区域任务的全局冻结；平台仍负责unloading门禁和各资源释放。
 
@@ -91,6 +91,8 @@ fun ensureBetweenFrames(operation: String)
 `CoreWorld.renameTrain`现在是受该阶段检查的同步apply方法。Bukkit命令将controller/Depot状态校验及rename一起提交，完成后经已有entity scheduler反馈玩家。name与名称索引在执行时更新，已发布train/world frame、occupancy及physics epoch保持不动；下一正常epoch会捕获新名称。coordinator比较上一frame的名称，即使列车静止也向既有latest mailbox提交新frame，不新增metadata revision或dirty字段、不重建每次rename的世界索引。Future成功与下一frame发布是两个不同的时点。
 
 其余操作的外部入口尚未迁移；宿主把Dispatcher/postTick放入阶段只保证这些内部调用不与新physics epoch交错，不表示玩家控制、手动扳道等直接入口已受保护。后续完整迁移目标如下。
+
+第3a批已迁移控制器换向请求及同步换向apply，见[controller请求契约](./train-controller.md#帧间换向请求current第3a批)和[列车换向](./train-physics.md#帧间换向current第3a批)。真实换向在通知监听器前立即刷新既有共享占用及world frame，沿用最近完整physics epoch，不另分配epoch或重跑signal processor。每次实际换向有一次低频世界索引构建；本批不引入批量dirty tracker或通知队列，后续维护操作的批量发布仍按其owner接口实现。控制器生命周期与手动接管尚待3b批。
 
 #### 正常请求与执行流程
 

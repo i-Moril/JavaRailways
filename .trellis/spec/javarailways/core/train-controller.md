@@ -55,10 +55,26 @@ token的构造和安装由Core控制，只执行已准备值的引用赋值，�
 | `deltaT >= 0`、无command | 按m/s×ms移动 | 仅active state |
 | valid command | 更新command，移动`deltaS`，active speed更新 | epoch后published |
 | command完成 | 本tick结果仍应用 | 随后清pending command |
-| reverse requests偶数 | 抵消，`preparePhysicsTick=true` | 正常movement |
-| reverse requests奇数 | reverse一次，`preparePhysicsTick=false` | 本epoch不movement |
+| 同一待执行操作捕获偶数次reverse | 在帧间抵消 | 不改方向或快照 |
+| 同一待执行操作捕获奇数次reverse | 帧间owner换向一次 | 下个physics tick正常计算movement，不插入空转epoch |
 | invalid/nonfinite/negative speed或distance | 新API必须明确reject/result并保持旧state | 不得新增silent ignore |
 | worker exception | ticket failure/Stall path | 不直接platform fallback |
+
+## 帧间换向请求（CURRENT，第3a批）
+
+`open fun reverse(): CompletableFuture<Unit>`非阻塞提交到列车所属world的帧间队列。
+首次请求建立一项队列操作，随后尚未捕获的请求合并到同一计数；owner执行时取出计数并清除待处理引用，
+偶数次抵消，奇数次调用`CoreTrain.reverse()`。新的请求进入下一项操作，不在owner等待自身Future。
+每个调用者取得独立的Future副本，取消一个副本不取消其他调用者的请求。
+
+执行时先检查world中仍是同一train实例、当前controller仍是请求来源；已移除或被替换的controller不能换向新控制器的列车。
+这些拒绝、world关闭及队列终态通过Future异常报告；非Core train不能提供这项协调保证，明确失败而不退回worker调用。
+Bukkit换向命令在Future完成后经entity scheduler告知玩家，不把“已排队”显示为“已换向”。
+
+实际准备、发布和异常规则归[列车换向](./train-physics.md#帧间换向current第3a批)；提交和计数为O(1)，仅真实奇数次换向承担几何准备及世界占用刷新。
+例如两次请求在drain以前提交，最终方向不变；一次请求执行后，紧随的physics tick直接按新方向运动。
+错误做法是在worker修改方向、跳过整轮movement，或操作执行时不核对旧controller身份。
+控制器安装/替换/移除、手动接管的复合流程尚未完成第3b批，不能由本节推断其外部入口已全部迁移。
 
 ## 项目内正确示例
 
@@ -96,7 +112,7 @@ controller子类不得直接调用`train.moveTrainForward`，否则Core只能把
 
 - 无command公式：给定`speed=10 m/s, delta=50 ms`断言`deltaS=0.5 m`。
 - command：断言tick先于movement、finished只应用一次、invalid输入无mutation并返回明确failure。
-- reverse：两次抵消、一次只发布方向且不移动、下一epoch恢复。
+- reverse：帧间两次抵消、一次完成后frame/world/occupancy一致，下一epoch直接按新方向运动；旧controller拒绝、取消副本及终态完成。
 - registration：replace/remove/destroy后coordinator中无旧profile。
 - `CoreTrainPublicationBoundaryTest.kt`：active speed/geometry在publish前不可见。
 

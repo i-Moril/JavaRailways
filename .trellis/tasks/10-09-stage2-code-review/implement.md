@@ -17,6 +17,16 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 5. [ ] 外部脱轨、手动扳道、基础设施编辑：迁移await-only入口，区分physics-origin结果与外部命令；验证完整事件批次中无新physics worker，保持拓扑事务和资源仲裁合同。
 6. [ ] 联结/解编复用帧间阶段并完成CR-030复核：成功通知内提交rename正常完成，下一次碰撞使用一致观测；移除旧时序特判及过时契约，核对受影响API、测试与正式游戏测试交接。
 
+第3项拆为两笔可独立检查的子批次：3a先迁移控制器换向请求、同步换向apply与一致发布，删除worker换向/跳过movement分支；3b随后迁移控制器安装/替换/移除及手动接管、导航和Dispatcher复合入口。本轮先做3a，不将整项勾选完成。手动接管包含平台座位/钥匙检查与运营/控制器状态迁移，不能仅异步化底层setter后让上层继续按同步结果执行；其平台数据捕获与结果回送留在3b。
+
+3a已实现并通过独立候选门禁：控制器请求走现有帧间队列、同批奇偶抵消并返回独立Future副本；执行时拒绝旧控制器。同步换向复用解编的方向准备/安装，不沿反向道岔重新寻找车端；真实换向以既有构建器立即刷新共享occupancy/world后通知插件。删除worker换向及train/car/bogie方向dirty分支，下一正常epoch直接movement。每次实际换向有低频O(world)刷新，不新增普通tick扫描、假epoch或批量通知框架。
+
+工作区五模块全套Core391、Basic393、SimpleATO354、BukkitPlugin379、TunnelBridgeBuilder31项通过（共1548项，零失败/error/skip，1分48秒，42tasks全执行），Core Dokka V2生成通过但仍有已有文档warning；独立检查未发现新增阻塞。随后仅追加现有测试内“world epoch2 + 新列车frame0时在写入前拒绝”的断言，独立候选验证另记，不能把这次工作区结果当作追加断言已执行。未游戏验证，不关闭Core审查/CR-030/Stage2。
+
+独立候选由暂存tree导出到`/tmp/javarailways-reversal.0o8KUD`，不含旧联结草稿；复用的是HEAD已有解编准备/安装方法，工作区草稿中的对应方法改名没有一起提交。全套Core364、Basic393、SimpleATO354、BukkitPlugin379、TunnelBridgeBuilder31，共1521项零失败/error/skip，1分41秒，39tasks全执行，包含追加的epoch前置拒绝断言。使用`/workspace/.gradle`、offline/no-build-cache/rerun/nonincremental/in-process、2workers、1536m heap/1024m metaspace；仅跳过无关WebUI frontend install/build。所有暂存Kotlin源码与该已测试候选逐项一致，后续仅同步任务/spec文字。独立检查同时确认追加断言，无新阻塞；几何候选生成内部失败及共享publication失败没有专项注入回归，不把源码分析当作动态故障验证。
+
+3b还须迁移Basic `RealisticManualController.setDirection`的请求显示字段及结果处理：它目前先改`directionRef/runningDirectionRef/movementSign`并忽略Future，失败后显示可能不同步；这些字段不直接决定tick物理位移方向，不以3a完成声称其复合调用链已迁移。创建/摆位的epoch0过渡缺口留第4批，3a在修改前明确拒绝，不倒退world epoch。
+
 首批实现复用原结构准入门禁，在Bukkit及隔离simulation统一等待exact ticket、显式drain一次FIFO批次并执行运营/postTick。重命名只改live名称及索引，由下一正常epoch发布；没有新增物理revision、逐次rename重建或collision特判。线程分类、controller等其余入口仍待后续批次。
 
 本批工作区门禁：Core389、Basic393、SimpleATO354、BukkitPlugin379项测试零失败/错误/跳过，Core Dokka V2生成通过（仍有已有文档warning）。初次定向测试因TrainName fixture缺少simulation owner失败1项，首次跨模块构建因4个SimpleATO初始摆位fixture仍直接rename失败；已将相关fixture放入真实帧间作用域，补跑通过。独立只读审查未发现本批新增阻塞。上述数字包括原联结草稿，不等同于隔离提交验证或游戏验证；不关闭CR-030、Core审查或Stage2。

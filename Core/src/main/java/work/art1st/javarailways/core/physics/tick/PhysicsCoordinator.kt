@@ -576,9 +576,7 @@ class PhysicsCoordinator(
                         batch.forEach { controller ->
                             if (controller.profileId !in trainsPendingCollision) {
                                 val controllerStart = nanoTime()
-                                if (controller.preparePhysicsTick()) {
-                                    controller.tick(deltaMillis)
-                                }
+                                controller.tick(deltaMillis)
                                 controllerDurations[controller.profileId] = nanoTime() - controllerStart
                             } else {
                                 controller.freezeMotionForPhysicsEpoch()

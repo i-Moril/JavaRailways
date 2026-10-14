@@ -25,6 +25,7 @@ import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.util.TickManagerImpl
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -48,10 +49,12 @@ class CoreTrainMixedInstallationTest {
             assertEquals(first.epoch, train.publishedFrame.physicsEpoch)
             assertPlacement(train.publishedFrame, offset, reversed, if (reversed) -10.0 else 10.0)
 
-            controller.reverse()
-            val directionEpoch = world.physicsCoordinator.stepSimulation(50.0)
-            directionEpoch.completion.get(5, TimeUnit.SECONDS)
-            assertEquals(directionEpoch.epoch, train.publishedFrame.physicsEpoch)
+            val direction = controller.reverse()
+            IsolatedSimulationThreadMarker.run {
+                world.physicsCoordinator.processBetweenFrames { world.physicsCoordinator.drainBetweenFramesOperations() }
+            }
+            direction.get(5, TimeUnit.SECONDS)
+            assertEquals(first.epoch, train.publishedFrame.physicsEpoch)
             assertPlacement(train.publishedFrame, offset, !reversed)
             assertEquals(listOf(true, false, true), train.save().cars.map { it.installedReversed })
 

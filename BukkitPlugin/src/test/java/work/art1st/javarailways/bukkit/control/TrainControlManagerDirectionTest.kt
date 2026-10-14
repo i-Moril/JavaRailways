@@ -68,9 +68,9 @@ class TrainControlManagerDirectionTest {
         TrainController(train, world) {
         var reverseRequested = false
 
-        override fun reverse() {
+        override fun reverse(): java.util.concurrent.CompletableFuture<Unit> {
             reverseRequested = true
-            super.reverse()
+            return super.reverse()
         }
     }
 }

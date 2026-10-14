@@ -16,6 +16,7 @@ import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import java.util.concurrent.TimeUnit
 import kotlin.math.cos
 import kotlin.math.sin
@@ -74,8 +75,11 @@ class CoreTrainRigidGeometryTest {
             assertGeometry(train, "$shape tick $tick")
         }
 
-        train.controller!!.reverse()
-        world.physicsCoordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+        val reversed = train.controller!!.reverse()
+        IsolatedSimulationThreadMarker.run {
+            world.physicsCoordinator.processBetweenFrames { world.physicsCoordinator.drainBetweenFramesOperations() }
+        }
+        reversed.get(5, TimeUnit.SECONDS)
         assertTrue(train.isReversed)
         assertGeometry(train, "$shape reverse")
         repeat(60) { tick ->

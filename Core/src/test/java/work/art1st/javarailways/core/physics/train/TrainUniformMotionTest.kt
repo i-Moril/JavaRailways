@@ -19,6 +19,7 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import java.util.concurrent.TimeUnit
 import kotlin.math.PI
 import kotlin.math.cos
@@ -127,8 +128,11 @@ class TrainUniformMotionTest {
             assertEquals(stoppedX, train.headLocation.position.x(), distanceTolerance)
             assertPublishedVelocity(train, 0.0)
 
-            controller.reverse()
-            coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
+            val reversed = controller.reverse()
+            IsolatedSimulationThreadMarker.run {
+                coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
+            }
+            reversed.get(5, TimeUnit.SECONDS)
             assertTrue(train.publishedFrame.headTraversal.isEmpty())
             assertPublishedVelocity(train, 0.0)
 

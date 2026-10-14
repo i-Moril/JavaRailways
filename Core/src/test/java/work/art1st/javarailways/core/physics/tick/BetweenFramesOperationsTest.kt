@@ -9,7 +9,13 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import work.art1st.javarailways.core.api.control.TrainController
+import work.art1st.javarailways.core.api.event.TrainSwitchDirectionEvent
+import work.art1st.javarailways.core.api.event.processor.EventListener
+import work.art1st.javarailways.core.api.event.processor.HandlesEvent
+import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.physics.RailwayEpochProcessor
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
+import work.art1st.javarailways.core.api.threading.ThreadGuard
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 import work.art1st.javarailways.core.api.util.tick.TickManager
@@ -163,6 +169,128 @@ class BetweenFramesOperationsTest {
             }
             assertEquals(0L, first.get(5, TimeUnit.SECONDS))
             assertThrows(ExecutionException::class.java) { second.get(5, TimeUnit.SECONDS) }
+        }
+    }
+
+    @Test
+    fun `queued reversal notifies coherent owner state and next worker moves without a skipped epoch`() = withOwner {
+        PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
+            val world = CoreWorld.createEmpty(NoOpTickManager, NoOpWorldParentContext, coordinator)
+            try {
+                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
+                val train = createTrainWithConfig("owner-reverse", rail, world, listOf(10.0))
+                var ticks = 0
+                val controller = object : TrainController(train, world) {
+                    init { speed = 10.0 }
+                    override fun tick(deltaT: Double) {
+                        ticks++
+                        moveControlledTrain(0.5, 10.0)
+                    }
+                }
+                train.setController(controller)
+                coordinator.start()
+                val first = coordinator.stepSimulation(50.0)
+                first.completion.get(5, TimeUnit.SECONDS)
+                val oldFrame = train.publishedFrame
+                val oldWorld = world.latestWorldFrame()
+                val owner = Thread.currentThread()
+                var eventThread: Thread? = null
+                var eventFrame: TrainFrameSnapshot? = null
+                var coherent = false
+                MainRailEventBus.register(object : EventListener {
+                    @HandlesEvent
+                    fun switched(event: TrainSwitchDirectionEvent) {
+                        eventThread = Thread.currentThread()
+                        eventFrame = event.train.publishedFrame
+                        val observed = world.latestWorldFrame()
+                        coherent = !ThreadGuard.isAsyncTickThread() &&
+                            observed.physicsEpoch == first.epoch &&
+                            observed.occupancy.physicsEpoch == first.epoch &&
+                            observed.trains.single() === eventFrame
+                    }
+                }).use {
+                    val reverse = controller.reverse()
+                    assertFalse(reverse.isDone)
+                    assertSame(oldFrame, train.publishedFrame)
+                    coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
+                    reverse.get(5, TimeUnit.SECONDS)
+                }
+                assertSame(owner, eventThread)
+                assertSame(train.publishedFrame, eventFrame)
+                assertTrue(coherent)
+                assertTrue(train.isReversed)
+                assertEquals(1, ticks)
+                assertEquals(first.epoch, train.publishedFrame.physicsEpoch)
+                assertEquals(oldFrame.tail.arcLengthInAbMeters, train.publishedFrame.head.arcLengthInAbMeters)
+                assertTrue(train.publishedFrame.headTraversal.isEmpty())
+                assertFalse(oldFrame.reversed)
+                assertSame(oldFrame, oldWorld.trains.single())
+                val reversedHead = train.headLocation.position.x()
+                val next = coordinator.stepSimulation(50.0)
+                next.completion.get(5, TimeUnit.SECONDS)
+                assertEquals(first.epoch + 1L, next.epoch)
+                assertEquals(2, ticks)
+                assertEquals(reversedHead - 0.5, train.headLocation.position.x(), 1e-6)
+                assertFalse(train.publishedFrame.headTraversal.isEmpty())
+
+                // Creation is a separate migration batch: a new train still starts at epoch 0.
+                val created = createTrainWithConfig("new-before-publication", rail, world, listOf(10.0))
+                assertEquals(0L, created.publishedFrame.physicsEpoch)
+                val beforeRejectedReverse = train.publishedFrame
+                val beforeRejectedWorld = world.latestWorldFrame()
+                val rejected = controller.reverse()
+                coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
+                assertThrows(ExecutionException::class.java) { rejected.get(5, TimeUnit.SECONDS) }
+                assertSame(beforeRejectedReverse, train.publishedFrame)
+                assertSame(beforeRejectedWorld, world.latestWorldFrame())
+                assertTrue(train.isReversed)
+                assertEquals(PhysicsCoordinatorStatus.RUNNING, coordinator.status)
+            } finally {
+                world.releaseRuntimeBinding()
+            }
+        }
+    }
+
+    @Test
+    fun `reversal parity cancellation and stale controller failures do not affect another request`() = withOwner {
+        PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
+            val world = CoreWorld.createEmpty(NoOpTickManager, NoOpWorldParentContext, coordinator)
+            try {
+                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
+                val train = createTrainWithConfig("reverse-parity", rail, world, listOf(10.0))
+                val controller = object : TrainController(train, world) {}
+                train.setController(controller)
+                val oldFrame = train.publishedFrame
+                val first = controller.reverse()
+                val second = controller.reverse()
+                coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
+                first.get(5, TimeUnit.SECONDS)
+                second.get(5, TimeUnit.SECONDS)
+                assertSame(oldFrame, train.publishedFrame)
+
+                val cancelledObserver = controller.reverse()
+                val observer = controller.reverse()
+                val last = controller.reverse()
+                cancelledObserver.cancel(false)
+                coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
+                observer.get(5, TimeUnit.SECONDS)
+                last.get(5, TimeUnit.SECONDS)
+                assertTrue(train.isReversed)
+
+                val stale = controller.reverse()
+                train.setController(null)
+                coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
+                assertThrows(ExecutionException::class.java) { stale.get(5, TimeUnit.SECONDS) }
+                assertTrue(train.isReversed)
+                train.setController(controller)
+                val pending = controller.reverse()
+                coordinator.beginShutdown()
+                assertThrows(ExecutionException::class.java) { pending.get(5, TimeUnit.SECONDS) }
+                assertTrue(controller.reverse().isCompletedExceptionally)
+                assertTrue(train.isReversed)
+            } finally {
+                world.releaseRuntimeBinding()
+            }
         }
     }
 

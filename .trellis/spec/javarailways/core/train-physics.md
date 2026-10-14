@@ -73,7 +73,7 @@ motion-only epoch翻转未写入的geometry槽；两类状态仍在同一个epoc
 
 ### 碰撞查询时点（CURRENT）
 
-正常epoch先应用此前碰撞决定、捕获controller列表，然后在启动任何worker前，以AsyncTick线程上下文按该列表查询上一完整epoch的共享碰撞索引。参与双方先加入既有pending集合，后续worker跳过其controller tick并冻结物理运动。原`moveTrainForwardFromController`不重复查询；这不是预测本tick位移，也不新增移动意图、任务或等待屏障。每个controller至多一次既有局部索引查询，不扫描全世界列车。查询从worker移到coordinator串行执行，自定义不调用move或本tick只换向的controller也先检测既有碰撞；不承诺查询总数或墙钟成本完全不变，实际开销尚未profiling。
+正常epoch先应用此前碰撞决定、捕获controller列表，然后在启动任何worker前，以AsyncTick线程上下文按该列表查询上一完整epoch的共享碰撞索引。参与双方先加入既有pending集合，后续worker跳过其controller tick并冻结物理运动。原`moveTrainForwardFromController`不重复查询；这不是预测本tick位移，也不新增移动意图、任务或等待屏障。每个controller至多一次既有局部索引查询，不扫描全世界列车。查询从worker移到coordinator串行执行，自定义不调用move的controller也先检测既有碰撞；不承诺查询总数或墙钟成本完全不变，实际开销尚未profiling。
 
 检测先检查发起查询列车的内部active脱轨状态。此前决定可能已在本epoch标记脱轨，但published frame仍是旧值；只读published状态会在这段窗口重复派发碰撞。该检查迁移原移动入口最前面的脱轨拒绝语义，内部查询不成为公开API。不能因为查询命中的另一列车已经脱轨就忽略它：它仍是物理障碍，正常列车撞上它仍须冻结/处理；在首个候选返回后直接忽略它还会遮蔽后续候选。事件仍在physics上下文同步派发；主线程结构处理和下一epoch决定语义不变。冻结不执行controller tick，因此不提前消耗其命令或新增该tick的ATO里程，但不会撤销上一碰撞步进已发布的经过事件和里程。
 
@@ -191,13 +191,40 @@ CoreCar 拥有车内和车间几何求解。正常运行时 controller 先移动
 | listener `requestLink()` | pending resolution=`LINK` | 下一epoch owner执行link transaction |
 | worker physics failure | active derail pending | epoch frame flip后queue main derail reason |
 | main `derail(reason)` | reason非blank，await physics后publish | frame后立即Main event，仅一次 |
-| controller reverse奇数request | 本epoch只改direction/geometry | frame先发布，下一epochmovement |
-| even reverse requests | 抵消 | 无direction mutation |
+| controller reverse奇数request | 在帧间owner执行方向准备/安装 | 完整快照及Main事件后完成Future，下一epoch正常movement |
+| 同一待执行操作捕获偶数次reverse | 帧间抵消 | 无direction mutation或额外publication |
 | `destroy()` | deferred完整cleanup | world index最后移除 |
 
 Reverse改变operating head/tail，但保持`Car.direction`的模型/渲染朝向不变。`Car.operatingDirection`是只读派生值，
 表示正的`moveTrainForward`距离对应的当前物理前进方向；换向后它必须翻转，供Basic坡度计算使用。不得把这两个方向
 重新合并成一个字段。exact persisted bogie/head/tail placement restore后重建derived car state。
+
+### 帧间换向（CURRENT，第3a批）
+
+`@MainThread fun CoreTrain.reverse(): Unit`保持同步语义，由既有`withStructuralMutation`进入协调器帧间作用域：
+在等待exact ticket以前关闭新physics epoch准入，成功等待后才校验仍是world登记的同一列车并执行换向。
+控制器异步请求复用该同步apply入口，不保留worker中的`reverseFromPhysics/preparePhysicsTick`路径。
+注解和现有guard不改变线程分类；本批不新增停车或运营准入规则。
+
+写入前要求当前所有列车frame属于协调器捕获的已完成epoch。创建/维护摆位尚未完成统一迁移，
+例如运行中world为epoch2而新建列车仍为epoch0时，换向先明确拒绝，方向、frame和world快照均不变，协调器保持RUNNING；
+不能为了完成换向把world epoch倒退，或写入后才发现无法形成一致世界帧。这个过渡缺口仍归后续第4批。
+
+准备复用解编已有的方向变换：捕获当前完整frame的head、tail、有序body路径及车身占用，
+预先反向表示车端/路径、计算所有bogie的反向位置并生成新frame；随后一次安装。
+不沿当前反向道岔重新找车端，不改变稳定车厢顺序、安装朝向或模型方向。
+准备失败发生在原列车写入之前；保留controller及其标量speed/命令，本次car/bogie运动清零，下一正常physics tick按新方向继续控制。
+
+安装后立即用现有构建器重建共享occupancy并发布同一已完成physics epoch的world frame，再同步通知`TrainSwitchDirectionEvent`。
+因此监听器及Future成功都能观察到同一方向的train/world/occupancy，旧不可变frame仍保持原值。
+不分配假physics epoch、不增加schema/revision类型、不重跑signal processor。安装后若共享发布失败，
+沿用协调器Stall使后续physics不能继续，不把已写入状态当作普通无副作用拒绝；没有通用副作用回滚。
+
+每次实际换向准备成本随该编组车厢及路径长度增长，另承担一次低频全world span/bucket重建；
+多列车在同一宿主tick实际换向会各自重建，普通tick和抵消请求没有这项额外扫描。
+本批选择同步一致通知，而不新增批量dirty tracker和延迟通知队列；其它维护编辑的批量发布仍留给后续批次。
+应验证请求尚未执行时方向不变、偶数抵消、旧controller拒绝、真实worker下一步立即按新方向运动，以及监听器看到一致发布。
+错误做法是只替换train frame、保留旧world occupancy，或先改方向再进行可能失败的车端寻路。
 
 ## 项目内正确示例
 

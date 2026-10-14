@@ -36,7 +36,7 @@ fixture使用JOML构造测试几何时，Core以`testFixturesImplementation`声�
 | physics | exact ticket epoch、before/after publication、delta单位/clamp、failure→Stall、finally close |
 | thread | wrong thread fail-fast；annotation本身不调度；marker lexical cleanup |
 | curve/topology | AB/BA、endpoint/frame、turnout、body occupancy、transaction reader、rollback |
-| train | head/tail/bogie/car spacing、reverse own epoch、collision next epoch、destroy全cleanup |
+| train | head/tail/bogie/car spacing、reverse owner boundary、collision next epoch、destroy全cleanup |
 | render | value-only、defensive copy、revision stale、coalesce/capacity、无live补读 |
 | event/global registry | handler顺序/failure、token close、test后无registration、slot不依赖order |
 | persistence | hand-written fixed JSON、strict unknown/future、orphan/duplicate、failure无partial state |
@@ -51,11 +51,11 @@ fixture使用JOML构造测试几何时，Core以`testFixturesImplementation`声�
 | world materialization失败 | 无partial registered train | close created resources |
 | concurrent barrier | latch/future确定时序；锁阻塞测试证明具体线程已进入对应锁队列 | 不用固定sleep或仅凭task started猜测 |
 
-实际行为回归由`TrainUniformMotionTest`等待真实`stepSimulation`的exact ticket后验证head/tail/每车published frame的位移和速度；50 ms用例必须把m/s换算成实际位移并检查每个car/bogie frame，而不只检查controller/train标量speed。停止/解除controller的下一epoch必须证明上一epoch非零速度已清除；换向用例先验证只换向epoch的空traversal/零速度，再验证下一移动epoch按新rail facing tangent发布反号速度；曲线用例检查bogie切线、刚体chord与角速度，distance-only placement检查不会继承旧速度。不能以local累加值或live field充当frame actual。`CoreTrainDerailEventTest`从真实尽头行驶失败触发coordinator发布/排队，先检查physics完成但main尚未drain时无事件，再检查重复drain及下一idle epoch仍只一次。listener内记录值、断言放在listener外，避免总线异常隔离吞掉assertion。`ImmutableSnapshotTest`捕获后实际改变live对象位置/lifecycle和列车摆位，再验证旧值不变。
+实际行为回归由`TrainUniformMotionTest`等待真实`stepSimulation`的exact ticket后验证head/tail/每车published frame的位移和速度；50 ms用例必须把m/s换算成实际位移并检查每个car/bogie frame，而不只检查controller/train标量speed。停止/解除controller的下一epoch必须证明上一epoch非零速度已清除；换向用例先验证帧间操作完成后的空traversal/零车体速度，再验证紧随的移动epoch按新rail facing tangent发布反号速度，不插入仅换向的物理epoch；曲线用例检查bogie切线、刚体chord与角速度，distance-only placement检查不会继承旧速度。不能以local累加值或live field充当frame actual。`CoreTrainDerailEventTest`从真实尽头行驶失败触发coordinator发布/排队，先检查physics完成但main尚未drain时无事件，再检查重复drain及下一idle epoch仍只一次。listener内记录值、断言放在listener外，避免总线异常隔离吞掉assertion。`ImmutableSnapshotTest`捕获后实际改变live对象位置/lifecycle和列车摆位，再验证旧值不变。
 
 `CoreTrainAsymmetricTurnoutTest`的移动回归必须等待真实coordinator ticket，再从同一已发布epoch检查车头、车尾、body traversal和脱轨状态；不能在`moveTrainForward`之后、`commit`之前读取旧公开值。重复移动还要在每个已发布epoch验证车尾端与已解算转向架重新锚定，并在最终epoch检查累计实际位移。`CoreTrainMultiCarDiagnosticTest`只使用公开列车/car/frame状态：command-style relocation先证明commit前不可见、maintenance publication后出现固定fixture位置，再通过真实50 ms epoch验证两车都前移且固定编组间距保持。默认offset用fixture的明确数值断言，不以被测公式生成expected，也不反射`CommitBuffer`。
 
-`CoreTrainPublicationBoundaryTest`的reverse/derail回归分别观察pending mutation、`publishPhysicsState`翻转live buffer和`publishFrame`替换atomic frame三步：前两步保留原frame identity，最后一步检查新revision、传入epoch及方向/脱轨值，同时保留旧frame验证不变。`commit`必须同时推进buffer与frame且保持最近physics epoch。运营换向交换车头/车尾及rail facing，但保留车厢稳定物理渲染方向；脱轨reason属于live API，当前frame只有`derailed`，不能假设frame携带reason。这里直接验证内部发布原语，coordinator真实epoch与事件排队由已有集成回归负责。
+`CoreTrainPublicationBoundaryTest`的reverse回归观察请求排队时live方向及immutable frame均不变，owner执行后新revision、同一已完成epoch及方向一起发布，同时保留旧frame验证不变；不再调用已删除的worker换向原语。derail回归仍观察pending mutation、`publishPhysicsState`翻转live buffer和`publishFrame`替换atomic frame三步。`commit`必须同时推进buffer与frame且保持最近physics epoch。运营换向交换车头/车尾及rail facing，但保留车厢稳定物理渲染方向；脱轨reason属于live API，当前frame只有`derailed`，不能假设frame携带reason。`BetweenFramesOperationsTest`另用真实coordinator检查换向事件在owner线程看到一致train/world/occupancy、下一epoch直接运动、偶数抵消、取消一个Future副本不影响其他请求，以及旧controller和shutdown拒绝。
 
 `TrainUniformMotionTest`六组环线参数化用例保留R30/60/100/200/500的两节10m编组和R100的五节20m编组，使用0.1m采样的四段顺切圆轨。每个50ms真实epoch后，用固定fixture起点及速度积分独立计算解析圆周车头位置，实际值从同epoch发布位置读取；另累计发布的`headTraversal`验证跨接缝里程及完成两圈，不以本地累加量同时作为expected/actual。各车轴距和零长车钩约束按fixture固定几何检查，不能把曲线车体中心速度误当作领转向架沿轨速度。0.1m采样在最小R30上的弦插值径向误差约0.042mm，小于既有5mm位置容差；此步长只属于测试，不修改生产默认精度。测试正常和异常退出均按physics→binding→tick释放，setup失败也关闭已创建的coordinator。
 

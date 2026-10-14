@@ -6,10 +6,13 @@ import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+import java.util.concurrent.TimeUnit
 
 class CoreTrainPublicationBoundaryTest {
     @Test
@@ -130,16 +133,17 @@ class CoreTrainPublicationBoundaryTest {
     }
 
     @Test
-    fun `physics reverse remains private until train state is published`() = withWorld { world ->
+    fun `queued reverse remains private until owner applies coherent state`() = withWorld { world ->
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
         val train = createTrainWithConfig("reverse-publication", rail, world, listOf(10.0))
         val oldFrame = train.publishedFrame
         val oldCar = oldFrame.cars.single()
         val publishedHead = train.headLocation
         val publishedTail = train.tailLocation
-        val nextEpoch = oldFrame.physicsEpoch + 1L
+        val controller = object : TrainController(train, world) {}
+        train.setController(controller)
 
-        train.reverseFromPhysics()
+        val reversed = controller.reverse()
 
         assertFalse(train.isReversed)
         assertFalse(train.cars.single().isReversed)
@@ -150,23 +154,24 @@ class CoreTrainPublicationBoundaryTest {
         assertEquals(RailPositionSnapshot(rail.id, ViewDirection.AB, 20.0), oldFrame.head)
         assertEquals(RailPositionSnapshot(rail.id, ViewDirection.AB, 10.0), oldFrame.tail)
 
-        train.publishPhysicsState()
+        IsolatedSimulationThreadMarker.run {
+            world.physicsCoordinator.processBetweenFrames { world.physicsCoordinator.drainBetweenFramesOperations() }
+        }
+        reversed.get(5, TimeUnit.SECONDS)
 
         assertTrue(train.isReversed)
         assertTrue(train.cars.single().isReversed)
         assertEquals(publishedTail.position, train.headLocation.position)
         assertEquals(publishedHead.position, train.tailLocation.position)
-        // Buffer publication changes live getters; the atomic immutable frame has its own boundary.
-        assertSame(oldFrame, train.publishedFrame)
         assertFalse(oldFrame.reversed)
         assertEquals(ViewDirection.AB, oldFrame.head.facing)
 
-        val reversedFrame = train.publishFrame(nextEpoch)
+        val reversedFrame = train.publishedFrame
 
         assertSame(reversedFrame, train.publishedFrame)
         assertNotSame(oldFrame, reversedFrame)
         assertEquals(oldFrame.revision + 1L, reversedFrame.revision)
-        assertEquals(nextEpoch, reversedFrame.physicsEpoch)
+        assertEquals(oldFrame.physicsEpoch, reversedFrame.physicsEpoch)
         assertTrue(reversedFrame.reversed)
         assertFalse(reversedFrame.derailed)
         assertEquals(RailPositionSnapshot(rail.id, ViewDirection.BA, 10.0), reversedFrame.head)
@@ -185,13 +190,16 @@ class CoreTrainPublicationBoundaryTest {
         assertTrue(reversedFrame.tailTraversal.isEmpty())
         assertEquals(ViewDirection.BA, reversedFrame.bodyTraversal.single().facing)
 
-        train.reverseFromPhysics()
+        val restored = controller.reverse()
         assertSame(reversedFrame, train.publishedFrame)
-        train.commit()
+        IsolatedSimulationThreadMarker.run {
+            world.physicsCoordinator.processBetweenFrames { world.physicsCoordinator.drainBetweenFramesOperations() }
+        }
+        restored.get(5, TimeUnit.SECONDS)
 
         val restoredFrame = train.publishedFrame
         assertEquals(reversedFrame.revision + 1L, restoredFrame.revision)
-        assertEquals(nextEpoch, restoredFrame.physicsEpoch, "command commit retains the last physics epoch")
+        assertEquals(oldFrame.physicsEpoch, restoredFrame.physicsEpoch, "owner reversal retains the last physics epoch")
         assertFalse(restoredFrame.reversed)
         assertEquals(oldFrame.head, restoredFrame.head)
         assertEquals(oldFrame.tail, restoredFrame.tail)

@@ -129,17 +129,15 @@ open class CoreTrain @MainThread internal constructor(
         get() = derailStateBuffer.get().reason
 
     private val reversedBuffer = CommitBuffer(initialReversed)
-    private var reversedPhysicsDirty = false
     override var isReversed: Boolean
         get() = reversedBuffer.get()
         protected set(value) {
             reversedBuffer.set(value)
             reversedBuffer.commit()
             reversedBuffer.set(value)
-            reversedPhysicsDirty = false
         }
     private val activeIsReversed: Boolean
-        get() = if (reversedPhysicsDirty) reversedBuffer.getActive() else reversedBuffer.get()
+        get() = isReversed
     override val length
         get() = cars.size
     var head: TrainEnd
@@ -617,25 +615,31 @@ open class CoreTrain @MainThread internal constructor(
     @MainThread
     override fun reverse() {
         ThreadGuard.ensureMainThread("CoreTrain.reverse")
-        reverseOnMainThread()
-        publishPhysicsState()
-        publishMetadataFrame()
-        MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
-    }
-
-    internal fun reverseFromPhysics() {
-        reversedBuffer.set(!activeIsReversed)
-        reversedPhysicsDirty = true
-        cars.forEach(CoreCar::reverseFromPhysics)
-        head.location = activeHeadBogie.activeLocation.forward(
-            activeHeadCar.activeHeadBogieToEndPointOffset
-        ) ?: throw CannotMoveForwardException(this)
-        tail.location = activeTailBogie.activeLocation.forward(
-            -activeTailCar.activeTailBogieToEndPointOffset
-        ) ?: throw CannotMoveForwardException(this)
-        // Direction reversal is published as a movement-free epoch.
-        updateActiveMotion(0.0)
-        world.tickManager.scheduleMainThreadPostTickTask {
+        world.physicsCoordinator.withStructuralMutation {
+            check(world.getTrain(id) === this) { "Cannot reverse a retired train '$id'" }
+            val epoch = world.physicsCoordinator.captureCurrentTicket().epoch
+            check(world.allTrains.all { it.publishedFrame.physicsEpoch == epoch }) {
+                "Cannot reverse before all train frames belong to completed epoch $epoch"
+            }
+            val geometry = PreparedSplitGeometry(
+                cars, head.location, tail.location,
+                publishedPlacementIntervals.map { interval ->
+                    SweptRailSpan(id, interval.railId, interval.minArcLengthInAbMeters, interval.maxArcLengthInAbMeters)
+                },
+                publishedPlacementIntervals, publishedBodyTraversal
+            )
+            val prepared = prepareSplit(
+                geometry, !isReversed, id, name, frameRevision.get() + 1L,
+                speed, isDerailed, clearMotion = true
+            )
+            try {
+                applyPreparedSplit(prepared)
+                // Reuse normal builders for this low-frequency edit; no new epoch or signal pass.
+                world.rebuildSweptOccupancyIndex(epoch)
+                world.publishWorldFrame(epoch)
+            } catch (failure: Throwable) {
+                throw world.physicsCoordinator.stall("Train reversal publication failed: train=$id", failure)
+            }
             MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
         }
     }
@@ -930,10 +934,6 @@ open class CoreTrain @MainThread internal constructor(
         cars.forEach { it.publishPhysicsState() }
         head.publishPhysicsState()
         tail.publishPhysicsState()
-        if (reversedPhysicsDirty) {
-            reversedBuffer.commit()
-            reversedPhysicsDirty = false
-        }
         val shouldRemoveController = synchronized(derailStateLock) {
             if (derailPhysicsDirty) {
                 derailStateBuffer.commit()

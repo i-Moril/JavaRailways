@@ -520,8 +520,15 @@ object TrainCommand {
             return true
         }
 
-        controller.reverse()
-        sender.sendMessage("列车已换向")
+        controller.reverse().whenComplete { _, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                if (failure == null) {
+                    sender.sendMessage("列车已换向")
+                } else {
+                    sender.sendMessage("换向失败: ${failure.cause?.message ?: failure.message}")
+                }
+            })
+        }
         return true
     }
 

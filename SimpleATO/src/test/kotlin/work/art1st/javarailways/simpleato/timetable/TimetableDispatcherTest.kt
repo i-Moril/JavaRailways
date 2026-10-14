@@ -75,6 +75,58 @@ import kotlin.math.PI
 
 class TimetableDispatcherTest {
     @Test
+    fun `terminal completion upgrades selected rail guard before resource collection and rolls back on upgrade failure`() {
+        for (denyUpgrade in listOf(false, true)) {
+            val world = createTestWorld().also(worlds::add)
+            val data = BasicWorldData()
+            TestSimpleATOWorldDataRegistry.register(world, data)
+            val first = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(50.0, 0.0, 0.0))
+            val second = rail(world, Vector3d(50.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
+            val train = createTrainWithConfig("T1", first, world, listOf(10.0))
+            data.wayPoints.add(WayPoint("A", "A", first.id, train.head.location.arcLength))
+            data.wayPoints.add(WayPoint("B", "B", first.id, 30.0))
+            world.simpleAtoWorldData.timetables.add(timetable("completed", "s1", train.id, "A", "B"))
+            val plans = RecordingInfrastructureDependencyService()
+            val service = object : InfrastructureDependencyService {
+                override fun set(request: InfrastructureDependencyRequest): InfrastructureDependencyMutationResult {
+                    if (denyUpgrade && second.id in request.dependencies.railIds) return InfrastructureDependencyMutationResult(
+                        InfrastructureDependencyMutationStatus.EDIT_IN_PROGRESS, "test expanded guard refusal")
+                    return plans.set(request)
+                }
+                override fun remove(owner: InfrastructureOwner) = plans.remove(owner)
+            }
+            var collected = false
+            val inspection = emptyInspectionRuntime()
+            inspection.replaceSources(listOf(InspectionSource("test:terminal", { error("no live train") }, { emptyList() },
+                { completed ->
+                    collected = true
+                    assertEquals(setOf(first.id, second.id), plans.applied.values.single().dependencies.railIds)
+                    assertEquals(second.id, completed.segments.last().railId)
+                    emptyList()
+                }, { selected ->
+                    assertEquals(setOf(first.id), plans.applied.values.single().dependencies.railIds)
+                    val end = selected.segments.last()
+                    listOf(work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot(
+                        first.id, ViewDirection.AB, end.endArcLengthMeters, 50.0),
+                        work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot(
+                            second.id, ViewDirection.AB, 0.0, 20.0))
+                })))
+            val dispatcher = dispatcher(service, inspection)
+            val result = world.onOwnerForTest { dispatcher.beginTimetable(world, "completed") }
+            if (denyUpgrade) {
+                assertTrue(result is TimetableEpochStartResult.Failure)
+                assertFalse(collected, "resource callbacks cannot run without the extended rail guard")
+                assertTrue(plans.applied.isEmpty(), "failed first apply must remove its original guard")
+            } else {
+                assertTrue(result is TimetableEpochStartResult.Started)
+                assertTrue(collected)
+                assertEquals(setOf(first.id, second.id), plans.applied.values.single().dependencies.railIds)
+            }
+        }
+    }
+
+    @Test
     fun `apply merges plugin resources and failed replacement keeps old dependencies and clock`() {
         val world = createTestWorld().also(worlds::add)
         val data = BasicWorldData()
@@ -102,7 +154,14 @@ class TimetableDispatcherTest {
                 if (fail) assertEquals(setOf(token), plans.applied.values.single().dependencies.resourceIds,
                     "the guard retains the previous signal resources")
                 if (fail) error("stale block definitions")
+                assertEquals(origin + 30.0, selected.segments.last().endArcLengthMeters, 1.0e-9)
                 resources
+            }, terminalRouteContinuation = { selected ->
+                assertEquals(setOf(rail.id), plans.applied.values.single().dependencies.railIds,
+                    "the selected physical route must be guarded before plugin geometry is read")
+                val end = selected.segments.last()
+                listOf(work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot(
+                    rail.id, end.facing, end.endArcLengthMeters, end.endArcLengthMeters + 10.0))
             })))
         val dispatcher = dispatcher(plans, inspection)
         assertTrue(TimetableValidator(world).validate(world.simpleAtoWorldData.timetables["tt-signal"]!!).isSuccess)

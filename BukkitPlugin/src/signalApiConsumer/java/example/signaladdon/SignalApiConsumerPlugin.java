@@ -282,7 +282,8 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                             List.of()
                         ));
                     },
-                    route -> List.of(new StableInfrastructureResource("example.signaladdon:signal", "home"))
+                    route -> List.of(new StableInfrastructureResource("example.signaladdon:signal", "home")),
+                    route -> List.of()
                 ))
             );
             services.routePlanningSources().replaceRoutePlanningSources(
@@ -460,7 +461,8 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                     "example.signaladdon:slow-section/visit-0", 10.0, 20.0 / 3.6, route.getTotalLengthMeters())
             )),
             List.of(new InspectionEntryClearance(declaration.getDeclarationId(), 80.0, 90.0,
-                List.of(new InspectionRestrictionIdentity("example.signaladdon:main", "example.signaladdon:home-red"))))
+                List.of(new InspectionRestrictionIdentity("example.signaladdon:main", "example.signaladdon:home-red")))),
+            List.of()
         );
     }
 

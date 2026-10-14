@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simpleato.api.inspection
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.simpleato.api.NAMESPACED_SIMPLE_ATO_ID
@@ -46,6 +47,18 @@ fun interface InspectionRouteDependencyProvider {
 }
 
 /**
+ * Supplies the physical continuation required after an operational endpoint, not movement authority.
+ *
+ * Called once for an admission candidate (and during static timetable preparation), against the
+ * original selected route. Implementations read immutable geometry, validate its topology binding,
+ * and return directed segments starting exactly at its endpoint. No live train, claim or signal
+ * aspect is involved. The host reconciles sources; Basic independently validates the complete path.
+ */
+fun interface InspectionRouteContinuationProvider {
+    fun continuation(route: RouteSnapshot): Collection<RouteSegmentSnapshot>
+}
+
+/**
  * One independently implemented inspection source.
  *
  * [bindingProvider] is called only for a new train/route binding or an atomic source replacement;
@@ -59,7 +72,9 @@ data class InspectionSource(
     val bindingProvider: InspectionBindingProvider,
     val updateHandler: InspectionUpdateHandler,
     val routeInfrastructureDependencies: InspectionRouteDependencyProvider =
-        InspectionRouteDependencyProvider { emptyList() }
+        InspectionRouteDependencyProvider { emptyList() },
+    val terminalRouteContinuation: InspectionRouteContinuationProvider =
+        InspectionRouteContinuationProvider { emptyList() }
 ) {
     init {
         require(NAMESPACED_SIMPLE_ATO_ID.matches(sourceId)) { "sourceId must be namespaced" }

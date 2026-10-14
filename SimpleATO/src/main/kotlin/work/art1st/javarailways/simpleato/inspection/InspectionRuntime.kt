@@ -15,6 +15,7 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublic
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapshot
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
+import work.art1st.javarailways.simpleato.routing.DirectedRouteContinuation
 import java.util.TreeMap
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.ConcurrentHashMap
@@ -102,6 +103,32 @@ class InspectionRuntime(
                 routesByRail.computeIfPresent(rail) { _, routes -> (routes - route).takeIf { it.isNotEmpty() } }
             }
         }
+    }
+
+    /** Low-frequency geometry completion; each source sees the same original route exactly once. */
+    fun completeTerminalRoute(route: RouteSnapshot): RouteSnapshot {
+        val sources = sourcesById
+        var suffix = emptyList<work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot>()
+        sources.values.forEach { source ->
+            try {
+                val candidate = java.util.List.copyOf(source.terminalRouteContinuation.continuation(route))
+                if (candidate.isNotEmpty()) {
+                    require(candidate.all { it.lengthMeters > 0.0 }) { "continuation contains an empty segment" }
+                    val end = requireNotNull(route.segments.lastOrNull()) { "cannot extend an empty route" }
+                    val start = candidate.first()
+                    require(end.railId != start.railId || (end.facing == start.facing &&
+                        kotlin.math.abs(end.endArcLengthMeters - start.startArcLengthMeters) <= 1.0e-6)
+                    ) { "continuation does not start at the selected endpoint" }
+                    val unmatched = DirectedRouteContinuation.unmatchedSuffix(suffix, candidate)
+                    if (unmatched.isNotEmpty()) suffix = suffix + unmatched
+                }
+            } catch (failure: Exception) {
+                throw IllegalArgumentException("inspection source ${source.sourceId} could not complete route " +
+                    "${route.routeId}: ${failure.message ?: failure.javaClass.name}", failure)
+            }
+        }
+        return if (suffix.isEmpty()) route else RouteSnapshot(route.routeId, route.revision,
+            route.topologyRevision, route.segments + suffix)
     }
 
     /** Collects static edit references without creating train bindings or publishing restrictions. */

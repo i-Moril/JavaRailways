@@ -1,4 +1,6 @@
 {"file":".trellis/spec/javarailways/shared/versioning.md","reason":"Publication baseline is mandatory before any version change; unpublished formats keep their agreed version"}
+{"file":".trellis/spec/javarailways/simpleato/terminal-route-completion.md","reason":"Approved separation: real full-section route/grant, original operational stop, existing InspectionSource lifecycle, exact suffix reuse and no blanket brake rewrite"}
+{"file":".trellis/tasks/09-18-signal-addon-implementation/research/fixed-block-authority-stop-separation.md","reason":"Source-grounded minimal completion seam, start-inside floor, append/reversal and dependency pitfalls"}
 {"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Per-entry rules, shared occupancy/resource and direction identity; version decisions follow the shared publication gate"}
 {"file":".trellis/tasks/09-18-signal-addon-implementation/research/directional-fixed-block-signals.md","reason":"Exact source map, mixed graph and consumer audit; preserve deletion/revalidation contracts"}
 {"file":".trellis/spec/simple-signals/backend/index.md","reason":"Existing configurable rules, atomic publication, current-only persistence and plugin isolation"}

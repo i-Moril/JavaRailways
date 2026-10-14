@@ -63,10 +63,20 @@ internal class CompiledInspectionBinding private constructor(
             }
             val occurrences = ArrayList<RouteOccurrence>(route.segments.size)
             var routeDistance = 0.0
-            route.segments.forEach { segment ->
+            route.segments.forEachIndexed { index, segment ->
                 val start = routeDistance
                 routeDistance += segment.lengthMeters
-                occurrences += RouteOccurrence(segment.railId, segment.facing, start, routeDistance)
+                val previous = route.segments.getOrNull(index - 1)
+                if (previous != null && previous.railId == segment.railId && previous.facing == segment.facing &&
+                    kotlin.math.abs(previous.endArcLengthMeters - segment.startArcLengthMeters) <= ROUTE_DISTANCE_EPSILON_METERS
+                ) {
+                    // Append-only authorization keeps segment boundaries stable. Such a split is
+                    // still one directed rail visit, not two ambiguous signal occurrences.
+                    val occurrence = occurrences.last()
+                    occurrences[occurrences.lastIndex] = occurrence.copy(endRouteDistanceMeters = routeDistance)
+                } else {
+                    occurrences += RouteOccurrence(segment.railId, segment.facing, start, routeDistance)
+                }
             }
             val cumulativeStarts = occurrences.map(RouteOccurrence::startRouteDistanceMeters).toDoubleArray()
 
@@ -88,6 +98,9 @@ internal class CompiledInspectionBinding private constructor(
                             declaration.declarationId
                         )
                     }
+                } + binding.authorityRequestFloors.mapIndexed { index, floor ->
+                    AuthorityRequestFloor(floor.triggerRouteDistanceMeters, floor.minimumEndRouteDistanceMeters,
+                        "${binding.sourceId}/request-floor/$index")
                 }.sortedWith(
                     compareBy(AuthorityRequestFloor::triggerRouteDistanceMeters)
                         .thenBy(AuthorityRequestFloor::declarationId)

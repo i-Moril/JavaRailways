@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simpleato.routing
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.simpleato.api.mission.AtoMission
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionLeg
@@ -28,6 +29,89 @@ import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import java.util.UUID
 
 class FrozenMissionRouteAssemblerTest {
+    @Test
+    fun `continuation preserves repeated rail occurrence and rejects changed geometry inside its suffix`() {
+        val first = UUID(0L, 43L)
+        val second = UUID(0L, 44L)
+        val topology = buildTestTopology(16L, listOf(TestTopologyRail(first, 100.0), TestTopologyRail(second, 100.0)),
+            mapOf(RailEndpointRef(first, RailEndpoint.B) to setOf(RailEndpointRef(second, RailEndpoint.A)),
+                RailEndpointRef(second, RailEndpoint.A) to setOf(RailEndpointRef(first, RailEndpoint.B)),
+                RailEndpointRef(second, RailEndpoint.B) to setOf(RailEndpointRef(first, RailEndpoint.A)),
+                RailEndpointRef(first, RailEndpoint.A) to setOf(RailEndpointRef(second, RailEndpoint.B))))
+        val observed = observation(topology.revision,
+            RailPositionSnapshot(first, ViewDirection.AB, 15.0), RailPositionSnapshot(first, ViewDirection.AB, 25.0),
+            listOf(traversal(first, ViewDirection.AB, 15.0, 25.0)))
+        val existing = FrozenMissionRoute(FrozenRouteSelectionResult.Selected(TRAIN_ID, observed.stamp,
+            RouteSnapshot("loop", 1L, topology.revision, listOf(
+                RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 100.0),
+                RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 100.0),
+                RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 80.0)))), 10.0, 0.0, 225.0)
+        val appended = (FrozenMissionRouteAssembler.append(topology, FrozenRouteSelectionContext(observed), existing,
+            mission(listOf(RouteSegment(RailViewRef(first, ViewDirection.AB), 25.0, 50.0))), 0.0)
+            as FrozenMissionRouteResult.Frozen).route
+        assertEquals(225.0, appended.routeProgressMeters(0.0))
+        assertEquals(250.0, appended.operationalEndRouteDistanceMeters)
+        assertEquals(existing.selection.route, appended.selection.route)
+        val divergent = FrozenMissionRouteAssembler.append(topology, FrozenRouteSelectionContext(observed), existing,
+            mission(listOf(RouteSegment(RailViewRef(first, ViewDirection.AB), 25.0, 40.0),
+                RouteSegment(RailViewRef(second, ViewDirection.AB), 0.0, 50.0))), 0.0)
+        assertEquals(FrozenMissionRouteRejection.INVALID_MISSION, (divergent as FrozenMissionRouteResult.Rejected).reason)
+    }
+
+    @Test
+    fun `BA continuation on multiple rails preserves physical prefix and operational end independently`() {
+        val first = UUID(0L, 45L)
+        val second = UUID(0L, 46L)
+        val topology = buildTestTopology(17L, listOf(TestTopologyRail(first, 100.0), TestTopologyRail(second, 100.0)),
+            mapOf(RailEndpointRef(second, RailEndpoint.A) to setOf(RailEndpointRef(first, RailEndpoint.B)),
+                RailEndpointRef(first, RailEndpoint.B) to setOf(RailEndpointRef(second, RailEndpoint.A))))
+        val observed = observation(topology.revision,
+            RailPositionSnapshot(first, ViewDirection.BA, 60.0), RailPositionSnapshot(first, ViewDirection.BA, 50.0),
+            listOf(traversal(first, ViewDirection.BA, 60.0, 50.0)))
+        val existing = FrozenMissionRoute(FrozenRouteSelectionResult.Selected(TRAIN_ID, observed.stamp,
+            RouteSnapshot("reverse", 1L, topology.revision, listOf(
+                RouteSegmentSnapshot(second, ViewDirection.BA, 10.0, 100.0),
+                RouteSegmentSnapshot(first, ViewDirection.BA, 0.0, 80.0)))), 10.0, 0.0, 140.0)
+        val appended = (FrozenMissionRouteAssembler.append(topology, FrozenRouteSelectionContext(observed), existing,
+            mission(listOf(RouteSegment(RailViewRef(first, ViewDirection.BA), 50.0, 90.0))), 0.0)
+            as FrozenMissionRouteResult.Frozen).route
+        assertEquals(existing.selection.route.segments, appended.selection.route.segments.take(2))
+        assertEquals(180.0, appended.operationalEndRouteDistanceMeters)
+        assertEquals(180.0, appended.selection.route.totalLengthMeters)
+        assertEquals(140.322, appended.physicalHeadProgressMeters(topology,
+            RailPositionSnapshot(first, ViewDirection.BA, 49.678), 140.0)!!, 1.0e-9)
+        assertNull(appended.physicalHeadProgressMeters(topology,
+            RailPositionSnapshot(first, ViewDirection.BA, 9.0), 180.0), "the physical endpoint is not extrapolated")
+        assertNull(appended.physicalHeadProgressMeters(topology,
+            RailPositionSnapshot(first, ViewDirection.AB, 50.0), 140.0), "opposite-facing geometry is not a continuation")
+    }
+
+    @Test
+    fun `next mission reuses an exact frozen terminal suffix both within and beyond it`() {
+        val rail = UUID(0L, 42L)
+        val topology = buildTestTopology(15L, listOf(TestTopologyRail(rail, 240.0)), emptyMap())
+        val observed = observation(topology.revision,
+            RailPositionSnapshot(rail, ViewDirection.AB, 90.0),
+            RailPositionSnapshot(rail, ViewDirection.AB, 100.0),
+            listOf(traversal(rail, ViewDirection.AB, 90.0, 100.0)))
+        val original = FrozenMissionRoute(FrozenRouteSelectionResult.Selected(TRAIN_ID, observed.stamp,
+            RouteSnapshot("operating", 1L, topology.revision,
+                listOf(RouteSegmentSnapshot(rail, ViewDirection.AB, 10.0, 100.0),
+                    RouteSegmentSnapshot(rail, ViewDirection.AB, 100.0, 140.0)))),
+            10.0, 0.0, operationalEndRouteDistanceMeters = 90.0)
+        for (target in listOf(120.0, 180.0)) {
+            val next = mission(listOf(RouteSegment(RailViewRef(rail, ViewDirection.AB), 100.0, target)),
+                "next", 2L)
+            val appended = (FrozenMissionRouteAssembler.append(topology, FrozenRouteSelectionContext(observed),
+                original, next, 0.322) as FrozenMissionRouteResult.Frozen).route
+            assertEquals(original.selection.route.segments,
+                appended.selection.route.segments.take(original.selection.route.segments.size))
+            assertEquals(maxOf(140.0, target) - 10.0, appended.selection.route.totalLengthMeters, 1.0e-9)
+            assertEquals(target - 10.0, appended.operationalEndRouteDistanceMeters, 1.0e-9)
+            assertEquals(90.322, appended.routeProgressMeters(0.322), 1.0e-9)
+        }
+    }
+
     @Test
     fun `ordinary stop appends a separately revisioned mission without changing the route prefix`() {
         val rail = UUID(0L, 40L)

@@ -4,6 +4,7 @@ import work.art1st.javarailways.simpleato.api.mission.AtoMission
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import kotlin.math.abs
@@ -21,7 +22,9 @@ private const val POSITION_TOLERANCE_METERS = 0.5
 internal data class FrozenMissionRoute(
     val selection: FrozenRouteSelectionResult.Selected,
     val headDistanceFromRouteStartMeters: Double,
-    val missionHeadProgressAtSelectionMeters: Double
+    val missionHeadProgressAtSelectionMeters: Double,
+    /** Recorded occurrence of the operating stop, independent of the physical authorization end. */
+    val operationalEndRouteDistanceMeters: Double = selection.route.totalLengthMeters
 ) {
     fun routeProgressMeters(missionHeadProgressMeters: Double): Double {
         require(missionHeadProgressMeters.isFinite()) { "mission progress must be finite" }
@@ -32,6 +35,40 @@ internal data class FrozenMissionRoute(
             missionHeadProgressMeters - missionHeadProgressAtSelectionMeters)
             .coerceIn(0.0, selection.route.totalLengthMeters)
     }
+
+    /** Projects the actual head within the complete physical path, retaining operating-stop error. */
+    fun physicalHeadProgressMeters(topology: TopologyState, head: RailPositionSnapshot,
+        expectedProgressMeters: Double): Double? {
+        var start = 0.0
+        var closest: Double? = null
+        selection.route.segments.forEach { segment ->
+            if (head.railId == segment.railId && head.facing == segment.facing) {
+                val rail = topology.railProjection[head.railId]?.singleOrNull() ?: return null
+                val length = abs(rail.railEndAbMeters - rail.railStartAbMeters)
+                val arc = if (head.facing == ViewDirection.AB) head.arcLengthInAbMeters
+                    else length - head.arcLengthInAbMeters
+                if (arc >= segment.startArcLengthMeters - 1.0e-6 &&
+                    arc <= segment.endArcLengthMeters + 1.0e-6
+                ) {
+                    val candidate = start + arc - segment.startArcLengthMeters
+                    val previousClosest = closest
+                    if (previousClosest == null || abs(candidate - expectedProgressMeters) < abs(previousClosest - expectedProgressMeters)) {
+                        closest = candidate
+                    }
+                }
+            }
+            start += segment.lengthMeters
+        }
+        return closest
+    }
+
+    /** Maps a real position on the frozen physical path without clamping it to the operating stop. */
+    fun missionProgressFromPhysicalHead(topology: TopologyState, head: RailPositionSnapshot,
+        previousMissionProgressMeters: Double): Double? =
+        physicalHeadProgressMeters(topology, head, headDistanceFromRouteStartMeters +
+            previousMissionProgressMeters - missionHeadProgressAtSelectionMeters)?.let {
+            it - headDistanceFromRouteStartMeters + missionHeadProgressAtSelectionMeters
+        }
 
 }
 
@@ -214,12 +251,13 @@ internal object FrozenMissionRouteAssembler {
     }
 
     /**
-     * Appends the next forward mission to an already admitted operating route.
+     * Fits the next forward mission onto an already admitted operating route.
      *
-     * The committed segment list is copied verbatim. An ordinary mission whose complete route
-     * starts at the prior route end is appended unchanged. Otherwise, the suffix at
-     * [missionHeadProgressMeters] must start there; this is the reversal case where the prefix from
-     * the operational origin to the new head is already represented by the body-only route.
+     * The committed segment list is preserved verbatim. A normal mission starts at the recorded
+     * operating endpoint, reuses its exact frozen continuation, and adds only genuinely new path.
+     * A mission wholly inside that continuation keeps the physical route and its revision unchanged.
+     * After reversal, the suffix at [missionHeadProgressMeters] instead starts at the body-only
+     * route end: the operating-origin-to-head prefix is already represented by that observed body.
      */
     fun append(
         topology: TopologyState,
@@ -268,7 +306,9 @@ internal object FrozenMissionRouteAssembler {
                 "train ${committed.trainId} progress $missionHeadProgressMeters is outside mission ${mission.id}@${mission.revision}"
             )
         }
-        val committedEnd = committed.route.segments.lastOrNull()
+        val operationalEnd = existing.operationalEndRouteDistanceMeters
+        val committedPrefix = committed.route.segments
+        val committedEnd = endAt(committedPrefix, operationalEnd)
         if (committedEnd == null || missionRoute.segments.isEmpty()) {
             return rejected(
                 FrozenMissionRouteRejection.INVALID_MISSION,
@@ -292,20 +332,40 @@ internal object FrozenMissionRouteAssembler {
             )
         }
 
-        val committedLength = committed.route.totalLengthMeters
-        val appended = RouteSnapshot(
+        val unmatched = try {
+            DirectedRouteContinuation.unmatchedSuffix(
+                DirectedRouteContinuation.after(committedPrefix, operationalEnd), continuation
+            )
+        } catch (failure: IllegalArgumentException) {
+            return rejected(FrozenMissionRouteRejection.INVALID_MISSION,
+                "mission ${mission.id}@${mission.revision} diverges inside the frozen continuation: ${failure.message}")
+        }
+        val appended = if (unmatched.isEmpty()) committed.route else RouteSnapshot(
             routeId = committed.route.routeId,
             revision = committed.route.revision + 1L,
             topologyRevision = topology.revision,
-            segments = committed.route.segments + continuation
+            segments = committedPrefix + unmatched
         )
         return FrozenMissionRouteResult.Frozen(
             FrozenMissionRoute(
                 FrozenRouteSelectionResult.Selected(train.trainId, observation.stamp, appended),
-                committedLength,
-                continuationStartProgress
+                operationalEnd,
+                continuationStartProgress,
+                operationalEnd + missionRoute.totalLengthMeters - continuationStartProgress
             )
         )
+    }
+
+    private fun endAt(segments: List<RouteSegmentSnapshot>, distance: Double): RouteSegmentSnapshot? {
+        var start = 0.0
+        for (segment in segments) {
+            if (distance <= start + segment.lengthMeters + EPSILON) {
+                return segment.copy(endArcLengthMeters = segment.startArcLengthMeters +
+                    (distance - start).coerceIn(0.0, segment.lengthMeters))
+            }
+            start += segment.lengthMeters
+        }
+        return null
     }
 
     private fun missionRouteSnapshot(topology: TopologyState, mission: AtoMission): RouteSnapshot? {

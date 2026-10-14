@@ -52,6 +52,34 @@ internal class RouteAuthorityAdmissionClient(
             )
         } ?: RouteAuthorityAdmissionState.EMPTY
 
+    /**
+     * Projects an already committed prefix onto an append candidate before its rolling extension.
+     * This changes only the controller restriction binding, never Basic's grant or selected path.
+     * Dispatcher must protect both the selected prefix and completed candidate before calling it.
+     */
+    @MainThread
+    fun prepareContinuation(selection: FrozenRouteSelectionResult.Selected) {
+        val current = active ?: return
+        val grant = current.committedGrant ?: return
+        val binding = FrozenRouteBinding.from(selection.route)
+        if (current.restrictionRoute == binding) return
+        check(!current.unsafeFailure && !current.reversalPending && current.pending == null) {
+            "a pending or unsafe admission cannot prepare an operating continuation"
+        }
+        val committed = current.selection.route
+        require(current.matches(selection) &&
+            selection.route.revision > committed.revision &&
+            selection.route.segments.size > committed.segments.size &&
+            selection.route.segments.take(committed.segments.size) == committed.segments
+        ) { "prepared continuation must preserve the exact committed route prefix" }
+        check(kotlin.math.abs(grant.committedAuthority.distanceFromRouteStartMeters -
+            committed.totalLengthMeters) <= COMPLETE_ROUTE_EPSILON_METERS) {
+            "a physical continuation requires authority through the previous route end"
+        }
+        current.restrictionRoute = binding
+        publishAuthority(current, selection.observationStamp, grant.committedAuthority.distanceFromRouteStartMeters)
+    }
+
     /** Requests first authority or a farther boundary on the same frozen route. */
     @MainThread
     fun request(

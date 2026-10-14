@@ -150,6 +150,7 @@ class SimpleATO(
     private data class RestrictionRoute(
         val observationStamp: RailwayStateStamp,
         val binding: FrozenRouteBinding,
+        val frozenRoute: FrozenMissionRoute,
         val missionRevision: Long,
         val headDistanceFromRouteStartMeters: Double,
         val missionHeadProgressAtSelectionMeters: Double,
@@ -256,6 +257,7 @@ class SimpleATO(
         restrictionRoute = RestrictionRoute(
             observationStamp = observationStamp,
             binding = FrozenRouteBinding.from(route.selection.route),
+            frozenRoute = route,
             missionRevision = missionRevision,
             headDistanceFromRouteStartMeters = route.headDistanceFromRouteStartMeters,
             missionHeadProgressAtSelectionMeters = route.missionHeadProgressAtSelectionMeters,
@@ -599,7 +601,7 @@ class SimpleATO(
         val hasClearanceRequirements = restriction?.inspectionBinding?.entryClearances?.sourceIds?.isNotEmpty() == true
         val frame = if (hasClearanceRequirements) train.publishedFrame else null
         missionRouteLayout?.let { layout -> frame?.let {
-            missionProjectedProgressMeters = requireNotNull(layout.project(it.head, missionProjectedProgressMeters))
+            missionProjectedProgressMeters = projectMissionProgress(layout, it.head)
         } }
         val progress = if (hasClearanceRequirements) restriction.let(::restrictionRouteProgress) else null
         val nominalHorizon = routePerceptionHorizonMeters(
@@ -621,9 +623,7 @@ class SimpleATO(
         } ?: nominalHorizon
         val scan = scanRouteAndObjects(horizon)
         missionRouteLayout?.let { layout ->
-            missionProjectedProgressMeters = requireNotNull(
-                layout.project(scan.perception.train.head, missionProjectedProgressMeters)
-            ) { "ATO train head left the active Mission route" }
+            missionProjectedProgressMeters = projectMissionProgress(layout, scan.perception.train.head)
         }
         latestRouteSnapshot = scan.route
         latestPerceptionSnapshot = scan.perception
@@ -685,6 +685,20 @@ class SimpleATO(
     private fun restrictionStamp(route: RestrictionRoute): RailwayStateStamp =
         route.signalSnapshots.completedObservationStamp()
             ?.takeIf { it.physicsEpoch >= route.observationStamp.physicsEpoch } ?: route.observationStamp
+
+    private fun projectMissionProgress(layout: MissionRouteLayout, head: RailPositionSnapshot): Double {
+        layout.project(head, missionProjectedProgressMeters)?.let { return it }
+        val selected = restrictionRoute?.takeIf { it.missionRevision == layout.mission.revision }
+        val progress = selected?.frozenRoute?.missionProgressFromPhysicalHead(world.topologyState, head,
+            missionProjectedProgressMeters ?: missionProgressMeters)
+        check(progress != null) {
+            "ATO train head $head left active Mission ${layout.mission.id}@${layout.mission.revision} " +
+                "and its frozen physical route; previous progress=$missionProjectedProgressMeters"
+        }
+        // An operating stop is a target, not a physical graph boundary. Keep the measured error
+        // when still on its real continuation; existing constraints and Basic grants remain limits.
+        return progress
+    }
 
     private fun restrictionRouteProgress(route: RestrictionRoute): Double =
         if (activeMission?.revision == route.missionRevision) {

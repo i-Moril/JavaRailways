@@ -50,6 +50,31 @@ class RouteAuthorityAdmissionClientTest {
     private val client = client(service, publisher)
 
     @Test
+    fun `prepared continuation republishes only existing prefix and leaves Basic grant unchanged`() {
+        val held = grant(route.totalLengthMeters)
+        service.onRequest = { RouteAdmissionResult.Granted(held) }
+        client.request(route.totalLengthMeters)
+        val next = RouteSnapshot(route.routeId, route.revision + 1L, route.topologyRevision + 1L,
+            route.segments + RouteSegmentSnapshot(UUID(0L, 9L), ViewDirection.AB, 0.0, 60.0))
+        val continued = selection(next).copy(observationStamp = stamp.copy(topologyRevision = next.topologyRevision))
+        client.prepareContinuation(continued)
+        assertEquals(1, service.intents.size, "preparing a restriction binding must not acquire resources")
+        assertEquals(held.committedAuthority, client.state.committedAuthority)
+        assertEquals(FrozenRouteBinding.from(next), publisher.snapshots.last().route)
+        assertEquals(route.totalLengthMeters,
+            (publisher.snapshots.last().restrictions.single() as MovementAuthorityRestriction).routeDistanceMeters)
+        val publications = publisher.snapshots.size
+        client.prepareContinuation(continued)
+        assertEquals(publications, publisher.snapshots.size, "unchanged preparation is not a tick publication")
+        assertThrows(IllegalArgumentException::class.java) {
+            client.prepareContinuation(selection(RouteSnapshot(route.routeId, next.revision + 1L,
+                route.topologyRevision, next.segments.drop(1))))
+        }
+        assertEquals(FrozenRouteBinding.from(next), publisher.snapshots.last().route)
+        assertEquals(1, service.intents.size)
+    }
+
+    @Test
     fun `first immediate grant replaces initial zero authority with committed boundary`() {
         val grant = grant(40.0)
         service.onRequest = { RouteAdmissionResult.Granted(grant) }

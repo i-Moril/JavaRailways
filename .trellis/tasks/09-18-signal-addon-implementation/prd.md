@@ -21,6 +21,10 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 ## Requirements
 
+### 固定闭塞完整授权与运营停车（2026-10-14）
+
+用户确认：固定闭塞的正式物理授权应覆盖信号允许通过的完整区间，不因运营停车点位于内部就截短。停车目标独立保留；完整block token不能代替其余轨道的真实授权。补全、后续任务复用、区间内部起步与停车换向按[终点分离契约](../../spec/javarailways/simpleato/terminal-route-completion.md)实施。不一概删除终点控制补偿，不靠移动停车点、放宽Basic校验或盲加固定余量让测试通过。
+
 ### 信号对照审查后的新决定（2026-10-05）
 
 以下决定取代本文早期的默认进路和共享双向信号结果限制；历史完成记录不代表新行为已经实现。

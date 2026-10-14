@@ -78,6 +78,8 @@ Actual risk: this composition may expose a real resource release/rebase or contr
 
 ### 7. Physical return regression exposes stop overshoot
 
+后续用户纠正：下文保留首次失败的真实记录，但其中“下一批先修动力包络”的优先级已被取代。测试的真实闭塞出口本来就在140米；应先修正授权路线被运营停车点100米截断的问题，实际取得完整区间，再分别判断停车精度与真实授权越界。不能把补齐正式固定闭塞物理授权称为掩盖超调。当前执行合同见[停车目标与授权终点分离](../../../spec/javarailways/simpleato/terminal-route-completion.md)。
+
 Follow-up execution by the main session, after the initial read-only inventory:
 
 - The new `StoppedReturnToDepotIntegrationTest` uses real 50ms Core steps, `HandleTrainActuator`, Dispatcher, Basic admission/registry and the fixed-block policy, not a stationary/scripted actuator. It does not exercise JS aspect evaluation or the live Bukkit host.

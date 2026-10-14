@@ -1,4 +1,5 @@
 {"file":".trellis/spec/javarailways/shared/versioning.md","reason":"Reject version changes without a verified released/frozen baseline; unpublished formats do not gain development generations"}
+{"file":".trellis/spec/javarailways/simpleato/terminal-route-completion.md","reason":"Verify full physical authorization independent of mission stop, suffix reuse, failure atomicity and no second registry/scanner"}
 {"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Verify independent endpoints, missing rule/baseline distinction and stable block identity"}
 {"file":".trellis/tasks/09-18-signal-addon-implementation/research/directional-fixed-block-signals.md","reason":"Verify consumer coverage, mixed geometry and no undeclared widening"}
 {"file":".trellis/spec/simple-signals/backend/index.md","reason":"Verify atomic current persistence, reactive updates and JAR isolation"}

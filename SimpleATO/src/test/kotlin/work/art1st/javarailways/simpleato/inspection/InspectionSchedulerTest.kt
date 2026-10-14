@@ -14,6 +14,20 @@ import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import java.util.UUID
 
 class InspectionSchedulerTest {
+    @Test
+    fun `an append split on one continuous rail remains one declaration occurrence`() {
+        val rail = UUID(0L, 10L)
+        val split = RouteSnapshot("test:split", 1L, 7L, listOf(
+            RouteSegmentSnapshot(rail, ViewDirection.AB, 10.0, 100.0),
+            RouteSegmentSnapshot(rail, ViewDirection.AB, 100.0, 140.0),
+            RouteSegmentSnapshot(rail, ViewDirection.AB, 140.0, 200.0)))
+        val declaration = declaration("test:joint", rail, ViewDirection.AB, 130.0, 0.0)
+        val binding = InspectionDeclarationBinding("test:source", "train", FrozenRouteBinding.from(split),
+            1L, 0L, listOf(declaration))
+        val compiled = CompiledInspectionBinding.compile(binding, split)
+        assertEquals(listOf(declaration), compiled.declarationsBetween(130.0, 130.0))
+    }
+
     private val firstRail = UUID.nameUUIDFromBytes("inspection-first".toByteArray())
     private val secondRail = UUID.nameUUIDFromBytes("inspection-second".toByteArray())
     private val route = RouteSnapshot(

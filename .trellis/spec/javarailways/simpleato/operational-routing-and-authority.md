@@ -84,10 +84,10 @@ restriction、inspection binding、claim和infrastructure dependency仍按各自
 进度到Basic tail-started route-metre的固定偏移。最终连通性和拓扑合法性仍由Basic在线性准入验证中证明。
 
 普通停车点的下一项正向mission不重新从当前车尾建立第二个route owner。Assembler把已提交operating route的segments逐项
-原样保留，只允许从进度0开始把完整的新mission追加到旧末端；route ID保持不变，operating-route revision由旧revision加一，
-不复用各mission彼此独立的revision序列。新mission的route-progress偏移是旧route总长。Long revision溢出、修改旧前缀、
+原样保留，从已记录的运营终点接续新mission；已有信号补全后缀时先精确复用，仅追加真正新增的路径。route ID保持不变；物理路径变长时operating-route revision由旧revision加一，完全容纳的下一mission保持原物理route revision，
+不复用各mission彼此独立的revision序列。新mission的route-progress偏移是已记录的运营终点，不一定是旧物理route总长。Long revision溢出、修改旧前缀、
 无法连接或反向接续均返回typed rejection；最终物理continuation仍由Basic验证。这个append只产生候选value，pending期间
-client和controller继续使用旧route binding，Basic `READY`后才一起切换到新长度与revision。折返本身不使用append：Dispatcher先暂停同一grant的tail release，物理折返发布后立即从新tail到新head构造body-only route，并以observed head作为初始authority调用Basic rebase。之后的反向mission仍使用既有规划结果，只按新head已有mission progress裁去与车身重复的路线前缀，再走普通append。
+默认client和controller继续使用旧route binding，Basic `READY`后才一起切换到新长度与revision；Dispatcher可显式准备同前缀continuation，把原committed boundary重新绑定到候选而不新增授权，避免新任务无法驶近滚动触发点。详细规则以[运营目标与授权路线分离](terminal-route-completion.md)为准。折返本身不使用append：Dispatcher先暂停同一grant的tail release，物理折返发布后立即从新tail到新head构造body-only route，并以observed head作为初始authority调用Basic rebase。之后的反向mission仍使用既有规划结果，只按新head已有mission progress裁去与车身重复的路线前缀，再走普通append。
 
 同一次Dispatcher处理使用一个`FrozenRouteSelectionContext`为该不可变observation建立train ID索引；普通
 选择器和mission一致性接缝都从该索引解析列车，不能各自再次线性扫描train列表。context不跨observation
@@ -126,7 +126,7 @@ SimpleATO本身只认识“当前可用grant边界”和“外部限制”，不
 extension不改变当前authority constraint；原grant的车尾释放不因准备delta而暂停。只有Basic完成delta提交、原controller
 队尾追加并发布新committed grant boundary后，SimpleATO才从已提交grant视图生成更宽的authority constraint。
 
-普通authority extension不会改写路线。到达已完整授权的路线末端后，下一项正向mission可以形成上述严格append候选，并在
+普通authority extension不会改写路线。上一运营目标完成且旧物理路线已完整授权后，下一项正向mission可以形成上述保留前缀的接续候选，并在
 同一grant下申请更远boundary；旧前缀、owner、train、world均不变。相关物理依赖、旧前缀、route ID或运营plan发生其他
 变化时仍是replan；折返只允许走已评审的stopped-rebase边界，不能伪装为append、caller footprint或whole-claim replace。同一grant已有
 pending request时，SimpleATO轮询该handle而不是并行提交另一个请求；这是同进程生命周期约束，不需要保存request历史或模拟
@@ -218,7 +218,7 @@ segment occurrence，并以声明携带的rail UUID和AB/BA方向做一次交叉
 binding另可携带中立 `entryClearances`：入口、车尾必须通过的路线坐标及精确入口自身限制身份。
 `synchronizeRoute` 使用同一权威observation的有序车身跨度与controller已有安全距离，
 将 `tailClear+trainLength+safetyDistance` 合并到现有floor。几何变化只刷新这一列车的floor，
-不重新调用插件binding provider或重建所有列车的入口索引。请求可裁到运营终点，
+不重新调用插件binding provider或重建所有列车的入口索引。请求只裁到冻结物理路线终点，不能因运营停车目标截断信号要求的完整区间；binding也可提供不带入口声明的`authorityRequestFloors`，供区间内部起步复用同一索引。详细边界见[终端路径补全](terminal-route-completion.md)。
 但净空证明必须保留未裁的目标，不能把不足空间当作允许。完整接口、移动侧检查与结果交接见
 [入口净空合同](entry-clearance.md)。列车几何来自宿主，插件binding input仍保持上述低频值边界。
 
@@ -401,7 +401,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 ## 5. 不变量、生命周期、线程与版本
 
 - 同一次选路只能组合一个 topology root、一个 coherent physics observation 和一个已应用运营 plan/overlay revision；不得拼接“最新”组件。
-- 普通正向mission接续只追加到已完整授权的旧route末端并递增operating-route revision；折返先暂停释放并在新tail重建route binding/cursor；相关轨道依赖、旧前缀、route ID或overlay改变走安全replan，无关轨道事务不影响既定路线。
+- 普通正向mission接续保留已完整授权的旧物理前缀，从已记录运营终点复用后缀、仅追加新增路径；物理路径增长才递增operating-route revision。折返先暂停释放并在新tail重建route binding/cursor；相关轨道依赖、旧前缀、route ID或overlay改变走安全replan，无关轨道事务不影响既定路线。
 - Basic denial 不扩大 authority。现有安全 authority 保持或收紧，直到新 grant 成功。
 - 每列车准入client在首个committed grant前保持0 m authority；只有Basic `Granted`可扩大该来源，pending/denied保持上一已发布边界。
 - 同一路线extension pending、conflict或安全preparation failure时保持旧authority；只有Basic在delta preparation ready后

@@ -1440,6 +1440,7 @@ class TimetableDispatcher(
             }
             val runtime = run.currentRuntime
             val headProgress = runtime.layout.project(snapshot.head, runtime.headProgressMeters)
+                ?: physicalMissionProgress(world, run, runtime, snapshot)
                 ?: terminalProgressFallback(world, run, runtime)
             if (headProgress == null) {
                 stallRun(
@@ -1476,7 +1477,6 @@ class TimetableDispatcher(
                 advanceService(world, run)
                 return@forEach
             }
-
             processSharedRouteAdmission(
                 world,
                 run,
@@ -2783,6 +2783,7 @@ class TimetableDispatcher(
         }
         val runtime = run.currentRuntime
         val headProgress = runtime.layout.project(snapshot.head, runtime.headProgressMeters)
+            ?: physicalMissionProgress(world, run, runtime, snapshot)
             ?: terminalProgressFallback(world, run, runtime)
         if (headProgress == null) {
             stallManualRouted(world, run, snapshot, "MANUAL_ROUTED train head left PlannedRoute")
@@ -2800,11 +2801,10 @@ class TimetableDispatcher(
             advanceService(world, run)
             return
         }
-
         processSharedRouteAdmission(world, run, runtime, snapshot, context, selectionContext)
         if (world.simpleAtoWorldData.atoCoordinator.isStalled) return
 
-        val activeRoute = run.admittedRoute ?: run.admissionCandidate ?: return
+        val activeRoute = run.admissionCandidate ?: run.admittedRoute ?: return
         val routeProgress = activeRoute.progressFor(runtime)
         val safeBoundary = run.admissionClient?.state?.committedAuthority
             ?.distanceFromRouteStartMeters ?: activeRoute.route.headDistanceFromRouteStartMeters
@@ -2877,9 +2877,8 @@ class TimetableDispatcher(
                 return
             }
             if (run.nextAdmissionAttemptTick != 0L) {
-                // A rejected intent's observation stamp is no longer current. Preserve the route
-                // geometry through admittedRoute, but rebuild the request selection for this epoch.
-                run.admissionCandidate = null
+                // A rejected intent's stamp is no longer current. Keep the frozen candidate
+                // geometry; routeAdmissionCandidate refreshes only its observation for this epoch.
                 run.nextAdmissionAttemptTick = 0L
             }
             candidate = routeAdmissionCandidate(world, run, runtime, selectionContext) ?: run {
@@ -2911,6 +2910,13 @@ class TimetableDispatcher(
                     return
                 }
             }
+            try {
+                client.prepareContinuation(candidate.route.selection)
+            } catch (failure: Exception) {
+                stallRun(world, run, "RouteRestrictionFailure",
+                    "committed prefix could not be projected onto the continued mission: ${failure.message}", snapshot)
+                return
+            }
             run.admissionCandidate = candidate
             run.admissionEnded = false
             if (!applyCommittedAdmissionRestriction(
@@ -2932,6 +2938,19 @@ class TimetableDispatcher(
                 return
             }
             val routeProgress = candidate.progressFor(runtime)
+            val retainedMissionAuthority = client.state.committedAuthority?.let {
+                candidate.missionAuthorityMeters(it.distanceFromRouteStartMeters, runtime)
+            }
+            if (runtime.publishedAuthorityMeters <= 0.0 && retainedMissionAuthority != null &&
+                retainedMissionAuthority > 0.0 && run.controlMode == TimetableControlMode.AUTOMATIC
+            ) {
+                // The Basic-backed restriction above still ends at the old grant. Advancing the
+                // operating target merely lets the train use that existing prefix while the next
+                // rolling extension is not yet due; it does not create physical permission.
+                run.ato.setMovementAuthority(runtime.mission.revision,
+                    run.ato.terminalMovementAuthorityLimitMeters(runtime.layout.totalLengthMeters))
+                runtime.publishedAuthorityMeters = retainedMissionAuthority
+            }
             val nominalDesired = RollingRouteAuthorityPlanner.nextBoundary(
                 routeLengthMeters = candidate.route.selection.route.totalLengthMeters,
                 headProgressMeters = routeProgress,
@@ -2942,6 +2961,17 @@ class TimetableDispatcher(
                 admissionState = client.state
             )
             if (nominalDesired == null) {
+                // A new operating stop can lie wholly inside the already granted suffix. Keep the
+                // exact physical route/grant, but advance the controller's mission-coordinate map.
+                // Basic correctly rejects a non-advancing request, so no request is made here.
+                if (run.admittedRoute?.route?.selection?.route == candidate.route.selection.route) {
+                    run.admittedRoute = candidate
+                    run.admissionCandidate = null
+                    client.state.committedAuthority?.let { authority ->
+                        runtime.publishedAuthorityMeters = candidate.missionAuthorityMeters(
+                            authority.distanceFromRouteStartMeters, runtime)
+                    }
+                }
                 applyCommittedAdmissionRestriction(world, run, runtime, context.observation, snapshot)
                 setRouteState(run, TimetableServiceRunState.RUNNING, null)
                 return
@@ -3040,7 +3070,30 @@ class TimetableDispatcher(
             )
         }
         return when (result) {
-            is FrozenMissionRouteResult.Frozen -> AdmissionRoute(result.route, runtime.mission.revision)
+            is FrozenMissionRouteResult.Frozen -> {
+                // Definitions may be prepared asynchronously. Protect the selected path before
+                // reading their terminal geometry, then the caller upgrades this same owner to
+                // the completed path before any binding or Basic resource request is published.
+                when (val protection = checkNotNull(run.routeEditProtection).protect(
+                    world.topologyState, result.route.selection.route
+                )) {
+                    is FrozenRouteProtectionResult.Protected -> Unit
+                    is FrozenRouteProtectionResult.Rejected -> {
+                        stallRun(world, run, "InfrastructureDependencyFailure",
+                            "selected route could not be protected before terminal completion: ${protection.detail}")
+                        return null
+                    }
+                }
+                try {
+                    val completed = inspectionRuntime.completeTerminalRoute(result.route.selection.route)
+                    AdmissionRoute(result.route.copy(selection = result.route.selection.copy(route = completed)),
+                        runtime.mission.revision).also { run.admissionCandidate = it }
+                } catch (failure: Exception) {
+                    run.state = TimetableServiceRunState.REPLAN_REQUIRED
+                    run.message = "terminal route could not be completed: ${failure.message ?: failure.javaClass.name}"
+                    null
+                }
+            }
             is FrozenMissionRouteResult.Rejected -> {
                 run.state = TimetableServiceRunState.REPLAN_REQUIRED
                 run.message = "frozen route requires explicit replan: ${result.reason}: ${result.detail}"
@@ -3098,7 +3151,7 @@ class TimetableDispatcher(
         snapshot: TrainSnapshot,
         routeOverride: AdmissionRoute? = null
     ): Boolean {
-        val activeRoute = routeOverride ?: run.admittedRoute ?: run.admissionCandidate ?: return true
+        val activeRoute = routeOverride ?: run.admissionCandidate ?: run.admittedRoute ?: return true
         try {
             val route = activeRoute.route.selection.route
             val maximumInspectionLeadTime = inspectionRuntime.synchronizeRoute(
@@ -3189,11 +3242,22 @@ class TimetableDispatcher(
         }
     }
 
+    private fun physicalMissionProgress(world: World, run: ActiveRun, runtime: MissionRuntime,
+        snapshot: TrainSnapshot): Double? {
+        val route = (run.admissionCandidate ?: run.admittedRoute)
+            ?.takeIf { it.missionRevision == runtime.mission.revision } ?: return null
+        return route.route.missionProgressFromPhysicalHead(world.topologyState, snapshot.head,
+            runtime.headProgressMeters)
+    }
+
     private fun terminalProgressFallback(
         world: World,
         run: ActiveRun,
         runtime: MissionRuntime
     ): Double? {
+        // Once a coherent physical route is bound, its failed projection is authoritative. The
+        // legacy waypoint proximity heuristic must not turn an off-path position into completion.
+        if ((run.admissionCandidate ?: run.admittedRoute)?.missionRevision == runtime.mission.revision) return null
         if (runtime.headProgressMeters <
             runtime.layout.totalLengthMeters - ORIGIN_TOLERANCE_METERS
         ) return null
@@ -4049,7 +4113,7 @@ class TimetableDispatcher(
             validation.routes
         }
         val topology = world.topologyState
-        val snapshots = routes.mapIndexed { index, route ->
+        val selectedSnapshots = routes.mapIndexed { index, route ->
             route.toSnapshot(
                 routeId = "simpleato:applied/${timetableOwnerToken(timetableId)}/$index",
                 revision = 0L,
@@ -4057,7 +4121,7 @@ class TimetableDispatcher(
             )
         }
         val physicalDependencies = when (
-            val compiled = PhysicalRouteDependencyCompiler.compile(topology, snapshots)
+            val compiled = PhysicalRouteDependencyCompiler.compile(topology, selectedSnapshots)
         ) {
             is PhysicalRouteDependencyCompilation.Compiled -> compiled.dependencies
             PhysicalRouteDependencyCompilation.NoDependencies -> {
@@ -4100,7 +4164,7 @@ class TimetableDispatcher(
                 if (guardResult.detail.isNotBlank()) append(": ${guardResult.detail}")
             })
         }
-        val guard = AppliedTimetablePlan(guardOwner, guardDependencies)
+        var guard = AppliedTimetablePlan(guardOwner, guardDependencies)
         appliedTimetablePlans[timetableId] = guard
         fun rejectGuardedPlan(reason: String): AppliedPlanInstallResult.Rejected {
             val rollbackFailure = rollbackAppliedPlan(timetableId, guard, previous)
@@ -4112,22 +4176,54 @@ class TimetableDispatcher(
             return AppliedPlanInstallResult.Rejected(reason +
                 (rollbackFailure?.let { "; applied dependency rollback failed: $it" } ?: ""))
         }
+        // Protect the original selection before invoking plugin geometry. A concurrent definition
+        // edit must not replace the provider between completion and dependency collection. Then
+        // protect all newly added rails before collecting their registered resource references.
+        val snapshots = try {
+            selectedSnapshots.map(inspectionRuntime::completeTerminalRoute)
+        } catch (failure: Exception) {
+            return rejectGuardedPlan("could not complete applied timetable '$timetableId': " +
+                (failure.message ?: failure.javaClass.name))
+        }
+        val completedPhysical = when (val compiled = PhysicalRouteDependencyCompiler.compile(topology, snapshots)) {
+            is PhysicalRouteDependencyCompilation.Compiled -> compiled.dependencies
+            is PhysicalRouteDependencyCompilation.Rejected -> return rejectGuardedPlan(
+                "could not compile completed timetable '$timetableId': ${compiled.detail}")
+            PhysicalRouteDependencyCompilation.NoDependencies -> return rejectGuardedPlan(
+                "completed timetable '$timetableId' lost its selected physical route")
+        }
+        val completedGuard = InfrastructureDependencies(
+            guard.dependencies.railIds + completedPhysical.railIds,
+            guard.dependencies.topologyNodeKeys + completedPhysical.topologyNodeKeys,
+            guard.dependencies.resourceIds + completedPhysical.resourceIds)
+        if (completedGuard != guard.dependencies) {
+            val owner = InfrastructureOwner(guard.owner.ownerId, nextAppliedPlanRevision(guard.owner.revision))
+            val result = try {
+                infrastructureDependencyService.set(InfrastructureDependencyRequest(topology.revision, owner, completedGuard))
+            } catch (failure: Exception) {
+                return rejectGuardedPlan("could not protect completed timetable '$timetableId': ${failure.message}")
+            }
+            if (!result.successful) return rejectGuardedPlan(
+                "could not protect completed timetable '$timetableId': ${result.status}: ${result.detail}")
+            guard = AppliedTimetablePlan(owner, completedGuard)
+            appliedTimetablePlans[timetableId] = guard
+        }
         val signalResources = try {
             inspectionRuntime.collectRouteInfrastructureDependencies(snapshots)
         } catch (failure: Exception) {
             return rejectGuardedPlan("could not compile applied timetable '$timetableId': " +
                 (failure.message ?: failure.javaClass.name))
         }
-        val dependencies = if (signalResources.isEmpty()) physicalDependencies else InfrastructureDependencies(
-            physicalDependencies.railIds,
-            physicalDependencies.topologyNodeKeys,
-            physicalDependencies.resourceIds + signalResources
+        val dependencies = if (signalResources.isEmpty()) completedPhysical else InfrastructureDependencies(
+            completedPhysical.railIds,
+            completedPhysical.topologyNodeKeys,
+            completedPhysical.resourceIds + signalResources
         )
         if (world.topologyState !== topology) {
             return rejectGuardedPlan("topology changed while compiling applied timetable '$timetableId'")
         }
-        if (dependencies == guardDependencies) return AppliedPlanInstallResult.Installed(guard)
-        val owner = InfrastructureOwner(guardOwner.ownerId, nextAppliedPlanRevision(guardOwner.revision))
+        if (dependencies == guard.dependencies) return AppliedPlanInstallResult.Installed(guard)
+        val owner = InfrastructureOwner(guard.owner.ownerId, nextAppliedPlanRevision(guard.owner.revision))
         val result = try {
             infrastructureDependencyService.set(InfrastructureDependencyRequest(topology.revision, owner, dependencies))
         } catch (failure: Exception) {

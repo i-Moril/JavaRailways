@@ -2,11 +2,31 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
+### 用户纠正后的当前执行顺序
+
+用户确认：固定闭塞应真正取得信号允许通过的完整区间，运营停车目标独立；测试的闭塞本来为40～140米、停车点100米，不是玩家把边界放在停车点。此前仅凭物理授权被截到100米，就将问题归因于制动超调并要求先修动力包络的顺序已被此决定取代；100.322米是否满足停车精度与是否超出完整区间授权必须分开。
+
+- [x] 第一笔：实现[终端物理路径补全契约](../../spec/javarailways/simpleato/terminal-route-completion.md)，复用InspectionSource生命周期，在冻结准入路线时低频补全，并正确复用下一任务与既有授权后缀。Basic保持独立校验，不新增registry，不改持久化。
+- [x] 第二笔：SimpleSignals从已编译闭塞路径提供完整剩余路径与区间内部起步请求下界；接入真实50ms返库回归，证明物理claim真正到140米、停车目标仍100米、同一token跨停车换向保留/实际车尾清除后释放。
+- [ ] 后续独立批次：移动闭塞停站的真实物理授权余量与通用越界完成检查一起处理。试接通用检查暴露既有移动闭塞测试的“授权恰好到停车点”语义；本批不混入这项变更、不放宽epsilon，也不据此声称真实越界完成检查已实现。
+
+以上源码接缝和限制见[专项研究](research/fixed-block-authority-stop-separation.md)。下方旧诊断与验收保留历史证据，不再作为未经用户确认的修复优先级。
+
+### 完整闭塞联合门禁（2026-10-14，授权验收通过，停车精度另记）
+
+- 中立补全、后缀复用、同前缀授权重绑、原路径→补全路径的编辑保护、相接片段声明匹配及控制器/调度器物理投影已落盘，独立check未发现新的生产阻塞。不是停车精度修复，也没有放宽Basic准入校验。
+- 精确源码树`fbf2b57342c451eebbc32fee39fb345319f02e5d`导出到`/tmp/javarailways-fixed-block-authority.nsoyCU`，使用`GRADLE_USER_HOME=/workspace/.gradle`执行`:Core:test :Basic:test :SimpleATO:test :SimpleATOBukkit:test :SimpleSignals:check :BukkitPlugin:test :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries :SimpleATO:dokkaGeneratePublicationHtml --continue --offline --no-build-cache --no-parallel --max-workers=2 -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=1024m' -x :WebUI:installFrontend -x :WebUI:buildFrontend --console=plain`。1分31秒，49项task中18项执行、31项up-to-date。
+- XML汇总：Core409、Basic394（本次两者up-to-date，复用同候选先前结果）、SimpleATO363、SimpleATOBukkit8、SimpleSignals497、BukkitPlugin384；共2055项，2054通过、1失败、错误/跳过0。Java consumer、实际JAR边界、Dokka通过；既有文档未注释/链接、Graal POM及JDK/Gradle警告仍存在。前端任务排除，未部署/未验Paper或客户端。
+- 唯一失败：真实50ms“100米停站后返20米库位”的最终位置断言（新测试自设±0.6米）读到18.983016737339824米；运行已完成且位于真实0～40米库前闭塞授权内。另两例100→120、100→160后返库完整通过。是否把该精度断言留给下一独立批次，已向用户明确询问；未偷偷增大容差、修改停车点/制动或以此宣布整体通过。
+- 测试场景修正均为作者输入：库前新增真实0～40米闭塞；库位坐标仍20米，入口/返库point ID与canonical Destination ID一致；显式`RouteAllocationTiming(0,0,2)`用于证明先使用旧授权再续申请，第一次停车请求计数只捕获一次。没有生产存车规则改动。
+- 最终源码树`b8e547540bc3409f02ec83c081c136707a8090fb`只修正本批新增、没有契约依据的±0.6米测试验收：改验最终真实Mission几何目标严格保持20米、速度0、完整实际车体处于正式0～40米闭塞、真实token/轨道claim覆盖车头车尾，以及原归库台账；没有增大容差或修改制动。独立check复核这些断言未发现伪造目标/授权。按同一命令重跑40秒、49项task中5项执行44项up-to-date；全部2055项结果失败/错误/跳过0，其中SimpleSignals497项本次完整重跑，其余未变模块复用前一联合候选结果。Java consumer、JAR边界及Dokka均通过。
+- **未修复缺陷：**第一种返库工况目标20米、实停18.983016737339824米，误差约1.017米。该回归只证明完整固定闭塞授权与存车流程，不证明停车精度；下一批应采样真实制动轨迹再诊断，不能因本次授权门禁绿色关闭该问题。移动闭塞真实停车余量/通用越界完成检查亦保持未完成。
+
 用户批准继续Stage2收尾。已切回本父任务；全项目代码审查仍作为独立子任务保留，不擅自重开Core或切入Basic余项，也不把完整旧服迁移自动加成新runtime开发前置。下方2026-10-09状态与历史未勾选项须按后续真实实现解释。
 
 - Core本轮源码审查及已确认缺陷处置已由`24cf744f`、`416c70ef`收尾；完整独立候选2069项通过（具体命令/限制只在[Core记录](../10-09-stage2-code-review/implement.md#core缺陷收尾2026-10-14帧间六批完成之后)维护）。该证据不替代Stage2缺失交互或现场验收。
 - 保护区域到连续移动区段的出口空间已由既有中立entry-clearance加当前车长/安全余量实现，不再按下方旧待办重复增加边界策略。flank/approach条目是具体联锁规则需要时才做，不造占位资源。
-- [ ] 返库集成回归：已写出真实50ms“前进—区间内停车—停车换向—经同一双向闭塞返库”用例，组合真实Core/Basic/Dispatcher/SimpleSignals policy。实跑暴露停车超调：目标/原claim末端100m，实际停在100.321998m，换向rebase因完整车身不在旧claim内而正确拒绝。用例未通过、暂不提交；不能靠放宽Basic校验或改停车点掩盖。下一批先记录短动态轨迹，再修正已证实的控制/制动包络问题，并检查Dispatcher不能把越界停车视作正常完成。Basic资源覆盖规则保持不变。详见[诊断](research/stage2-runtime-closeout-2026-10-14.md#7-physical-return-regression-exposes-stop-overshoot)。
+- [x] 固定闭塞返库授权回归：真实50ms“前进—区间内停车—停车换向—同一双向闭塞返库”及两种后续任务接续已通过，详见本页顶部最终门禁。原claim被截到运营停车点导致的失败已用完整物理授权纠正，Basic覆盖校验保持不变；旧失败数据保留于[历史诊断](research/stage2-runtime-closeout-2026-10-14.md#7-physical-return-regression-exposes-stop-overshoot)。本项不是停车精度或通用越界完成检查验收。
 - [x] 先独立交付Signal Wand命名rail摆放预设选择，复用现有immutable catalog、PDC revision、`applyPreset`和manager patch；仅改变未来明确rail放置/更新，不自动改旧设备，ground保持原样。先写契约再实现，现见[工具契约](../../spec/simple-signals/backend/section-authoring-wands.md)，不冒称全部样式编辑完成。返库测试发现独立缺陷后调整提交顺序，避免将已知失败回归混进本笔功能。
 - 测距分岔选路已于2026-10-14由用户确认：自动选择物理最短路，不受当前道岔选择限制，不实际扳动道岔；本轮先完成上述两笔，再按此决定细化测距批次。其余边界地面模型/完整叠加、进路删除引用策略、新进路表示器映射作者交互仍须具体合同。热重载不因旧批次排除文字自动升级为本阶段必需范围；不临时制造model variant或预设默认值。
 

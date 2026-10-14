@@ -19,6 +19,18 @@ data class InspectionSpeedRange(
     }
 }
 
+/** Request-only floor, independent of a signal declaration or its activation/invalidation. */
+data class InspectionAuthorityRequestFloor(
+    val triggerRouteDistanceMeters: Double,
+    val minimumEndRouteDistanceMeters: Double
+) {
+    init {
+        require(triggerRouteDistanceMeters.isFinite() && triggerRouteDistanceMeters >= 0.0)
+        require(minimumEndRouteDistanceMeters.isFinite() &&
+            minimumEndRouteDistanceMeters >= triggerRouteDistanceMeters)
+    }
+}
+
 /**
  * One signal-plugin resource that must be inspected before its route-local trigger is reached.
  *
@@ -87,7 +99,8 @@ data class InspectionDeclarationBinding private constructor(
     val declarations: List<InspectionDeclaration>,
     /** Cached positive bounded caps. Their lifetime is the route binding, independent of entry activation. */
     val speedRanges: List<InspectionSpeedRange>,
-    val entryClearances: List<InspectionEntryClearance>
+    val entryClearances: List<InspectionEntryClearance>,
+    val authorityRequestFloors: List<InspectionAuthorityRequestFloor>
 ) {
     constructor(
         sourceId: String,
@@ -97,7 +110,8 @@ data class InspectionDeclarationBinding private constructor(
         trainProfileRevision: Long,
         declarations: Collection<InspectionDeclaration>,
         speedRanges: Collection<InspectionSpeedRange> = emptyList(),
-        entryClearances: Collection<InspectionEntryClearance> = emptyList()
+        entryClearances: Collection<InspectionEntryClearance> = emptyList(),
+        authorityRequestFloors: Collection<InspectionAuthorityRequestFloor> = emptyList()
     ) : this(
         sourceId,
         trainId,
@@ -106,7 +120,8 @@ data class InspectionDeclarationBinding private constructor(
         trainProfileRevision,
         Collections.unmodifiableList(ArrayList(declarations)),
         Collections.unmodifiableList(ArrayList(speedRanges)),
-        Collections.unmodifiableList(ArrayList(entryClearances))
+        Collections.unmodifiableList(ArrayList(entryClearances)),
+        Collections.unmodifiableList(ArrayList(authorityRequestFloors))
     )
 
     init {
@@ -114,6 +129,9 @@ data class InspectionDeclarationBinding private constructor(
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         require(definitionRevision >= 0L) { "definitionRevision must be non-negative" }
         require(trainProfileRevision >= 0L) { "trainProfileRevision must be non-negative" }
+        require(authorityRequestFloors.all { it.minimumEndRouteDistanceMeters <= route.totalLengthMeters }) {
+            "authority request floor exceeds the frozen route"
+        }
         require(entryClearances.map { it.declarationId to
             if (it.entryRouteDistanceMeters == 0.0) 0.0 else it.entryRouteDistanceMeters }.distinct().size == entryClearances.size) {
             "entry clearance identity and position must be unique"

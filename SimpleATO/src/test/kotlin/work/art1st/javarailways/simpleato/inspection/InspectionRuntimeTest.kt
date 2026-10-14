@@ -32,6 +32,42 @@ import java.util.concurrent.atomic.AtomicLong
 
 class InspectionRuntimeTest {
     @Test
+    fun `terminal geometry combines compatible sources once against the original route and rejects divergence`() {
+        val runtime = runtime()
+        val route = RouteSnapshot("stop", 0L, 7L,
+            listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 10.0, 100.0)))
+        assertEquals(route, runtime.completeTerminalRoute(route))
+        val seen = arrayListOf<RouteSnapshot>()
+        fun source(id: String, start: Double = 100.0, end: Double) = InspectionSource(
+            sourceId = id,
+            bindingProvider = { error("geometry preparation must not bind a live train") },
+            updateHandler = { error("geometry preparation must not execute a signal") },
+            terminalRouteContinuation = { input ->
+                seen += input
+                listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, start, end))
+            }
+        )
+        runtime.replaceSources(listOf(source("test:short", end = 120.0), source("test:long", end = 140.0)))
+        val completed = runtime.completeTerminalRoute(route)
+        assertEquals(listOf(route, route), seen)
+        assertEquals(route.segments, completed.segments.take(route.segments.size))
+        assertEquals(130.0, completed.totalLengthMeters)
+        runtime.replaceSources(listOf(source("test:wrong", start = 101.0, end = 150.0)))
+        assertThrows(IllegalArgumentException::class.java) { runtime.completeTerminalRoute(route) }
+        runtime.replaceSources(listOf(source("test:first", end = 140.0),
+            source("test:other", end = 150.0).copy(terminalRouteContinuation = {
+                listOf(RouteSegmentSnapshot(UUID(9L, 9L), ViewDirection.AB, 0.0, 20.0))
+            })))
+        assertThrows(IllegalArgumentException::class.java) { runtime.completeTerminalRoute(route) }
+        runtime.replaceSources(listOf(source("test:broken", end = 140.0).copy(terminalRouteContinuation = {
+            error("withdrawn geometry")
+        })))
+        assertThrows(IllegalArgumentException::class.java) { runtime.completeTerminalRoute(route) }
+        runtime.replaceSources(emptyList())
+        assertEquals(route, runtime.completeTerminalRoute(route))
+    }
+
+    @Test
     fun `transaction invalidates only routes using changed rails and preserves frozen binding identity`() {
         val publications = arrayListOf<TrainRestrictionSnapshot>()
         val runtime = runtime(publications)

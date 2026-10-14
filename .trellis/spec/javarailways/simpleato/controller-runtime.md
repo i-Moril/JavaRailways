@@ -52,6 +52,8 @@ restriction snapshot；Dispatcher仅在route建立/延长时绑定冻结route、
 `MinimumConstraintPlanner`与车辆、停车、跟车等constraint一起取最严格值。部分Basic授权保留外部MA；当grant覆盖完整
 frozen mission route时，该来源发布更高revision空restriction，终点仍由mission Stop constraint精确停车。
 
+运营停车目标不一定是物理路线末端。Mission投影无法表示车头时，controller与Dispatcher复用已绑定冻结物理路径作有界投影，保留实际停车误差；接续映射、执行条件及成本归[停车目标与授权终点分离](terminal-route-completion.md)，不能因位置仍在真实物理后缀内就将其误判为离开路线。
+
 signal epoch不直接持有controller。它先写world-local immutable snapshot store，并只在全部publication成功后推进completed
 observation stamp。下一次physics tick中controller从route绑定携带的world-local snapshot source读取最新限制；同revision
 重复读取是幂等的，wrong train、source unavailable或store/controller revision矛盾会在controller tick内使world fail closed。

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
@@ -24,7 +26,7 @@ class PreparedRailCreationBatchTest {
         val afterPrepare = world.atGradeExactDetectionCountForTesting()
         assertTrue(afterPrepare > beforePrepare)
 
-        val installed = world.installPreparedRails(prepared).single()
+        val installed = IsolatedSimulationThreadMarker.run { world.installPreparedRails(prepared) }.single()
 
         assertEquals(afterPrepare, world.atGradeExactDetectionCountForTesting())
         assertSame(installed, world.getRail(prepared.creations.single().railId))
@@ -39,7 +41,7 @@ class PreparedRailCreationBatchTest {
         )
 
         val prepared = world.prepareRailCreationBatch(curves)
-        val installed = world.installPreparedRails(prepared)
+        val installed = IsolatedSimulationThreadMarker.run { world.installPreparedRails(prepared) }
 
         assertEquals(1L, world.topologyRevision)
         assertEquals(prepared.creations.map { it.railId }, installed.map { it.id })
@@ -53,7 +55,7 @@ class PreparedRailCreationBatchTest {
             val prepared = source.prepareRailCreation(line(0.0, 0.0, 10.0, 0.0))
 
             val failure = assertThrows(PreparedRailCreationRejectedException::class.java) {
-                target.installPreparedRails(prepared)
+                IsolatedSimulationThreadMarker.run { target.installPreparedRails(prepared) }
             }
 
             assertEquals(PreparedRailCreationRejectionReason.WORLD_MISMATCH, failure.reason)
@@ -71,7 +73,7 @@ class PreparedRailCreationBatchTest {
         val revisionBeforeReject = world.topologyRevision
 
         val failure = assertThrows(PreparedRailCreationRejectedException::class.java) {
-            world.installPreparedRails(prepared)
+            IsolatedSimulationThreadMarker.run { world.installPreparedRails(prepared) }
         }
 
         assertEquals(PreparedRailCreationRejectionReason.STALE_TOPOLOGY, failure.reason)
@@ -85,12 +87,12 @@ class PreparedRailCreationBatchTest {
         val prepared = world.prepareRailCreation(line(20.0, 0.0, 30.0, 0.0))
         lateinit var failure: PreparedRailCreationRejectedException
 
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             world.createRailInTransaction(UUID.randomUUID(), line(0.0, 0.0, 10.0, 0.0))
             failure = assertThrows(PreparedRailCreationRejectedException::class.java) {
                 world.installPreparedRails(prepared)
             }
-        }
+        } }
 
         assertEquals(PreparedRailCreationRejectionReason.DIRTY_OUTER_TRANSACTION, failure.reason)
         assertEquals(1, world.allRails.size)
@@ -103,10 +105,10 @@ class PreparedRailCreationBatchTest {
         val prepared = world.prepareRailCreation(line(0.0, 1.0, 10.0, 1.0), setOf(source.id))
         val revisionBefore = world.topologyRevision
 
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             val replacement = world.installPreparedRails(prepared).single()
             world.removeRail(replacement)
-        }
+        } }
 
         assertSame(source, world.getRail(source.id))
         assertTrue(prepared.creations.none { world.getRail(it.railId) != null })
@@ -126,11 +128,11 @@ class PreparedRailCreationBatchTest {
         val rootBefore = world.topologyState
 
         val failure = assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
                 val replacements = world.installPreparedRails(prepared)
                 world.removeRail(firstSource)
                 replacements.forEach(world::removeRail)
-            }
+            } }
         }
 
         assertEquals(
@@ -145,7 +147,7 @@ class PreparedRailCreationBatchTest {
         assertSame(secondSource, world.getRail(secondSource.id))
         assertTrue(prepared.creations.none { world.getRail(it.railId) != null })
         val editFailure = assertThrows(RailTopologyFaultedException::class.java) {
-            world.railTopologyTransaction { }
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction { } }
         }
         assertEquals(
             RailTopologyFaultReason.TRANSACTION_FAILED_AFTER_STRUCTURAL_MUTATION,

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -20,7 +22,7 @@ class RailConnectTest {
         val first = world.createRailForTest(straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
         val second = world.createRailForTest(straightCurve(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
 
-        CoreRail.connect(first, second)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
 
         val firstSaved = first.save()
         val secondSaved = second.save()
@@ -41,9 +43,9 @@ class RailConnectTest {
 
         val beforeConnect = world.topologyState
 
-        CoreRail.connect(first, second)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
         val afterConnect = world.topologyState
-        CoreRail.connect(first, second)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
 
         assertEquals(1, first.viewAB.nextRails.size)
         assertEquals(0, first.viewBA.nextRails.size)

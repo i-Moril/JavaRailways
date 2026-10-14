@@ -51,6 +51,8 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 
 独立候选`/tmp/javarailways-placement-5w8t4_bp`排除第5/6批和旧联结草稿。分段门禁新鲜XML为Core366、Basic394、SimpleATO356、Bukkit380、Tunnel31，共1527项零失败/error/skip；Dev无测试源码，compileKotlin及test(NO-SOURCE)完成。首次Core13失败来自新用例跨轨段定位及旧fixture阶段/mailbox假设，随后补齐Basic/Bukkit遗漏；另修复两项新清理的类型错误和真实epoch测试遗漏start。没有放宽业务断言、删测试或把失败记为通过。Core/Basic全套rerun通过后，仅修改下游测试再分段验证；最终下游成功门禁20秒(8执行/27up-to-date)，不冒称单次全套成功。沿用offline/共享workspace缓存；未打包前端、未部署。多文件主要是既有测试的单操作owner调用迁移，与生产guard保持同一可运行提交，不制造临时兼容层。
 
+第5批先拆出35项纯fixture文件迁移，只有单次拓扑操作的simulation owner标记及imports，不包住整项physics测试、不修改断言或测试集合；不依赖后续新API。独立候选`/tmp/javarailways-topology-test-entry.mAk4ej`全套Core366/Basic394/SimpleATO356/Bukkit380/Tunnel31，共1527项零失败/error/skip，1分44秒、39tasks全部执行；testcase名称与第4批候选逐项一致。生产源码仍为第4批HEAD，35份暂存源码与候选一致；这笔提交只验证fixture前置，不把后续第5批功能勾选完成。
+
 ### 前一阶段执行顺序（保留历史记录）
 
 继续原CR-030批次3：先完成Bukkit每车JS/动作/延迟效果/快照的完整纵向迁移，再接入collision四端联结事务及结果消费。Basic后续修复暂存，不插入该主线。此前将用户“提高效率”的要求直接解释为暂停Core转查Basic，是执行顺序误判，不是用户批准的计划调整。

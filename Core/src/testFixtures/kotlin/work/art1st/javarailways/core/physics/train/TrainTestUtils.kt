@@ -66,7 +66,7 @@ fun createLoopRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>): Co
     }
     for (i in rails.indices) {
         val nextView = if (i == rails.lastIndex) rails.first().viewAB else rails[i + 1].viewAB
-        CoreRail.connect(rails[i], nextView.rail)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rails[i], nextView.rail) }
     }
     return rails.first()
 }
@@ -81,7 +81,7 @@ fun createStraightRailFromSegments(world: CoreWorld, segments: List<PrimeCurve>)
         world.createRailForTest(curve)
     }
     for (i in 0 until rails.lastIndex) {
-        CoreRail.connect(rails[i], rails[i + 1])
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rails[i], rails[i + 1]) }
     }
     return rails.first()
 }

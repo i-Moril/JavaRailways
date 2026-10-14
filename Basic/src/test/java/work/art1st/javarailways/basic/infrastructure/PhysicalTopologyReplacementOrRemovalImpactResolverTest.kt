@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -110,8 +112,8 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
             val source = world.createRailForTest(curve(Vector3d(-5.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
             val peer = world.createRailForTest(curve(Vector3d(0.0, 0.0, 0.0), Vector3d(5.0, 0.0, 0.0)))
             val beyond = world.createRailForTest(curve(Vector3d(5.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
-            CoreRail.connect(source, peer)
-            CoreRail.connect(peer, beyond)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(source, peer) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(peer, beyond) }
 
             val impact = PhysicalTopologyReplacementOrRemovalImpactResolver.resolve(
                 world.topologyState,
@@ -145,10 +147,10 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
             val neighborCrossingRail = world.createRailForTest(
                 curve(Vector3d(3.0, 0.0, -5.0), Vector3d(3.0, 0.0, 5.0))
             )
-            CoreRail.connect(stem, straight)
-            CoreRail.connect(stem, branch)
-            CoreRail.connect(straight, farStraight)
-            CoreRail.connect(straight, farBranch)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, straight) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, branch) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(straight, farStraight) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(straight, farBranch) }
 
             val topology = world.topologyState
             val sourceTurnout = requireNotNull(
@@ -192,8 +194,8 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
             val stem = world.createRailForTest(curve(Vector3d(-5.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0)))
             val firstBranch = world.createRailForTest(curve(Vector3d(0.0, 0.0, 0.0), Vector3d(5.0, 0.0, 1.0)))
             val siblingBranch = world.createRailForTest(curve(Vector3d(0.0, 0.0, 0.0), Vector3d(5.0, 0.0, -1.0)))
-            CoreRail.connect(stem, firstBranch)
-            CoreRail.connect(stem, siblingBranch)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, firstBranch) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, siblingBranch) }
 
             val topology = world.topologyState
             val turnout = requireNotNull(
@@ -221,9 +223,9 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
             val first = world.createRailForTest(curve(Vector3d(0.0, 0.0, 0.0), Vector3d(5.0, 0.0, 0.0)))
             val second = world.createRailForTest(curve(Vector3d(5.0, 0.0, 0.0), Vector3d(5.0, 0.0, 5.0)))
             val third = world.createRailForTest(curve(Vector3d(5.0, 0.0, 5.0), Vector3d(0.0, 0.0, 0.0)))
-            CoreRail.connect(first, second)
-            CoreRail.connect(second, third)
-            CoreRail.connect(third, first)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(second, third) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(third, first) }
 
             val topology = world.topologyState
             val anchor = topology.nodes.values.filterIsInstance<TopologyNode.LoopAnchor>().single()
@@ -298,9 +300,9 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
             val first = world.createRailForTest(curve(Vector3d(0.0, 0.0, 0.0), Vector3d(5.0, 0.0, 0.0)))
             val second = world.createRailForTest(curve(Vector3d(5.0, 0.0, 0.0), Vector3d(5.0, 0.0, 5.0)))
             val third = world.createRailForTest(curve(Vector3d(5.0, 0.0, 5.0), Vector3d(0.0, 0.0, 0.0)))
-            CoreRail.connect(first, second)
-            CoreRail.connect(second, third)
-            CoreRail.connect(third, first)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(second, third) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(third, first) }
             val topology = world.topologyState
             val anchor = topology.nodes.values.filterIsInstance<TopologyNode.LoopAnchor>().single()
             val changedEndpoint = RailEndpointRef(first.id, RailEndpoint.A)

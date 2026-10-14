@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -17,7 +19,7 @@ class TrainSlopeJointMotionTest {
     fun `multi car train moves from level rail onto connected slope`() = withWorld { world ->
         val level = world.createRailForTest(line(Vector3d(0.0, 64.0, 0.0), Vector3d(50.0, 64.0, 0.0)))
         val slope = world.createRailForTest(line(Vector3d(50.0, 64.0, 0.0), Vector3d(80.0, 70.0, 0.0)))
-        CoreRail.connect(level, slope)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(level, slope) }
 
         val train = createTrainWithConfig("slope-joint", level, world, listOf(10.0, 10.0), isLoop = false)
         train.setControllerForTest(MockTrainController(train, world, 10.0))
@@ -36,7 +38,7 @@ class TrainSlopeJointMotionTest {
     fun `long train moves from level rail onto connected slope`() = withWorld { world ->
         val level = world.createRailForTest(line(Vector3d(0.0, 64.0, 0.0), Vector3d(120.0, 64.0, 0.0)))
         val slope = world.createRailForTest(line(Vector3d(120.0, 64.0, 0.0), Vector3d(180.0, 70.0, 0.0)))
-        CoreRail.connect(level, slope)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(level, slope) }
 
         val train = createTrainWithConfig("long-slope-joint", level, world, List(4) { 17.8 }, isLoop = false)
         train.setControllerForTest(MockTrainController(train, world, 10.0))

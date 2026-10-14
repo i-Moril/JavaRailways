@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -39,7 +41,7 @@ class CoreWorldAtGradeRailCrossingTest {
 
         lateinit var first: CoreRail
         lateinit var second: CoreRail
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             first = world.createRailInTransaction(
                 UUID.randomUUID(),
                 straightCurve(Vector3d(20.0, 0.0, 0.0), Vector3d(25.0, 0.0, 0.0))
@@ -49,7 +51,7 @@ class CoreWorldAtGradeRailCrossingTest {
                 straightCurve(Vector3d(25.0, 0.0, 0.0), Vector3d(25.0, 0.0, 5.0))
             )
             RailView.connect(first.viewAB, second.viewBA)
-        }
+        } }
 
         assertTrue(world.topologyState.atGradeCrossings.isEmpty())
     }
@@ -119,7 +121,7 @@ class CoreWorldAtGradeRailCrossingTest {
         lateinit var stem: CoreRail
         lateinit var straight: CoreRail
         lateinit var branch: CoreRail
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             stem = world.createRailInTransaction(
                 UUID.randomUUID(),
                 straightCurve(Vector3d(-5.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
@@ -139,7 +141,7 @@ class CoreWorldAtGradeRailCrossingTest {
             )
             RailView.connect(stem.viewAB, straight.viewBA)
             RailView.connect(stem.viewAB, branch.viewBA)
-        }
+        } }
 
         assertEquals(1, world.topologyState.nodes.values.count { it is TopologyNode.Turnout })
         assertTrue(world.topologyState.atGradeCrossings.isEmpty())
@@ -151,7 +153,7 @@ class CoreWorldAtGradeRailCrossingTest {
         val removed = rail(world, Vector3d(0.0, 0.0, -5.0), Vector3d(0.0, 0.0, 5.0))
         assertEquals(1, world.topologyState.atGradeCrossings.size)
 
-        world.removeRail(removed)
+        IsolatedSimulationThreadMarker.run { world.removeRail(removed) }
 
         assertTrue(world.topologyState.atGradeCrossings.isEmpty())
         assertEquals(setOf(retained.id), world.topologyState.railProjection.keys)

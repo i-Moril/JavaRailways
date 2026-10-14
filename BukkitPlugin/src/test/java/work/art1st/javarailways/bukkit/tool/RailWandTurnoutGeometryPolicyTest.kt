@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.tool
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import work.art1st.javarailways.core.physics.createRailForTest
 
 import org.joml.Vector3d
@@ -95,7 +97,7 @@ class RailWandTurnoutGeometryPolicyTest {
         stem.viewAB.activeRail = branch.viewAB
         val snapshots = captureTurnoutViewSnapshots(listOf(stem))
 
-        world.removeRail(stem)
+        IsolatedSimulationThreadMarker.run { world.removeRail(stem) }
         val replacement = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         configureTurnoutForTest(replacement, listOf(straight, branch))
         assertSame(straight.viewAB, replacement.viewAB.activeRail)
@@ -113,9 +115,9 @@ class RailWandTurnoutGeometryPolicyTest {
         val (world, stem, straight, _) = turnout()
         val snapshots = captureTurnoutViewSnapshots(listOf(stem))
 
-        world.removeRail(stem)
+        IsolatedSimulationThreadMarker.run { world.removeRail(stem) }
         val replacement = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
-        CoreRail.connect(replacement, straight)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(replacement, straight) }
 
         assertThrows(IllegalArgumentException::class.java) {
             restoreMappedTurnoutViewSnapshots(world, snapshots, mapOf(stem.id to replacement.id))

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import work.art1st.javarailways.core.physics.createRailForTest
 
 import org.joml.Vector3d
@@ -33,8 +35,8 @@ class CoreCarPositioningRegressionTest {
             rawPoint(Vector3d(20.0, 2.0, 0.0), Vector3d(40.0, 4.0, 20.0), 0.0),
             rawPoint(Vector3d(60.0, 6.0, 20.0), Vector3d(40.0, 4.0, 20.0), Vector3d(40.0, 4.0, 20.0).length())
         )))
-        CoreRail.connect(stem, main)
-        CoreRail.connect(stem, branch)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, main) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, branch) }
         val car = preparedTestCar(world, stem)
         val before = carState(car)
         val path = RailSegments(listOf(

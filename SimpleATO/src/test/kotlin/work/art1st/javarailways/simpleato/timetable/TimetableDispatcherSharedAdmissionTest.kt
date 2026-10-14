@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
 import work.art1st.javarailways.core.physics.train.setControllerForTest
@@ -827,8 +829,8 @@ class TimetableDispatcherSharedAdmissionTest {
             Vector3d(240.0, 0.0, 0.0),
             Vector3d(0.0, 0.0, 0.0)
         ))
-        CoreRail.connect(rail, returnRail)
-        CoreRail.connect(returnRail, rail)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rail, returnRail) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(returnRail, rail) }
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
         val origin = train.head.location.arcLength
         val depotId = DepotId("north")

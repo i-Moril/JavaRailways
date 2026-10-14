@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.api.internal
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.bukkit.World as BukkitWorld
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -48,7 +50,7 @@ class BukkitRailTargetServiceTest {
             assertEquals(-1.0, retained.reversed.getPointAt(3.0).tangent.x(), 1e-9)
             assertTrue(service.findCurve(worldId, UUID.randomUUID()).isEmpty)
 
-            world.removeRail(rail)
+            IsolatedSimulationThreadMarker.run { world.removeRail(rail) }
             assertTrue(service.findCurve(worldId, rail.id).isEmpty)
             assertEquals(3.0, retained.getPointAt(3.0).position.x(), 1e-9)
         } finally {

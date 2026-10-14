@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.persistence
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -70,7 +72,7 @@ class SimpleATOInfrastructureSnapshotTest {
         )
         val restored = createTestWorld().also(worlds::add)
         TestSimpleATOWorldDataRegistry.getOrCreate(restored)
-        sourceRail.save().load(CoreRail.SavedRailV1.Dependency(restored))
+        IsolatedSimulationThreadMarker.run { sourceRail.save().load(CoreRail.SavedRailV1.Dependency(restored)) }
 
         basicSnapshot.restore(restored)
         snapshot.restore(restored)

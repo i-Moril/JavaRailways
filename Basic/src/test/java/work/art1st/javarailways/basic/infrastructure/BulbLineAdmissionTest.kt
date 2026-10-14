@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -47,7 +49,7 @@ class BulbLineAdmissionTest {
                     Curve.RawPoint(b, Vector3d(tangent), Vector3d(0.0, 1.0, 0.0), a.distance(b))
                 ))
             }
-            world.railTopologyTransaction {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
                 stem = world.createRailForTest(curve(Vector3d(-340.0, 0.0, 0.0), Vector3d()))
                 outbound = world.createRailForTest(curve(Vector3d(), Vector3d(sideMeters, 0.0, 0.0)))
                 loop = world.createRailForTest(curve(Vector3d(sideMeters, 0.0, 0.0), Vector3d(sideMeters, 0.0, sideMeters)))
@@ -56,7 +58,7 @@ class BulbLineAdmissionTest {
                 RailView.connect(outbound.viewAB, loop.viewBA)
                 RailView.connect(loop.viewAB, inbound.viewBA)
                 RailView.connect(inbound.viewAB, stem.viewAB)
-            }
+            } }
             val topology = world.topologyState
             val turnout = TurnoutResourceIdentity.fromPorts(topology.nodes.values.filterIsInstance<TopologyNode.Turnout>().single().ports)
             val route = RouteSnapshot("test:bulb", 1L, topology.revision, listOf(

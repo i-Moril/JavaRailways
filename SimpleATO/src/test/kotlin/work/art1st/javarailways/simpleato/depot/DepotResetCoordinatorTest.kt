@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.depot
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
@@ -332,7 +334,7 @@ class DepotResetCoordinatorTest {
             Vector3d(100.0, 0.0, 0.0),
             Vector3d(200.0, 0.0, 0.0)
         )
-        CoreRail.connect(firstRail, secondRail)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(firstRail, secondRail) }
         val firstTrain = createTrainWithConfig("A-cross", firstRail, world, listOf(10.0))
         val secondTrain = createTrainWithConfig("B-cross", secondRail, world, listOf(10.0))
         world.onOwnerForTest {

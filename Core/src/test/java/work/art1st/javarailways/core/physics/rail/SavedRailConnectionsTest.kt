@@ -118,7 +118,7 @@ class SavedRailConnectionsTest {
 
         withWorld { world ->
             val plan = world.prepareRailWorldSnapshotRestore(emptyList(), rails)
-            world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) }
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) } }
             verify(world)
         }
     }
@@ -129,8 +129,8 @@ class SavedRailConnectionsTest {
             val source = world.createRailForTest(line(Vector3d(), Vector3d(10.0, 0.0, 0.0)))
             val before = world.createRailForTest(line(Vector3d(-10.0, 0.0, 0.0), Vector3d()))
             val after = world.createRailForTest(line(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0)))
-            CoreRail.connect(before, source)
-            CoreRail.connect(source, after)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(before, source) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(source, after) }
             val original = source.save()
             val root = world.topologyState
             val invalid = original.copy(
@@ -140,7 +140,7 @@ class SavedRailConnectionsTest {
             )
 
             val failure = assertThrows(IllegalArgumentException::class.java) {
-                invalid.restoreConnections(source, CoreRail.SavedRailV1.Dependency(world))
+                IsolatedSimulationThreadMarker.run { invalid.restoreConnections(source, CoreRail.SavedRailV1.Dependency(world)) }
             }
 
             assertTrue(failure.message.orEmpty().contains(MISSING_ID))

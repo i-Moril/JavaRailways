@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
 import work.art1st.javarailways.core.physics.train.setControllerForTest
@@ -1729,8 +1731,8 @@ class TimetableDispatcherTest {
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0))
         val straight = rail(world, Vector3d(30.0, 0.0, 0.0), Vector3d(60.0, 0.0, 0.0))
         val branch = rail(world, Vector3d(30.0, 0.0, 0.0), Vector3d(60.0, 0.0, 10.0))
-        CoreRail.connect(approach, straight)
-        CoreRail.connect(approach, branch)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, straight) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, branch) }
         approach.viewAB.selectNextRail(straight.viewAB)
         val train = createTrainWithConfig("near-turnout", approach, world, listOf(10.0))
         val origin = train.head.location.arcLength
@@ -1758,8 +1760,8 @@ class TimetableDispatcherTest {
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         val mainBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
         val blockingBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
-        CoreRail.connect(approach, mainBranch)
-        CoreRail.connect(approach, blockingBranch)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, mainBranch) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, blockingBranch) }
         val mainTrain = createTrainWithConfig("main", approach, world, listOf(10.0))
         val blockingTrain = createTrainWithConfig("blocking", approach, world, listOf(10.0))
         world.onOwnerForTest {
@@ -1830,8 +1832,8 @@ class TimetableDispatcherTest {
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         val firstBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
         val secondBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
-        CoreRail.connect(approach, firstBranch)
-        CoreRail.connect(approach, secondBranch)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, firstBranch) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, secondBranch) }
         val firstTrain = createTrainWithConfig("T1", approach, world, listOf(10.0))
         val secondTrain = createTrainWithConfig("T2", approach, world, listOf(10.0))
         val secondOriginArc = firstTrain.head.location.arcLength + 40.0
@@ -1940,8 +1942,8 @@ class TimetableDispatcherTest {
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         val lateBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
         val earlyBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
-        CoreRail.connect(approach, lateBranch)
-        CoreRail.connect(approach, earlyBranch)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, lateBranch) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, earlyBranch) }
         val lateTrain = createTrainWithConfig("late-train", approach, world, listOf(10.0))
         val earlyTrain = createTrainWithConfig("early-train", approach, world, listOf(10.0))
         world.onOwnerForTest {
@@ -2191,8 +2193,8 @@ class TimetableDispatcherTest {
         val (outboundCurve, returnCurve) = PrimeCurveGenerator.buildCircle(140.0 / PI, 2, step = 0.1)
         val outboundRail = world.createRailForTest(outboundCurve)
         val returnRail = world.createRailForTest(returnCurve)
-        RailView.connect(outboundRail.viewAB, returnRail.viewBA)
-        RailView.connect(returnRail.viewAB, outboundRail.viewBA)
+        IsolatedSimulationThreadMarker.run { RailView.connect(outboundRail.viewAB, returnRail.viewBA) }
+        IsolatedSimulationThreadMarker.run { RailView.connect(returnRail.viewAB, outboundRail.viewBA) }
         return outboundRail to returnRail
     }
 

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
 import work.art1st.javarailways.core.physics.createRailForTest
@@ -77,10 +79,10 @@ class PhysOvalConnectionTest {
         val a2 = makeArcRightTurn(Vector3d(s2.lastPoint().position), radius, fromEast = false, normal, step)
 
         val rails = listOf(s1, a1, s2, a2).map(world::createRailForTest)
-        CoreRail.connect(rails[0], rails[1])
-        CoreRail.connect(rails[1], rails[2])
-        CoreRail.connect(rails[2], rails[3])
-        CoreRail.connect(rails[3], rails[0])
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rails[0], rails[1]) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rails[1], rails[2]) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rails[2], rails[3]) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(rails[3], rails[0]) }
         return rails
     }
 

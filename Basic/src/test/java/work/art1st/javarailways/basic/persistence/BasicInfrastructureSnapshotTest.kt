@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.persistence
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -46,7 +48,7 @@ class BasicInfrastructureSnapshotTest {
     fun `metadata UUID aliases refuse all Basic materialization`() = withFreshWorld { world ->
         val original = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
         val railId = "abcdef01-2345-6789-abcd-ef0123456789"
-        original.save().copy(id = railId).load(CoreRail.SavedRailV1.Dependency(world))
+        IsolatedSimulationThreadMarker.run { original.save().copy(id = railId).load(CoreRail.SavedRailV1.Dependency(world)) }
         val snapshot = BasicInfrastructureSnapshotCodec.decode(
             """{"formatVersion":2,"infrastructureRevision":7,"wayPoints":[
                 {"id":"valid","displayName":"Valid","railId":"$railId","arcLengthInAbMeters":10.0}],
@@ -195,7 +197,7 @@ class BasicInfrastructureSnapshotTest {
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
         world.basicWorldData.wayPoints.add(WayPoint("orphan", "Orphan", rail.id, 20.0))
-        world.removeRail(rail)
+        IsolatedSimulationThreadMarker.run { world.removeRail(rail) }
 
         val failure = assertThrows(IllegalStateException::class.java) {
             BasicInfrastructureSnapshotV2.capture(world, infrastructureRevision = 1L, projectedWayPointIds = emptySet())
@@ -248,7 +250,7 @@ class BasicInfrastructureSnapshotTest {
 
         val restored = createTestWorld().also(worlds::add)
         TestBasicWorldDataRegistry.getOrCreate(restored)
-        rail.save().load(CoreRail.SavedRailV1.Dependency(restored))
+        IsolatedSimulationThreadMarker.run { rail.save().load(CoreRail.SavedRailV1.Dependency(restored)) }
         snapshot.restore(restored)
 
         assertEquals(metadata, restored.basicWorldData.railMetadata.getValue(rail.id))

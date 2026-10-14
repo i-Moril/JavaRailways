@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.api.physics
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import work.art1st.javarailways.core.physics.createRailForTest
 
 import org.joml.Vector3d
@@ -27,7 +29,7 @@ class TopologyStateApiTest {
         try {
             val first = coreWorld.createRailForTest(straightCurve(0.0, 10.0))
             val second = coreWorld.createRailForTest(straightCurve(10.0, 30.0))
-            CoreRail.connect(first, second)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
             val world: World = coreWorld
 
             val state = world.topologyState

@@ -251,7 +251,7 @@ class TrainUniformMotionTest {
                     // 0.1m samples keep interpolation error below the existing 5mm position tolerance.
                     val rails = PrimeCurveGenerator.buildCircle(radius, step = 0.1).map(world::createRailForTest)
                     rails.indices.forEach { index ->
-                        RailView.connect(rails[index].viewAB, rails[(index + 1) % rails.size].viewBA)
+                        IsolatedSimulationThreadMarker.run { RailView.connect(rails[index].viewAB, rails[(index + 1) % rails.size].viewBA) }
                     }
                     val railsById = rails.associateBy { it.id }
                     val speed = 15.0

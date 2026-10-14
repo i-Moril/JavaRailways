@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
@@ -898,8 +900,8 @@ class TimetableStationCallDispatcherTest {
         val approach = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         val mainBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 0.0))
         val blockingBranch = rail(world, Vector3d(100.0, 0.0, 0.0), Vector3d(150.0, 0.0, 20.0))
-        CoreRail.connect(approach, mainBranch)
-        CoreRail.connect(approach, blockingBranch)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, mainBranch) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(approach, blockingBranch) }
         val mainTrain = createTrainWithConfig("main", approach, world, listOf(10.0))
         val blockingTrain = createTrainWithConfig("blocking", approach, world, listOf(10.0))
         world.onOwnerForTest {

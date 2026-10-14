@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
@@ -35,11 +37,11 @@ class CoreWorldTopologyStatePublicationTest {
             lateinit var first: CoreRail
             lateinit var second: CoreRail
 
-            world.railTopologyTransaction {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
                 first = world.createRailInTransaction(UUID.randomUUID(), straightCurve(0.0, 10.0))
                 second = world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 30.0))
                 RailView.connect(first.viewAB, second.viewBA)
-            }
+            } }
 
             val state = world.topologyState
             assertEquals(1L, world.topologyRevision)
@@ -60,9 +62,9 @@ class CoreWorldTopologyStatePublicationTest {
             val before = world.topologyState
 
             val failure = assertThrows(IllegalArgumentException::class.java) {
-                world.railTopologyTransaction {
+                IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
                     first.viewAB.mutableNextRails.add(second.viewAB)
-                }
+                } }
             }
 
             assertTrue(failure.message.orEmpty().contains("not symmetric"))
@@ -93,22 +95,22 @@ class CoreWorldTopologyStatePublicationTest {
         lateinit var source: CoreRail
         lateinit var first: CoreRail
         lateinit var second: CoreRail
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             source = world.createRailInTransaction(UUID.randomUUID(), straightCurve(0.0, 10.0))
             first = world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 20.0))
             second = world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 25.0))
             RailView.connect(source.viewAB, first.viewBA)
             RailView.connect(source.viewAB, second.viewBA)
             source.viewAB.activeRail = first.viewAB
-        }
+        } }
         val before = world.topologyState
 
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             source.viewAB.activeRail = second.viewAB
-        }
+        } }
         assertSame(before, world.topologyState)
 
-        world.railTopologyTransaction { }
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction { } }
         assertSame(before, world.topologyState)
     }
 
@@ -117,7 +119,7 @@ class CoreWorldTopologyStatePublicationTest {
         val before = world.topologyState
 
         assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction<Unit> { error("prepare failed") }
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction<Unit> { error("prepare failed") } }
         }
 
         assertSame(before, world.topologyState)
@@ -129,10 +131,10 @@ class CoreWorldTopologyStatePublicationTest {
         val before = world.topologyState
 
         assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
                 world.createRailInTransaction(UUID.randomUUID(), straightCurve(0.0, 10.0))
                 error("commit failed")
-            }
+            } }
         }
 
         assertSame(before, world.topologyState)
@@ -150,9 +152,9 @@ class CoreWorldTopologyStatePublicationTest {
             val before = world.topologyState
 
             val failure = assertThrows(IllegalArgumentException::class.java) {
-                world.railTopologyTransaction {
+                IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
                     source.viewAB.mutableNextRails.add(outside.viewAB)
-                }
+                } }
             }
 
             assertTrue(failure.message.orEmpty().contains("outside the captured world"))

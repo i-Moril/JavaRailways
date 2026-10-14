@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import work.art1st.javarailways.core.physics.createRailForTest
 
 import work.art1st.javarailways.basic.api.route.ResourcePreparationState as InfrastructurePreparationState
@@ -273,10 +275,10 @@ class LiveInfrastructurePreparationActuatorTest {
         val firstBranch = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 5.0))
         val exit = rail(world, Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0))
         val secondBranch = rail(world, Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 5.0))
-        CoreRail.connect(entry, middle)
-        CoreRail.connect(entry, firstBranch)
-        CoreRail.connect(middle, exit)
-        CoreRail.connect(middle, secondBranch)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(entry, middle) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(entry, firstBranch) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(middle, exit) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(middle, secondBranch) }
         return ConnectedTwoTurnoutFixture(world, entry, middle, firstBranch, exit, secondBranch)
     }
 
@@ -284,8 +286,8 @@ class LiveInfrastructurePreparationActuatorTest {
         val stem = rail(world, Vector3d(offset - 10.0, 0.0, 0.0), Vector3d(offset, 0.0, 0.0))
         val first = rail(world, Vector3d(offset, 0.0, 0.0), Vector3d(offset + 10.0, 0.0, -5.0))
         val second = rail(world, Vector3d(offset, 0.0, 0.0), Vector3d(offset + 10.0, 0.0, 5.0))
-        CoreRail.connect(stem, first)
-        CoreRail.connect(stem, second)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, first) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, second) }
         return Fixture(world, stem, first, second)
     }
 

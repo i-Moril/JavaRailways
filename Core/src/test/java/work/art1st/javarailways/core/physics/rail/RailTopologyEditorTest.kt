@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import work.art1st.javarailways.core.physics.createRailForTest
 
 import org.joml.Vector3d
@@ -16,7 +18,7 @@ class RailTopologyEditorTest {
     fun `merge is rejected when another rail connects to the split anchor`() = withWorld { world ->
         val before = rail(world, 0.0, 4.0)
         val after = rail(world, 4.0, 10.0)
-        CoreRail.connect(before, after)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(before, after) }
         val branch = world.createRailForTest(
             PrimeCurve.fromPoints(
                 listOf(
@@ -25,7 +27,7 @@ class RailTopologyEditorTest {
                 )
             )
         )
-        CoreRail.connect(before, branch)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(before, branch) }
 
         val error = RailTopologyEditor.mergeEligibilityError(before, after)
 

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -50,8 +52,8 @@ class CoreTrainTailBogieTest {
         val merged = world.createRailForTest(
             straightCurve(Vector3d(0.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0))
         )
-        RailView.connect(main.viewAB, merged.viewBA)
-        RailView.connect(siding.viewAB, merged.viewBA)
+        IsolatedSimulationThreadMarker.run { RailView.connect(main.viewAB, merged.viewBA) }
+        IsolatedSimulationThreadMarker.run { RailView.connect(siding.viewAB, merged.viewBA) }
         merged.viewBA.selectNextRail(main.viewBA)
         val train = createTrainWithConfig(
             "t-trailing-merge",

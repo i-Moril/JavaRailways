@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.routing
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -37,7 +39,7 @@ class OperationalRoutePlannerTest {
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val first = world.createRailForTest(straight(0.0, 10.0))
         val second = world.createRailForTest(straight(10.0, 30.0))
-        RailView.connect(first.viewAB, second.viewBA)
+        IsolatedSimulationThreadMarker.run { RailView.connect(first.viewAB, second.viewBA) }
         val planner = OperationalRoutePlanner(world)
 
         val result = planner.buildRoute(

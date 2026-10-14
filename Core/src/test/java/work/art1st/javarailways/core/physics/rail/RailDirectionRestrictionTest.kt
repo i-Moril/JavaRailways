@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
 import work.art1st.javarailways.core.physics.createRailForTest
@@ -29,7 +31,7 @@ class RailDirectionRestrictionTest {
             Curve.RawPoint(Vector3d(80.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 40.0)
         ))
         val second = world.createRailForTest(secondCurve)
-        RailView.connect(first.viewAB, second.viewBA)
+        IsolatedSimulationThreadMarker.run { RailView.connect(first.viewAB, second.viewBA) }
         assertEquals(second.viewAB, first.viewAB.activeRail)
 
         assertEquals(second.viewAB, first.viewAB.activeRail)

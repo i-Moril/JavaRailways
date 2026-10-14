@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.controller
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
 import work.art1st.javarailways.core.physics.train.setControllerForTest
@@ -285,7 +287,7 @@ class SimpleATOTest {
         val next = fixture.world.createRailForTest(
             straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         )
-        CoreRail.connect(fixture.train.head.location.rail, next)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(fixture.train.head.location.rail, next) }
         next.metadata = RailInfrastructureMetadata(
             speedLimits = SpeedLimitMetadata(
                 listOf(SpeedLimitEntry(5.0, SpeedLimitType.CURVE))
@@ -307,7 +309,7 @@ class SimpleATOTest {
         val next = fixture.world.createRailForTest(
             straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
         )
-        CoreRail.connect(fixture.train.head.location.rail, next)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(fixture.train.head.location.rail, next) }
         val lineId = LineId("metro")
         fixture.ato.setLineMaximumSpeed(
             "line",
@@ -417,7 +419,7 @@ class SimpleATOTest {
         val nextRail = fixture.world.createRailForTest(
             straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(130.0, 0.0, 0.0))
         )
-        CoreRail.connect(head.rail, nextRail)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(head.rail, nextRail) }
         val ref = RailObjectRef("test", "duplicate")
         nextRail.signals.add(OperationalSpeedLimitSignal(
             ref, RailLocationWithoutFacing(nextRail, 0.0), nextRail.viewAB.viewDirection, null

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.api.destination
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import work.art1st.javarailways.core.physics.createRailForTest
 
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -333,7 +335,7 @@ class OperationalDestinationTest {
         service.register(destination("after", original.id, 75.0, ViewDirection.BA))
         world.basicWorldData.wayPoints.add(WayPoint("legacy", "Legacy", original.id, 75.0))
         val splitCurves = original.curve.splitAt(50.0)
-        world.removeRail(original)
+        IsolatedSimulationThreadMarker.run { world.removeRail(original) }
         val beforeRail = world.createRailForTest(splitCurves.first)
         val afterRail = world.createRailForTest(splitCurves.second)
 
@@ -346,8 +348,8 @@ class OperationalDestinationTest {
         assertEquals(afterRail.id, world.basicWorldData.wayPoints["legacy"]?.railId)
         assertEquals(25.0, world.basicWorldData.wayPoints["legacy"]?.arcLength)
         val mergedCurve = beforeRail.curve.concatenate(afterRail.curve)
-        world.removeRail(beforeRail)
-        world.removeRail(afterRail)
+        IsolatedSimulationThreadMarker.run { world.removeRail(beforeRail) }
+        IsolatedSimulationThreadMarker.run { world.removeRail(afterRail) }
         val merged = world.createRailForTest(mergedCurve)
 
         service.migrateAfterRailMerge(beforeRail.id, afterRail.id, merged.id, 50.0)

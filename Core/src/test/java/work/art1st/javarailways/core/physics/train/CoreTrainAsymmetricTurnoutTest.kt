@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -66,12 +68,12 @@ class CoreTrainAsymmetricTurnoutTest {
             val first = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
             val second = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 5.0))
             val removed = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, -5.0))
-            CoreRail.connect(stem, first)
-            CoreRail.connect(stem, second)
-            CoreRail.connect(stem, removed)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, first) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, second) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, removed) }
             stem.viewAB.activeRail = removed.viewAB
 
-            world.removeRail(removed)
+            IsolatedSimulationThreadMarker.run { world.removeRail(removed) }
 
             assertEquals(listOf(first.viewAB, second.viewAB), stem.viewAB.mutableNextRails)
             assertTrue(stem.viewAB.activeRail === first.viewAB)
@@ -82,7 +84,7 @@ class CoreTrainAsymmetricTurnoutTest {
         val occupied = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0))
         createTrainWithConfig("occupied-remove", occupied, world, listOf(8.0))
 
-        assertThrows(IllegalArgumentException::class.java) { world.removeRail(occupied) }
+        assertThrows(IllegalArgumentException::class.java) { IsolatedSimulationThreadMarker.run { world.removeRail(occupied) } }
 
         assertTrue(world.getRail(occupied.id) === occupied)
     }
@@ -92,8 +94,8 @@ class CoreTrainAsymmetricTurnoutTest {
         val before = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0))
         val middle = rail(world, Vector3d(30.0, 0.0, 0.0), Vector3d(35.0, 0.0, 0.0))
         val after = rail(world, Vector3d(35.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
-        CoreRail.connect(before, middle)
-        CoreRail.connect(middle, after)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(before, middle) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(middle, after) }
         val train = createTrainWithConfig("body-only", before, world, listOf(20.0, 20.0))
         train.world.onOwnerForTest {
             train.setLocation(RailLocationWithFacing(after.viewAB, 25.0))
@@ -101,7 +103,7 @@ class CoreTrainAsymmetricTurnoutTest {
         }
         assertTrue(train.head.location.rail !== middle && train.tail.location.rail !== middle)
 
-        assertThrows(IllegalArgumentException::class.java) { world.removeRail(middle) }
+        assertThrows(IllegalArgumentException::class.java) { IsolatedSimulationThreadMarker.run { world.removeRail(middle) } }
 
         assertTrue(world.getRail(middle.id) === middle)
     }
@@ -112,19 +114,19 @@ class CoreTrainAsymmetricTurnoutTest {
         val removed = rail(sourceWorld, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, -5.0))
         val first = rail(sourceWorld, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
         val second = rail(sourceWorld, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 5.0))
-        CoreRail.connect(stem, removed)
-        CoreRail.connect(stem, first)
-        CoreRail.connect(stem, second)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, removed) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, first) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, second) }
         stem.viewAB.activeRail = removed.viewAB
         val saved = sourceWorld.allRails.filter { it !== removed }.map(CoreRail::save)
 
         withWorld { restoredWorld ->
             val dependency = CoreRail.SavedRailV1.Dependency(restoredWorld)
             assertThrows(IllegalArgumentException::class.java) {
-                restoredWorld.railTopologyTransaction {
+                IsolatedSimulationThreadMarker.run { restoredWorld.railTopologyTransaction {
                     val disconnected = saved.associateWith { it.loadDisconnected(dependency) }
                     disconnected.forEach { (snapshot, rail) -> snapshot.restoreConnections(rail, dependency) }
-                }
+                } }
             }
         }
     }
@@ -219,10 +221,10 @@ class CoreTrainAsymmetricTurnoutTest {
             val next = rail(world, Vector3d(51.0, 0.0, 0.0), Vector3d(61.0, 0.0, 0.0))
             val long = rail(world, Vector3d(61.0, 0.0, 0.0), Vector3d(261.0, 0.0, 0.0))
             val staging = rail(world, Vector3d(-300.0, 0.0, 0.0), Vector3d(-100.0, 0.0, 0.0))
-            CoreRail.connect(previous, junction)
-            CoreRail.connect(alternate, junction)
-            CoreRail.connect(junction, next)
-            CoreRail.connect(next, long)
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(previous, junction) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(alternate, junction) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(junction, next) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(next, long) }
             previous.viewBA.selectNextRail(junction.viewAB)
             junction.viewBA.selectNextRail(previous.viewAB)
             junction.viewAB.selectNextRail(next.viewAB)

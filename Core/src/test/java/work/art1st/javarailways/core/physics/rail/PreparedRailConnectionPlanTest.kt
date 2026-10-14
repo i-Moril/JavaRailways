@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -39,10 +41,10 @@ class PreparedRailConnectionPlanTest {
         val update = plan.prepareTopologyUpdate()
 
         lateinit var installed: List<CoreRail>
-        world.railTopologyTransaction(update) {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(update) {
             installed = world.installPreparedRails(prepared)
             plan.apply(world, installed)
-        }
+        } }
 
         assertEquals(listOf(last.railId, branch.railId, first.railId), installed.map { it.id })
         val (lastRail, branchRail, firstRail) = installed
@@ -101,10 +103,10 @@ class PreparedRailConnectionPlanTest {
         val topologyUpdate = plan.prepareTopologyUpdate()
 
         lateinit var created: CoreRail
-        world.railTopologyTransaction(topologyUpdate) {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(topologyUpdate) {
             created = world.installPreparedRails(prepared).single()
             plan.apply(world, listOf(created))
-        }
+        } }
 
         assertEquals(listOf(created.viewAB), selected.viewAB.nextRails)
         assertEquals(listOf(selected.viewBA), created.viewBA.nextRails)
@@ -122,10 +124,10 @@ class PreparedRailConnectionPlanTest {
         val topologyUpdate = plan.prepareTopologyUpdate()
 
         lateinit var created: CoreRail
-        world.railTopologyTransaction(topologyUpdate) {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(topologyUpdate) {
             created = world.installPreparedRails(prepared).single()
             plan.apply(world, listOf(created))
-        }
+        } }
 
         assertTrue(created.viewAB.nextRails.isEmpty())
         assertTrue(created.viewBA.nextRails.isEmpty())
@@ -166,10 +168,10 @@ class PreparedRailConnectionPlanTest {
         var actionRan = false
 
         assertThrows(IllegalStateException::class.java) {
-            world.railTopologyTransaction(topologyUpdate) {
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(topologyUpdate) {
                 actionRan = true
                 world.installPreparedRails(prepared)
-            }
+            } }
         }
 
         assertFalse(actionRan)
@@ -182,8 +184,8 @@ class PreparedRailConnectionPlanTest {
         val stem = world.createRailForTest(line(0.0, 10.0))
         val first = world.createRailForTest(line(10.0, 20.0))
         val second = world.createRailForTest(line(10.0, 30.0))
-        CoreRail.connect(stem, first)
-        CoreRail.connect(stem, second)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, first) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, second) }
         stem.viewAB.activeRail = first.viewAB
         val prepared = world.prepareRailCreation(line(40.0, 50.0))
         val stemB = RailEndpointRef(stem.id, RailEndpoint.B)
@@ -210,7 +212,7 @@ class PreparedRailConnectionPlanTest {
         val world = createTestWorld()
         val first = world.createRailForTest(line(0.0, 10.0))
         val second = world.createRailForTest(line(10.0, 20.0))
-        CoreRail.connect(first, second)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
         val prepared = world.prepareRailCreation(line(30.0, 40.0))
 
         assertThrows(IllegalArgumentException::class.java) {
@@ -233,7 +235,7 @@ class PreparedRailConnectionPlanTest {
         val world = createTestWorld()
         val selected = world.createRailForTest(line(0.0, 30.0))
         val existingPeer = world.createRailForTest(line(30.0, 60.0))
-        CoreRail.connect(selected, existingPeer)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(selected, existingPeer) }
         createTrainWithConfig("occupied-explicit-plan", existingPeer, world, listOf(8.0))
         val prepared = world.prepareRailCreation(line(30.0, 40.0))
         val createdA = RailEndpointRef(prepared.creations.single().railId, RailEndpoint.A)
@@ -261,7 +263,7 @@ class PreparedRailConnectionPlanTest {
         val prepared = world.prepareRailCreation(line(0.0, 10.0))
         val plan = PreparedRailConnectionPlan.capture(world, prepared, emptyList())
 
-        world.railTopologyTransaction {
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             val installed = world.installPreparedRails(prepared)
             val unrelated = world.createRailForTest(line(20.0, 30.0))
 
@@ -269,7 +271,7 @@ class PreparedRailConnectionPlanTest {
 
             world.removeRail(unrelated)
             world.removeRail(installed.single())
-        }
+        } }
         assertTrue(world.allRails.isEmpty())
     }
 

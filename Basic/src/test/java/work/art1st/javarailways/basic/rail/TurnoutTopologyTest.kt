@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.rail
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import work.art1st.javarailways.core.physics.createRailForTest
 
 import org.joml.Vector3d
@@ -30,7 +32,7 @@ class TurnoutTopologyTest {
         val world = createTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
         val first = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         val second = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
-        CoreRail.connect(first, second)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
 
         assertNull(TurnoutTopology.splitLockingClearanceError(first, 9.5, 5.0))
     }

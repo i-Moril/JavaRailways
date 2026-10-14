@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import kotlinx.serialization.json.Json
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -25,12 +27,12 @@ import java.util.UUID
 class CoreTrainPersistedPlacementTest {
     @Test
     fun `fixed current input with detached ends is rejected without registrations`() = withWorld { world ->
-        val rail = world.railTopologyTransaction {
+        val rail = IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
             world.createRailInTransaction(
                 UUID.fromString("00000000-0000-0000-0000-000000000023"),
                 straight(0.0, 300.0)
             )
-        }
+        } }
         val original = createTrainWithConfig("original", rail, world, listOf(10.0))
         val text = requireNotNull(javaClass.getResource("/persistence/detached-train-placement.json")).readText()
         val saved = Json.decodeFromString(SavedTrainV1.serializer(), text)
@@ -140,8 +142,8 @@ class CoreTrainPersistedPlacementTest {
             Curve.RawPoint(Vector3d(100.0, 0.0, 0.0), Vector3d(0.0, 0.0, 1.0), Vector3d(0.0, 1.0, 0.0), 0.0),
             Curve.RawPoint(Vector3d(100.0, 0.0, 50.0), Vector3d(0.0, 0.0, 1.0), Vector3d(0.0, 1.0, 0.0), 50.0)
         )))
-        CoreRail.connect(previous, junction)
-        CoreRail.connect(alternate, junction)
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(previous, junction) }
+        IsolatedSimulationThreadMarker.run { CoreRail.connect(alternate, junction) }
         junction.viewBA.activeRail = previous.viewBA
         val original = configuredTrain(world, previous, "turnout")
         original.world.onOwnerForTest {

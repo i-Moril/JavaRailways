@@ -5,10 +5,12 @@ import work.art1st.javarailways.core.api.event.CollisionEvent
 import work.art1st.javarailways.core.api.event.CollisionResolution
 import work.art1st.javarailways.core.api.event.processor.PhysicsRailEventBus
 import work.art1st.javarailways.core.api.physics.RailwayEpochProcessor
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.threading.ThreadGuard
 import work.art1st.javarailways.core.api.util.annotation.AsyncEventApi
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.train.CoreTrain
+import work.art1st.javarailways.core.physics.train.CollisionEnvelope
 import work.art1st.javarailways.core.util.AsyncTickThreadMarker
 import java.util.ArrayDeque
 import java.util.concurrent.CompletableFuture
@@ -45,7 +47,14 @@ data class CollisionPair private constructor(val firstTrainId: String, val secon
 private data class PendingCollisionDecision(
     val detectedEpoch: Long,
     val pair: CollisionPair,
-    val resolution: CollisionResolution
+    val resolution: CollisionResolution,
+    val firstTrain: CoreTrain,
+    val secondTrain: CoreTrain,
+    val firstFrame: TrainFrameSnapshot,
+    val secondFrame: TrainFrameSnapshot,
+    val topologyRevision: Long?,
+    val firstEnvelope: CollisionEnvelope?,
+    val secondEnvelope: CollisionEnvelope?
 )
 
 private class BetweenFramesOperation<T>(val action: () -> T) {
@@ -435,9 +444,6 @@ class PhysicsCoordinator(
         val attachedWorld = world ?: return false
         val result = attachedWorld.querySweptCollision(train)
         epochCandidateChecks.addAndGet(result.checkedCandidates.toLong())
-        if (result.candidateLimitReached) {
-            System.err.println("[JavaRailways] Collision candidate limit reached for train '${train.id}' in epoch $runningEpoch")
-        }
         val otherId = result.collidingTrainId ?: return false
         val other = attachedWorld.getTrain(otherId) ?: return false
         val pair = CollisionPair.of(train.id, other.id)
@@ -445,6 +451,17 @@ class PhysicsCoordinator(
         trainsPendingCollision.add(pair.secondTrainId)
 
         if (collisionClaims.add(pair)) {
+            val first = if (train.id == pair.firstTrainId) train else other
+            val second = if (first === train) other else train
+            val firstFrame = first.publishedFrame
+            val secondFrame = second.publishedFrame
+            val worldFrame = attachedWorld.latestWorldFrame()
+            val firstEnvelope = attachedWorld.collisionEnvelope(first.id)
+            val secondEnvelope = attachedWorld.collisionEnvelope(second.id)
+            val topologyRevision = worldFrame.topologyRevision.takeIf {
+                worldFrame.physicsEpoch == firstFrame.physicsEpoch && firstFrame.physicsEpoch == secondFrame.physicsEpoch &&
+                    worldFrame.trains.any { it === firstFrame } && worldFrame.trains.any { it === secondFrame }
+            }
             val event = CollisionEvent(
                 epoch = runningEpoch,
                 worldId = attachedWorld.runtimeId,
@@ -453,7 +470,10 @@ class PhysicsCoordinator(
                 relativeSpeed = relativeSpeed(train, other)
             )
             if (publishCollisionEvents) PhysicsRailEventBus.publish(event)
-            pendingCollisionDecisions[pair] = PendingCollisionDecision(runningEpoch, pair, event.resolution)
+            pendingCollisionDecisions[pair] = PendingCollisionDecision(
+                runningEpoch, pair, event.resolution, first, second, firstFrame, secondFrame, topologyRevision,
+                firstEnvelope, secondEnvelope
+            )
         }
         return true
     }
@@ -736,8 +756,13 @@ class PhysicsCoordinator(
             .sortedWith(compareBy({ it.pair.firstTrainId }, { it.pair.secondTrainId }))
         decisions.forEach { decision ->
             if (!pendingCollisionDecisions.remove(decision.pair, decision)) return@forEach
-            val first = attachedWorld.getTrain(decision.pair.firstTrainId) ?: return@forEach
-            val second = attachedWorld.getTrain(decision.pair.secondTrainId) ?: return@forEach
+            val first = decision.firstTrain
+            val second = decision.secondTrain
+            if (attachedWorld.getTrain(first.id) !== first || attachedWorld.getTrain(second.id) !== second) {
+                trainsPendingCollision.remove(first.id)
+                trainsPendingCollision.remove(second.id)
+                return@forEach
+            }
             when (decision.resolution) {
                 CollisionResolution.DERAIL -> {
                     val reason = "collision at physics epoch $epoch between ${first.id} and ${second.id}"
@@ -745,14 +770,22 @@ class PhysicsCoordinator(
                     second.markDerailedFromPhysics(reason)
                 }
                 CollisionResolution.LINK -> {
-                    val linkOwner = if (first.controller != null) first else second
-                    val linkedTrain = if (linkOwner === first) second else first
-                    linkOwner.linkWith(linkedTrain)
-                    // linkWith is an exceptional main-thread structural transaction. Keep both
-                    // trains frozen until that transaction has run, then release the surviving ID.
-                    attachedWorld.tickManager.scheduleMainThreadPostTickTask {
-                        trainsPendingCollision.remove(decision.pair.firstTrainId)
-                        trainsPendingCollision.remove(decision.pair.secondTrainId)
+                    // Apply and consume the real result in one owner operation, never wait for
+                    // another item on this finite FIFO queue or depend on generic postTick order.
+                    submitBetweenFrames {
+                        try {
+                            first.linkFromCollisionOnOwner(second, decision.firstFrame, decision.secondFrame,
+                                decision.topologyRevision, decision.firstEnvelope, decision.secondEnvelope)
+                        } catch (failure: Throwable) {
+                            if (status != PhysicsCoordinatorStatus.RUNNING) throw failure
+                            val reason = "collision coupling failed between ${first.id} and ${second.id}: ${failure.message}"
+                            System.err.println("[JavaRailways] $reason")
+                            if (attachedWorld.getTrain(first.id) === first) first.derail(reason)
+                            if (attachedWorld.getTrain(second.id) === second) second.derail(reason)
+                        } finally {
+                            trainsPendingCollision.remove(first.id)
+                            trainsPendingCollision.remove(second.id)
+                        }
                     }
                     return@forEach
                 }

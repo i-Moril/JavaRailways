@@ -19,6 +19,7 @@ import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
 import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
@@ -89,7 +90,7 @@ class ProtectionRegionTimetableDependencyTest {
                         TimetableObjectSelector.Regex(train.name), TimetableObjectSelector.Regex("C"))) else emptyList())
                 if (replacement) {
                     ato.timetables.add(timetable("A", "B"))
-                    assertTrue(dispatcher.beginTimetable(world, "protection") is TimetableEpochStartResult.Started)
+                    assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "protection") } is TimetableEpochStartResult.Started)
                     assertEquals(setOf(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)),
                         registry.dependencySnapshots().single().dependencies.resourceIds)
                 }
@@ -99,7 +100,7 @@ class ProtectionRegionTimetableDependencyTest {
                 ato.timetables.add(timetable("C", "D", moveInitially = true))
 
                 val failure = assertInstanceOf(TimetableEpochStartResult.Failure::class.java,
-                    dispatcher.beginTimetable(world, "protection"))
+                    world.onOwnerForTest { dispatcher.beginTimetable(world, "protection") })
 
                 assertTrue(failure.reason.contains("simplesignals:protection-regions"), failure.reason)
                 assertTrue(failure.reason.contains("without one matching authored boundary"), failure.reason)
@@ -120,13 +121,13 @@ class ProtectionRegionTimetableDependencyTest {
                 assertFalse(coordinator.isStalled)
                 // A fresh legal apply still succeeds, independently of absent signal/occupancy baseline.
                 ato.timetables.add(timetable("A", "B"))
-                assertTrue(dispatcher.beginTimetable(world, "protection") is TimetableEpochStartResult.Started)
+                assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "protection") } is TimetableEpochStartResult.Started)
                 val token = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)
                 val claimant = InfrastructureOwner("test:train", 1L)
                 assertEquals(InfrastructureMutationStatus.ACQUIRED, registry.acquireClaim(requester,
                     InfrastructureClaimRequest(world.topologyState.revision, claimant, InfrastructureFootprint(listOf(token)))).status)
                 assertEquals(InfrastructureMutationStatus.RELEASED, registry.releaseClaim(requester, claimant).status)
-                assertTrue(dispatcher.stopFutureCycles("protection"))
+                assertTrue(world.onOwnerForTest { dispatcher.stopFutureCycles("protection") })
                 assertTrue(registry.dependencySnapshots().isEmpty())
             } finally {
                 world.physicsCoordinator.close()

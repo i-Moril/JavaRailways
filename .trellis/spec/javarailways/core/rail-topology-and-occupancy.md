@@ -55,9 +55,13 @@ data class RailInterval(
 
 ## Occupancy、release与结果矩阵
 
-`SweptRailSpan(trainId,railId,minArcAB,maxArcAB)`在完整epoch后只形成一次immutable index；默认32 m bucket、collision query最多32 train candidates，exact overlap后返回`SweptOccupancyQueryResult(collidingTrainId,checkedCandidates,candidateLimitReached)`。同一index由`RailwayOccupancySnapshot`绑定到world frame的physics epoch并共享给Core collision与Basic admission/release consumer，后者通过`blockingTrainIds`查询任意canonical `RailInterval`且不设candidate cap；返回不可变、按train ID排序的完整blocker集合。consumer不得从frame trains另建第二份world swept-occupancy index。
+`SweptRailSpan(trainId,railId,minArcAB,maxArcAB)`在完整epoch后只形成一次immutable index；默认32 m bucket。Collision query收集与输入span同轨且共享查询bucket的唯一列车候选，按优先级排序后逐项exact overlap，直到找到有效碰撞或候选集合耗尽，返回`SweptOccupancyQueryResult(collidingTrainId,checkedCandidates)`。候选集合是当前有限occupancy snapshot的局部结果，不设置数量截断。同一index由`RailwayOccupancySnapshot`绑定到world frame的physics epoch并共享给Core collision与Basic admission/release consumer，后者通过`blockingTrainIds`查询任意canonical `RailInterval`并返回不可变、按train ID排序的完整blocker集合。consumer不得从frame trains另建第二份world swept-occupancy index。
 
-建索引只按span自身范围分桶；碰撞与区间查询均以调用方`tolerance`向两端扩展查询bucket，再去重并做exact overlap。这样跨bucket但落在5 mm默认容差内的接触不会在broad phase漏掉；扩桶可能带来容差外候选，不能省略exact过滤。碰撞候选仍按距离、train ID排序并受既有cap约束，不增加第二份索引或扩大存储footprint。
+建索引只按span自身范围分桶；碰撞与区间查询均以调用方`tolerance`向两端扩展查询bucket，再去重并做exact overlap。这样跨bucket但落在5 mm默认容差内的接触不会在broad phase漏掉；扩桶可能带来容差外候选，不能省略exact过滤。候选排序为body overlap优先，其后按车钩端点剩余间距、同轨区间距离和稳定train ID排序；排序不截断候选，接触证明失败继续检查下一个候选。查询成本不只是对候选排序：还包括遍历bucket引用、收集/去重span，以及对每个候选扫描双方span来计算车体重叠和区间距离；排序后再按候选扫描span做exact检查，直到找到有效碰撞或耗尽。密集共享桶和跨多轨的长列车会增加这些局部比较成本；不设置候选数量截断。32 m是轨道弧长bucket宽度，不是候选数量限制。
+
+车钩候选（CURRENT）：`SweptRailSpan`以默认false的`collisionOnly`将车钩的保守局部范围放入同一bucket map。`blockingTrainIds`忽略这类记录，公开frame的车体占用和swept spans不改变；没有第二份世界索引，但每tick索引存储及bucket引用会增加。`RailwayOccupancySnapshot`内部保存value-only端部证据及其拓扑版本，构造时要求每份证据属于所索引的exact train frame；公开`create(epoch, frames)`仍可仅构造车体查询视图，不暴露内部证据类型。
+
+碰撞查询先按body overlap排序，再按一次预计算的真实端点剩余间距、区间距离及稳定ID排序connector-only候选；body overlap保持原距离/ID顺序。昂贵接触检查不放入排序comparator。body overlap只认可严格正长度区间交集，即`min(maxArc) > max(minArc)`；仅端点相等、容差近邻和车钩候选必须由CoreWorld调用[接触与路径校验](./train-physics.md#车钩碰撞候选与接触证据current)，失败继续枚举，不能将保守车钩范围重叠直接作为碰撞。普通blocking查询仍为原闭区间/容差语义。候选集合全部来自同一有限occupancy snapshot，不设置数量截断；极端密集时单次查询会按实际候选数增长，不以遗漏真实候选换取人为上限。
 
 `TrainFrameSnapshot.occupiedIntervals`不是上述swept index的副本。它从epoch结束后的head、tail与bogie位置一次生成，保留既有相邻rail端点补全规则，供“当前仍在区间内吗”这类终态判断；`sweptSpans`继续用于碰撞与准入的整epoch保守查询。两者都按每根rail的canonical AB闭区间表达，跨轨道占用是多个interval，不存在跨整段路线的全局AB。
 
@@ -73,7 +77,15 @@ data class RailInterval(
 | release detector未见过占用 | `BEFORE_OCCUPANCY` | 不release |
 | overlap出现 | `OCCUPIED` | 保留claim |
 | 曾占用后完全分离 | `RELEASED`（terminal） | owner可release |
-| occupancy query达candidate cap | `candidateLimitReached=true`并记录metric/log | 不伪装完整无碰撞 |
+| occupancy query没有碰撞 | 精确检查所有局部候选后返回null及checkedCandidates | 不因候选数量达到阈值而提前当作无碰撞 |
+
+## 联结后的共享索引更新（CURRENT）
+
+联结事务在结构准备阶段调用`CoreWorld.prepareCouplingOccupancy(master, removed, resultFrame, resultCars, reversedCars): RailwayOccupancySnapshot`，从当前列车frames去掉两个源实例、加入已准备的结果frame，复用唯一`RailwayOccupancySnapshot.create`构建候选。结果端部必须使用已准备的frame/车厢排列和方向翻转，而不是尚未提交的旧方向；无关列车复用与其exact当前frame一致的旧envelope，保留原移动证据，不按最新道岔选择重新捕获。几何/插件/索引准备失败均不替换当前索引。提交结果train frame后、成功事件前调用`applyPreparedOccupancy(snapshot)`只安装该引用，再调用`publishWorldFrame(epoch)`发布同一已完成epoch的新世界观测；安装引用本身不执行callback或重新计算索引，也不等同于发布世界帧。
+
+不更新会让已退休ID遮蔽后续候选；仅忽略退休ID也不够，因为旧master footprint不覆盖原removed侧车厢。候选必须按结果完整span重建。此成本仅在低频联结发生，为当前世界span排序、分桶及引用存储的既有构建成本；不新增另一套索引、factory或每tick额外重建。已经交给consumer的旧world frame保持不可变；latest world引用在成功通知前替换，不能让通知读到旧编组或等下一physics epoch才刷新。解编也在成功通知前通过既有owner发布入口更新两侧及共享观测。共享安装或发布失败令Core Stall，不继续以普通联结失败回退修改残缺状态。
+
+真实回归在联结后从原removed侧的第三列车查询，必须识别新master，随后下一epoch确实发生新的碰撞且controller不移动，不能只检查removed列车已从world map删除。另需验证collision-only假候选不遮蔽有效候选、普通blocking不变、新master两端方向正确及成功通知所见世界已更新。正长度swept body overlap仍是保守判断，同速贴靠的相对运动误报未在本批扩展处理，边界由[接触契约](./train-physics.md#车钩碰撞候选与接触证据current)说明。离线验证不能替代游戏验证，实际交付状态见活动任务。
 
 ## 项目内正确示例
 
@@ -168,7 +180,7 @@ snapshot restore还必须覆盖stable UUID、same-ID replacement、exact prospec
 
 - `CoreWorldRailTopologyTransactionTest.kt`：明确latch/barrier验证reader不可见中间态（不新增sleep猜测）。
 - `CoreTrainAsymmetricTurnoutTest.kt`：body occupancy、active branch fallback。
-- `SweptOccupancyIndexTest.kt`：bucket、双向跨bucket容差内接触、容差外候选exact排除、自定义tolerance、candidate cap、stable nearest ordering。
+- `SweptOccupancyIndexTest.kt`：bucket、双向跨bucket容差内接触、容差外候选exact排除、自定义tolerance、超过原32项的connector候选仍能检查至有效接触、stable nearest ordering。
 - `RailIntervalReleaseDetectorTest.kt`：`BEFORE→OCCUPIED→RELEASED`且方向无关。
 - RailWand prepared split/merge tests断言失败后rail map、links、index和Basic projection一致；Core低层测试只覆盖仍由Core拥有的prepared plan和merge资格校验。
 

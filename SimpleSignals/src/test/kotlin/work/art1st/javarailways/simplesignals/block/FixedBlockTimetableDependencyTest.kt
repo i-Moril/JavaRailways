@@ -19,6 +19,7 @@ import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
 import work.art1st.javarailways.simpleato.api.ato.AtoWorldCoordinator
@@ -55,8 +56,10 @@ class FixedBlockTimetableDependencyTest {
             val entry = world.createRailForTest(straight(Vector3d(), Vector3d(40.0, 0.0, 0.0)))
             val upper = world.createRailForTest(straight(Vector3d(40.0, 0.0, 0.0), Vector3d(80.0, 0.0, 0.0)))
             val lower = world.createRailForTest(straight(Vector3d(40.0, 0.0, 0.0), Vector3d(80.0, 0.0, 10.0)))
-            CoreRail.connect(entry, upper)
-            CoreRail.connect(entry, lower)
+            world.onOwnerForTest {
+                CoreRail.connect(entry, upper)
+                CoreRail.connect(entry, lower)
+            }
             val topology = world.topologyState
             val train = createTrainWithConfig("timetable-race", entry, world, listOf(10.0))
             val origin = train.head.location.arcLength
@@ -134,17 +137,18 @@ class FixedBlockTimetableDependencyTest {
                 listOf(TimetableStep.Check("A"), TimetableStep.At(0L, TimetableAction.GoTo("B")))))))
 
             if (restore) {
-                assertEquals(TimetableCheckpointRestoreResult.Restored, dispatcher.restoreCheckpoint(world,
+                assertEquals(TimetableCheckpointRestoreResult.Restored, world.onOwnerForTest { dispatcher.restoreCheckpoint(world,
                     SavedDispatcherV1(1, 0L, 0L, listOf(SavedTimetableClockV1("race", 0L, 24_000L, 1L,
-                        emptySet(), emptyMap())), emptyList())))
+                        emptySet(), emptyMap())), emptyList())) })
             } else if (editBeforeGuard) {
-                val failed = assertInstanceOf(TimetableEpochStartResult.Failure::class.java, dispatcher.beginTimetable(world, "race"))
+                val failed = assertInstanceOf(TimetableEpochStartResult.Failure::class.java,
+                    world.onOwnerForTest { dispatcher.beginTimetable(world, "race") })
                 assertTrue(failed.reason.contains("reverse admission is forbidden"), failed.reason)
-                assertFalse(dispatcher.scheduleInitialCycle("race"))
+                assertFalse(world.onOwnerForTest { dispatcher.scheduleInitialCycle("race") })
                 assertTrue(registry.dependencySnapshots().isEmpty())
                 assertEquals(2L, signals.currentDefinitions().definitionRevision)
             } else {
-                assertTrue(dispatcher.beginTimetable(world, "race") is TimetableEpochStartResult.Started)
+                assertTrue(world.onOwnerForTest { dispatcher.beginTimetable(world, "race") } is TimetableEpochStartResult.Started)
             }
             assertTrue(registry.claimSnapshots().isEmpty(), "guard and final dependencies are non-exclusive")
             if (!editBeforeGuard) {
@@ -154,7 +158,7 @@ class FixedBlockTimetableDependencyTest {
                 assertEquals(InfrastructureMutationStatus.ACQUIRED, registry.acquireClaim(requester,
                     InfrastructureClaimRequest(topology.revision, claimOwner, InfrastructureFootprint(listOf(token)))).status)
                 assertEquals(InfrastructureMutationStatus.RELEASED, registry.releaseClaim(requester, claimOwner).status)
-                assertTrue(dispatcher.stopFutureCycles("race"))
+                assertTrue(world.onOwnerForTest { dispatcher.stopFutureCycles("race") })
                 assertTrue(registry.dependencySnapshots().isEmpty())
             }
             assertEquals(if (editBeforeGuard) 1 else 2, setCalls)

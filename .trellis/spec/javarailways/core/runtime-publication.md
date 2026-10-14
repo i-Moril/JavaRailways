@@ -69,7 +69,7 @@ world frame的capture与publication是两个阶段，但不是两个可独立观
 
 ### 非物理操作统一在帧间执行（TARGET，2026-10-14用户确认）
 
-迁移前重命名、主线程换向、controller切换、创建/删除、维护摆位、外部脱轨请求和基础设施编辑没有统一执行阶段。用户确认这些操作应由协调器安排在两个完整物理epoch之间执行。本节区分首批已实现能力与后续迁移目标；不能把已有`@MainThread`、generic after-commit队列或一次ticket等待当作已满足全部目标。
+迁移前重命名、主线程换向、controller切换、创建/删除、维护摆位、外部脱轨请求和基础设施编辑没有统一执行阶段。用户确认这些操作应由协调器安排在两个完整物理epoch之间执行。六批生产迁移现已完成（CURRENT）；保留本节标题锚点供历史任务链接定位。不能把已有`@MainThread`、generic after-commit队列或一次ticket等待当作帧间排他。
 
 #### 第一批已实现：协调阶段及重命名（CURRENT）
 
@@ -90,9 +90,9 @@ fun ensureBetweenFrames(operation: String)
 
 `CoreWorld.renameTrain`现在是受该阶段检查的同步apply方法。Bukkit命令将controller/Depot状态校验及rename一起提交，完成后经已有entity scheduler反馈玩家。name与名称索引在执行时更新，已发布train/world frame、occupancy及physics epoch保持不动；下一正常epoch会捕获新名称。coordinator比较上一frame的名称，即使列车静止也向既有latest mailbox提交新frame，不新增metadata revision或dirty字段、不重建每次rename的世界索引。Future成功与下一frame发布是两个不同的时点。
 
-其余操作的外部入口尚未迁移；宿主把Dispatcher/postTick放入阶段只保证这些内部调用不与新physics epoch交错，不表示玩家控制、手动扳道等直接入口已受保护。后续完整迁移目标如下。
+外部入口已逐批迁移：controller生命周期与换向、创建/删除及维护摆位、外部脱轨与选岔/拓扑编辑，以及碰撞联结和插件解编。宿主阶段本身不自动保护任意插件写入；每个生产入口仍须遵守其owner的阶段检查或显式提交规则。
 
-第3a批已迁移控制器换向请求及同步换向apply，见[controller请求契约](./train-controller.md#帧间换向请求current第3a批)和[列车换向](./train-physics.md#帧间换向current第3a批)。真实换向在通知监听器前立即刷新既有共享占用及world frame，沿用最近完整physics epoch，不另分配epoch或重跑signal processor。每次实际换向有一次低频世界索引构建；本批不引入批量dirty tracker或通知队列，后续维护操作的批量发布仍按其owner接口实现。控制器生命周期与手动接管已完成第3b批迁移，见[控制器生命周期](./train-controller.md#控制器生命周期current第3b批)；创建、删除、维护摆位及基础设施入口仍继续逐批迁移。
+第3a批已迁移控制器换向请求及同步换向apply，见[controller请求契约](./train-controller.md#帧间换向请求current第3a批)和[列车换向](./train-physics.md#帧间换向current第3a批)。真实换向在通知监听器前立即刷新既有共享占用及world frame，沿用最近完整physics epoch，不另分配epoch或重跑signal processor。每次实际换向有一次低频世界索引构建；不引入批量dirty tracker。控制器生命周期与手动接管见[控制器生命周期](./train-controller.md#控制器生命周期current第3b批)，创建/删除和维护摆位见[列车owner发布](./train-physics.md#帧间创建删除与维护摆位current第4批)，基础设施见[拓扑事务](./rail-topology-and-occupancy.md)，联结/解编见[结构事务](./train-physics.md#联结流程的职责边界current)。实际LINK与结果消费是一项owner操作，成功通知前完成共享观测；监听器排入的rename留给下一捕获批次。
 
 #### 正常请求与执行流程
 
@@ -100,7 +100,7 @@ fun ensureBetweenFrames(operation: String)
 
 协调器负责阶段和顺序，操作仍由各自owner校验和修改状态；这里的“事件”是待执行操作，不意味着每个动作都新增一组公开EventBus通知。现有MainRailEventBus插件通知仍由宿主模拟owner线程派发，不搬到physics worker，也不通过伪造线程marker执行Bukkit回调。线程Guard的整体分类另批讨论。
 
-下列为流程伪代码，尚未冻结新API名称：
+下列为当前流程伪代码，具体实现签名见上方：
 
 ```text
 submit operation -> coordinator queue + Future<result>
@@ -139,7 +139,7 @@ next physics epoch captures controllers and computes from the resulting state
 
 ### 结构变更的临时物理准入（CURRENT）
 
-仅等待`CoreWorld.awaitCurrentPhysicsEpoch()`不构成结构排他：捕获的ticket完成后，timer仍可能立即分配下一epoch。当前解编使用implementation-only的`PhysicsCoordinator.withStructuralMutation(action: () -> T): T`包住决策、准备、提交和成功通知；它与上述`processBetweenFrames`共享同一个私有`withFrameBoundary`准入及exact-ticket实现。联结草稿也复用此结构入口。内部结构方法不升级成公开API，其余maintenance入口仍须逐批迁移。
+仅等待`CoreWorld.awaitCurrentPhysicsEpoch()`不构成结构排他：捕获的ticket完成后，timer仍可能立即分配下一epoch。implementation-only的`PhysicsCoordinator.withStructuralMutation(action: () -> T): T`与上述`processBetweenFrames`共享同一个私有`withFrameBoundary`准入及exact-ticket实现。联结/解编请求由同一帧间队列执行，决策、准备、提交和成功通知均在词法作用域内；同步维护及拓扑复合操作复用该门禁。内部结构方法不升级成公开API，不保留await-only编辑路径。
 
 正常流程是主线程进入作用域，在`stateLock`内确认RUNNING且未shutdown、增加临时准入计数并捕获`inFlight ?: latestCompleted`；释放锁后等待这一个ticket，成功后再次确认可用，再在锁外执行action。`finally`在短锁区递减计数。等待、插件监听器、extension初始化与几何计算均不能持有`stateLock`，否则会阻塞旧epoch完成或把扩展代码放入协调器全局锁。计数只表达词法作用域持有关系，不是任务队列或第二套事务状态。
 

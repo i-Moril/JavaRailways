@@ -45,7 +45,7 @@ class CoreTrainAsymmetricTurnoutTest {
                 MainRailEventBus.register(object : EventListener {
                     @HandlesEvent
                     fun decide(event: TrainSplitEvent) = event.requestSeparatedDirection(true)
-                }).use { fixture.world.tickManager.postTick() }
+                }).use { fixture.world.onOwnerForTest { fixture.world.physicsCoordinator.drainBetweenFramesOperations() } }
             }
             val detached = result.get(5, TimeUnit.SECONDS) as CoreTrain
 

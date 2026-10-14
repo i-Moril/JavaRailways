@@ -40,6 +40,8 @@ class CoreWorldActiveContinuationsPublicationTest {
             assertEquals(before.physicsEpoch, world.latestWorldFrame().physicsEpoch)
             assertEquals(secondExit, world.latestWorldFrame().activeContinuations.selectedContinuation(stemEntry))
             assertEquals(firstExit, before.activeContinuations.selectedContinuation(stemEntry))
+            assertSame(world.latestWorldFrame().activeContinuations,
+                world.latestWorldFrame().occupancy.collisionActiveContinuations)
         }
 
         stem.viewAB.activeRail = first.viewAB
@@ -93,6 +95,27 @@ class CoreWorldActiveContinuationsPublicationTest {
         }
         assertTrue(failure.message.orEmpty().contains("active rail continuation changed"))
         assertNotSame(candidate, world.latestWorldFrame())
+    }
+
+    @Test
+    fun `collision envelope continuation uses the published turnout selection`() = withWorld { world ->
+        val (stem, first, second) = turnout(world)
+        stem.viewAB.activeRail = first.viewAB
+        val firstFrame = publish(world, 1L)
+
+        assertSame(firstFrame.activeContinuations, firstFrame.occupancy.collisionActiveContinuations)
+        assertSame(first.viewAB, world.collisionContinuation(stem.viewAB, firstFrame.activeContinuations))
+
+        stem.viewAB.activeRail = second.viewAB
+        val secondFrame = publish(world, 2L)
+
+        assertSame(second.viewAB, world.collisionContinuation(stem.viewAB, secondFrame.activeContinuations))
+        assertSame(first.viewAB, world.collisionContinuation(stem.viewAB, firstFrame.activeContinuations),
+            "older collision evidence must retain the branch selected in its own publication")
+
+        stem.viewAB.activeRail = null
+        val unselectedFrame = publish(world, 3L)
+        assertNull(world.collisionContinuation(stem.viewAB, unselectedFrame.activeContinuations))
     }
 
     private fun turnout(world: CoreWorld): Triple<CoreRail, CoreRail, CoreRail> {

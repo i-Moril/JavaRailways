@@ -115,6 +115,18 @@ abstract class TrainController(
         (train as? CoreTrain)?.clearActiveMotionFromPhysics()
     }
 
+    /**
+     * Commit the stopped result of coupling while the structural owner excludes physics.
+     * Does not cancel/rewrite commands, handles or ATO demand, or invoke subclass callbacks.
+     * A subsequent control tick may legitimately produce movement using those existing inputs.
+     */
+    internal fun commitStructuralStop() {
+        speedBuffer.set(0.0)
+        speedBuffer.commit()
+        speedBuffer.set(0.0)
+        speedDirty = false
+    }
+
     override fun tick(deltaT: Double) {
         if (pendingCommand == null) {
             moveControlledTrain(speed * deltaT * 0.001, speed)

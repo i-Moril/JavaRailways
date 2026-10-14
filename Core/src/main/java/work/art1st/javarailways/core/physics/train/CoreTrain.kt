@@ -426,7 +426,7 @@ open class CoreTrain @MainThread internal constructor(
     }
 
     /** Ordered train-local placement from [from] to [to], following the currently selected path. */
-    private fun placementSegments(
+    internal fun placementSegments(
         from: RailLocationWithFacing,
         to: RailLocationWithFacing
     ): List<RailSegment> {
@@ -670,7 +670,7 @@ open class CoreTrain @MainThread internal constructor(
             check(world.allTrains.all { it.publishedFrame.physicsEpoch == epoch }) {
                 "Cannot reverse before all train frames belong to completed epoch $epoch"
             }
-            val geometry = PreparedSplitGeometry(
+            val geometry = PreparedTrainGeometry(
                 cars, head.location, tail.location,
                 publishedPlacementIntervals.map { interval ->
                     SweptRailSpan(id, interval.railId, interval.minArcLengthInAbMeters, interval.maxArcLengthInAbMeters)
@@ -682,7 +682,7 @@ open class CoreTrain @MainThread internal constructor(
                 speed, isDerailed, clearMotion = true
             )
             try {
-                applyPreparedSplit(prepared)
+                applyPreparedStructure(prepared)
                 // Reuse normal builders for this low-frequency edit; no new epoch or signal pass.
                 world.rebuildSweptOccupancyIndex(epoch)
                 world.publishWorldFrame(epoch)
@@ -703,7 +703,7 @@ open class CoreTrain @MainThread internal constructor(
         updateActiveMotion(0.0)
     }
 
-    private data class PreparedSplitGeometry(
+    internal data class PreparedTrainGeometry(
         val cars: List<CoreCar>,
         val headLocation: RailLocationWithFacing,
         val tailLocation: RailLocationWithFacing,
@@ -712,8 +712,8 @@ open class CoreTrain @MainThread internal constructor(
         val bodyTraversal: List<RailTraversalSegmentSnapshot>
     )
 
-    private data class PreparedSplit(
-        val geometry: PreparedSplitGeometry,
+    internal data class PreparedTrainStructure(
+        val geometry: PreparedTrainGeometry,
         val frame: TrainFrameSnapshot,
         val reversedBogieLocations: List<List<RailLocationWithFacing>>,
         val clearMotion: Boolean
@@ -730,8 +730,9 @@ open class CoreTrain @MainThread internal constructor(
     @OptIn(ExtensionData::class)
     @Throws(CannotCreateTrainException::class)
     override fun splitBefore(carId: String, newId: String): Future<Train> =
-        world.tickManager.scheduleMainThreadAfterCommitTask {
+        world.physicsCoordinator.submitBetweenFrames {
             world.physicsCoordinator.withStructuralMutation {
+                check(world.getTrain(id) === this) { "Cannot split a retired train '$id'" }
                 val matchingIndices = cars.indices.filter { cars[it].id == carId }
                 if (matchingIndices.size != 1 || matchingIndices.single() == 0) {
                     throw CannotCreateTrainException()
@@ -782,9 +783,15 @@ open class CoreTrain @MainThread internal constructor(
                     persistedTailLocation = separatedSourceGeometry.tailLocation,
                     initialReversed = isReversed
                 )
-                controllerUpdates.forEach { it.install() }
-                newTrain.applyPreparedSplit(separatedSplit)
-                applyPreparedSplit(retainedSplit)
+                try {
+                    controllerUpdates.forEach { it.install() }
+                    newTrain.applyPreparedStructure(separatedSplit)
+                    applyPreparedStructure(retainedSplit)
+                    world.rebuildSweptOccupancyIndex(retainedSplit.frame.physicsEpoch)
+                    world.publishWorldFrame(retainedSplit.frame.physicsEpoch)
+                } catch (failure: Throwable) {
+                    throw world.physicsCoordinator.stall("Train split publication failed: train=$id", failure)
+                }
                 MainRailEventBus.publish(TrainSplitSuccessEvent(
                     train = this,
                     separatedTrain = newTrain,
@@ -851,24 +858,32 @@ open class CoreTrain @MainThread internal constructor(
     private fun prepareSplitGeometry(
         splitCars: List<CoreCar>,
         sourcePath: List<RailSegment>
-    ): PreparedSplitGeometry {
+    ): PreparedTrainGeometry {
         val endpoints = splitEndpoints(splitCars, sourcePath)
         val segments = placementSegments(endpoints.tail, endpoints.head)
-        val bodyTraversal = traversalSnapshots(segments)
-        val sweptSpans = mergeSweptSpans(segments.map(::spanFromSegment))
-        val placementIntervals = intervalsFromSpans(sweptSpans)
-        return PreparedSplitGeometry(
-            cars = splitCars,
-            headLocation = endpoints.head,
-            tailLocation = endpoints.tail,
+        return prepareStructureGeometry(splitCars, endpoints.head, endpoints.tail, segments)
+    }
+
+    /** Prepare publication geometry without changing cars, endpoints or ownership. */
+    internal fun prepareStructureGeometry(
+        resultCars: List<CoreCar>,
+        headLocation: RailLocationWithFacing,
+        tailLocation: RailLocationWithFacing,
+        path: List<RailSegment>
+    ): PreparedTrainGeometry {
+        val sweptSpans = mergeSweptSpans(path.map(::spanFromSegment))
+        return PreparedTrainGeometry(
+            cars = resultCars,
+            headLocation = headLocation,
+            tailLocation = tailLocation,
             sweptSpans = sweptSpans,
-            placementIntervals = placementIntervals,
-            bodyTraversal = bodyTraversal
+            placementIntervals = intervalsFromSpans(sweptSpans),
+            bodyTraversal = traversalSnapshots(path)
         )
     }
 
     private fun prepareSplit(
-        originalGeometry: PreparedSplitGeometry,
+        originalGeometry: PreparedTrainGeometry,
         reversed: Boolean,
         resultId: String,
         resultName: String,
@@ -876,7 +891,7 @@ open class CoreTrain @MainThread internal constructor(
         resultSpeed: Double,
         resultDerailed: Boolean,
         clearMotion: Boolean
-    ): PreparedSplit {
+    ): PreparedTrainStructure {
         val changeDirection = reversed != isReversed
         val geometry = if (changeDirection) originalGeometry.copy(
             headLocation = originalGeometry.tailLocation.reversed,
@@ -893,33 +908,44 @@ open class CoreTrain @MainThread internal constructor(
         val reversedBogieLocations = if (changeDirection) {
             geometry.cars.map { car -> car.bogies.map { it.location.reversed } }
         } else emptyList()
-        val frame = captureFrame(
-            revision = revision,
-            physicsEpoch = publishedFrame.physicsEpoch,
-            frameCars = geometry.cars,
-            frameHead = geometry.headLocation,
-            frameTail = geometry.tailLocation,
-            framePlacementIntervals = geometry.placementIntervals,
-            frameBodyTraversal = geometry.bodyTraversal,
-            frameSweptSpans = geometry.sweptSpans,
-            frameHeadTraversal = emptyList(),
-            frameTailTraversal = emptyList(),
-            frameTrainId = resultId,
-            frameTrainName = resultName,
-            frameSpeed = resultSpeed,
-            frameDerailed = resultDerailed,
-            frameReversed = reversed,
-            clearFrameMotion = clearMotion
+        val frame = prepareStructureFrame(
+            geometry, reversed, resultId, resultName, revision, resultSpeed, resultDerailed, clearMotion
         )
-        return PreparedSplit(
-            geometry = geometry,
-            frame = frame,
-            reversedBogieLocations = reversedBogieLocations,
-            clearMotion = clearMotion
-        )
+        return PreparedTrainStructure(geometry, frame, reversedBogieLocations, clearMotion)
     }
 
-    private fun applyPreparedSplit(prepared: PreparedSplit) {
+    /** Capture a complete candidate frame; installation remains a separate owner-only operation. */
+    internal fun prepareStructureFrame(
+        geometry: PreparedTrainGeometry,
+        reversed: Boolean,
+        resultId: String = id,
+        resultName: String = name,
+        revision: Long = frameRevision.get() + 1L,
+        resultSpeed: Double = speed,
+        resultDerailed: Boolean = isDerailed,
+        clearMotion: Boolean = false,
+        preparedCars: Map<CoreCar, CarFrameSnapshot> = emptyMap()
+    ): TrainFrameSnapshot = captureFrame(
+        revision = revision,
+        physicsEpoch = publishedFrame.physicsEpoch,
+        frameCars = geometry.cars,
+        frameHead = geometry.headLocation,
+        frameTail = geometry.tailLocation,
+        framePlacementIntervals = geometry.placementIntervals,
+        frameBodyTraversal = geometry.bodyTraversal,
+        frameSweptSpans = geometry.sweptSpans,
+        frameHeadTraversal = emptyList(),
+        frameTailTraversal = emptyList(),
+        frameTrainId = resultId,
+        frameTrainName = resultName,
+        frameSpeed = resultSpeed,
+        frameDerailed = resultDerailed,
+        frameReversed = reversed,
+        clearFrameMotion = clearMotion,
+        preparedCars = preparedCars
+    )
+
+    internal fun applyPreparedStructure(prepared: PreparedTrainStructure) {
         val geometry = prepared.geometry
         cars = geometry.cars
         if (prepared.reversedBogieLocations.isNotEmpty()) {
@@ -951,33 +977,15 @@ open class CoreTrain @MainThread internal constructor(
         world.publishTrainFrame(prepared.frame)
     }
 
-    /**
-     * 新车以当前车的车头为车头
-     */
-    @Throws(CannotCreateTrainException::class)
-    @ApiStatus.Experimental
-    fun linkWith(otherTrain: CoreTrain) {
-        if (world != otherTrain.world) throw CannotCreateTrainException()
-        world.tickManager.scheduleMainThreadAfterCommitTask {
-            // 操作ExtensionData
-            forEachExtensionData {
-                it.linkWith(otherTrain)
-            }
-            cars = cars + otherTrain.cars
-            var prevCar = cars.first()
-            for (car in cars.slice(1..cars.lastIndex)) {
-                car.updateByPrevCar(prevCar)
-                prevCar = car
-            }
-            tail.location =
-                tailBogie.location.forward(-tailCar.tailBogieToEndPointOffset) ?: throw CannotCreateTrainException()
-            otherTrain.removeController()
-            otherTrain.head.destroy()
-            otherTrain.tail.destroy()
-            otherTrain.cars.forEach { it.transferPublicationOwnership(this) }
-            world.removeTrain(otherTrain)
-        }
-    }
+    /** Collision-only entry; all coupling decisions and preparation belong to [TrainCoupling]. */
+    internal fun linkFromCollisionOnOwner(
+        other: CoreTrain,
+        beforeCollision: TrainFrameSnapshot,
+        otherBeforeCollision: TrainFrameSnapshot,
+        topologyRevision: Long?,
+        ownEnvelope: CollisionEnvelope?, otherEnvelope: CollisionEnvelope?
+    ): Train = TrainCoupling.linkFromCollisionOnOwner(this, other, beforeCollision, otherBeforeCollision,
+        topologyRevision, ownEnvelope, otherEnvelope)
 
     internal fun publishPhysicsState(refreshPlacement: Boolean = true) {
         cars.forEach { it.publishPhysicsState() }
@@ -1212,8 +1220,6 @@ open class CoreTrain @MainThread internal constructor(
             throw world.physicsCoordinator.stall("Train destruction failed: train=$id", failure)
         }
     }
-
-    open fun canLink(otherTrain: CoreTrain): Boolean = true
 
     fun setController(value: TrainController?) {
         if (_controller === value) return

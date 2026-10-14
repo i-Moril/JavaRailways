@@ -28,6 +28,9 @@ import work.art1st.javarailways.core.api.util.tick.TickManager
 import work.art1st.javarailways.core.di.WorldParentContext
 import work.art1st.javarailways.core.di.WorldContextRegistration
 import work.art1st.javarailways.core.physics.train.CoreTrain
+import work.art1st.javarailways.core.physics.train.CoreCar
+import work.art1st.javarailways.core.physics.train.CollisionEnvelope
+import work.art1st.javarailways.core.physics.train.TrainCoupling
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.AtGradeRailCrossingIndex
 import work.art1st.javarailways.core.physics.rail.RailView
@@ -1280,10 +1283,62 @@ class CoreWorld(
 
     /** Rebuilt by the physics Coordinator after all train states are published. */
     internal fun rebuildSweptOccupancyIndex(physicsEpoch: Long) {
-        sweptOccupancy = RailwayOccupancySnapshot.create(
-            physicsEpoch,
-            trains.values.map(CoreTrain::publishedFrame)
+        railTopologyLock.read {
+            val frames = trains.values.map(CoreTrain::publishedFrame)
+            val activeContinuations = captureActiveRailContinuations()
+            val envelopes = trains.values.associate { train -> train.id to
+                CollisionEnvelope.capture(this, train.publishedFrame,
+                    train.cars, activeContinuations, previous = sweptOccupancy.collisionEnvelopes[train.id]) }
+            sweptOccupancy = RailwayOccupancySnapshot.create(
+                physicsEpoch, frames, envelopes, topologyRevision, activeContinuations
+            )
+        }
+    }
+
+    /** Low-frequency structural preparation; reuse the same immutable occupancy builder. */
+    internal fun prepareCouplingOccupancy(
+        master: CoreTrain, removed: CoreTrain, result: TrainFrameSnapshot,
+        resultCars: List<CoreCar>,
+        reversedCars: Set<CoreCar>
+    ): RailwayOccupancySnapshot = railTopologyLock.read {
+        val survivors = trains.values.filter { it !== master && it !== removed }
+        val activeContinuations = captureActiveRailContinuations()
+        val envelopes = survivors.associate { train -> train.id to
+            (sweptOccupancy.collisionEnvelopes[train.id]?.takeIf { it.frame === train.publishedFrame }
+                ?.takeIf { it.activeContinuations === activeContinuations }
+                ?: CollisionEnvelope.capture(this, train.publishedFrame, train.cars, activeContinuations)) } +
+            (master.id to CollisionEnvelope.capture(this, result, resultCars, activeContinuations, reversedCars))
+        RailwayOccupancySnapshot.create(
+            result.physicsEpoch, survivors.map(CoreTrain::publishedFrame) + result,
+            envelopes, topologyRevision, activeContinuations
         )
+    }
+
+    /** Resolve a captured route continuation using the same immutable selection snapshot. */
+    internal fun collisionContinuation(
+        view: RailView,
+        activeContinuations: ActiveRailContinuationsSnapshot
+    ): RailView? {
+        val entry = RailEndpointRef(view.rail.id,
+            if (view.viewDirection == ViewDirection.AB) RailEndpoint.B else RailEndpoint.A)
+        val topology = publishedTopologyState
+        check(activeContinuations.topologyRevision == topology.revision) {
+            "active continuation snapshot belongs to a stale topology"
+        }
+        val node = topology.structuralNodeAt(entry)
+        val exit = when (node) {
+            is TopologyNode.Turnout -> activeContinuations.selectedContinuation(entry)
+            is TopologyNode.Terminus -> null
+            null -> topology.ordinaryContinuationAt(entry)
+            else -> node.ports.singleOrNull { it != entry }
+        } ?: return null
+        val rail = rails[exit.railId] ?: return null
+        return if (exit.endpoint == RailEndpoint.A) rail.viewAB else rail.viewBA
+    }
+
+    /** Install a fully prepared collision index without rebuilding during structural commit. */
+    internal fun applyPreparedOccupancy(occupancy: RailwayOccupancySnapshot) {
+        sweptOccupancy = occupancy
     }
 
     /**
@@ -1486,11 +1541,21 @@ class CoreWorld(
     internal fun sweptOccupancyStats(): Pair<Int, Int> =
         sweptOccupancy.spanCount to sweptOccupancy.bucketReferenceCount
 
-    internal fun querySweptCollision(train: CoreTrain): SweptOccupancyQueryResult =
-        sweptOccupancy.queryFirstCollision(
-            trainId = train.id,
-            ownSpans = train.publishedSweptSpans
-        )
+    internal fun querySweptCollision(train: CoreTrain): SweptOccupancyQueryResult = railTopologyLock.read {
+        val occupancy = sweptOccupancy
+        val own = occupancy.collisionEnvelopes[train.id]
+        occupancy.queryFirstCollision(train.id, train.publishedSweptSpans, acceptConnector = { otherId ->
+            val other = getTrain(otherId)
+            val incoming = occupancy.collisionEnvelopes[otherId]
+            other != null && own != null && incoming != null &&
+                TrainCoupling.hasConnectorContact(train, other, own, incoming,
+                    occupancy.collisionTopologyRevision == topologyRevision &&
+                        occupancy.collisionActiveContinuations === publishedWorldFrame.activeContinuations)
+        })
+    }
+
+    internal fun collisionEnvelope(trainId: String): CollisionEnvelope? =
+        sweptOccupancy.collisionEnvelopes[trainId]
 
     /** Called by the Coordinator after atomically publishing an active train frame. */
     internal fun publishTrainFrame(frame: TrainFrameSnapshot) {

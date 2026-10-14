@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simpleato.api.ato
 
 import work.art1st.javarailways.core.physics.train.setControllerForTest
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.params.ParameterizedTest
@@ -57,7 +58,7 @@ class AbstractATOConsistTest {
                     val owner = Thread.currentThread()
                     ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
                         override fun isMainThread(): Boolean = Thread.currentThread() === owner
-                    }).use { world.tickManager.postTick() }
+                    }).use { world.onOwnerForTest { world.physicsCoordinator.drainBetweenFramesOperations() } }
 
                     if (failInitialization) {
                         assertThrows(ExecutionException::class.java) { future.get(5, TimeUnit.SECONDS) }
@@ -93,7 +94,7 @@ class AbstractATOConsistTest {
         }
         override fun save(): Pair<String, SerializableExtensionData>? = null
         override fun splitBefore(carId: String, newId: String): TrainExtension = FailingExtension(true)
-        override fun linkWith(otherTrain: Train) = Unit
+        override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: TrainExtension?): TrainExtension = error("not used")
     }
 
     private object TrainProfile : TrainDynamics.TrainProfile {

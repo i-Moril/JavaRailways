@@ -88,7 +88,7 @@ class CoreTrainMixedInstallationTest {
                     fun decide(event: TrainSplitEvent) {
                         event.requestSeparatedDirection(!reversed)
                     }
-                }).use { source.tickManager.postTick() }
+                }).use { source.onOwnerForTest { source.physicsCoordinator.drainBetweenFramesOperations() } }
             }
             val separated = split.get(5, TimeUnit.SECONDS) as CoreTrain
             assertEquals(originalCars.take(1), train.cars)

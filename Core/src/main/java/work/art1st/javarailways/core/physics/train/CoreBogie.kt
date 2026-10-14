@@ -1,7 +1,5 @@
 package work.art1st.javarailways.core.physics.train
 
-import work.art1st.javarailways.core.api.render.Vector3Snapshot
-import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.joml.unaryMinus
@@ -11,6 +9,8 @@ import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.api.physics.train.Bogie
 import work.art1st.javarailways.core.api.render.RenderableExtension
 import work.art1st.javarailways.core.api.render.RenderableStateSnapshot
+import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
+import work.art1st.javarailways.core.api.render.Vector3Snapshot
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.util.trait.render.DynamicRenderableTrait
 import work.art1st.javarailways.core.api.util.plugin.Extendable

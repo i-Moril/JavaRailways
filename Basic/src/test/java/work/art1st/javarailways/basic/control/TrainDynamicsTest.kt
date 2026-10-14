@@ -21,8 +21,6 @@ import work.art1st.javarailways.core.physics.train.onOwnerForTest
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.physics.train.Train
-import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
-import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ExecutionException
 import kotlin.math.sqrt
@@ -122,10 +120,7 @@ class TrainDynamicsTest {
         controller.setHandle("P2")
         original.setControllerForTest(controller)
         val future = original.splitBefore(second.id, "manual-subset")
-        val owner = Thread.currentThread()
-        ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
-            override fun isMainThread(): Boolean = Thread.currentThread() === owner
-        }).use { original.world.tickManager.postTick() }
+        original.world.onOwnerForTest { original.world.physicsCoordinator.drainBetweenFramesOperations() }
         val separated = future.get(5, TimeUnit.SECONDS)
 
         assertSame(controller, original.controller)

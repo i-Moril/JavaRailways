@@ -1,9 +1,11 @@
 package work.art1st.javarailways.core.api.physics.rail
 
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
+import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.physics.rail.SweptOccupancyIndex
 import work.art1st.javarailways.core.physics.rail.SweptOccupancyQueryResult
 import work.art1st.javarailways.core.physics.rail.SweptRailSpan
+import work.art1st.javarailways.core.physics.train.CollisionEnvelope
 
 /**
  * Immutable query view over the swept train occupancy published for one completed physics epoch.
@@ -19,7 +21,10 @@ import work.art1st.javarailways.core.physics.rail.SweptRailSpan
 class RailwayOccupancySnapshot private constructor(
     val physicsEpoch: Long,
     val trainIds: Set<String>,
-    private val index: SweptOccupancyIndex
+    private val index: SweptOccupancyIndex,
+    internal val collisionEnvelopes: Map<String, CollisionEnvelope>,
+    internal val collisionTopologyRevision: Long?,
+    internal val collisionActiveContinuations: ActiveRailContinuationsSnapshot?
 ) {
     internal val spanCount: Int
         get() = index.spanCount
@@ -42,17 +47,26 @@ class RailwayOccupancySnapshot private constructor(
     internal fun queryFirstCollision(
         trainId: String,
         ownSpans: Collection<SweptRailSpan>,
-        maxCandidates: Int = SweptOccupancyIndex.DEFAULT_MAX_CANDIDATES
-    ): SweptOccupancyQueryResult = index.queryFirstCollision(trainId, ownSpans, maxCandidates)
+        acceptConnector: (String) -> Boolean = { true }
+    ): SweptOccupancyQueryResult = index.queryFirstCollision(trainId,
+        ownSpans + collisionEnvelopes[trainId]?.sweptSpans.orEmpty(),
+        acceptConnector = acceptConnector, connectorPriority = { other ->
+            val own = collisionEnvelopes[trainId]
+            val incoming = collisionEnvelopes[other]
+            if (own != null && incoming != null) own.nearestGap(incoming) else 0.0
+        })
 
     override fun equals(other: Any?): Boolean =
         other is RailwayOccupancySnapshot &&
             physicsEpoch == other.physicsEpoch &&
             trainIds == other.trainIds &&
-            index.indexedSpans == other.index.indexedSpans
+            index.indexedSpans == other.index.indexedSpans && collisionEnvelopes == other.collisionEnvelopes &&
+            collisionTopologyRevision == other.collisionTopologyRevision &&
+            collisionActiveContinuations == other.collisionActiveContinuations
 
     override fun hashCode(): Int = 31 * (31 * physicsEpoch.hashCode() + trainIds.hashCode()) +
-        index.indexedSpans.hashCode()
+        index.indexedSpans.hashCode() + 31 * collisionEnvelopes.hashCode() +
+        collisionTopologyRevision.hashCode() + 31 * collisionActiveContinuations.hashCode()
 
     companion object {
         /** Builds one immutable index from train frames belonging to [physicsEpoch]. */
@@ -60,7 +74,11 @@ class RailwayOccupancySnapshot private constructor(
         fun create(
             physicsEpoch: Long,
             trains: Collection<TrainFrameSnapshot>
-        ): RailwayOccupancySnapshot {
+        ): RailwayOccupancySnapshot = create(physicsEpoch, trains, emptyMap(), null, null)
+
+        internal fun create(physicsEpoch: Long, trains: Collection<TrainFrameSnapshot>,
+                            envelopes: Map<String, CollisionEnvelope>, topologyRevision: Long?,
+                            activeContinuations: ActiveRailContinuationsSnapshot?): RailwayOccupancySnapshot {
             val copiedTrains = java.util.List.copyOf(trains)
             require(physicsEpoch >= 0L) { "physicsEpoch must be non-negative" }
             require(copiedTrains.all { it.physicsEpoch == physicsEpoch }) {
@@ -68,6 +86,13 @@ class RailwayOccupancySnapshot private constructor(
             }
             require(copiedTrains.map(TrainFrameSnapshot::trainId).toSet().size == copiedTrains.size) {
                 "train IDs must be unique within one occupancy snapshot"
+            }
+            val framesById = copiedTrains.associateBy(TrainFrameSnapshot::trainId)
+            require(envelopes.all { (id, envelope) -> framesById[id] === envelope.frame }) {
+                "collision envelopes must belong to the indexed source frames"
+            }
+            require(envelopes.values.all { it.activeContinuations === activeContinuations }) {
+                "collision envelopes must use the occupancy selection snapshot"
             }
             val spans = copiedTrains.flatMap { train ->
                 train.sweptSpans.map { span ->
@@ -79,7 +104,8 @@ class RailwayOccupancySnapshot private constructor(
                 java.util.Collections.unmodifiableSet(
                     copiedTrains.mapTo(linkedSetOf(), TrainFrameSnapshot::trainId)
                 ),
-                SweptOccupancyIndex(spans)
+                SweptOccupancyIndex(spans + envelopes.values.flatMap { it.sweptSpans }),
+                java.util.Map.copyOf(envelopes), topologyRevision, activeContinuations
             )
         }
     }

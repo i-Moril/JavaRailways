@@ -12,9 +12,12 @@ import org.junit.jupiter.params.provider.ValueSource
 import org.junit.jupiter.params.provider.CsvSource
 import work.art1st.javarailways.core.api.event.TrainSplitEvent
 import work.art1st.javarailways.core.api.event.TrainSplitSuccessEvent
+import work.art1st.javarailways.core.api.event.CollisionEvent
 import work.art1st.javarailways.core.api.event.processor.EventListener
 import work.art1st.javarailways.core.api.event.processor.HandlesEvent
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
+import work.art1st.javarailways.core.api.event.processor.PhysicsRailEventBus
+import work.art1st.javarailways.core.api.util.annotation.AsyncEventApi
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.control.ControllerConsistState
 import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
@@ -31,6 +34,7 @@ import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -97,7 +101,7 @@ class CoreTrainSplitTest {
                     train.extensionDataContainer.setExtensionDataAt(2, object : TrainExtension {
                         override fun initialize(host: Train, savedExtensionData: Map<String, SerializableExtensionData>) = Unit
                         override fun save(): Pair<String, SerializableExtensionData>? = null
-                        override fun linkWith(otherTrain: Train) = Unit
+                        override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: TrainExtension?): TrainExtension = error("not used")
                         override fun splitBefore(carId: String, newId: String): TrainExtension {
                             observeTimerWake()
                             return RecordingSplitExtension()
@@ -179,7 +183,7 @@ class CoreTrainSplitTest {
             // Exercise the public Train API, without casting at the call site.
             val publicTrain: Train = train
             val future = publicTrain.splitBefore("car-2", "selected-directions")
-            withMainThread { world.tickManager.postTick() }
+            world.onOwnerForTest { world.physicsCoordinator.drainBetweenFramesOperations() }
             val detached = future.get(5, TimeUnit.SECONDS) as CoreTrain
             assertEquals(retainedReversed, train.isReversed)
             assertEquals(separatedReversed, detached.isReversed)
@@ -408,8 +412,10 @@ class CoreTrainSplitTest {
     }
 
     @ParameterizedTest
-    @ValueSource(booleans = [false, true])
-    fun `moving split retains controller and clears detached and direction-change motion`(reverseRetained: Boolean) {
+    @CsvSource("false,0.0", "true,0.0", "false,0.3", "true,0.3")
+    fun `moving split retains controller and clears detached and direction-change motion`(
+        reverseRetained: Boolean, connectorLength: Double
+    ) {
         val coordinator = PhysicsCoordinator(1, automaticFallback = false)
         val world = try {
             createTestWorld(coordinator)
@@ -421,7 +427,8 @@ class CoreTrainSplitTest {
             AutoCloseable { world.releaseRuntimeBinding() }.use {
                 coordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
-                    val train = createTrainWithConfig("moving-source", rail, world, List(4) { 10.0 })
+                    val train = createTrainWithConfig("moving-source", rail, world, List(4) { 10.0 },
+                        connectorLength = connectorLength)
                     train.setControllerForTest(ConstantSpeedController(train, 10.0))
                     coordinator.start()
                     val completedEpoch = coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS).epoch
@@ -430,9 +437,24 @@ class CoreTrainSplitTest {
                     assertTrue(train.publishedFrame.cars.all { it.state.velocityX > 0.0 })
 
                     lateinit var separated: CoreTrain
-                    withEvents(onDecision = { it.requestRetainedDirection(reverseRetained) }) {
+                    var coherentAtSuccess = false
+                    var deferredRename: CompletableFuture<Unit>? = null
+                    withEvents(onDecision = { it.requestRetainedDirection(reverseRetained) }, onSuccess = { event ->
+                        val observation = world.latestWorldFrame()
+                        coherentAtSuccess = listOf(event.train, event.separatedTrain).all { result ->
+                            val frame = result.publishedFrame
+                            observation.trains.any { it === frame } && frame != null &&
+                                observation.occupancy.blockingTrainIds(frame.occupiedIntervals).contains(result.id)
+                        }
+                        deferredRename = coordinator.submitBetweenFrames {
+                            world.renameTrain(event.separatedTrain as CoreTrain, "After split")
+                        }
+                    }) {
                         separated = executeSplit(train, carId = "car-2", newId = "stopped-separated")
                     }
+                    assertTrue(coherentAtSuccess)
+                    assertFalse(requireNotNull(deferredRename).isDone, "success callback submission belongs to the next batch")
+                    assertEquals("stopped-separated", separated.name)
 
                     assertEquals(completedEpoch, train.publishedFrame.physicsEpoch)
                     assertEquals(completedEpoch, separated.publishedFrame.physicsEpoch)
@@ -460,8 +482,117 @@ class CoreTrainSplitTest {
                         setOf(train.id, separated.id),
                         world.drainPublishedTrainFrames().mapTo(linkedSetOf()) { it.trainId }
                     )
+                    val retained = train.publishedFrame
+                    val detached = separated.publishedFrame
+                    world.onOwnerForTest { coordinator.drainBetweenFramesOperations() }
+                    requireNotNull(deferredRename).get(5, TimeUnit.SECONDS)
+                    assertEquals("After split", separated.name)
+                    assertSame(detached, separated.publishedFrame)
+                    coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                    assertEquals(completedEpoch + 1L, train.publishedFrame.physicsEpoch)
+                    assertEquals(retained.head.arcLengthInAbMeters + if (reverseRetained) -0.5 else 0.5,
+                        train.publishedFrame.head.arcLengthInAbMeters, 1e-6)
+                    assertEquals(detached.head, separated.publishedFrame.head)
+                    assertEquals("After split", separated.publishedFrame.trainName)
                 }
             }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(doubles = [0.0, 0.3])
+    @OptIn(AsyncEventApi::class)
+    fun `stationary split contact stays harmless until a real step closes it`(connectorLength: Double) {
+        val coordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val world = createTestWorld(coordinator)
+        try {
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+            val train = createTrainWithConfig("stationary-contact", rail, world, List(2) { 10.0 },
+                connectorLength = connectorLength)
+            val separated = executeSplit(train, "car-1", "closing-contact")
+            val calls = AtomicInteger()
+            separated.setControllerForTest(object : TrainController(separated, world) {
+                override fun tick(deltaT: Double) {
+                    val closing = calls.incrementAndGet() > 1
+                    speed = if (closing) 2.0 else 0.0
+                    moveControlledTrain(if (closing) 0.1 else 0.0, speed)
+                }
+            })
+            val collisions = AtomicInteger()
+            PhysicsRailEventBus.register(object : EventListener {
+                @HandlesEvent
+                fun collision(event: CollisionEvent) { collisions.incrementAndGet() }
+            }).use {
+                coordinator.start()
+                val atRest = coordinator.stepSimulation(50.0)
+                atRest.completion.get(5, TimeUnit.SECONDS)
+                assertEquals(1, calls.get())
+                assertEquals(0, collisions.get(), "resting contact is not an impact")
+                val beforeClosing = separated.publishedFrame
+                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                assertEquals(2, calls.get())
+                assertEquals(beforeClosing.head.arcLengthInAbMeters + 0.1,
+                    separated.publishedFrame.head.arcLengthInAbMeters, 1e-6)
+                assertEquals(0, collisions.get(), "prepass still observes the previous stationary frame")
+                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                assertEquals(1, collisions.get(), "actual inward movement must be detected on the next prepass")
+                assertEquals(2, calls.get(), "a detected impact must freeze before another controller step")
+                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                assertTrue(train.isDerailed)
+                assertTrue(separated.isDerailed)
+            }
+        } finally {
+            coordinator.close()
+            world.releaseRuntimeBinding()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    @OptIn(AsyncEventApi::class)
+    fun `micrometre inward steps on both touching couplers collide before bodies meet`() {
+        val coordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val world = createTestWorld(coordinator)
+        try {
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+            val train = createTrainWithConfig("slow-front", rail, world, List(2) { 10.0 }, connectorLength = 0.3)
+            val separated = executeSplit(train, "car-1", "slow-rear")
+            world.onOwnerForTest { train.reverse() }
+            val calls = AtomicInteger()
+            listOf(train, separated).forEach { participant ->
+                participant.setControllerForTest(object : TrainController(participant, world) {
+                    override fun tick(deltaT: Double) {
+                        calls.incrementAndGet()
+                        speed = 0.00002
+                        moveControlledTrain(0.000001, speed)
+                    }
+                })
+            }
+            val collisions = AtomicInteger()
+            PhysicsRailEventBus.register(object : EventListener {
+                @HandlesEvent
+                fun collision(event: CollisionEvent) { collisions.incrementAndGet() }
+            }).use {
+                coordinator.start()
+                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                assertEquals(2, calls.get())
+                assertEquals(0, collisions.get())
+                assertTrue(listOf(train, separated).all { it.publishedFrame.speedMetersPerSecond > 0.0 })
+                assertFalse(world.latestWorldFrame().occupancy
+                    .blockingTrainIds(train.publishedFrame.occupiedIntervals, train.id).contains(separated.id),
+                    "the two nonzero connectors must contact while body intervals remain apart")
+                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                assertEquals(1, collisions.get(), "any actual closing motion must count, even below geometry tolerance")
+                assertEquals(2, calls.get(), "contact must freeze both before another inward step")
+                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                assertTrue(train.isDerailed)
+                assertTrue(separated.isDerailed)
+                assertEquals(2, world.allTrains.size, "both moving participants must not link")
+            }
+        } finally {
+            coordinator.close()
+            world.releaseRuntimeBinding()
+            (world.tickManager as AutoCloseable).close()
         }
     }
 
@@ -574,13 +705,13 @@ class CoreTrainSplitTest {
 
     private fun executeSplit(train: CoreTrain, carId: String, newId: String): CoreTrain {
         val future = train.splitBefore(carId, newId)
-        withMainThread { train.world.tickManager.postTick() }
+        train.world.onOwnerForTest { train.world.physicsCoordinator.drainBetweenFramesOperations() }
         return future.get(5, TimeUnit.SECONDS) as CoreTrain
     }
 
     private fun executeFailedSplit(train: CoreTrain, carId: String, newId: String): Throwable {
         val future = train.splitBefore(carId, newId)
-        withMainThread { train.world.tickManager.postTick() }
+        train.world.onOwnerForTest { train.world.physicsCoordinator.drainBetweenFramesOperations() }
         return assertThrows(ExecutionException::class.java) { future.get(5, TimeUnit.SECONDS) }.cause!!
     }
 
@@ -686,7 +817,7 @@ class CoreTrainSplitTest {
             return splitResult
         }
 
-        override fun linkWith(otherTrain: Train) = Unit
+        override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: TrainExtension?): TrainExtension = error("not used")
     }
 
     private class NoOpController(train: CoreTrain) : TrainController(train, train.world) {

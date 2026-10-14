@@ -29,6 +29,7 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
 import work.art1st.javarailways.simpleato.SimpleATOPlugin
 import work.art1st.javarailways.simpleato.SimpleATOWorldData
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
@@ -254,10 +255,11 @@ class ProtectionSignalControllerHandoffTest {
         fun tickController() = world.physicsCoordinator.stepSimulation(1.0).await()
         try {
             advanceEpoch()
-            assertTrue(dispatcher.startService(world, "handoff-timetable", "handoff-service") is TimetableServiceStartResult.Started)
+            assertTrue(world.onOwnerForTest { dispatcher.startService(world, "handoff-timetable", "handoff-service") }
+                is TimetableServiceStartResult.Started)
             repeat(if (chain) 8 else 5) {
                 tickController()
-                dispatcher.tick(world)
+                world.onOwnerForTest { dispatcher.tick(world) }
                 advanceEpoch()
             }
             assertTrue(requestCount > 0)
@@ -280,15 +282,19 @@ class ProtectionSignalControllerHandoffTest {
                 val ato = train.controller as SimpleATO
                 val bodyLength = train.publishedFrame.bodyTraversal.sumOf { kotlin.math.abs(it.endArcLengthInAbMeters - it.startArcLengthInAbMeters) }
                 val leader = createTrainWithConfig("clearance-leader", rail, world, listOf(10.0))
-                leader.setLocation(rail.viewAB.getRailLocationAt(exitMeters + bodyLength + 11.0))
-                leader.commit()
+                world.onOwnerForTest {
+                    leader.setLocation(rail.viewAB.getRailLocationAt(exitMeters + bodyLength + 11.0))
+                    leader.commit()
+                }
                 advanceEpoch()
                 tickController()
                 assertEquals(2.0, ato.runtimeDiagnostics.permittedSpeedMetersPerSecond, 1e-9)
                 assertFalse(signals.protectionRouteSelectionSnapshot()!!.selections.getValue("test:handoff-entry").routeReady)
                 assertEquals(committed.committedAuthority, admission.activeAdmissions().single().committedAuthority)
-                leader.setLocation(rail.viewAB.getRailLocationAt(entryMeters + 350.0))
-                leader.commit()
+                world.onOwnerForTest {
+                    leader.setLocation(rail.viewAB.getRailLocationAt(entryMeters + 350.0))
+                    leader.commit()
+                }
                 repeat(3) { tickController() }
                 assertTrue(signals.protectionRouteSelectionSnapshot()!!.selections.getValue("test:handoff-entry").routeReady)
                 return

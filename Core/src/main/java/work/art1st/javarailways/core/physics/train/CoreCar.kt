@@ -1,7 +1,5 @@
 package work.art1st.javarailways.core.physics.train
 
-import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
-import work.art1st.javarailways.core.api.physics.train.CarFrameSnapshot
 import org.joml.*
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.physics.exception.BogieException
@@ -11,10 +9,12 @@ import work.art1st.javarailways.core.util.CommitBuffer
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.Reversible
 import work.art1st.javarailways.core.api.physics.train.Car
+import work.art1st.javarailways.core.api.physics.train.CarFrameSnapshot
 import work.art1st.javarailways.core.api.physics.train.Seat
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.render.RenderableExtension
 import work.art1st.javarailways.core.api.render.RenderableStateSnapshot
+import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
 import work.art1st.javarailways.core.api.render.Vector3Snapshot
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.util.trait.render.DynamicRenderableTrait
@@ -499,6 +499,23 @@ class CoreCar @MainThread internal constructor(
         normal = prepared.normal.toVector3d()
     }
 
+    /** Prepare this car's zero-motion frame without installing the candidate geometry. */
+    internal fun prepareStationaryFrame(prepared: PreparedCarGeometry): CarFrameSnapshot = CarFrameSnapshot.create(
+        id, length,
+        RenderableFrameSnapshot.create(prepared.position, prepared.direction, prepared.normal,
+            Vector3Snapshot(0.0, 0.0, 0.0)),
+        listOf(bogieA.prepareStationaryFrameAt(prepared.bogieALocation),
+            bogieB.prepareStationaryFrameAt(prepared.bogieBLocation))
+    )
+
+    /** Install owner-prepared geometry in the current operating facing, then publish zero motion.
+     * Any result-consist facing reversal is separately prepared and installed by the owner. */
+    internal fun applyPreparedStructuralGeometry(prepared: PreparedCarGeometry) {
+        applyPreparedGeometry(prepared)
+        clearMotionState()
+        publishPhysicsState()
+    }
+
     private fun searchForwardFromPreviousTail(
         deltaS: Double,
         predecessorTailPosition: Vector3dc,
@@ -692,10 +709,10 @@ class CoreCar @MainThread internal constructor(
     }
 
     companion object {
-        private const val FORWARD_SEARCH_RADIUS_METERS = 1.0
+        internal const val FORWARD_SEARCH_RADIUS_METERS = 1.0
         // Keep axle anchoring error well below the final 5mm geometry budget, including reload.
         private const val AXLE_TOLERANCE = 1e-6
-        private const val COUPLER_TOLERANCE = 1e-5
+        private const val COUPLER_TOLERANCE = COUPLER_CONTACT_EPSILON_METERS
 
         @JvmStatic
         fun create(

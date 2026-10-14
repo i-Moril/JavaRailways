@@ -23,9 +23,17 @@ interface TrainExtension : Extension<Train> {
     fun splitBefore(carId: String, newId: String): TrainExtension
 
     /**
-     * Coupling hook whose signature and semantics may change without source or binary
-     * compatibility guarantees, including for Java callers.
+     * Prepare a dedicated replacement for the union of both source extension slots.
+     *
+     * Core calls the master's extension when present, otherwise the removed side's extension;
+     * [counterpart] is the other source's same-slot extension or null. Neither this method nor
+     * replacement initialization may mutate source hosts, shared cars or external state.
+     * Initialization receives the unchanged master host, before result geometry is committed.
+     * Return a new instance, never either source instance. All slots prepare successfully before
+     * Core attaches any replacement. Failure preserves both original containers. This supported
+     * experimental hook can change source/binary contract; it is main-owner, blocking only for
+     * bounded local preparation and must not perform I/O or wait for platform work.
      */
     @ApiStatus.Experimental
-    fun linkWith(otherTrain: Train)
+    fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: TrainExtension?): TrainExtension
 }

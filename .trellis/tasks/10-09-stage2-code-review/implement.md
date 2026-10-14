@@ -17,7 +17,7 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 3. [x] controller生命周期与换向：整体迁移手动接管、Dispatcher和生产reverse caller；验证旧controller退出、新controller首次tick与结果方向，清除worker换向专用执行分支。现有停车/运营等待规则不擅自改变。
 4. [x] 列车创建/删除、初始及Depot维护摆位：统一阶段内prepare/apply与批次末frame/occupancy/world观测，保留失败原子性；覆盖创建未完成不可见、删除后无旧占用及摆位后下一步一致。
 5. [x] 外部脱轨、手动扳道、基础设施编辑：迁移await-only入口，区分physics-origin结果与外部命令；验证完整事件批次中无新physics worker，保持拓扑事务和资源仲裁合同。
-6. [ ] 联结/解编复用帧间阶段并完成CR-030复核：成功通知内提交rename正常完成，下一次碰撞使用一致观测；移除旧时序特判及过时契约，核对受影响API、测试与正式游戏测试交接。
+6. [x] 联结/解编复用帧间阶段并完成CR-030复核：成功通知内提交rename正常完成，下一次碰撞使用一致观测；移除旧时序特判及过时契约，核对受影响API、测试与正式游戏测试交接。源码/离线验收完成，未做游戏实测。
 
 第3项拆为两笔可独立检查的子批次：3a先迁移控制器换向请求、同步换向apply与一致发布，删除worker换向/跳过movement分支；3b随后迁移控制器安装/替换/移除及手动接管、导航和Dispatcher复合入口。本轮先做3a，不将整项勾选完成。手动接管包含平台座位/钥匙检查与运营/控制器状态迁移，不能仅异步化底层setter后让上层继续按同步结果执行；其平台数据捕获与结果回送留在3b。
 
@@ -57,7 +57,17 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 
 最终冻结候选一次完整rerun通过：Core369、Basic394、SimpleATO356、Bukkit384、Tunnel31，共1534项零失败/error/skip；Dev编译/test(NO-SOURCE)、Java signalApiConsumer编译、Core Dokka通过（仍有已有warning），1分45秒、46tasks全部执行。首次导出新测试中含依赖第6批collision内部字段的附加断言，已仅在第5候选排除，保留在第6草稿；另补既有SavedRail恢复marker、新测试清理的AutoCloseable类型和启动前wake遗漏。没有改业务断言或放宽guard。使用约定offline/workspacecache/2workers/in-process配置，未前端打包、未部署或游戏验证；完整候选源码冻结后未再改运行时。
 
-第6批队列/发布草稿已实现并通过只读流程复核，但发现解编后的真实端部贴靠被下一epoch判碰撞。工作区真实执行Split及CollisionCoupling两类57项，55通过/2失败（32秒、9tasks全执行）；仅moving split两方向的下一步位置未移动，预期51实际50.5、预期30实际30.5，证实prepass冻结，不能将此门禁记为通过。联结成功事件的一致发布/排队rename及veto fallback回归通过。需用户确认“静止贴靠不算撞击、只有实际闭合/穿入才判撞”的一般规则；不新增split冷却/临时豁免、不隐藏共享占用、不用controller上次speed预测下次输入。已通过非阻塞问题请求确认，尚未批准或实现新算法；第6批保留未提交，不勾选完成，不关闭CR-030/Core审查/Stage2。
+第6批队列/发布首次验证发现解编后的真实端部贴靠被下一epoch判碰撞。Split及CollisionCoupling两类57项，55通过/2失败（32秒、9tasks全执行）；moving split两方向下一步预期51实际50.5、预期30实际30.5，证实prepass冻结，保留为修复前红结果。联结成功事件的一致发布/排队rename及veto fallback回归通过。
+
+用户选择“不增加复杂度的做法”，现实现无额外状态的最小接触修复：严格正长度body交集仍判保守碰撞，端部仅贴靠用既有traversal证明实际向内运动；不新增冷却、临时豁免或输入预测。最初定向门禁通过后，只读检查发现几何容差不能充当运动阈值，已改实际闭合位移之和严格大于0，并补两车各`1e-6m`低速真实接触。正式算法、容差及同速贴靠保守误报的延期边界见[接触契约](../../spec/javarailways/core/train-physics.md#车钩碰撞候选与接触证据current)。
+
+第6批首次完整工作区门禁失败（2分20秒、53tasks全执行）：Core404中1失败、Basic394中1失败，其余SimpleATO356、SimpleATOBukkit8、Bukkit384、Tunnel31通过。Core旧并发reader在owner事务外主动publish与owner刷新争抢索引；改为真实capture，保留读锁阻塞断言并补最终owner世界帧检查。Basic manual split仍drain generic postTick；改为正式帧间队列，保留全部controller/profile断言。没有改生产锁或放宽publication校验。WebUI真实frontend build、三个Dokka及Java API consumer已执行；不能将本次失败写为通过。最终完整门禁另记于下。
+
+随后补入SimpleSignals完整运行门禁，2分59秒、63tasks全执行，仅SimpleSignals失败：487项中11失败；Core404、Basic394、SimpleATO356、SimpleATOBukkit8、Bukkit384、Tunnel31均零失败/error/skip。失败定位为三类旧fixture仍在UNKNOWN_BACKGROUND直接connect或调用Dispatcher mutation。前几批五模块结果不包含SimpleSignals test，不能据此视为覆盖；本批补齐这些单操作owner入口，不把整项physics步骤包入owner，不改正式业务断言。实际WebUI frontend、shadowJar、三个Dokka和Java API consumer均执行，已有warning保留；最终独立候选结果另记。
+
+最终独立候选`/tmp/javarailways-coupling-verified.zMDE1j`（源码冻结tree `6361fc1cf43e810c8d5229536d602f7c319a7ca6`）完整门禁成功：Core404、Basic394、SimpleATO356、SimpleATOBukkit8、SimpleSignals487、Bukkit384、Tunnel31，共2064项，零失败/error/skip；Dev编译/test(NO-SOURCE)、Java signalApiConsumer编译和Core Dokka通过。2分39秒、58tasks全部执行，日志`/tmp/javarailways-coupling-verified.log`。沿用workspace缓存、offline/no-cache/rerun/nonincremental/in-process、2workers及1536m/1024m设置；独立候选跳过frontend install/build，真实frontend/三个Dokka/shadowJar另由上一工作区门禁执行，不将两次结果混报为单次打包门禁。暂存及工作区30份Kotlin/Java源码均与该候选逐字节相同，之后仅补执行结果/状态文字。
+
+最后只读增量复核包含三个SimpleSignals夹具及全部受影响owner契约，无剩余确定阻塞；scoped diff-check和task manifests 27+27通过。manifest提醒train-physics及Basic admission规范超过自动注入大小，相关审查按需直接读取，未借本批重构整个规范目录。第1至6批及CR-030源码缺陷修复完成；Core Seat/旧事件接入、真实开发服迁移、其余模块审查和现场验证等仍按原台账开放。同速贴靠的保守swept误报单独延期，不称完整相对运动碰撞已解决；不部署、不归档整个Core/全项目审查或Stage2任务。
 
 ### 前一阶段执行顺序（保留历史记录）
 
@@ -66,6 +76,8 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 当前已完成Core ownership、结构编辑epoch准入、源包精确解析、真实开发服只读取样及Bukkit每车JS纵向迁移（`8b5e7483`）。2026-10-12用户确认自定义动作菜单取并集，仅操作声明该动作的车厢；整列开关门仍按全部目标汇总。最新联结规则要求碰撞前至少一方静止；主编组优先插件指定，否则选静止方，取消train ID字典序推测；成功结果速度为0。具体合同由Core train-physics拥有。继续四端联结，不切换模块。
 
 ### 四端联结恢复实施（2026-10-12）
+
+- 最新接触处理已获用户批准：车钩纳入候选；联结时以静止方为锚点重算接近方位置，修正该碰撞步进的越界。复用碰撞对应上一tick已有frame及有序轨道片段，任务仅持有其引用；不另建路径历史/存档、不引入移动意图阶段。取代下方历史“无位移/首次接触截断待决”描述。当前先同步owner TARGET并实现真实collision闭环，不开展挤岔或Basic后续审查。源码检查、真实coordinator回归和独立审查完成前不关闭CR-030。
 
 - 最新确认：本批先修动力学参数归属，用实际车厢实例而非旧编组下标关联固有性能参数；计算仍遍历当前编组并读取各车当前坡度。联结须合并映射、解编须按结果车厢划分，不能只消除数组越界而漏掉新加入车厢或继续使用旧制动能力。本步骤是CR-030直接依赖，不恢复Basic全模块后续修复。碰撞事务草稿暂时冻结。
 - 实施分界：先独立修复executor对原有车厢的换序及子集计算，并让供制动包络使用的`carProfiles`按当前车厢投影。随后在结构准备/提交中接入双方参数合并、解编划分和ATO安全参数重算，以及按每车来源包解析；未知车厢实例必须明确失败，不按同名ID或默认车型补齐。首批完成不等于上述结构集成完成。
@@ -78,7 +90,35 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 - 暂停范围确认：源码追踪确认旧检测在move之前查询上一epoch包络，补车钩候选仍可能在实际接触后才触发；需评估本次physics步进在首次接触处截断，而不是结构prepare吸附。另独立检查发现Basic `TrainDynamicsExecutor`在构造时固定`carProfiles`，后续按current cars索引，联结后的数量/顺序变化会越界或错配，manual/ATO共用。两项为联结直接依赖，不扩张为Basic全模块审查；新增范围须先向用户说明确认。
 - 当时暂停的事务草稿涉及8个既有源码/测试文件及3个新事件/端部文件，尚未闭合Bukkit旧测试caller、碰撞候选与步进、动力学profile重绑定，不可交付。当时入口分析只有源码证据，没有已完成可执行复现；暂停期间保留改动等待范围决定。后续获批的参数前置及实际构建结果单独记于下节，不因此宣称草稿完成。
 
-### 有限路径几何准备前置（2026-10-13，当前批次）
+### 车钩接触的真实碰撞入口（2026-10-14，工作区已实现，未提交）
+
+- 用户批准补齐车钩碰撞范围。“提前检测”仅指车体尚未重叠时检测实际车钩接触，不预测下一tick，不新增移动意图阶段。本批继续CR-030，不切换Basic审查。
+- 改动边界：Core内部生成当前帧端部及有限有向局部片段；既有共享bucket索引区分collision-only记录与普通车体记录；CoreWorld在claim/event/freeze前过滤错误近邻；coordinator传递对应不可变证据；TrainCoupling复用既有有限路径修正；相关真实coordinator及索引测试。不改变公开普通占用、持久化格式、版本、车厢JS或controller需求。
+- 搜索域沿用既有单车刚体求解支持范围，不把connector length当精确轨道弧长，不引入全世界空间扫描或第二份索引。真实三维端点距离、相向关系及捕获路径连接决定是否接触；假候选继续搜索，不能冻结后再发现不是碰撞。一静一动还复用已有记录内修正证明越过接触点；两端均纳入候选，检查旧tailTraversal覆盖。
+- 候选只沿同一捕获active-continuation snapshot的有向路径展开；端点三维车钩接触、错误分支过滤、普通blocking隔离、0.01m低速越过接触点、短轨接缝、R30曲线、3D坡道、双方运动拒绝、制动至零但本步实际移动、stale topology、准备失败原子性、新master完整frame及后续障碍均有回归。新增真实三路道岔fixture：静止车位于未选竞争支路时，虽有三维端点接触且共享bucket命中，仍不产生碰撞/联结，双方不脱轨，随后两个epoch继续完成。
+- 独立只读复核未发现快照、普通占用隔离、静止判断或提交epoch方面的生产阻塞。endpoint-gap排序只影响检查顺序；2026-10-14用户批准移除32候选截断后，查询会检查至找到有效碰撞或局部候选耗尽，不再因候选数上限漏掉接触。高密度局部候选仍会增加排序与精确检查成本。现有40假候选测试在索引层使用测试给定优先级，不是实际Envelope的密集压力/完备性测试。
+- 定向Core三类测试共36项通过（world continuation 3、collision coupling 20、occupancy index 13），另新增实际三路道岔回归1项通过；Core+Basic+SimpleATO+BukkitPlugin+TunnelBridgeBuilder全套模块测试分别381+393+354+379+31=1538项通过，零失败/错误/跳过。Dokka V2 `:Core:dokkaGenerateHtml :Basic:dokkaGenerateHtml :SimpleATO:dokkaGenerateHtml`通过，但输出有大量已有未文档化API/失效link警告；本批联结事件属性warning已补KDoc。`SimpleATOBukkit:test`因离线缓存缺少`net.fabricmc:tiny-remapper:0.12.0`无法完成，其主/测试源码编译通过。初次误调用Dokka V1任务失败为选择了与项目V2配置不兼容的任务。
+- 本批仍为工作区草稿，未提交、未部署或游戏实测；不引用下方769项历史门禁作为本批结果。CR-030及Core/Basic整体审查、Stage2均不关闭。
+
+### 真实车体碰撞后的有限路径修正（2026-10-13，前置批次，未提交）
+
+- 恢复中断时遗留的部分接线；本批先在既有body-collision入口实现静止锚点修正，不新增车钩提前检测，不宣称完整联结或交付游戏测试版。联结流程仍归`TrainCoupling`，CoreCar/CoreBogie只新增自身候选frame与几何安装，CoreTrain接收预计算car frames。
+- 输入只用碰撞对应frame的tailTraversal+body有序路径及headTraversal回退范围；复用既有三维刚体求解，有限记录不足明确拒绝，不取当前反向道岔，不补历史或任意吸附距离。静止物理锚点与插件主编组选择分开，最终geometry、方向、frame、控制参数与extension均先准备后提交。
+- 独立检查发现必要集成缺口并批准本批处理：携带对应world frame的topologyRevision，结构进入及插件准备后拒绝stale；联结后共享collision index不能遗留removed ID或漏掉转移车厢，复用既有occupancy factory在prepare构造替换后的唯一候选、提交换引用，不另建索引或增加每tick重建。具体机制在验证后同步owner spec。
+- 首次编译失败是buildList元素类型推断，已明确`RailSegment`后继续；首次真实聚焦14项中5失败来自fixture先reverse后setLocation使B端被复位为A，已调整摆位顺序。这些失败不是通过记录；真实coordinator采用非零车钩与足够单步越界，四端/主编组及准备失败回归继续验证。最终门禁待补，不引用上批750/43项作当前结果。
+- 中途聚焦真实修正14项、Link5与Coordinator36，共55项通过（39秒/9tasks全执行，零失败/error/skipped）。覆盖四端×两种主编组、controller准备失败默认脱轨、stale拓扑、记录不足小步长、双方运动拒绝、既有路径反向选择清空后仍可用，以及第三障碍不被removed ID遮蔽。之后补完整三维frame/live向量与坡道/曲线真实用例，冻结检查及最终完整门禁仍待补，不能以这55项冒充最终源码验证。
+- 最终聚焦修正16+Link5+Coordinator36=57项通过，39秒/9tasks全执行；R30和三维坡道均为真实coordinator，验证实际6m轴距、0.6m车钩及完整position/direction/normal。反向选择用例仅为接缝清空选择，不冒称多支路道岔/复杂咽喉已覆盖。八源码/测试冻结后，独立check完成集中`:Core:test :Basic:test :BukkitPlugin:test`（仅Bukkit附CarFrameRevisionGate/VelocityConversion两类过滤）及Core Dokka，1分45秒/33tasks全部执行。新鲜XML完整Core374+Basic393+Bukkit定向2=769项，零失败/error/skipped；Core新类16项实际执行。只排除WebUI安装，119个已有包与lock版本/integrity一致，frontend实际构建、不联网；既有warning保留，无本批新增warning，空白与增量reverse检查通过。最后冗余`!!`删除已被此门禁编译覆盖，八文件hash前后相同。
+- 本批独立静态审查无剩余生产阻塞；Core train-physics与occupancy同步TRANSITIONAL机制和失败/成本边界，不升级版本、不新增runtime兼容。日志`/tmp/javarailways-coupling-correction-RF7n7R/final-gate.log`，相对本轮起始WIP的增量`/tmp/javarailways-coupling-correction-RF7n7R/incremental.patch`及`*.before.kt`保留。全部结果来自工作区草稿，不是独立HEAD提交树或游戏验证；车钩候选producer尚未实现，整体仍未提交、未部署、CR-030及Stage2不关闭。
+
+### 联结流程职责隔离（2026-10-13，未提交）
+
+- 用户批准先隔离联结流程，再按实际需要复用最小几何内核；不扩充`CoreCar`或新增通用数值框架。整理现有CR-030草稿，新增内部`TrainCoupling`，`CoreTrain`保留成块的状态准备/安装与唯一publication。具体职责由Core owner spec定义。
+- HEAD仍是旧`linkWith`，工作区才有新事件/事务及future消费。为避免交付未完成行为，本批只做工作区重构并验证，先不提交，不制造单独legacy处理器。车钩候选和静止锚点修正仍待实现，CR-030/Core审查/Stage2不关闭。
+- 实际源码整理为`CoreTrain.kt`、新增`TrainCoupling.kt`与原`CoreTrainLinkTest.kt`，`CoreCar`与HEAD完全一致。处理器承接联结调度/准入、接触端/排列、两阶段事件、extension union/controller准备及提交编排；CoreTrain仅delegate、已有placement路径读取及共享geometry/frame准备/整块安装。原split逻辑只复用重命名后的内部状态候选，不新增方向或失败规则。相对开始WIP的增量patch见`/tmp/javarailways-coupling-boundary-incremental.patch`，不能将HEAD完整diff全部算为本次改动。
+- 聚焦Link/Split/MixedInstallation共42项通过，33秒/9tasks全执行；完整当前工作树`:Core:test :Basic:test :Core:dokkaGeneratePublicationHtml`通过，1分2秒/16tasks全执行，新鲜XML Core357+Basic393=750项、零失败/error/skipped。沿用`/workspace/.gradle`、offline/no-build-cache/no-parallel/rerun/nonincremental/in-process及1536m heap/1024m metaspace；Core Dokka成功但既有warning保留，无独立lint配置，限定diff-check通过。日志`/tmp/javarailways-coupling-boundary-full.log`。这是含原CR-030草稿的工作树门禁，不是独立HEAD候选/游戏验证。
+- 独立审查确认提取前后事件/准备/提交顺序、split参数及字段到frame读取等价，没有新增生产阻塞；完整门禁后只补controller prepare失败分支，最终Link5/Split33/Mixed5共43项定向通过（34秒/9tasks全执行，零失败/error/skipped）。不能将后加分支算成751项完整门禁。最后删除新处理器EOF多余空行，未重编译；该文件已编译hash `5e272907…`、最终hash `275f4d65…`仅空白不同，其余production冻结不变，tracked/newfile空白检查均通过。独立check复核日志、新鲜/保存XML、最终hash及三份职责文档通过。最终日志`/tmp/javarailways-coupling-boundary-final-focused.log`，起始WIP与全量XML保留于`/tmp/javarailways-coupling-boundary-baseline-PSpToq/`。不引用上一笔749项结果作为本次验证，不关闭总任务、不部署。
+
+### 有限路径几何准备前置（2026-10-13）
 
 - 本批只改`CoreCar.kt`与`CoreCarPositioningRegressionTest.kt`，不切换碰撞入口、不纳入旧联结草稿。将现有刚体求解分为显式方向/有限路径的准备与private同方向安装；正常`updateByPrevCar`复用同一内核，保留原预测、容差、运动传播及显式摆位fallback。机制与边界由[train physics](../../spec/javarailways/core/train-physics.md#有限路径上的几何准备current)拥有。
 - 新增3项有效回归：坡道跨接缝、道岔改选后仍用捕获路径、两种假想物理前端与非对称offset/车钩；成功/有限路径不足失败后发布，原geometry、motion及方向均保持。保留既有测试，不以单纯返回成功证明刚体正确。假想反向仅准备，不声称已安装或完成四端联结。

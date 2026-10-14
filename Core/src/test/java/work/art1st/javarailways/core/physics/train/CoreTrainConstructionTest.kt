@@ -145,7 +145,7 @@ class CoreTrainConstructionTest {
 
                     override fun save(): Pair<String, SerializableExtensionData>? = null
                     override fun splitBefore(carId: String, newId: String): TrainExtension = error("not used")
-                    override fun linkWith(otherTrain: Train) = error("not used")
+                    override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: TrainExtension?): TrainExtension = error("not used")
                 })
             }
             world.publishCurrentTrainFrame(original.id)

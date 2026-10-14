@@ -38,9 +38,11 @@ class TrainExtension : CoreTrainExtension {
     private var savedPackageName: String? = null
     private var savedPackageSnapshotHash: String? = null
     private var savedPackageSnapshot: SavedTrainPackageSnapshot? = null
+    private var preparedPackageState = false
 
     override fun initialize(host: Train, savedExtensionData: Map<String, SerializableExtensionData>) {
         self = host
+        if (preparedPackageState) return
         val state = savedExtensionData[BukkitPlugin.EXTENSION_ID] as? SavedTrainRenderState
         savedPackageName = state?.packageName
         savedPackageSnapshotHash = state?.packageSnapshotHash
@@ -139,7 +141,13 @@ class TrainExtension : CoreTrainExtension {
     }
 
     override fun splitBefore(carId: String, newId: String): CoreTrainExtension = TrainExtension()
-    override fun linkWith(otherTrain: Train) = Unit
+    override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: CoreTrainExtension?): CoreTrainExtension =
+        TrainExtension().also {
+            it.savedPackageName = savedPackageName
+            it.savedPackageSnapshotHash = savedPackageSnapshotHash
+            it.savedPackageSnapshot = savedPackageSnapshot
+            it.preparedPackageState = true
+        }
 
     fun pinCurrentPackageSnapshot(): String? {
         savedPackageSnapshotHash?.let { return it }

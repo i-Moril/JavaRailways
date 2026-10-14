@@ -492,7 +492,7 @@ class CoreWorldRailTopologyTransactionTest {
     }
 
     @Test
-    fun `world frame cannot observe changed topology before its revision is published`() {
+    fun `world frame capture waits for topology revision publication`() {
         val world = createTestWorld()
         var primaryFailure: Throwable? = null
         try {
@@ -503,12 +503,14 @@ class CoreWorldRailTopologyTransactionTest {
                 mutation = {
                     world.createRailInTransaction(createdRailId, straightCurve(0.0, 10.0))
                 },
-                read = { world.publishWorldFrame(0L) },
+                read = { world.captureWorldFrame(0L) },
                 prematureCompletionMessage = "world frame crossed an incomplete topology transaction"
             )
 
             assertEquals(revisionBefore + 1L, frame.topologyRevision)
             assertEquals(world.topologyRevision, frame.topologyRevision)
+            assertEquals(world.topologyRevision, world.latestWorldFrame().topologyRevision)
+            assertEquals(0L, world.latestWorldFrame().physicsEpoch)
             assertEquals(setOf(createdRailId), world.allRails.mapTo(linkedSetOf()) { it.id })
         } catch (failure: Throwable) {
             primaryFailure = failure

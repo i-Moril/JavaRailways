@@ -327,6 +327,36 @@ class TrainDynamicsTest {
     }
 
     @Test
+    fun `braking envelope includes positive acceleration unwind distance and gained speed`() {
+        val profile = TestTrainProfile(brakeJerk = 2.0)
+        val segments = listOf(BrakingGradeSegment(100.0, -0.02))
+        fun envelope(acceleration: Double, selectedProfile: TestTrainProfile = profile) =
+            GradeAwareBrakingEnvelope.fromDynamics(selectedProfile, listOf(carProfile), 9.80665,
+                segments, acceleration)
+        val speed = 4.0
+        val reactionSeconds = 0.2
+        val releaseSeconds = 1.2 / profile.brakeJerk
+        val speedGain = 1.2 * releaseSeconds / 2.0
+        val extraDistance = speed * releaseSeconds + 1.2 * releaseSeconds * releaseSeconds / 3.0 +
+            speedGain * reactionSeconds
+        val baseline = envelope(0.0)
+        assertEquals(
+            (baseline.permittedSpeedMetersPerSecond(0.0, 10.0 - speed * reactionSeconds - extraDistance) - speedGain)
+                .coerceAtLeast(0.0),
+            envelope(1.2).permittedSpeedMetersPerSecond(0.0, 10.0, speed, reactionSeconds), 1.0e-12)
+        assertEquals(baseline.permittedSpeedMetersPerSecond(0.0, 10.0, speed, reactionSeconds),
+            envelope(-1.2).permittedSpeedMetersPerSecond(0.0, 10.0, speed, reactionSeconds), 0.0)
+        assertEquals(0.0, envelope(1.2).permittedSpeedMetersPerSecond(0.0, 1.0, speed, reactionSeconds))
+        val unbrakeable = GradeAwareBrakingEnvelope.fromDynamics(profile, listOf(carProfile), 9.80665,
+            listOf(BrakingGradeSegment(10.0, 0.0), BrakingGradeSegment(100.0, -1.0)), 1.2)
+        assertEquals(0.0, unbrakeable.permittedSpeedMetersPerSecond(0.0, 12.0, speed, reactionSeconds),
+            "reserving unwind distance must not hide an unbrakeable segment inside the target range")
+        val noJerk = TestTrainProfile(brakeJerk = 0.0)
+        assertEquals(envelope(0.0, noJerk).permittedSpeedMetersPerSecond(0.0, 10.0, speed, reactionSeconds),
+            envelope(1.2, noJerk).permittedSpeedMetersPerSecond(0.0, 10.0, speed, reactionSeconds), 0.0)
+    }
+
+    @Test
     fun `service brake reaction covers progressive handles apply time and jerk`() {
         val profile = TestTrainProfile(brakeApplyTime = 1.2, brakeJerk = 2.0)
         val reaction = HandleTrainActuator.serviceBrakeReactionTimeSeconds(

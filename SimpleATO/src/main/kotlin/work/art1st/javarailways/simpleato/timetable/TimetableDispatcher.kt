@@ -1491,6 +1491,7 @@ class TimetableDispatcher(
                 (run.stationCall == null || run.stationCall?.departed == true) &&
                 run.destinationStop == null
             ) {
+                run.ato.setSpeedLimit(stopKey(run), 0.0)
                 if (runtime === run.storageRuntime) {
                     if (!tryCompleteStorage(world, run, runtime)) {
                         return@forEach
@@ -2159,7 +2160,7 @@ class TimetableDispatcher(
     ): Boolean {
         val offset = stop.options.stoppingOffsetMetersBefore ?: 0.0
         return runtime.headProgressMeters >=
-            runtime.layout.totalLengthMeters - offset - run.ato.missionStopToleranceMeters * 2.0 &&
+            runtime.layout.totalLengthMeters - offset - run.ato.missionStopToleranceMeters &&
             run.ato.isStopped(snapshot.speedMetersPerSecond)
     }
 
@@ -2169,6 +2170,7 @@ class TimetableDispatcher(
         stop: DispatcherDestinationStop
     ) {
         if (!validateCommittedAuthority(world, run)) return
+        run.ato.setSpeedLimit(stopKey(run), 0.0)
         stop.started = true
         val side = stop.options.doorSide ?: DoorSide.NONE
         if (side == DoorSide.NONE) {
@@ -3535,7 +3537,7 @@ class TimetableDispatcher(
                     }?.resolved?.stoppingOffsetMetersBefore
                     val offset = stationOffset ?: point.offsetMetersBefore
                     runtime.headProgressMeters >= cumulativeDistance - offset -
-                        run.ato.missionStopToleranceMeters * 2.0 &&
+                        run.ato.missionStopToleranceMeters &&
                         run.ato.isStopped(snapshot.speedMetersPerSecond)
                 }
             }
@@ -3558,10 +3560,12 @@ class TimetableDispatcher(
         run: ActiveRun,
         runtime: MissionRuntime,
         snapshot: TrainSnapshot
-    ): Boolean =
-        runtime.headProgressMeters >=
-            runtime.layout.totalLengthMeters - run.ato.missionStopToleranceMeters * 2.0 &&
+    ): Boolean {
+        val offset = (runtime.mission.legs.lastOrNull()?.point as? AtoMissionPoint.Stop)?.offsetMetersBefore ?: 0.0
+        return runtime.headProgressMeters >=
+            runtime.layout.totalLengthMeters - offset - run.ato.missionStopToleranceMeters &&
             run.ato.isStopped(snapshot.speedMetersPerSecond) && validateCommittedAuthority(world, run)
+    }
 
     private fun advanceService(world: World, run: ActiveRun) {
         if (!validateCommittedAuthority(world, run)) return
@@ -3717,6 +3721,7 @@ class TimetableDispatcher(
                         run.storageReservation = reservation
                         run.storageRuntime = runtime
                         if (run.controlMode == TimetableControlMode.AUTOMATIC) {
+                            run.ato.removeSpeedLimit(stopKey(run))
                             publishInitialMovementAuthority(run, runtime)
                         }
                         run.state = TimetableServiceRunState.STORING
@@ -3767,6 +3772,7 @@ class TimetableDispatcher(
                         recordScheduledAction(run, step.tick)
                         run.nextStepIndex++
                         run.dwellTicksRemaining = action.ticks
+                        run.ato.setSpeedLimit(stopKey(run), 0.0)
                         run.state = TimetableServiceRunState.DWELLING
                         run.message = "dwell ${action.ticks} ticks"
                         return
@@ -3878,6 +3884,7 @@ class TimetableDispatcher(
                         run.missionRevision = accepted.mission.revision
                         run.nextStepIndex = plan.nextStepIndex
                         if (run.controlMode == TimetableControlMode.AUTOMATIC) {
+                            run.ato.removeSpeedLimit(stopKey(run))
                             publishInitialMovementAuthority(run, runtime)
                         }
                         run.state = TimetableServiceRunState.WAITING_MISSION

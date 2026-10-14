@@ -871,7 +871,8 @@ class SimpleATO(
                             ConstraintKey("mission", "stop/${mission.revision}/${leg.index}"),
                             (targetDistance - stopProgress - point.offsetMetersBefore)
                                 .coerceAtLeast(0.0),
-                            stoppingMarginMeters = stationMargin
+                            // Arrival tolerance is not a geometric shift of an ordinary mission target.
+                            stoppingMarginMeters = stationMargin ?: 0.0
                         )
                     )
                 }

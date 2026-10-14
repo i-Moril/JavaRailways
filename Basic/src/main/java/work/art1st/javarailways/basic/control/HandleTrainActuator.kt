@@ -87,7 +87,8 @@ class HandleTrainActuator(
                 dynamics.trainProfile,
                 dynamics.carProfiles,
                 dynamics.gravityMetersPerSecondSquared,
-                it
+                it,
+                currentAccelerationMetersPerSecondSquared = dynamics.state.acceleration
             )
         }
 

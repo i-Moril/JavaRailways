@@ -45,6 +45,13 @@ inspection runtime读取编译好的声明及最大提前时间；controller按�
 其远端在真实包络下作为可制停边界，避免下坡制动距离超过平坡感知horizon。算法owner与复杂度见
 [Basic列车纵向动力学](../basic/train-longitudinal-dynamics.md)。
 
+Stop、MA、跟车和前方限速约束把各自扣除显式空间余量后的目标距离、当前速度及反应时间一次交给同一包络；
+反应距离由包络统一扣除，不能调用方先扣一次再让包络重复扣除。无包络的运动学单元测试仍使用原常减速度公式。
+实际正加速度消退的积分与坡段门控归上述Basic契约，不在SimpleATO复制动力学。
+
+普通mission Stop显式使用零几何停车margin，曲线瞄准原运营目标；停车容差用于接受到达，不把普通目标退到容差边缘。
+车站既有显式margin、外部Stop/物理边界的默认margin语义保持不变；不能为修普通停车而整体更改公开Stop约束。
+
 controller同时拥有该列车唯一的`TrainRestrictionConstraintAdapter`。admission client直接向adapter发布immutable
 restriction snapshot；Dispatcher仅在route建立/延长时绑定冻结route、Mission revision及二者的坐标映射。每个physics tick
 由controller用当前Mission投影和上一成功signal observation stamp调用apply，adapter把结果原子替换进controller原有

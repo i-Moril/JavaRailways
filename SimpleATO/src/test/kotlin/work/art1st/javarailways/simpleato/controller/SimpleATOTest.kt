@@ -205,6 +205,9 @@ class SimpleATOTest {
 
         assertEquals(2L, fixture.ato.currentMission?.revision)
         assertEquals(0.0, fixture.train.speed, 1.0e-9)
+        assertTrue(fixture.ato.publishedState.runtimeDiagnostics.constraints.any {
+            it.contains("mission/stop/2/0") && it.contains("stoppingMarginMeters=0.0")
+        }, "ordinary mission targets must not be shifted backward by the arrival tolerance")
         assertFalse(fixture.coordinator.isStalled)
 
         fixture.ato.setMovementAuthority(

@@ -67,6 +67,7 @@ import work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult
 import work.art1st.javarailways.simpleato.timetable.TimetableStep
 import java.lang.reflect.Proxy
 import java.util.UUID
+import kotlin.math.abs
 
 /** Real 50 ms physics, configured-handle dynamics, Dispatcher and Basic token lifecycle. */
 @OptIn(ExtensionData::class)
@@ -74,6 +75,10 @@ class StoppedReturnToDepotIntegrationTest {
     @Test
     fun `stop inside bidirectional block reverse and store only releases token after actual tail clearance`() =
         runReturn(null)
+
+    @Test
+    fun `real forward and return stops satisfy the default ATO parking tolerance`() =
+        runReturn(null, stopToleranceMeters = AtoSafetyProfile().stopToleranceMeters)
 
     @Test
     fun `next forward stop inside held suffix reuses exact physical grant before returning`() = runReturn(120.0)
@@ -93,7 +98,9 @@ class StoppedReturnToDepotIntegrationTest {
     fun `actual head beyond moving authority stalls before reverse or managed storage and retains claims`() =
         runReturn(null, fixedBlocks = false, injectAuthorityBreach = true)
 
-    private fun runReturn(secondStop: Double?, fixedBlocks: Boolean = true, injectAuthorityBreach: Boolean = false) {
+    private fun runReturn(secondStop: Double?, fixedBlocks: Boolean = true, injectAuthorityBreach: Boolean = false,
+        stopToleranceMeters: Double = 0.25
+    ) {
         val worldId = UUID.randomUUID()
         val world = createTestWorld(PhysicsCoordinator(1, automaticFallback = false))
         var registryToClose: InfrastructureCoordinationRegistry? = null
@@ -177,7 +184,7 @@ class StoppedReturnToDepotIntegrationTest {
             val safety = AtoSafetyProfile(1.0,
                 TrainDynamics.flatServiceDeceleration(TrainProfile, listOf(carProfile), 9.81),
                 HandleTrainActuator.serviceBrakeReactionTimeSeconds(TrainProfile, listOf(carProfile), 9.81),
-                safetyDistanceMeters = 2.0, stopToleranceMeters = 0.25)
+                safetyDistanceMeters = 2.0, stopToleranceMeters = stopToleranceMeters)
             val dispatcher = TimetableDispatcher(
                 TimetableRouteAdmissionContextProvider { observation?.let { TimetableRouteAdmissionContext(it, service) } },
                 restrictions, inspection, dependencies,
@@ -260,17 +267,23 @@ class StoppedReturnToDepotIntegrationTest {
                 val bodyInBlock = frame.occupiedIntervals.any {
                     it.railId == rail.id && it.maxArcLengthInAbMeters > 40.0 && it.minArcLengthInAbMeters < 140.0
                 }
-                if (secondStop != null && (train.controller as SimpleATO).currentMission?.legs?.last()?.point
+                if (!secondStopped && secondStop != null && (train.controller as SimpleATO).currentMission?.legs?.last()?.point
                         ?.target?.id == "second" && frame.speedMetersPerSecond == 0.0 && !frame.reversed &&
-                    frame.head.arcLengthInAbMeters > secondStop - 1.0
+                    abs(frame.head.arcLengthInAbMeters - secondStop) <= safety.stopToleranceMeters
                 ) {
                     secondStopped = true
+                    assertEquals(secondStop, frame.head.arcLengthInAbMeters, safety.stopToleranceMeters,
+                        "the actual second stop must satisfy the existing parking tolerance")
                     if (fixedBlocks && secondStop < 140.0) assertEquals(forwardRequestsAtFirstStop, submittedIntents.size,
                         "an operating target inside an already granted suffix needs no new Basic request")
                     else assertTrue(submittedIntents.size > checkNotNull(forwardRequestsAtFirstStop))
                 }
-                if (!stoppedInside && maximumHead > 90.0 && frame.speedMetersPerSecond == 0.0 && !frame.reversed && bodyInBlock) {
+                if (!stoppedInside && maximumHead > 90.0 && frame.speedMetersPerSecond == 0.0 && !frame.reversed && bodyInBlock &&
+                    abs(frame.head.arcLengthInAbMeters - 100.0) <= safety.stopToleranceMeters
+                ) {
                     stoppedInside = true
+                    assertEquals(100.0, frame.head.arcLengthInAbMeters, safety.stopToleranceMeters,
+                        "the actual first stop must satisfy the existing parking tolerance")
                     assertTrue(bodyInBlock)
                     val claim = if (fixedBlocks) tokenClaims().single() else registry.claimSnapshots().single()
                     assertTrue(claim.footprint.resources.filterIsInstance<RailIntervalResource>().any {
@@ -327,9 +340,17 @@ class StoppedReturnToDepotIntegrationTest {
             assertTrue(reverseGrantReachedDepotExit, "real reverse physical grant must reach its physical terminal boundary")
             assertEquals(TimetableServiceRunState.COMPLETED, dispatcher.status(runId)?.state,
                 "steps=$steps status=${dispatcher.status(runId)}")
-            // This regression accepts fixed-block authorization and managed storage, not stopping
-            // accuracy. The operating geometry must still target20m even when the measured stop
-            // error is nonzero; that actuator/control precision issue is tracked separately.
+            val parkedHead = train.publishedFrame.head
+            val parkedClaims = registry.claimSnapshots().map { it.footprint }
+            repeat(5) {
+                advance()
+                assertEquals(0.0, train.publishedFrame.speedMetersPerSecond)
+                assertEquals(parkedHead, train.publishedFrame.head,
+                    "accepted terminal parking must remain stationary in later real physics frames")
+                assertEquals(parkedClaims, registry.claimSnapshots().map { it.footprint })
+            }
+            // Authorization and parking are separate assertions: retaining a complete physical
+            // grant must not move the operating target or excuse an inaccurate final stop.
             val finalMission = (train.controller as SimpleATO).currentMission!!
             val operatingEnd = finalMission.legs.last().plannedRoute.expandedRoute.segments.last()
             assertEquals(rail.id, operatingEnd.railViewRef.railId)
@@ -337,6 +358,8 @@ class StoppedReturnToDepotIntegrationTest {
             assertEquals(20.0, rail.viewAB.curve.totalArcLength - operatingEnd.endArcLength, 1.0e-9)
             assertEquals(0.0, train.speed)
             val finalFrame = train.publishedFrame
+            assertEquals(20.0, finalFrame.head.arcLengthInAbMeters, safety.stopToleranceMeters,
+                "the actual return stop must satisfy the existing parking tolerance")
             assertTrue(finalFrame.occupiedIntervals.all {
                 it.railId == rail.id && it.minArcLengthInAbMeters >= 0.0 && it.maxArcLengthInAbMeters <= 40.0
             }, "the actual complete train must remain inside the authored depot block")

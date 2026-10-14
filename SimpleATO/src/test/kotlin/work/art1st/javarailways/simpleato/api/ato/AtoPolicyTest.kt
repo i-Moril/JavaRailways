@@ -7,18 +7,64 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
+import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
+import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.simpleato.api.constraint.ConstraintKey
 import work.art1st.javarailways.simpleato.api.constraint.ConstraintManager
 import work.art1st.javarailways.simpleato.api.constraint.ConstraintOwner
 import work.art1st.javarailways.simpleato.api.constraint.ConstraintOwnerType
 import work.art1st.javarailways.simpleato.api.constraint.CurrentSpeedLimitConstraint
+import work.art1st.javarailways.simpleato.api.constraint.FollowConstraint
+import work.art1st.javarailways.simpleato.api.constraint.MovementAuthorityConstraint
 import work.art1st.javarailways.simpleato.api.constraint.RouteSpeedLimitConstraint
 import work.art1st.javarailways.simpleato.api.constraint.StopConstraint
 import kotlin.math.sqrt
 
 class AtoPolicyTest {
     private val profile = AtoSafetyProfile(reactionTimeSeconds = 0.0, stopToleranceMeters = 0.0)
+
+    @Test
+    fun `distance constraints forward current speed and reaction once to the shared envelope`() {
+        val trainProfile = object : TrainDynamics.TrainProfile {
+            override val maxSpeed = 30.0
+            override val powerHandles = listOf("P1")
+            override val brakeHandles = listOf("B1")
+            override val brakeApplyTime = 0.0
+            override val brakeReleaseTime = 0.0
+            override val adhesionCoefficient = 1.0
+            override val tractionJerk = 2.0
+            override val brakeJerk = 2.0
+            override fun normalizedPowerScale(handle: String) = if (handle == "P1") 1.0 else 0.0
+            override fun normalizedBrakeScale(handle: String) = if (handle == "B1") 1.0 else 0.0
+            override fun resistanceForceAt(speed: Double) = 0.0
+        }
+        val carProfile = object : TrainDynamics.CarProfile {
+            override val mass = 10_000.0
+            override val effectiveMass = mass
+            override val motorAdhesionMassRatio = 1.0
+            override val brakeAdhesionMassRatio = 1.0
+            override val brakeMaxForce = 20_000.0
+            override fun motorForceAt(speed: Double) = 10_000.0
+            override fun resistanceForceAt(speed: Double, defaultResistance: (Double) -> Double) = 0.0
+        }
+        val envelope = GradeAwareBrakingEnvelope.fromDynamics(trainProfile, listOf(carProfile), 9.81,
+            listOf(BrakingGradeSegment(100.0, -0.02)), 1.2)
+        val safety = AtoSafetyProfile(reactionTimeSeconds = 0.4, safetyDistanceMeters = 5.0,
+            stopToleranceMeters = 0.25)
+        val key = ConstraintKey("test", "reaction")
+        listOf(
+            StopConstraint(key, 20.25) to 0.0,
+            MovementAuthorityConstraint(key, 25.0) to 0.0,
+            FollowConstraint(key, 25.0, 2.0) to 2.0,
+            RouteSpeedLimitConstraint(key, 20.0, 2.0) to 2.0
+        ).forEach { (constraint, target) ->
+            assertEquals(envelope.permittedSpeedMetersPerSecond(target, 20.0, 4.0, 0.4),
+                constraint.permittedSpeedMetersPerSecond(4.0, safety, envelope), 1.0e-12,
+                constraint.javaClass.simpleName)
+        }
+    }
 
     @Test
     fun `stop constraint creates a braking curve instead of an immediate zero limit`() {

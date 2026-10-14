@@ -1668,7 +1668,8 @@ class TimetableDispatcherTest {
     @Test
     fun `straight route creates no synthetic resource claims across multiple legs`() {
         val world = createTestWorld().also(worlds::add)
-        val dispatcher = dispatcher()
+        // The sampled kinematic policy needs one control tick of response, not zero delay.
+        val dispatcher = dispatcher(safetyProfile = profile.copy(reactionTimeSeconds = 0.05))
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
@@ -1705,6 +1706,7 @@ class TimetableDispatcherTest {
         assertTrue(dispatcher.status(TimetableServiceRunId("tt", "s1"))?.routeGrantActive == true)
 
         var observedHeadOnlyPastVia = false
+        var completedHead: Double? = null
         repeat(4_000) {
             tickAndPublish(ato)
             world.onOwnerForTest { dispatcher.tick(world) }
@@ -1717,7 +1719,12 @@ class TimetableDispatcherTest {
             }
             if (dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state ==
                 TimetableServiceRunState.COMPLETED
-            ) return@repeat
+            ) {
+                if (completedHead == null) completedHead = train.head.location.arcLength
+                assertEquals(0.0, train.speed, "a completed service must remain stopped in later physics frames")
+                assertEquals(completedHead!!, train.head.location.arcLength, 1.0e-9)
+                return@repeat
+            }
         }
 
         assertTrue(observedHeadOnlyPastVia)
@@ -1764,13 +1771,19 @@ class TimetableDispatcherTest {
         assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") } is TimetableServiceStartResult.Started)
         val ato = train.controller as SimpleATO
         var observedDwell = false
+        var dwellPosition: Double? = null
         var firstRevision = -1L
         repeat(5_000) {
             tickAndPublish(ato)
             world.onOwnerForTest { dispatcher.tick(world) }
             val status = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
             if (firstRevision < 0L) firstRevision = status.missionRevision
-            if (status.state == TimetableServiceRunState.DWELLING) observedDwell = true
+            if (status.state == TimetableServiceRunState.DWELLING) {
+                observedDwell = true
+                assertEquals(0.0, train.speed, "ordinary dwell must retain an actually stopped train")
+                if (dwellPosition == null) dwellPosition = train.head.location.arcLength
+                assertEquals(dwellPosition!!, train.head.location.arcLength, 1.0e-9)
+            }
             if (status.state == TimetableServiceRunState.COMPLETED) return@repeat
         }
 
@@ -2195,11 +2208,12 @@ class TimetableDispatcherTest {
 
     private fun dispatcher(
         infrastructureDependencyService: InfrastructureDependencyService = acceptingInfrastructureDependencyService(),
-        inspectionRuntime: InspectionRuntime = emptyInspectionRuntime()
+        inspectionRuntime: InspectionRuntime = emptyInspectionRuntime(),
+        safetyProfile: AtoSafetyProfile = profile
     ): TimetableDispatcher {
         var boundWorld: CoreWorld? = null
         return TimetableDispatcher(
-            authorityStoppingMarginMeters = profile.safetyDistanceMeters,
+            authorityStoppingMarginMeters = safetyProfile.safetyDistanceMeters,
             routeAdmissionContextProvider = GrantingRouteAdmissionTestContext { boundWorld },
             signalRestrictionSnapshots = emptyTrainRestrictionSnapshots,
             inspectionRuntime = inspectionRuntime,
@@ -2209,8 +2223,8 @@ class TimetableDispatcherTest {
                 SimpleATO(
                     train,
                     world,
-                    KinematicTrainActuator(10.0, profile),
-                    profile,
+                    KinematicTrainActuator(10.0, safetyProfile),
+                    safetyProfile,
                     inspectionRuntime::maximumDeclaredLeadTimeSeconds
                 )
             }

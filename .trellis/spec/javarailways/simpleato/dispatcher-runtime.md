@@ -85,6 +85,17 @@ Run state token包含WAITING_MISSION/TIME/ROUTE、RUNNING、WAITING_BERTH、stat
 
 Train acquisition以live stopped train location/speed/derail/controller/run/geometry为authority；RollingStock只补metadata。First mission confirmed后Depot reservation才IN_SERVICE。Storage full envelope+old resources clear才handoff。
 
+普通目的地完成、Stop路径点到达通知和mission完成的提前到达判定均使用单倍`missionStopToleranceMeters`，
+不能隐含放大为两倍；mission最终Stop的`offsetMetersBefore`须从目标进度中扣除。暂时零速但尚未进入既有容差时，
+不推进后续动作，允许原控制器继续接近。这里仍是既有进度/零速完成判定，不新增绝对停车误差验证器；
+真实授权越界检查独立保留，真实精度回归须直接断言实际车头坐标，不能用任务完成状态替代。
+
+自动运行接受普通mission或目的地停车后，Dispatcher用既有`stopKey(run)`发布零速限制，保持到下一条行车任务成功安装；
+普通`Stop(ticks)`同样保持停车，而不是只倒计时。限制跨停留、等待时刻、换向和非行车动作保留；
+新GoTo/StoreAtDepot安装成功后解除，失败与controller交接沿用既有清理/停车路径。不新增状态字段；正常转换只在入口设置，
+存车完成仍等待台账/资源条件时允许重设同键零速值，不创建新限制或重启动作，不重新扫描路线或修改授权。
+停车曲线在容差内仍可能许可接近实际目标；不能依赖“已进入容差”隐式保持零速。
+
 Control transfer：pending operation先cancel+confirm；`MANUAL_ROUTED`继续通过同一Basic admission申请前方资源，但人工controller不消费ATO constraint，因此Dispatcher用同一committed boundary执行既有越界保护。`FULL_MANUAL`不发new request，但已有pending handle继续progress到终态，既有claim仍由Basic按车尾释放。release后`REPLAN_REQUIRED`；stale topology或route-state mismatch也直接进入该状态，不在旧route上循环重试。
 
 滚动授权的高水位复用controller已有的前方感知距离，低水位按列车最大速度和设备准备时间保守计算，不能按当前速度逐Tick缩短。否则列车因当前授权边界减速时，续申请阈值会同时后退，最终可能停在边界前而不再申请。每次仍只扩展到一个感知窗口，不一次占用完整长路线。

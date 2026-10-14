@@ -1,4 +1,7 @@
 {"file":".trellis/spec/javarailways/shared/versioning.md","reason":"Reject version changes without a verified released/frozen baseline; unpublished formats do not gain development generations"}
+{"file":".trellis/spec/javarailways/simpleato/controller-runtime.md","reason":"Parking accuracy must use actual physical position and the production actuator"}
+{"file":".trellis/spec/javarailways/simpleato/ato-policy-runtime.md","reason":"No duplicate stop controller, moved target, tolerance widening or relaxed authority checks"}
+{"file":".trellis/spec/javarailways/basic/train-longitudinal-dynamics.md","reason":"Verify braking changes against notch transition, buildup and jerk and preserve manual behavior"}
 {"file":".trellis/spec/javarailways/simpleato/terminal-route-completion.md","reason":"Verify full physical authorization independent of mission stop, suffix reuse, failure atomicity and no second registry/scanner"}
 {"file":".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md","reason":"Verify global ATO distance default5m, invalid values fail fast, equal real/isolated config and no version increment"}
 {"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Verify independent endpoints, missing rule/baseline distinction and stable block identity"}

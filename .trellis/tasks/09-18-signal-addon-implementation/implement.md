@@ -2,9 +2,25 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
+### 当前优先批次：停车精度（用户已批准）
+
+- [x] 以真实50ms固定闭塞返库工况复现：最终运营目标20米，实际18.983016737339824米；沿返库方向超调约1.017米。轨迹确认制动开始时仍有约+1.17m/s²加速度，原曲线漏算其jerk消退时间、额外位移与速度。
+- [x] 修正Basic现有制动包络与SimpleATO接线；普通mission曲线不把到达容差当几何偏移，Dispatcher使用单倍既有容差并显式保持已接受停车。保留13266c28/fab92929的真实授权余量与越界检查，不改原目标、不扩大容差、不改实际积分或人工驾驶。
+- [x] 七项真实往返及受影响模块回归、独立check通过，owner契约已同步；按当前批次提交。未部署、未改schema、未混入其他审计/性能任务，Stage 2仍in_progress。
+
+#### 停车精度验证与证据（2026-10-14）
+
+- 算法与复杂度归[Basic动力学](../../spec/javarailways/basic/train-longitudinal-dynamics.md#从牵引转入制动时的正加速度)，普通目标/通用约束边界归[controller](../../spec/javarailways/simpleato/controller-runtime.md)，完成/保持归[Dispatcher](../../spec/javarailways/simpleato/dispatcher-runtime.md)。原物理轨道授权和资源生命周期不变。
+- 真实50ms往返的原固定闭塞场景：100米实停99.8265660573924米，20米返库实停20.124286994944725米；均满足原0.25米容差。默认0.1米用例分别实停99.92069105739239米、20.052128032479487米。120/160米接续、移动授权、101米短接续及真实越界阻断继续通过；完成后另执行5个真实物理帧，车头、零速和claim footprint保持不变。
+- 独立check修正了新增消退距离可能掩盖不可制停坡段的门控顺序，并保留回归。普通停留、等待、开门/扩展动作及终到使用已有stopKey保持，下一移动任务成功安装才解除；无新增状态机或扫描器。
+- 旧直线资源替身测试反应时间0与50ms离散控制不一致：纯数值独立复现首次停车90.41860833614942米；仅此fixture按一个tick设0.05秒，控制器/执行器共用同profile，目标90米、原0.4米断言和50ms步长不变。不是扩大精度容差或修改生产物理。原“完成后挪动导致这项超调”的推测已撤回；额外完成后静止断言仍保留。
+- 最终精确代码树`fe575bdb04fb65ef8e1629daf8d08ea7aaea6a41`；隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`，`GRADLE_USER_HOME=/workspace/.gradle`，offline/no-build-cache/no-parallel/max-workers=2。联合任务`:Core:test :Basic:test :SimpleATO:test :SimpleATOBukkit:test :SimpleSignals:check :BukkitPlugin:test :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries :Basic:dokkaGeneratePublicationHtml :SimpleATO:dokkaGeneratePublicationHtml`通过；仅排除未改前端的installFrontend/buildFrontend。
+- 最后一轮22秒，50task中4执行46up-to-date：完整SimpleATO377项本次重跑；其余复用上一轮同生产树的结果。XML合计Core409、Basic395、SimpleATO377、SimpleATOBukkit8、SimpleSignals502、BukkitPlugin388=2079，失败/错误/跳过均0；上一轮完整受影响模块103秒，仅旧fixture失败，修正后无剩余失败。
+- 仅新增3条集中回归（Basic解析响应、ATO四类约束接线、真实默认0.1米用例），其余加强既有断言。所有PARK诊断/临时actuator引用已删除，diff检查通过。Dokka/JDK/Gradle/Graal既有警告未在本批清理；无服务器部署、客户端或Paper/Folia验证，不宣称任意车型/线路都已完成精度验收。
+
 ### 当前优先批次：真实停站授权余量与越界完成检查
 
-用户已批准先处理之前延期的两项问题，取代下方“后续独立批次”的暂缓状态；停车精度仍是另一项未修复缺陷。
+本节记录用户先批准的授权收尾批次，取代下方“后续独立批次”的暂缓状态；后续停车精度修复与证据见上方当前批次。
 
 用户进一步确认：安全距离作为全局设置，默认5米。静态应用与实际/隔离controller读取同一配置；具体新目标、失败边界和回归归[owner契约](../../spec/javarailways/simpleato/terminal-route-completion.md#当前实施目标全局安全距离与真实完成检查)。预计改动限于SimpleATO路径补全/准入/Dispatcher与测试、SimpleSignals中立终点接管/余量校验、宿主配置及真实/隔离composition；不改Core/Basic物理算法、世界格式或模型包。
 
@@ -39,7 +55,7 @@
 - 唯一失败：真实50ms“100米停站后返20米库位”的最终位置断言（新测试自设±0.6米）读到18.983016737339824米；运行已完成且位于真实0～40米库前闭塞授权内。另两例100→120、100→160后返库完整通过。是否把该精度断言留给下一独立批次，已向用户明确询问；未偷偷增大容差、修改停车点/制动或以此宣布整体通过。
 - 测试场景修正均为作者输入：库前新增真实0～40米闭塞；库位坐标仍20米，入口/返库point ID与canonical Destination ID一致；显式`RouteAllocationTiming(0,0,2)`用于证明先使用旧授权再续申请，第一次停车请求计数只捕获一次。没有生产存车规则改动。
 - 最终源码树`b8e547540bc3409f02ec83c081c136707a8090fb`只修正本批新增、没有契约依据的±0.6米测试验收：改验最终真实Mission几何目标严格保持20米、速度0、完整实际车体处于正式0～40米闭塞、真实token/轨道claim覆盖车头车尾，以及原归库台账；没有增大容差或修改制动。独立check复核这些断言未发现伪造目标/授权。按同一命令重跑40秒、49项task中5项执行44项up-to-date；全部2055项结果失败/错误/跳过0，其中SimpleSignals497项本次完整重跑，其余未变模块复用前一联合候选结果。Java consumer、JAR边界及Dokka均通过。
-- **未修复缺陷：**第一种返库工况目标20米、实停18.983016737339824米，误差约1.017米。该回归只证明完整固定闭塞授权与存车流程，不证明停车精度；下一批应采样真实制动轨迹再诊断，不能因本次授权门禁绿色关闭该问题。移动闭塞真实停车余量/通用越界完成检查亦保持未完成。
+- **历史未修复记录（后续进度见本页顶部）：**第一种返库工况目标20米、实停18.983016737339824米，误差约1.017米。该回归只证明完整固定闭塞授权与存车流程，不证明停车精度；下一批应采样真实制动轨迹再诊断，不能因本次授权门禁绿色关闭该问题。移动闭塞真实停车余量/通用越界完成检查亦保持未完成。
 
 用户批准继续Stage2收尾。已切回本父任务；全项目代码审查仍作为独立子任务保留，不擅自重开Core或切入Basic余项，也不把完整旧服迁移自动加成新runtime开发前置。下方2026-10-09状态与历史未勾选项须按后续真实实现解释。
 

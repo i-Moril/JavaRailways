@@ -21,6 +21,10 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 ## Requirements
 
+### 停车精度修复（2026-10-14）
+
+在真实50ms、正式手柄动力学及Basic准入的往返场景中修复停车误差，实际停车位置须符合既有停车容差。固定闭塞回库目标20米、实际18.983016737339824米是沿返库方向超调约1.017米，不是提前停车。先采样定位控制链路的原因，再在其owner内做最小修正；不得移动目标、放宽容差、直接修正位置或撤回真实授权余量/越界完成检查。生产控制契约归[controller runtime](../../spec/javarailways/simpleato/controller-runtime.md)，若涉及共享物理执行则同时遵守Basic动力学契约。离线通过不代替游戏内验收。
+
 ### 全局安全距离与真实越界完成检查（2026-10-14）
 
 用户批准优先处理移动闭塞停站真实授权余量及通用完成检查，安全距离作为全局设置、默认5米。静态应用保护、实际ATO与隔离仿真共用同一值；余量必须获得真实轨道授权，不以控制标量替代，不选择未选分支或擅自跨信号边界。真正越过committed authority的停车不得推进开门、换向、后续动作或归库台账。精确机制及错误/测试边界归[终点分离owner契约](../../spec/javarailways/simpleato/terminal-route-completion.md#当前实施目标全局安全距离与真实完成检查)。本批不修制动算法/停车精度、不部署或升schema版本。

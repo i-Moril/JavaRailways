@@ -44,6 +44,22 @@ executor构造时把当前每个实际`Car`实例与输入的`CarProfile`配对�
 `a=(F_brake + m*g*grade)/m_effective`计算每段保证减速度；有利的Davis阻力不计入保证值。包络预先线性累计
 `2*a*length`，距离查询二分定位后计算`v_in²=v_target²+work`。进入无法保证正减速度的分段前返回0。
 
+### 从牵引转入制动时的正加速度
+
+`HandleTrainActuator`在本tick执行动力学之前，将同一executor当前加速度交给本次包络。已有反应时间覆盖
+换档、制动建立及从零加速度到常用制动；它不能代替从正加速度降至零的过程。例如切到B档时仍有
+`+1.17m/s²`，受jerk限制，速度不会立刻下降。不能只靠提前加几米停车距离修正。
+
+令`a+ = max(currentAcceleration, 0)`、`J = brakeJerk`；启用jerk时，包络一次计算
+`t = a+/J`、`Δv = a+*t/2`、`Δx = a+*t²/3`。查询带当前速度`v`与原反应时间`T`时，先保留原来按
+`d-v*T`检查不可制停坡段的门控，再从目标距离扣除`v*(T+t)+Δx+Δv*T`，沿原坡度累计work查询，
+最后从许可速度扣除`Δv`并下限为零。这样既计入消退过程的额外位移，也计入之后仍要制动的额外速度。
+不能先缩短距离再检查危险坡段，否则新增的保守扣除反而可能把危险坡段藏到查询范围外。
+
+构造省略当前加速度时默认0；负加速度或未启用jerk时没有额外消退项。查询的速度/反应时间默认0，
+但不会清除构造时已捕获的正加速度。加速度必须有限，查询速度/反应时间必须有限非负。
+这些都是当前worker内的不可变计算输入，不新增跨tick缓存，不修改`TrainDynamics.step`或人工驾驶积分。
+
 ## 4. 接口、数据结构与单位
 
 ```kotlin
@@ -66,6 +82,15 @@ class TrainDynamicsExecutor(
 )
 
 data class BrakingGradeSegment(val lengthMeters: Double, val grade: Double)
+
+// GradeAwareBrakingEnvelope的companion object入口：
+fun fromDynamics(trainProfile: TrainDynamics.TrainProfile,
+    carProfiles: List<TrainDynamics.CarProfile>, gravityMetersPerSecondSquared: Double,
+    segments: List<BrakingGradeSegment>,
+    currentAccelerationMetersPerSecondSquared: Double = 0.0): GradeAwareBrakingEnvelope
+// 包络查询，距离m、速度m/s、时间s：
+fun permittedSpeedMetersPerSecond(targetSpeedMetersPerSecond: Double, distanceMeters: Double,
+    currentSpeedMetersPerSecond: Double = 0.0, reactionTimeSeconds: Double = 0.0): Double
 ```
 
 速度为m/s、加速度与重力为m/s²、距离为m、质量为kg、力为N、时间为s。`grade`是无量纲正弦值。
@@ -107,6 +132,7 @@ data class BrakingGradeSegment(val lengthMeters: Double, val grade: Double)
 
 一次动力学step和手柄预演成本为`O(cars × handles)`，配置手柄数是小型有界集合。路线坡度切片最多256段，
 构造为`O(route samples)`，每个constraint查询为`O(log segments)`；不得为每个手柄做全路线仿真或引入通用求解器。
+正加速度消退只增加构造与查询中的常数次算术，不增加路线扫描、手柄未来轨迹预演或迭代求解。
 超过切片上限时，把余下路线合并为一个采用最不利下坡样本的分段。SimpleATO复用既有一次路线扫描；真实包络存在时，
 扫描远端同时作为可制停边界，防止平坡horizon在已知下坡上不足。
 
@@ -133,6 +159,7 @@ data class BrakingGradeSegment(val lengthMeters: Double, val grade: Double)
 - manual publication：真实50 ms physics epoch的head位移、train frame speed及全部car/bogie frame velocity与同一次dynamics step一致。
 - actuator：逐级P/N/B、最弱安全档、EB边界、preview不提交状态、反应时间覆盖换档/apply/jerk。
 - 包络：分段边界、扫描截断、无正减速度fail-closed和256段上限。
+- 正加速度消退：非零坡度下的解析位移/速度增量、非正加速度/禁用jerk的原行为、距离耗尽返回0，以及额外扣除不能绕过原不可制停坡段门控。
 - composition：生产和隔离均无`KinematicTrainActuator`，捕获后不访问live renderer/Bukkit。
 
 ## 10. 迁移、未决事项与 Wrong / Correct

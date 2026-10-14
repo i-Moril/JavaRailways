@@ -1,4 +1,7 @@
 {"file":".trellis/spec/javarailways/shared/versioning.md","reason":"Publication baseline is mandatory before any version change; unpublished formats keep their agreed version"}
+{"file":".trellis/spec/javarailways/simpleato/controller-runtime.md","reason":"Parking precision: actual HandleTrainActuator flow, shared perception and publication; no target/tolerance changes"}
+{"file":".trellis/spec/javarailways/simpleato/ato-policy-runtime.md","reason":"Parking precision: one mission/constraint planner and existing stop semantics"}
+{"file":".trellis/spec/javarailways/basic/train-longitudinal-dynamics.md","reason":"Trace real notch/brake buildup/jerk before changing ATO; preserve shared physics ownership"}
 {"file":".trellis/spec/javarailways/simpleato/terminal-route-completion.md","reason":"Approved separation: real full-section route/grant, original operational stop, existing InspectionSource lifecycle, exact suffix reuse and no blanket brake rewrite"}
 {"file":".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md","reason":"Global ato.safety-distance-meters defaults to5m; immutable equal static/production/isolated configuration, strict numeric validation and no schema bump"}
 {"file":".trellis/tasks/09-18-signal-addon-implementation/research/fixed-block-authority-stop-separation.md","reason":"Source-grounded minimal completion seam, start-inside floor, append/reversal and dependency pitfalls"}

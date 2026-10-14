@@ -64,7 +64,9 @@ data class RouteSpeedLimitConstraint(
         brakingEnvelope: GradeAwareBrakingEnvelope?
     ): Double = speedForTarget(
         targetSpeed = maximumSpeedMetersPerSecond,
-        distance = distanceToStartMeters - currentSpeedMetersPerSecond * profile.reactionTimeSeconds,
+        distance = distanceToStartMeters,
+        currentSpeed = currentSpeedMetersPerSecond,
+        reactionTimeSeconds = profile.reactionTimeSeconds,
         deceleration = profile.serviceDecelerationMetersPerSecondSquared,
         brakingEnvelope = brakingEnvelope
     )
@@ -87,9 +89,9 @@ data class StopConstraint(
         brakingEnvelope: GradeAwareBrakingEnvelope?
     ): Double = speedForTarget(
         targetSpeed = 0.0,
-        distance = remainingDistanceMeters -
-            currentSpeedMetersPerSecond * profile.reactionTimeSeconds -
-            (stoppingMarginMeters ?: profile.stopToleranceMeters),
+        distance = remainingDistanceMeters - (stoppingMarginMeters ?: profile.stopToleranceMeters),
+        currentSpeed = currentSpeedMetersPerSecond,
+        reactionTimeSeconds = profile.reactionTimeSeconds,
         deceleration = profile.serviceDecelerationMetersPerSecondSquared,
         brakingEnvelope = brakingEnvelope
     )
@@ -111,8 +113,9 @@ data class FollowConstraint(
         brakingEnvelope: GradeAwareBrakingEnvelope?
     ): Double = speedForTarget(
         targetSpeed = leadingSpeedMetersPerSecond,
-        distance = gapMeters - profile.safetyDistanceMeters -
-            currentSpeedMetersPerSecond * profile.reactionTimeSeconds,
+        distance = gapMeters - profile.safetyDistanceMeters,
+        currentSpeed = currentSpeedMetersPerSecond,
+        reactionTimeSeconds = profile.reactionTimeSeconds,
         deceleration = profile.serviceDecelerationMetersPerSecondSquared,
         brakingEnvelope = brakingEnvelope
     )
@@ -132,8 +135,9 @@ data class MovementAuthorityConstraint(
         brakingEnvelope: GradeAwareBrakingEnvelope?
     ): Double = speedForTarget(
         targetSpeed = 0.0,
-        distance = remainingDistanceMeters - profile.safetyDistanceMeters -
-            currentSpeedMetersPerSecond * profile.reactionTimeSeconds,
+        distance = remainingDistanceMeters - profile.safetyDistanceMeters,
+        currentSpeed = currentSpeedMetersPerSecond,
+        reactionTimeSeconds = profile.reactionTimeSeconds,
         deceleration = profile.serviceDecelerationMetersPerSecondSquared,
         brakingEnvelope = brakingEnvelope
     )
@@ -152,7 +156,10 @@ data class DepartureHoldConstraint(
 private fun speedForTarget(
     targetSpeed: Double,
     distance: Double,
+    currentSpeed: Double,
+    reactionTimeSeconds: Double,
     deceleration: Double,
     brakingEnvelope: GradeAwareBrakingEnvelope?
-): Double = brakingEnvelope?.permittedSpeedMetersPerSecond(targetSpeed, distance.coerceAtLeast(0.0))
-    ?: sqrt(targetSpeed * targetSpeed + 2.0 * deceleration * distance.coerceAtLeast(0.0))
+): Double = brakingEnvelope?.permittedSpeedMetersPerSecond(targetSpeed, distance, currentSpeed, reactionTimeSeconds)
+    ?: sqrt(targetSpeed * targetSpeed + 2.0 * deceleration *
+        (distance - currentSpeed * reactionTimeSeconds).coerceAtLeast(0.0))

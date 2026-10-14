@@ -1363,8 +1363,10 @@ class TimetableDispatcherTest {
         if (dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state !=
             TimetableServiceRunState.COMPLETED
         ) {
-            train.setLocation(rail.viewAB.getRailLocationAt(targetArc))
-            train.commit()
+            world.onOwnerForTest {
+                train.setLocation(rail.viewAB.getRailLocationAt(targetArc))
+                train.commit()
+            }
             world.onOwnerForTest { dispatcher.tick(world) }
         }
         val completed = dispatcher.status(TimetableServiceRunId("tt", "s1"))!!
@@ -1592,8 +1594,10 @@ class TimetableDispatcherTest {
         assertTrue(dispatcher.status(id)?.routeGrantActive == true)
         assertTrue(world.onOwnerForTest { dispatcher.releaseControlTransfer(train.id, "driver-1") })
 
-        train.setLocation(train.head.location.forward(40.0)!!)
-        train.commit()
+        world.onOwnerForTest {
+            train.setLocation(train.head.location.forward(40.0)!!)
+            train.commit()
+        }
         world.onOwnerForTest { dispatcher.tick(world) }
 
         assertFalse(dispatcher.status(id)?.routeGrantActive == true)
@@ -1758,8 +1762,10 @@ class TimetableDispatcherTest {
         CoreRail.connect(approach, blockingBranch)
         val mainTrain = createTrainWithConfig("main", approach, world, listOf(10.0))
         val blockingTrain = createTrainWithConfig("blocking", approach, world, listOf(10.0))
-        blockingTrain.setLocation(mainTrain.head.location.forward(60.0)!!)
-        blockingTrain.commit()
+        world.onOwnerForTest {
+            blockingTrain.setLocation(mainTrain.head.location.forward(60.0)!!)
+            blockingTrain.commit()
+        }
         val mainOrigin = mainTrain.head.location.arcLength
         val protectionArc = 70.0
         data.wayPoints.add(WayPoint("M0", "M0", approach.id, mainOrigin))
@@ -1829,8 +1835,10 @@ class TimetableDispatcherTest {
         val firstTrain = createTrainWithConfig("T1", approach, world, listOf(10.0))
         val secondTrain = createTrainWithConfig("T2", approach, world, listOf(10.0))
         val secondOriginArc = firstTrain.head.location.arcLength + 40.0
-        secondTrain.setLocation(RailLocationWithFacing(secondBranch.viewAB, 40.0))
-        secondTrain.commitMaintenancePlacement()
+        world.onOwnerForTest {
+            secondTrain.setLocation(RailLocationWithFacing(secondBranch.viewAB, 40.0))
+            secondTrain.commitMaintenancePlacement()
+        }
         data.wayPoints.add(WayPoint("A1", "A1", approach.id, firstTrain.head.location.arcLength))
         data.wayPoints.add(WayPoint("A2", "A2", approach.id, secondOriginArc))
         data.wayPoints.add(WayPoint("B1", "B1", firstBranch.id, 20.0))
@@ -1856,8 +1864,10 @@ class TimetableDispatcherTest {
             dispatcher.status(TimetableServiceRunId("tt", "s1"))?.state,
             "status=${dispatcher.status(TimetableServiceRunId("tt", "s1"))} stall=${world.simpleAtoWorldData.atoCoordinator.lastStall}"
         )
-        secondTrain.setLocation(RailLocationWithFacing(approach.viewAB, secondOriginArc))
-        secondTrain.commitMaintenancePlacement()
+        world.onOwnerForTest {
+            secondTrain.setLocation(RailLocationWithFacing(approach.viewAB, secondOriginArc))
+            secondTrain.commitMaintenancePlacement()
+        }
         assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "s2") } is TimetableServiceStartResult.Started)
         val secondAto = secondTrain.controller as SimpleATO
         repeat(2_000) {
@@ -1934,8 +1944,10 @@ class TimetableDispatcherTest {
         CoreRail.connect(approach, earlyBranch)
         val lateTrain = createTrainWithConfig("late-train", approach, world, listOf(10.0))
         val earlyTrain = createTrainWithConfig("early-train", approach, world, listOf(10.0))
-        earlyTrain.setLocation(lateTrain.head.location.forward(40.0)!!)
-        earlyTrain.commit()
+        world.onOwnerForTest {
+            earlyTrain.setLocation(lateTrain.head.location.forward(40.0)!!)
+            earlyTrain.commit()
+        }
         data.wayPoints.add(WayPoint("L0", "L0", approach.id, lateTrain.head.location.arcLength))
         data.wayPoints.add(WayPoint("E0", "E0", approach.id, earlyTrain.head.location.arcLength))
         data.wayPoints.add(WayPoint("L1", "L1", lateBranch.id, 20.0))

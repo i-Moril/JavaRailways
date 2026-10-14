@@ -21,6 +21,7 @@ data class SavedTrainV1(
     val tailLocation: RailLocationWithFacing.SavedRailLocationWithFacingV1
 ) : Loads<CoreTrain, CoreWorld> {
     override fun load(dependency: CoreWorld): CoreTrain {
+        dependency.physicsCoordinator.ensureBetweenFrames("SavedTrainV1.load")
         val loadedCars = cars.map { savedCar ->
             savedCar.load(dependency).also {
                 it.restorePersistedOperatingDirection(reversed xor savedCar.installedReversed)
@@ -38,11 +39,14 @@ data class SavedTrainV1(
         )
         return try {
             train.restorePersistedPlacement(reversed)
-            train.commit()
-            dependency.publishCurrentTrainFrame(train.id)
+            dependency.publishOwnerChanges(listOf(train))
             train
         } catch (failure: Exception) {
-            train.discardFailedLoad()
+            if (dependency.physicsCoordinator.status ==
+                work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus.RUNNING
+            ) {
+                runCatching { train.discardFailedLoad() }.exceptionOrNull()?.let(failure::addSuppressed)
+            }
             throw failure
         }
     }

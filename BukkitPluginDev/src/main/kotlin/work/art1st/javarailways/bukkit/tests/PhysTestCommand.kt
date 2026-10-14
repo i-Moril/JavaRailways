@@ -50,8 +50,8 @@ class PhysTestCommand(
     )
 
     private val rails = mutableListOf<CoreRail>()
-    private var controller: ManualController? = null
-    private var train: CoreTrain? = null
+    @Volatile private var controller: ManualController? = null
+    @Volatile private var train: CoreTrain? = null
 
     private fun world(player: Player): CoreWorld {
         val mgr = BukkitPlugin.INSTANCE.worldManager
@@ -80,7 +80,10 @@ class PhysTestCommand(
     }
 
     private fun createPlayground(sender: Player, world: CoreWorld) {
-        if (!cleanAll(sender, world)) return
+        cleanAll(sender, world) { preparePlayground(sender, world) }
+    }
+
+    private fun preparePlayground(sender: Player, world: CoreWorld) {
         val o = Vector3d(sender.location.x, sender.location.y, sender.location.z)
         val normal = Vector3d(0.0, 1.0, 0.0)
         val straightLen = 200.0
@@ -168,42 +171,75 @@ class PhysTestCommand(
         val view = rail.getView(work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB)
         val start = RailLocationWithFacing(view, view.curve.getNearestPoint(pos).arcLength)
 
-        val carLen = 2.0
-        var loc: RailLocationWithFacing? = start
-        val cars = mutableListOf<CoreCar>()
+        world.physicsCoordinator.submitBetweenFrames {
+            check(world.getRail(rail.id) === rail) { "Rail changed; spawn again" }
+            val carLen = 2.0
+            var loc: RailLocationWithFacing? = start
+            val cars = mutableListOf<CoreCar>()
+            var created: CoreTrain? = null
+            var published = false
+            try {
+                repeat(carCount) { i ->
+                    val bA = CoreBogie.create(loc!!)
+                    val next = loc!!.forward(carLen)
+                    if (next == null) {
+                        error("forward() failed at car $i — rail too short or disconnected")
+                    }
+                    val bB = CoreBogie.create(next)
+                    cars.add(CoreCar.create("phys-car-$i", bA, bB, carLen, world = world))
+                    loc = next
+                }
 
-        repeat(carCount) { i ->
-            val bA = CoreBogie.create(loc!!)
-            val next = loc!!.forward(carLen)
-            if (next == null) {
-                sender.sendMessage("forward() failed at car $i — rail too short or disconnected")
-                return@repeat
+                check(cars.isNotEmpty()) { "No cars created" }
+                val t = CoreTrain.create("phys-${UUID.randomUUID().toString().take(6)}", cars, world)
+                created = t
+                t.setLocation(start)
+                world.publishOwnerChanges(listOf(t))
+                published = true
+                train = t
+                "Train ${t.id} on ${rail.id}  cars=${cars.size}"
+            } catch (failure: Throwable) {
+                if (!published && world.physicsCoordinator.status ==
+                    work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus.RUNNING
+                ) {
+                    runCatching { created?.destroyOnOwner() ?: cars.forEach(CoreCar::destroy) }
+                        .exceptionOrNull()?.let(failure::addSuppressed)
+                }
+                throw failure
             }
-            val bB = CoreBogie.create(next)
-            cars.add(CoreCar.create("phys-car-$i", bA, bB, carLen, world = world))
-            loc = next
+        }.whenComplete { message, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                sender.sendMessage(if (failure == null) message else "Spawn failed: ${failure.message}")
+            })
         }
-
-        if (cars.isEmpty()) { sender.sendMessage("No cars created"); return }
-        val t = CoreTrain.create("phys-${UUID.randomUUID().toString().take(6)}", cars, world)
-        t.setLocation(start)
-        t.commit()
-        train = t
-        sender.sendMessage("Train ${t.id} on ${rail.id}  cars=${cars.size}")
     }
 
     private fun startTrain(sender: Player, world: CoreWorld) {
         val t = train ?: run { sender.sendMessage("No train"); return }
-        controller = ManualController(t, world)
-        t.setController(controller!!)
-        controller!!.setThrottle(0.5)
-        sender.sendMessage("${t.id} started @ 0.5 throttle")
+        world.physicsCoordinator.submitBetweenFrames {
+            check(world.getTrain(t.id) === t) { "Train changed" }
+            controller = ManualController(t, world).also {
+                t.setController(it)
+                it.setThrottle(0.5)
+            }
+        }.whenComplete { _, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                sender.sendMessage(if (failure == null) "${t.id} started @ 0.5 throttle" else "Start failed: ${failure.message}")
+            })
+        }
     }
 
     private fun stopTrain(sender: Player) {
-        (controller?.controlledTrain as? CoreTrain)?.setController(null)
-        controller = null
-        sender.sendMessage("Stopped")
+        val oldController = controller ?: run { sender.sendMessage("Stopped"); return }
+        val train = oldController.controlledTrain as CoreTrain
+        train.world.physicsCoordinator.submitBetweenFrames {
+            if (train.controller === oldController) train.setController(null)
+            if (controller === oldController) controller = null
+        }.whenComplete { _, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                sender.sendMessage(if (failure == null) "Stopped" else "Stop failed: ${failure.message}")
+            })
+        }
     }
 
     private fun showInfo(sender: Player, world: CoreWorld) {
@@ -245,11 +281,25 @@ class PhysTestCommand(
         sender.sendMessage("Tests: ${passed + failed} run, $passed passed, $failed failed")
     }
 
-    private fun cleanAll(sender: Player, world: CoreWorld): Boolean {
-        (controller?.controlledTrain as? CoreTrain)?.setController(null)
-        controller = null
-        train?.destroy()
-        train = null
+    private fun cleanAll(sender: Player, world: CoreWorld, afterCleanup: () -> Unit = {}) {
+        val previousTrain = train
+        val previousController = controller
+        world.physicsCoordinator.submitBetweenFrames {
+            check(previousTrain == null || previousTrain.world === world) { "Playground belongs to another world" }
+            if (previousTrain != null && world.getTrain(previousTrain.id) === previousTrain) {
+                previousTrain.destroyOnOwner()
+            }
+            if (controller === previousController) controller = null
+            if (train === previousTrain) train = null
+        }.whenComplete { _, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                if (failure != null) sender.sendMessage("Cleanup failed: ${failure.message}")
+                else if (cleanRails(sender, world)) afterCleanup()
+            })
+        }
+    }
+
+    private fun cleanRails(sender: Player, world: CoreWorld): Boolean {
         val liveRails = rails.mapNotNull { rail -> world.getRail(rail.id)?.takeIf { it === rail } }
         if (liveRails.isNotEmpty()) {
             val topology = world.topologyState

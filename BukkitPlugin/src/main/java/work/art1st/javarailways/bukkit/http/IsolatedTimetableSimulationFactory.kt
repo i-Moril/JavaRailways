@@ -321,11 +321,12 @@ internal class IsolatedTimetableSimulationFactory(
                 world
             )
         }
-        val train = CoreTrain.create(trainId, cars, world, trainName)
-        train.setLocation(head)
-        train.commit()
-        world.publishCurrentTrainFrame(train.id)
-        return train
+        return world.physicsCoordinator.processBetweenFrames {
+            CoreTrain.create(trainId, cars, world, trainName).also { train ->
+                train.setLocation(head)
+                world.publishOwnerChanges(listOf(train))
+            }
+        }
     }
 
     private fun operationDuration(

@@ -902,8 +902,10 @@ class TimetableStationCallDispatcherTest {
         CoreRail.connect(approach, blockingBranch)
         val mainTrain = createTrainWithConfig("main", approach, world, listOf(10.0))
         val blockingTrain = createTrainWithConfig("blocking", approach, world, listOf(10.0))
-        blockingTrain.setLocation(mainTrain.head.location.forward(60.0)!!)
-        blockingTrain.commit()
+        world.onOwnerForTest {
+            blockingTrain.setLocation(mainTrain.head.location.forward(60.0)!!)
+            blockingTrain.commit()
+        }
         data.wayPoints.add(WayPoint("M0", "M0", approach.id, mainTrain.head.location.arcLengthIn(ViewDirection.AB)))
         data.wayPoints.add(WayPoint("P", "P", approach.id, 70.0))
         data.wayPoints.add(WayPoint("M1", "M1", mainBranch.id, 20.0))
@@ -1003,8 +1005,10 @@ class TimetableStationCallDispatcherTest {
         )
         val firstTrain = createTrainWithConfig("T1", rail, world, listOf(10.0))
         val secondTrain = createTrainWithConfig("T2", rail, world, listOf(10.0))
-        secondTrain.setLocation(firstTrain.head.location.forward(20.0)!!)
-        secondTrain.commit()
+        world.onOwnerForTest {
+            secondTrain.setLocation(firstTrain.head.location.forward(20.0)!!)
+            secondTrain.commit()
+        }
         data.wayPoints.add(WayPoint("A1", "A1", rail.id, firstTrain.head.location.arcLengthIn(ViewDirection.AB)))
         data.wayPoints.add(WayPoint("A2", "A2", rail.id, secondTrain.head.location.arcLengthIn(ViewDirection.AB)))
         data.wayPoints.add(WayPoint("C", "C", rail.id, 160.0))

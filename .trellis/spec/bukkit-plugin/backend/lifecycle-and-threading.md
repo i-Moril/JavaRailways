@@ -110,7 +110,17 @@ world卸载先撤销loaded lookup，再在有效帧间阶段释放该world控制
 
 协调与映射操作为低频请求成本；队列/准入合同归[Core runtime](../../javarailways/core/runtime-publication.md)。
 需验证旧controller仍在途时不修改、下一worker只运行替代controller、方向失败不提前改显示、导航失败恢复及unavailable-world卸载仍退休本地引用。
-创建/摆位、完整外部脱轨与基础设施编辑仍按后续批次迁移；本平台适配不表示这些操作已经收口。
+创建/删除和摆位已按下述第4批迁移；完整外部脱轨与基础设施编辑仍按后续批次迁移。
+
+### 创建与删除的结果消费（CURRENT，第4批）
+
+`TrainCommand`将live身份/占用复核、车厢与列车构造、extension初始化、控制参数登记和最终Core发布作为一个帧间操作。
+成功后才在原玩家entity owner显示模型及结果，不把“排队成功”报告成“创建成功”。
+发布前且Core仍RUNNING时才清理未完成创建；Core已Stall或已成功发布后不能因后续消息失败反向删除列车。
+删除同样将会话/参数退出及`destroyOnOwner`放在一个操作，实际完成后回送平台反馈。
+隔离simulation工厂在其已有simulation owner中同步进入同一阶段；Dev测试命令也按真实Future消费创建、控制和删除结果。
+不移动模型文件读取或扩展包准备到physics worker，不扩大为任意平台实体事务。
+共享观测及失败边界由[Core帧间创建与摆位](../../javarailways/core/train-physics.md#帧间创建删除与维护摆位current第4批)拥有。
 
 ## Folia 线程归属
 

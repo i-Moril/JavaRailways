@@ -161,25 +161,27 @@ class CoreWorld(
                 dependency.worldParent
             )
             try {
-                world.railTopologyTransaction {
-                    val railDependency = CoreRail.SavedRailV1.Dependency(world)
-                    val loadedRails = infrastructure.rails.map { it.loadDisconnected(railDependency) }
-                    infrastructure.rails.zip(loadedRails).forEach { (savedRail, rail) ->
-                        savedRail.restoreConnections(rail, railDependency)
+                return world.physicsCoordinator.withStructuralMutation {
+                    world.railTopologyTransaction {
+                        val railDependency = CoreRail.SavedRailV1.Dependency(world)
+                        val loadedRails = infrastructure.rails.map { it.loadDisconnected(railDependency) }
+                        infrastructure.rails.zip(loadedRails).forEach { (savedRail, rail) ->
+                            savedRail.restoreConnections(rail, railDependency)
+                        }
                     }
-                }
-                runtime?.trains.orEmpty().forEach { savedTrain ->
-                    val train = try {
-                        savedTrain.load(world)
-                    } catch (failure: Exception) {
-                        throw IllegalStateException(
-                            "Failed to restore train '${savedTrain.name}' [${savedTrain.id}]",
-                            failure
-                        )
+                    runtime?.trains.orEmpty().forEach { savedTrain ->
+                        val train = try {
+                            savedTrain.load(world)
+                        } catch (failure: Exception) {
+                            throw IllegalStateException(
+                                "Failed to restore train '${savedTrain.name}' [${savedTrain.id}]",
+                                failure
+                            )
+                        }
+                        world.addTrain(train)
                     }
-                    world.addTrain(train)
+                    world
                 }
-                return world
             } catch (failure: Throwable) {
                 try {
                     world.releaseRuntimeBinding()
@@ -211,6 +213,7 @@ class CoreWorld(
 
     @MainThread
     internal fun addTrain(train: CoreTrain) {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.addTrain")
         if (trains[train.id] === train && trainsByName[train.name] === train) return
         validateNewTrainIdentity(train.id, train.name)
         require(trainsByName.putIfAbsent(train.name, train).let { it == null || it === train }) {
@@ -283,6 +286,7 @@ class CoreWorld(
 
     @MainThread
     override fun removeTrain(train: Train) {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.removeTrain")
         if (trains.remove(train.id, train)) {
             publishedTrainFrames.remove(train.id)
         }
@@ -1211,6 +1215,33 @@ class CoreWorld(
             railSpatialIndex.removeRail(removed)
         }
         rails.remove(rail.id)
+    }
+
+    /**
+     * Publish one already-staged owner batch at the completed physical epoch, without a new step.
+     * All candidates are prepared before installation. Mailbox frames and direction notifications
+     * follow the single shared occupancy/world publication; installation failure stalls physics.
+     */
+    fun publishOwnerChanges(changedTrains: Collection<CoreTrain>) {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.publishOwnerChanges")
+        val epoch = physicsCoordinator.captureCurrentTicket().epoch
+        val changed = changedTrains.distinct()
+        changed.forEach { train ->
+            check(trains[train.id] === train && train.world === this) { "Owner batch contains a retired train" }
+        }
+        val prepared = changed.associateWith { it.prepareMaintenancePublication(epoch) }
+        check(trains.values.all { it in prepared || it.publishedFrame.physicsEpoch == epoch }) {
+            "Owner publication requires all unchanged train frames at completed epoch $epoch"
+        }
+        try {
+            prepared.forEach { (train, frame) -> train.applyMaintenancePublication(frame) }
+            rebuildSweptOccupancyIndex(epoch)
+            publishWorldFrame(epoch)
+            changed.forEach { publishTrainFrame(it.publishedFrame) }
+        } catch (failure: Throwable) {
+            throw physicsCoordinator.stall("Owner train publication failed", failure)
+        }
+        changed.forEach(CoreTrain::notifyMaintenancePublication)
     }
 
     /** Rebuilt by the physics Coordinator after all train states are published. */

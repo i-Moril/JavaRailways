@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.controller
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import work.art1st.javarailways.core.physics.train.setControllerForTest
 
 import work.art1st.javarailways.core.physics.createRailForTest
@@ -346,15 +348,19 @@ class SimpleATOTest {
         val fixture = fixture("following")
         authorizeMovement(fixture)
         val front = createTrainWithConfig("front", fixture.train.head.location.rail, fixture.world, listOf(10.0))
-        front.setLocation(fixture.train.head.location.forward(11.0)!!)
-        front.commit()
+        fixture.world.onOwnerForTest {
+            front.setLocation(fixture.train.head.location.forward(11.0)!!)
+            front.commit()
+        }
 
         tickAndPublish(fixture.ato, 1_000.0)
 
         assertEquals(0.0, fixture.train.speed, 1.0e-9)
 
-        front.setLocation(fixture.train.head.location.forward(200.0)!!)
-        front.commit()
+        fixture.world.onOwnerForTest {
+            front.setLocation(fixture.train.head.location.forward(200.0)!!)
+            front.commit()
+        }
         tickAndPublish(fixture.ato, 1_000.0)
 
         assertEquals(1.0, fixture.train.speed, 1.0e-9)

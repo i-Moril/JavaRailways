@@ -219,8 +219,10 @@ class TrainUniformMotionTest {
             coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
             assertPublishedVelocity(train, 10.0)
 
-            train.setLocation(requireNotNull(train.head.location.forward(5.0)))
-            train.commitMaintenancePlacement()
+            train.world.onOwnerForTest {
+                train.setLocation(requireNotNull(train.head.location.forward(5.0)))
+                train.commitMaintenancePlacement()
+            }
 
             assertPublishedVelocity(train, 0.0)
         } finally {

@@ -20,12 +20,12 @@ class CoreTrainMultiCarDiagnosticTest {
         val beforeFrame = train.publishedFrame
         val beforeCarPositions = train.cars.map { it.position.x() }
 
-        train.setLocation(RailLocationWithFacing(rail.viewAB, 80.0))
-
-        assertSame(beforeFrame, train.publishedFrame)
-        assertEquals(beforeCarPositions, train.cars.map { it.position.x() })
-
-        train.commitMaintenancePlacement()
+        train.world.onOwnerForTest {
+            train.setLocation(RailLocationWithFacing(rail.viewAB, 80.0))
+            assertSame(beforeFrame, train.publishedFrame)
+            assertEquals(beforeCarPositions, train.cars.map { it.position.x() })
+            train.commitMaintenancePlacement()
+        }
 
         assertEquals(beforeFrame.revision + 1L, train.publishedFrame.revision)
         assertEquals(80.0, train.headLocation.position.x(), Curve.TOLERANCE)
@@ -50,8 +50,10 @@ class CoreTrainMultiCarDiagnosticTest {
         withWorld(world) { managedWorld ->
             val rail = createStraightRailFromSegments(managedWorld, PrimeCurveGenerator.buildStraight(200.0, segmentCount = 1))
             val train = createCommandStyleTrain(managedWorld, rail, carCount = 2, carLength = 2.0)
-            train.setLocation(RailLocationWithFacing(rail.viewAB, 80.0))
-            train.commitMaintenancePlacement()
+            train.world.onOwnerForTest {
+                train.setLocation(RailLocationWithFacing(rail.viewAB, 80.0))
+                train.commitMaintenancePlacement()
+            }
             train.setControllerForTest(MockTrainController(train, managedWorld, 10.0))
             coordinator.start()
 
@@ -105,7 +107,7 @@ class CoreTrainMultiCarDiagnosticTest {
             currentLocation = nextLocation
         }
 
-        return CoreTrain.create("diagnostic-train", cars, world)
+        return world.onOwnerForTest { CoreTrain.create("diagnostic-train", cars, world) }
     }
 
     private fun closeWorld(world: CoreWorld) {

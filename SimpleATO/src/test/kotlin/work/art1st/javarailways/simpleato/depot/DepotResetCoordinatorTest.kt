@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
@@ -42,6 +44,7 @@ import work.art1st.javarailways.simpleato.timetable.TimetableStep
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -49,6 +52,8 @@ import work.art1st.javarailways.core.physics.train.createStraightRailFromSegment
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
+import java.time.Duration
 
 class DepotResetCoordinatorTest {
     private val worlds = mutableListOf<CoreWorld>()
@@ -62,7 +67,12 @@ class DepotResetCoordinatorTest {
 
     @AfterEach
     fun unregisterWorlds() {
-        worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
+        worlds.forEach { world ->
+            TestSimpleATOWorldDataRegistry.unregister(world)
+            world.physicsCoordinator.close()
+            world.releaseRuntimeBinding()
+            (world.tickManager as AutoCloseable).close()
+        }
         worlds.clear()
     }
 
@@ -148,6 +158,7 @@ class DepotResetCoordinatorTest {
         ato.commit()
         assertFalse(dispatcher.status(TimetableServiceRunId("tt", "s1"))?.routeGrantActive == true)
         coordinator.stall(report(coordinator.worldId, train.id))
+        world.drainPublishedTrainFrames()
 
         val result = world.onOwnerForTest { DepotResetCoordinator(world, dispatcher).reset(setOf(depotId)) }
 
@@ -164,6 +175,8 @@ class DepotResetCoordinatorTest {
             world.simpleAtoWorldData.depots.stablingPoint(StablingPointRef(depotId, "one"))?.occupantTrainId
         )
         assertTrue(coordinator.isStalled)
+        assertSame(train.publishedFrame, world.latestWorldFrame().trains.single())
+        assertSame(train.publishedFrame, world.drainPublishedTrainFrames().single())
         val encoded = DepotResetReportJson.encode(success)
         assertTrue(encoded.contains("\"schemaVersion\": 2"))
         assertTrue(encoded.contains("\"status\": \"SUCCEEDED\""))
@@ -172,7 +185,7 @@ class DepotResetCoordinatorTest {
 
     @Test
     fun `failed placement restores every train including the train that threw mid-move`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = createTestWorld(PhysicsCoordinator(1, automaticFallback = false)).also(worlds::add)
         val coordinator = AtoWorldCoordinator("reset-placement-rollback", reportSink = {})
         val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
         TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
@@ -182,8 +195,10 @@ class DepotResetCoordinatorTest {
         )
         val safeTrain = createTrainWithConfig("A-safe", rail, world, listOf(10.0))
         val riskyTrain = createTrainWithConfig("B-risky", rail, world, listOf(10.0))
-        riskyTrain.setLocation(safeTrain.head.location.forward(30.0)!!)
-        riskyTrain.commit()
+        world.onOwnerForTest {
+            riskyTrain.setLocation(safeTrain.head.location.forward(30.0)!!)
+            world.publishOwnerChanges(listOf(riskyTrain))
+        }
         val depotId = DepotId("north")
         OperationalDestinationService(world).register(
             OperationalDestination(
@@ -243,12 +258,31 @@ class DepotResetCoordinatorTest {
         )
         world.onOwnerForTest { safeTrain.reverse() }
         world.onOwnerForTest { safeTrain.derail("test pre-reset state") }
+        world.onOwnerForTest {
+            riskyTrain.setController(object : TrainController(riskyTrain, world) {
+                override fun tick(deltaT: Double) {
+                    speed = 2.0
+                    moveControlledTrain(0.1, 2.0)
+                }
+            })
+        }
+        world.physicsCoordinator.start()
+        val ticket = world.physicsCoordinator.stepSimulation(50.0)
+        assertTimeoutPreemptively(Duration.ofSeconds(5)) { ticket.await() }
+        val beforeRiskyVelocity = riskyTrain.cars.map { Vector3d(it.motionState.tangentialVelocity) }
+        val beforeRiskyAngularVelocity = riskyTrain.cars.map { Vector3d(it.motionState.angularVelocity) }
+        val beforeRiskyBogieVelocity = riskyTrain.cars.flatMap { it.bogies }.map { Vector3d(it.velocity) }
+        assertTrue(beforeRiskyVelocity.all { it.length() > 0.0 })
         val beforeSafeHead = safeTrain.head.location.arcLengthIn(ViewDirection.AB)
         val beforeRiskyHead = riskyTrain.head.location.arcLengthIn(ViewDirection.AB)
         val beforeRiskyBogies = riskyTrain.cars.flatMap { car -> car.bogies }
             .map { it.location.arcLengthIn(ViewDirection.AB) }
         val beforeStock = world.simpleAtoWorldData.depots.allRollingStock()
         val beforePoints = world.simpleAtoWorldData.depots.stablingPoints(depotId)
+        val beforeSafeFrame = safeTrain.publishedFrame
+        val beforeRiskyFrame = riskyTrain.publishedFrame
+        val beforeWorldFrame = world.latestWorldFrame()
+        world.drainPublishedTrainFrames()
         coordinator.stall(report(coordinator.worldId, riskyTrain.id))
 
         val result = world.onOwnerForTest {
@@ -260,8 +294,6 @@ class DepotResetCoordinatorTest {
             ))
                 .reset(setOf(depotId))
         }
-        riskyTrain.commit()
-
         assertTrue(result is DepotResetResult.Failed)
         assertEquals("TRAIN_PLACEMENT", result.report.failureStage)
         assertEquals(beforeSafeHead, safeTrain.head.location.arcLengthIn(ViewDirection.AB), 1.0e-9)
@@ -275,6 +307,13 @@ class DepotResetCoordinatorTest {
         )
         assertEquals(beforeStock, world.simpleAtoWorldData.depots.allRollingStock())
         assertEquals(beforePoints, world.simpleAtoWorldData.depots.stablingPoints(depotId))
+        assertEquals(beforeRiskyVelocity, riskyTrain.cars.map { it.motionState.tangentialVelocity })
+        assertEquals(beforeRiskyAngularVelocity, riskyTrain.cars.map { it.motionState.angularVelocity })
+        assertEquals(beforeRiskyBogieVelocity, riskyTrain.cars.flatMap { it.bogies }.map { it.velocity })
+        assertSame(beforeSafeFrame, safeTrain.publishedFrame)
+        assertSame(beforeRiskyFrame, riskyTrain.publishedFrame)
+        assertSame(beforeWorldFrame, world.latestWorldFrame())
+        assertTrue(world.drainPublishedTrainFrames().isEmpty())
     }
 
     @Test
@@ -296,8 +335,10 @@ class DepotResetCoordinatorTest {
         CoreRail.connect(firstRail, secondRail)
         val firstTrain = createTrainWithConfig("A-cross", firstRail, world, listOf(10.0))
         val secondTrain = createTrainWithConfig("B-cross", secondRail, world, listOf(10.0))
-        secondTrain.setLocation(secondRail.viewAB.getRailLocationAt(50.0))
-        secondTrain.commit()
+        world.onOwnerForTest {
+            secondTrain.setLocation(secondRail.viewAB.getRailLocationAt(50.0))
+            world.publishOwnerChanges(listOf(secondTrain))
+        }
         val depotId = DepotId("cross")
         val destinations = OperationalDestinationService(world)
         destinations.register(
@@ -358,6 +399,10 @@ class DepotResetCoordinatorTest {
         )
         val beforeFirst = firstTrain.head.location
         val beforeSecond = secondTrain.head.location
+        val beforeFirstFrame = firstTrain.publishedFrame
+        val beforeSecondFrame = secondTrain.publishedFrame
+        val beforeWorldFrame = world.latestWorldFrame()
+        world.drainPublishedTrainFrames()
         coordinator.stall(report(coordinator.worldId, firstTrain.id))
 
         val result = world.onOwnerForTest { DepotResetCoordinator(
@@ -374,7 +419,66 @@ class DepotResetCoordinatorTest {
         assertEquals("TRAIN_ENVELOPE", result.report.failureStage)
         assertEquals(beforeFirst, firstTrain.head.location)
         assertEquals(beforeSecond, secondTrain.head.location)
+        assertSame(beforeFirstFrame, firstTrain.publishedFrame)
+        assertSame(beforeSecondFrame, secondTrain.publishedFrame)
+        assertSame(beforeWorldFrame, world.latestWorldFrame())
+        assertTrue(world.drainPublishedTrainFrames().isEmpty())
         assertFalse(world.simpleAtoWorldData.depots.stablingPoints(depotId).any { it.occupantTrainId == null })
+    }
+
+    @Test
+    fun `reset rejects placement into a train outside the reset plan without publication`() {
+        val world = createTestWorld().also(worlds::add)
+        val coordinator = AtoWorldCoordinator("reset-outsider", reportSink = {})
+        TestSimpleATOWorldDataRegistry.register(
+            world, BasicWorldData(safetyInterlock = coordinator.safetyInterlock), coordinator
+        )
+        val rail = createStraightRailFromSegments(
+            world, PrimeCurveGenerator.buildStraight(180.0, segmentCount = 1)
+        )
+        val resetTrain = createTrainWithConfig("reset", rail, world, listOf(10.0))
+        val outsider = createTrainWithConfig("outsider", rail, world, listOf(10.0))
+        world.onOwnerForTest {
+            outsider.setLocation(rail.viewAB.getRailLocationAt(100.0))
+            world.publishOwnerChanges(listOf(outsider))
+        }
+        val depotId = DepotId("north")
+        OperationalDestinationService(world).register(
+            OperationalDestination(
+                "north@one", "One", rail.id, 100.0, ViewDirection.AB,
+                DestinationRole.DepotStablingPointRole("north", "one", usableLengthMeters = 20.0)
+            )
+        )
+        world.simpleAtoWorldData.depots.registerRollingStock(
+            RollingStockRecord(resetTrain.id, depotId, "test/train", emptySet(), 1, 10.0, 20.0, emptySet()),
+            StablingPointRef(depotId, "one")
+        )
+        val beforeReset = resetTrain.publishedFrame
+        val beforeOutsider = outsider.publishedFrame
+        val beforeWorld = world.latestWorldFrame()
+        val beforeStock = world.simpleAtoWorldData.depots.allRollingStock()
+        val beforePoints = world.simpleAtoWorldData.depots.stablingPoints(depotId)
+        world.drainPublishedTrainFrames()
+        coordinator.stall(report(coordinator.worldId, resetTrain.id))
+
+        val result = world.onOwnerForTest {
+            DepotResetCoordinator(world, TimetableDispatcher(
+                UnavailableRouteAdmissionTestContext,
+                emptyTrainRestrictionSnapshots,
+                emptyInspectionRuntime(),
+                acceptingInfrastructureDependencyService()
+            )).reset(setOf(depotId))
+        }
+
+        assertTrue(result is DepotResetResult.Failed)
+        assertEquals("TRAIN_ENVELOPE", result.report.failureStage)
+        assertSame(beforeReset, resetTrain.publishedFrame)
+        assertSame(beforeOutsider, outsider.publishedFrame)
+        assertSame(beforeWorld, world.latestWorldFrame())
+        assertTrue(world.drainPublishedTrainFrames().isEmpty())
+        assertEquals(beforeStock, world.simpleAtoWorldData.depots.allRollingStock())
+        assertEquals(beforePoints, world.simpleAtoWorldData.depots.stablingPoints(depotId))
+        assertTrue(coordinator.isStalled)
     }
 
     @Test

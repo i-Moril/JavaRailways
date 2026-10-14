@@ -144,8 +144,10 @@ class CoreTrainPersistedPlacementTest {
         CoreRail.connect(alternate, junction)
         junction.viewBA.activeRail = previous.viewBA
         val original = configuredTrain(world, previous, "turnout")
-        original.setLocation(RailLocationWithFacing(junction.viewAB, 8.0))
-        original.commitMaintenancePlacement()
+        original.world.onOwnerForTest {
+            original.setLocation(RailLocationWithFacing(junction.viewAB, 8.0))
+            original.commitMaintenancePlacement()
+        }
         assertSame(previous, original.tail.location.rail)
         assertSame(junction, original.head.location.rail)
         junction.viewBA.activeRail = alternate.viewAB
@@ -164,7 +166,7 @@ class CoreTrainPersistedPlacementTest {
             rail.id to (rail.viewAB.dynamicRailObjects + rail.viewBA.dynamicRailObjects).toSet()
         }
         world.drainPublishedTrainFrames()
-        val failure = assertThrows(IllegalStateException::class.java) { saved.load(world) }
+        val failure = assertThrows(IllegalStateException::class.java) { world.onOwnerForTest { saved.load(world) } }
         assertTrue(failure.message.orEmpty().contains(saved.id), "placement rejection must identify the train")
         assertTrue(failure.message.orEmpty().contains(expectedReason), failure.message)
         assertEquals(listOf(original), world.allTrains.toList())
@@ -179,9 +181,11 @@ class CoreTrainPersistedPlacementTest {
 
     private fun assertExactRestore(world: CoreWorld, original: CoreTrain) {
         val expected = original.save()
-        original.discardFailedLoad()
-        world.drainPublishedTrainFrames()
-        val loaded = expected.load(world)
+        val loaded = world.onOwnerForTest {
+            original.discardFailedLoad()
+            world.drainPublishedTrainFrames()
+            expected.load(world)
+        }
         assertEquals(expected, loaded.save(), "loading must preserve exact serialized bogie and end positions")
         assertEquals(expected.reversed, loaded.isReversed)
         assertTrue(loaded.publishedFrame.bodyTraversal.isNotEmpty())
@@ -195,10 +199,10 @@ class CoreTrainPersistedPlacementTest {
             length = 10.0, floorHeight = 0.5, connectorLengthAtA = 0.3, connectorLengthAtB = 0.3,
             bogieAOffset = 3.0, bogieBOffset = -3.0, world = world
         ) }
-        return CoreTrain(id, cars, world, emptyMap()).also {
+        return world.onOwnerForTest { CoreTrain(id, cars, world, emptyMap()).also {
             it.setLocation(RailLocationWithFacing(rail.viewAB, 80.0))
             it.commitMaintenancePlacement()
-        }
+        } }
     }
 
     private fun reverse(train: CoreTrain) {

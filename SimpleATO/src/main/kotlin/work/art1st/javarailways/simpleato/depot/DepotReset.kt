@@ -16,6 +16,7 @@ import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import kotlin.math.abs
 
@@ -251,10 +252,8 @@ class DepotResetCoordinator(
 
         val relocated = ArrayList<PreparedPlacement>(prepared.size)
         val envelopes = ArrayList<PlacedEnvelope>(prepared.size)
-        var attempted: PreparedPlacement? = null
         try {
             prepared.forEach { placement ->
-                attempted = placement
                 placement.train.setLocation(placement.target)
                 relocated += placement
                 val spans = try {
@@ -284,18 +283,39 @@ class DepotResetCoordinator(
                     )
                 }
                 envelopes += PlacedEnvelope(placement, spans)
-                attempted = null
             }
-            relocated.forEach { placement -> placement.train.commitMaintenancePlacement() }
-        } catch (failure: Exception) {
-            val rollbackFailures = rollbackPlacements(relocated).toMutableList()
-            if (failure.suppressed.isNotEmpty()) {
-                val trainId = attempted?.assignment?.trainId ?: "unknown"
-                failure.suppressed.forEach { rollback ->
-                    rollbackFailures += "$trainId:" +
-                        (rollback.message ?: rollback::class.java.simpleName)
+            val relocatedIds = relocated.mapTo(HashSet()) { it.train.id }
+            world.allTrains.filterIsInstance<CoreTrain>().filter { it.id !in relocatedIds }
+                .forEach { unchanged ->
+                    val spans = unchanged.activePlacementEnvelope()
+                    val conflict = envelopes.firstOrNull { existing ->
+                        spans.any { first ->
+                            existing.spans.any { second ->
+                                envelopeOverlap(first, second) > RESET_POSITION_EPSILON_METERS
+                            }
+                        }
+                    }
+                    if (conflict != null) {
+                        throw TrainEnvelopeException(
+                            "reset train ${conflict.placement.assignment.trainId} " +
+                                "overlaps unchanged train ${unchanged.id}"
+                        )
+                    }
                 }
+            (world as CoreWorld).publishOwnerChanges(relocated.map { it.train })
+        } catch (failure: Exception) {
+            if ((world as CoreWorld).physicsCoordinator.status != PhysicsCoordinatorStatus.RUNNING) {
+                return partiallyCommitted(
+                    resetId,
+                    plan.depotIds,
+                    plan.assignments,
+                    "TRAIN_PUBLICATION",
+                    "placement publication failed; World remains stalled: " +
+                        (failure.message ?: failure::class.java.simpleName)
+                )
             }
+            // Include the failed setLocation itself: its local geometric rollback may clear motion.
+            val rollbackFailures = rollbackPlacements(prepared)
             if (rollbackFailures.isNotEmpty()) {
                 return partiallyCommitted(
                     resetId,

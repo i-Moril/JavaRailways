@@ -35,7 +35,7 @@ class CoreTrainMixedInstallationTest {
     fun `mixed cars move and reverse without changing physical ends or model directions`(reversed: Boolean) =
         withWorld { world ->
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
-            val train = savedMixedTrain(rail, reversed).load(world)
+            val train = world.onOwnerForTest { savedMixedTrain(rail, reversed).load(world) }
             val cars = train.cars.toList()
             val bogies = cars.map { it.bogies.toList() }
             assertPlacement(train.publishedFrame, 0.0, reversed)
@@ -75,7 +75,7 @@ class CoreTrainMixedInstallationTest {
     fun `mixed split independently reverses suffix and preserves installation through world codec`(reversed: Boolean) =
         withWorld { source ->
             val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(200.0, 1))
-            val train = savedMixedTrain(rail, reversed).load(source)
+            val train = source.onOwnerForTest { savedMixedTrain(rail, reversed).load(source) }
             val originalCars = train.cars.toList()
             val originalFrames = train.publishedFrame.cars
             val split = train.splitBefore("car-1", "separated")
@@ -107,7 +107,7 @@ class CoreTrainMixedInstallationTest {
             assertEquals(listOf(true), decoded.trains.single { it.id == train.id }.cars.map { it.installedReversed })
             assertEquals(listOf(false, true), decoded.trains.single { it.id == separated.id }.cars.map { it.installedReversed })
             withWorld(load = { tick, physics ->
-                CoreWorld.load(infrastructure, decoded, CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics))
+                IsolatedSimulationThreadMarker.run { CoreWorld.load(infrastructure, decoded, CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics)) }
             }) { restored ->
                 listOf(train, separated).forEach { original ->
                     val loaded = requireNotNull(restored.getTrain(original.id))

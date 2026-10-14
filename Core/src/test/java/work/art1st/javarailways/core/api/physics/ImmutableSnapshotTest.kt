@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.api.physics
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -59,8 +61,10 @@ class ImmutableSnapshotTest {
             val snapshot = TrainSnapshot.capture(train, revision = 7L, facing = ViewDirection.AB)
             val initialHeadArc = train.headLocation.arcLengthIn(ViewDirection.AB)
             val initialTailArc = train.tailLocation.arcLengthIn(ViewDirection.AB)
-            train.setLocation(requireNotNull(train.head.location.forward(30.0)))
-            train.commit()
+            train.world.onOwnerForTest {
+                train.setLocation(requireNotNull(train.head.location.forward(30.0)))
+                train.commit()
+            }
             val changed = TrainSnapshot.capture(train, revision = 8L, facing = ViewDirection.AB)
 
             assertEquals("snapshot-train", snapshot.trainId)

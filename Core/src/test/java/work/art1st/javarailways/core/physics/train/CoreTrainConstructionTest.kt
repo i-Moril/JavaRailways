@@ -60,9 +60,9 @@ class CoreTrainConstructionTest {
 
         assertThrows(IllegalArgumentException::class.java) {
             if (savedLoad) {
-                saved.load(world)
+                world.onOwnerForTest { saved.load(world) }
             } else {
-                CoreTrain(rejectedId, original.cars, world, emptyMap(), rejectedName)
+                world.onOwnerForTest { CoreTrain(rejectedId, original.cars, world, emptyMap(), rejectedName) }
             }
         }
 
@@ -100,7 +100,7 @@ class CoreTrainConstructionTest {
         assertNull(car.train)
 
         val failure = assertThrows(CannotCreateTrainException::class.java) {
-            CoreTrain("unplaceable", listOf(car), world, emptyMap())
+            world.onOwnerForTest { CoreTrain("unplaceable", listOf(car), world, emptyMap()) }
         }
         assertEquals(
             "Cannot place train $endpoint endpoint: train=unplaceable, anchorRail=${rail.id}, " +
@@ -171,7 +171,7 @@ class CoreTrainConstructionTest {
             assertEquals(0, destroys.get(), "a failed constructor must leave caller-owned cars intact")
             assertNull(car.train)
 
-            val retry = CoreTrain("failed-id", listOf(car), world, emptyMap(), "Failed")
+            val retry = world.onOwnerForTest { CoreTrain("failed-id", listOf(car), world, emptyMap(), "Failed") }
             val retryController = CountingController(retry)
             retry.setControllerForTest(retryController)
             assertSame(retry, world.getTrain("failed-id"))

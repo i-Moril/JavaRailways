@@ -56,10 +56,10 @@ class CoreTrainRigidGeometryTest {
                 world = world
             )
         }
-        var train = CoreTrain("rigid", cars, world, emptyMap()).also {
+        var train = world.onOwnerForTest { CoreTrain("rigid", cars, world, emptyMap()).also {
             it.setLocation(start)
             it.commitMaintenancePlacement()
-        }
+        } }
         assertGeometry(train, "$shape placement")
         train.setControllerForTest(MockTrainController(train, world, 10.0))
         world.physicsCoordinator.start()
@@ -98,8 +98,10 @@ class CoreTrainRigidGeometryTest {
             assertEquals(0.0, car.velocity.length(), 1e-12)
         }
         val saved = train.save()
-        train.discardFailedLoad()
-        train = saved.load(world)
+        train = world.onOwnerForTest {
+            train.discardFailedLoad()
+            saved.load(world)
+        }
         assertEquals(saved, train.save(), "reload preserves exact bogie and endpoint positions")
         train.cars.zip(stoppedPositions).forEach { (car, expected) ->
             assertEquals(0.0, car.position.distance(expected), 5e-6, "$shape restored centre")
@@ -113,11 +115,13 @@ class CoreTrainRigidGeometryTest {
                 override fun isMainThread() = Thread.currentThread() === owner
             })
             try {
-                train.setLocation(RailLocationWithFacing(rail.viewBA, curve.totalArcLength - 1.0))
+                train.world.onOwnerForTest {
+                    train.setLocation(RailLocationWithFacing(rail.viewBA, curve.totalArcLength - 1.0))
+                    train.commitMaintenancePlacement()
+                }
             } finally {
                 registration.close()
             }
-            train.commitMaintenancePlacement()
             train.setControllerForTest(MockTrainController(train, world, 10.0))
             world.physicsCoordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
             assertFalse(train.isDerailed, "valid movement near finite track end")

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.tick
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -263,8 +265,10 @@ class PhysicsCapacityStressTest {
     private fun placeSharedTrain(train: CoreTrain, rail: CoreRail, headOffsetMeters: Double) {
         val headLocation = RailLocationWithFacing(rail.viewAB, 0.0).forward(headOffsetMeters)
             ?: error("shared stress rail is too short for train ${train.id} at $headOffsetMeters m")
-        train.setLocation(headLocation)
-        train.commitMaintenancePlacement()
+        train.world.onOwnerForTest {
+            train.setLocation(headLocation)
+            train.commitMaintenancePlacement()
+        }
     }
 
     private fun enforceRequestedCapacity(config: StressConfig, results: List<StressRunResult>) {

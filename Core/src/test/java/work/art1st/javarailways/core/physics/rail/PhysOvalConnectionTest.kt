@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import work.art1st.javarailways.core.physics.createRailForTest
 
 import org.joml.Vector3d
@@ -42,8 +44,10 @@ class PhysOvalConnectionTest {
         val train = createCommandStyleTrain(world, rails[0], carCount = 4, carLength = 2.0)
         val beforeJoint = RailLocationWithFacing(rails[0].viewAB, rails[0].curve.totalArcLength - 0.5)
 
-        train.setLocation(beforeJoint)
-        train.commit()
+        train.world.onOwnerForTest {
+            train.setLocation(beforeJoint)
+            train.commit()
+        }
         train.moveTrainForward(1.0)
         train.commit()
 
@@ -138,6 +142,6 @@ class PhysOvalConnectionTest {
             currentLocation = nextLocation
         }
 
-        return CoreTrain.create("phys-oval-train", cars, world)
+        return world.onOwnerForTest { CoreTrain.create("phys-oval-train", cars, world) }
     }
 }

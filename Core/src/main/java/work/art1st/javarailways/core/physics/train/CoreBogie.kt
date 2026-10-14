@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.api.render.Vector3Snapshot
+import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.joml.unaryMinus
@@ -91,6 +93,37 @@ class CoreBogie @MainThread internal constructor(
         this.location = location
         locationPhysicsDirty = true
     }
+
+    internal data class PlacementState(
+        val location: RailLocationWithFacing,
+        val sameDirection: Boolean,
+        val velocity: Vector3Snapshot
+    )
+
+    internal fun capturePlacementState(): PlacementState = PlacementState(
+        location, publishedSameDirectionAsFacing, Vector3Snapshot.capture(velocity)
+    )
+
+    internal fun restorePlacementState(state: PlacementState) {
+        sameDirectionBuffer.set(state.sameDirection)
+        sameDirectionBuffer.commit()
+        sameDirectionBuffer.set(state.sameDirection)
+        updateLocation(state.location)
+        updateVelocity(state.velocity.toVector3d())
+        publishPhysicsState()
+    }
+
+    internal fun captureActivePlacementFrame(): RenderableFrameSnapshot =
+        prepareStationaryFrameAt(activeLocation)
+
+    /** Owner-local candidate at a new location, preserving physical model orientation. */
+    internal fun prepareStationaryFrameAt(location: RailLocationWithFacing): RenderableFrameSnapshot =
+        RenderableFrameSnapshot.create(
+            Vector3Snapshot.capture(location.position),
+            Vector3Snapshot.capture(if (publishedSameDirectionAsFacing) location.tangent else -location.tangent),
+            Vector3Snapshot.capture(location.normal),
+            Vector3Snapshot(0.0, 0.0, 0.0)
+        )
 
     /** Updates the active physics velocity; publication remains at the epoch barrier. */
     internal fun updateVelocity(velocity: Vector3dc) {

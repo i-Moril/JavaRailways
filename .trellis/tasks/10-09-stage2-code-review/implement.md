@@ -15,7 +15,7 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 1. [x] 协调器帧间阶段与操作请求基础：复用现有准入计数及exact ticket；宿主在该阶段运行运营和owner队列，阻止fallback穿插。提供真实simulation驱动，验证在途等待、FIFO、失败/关闭结果及回调嵌套提交。
 2. [x] 重命名完整迁移：调用入口、Bukkit结果消费、名称索引及下一正常frame/mailbox发布；增加重命名后有效LINK回归，不重建每次rename的全world索引，不放宽碰撞物理证据校验。LINK回归随原联结草稿保留在工作区，不混入独立的帧间基础提交。
 3. [x] controller生命周期与换向：整体迁移手动接管、Dispatcher和生产reverse caller；验证旧controller退出、新controller首次tick与结果方向，清除worker换向专用执行分支。现有停车/运营等待规则不擅自改变。
-4. [ ] 列车创建/删除、初始及Depot维护摆位：统一阶段内prepare/apply与批次末frame/occupancy/world观测，保留失败原子性；覆盖创建未完成不可见、删除后无旧占用及摆位后下一步一致。
+4. [x] 列车创建/删除、初始及Depot维护摆位：统一阶段内prepare/apply与批次末frame/occupancy/world观测，保留失败原子性；覆盖创建未完成不可见、删除后无旧占用及摆位后下一步一致。
 5. [ ] 外部脱轨、手动扳道、基础设施编辑：迁移await-only入口，区分physics-origin结果与外部命令；验证完整事件批次中无新physics worker，保持拓扑事务和资源仲裁合同。
 6. [ ] 联结/解编复用帧间阶段并完成CR-030复核：成功通知内提交rename正常完成，下一次碰撞使用一致观测；移除旧时序特判及过时契约，核对受影响API、测试与正式游戏测试交接。
 
@@ -46,6 +46,10 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 3b Core约束收口：不同controller的安装先校验帧间作用域、live train及controller归属，协调器核对确切旧注册后才安装；删除无调用的register/unregister绕行入口。物理原因脱轨仅在原publication屏障调用内部替换原语；外部脱轨/删除暂以结构门禁保证setter约束，完整请求及共享观测仍归后续批次。真实阻塞worker回归覆盖排队前后身份及下一epoch执行者，无新增testcase。
 
 独立暂存候选`/tmp/javarailways-controller-guards.LwhlQc`全套Core364/Basic394/SimpleATO354/Bukkit380/Tunnel31，共1523项零失败/error/skip，1分58秒、40tasks全执行；Core Dokka通过但保留已有warning。沿用offline/no-cache/rerun/nonincremental/in-process、2workers及1536m/1024m配置，仅跳过frontend install/build，未打包或部署。暂存三份Kotlin源码与测试候选逐项一致；任务/spec随后同步。第3项完成不代表第4至6项、Core整体审查或游戏验证完成。
+
+第4批完成Core创建/删除及多车维护发布、Bukkit命令/隔离工厂/Dev适配和SimpleATO初始摆位/Depot。机制由[Core owner契约](../../spec/javarailways/core/train-physics.md#帧间创建删除与维护摆位current第4批)拥有；复用原frame/occupancy构建器，不新增索引或physics epoch。准备失败精确恢复全部快照，含失败中的列车；开始发布后Stall不反向销毁。只读复核发现并修复创建/load发布后清理、Depot遗漏attempted恢复，最终无剩余确定阻塞。
+
+独立候选`/tmp/javarailways-placement-5w8t4_bp`排除第5/6批和旧联结草稿。分段门禁新鲜XML为Core366、Basic394、SimpleATO356、Bukkit380、Tunnel31，共1527项零失败/error/skip；Dev无测试源码，compileKotlin及test(NO-SOURCE)完成。首次Core13失败来自新用例跨轨段定位及旧fixture阶段/mailbox假设，随后补齐Basic/Bukkit遗漏；另修复两项新清理的类型错误和真实epoch测试遗漏start。没有放宽业务断言、删测试或把失败记为通过。Core/Basic全套rerun通过后，仅修改下游测试再分段验证；最终下游成功门禁20秒(8执行/27up-to-date)，不冒称单次全套成功。沿用offline/共享workspace缓存；未打包前端、未部署。多文件主要是既有测试的单操作owner调用迁移，与生产guard保持同一可运行提交，不制造临时兼容层。
 
 ### 前一阶段执行顺序（保留历史记录）
 

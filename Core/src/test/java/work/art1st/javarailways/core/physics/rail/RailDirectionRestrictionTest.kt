@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import work.art1st.javarailways.core.physics.createRailForTest
 
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -42,10 +44,12 @@ class RailDirectionRestrictionTest {
         assertEquals(39.0, requireNotNull(behind).arcLength, 1.0e-9)
 
         val train = createTrainWithConfig("one-way-boundary", first, world, listOf(17.2))
-        train.setLocation(second.viewAB.getRailLocationAt(5.0))
-        assertEquals(first.id, train.tailLocation.rail.id)
-        AsyncTickTestSupport.run { train.moveTrainForward(0.54) }
-        train.commit()
+        train.world.onOwnerForTest {
+            train.setLocation(second.viewAB.getRailLocationAt(5.0))
+            assertEquals(first.id, train.tailLocation.rail.id)
+            AsyncTickTestSupport.run { train.moveTrainForward(0.54) }
+            train.commit()
+        }
         assertFalse(train.isDerailed, train.derailReason)
     }
 

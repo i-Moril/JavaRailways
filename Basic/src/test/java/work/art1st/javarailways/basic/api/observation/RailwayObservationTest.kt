@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.api.observation
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -30,8 +32,10 @@ class RailwayObservationTest {
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
         )
         val train = createTrainWithConfig("ba-observation", rail, world, listOf(10.0))
-        train.setLocation(rail.viewBA.getRailLocationAt(60.0))
-        train.commit()
+        world.onOwnerForTest {
+            train.setLocation(rail.viewBA.getRailLocationAt(60.0))
+            train.commit()
+        }
         val coreFrame = RailwayWorldFrameSnapshot.create(
             physicsEpoch = train.publishedFrame.physicsEpoch,
             topologyRevision = world.topologyRevision,

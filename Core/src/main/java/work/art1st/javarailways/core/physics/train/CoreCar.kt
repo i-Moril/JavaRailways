@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
+import work.art1st.javarailways.core.api.physics.train.CarFrameSnapshot
 import org.joml.*
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.physics.exception.BogieException
@@ -139,6 +141,42 @@ class CoreCar @MainThread internal constructor(
         }
     internal val activeIsReversed: Boolean
         get() = isReversed
+
+    internal data class PlacementState(
+        val reversed: Boolean,
+        val position: Vector3Snapshot,
+        val direction: Vector3Snapshot,
+        val normal: Vector3Snapshot,
+        val velocity: Vector3Snapshot,
+        val angularVelocity: Vector3Snapshot,
+        val bogies: List<CoreBogie.PlacementState>
+    )
+
+    internal fun capturePlacementState(): PlacementState = PlacementState(
+        isReversed, Vector3Snapshot.capture(position), Vector3Snapshot.capture(direction),
+        Vector3Snapshot.capture(normal), Vector3Snapshot.capture(motionState.tangentialVelocity),
+        Vector3Snapshot.capture(motionState.angularVelocity), bogies.map(CoreBogie::capturePlacementState)
+    )
+
+    internal fun restorePlacementState(state: PlacementState) {
+        isReversed = state.reversed
+        position = state.position.toVector3d()
+        direction = state.direction.toVector3d()
+        normal = state.normal.toVector3d()
+        geometryPhysicsDirty = true
+        motionState = MotionState(state.velocity.toVector3d(), state.angularVelocity.toVector3d())
+        motionPhysicsDirty = true
+        bogies.zip(state.bogies).forEach { (bogie, saved) -> bogie.restorePlacementState(saved) }
+        publishPhysicsState()
+    }
+
+    internal fun captureActivePlacementFrame(): CarFrameSnapshot = CarFrameSnapshot.create(
+        id, length,
+        RenderableFrameSnapshot.create(Vector3Snapshot.capture(activePosition),
+            Vector3Snapshot.capture(activeDirection), Vector3Snapshot.capture(activeNormal),
+            Vector3Snapshot(0.0, 0.0, 0.0)),
+        bogies.map(CoreBogie::captureActivePlacementFrame)
+    )
 
     val bogieA
         get() = bogies.first()

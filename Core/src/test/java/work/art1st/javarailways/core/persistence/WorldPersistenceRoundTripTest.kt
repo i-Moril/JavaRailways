@@ -48,7 +48,7 @@ class WorldPersistenceRoundTripTest {
             )
 
             withWorld(load = { tick, physics ->
-                CoreWorld.load(
+                IsolatedSimulationThreadMarker.run { CoreWorld.load(
                     decodedInfrastructure,
                     decodedRuntime,
                     CoreWorld.SnapshotDependency(
@@ -56,7 +56,7 @@ class WorldPersistenceRoundTripTest {
                         KoinWorldParentContext(javaRailwaysParentScope()),
                         physics
                     )
-                )
+                ) }
             }) { restored ->
                 assertEquals("Player Express", restored.getTrain("persist-t1")?.name)
                 assertEquals("persist-t1", restored.getTrain("Player Express")?.id)
@@ -110,11 +110,11 @@ class WorldPersistenceRoundTripTest {
         TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
             PhysicsCoordinator(1, automaticFallback = false).use { physics ->
                 val failure = assertThrows(IllegalStateException::class.java) {
-                    CoreWorld.load(
+                    IsolatedSimulationThreadMarker.run { CoreWorld.load(
                         infrastructure,
                         runtime,
                         CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics)
-                    )
+                    ) }
                 }
                 assertTrue(failure.message!!.contains("broken-train"))
                 assertNotNull(failure.cause)

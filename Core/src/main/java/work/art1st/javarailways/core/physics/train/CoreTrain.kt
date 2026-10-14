@@ -44,6 +44,7 @@ import work.art1st.javarailways.core.util.CommitBuffer
 import work.art1st.javarailways.core.api.threading.ThreadGuard
 import work.art1st.javarailways.core.util.trait.TrainComponentTrait
 import java.util.concurrent.Future
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.UUID
@@ -109,6 +110,7 @@ open class CoreTrain @MainThread internal constructor(
     private var pendingTailTraversal: List<RailTraversalSegmentSnapshot>? = null
     private val frameRevision = AtomicLong(0L)
     private val publishedFrameRef = AtomicReference<TrainFrameSnapshot?>()
+    private var stagedPlacementDirection: Boolean? = null
 
     /** Latest complete value-only frame; consumers must not supplement it from live train state. */
     override val publishedFrame: TrainFrameSnapshot
@@ -118,10 +120,12 @@ open class CoreTrain @MainThread internal constructor(
     class PlacementSnapshot internal constructor(
         internal val trainId: String,
         internal val headLocation: RailLocationWithFacing,
+        internal val tailLocation: RailLocationWithFacing,
         internal val reversed: Boolean,
         internal val derailed: Boolean,
         internal val derailReason: String?,
-        internal val publishedSweptSpans: List<SweptRailSpan>
+        internal val frame: TrainFrameSnapshot,
+        internal val carStates: List<CoreCar.PlacementState>
     )
     override val isDerailed: Boolean
         get() = derailStateBuffer.get().derailed
@@ -151,6 +155,7 @@ open class CoreTrain @MainThread internal constructor(
         get() = publishedPlacementIntervals
 
     init {
+        world.physicsCoordinator.ensureBetweenFrames("CoreTrain construction")
         world.validateNewTrainIdentity(id, name)
         val initialHeadLocation = persistedHeadLocation
             ?: headBogie.location.forward(headCar.headBogieToEndPointOffset)
@@ -184,7 +189,9 @@ open class CoreTrain @MainThread internal constructor(
                 // Such an initial frame is not admissible; the first committed placement is strict.
                 emptyList()
             }
-            publishedFrameRef.set(captureFrame(revision = 0L, physicsEpoch = 0L))
+            publishedFrameRef.set(captureFrame(
+                revision = 0L, physicsEpoch = world.physicsCoordinator.captureCurrentTicket().epoch
+            ))
             cars.forEach { it.transferPublicationOwnership(this) }
         } catch (failure: Throwable) {
             // Only this constructor's registrations are owned here; its caller still owns the cars.
@@ -305,6 +312,8 @@ open class CoreTrain @MainThread internal constructor(
 
     @Throws(PhysicsException::class)
     fun setLocation(headLocation: RailLocationWithFacing) {
+        world.physicsCoordinator.ensureBetweenFrames("CoreTrain.setLocation")
+        check(world.getTrain(id) === this) { "Cannot place a retired train '$id'" }
         val previousHeadLocation = head.location
         val previousLocations = currentRailLocations()
         val previousPendingSweptSpans = pendingSweptSpans
@@ -312,13 +321,14 @@ open class CoreTrain @MainThread internal constructor(
         val previousDerailReason = derailReason
         val wasReversed = isReversed
         val directionChanged = isReversed
+        val previousStagedDirection = stagedPlacementDirection
         try {
+            if (stagedPlacementDirection == null) stagedPlacementDirection = wasReversed
             clearDerailed()
             // 正面面朝此location；成功后才发布方向事件。
             if (directionChanged) reverseOnMainThread()
             applyHeadLocation(headLocation)
             pendingSweptSpans = spansFromLocations(previousLocations + activeRailLocations())
-            if (directionChanged) MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
         } catch (failure: Exception) {
             runCatching {
                 if (isReversed != wasReversed) reverseOnMainThread()
@@ -326,6 +336,7 @@ open class CoreTrain @MainThread internal constructor(
                 pendingSweptSpans = previousPendingSweptSpans
             }.exceptionOrNull()?.let(failure::addSuppressed)
             publishDerailState(DerailState(wasDerailed, previousDerailReason))
+            stagedPlacementDirection = previousStagedDirection
             throw failure
         }
     }
@@ -333,40 +344,78 @@ open class CoreTrain @MainThread internal constructor(
     /** Capture a stable maintenance rollback point after the current physics epoch is published. */
     @MainThread
     fun capturePlacementSnapshot(): PlacementSnapshot {
+        world.physicsCoordinator.ensureBetweenFrames("CoreTrain.capturePlacementSnapshot")
         check(pendingSweptSpans == null) {
             "cannot capture placement while train physics state is pending: $id"
         }
         return PlacementSnapshot(
             trainId = id,
             headLocation = head.location,
+            tailLocation = tail.location,
             reversed = isReversed,
             derailed = isDerailed,
             derailReason = derailReason,
-            publishedSweptSpans = publishedSweptSpans.toList()
+            frame = publishedFrame,
+            carStates = cars.map(CoreCar::capturePlacementState)
         )
     }
 
-    /** Restore a previously captured maintenance placement and publish it atomically. */
+    /** Restore an unpublished maintenance attempt exactly, retaining the original immutable frame. */
     @MainThread
     fun restorePlacementSnapshot(snapshot: PlacementSnapshot) {
+        world.physicsCoordinator.ensureBetweenFrames("CoreTrain.restorePlacementSnapshot")
         require(snapshot.trainId == id) { "placement snapshot belongs to ${snapshot.trainId}, not $id" }
-        val directionChanged = isReversed != snapshot.reversed
-        if (directionChanged) reverseOnMainThread()
-        applyHeadLocation(snapshot.headLocation)
+        check(publishedFrame === snapshot.frame) { "Cannot roll back a placement after publication: $id" }
+        check(cars.size == snapshot.carStates.size) { "Placement consist changed: $id" }
+        cars.zip(snapshot.carStates).forEach { (car, state) -> car.restorePlacementState(state) }
+        isReversed = snapshot.reversed
+        head.location = snapshot.headLocation
+        tail.location = snapshot.tailLocation
+        head.publishPhysicsState()
+        tail.publishPhysicsState()
         publishDerailState(DerailState(snapshot.derailed, snapshot.derailReason))
-        pendingSweptSpans = snapshot.publishedSweptSpans
-        commit()
-        if (directionChanged) MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
+        pendingSweptSpans = null
+        pendingHeadTraversal = null
+        pendingTailTraversal = null
+        stagedPlacementDirection = null
     }
 
     /** Publish a validated maintenance placement without retaining its teleport sweep. */
     @MainThread
     fun commitMaintenancePlacement() {
-        // Maintenance placement has no elapsed-time basis. Never republish velocity left by the
-        // last controller epoch as though the teleported geometry had moved at that speed.
+        world.publishOwnerChanges(listOf(this))
+    }
+
+    internal data class MaintenancePublication(val frame: TrainFrameSnapshot, val spans: List<SweptRailSpan>)
+
+    internal fun prepareMaintenancePublication(epoch: Long): MaintenancePublication {
+        val segments = placementSegments(tail.activeLocation, head.activeLocation)
+        val spans = mergeSweptSpans(segments.map(::spanFromSegment))
+        return MaintenancePublication(captureFrame(
+            revision = frameRevision.get() + 1L, physicsEpoch = epoch,
+            frameHead = head.activeLocation, frameTail = tail.activeLocation,
+            framePlacementIntervals = intervalsFromSpans(spans), frameBodyTraversal = traversalSnapshots(segments),
+            frameSweptSpans = spans, frameHeadTraversal = emptyList(), frameTailTraversal = emptyList(),
+            preparedCars = cars.associateWith(CoreCar::captureActivePlacementFrame)
+        ), spans)
+    }
+
+    internal fun applyMaintenancePublication(prepared: MaintenancePublication) {
         updateActiveMotion(0.0)
-        pendingSweptSpans = activePlacementEnvelope()
-        commit()
+        pendingSweptSpans = prepared.spans
+        publishPhysicsState(refreshPlacement = false)
+        publishedPlacementIntervals = prepared.frame.occupiedIntervals
+        publishedBodyTraversal = prepared.frame.bodyTraversal
+        frameRevision.set(prepared.frame.revision)
+        publishedFrameRef.set(prepared.frame)
+    }
+
+    internal fun notifyMaintenancePublication() {
+        val previousDirection = stagedPlacementDirection
+        stagedPlacementDirection = null
+        if (previousDirection != null && previousDirection != isReversed) {
+            MainRailEventBus.publish(TrainSwitchDirectionEvent(this))
+        }
     }
 
     /** Exact rail intervals occupied by the currently active placement from tail to head. */
@@ -930,7 +979,7 @@ open class CoreTrain @MainThread internal constructor(
         }
     }
 
-    internal fun publishPhysicsState() {
+    internal fun publishPhysicsState(refreshPlacement: Boolean = true) {
         cars.forEach { it.publishPhysicsState() }
         head.publishPhysicsState()
         tail.publishPhysicsState()
@@ -945,7 +994,7 @@ open class CoreTrain @MainThread internal constructor(
             publishedSweptSpans = it
             pendingSweptSpans = null
         }
-        refreshPublishedPlacement()
+        if (refreshPlacement) refreshPublishedPlacement()
         publishedHeadTraversal = pendingHeadTraversal ?: emptyList()
         publishedTailTraversal = pendingTailTraversal ?: emptyList()
         pendingHeadTraversal = null
@@ -986,7 +1035,8 @@ open class CoreTrain @MainThread internal constructor(
         frameSpeed: Double = speed,
         frameDerailed: Boolean = isDerailed,
         frameReversed: Boolean = isReversed,
-        clearFrameMotion: Boolean = false
+        clearFrameMotion: Boolean = false,
+        preparedCars: Map<CoreCar, CarFrameSnapshot> = emptyMap()
     ): TrainFrameSnapshot = TrainFrameSnapshot.create(
         trainId = frameTrainId,
         trainName = frameTrainName,
@@ -996,7 +1046,7 @@ open class CoreTrain @MainThread internal constructor(
         derailed = frameDerailed,
         reversed = frameReversed,
         cars = frameCars.map { car ->
-            CarFrameSnapshot.create(
+            preparedCars[car] ?: CarFrameSnapshot.create(
                 carId = car.id,
                 lengthMeters = car.length,
                 state = captureFrameState(car, clearFrameMotion),
@@ -1132,20 +1182,34 @@ open class CoreTrain @MainThread internal constructor(
         }
 
     override fun commit() {
+        if (stagedPlacementDirection != null) {
+            commitMaintenancePlacement()
+            return
+        }
         // Explicit command/test paths advance immutable state without invoking platform extensions.
         publishPhysicsState()
         publishFrame(publishedFrame.physicsEpoch)
     }
 
     override fun destroy() {
-        world.tickManager.scheduleMainThreadAfterCommitTask {
-            world.physicsCoordinator.withStructuralMutation {
-                removeController()
-                head.destroy()
-                tail.destroy()
-                cars.forEach { obj: CoreCar -> obj.destroy() }
-                world.removeTrain(this)
-            }
+        destroyAsync()
+    }
+
+    fun destroyAsync(): CompletableFuture<Unit> =
+        world.physicsCoordinator.submitBetweenFrames { destroyOnOwner() }
+
+    fun destroyOnOwner() {
+        world.physicsCoordinator.ensureBetweenFrames("CoreTrain.destroyOnOwner")
+        check(world.getTrain(id) === this) { "Cannot destroy a retired train '$id'" }
+        try {
+            removeController()
+            head.destroy()
+            tail.destroy()
+            cars.forEach(CoreCar::destroy)
+            world.removeTrain(this)
+            world.publishOwnerChanges(emptyList())
+        } catch (failure: Throwable) {
+            throw world.physicsCoordinator.stall("Train destruction failed: train=$id", failure)
         }
     }
 

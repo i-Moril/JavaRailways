@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.tick
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import work.art1st.javarailways.core.physics.train.setControllerForTest
 
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -134,8 +136,10 @@ class PhysicsCoordinatorTest {
 
         repeat(controllerCount) { index ->
             val train = createTrainWithConfig("concurrent-$index", rail, world, listOf(10.0))
-            train.setLocation(checkNotNull(RailLocationWithFacing(rail.viewAB, 0.0).forward(20.0 + index * 30.0)))
-            train.commitMaintenancePlacement()
+            train.world.onOwnerForTest {
+                train.setLocation(checkNotNull(RailLocationWithFacing(rail.viewAB, 0.0).forward(20.0 + index * 30.0)))
+                train.commitMaintenancePlacement()
+            }
             train.setControllerForTest(object : TrainController(train, world) {
                 override fun tick(deltaT: Double) {
                     val currentInFlight = inFlight.incrementAndGet()
@@ -666,6 +670,7 @@ class PhysicsCoordinatorTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("stationary-render", rail, world, listOf(10.0))
         train.setControllerForTest(MutableSpeedController(train, world, requestedSpeed = 0.0))
+        world.drainPublishedTrainFrames()
         coordinator.start()
         try {
             repeat(3) { coordinator.wakeFromMainThread().await() }
@@ -716,6 +721,8 @@ class PhysicsCoordinatorTest {
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("slow-consumer", rail, world, listOf(10.0))
+        world.drainPublishedTrainFrames()
+        val mailboxBaseline = world.trainFrameMailboxMetrics()
         train.setControllerForTest(ConstantSpeedController(train, world))
         coordinator.start()
         try {
@@ -723,8 +730,8 @@ class PhysicsCoordinatorTest {
 
             val metrics = world.trainFrameMailboxMetrics()
             assertEquals(1, metrics.size)
-            assertEquals(31L, metrics.coalescedFrames)
-            assertEquals(0L, metrics.droppedCapacityFrames)
+            assertEquals(mailboxBaseline.coalescedFrames + 31L, metrics.coalescedFrames)
+            assertEquals(mailboxBaseline.droppedCapacityFrames, metrics.droppedCapacityFrames)
             assertEquals(32L, world.drainPublishedTrainFrames().single().physicsEpoch)
         } finally {
             coordinator.close()

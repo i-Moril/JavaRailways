@@ -88,8 +88,10 @@ class CoreTrainPublicationBoundaryTest {
                 PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
             )
             val train = createTrainWithConfig("ba-traversal", rail, world, listOf(10.0))
-            train.setLocation(rail.viewBA.getRailLocationAt(60.0))
-            train.commit()
+            train.world.onOwnerForTest {
+                train.setLocation(rail.viewBA.getRailLocationAt(60.0))
+                train.commit()
+            }
 
             train.moveTrainForward(10.0)
             train.commit()
@@ -118,8 +120,10 @@ class CoreTrainPublicationBoundaryTest {
             )
             val train = createTrainWithConfig("ba-frame", rail, world, listOf(10.0))
 
-            train.setLocation(rail.viewBA.getRailLocationAt(60.0))
-            train.commit()
+            train.world.onOwnerForTest {
+                train.setLocation(rail.viewBA.getRailLocationAt(60.0))
+                train.commit()
+            }
 
             val frame = train.publishedFrame
             assertEquals(ViewDirection.BA, frame.head.facing)

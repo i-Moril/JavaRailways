@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -59,11 +61,11 @@ class CoreWorldRuntimeBindingTest {
         val physics = PhysicsCoordinator(1, automaticFallback = false)
         try {
             val failure = assertThrows(IllegalStateException::class.java) {
-                CoreWorld.load(
+                IsolatedSimulationThreadMarker.run { CoreWorld.load(
                     emptyInfrastructure(),
                     brokenRuntime(),
                     CoreWorld.SnapshotDependency(DummyTickManager, parent, physics)
-                )
+                ) }
             }
 
             assertEquals(1, parent.closeCalls)

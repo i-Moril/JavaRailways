@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.extension.train
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -41,7 +43,7 @@ class CarFrameRevisionGateTest {
         val survivor: CoreTrain = createTrainWithConfig("survivor", rail, world, listOf(10.0))
         val removedOwner: CoreTrain = createTrainWithConfig("removed", rail, world, listOf(10.0))
 
-        fun link() {
+        fun link() = world.onOwnerForTest {
             survivor.setLocation(work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(rail.viewAB, 50.0))
             removedOwner.setLocation(work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(rail.viewAB, 35.0))
             survivor.linkWith(removedOwner)

@@ -60,8 +60,10 @@ class CoreTrainTailBogieTest {
             listOf(10.0, 10.0),
             isLoop = false
         )
-        train.setLocation(RailLocationWithFacing(siding.viewAB, siding.curve.totalArcLength - 0.2))
-        train.commit()
+        train.world.onOwnerForTest {
+            train.setLocation(RailLocationWithFacing(siding.viewAB, siding.curve.totalArcLength - 0.2))
+            train.commit()
+        }
 
         AsyncTickTestSupport.run { train.moveTrainForward(1.0) }
         train.commit()
@@ -94,9 +96,11 @@ class CoreTrainTailBogieTest {
                 savedExtensionData = emptyMap()
             )
         }
-        val train = CoreTrain("t-curved-reverse", cars, world, emptyMap())
-        train.setLocation(initial)
-        train.commit()
+        val train = world.onOwnerForTest { CoreTrain("t-curved-reverse", cars, world, emptyMap()) }
+        train.world.onOwnerForTest {
+            train.setLocation(initial)
+            train.commit()
+        }
         AsyncTickTestSupport.run { train.moveTrainForward(0.5) }
         train.commit()
         assertFalse(train.isDerailed)
@@ -128,8 +132,10 @@ class CoreTrainTailBogieTest {
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(1000.0))
         val train = createTrainWithConfig("t-reverse-spacing", rail, world, listOf(10.0, 10.0, 10.0), isLoop = false)
 
-        train.setLocation(RailLocationWithFacing(rail.viewAB, 150.0))
-        train.commit()
+        train.world.onOwnerForTest {
+            train.setLocation(RailLocationWithFacing(rail.viewAB, 150.0))
+            train.commit()
+        }
         val directionsBeforeReverse = train.cars.map { org.joml.Vector3d(it.direction) }
         val operatingDirectionsBeforeReverse = train.cars.map { org.joml.Vector3d(it.operatingDirection) }
         train.reverseOnMainThread()

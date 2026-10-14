@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -210,11 +212,11 @@ class SavedRailConnectionsTest {
 
     private fun <T> withLoadedWorld(rails: List<CoreRail.SavedRailV1>, action: (CoreWorld) -> T): T {
         return withWorld(load = { tick, physics ->
-            CoreWorld.load(
+            IsolatedSimulationThreadMarker.run { CoreWorld.load(
                 CoreWorld.SavedInfrastructureV2(CoreWorld.INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION, 7L, rails),
                 null,
                 CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics)
-            )
+            ) }
         }, action = action)
     }
 

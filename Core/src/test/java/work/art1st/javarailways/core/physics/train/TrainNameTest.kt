@@ -21,6 +21,7 @@ class TrainNameTest {
         )
         val first = createTrainWithConfig("id-1", rail, world, listOf(8.0), isLoop = false)
         val second = createTrainWithConfig("id-2", rail, world, listOf(8.0), isLoop = false)
+        world.drainPublishedTrainFrames()
 
         world.rebuildSweptOccupancyIndex(0L)
         val previousWorldFrame = world.publishWorldFrame(0L)

@@ -5,8 +5,10 @@ import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import kotlin.math.abs
@@ -22,6 +24,7 @@ class TimetableInitialPositioner(private val world: World) {
     private data class Placement(val train: CoreTrain, val target: Target)
 
     fun apply(timetable: Timetable, tick: Long): TimetableInitialPositionResult {
+        (world as CoreWorld).physicsCoordinator.ensureBetweenFrames("TimetableInitialPositioner.apply")
         if (timetable.initialPositions.isEmpty()) return TimetableInitialPositionResult.Applied(0)
         val usedTrainIds = HashSet<String>()
         val usedWayPointIds = HashSet<String>()
@@ -128,13 +131,10 @@ class TimetableInitialPositioner(private val world: World) {
 
     private fun applyAtomically(placements: List<Placement>) {
         val snapshots = placements.associate { it.train to it.train.capturePlacementSnapshot() }
+        val changed = placements.filter { !isAt(it.train, it.target.location) }
         try {
-            placements.forEach { placement ->
-                if (!isAt(placement.train, placement.target.location)) {
-                    placement.train.setLocation(placement.target.location)
-                    placement.train.commitMaintenancePlacement()
-                    placement.train.world.publishCurrentTrainFrame(placement.train.id)
-                }
+            changed.forEach { placement ->
+                placement.train.setLocation(placement.target.location)
             }
             val spans = world.allTrains.filterIsInstance<CoreTrain>().associateWith {
                 it.activePlacementEnvelope()
@@ -149,10 +149,16 @@ class TimetableInitialPositioner(private val world: World) {
                     spans.getValue(second).any { b -> a.overlaps(b) }
                 }) { "initial placement overlaps trains ${first.name} and ${second.name}" }
             }
+            if (changed.isNotEmpty()) {
+                (world as CoreWorld).publishOwnerChanges(changed.map { it.train })
+            }
         } catch (failure: Exception) {
-            snapshots.forEach { (train, snapshot) ->
-                runCatching { train.restorePlacementSnapshot(snapshot) }
-                    .exceptionOrNull()?.let(failure::addSuppressed)
+            // Core stalls if publication has begun: published observations cannot be rolled back.
+            if ((world as CoreWorld).physicsCoordinator.status == PhysicsCoordinatorStatus.RUNNING) {
+                snapshots.forEach { (train, snapshot) ->
+                    runCatching { train.restorePlacementSnapshot(snapshot) }
+                        .exceptionOrNull()?.let(failure::addSuppressed)
+                }
             }
             throw failure
         }

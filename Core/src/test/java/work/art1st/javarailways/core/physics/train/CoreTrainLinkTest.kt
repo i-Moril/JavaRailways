@@ -17,8 +17,10 @@ class CoreTrainLinkTest {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(300.0))
             val lead = createTrainWithConfig("lead", rail, world, listOf(10.0), isLoop = false)
             val follower = createTrainWithConfig("follower", rail, world, listOf(10.0), isLoop = false)
-            lead.setLocation(RailLocationWithFacing(rail.viewAB, 50.0))
-            follower.setLocation(RailLocationWithFacing(rail.viewAB, 35.0))
+            world.onOwnerForTest {
+                lead.setLocation(RailLocationWithFacing(rail.viewAB, 50.0))
+                follower.setLocation(RailLocationWithFacing(rail.viewAB, 35.0))
+            }
             val movedCar = follower.cars.single()
             val oldStream = follower.publicationStreamId
 
@@ -28,12 +30,12 @@ class CoreTrainLinkTest {
             assertEquals(4, rail.trains.size)
 
             lead.linkWith(follower)
-            world.tickManager.postTick()
+            world.onOwnerForTest { world.tickManager.postTick() }
 
             assertFalse(movedCar.isOwnedByPublicationStream(oldStream))
             assertTrue(movedCar.isOwnedByPublicationStream(lead.publicationStreamId))
             assertSame(lead, movedCar.train)
-            world.removeTrain(follower)
+            world.onOwnerForTest { world.removeTrain(follower) }
             assertSame(lead, movedCar.train, "retiring the old owner must not clear transferred cars")
             assertEquals(listOf("lead"), world.allTrains.map { it.id })
             assertEquals(2, rail.trains.size)
@@ -56,7 +58,7 @@ class CoreTrainLinkTest {
 
             assertTrue(car.isOwnedByPublicationStream(train.publicationStreamId))
             assertSame(train, car.train)
-            world.removeTrain(train)
+            world.onOwnerForTest { world.removeTrain(train) }
             assertFalse(car.isOwnedByPublicationStream(train.publicationStreamId))
             assertNull(car.train)
         } finally {
@@ -71,11 +73,11 @@ class CoreTrainLinkTest {
         try {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
             val old = createTrainWithConfig("reused", rail, world, listOf(10.0), isLoop = false)
-            world.removeTrain(old)
+            world.onOwnerForTest { world.removeTrain(old) }
             val replacement = createTrainWithConfig("reused", rail, world, listOf(10.0), isLoop = false)
             world.publishCurrentTrainFrame(replacement.id)
 
-            world.removeTrain(old)
+            world.onOwnerForTest { world.removeTrain(old) }
 
             assertSame(replacement, world.getTrain("reused"))
             assertSame(replacement.publishedFrame, world.drainPublishedTrainFrames().single())

@@ -40,7 +40,10 @@ fun allocate(
 | `planReset`失败 | `Failure(reason)` | 零mutation |
 | `applyReset`前state变化 | false | 不commit |
 
-Depot reset只允许world已STALLED。所有depot/train/route/berth/placement/envelope preflight在第一次ledger mutation前；placement staged且失败恢复capture；全部placement成功后才commitDispatcher/Depot。commit后异常报告`PARTIALLY_COMMITTED`并保持Stall；成功也保持Stall等待admin reset。
+Depot reset只允许运营层已Stall，Core协调器仍须可用；不提供Core-STALLED恢复路径。完整reset在帧间owner作用域执行，所有depot/train/route/berth/placement/envelope preflight在第一次ledger mutation前。
+先捕获全部列车的Core摆位快照，再暂存位置并检查选中列车之间及与未移动列车的实际包络重叠，最后一次`CoreWorld.publishOwnerChanges`提交。
+发布前失败恢复全部prepared快照，包含当前`setLocation`失败的列车，保留原frame/world/mailbox及车体、转向架运动值；不能只恢复已经摆位成功的列表。
+Core发布开始后失败保持Core STALLED并报告`TRAIN_PUBLICATION/PARTIALLY_COMMITTED`，不反向回滚已发布数据。摆位成功后才commitDispatcher/Depot；此后异常同样报告`PARTIALLY_COMMITTED`并保持运营Stall；成功也保持运营Stall等待admin reset。Core准备、发布和复杂度见[帧间维护摆位](../core/train-physics.md#帧间创建删除与维护摆位current第4批)。
 
 ## 项目内正确示例
 

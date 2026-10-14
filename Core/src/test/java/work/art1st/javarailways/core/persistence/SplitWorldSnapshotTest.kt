@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.persistence
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.di.NoOpWorldParentContext
@@ -25,11 +27,11 @@ class SplitWorldSnapshotTest {
             val runtime = source.saveRuntime(42L, physicsEpoch = 9L)
 
             withWorld(load = { tick, physics ->
-                CoreWorld.load(
+                IsolatedSimulationThreadMarker.run { CoreWorld.load(
                     infrastructure,
                     runtime,
                     CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics)
-                )
+                ) }
             }) { restored ->
                 assertEquals(42L, infrastructure.infrastructureRevision)
                 assertEquals(42L, runtime.infrastructureRevision)

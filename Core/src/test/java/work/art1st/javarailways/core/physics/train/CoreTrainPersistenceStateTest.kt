@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
+
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -20,8 +22,10 @@ class CoreTrainPersistenceStateTest {
         withWorld { world ->
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, segmentCount = 1))
             val train = createTrainWithConfig("stable", rail, world, listOf(10.0), isLoop = false)
-            train.setLocation(RailLocationWithFacing(rail.viewAB, 80.0))
-            train.commit()
+            train.world.onOwnerForTest {
+                train.setLocation(RailLocationWithFacing(rail.viewAB, 80.0))
+                train.commit()
+            }
             val expected = Vector3d(train.cars.first().position)
 
             val controller = object : TrainController(train, world) {
@@ -62,16 +66,18 @@ class CoreTrainPersistenceStateTest {
         withWorld { world ->
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, segmentCount = 1))
             val train = createTrainWithConfig("persisted", rail, world, listOf(10.0), isLoop = false)
-            train.setLocation(RailLocationWithFacing(rail.viewAB, 80.0))
-            train.commit()
+            train.world.onOwnerForTest {
+                train.setLocation(RailLocationWithFacing(rail.viewAB, 80.0))
+                train.commit()
+            }
             val expected = Vector3d(train.cars.first().position)
 
             withWorld(load = { tick, physics ->
-                CoreWorld.load(
+                IsolatedSimulationThreadMarker.run { CoreWorld.load(
                     world.saveInfrastructure(1L),
                     world.saveRuntime(1L, 1L),
                     CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics)
-                )
+                ) }
             }) { loaded ->
                 val loadedTrain = loaded.getTrain("persisted") ?: error("train should load")
                 val actual = loadedTrain.cars.first().position

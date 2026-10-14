@@ -127,7 +127,9 @@ class CoreCarPositioningRegressionTest {
         val targetLocation = RailLocationWithFacing(rail.viewAB, 25.0)
 
         assertDoesNotThrow {
-            train.setLocation(targetLocation)
+            train.world.onOwnerForTest {
+                train.setLocation(targetLocation)
+            }
         }
     }
 
@@ -141,8 +143,10 @@ class CoreCarPositioningRegressionTest {
         val rail = world.createRailForTest(curve)
         val train = createTrainWithConfig("banked-relocation", rail, world, List(3) { 10.0 }, isLoop = false)
 
-        train.setLocation(RailLocationWithFacing(rail.viewAB, 70.0))
-        train.commit()
+        train.world.onOwnerForTest {
+            train.setLocation(RailLocationWithFacing(rail.viewAB, 70.0))
+            train.commit()
+        }
 
         train.cars.forEach { car ->
             val expected = Vector3d(car.bogies.first().normal).add(car.bogies.last().normal)
@@ -158,7 +162,9 @@ class CoreCarPositioningRegressionTest {
         val targetLocation = RailLocationWithFacing(rail.viewAB, 25.0)
 
         assertDoesNotThrow {
-            train.setLocation(targetLocation)
+            train.world.onOwnerForTest {
+                train.setLocation(targetLocation)
+            }
         }
     }
 
@@ -187,6 +193,6 @@ class CoreCarPositioningRegressionTest {
             length = carLength,
             world = world
         )
-        return CoreTrain.create("command-style-train", listOf(car), world)
+        return world.onOwnerForTest { CoreTrain.create("command-style-train", listOf(car), world) }
     }
 }

@@ -46,7 +46,7 @@ class CoreTrainReversedPersistenceTest {
             assertTrue(runtime.trains.single().reversed)
 
             withWorld(load = { tick, physics ->
-                CoreWorld.load(infrastructure, runtime, CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics))
+                IsolatedSimulationThreadMarker.run { CoreWorld.load(infrastructure, runtime, CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics)) }
             }) { restored ->
                 val restoredTrain = requireNotNull(restored.getTrain("reversed"))
                 assertEquals(
@@ -114,11 +114,11 @@ class CoreTrainReversedPersistenceTest {
                 AutoCloseable { failedWorld?.releaseRuntimeBinding() }.use {
                     PhysicsCoordinator(1, automaticFallback = false).use { physics ->
                         val failure = assertThrows(IllegalStateException::class.java) {
-                            CoreWorld.load(
+                            IsolatedSimulationThreadMarker.run { CoreWorld.load(
                                 infrastructure,
                                 runtime,
                                 CoreWorld.SnapshotDependency(tick, parent, physics)
-                            )
+                            ) }
                         }
                         assertTrue(failure.message!!.contains("invalid"))
                         assertNotNull(failure.cause)

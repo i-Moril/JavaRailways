@@ -26,6 +26,9 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.physics.train.setControllerForTest
+import work.art1st.javarailways.core.physics.train.CoreTrain
+import work.art1st.javarailways.core.physics.train.CoreCar
+import work.art1st.javarailways.core.physics.train.CoreBogie
 import java.util.concurrent.Callable
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
@@ -37,6 +40,141 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 class BetweenFramesOperationsTest {
+    @Test
+    fun `queued creation and deletion publish complete current epoch observations`() = withOwner {
+        PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
+            val world = CoreWorld.createEmpty(NoOpTickManager, NoOpWorldParentContext, coordinator)
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val helper = Executors.newSingleThreadExecutor()
+            try {
+                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
+                val existing = createTrainWithConfig("existing-create", rail, world, listOf(10.0))
+                existing.setControllerForTest(object : TrainController(existing, world) {
+                    override fun tick(deltaT: Double) {
+                        entered.countDown()
+                        check(release.await(5, TimeUnit.SECONDS))
+                    }
+                })
+                world.drainPublishedTrainFrames()
+                coordinator.start()
+                val ticket = coordinator.stepSimulation(50.0)
+                assertTrue(entered.await(5, TimeUnit.SECONDS))
+                val before = world.latestWorldFrame()
+                val created = coordinator.submitBetweenFrames {
+                    assertTrue(ticket.isDone)
+                    val head = requireNotNull(rail.viewAB.getRailLocationAt(0.0).forward(80.0))
+                    val initialBogie = requireNotNull(head.forward(-2.0))
+                    val car = CoreCar.create("created-car", CoreBogie.create(initialBogie),
+                        CoreBogie.create(initialBogie), 10.0, world = world)
+                    CoreTrain.create("created-after-epoch", listOf(car), world).also { train ->
+                        train.setLocation(head)
+                        assertFalse(world.latestWorldFrame().trains.any { it.trainId == train.id })
+                        assertFalse(world.drainPublishedTrainFrames().any { it.trainId == train.id })
+                        world.publishOwnerChanges(listOf(train))
+                    }
+                }
+                assertFalse(created.isDone)
+                assertEquals(null, world.getTrain("created-after-epoch"))
+                assertSame(before, world.latestWorldFrame())
+                helper.submit { release.countDown() }
+                coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
+                val train = created.get(5, TimeUnit.SECONDS)
+                val frame = train.publishedFrame
+                assertEquals(ticket.epoch, frame.physicsEpoch)
+                assertEquals(ticket.epoch, world.latestWorldFrame().physicsEpoch)
+                assertTrue(world.latestWorldFrame().trains.any { it === frame })
+                assertTrue(world.latestWorldFrame().occupancy.blockingTrainIds(frame.occupiedIntervals).contains(train.id))
+                assertSame(frame, world.drainPublishedTrainFrames().single { it.trainId == train.id })
+                assertFalse(before.trains.any { it.trainId == train.id })
+
+                val oldWorld = world.latestWorldFrame()
+                val removed = train.destroyAsync()
+                assertSame(train, world.getTrain(train.id))
+                assertFalse(removed.isDone)
+                coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
+                removed.get(5, TimeUnit.SECONDS)
+                assertEquals(null, world.getTrain(train.id))
+                assertEquals(null, train.cars.single().train)
+                assertFalse(world.latestWorldFrame().trains.any { it.trainId == train.id })
+                assertFalse(world.latestWorldFrame().occupancy.blockingTrainIds(frame.occupiedIntervals).contains(train.id))
+                assertFalse(world.drainPublishedTrainFrames().any { it.trainId == train.id })
+                assertTrue(oldWorld.trains.any { it === frame })
+                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                assertFalse(world.latestWorldFrame().trains.any { it.trainId == train.id })
+            } finally {
+                release.countDown()
+                coordinator.close()
+                world.releaseRuntimeBinding()
+                helper.shutdownNow()
+            }
+        }
+    }
+
+    @Test
+    fun `failed staged placement preserves snapshots and motion then one batch publishes final placements`() = withOwner {
+        PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
+            val world = CoreWorld.createEmpty(NoOpTickManager, NoOpWorldParentContext, coordinator)
+            try {
+                val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
+                val first = createTrainWithConfig("first-place", rail, world, listOf(10.0))
+                val second = createTrainWithConfig("second-place", rail, world, listOf(10.0))
+                coordinator.processBetweenFrames {
+                    second.setLocation(requireNotNull(rail.viewAB.getRailLocationAt(0.0).forward(80.0)))
+                    world.publishOwnerChanges(listOf(second))
+                }
+                first.setControllerForTest(object : TrainController(first, world) {
+                    init { speed = 10.0 }
+                    override fun tick(deltaT: Double) { moveControlledTrain(0.5, 10.0) }
+                })
+                coordinator.start()
+                val ticket = coordinator.stepSimulation(50.0)
+                ticket.completion.get(5, TimeUnit.SECONDS)
+                val oldFirst = first.publishedFrame
+                val oldSecond = second.publishedFrame
+                val oldWorld = world.latestWorldFrame()
+                world.drainPublishedTrainFrames()
+                coordinator.processBetweenFrames {
+                    val savedFirst = first.capturePlacementSnapshot()
+                    val savedSecond = second.capturePlacementSnapshot()
+                    first.setLocation(requireNotNull(rail.viewAB.getRailLocationAt(0.0).forward(120.0)))
+                    assertSame(oldFirst, first.publishedFrame)
+                    assertThrows(Exception::class.java) { second.setLocation(rail.viewAB.getRailLocationAt(5.0)) }
+                    first.restorePlacementSnapshot(savedFirst)
+                    second.restorePlacementSnapshot(savedSecond)
+                }
+                assertSame(oldFirst, first.publishedFrame)
+                assertSame(oldSecond, second.publishedFrame)
+                assertSame(oldWorld, world.latestWorldFrame())
+                assertTrue(world.drainPublishedTrainFrames().isEmpty())
+                assertEquals(oldFirst.cars.single().state.velocityX, first.cars.single().velocity.x(), 1e-9)
+                assertEquals(oldFirst.head.arcLengthInAbMeters, first.headLocation.arcLengthIn(
+                    work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB), 1e-9)
+                coordinator.processBetweenFrames {
+                    first.setLocation(requireNotNull(rail.viewAB.getRailLocationAt(0.0).forward(120.0)))
+                    second.setLocation(requireNotNull(rail.viewAB.getRailLocationAt(0.0).forward(160.0)))
+                    assertTrue(world.drainPublishedTrainFrames().isEmpty())
+                    world.publishOwnerChanges(listOf(first, second))
+                }
+                val published = world.latestWorldFrame()
+                assertEquals(ticket.epoch, published.physicsEpoch)
+                assertTrue(published.trains.all { it.physicsEpoch == ticket.epoch })
+                assertEquals(setOf(first.id, second.id), world.drainPublishedTrainFrames().map { it.trainId }.toSet())
+                assertEquals(120.0, first.headLocation.position.x(), 1e-6)
+                assertEquals(160.0, second.headLocation.position.x(), 1e-6)
+                assertTrue(first.publishedFrame.headTraversal.isEmpty())
+                assertTrue(second.publishedFrame.headTraversal.isEmpty())
+                assertEquals(0.0, first.cars.single().velocity.length(), 1e-9)
+                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                assertEquals(120.5, first.headLocation.position.x(), 1e-6)
+                assertEquals(160.0, second.headLocation.position.x(), 1e-6)
+            } finally {
+                coordinator.close()
+                world.releaseRuntimeBinding()
+            }
+        }
+    }
+
     @Test
     fun `bootstrap operations are FIFO and nested submission waits for next batch`() = withOwner {
         PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
@@ -262,17 +400,17 @@ class BetweenFramesOperationsTest {
                 assertEquals(reversedHead - 0.5, train.headLocation.position.x(), 1e-6)
                 assertFalse(train.publishedFrame.headTraversal.isEmpty())
 
-                // Creation is a separate migration batch: a new train still starts at epoch 0.
+                // Owner creation now publishes at the completed epoch, so reversal stays usable.
                 val created = createTrainWithConfig("new-before-publication", rail, world, listOf(10.0))
-                assertEquals(0L, created.publishedFrame.physicsEpoch)
-                val beforeRejectedReverse = train.publishedFrame
-                val beforeRejectedWorld = world.latestWorldFrame()
-                val rejected = controller.reverse()
+                assertEquals(next.epoch, created.publishedFrame.physicsEpoch)
+                val beforeReverse = train.publishedFrame
+                val reversedAgain = controller.reverse()
                 coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
-                assertThrows(ExecutionException::class.java) { rejected.get(5, TimeUnit.SECONDS) }
-                assertSame(beforeRejectedReverse, train.publishedFrame)
-                assertSame(beforeRejectedWorld, world.latestWorldFrame())
-                assertTrue(train.isReversed)
+                reversedAgain.get(5, TimeUnit.SECONDS)
+                assertFalse(train.isReversed)
+                assertTrue(beforeReverse.reversed)
+                assertEquals(next.epoch, world.latestWorldFrame().physicsEpoch)
+                assertTrue(world.latestWorldFrame().trains.all { it.physicsEpoch == next.epoch })
                 assertEquals(PhysicsCoordinatorStatus.RUNNING, coordinator.status)
             } finally {
                 world.releaseRuntimeBinding()

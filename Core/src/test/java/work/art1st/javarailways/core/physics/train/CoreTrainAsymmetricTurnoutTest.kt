@@ -95,8 +95,10 @@ class CoreTrainAsymmetricTurnoutTest {
         CoreRail.connect(before, middle)
         CoreRail.connect(middle, after)
         val train = createTrainWithConfig("body-only", before, world, listOf(20.0, 20.0))
-        train.setLocation(RailLocationWithFacing(after.viewAB, 25.0))
-        train.commitMaintenancePlacement()
+        train.world.onOwnerForTest {
+            train.setLocation(RailLocationWithFacing(after.viewAB, 25.0))
+            train.commitMaintenancePlacement()
+        }
         assertTrue(train.head.location.rail !== middle && train.tail.location.rail !== middle)
 
         assertThrows(IllegalArgumentException::class.java) { world.removeRail(middle) }
@@ -190,11 +192,11 @@ class CoreTrainAsymmetricTurnoutTest {
     fun `exact saved train ends restore across the same unset reverse active path`() =
         withFixture { fixture ->
             val saved = fixture.train.save()
-            fixture.world.removeTrain(fixture.train)
+            fixture.world.onOwnerForTest { fixture.world.removeTrain(fixture.train) }
             fixture.junction.viewBA.activeRail = null
 
             assertDoesNotThrow {
-                saved.load(fixture.world)
+                fixture.world.onOwnerForTest { saved.load(fixture.world) }
             }
         }
 
@@ -239,9 +241,11 @@ class CoreTrainAsymmetricTurnoutTest {
                     savedExtensionData = emptyMap()
                 )
             }
-            val train = CoreTrain("asymmetric-turnout", cars, world, emptyMap())
-            train.setLocation(RailLocationWithFacing(long.viewAB, 56.0))
-            train.commitMaintenancePlacement()
+            val train = world.onOwnerForTest { CoreTrain("asymmetric-turnout", cars, world, emptyMap()) }
+            train.world.onOwnerForTest {
+                train.setLocation(RailLocationWithFacing(long.viewAB, 56.0))
+                train.commitMaintenancePlacement()
+            }
             check(train.tailBogie.location.rail.id == junction.id) {
                 "tail bogie=${train.tailBogie.location.rail.id}@${train.tailBogie.location.arcLength}"
             }

@@ -125,9 +125,11 @@ fun createTrainWithConfig(id: String, rail: CoreRail, world: CoreWorld, carLengt
             savedExtensionData = emptyMap()
         )
     }
-    return CoreTrain(id, cars, world, emptyMap()).also { train ->
-        train.setLocation(headLocation)
-        train.commit()
+    return world.onOwnerForTest {
+        CoreTrain(id, cars, world, emptyMap()).also { train ->
+            train.setLocation(headLocation)
+            train.commit()
+        }
     }
 }
 

@@ -308,6 +308,7 @@ class CoreTrainSplitTest {
     fun `selected reversals remain unapplied when extension preparation or initialization fails`(
         failDuringInitialization: Boolean
     ) = withConsist { world, rail, train ->
+        world.drainPublishedTrainFrames()
         val expected = IllegalStateException("extension rejected prepare")
         val extension = if (failDuringInitialization) RecordingSplitExtension(initializationFailure = expected)
             else RecordingSplitExtension(splitFailure = expected)
@@ -388,7 +389,7 @@ class CoreTrainSplitTest {
             assertSame(train.publishedFrame, mailboxFrames[train.id])
             assertSame(separated.publishedFrame, mailboxFrames[separated.id])
 
-            world.removeTrain(train)
+            world.onOwnerForTest { world.removeTrain(train) }
             train.cars.forEach { assertNull(it.train) }
             separated.cars.forEach { assertSame(separated, it.train) }
         }
@@ -483,7 +484,7 @@ class CoreTrainSplitTest {
                 createCar(world, rail, "duplicate", headArc = 70.0, tailArc = 65.0),
                 createCar(world, rail, "duplicate", headArc = 60.0, tailArc = 55.0)
             )
-            val train = CoreTrain("duplicate-car-source", cars, world, emptyMap())
+            val train = world.onOwnerForTest { CoreTrain("duplicate-car-source", cars, world, emptyMap()) }
             val before = State.capture(world, rail, train)
 
             val failure = executeFailedSplit(train, "duplicate", "duplicate-car-result")
@@ -545,7 +546,7 @@ class CoreTrainSplitTest {
             createCar(world, rail, "car-1", headArc = 65.0, tailArc = 60.0),
             createCar(world, rail, "car-2", headArc = 50.0, tailArc = 45.0)
         )
-        val train = CoreTrain("endpoint-source", cars, world, emptyMap())
+        val train = world.onOwnerForTest { CoreTrain("endpoint-source", cars, world, emptyMap()) }
         val before = State.capture(world, rail, train)
 
         val failure = executeFailedSplit(train, "car-1", "endpoint-failure")
@@ -562,7 +563,7 @@ class CoreTrainSplitTest {
                 createCar(world, rail, "car-1", headArc = 30.0, tailArc = 25.0),
                 createCar(world, rail, "car-2", headArc = 70.0, tailArc = 65.0)
             )
-            val train = CoreTrain("separated-geometry-source", cars, world, emptyMap())
+            val train = world.onOwnerForTest { CoreTrain("separated-geometry-source", cars, world, emptyMap()) }
             val before = State.capture(world, rail, train)
 
             val failure = executeFailedSplit(train, "car-1", "separated-geometry-failure")

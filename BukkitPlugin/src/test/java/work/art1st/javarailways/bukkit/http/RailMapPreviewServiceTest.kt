@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.http
 
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
+
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -35,7 +37,9 @@ class RailMapPreviewServiceTest {
         val bogieA=CoreBogie.create(first)
         val bogieB=CoreBogie.create(first.forward(12.0)!!)
         val car=CoreCar.create("car-"+"c".repeat(10_000),bogieA,bogieB,length=20.0,world=world)
-        CoreTrain.create("train-"+"t".repeat(10_000),listOf(car),world,name="Airport Express")
+        world.onOwnerForTest {
+            CoreTrain.create("train-"+"t".repeat(10_000),listOf(car),world,name="Airport Express")
+        }
         RailMapPreviewService(directory).use { service ->
             service.capture("world",world)
             val train=Json.parseToJsonElement(service.trains("world")).jsonArray.single().jsonObject

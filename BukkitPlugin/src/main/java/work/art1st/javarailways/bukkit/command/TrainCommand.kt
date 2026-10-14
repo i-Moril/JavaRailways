@@ -230,109 +230,109 @@ object TrainCommand {
         playerPos: Vector3dc,
         nearestRail: HeavyRailQueries.NearestRailMatch?
     ) {
-        val rail = nearestRail?.let { coreWorld.getRail(it.railId) }
-        if (rail == null) {
-            sender.sendMessage("错误: 世界中没有轨道，请先使用 /jr wand rail 获取 RailWand 并铺设轨道")
-            return
-        }
+        val playerName = sender.name
+        val selectedRail = nearestRail?.let { coreWorld.getRail(it.railId) }
+        coreWorld.physicsCoordinator.submitBetweenFrames {
+            val match = requireNotNull(nearestRail) { "世界中没有可放置的轨道" }
+            val rail = requireNotNull(selectedRail) { "世界中没有可放置的轨道" }
+            check(coreWorld.getRail(rail.id) === rail) { "轨道已变化，请重新创建" }
+            check(coreWorld.getTrain(trainName) == null) { "当前世界已存在列车名 '$trainName'" }
+            val requiredBehindHead = estimateTrainLengthBehindHead(carDefs)
+            val railViewAB = rail.getView(work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB)
+            val rawHeadAB = RailLocationWithFacing(railViewAB, match.arcLength)
+            val headLocation = findPlaceableHeadLocation(rawHeadAB, requiredBehindHead, playerPos)
+                ?: error("附近轨道长度不足，无法放置 ${"%.1f".format(requiredBehindHead)}m 的列车")
+            val blockingTrainId = findBlockingTrainForPlacement(headLocation, requiredBehindHead)
+            check(blockingTrainId == null) { "放置区域已有列车 $blockingTrainId，请先移走或删除后再创建" }
+            val firstHeadBogieOffset = headBogieToEndPointOffset(carDefs.first())
+            val initialBogieLocation = headLocation.forward(-firstHeadBogieOffset)
+                ?: error("无法初始化车头转向架位置")
 
-        val requiredBehindHead = estimateTrainLengthBehindHead(carDefs)
-        val railViewAB = rail.getView(work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB)
-        val rawHeadAB = RailLocationWithFacing(railViewAB, nearestRail.arcLength)
-        val headLocation = findPlaceableHeadLocation(rawHeadAB, requiredBehindHead, playerPos)
-            ?: run {
-                sender.sendMessage("错误: 附近轨道长度不足，无法放置 ${"%.1f".format(requiredBehindHead)}m 的列车")
-                sender.sendMessage("请站在更靠轨道中段的位置，或先把斜坡与前后轨道连接起来。")
-                return
+            val cars = mutableListOf<CoreCar>()
+            var createdTrain: CoreTrain? = null
+            var published = false
+            try {
+                for ((i, carModelName) in trainDef.composition.withIndex()) {
+                    val carDef = carDefs[i]
+                    val bogieA = CoreBogie.create(initialBogieLocation)
+                    val bogieB = CoreBogie.create(initialBogieLocation)
+
+                    val car = CoreCar.create(
+                        id = "$playerName-car-$i",
+                        bogieA = bogieA,
+                        bogieB = bogieB,
+                        length = carDef.length,
+                        floorHeight = carDef.floorHeight,
+                        connectorLengthAtA = carDef.connectorLengthA,
+                        connectorLengthAtB = carDef.connectorLengthB,
+                        bogieAOffset = carDef.bogieAOffset,
+                        bogieBOffset = carDef.bogieBOffset,
+                        world = coreWorld
+                    )
+                    cars.add(car)
+
+                    val carExtension = CarExtension()
+                    car.registerExtensionData(BukkitPlugin.INSTANCE, carExtension)
+                    carExtension.initialize(car, emptyMap())
+                    carExtension.carModelName = carModelName
+                }
+
+                val trainId = UUID.randomUUID().toString()
+                val train = CoreTrain.create(
+                    id = trainId,
+                    cars = cars,
+                    world = coreWorld,
+                    name = trainName
+                ).also { createdTrain = it }
+                train.setLocation(headLocation)
+                val trainExtension = TrainExtension()
+                train.registerExtensionData(BukkitPlugin.INSTANCE, trainExtension)
+                trainExtension.initialize(train, emptyMap())
+                coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.put(
+                    train.id,
+                    TrainSpeedProfile(trainExtension.resolveControl().curveSpeedLimitOffset)
+                )
+
+                coreWorld.publishOwnerChanges(listOf(train))
+                published = true
+                val messages = buildList {
+                    add("创建列车成功: ${train.name} [${train.id}] (类型: $trainTypeName)")
+                    add("手持通用列车钥匙坐在驾驶座上驾驶，可用 /jr train key 获取。")
+                    add("车厢数量: ${cars.size}")
+                    add("列车头部位置: ${formatVector(train.head.location.position)}")
+                    add("列车尾部位置: ${formatVector(train.tail.location.position)}")
+                    cars.forEachIndexed { index, car ->
+                        add(
+                            "车厢 ${index + 1}: model=${trainDef.composition[index]}, " +
+                                "center=${formatVector(car.position)}, " +
+                                "bogieA=${formatVector(car.bogieA.position)}, bogieB=${formatVector(car.bogieB.position)}"
+                        )
+                    }
+                }
+                train to messages
+            } catch (failure: Throwable) {
+                if (!published && coreWorld.physicsCoordinator.status ==
+                    work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus.RUNNING
+                ) {
+                    runCatching {
+                        createdTrain?.let { failed ->
+                            coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.remove(failed.id)
+                            failed.destroyOnOwner()
+                        } ?: cars.forEach(CoreCar::destroy)
+                    }.exceptionOrNull()?.let(failure::addSuppressed)
+                }
+                throw failure
             }
-        val blockingTrainId = findBlockingTrainForPlacement(headLocation, requiredBehindHead)
-        if (blockingTrainId != null) {
-            sender.sendMessage("错误: 放置区域已有列车 $blockingTrainId，请先移走或删除后再创建")
-            return
-        }
-        val firstHeadBogieOffset = headBogieToEndPointOffset(carDefs.first())
-        val initialBogieLocation = headLocation.forward(-firstHeadBogieOffset)
-            ?: run {
-                sender.sendMessage("错误: 无法初始化车头转向架位置")
-                return
-            }
-
-        val cars = mutableListOf<CoreCar>()
-        for ((i, carModelName) in trainDef.composition.withIndex()) {
-            val carDef = carDefs[i]
-            val bogieA = CoreBogie.create(initialBogieLocation)
-            val bogieB = CoreBogie.create(initialBogieLocation)
-
-            val car = CoreCar.create(
-                id = "${sender.name}-car-$i",
-                bogieA = bogieA,
-                bogieB = bogieB,
-                length = carDef.length,
-                floorHeight = carDef.floorHeight,
-                connectorLengthAtA = carDef.connectorLengthA,
-                connectorLengthAtB = carDef.connectorLengthB,
-                bogieAOffset = carDef.bogieAOffset,
-                bogieBOffset = carDef.bogieBOffset,
-                world = coreWorld
-            )
-            cars.add(car)
-
-            val carExtension = CarExtension()
-            car.registerExtensionData(BukkitPlugin.INSTANCE, carExtension)
-            carExtension.initialize(car, emptyMap())
-            carExtension.carModelName = carModelName
-        }
-
-        if (coreWorld.allTrains.any { it.name == trainName }) {
-            sender.sendMessage("错误: 当前世界已存在列车名 '$trainName'")
-            cars.forEach { it.destroy() }
-            return
-        }
-        val trainId = UUID.randomUUID().toString()
-        var createdTrain: CoreTrain? = null
-        val train = try {
-            val newTrain = CoreTrain.create(
-                id = trainId,
-                cars = cars,
-                world = coreWorld,
-                name = trainName
-            )
-            createdTrain = newTrain
-            newTrain.setLocation(headLocation)
-            newTrain
-        } catch (e: Exception) {
-            createdTrain?.let { failedTrain ->
-                failedTrain.destroy()
-                coreWorld.removeTrain(failedTrain)
-            }
-            sender.sendMessage("错误: 创建列车失败: ${e.javaClass.simpleName}${e.message?.let { ": $it" } ?: ""}")
-            sender.sendMessage("提示: 斜坡短轨道需要先连接到足够长的前后轨道，否则整列车无法排布。")
-            cars.forEach { it.destroy() }
-            return
-        }
-        val trainExtension = TrainExtension()
-        train.registerExtensionData(BukkitPlugin.INSTANCE, trainExtension)
-        trainExtension.initialize(train, emptyMap())
-        coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.put(
-            train.id,
-            TrainSpeedProfile(trainExtension.resolveControl().curveSpeedLimitOffset)
-        )
-
-        train.commit()
-        coreWorld.publishCurrentTrainFrame(train.id)
-        cars.forEach { it.renderer.sendTo(sender) }
-
-        sender.sendMessage("创建列车成功: ${train.name} [${train.id}] (类型: $trainTypeName)")
-        sender.sendMessage("手持通用列车钥匙坐在驾驶座上驾驶，可用 /jr train key 获取。")
-        sender.sendMessage("车厢数量: ${cars.size}")
-        sender.sendMessage("列车头部位置: ${formatVector(train.head.location.position)}")
-        sender.sendMessage("列车尾部位置: ${formatVector(train.tail.location.position)}")
-        cars.forEachIndexed { index, car ->
-            sender.sendMessage(
-                "车厢 ${index + 1}: model=${trainDef.composition[index]}, " +
-                    "center=${formatVector(car.position)}, " +
-                    "bogieA=${formatVector(car.bogieA.position)}, bogieB=${formatVector(car.bogieB.position)}"
-            )
+        }.whenComplete { created, failure ->
+            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                if (failure != null) {
+                    sender.sendMessage("错误: 创建列车失败: ${failure.message}")
+                    sender.sendMessage("提示: 斜坡短轨道需要先连接到足够长的前后轨道，否则整列车无法排布。")
+                } else {
+                    created.first.cars.forEach { it.renderer.sendTo(sender) }
+                    created.second.forEach(sender::sendMessage)
+                }
+            })
         }
     }
 
@@ -684,8 +684,8 @@ object TrainCommand {
             playerControllers.entries.removeIf { it.value.controlledTrain === train }
             BukkitPlugin.INSTANCE.trainControlManager.releaseTrain(train)
             coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.remove(train.id)
-            train.destroy()
-            listOf("已请求删除列车: ${train.id}")
+            train.destroyOnOwner()
+            listOf("已删除列车: ${train.id}")
         }
         deletion.thenRun {
             BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {

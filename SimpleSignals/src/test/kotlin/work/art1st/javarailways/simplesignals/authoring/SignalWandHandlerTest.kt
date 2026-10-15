@@ -42,6 +42,7 @@ import work.art1st.javarailways.simplesignals.signalpack.AvailableSignalType
 import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
+import work.art1st.javarailways.simplesignals.signal.RouteIndicatorDefinition
 import java.lang.reflect.Proxy
 import java.util.ArrayDeque
 import java.util.Optional
@@ -51,6 +52,76 @@ import kotlin.math.sqrt
 
 /** Deterministic owner/worker/UI coverage; live Folia dialog rendering remains a deployment check. */
 class SignalWandHandlerTest {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    fun `new indicator captures rail or ground pose and saves only after explicit mapping confirmation`(ground: Boolean) = Fixture().use { f ->
+        f.tool = f.tool.copy(controlKind = SignalWandControlKind.ROUTE_INDICATOR,
+            presentationModelId = "test:model", binding = RouteIndicatorSignalWandBinding(f.worldId, "test:entry"))
+        if (ground) f.handler.click(f.player, f.tool, Action.RIGHT_CLICK_BLOCK,
+            ModelPlacement.Ground(ModelPose(1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0)))
+        else {
+            f.click()
+            f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0)))
+        }
+        f.drain()
+        assertEquals(0, f.indicatorSaves)
+        assertEquals(0, f.performs)
+        f.dialogOptions.single { it.first == "dark" }.second(); f.drain()
+        assertTrue(f.dialogOptions.first().first.contains("UNMAPPED"))
+        f.dialogOptions.first().second(); f.drain()
+        f.dialogOptions.single { it.first == "straight" }.second(); f.drain()
+        assertTrue(f.dialogOptions.first().first.contains("straight"))
+        f.dialogOptions.single { it.first.startsWith("Review") }.second(); f.drain()
+        assertEquals(0, f.indicatorSaves)
+        val confirm = f.dialogOptions.first().second
+        confirm(); confirm(); f.drain()
+        assertEquals(1, f.indicatorSaves)
+        assertEquals("dark", f.indicatorSavedNoRoute)
+        assertEquals(mapOf("test:route" to "straight"), f.indicatorSavedMappings)
+        assertEquals(ground, f.placements.single() is ModelPlacement.Ground)
+        assertEquals(0, f.performs)
+    }
+
+    @Test fun `indicator settings edit can choose new entry leave route unmapped and keep placement and tool unchanged`() = Fixture().use { f ->
+        val original = f.tool
+        f.handler.selectSetting(f.player, original, SignalWandSettingAction.EditIndicator); f.drain()
+        f.dialogOptions.first().second(); f.drain()
+        f.dialogOptions.single { it.first == "test:new-entry" }.second(); f.drain()
+        f.dialogOptions.single { it.first == "dark" }.second(); f.drain()
+        assertTrue(f.dialogOptions.first().first.contains("UNMAPPED"))
+        f.dialogOptions.single { it.first.startsWith("Review") }.second(); f.drain()
+        assertEquals(0, f.indicatorSaves)
+        f.dialogOptions.first().second(); f.drain()
+        assertEquals(1, f.indicatorSaves)
+        assertEquals("test:new-entry", f.indicatorSavedEntry)
+        assertTrue(f.indicatorSavedMappings.isEmpty())
+        assertTrue(f.placements.isEmpty())
+        assertEquals(original, f.tool)
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = ["cancel", "tool", "permission", "catalog", "settings"])
+    fun `indicator final confirmation cannot save after cancellation or stale continuation`(reason: String) = Fixture().use { f ->
+        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.EditIndicator); f.drain()
+        f.dialogOptions.first().second(); f.drain()
+        f.dialogOptions.first().second(); f.drain()
+        f.dialogOptions.first().second(); f.drain()
+        f.dialogOptions.single { it.first.startsWith("Review") }.second(); f.drain()
+        val confirm = f.dialogOptions.first().second
+        when (reason) {
+            "cancel" -> { f.dialogOptions.last().second(); f.drain() }
+            "tool" -> f.tool = f.tool.copy(stateRevision = 1)
+            "permission" -> f.permitted = false
+            "catalog" -> f.current = false
+            "settings" -> {
+                f.handler.openSettings(f.player, f.tool)
+                f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.EditIndicator); f.drain()
+            }
+        }
+        confirm(); f.drain()
+        assertEquals(0, f.indicatorSaves)
+    }
+
     @Test fun `rebind dialog includes unbound device waits for confirmation and ignores repeated old callbacks`() = Fixture().use { f ->
         val original = f.tool
         f.handler.selectSetting(f.player, original, SignalWandSettingAction.RebindProtection); f.drain()
@@ -120,6 +191,16 @@ class SignalWandHandlerTest {
             binding = RouteIndicatorSignalWandBinding(f.worldId, "test:entry", "test:indicator", 4))
         assertEquals(attached, SignalWandHandler.decodeState(SignalWandHandler.encodeState(attached)))
         assertEquals(indicator, SignalWandHandler.decodeState(SignalWandHandler.encodeState(indicator)))
+        val newIndicator = indicator.copy(binding = RouteIndicatorSignalWandBinding(f.worldId, "test:entry"))
+        val encodedNewIndicator = SignalWandHandler.encodeState(newIndicator)
+        assertTrue(encodedNewIndicator.contains("\"indicatorId\":null"))
+        assertTrue(encodedNewIndicator.contains("\"indicatorRevision\":null"))
+        assertEquals(newIndicator, SignalWandHandler.decodeState(encodedNewIndicator))
+        assertNull(SignalWandHandler.decodeState(encodedNewIndicator
+            .replace(",\"indicatorId\":null", "").replace(",\"indicatorRevision\":null", "")))
+        val encodedIndicator = SignalWandHandler.encodeState(indicator)
+        assertNull(SignalWandHandler.decodeState(encodedIndicator.replace("\"indicatorRevision\":4", "\"indicatorRevision\":null")))
+        assertNull(SignalWandHandler.decodeState(encodedIndicator.replace("\"indicatorId\":\"test:indicator\"", "\"indicatorId\":null")))
         val preset = state.copy(railPreset = SignalWandRailPreset("test:primary", "right",
             ModelPose(1.0, 2.0, 3.0, 0.0, 0.0, 1.0, 0.0), true))
         val encodedPreset = SignalWandHandler.encodeState(preset)
@@ -223,9 +304,9 @@ class SignalWandHandlerTest {
             "Control: protection current-entry primary", "Control: protection fixed-route primary",
             "Control: attached signal", "Control: route indicator",
             "test:a — A", "test:z — Z", "Presentation model: test:model", "Rail placement: unadjusted",
-            "Rebind existing protection signal"),
+            "Rebind existing protection signal", "Edit route indicator mapping / entry"),
             f.settings.map { it.label })
-        assertEquals(listOf(true, false, true, false, false, false, false, false, true, false, true, false),
+        assertEquals(listOf(true, false, true, false, false, false, false, false, true, false, true, false, false),
             f.settings.map { it.selected })
         f.choose!!(SignalWandSettingAction.Type("test:a"))
         f.drainOwners()
@@ -635,6 +716,10 @@ class SignalWandHandlerTest {
         var performs = 0
         var deletes = 0
         var rebindings = 0
+        var indicatorSaves = 0
+        var indicatorSavedEntry: String? = null
+        var indicatorSavedMappings = emptyMap<String, String>()
+        var indicatorSavedNoRoute: String? = null
         var dialogOptions = emptyList<Pair<String, () -> Unit>>()
         val placements = mutableListOf<ModelPlacement>()
         var available: List<AvailableSignalType>? = DEFAULT_TYPES
@@ -707,6 +792,33 @@ class SignalWandHandlerTest {
                 return capture
             }
             override fun current(capture: SignalWandCapture) = current
+            override fun indicatorDevices(capture: SignalWandCapture): List<RouteIndicatorDefinition> {
+                check(!ownerThread)
+                return listOf(RouteIndicatorDefinition("test:indicator", 2, "test:old-entry", "dark", emptyMap()))
+            }
+            override fun indicatorEntries(capture: SignalWandCapture): List<String> {
+                check(!ownerThread)
+                return listOf("test:new-entry")
+            }
+            override fun indicatorOptions(capture: SignalWandCapture, binding: RouteIndicatorSignalWandBinding,
+                entryBoundaryId: String): RouteIndicatorWandOptions {
+                check(!ownerThread)
+                require(current)
+                return RouteIndicatorWandOptions(listOf("test:route"), listOf("dark", "straight"), emptyMap())
+            }
+            override fun saveIndicator(capture: SignalWandCapture, binding: RouteIndicatorSignalWandBinding,
+                entryBoundaryId: String, noRouteVariant: String, mappings: Map<String, String>,
+                placement: ModelPlacement?, active: () -> Boolean): SignalWandOutcome {
+                check(!ownerThread)
+                assertTrue(active())
+                require(current)
+                indicatorSaves++
+                indicatorSavedEntry = entryBoundaryId
+                indicatorSavedNoRoute = noRouteVariant
+                indicatorSavedMappings = mappings
+                placement?.let(placements::add)
+                return SignalWandOutcome("indicator saved")
+            }
             override fun rebindDevices(capture: SignalWandCapture): List<ProtectionSignalRebindChoice> {
                 check(!ownerThread)
                 return listOf(ProtectionSignalRebindChoice(ProtectionSignalDefinition("test:unbound", 2,

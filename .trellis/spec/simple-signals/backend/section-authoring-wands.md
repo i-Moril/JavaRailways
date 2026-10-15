@@ -13,7 +13,7 @@ Signal Wand 已把逻辑入口与模型位置分成两步，覆盖固定闭塞�
 SimpleATO 的 inspection threshold 取 `max(reachableDistance(leadTime), dynamicLookahead)`，route perception horizon 也取
 controller 制动／反应／安全距离与 `maxSpeed * leadTime` 的最大值，而不是把两者相加。同步信号求值本身没有 setup delay；
 因此0秒只是不抬高这两个既有 minimum horizon，固定闭塞授权 floor 和入口停车约束也不消失，所以该值不是临时占位。
-命名轨道摆放预设已接入设置页；测距、inspection lead time 编辑、自由摆放/样式参数编辑、进路表示器新建和完整轨道可视化仍未实现；
+命名轨道摆放预设、表示器新建及映射/入口编辑已接入设置页和选择流程；测距、inspection lead time 编辑、自由摆放/样式参数编辑和完整轨道可视化仍未实现；
 进路录制另见[录制合同](current-route-recording.md)。
 本批离线门禁与审查结果记录在任务 `implement.md`，不代表真实 Folia 客户端验证。
 
@@ -95,9 +95,7 @@ Wand 编辑流程的图搜索、候选编译、JSON 和文件 I/O 均在 worker�
 `signalId + revision`，并列出新建设备和每个精确既有附属设备。右键使用所选 model-only ID 建立或更新
 `DeviceModelDefinition`，仍由 manager 验证该模型能表达主信号全部外观；rail/ground 都只改变附属显示位置，
 删除只删除精确附属设备，不删除主信号。
-进路表示器控制类型复用有向保护入口解析，列出该入口全部精确既有表示器；右键只替换其模型和 rail/ground placement，保留
-`noRouteModelVariant` 及完整 route→variant 映射，删除只删除该表示器。当前没有已确认的映射作者来源，空入口新建会明确拒绝，
-不能用 `default`、同一个 variant 或 route ID 猜测映射。
+进路表示器控制类型复用有向保护入口解析，列出明确新建设备及该入口全部精确既有表示器；已有设备右键只替换模型和rail/ground placement，保留无进路外观及逐进路映射，删除只删除所选设备。新建右键捕获位置后进入下述映射编辑流程，最终确认才保存；不能用default、统一variant或route ID猜测映射。
 设置页回调必须重新读取主手物品，确认 exact `itemId + stateRevision`、权限、插件状态和当前 catalog 项；成功使用
 `Math.addExact` 增加 revision 后写回。普通点击捕获完整物品状态，所有返回玩家 owner 的 continuation 都要求 exact 相等；
 即使先切走类型再切回来，revision 变化也会使旧操作失效。
@@ -126,16 +124,18 @@ Ground保持方块面捕获的绝对姿态，忽略rail预设。状态栏标明�
 
 ### 表示器映射作者与新建
 
-状态：部分映射后端已实现并通过独立复核和离线门禁，Wand界面仍为TARGET（2026-10-15）。SimpleSignals负责本批定义校验、模型目录投影及Wand交互，不修改宿主渲染API、资源/ATO或JS规则；不把后端能力写成玩家界面已经完成。
+状态：部分映射后端及Wand新建/编辑/跨入口重绑均已实现并通过独立复核和离线门禁（2026-10-15），真实服务器/客户端尚未验证。SimpleSignals负责本批定义校验、模型目录投影及Wand交互，不修改宿主渲染API、资源/ATO或JS规则。
 作者为表示器明确选择入口、model-only模型、无进路外观和可选的逐进路外观。映射键只允许属于该入口的作者进路，但不再要求覆盖全部进路；写错或其他入口的ID仍拒绝，已声明variant仍由真实模型严格校验。
 
 运行时保留真实`selection.routeId`：选中且已配置的进路使用对应variant，其余使用玩家明确选定的`noRouteModelVariant`。该外观用于表示无进路指示（包作者可以制作空白外观），不是模型默认场景；不猜测名称、不把null/空场景冒充不可见，也不新增宿主隐藏API或可空运行输出。
 仍使用同一section/signal epoch publication和首baseline刷新，不新增遍历/求值循环；添加一条进路即使表示器暂未补配，也允许保存且其他映射不受影响。
 `ModelTypeCatalogSnapshot.variantNames(modelId): List<String>?`仅提供不可修改、按名称排序的variant列表，未知模型返回null，不向UI泄露模型树；查询只在低频作者操作执行，V个外观排序成本O(V log V)，运行时单次映射查找不增加扫描。
 
-Wand目标交互：左键入口可明确选新建或精确既有表示器。新建绑定只保存入口及成对为null的indicatorId/revision意图；已有绑定仍保存精确非空身份/修订，禁止半空身份。右键先捕获rail/ground位置，再显示明确的无进路外观及逐进路映射选择，允许标记“未配置”，最终确认才生成无冲突设备ID并经原manager事务保存完整模型和位置，不预建未摆放定义。未完成映射草稿只保存在本次对话回调，不另建玩家状态仓库。
+Wand交互：左键入口可明确选新建或精确既有表示器。新建绑定只保存入口及成对为null的indicatorId/revision意图；已有绑定仍保存精确非空身份/修订，禁止半空身份。右键先捕获rail/ground位置，再显示明确的无进路外观及逐进路映射选择，允许标记“未配置”，最终确认才生成无冲突设备ID并经原manager事务保存完整模型和位置，不预建未摆放定义。未完成映射草稿只保存在本次对话回调，不另建玩家状态仓库。
 已有表示器从设置页进入编辑，选择原入口或新入口，再明确外观配置；只更新入口/映射及revision，保留设备ID、模型和摆放。跨入口不得沿用不属于新入口的映射或猜测新外观；页面明确提示未配进路，取消/关闭不提交。
 所有页面复用既有WandDialogs及原continuation、itemId/stateRevision、runtime/publication/topology/catalog基线检查；worker做定义/文件工作，玩家owner显示页面和读物品。重复/迟到回调、权限/工具/世界失效、未知模型/variant、revision溢出、编辑许可或保存失败均不修改旧磁盘/source/publication。
+具体映射页由`RouteIndicatorWandEditor`持有本次回调局部参数，并以不可变map加减条目，显示未配置数量和每条进路状态。`SignalWandBackend`提供`indicatorDevices(capture)`、`indicatorEntries(capture)`、`indicatorOptions(capture, binding, entryBoundaryId)`及`saveIndicator(capture, binding, entryBoundaryId, noRouteVariant, mappings, placement, active)`；选项包含routeIds、variants、原mappings。新建必须提供真实placement，已有设备编辑禁止传入placement，实际modelId从已有设备取得，不受Wand模型偏好覆盖。同配置不写盘/不推进revision。
+物品编码使用同一个严格current `STATE_JSON`，`explicitNulls=true`。表示器身份两字段无decode默认值，writer显式写入null/null表示新建；字段缺失、半空或非法修订均拒绝，不能把损坏的身份省略猜成新建设备。其余有明确默认值的物品字段仍按原义处理，不新增兼容reader或schema代际。
 
 必需断言：部分映射且真实选中缺项进路时使用明确无进路variant、selection身份不丢；其他映射正常；添加新进路无需同步补全映射；错误键/variant拒绝及失败原子性。界面批次另验目录排序/不可修改、明确新建意图、不在确认前写入、rail/ground完整创建、旧设备映射编辑/跨入口不移动、取消/重复/过期回调和PDC新旧意图严格round-trip。
 只修正未发布current模型，sidecar/PDC不升版、不新增兼容reader；noRoute字段及映射存档形状保持不变。错误做法是对未配进路getValue抛错或猜default/route ID外观；正确做法是先严格校验已声明引用，再通过显式无进路外观投影未配状态。
@@ -182,7 +182,7 @@ Wand批次另验证设备选择、目标选择、确认前无写入、过期回�
 `CurrentRouteRecording`在worker准备删除选择并捕获runtime、publication、topology及表/进路身份；确认后检查仍是原基线，只upsert保留ID的表、checked递增表revision，最后一条也保留空表。设备解除绑定及映射清理由现有manager完成，工具不复制该算法。
 
 Signal Wand设置页增加“重绑已有保护信号”：worker从当前世界定义列出固定进路/当前入口主信号，按signalId排序，含bindingId为null、无placement或ground摆放的设备。选中设备后，固定进路类列出当前可用进路，当前入口类列出拥有可用进路的入口；按钮明确显示目标入口及进路身份，再经确认页提交。
-后台接口在既有`SignalWandBackend`增加不可变的设备/目标选择值及重绑方法，`RuntimeSignalWandBackend`复用capture与唯一manager事务；不调用`place`，只checked递增所选设备revision并修改bindingId。控制kind、signalType、提前时间、placement及附属关系保持不变，不读取Wand当前模型/预设去重写设备。新入口设备与表示器映射作者仍属于下一批；表示器跨入口重绑不能在缺少映射选择时猜测variant。
+后台接口在既有`SignalWandBackend`增加不可变的设备/目标选择值及重绑方法，`RuntimeSignalWandBackend`复用capture与唯一manager事务；不调用`place`，只checked递增所选设备revision并修改bindingId。控制kind、signalType、提前时间、placement及附属关系保持不变，不读取Wand当前模型/预设去重写设备。表示器跨入口重绑采用上文独立映射编辑流程，不在此保护主信号接口中猜测variant。
 
 私有工作线程入口：`CurrentRouteRecording.deletionChoices(selection): List<RecordedRouteDeletion>`与`delete(choice, active): String`；选择值持有不可变selection、publication、topology、table、route，不把运行时选择重新解释为另一条进路。
 重绑接口为`rebindDevices(capture): List<ProtectionSignalRebindChoice>`、`rebindTargets(capture, device): List<ProtectionSignalRebindTarget>`及`rebind(capture, device, target, active): SignalWandOutcome`；device保留完整不可变设备定义用于精确修订核对，target明确保存entryBoundaryId和bindingId。返回值沿用既有工具结果/诊断，不新增公共API。
@@ -265,9 +265,7 @@ JS 输出或模型 handle。PDC 中即使仍有格式合法但已删除的 `sign
 手动驾驶不接入新的制动或 ATS。保护区域最大范围只约束保护区域搜索，不限制固定闭塞长度。
 轨道事务后的局部失效与重验见[区间局部重验](section-topology-revalidation.md)；
 它与玩家直接编辑边界共用区域规则，但不等于已实现分割/合并后的信号坐标迁移。
-分界点地面子模型、完整 TextDisplay 叠加、非零 inspection lead time 的实例编辑及进路表示器映射作者界面
-继续按后续交互批次推进；三类主信号和附属信号的 rail/ground 两步新建／精确更新／删除，
-以及既有进路表示器的 rail/ground 改位／换模型／删除属于当前能力。
+分界点地面子模型、完整TextDisplay叠加及非零inspection lead time实例编辑继续按后续交互批次推进；三类主信号、附属信号和表示器的rail/ground新建/精确更新/删除，以及表示器映射/入口编辑属于当前离线验证能力，不等同现场验收。
 测距工具仍为TARGET。已确认沿轨距离自动选择两选点间的物理最短路，不受当前道岔选择限制，不实际扳动道岔，也不申请列车资源；不能把当前选通路径距离冒充最短物理距离。
 
 错误做法：从 PDC 直接信任类型、用类型充当工具 marker、把选择放在命令参数、只替换模型、把0秒误称为临时占位并据此绕过

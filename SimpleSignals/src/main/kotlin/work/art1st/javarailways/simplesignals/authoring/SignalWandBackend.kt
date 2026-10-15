@@ -30,6 +30,8 @@ internal data class SignalWandChoice(val binding: SignalWandBinding, val label: 
 
 internal data class ProtectionSignalRebindChoice(val definition: ProtectionSignalDefinition)
 internal data class ProtectionSignalRebindTarget(val entryBoundaryId: String, val bindingId: String)
+internal data class RouteIndicatorWandOptions(val routeIds: List<String>, val variants: List<String>,
+    val mappings: Map<String, String>)
 
 /** Worker-facing boundary. Catalog data exposed to commands is immutable intent, not edit authority. */
 internal interface SignalWandBackend {
@@ -42,6 +44,13 @@ internal interface SignalWandBackend {
     fun rebindTargets(capture: SignalWandCapture, device: ProtectionSignalRebindChoice): List<ProtectionSignalRebindTarget>
     fun rebind(capture: SignalWandCapture, device: ProtectionSignalRebindChoice,
         target: ProtectionSignalRebindTarget, active: () -> Boolean): SignalWandOutcome
+    fun indicatorDevices(capture: SignalWandCapture): List<RouteIndicatorDefinition>
+    fun indicatorEntries(capture: SignalWandCapture): List<String>
+    fun indicatorOptions(capture: SignalWandCapture, binding: RouteIndicatorSignalWandBinding,
+        entryBoundaryId: String): RouteIndicatorWandOptions
+    fun saveIndicator(capture: SignalWandCapture, binding: RouteIndicatorSignalWandBinding,
+        entryBoundaryId: String, noRouteVariant: String, mappings: Map<String, String>,
+        placement: ModelPlacement?, active: () -> Boolean): SignalWandOutcome
     fun resolveEntrance(
         capture: SignalWandCapture,
         controlKind: SignalWandControlKind,
@@ -160,6 +169,65 @@ internal class RuntimeSignalWandBackend(
         else SimpleSignalsAdminCommand.formatResult(result))
     }
 
+    override fun indicatorDevices(capture: SignalWandCapture): List<RouteIndicatorDefinition> {
+        val captured = capture as Capture
+        require(current(captured)) { "Signal selection expired; select again" }
+        return captured.publication.definitions.routeIndicators.sortedBy { it.indicatorId }
+    }
+
+    override fun indicatorEntries(capture: SignalWandCapture): List<String> {
+        val captured = capture as Capture
+        require(current(captured)) { "Signal selection expired; select again" }
+        return captured.publication.routeSelection.routesById.values.map { it.definition.entryBoundaryId }.distinct().sorted()
+    }
+
+    override fun indicatorOptions(capture: SignalWandCapture, binding: RouteIndicatorSignalWandBinding,
+        entryBoundaryId: String): RouteIndicatorWandOptions {
+        val captured = capture as Capture
+        require(current(captured)) { "Signal selection expired; select again" }
+        require(binding.worldId == captured.worldId) { "The selected indicator belongs to another world" }
+        val existing = validateRouteIndicatorBinding(captured.publication, binding)
+        require(entryBoundaryId == binding.entryBoundaryId || entryBoundaryId in indicatorEntries(captured)) {
+            "The selected indicator entrance is not currently usable"
+        }
+        val modelId = if (existing == null) requireNotNull(captured.modelId) {
+            "Select a presentation model in the Signal Wand settings"
+        } else requireNotNull(existing.model) { "Place this route indicator before editing its mapping" }.modelId
+        val variants = requireNotNull(captured.modelCatalog?.variantNames(modelId)) { "Unknown presentation model: $modelId" }
+        require(variants.isNotEmpty()) { "This model declares no route indicator variants" }
+        val routeIds = captured.publication.definitions.routeTables.flatMap { it.routes }
+            .filter { it.entryBoundaryId == entryBoundaryId }.map { it.routeId }.sorted()
+        return RouteIndicatorWandOptions(routeIds, variants,
+            existing?.modelVariantsByRouteId.orEmpty().filterKeys { it in routeIds })
+    }
+
+    override fun saveIndicator(capture: SignalWandCapture, binding: RouteIndicatorSignalWandBinding,
+        entryBoundaryId: String, noRouteVariant: String, mappings: Map<String, String>,
+        placement: ModelPlacement?, active: () -> Boolean): SignalWandOutcome {
+        val captured = capture as Capture
+        require(active()) { "Signal selection is no longer active" }
+        val options = indicatorOptions(captured, binding, entryBoundaryId)
+        require(noRouteVariant in options.variants && mappings.values.all { it in options.variants }) {
+            "Unknown route indicator model variant"
+        }
+        require(mappings.keys.all { it in options.routeIds }) { "Indicator mapping contains another entrance's route" }
+        val existing = validateRouteIndicatorBinding(captured.publication, binding)
+        require((existing == null) == (placement != null)) { "Only a new indicator accepts placement in the mapping editor" }
+        if (existing != null && existing.entryBoundaryId == entryBoundaryId &&
+            existing.noRouteModelVariant == noRouteVariant && existing.modelVariantsByRouteId == mappings)
+            return SignalWandOutcome("Route indicator ${existing.indicatorId} already has this configuration; no changes")
+        val replacement = RouteIndicatorDefinition(existing?.indicatorId ?: uniqueSignalId(captured.publication),
+            existing?.let { nextRevision(it.revision) } ?: 0L, entryBoundaryId, noRouteVariant, mappings,
+            existing?.model ?: DeviceModelDefinition(checkNotNull(captured.modelId), checkNotNull(placement)))
+        val result = manager.applyDefinitionPatch(captured.worldId, captured.publication.definitions.definitionRevision,
+            SimpleSignalsDefinitionPatch(upsertRouteIndicators = listOf(replacement)), captured.runtime, captured.topology,
+            { active() && current(captured) })
+        return SignalWandOutcome(if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
+            "${if (existing == null) "Created" else "Updated"} route indicator ${replacement.indicatorId}; " +
+                if (existing == null) "model placed" else "model placement unchanged"
+        else SimpleSignalsAdminCommand.formatResult(result))
+    }
+
     override fun resolveEntrance(
         capture: SignalWandCapture,
         controlKind: SignalWandControlKind,
@@ -268,6 +336,7 @@ internal class RuntimeSignalWandBackend(
                     "Select a presentation model in the Signal Wand settings"
                 }
                 val existing = validateRouteIndicatorBinding(publication, binding)
+                    ?: throw IllegalArgumentException("Configure the new route indicator before placement")
                 val replacement = RouteIndicatorDefinition(
                     existing.indicatorId, nextRevision(existing.revision), existing.entryBoundaryId,
                     existing.noRouteModelVariant, existing.modelVariantsByRouteId,
@@ -406,12 +475,13 @@ internal class RuntimeSignalWandBackend(
         val indicators = publication.definitions.routeIndicators
             .filter { it.entryBoundaryId == entrance.boundary.boundaryId }
             .sortedBy { it.indicatorId }
-        require(indicators.isNotEmpty()) {
-            if (mode == SignalWandMode.PLACEMENT) {
-                "This entrance has no route indicator to update; creating one requires an aspect mapping"
-            } else "This entrance has no route indicator to delete"
+        require(mode == SignalWandMode.PLACEMENT || indicators.isNotEmpty()) {
+            "This entrance has no route indicator to delete"
         }
-        return indicators.map { indicator -> SignalWandChoice(
+        val newChoice = if (mode == SignalWandMode.PLACEMENT) listOf(SignalWandChoice(
+            RouteIndicatorSignalWandBinding(captured.worldId, entrance.boundary.boundaryId),
+            "New route indicator at ${entrance.boundary.boundaryId}")) else emptyList()
+        return newChoice + indicators.map { indicator -> SignalWandChoice(
             RouteIndicatorSignalWandBinding(captured.worldId, indicator.entryBoundaryId,
                 indicator.indicatorId, indicator.revision),
             "Existing route indicator ${indicator.indicatorId}"
@@ -441,10 +511,11 @@ internal class RuntimeSignalWandBackend(
     private fun validateRouteIndicatorBinding(
         publication: SimpleSignalsRuntimePublication,
         binding: RouteIndicatorSignalWandBinding
-    ): RouteIndicatorDefinition {
+    ): RouteIndicatorDefinition? {
         require(binding.entryBoundaryId in checkNotNull(publication.regions.compilationSnapshot()).boundariesById) {
             "The bound protection entrance no longer exists"
         }
+        if (binding.indicatorId == null) return null
         val existing = publication.definitions.routeIndicators.singleOrNull {
             it.indicatorId == binding.indicatorId
         } ?: throw IllegalArgumentException("The selected route indicator no longer exists")

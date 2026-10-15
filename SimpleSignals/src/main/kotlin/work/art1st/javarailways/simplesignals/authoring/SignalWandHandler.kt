@@ -179,7 +179,8 @@ internal class SignalWandHandler(
                 "Rail placement: $name", openingState.railPreset?.let {
                     it.modelId == railModel.modelId && it.name == name
                 } == true)
-        } + SignalWandSetting(SignalWandSettingAction.RebindProtection, "Rebind existing protection signal", false)
+        } + SignalWandSetting(SignalWandSettingAction.RebindProtection, "Rebind existing protection signal", false) +
+            SignalWandSetting(SignalWandSettingAction.EditIndicator, "Edit route indicator mapping / entry", false)
         showSettings(player, settings) { action ->
             entity(player) { selectSetting(player, openingState, action) }
         }
@@ -197,6 +198,10 @@ internal class SignalWandHandler(
         }
         if (action === SignalWandSettingAction.RebindProtection) {
             openRebind(player, current)
+            return
+        }
+        if (action === SignalWandSettingAction.EditIndicator) {
+            openIndicatorEditor(player, current)
             return
         }
         val available = currentTypes()
@@ -253,6 +258,7 @@ internal class SignalWandHandler(
             is SignalWandSettingAction.RailPreset -> current.copy(stateRevision = revision, railPreset = selectedPreset)
             SignalWandSettingAction.ClearRailPreset -> current.copy(stateRevision = revision, railPreset = null)
             SignalWandSettingAction.RebindProtection -> return
+            SignalWandSettingAction.EditIndicator -> return
         }
         if (!replaceToolState(player, current, replacement)) {
             player.sendMessage(Component.text("Signal Wand settings expired; reopen the settings page")); return
@@ -267,6 +273,7 @@ internal class SignalWandHandler(
             is SignalWandSettingAction.RailPreset -> "Signal Wand rail placement selected: ${action.name}"
             SignalWandSettingAction.ClearRailPreset -> "Signal Wand rail placement reset to unadjusted"
             SignalWandSettingAction.RebindProtection -> return
+            SignalWandSettingAction.EditIndicator -> return
         }))
     }
 
@@ -328,6 +335,50 @@ internal class SignalWandHandler(
         }
     }
 
+    private fun openIndicatorEditor(player: Player, state: SignalWandState,
+        creationCapture: SignalWandCapture? = null, binding: RouteIndicatorSignalWandBinding? = null,
+        placement: ModelPlacement? = null) {
+        val playerId = player.uniqueId
+        val worldId = player.world.uid
+        sessions.invalidate(playerId)
+        val session = sessions.begin(playerId, worldId, state) ?: return
+        val token = Any()
+        choiceTokens[playerId] = token
+        fun active() = sessions.current(playerId, session) && operational() && choiceTokens[playerId] === token
+        fun ownerCurrent() = active() && player.isOnline && player.world.uid == worldId &&
+            player.hasPermission(PERMISSION) && toolInHand(player) == state
+        fun reply(message: String) = entity(player) {
+            if (ownerCurrent()) player.sendMessage(Component.text(message.take(MESSAGE_LIMIT)))
+            choiceTokens.remove(playerId, token)
+            session.busy.set(false)
+        }
+        fun work(action: () -> Unit) {
+            try { worker {
+                if (!active()) { session.busy.set(false); return@worker }
+                try { action() } catch (failure: Exception) {
+                    reply("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
+                }
+            } } catch (failure: Exception) { reply("Cannot start indicator editing: ${failure.message}") }
+        }
+        fun page(title: String, options: List<Pair<String, () -> Unit>>) = entity(player) {
+            session.busy.set(false)
+            if (!ownerCurrent()) return@entity
+            val used = AtomicBoolean(false)
+            showAuthoringDialog(player, title, options.map { (label, action) -> label to {
+                entity(player) {
+                    if (ownerCurrent() && used.compareAndSet(false, true) && session.busy.compareAndSet(false, true))
+                        work(action)
+                }
+            } })
+        }
+        work {
+            val capture = creationCapture ?: backend.capture(worldId, state.signalType)
+            require(backend.current(capture)) { "Signal selection expired; select again" }
+            val editor = RouteIndicatorWandEditor(backend, capture, ::page, ::reply, ::active)
+            if (binding == null) editor.selectDevice() else editor.configure(binding, binding.entryBoundaryId, placement)
+        }
+    }
+
     internal fun click(
         player: Player,
         state: SignalWandState,
@@ -379,6 +430,15 @@ internal class SignalWandHandler(
         fun complete(message: String) = entity(player) {
             if (ownerCurrent()) player.sendMessage(Component.text(message.take(MESSAGE_LIMIT)))
             session.busy.set(false)
+        }
+        fun place(placement: ModelPlacement) {
+            val binding = checkNotNull(state.binding)
+            if (binding is RouteIndicatorSignalWandBinding && binding.indicatorId == null) {
+                entity(player) {
+                    if (ownerCurrent()) openIndicatorEditor(player, state, captured, binding, placement)
+                    else sessions.invalidate(playerId, session)
+                }
+            } else complete(backend.place(captured, binding, placement, ::active).message)
         }
         fun completeBindingOnOwner(binding: SignalWandBinding) {
             if (!ownerCurrent()) {
@@ -435,7 +495,7 @@ internal class SignalWandHandler(
                 if (!active()) return@worker
                 try {
                     require(backend.current(captured)) { "Signal selection expired; select again" }
-                    complete(backend.place(captured, checkNotNull(state.binding), groundPlacement, ::active).message)
+                    place(groundPlacement)
                 } catch (failure: Exception) {
                     complete("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
                 }
@@ -481,7 +541,7 @@ internal class SignalWandHandler(
                                         ModelPlacement.RailAttached(point).applyPreset(
                                             RailPlacementPreset(preset.adjustment, preset.followRailTilt))
                                     } ?: ModelPlacement.RailAttached(point)
-                                    complete(backend.place(captured, checkNotNull(state.binding), placement, ::active).message)
+                                    place(placement)
                                 }
                                 SignalWandOperation.DELETE -> {
                                     val choices = backend.resolveEntrance(captured, state.controlKind, state.mode, point)
@@ -597,7 +657,7 @@ internal class SignalWandHandler(
         const val USAGE = "/simplesignals wand signal"
         const val MESSAGE_LIMIT = 8192
         const val STATUS_PERIOD_TICKS = 10L
-        private val STATE_JSON = Json { encodeDefaults = true; explicitNulls = false }
+        private val STATE_JSON = Json { encodeDefaults = true; explicitNulls = true }
         private fun markerKey(plugin: Plugin) = NamespacedKey(plugin, "signal_wand")
         private fun stateKey(plugin: Plugin) = NamespacedKey(plugin, "signal_wand_state")
 
@@ -908,13 +968,14 @@ internal data class AttachedSignalWandBinding(
 internal data class RouteIndicatorSignalWandBinding(
     override val worldId: UUID,
     val entryBoundaryId: String,
-    val indicatorId: String,
-    val indicatorRevision: Long
+    val indicatorId: String? = null,
+    val indicatorRevision: Long? = null
 ) : SignalWandBinding {
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(entryBoundaryId)) { "entry boundary must be namespaced" }
-        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(indicatorId)) { "indicatorId must be namespaced" }
-        require(indicatorRevision >= 0L) { "indicator revision must be non-negative" }
+        require((indicatorId == null) == (indicatorRevision == null)) { "indicator identity requires both ID and revision" }
+        require(indicatorId == null || SIMPLE_SIGNALS_NAMESPACED_ID.matches(indicatorId)) { "indicatorId must be namespaced" }
+        require(indicatorRevision == null || indicatorRevision >= 0L) { "indicator revision must be non-negative" }
     }
 }
 
@@ -923,7 +984,7 @@ private fun SignalWandBinding.description(): String = when (this) {
     is ProtectionCurrentEntrySignalWandBinding -> "$entryBoundaryId current-entry ${intent.description()}"
     is ProtectionFixedRouteSignalWandBinding -> "$entryBoundaryId route $routeId ${intent.description()}"
     is AttachedSignalWandBinding -> "$primarySignalId attached ${intent.description()}"
-    is RouteIndicatorSignalWandBinding -> "$entryBoundaryId indicator $indicatorId"
+    is RouteIndicatorSignalWandBinding -> "$entryBoundaryId indicator ${indicatorId ?: "new"}"
 }
 
 private fun ProtectionSignalIntent.description(): String = when (this) {
@@ -1002,8 +1063,8 @@ private data class PersistedAttachedSignalWandBinding(
 private data class PersistedRouteIndicatorSignalWandBinding(
     val worldId: String,
     val entryBoundaryId: String,
-    val indicatorId: String,
-    val indicatorRevision: Long
+    val indicatorId: String?,
+    val indicatorRevision: Long?
 ) : PersistedSignalWandBinding
 
 private fun SignalWandBinding.toPersisted(): PersistedSignalWandBinding = when (this) {
@@ -1062,6 +1123,7 @@ internal sealed interface SignalWandSettingAction {
     data class RailPreset(val modelId: String, val name: String) : SignalWandSettingAction
     data object ClearRailPreset : SignalWandSettingAction
     data object RebindProtection : SignalWandSettingAction
+    data object EditIndicator : SignalWandSettingAction
 }
 
 private enum class SignalWandOperation { BIND, PLACE, DELETE }

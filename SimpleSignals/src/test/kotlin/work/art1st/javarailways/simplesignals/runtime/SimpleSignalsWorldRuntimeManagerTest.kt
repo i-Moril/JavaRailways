@@ -1731,7 +1731,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
-    fun `signal wand updates and deletes exact route indicator while creation requires an aspect mapping`(useRailPreset: Boolean) {
+    fun `signal wand preserves existing mapping on move and creates explicit new placed indicators`(useRailPreset: Boolean) {
         val fixture = Fixture()
         val route = fixture.upperRoute()
         val table = fixture.table(1, route)
@@ -1757,7 +1757,9 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
         var capture = backend.capture(fixture.worldId, "automatic:slow", "demo_signals:home")
         val binding = backend.resolveEntrance(capture, SignalWandControlKind.ROUTE_INDICATOR,
-            SignalWandMode.PLACEMENT, entrance).single().binding
+            SignalWandMode.PLACEMENT, entrance).single {
+                (it.binding as RouteIndicatorSignalWandBinding).indicatorId == indicator.indicatorId
+            }.binding
         val updateOutcome = backend.place(capture, binding, placement) { true }
         assertTrue(updateOutcome.message.contains("Updated"), updateOutcome.message)
         assertTrue(updateOutcome.message.contains("with model demo_signals:home"), updateOutcome.message)
@@ -1786,15 +1788,98 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertTrue(backend.delete(capture, deleteBinding) { true }.message.contains(indicator.indicatorId))
         live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         assertTrue(live.routeIndicators.isEmpty())
-        capture = backend.capture(fixture.worldId, "automatic:block")
-        val unavailable = assertThrows(IllegalArgumentException::class.java) {
-            backend.resolveEntrance(capture, SignalWandControlKind.ROUTE_INDICATOR,
-                SignalWandMode.PLACEMENT, entrance)
-        }
-        assertTrue(unavailable.message!!.contains("requires an aspect mapping"), unavailable.message)
+        capture = backend.capture(fixture.worldId, "automatic:block", "demo_signals:home")
+        val newBinding = backend.resolveEntrance(capture, SignalWandControlKind.ROUTE_INDICATOR,
+            SignalWandMode.PLACEMENT, entrance).single().binding as RouteIndicatorSignalWandBinding
+        assertNull(newBinding.indicatorId)
+        assertNull(newBinding.indicatorRevision)
+        assertThrows(IllegalArgumentException::class.java) { backend.place(capture, newBinding, placement) { true } }
+        val options = backend.indicatorOptions(capture, newBinding, newBinding.entryBoundaryId)
+        assertEquals(listOf(route.routeId), options.routeIds)
+        assertEquals(listOf("proceed", "stop"), options.variants)
+        assertTrue(options.mappings.isEmpty())
+        assertEquals(live, (definitions.load(fixture.worldId) as
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+        assertTrue(backend.saveIndicator(capture, newBinding, newBinding.entryBoundaryId,
+            "stop", emptyMap(), placement) { true }.message.contains("Created"))
+        val created = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions().routeIndicators.single()
+        assertEquals(0, created.revision)
+        assertEquals("stop", created.noRouteModelVariant)
+        assertTrue(created.modelVariantsByRouteId.isEmpty())
+        assertEquals(DeviceModelDefinition("demo_signals:home", placement), created.model)
+        capture = backend.capture(fixture.worldId, "automatic:block", "demo_signals:home")
+        // The original new-device intention must not turn into an update after another device appears.
+        assertTrue(backend.saveIndicator(capture, newBinding, newBinding.entryBoundaryId,
+            "stop", mapOf(route.routeId to "proceed"), placement) { true }.message.contains("Created"))
+        live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
+        assertEquals(2, live.routeIndicators.size)
+        assertEquals(created, live.routeIndicators.single { it.indicatorId == created.indicatorId })
         assertEquals(live, (definitions.load(fixture.worldId) as
             work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
         manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `indicator mapping editor uses its actual model and rebinds entry without moving or bypassing edit protection`() {
+        val f = Fixture()
+        val registry = editRegistry(f.currentTopology)
+        val upper = f.upperRoute()
+        val reverse = ProtectionRouteDefinition("test:reverse", upper.exitBoundaryId, upper.entryBoundaryId,
+            upper.traversals.asReversed().map { it.copy(facing = ViewDirection.BA) })
+        val r = RecordingFixture(f, registry, listOf(ProtectionRouteTableDefinition("test:table", 1,
+            f.region.regionId, 1, listOf(upper, reverse))))
+        val placement = ModelPlacement.Ground(ModelPose(5.0, 64.0, 2.0, 0.0, 0.0, 0.0, 1.0))
+        val indicator = RouteIndicatorDefinition("test:editor", 0, upper.entryBoundaryId, "stop",
+            mapOf(upper.routeId to "proceed"), DeviceModelDefinition("demo_signals:home", placement))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, r.manager.applyDefinitionPatch(f.worldId, 1,
+            SimpleSignalsDefinitionPatch(upsertRouteIndicators = listOf(indicator))).status)
+        val backend = RuntimeSignalWandBackend(r.manager, r.infrastructure.service)
+        // No Wand model preference is needed when editing an already placed indicator.
+        val capture = backend.capture(f.worldId, "automatic:block")
+        assertEquals(listOf(indicator), backend.indicatorDevices(capture))
+        assertEquals(listOf("test:entry", "test:exit"), backend.indicatorEntries(capture))
+        val binding = RouteIndicatorSignalWandBinding(f.worldId, indicator.entryBoundaryId,
+            indicator.indicatorId, indicator.revision)
+        val options = backend.indicatorOptions(capture, binding, reverse.entryBoundaryId)
+        assertEquals(listOf(reverse.routeId), options.routeIds)
+        assertEquals(listOf("proceed", "stop"), options.variants)
+        assertTrue(options.mappings.isEmpty(), "old-entry mappings cannot silently move to another entry")
+        val before = Files.readString(r.store.primaryFile(f.worldId))
+        val publication = r.runtime.authoringPublication()
+        val source = r.sources.sources.getValue(f.worldId)
+        listOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM).forEach { kind ->
+            val release = protect(registry, f.currentTopology, f.upperIn, kind)
+            try { assertTrue(backend.saveIndicator(capture, binding, reverse.entryBoundaryId,
+                "stop", mapOf(reverse.routeId to "proceed"), null) { true }.message.contains("EDIT_BLOCKED")) }
+            finally { release() }
+            assertEquals(before, Files.readString(r.store.primaryFile(f.worldId)))
+            assertSame(publication, r.runtime.authoringPublication())
+            assertSame(source, r.sources.sources.getValue(f.worldId))
+        }
+        listOf(mapOf(upper.routeId to "proceed"), mapOf(reverse.routeId to "missing")).forEach { mappings ->
+            assertThrows(IllegalArgumentException::class.java) {
+                backend.saveIndicator(capture, binding, reverse.entryBoundaryId, "stop", mappings, null) { true }
+            }
+            assertEquals(before, Files.readString(r.store.primaryFile(f.worldId)))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            backend.saveIndicator(capture, binding, reverse.entryBoundaryId, "stop", emptyMap(), null) { false }
+        }
+        assertTrue(backend.saveIndicator(capture, binding, reverse.entryBoundaryId,
+            "stop", mapOf(reverse.routeId to "proceed"), null) { true }.message.contains("placement unchanged"))
+        val updated = r.runtime.currentDefinitions().routeIndicators.single()
+        assertEquals(RouteIndicatorDefinition(indicator.indicatorId, 1, reverse.entryBoundaryId, "stop",
+            mapOf(reverse.routeId to "proceed"), indicator.model), updated)
+        assertThrows(IllegalArgumentException::class.java) {
+            backend.saveIndicator(capture, binding, upper.entryBoundaryId, "stop", emptyMap(), null) { true }
+        }
+        val latest = backend.capture(f.worldId, "automatic:block", "demo_signals:wall")
+        val exact = RouteIndicatorSignalWandBinding(f.worldId, updated.entryBoundaryId, updated.indicatorId, updated.revision)
+        val saved = Files.readString(r.store.primaryFile(f.worldId))
+        assertTrue(backend.saveIndicator(latest, exact, updated.entryBoundaryId,
+            updated.noRouteModelVariant, updated.modelVariantsByRouteId, null) { true }.message.contains("no changes"))
+        assertEquals(saved, Files.readString(r.store.primaryFile(f.worldId)))
+        assertEquals(indicator.model, r.runtime.currentDefinitions().routeIndicators.single().model)
     }
 
     @Test

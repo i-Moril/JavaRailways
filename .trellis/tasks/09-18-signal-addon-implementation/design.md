@@ -4,7 +4,7 @@
 
 已批准G不附加限速，先在SimpleSignals自身的JS输出、同epoch下游投影及inspection之间贯通；通用SimpleATO限制类型仍只表达有限数值，“不限速”通过不增加该信号的速度restriction实现，而不是把Infinity传播进制动公式。资源、完整区间授权和不可用时停车的边界不变。具体表示与调用合同归[明确不限速](../../spec/simple-signals/backend/js-signal-rules.md#明确不附加限速)。
 
-第二笔用户已确认复用轨道CURVE/SUBGRADE静态限速，SUBGRADE就是线路设计/上级速度；不新增速度通知/订阅或线路最高速度配置。宿主一次捕获动态模式所需入口rail的速度子集，固定距离模式不读取；SimpleSignals准备时计算范围并缓存参考值，运行时只投影JS输入。按本信号的逻辑入口rail取速而非模型位置或全树聚合，避免引入第二套扫描。具体算法和错误边界归[准备期扫描](../../spec/simple-signals/backend/js-signal-rules.md#准备时按静态轨道速度计算范围)，API归[Bukkit附属边界](../../spec/bukkit-plugin/backend/interaction-render-persistence.md#add-on-api-边界)。[源码研究](research/signal-reference-speed-source-gap.md)顶部已纠正最初“没有物理线路上限”的误判；不读取每车ATO或时刻表Line。正式包、部署和迁移不随前置能力自动完成。
+用户已确认复用轨道CURVE/SUBGRADE静态限速，SUBGRADE就是线路设计/上级速度；不新增速度通知/订阅或线路最高速度配置。参考速度随后纠正为整个受控区间内最高有效限速，而非第二笔的入口取速。宿主一次捕获动态模式所需全部受控rail的速度子集，固定距离模式不读取；固定闭塞AB/BA用同一区间集合，保护信号每个root按对应编译进路集合分别计算v/D。计划与参考速度成对缓存，选路后投影该计划的值，不混后继或兄弟进路，也不增加寻路。具体算法和错误边界归[准备期扫描](../../spec/simple-signals/backend/js-signal-rules.md#准备时按静态轨道速度计算范围)，API归[Bukkit附属边界](../../spec/bukkit-plugin/backend/interaction-render-persistence.md#add-on-api-边界)。[源码研究](research/signal-reference-speed-source-gap.md)顶部已纠正最初“没有物理线路上限”的误判；不读取每车ATO或时刻表Line。正式包、部署和迁移不随前置能力自动完成。
 
 ## 建造交互收尾设计（2026-10-14，TARGET，2026-10-15用户批准实施）
 

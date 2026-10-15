@@ -2,6 +2,16 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
+### 区间最高速度修正（2026-10-15）
+
+用户纠正6504d4f1的入口取速：每rail先由既有Basic metadata给出effective=min(CURVE,SUBGRADE)，本信号再取整个受控区间的最大值。仅改SignalPackEpochRuntime及原manager测试；固定闭塞AB/BA取同一区间traversals全集，保护按每root对应编译进路独立计算，不混后继或兄弟路线。全候选rails仍仅一次host subset读取，任一缺速仍拒绝；PreparedPlan只将原observation与参考v配对，D复用原maximumDistanceMeters，选路后投影同一计划。无新寻路、缓存框架、API、Basic、配置形状、版本或速度通知。
+
+- 旧产品候选仅同步既有manager测试：126项中2项实际失败（仅forward/双向均错误取入口4而非区间max8），24秒、30tasks（3执行/27up-to-date）。日志`/tmp/javarailways-section-max-speed-red.log`，XML保留`/tmp/javarailways-section-speed-red.vAaffFlU`。保护多root新回归只在新产品执行，不冒称旧码红灯。
+- 回归保留原缺速、overflow及source/publication/disk不变断言；仅forward时后部rail缺速同样拒绝。原缓存用例增加更高的后继99/200m/s，证明不混下游；新增保护15→30→15切换验证每route自己的v/D及host只读一次；共享保护fixture补全区间metadata。共净增2项调用，非复制新测试体系。
+- 独立check未修改代码，无本批阻塞。最终候选`/tmp/javarailways-fixed-block-authority.nsoyCU`执行`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries`成功；53 suites/574项全执行，零failure/error/skip，1分1秒、34tasks（8执行/26up-to-date）。JAR及module gate执行，未变Java consumer复用成功缓存，不计重新编译。日志`/tmp/javarailways-section-max-speed-final.log`；未重跑无关Core/Basic/SimpleATO/Bukkit全套或前端。
+- live/candidate全部SimpleSignals/src排序SHA256清单摘要一致`fe6bee6d144455488128a4ce7301cdfd0c2ad14be6b6151834f6c5310b0a84a9`，新Signals JAR SHA256 `3c29213563abf3060afdcab48ef89b4f42ec468cbaad75296b134d272521e99d`；主JAR仍为上一笔`bab580a5db07188eafbb3f5f80eb647e4af831c94bb3ee8d78df2380916fe71f`。沿用/workspace/.gradle JDK25/cache及offline/no-build-cache/nonincremental/in-process、2workers、1536m heap/1024m metaspace，跳过未改frontend install/build；既有Graal POM-as-zip/JDK native/Unsafe等warning未扩修，无独立lint任务，diff--check通过。
+- 本批未部署/迁移或游戏验证，不冻结正式包a/Y/YG数值。对用户第二问的建议是常用参考减速度，并受最弱车辆可保证的常用制动能力约束，而非直接取其最大/紧急减速度；该建议不新增车辆查询或自动a配置，最终参数仍待作者决定。正式包和真实验收未完成，Stage2保持in_progress。下方第二笔“入口速度”是历史验证，当前合同归[受控区间扫描](../../spec/simple-signals/backend/js-signal-rules.md#准备时按静态轨道速度计算范围)。
+
 ### 正式信号包前置：明确不限速与扫描依据（2026-10-15）
 
 用户已批准G不附加限速、扫描范围按参考速度与拟定减速度计算，参考速度不含本信号输出。按小提交拆开：第一笔只改SimpleSignals输出/下游/inspection及集中回归，显式clear与数值setter二选一，缺输出/失效仍0，保留授权底线；第二笔须先核实公开可取得的速度来源和变更通知，再接计算扫描范围。Y/YG速度、减速度数值及实际“线路”速度归属不得猜测冻结。正式四灯包随后，不部署、不迁移、不改版本或添加旧reader。旧smoke不作为正式包交付。

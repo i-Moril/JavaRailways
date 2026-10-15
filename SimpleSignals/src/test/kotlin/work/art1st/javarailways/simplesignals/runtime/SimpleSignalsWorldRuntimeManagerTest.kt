@@ -1898,7 +1898,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         definitions.save(worldId, SimpleSignalsWorldDefinitions(worldId, 1,
             emptyList(), emptyList(), blocks, listOf(signal)))
         val infrastructure = MutableTopologyService(initial)
-        infrastructure.staticSpeedLimits = mapOf(rails.first() to 3.0)
+        infrastructure.staticSpeedLimits = mapOf(rails[0] to 3.0, rails[1] to 99.0, rails[2] to 200.0)
         val sources = CapturingSignalEpochSourceService()
         val pending = arrayListOf<() -> Unit>()
         val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
@@ -1933,7 +1933,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val captured = manager.authoringRuntime(worldId)!!.sectionSignalSnapshot()!!
         assertEquals(if (calculated) 9.0 else 100.0, captured.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
         assertEquals(if (calculated) 1 else 0, infrastructure.speedLimitReadCount)
-        infrastructure.staticSpeedLimits = mapOf(rails.first() to 10.0)
+        infrastructure.staticSpeedLimits = mapOf(rails[0] to 10.0, rails[1] to 99.0, rails[2] to 200.0)
         process(2)
         assertEquals(if (calculated) 9.0 else 100.0,
             manager.authoringRuntime(worldId)!!.sectionSignalSnapshot()!!.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond,
@@ -1949,8 +1949,9 @@ class SimpleSignalsWorldRuntimeManagerTest {
         manager.clearLocal().toCompletableFuture().join()
     }
 
-    @Test
-    fun `calculated scan captures each directed entry rail and rejects missing speed without replacing live permission`() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    fun `calculated scan captures whole block maximum in either direction and rejects any missing rail speed`(bothDirections: Boolean) {
         val rails = listOf(UUID(13, 1), UUID(13, 2))
         val topology = topologyState(71, rails,
             listOf(endpoint(rails[0], RailEndpoint.B) to endpoint(rails[1], RailEndpoint.A)))
@@ -1958,7 +1959,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val block = FixedBlockDefinition("test:directed-scan", 1, rails.map {
             FixedBlockTraversal(it, ViewDirection.AB, 0.0, 10.0)
         }, true)
-        val signals = listOf(FixedBlockEntryDirection.FORWARD, FixedBlockEntryDirection.REVERSE).map { direction ->
+        val signals = listOf(FixedBlockEntryDirection.FORWARD, FixedBlockEntryDirection.REVERSE)
+            .take(if (bothDirections) 2 else 1).map { direction ->
             FixedBlockSignalDefinition("test:scan-${direction.name.lowercase()}", 1, block.blockId, 0.0,
                 "automatic:block", direction)
         }
@@ -1994,7 +1996,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             manager.applyDefinitionPatch(worldId, 1, SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(
                 signals.first().reconfigured(revision = 2)))).status)
         process(2)
-        assertEquals(listOf(4.0, 8.0), signals.map {
+        assertEquals(signals.map { 8.0 }, signals.map {
             runtime.sectionSignalSnapshot()!!.states.getValue(it.signalId).effectiveSpeedLimitMetersPerSecond
         })
         val before = runtime.authoringPublication()
@@ -2017,6 +2019,68 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
+    fun `current protection signal captures maximum of its selected route without mixing sibling routes`() {
+        val f = Fixture()
+        val upper = f.upperRoute()
+        val lower = f.lowerRoute()
+        val signal = protectionSignal(ProtectionSignalKind.CURRENT_ENTRY, upper)
+            .copy(signalType = "automatic:block")
+        val definitions = store()
+        val table = ProtectionRouteTableDefinition("test:max-table", 1, f.region.regionId, 1, listOf(upper, lower))
+        definitions.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1, listOf(f.region),
+            listOf(table), protectionSignals = listOf(signal)))
+        val infrastructure = MutableTopologyService(f.currentTopology)
+        infrastructure.staticSpeedLimits = mapOf(f.entry to 5.0, f.exit to 6.0,
+            f.upperIn to 15.0, f.upperOut to 14.0, f.lowerIn to 30.0, f.lowerOut to 25.0)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            sources, loadDefaultSignalCatalog = false)
+        val packs = writeAutomaticSignalPack(script = """
+            function evaluate(input, output) {
+              if (input.scanDistanceMeters !== input.referenceSpeedMetersPerSecond ** 2 ||
+                  input.referenceDecelerationMetersPerSecondSquared !== 0.5) throw new Error('wrong route distance');
+              output.setSpeedLimit(input.referenceSpeedMetersPerSecond);
+              output.setModelVariant('clear');
+            }
+        """.trimIndent())
+        Files.writeString(packs.resolve("automatic/logic/block.yml"),
+            "reference-deceleration-metres-per-second-squared: 0.5")
+        manager.loadSignalPacks(packs)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        val runtime = manager.authoringRuntime(f.worldId)!!
+        val epoch = protectionTestEpoch(runtime, f.worldId.toString(), TrainRestrictionSnapshotStore(f.worldId.toString()))
+        epoch.replaceSources(sources.sources.getValue(f.worldId))
+        val owner = InfrastructureOwner("test:route-max-owner", 1)
+        fun process(number: Long, selected: ProtectionRouteDefinition) {
+            val route = RouteSnapshot("test:route-max-mission", number, f.currentTopology.revision,
+                selected.traversals.mapIndexed { index, traversal ->
+                    RouteSegmentSnapshot(traversal.railId, traversal.facing,
+                        if (index == 0) 0.0 else traversal.lowerAbMeters,
+                        if (index == selected.traversals.lastIndex) 10.0 else traversal.upperAbMeters)
+                })
+            epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, ActiveRouteAdmissionSnapshot(owner,
+                "train", route, ActiveRouteAdmissionState.GRANTED, RouteBoundary(40.0), RouteBoundary(40.0))))
+            val position = RailPositionSnapshot(f.entry, ViewDirection.AB, 0.0)
+            val continuations = runtime.authoringPublication().routeSelection.routesById.getValue(selected.routeId)
+                .requiredContinuations.associate { it.entry to it.selectedExit }
+            epoch.process(RailwayWorldFrameSnapshot.create(number, f.currentTopology.revision,
+                listOf(TrainFrameSnapshot.create("train", "Train", number, number, 0.0, false, false,
+                    emptyList(), position, position, emptyList(), emptyList(), emptyList(), emptyList(), emptyList())),
+                ActiveRailContinuationsSnapshot.create(f.currentTopology.revision, number, continuations)))
+        }
+        process(1, upper)
+        val captured = runtime.sectionSignalSnapshot()!!
+        assertEquals(15.0, captured.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+        process(2, lower)
+        assertEquals(30.0, runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+        process(3, upper)
+        assertEquals(15.0, runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+        assertEquals(1, infrastructure.speedLimitReadCount, "route changes select cached per-root speeds and distances")
+        assertEquals(15.0, captured.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
     fun `shared protection entrance combines only finite signal limits and preserves all clear as null`() {
         val f = Fixture()
         val selected = f.upperRoute()
@@ -2031,7 +2095,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             listOf(f.table(1, selected)), listOf(block), listOf(approach), listOf(clear, peer)))
         val sources = CapturingSignalEpochSourceService()
         val infrastructure = MutableTopologyService(f.currentTopology)
-        infrastructure.staticSpeedLimits = mapOf(f.entry to 10.0)
+        infrastructure.staticSpeedLimits = f.currentTopology.railProjection.keys.associateWith { 10.0 }
         val manager = runtimeManager(plugin(), infrastructure.service,
             CapturingRoutePlanningService(), definitions, sources, loadDefaultSignalCatalog = false)
         val packs = writeAutomaticSignalPack(script = """

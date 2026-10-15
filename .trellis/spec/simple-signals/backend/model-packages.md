@@ -34,7 +34,7 @@ YAML 部件树、外观、场景、variant 与宿主摆放 metadata 的解析和
   `import` 指向同包另一 model 的安全相对 model ID，只把目标 parts 树作为 identity-position `Group` 子树导入；
   不继承目标的 default、variants 或 rail-placement，首批不支持跨包 model import。模型身份不携带速度或信号语义。
 - `logic/<路径>.yml` 与同目录同 stem 的 `logic/<路径>.js` 共同定义一个逻辑，`logicId` 同样从 YAML 相对路径派生。
-  YAML在`scan-distance-metres`和`reference-deceleration-metres-per-second-squared`中恰选一项，均须有限正数；固定距离或参考减速度属于逻辑，不属于模型、signal类型、已放置设备或SimpleATO。后者在设备准备时按入口轨道静态速度计算实际扫描距离，机制归[JS观察计划](js-signal-rules.md#准备时按静态轨道速度计算范围)。
+  YAML在`scan-distance-metres`和`reference-deceleration-metres-per-second-squared`中恰选一项，均须有限正数；固定距离或参考减速度属于逻辑，不属于模型、signal类型、已放置设备或SimpleATO。后者在设备准备时按受控区间内最高静态有效速度计算实际扫描距离，机制归[JS观察计划](js-signal-rules.md#准备时按静态轨道速度计算范围)。
   缺任一配对文件均拒绝整个候选，JS 在 catalog 准备时捕获，运行期不重读。
 - `signal/**/*.yml` 每个文件定义一个玩家可见信号类型；其 `signalType` 从文件相对路径派生，文件包含非空
   `display-name` 以及 namespaced `model`、`logic` 引用。只有 signal 文件进入未来 Wand／UI；存在但未被 signal

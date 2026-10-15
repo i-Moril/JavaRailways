@@ -18,7 +18,6 @@ import work.art1st.javarailways.simplesignals.runtime.SectionSignalState
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsRuntimePublication
 import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionSnapshot
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
-import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
 import java.util.Collections
 import java.util.UUID
 
@@ -49,7 +48,7 @@ internal class SignalPackEpochRuntime private constructor(
 ) {
     val watchedContinuationEntries: Set<RailEndpointRef> = Collections.unmodifiableSet(
         bindingsByDeviceId.values.flatMapTo(sortedSetOf()) { prepared ->
-            prepared.plans.flatMapTo(linkedSetOf()) { it.watchedContinuationEntries }
+            prepared.plans.flatMapTo(linkedSetOf()) { it.observation.watchedContinuationEntries }
         }
     )
 
@@ -129,12 +128,13 @@ internal class SignalPackEpochRuntime private constructor(
 
     private fun project(
         prepared: PreparedBinding,
-        plan: SignalObservationPlan,
+        selectedPlan: PreparedPlan,
         occupancy: SectionOccupancySnapshot,
         continuations: ActiveRailContinuationsSnapshot,
         selection: ProtectionRouteSelectionSnapshot?,
         states: Map<String, SectionSignalState>
     ): JsonElement {
+        val plan = selectedPlan.observation
         fun observation(node: SignalObservationPlanNode): SectionOccupancyObservation =
             requireNotNull(occupancy.sections[node.state.section]) {
                 "section ${node.state.section} has no same-epoch observation"
@@ -205,8 +205,8 @@ internal class SignalPackEpochRuntime private constructor(
 
         val root = observation(plan.root)
         return jsonObject(
-            "scanDistanceMeters" to JsonPrimitive(prepared.scanDistanceMeters),
-            "referenceSpeedMetersPerSecond" to prepared.referenceSpeedMetersPerSecond?.let(::JsonPrimitive),
+            "scanDistanceMeters" to JsonPrimitive(plan.maximumDistanceMeters),
+            "referenceSpeedMetersPerSecond" to selectedPlan.referenceSpeedMetersPerSecond?.let(::JsonPrimitive),
             "referenceDecelerationMetersPerSecondSquared" to
                 prepared.signal.logic.referenceDecelerationMetresPerSecondSquared?.let(::JsonPrimitive),
             "self" to jsonObject(
@@ -218,27 +218,31 @@ internal class SignalPackEpochRuntime private constructor(
         )
     }
 
+    /** One route-specific observation tree and its captured reference speed; the tree owns D. */
+    private class PreparedPlan(
+        val observation: SignalObservationPlan,
+        val referenceSpeedMetersPerSecond: Double?
+    )
+
     private class PreparedBinding(
         val signal: SignalPackSignal,
-        val plans: List<SignalObservationPlan>,
-        val scanDistanceMeters: Double,
-        val referenceSpeedMetersPerSecond: Double?,
+        val plans: List<PreparedPlan>,
         private val fixedRouteId: String?,
         private val currentEntryId: String?
     ) {
         val observedSections: Set<work.art1st.javarailways.simplesignals.runtime.SectionRef> =
-            plans.flatMapTo(linkedSetOf()) { it.observedSections }
-        val downstreamDeviceIds: Set<String> = plans.flatMapTo(linkedSetOf()) { it.downstreamDeviceIds }
+            plans.flatMapTo(linkedSetOf()) { it.observation.observedSections }
+        val downstreamDeviceIds: Set<String> = plans.flatMapTo(linkedSetOf()) { it.observation.downstreamDeviceIds }
         val watchedContinuationEntries: Set<RailEndpointRef> =
-            plans.flatMapTo(linkedSetOf()) { it.watchedContinuationEntries }
+            plans.flatMapTo(linkedSetOf()) { it.observation.watchedContinuationEntries }
         val protectionEntryIds: Set<String> = plans.flatMapTo(linkedSetOf()) { plan ->
-            plan.protectionRoutes.map(ProtectionRouteChoice::entryBoundaryId)
+            plan.observation.protectionRoutes.map(ProtectionRouteChoice::entryBoundaryId)
         } + listOfNotNull(currentEntryId)
 
         fun selectPlan(
             selection: ProtectionRouteSelectionSnapshot?,
             fixedRouteReady: (String) -> Boolean
-        ): SignalObservationPlan {
+        ): PreparedPlan {
             fixedRouteId?.let { routeId ->
                 require(fixedRouteReady(routeId)) { "fixed protection route '$routeId' is not ready" }
                 return plans.single()
@@ -249,7 +253,7 @@ internal class SignalPackEpochRuntime private constructor(
                     "protection entry '$entryId' has no ready route"
                 }
                 val routeId = requireNotNull(selected.routeId) { "protection entry '$entryId' has no selected route" }
-                return plans.singleOrNull { it.root.state.protectionRouteId == routeId }
+                return plans.singleOrNull { it.observation.root.state.protectionRouteId == routeId }
                     ?: throw IllegalArgumentException("selected route '$routeId' has no observation plan")
             }
             return plans.single()
@@ -286,16 +290,24 @@ internal class SignalPackEpochRuntime private constructor(
                 catalog.signals[binding.signalType]?.logic?.referenceDecelerationMetresPerSecondSquared != null &&
                     graph.logicalRootsByDeviceId[deviceId].orEmpty().isNotEmpty()
             }
-            val boundaries = checkNotNull(publication.regions.compilationSnapshot()).boundariesById
-            val entryRails = dynamic.mapValues { (deviceId, _) ->
-                fixed[deviceId]?.let { definition ->
-                    publication.fixedBlocks.snapshot(publication.topology).blocksById.getValue(definition.controlledBlockId)
-                        .entryTraversal(definition.entryDirection == FixedBlockEntryDirection.REVERSE).railId
-                } ?: boundaries.getValue(graph.logicalRootsByDeviceId.getValue(deviceId).first().state.entryBoundaryId).position.railId
-            }
-            val speeds = if (entryRails.isEmpty()) emptyMap() else {
+            val controlledRails = dynamic.keys.flatMap { graph.logicalRootsByDeviceId.getValue(it) }
+                .associate { root ->
+                    val rails = root.state.protectionRouteId?.let { routeId ->
+                        publication.routeSelection.routesById.getValue(routeId).definition.traversals
+                            .mapTo(linkedSetOf()) { it.railId }
+                    } ?: publication.fixedBlocks.snapshot(publication.topology).blocksById.getValue(root.state.section.id)
+                        .traversals.mapTo(linkedSetOf()) { it.railId }
+                    root.state to rails
+                }
+            val speeds = if (controlledRails.isEmpty()) emptyMap() else {
                 requireNotNull(railSpeedLimits) { "static rail speed limits are unavailable for reference-deceleration scanning" }
-                    .invoke(publication.topology, entryRails.values.toSet())
+                    .invoke(publication.topology, controlledRails.values.flatten().toSet())
+            }
+            val referenceSpeeds = controlledRails.mapValues { (state, rails) ->
+                rails.maxOf { railId ->
+                    requireNotNull(speeds[railId]) { "signal section '${state.section.id}' rail '$railId' has no finite static speed limit" }
+                        .also { require(it.isFinite() && it > 0.0) { "reference speed must be finite and positive" } }
+                }
             }
             val unavailable = linkedMapOf<String, String>()
             val prepared = byDevice.mapNotNull { (deviceId, binding) ->
@@ -310,26 +322,22 @@ internal class SignalPackEpochRuntime private constructor(
                     unavailable[deviceId] = "signal device '$deviceId' has no usable observation root"
                     return@mapNotNull null
                 }
-                val referenceSpeed = entryRails[deviceId]?.let { railId ->
-                    requireNotNull(speeds[railId]) { "signal device '$deviceId' entry rail '$railId' has no finite static speed limit" }
-                        .also { require(it.isFinite() && it > 0.0) { "reference speed must be finite and positive" } }
-                }
-                val distance = signal.logic.scanDistanceMetres ?: run {
-                    val speed = checkNotNull(referenceSpeed)
-                    val deceleration = checkNotNull(signal.logic.referenceDecelerationMetresPerSecondSquared)
-                    (speed * speed / (2.0 * deceleration)).also {
-                        require(it.isFinite() && it > 0.0) { "signal device '$deviceId' calculated scan distance must be finite and positive" }
-                    }
-                }
                 val plans = roots.map { root ->
-                    SignalObservationPlanCompiler.compile(graph.graph, root.state, distance)
+                    val referenceSpeed = referenceSpeeds[root.state]
+                        .takeIf { signal.logic.referenceDecelerationMetresPerSecondSquared != null }
+                    val distance = signal.logic.scanDistanceMetres ?: run {
+                        val speed = checkNotNull(referenceSpeed)
+                        val deceleration = checkNotNull(signal.logic.referenceDecelerationMetresPerSecondSquared)
+                        (speed * speed / (2.0 * deceleration)).also {
+                            require(it.isFinite() && it > 0.0) { "signal device '$deviceId' calculated scan distance must be finite and positive" }
+                        }
+                    }
+                    PreparedPlan(SignalObservationPlanCompiler.compile(graph.graph, root.state, distance), referenceSpeed)
                 }
                 val definition = protection[deviceId]
                 deviceId to PreparedBinding(
                     signal,
                     java.util.List.copyOf(plans),
-                    distance,
-                    referenceSpeed,
                     definition?.bindingId?.takeIf { definition.kind == ProtectionSignalKind.FIXED_ROUTE },
                     definition?.bindingId?.takeIf { definition.kind == ProtectionSignalKind.CURRENT_ENTRY }
                 )

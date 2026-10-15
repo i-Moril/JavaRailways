@@ -17,6 +17,22 @@ import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridg
 
 class RailCurveFactoryTemplateTest {
     @Test
+    @OptIn(Heavy::class)
+    fun `sloped S curve arc follows3D samples rather than horizontal station`() {
+        val built = RailCurveFactory.build(
+            Anchor("A", Vector3d(), Vector3d(1.0, 0.5, 0.0).normalize()),
+            Anchor("B", Vector3d(100.0, 50.0, 10.0), Vector3d(1.0, 0.5, 0.0).normalize()),
+            RailCurveBuildOptions(template = RailCurveTemplateType.S_CURVE))
+        assertTrue(built.isSuccess, built.error)
+        val curve = built.curve!!
+        val samples = curve.stream().toList()
+        val independentLength = samples.zipWithNext().sumOf { (a, b) -> a.position.distance(b.position) }
+        assertEquals(independentLength, curve.totalArcLength, 1e-9)
+        assertTrue(curve.totalArcLength > 112.0)
+        assertTrue(curve.getPointAt(curve.totalArcLength).position.distance(Vector3d(100.0, 50.0, 10.0)) < 1e-9)
+    }
+
+    @Test
     fun `auto selects straight when tangent follows chord`() {
         val from = Anchor("A", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 1.0).normalize())
         val to = Anchor("B", Vector3d(10.0, 0.0, 10.0), Vector3d(1.0, 0.0, 1.0).normalize())
@@ -299,10 +315,13 @@ class RailCurveFactoryTemplateTest {
         assertTrue(result.isSuccess, result.error)
         assertEquals(3, result.curves!!.size)
         assertEquals(RailCurveTemplateType.FIVE_SEGMENT, result.selectedTemplate)
-        assertEquals(2, result.logicalBreakFractions.size)
-        assertTrue(result.logicalBreakFractions[0] in 0.0..1.0)
-        assertTrue(result.logicalBreakFractions[1] in 0.0..1.0)
-        assertTrue(result.logicalBreakFractions[0] < result.logicalBreakFractions[1])
+        assertEquals(3, result.logicalBreakFractionsByLane.size)
+        result.logicalBreakFractionsByLane.forEach { fractions ->
+            assertEquals(2, fractions.size)
+            assertTrue(fractions[0] in 0.0..1.0)
+            assertTrue(fractions[1] in 0.0..1.0)
+            assertTrue(fractions[0] < fractions[1])
+        }
         result.curves.forEachIndexed { index, curve ->
             assertTrue(curve.getPointAt(0.0).position.distance(starts[index].position) < Curve.TOLERANCE)
             assertTrue(curve.getPointAt(curve.totalArcLength).position.distance(ends[index].position) < Curve.TOLERANCE)

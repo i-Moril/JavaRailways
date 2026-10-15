@@ -28,6 +28,7 @@ object RailGeometryMeasurementService {
         var maximumAbsoluteGrade = 0.0
         curves.forEach { curve ->
             val points = curve.stream().toList().distinctBy { it.arcLength }
+            val horizontalStations = RailCurvePartitioner.horizontalStations(points)
             points.indices.forEach { index ->
                 val point = points[index]
                 val tangent = Vector3d(point.tangent)
@@ -53,7 +54,8 @@ object RailGeometryMeasurementService {
 
                 val previous = points[if (index == 0) 0 else index - 1]
                 val next = points[if (index == points.lastIndex) points.lastIndex else index + 1]
-                val deltaArc = next.arcLength - previous.arcLength
+                val deltaArc = horizontalStations[minOf(points.lastIndex, index + 1)] -
+                    horizontalStations[maxOf(0, index - 1)]
                 if (deltaArc <= 1.0e-9) return@forEach
                 val previousHorizontal = horizontalUnit(previous.tangent) ?: return@forEach
                 val nextHorizontal = horizontalUnit(next.tangent) ?: return@forEach

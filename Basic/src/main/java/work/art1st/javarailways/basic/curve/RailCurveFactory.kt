@@ -69,7 +69,7 @@ data class RailParallelCurveBuildResult(
     val error: String? = null,
     val selectedTemplate: RailCurveTemplateType? = null,
     val selectedReason: String? = null,
-    val logicalBreakFractions: List<Double> = emptyList()
+    val logicalBreakFractionsByLane: List<List<Double>> = emptyList()
 ) {
     val isSuccess: Boolean get() = curves != null
 
@@ -78,12 +78,12 @@ data class RailParallelCurveBuildResult(
             curves: List<PrimeCurve>,
             template: RailCurveTemplateType?,
             reason: String? = null,
-            logicalBreakFractions: List<Double> = emptyList()
+            logicalBreakFractionsByLane: List<List<Double>> = curves.map { emptyList() }
         ): RailParallelCurveBuildResult = RailParallelCurveBuildResult(
             curves,
             selectedTemplate = template,
             selectedReason = reason,
-            logicalBreakFractions = logicalBreakFractions
+            logicalBreakFractionsByLane = logicalBreakFractionsByLane
         )
 
         fun failure(
@@ -132,7 +132,7 @@ object RailCurveFactory {
                     listOf(result.curve!!),
                     result.selectedTemplate,
                     result.selectedReason,
-                    result.logicalBreakFractions
+                    listOf(result.logicalBreakFractions)
                 )
             } else {
                 RailParallelCurveBuildResult.failure(result.error ?: "曲线创建失败", result.selectedTemplate, result.selectedReason)
@@ -194,7 +194,7 @@ object RailCurveFactory {
             curves,
             centerResult.selectedTemplate,
             centerResult.selectedReason,
-            centerResult.logicalBreakFractions
+            curves.map { RailCurvePartitioner.remapBreakFractions(centerCurve, it, centerResult.logicalBreakFractions) }
         )
     }
 
@@ -415,6 +415,7 @@ object RailCurveFactory {
         return RailCurveBuildResult.success(curve, match.template, match.reason)
     }
 
+    @OptIn(Heavy::class)
     private fun buildFiveSegment(
         prepared: PreparedAnchors,
         options: RailCurveBuildOptions,
@@ -454,10 +455,12 @@ object RailCurveFactory {
         if (!validateGeneratedCurve(curve, prepared.fromPos, prepared.toPos, prepared.fromTan3d, prepared.toTan3d, prepared.fromRoll, prepared.toRoll)) {
             return RailCurveBuildResult.failure("五段式模板生成后端点位置/切线/roll 校验失败", match.template, match.reason)
         }
-        val breakFractions = listOf(
-            result.straightA / result.totalLength,
-            (result.totalLength - result.straightB) / result.totalLength
-        )
+        val samples = curve.stream().toList()
+        val horizontalStations = RailCurvePartitioner.horizontalStations(samples)
+        val breakFractions = RailCurvePartitioner.mapStations(horizontalStations,
+            samples.map { it.arcLength }, listOf(ConstraintSolver.generatedStraightLength(result.straightA),
+                horizontalStations.last() - ConstraintSolver.generatedStraightLength(result.straightB)))
+            .map { it / curve.totalArcLength }
         return RailCurveBuildResult.success(curve, match.template, match.reason, breakFractions)
     }
 
@@ -646,7 +649,7 @@ object RailCurveFactory {
             val normal = applyRollToNormal(baseNormal, tangent, rollAt(index, arc))
             Curve.RawPoint(position, tangent, normal, arc)
         }
-        return PrimeCurve.fromPoints(points)
+        return PrimeCurve.fromPoints(RailCurvePartitioner.withElevationArc(points))
     }
 
     private fun limitSignedProfileGradient(

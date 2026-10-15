@@ -89,6 +89,21 @@ class ConstraintSolverTest {
     }
 
     @Nested inner class GenerateCurve {
+        @Test fun `constant grade five segment uses physical arc and retains analytic flat stations`() {
+            val horizontal = 20.0 + 10.0 * PI
+            val solved = ConstraintSolveResult.Success(20.0, 10.0, 0.0, 10.0 * PI, 0.0, 10.0,
+                PI / 2, horizontal, PI / 2)
+            for (grade in listOf(0.0, 0.5, -0.5)) {
+                val points = ConstraintSolver.generateCurve(solved, Vector3d(), Vector3d(1.0, grade, 0.0),
+                    Vector3d(30.0, horizontal * grade, 30.0), Vector3d(0.0, grade, 1.0), step = 0.2)
+                val expected = horizontal * sqrt(1.0 + grade * grade)
+                assertEquals(expected, points.last().arcLength, 1e-9)
+                assertEquals(10.0 * sqrt(1.0 + grade * grade),
+                    points.single { it.position.x() == 10.0 && it.position.z() == 0.0 }.arcLength, 1e-9)
+                assertTrue(points.zipWithNext().all { (a, b) -> b.arcLength > a.arcLength })
+            }
+        }
+
         @Test fun `straight curve junctions occur once with strictly increasing arcs`() {
             val circularLength = 10.0 * PI
             val result = ConstraintSolveResult.Success(

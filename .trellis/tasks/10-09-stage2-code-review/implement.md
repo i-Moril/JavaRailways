@@ -6,6 +6,17 @@
 
 ## 当前执行顺序（2026-10-12用户纠正后）
 
+### CR-040恢复执行（2026-10-15，用户单独批准）
+
+用户明确先修CR-040，不执行CR-041或其他维护项。改动限定Basic曲线生成/测量/分界映射与RailWand必要消费，既有审查B1/B2/B3为回归输入，不重开整模块审查。先补独立数值/实际接点回归，再修水平station→三维弧长及逐lane/纵断面重建映射，最后独立复核并运行Core/Basic/Bukkit及受影响消费者门禁。算法合同归[曲线规范](../../spec/javarailways/basic/curve-authoring.md#最终弧长与工程分界)。不改Core查询热路径、旧世界格式、版本号或限速/脱轨物理公式，不部署；旧存档不会因本修复被自动重新参数化。
+
+- 已完成：5个产品文件（Basic ConstraintSolver/RailCurveFactory/RailCurvePartitioner/RailGeometryMeasurements，Bukkit RailWand）及4个Basic测试文件；新增8项集中回归，原parallel测试改消费逐lane分界。无新文件/框架、无Core/SimpleATO/Signals产品改动。曲线规范同步实际表示、算法、误差、复杂度与失败前提。
+- 仅复制3个新测试到旧产品候选，39项中准确3失败（11秒）：五段expected57.48475343020153/actual51.41592653589793，S expected112.36353911828925/actual100.62578807817758，水平R expected90/actual100.62305898748997。日志`/tmp/javarailways-cr040-red-check.log`，原XML保留`/tmp/javarailways-cr040-red.CpSKh6AQ/test`。其他分界/映射及review追加用例只验证修复后，不冒称全部做过旧码红灯。
+- 首轮定向46项4失败（29秒）：旧生成器省略小于0.01米切线，新映射仍计理论长度。独立check将省略规则集中到原owner，以实际接点映射，不放宽范围校验；新增小切线省略与真实LINE虚拟采样→纵断面重建回归。随后定向与Bukkit产品编译52秒通过；LINE追加用例随最终门禁验证。源码复核无剩余CR-040阻塞，安全公式三维模型问题单独保留。
+- 最终隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`，Java25与`GRADLE_USER_HOME=/workspace/.gradle`，执行`:Core:test --rerun :Basic:test :SimpleATO:test :BukkitPlugin:test :SimpleSignals:check :BukkitPlugin:shadowJar :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries --offline --no-build-cache --no-parallel --max-workers=2 -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=1024m' -x :WebUI:installFrontend -x :WebUI:buildFrontend --console=plain`。1分53秒、46task中17执行29up-to-date，315套2153项全执行，零失败/error/skip：Core409、Basic407、SimpleATO377、Bukkit398、Signals562。编译在本轮定向和最终门禁执行，最终复用未变产品编译、实际编译最新Basic及下游测试；shadowJar、Java consumer及模块/JAR边界实际执行。未执行WebUI测试/前端/Dokka、其他模块全套、游戏或profiling；既有警告保留，无独立lint配置，限定diff-check通过。
+- Basic全部src排序文件清单摘要`704e8a7f37fd43766cc0b96074910b42dbfc2a4f5d87fb201e7de14161d8308d`，Bukkit全部src摘要`d0fd31bd5a8bc10caeeb47cfcdb63220e6ca5302b8f3341038b347f7eac77598`，工作区与已测候选一致。日志`/tmp/javarailways-cr040-final-check.log`，XML在候选各模块build/test-results/test。源码冻结后只同步规范/台账。主JAR SHA256 `a156e7ae95967fae8135971b38de09cd56a9d1689abbe40656f55fff825c8e03`；Signals JAR未变，`65b445bf52a906fb27f22f426e1fe0254de554c0e8545b5cc85dab7cbb26308c`。
+- CR-040本批完成，不等于Basic全部审查项或Stage2完成；CR-041仍待安排。没有部署、迁移或重写旧轨道存档。
+
 ### Core缺陷收尾（2026-10-14，帧间六批完成之后）
 
 用户要求继续收尾Core，并接受50ms物理步下同速贴靠的保守扫掠误报，不再扩大碰撞算法。复核当前源码而非历史未勾选框，剩余执行范围固定如下：

@@ -1289,7 +1289,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private data class CurvesBuild(
         val curves: List<PrimeCurve>,
-        val logicalBreakFractions: List<Double>
+        val logicalBreakFractionsByLane: List<List<Double>>
     )
 
     private data class BuiltRailPart(
@@ -2451,7 +2451,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             )
             throw IllegalArgumentException(detail)
         }
-        return CurvesBuild(result.curves!!, result.logicalBreakFractions)
+        return CurvesBuild(result.curves!!, result.logicalBreakFractionsByLane)
     }
 
     private fun adjacentRailBuildInput(
@@ -2512,7 +2512,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             newBuilt[index] = BuiltCurve(
                 rebuiltNew,
                 calculateSpeedLimits(rebuiltNew, null, settings),
-                newBuilt[index].logicalBreakFractions
+                RailCurvePartitioner.remapBreakFractions(newBuilt[index].curve, rebuiltNew,
+                    newBuilt[index].logicalBreakFractions)
             )
             if (end != null) {
                 val curve = rebuilt[rebuiltIndex]
@@ -2594,11 +2595,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         settings: CurveBuildSettingsSnapshot
     ): List<BuiltCurve>? {
         val build = createCurvesBetweenParallelAnchors(startAnchors, endAnchors, settings) ?: return null
-        return build.curves.map { curve ->
+        return build.curves.mapIndexed { index, curve ->
             BuiltCurve(
                 curve,
                 calculateSpeedLimits(curve, null, settings),
-                build.logicalBreakFractions
+                build.logicalBreakFractionsByLane[index]
             )
         }
     }

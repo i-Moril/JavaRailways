@@ -17,6 +17,8 @@ sealed class ConstraintSolveResult {
 }
 
 object ConstraintSolver {
+    /** The generator omits sub-centimetre tangent sections; partition stations use that same geometry. */
+    internal fun generatedStraightLength(length: Double): Double = if (length < 0.01) 0.0 else length
 
     /**
      * 给定 R，二分搜索 L1 使 straightA≥0 且 straightB≥0，误差=0。
@@ -140,7 +142,7 @@ object ConstraintSolver {
         }
 
         fun addSegment(len: Double, tan2d: Vector3dc, start: Vector3dc) {
-            if (len < 0.01) return
+            if (generatedStraightLength(len) == 0.0) return
             val tan2dn = Vector3d(tan2d).normalize()
             val m = maxOf(2, (len / step).toInt())
             val firstIndex = if (pts.isEmpty()) 0 else 1
@@ -198,7 +200,7 @@ object ConstraintSolver {
         val endTan2d = Vector3d(fx.x()*cos(dp)+fz.x()*sin(dp), 0.0, fx.z()*cos(dp)+fz.z()*sin(dp)).normalize()
         addSegment(r.straightB, endTan2d, pts.last().position)
 
-        return pts
+        return RailCurvePartitioner.withElevationArc(pts)
     }
 
     private fun accurateLocalRawPoint(curve: StandardRailCurve, arc: Double): StandardRailCurve.CurveRawPoint {

@@ -457,7 +457,7 @@ internal class RuntimeSignalWandBackend(
                 SignalWandControlKind.PROTECTION_CURRENT_ENTRY ->
                     ProtectionCurrentEntrySignalWandBinding(captured.worldId, entryId, identity)
                 SignalWandControlKind.PROTECTION_FIXED_ROUTE ->
-                    ProtectionFixedRouteSignalWandBinding(captured.worldId, entryId, signal.bindingId, identity)
+                    ProtectionFixedRouteSignalWandBinding(captured.worldId, entryId, checkNotNull(signal.bindingId), identity)
                 else -> error("not a protection control kind")
             }
             val available = when (controlKind) {

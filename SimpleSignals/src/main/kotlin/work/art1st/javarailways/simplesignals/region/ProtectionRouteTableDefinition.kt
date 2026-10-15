@@ -52,7 +52,7 @@ internal data class ProtectionRouteDefinition private constructor(
     }
 }
 
-/** One fixed route table bound to exactly one revision of one protection region. */
+/** One fixed route table bound to one region revision; an empty table closes that region. */
 @ConsistentCopyVisibility
 internal data class ProtectionRouteTableDefinition private constructor(
     val tableId: String,
@@ -80,6 +80,5 @@ internal data class ProtectionRouteTableDefinition private constructor(
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(regionId)) { "regionId must be namespaced" }
         require(revision >= 0L) { "route-table revision must be non-negative" }
         require(regionRevision >= 0L) { "region revision must be non-negative" }
-        require(routes.isNotEmpty()) { "a fixed route table must contain at least one route" }
     }
 }

@@ -1,5 +1,15 @@
 # Stage 2 design
 
+## 建造交互收尾设计（2026-10-14，TARGET，2026-10-15用户批准实施）
+
+产品决定及验收归[PRD](prd.md#建造交互收尾顺序2026-10-14)，执行顺序归[实施计划](implement.md#建造交互实施顺序)。本节不是已实现声明；删除/重绑第一批的技术合同归[工具规范](../../spec/simple-signals/backend/section-authoring-wands.md#删除进路保留设备与显式重绑)。
+
+进路及设备编辑继续经过SimpleSignals现有manager候选事务，一次校验后发布，不能由Wand直接改运行对象。删除进路保留设备，需要在现有绑定校验、设备选择与运行输出之间一致表达失效状态，并支持显式重绑；不能靠无条件接受未知ID绕过输入校验。表示器映射允许缺项，但已声明的模型variant仍须有效；运行投影须真正停止该进路指示，不能用猜测的variant代替不显示。
+
+数值设置复用现有实例摆放计算，逻辑绑定与模型位置独立编辑；边界叠加复用编辑者隔离和临时显示生命周期，不进入资源/授权判断。实现时分别更新[建造工具](../../spec/simple-signals/backend/section-authoring-wands.md)、[模型展示](../../spec/simple-signals/backend/model-presentation.md)及[编辑标记](../../spec/bukkit-plugin/backend/editor-markers.md)的owner契约，避免在任务中复制第二份接口定义。
+
+持久化形状如需调整，先核对[版本与发布基线](../../spec/javarailways/shared/versioning.md)及仓库持久化规则；不因开发提交猜测升版或新增运行时旧开发数据兼容。每个独立小提交保留可审查的契约、实现及回归；无部署授权，本轮不操作开发服。
+
 ## Status and ownership
 
 2026-10-07 用户批准 JS 规则目标，随后将统一包修正为元数据 `pack.yml` 加 `model/`、`logic/`、`signal/`：

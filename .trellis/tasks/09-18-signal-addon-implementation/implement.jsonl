@@ -1,19 +1,11 @@
-{"file":".trellis/spec/javarailways/shared/versioning.md","reason":"Publication baseline is mandatory before any version change; unpublished formats keep their agreed version"}
-{"file":".trellis/spec/javarailways/simpleato/controller-runtime.md","reason":"Parking precision: actual HandleTrainActuator flow, shared perception and publication; no target/tolerance changes"}
-{"file":".trellis/spec/javarailways/simpleato/ato-policy-runtime.md","reason":"Parking precision: one mission/constraint planner and existing stop semantics"}
-{"file":".trellis/spec/javarailways/basic/train-longitudinal-dynamics.md","reason":"Trace real notch/brake buildup/jerk before changing ATO; preserve shared physics ownership"}
-{"file":".trellis/spec/javarailways/simpleato/terminal-route-completion.md","reason":"Approved separation: real full-section route/grant, original operational stop, existing InspectionSource lifecycle, exact suffix reuse and no blanket brake rewrite"}
-{"file":".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md","reason":"Global ato.safety-distance-meters defaults to5m; immutable equal static/production/isolated configuration, strict numeric validation and no schema bump"}
-{"file":".trellis/tasks/09-18-signal-addon-implementation/research/fixed-block-authority-stop-separation.md","reason":"Source-grounded minimal completion seam, start-inside floor, append/reversal and dependency pitfalls"}
-{"file":".trellis/spec/simple-signals/backend/bidirectional-fixed-block.md","reason":"Per-entry rules, shared occupancy/resource and direction identity; version decisions follow the shared publication gate"}
-{"file":".trellis/tasks/09-18-signal-addon-implementation/research/directional-fixed-block-signals.md","reason":"Exact source map, mixed graph and consumer audit; preserve deletion/revalidation contracts"}
-{"file":".trellis/spec/simple-signals/backend/index.md","reason":"Existing configurable rules, atomic publication, current-only persistence and plugin isolation"}
-{"file":".trellis/spec/simple-signals/backend/protection-region-signal-selection.md","reason":"Shared mixed rule graph, exact declaration identities and protection readiness"}
-{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Independent explicit models and attached primary references with retained handles"}
-{"file":".trellis/spec/simple-signals/backend/section-authoring-wands.md","reason":"Named rail preset selection copies item-bound values; reuse exact-revision authoring and preserve ground placement"}
-{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Per-signal versus shared-section edit seeds and old/new guarded transactions"}
-{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Current-only persistence; no speculative version bump or old development reader"}
-{"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"No second occupancy scanner, resource arbiter or host API"}
-{"file":".trellis/spec/guides/code-spec-authoring.md","reason":"Actual module flow, non-trivial algorithms and complexity"}
-{"file":".trellis/spec/simple-signals/backend/js-signal-rules.md","reason":"TARGET JS contract: selected distance policy, readonly inputs, local setters, budgets, forward-window gaps and review-only scope"}
-{"file":".trellis/tasks/09-18-signal-addon-implementation/research/js-rule-runtime-source-map.md","reason":"Current source seams, protection selection, dynamic-model validation and true snapshot/graph costs"}
+{"file":".trellis/spec/javarailways/shared/versioning.md","reason":"Unpublished current sidecar remains schema1; no guessed bumps or runtime development compatibility"}
+{"file":"ai_tasks/persistence_schema_evolution_rules.md","reason":"Strict current codec, explicit null state and fixed persistence regression"}
+{"file":".trellis/spec/simple-signals/backend/index.md","reason":"One manager edit transaction, atomic publication/store/source and addon boundaries"}
+{"file":".trellis/spec/simple-signals/backend/section-authoring-wands.md","reason":"Approved route deletion preserves devices; explicit null binding, empty authoritative table, later Wand rebind"}
+{"file":".trellis/spec/simple-signals/backend/current-route-recording.md","reason":"Reuse stable route/table identities and existing worker/owner interaction"}
+{"file":".trellis/spec/simple-signals/backend/definition-edit-impact.md","reason":"Old/new edit influence union, existing timetable and dynamic-claim protection"}
+{"file":".trellis/spec/simple-signals/backend/protection-region-signal-selection.md","reason":"Request selection, no-root unavailable and no inferred grants"}
+{"file":".trellis/spec/simple-signals/backend/model-presentation.md","reason":"Preserved primary/attached models, independent logical binding and placement"}
+{"file":".trellis/spec/simple-signals/backend/js-signal-rules.md","reason":"Existing graph/epoch runtime, unavailable output, no extra scanning or arbiter"}
+{"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"Reuse managers, rendering and low-frequency edit paths"}
+{"file":".trellis/spec/guides/code-spec-authoring.md","reason":"Document working mechanism, failure matrix and honest validation evidence"}

@@ -273,11 +273,16 @@ internal class SectionOccupancyRuntime private constructor(
         val changedEntries = if (selection !== oldSelection) selection?.changedEntries.orEmpty() else emptySet()
         var indicatorStates = previous?.indicators.orEmpty()
         val changedIndicatorIds = mutableListOf<String>()
-        if (changedEntries.isNotEmpty()) {
+        if (previous == null || input.topologyBaseline || changedEntries.isNotEmpty()) {
             val next = indicatorStates.toMutableMap()
-            changedEntries.flatMap { protectionSignals.indicatorsByEntry[it].orEmpty() }.forEach { indicator ->
+            val changedIndicators = if (previous == null || input.topologyBaseline) protectionSignals.indicatorsById.values else
+                changedEntries.flatMap { protectionSignals.indicatorsByEntry[it].orEmpty() }
+            changedIndicators.forEach { indicator ->
                 changedIndicatorIds += indicator.indicatorId
-                val selected = selection!!.selections.getValue(indicator.entryBoundaryId)
+                val selected = selection?.selections?.get(indicator.entryBoundaryId) ?:
+                    work.art1st.javarailways.simplesignals.signal.SelectedProtectionRoute(indicator.entryBoundaryId,
+                        work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionSource.NONE,
+                        available = false)
                 next[indicator.indicatorId] = work.art1st.javarailways.simplesignals.signal.RouteIndicatorState(
                     selected, selected.routeId?.takeIf { selected.available }?.let(indicator.modelVariantsByRouteId::getValue)
                         ?: indicator.noRouteModelVariant)

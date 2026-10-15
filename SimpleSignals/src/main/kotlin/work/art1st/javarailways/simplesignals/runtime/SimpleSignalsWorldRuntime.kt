@@ -35,6 +35,7 @@ import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionInd
 import work.art1st.javarailways.simplesignals.signal.CompiledProtectionSignals
 import work.art1st.javarailways.simplesignals.signal.CompiledProtectionRoute
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalDefinition
+import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
 import work.art1st.javarailways.simplesignals.signal.RouteIndicatorDefinition
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionSource
@@ -609,7 +610,8 @@ internal class SimpleSignalsWorldRuntime(
             }
             CompiledProtectionSignals.compile(topology, definitions.definitionRevision,
                 candidateRouteSelection, candidateBlocks.snapshot(topology), copiedSignals,
-                copiedDefinitions.protectionSignals, copiedDefinitions.routeIndicators, copiedTables)
+                copiedDefinitions.protectionSignals, copiedDefinitions.routeIndicators, copiedTables,
+                authoredEntryBoundaryIds = copiedRegions.flatMap { it.boundaries }.mapTo(hashSetOf()) { it.boundaryId })
         } catch (failure: IllegalArgumentException) {
             return@synchronized preparationRejected(
                 failure.message ?: "fixed-block signals could not be compiled"
@@ -1817,6 +1819,29 @@ internal class SimpleSignalsWorldRuntimeManager(
         val indicators = current.routeIndicators.associateByTo(linkedMapOf()) { it.indicatorId }
         patch.removeRouteIndicatorIds.forEach(indicators::remove)
         patch.upsertRouteIndicators.forEach { indicators[it.indicatorId] = it }
+        val removedRouteIds = current.routeTables.flatMap { it.routes }.mapTo(hashSetOf()) { it.routeId }
+        tables.values.forEach { table -> table.routes.forEach { removedRouteIds.remove(it.routeId) } }
+        if (removedRouteIds.isNotEmpty()) {
+            val explicitSignals = patch.upsertProtectionSignals.mapTo(hashSetOf()) { it.signalId }
+            for ((id, signal) in protectionSignals) {
+                if (id in explicitSignals || signal.kind != ProtectionSignalKind.FIXED_ROUTE ||
+                    signal.bindingId !in removedRouteIds) continue
+                val revision = try { Math.addExact(signal.revision, 1L) } catch (_: ArithmeticException) {
+                    return PatchApplication.Rejected(listOf("signal $id revision cannot be advanced"))
+                }
+                protectionSignals[id] = signal.copy(revision = revision, bindingId = null)
+            }
+            val explicitIndicators = patch.upsertRouteIndicators.mapTo(hashSetOf()) { it.indicatorId }
+            for ((id, indicator) in indicators) {
+                if (id in explicitIndicators || indicator.modelVariantsByRouteId.keys.none { it in removedRouteIds })
+                    continue
+                val revision = try { Math.addExact(indicator.revision, 1L) } catch (_: ArithmeticException) {
+                    return PatchApplication.Rejected(listOf("indicator $id revision cannot be advanced"))
+                }
+                indicators[id] = RouteIndicatorDefinition(id, revision, indicator.entryBoundaryId, indicator.noRouteModelVariant,
+                    indicator.modelVariantsByRouteId.filterKeys { it !in removedRouteIds }, indicator.model)
+            }
+        }
         val attachedSignals = current.attachedSignals.associateByTo(linkedMapOf()) { it.signalId }
         patch.removeAttachedSignalIds.forEach(attachedSignals::remove)
         patch.upsertAttachedSignals.forEach { attachedSignals[it.signalId] = it }

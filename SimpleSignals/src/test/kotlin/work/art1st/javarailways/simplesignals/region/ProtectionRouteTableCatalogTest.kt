@@ -21,6 +21,28 @@ import java.util.UUID
 
 class ProtectionRouteTableCatalogTest {
     @Test
+    fun `empty authored table closes both directions instead of restoring free routing`() {
+        val fixture = fixture()
+        fun reverse(restrictions: RoutePlanningRestrictions) = TopologyRoutePlanner.plan(
+            TopologyRoutePlanningInput(fixture.topology, restrictions,
+                OperationalRouteLocation(fixture.exit, 10.0), OperationalRouteLocation(fixture.entry, 0.0),
+                "test:reverse", 1, ViewDirection.BA, ViewDirection.BA))
+        val unrestricted = RoutePlanningRestrictions(fixture.topology.revision)
+        assertTrue(fixture.plan(unrestricted) is TopologyRoutePlanningResult.Planned)
+        assertTrue(reverse(unrestricted) is TopologyRoutePlanningResult.Planned)
+        val tables = publishedTables(fixture, listOf(fixture.upperRoute()))
+        val empty = fixture.table(2, emptyList())
+        assertEquals(ProtectionRouteTableCatalogStatus.PUBLISHED, tables.publish(2, listOf(empty)).status)
+        assertEquals(setOf(fixture.region.regionId), tables.unavailableRegionIds())
+        assertTrue(tables.usableDefinitions().isEmpty())
+        val restrictions = tables.restrictionSource.restrictions(fixture.topology)
+        assertTrue(restrictions.pathReplacements.isEmpty())
+        assertEquals(ViewDirection.entries.toSet(), restrictions.forbiddenTraversals.map { it.facing }.toSet())
+        assertTrue(fixture.plan(restrictions) is TopologyRoutePlanningResult.Rejected)
+        assertTrue(reverse(restrictions) is TopologyRoutePlanningResult.Rejected)
+    }
+
+    @Test
     fun `incomplete region does not allow a table to target a future region revision`() {
         val fixture = fixture()
         val draft = ProtectionRegionDefinition(fixture.region.regionId, 2,

@@ -177,7 +177,7 @@ private data class SavedFixedBlockSignalV1(
 
 @Serializable
 private data class SavedProtectionSignal(
-    val signalId: String, val revision: Long, val kind: ProtectionSignalKind, val bindingId: String,
+    val signalId: String, val revision: Long, val kind: ProtectionSignalKind, val bindingId: String?,
     val inspectionLeadTimeSeconds: Double,
     @SerialName("type") val signalType: String,
     /** Instances persist placement without duplicating the catalog-selected model ID. */

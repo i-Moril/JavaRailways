@@ -36,7 +36,8 @@ internal class CompiledProtectionSignals private constructor(
             authoredTables: Collection<ProtectionRouteTableDefinition> = emptyList(),
             previous: Pair<CompiledFixedBlockSignals, CompiledProtectionSignals>? = null,
             changedSignalIds: Set<String> = emptySet(),
-            revalidatingTopology: Boolean = false
+            revalidatingTopology: Boolean = false,
+            authoredEntryBoundaryIds: Set<String> = emptySet()
         ): Pair<CompiledFixedBlockSignals, CompiledProtectionSignals> {
             val byId = signals.associateBy { it.signalId }
             require(byId.size == signals.size) { "protection signal IDs must be unique" }
@@ -47,14 +48,15 @@ internal class CompiledProtectionSignals private constructor(
             val authoredByEntry = authoredRoutes.values.groupBy { it.entryBoundaryId }
             val usableByEntry = routes.routesById.values.groupBy { it.definition.entryBoundaryId }
             val routeIdsBySignal = signals.associate { signal ->
-                val candidates = when (signal.kind) {
+                val candidates = if (signal.bindingId == null) emptyList() else when (signal.kind) {
                     ProtectionSignalKind.FIXED_ROUTE -> listOfNotNull(routes.routesById[signal.bindingId]).also {
                         require(it.isNotEmpty() || signal.bindingId in authoredRoutes) {
                             "signal ${signal.signalId} binds unknown route ${signal.bindingId}"
                         }
                     }
                     ProtectionSignalKind.CURRENT_ENTRY -> usableByEntry[signal.bindingId].orEmpty().also {
-                        require(it.isNotEmpty() || signal.bindingId in authoredByEntry) {
+                        require(it.isNotEmpty() || signal.bindingId in authoredByEntry ||
+                            signal.bindingId in authoredEntryBoundaryIds) {
                             "signal ${signal.signalId} binds unknown entry ${signal.bindingId}"
                         }
                     }
@@ -100,7 +102,8 @@ internal class CompiledProtectionSignals private constructor(
                 if (!revalidatingTopology) indicator.model?.validatePlacement(topology, indicator.indicatorId)
                 val entryRoutes = usableByEntry[indicator.entryBoundaryId].orEmpty()
                 val authoredEntry = authoredByEntry[indicator.entryBoundaryId].orEmpty()
-                require(entryRoutes.isNotEmpty() || authoredEntry.isNotEmpty()) {
+                require(entryRoutes.isNotEmpty() || authoredEntry.isNotEmpty() ||
+                    indicator.entryBoundaryId in authoredEntryBoundaryIds) {
                     "indicator ${indicator.indicatorId} binds unknown entry"
                 }
                 require(indicator.modelVariantsByRouteId.keys == (if (authoredEntry.isNotEmpty())

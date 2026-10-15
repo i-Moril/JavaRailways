@@ -12,13 +12,16 @@ internal data class ProtectionSignalDefinition(
     val signalId: String,
     val revision: Long,
     val kind: ProtectionSignalKind,
-    val bindingId: String,
+    /** Null explicitly leaves this retained device unbound; it never selects another route. */
+    val bindingId: String?,
     val inspectionLeadTimeSeconds: Double,
     val signalType: String,
     val placement: ModelPlacement? = null
 ) {
     init {
-        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(bindingId)) { "protection bindingId must be namespaced" }
+        require(bindingId == null || SIMPLE_SIGNALS_NAMESPACED_ID.matches(bindingId)) {
+            "protection bindingId must be namespaced"
+        }
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalId)) { "signalId must be namespaced" }
         require(revision >= 0L) { "signal revision must be non-negative" }
         require(inspectionLeadTimeSeconds.isFinite() && inspectionLeadTimeSeconds >= 0.0) {

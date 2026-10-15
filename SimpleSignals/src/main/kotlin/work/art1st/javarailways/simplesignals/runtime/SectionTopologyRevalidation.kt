@@ -335,7 +335,8 @@ internal object SectionTopologyRevalidation {
         val signals = CompiledProtectionSignals.compile(topology, definitions.definitionRevision, selection,
             blockCatalog.snapshot(topology), definitions.fixedBlockSignals, definitions.protectionSignals,
             definitions.routeIndicators, definitions.routeTables, previous.fixedBlockSignals to previous.protectionSignals,
-            affectedSignals, revalidatingTopology = true)
+            affectedSignals, revalidatingTopology = true,
+            authoredEntryBoundaryIds = definitions.regions.flatMap { it.boundaries }.mapTo(hashSetOf()) { it.boundaryId })
         val observationGraph = SignalObservationGraphBuilder.compile(
             topology,
             definitions,

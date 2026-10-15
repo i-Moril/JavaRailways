@@ -226,7 +226,7 @@ internal object SignalObservationGraphBuilder {
         val routesByEntry = routes.routesById.values.groupBy { it.definition.entryBoundaryId }
         definitions.protectionSignals.sortedBy { it.signalId }.forEach { signal ->
             val routeIds = when (signal.kind) {
-                ProtectionSignalKind.FIXED_ROUTE -> listOf(signal.bindingId)
+                ProtectionSignalKind.FIXED_ROUTE -> listOfNotNull(signal.bindingId)
                 ProtectionSignalKind.CURRENT_ENTRY -> routesByEntry[signal.bindingId].orEmpty()
                     .map { it.definition.routeId }.sorted()
             }

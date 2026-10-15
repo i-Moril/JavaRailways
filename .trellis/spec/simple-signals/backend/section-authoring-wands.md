@@ -123,6 +123,41 @@ Ground保持方块面捕获的绝对姿态，忽略rail预设。状态栏标明�
 
 ## 6. 删除与失效处理
 
+### 删除进路保留设备与显式重绑
+
+状态：后端定义事务与安全输出已实现并通过独立复核、离线门禁；Wand删除/重绑仍为TARGET（2026-10-15）。本批由SimpleSignals负责，不修改Core/Basic/ATO，不新增锁或资源管理器。
+正常流程为：编辑已有表删除所选进路 → 在同一候选中解除因此失效的设备绑定 → 完整编译、取得原有编辑许可并保存 → 玩家选中保留设备、选择新入口/进路并确认重绑。
+删除最后一条进路保留同ID的空表；现有catalog将该区域标为不可用并禁止穿越，不能删除空表恢复自由选路。
+这约束的是“删除进路”操作；管理员明确通过原有低层patch删除整张进路表属于移除固定进路策略，不在这里新增禁止规则，也不暗中重建被明确删除的表。Wand删除进路不得使用该入口。
+
+保护主信号的`bindingId: String?`以null明确表示未绑定；有值时仍须匹配真实作者进路/区域边界入口，不接受拼错的ID。删除进路不等于删除物理入口，因此当前入口信号和表示器保留仍存在的入口绑定；表示器`entryBoundaryId`不改为可空。
+未绑定固定进路信号保留其kind，不能把null当成“当前入口”或任选进路。主信号无可用观察根时复用已有Unavailable安全输出；附属设备仍引用原主信号。
+入口没有可用进路时，表示器使用自己的无进路外观，不建立行车限制；首个baseline也必须有此结果，不能依赖模型默认场景。模型和摆放仍独立保留，不能沿模型位置猜测逻辑绑定。
+
+事务在patch合并之后比较旧、新作者表，确定真正删除的进路；只规范化保留且未显式upsert的设备：
+
+```text
+removedRoutes = oldAuthoredRoutes - newAuthoredRoutes
+for retainedDevice not explicitly upserted:
+  fixed route removed -> binding = null
+  indicator -> remove only deleted-route mappings
+  if changed -> checked device revision + 1
+compile candidate using normal strict reference validation
+```
+
+清理表示器映射只移除已删除进路，其他映射、无进路外观、设备ID、类型、摆放、提前时间及附属关系保持不变。明确upsert的设备由调用者提供合法新绑定或null，不能由规范化吞掉错误引用。
+重绑仅以选中设备的精确ID/revision更新逻辑绑定，不改模型位置；新目标必须当前有效，同名ID以后重新出现也不能自动重新绑定null设备。
+候选构造、比较和编码在worker完成；最终提交沿用原base/topology核对和原子提交。受运营依赖、动态claim或编辑冲突保护时拒绝，失败不改磁盘、source或publication。
+revision溢出明确拒绝，不允许半解除绑定。空表恢复需显式录制/添加合法进路，不自动生成替代路线。
+
+新增比较及清理成本随进路、设备和映射引用总数线性增长，只发生在低频编辑，不新增tick扫描。完整编译和写盘仍有既有规模成本。
+例如删除A而B仍存在：绑定A的固定信号未绑定，当前入口信号继续检查B，表示器只移除A映射；删除最后的B后入口设备保留真实边界绑定，但无可用进路、表示器显示无进路且区域禁行。
+必须验证真实manager删除、无关设备不变、明确未知引用拒绝、空表阻断实际规划、重启保留null与空表、Unavailable输出不复用旧许可、附属关系保留，以及编辑许可/保存失败原子性。
+回归入口为`SimpleSignalsWorldRuntimeManagerTest`及`ProtectionRouteTableCatalogTest`：前者覆盖删除、清空、重载、相同route ID重建不自动绑定及显式重绑，并检查主信号/附属外观；后者先证明无限制时正反路线可达，再证明空表双向拒绝。manager场景的准入、净空及平台调度使用已有fixture，不宣称验证真实运行资源申请或客户端画面；真实JS、定义事务、编译器、store和Basic寻路实际执行。
+Wand批次另验证设备选择、目标选择、确认前无写入、过期回调和只改逻辑绑定；尚未接线时不能宣称游戏内可操作。
+
+本后端批次直接修正未发布current sidecar，保持schema 1，不修改PDC或新增旧格式reader。禁止“允许所有未知ID”或“删除设备/空表”作为实现捷径。
+
 信号工具在 catalog 未就绪、信号类型或 presentation model 未知、入口不唯一、生成 ID 碰撞、revision 溢出、捕获的 catalog／runtime／
 publication／topology 过期或 manager patch 被拒绝时都只返回失败；不得改变 sidecar、live publication、inspection source、
 JS 输出或模型 handle。PDC 中即使仍有格式合法但已删除的 `signalType`，也必须由当前 catalog 和候选编译拒绝，不能视为授权。

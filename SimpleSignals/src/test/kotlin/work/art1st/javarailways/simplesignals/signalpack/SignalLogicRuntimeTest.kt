@@ -3,10 +3,14 @@ package work.art1st.javarailways.simplesignals.signalpack
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.put
+import net.minecraft.SharedConstants
+import net.minecraft.server.Bootstrap
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.io.TempDir
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
@@ -14,8 +18,58 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 class SignalLogicRuntimeTest {
+    companion object {
+        @JvmStatic
+        @BeforeAll
+        fun bootstrap() {
+            SharedConstants.tryDetectVersion()
+            Bootstrap.bootStrap()
+        }
+    }
+
     @TempDir
     lateinit var temporary: Path
+
+    @Test
+    fun `explicit clear returns no additional speed limit without replacing the model output`() {
+        runtime("""
+            function evaluate(input, output) {
+              output.clearSpeedLimit();
+              output.setModelVariant('G');
+            }
+        """).use { runtime ->
+            val output = runtime.evaluate("test:logic", input(0.0))
+            assertNull(output.speedLimitMetresPerSecond)
+            assertEquals("G", output.modelVariant)
+        }
+    }
+
+    @Test
+    fun `clear and set are exactly one explicit speed decision per evaluation`() {
+        assertEvaluationRejected("output.clearSpeedLimit(); output.clearSpeedLimit(); output.setModelVariant('G');")
+        assertEvaluationRejected("output.clearSpeedLimit(); output.setSpeedLimit(1); output.setModelVariant('G');")
+        assertEvaluationRejected("output.setSpeedLimit(1); output.clearSpeedLimit(); output.setModelVariant('G');")
+        assertEvaluationFails("output.clearSpeedLimit();", "did not call setModelVariant")
+        assertEvaluationRejected("output.clearSpeedLimit(); output.setModelVariant('G'); throw new Error('broken');")
+        listOf(
+            "output.clearSpeedLimit(); output.clearSpeedLimit();",
+            "output.clearSpeedLimit(); output.setSpeedLimit(1);",
+            "output.setSpeedLimit(1); output.clearSpeedLimit();",
+            "output.setSpeedLimit(1); output.setSpeedLimit(2);"
+        ).forEach { duplicate ->
+            assertEvaluationRejected("try { $duplicate } catch (error) {} output.setModelVariant('G');")
+        }
+        assertEvaluationRejected("output.clearSpeedLimit(); output.setModelVariant('G'); " +
+            "try { output.setModelVariant('Y'); } catch (error) {}")
+        listOf("null", "undefined", "true", "'5'", "{}", "{ valueOf() { return 5; } }", "1n").forEach { invalid ->
+            assertEvaluationRejected("try { output.setSpeedLimit($invalid); } catch (error) {} " +
+                "output.clearSpeedLimit(); output.setModelVariant('G');")
+        }
+        listOf("null", "undefined", "true", "5", "{}", "{ toString() { return 'G'; } }").forEach { invalid ->
+            assertEvaluationRejected("output.clearSpeedLimit(); " +
+                "try { output.setModelVariant($invalid); } catch (error) {} output.setModelVariant('G');")
+        }
+    }
 
     @Test
     fun `evaluates immutable JSON input and returns both setters atomically`() {

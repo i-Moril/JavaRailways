@@ -12,7 +12,8 @@ import org.graalvm.polyglot.Value
 import org.graalvm.polyglot.io.IOAccess
 import java.io.OutputStream
 
-data class SignalLogicOutput(val speedLimitMetresPerSecond: Double, val modelVariant: String)
+/** Null speed is an explicit decision not to add a limit, never a missing output. */
+data class SignalLogicOutput(val speedLimitMetresPerSecond: Double?, val modelVariant: String)
 
 class SignalLogicException(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
 
@@ -117,28 +118,44 @@ class SignalLogicRuntime(catalog: SignalPackCatalog) : AutoCloseable {
 
     internal class OutputBridge(private val logicId: String) {
         private var speed: Double? = null
+        private var speedCalled = false
         private var variant: String? = null
+        private var failure: String? = null
 
         @HostAccess.Export
         fun setSpeedLimit(metresPerSecond: Double) {
-            if (speed != null) throw SignalLogicException("signal logic '$logicId' called setSpeedLimit more than once")
+            if (speedCalled) reject("called setSpeedLimit more than once or after clearSpeedLimit")
             if (!metresPerSecond.isFinite() || metresPerSecond < 0.0) {
-                throw SignalLogicException("signal logic '$logicId' supplied an invalid speed limit")
+                reject("supplied an invalid speed limit")
             }
             speed = metresPerSecond
+            speedCalled = true
+        }
+
+        @HostAccess.Export
+        fun clearSpeedLimit() {
+            if (speedCalled) reject("called clearSpeedLimit more than once or after setSpeedLimit")
+            speedCalled = true
         }
 
         @HostAccess.Export
         fun setModelVariant(name: String) {
-            if (variant != null) throw SignalLogicException("signal logic '$logicId' called setModelVariant more than once")
-            if (name.isBlank()) throw SignalLogicException("signal logic '$logicId' supplied a blank model variant")
+            if (variant != null) reject("called setModelVariant more than once")
+            if (name.isBlank()) reject("supplied a blank model variant")
             variant = name
         }
 
         fun finish(): SignalLogicOutput {
-            val completeSpeed = speed ?: throw SignalLogicException("signal logic '$logicId' did not call setSpeedLimit")
+            failure?.let { throw SignalLogicException(it) }
+            if (!speedCalled) throw SignalLogicException("signal logic '$logicId' did not call setSpeedLimit or clearSpeedLimit")
             val completeVariant = variant ?: throw SignalLogicException("signal logic '$logicId' did not call setModelVariant")
-            return SignalLogicOutput(completeSpeed, completeVariant)
+            return SignalLogicOutput(speed, completeVariant)
+        }
+
+        private fun reject(detail: String): Nothing {
+            val message = "signal logic '$logicId' $detail"
+            if (failure == null) failure = message
+            throw SignalLogicException(message)
         }
     }
 
@@ -188,10 +205,18 @@ class SignalLogicRuntime(catalog: SignalPackCatalog) : AutoCloseable {
                 const facade = freeze({
                   setSpeedLimit(value) {
                     if (!active) throw new Error("signal output is no longer active");
+                    // Invalid-type rejection only, never coercion/fallback; the bridge records sticky failure.
+                    if (typeof value !== "number") output.setSpeedLimit(NaN);
                     output.setSpeedLimit(value);
+                  },
+                  clearSpeedLimit() {
+                    if (!active) throw new Error("signal output is no longer active");
+                    output.clearSpeedLimit();
                   },
                   setModelVariant(value) {
                     if (!active) throw new Error("signal output is no longer active");
+                    // Record invalid types before host argument conversion can throw outside the bridge.
+                    if (typeof value !== "string") output.setModelVariant("");
                     output.setModelVariant(value);
                   }
                 });

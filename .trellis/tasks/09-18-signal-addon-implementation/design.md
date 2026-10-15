@@ -1,5 +1,11 @@
 # Stage 2 design
 
+## 正式包前置：不限速与参考速度（2026-10-15）
+
+已批准G不附加限速，先在SimpleSignals自身的JS输出、同epoch下游投影及inspection之间贯通；通用SimpleATO限制类型仍只表达有限数值，“不限速”通过不增加该信号的速度restriction实现，而不是把Infinity传播进制动公式。资源、完整区间授权和不可用时停车的边界不变。具体表示与调用合同归[明确不限速](../../spec/simple-signals/backend/js-signal-rules.md#明确不附加限速)。
+
+扫描距离后续按参考速度与拟定减速度计算，排除本信号自身输出，依据变化才更新缓存；本批不擅选默认最高速度。速度数据与公开服务的缺口见[源码研究](research/signal-reference-speed-source-gap.md)：物理rail局部限速和时刻表按运营Line的最高速度不是同一个owner，现有Line没有maxSpeed。第二笔需明确共享信号处的物理线路最高速度来源，不能通过反向读取每车ATO或猜测时刻表Line替代。正式包、部署和迁移不随第一笔自动完成。
+
 ## 建造交互收尾设计（2026-10-14，TARGET，2026-10-15用户批准实施）
 
 产品决定及验收归[PRD](prd.md#建造交互收尾顺序2026-10-14)，执行顺序归[实施计划](implement.md#建造交互实施顺序)。本节不是已实现声明；删除/重绑第一批的技术合同归[工具规范](../../spec/simple-signals/backend/section-authoring-wands.md#删除进路保留设备与显式重绑)。

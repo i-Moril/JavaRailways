@@ -2,6 +2,17 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
+### 正式信号包前置：明确不限速与扫描依据（2026-10-15）
+
+用户已批准G不附加限速、扫描范围按参考速度与拟定减速度计算，参考速度不含本信号输出。按小提交拆开：第一笔只改SimpleSignals输出/下游/inspection及集中回归，显式clear与数值setter二选一，缺输出/失效仍0，保留授权底线；第二笔须先核实公开可取得的速度来源和变更通知，再接计算扫描范围。Y/YG速度、减速度数值及实际“线路”速度归属不得猜测冻结。正式四灯包随后，不部署、不迁移、不改版本或添加旧reader。旧smoke不作为正式包交付。
+
+- 第一笔已完成离线实现及独立check：4个SimpleSignals产品文件（SignalLogicRuntime、SectionSignalState、SignalPackEpochRuntime、FixedBlockInspectionSource），3个既有测试类新增5项回归；JS输出新增明确clear，内部nullable值不传入通用ATO数值限制，inspection只省略速度restriction，资源/声明/完整区间floor不变。下游明确写JSON null，同入口有限限制原位取最小值，全部clear才null，缺失/Unavailable仍0。
+- 测试旧码首次12项全失败来自Paper Registry未初始化，不算行为红灯；复用已有SharedConstants/Bootstrap初始化后，旧产品12项准确2失败，22秒、30tasks（3执行/27up-to-date）。日志`/tmp/javarailways-signal-unlimited-red2.log`，XML保留`/tmp/javarailways-unlimited-red2.XscdTWLb`。其余consumer回归未在旧码执行，不声称全部红灯。
+- 首轮完整567项有2项新manager fixture失败，1分6秒，日志`/tmp/javarailways-signal-unlimited-final.log`：终止分支有end而非空forward，及每次新建epoch导致撤销owner不脏。独立check修正fixture并保持原断言；另修桥接器首次失败记录与JS类型先检，脚本捕获重复/错误类型setter异常后仍不能提交；下游聚合改原位循环避免临时列表，无新框架/锁。
+- 最终隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`执行`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries`通过，53 suites/567项全部实际执行，零failure/error/skip，1分5秒、34tasks（8执行/26up-to-date）。日志`/tmp/javarailways-signal-unlimited-final2.log`；SimpleSignals编译/test/JAR边界与module门禁执行，未变Java consumer复用成功缓存，不计为本次重新编译。未重跑无关Core/Basic/SimpleATO/Bukkit测试或WebUI前端。
+- live/candidate全部SimpleSignals/src按相对路径排序的SHA256清单摘要一致：`31c1345e90ea8b06740bf4e1f9f557fea486078b6ca9469c6ea8a2f3c3f325a7`；新SimpleSignals JAR SHA256 `92560cf3f0c995b4456def3a781daa9164beabcee8305fcf2f3d2ae3788676c8`。沿用`/workspace/.gradle` JDK25与cache、offline/no-build-cache/nonincremental/in-process、2workers/1536m heap/1024m metaspace，跳过未改前端install/build；仍有既有Graal POM-as-zip、JDK native/Unsafe等warning，无独立lint任务，scoped diff--check通过。未部署或做真实服务器验收。
+- 第二笔暂停在速度归属确认：已有rail CURVE/SUBGRADE局部限速，另有时刻表按运营Line最高速度，但没有公开物理线路最高速度/变化订阅；不能擅把每车ATO或时刻表上限作为共享物理信号输入。证据见[速度来源](research/signal-reference-speed-source-gap.md)，已向用户提出区分问题。动态扫描和正式四灯包仍未实现，不将第一笔当作Stage2结束。
+
 2026-10-15正式游戏准备已核对，当前基线与后续顺序见[就绪清单](research/game-test-readiness-2026-10-15.md)：建造交互离线完成；用户单独批准的Basic CR-040和随后CR-041现已修复，最新五模块2157项回归通过，证据归[审查任务批次](../10-09-stage2-code-review/implement.md#cr-041配置ui收口2026-10-15用户单独批准)。需正式规则包而非smoke规则；本地旧配置/世界不能直接换JAR启动，远端现状未刷新。未部署或完成游戏验收；动态贡献依赖触发缺口单列审查台账，不冒称所有配置场景均完成。历史未勾选框与早期研究保留当时上下文，不再当作当前功能计数。
 
 后续顺序更新：用户于2026-10-15批准以下范围和执行顺序，测距放在其余建造交互之后。进路删除/保护主信号重绑、表示器新建/映射/入口编辑、实例参数数值编辑、边界/区间编辑叠加及独立测距已接线并通过各自离线门禁；本轮建造交互清单已完成离线实现。接下来核对已有Stage 2验收项及正式版游戏测试准备，不将未来平台拆分、任意样式编辑等加入本轮前置条件。未部署，真实游戏验收未完成，父任务保持in_progress。

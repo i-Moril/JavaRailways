@@ -25,7 +25,8 @@ main配置直接反向依赖。语义ownership和公开API使用仍由代码审�
 
 主信号通过 `type`（Kotlin 属性 `signalType`）引用统一信号包中的类型。包使用 `pack.yml` 保存元数据，
 `model/` 定义模型、`logic/` 保存配对的 YAML／JS、`signal/` 声明玩家可选的模型与逻辑组合；类型可以引用其他包的模型或逻辑。
-灯色名称、模型 variant 和具体速度由 JS 调用 `setSpeedLimit(...)`、`setModelVariant(...)` 决定，不存在另一套 Kotlin 阈值规则。
+灯色名称、模型 variant 和具体速度由 JS 决定，不存在另一套 Kotlin 阈值规则。每次求值必须在`setSpeedLimit(...)`与`clearSpeedLimit()`中恰好选择一个，并调用一次`setModelVariant(...)`。
+`clearSpeedLimit()`明确不附加本信号限速；它不授予资源，不取消线路、车辆或其他限制。漏调用、脚本异常或不可用状态仍按0限制处理，不能默认解释为不限速。
 
 插件按逻辑声明的最远扫描距离预编译树形观察，运行时填入同 epoch 的区间长度、占用、分支选择及可用的下游信号限速。
 JS 可检查未选支路，不只观察当前路径。物理环只终止命中的分支，并以 `cycle` 告知 JS，其他分支继续；

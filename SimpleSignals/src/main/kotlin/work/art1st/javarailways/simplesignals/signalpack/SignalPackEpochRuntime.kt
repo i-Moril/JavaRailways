@@ -2,6 +2,7 @@ package work.art1st.javarailways.simplesignals.signalpack
 
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
@@ -161,10 +162,13 @@ internal class SignalPackEpochRuntime private constructor(
 
         fun downstream(node: SignalObservationPlanNode): JsonObject? {
             if (!node.exposesDownstreamSignal || node.deviceIds.isEmpty()) return null
-            val speed = node.deviceIds.minOf { id ->
-                states[id]?.effectiveSpeedLimitMetersPerSecond ?: 0.0
+            var speed: Double? = null
+            for (id in node.deviceIds) {
+                val state = states[id]
+                val limit = if (state == null) 0.0 else state.effectiveSpeedLimitMetersPerSecond
+                if (limit != null && (speed == null || limit < speed)) speed = limit
             }
-            return jsonObject("speedLimitMetersPerSecond" to JsonPrimitive(speed))
+            return jsonObject("speedLimitMetersPerSecond" to (speed?.let(::JsonPrimitive) ?: JsonNull))
         }
 
         lateinit var nodeValue: (SignalObservationPlanNode, SignalObservationBranchRequirements) -> JsonObject

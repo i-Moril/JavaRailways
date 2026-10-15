@@ -11,13 +11,14 @@ internal data class RequiredActiveContinuation(
     init { require(entry != selectedExit) { "required continuation cannot return through its entry" } }
 }
 
-/** Validated JavaScript rule output; model variants remain opaque to the host runtime. */
+/** Validated JavaScript output; null speed explicitly adds no limit, variants remain opaque. */
 internal data class SectionSignalOutput(
-    val speedLimitMetersPerSecond: Double,
+    val speedLimitMetersPerSecond: Double?,
     val modelVariant: String
 ) {
     init {
-        require(speedLimitMetersPerSecond.isFinite() && speedLimitMetersPerSecond >= 0.0) {
+        require(speedLimitMetersPerSecond == null ||
+            (speedLimitMetersPerSecond.isFinite() && speedLimitMetersPerSecond >= 0.0)) {
             "signal speed limit must be finite and non-negative"
         }
         require(modelVariant.isNotBlank()) { "signal model variant must not be blank" }
@@ -26,10 +27,10 @@ internal data class SectionSignalOutput(
 
 /** Unavailable state is the host-owned fail-closed result, not a model variant. */
 internal sealed interface SectionSignalState {
-    val effectiveSpeedLimitMetersPerSecond: Double
+    val effectiveSpeedLimitMetersPerSecond: Double?
 
     data class Available(val output: SectionSignalOutput) : SectionSignalState {
-        override val effectiveSpeedLimitMetersPerSecond: Double get() = output.speedLimitMetersPerSecond
+        override val effectiveSpeedLimitMetersPerSecond: Double? get() = output.speedLimitMetersPerSecond
     }
 
     data class Unavailable(val reason: String) : SectionSignalState {

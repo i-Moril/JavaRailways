@@ -1883,6 +1883,127 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
+    fun `shared protection entrance combines only finite signal limits and preserves all clear as null`() {
+        val f = Fixture()
+        val selected = f.upperRoute()
+        val block = FixedBlockDefinition("test:approach", 1,
+            listOf(FixedBlockTraversal(f.entry, ViewDirection.AB, 0.0, 4.0)))
+        val approach = FixedBlockSignalDefinition("test:approach-head", 1, block.blockId, 0.0, "automatic:block")
+        val clear = protectionSignal(ProtectionSignalKind.FIXED_ROUTE, selected)
+            .copy(signalType = "automatic:block")
+        val peer = clear.copy(signalId = "test:peer", signalType = "automatic:slow")
+        val definitions = store()
+        definitions.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1, listOf(f.region),
+            listOf(f.table(1, selected)), listOf(block), listOf(approach), listOf(clear, peer)))
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), MutableTopologyService(f.currentTopology).service,
+            CapturingRoutePlanningService(), definitions, sources, loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack(script = """
+            function evaluate(input, output) {
+              if (input.self.lengthMeters === 4) {
+                const speed = input.forward[0].downstreamSignal.speedLimitMetersPerSecond;
+                if (speed === null) output.clearSpeedLimit(); else output.setSpeedLimit(speed);
+              } else output.clearSpeedLimit();
+              output.setModelVariant('clear');
+            }
+        """.trimIndent()))
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        val runtime = manager.authoringRuntime(f.worldId)!!
+        val route = RouteSnapshot("test:clear-mission", 1, f.currentTopology.revision,
+            listOf(f.entry, f.upperIn, f.upperOut, f.exit).map {
+                RouteSegmentSnapshot(it, ViewDirection.AB, 0.0, 10.0)
+            })
+        val owner = InfrastructureOwner("test:clear-owner", 1)
+        val epoch = protectionTestEpoch(runtime, f.worldId.toString(), TrainRestrictionSnapshotStore(f.worldId.toString()))
+        fun process(number: Long, grant: Boolean) {
+            epoch.also {
+                it.replaceSources(sources.sources.getValue(f.worldId))
+                if (grant) it.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, ActiveRouteAdmissionSnapshot(owner,
+                    "train", route, ActiveRouteAdmissionState.GRANTED, RouteBoundary(40.0), RouteBoundary(40.0))))
+                else it.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, null))
+                val position = RailPositionSnapshot(f.entry, ViewDirection.AB, 0.0)
+                val continuations = runtime.authoringPublication().routeSelection.routesById.getValue(selected.routeId)
+                    .requiredContinuations.associate { it.entry to it.selectedExit }
+                it.process(RailwayWorldFrameSnapshot.create(number, f.currentTopology.revision,
+                    listOf(TrainFrameSnapshot.create("train", "Train", number, number, 0.0, false, false,
+                        emptyList(), position, position, emptyList(), emptyList(), emptyList(), emptyList(), emptyList())),
+                    ActiveRailContinuationsSnapshot.create(f.currentTopology.revision, number, continuations)))
+            }
+        }
+        process(1, true)
+        assertNull(runtime.sectionSignalSnapshot()!!.states.getValue(clear.signalId).effectiveSpeedLimitMetersPerSecond)
+        assertEquals(5.0, runtime.sectionSignalSnapshot()!!.states.getValue(approach.signalId).effectiveSpeedLimitMetersPerSecond)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
+            manager.applyDefinitionPatch(f.worldId, 1, SimpleSignalsDefinitionPatch(upsertProtectionSignals = listOf(
+                peer.copy(revision = 2, signalType = "automatic:block")))).status)
+        process(2, true)
+        assertTrue(runtime.sectionSignalSnapshot()!!.states.values.all { it is SectionSignalState.Available })
+        assertTrue(runtime.sectionSignalSnapshot()!!.states.values.all { it.effectiveSpeedLimitMetersPerSecond == null })
+        process(3, false)
+        assertEquals(0.0, runtime.sectionSignalSnapshot()!!.states.getValue(approach.signalId).effectiveSpeedLimitMetersPerSecond,
+            "an unavailable protection entry is zero, not an unlimited downstream signal")
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `explicit unlimited output stays available and reaches upstream as JSON null in the same epoch`() {
+        val rails = (1L..3L).map { UUID(11L, it) }
+        val topology = topologyState(71, rails, rails.zipWithNext().map { (first, second) ->
+            endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A)
+        })
+        val worldId = UUID.randomUUID()
+        val blocks = rails.mapIndexed { index, rail -> FixedBlockDefinition("test:clear-block-$index", 1,
+            listOf(FixedBlockTraversal(rail, ViewDirection.AB, 0.0, 5.0))) }
+        val signals = blocks.mapIndexed { index, block -> FixedBlockSignalDefinition(
+            "test:clear-signal-$index", 1, block.blockId, 0.0, "automatic:block") }
+        val definitions = store()
+        definitions.save(worldId, SimpleSignalsWorldDefinitions(worldId, 1,
+            emptyList(), emptyList(), blocks, signals))
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), MutableTopologyService(topology).service,
+            CapturingRoutePlanningService(), definitions, sources, loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack(script = """
+            function evaluate(input, output) {
+              if (input.forward.length === 0 ||
+                  (input.forward[0].end?.reason === 'track-end' && !Object.hasOwn(input.forward[0], 'section'))) {
+                output.clearSpeedLimit();
+              } else {
+                const downstream = input.forward[0].downstreamSignal;
+                if (downstream === undefined || !Object.hasOwn(downstream, 'speedLimitMetersPerSecond')) {
+                  throw new Error('missing downstream output is not an explicit unlimited decision');
+                }
+                output.setSpeedLimit(downstream.speedLimitMetersPerSecond === null ? 12 :
+                  downstream.speedLimitMetersPerSecond - 2);
+              }
+              output.setModelVariant('clear');
+            }
+        """.trimIndent()))
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(worldId).status)
+        val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionSnapshotStore(worldId.toString()))
+        epoch.replaceSources(sources.sources.getValue(worldId))
+        epoch.process(RailwayWorldFrameSnapshot.create(1, topology.revision, emptyList(),
+            ActiveRailContinuationsSnapshot.empty(topology.revision)))
+        val captured = manager.authoringRuntime(worldId)!!.sectionSignalSnapshot()!!
+        assertTrue(signals.all { captured.states.getValue(it.signalId) is SectionSignalState.Available })
+        assertEquals(listOf(10.0, 12.0, null), signals.map {
+            captured.states.getValue(it.signalId).effectiveSpeedLimitMetersPerSecond
+        })
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
+            manager.applyDefinitionPatch(worldId, 1, SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(
+                signals.last().reconfigured(revision = 2, signalType = "automatic:slow")))).status)
+        epoch.replaceSources(sources.sources.getValue(worldId))
+        epoch.process(RailwayWorldFrameSnapshot.create(2, topology.revision, emptyList(),
+            ActiveRailContinuationsSnapshot.empty(topology.revision)))
+        assertEquals(listOf(1.0, 3.0, 5.0), signals.map {
+            manager.authoringRuntime(worldId)!!.sectionSignalSnapshot()!!.states.getValue(it.signalId)
+                .effectiveSpeedLimitMetersPerSecond
+        })
+        assertNull(captured.states.getValue(signals.last().signalId).effectiveSpeedLimitMetersPerSecond,
+            "publishing a finite output must not mutate the previous unlimited snapshot")
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
     fun `JS signal types publish a transitive downstream chain in one physical epoch`() {
         val rails = (1L..3L).map { UUID(10L, it) }
         val topology = topologyState(71, rails, rails.zipWithNext().map { (first, second) ->

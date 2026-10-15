@@ -398,8 +398,8 @@ SimpleATO、WebUI、渲染或诊断等consumer均可读取。Core仅在topology�
 同一immutable snapshot；processor期间发生选择变化会使候选frame拒绝发布。后续依赖链必须使用该值，不能临时读取mutable `RailView`。
 
 `SignalPackEpochRuntime` 保存编译后的不可变观察计划及下游设备顺序。它在 section callback 已建立同 epoch 占用／选路
-candidate 后，为 JS 投影只读树并同步调用两个 setter。Java/Kotlin runtime 不包含 `R/Y/YG/G` 词汇、速度表或
-model 到速度的反向映射；输出统一校验为有限非负速度和非空且已声明的 model variant。
+candidate 后，为 JS 投影只读树并同步提交速度决定及外观。Java/Kotlin runtime 不包含 `R/Y/YG/G` 词汇、速度表或
+model 到速度的反向映射；速度决定为有限非负速度或显式clear，外观必须非空且已声明。调用次数和下游null含义归[明确不限速](js-signal-rules.md#明确不附加限速)。
 
 section callback先建立完整occupancy candidate，再在临时signal-state map上执行受影响wave；全部到达的 JS 处理完后，以一个volatile
 state同时发布occupancy和signal snapshot。脚本抛错或返回非法output时，对应signal变成`Unavailable(reason)`，
@@ -410,8 +410,8 @@ snapshot。规则输出到每列车SimpleATO restriction的投影已经接通。
 固定闭塞和保护信号的area source与inspection source使用同一个`simplesignals:fixed-block-signals`身份。规则wave把实际变化signal映射为其
 按类别派生的固定闭塞或保护信号设备声明ID并随`SignalEpochResult`返回（内部映射见保护信号合同）；SimpleATO只在当前路线binding中标记存在的声明，下一次inspection update把当前
 完整active声明集合交回inspection source。该source从同一原子section/signal snapshot读取每个入口输出，生成
-入口route metre上的`RouteSpeedRestriction`；`Available`使用规则给出的任意有限非负速度，`Unavailable`使用0，`modelVariant`不进入
-ATO。列车通过入口导致active集合移除该声明时，source发布新的完整快照并清除已越过的限制。没有主信号定义的block仍保留
+入口route metre上的`RouteSpeedRestriction`；`Available`数值结果使用规则给出的有限非负速度，明确clear时只省略该速度restriction，`Unavailable`使用0，`modelVariant`不进入
+ATO。clear不会删除声明、资源或完整区间authority floor。列车通过入口导致active集合移除该声明时，source发布新的完整快照并清除已越过的限制。没有主信号定义的block仍保留
 整段authority floor与资源申请，但不会凭空产生速度规则。
 
 ## 具体固定闭塞信号

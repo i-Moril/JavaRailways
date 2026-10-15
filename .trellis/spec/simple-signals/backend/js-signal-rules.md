@@ -102,7 +102,7 @@ type ForwardBranch = {
   readonly section: ReadonlySectionFacts;
   readonly selection: "selected" | "not-selected" | "not-applicable";
   readonly routeReady?: boolean;
-  readonly downstreamSignal?: { readonly speedLimitMetersPerSecond: number };
+  readonly downstreamSignal?: { readonly speedLimitMetersPerSecond: number | null };
   readonly next: ReadonlyArray<ForwardBranch>;
   readonly end?: {
     readonly reason: "distance-limit" | "track-end" | "cycle" | "route-unresolved" | "topology-unavailable";
@@ -113,6 +113,7 @@ type ForwardBranch = {
 
 type SignalOutput = {
   setSpeedLimit(metersPerSecond: number): void;
+  clearSpeedLimit(): void;
   setModelVariant(name: string): void;
 };
 
@@ -121,7 +122,17 @@ function evaluate(input: SignalInput, output: SignalOutput): void;
 
 每条可见分支都提供区间是否有车及区间长度；不属于循环段的后续信号可以提供其本轮已确定的逻辑入口限速。`distanceMeters` 从当前逻辑信号的控制入口沿该路径计算，不从模型位置或玩家视线计算。保护区域没有确定合法进路时以结束原因表达未知通路，不能伪装成 `track-end` 或空闲末端。循环段内的 `downstreamSignal` 必须缺失，JS 依靠同 epoch 物理事实与 `cycle` 终止作决定；宿主不能用上一轮许可补齐它，也不能因规则求值次序不同而让某个根看到新值、另一个根看到旧值。
 
-两个 setter 每次必须各调用一次。重复、缺失、非法类型、非有限／负速度、空外观或未声明外观均使本次结果无效。输出槽只在调用期间有效；脚本不能保存 setter 延迟写入。`setSpeedLimit(0)` 表示列车到逻辑入口位置时速度应为零，SimpleATO 仍按距离计算制动曲线，不是要求列车调用当下已经停车。外观名和安全速度彼此独立，禁止 `return "YG"` 或根据外观反查速度。
+速度操作`setSpeedLimit(number)`与`clearSpeedLimit()`每次必须且只能二选一；`setModelVariant`仍必须恰好调用一次。重复速度操作（包括两次clear、set后clear或clear后set）、缺失、非法类型、非有限／负速度、空外观或未声明外观均使本次结果无效。输出槽只在调用期间有效；脚本不能保存setter延迟写入。`setSpeedLimit(0)`表示列车到逻辑入口位置时速度应为零，SimpleATO仍按距离计算制动曲线，不是要求列车调用当下已经停车。外观名和安全速度彼此独立，禁止`return "YG"`或根据外观反查速度。
+
+### 明确不附加限速
+
+`clearSpeedLimit()`只表示本信号不附加速度限制，不授予资源或取消线路、车辆、其他信号及授权约束。内部速度值用`Double?`，null仅表示有效输出中的明确clear；桥接器另存“本次已调用速度操作”标记，不能把漏调用当作clear。任何数值仍必须有限非负，拒绝Infinity和`setSpeedLimit(null)`；不以巨大有限数值充当不限速哨兵。桥接器保留本次首次输出错误，最终提交再次检查，脚本即使捕获重复/非法setter异常也不能把本次调用恢复为有效结果；JS facade先检查number/string类型，使宿主参数转换前的错误也进入同一拒绝路径，而不是强制转换有效值。
+
+同epoch下游投影保留`downstreamSignal`对象并显式写`speedLimitMetersPerSecond: null`；无对象仍表示没有可观察的下游输出，不能与明确不限速混淆。同一入口有多个逻辑信号时，取全部有限限制的最小值；全部明确clear才为null，缺失/Unavailable状态仍贡献0。遍历次数和原依赖顺序不变，不增加查图或tick扫描。
+
+inspection先执行既有world/epoch校验，只对有效clear结果省略`RouteSpeedRestriction`；声明与完整区间的authority floor仍保留。缺失、失效或不可用结果继续生成0限制，不能用`nullable ?: 0`把clear错误转成红灯，也不能用`mapNotNull`提前丢掉未经校验的失效状态。合法clear与modelVariant仍原子发布，失败不保留上一轮许可。
+
+必须以真实Graal覆盖有效clear、漏调用、重复/混合速度操作、异常及非法数值；真实epoch覆盖下游显式null、有限最小值和Unavailable0；inspection覆盖固定闭塞/保护入口无速度限制但仍有authority floor、缺失/错误stamp仍拒绝或0。本批不改变包/世界schema及版本，后续动态参考速度扫描尚未实现，不能以明确不限速推导扫描范围已动态更新。
 
 第一版不暴露原始列车／世界对象、资源 registry、可变道岔、可变进路表、`availability()`、`reservation()` 或任意世界写操作。是否放行和资源授权先由现有适配器与选择器收紧；JS 只处理给定的只读信号事实。
 

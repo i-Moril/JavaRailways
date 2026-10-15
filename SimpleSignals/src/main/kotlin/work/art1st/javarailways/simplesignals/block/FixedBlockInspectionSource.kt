@@ -120,11 +120,14 @@ internal class FixedBlockInspectionSource(
                 } else if (!protection && !hasConfiguredSignal(checkNotNull(entry))) {
                     return@mapNotNull null
                 }
+                // An explicit unlimited result removes only the speed restriction. The binding's
+                // declarations, authority floors and resource dependencies remain unchanged.
+                val maximumSpeed = if (published == null) 0.0 else
+                    published.state.effectiveSpeedLimitMetersPerSecond ?: return@mapNotNull null
                 RouteSpeedRestriction(
                     restrictionId = declaration.declarationId,
                     routeDistanceMeters = declaration.triggerRouteDistanceMeters,
-                    maximumSpeedMetersPerSecond =
-                        published?.state?.effectiveSpeedLimitMetersPerSecond ?: 0.0
+                    maximumSpeedMetersPerSecond = maximumSpeed
                 )
             }
             listOf(

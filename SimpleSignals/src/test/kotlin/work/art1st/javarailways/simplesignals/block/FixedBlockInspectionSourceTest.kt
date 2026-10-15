@@ -545,6 +545,51 @@ class FixedBlockInspectionSourceTest {
     }
 
     @Test
+    fun `explicit unlimited fixed and protection signals omit only speed restrictions and retain authority floors`() {
+        val block = FixedBlockDefinition("test:unlimited", 1,
+            listOf(FixedBlockTraversal(first, ViewDirection.AB, 2.0, 8.0)))
+        val captured = snapshot(block)
+        val route = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0))
+        var signal: PublishedSectionSignal? = PublishedSectionSignal(stamp(),
+            SectionSignalState.Available(SectionSignalOutput(null, "clear")))
+        val protectionId = "simplesignals:protection-signal/test/clear"
+        val source = fixedBlockInspectionSource(
+            snapshot = { captured }, signalState = { signal }, hasConfiguredSignal = { true },
+            protectionDeclarations = { _, _ -> listOf(work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration(
+                protectionId, first, ViewDirection.AB, 1.0, 0.0, 9.0)) },
+            protectionSignalState = { signal }, hasConfiguredProtectionSignal = { it == protectionId }
+        ).source
+        val binding = source.bindingProvider.bind(InspectionBindingInput(stamp(), "train", route))
+        assertEquals(listOf(8.0, 9.0), binding.declarations.map { it.minimumRequestedAuthorityEndRouteDistanceMeters })
+        assertEquals(setOf(StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)),
+            source.routeInfrastructureDependencies.dependencies(route))
+        val publications = arrayListOf<TrainRestrictionSnapshot>()
+        val runtime = InspectionRuntime(publisher = { publication ->
+            publications += publication
+            TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, publication.revision)
+        }, sourceUnavailable = { _, _, failure -> throw failure })
+        runtime.replaceSources(listOf(source))
+        runtime.synchronizeRoute(stamp(), "train", route)
+        val inspection = runtime.createTrainInspection("train")
+        fun update(epoch: Long) = inspection.update(stamp(epoch), FrozenRouteBinding.from(route),
+            0.0, 3.0, 10.0, 1.0, perception(route))
+        update(1)
+        assertTrue(publications.last().restrictions.isEmpty())
+        signal = PublishedSectionSignal(stamp(2), SectionSignalState.Unavailable("rule failed"))
+        runtime.markDirty(FIXED_BLOCK_SIGNAL_SOURCE_ID, binding.declarations.map { it.declarationId })
+        update(2)
+        assertEquals(listOf(0.0, 0.0), publications.last().restrictions.map {
+            (it as RouteSpeedRestriction).maximumSpeedMetersPerSecond
+        })
+        signal = null
+        runtime.markDirty(FIXED_BLOCK_SIGNAL_SOURCE_ID, binding.declarations.map { it.declarationId })
+        update(3)
+        assertEquals(listOf(0.0, 0.0), publications.last().restrictions.map {
+            (it as RouteSpeedRestriction).maximumSpeedMetersPerSecond
+        })
+    }
+
+    @Test
     fun `active fixed block publishes configured speed and clears it after passing the signal`() {
         val block = FixedBlockDefinition(
             "test:signal-block",

@@ -106,6 +106,22 @@ import java.util.function.Function;
  * BukkitPlugin implementation packages.</p>
  */
 public final class SignalApiConsumerPlugin extends JavaPlugin {
+    /** Invoke on the viewer owner; tool release closes the returned handle. */
+    public work.art1st.javarailways.bukkit.api.editor.EditorTextHandle showEditorText(org.bukkit.entity.Player viewer) {
+        var service = Objects.requireNonNull(getServer().getServicesManager().load(
+            work.art1st.javarailways.bukkit.api.editor.EditorTextService.class));
+        var handle = service.create(this, viewer, "boundary-editor");
+        handle.submit(0, List.of(new work.art1st.javarailways.bukkit.api.editor.EditorTextLabel(
+            "entry", 10, 65, 20, net.kyori.adventure.text.Component.text("Entry"))));
+        return handle;
+    }
+
+    /** Observe completion while the JavaRailways host is still enabled. */
+    public CompletionStage<Void> closeEditorText() {
+        return Objects.requireNonNull(getServer().getServicesManager().load(
+            work.art1st.javarailways.bukkit.api.editor.EditorTextService.class)).closeOwner(this);
+    }
+
     /** An add-on may still construct the immutable ordinary model API directly. */
     public ModelDefinition ordinaryModelDefinition() {
         var lamp = new ItemAppearance(Material.PAPER, "example.signaladdon:signals/lamp", 42,

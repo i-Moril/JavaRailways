@@ -136,8 +136,8 @@ worker的record比较、JSON编码、旧文件复制均为`O(render record count
 来模拟插件卸载。信号含义、外观映射和模型包由具体信号插件负责；主插件只提供与铁路规则无关的普通模型显示服务。
 显示清理不释放列车资源，也不绕过这条 owner gate。内部调度工具仍不是附属插件可以直接调用的 API。
 
-`ModelPresentationService` 是第八个公开服务；定义、状态合并、附近玩家显示与生命周期见
-[通用模型 API 契约](model-presentation-api.md)。
+`ModelPresentationService`的定义、状态合并、附近玩家显示与生命周期见
+[通用模型 API 契约](model-presentation-api.md)。新增的`EditorTextService`提供玩家专用临时文字，契约见[编辑标记](editor-markers.md#首批临时文字-api)；两项均由宿主调度并提供owner清理完成通知，不接管铁路业务规则。
 信号插件仍负责模型包、外观映射和摆放配置，不直接调用主插件的内部工具类。
 
 `RailTargetService.findCurve(worldId, railId)` 复用既有选轨服务。

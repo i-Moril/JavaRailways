@@ -30,7 +30,8 @@ when a required service is absent. The fixture currently proves these services:
 - `RoutePlanningRestrictionSourceService`: owner/world-scoped route-table and traversal restrictions
   compiled once before immutable-topology search;
 - `RailTargetService` and `PlayerOperationService`: lower-level Bukkit interaction capabilities;
-- `ModelPresentationService`: ordinary model creation, latest-state submission and asynchronous cleanup.
+- `ModelPresentationService`: ordinary model creation, latest-state submission and asynchronous cleanup;
+- `EditorTextService`: viewer-only temporary text, complete-label-list submission and asynchronous cleanup.
 
 The returned services are host-owned. Do not retain a world-bound admission service across world
 unload/reload and do not assume that a reused world UUID revives an old binding.
@@ -58,6 +59,20 @@ A retained curve remains readable after rail deletion or world unload, but does 
 rail still exists or authorizes movement. A lookup already in progress during unload may return that
 old immutable curve. Use the public model presentation service to display a model; the internal
 ordinary-model builder is not an add-on API.
+
+## Temporary editor text
+
+`showEditorText(viewer)` demonstrates `api.editor` using only public types. Invoke it on the viewer's
+entity owner to capture the current world. `EditorTextLabel` holds a stable label ID, finite absolute
+world coordinates in metres and immutable Adventure text. Submit a complete list with an increasing
+nonnegative revision; an empty list clears it. Unchanged labels keep their entities, changed text
+updates in place, and moved labels are removed and recreated on the correct target owner.
+
+Close the returned handle when the tool/editing context ends. The host also closes on viewer exit,
+world change/unload and add-on disable. `closeEditorText()` observes outstanding cleanup, including
+previously closed handles; observe completion before stopping JavaRailways without blocking an owner
+thread. Text cleanup does not release infrastructure resources. These methods are compile-time
+examples, not proof of live Paper/Folia scheduling or client visibility.
 
 ## Ordinary model definitions
 

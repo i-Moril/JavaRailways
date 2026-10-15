@@ -14,6 +14,9 @@ import work.art1st.javarailways.bukkit.api.internal.registerJavaRailwaysServices
 import work.art1st.javarailways.bukkit.api.internal.DefaultModelPresentationService
 import work.art1st.javarailways.bukkit.api.internal.ModelOwnerLifecycleListener
 import work.art1st.javarailways.bukkit.api.model.ModelPresentationService
+import work.art1st.javarailways.bukkit.api.editor.EditorTextService
+import work.art1st.javarailways.bukkit.api.internal.DefaultEditorTextService
+import work.art1st.javarailways.bukkit.api.internal.EditorTextLifecycleListener
 import work.art1st.javarailways.bukkit.render.backend.displayViewRangeForDistance
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
@@ -100,6 +103,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var modelPresentationService: ModelPresentationService
         private set
     private lateinit var modelPresentationServiceImpl: DefaultModelPresentationService
+    lateinit var editorTextService: EditorTextService
+        private set
+    private lateinit var editorTextServiceImpl: DefaultEditorTextService
     val webUiLoginTokens: WebUiLoginTokens = WebUiLoginTokens()
     lateinit var timetableScriptSandbox: TimetableScriptSandbox
 
@@ -196,6 +202,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             displayViewRangeForDistance(javaRailwaysConfig.displayRenderer.playerDistance.maxBlocks), logger
         )
         modelPresentationService = modelPresentationServiceImpl
+        editorTextServiceImpl = DefaultEditorTextService(this, platformDispatcher, logger)
+        editorTextService = editorTextServiceImpl
         worldManager = WorldManager(
             observationService = railwayObservationServiceImpl,
             infrastructureResourceService = infrastructureResourceServiceImpl,
@@ -218,11 +226,13 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             signalSources = signalEpochSourceService,
             inspectionSources = inspectionSourceService,
             routePlanningSources = routePlanningRestrictionSourceService,
-            modelPresentations = modelPresentationService
+            modelPresentations = modelPresentationService,
+            editorTexts = editorTextService
         )
         server.pluginManager.registerEvents(OperationOwnerLifecycleListener(playerOperationServiceImpl), this)
         server.pluginManager.registerEvents(ObservationOwnerLifecycleListener(railwayObservationServiceImpl), this)
         server.pluginManager.registerEvents(ModelOwnerLifecycleListener(modelPresentationServiceImpl, this), this)
+        server.pluginManager.registerEvents(EditorTextLifecycleListener(editorTextServiceImpl, this), this)
         server.pluginManager.registerEvents(
             InfrastructureOwnerLifecycleListener(infrastructureResourceServiceImpl, this),
             this
@@ -300,6 +310,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
 
     override fun onDisable() {
         server.servicesManager.unregisterAll(this)
+        if (::editorTextServiceImpl.isInitialized) {
+            runShutdownStep("editor text service") { editorTextServiceImpl.close() }
+        }
         if (::modelPresentationServiceImpl.isInitialized) {
             runShutdownStep("model presentation service") { modelPresentationServiceImpl.close() }
         }

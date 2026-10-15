@@ -14,6 +14,7 @@ import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService
 import work.art1st.javarailways.bukkit.api.operation.PlayerOperationService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.bukkit.api.model.ModelPresentationService
+import work.art1st.javarailways.bukkit.api.editor.EditorTextService
 import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackend
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisualDescriptor
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisual
@@ -27,7 +28,7 @@ import java.util.logging.Logger
 
 class JavaRailwaysServiceRegistrationTest {
     @Test
-    fun `production registrar exposes all eight public services through Bukkit discovery`() = BukkitServiceTestSupport.withServer {
+    fun `production registrar exposes all nine public services through Bukkit discovery`() = BukkitServiceTestSupport.withServer {
         val manager = SimpleServicesManager()
         val owner = plugin("JavaRailways")
         val worldManager = WorldManager()
@@ -42,6 +43,7 @@ class JavaRailwaysServiceRegistrationTest {
         val models = DefaultModelPresentationService(owner, dispatcher, object : DisplayRenderBackend {
             override fun create(world: org.bukkit.World, descriptor: DisplayVisualDescriptor): DisplayVisual = error("Registrar must not create models")
         }, 1.0f, Logger.getLogger("service-registration-test"))
+        val editorTexts = DefaultEditorTextService(owner, dispatcher, Logger.getLogger("service-registration-test"))
         try {
             manager.registerJavaRailwaysServices(
                 owner,
@@ -52,12 +54,14 @@ class JavaRailwaysServiceRegistrationTest {
                 signalSources,
                 signalSources,
                 signalSources,
-                models
+                models,
+                editorTexts
             )
 
             assertSame(railTargets, manager.load(RailTargetService::class.java))
             assertSame(playerOperations, manager.load(PlayerOperationService::class.java))
             assertSame(models, manager.load(ModelPresentationService::class.java))
+            assertSame(editorTexts, manager.load(EditorTextService::class.java))
             assertSame(observations, manager.load(RailwayObservationService::class.java))
             assertSame(infrastructure, manager.load(InfrastructureResourceService::class.java))
             assertSame(signalSources, manager.load(SignalEpochSourceService::class.java))
@@ -66,18 +70,20 @@ class JavaRailwaysServiceRegistrationTest {
                 signalSources,
                 manager.load(RoutePlanningRestrictionSourceService::class.java)
             )
-            assertEquals(8, manager.getRegistrations(owner).size)
+            assertEquals(9, manager.getRegistrations(owner).size)
 
             manager.unregisterAll(owner)
             assertNull(manager.load(RailTargetService::class.java))
             assertNull(manager.load(PlayerOperationService::class.java))
             assertNull(manager.load(ModelPresentationService::class.java))
+            assertNull(manager.load(EditorTextService::class.java))
             assertNull(manager.load(RailwayObservationService::class.java))
             assertNull(manager.load(InfrastructureResourceService::class.java))
             assertNull(manager.load(SignalEpochSourceService::class.java))
             assertNull(manager.load(InspectionSourceService::class.java))
             assertNull(manager.load(RoutePlanningRestrictionSourceService::class.java))
         } finally {
+            editorTexts.close()
             models.close()
             infrastructure.close()
             signalSources.close()

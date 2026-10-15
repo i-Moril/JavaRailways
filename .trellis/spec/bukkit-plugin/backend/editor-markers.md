@@ -41,11 +41,11 @@ Core/Basic 不保存符号、颜色或 Bukkit 实体；各业务模块保留自�
 
 ## 首批临时文字 API
 
-状态：TARGET，2026-10-15用户已批准实施，尚未通过代码门禁。
+状态：CURRENT，2026-10-15实现并通过独立复核；离线门禁与未验范围归Stage 2任务记录，实际Paper/Folia/客户端另验。
 
-目的仅是让附属插件显示玩家专用的临时文字并可靠清理。BukkitPlugin提供服务实现，当前SimpleSignals及以后SimpleSignalsBukkit是调用者；不要求先实施领域模块拆分。首批不公开Wand内部模式、通用脚本交互系统或完整RailWand控制权，轨道高亮继续复用已有粒子准备，后续有真实需求时再提取公共接口。
+目的仅是让附属插件显示玩家专用的临时文字并可靠清理。BukkitPlugin提供服务实现，首个计划消费者是当前SimpleSignals及以后SimpleSignalsBukkit，不要求先实施领域模块拆分；本API批次尚未接入边界显示。首批不公开Wand内部模式、通用脚本交互系统或完整RailWand控制权，轨道高亮继续复用已有粒子准备，后续有真实需求时再提取公共接口。
 
-以下是用户批准的本批目标签名，尚未实现，放在`bukkit.api.editor`：
+已实现的公开类型位于`bukkit.api.editor`，服务由宿主统一注册到Bukkit ServicesManager：
 
 ```java
 interface EditorTextService {
@@ -61,7 +61,7 @@ record EditorTextLabel(String id, double x, double y, double z, Component text) 
 
 `create`在viewer所属线程捕获当前世界实例，分配操作对象而不生成实体；身份为实际owner插件实例、viewer玩家实例、世界实例和非空objectId，拒绝同时活动的重复身份。不接收轨道/闭塞/信号ID，不对label的id赋予业务含义。坐标为该世界中的绝对米制位置；Component为不可变Adventure文字，调用方提交完整列表，服务复制后持有。标签id非空且本次列表内唯一，坐标有限；非法输入在替换待显示状态前拒绝。显示序号非负且在handle内递增，与schema/epoch无关；旧序号和关闭后提交不恢复显示。
 
-正常流程是玩家owner创建handle，调用方worker准备纯标签值，submit交给宿主后台调度，再在标签位置/实体owner上创建或更新非持久化TextDisplay，最后在玩家owner上仅向viewer显示。显示实体默认对其他玩家不可见，使用固定朝向玩家的文字样式；首批不加尚无需求的字体/动画/点击交互配置。完整空列表清除本handle的所有文字；后续列表按稳定label id与上次实际显示状态比较，保留未变标签，删除缺项，只更新变化部分。跨Folia区域移动不能同步传送，应删除旧实体后在新目标位置创建。
+正常流程是玩家owner创建handle，调用方worker准备纯标签值，submit交给宿主后台调度，再在标签位置/实体owner上创建或更新非持久化TextDisplay，最后在玩家owner上仅向viewer显示。显示实体默认对其他玩家不可见，使用固定朝向玩家的文字样式；首批不加尚无需求的字体/动画/点击交互配置。完整空列表清除本handle的所有文字；后续列表按稳定label id与上次实际显示状态比较，保留未变标签，删除缺项，只更新变化部分。只改文字时更新原实体；位置改变均删除旧实体后在新目标位置创建，不使用可能跨Folia区域的同步传送。
 
 内部复用现有`PlatformDispatcher`、`LatestAffinityTaskDispatcher`及RailWand中默认隐藏/仅对指定玩家显示的方式，不公开其私有对象。每handle只保存一份最新待显示列表及一个调度工作，不能堆积历史画面；实体操作不在状态锁内执行。这里要求复用实际机制，不要求为提取通用基类而重构整个模型服务。
 
@@ -70,6 +70,7 @@ record EditorTextLabel(String id, double x, double y, double z, Component text) 
 未加载/失效世界、离线viewer、已停用owner或宿主均拒绝创建；调度、生成或显示失败清理本次实体并报告所属对象，清理失败由完成结果异常报告，不影响铁路授权。提交的列表比较及内存为O(N)，N为本次标签数；真实实体操作随变化标签数增长，首次创建仍为O(N)，closeOwner低频遍历未完成handle。服务不扫描世界轨道、列车或全体玩家，不加入周期性业务重算或额外标签数量上限。
 
 必需验收：独立Java消费者只通过公开API编译；同一玩家以外不可见；标签增删改/空列表/相同内容无操作；暂停创建或显隐后关闭不复活；旧序号拒绝；换世界/同UUID世界重载不复用旧handle；附属停用后清理继续完成，主插件提前停用或删除失败不能伪称成功；既有普通模型服务行为不变。模拟调度测试与真实Paper/Folia、客户端验收分别记录。无持久化变化或版本升级。
+源码入口为`api/editor/*.java`、`api/internal/DefaultEditorTextService.kt`及`EditorTextLifecycleListener.kt`；BukkitPlugin创建服务并在停用时关闭，统一registration helper发布服务。`DefaultEditorTextServiceTest`使用受控dispatcher和记录实体验证串行操作及实际spawn/show暂停；沿用`BukkitServiceTestSupport`构造平台事件，不更改Bukkit生命周期标志。Java消费示例只编译公开接口，不声称实际启用插件或客户端已验证。
 例如边界A/B仍存在时只改A文字，B不重建；关闭后旧计算再次submit不能恢复任一文字。应提交准备好的完整标签值，不应暴露TextDisplay让调用方跨线程修改或将进路校验放入通用文字服务。接口评审和实现均属于当前Stage 2的独立小批次，不启动后续SimpleSignals平台拆分任务。
 
 ## 验证与未实施部分

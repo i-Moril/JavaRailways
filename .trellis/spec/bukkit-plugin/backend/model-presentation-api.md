@@ -3,7 +3,7 @@
 ## 1. 这份设计要解决什么问题
 
 本文描述当前已实现（`CURRENT`）的主插件通用模型显示能力：按 UUID 查询轨道曲线、不可变模型定义、完整场景应用，
-以及负责跨线程显示和清理的公开模型服务。普通模型 YAML 编译边界已经公开；SimpleSignals 的生产信号绑定仍是后续工作。
+以及负责跨线程显示和清理的公开模型服务。普通模型 YAML 编译边界已经公开，SimpleSignals的生产信号绑定由其自身模型合同维护。
 
 目标是让 SimpleSignals 等附属插件复用主插件的模型系统，而不必把信号机伪装成列车模型。
 这里的“主插件”指 `BukkitPlugin`，不是 SimpleATOBukkit。分工如下：
@@ -15,7 +15,8 @@
 接口只提供普通模型的定义和操作对象，不公开整个 `ModelManager`、`CompositeModel`、
 可变世界对象或调度器实现类。
 
-`RailTargetService` 提供玩家视线选轨和按 UUID 查询曲线；`ModelPresentationService` 是第八个公开服务。
+`RailTargetService` 提供玩家视线选轨和按 UUID 查询曲线；`ModelPresentationService`提供普通模型显示。
+玩家专用临时文字由独立的[EditorTextService](editor-markers.md#首批临时文字-api)提供，不扩充普通模型树或改变本服务的既有行为。
 主插件内部的 `ModelTreeBuilder.buildModel` 构造并返回 `OrdinaryModel`，
 附属插件不直接调用这个内部入口。旧的部件引用/命名空间普通入口已删除，
 不保留草稿兼容；车体和转向架继续走各自的配置与专用入口。

@@ -27,15 +27,27 @@
   - [x] 第二笔Wand：新建意图与既有身份区分，捕获位置后明确配置并确认才创建；设置页编辑既有表示器/新入口和映射，不移动模型。复用原事务及对话guard，不创建未摆放占位定义或另一个草稿仓库。
 - [x] 实例参数数值编辑：三轴偏移、旋转角度及跟随轨道倾斜设置接入既有摆放流程；验证选中对象身份/修订、几何计算和逻辑绑定保持，不实现拖拽。ground编辑绝对世界XYZ且无轨道倾斜；具体接口和失败边界归[工具合同](../../spec/simple-signals/backend/section-authoring-wands.md#实例参数数值编辑current)，离线通过不等于客户端验收。
 - [ ] 边界及区间编辑叠加：复用既有玩家隔离显示机制，补齐位置、方向及区间提示；验证离手、退出、切世界及卸载后清理，显示不参与行车逻辑。
+  - [x] 前置公开文字API：BukkitPlugin提供EditorTextService/Handle/Label、玩家隔离、完整列表更新与宿主调度/关闭完成结果，独立复核及联合离线门禁通过；尚未接入边界消费者。
+  - [ ] 将已有边界/区间几何和持工具生命周期接到该API，真实客户端验收另记；不启动后续平台模块拆分。
 - [ ] 最后实现独立测距：直线与沿轨距离，沿轨采用物理最短路，不依赖当前道岔选择，不实际扳岔或申请行车资源。
 
 #### 边界叠加前置发现（2026-10-15，公开能力方向已确认）
 
 当前Section Wand只有点击后的警告显示，Route Wand已有独立粒子预览；本批仍需完整的持工具自动显示、文字及关闭清理。可复用RoutePreviewDrawing的worker几何准备、20tick/512点分批，不新增拓扑搜索；附近筛选使用已准备值，准备成本随作者定义/显示点数量增长。
 实现前发现TextDisplay停用清理的生命周期接缝：附属插件停用后不能依赖自己的调度任务完成Folia实体删除，PluginDisableEvent也不能保证排队任务不被取消。现有宿主ModelPresentationService提供host-owned调度和可观察closeOwner完成结果，但只支持普通模型，无文字/编辑者隔离接口。不能通过私有实现导入、借用宿主Plugin对象调度或改成粒子/聊天替代完整文字来隐瞒问题。
-用户已同意BukkitPlugin公开Wand、Rail可视化等通用平台能力，方向归[编辑标记规范](../../spec/bukkit-plugin/backend/editor-markers.md#已确认的公开能力方向target2026-10-15)。当前建议先落实边界叠加所需的最小临时文字、玩家隔离、owner调度及关闭完成通知，再接SimpleSignals；不加入区间/信号语义，不一次重构全部Wand。具体签名与实施方案尚未冻结；当前只有TARGET契约与本发现记录，无产品代码或验证/提交，不勾选本批完成。
+用户已同意BukkitPlugin公开Wand、Rail可视化等通用平台能力，方向归[编辑标记规范](../../spec/bukkit-plugin/backend/editor-markers.md#已确认的公开能力方向target2026-10-15)。该前置发现已通过下述最小临时文字API解决；不加入区间/信号语义，不一次重构全部Wand。边界消费者尚未实现，因此不勾选整项完成。
 
 用户已批准[首批文字API](../../spec/bukkit-plugin/backend/editor-markers.md#首批临时文字-api)：先独立实现公开service/handle/不可变标签值、宿主调度/清理及Java消费与平台回归，再独立接边界叠加。采用完整标签列表、稳定显示身份及只保留最新待显示状态；本段记录开始前的批准基线，具体完成证据另记。继续使用本任务，不新建重复任务；后续平台拆分任务仍为planning。
+
+#### 公开临时文字API验证（2026-10-15）
+
+- 文档基线提交`8322e9bb`保留用户确认的后续平台拆分任务、公开能力方向和本批目标签名；运行代码批次仅触及BukkitPlugin。三个公开Java类型、私有DefaultEditorTextService/生命周期listener、composition与服务注册，以及Java消费者示例/说明。不改SimpleSignals、Core/Basic/ATO、存档或版本号。
+- 按稳定label ID对完整列表与实际实体比较，未变不更新、只改文字保留实体、位置变化删除重建；每handle一份最新列表，复用PlatformDispatcher/LatestAffinityTaskDispatcher。关闭撤销意图，实际生成/删除及viewer显隐分别在location/entity/player owner；宿主继续处理已停用附属插件的清理。失败完成结果保留在outstanding集合，不把移出活动表当作删除完成。
+- 新增10项真实service测试，覆盖列表复制与非法输入/旧序号、身份/同名替换、实际spawn和show暂停时非阻塞关闭、玩家隔离/线程断言、退出/换世界/卸载/owner停用、调度拒绝/实体退休及部分失败清理。注册测试新增服务断言；既有普通模型服务回归未改变。独立复核修正一个非空断言警告，并扩展原并发用例到实际showEntity暂停；首次定向26项有1项因PluginDisableEvent需要Bukkit server绑定失败，改用既有BukkitServiceTestSupport后全部通过，没有放宽生产校验。
+- 隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`，`JAVA_HOME=/workspace/.gradle/jdks/eclipse_adoptium-25-amd64-linux.2`、`GRADLE_USER_HOME=/workspace/.gradle`。初次产品+Java消费者编译22秒通过；最终定向26项38秒通过。联合执行`:BukkitPlugin:test :BukkitPlugin:shadowJar :SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries --offline --no-build-cache --no-parallel --max-workers=2 -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=1024m' -x :WebUI:installFrontend -x :WebUI:buildFrontend --console=plain`，1分20秒，37task中9执行28up-to-date。
+- 联合门禁实际重跑Bukkit 95套398项与SimpleSignals 48套543项，共143套941项，失败/错误/跳过均0；shadowJar与JAR/module边界实际执行，未变Java consumer复用前序成功编译产物。不存在独立lint任务，另有scoped git diff --check通过。不将Core/Basic依赖编译或缓存写成其全套测试重跑。
+- 最终Bukkit `src/main`、`src/test`及`src/signalApiConsumer/java`相对路径排序文件清单摘要`eca0afa91105fcf666136c4eb7351e17cb084d1a4f975ed76986577864af0630`；SimpleSignals全部src摘要仍为`be45d174644f72c2e5f1e7ed311b6abccdbeee35734c140ab1af33b96fcc7a57`。工作区与已测候选代码一致。日志`/tmp/javarailways-editor-text-focused-final.log`和`/tmp/javarailways-editor-text-final-check.log`，XML在候选对应模块build/test-results/test。README/契约同步不改变已测代码。
+- 未部署、未验证真实Paper/Folia调度或客户端可见性；不声称边界显示或公共Wand/Rail可视化全集已完成。下一批为SimpleSignals边界叠加接线；后续平台拆分任务保持planning。
 
 各批按影响运行SimpleSignals及相邻消费者测试、API/JAR边界检查，收尾执行联合门禁及部署构建；不把离线通过写成游戏验收。Paper/Folia、客户端交互与资源包另列实际验证结果，部署仍须单独授权。测距之前的四批不重开Core/Basic全模块审计或修改ATO算法。
 

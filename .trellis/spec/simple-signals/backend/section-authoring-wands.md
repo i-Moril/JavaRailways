@@ -8,6 +8,7 @@ Signal Wand 已把逻辑入口与模型位置分成两步，覆盖固定闭塞�
 并覆盖附属信号的完整建造及既有进路表示器的编辑／删除：
 放置模式左键绑定入口并明确选择新建或精确既有设备，右键轨道或空气使用轨道附着位置，右键真实方块面使用地面位置，
 然后更新位置和类型；删除模式精确选择并删除一台主信号及其直接附属设备。
+现已提供[进路Wand删除与保护主信号重绑](#wand删除进路与保护信号重绑)：前者从已保存进路列表确认删除，后者从设置页确认逻辑目标，均不靠重新摆放模型完成。
 新建设备的 `inspectionLeadTimeSeconds` 固定为明确策略值 `0.0` 秒，表示不要求信号插件增加额外准备提前量；
 SimpleATO 的 inspection threshold 取 `max(reachableDistance(leadTime), dynamicLookahead)`，route perception horizon 也取
 controller 制动／反应／安全距离与 `maxSpeed * leadTime` 的最大值，而不是把两者相加。同步信号求值本身没有 setup delay；
@@ -125,7 +126,7 @@ Ground保持方块面捕获的绝对姿态，忽略rail预设。状态栏标明�
 
 ### 删除进路保留设备与显式重绑
 
-状态：后端定义事务与安全输出已实现并通过独立复核、离线门禁；Wand删除/重绑仍为TARGET（2026-10-15）。本批由SimpleSignals负责，不修改Core/Basic/ATO，不新增锁或资源管理器。
+状态：后端定义事务、安全输出及下述Wand删除/保护主信号重绑均已实现并通过独立复核、离线门禁（2026-10-15）。本批由SimpleSignals负责，不修改Core/Basic/ATO，不新增锁或资源管理器。
 正常流程为：编辑已有表删除所选进路 → 在同一候选中解除因此失效的设备绑定 → 完整编译、取得原有编辑许可并保存 → 玩家选中保留设备、选择新入口/进路并确认重绑。
 删除最后一条进路保留同ID的空表；现有catalog将该区域标为不可用并禁止穿越，不能删除空表恢复自由选路。
 这约束的是“删除进路”操作；管理员明确通过原有低层patch删除整张进路表属于移除固定进路策略，不在这里新增禁止规则，也不暗中重建被明确删除的表。Wand删除进路不得使用该入口。
@@ -157,6 +158,32 @@ revision溢出明确拒绝，不允许半解除绑定。空表恢复需显式录
 Wand批次另验证设备选择、目标选择、确认前无写入、过期回调和只改逻辑绑定；尚未接线时不能宣称游戏内可操作。
 
 本后端批次直接修正未发布current sidecar，保持schema 1，不修改PDC或新增旧格式reader。禁止“允许所有未知ID”或“删除设备/空表”作为实现捷径。
+
+### Wand删除进路与保护信号重绑
+
+状态：交互已接线并通过独立复核和离线门禁（2026-10-15）；真实服务器/客户端尚未验证。复用既有原生设置/选择页、worker和玩家owner接续，不增加工具模式、PDC字段、存档边界或新的编辑管理器。
+进路Wand原有左键入口、潜行左键出口、普通右键录制/替换不变；选中区域后Shift+右键列出该区域作者表内的进路（按稳定ID排序），选择精确进路后另行确认删除。列表不按当前道岔选通路径过滤，删除不要求该路径当前连通。
+`CurrentRouteRecording`在worker准备删除选择并捕获runtime、publication、topology及表/进路身份；确认后检查仍是原基线，只upsert保留ID的表、checked递增表revision，最后一条也保留空表。设备解除绑定及映射清理由现有manager完成，工具不复制该算法。
+
+Signal Wand设置页增加“重绑已有保护信号”：worker从当前世界定义列出固定进路/当前入口主信号，按signalId排序，含bindingId为null、无placement或ground摆放的设备。选中设备后，固定进路类列出当前可用进路，当前入口类列出拥有可用进路的入口；按钮明确显示目标入口及进路身份，再经确认页提交。
+后台接口在既有`SignalWandBackend`增加不可变的设备/目标选择值及重绑方法，`RuntimeSignalWandBackend`复用capture与唯一manager事务；不调用`place`，只checked递增所选设备revision并修改bindingId。控制kind、signalType、提前时间、placement及附属关系保持不变，不读取Wand当前模型/预设去重写设备。新入口设备与表示器映射作者仍属于下一批；表示器跨入口重绑不能在缺少映射选择时猜测variant。
+
+私有工作线程入口：`CurrentRouteRecording.deletionChoices(selection): List<RecordedRouteDeletion>`与`delete(choice, active): String`；选择值持有不可变selection、publication、topology、table、route，不把运行时选择重新解释为另一条进路。
+重绑接口为`rebindDevices(capture): List<ProtectionSignalRebindChoice>`、`rebindTargets(capture, device): List<ProtectionSignalRebindTarget>`及`rebind(capture, device, target, active): SignalWandOutcome`；device保留完整不可变设备定义用于精确修订核对，target明确保存entryBoundaryId和bindingId。返回值沿用既有工具结果/诊断，不新增公共API。
+
+```text
+owner确认权限/世界/仍持原工具 -> worker捕获候选与精确修订 -> owner显示选择
+  -> 设备选择/目标选择/最终确认均核对原continuation与工具状态
+  -> worker核对runtime/publication/topology及所选设备/目标仍有效
+  -> 原manager patch（含active guard） -> owner回复
+```
+
+对话期间不写定义；取消或直接关闭不提交，也不能永久占住busy状态。重新打开、切工具/物品状态、离线、换世界、卸载、停用或旧回调迟到时，沿用既有会话/token清理；提交guard只读会话原子状态，不跨线程读取Bukkit。捕获后任何相关基线变化均拒绝，不自动重试旧意图。
+未知/不匹配ID、过期revision、不可用新目标、溢出或事务拒绝时保留原状态并报告既有诊断；同一绑定无需写盘或推进revision。选择列表是在低频操作上扫描并排序世界定义，设备/路线数量D/Q时约O(D log D + Q log Q)，不增加tick扫描；完整候选编译仍保留既有成本。
+
+必需断言：原录制手势不变、只列所选区域真实进路、确认前零写入、取消/重复点击/过期回调不提交；真实manager验证删除最后一条保留空表、设备保留、重绑只改binding/revision、地面/未绑定设备可恢复、不可用目标和编辑保护拒绝。平台调度替身与真实manager/store测试分开报告，不称为Paper/Folia或客户端验证。
+当前回归使用两个handler测试及`SimpleSignalsWorldRuntimeManagerTest`：平台层验证多页确认和失效接续，manager层调用真实删除/重绑后台方法、store及Basic registry，检查实际静态依赖和动态claim阻止编辑；不为测试放宽无轨道影响的候选校验。完整SimpleSignals 48套517项通过，具体命令、快照与未验范围归任务`implement.md`。
+错误做法是通过右键重新摆放实现重绑，或打开列表就保存；正确做法是独立选择和确认后用原事务提交逻辑变更。
 
 信号工具在 catalog 未就绪、信号类型或 presentation model 未知、入口不唯一、生成 ID 碰撞、revision 溢出、捕获的 catalog／runtime／
 publication／topology 过期或 manager patch 被拒绝时都只返回失败；不得改变 sidecar、live publication、inspection source、

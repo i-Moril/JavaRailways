@@ -3017,6 +3017,93 @@ class SimpleSignalsWorldRuntimeManagerTest {
         if (kind == ProtectionSignalKind.FIXED_ROUTE) route.routeId else route.entryBoundaryId,
         0.0, "automatic:block")
 
+    @Test fun `wand route deletion lists authored region rows and deletes last row with device preserved`() {
+        val f = Fixture()
+        val r = RecordingFixture(f, tables = listOf(ProtectionRouteTableDefinition("test:table", 1,
+            f.region.regionId, 1, listOf(f.upperRoute(), f.lowerRoute()))))
+        val device = protectionSignal(ProtectionSignalKind.FIXED_ROUTE, f.lowerRoute())
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, r.manager.applyDefinitionPatch(f.worldId, 1,
+            SimpleSignalsDefinitionPatch(upsertProtectionSignals = listOf(device))).status)
+        val selection = r.preview.select(f.worldId, f.region.boundaries.first().position, null)
+        val choices = r.recorder.deletionChoices(selection)
+        assertEquals(listOf("test:lower", "test:upper"), choices.map { it.route.routeId })
+        assertNull(selection.exit)
+        val before = Files.readString(r.store.primaryFile(f.worldId))
+        assertThrows(IllegalArgumentException::class.java) { r.recorder.delete(choices.first()) { false } }
+        assertEquals(before, Files.readString(r.store.primaryFile(f.worldId)))
+        assertTrue(r.recorder.delete(choices.first()) { true }.contains("Deleted route test:lower"))
+        assertNull(r.runtime.currentDefinitions().protectionSignals.single().bindingId)
+        assertThrows(IllegalArgumentException::class.java) { r.recorder.delete(choices.last()) { true } }
+        val last = r.recorder.deletionChoices(selection).single()
+        assertTrue(r.recorder.delete(last) { true }.contains("Deleted route test:upper"))
+        val empty = r.runtime.currentDefinitions().routeTables.single()
+        assertEquals("test:table", empty.tableId)
+        assertEquals(3L, empty.revision)
+        assertTrue(empty.routes.isEmpty())
+        assertTrue(r.binding.source.restrictions(f.currentTopology).forbiddenTraversals.isNotEmpty())
+        assertEquals(device.copy(revision = 2, bindingId = null), r.runtime.currentDefinitions().protectionSignals.single())
+        assertTrue(r.recorder.deletionChoices(selection).isEmpty())
+    }
+
+    @Test fun `wand rebind restores unbound ground devices with exact revisions no pose changes and real edit protection`() {
+        val f = Fixture()
+        val registry = editRegistry { f.currentTopology }
+        val r = RecordingFixture(f, registry, listOf(ProtectionRouteTableDefinition("test:table", 1,
+            f.region.regionId, 1, listOf(f.upperRoute(), f.lowerRoute()))))
+        val placement = ModelPlacement.Ground(ModelPose(2.0, 64.0, 3.0, 0.0, 0.0, 0.0, 1.0))
+        val fixed = protectionSignal(ProtectionSignalKind.FIXED_ROUTE, f.upperRoute()).copy(bindingId = null,
+            inspectionLeadTimeSeconds = 3.0, placement = placement)
+        val current = fixed.copy(signalId = "test:current", kind = ProtectionSignalKind.CURRENT_ENTRY, placement = null)
+        val attached = AttachedSignalDefinition("test:attached", 1, fixed.signalId,
+            DeviceModelDefinition("demo_signals:home", placement))
+        val created = r.manager.applyDefinitionPatch(f.worldId, 1, SimpleSignalsDefinitionPatch(
+            upsertProtectionSignals = listOf(fixed.copy(revision = 0, bindingId = f.upperRoute().routeId),
+                current.copy(revision = 0, bindingId = f.upperRoute().entryBoundaryId)),
+            upsertAttachedSignals = listOf(attached)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, created.status, created.diagnostics.toString())
+        // Clearing existing bindings retains their old rail impact; creating only unbound ground
+        // devices would correctly fail the manager's requirement for an affected rail.
+        val unbound = r.manager.applyDefinitionPatch(f.worldId, 2,
+            SimpleSignalsDefinitionPatch(upsertProtectionSignals = listOf(fixed, current)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, unbound.status, unbound.diagnostics.toString())
+        val backend = RuntimeSignalWandBackend(r.manager, r.infrastructure.service)
+        fun capture() = backend.capture(f.worldId, "automatic:block")
+        val captured = capture()
+        val choices = backend.rebindDevices(captured)
+        assertEquals(listOf(current.signalId, fixed.signalId), choices.map { it.definition.signalId })
+        val selected = choices.single { it.definition == fixed }
+        val targets = backend.rebindTargets(captured, selected)
+        assertEquals(listOf("test:lower", "test:upper"), targets.map { it.bindingId })
+        val target = targets.first()
+        val before = Files.readString(r.store.primaryFile(f.worldId))
+        listOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM).forEach { kind ->
+            val release = protect(registry, f.currentTopology, f.lowerIn, kind)
+            try { assertTrue(backend.rebind(captured, selected, target) { true }.message.contains("EDIT_BLOCKED")) }
+            finally { release() }
+            assertEquals(before, Files.readString(r.store.primaryFile(f.worldId)))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            backend.rebind(captured, selected, ProtectionSignalRebindTarget("test:entry", "test:missing")) { true }
+        }
+        assertThrows(IllegalArgumentException::class.java) { backend.rebind(captured, selected, target) { false } }
+        assertTrue(backend.rebind(captured, selected, target) { true }.message.contains("Rebound"))
+        assertEquals(fixed.copy(revision = 2, bindingId = target.bindingId),
+            r.runtime.currentDefinitions().protectionSignals.single { it.signalId == fixed.signalId })
+        assertEquals(listOf(attached), r.runtime.currentDefinitions().attachedSignals)
+        assertThrows(IllegalArgumentException::class.java) { backend.rebind(captured, selected, targets.last()) { true } }
+        val latest = capture()
+        val bound = backend.rebindDevices(latest).single { it.definition.signalId == fixed.signalId }
+        val saved = Files.readString(r.store.primaryFile(f.worldId))
+        assertTrue(backend.rebind(latest, bound, target) { true }.message.contains("no changes"))
+        assertEquals(saved, Files.readString(r.store.primaryFile(f.worldId)))
+        val entryDevice = backend.rebindDevices(latest).single { it.definition.signalId == current.signalId }
+        val entryTarget = backend.rebindTargets(latest, entryDevice).single()
+        assertEquals("test:entry", entryTarget.bindingId)
+        assertTrue(backend.rebind(latest, entryDevice, entryTarget) { true }.message.contains("Rebound"))
+        assertEquals(current.copy(revision = 2, bindingId = "test:entry"),
+            r.runtime.currentDefinitions().protectionSignals.single { it.signalId == current.signalId })
+    }
+
     @Test
     fun `route deletion retains devices detaches only deleted route and keeps empty table closed across reload`() {
         val f = Fixture()

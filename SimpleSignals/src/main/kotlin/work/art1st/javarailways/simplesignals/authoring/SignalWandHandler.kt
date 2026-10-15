@@ -91,7 +91,8 @@ internal class SignalWandHandler(
         },
     private val newItemId: () -> UUID = UUID::randomUUID,
     private val findTarget: (Player) -> CompletionStage<Optional<RailTarget>> =
-        { player -> targets.findLookedAtRail(player, 64.0, 0.75) }
+        { player -> targets.findLookedAtRail(player, 64.0, 0.75) },
+    private val showAuthoringDialog: (Player, String, List<Pair<String, () -> Unit>>) -> Unit = WandDialogs::show
 ) : Listener, CommandExecutor {
     private val sessions = SignalWandSessions()
     private val statusTasks = ConcurrentHashMap<UUID, SignalWandStatusRegistration>()
@@ -151,6 +152,7 @@ internal class SignalWandHandler(
 
     internal fun openSettings(player: Player, openingState: SignalWandState) {
         if (!canUse(player) || toolInHand(player) != openingState) return
+        choiceTokens.remove(player.uniqueId)
         val available = currentTypes()
         if (available == null) {
             player.sendMessage(Component.text("Signal type catalog is not ready")); return
@@ -177,7 +179,7 @@ internal class SignalWandHandler(
                 "Rail placement: $name", openingState.railPreset?.let {
                     it.modelId == railModel.modelId && it.name == name
                 } == true)
-        }
+        } + SignalWandSetting(SignalWandSettingAction.RebindProtection, "Rebind existing protection signal", false)
         showSettings(player, settings) { action ->
             entity(player) { selectSetting(player, openingState, action) }
         }
@@ -192,6 +194,10 @@ internal class SignalWandHandler(
         val current = toolInHand(player)
         if (current != openingState) {
             player.sendMessage(Component.text("Signal Wand settings expired; reopen the settings page")); return
+        }
+        if (action === SignalWandSettingAction.RebindProtection) {
+            openRebind(player, current)
+            return
         }
         val available = currentTypes()
         if (available == null) {
@@ -246,6 +252,7 @@ internal class SignalWandHandler(
             )
             is SignalWandSettingAction.RailPreset -> current.copy(stateRevision = revision, railPreset = selectedPreset)
             SignalWandSettingAction.ClearRailPreset -> current.copy(stateRevision = revision, railPreset = null)
+            SignalWandSettingAction.RebindProtection -> return
         }
         if (!replaceToolState(player, current, replacement)) {
             player.sendMessage(Component.text("Signal Wand settings expired; reopen the settings page")); return
@@ -259,7 +266,66 @@ internal class SignalWandHandler(
             is SignalWandSettingAction.Model -> "Signal Wand presentation model selected: ${action.modelId}"
             is SignalWandSettingAction.RailPreset -> "Signal Wand rail placement selected: ${action.name}"
             SignalWandSettingAction.ClearRailPreset -> "Signal Wand rail placement reset to unadjusted"
+            SignalWandSettingAction.RebindProtection -> return
         }))
+    }
+
+    private fun openRebind(player: Player, state: SignalWandState) {
+        val playerId = player.uniqueId
+        val worldId = player.world.uid
+        sessions.invalidate(playerId)
+        val session = sessions.begin(playerId, worldId, state) ?: return
+        val token = Any()
+        choiceTokens[playerId] = token
+        fun active() = sessions.current(playerId, session) && operational() && choiceTokens[playerId] === token
+        fun ownerCurrent() = active() && player.isOnline && player.world.uid == worldId &&
+            player.hasPermission(PERMISSION) && toolInHand(player) == state
+        fun reply(message: String) = entity(player) {
+            if (ownerCurrent()) player.sendMessage(Component.text(message.take(MESSAGE_LIMIT)))
+            session.busy.set(false)
+        }
+        fun work(action: () -> Unit) {
+            try { worker {
+                if (!active()) { session.busy.set(false); return@worker }
+                try { action() } catch (failure: Exception) {
+                    reply("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
+                }
+            } } catch (failure: Exception) { reply("Cannot start signal rebinding: ${failure.message}") }
+        }
+        fun page(title: String, options: List<Pair<String, () -> Unit>>) = entity(player) {
+            session.busy.set(false)
+            if (!ownerCurrent()) return@entity
+            val used = AtomicBoolean(false)
+            showAuthoringDialog(player, title, options.map { (label, action) -> label to {
+                entity(player) {
+                    if (ownerCurrent() && used.compareAndSet(false, true) && session.busy.compareAndSet(false, true))
+                        work(action)
+                }
+            } })
+        }
+        work {
+            val capture = backend.capture(worldId, state.signalType, state.presentationModelId)
+            val devices = backend.rebindDevices(capture)
+            require(devices.isNotEmpty()) { "This world has no protection signal to rebind" }
+            page("Select protection signal", devices.map { device ->
+                "${device.definition.signalId} | ${device.definition.kind} | ${device.definition.bindingId ?: "unbound"}" to {
+                    require(backend.current(capture)) { "Signal selection expired; select again" }
+                    val targets = backend.rebindTargets(capture, device)
+                    require(targets.isNotEmpty()) { "No currently usable protection target is available" }
+                    page("Select new entry / route", targets.map { target ->
+                        "Entry ${target.entryBoundaryId} | ${target.bindingId}" to {
+                            require(backend.current(capture)) { "Signal selection expired; select again" }
+                            page("Rebind ${device.definition.signalId}?", listOf(
+                                "Confirm: ${target.bindingId} (keep model position)" to {
+                                    reply(backend.rebind(capture, device, target, ::active).message)
+                                },
+                                "Cancel" to { reply("Signal rebinding cancelled") }
+                            ))
+                        }
+                    })
+                }
+            })
+        }
     }
 
     internal fun click(
@@ -995,6 +1061,7 @@ internal sealed interface SignalWandSettingAction {
     data class Model(val modelId: String) : SignalWandSettingAction
     data class RailPreset(val modelId: String, val name: String) : SignalWandSettingAction
     data object ClearRailPreset : SignalWandSettingAction
+    data object RebindProtection : SignalWandSettingAction
 }
 
 private enum class SignalWandOperation { BIND, PLACE, DELETE }

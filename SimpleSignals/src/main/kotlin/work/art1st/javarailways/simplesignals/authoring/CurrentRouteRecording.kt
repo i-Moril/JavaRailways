@@ -8,11 +8,51 @@ import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinit
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionAuthoringStatus
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionPatch
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntimeManager
+import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsRuntimePublication
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import java.util.UUID
 
-/** Freezes an already displayed path on a worker, then uses the existing definition transaction. */
+internal class RecordedRouteDeletion(val selection: RoutePreviewSelection,
+    val publication: SimpleSignalsRuntimePublication, val topology: TopologyState,
+    val table: ProtectionRouteTableDefinition, val route: ProtectionRouteDefinition)
+
+/** Records displayed paths or deletes authored routes on a worker through the existing definition transaction. */
 internal class CurrentRouteRecording(private val manager: SimpleSignalsWorldRuntimeManager,
     private val infrastructure: InfrastructureResourceService, private val preview: RoutePreviewBackend) {
+    fun deletionChoices(selection: RoutePreviewSelection): List<RecordedRouteDeletion> {
+        ThreadGuard.ensureOffMainThread("SimpleSignals route deletion selection")
+        val runtime = selection.runtime
+        require(manager.authoringRuntime(selection.worldId) === runtime && !runtime.closed) {
+            "Selected world runtime was unloaded; select again"
+        }
+        val publication = runtime.authoringPublication()
+        require(publication.definitions.regions.any { region -> region.regionId == selection.regionId &&
+            selection.entry in region.boundaries }) { "Selected region entry changed; select again" }
+        val topology = infrastructure.currentTopology(selection.worldId)
+        val table = publication.definitions.routeTables.singleOrNull { it.regionId == selection.regionId }
+            ?: return emptyList()
+        return table.routes.sortedBy { it.routeId }.map { RecordedRouteDeletion(selection, publication, topology, table, it) }
+    }
+
+    fun delete(choice: RecordedRouteDeletion, active: () -> Boolean): String {
+        ThreadGuard.ensureOffMainThread("SimpleSignals route deletion")
+        val selection = choice.selection
+        require(active() && manager.authoringRuntime(selection.worldId) === selection.runtime &&
+            !selection.runtime.closed && selection.runtime.authoringPublication() === choice.publication &&
+            infrastructure.currentTopology(selection.worldId) === choice.topology) {
+            "Route deletion selection expired; select again"
+        }
+        require(choice.table in choice.publication.definitions.routeTables && choice.route in choice.table.routes &&
+            choice.table.regionId == selection.regionId) { "The selected authored route no longer exists" }
+        val updated = ProtectionRouteTableDefinition(choice.table.tableId, Math.addExact(choice.table.revision, 1L),
+            choice.table.regionId, choice.table.regionRevision, choice.table.routes.filterNot { it.routeId == choice.route.routeId })
+        val result = manager.applyDefinitionPatch(selection.worldId, choice.publication.definitions.definitionRevision,
+            SimpleSignalsDefinitionPatch(upsertRouteTables = listOf(updated)), selection.runtime, choice.topology, active)
+        return if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
+            "Deleted route ${choice.route.routeId}; devices retained; definition revision ${result.definitions!!.definitionRevision}"
+        else SimpleSignalsAdminCommand.formatResult(result)
+    }
+
     fun record(selection: RoutePreviewSelection, value: RoutePreviewComputation, active: () -> Boolean): String {
         ThreadGuard.ensureOffMainThread("SimpleSignals current route recording")
         require(active()) { "Route selection is no longer active" }

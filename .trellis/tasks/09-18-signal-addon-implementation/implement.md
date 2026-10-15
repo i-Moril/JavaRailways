@@ -2,13 +2,13 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
-后续顺序更新：用户于2026-10-15批准以下范围和执行顺序，测距放在其余建造交互之后。当前进入第一批进路删除/设备重绑，不把旧测距下一批建议继续当作当前优先级。
+后续顺序更新：用户于2026-10-15批准以下范围和执行顺序，测距放在其余建造交互之后。进路删除/保护主信号重绑已完成离线门禁，下一批为表示器映射作者，不把旧测距下一批建议继续当作当前优先级。
 
 边界显示已确认仅为编辑辅助：持建造工具时向编辑者显示，离手/上下文失效后清理，不创建面向所有玩家的常驻边界模型；沿用现有玩家隔离与显示生命周期。
 
 实例参数编辑已确认首版使用设置页数值输入（三轴偏移、旋转角度、跟随轨道倾斜），不做鼠标拖拽；复用现有摆放计算并保持逻辑绑定，进一步交互优化延后。
 
-进路删除与重绑决策已确认：保留相关设备，失去有效进路绑定后不可放行；先采用“选已有设备 → 选新入口/进路 → 确认”，只改绑定、不移动模型，进一步交互优化延后。当前实现仍会拒绝未知进路引用；下一交互批次须同步调整校验/失效行为并提供设备重绑，不沿用之前建议的级联删除。
+进路删除与重绑决策已确认并落实保护主信号交互：保留相关设备，失去有效进路绑定后不可放行；采用“选已有设备 → 选新入口/进路 → 确认”，只改绑定、不移动模型，进一步交互优化延后。非空未知引用仍拒绝，不沿用之前建议的级联删除。表示器跨入口重绑随下一批映射编辑处理。
 
 表示器缺失映射决策已确认：允许保存进路，未映射进路被选中时不显示进路指示，编辑页提示补配，其他映射继续有效；不猜测variant。当前完整映射校验尚未调整。
 
@@ -16,10 +16,11 @@
 
 每批先补充对应owner契约与必要伪代码，再实现、验证并作小提交；不一次堆积全部交互。精确API及持久化表示按源码确定，不在此规划猜测字段。复用现有manager编辑事务、Wand设置页、实例摆放计算与显示生命周期，不增加第二套管理器。
 
-- [ ] 进路删除与设备重绑：梳理有效/失效绑定的候选校验与输出，保留设备和附属关系，提供明确的重绑交互；验证删除后不能误放行、无关进路不受影响、重绑不移动模型及编辑失败不半提交。
+- [x] 进路删除与保护主信号重绑：梳理有效/失效绑定的候选校验与输出，保留设备和附属关系，提供明确的重绑交互；验证删除后不能误放行、无关进路不受影响、重绑不移动模型及编辑失败不半提交。表示器跨入口重绑归下一项。
   - [x] 第一笔先实现后端：明确null绑定、删除时规范化保留设备及映射、保留空表禁行，并验证持久化/输出/严格校验；具体合同见[工具规范](../../spec/simple-signals/backend/section-authoring-wands.md#删除进路保留设备与显式重绑)。不宣称已有玩家交互。
-  - [ ] 第二笔接Wand删除/设备重绑，复用设置页、精确修订和原事务；提交前独立复核。
-- [ ] 表示器新建/映射编辑：提供模型支持的进路外观选择，允许缺项并显示补配提示；验证未映射进路不显示指示、已有映射正常、非法模型variant仍被拒绝。
+  - [x] 第二笔接Wand删除/保护主信号重绑，复用设置页、精确修订和原事务；独立复核及离线门禁通过。
+    当前范围：Route Wand新增Shift+右键已保存进路列表和删除确认；Signal Wand设置页选择已有保护主信号（含未绑定/ground）、有效新目标并确认重绑，只改逻辑绑定，不改PDC。表示器跨入口重绑与下一批映射编辑一起处理；精确交互和测试归[owner合同](../../spec/simple-signals/backend/section-authoring-wands.md#wand删除进路与保护信号重绑)。
+- [ ] 表示器新建/映射编辑及跨入口重绑：提供模型支持的进路外观选择，允许缺项并显示补配提示；验证未映射进路不显示指示、已有映射正常、非法模型variant仍被拒绝。入口重绑须同时明确映射，不能猜测外观。
 - [ ] 实例参数数值编辑：三轴偏移、旋转角度及跟随轨道倾斜设置接入既有摆放流程；验证选中对象身份/修订、几何计算和逻辑绑定保持，不实现拖拽。
 - [ ] 边界及区间编辑叠加：复用既有玩家隔离显示机制，补齐位置、方向及区间提示；验证离手、退出、切世界及卸载后清理，显示不参与行车逻辑。
 - [ ] 最后实现独立测距：直线与沿轨距离，沿轨采用物理最短路，不依赖当前道岔选择，不实际扳岔或申请行车资源。
@@ -33,7 +34,16 @@
 - 独立复核补充无限制正反可达前置，并把原无请求基线增强为25m/s/已选进路和绿色附属显示，删除后验证0/Unavailable和附属默认外观、空表表示器无进路外观；使用已有准入/净空fixture，不宣称真实列车资源申请或客户端验收。
 - 隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`，`GRADLE_USER_HOME=/workspace/.gradle`、offline/no-build-cache/no-parallel/max-workers=2。命令`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries`，仅排除WebUI installFrontend/buildFrontend。首次完整门禁1分2秒，34task中8执行26up-to-date；最终增强测试后重跑44秒，5执行29up-to-date。
 - 最终SimpleSignals全部48套507项实际重跑，失败/错误/跳过均0；产品/API/JAR检查在前一轮实际通过，最后一轮复用未变产物。最终产品/测试diff相对`7be6ca20`的SHA256为`5b5ad20ba73c1938d8889007785360d9f84a572b1670f235820947c27dcba8d9`，与隔离候选相同。日志`/tmp/javarailways-route-delete-final-check.log`，XML在候选`SimpleSignals/build/test-results/test/`。既有Graal POM/JDK/Gradle警告未扩入本批处理。
-- 独立复核无剩余阻塞；未运行Core/Basic全测试、前端构建、Paper/Folia或客户端，未部署。下一笔仍是Wand删除/重绑，不能将第一项或Stage 2标为整体完成。
+- 独立复核无剩余阻塞；未运行Core/Basic全测试、前端构建、Paper/Folia或客户端，未部署。本节只记录后端验证，不证明Wand能力或Stage 2整体完成。
+
+#### Wand删除与重绑交互验证（2026-10-15）
+
+- Route Wand的普通录制手势保留，Shift+右键从所选区域作者表选进路并确认删除；后台复用CurrentRouteRecording和原manager，只upsert保留ID的表。Signal Wand设置页新增设备→有效目标→确认的三页流程，RuntimeSignalWandBackend只改bindingId/revision，包含未绑定、ground和无placement设备。共享WandDialogs只构造原生按钮，不是新的编辑服务或会话框架；无PDC/sidecar字段及版本变化。
+- 新增10项执行案例：Route handler 2项，Signal handler 1项正常流程+5项失效参数，真实manager删除/重绑各1项；旧预设断言由列表尾位置改成按动作定位，排序、选中、复制参数断言仍保留。复核修正测试初始化为先合法创建再解除绑定，未放宽既有“必须有关联轨道影响”的候选规则。
+- 平台替身验证owner/worker边界、确认前无写入、Esc后重开不锁busy、旧页/重复点击/取消/工具状态/权限/catalog/世界卸载失效。真实backend→manager→store链路验证空表及设备保留、精确修订/目标排序、同绑定无写盘、旧capture/未知目标拒绝、ground/type/提前时间/附属关系不变；真实Basic registry验证静态运营依赖与动态claim阻挡重绑。非真实Folia/客户端操作。
+- 同一隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`、`GRADLE_USER_HOME=/workspace/.gradle`，offline/no-build-cache/no-parallel/max-workers=2；生产编译16秒通过。完整命令`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries`，仅排除WebUI installFrontend/buildFrontend。首轮51秒暴露旧位置断言，第二轮1分1秒暴露新fixture零影响初始化，修正后最终47秒通过（34task中5执行29up-to-date）。
+- 最终全部SimpleSignals 48套517项实际重跑，零失败/错误/跳过。API consumer复用未变产物，JAR边界曾实际执行且通过；未变宿主模块缓存不计为重新测试。包含新WandDialogs的全部`SimpleSignals/src`路径排序后文件SHA256清单的摘要为`32adc798ca899af41545d1d74629d66b1d4735d47f9e409b36af643de8c62e40`，live与候选一致。日志`/tmp/javarailways-wand-route-edit-final-check2.log`，XML位于候选`SimpleSignals/build/test-results/test/`。
+- 独立复核无剩余阻塞；未部署、未运行Paper/Folia/客户端、Core/Basic全测试或前端构建，既有Graal POM/JDK/Gradle警告未扩入本批。Stage 2保持in_progress；下一批为表示器新建/映射编辑及相应入口重绑，之后数值实例编辑、边界叠加、最后测距。
 
 ### 当前优先批次：停车精度（用户已批准）
 

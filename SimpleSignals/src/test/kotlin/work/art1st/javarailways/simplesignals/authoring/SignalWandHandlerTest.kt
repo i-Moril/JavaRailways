@@ -40,6 +40,8 @@ import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.simplesignals.signalpack.AvailableSignalType
 import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
+import work.art1st.javarailways.simplesignals.signal.ProtectionSignalDefinition
+import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
 import java.lang.reflect.Proxy
 import java.util.ArrayDeque
 import java.util.Optional
@@ -49,6 +51,47 @@ import kotlin.math.sqrt
 
 /** Deterministic owner/worker/UI coverage; live Folia dialog rendering remains a deployment check. */
 class SignalWandHandlerTest {
+    @Test fun `rebind dialog includes unbound device waits for confirmation and ignores repeated old callbacks`() = Fixture().use { f ->
+        val original = f.tool
+        f.handler.selectSetting(f.player, original, SignalWandSettingAction.RebindProtection); f.drain()
+        assertTrue(f.dialogOptions.single().first.contains("unbound"))
+        val old = f.dialogOptions.single().second
+        // Escape is callback-free; reopening must still work and retires the old page.
+        f.handler.openSettings(f.player, f.tool)
+        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.RebindProtection); f.drain()
+        old(); f.drain()
+        assertTrue(f.dialogOptions.single().first.contains("unbound"))
+        val device = f.dialogOptions.single().second
+        device(); device(); f.drain()
+        assertTrue(f.dialogOptions.single().first.contains("Entry test:entry"))
+        f.dialogOptions.single().second(); f.drain()
+        assertEquals(0, f.rebindings)
+        val confirm = f.dialogOptions.first().second
+        confirm(); confirm(); f.drain()
+        assertEquals(1, f.rebindings)
+        assertEquals(original, f.tool)
+        assertEquals(0, f.performs)
+        assertTrue(f.placements.isEmpty())
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = ["cancel", "tool", "permission", "settings", "catalog"])
+    fun `rebind final confirmation rejects cancelled or stale continuation`(reason: String) = Fixture().use { f ->
+        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.RebindProtection); f.drain()
+        f.dialogOptions.single().second(); f.drain()
+        f.dialogOptions.single().second(); f.drain()
+        val confirm = f.dialogOptions.first().second
+        when (reason) {
+            "cancel" -> { f.dialogOptions.last().second(); f.drain() }
+            "tool" -> f.tool = f.tool.copy(stateRevision = 1)
+            "permission" -> f.permitted = false
+            "settings" -> f.handler.openSettings(f.player, f.tool)
+            "catalog" -> f.current = false
+        }
+        confirm(); f.drain()
+        assertEquals(0, f.rebindings)
+    }
+
     @Test fun `wand marker and encoded state round trip while corrupt state fails closed`() = Fixture().use { f ->
         val state = SignalWandState(UUID(3, 4), 7L, SignalWandMode.PLACEMENT,
             SignalWandControlKind.FIXED_BLOCK, "automatic:jr-four-light",
@@ -179,9 +222,10 @@ class SignalWandHandlerTest {
         assertEquals(listOf("Mode: placement", "Mode: deletion", "Control: fixed-block primary",
             "Control: protection current-entry primary", "Control: protection fixed-route primary",
             "Control: attached signal", "Control: route indicator",
-            "test:a — A", "test:z — Z", "Presentation model: test:model", "Rail placement: unadjusted"),
+            "test:a — A", "test:z — Z", "Presentation model: test:model", "Rail placement: unadjusted",
+            "Rebind existing protection signal"),
             f.settings.map { it.label })
-        assertEquals(listOf(true, false, true, false, false, false, false, false, true, false, true),
+        assertEquals(listOf(true, false, true, false, false, false, false, false, true, false, true, false),
             f.settings.map { it.selected })
         f.choose!!(SignalWandSettingAction.Type("test:a"))
         f.drainOwners()
@@ -210,7 +254,8 @@ class SignalWandHandlerTest {
         }
         f.handler.openSettings(f.player, f.tool)
         assertEquals(listOf("Rail placement: unadjusted", "Rail placement: left", "Rail placement: right"),
-            f.settings.takeLast(3).map { it.label })
+            f.settings.filter { it.action is SignalWandSettingAction.RailPreset ||
+                it.action === SignalWandSettingAction.ClearRailPreset }.map { it.label })
         f.choose!!(SignalWandSettingAction.RailPreset("test:primary", "right")); f.drainOwners()
         assertEquals(SignalWandRailPreset("test:primary", "right", offset, true), f.tool.railPreset)
         assertEquals(f.binding, f.tool.binding)
@@ -219,7 +264,7 @@ class SignalWandHandlerTest {
         assertTrue(f.workers.isEmpty())
         assertTrue(SignalWandHandler.statusText(f.tool, f.available, f.modelIds).toString().contains("rail-only preset: right"))
         f.handler.openSettings(f.player, f.tool)
-        assertTrue(f.settings.last().selected)
+        assertTrue(f.settings.single { it.action == SignalWandSettingAction.RailPreset("test:primary", "right") }.selected)
 
         val replacement = RailPlacementPreset(ModelPose.IDENTITY, false)
         f.models = mapOf("test:primary" to railModel("test:primary", mapOf("right" to replacement)))
@@ -589,6 +634,8 @@ class SignalWandHandlerTest {
         var targetCalls = 0
         var performs = 0
         var deletes = 0
+        var rebindings = 0
+        var dialogOptions = emptyList<Pair<String, () -> Unit>>()
         val placements = mutableListOf<ModelPlacement>()
         var available: List<AvailableSignalType>? = DEFAULT_TYPES
         var modelIds: List<String>? = listOf("test:model")
@@ -660,6 +707,23 @@ class SignalWandHandlerTest {
                 return capture
             }
             override fun current(capture: SignalWandCapture) = current
+            override fun rebindDevices(capture: SignalWandCapture): List<ProtectionSignalRebindChoice> {
+                check(!ownerThread)
+                return listOf(ProtectionSignalRebindChoice(ProtectionSignalDefinition("test:unbound", 2,
+                    ProtectionSignalKind.FIXED_ROUTE, null, 0.0, "test:a")))
+            }
+            override fun rebindTargets(capture: SignalWandCapture, device: ProtectionSignalRebindChoice): List<ProtectionSignalRebindTarget> {
+                check(!ownerThread)
+                return listOf(ProtectionSignalRebindTarget("test:entry", "test:route"))
+            }
+            override fun rebind(capture: SignalWandCapture, device: ProtectionSignalRebindChoice,
+                target: ProtectionSignalRebindTarget, active: () -> Boolean): SignalWandOutcome {
+                check(!ownerThread)
+                assertTrue(active())
+                require(current) { "Signal selection expired" }
+                rebindings++
+                return SignalWandOutcome("rebound")
+            }
             override fun resolveEntrance(capture: SignalWandCapture, controlKind: SignalWandControlKind,
                 mode: SignalWandMode, point: RailPositionSnapshot): List<SignalWandChoice> {
                 check(!ownerThread)
@@ -681,6 +745,7 @@ class SignalWandHandlerTest {
             }
         }
         val handler = SignalWandHandler(plugin, backend, targets, enabled = { pluginEnabled },
+            showAuthoringDialog = { _, _, options -> check(ownerThread); dialogOptions = options },
             worker = { workers += it }, entity = { _, action -> owners += action },
             toolInHand = { check(ownerThread); tool.takeIf { toolPresent } },
             giveTool = { _, value -> given += value },
@@ -701,6 +766,7 @@ class SignalWandHandlerTest {
         fun command(vararg args: String) = handler.onCommand(player, command, "simplesignals", args)
         fun click(action: Action = Action.RIGHT_CLICK_AIR) = handler.click(player, tool, action)
         fun drainOwners() { ownerThread = true; while (owners.isNotEmpty()) owners.removeFirst().invoke() }
+        fun drain() { while (owners.isNotEmpty() || workers.isNotEmpty()) { drainOwners(); drainWorkers() } }
         fun drainWorkers() {
             ownerThread = false
             try { while (workers.isNotEmpty()) workers.removeFirst().invoke() } finally { ownerThread = true }

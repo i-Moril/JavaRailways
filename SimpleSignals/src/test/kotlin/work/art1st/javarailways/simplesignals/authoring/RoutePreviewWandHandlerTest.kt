@@ -35,6 +35,41 @@ class RoutePreviewWandHandlerTest {
     private val worlds = mutableListOf<CoreWorld>()
     @AfterEach fun closeWorlds() = worlds.forEach { it.physicsCoordinator.close(); (it.tickManager as? AutoCloseable)?.close() }
 
+    @Test fun `route deletion needs only entry and waits for confirmation with reopen and duplicate callbacks fenced`() {
+        val f = Fixture()
+        f.click(true)
+        assertEquals(0, f.computes)
+        f.handler.openRoutes(f.player); f.drain()
+        val old = f.dialogOptions.single().second
+        f.handler.openRoutes(f.player); f.drain() // Escape has no callback and cannot leave busy held.
+        old(); f.drain()
+        assertEquals(1, f.dialogOptions.size)
+        val route = f.dialogOptions.single().second
+        route(); route(); f.drain()
+        assertEquals(0, f.deletions)
+        val confirm = f.dialogOptions.first().second
+        confirm(); confirm(); f.drain()
+        assertEquals(1, f.deletions)
+        assertEquals(0, f.recordings)
+        assertEquals(0, f.computes)
+    }
+
+    @Test fun `route deletion cancellation and world unload retire confirmation without writing`() {
+        val f = Fixture(); f.click(true)
+        f.handler.openRoutes(f.player); f.drain()
+        f.dialogOptions.single().second(); f.drain()
+        val cancelled = f.dialogOptions.first().second
+        f.dialogOptions.last().second(); f.drain()
+        cancelled(); f.drain()
+        assertEquals(0, f.deletions)
+        f.handler.openRoutes(f.player); f.drain()
+        f.dialogOptions.single().second(); f.drain()
+        val unloaded = f.dialogOptions.first().second
+        f.handler.onWorldUnload(WorldUnloadEvent(f.world))
+        unloaded(); f.drain()
+        assertEquals(0, f.deletions)
+    }
+
     @Test fun `permission and missing entry reject without targeting and command supplies preview tool`() {
         val f = Fixture()
         f.permitted = false
@@ -265,6 +300,8 @@ class RoutePreviewWandHandlerTest {
         var selections = 0
         var computes = 0
         var recordings = 0
+        var deletions = 0
+        var dialogOptions = emptyList<Pair<String, () -> Unit>>()
         var pathEnd = CurrentRouteEnd.REACHED_EXIT
         var observation: ((ActiveRailContinuationsSnapshot) -> Unit)? = null
         var recordAction: ((RoutePreviewSelection, RoutePreviewComputation, () -> Boolean) -> String)? = null
@@ -309,6 +346,15 @@ class RoutePreviewWandHandlerTest {
         val region = ProtectionRegionDefinition("test:region", 0, listOf(entry, exit))
         val runtime = SimpleSignalsWorldRuntime(worldId)
         private val selection = RoutePreviewSelection(worldId, runtime, region.regionId, entry, regionRailIds = setOf(rail.id))
+        private val topology = topologyState(1, listOf(rail.id), emptyList())
+        private val route = ProtectionRouteDefinition("test:route", entry.boundaryId, exit.boundaryId,
+            listOf(ProtectionRouteTraversal(rail.id, ViewDirection.AB, 2.0, 8.0)))
+        private val table = ProtectionRouteTableDefinition("test:table", 0, region.regionId, 0, listOf(route))
+        init {
+            assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, runtime.initializeDefinitions(topology,
+                work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions(worldId, 1,
+                    listOf(region), listOf(table))).status)
+        }
         private val backend = object : RoutePreviewBackend {
             override fun select(worldId: UUID, point: RailPositionSnapshot, entry: RoutePreviewSelection?): RoutePreviewSelection {
                 check(!owner); selections++
@@ -339,6 +385,12 @@ class RoutePreviewWandHandlerTest {
                 assertEquals(selection.entry, value.path.entry)
                 recordAction?.invoke(selection, value, active) ?: "Recorded region test:region, route test:route"
             },
+            deletionChoices = { chosen ->
+                check(!owner)
+                listOf(RecordedRouteDeletion(chosen, runtime.authoringPublication(), topology, table, route))
+            },
+            deleteRoute = { _, active -> check(!owner); assertTrue(active()); deletions++; "deleted" },
+            showAuthoringDialog = { _, _, options -> check(owner); dialogOptions = options },
             worker = { workers += it }, entity = { _, action -> owners += action },
             repeatDisplay = { _, action, retire ->
                 check(owner); refresh = action; retired = retire; openRefresh++

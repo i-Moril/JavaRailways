@@ -28,6 +28,9 @@ internal data class SignalWandOutcome(val message: String)
 
 internal data class SignalWandChoice(val binding: SignalWandBinding, val label: String)
 
+internal data class ProtectionSignalRebindChoice(val definition: ProtectionSignalDefinition)
+internal data class ProtectionSignalRebindTarget(val entryBoundaryId: String, val bindingId: String)
+
 /** Worker-facing boundary. Catalog data exposed to commands is immutable intent, not edit authority. */
 internal interface SignalWandBackend {
     fun availableSignalTypes(): List<AvailableSignalType>?
@@ -35,6 +38,10 @@ internal interface SignalWandBackend {
     fun railPlacementModel(controlKind: SignalWandControlKind, signalType: String, modelId: String?): RailPlacementModel?
     fun capture(worldId: UUID, signalType: String, modelId: String? = null): SignalWandCapture
     fun current(capture: SignalWandCapture): Boolean
+    fun rebindDevices(capture: SignalWandCapture): List<ProtectionSignalRebindChoice>
+    fun rebindTargets(capture: SignalWandCapture, device: ProtectionSignalRebindChoice): List<ProtectionSignalRebindTarget>
+    fun rebind(capture: SignalWandCapture, device: ProtectionSignalRebindChoice,
+        target: ProtectionSignalRebindTarget, active: () -> Boolean): SignalWandOutcome
     fun resolveEntrance(
         capture: SignalWandCapture,
         controlKind: SignalWandControlKind,
@@ -111,6 +118,46 @@ internal class RuntimeSignalWandBackend(
             manager.authoringRuntime(captured.worldId) === captured.runtime &&
             captured.runtime.authoringPublication() === captured.publication &&
             infrastructure.currentTopology(captured.worldId) === captured.topology
+    }
+
+    override fun rebindDevices(capture: SignalWandCapture): List<ProtectionSignalRebindChoice> {
+        val captured = capture as Capture
+        require(current(captured)) { "Signal selection expired; select again" }
+        return captured.publication.definitions.protectionSignals.sortedBy { it.signalId }
+            .map(::ProtectionSignalRebindChoice)
+    }
+
+    override fun rebindTargets(capture: SignalWandCapture,
+        device: ProtectionSignalRebindChoice): List<ProtectionSignalRebindTarget> {
+        val captured = capture as Capture
+        require(current(captured)) { "Signal selection expired; select again" }
+        require(device.definition in captured.publication.definitions.protectionSignals) {
+            "The selected protection signal changed; select again"
+        }
+        val routes = captured.publication.routeSelection.routesById.values
+        return when (device.definition.kind) {
+            ProtectionSignalKind.FIXED_ROUTE -> routes.sortedBy { it.definition.routeId }.map {
+                ProtectionSignalRebindTarget(it.definition.entryBoundaryId, it.definition.routeId)
+            }
+            ProtectionSignalKind.CURRENT_ENTRY -> routes.map { it.definition.entryBoundaryId }.distinct().sorted()
+                .map { ProtectionSignalRebindTarget(it, it) }
+        }
+    }
+
+    override fun rebind(capture: SignalWandCapture, device: ProtectionSignalRebindChoice,
+        target: ProtectionSignalRebindTarget, active: () -> Boolean): SignalWandOutcome {
+        val captured = capture as Capture
+        require(active()) { "Signal selection is no longer active" }
+        require(target in rebindTargets(captured, device)) { "The selected protection target is not currently usable" }
+        val definition = device.definition
+        if (definition.bindingId == target.bindingId) return SignalWandOutcome("Signal ${definition.signalId} already has this binding; no changes")
+        val updated = definition.copy(revision = nextRevision(definition.revision), bindingId = target.bindingId)
+        val result = manager.applyDefinitionPatch(captured.worldId, captured.publication.definitions.definitionRevision,
+            SimpleSignalsDefinitionPatch(upsertProtectionSignals = listOf(updated)), captured.runtime, captured.topology,
+            { active() && current(captured) })
+        return SignalWandOutcome(if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
+            "Rebound ${definition.signalId} to ${target.bindingId}; model placement unchanged"
+        else SimpleSignalsAdminCommand.formatResult(result))
     }
 
     override fun resolveEntrance(

@@ -236,6 +236,17 @@ class ProtectionSignalDevicesTest {
                 2, "test:unknown", original.noRouteModelVariant, original.modelVariantsByRouteId, original.model))))
         assertInstanceOf(SimpleSignalsDefinitionPreparationResult.Rejected::class.java, rejectedIndicator)
         assertSame(old, f.world.currentDefinitions())
+        val reverse = ProtectionRouteDefinition("test:reverse", routeA.exitBoundaryId, routeA.entryBoundaryId,
+            routeA.traversals.asReversed().map { it.copy(facing = ViewDirection.BA) })
+        val foreignMapping = f.world.prepareDefinitions(topology, SimpleSignalsWorldDefinitions(worldId, 2,
+            old.regions, listOf(ProtectionRouteTableDefinition("test:table", 2, region.regionId, 1,
+                listOf(routeA, routeB, reverse))), routeIndicators = listOf(RouteIndicatorDefinition(
+                original.indicatorId, 2, original.entryBoundaryId, original.noRouteModelVariant,
+                mapOf(reverse.routeId to "opaque/a"), original.model))))
+        assertInstanceOf(SimpleSignalsDefinitionPreparationResult.Rejected::class.java, foreignMapping)
+        assertTrue((foreignMapping as SimpleSignalsDefinitionPreparationResult.Rejected).diagnostics
+            .any { it.contains("must only configure its entry routes") })
+        assertSame(old, f.world.currentDefinitions())
     }
 
     @Test

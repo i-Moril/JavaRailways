@@ -106,9 +106,10 @@ internal class CompiledProtectionSignals private constructor(
                     indicator.entryBoundaryId in authoredEntryBoundaryIds) {
                     "indicator ${indicator.indicatorId} binds unknown entry"
                 }
-                require(indicator.modelVariantsByRouteId.keys == (if (authoredEntry.isNotEmpty())
-                    authoredEntry.map { it.routeId } else entryRoutes.map { it.definition.routeId }).toSet()) {
-                    "indicator ${indicator.indicatorId} must configure exactly its entry routes"
+                val entryRouteIds = (if (authoredEntry.isNotEmpty()) authoredEntry.map { it.routeId }
+                    else entryRoutes.map { it.definition.routeId }).toSet()
+                require(indicator.modelVariantsByRouteId.keys.all { it in entryRouteIds }) {
+                    "indicator ${indicator.indicatorId} must only configure its entry routes"
                 }
             }
 

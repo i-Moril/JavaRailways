@@ -21,6 +21,7 @@
 定义还保存 `inspectionLeadTimeSeconds`、必填 `signalType` 和可选实例 placement。`signalType` 从 SimpleSignals catalog
 解析 modelId 与 logicId；占用、选路、route-ready 和树形下游事实交给 JS，Kotlin 只投影／校验输入输出，不保留速度档位表。
 `RouteIndicatorDefinition`保存入口ID、无进路variant及route-to-variant映射，不包含任何速度字段。
+映射允许只配置本入口进路的子集，未知或其他入口的进路仍拒绝；选中缺项进路时使用明确配置的无进路外观，但保留真实selection身份。机制及界面状态归[表示器作者合同](section-authoring-wands.md#表示器映射作者与新建)。
 三类设备共用可选模型/摆放配置，轨道或地面位置不改变逻辑入口；具体存档与校验归
 [模型显示合同](model-presentation.md)，不保留显示器原有的第二份轨道坐标。
 

@@ -62,6 +62,11 @@ class ModelPackageLoaderTest {
         assertEquals(ItemAppearance.Brightness(15, 15), green.appearance().brightness())
         assertEquals(-2.0, home.railPlacementPresets.getValue("left").adjustment.z())
         assertEquals(1.0, home.railPlacementPresets.getValue("left").adjustment.rotationY(), 1e-12)
+        val catalog = ModelTypeCatalogSnapshot.from(loaded.models)
+        val variants = checkNotNull(catalog.variantNames(home.id))
+        assertEquals(listOf("proceed", "stop"), variants)
+        assertThrows(UnsupportedOperationException::class.java) { (variants as MutableList<String>).clear() }
+        assertNull(catalog.variantNames("demo_signals:missing"))
     }
 
     @Test

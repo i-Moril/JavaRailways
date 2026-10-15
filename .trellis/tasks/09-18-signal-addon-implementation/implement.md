@@ -10,7 +10,7 @@
 
 进路删除与重绑决策已确认并落实保护主信号交互：保留相关设备，失去有效进路绑定后不可放行；采用“选已有设备 → 选新入口/进路 → 确认”，只改绑定、不移动模型，进一步交互优化延后。非空未知引用仍拒绝，不沿用之前建议的级联删除。表示器跨入口重绑随下一批映射编辑处理。
 
-表示器缺失映射决策已确认：允许保存进路，未映射进路被选中时不显示进路指示，编辑页提示补配，其他映射继续有效；不猜测variant。当前完整映射校验尚未调整。
+表示器缺失映射决策已确认：允许保存进路，未映射进路被选中时使用明确配置的无进路外观表示没有进路指示，编辑页提示补配，其他映射继续有效；不猜测variant。部分映射后端已通过离线检查，界面仍在下一笔实现。
 
 ### 建造交互实施顺序
 
@@ -21,11 +21,17 @@
   - [x] 第二笔接Wand删除/保护主信号重绑，复用设置页、精确修订和原事务；独立复核及离线门禁通过。
     当前范围：Route Wand新增Shift+右键已保存进路列表和删除确认；Signal Wand设置页选择已有保护主信号（含未绑定/ground）、有效新目标并确认重绑，只改逻辑绑定，不改PDC。表示器跨入口重绑与下一批映射编辑一起处理；精确交互和测试归[owner合同](../../spec/simple-signals/backend/section-authoring-wands.md#wand删除进路与保护信号重绑)。
 - [ ] 表示器新建/映射编辑及跨入口重绑：提供模型支持的进路外观选择，允许缺项并显示补配提示；验证未映射进路不显示指示、已有映射正常、非法模型variant仍被拒绝。入口重绑须同时明确映射，不能猜测外观。
+  - [x] 第一笔后端：映射改为入口进路的子集，未配输出使用明确noRouteModelVariant并保留selection身份；增加最小模型variant目录投影，不修改renderer/宿主API。机制归[工具合同](../../spec/simple-signals/backend/section-authoring-wands.md#表示器映射作者与新建)。
+  - [ ] 第二笔Wand：新建意图与既有身份区分，捕获位置后明确配置并确认才创建；设置页编辑既有表示器/新入口和映射，不移动模型。复用原事务及对话guard，不创建未摆放占位定义或另一个草稿仓库。
 - [ ] 实例参数数值编辑：三轴偏移、旋转角度及跟随轨道倾斜设置接入既有摆放流程；验证选中对象身份/修订、几何计算和逻辑绑定保持，不实现拖拽。
 - [ ] 边界及区间编辑叠加：复用既有玩家隔离显示机制，补齐位置、方向及区间提示；验证离手、退出、切世界及卸载后清理，显示不参与行车逻辑。
 - [ ] 最后实现独立测距：直线与沿轨距离，沿轨采用物理最短路，不依赖当前道岔选择，不实际扳岔或申请行车资源。
 
 各批按影响运行SimpleSignals及相邻消费者测试、API/JAR边界检查，收尾执行联合门禁及部署构建；不把离线通过写成游戏验收。Paper/Folia、客户端交互与资源包另列实际验证结果，部署仍须单独授权。测距之前的四批不重开Core/Basic全模块审计或修改ATO算法。
+
+#### 表示器部分映射后端验证（2026-10-15）
+
+表示器部分映射后端验证：3个产品文件仅放宽覆盖完整性、保留错误键校验，使用既有无进路variant投影缺项，并提供排序不可修改的variant目录。新增1项真实manager综合回归，强化既有目录和跨入口非法引用断言；覆盖新增未配进路、首个替换baseline、区别于default的实际模型场景、已有映射、非法键/variant保持磁盘/source/publication、空映射及重载。独立复核无问题；同一隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`执行`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries`，offline、`GRADLE_USER_HOME=/workspace/.gradle`、no-build-cache/no-parallel/max-workers=2，仅排除WebUI前端任务。1分1秒，34task中8执行26up-to-date；未变API consumer复用产物，产品编译、测试及JAR边界实际执行。完整48套518项通过，失败/错误/跳过0；首个候选全部`SimpleSignals/src`文件清单摘要`b6a74bae6469bd4704a31d523930e713e1841354e4cbe91bc31a1274798c1063`。日志`/tmp/javarailways-indicator-partial-check.log`，XML在候选目录。UI正在独立开发，不将未提交UI混入该验证/提交；无renderer、宿主、schema变化，未部署或验证Paper/Folia/客户端。
 
 #### 进路删除后端验证（2026-10-15）
 

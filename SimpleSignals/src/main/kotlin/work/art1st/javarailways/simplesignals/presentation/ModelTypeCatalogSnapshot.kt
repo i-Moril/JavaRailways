@@ -11,6 +11,9 @@ internal class ModelTypeCatalogSnapshot private constructor(
 
     fun represents(catalog: Map<String, LoadedPackageModel>): Boolean = catalogIdentity === catalog
 
+    fun variantNames(modelId: String): List<String>? =
+        catalogIdentity[modelId]?.let { java.util.List.copyOf(it.variants.keys.sorted()) }
+
     fun railPlacementModel(modelId: String): RailPlacementModel? =
         catalogIdentity[modelId]?.let(RailPlacementModel::from)
 

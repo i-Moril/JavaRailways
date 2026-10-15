@@ -124,6 +124,22 @@ Ground保持方块面捕获的绝对姿态，忽略rail预设。状态栏标明�
 
 ## 6. 删除与失效处理
 
+### 表示器映射作者与新建
+
+状态：部分映射后端已实现并通过独立复核和离线门禁，Wand界面仍为TARGET（2026-10-15）。SimpleSignals负责本批定义校验、模型目录投影及Wand交互，不修改宿主渲染API、资源/ATO或JS规则；不把后端能力写成玩家界面已经完成。
+作者为表示器明确选择入口、model-only模型、无进路外观和可选的逐进路外观。映射键只允许属于该入口的作者进路，但不再要求覆盖全部进路；写错或其他入口的ID仍拒绝，已声明variant仍由真实模型严格校验。
+
+运行时保留真实`selection.routeId`：选中且已配置的进路使用对应variant，其余使用玩家明确选定的`noRouteModelVariant`。该外观用于表示无进路指示（包作者可以制作空白外观），不是模型默认场景；不猜测名称、不把null/空场景冒充不可见，也不新增宿主隐藏API或可空运行输出。
+仍使用同一section/signal epoch publication和首baseline刷新，不新增遍历/求值循环；添加一条进路即使表示器暂未补配，也允许保存且其他映射不受影响。
+`ModelTypeCatalogSnapshot.variantNames(modelId): List<String>?`仅提供不可修改、按名称排序的variant列表，未知模型返回null，不向UI泄露模型树；查询只在低频作者操作执行，V个外观排序成本O(V log V)，运行时单次映射查找不增加扫描。
+
+Wand目标交互：左键入口可明确选新建或精确既有表示器。新建绑定只保存入口及成对为null的indicatorId/revision意图；已有绑定仍保存精确非空身份/修订，禁止半空身份。右键先捕获rail/ground位置，再显示明确的无进路外观及逐进路映射选择，允许标记“未配置”，最终确认才生成无冲突设备ID并经原manager事务保存完整模型和位置，不预建未摆放定义。未完成映射草稿只保存在本次对话回调，不另建玩家状态仓库。
+已有表示器从设置页进入编辑，选择原入口或新入口，再明确外观配置；只更新入口/映射及revision，保留设备ID、模型和摆放。跨入口不得沿用不属于新入口的映射或猜测新外观；页面明确提示未配进路，取消/关闭不提交。
+所有页面复用既有WandDialogs及原continuation、itemId/stateRevision、runtime/publication/topology/catalog基线检查；worker做定义/文件工作，玩家owner显示页面和读物品。重复/迟到回调、权限/工具/世界失效、未知模型/variant、revision溢出、编辑许可或保存失败均不修改旧磁盘/source/publication。
+
+必需断言：部分映射且真实选中缺项进路时使用明确无进路variant、selection身份不丢；其他映射正常；添加新进路无需同步补全映射；错误键/variant拒绝及失败原子性。界面批次另验目录排序/不可修改、明确新建意图、不在确认前写入、rail/ground完整创建、旧设备映射编辑/跨入口不移动、取消/重复/过期回调和PDC新旧意图严格round-trip。
+只修正未发布current模型，sidecar/PDC不升版、不新增兼容reader；noRoute字段及映射存档形状保持不变。错误做法是对未配进路getValue抛错或猜default/route ID外观；正确做法是先严格校验已声明引用，再通过显式无进路外观投影未配状态。
+
 ### 删除进路保留设备与显式重绑
 
 状态：后端定义事务、安全输出及下述Wand删除/保护主信号重绑均已实现并通过独立复核、离线门禁（2026-10-15）。本批由SimpleSignals负责，不修改Core/Basic/ATO，不新增锁或资源管理器。

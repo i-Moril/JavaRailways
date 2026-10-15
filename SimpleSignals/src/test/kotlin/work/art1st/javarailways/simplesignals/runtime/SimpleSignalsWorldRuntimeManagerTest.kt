@@ -3105,6 +3105,97 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
+    fun `adding an unmapped route preserves its selected identity and uses the explicit no route appearance`() {
+        val f = Fixture()
+        val upper = f.upperRoute()
+        val lower = f.lowerRoute()
+        val placement = ModelPlacement.Ground(ModelPose(3.0, 64.0, 5.0, 0.0, 0.0, 0.0, 1.0))
+        // Deliberately different from the model's default dark scene: never fall back to defaults.
+        val indicator = RouteIndicatorDefinition("test:partial-indicator", 1, upper.entryBoundaryId,
+            "proceed", mapOf(upper.routeId to "stop"), DeviceModelDefinition("demo_signals:home", placement))
+        val definitions = store()
+        definitions.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1, listOf(f.region),
+            listOf(f.table(1, upper)), routeIndicators = listOf(indicator)))
+        val infrastructure = MutableTopologyService(f.currentTopology)
+        val sources = CapturingSignalEpochSourceService()
+        val models = RecordingModels()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            sources, modelPresentation = models)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        val runtime = manager.authoringRuntime(f.worldId)!!
+        fun process(epoch: Long, selected: ProtectionRouteDefinition) {
+            val active = manager.authoringRuntime(f.worldId)!!
+            val compiled = active.authoringPublication().routeSelection.routesById.getValue(selected.routeId)
+            val route = RouteSnapshot("test:partial-mission", epoch, f.currentTopology.revision,
+                selected.traversals.mapIndexed { index, traversal ->
+                    RouteSegmentSnapshot(traversal.railId, traversal.facing,
+                        if (index == 0) 0.0 else traversal.lowerAbMeters,
+                        if (index == selected.traversals.lastIndex) 10.0 else traversal.upperAbMeters)
+                })
+            val owner = InfrastructureOwner("test:partial-owner", 1)
+            protectionTestEpoch(active, f.worldId.toString(), TrainRestrictionSnapshotStore(f.worldId.toString())).also {
+                it.replaceSources(sources.sources.getValue(f.worldId))
+                it.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, ActiveRouteAdmissionSnapshot(owner,
+                    "train", route, ActiveRouteAdmissionState.GRANTED, RouteBoundary(40.0), RouteBoundary(40.0))))
+                val position = RailPositionSnapshot(f.entry, ViewDirection.AB, 0.0)
+                it.process(RailwayWorldFrameSnapshot.create(epoch, f.currentTopology.revision,
+                    listOf(TrainFrameSnapshot.create("train", "Train", epoch, epoch, 0.0, false, false,
+                        emptyList(), position, position, emptyList(), emptyList(), emptyList(), emptyList(), emptyList())),
+                    ActiveRailContinuationsSnapshot.create(f.currentTopology.revision, epoch,
+                        compiled.requiredContinuations.associate { it.entry to it.selectedExit })))
+            }
+        }
+        fun assertAppearance(routeId: String, variant: String, scene: String) {
+            val state = manager.authoringRuntime(f.worldId)!!.routeIndicatorStates().getValue(indicator.indicatorId)
+            assertTrue(state.selection.available)
+            assertEquals(routeId, state.selection.routeId)
+            assertEquals(variant, state.modelVariant)
+            assertEquals(mapOf("lamp" to scene),
+                models.byId("route-indicator/${indicator.indicatorId}").submissions.last().animationScenes())
+        }
+        process(1, upper)
+        assertAppearance(upper.routeId, "stop", "red")
+        val table = ProtectionRouteTableDefinition("test:throat-table", 2, f.region.regionId, 1, listOf(upper, lower))
+        val added = manager.applyDefinitionPatch(f.worldId, 1,
+            SimpleSignalsDefinitionPatch(upsertRouteTables = listOf(table)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, added.status, added.diagnostics.toString())
+        assertEquals(listOf(indicator), added.definitions!!.routeIndicators)
+        process(2, lower) // First replacement baseline must already project an unmapped selection safely.
+        assertAppearance(lower.routeId, "proceed", "green")
+        process(3, upper)
+        assertAppearance(upper.routeId, "stop", "red")
+
+        val before = Files.readString(definitions.primaryFile(f.worldId))
+        val publication = runtime.authoringPublication()
+        val source = sources.sources.getValue(f.worldId)
+        listOf(
+            mapOf("test:missing" to "stop"),
+            mapOf(upper.routeId to "unknown-variant")
+        ).forEach { mapping ->
+            val invalid = RouteIndicatorDefinition(indicator.indicatorId, 2, indicator.entryBoundaryId,
+                indicator.noRouteModelVariant, mapping, indicator.model)
+            assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
+                manager.applyDefinitionPatch(f.worldId, 2,
+                    SimpleSignalsDefinitionPatch(upsertRouteIndicators = listOf(invalid))).status)
+            assertEquals(before, Files.readString(definitions.primaryFile(f.worldId)))
+            assertSame(publication, runtime.authoringPublication())
+            assertSame(source, sources.sources.getValue(f.worldId))
+        }
+        val unmapped = RouteIndicatorDefinition(indicator.indicatorId, 2, indicator.entryBoundaryId,
+            indicator.noRouteModelVariant, emptyMap(), indicator.model)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
+            manager.applyDefinitionPatch(f.worldId, 2,
+                SimpleSignalsDefinitionPatch(upsertRouteIndicators = listOf(unmapped))).status)
+        process(4, upper)
+        assertAppearance(upper.routeId, "proceed", "green")
+        manager.remove(f.worldId)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        assertEquals(listOf(unmapped), manager.authoringRuntime(f.worldId)!!.currentDefinitions().routeIndicators)
+        process(5, lower)
+        assertAppearance(lower.routeId, "proceed", "green")
+    }
+
+    @Test
     fun `route deletion retains devices detaches only deleted route and keeps empty table closed across reload`() {
         val f = Fixture()
         val upper = f.upperRoute()

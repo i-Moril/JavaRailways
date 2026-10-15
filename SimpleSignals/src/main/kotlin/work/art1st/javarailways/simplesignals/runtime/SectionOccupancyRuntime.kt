@@ -284,7 +284,7 @@ internal class SectionOccupancyRuntime private constructor(
                         work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionSource.NONE,
                         available = false)
                 next[indicator.indicatorId] = work.art1st.javarailways.simplesignals.signal.RouteIndicatorState(
-                    selected, selected.routeId?.takeIf { selected.available }?.let(indicator.modelVariantsByRouteId::getValue)
+                    selected, selected.routeId?.takeIf { selected.available }?.let(indicator.modelVariantsByRouteId::get)
                         ?: indicator.noRouteModelVariant)
             }
             indicatorStates = java.util.Map.copyOf(next)

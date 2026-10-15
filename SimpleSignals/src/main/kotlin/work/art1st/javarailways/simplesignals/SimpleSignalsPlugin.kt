@@ -11,6 +11,8 @@ import work.art1st.javarailways.simplesignals.authoring.RuntimeSectionWandBacken
 import work.art1st.javarailways.simplesignals.authoring.SectionWandHandler
 import work.art1st.javarailways.simplesignals.authoring.SectionWandOverlay
 import work.art1st.javarailways.simplesignals.authoring.RuntimeSectionOverlayBackend
+import work.art1st.javarailways.simplesignals.authoring.MeasurementWandHandler
+import work.art1st.javarailways.simplesignals.authoring.RailMeasurementBackend
 import work.art1st.javarailways.simplesignals.authoring.RoutePreviewWandHandler
 import work.art1st.javarailways.simplesignals.authoring.RuntimeRoutePreviewBackend
 import work.art1st.javarailways.simplesignals.authoring.CurrentRouteRecording
@@ -26,6 +28,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
     private var worldRuntimes: SimpleSignalsWorldRuntimeManager? = null
     private var sectionWands: SectionWandHandler? = null
     private var sectionOverlay: SectionWandOverlay? = null
+    private var measurementWand: MeasurementWandHandler? = null
     private var routePreviewWand: RoutePreviewWandHandler? = null
     private var signalWand: SignalWandHandler? = null
     private var modelCleanup: CompletionStage<Void> = CompletableFuture.completedFuture(null)
@@ -105,9 +108,15 @@ class SimpleSignalsPlugin : JavaPlugin() {
             services.railTargets())
         signalWand = signals
         server.pluginManager.registerEvents(signals, this)
+        val measurements = MeasurementWandHandler(this, RailMeasurementBackend(services.infrastructure(), services.railTargets()),
+            services.railTargets())
+        measurementWand = measurements
+        server.pluginManager.registerEvents(measurements, this)
         checkNotNull(getCommand("simplesignals")) { "SimpleSignals command descriptor is missing" }
             .setExecutor { sender, command, label, args ->
-                if (args.take(2) == listOf("wand", "route"))
+                if (args.take(2) == listOf("wand", "measure"))
+                    measurements.onCommand(sender, command, label, args)
+                else if (args.take(2) == listOf("wand", "route"))
                     previews.onCommand(sender, command, label, args)
                 else if (args.take(2) == listOf("wand", "signal"))
                     signals.onCommand(sender, command, label, args)
@@ -118,6 +127,8 @@ class SimpleSignalsPlugin : JavaPlugin() {
     }
 
     override fun onDisable() {
+        measurementWand?.close()
+        measurementWand = null
         sectionOverlay?.close()
         sectionOverlay = null
         signalWand?.close()

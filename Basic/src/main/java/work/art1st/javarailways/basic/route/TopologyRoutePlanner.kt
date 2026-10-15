@@ -76,6 +76,21 @@ sealed interface TopologyRoutePlanningResult {
  * The planner never reads live rails, invokes plugin code during expansion or mutates topology.
  */
 object TopologyRoutePlanner {
+    /** Distance-only seam: reuse the query graph/search without the operational positive-route rule. */
+    internal fun physicalDistance(topology: TopologyState, startLocation: OperationalRouteLocation,
+        endLocation: OperationalRouteLocation): Double? {
+        val start = requireNotNull(resolveLocation(startLocation, topology)) { "Invalid start rail position" }
+        val end = requireNotNull(resolveLocation(endLocation, topology)) { "Invalid end rail position" }
+        if (startLocation == endLocation) return 0.0
+        val compiled = RestrictionCompiler.compile(topology, RoutePlanningRestrictions.unrestricted(topology))
+            as RestrictionCompilation.Compiled
+        val graph = QueryGraph(topology, compiled.graph, start, end)
+        val path = Search(graph, end, null).run(EdgeDirection.entries.map {
+            OrientedPoint(start.edgeId, start.edgeDistanceMeters, it)
+        }) ?: return null
+        return path.arcs.sumOf(GraphArc::costMeters)
+    }
+
     fun isValidLocation(topology: TopologyState, location: OperationalRouteLocation): Boolean =
         resolveLocation(location, topology) != null
 

@@ -36,6 +36,7 @@
   `RoutePlanningRestrictionSource`在搜索前低频编译一次immutable value；Dijkstra扩展期间不回调source。该API不得加入
   protection region、fixed block、signal aspect、resource claim或live world对象。完整编译/校验算法见
   [route planning](./route-planning.md)。
+- 同包`PhysicalRailDistance.between`是只读物理测距入口，只接收不可变拓扑、rail UUID和canonical AB米，返回可空距离；内部planner/input/result不随之公开。无运营限制不等于无物理连接约束，且测距结果不授予运行资源。零长、错误与算法复用见[测距合同](./route-planning.md#只读物理测距)。
 - 非Core模块优先`core.api.*`；能力不足先设计最小Core API/value DTO，不能以现存internal import为先例。
 - BukkitPlugin是同仓库composition root，不是第三方add-on contract；它不能把Basic non-API object重新包装成稳定API。
 - Bukkit `InfrastructureResourceService.routeAdmission(plugin, worldId)` 是公开准入service的认证入口：返回值绑定

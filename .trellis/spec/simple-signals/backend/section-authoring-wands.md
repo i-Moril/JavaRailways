@@ -13,7 +13,7 @@ Signal Wand 已把逻辑入口与模型位置分成两步，覆盖固定闭塞�
 SimpleATO 的 inspection threshold 取 `max(reachableDistance(leadTime), dynamicLookahead)`，route perception horizon 也取
 controller 制动／反应／安全距离与 `maxSpeed * leadTime` 的最大值，而不是把两者相加。同步信号求值本身没有 setup delay；
 因此0秒只是不抬高这两个既有 minimum horizon，固定闭塞授权 floor 和入口停车约束也不消失，所以该值不是临时占位。
-命名轨道摆放预设、表示器新建及映射/入口编辑、既有设备实例参数数值编辑已接入设置页和选择流程；测距、inspection lead time 编辑、拖拽/任意样式参数编辑和完整轨道可视化仍未实现；
+命名轨道摆放预设、表示器新建及映射/入口编辑、既有设备实例参数数值编辑已接入设置页和选择流程；[独立测距工具](rail-measurement.md)也已接入。inspection lead time 编辑、拖拽/任意样式参数编辑和完整轨道可视化仍未实现；
 进路录制另见[录制合同](current-route-recording.md)。
 本批离线门禁与审查结果记录在任务 `implement.md`，不代表真实 Folia 客户端验证。
 
@@ -303,7 +303,7 @@ JS 输出或模型 handle。PDC 中即使仍有格式合法但已删除的 `sign
 轨道事务后的局部失效与重验见[区间局部重验](section-topology-revalidation.md)；
 它与玩家直接编辑边界共用区域规则，但不等于已实现分割/合并后的信号坐标迁移。
 分界点地面子模型、全轨道/车站标记的统一显示及非零inspection lead time实例编辑继续按后续交互批次推进；持工具的闭塞/保护区域文字叠加已接入。三类主信号、附属信号和表示器的rail/ground新建/精确更新/删除，以及表示器映射/入口编辑属于当前离线验证能力，不等同现场验收。
-测距工具仍为TARGET。已确认沿轨距离自动选择两选点间的物理最短路，不受当前道岔选择限制，不实际扳动道岔，也不申请列车资源；不能把当前选通路径距离冒充最短物理距离。
+[测距工具](rail-measurement.md)已提供直线与沿轨距离，自动选择两选点间的物理最短路，不受当前道岔选择限制，不实际扳动道岔，也不申请列车资源；不能把当前选通路径距离冒充最短物理距离。
 
 错误做法：从 PDC 直接信任类型、用类型充当工具 marker、把选择放在命令参数、只替换模型、把0秒误称为临时占位并据此绕过
 动态前视／制动或授权 floor，

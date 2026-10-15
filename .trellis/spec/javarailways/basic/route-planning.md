@@ -6,7 +6,7 @@
 
 用途：记录Mission、Station、Line、Timetable与诊断命令共用的按实际弧长加权planner。authoritative输入是Core发布的版本化`TopologyState`；Basic保存轨道公共方向并提供纯图算法与冻结路线校验/资源投影，SimpleATO拥有停站、线路和时刻表等路径选择策略。两者都不拥有另一张物理图。
 
-生产调用统一经过SimpleATO的`OperationalRoutePlanner`：每次查询捕获一个immutable topology root，在Dijkstra前组合运行方向与已注册plugin source，再调用Basic的`TopologyRoutePlanner`一次。旧的live-`RailView.nextRails` `RoutePlanner`和二次live `PlannedRouteCompiler`已经删除；Dispatcher、准入和时刻表应用不重新寻路。
+运营路线的生产调用统一经过SimpleATO的`OperationalRoutePlanner`：每次查询捕获一个immutable topology root，在Dijkstra前组合运行方向与已注册plugin source，再调用Basic的`TopologyRoutePlanner`一次。下述纯物理测距不选择运营路线。旧的live-`RailView.nextRails` `RoutePlanner`和二次live `PlannedRouteCompiler`已经删除；Dispatcher、准入和时刻表应用不重新寻路。
 
 ## Owner、输入输出与坐标
 
@@ -47,6 +47,15 @@ revision 必须非负。构造失败抛 `IllegalArgumentException`，不改变�
 `totalLength` 每次读取为 `O(n)` 求和，本批不增加缓存、不改变算法。
 现有 `ExpandedRouteTest` 保留集合隔离断言，独立 Java consumer 同时检查值的构造和 SimpleATO 公开返回类型；
 Dokka 须生成四个值类型的页面，而不是放开整个实现包。非法值及实际连通性继续由既有路线/准入回归覆盖。
+
+### 只读物理测距
+
+`CURRENT`（2026-10-15）：公开`basic.api.route.planning.PhysicalRailDistance.between(topology, startRailId, startAbMeters, endRailId, endAbMeters): Double?`，位置以轨道UUID和canonical AB米表示。返回最短物理弧长（米），仅不可达返回null；缺失轨道、非有限/越界位置抛`IllegalArgumentException`。两端均合法且为同一位置时返回0。无端点朝向限制，不查询运营方向、信号、占用或当前道岔选择；合法continuation仍由Core拓扑决定。
+
+该API是对现有内部`TopologyRoutePlanner.physicalDistance`的最小纯查询入口：构造空运营限制，复用现有查询图与Dijkstra，直接求所选图边的米制权重之和，不构造运营RouteSnapshot。这样合法公共端点可返回0，而运营`plan`原有零长拒绝保持不变；不复制算法，不公开内部planner/input/result类型，不申请资源或创建world注册。输入只读且可跨线程查询，结果只对传入拓扑成立；调用方负责检查world生命周期与拓扑是否仍有效。构图、搜索与空间成本沿用本页现有算法，低频按需执行，不增加缓存或搜索上限。
+
+Basic测试需覆盖同点校验、非法输入、断开、跨轨道分支和环的米制最短结果；API签名/KDoc与Dokka公开范围同步。比如空间重合但无合法连接的交叉轨道不能返回0；不能用几何最近点或当前道岔选通替代物理最短路。它是几何工具能力而非SimpleATO运营选路seam，不改变既有运营调用链，无持久化格式或版本变化。
+沿用搜索的`1e-9`米位置判等精度，处于该精度内的合法位置可能测为0；非法坐标仍须先拒绝，不能以“同点”跳过输入校验。
 
 ## 不可变拓扑寻路与限制
 

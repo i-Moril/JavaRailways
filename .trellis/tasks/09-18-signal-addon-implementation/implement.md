@@ -2,7 +2,7 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
-后续顺序更新：用户于2026-10-15批准以下范围和执行顺序，测距放在其余建造交互之后。进路删除/保护主信号重绑、表示器新建/映射/入口编辑、实例参数数值编辑及边界/区间编辑叠加已接线；下一独立批次为测距。离线完成与真实游戏验收分开记录。
+后续顺序更新：用户于2026-10-15批准以下范围和执行顺序，测距放在其余建造交互之后。进路删除/保护主信号重绑、表示器新建/映射/入口编辑、实例参数数值编辑、边界/区间编辑叠加及独立测距已接线并通过各自离线门禁；本轮建造交互清单已完成离线实现。接下来核对已有Stage 2验收项及正式版游戏测试准备，不将未来平台拆分、任意样式编辑等加入本轮前置条件。未部署，真实游戏验收未完成，父任务保持in_progress。
 
 用户另于2026-10-15要求后续将SimpleSignals领域逻辑与Bukkit解耦，已创建独立[平台拆分任务](../10-15-simplesignals-platform-split/prd.md)。目前仅做简要评估并记录为planning，不切换当前任务、不立即重构，也不把它加入本轮游戏测试的前置条件。
 
@@ -29,7 +29,17 @@
 - [x] 边界及区间编辑叠加：复用既有玩家隔离显示机制，补齐位置、方向及区间提示；验证离手、退出、切世界及卸载后清理，显示不参与行车逻辑。完成证据见下述批次记录；真实客户端另验。
   - [x] 前置公开文字API：BukkitPlugin提供EditorTextService/Handle/Label、玩家隔离、完整列表更新与宿主调度/关闭完成结果，独立复核及联合离线门禁通过。
   - [x] 已有边界/区间几何和持工具生命周期接到该API，真实客户端验收另记；不启动后续平台模块拆分。
-- [ ] 最后实现独立测距：直线与沿轨距离，沿轨采用物理最短路，不依赖当前道岔选择，不实际扳岔或申请行车资源。
+- [x] 最后实现独立测距：直线与沿轨距离，沿轨采用物理最短路，不依赖当前道岔选择，不实际扳岔或申请行车资源。
+  - 2026-10-15完成独立复核/离线门禁。复用现有Basic查询图/Dijkstra，通过最小公开`PhysicalRailDistance`入口隔离内部类型；同点/合法公共端点允许0，不改变运营路线零长拒绝。交互与生命周期归[测距合同](../../spec/simple-signals/backend/rail-measurement.md)，Basic内部方法归[路线合同](../../spec/javarailways/basic/route-planning.md#只读物理测距)。不增加信号定义依赖、显示循环、schema或资源操作；真实客户端操作待验。
+
+#### 独立测距验证（2026-10-15）
+
+- 九个产品/测试文件：Basic新增PhysicalRailDistance公开入口和4项API测试、既有TopologyRoutePlanner增加仅返回权重的internal seam；SimpleSignals新增RailMeasurement后台和MeasurementWandHandler，接插件命令/生命周期与工具usage，并新增2项后台和5项交互测试。共11项新增测试，不复制现有Dijkstra或新建资源机制。文档同步Basic API/算法/Dokka导览、信号工具及README（同时纠正前批已实现叠加/表示器交互的陈旧使用说明）。
+- 新API通过现有unrestricted QueryGraph/Search求权重，合法零长直接返回距离而非构造RouteSnapshot；原运营plan仍拒绝零长。沿轨查询不读取运营限制或实时道岔选择。玩家owner捕获工具/世界和O(1)拓扑引用，worker处理曲线和搜索，最终owner复核exact Player/World/session/root；不依赖信号definition runtime、不设tick任务。定义/资源/存档和版本均未变。
+- 独立复核修正PrimeCurve静态类型造成的PersistentBy编译依赖泄漏，显式以现有公开Curve接口接收，不增依赖；扩展既有交互失败用例，验证工作完成后、回复前宿主world失效的诊断/清理和恢复后重新选点。初轮Basic4项通过，但Signals产品编译因上述类型失败（1分5秒）；修复后定向门禁33秒通过。没有为测试放宽生产边界。
+- 隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`，Java25、`GRADLE_USER_HOME=/workspace/.gradle`，最终执行`:Core:test --rerun :Basic:test :SimpleSignals:check :BukkitPlugin:shadowJar :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries :Basic:dokkaGeneratePublicationHtml --offline --no-build-cache --no-parallel --max-workers=2 -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=1024m' -x :WebUI:installFrontend -x :WebUI:buildFrontend --console=plain`。1分3秒，42task中10执行32up-to-date。实际重跑Core58套409项、Basic60套399项、Signals53套562项，共171套1370项，失败/错误/跳过0；本轮已编译产品/测试，最终复用未变编译产物并编译最新handler测试。shadowJar、Javaconsumer、模块/JAR边界与Dokka实际执行。Bukkit/WebUI测试、前端及游戏运行未执行。
+- Dokka生成PhysicalRailDistance index/between页面，已人工核对公开参数、米制返回/null及异常说明，新增API无相关warning；现有UI等未文档化/失效链接警告保留，不声称全Basic文档无警告。scoped git diff --check通过，无独立lint任务。
+- 最终全部src相对路径排序文件清单摘要：Basic `0400e023c7a5e547884168bcf2dd528f65bb9a9f6abb7a5ce9e06022da0b5d0a`，Signals `f6362f88a0fe8d163f2af916dadc7ec7ddcf4a33d5776e3078808dd96791a60c`，工作区与已测候选一致。最终日志`/tmp/javarailways-measurement-final-check.log`，定向日志`/tmp/javarailways-measurement-focused-check.log`，XML/Dokka/两插件JAR在候选对应模块build目录。不部署、不宣称真实Paper/Folia或客户端已验收。
 
 #### 边界叠加前置发现（2026-10-15，公开能力方向已确认）
 

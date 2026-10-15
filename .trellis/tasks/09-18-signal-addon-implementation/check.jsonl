@@ -9,3 +9,6 @@
 {"file":".trellis/spec/simple-signals/backend/js-signal-rules.md","reason":"Existing graph/epoch runtime, unavailable output, no extra scanning or arbiter"}
 {"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"Reuse managers, rendering and low-frequency edit paths"}
 {"file":".trellis/spec/guides/code-spec-authoring.md","reason":"Document working mechanism, failure matrix and honest validation evidence"}
+{"file":".trellis/spec/bukkit-plugin/backend/editor-markers.md","reason":"Validate public temporary text API, immutable label replacement and viewer-only lifecycle"}
+{"file":".trellis/spec/bukkit-plugin/backend/model-presentation-api.md","reason":"Existing ordinary model regressions must remain unchanged; reuse async and cleanup patterns"}
+{"file":".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md","reason":"Verify location/entity/player ownership, late tasks and plugin/world teardown"}

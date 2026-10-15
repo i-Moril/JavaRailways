@@ -9,3 +9,6 @@
 {"file":".trellis/spec/simple-signals/backend/js-signal-rules.md","reason":"Existing graph/epoch runtime, unavailable output, no extra scanning or arbiter"}
 {"file":".trellis/spec/guides/reuse-and-ownership.md","reason":"Reuse managers, rendering and low-frequency edit paths"}
 {"file":".trellis/spec/guides/code-spec-authoring.md","reason":"Document working mechanism, failure matrix and honest validation evidence"}
+{"file":".trellis/spec/bukkit-plugin/backend/editor-markers.md","reason":"Approved minimal editor text API, viewer isolation and cleanup before boundary overlay integration"}
+{"file":".trellis/spec/bukkit-plugin/backend/model-presentation-api.md","reason":"Reuse existing host-owned async presentation and observable cleanup semantics without changing model behavior"}
+{"file":".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md","reason":"Folia entity/player ownership and addon-disable cleanup ordering"}

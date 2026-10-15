@@ -13,7 +13,7 @@ Signal Wand 已把逻辑入口与模型位置分成两步，覆盖固定闭塞�
 SimpleATO 的 inspection threshold 取 `max(reachableDistance(leadTime), dynamicLookahead)`，route perception horizon 也取
 controller 制动／反应／安全距离与 `maxSpeed * leadTime` 的最大值，而不是把两者相加。同步信号求值本身没有 setup delay；
 因此0秒只是不抬高这两个既有 minimum horizon，固定闭塞授权 floor 和入口停车约束也不消失，所以该值不是临时占位。
-命名轨道摆放预设、表示器新建及映射/入口编辑已接入设置页和选择流程；测距、inspection lead time 编辑、自由摆放/样式参数编辑和完整轨道可视化仍未实现；
+命名轨道摆放预设、表示器新建及映射/入口编辑、既有设备实例参数数值编辑已接入设置页和选择流程；测距、inspection lead time 编辑、拖拽/任意样式参数编辑和完整轨道可视化仍未实现；
 进路录制另见[录制合同](current-route-recording.md)。
 本批离线门禁与审查结果记录在任务 `implement.md`，不代表真实 Folia 客户端验证。
 
@@ -108,7 +108,7 @@ join、切槽、换手、背包点击、丢弃、拾取和交互后在玩家 own
 
 ### 命名轨道摆放预设的设置页接线（CURRENT）
 
-本批只把已有命名预设接到Signal Wand，不新增渲染器、任意角度输入或共享样式继承。主信号从当前`signalType`的catalog模型取得预设，附属信号/既有进路表示器从当前`presentationModelId`的model-only catalog取得预设。设置页按预设名稳定排序并列出清除选择项；提供不可变的模型身份、名称、局部`ModelPose`及已确定的倾斜值，不把模型树交给玩家UI。
+本节描述把已有命名预设接到Signal Wand，不新增渲染器或共享样式继承；数值输入属于下节独立的实例编辑。主信号从当前`signalType`的catalog模型取得预设，附属信号/既有进路表示器从当前`presentationModelId`的model-only catalog取得预设。设置页按预设名稳定排序并列出清除选择项；提供不可变的模型身份、名称、局部`ModelPose`及已确定的倾斜值，不把模型树交给玩家UI。
 
 选择在玩家owner重新核对完整物品状态和当前catalog项，再将当时参数复制到物品偏好（概念形状：`modelId + name + adjustment + followRailTilt`），增加现有stateRevision并使旧continuation失效。显式预设的倾斜取预设值，再取其模型默认，再回退竖直；清除偏好保持原有无偏移/竖直轨道摆放行为。偏好随物品保存，不建立玩家全局设置或另一个存档边界，不升未发布PDC/世界schema，也不加旧开发reader。
 
@@ -118,7 +118,24 @@ Ground保持方块面捕获的绝对姿态，忽略rail预设。状态栏标明�
 
 例如选择右偏2米的预设后，包作者把该预设改为右偏3米，已有物品和设备仍保存2米；玩家在设置页重新选择才复制3米。切换到另一个实际模型时清除旧偏好；直接右键方块面则始终使用方块面姿态，不叠加这2米轨道偏移。
 
-预设投影为`RailPlacementModel(modelId, presets)`，`presets`是按名称排序的不可修改参数表；物品偏好为`SignalWandRailPreset(modelId, name, adjustment, followRailTilt)`。查询投影会复制并排序该模型的预设，P个预设成本为O(P log P)，只在设置/放置交互执行，不增加tick扫描。单次应用复制参数不扫描其他设备。必需断言包括选项排序和有效模型来源、PDC round-trip、过期选择拒绝、设置不写定义、复制值不随源改变、ground不变，以及真实manager保存参数且保留逻辑binding和无关设备。既有数值算法测试不复制一套；本批不声称完成自由实例参数编辑、测距或真实客户端验证。
+预设投影为`RailPlacementModel(modelId, presets)`，`presets`是按名称排序的不可修改参数表；物品偏好为`SignalWandRailPreset(modelId, name, adjustment, followRailTilt)`。查询投影会复制并排序该模型的预设，P个预设成本为O(P log P)，只在设置/放置交互执行，不增加tick扫描。单次应用复制参数不扫描其他设备。必需断言包括选项排序和有效模型来源、PDC round-trip、过期选择拒绝、设置不写定义、复制值不随源改变、ground不变，以及真实manager保存参数且保留逻辑binding和无关设备。既有数值算法测试不复制一套；预设与下节实例编辑独立，均不代表测距或真实客户端验证。
+
+### 实例参数数值编辑（CURRENT）
+
+2026-10-15用户批准的本批由SimpleSignals负责：设置页“Edit existing device placement”选择已摆放的固定闭塞主信号、保护主信号、附属信号或表示器，再输入数值、检查摘要并确认。设备身份与revision来自当前定义，不从Wand当前模型偏好推断；尚未摆放的设备不创建占位位置。离线检查结果归任务记录，不代表真实Paper/Folia对话框和客户端验收。
+轨道设备编辑有向局部X前/Y上/Z右偏移（米）、模型自身XYZ旋转（度）及跟随轨道倾斜；保留rail、AB弧长和方向。地面设备编辑绝对世界XYZ及旋转，不接受轨道倾斜字段。旋转顺序沿用模型包的XYZ角约定，写回现有单位四元数；只改位移/倾斜时保留原旋转，不能用Euler往返造成无意重写。
+
+```text
+原工具会话 -> worker捕获当前定义/设备 -> owner显示数值输入
+  -> 校验有限数值并构造现有placement值 -> 显示确认摘要
+  -> worker核对原设备及基线 -> 唯一manager patch -> owner回复
+```
+
+仅替换选中设备placement及checked递增revision；模型、逻辑binding、提前时间、附属关系和表示映射保持不变。保持现有capture/continuation、工具身份、权限和最终active guard；取消/过期/非法输入不写盘，同配置不推进revision。输入和页面仅为对话局部状态，不新增持久化字段、manager或schema版本；使用已有候选编译、编辑许可、显示姿态计算与handle保留，不新增tick扫描。
+具体私有入口为`placedDevices(capture): List<PlacedSignalChoice>`及`savePlacement(capture, device, placement, active): SignalWandOutcome`；选择值包含kind、id、revision和原placement。后台复核所选值仍属于原publication，明确禁止更换rail anchor/facing或ground/rail类型，再按四类定义只替换placement。表示器使用原public构造保留其不可变映射，不放宽定义封装。
+`PlacementWandEditor`只保存本次回调的输入和确认值；`PlacementWandInput`包含字符串fields（x/y/z/rx/ry/rz）及可空followRailTilt，null仅表示ground无该选项。Paper文本框保留double精度，不使用滑条。输入要求六项均可解析且有限；角度转弧度后调用既有JOML `rotateXYZ`，未改三项角度时直接复用原旋转分量，包含Euler奇点。输入失败结束本次编辑并报告字段，不保存部分值；host编辑拒绝透传既有结果，磁盘/source/publication保持原值。
+设备选择为低频定义扫描及稳定排序，数值转换为常数成本；完整候选/写盘沿用已有成本。测试须验证四类设备的真实保存与重载、逻辑字段及无关设备保持、rail/ground几何语义、未改旋转精确保留，以及确认前零写入、取消/过期/非法数值、重复回调和无变化不保存。真实Paper/Folia与客户端验收另记。
+错误做法是复用重新放置操作连带换模型/绑定，或将ground位置当作轨道偏移；正确做法是明确选中原设备，只编辑其现有摆放值。本批不实现拖拽、轨道坐标/方向编辑、模型任意样式参数、边界叠加或测距。
 
 ## 6. 删除与失效处理
 

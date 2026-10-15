@@ -18,6 +18,7 @@ import org.bukkit.persistence.PersistentDataContainer
 import org.bukkit.plugin.Plugin
 import org.bukkit.inventory.meta.ItemMeta
 import org.joml.Vector3d
+import org.joml.Quaterniond
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -52,6 +53,78 @@ import kotlin.math.sqrt
 
 /** Deterministic owner/worker/UI coverage; live Folia dialog rendering remains a deployment check. */
 class SignalWandHandlerTest {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    fun `placement input edits rail offsets or absolute ground position only after confirmation`(ground: Boolean) = Fixture().use { f ->
+        val rotation = Quaterniond().rotateXYZ(0.4, Math.PI / 2, 0.3)
+        val originalPose = ModelPose(1.0, 2.0, 3.0, rotation.x, rotation.y, rotation.z, rotation.w)
+        val original = if (ground) ModelPlacement.Ground(originalPose) else ModelPlacement.RailAttached(
+            RailPositionSnapshot(f.rail.id, work.art1st.javarailways.core.api.physics.rail.ViewDirection.BA, 4.0), originalPose)
+        f.placedDevice = f.placedDevice.copy(placement = original)
+        val originalTool = f.tool
+        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.EditPlacement); f.drain()
+        f.dialogOptions.first().second(); f.drain()
+        val initial = checkNotNull(f.placementInput)
+        assertEquals(if (ground) null else false, initial.followRailTilt)
+        assertEquals("1.0", initial.fields["x"])
+        val submitted = initial.copy(fields = initial.fields + ("x" to "7.25"), followRailTilt = if (ground) null else true)
+        f.submitPlacement!!(submitted); f.drain()
+        assertTrue(f.placements.isEmpty())
+        val confirm = f.dialogOptions.first().second
+        confirm(); confirm(); f.drain()
+        val saved = f.placements.single()
+        val pose = when (saved) {
+            is ModelPlacement.RailAttached -> {
+                assertEquals((original as ModelPlacement.RailAttached).position, saved.position)
+                assertTrue(saved.followRailTilt)
+                saved.adjustment
+            }
+            is ModelPlacement.Ground -> saved.pose
+        }
+        assertEquals(ModelPose(7.25, 2.0, 3.0, rotation.x, rotation.y, rotation.z, rotation.w), pose)
+        assertEquals(originalTool, f.tool)
+        assertEquals(0, f.performs)
+    }
+
+    @Test fun `placement input uses intrinsic XYZ degrees without rotating its offsets`() = Fixture().use { f ->
+        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.EditPlacement); f.drain()
+        f.dialogOptions.first().second(); f.drain()
+        val initial = checkNotNull(f.placementInput)
+        f.submitPlacement!!(initial.copy(fields = initial.fields + mapOf("rx" to "30", "ry" to "60", "rz" to "90")))
+        f.drain(); f.dialogOptions.first().second(); f.drain()
+        val pose = (f.placements.single() as ModelPlacement.Ground).pose
+        assertEquals(1.0, pose.x())
+        assertEquals(2.0, pose.y())
+        assertEquals(3.0, pose.z())
+        assertEquals(0.5, pose.rotationX(), 1e-12)
+        assertEquals((sqrt(3.0) - 1.0) / 4.0, pose.rotationY(), 1e-12)
+        assertEquals((sqrt(3.0) + 1.0) / 4.0, pose.rotationZ(), 1e-12)
+        assertEquals(0.5, pose.rotationW(), 1e-12)
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = ["NaN", "Infinity", "invalid", "cancel", "tool", "permission", "catalog", "settings"])
+    fun `invalid input or stale placement continuation never saves`(reason: String) = Fixture().use { f ->
+        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.EditPlacement); f.drain()
+        f.dialogOptions.first().second(); f.drain()
+        val initial = checkNotNull(f.placementInput)
+        if (reason in listOf("NaN", "Infinity", "invalid", "cancel")) {
+            f.submitPlacement!!(if (reason == "cancel") null else initial.copy(fields = initial.fields + ("x" to reason)))
+            f.drain()
+        } else {
+            f.submitPlacement!!(initial); f.drain()
+            val confirm = f.dialogOptions.first().second
+            when (reason) {
+                "tool" -> f.tool = f.tool.copy(stateRevision = f.tool.stateRevision + 1)
+                "permission" -> f.permitted = false
+                "catalog" -> f.current = false
+                "settings" -> f.handler.openSettings(f.player, f.tool)
+            }
+            confirm(); f.drain()
+        }
+        assertTrue(f.placements.isEmpty())
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
     fun `new indicator captures rail or ground pose and saves only after explicit mapping confirmation`(ground: Boolean) = Fixture().use { f ->
@@ -304,9 +377,9 @@ class SignalWandHandlerTest {
             "Control: protection current-entry primary", "Control: protection fixed-route primary",
             "Control: attached signal", "Control: route indicator",
             "test:a — A", "test:z — Z", "Presentation model: test:model", "Rail placement: unadjusted",
-            "Rebind existing protection signal", "Edit route indicator mapping / entry"),
+            "Rebind existing protection signal", "Edit route indicator mapping / entry", "Edit existing device placement"),
             f.settings.map { it.label })
-        assertEquals(listOf(true, false, true, false, false, false, false, false, true, false, true, false, false),
+        assertEquals(listOf(true, false, true, false, false, false, false, false, true, false, true, false, false, false),
             f.settings.map { it.selected })
         f.choose!!(SignalWandSettingAction.Type("test:a"))
         f.drainOwners()
@@ -721,6 +794,10 @@ class SignalWandHandlerTest {
         var indicatorSavedMappings = emptyMap<String, String>()
         var indicatorSavedNoRoute: String? = null
         var dialogOptions = emptyList<Pair<String, () -> Unit>>()
+        var placementInput: PlacementWandInput? = null
+        var submitPlacement: ((PlacementWandInput?) -> Unit)? = null
+        var placedDevice = PlacedSignalChoice(PlacedSignalKind.FIXED_BLOCK, "test:device", 2,
+            ModelPlacement.Ground(ModelPose(1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0)))
         val placements = mutableListOf<ModelPlacement>()
         var available: List<AvailableSignalType>? = DEFAULT_TYPES
         var modelIds: List<String>? = listOf("test:model")
@@ -792,6 +869,20 @@ class SignalWandHandlerTest {
                 return capture
             }
             override fun current(capture: SignalWandCapture) = current
+            override fun placedDevices(capture: SignalWandCapture): List<PlacedSignalChoice> {
+                check(!ownerThread)
+                require(current)
+                return listOf(placedDevice)
+            }
+            override fun savePlacement(capture: SignalWandCapture, device: PlacedSignalChoice,
+                placement: ModelPlacement, active: () -> Boolean): SignalWandOutcome {
+                check(!ownerThread)
+                assertTrue(active())
+                require(current)
+                assertEquals(placedDevice, device)
+                placements += placement
+                return SignalWandOutcome("placement saved")
+            }
             override fun indicatorDevices(capture: SignalWandCapture): List<RouteIndicatorDefinition> {
                 check(!ownerThread)
                 return listOf(RouteIndicatorDefinition("test:indicator", 2, "test:old-entry", "dark", emptyMap()))
@@ -858,6 +949,7 @@ class SignalWandHandlerTest {
         }
         val handler = SignalWandHandler(plugin, backend, targets, enabled = { pluginEnabled },
             showAuthoringDialog = { _, _, options -> check(ownerThread); dialogOptions = options },
+            showPlacementInput = { _, _, initial, submit -> check(ownerThread); placementInput = initial; submitPlacement = submit },
             worker = { workers += it }, entity = { _, action -> owners += action },
             toolInHand = { check(ownerThread); tool.takeIf { toolPresent } },
             giveTool = { _, value -> given += value },

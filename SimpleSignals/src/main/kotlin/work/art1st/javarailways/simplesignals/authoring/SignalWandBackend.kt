@@ -32,6 +32,9 @@ internal data class ProtectionSignalRebindChoice(val definition: ProtectionSigna
 internal data class ProtectionSignalRebindTarget(val entryBoundaryId: String, val bindingId: String)
 internal data class RouteIndicatorWandOptions(val routeIds: List<String>, val variants: List<String>,
     val mappings: Map<String, String>)
+internal enum class PlacedSignalKind { FIXED_BLOCK, PROTECTION, ATTACHED, INDICATOR }
+internal data class PlacedSignalChoice(val kind: PlacedSignalKind, val id: String, val revision: Long,
+    val placement: ModelPlacement)
 
 /** Worker-facing boundary. Catalog data exposed to commands is immutable intent, not edit authority. */
 internal interface SignalWandBackend {
@@ -40,6 +43,9 @@ internal interface SignalWandBackend {
     fun railPlacementModel(controlKind: SignalWandControlKind, signalType: String, modelId: String?): RailPlacementModel?
     fun capture(worldId: UUID, signalType: String, modelId: String? = null): SignalWandCapture
     fun current(capture: SignalWandCapture): Boolean
+    fun placedDevices(capture: SignalWandCapture): List<PlacedSignalChoice>
+    fun savePlacement(capture: SignalWandCapture, device: PlacedSignalChoice,
+        placement: ModelPlacement, active: () -> Boolean): SignalWandOutcome
     fun rebindDevices(capture: SignalWandCapture): List<ProtectionSignalRebindChoice>
     fun rebindTargets(capture: SignalWandCapture, device: ProtectionSignalRebindChoice): List<ProtectionSignalRebindTarget>
     fun rebind(capture: SignalWandCapture, device: ProtectionSignalRebindChoice,
@@ -134,6 +140,60 @@ internal class RuntimeSignalWandBackend(
         require(current(captured)) { "Signal selection expired; select again" }
         return captured.publication.definitions.protectionSignals.sortedBy { it.signalId }
             .map(::ProtectionSignalRebindChoice)
+    }
+
+    override fun placedDevices(capture: SignalWandCapture): List<PlacedSignalChoice> {
+        val captured = capture as Capture
+        require(current(captured)) { "Signal selection expired; select again" }
+        val definitions = captured.publication.definitions
+        return (definitions.fixedBlockSignals.mapNotNull { device -> device.placement?.let {
+            PlacedSignalChoice(PlacedSignalKind.FIXED_BLOCK, device.signalId, device.revision, it)
+        } } + definitions.protectionSignals.mapNotNull { device -> device.placement?.let {
+            PlacedSignalChoice(PlacedSignalKind.PROTECTION, device.signalId, device.revision, it)
+        } } + definitions.attachedSignals.map {
+            PlacedSignalChoice(PlacedSignalKind.ATTACHED, it.signalId, it.revision, it.model.placement)
+        } + definitions.routeIndicators.mapNotNull { device -> device.model?.let {
+            PlacedSignalChoice(PlacedSignalKind.INDICATOR, device.indicatorId, device.revision, it.placement)
+        } }).sortedBy { it.id }
+    }
+
+    override fun savePlacement(capture: SignalWandCapture, device: PlacedSignalChoice,
+        placement: ModelPlacement, active: () -> Boolean): SignalWandOutcome {
+        val captured = capture as Capture
+        require(active()) { "Signal selection is no longer active" }
+        require(device in placedDevices(captured)) { "The selected signal changed; select again" }
+        when (val previous = device.placement) {
+            is ModelPlacement.RailAttached -> require(placement is ModelPlacement.RailAttached &&
+                placement.position == previous.position) { "Numeric editing must retain the rail anchor and facing" }
+            is ModelPlacement.Ground -> require(placement is ModelPlacement.Ground) {
+                "Numeric editing must retain ground placement"
+            }
+        }
+        if (device.placement == placement) return SignalWandOutcome("${device.id} already has this placement; no changes")
+        val revision = nextRevision(device.revision)
+        val definitions = captured.publication.definitions
+        val patch = when (device.kind) {
+            PlacedSignalKind.FIXED_BLOCK -> SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(
+                definitions.fixedBlockSignals.single { it.signalId == device.id }.copy(revision = revision, placement = placement)))
+            PlacedSignalKind.PROTECTION -> SimpleSignalsDefinitionPatch(upsertProtectionSignals = listOf(
+                definitions.protectionSignals.single { it.signalId == device.id }.copy(revision = revision, placement = placement)))
+            PlacedSignalKind.ATTACHED -> {
+                val definition = definitions.attachedSignals.single { it.signalId == device.id }
+                SimpleSignalsDefinitionPatch(upsertAttachedSignals = listOf(definition.copy(revision = revision,
+                    model = definition.model.copy(placement = placement))))
+            }
+            PlacedSignalKind.INDICATOR -> {
+                val definition = definitions.routeIndicators.single { it.indicatorId == device.id }
+                SimpleSignalsDefinitionPatch(upsertRouteIndicators = listOf(RouteIndicatorDefinition(
+                    definition.indicatorId, revision, definition.entryBoundaryId, definition.noRouteModelVariant,
+                    definition.modelVariantsByRouteId, checkNotNull(definition.model).copy(placement = placement))))
+            }
+        }
+        val result = manager.applyDefinitionPatch(captured.worldId, definitions.definitionRevision, patch,
+            captured.runtime, captured.topology, { active() && current(captured) })
+        return SignalWandOutcome(if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
+            "Updated placement of ${device.id}; model and logical binding unchanged"
+        else SimpleSignalsAdminCommand.formatResult(result))
     }
 
     override fun rebindTargets(capture: SignalWandCapture,

@@ -2839,6 +2839,82 @@ class SimpleSignalsWorldRuntimeManagerTest {
     private fun railModel(rail: UUID, at: Double = 0.0) = DeviceModelDefinition("demo_signals:home",
         ModelPlacement.RailAttached(RailPositionSnapshot(rail, ViewDirection.BA, at)))
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = ["fixed", "fixed-route", "current-entry", "attached-fixed", "indicator"])
+    fun `numeric placement backend preserves device configuration and persists rail or ground edits atomically`(kind: String) {
+        listOf(false, true).forEach { ground ->
+            val f = Fixture()
+            val originalModel = if (ground) DeviceModelDefinition("demo_signals:home", ModelPlacement.Ground(ModelPose.IDENTITY))
+                else railModel(f.entry, 2.0)
+            val initial = deviceModelDefinitions(f, kind, originalModel)
+            val definitions = store()
+            definitions.save(f.worldId, initial)
+            val registry = editRegistry(f.currentTopology)
+            val infrastructure = MutableTopologyService(f.currentTopology, registry)
+            val sources = CapturingSignalEpochSourceService()
+            val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources,
+                loadDefaultSignalCatalog = false)
+            manager.loadSignalPacks(writeAutomaticSignalPack("proceed", modelVariants = listOf("stop", "proceed")))
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+            val backend = RuntimeSignalWandBackend(manager, infrastructure.service)
+            // A different Wand preference must not change the selected device's actual model or type.
+            val capture = backend.capture(f.worldId, "automatic:slow", null)
+            val device = backend.placedDevices(capture).single { it.id == "test:device" }
+            assertEquals(originalModel.placement, device.placement)
+            assertFalse(backend.placedDevices(capture).any { it.id == "test:primary" })
+            val pose = ModelPose(2.0, 3.0, 4.0, 0.0, 1.0, 0.0, 0.0)
+            val replacement = when (val old = device.placement) {
+                is ModelPlacement.RailAttached -> old.copy(adjustment = pose, followRailTilt = true)
+                is ModelPlacement.Ground -> old.copy(pose = pose)
+            }
+            val runtime = manager.authoringRuntime(f.worldId)!!
+            val publication = runtime.authoringPublication()
+            val source = sources.sources.getValue(f.worldId)
+            val disk = Files.readString(definitions.primaryFile(f.worldId))
+            assertTrue(backend.savePlacement(capture, device, device.placement) { true }.message.contains("no changes"))
+            assertEquals(0, infrastructure.permitAcquisitionCount)
+            assertThrows(IllegalArgumentException::class.java) {
+                backend.savePlacement(capture, device, replacement) { false }
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                backend.savePlacement(capture, device.copy(revision = device.revision + 1), replacement) { true }
+            }
+            val wrongAnchor = if (ground) ModelPlacement.RailAttached(RailPositionSnapshot(f.entry, ViewDirection.AB, 2.0))
+                else (replacement as ModelPlacement.RailAttached).copy(position = RailPositionSnapshot(f.entry, ViewDirection.AB, 3.0))
+            assertThrows(IllegalArgumentException::class.java) {
+                backend.savePlacement(capture, device, wrongAnchor) { true }
+            }
+            listOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM).forEach { blocker ->
+                val release = protect(registry, f.currentTopology, f.entry, blocker)
+                assertTrue(backend.savePlacement(capture, device, replacement) { true }.message.contains("EDIT_BLOCKED"))
+                assertSame(publication, runtime.authoringPublication())
+                assertSame(source, sources.sources.getValue(f.worldId))
+                assertEquals(disk, Files.readString(definitions.primaryFile(f.worldId)))
+                release()
+            }
+            val outcome = backend.savePlacement(capture, device, replacement) { true }
+            assertTrue(outcome.message.startsWith("Updated placement"), outcome.message)
+            val expectedDevices = deviceModelDefinitions(f, kind, originalModel.copy(placement = replacement), 2)
+            val expected = SimpleSignalsWorldDefinitions(expectedDevices.worldId, 2, expectedDevices.regions,
+                expectedDevices.routeTables, expectedDevices.fixedBlocks, expectedDevices.fixedBlockSignals,
+                expectedDevices.protectionSignals, expectedDevices.routeIndicators, expectedDevices.attachedSignals,
+                expectedDevices.pendingProtectionBoundaries)
+            assertEquals(expected, runtime.currentDefinitions())
+            assertEquals(expected, (definitions.load(f.worldId) as
+                work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+            assertThrows(IllegalArgumentException::class.java) {
+                backend.savePlacement(capture, device, replacement) { true }
+            }
+            manager.clearLocal().toCompletableFuture().join()
+            val restarted = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+                CapturingSignalEpochSourceService(), loadDefaultSignalCatalog = false)
+            restarted.loadSignalPacks(writeAutomaticSignalPack("proceed", modelVariants = listOf("stop", "proceed")))
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, restarted.install(f.worldId).status)
+            assertEquals(expected, restarted.authoringRuntime(f.worldId)!!.currentDefinitions())
+            restarted.clearLocal().toCompletableFuture().join()
+        }
+    }
+
     private fun deviceLogicalRails(fixture: Fixture, kind: String) = if (kind.removePrefix("attached-") == "fixed") setOf(fixture.entry)
         else fixture.upperRoute().traversals.mapTo(linkedSetOf()) { it.railId }
 

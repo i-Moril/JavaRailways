@@ -92,7 +92,8 @@ internal class SignalWandHandler(
     private val newItemId: () -> UUID = UUID::randomUUID,
     private val findTarget: (Player) -> CompletionStage<Optional<RailTarget>> =
         { player -> targets.findLookedAtRail(player, 64.0, 0.75) },
-    private val showAuthoringDialog: (Player, String, List<Pair<String, () -> Unit>>) -> Unit = WandDialogs::show
+    private val showAuthoringDialog: (Player, String, List<Pair<String, () -> Unit>>) -> Unit = WandDialogs::show,
+    private val showPlacementInput: (Player, String, PlacementWandInput, (PlacementWandInput?) -> Unit) -> Unit = WandDialogs::placement
 ) : Listener, CommandExecutor {
     private val sessions = SignalWandSessions()
     private val statusTasks = ConcurrentHashMap<UUID, SignalWandStatusRegistration>()
@@ -180,7 +181,8 @@ internal class SignalWandHandler(
                     it.modelId == railModel.modelId && it.name == name
                 } == true)
         } + SignalWandSetting(SignalWandSettingAction.RebindProtection, "Rebind existing protection signal", false) +
-            SignalWandSetting(SignalWandSettingAction.EditIndicator, "Edit route indicator mapping / entry", false)
+            SignalWandSetting(SignalWandSettingAction.EditIndicator, "Edit route indicator mapping / entry", false) +
+            SignalWandSetting(SignalWandSettingAction.EditPlacement, "Edit existing device placement", false)
         showSettings(player, settings) { action ->
             entity(player) { selectSetting(player, openingState, action) }
         }
@@ -202,6 +204,10 @@ internal class SignalWandHandler(
         }
         if (action === SignalWandSettingAction.EditIndicator) {
             openIndicatorEditor(player, current)
+            return
+        }
+        if (action === SignalWandSettingAction.EditPlacement) {
+            openPlacementEditor(player, current)
             return
         }
         val available = currentTypes()
@@ -259,6 +265,7 @@ internal class SignalWandHandler(
             SignalWandSettingAction.ClearRailPreset -> current.copy(stateRevision = revision, railPreset = null)
             SignalWandSettingAction.RebindProtection -> return
             SignalWandSettingAction.EditIndicator -> return
+            SignalWandSettingAction.EditPlacement -> return
         }
         if (!replaceToolState(player, current, replacement)) {
             player.sendMessage(Component.text("Signal Wand settings expired; reopen the settings page")); return
@@ -274,6 +281,7 @@ internal class SignalWandHandler(
             SignalWandSettingAction.ClearRailPreset -> "Signal Wand rail placement reset to unadjusted"
             SignalWandSettingAction.RebindProtection -> return
             SignalWandSettingAction.EditIndicator -> return
+            SignalWandSettingAction.EditPlacement -> return
         }))
     }
 
@@ -376,6 +384,55 @@ internal class SignalWandHandler(
             require(backend.current(capture)) { "Signal selection expired; select again" }
             val editor = RouteIndicatorWandEditor(backend, capture, ::page, ::reply, ::active)
             if (binding == null) editor.selectDevice() else editor.configure(binding, binding.entryBoundaryId, placement)
+        }
+    }
+
+    private fun openPlacementEditor(player: Player, state: SignalWandState) {
+        val playerId = player.uniqueId
+        val worldId = player.world.uid
+        sessions.invalidate(playerId)
+        val session = sessions.begin(playerId, worldId, state) ?: return
+        val token = Any()
+        choiceTokens[playerId] = token
+        fun active() = sessions.current(playerId, session) && operational() && choiceTokens[playerId] === token
+        fun ownerCurrent() = active() && player.isOnline && player.world.uid == worldId &&
+            player.hasPermission(PERMISSION) && toolInHand(player) == state
+        fun reply(message: String) = entity(player) {
+            if (ownerCurrent()) player.sendMessage(Component.text(message.take(MESSAGE_LIMIT)))
+            choiceTokens.remove(playerId, token)
+            session.busy.set(false)
+        }
+        fun work(action: () -> Unit) {
+            try { worker {
+                if (!active()) { session.busy.set(false); return@worker }
+                try { action() } catch (failure: Exception) {
+                    reply("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
+                }
+            } } catch (failure: Exception) { reply("Cannot start placement editing: ${failure.message}") }
+        }
+        fun page(title: String, options: List<Pair<String, () -> Unit>>) = entity(player) {
+            session.busy.set(false)
+            if (!ownerCurrent()) return@entity
+            val used = AtomicBoolean(false)
+            showAuthoringDialog(player, title, options.map { (label, action) -> label to {
+                entity(player) {
+                    if (ownerCurrent() && used.compareAndSet(false, true) && session.busy.compareAndSet(false, true))
+                        work(action)
+                }
+            } })
+        }
+        fun input(title: String, initial: PlacementWandInput, submit: (PlacementWandInput?) -> Unit) = entity(player) {
+            session.busy.set(false)
+            if (!ownerCurrent()) return@entity
+            val used = AtomicBoolean(false)
+            showPlacementInput(player, title, initial) { submitted -> entity(player) {
+                if (ownerCurrent() && used.compareAndSet(false, true) && session.busy.compareAndSet(false, true))
+                    work { submit(submitted) }
+            } }
+        }
+        work {
+            val capture = backend.capture(worldId, state.signalType)
+            PlacementWandEditor(backend, capture, ::page, ::input, ::reply, ::active).selectDevice()
         }
     }
 
@@ -1124,6 +1181,7 @@ internal sealed interface SignalWandSettingAction {
     data object ClearRailPreset : SignalWandSettingAction
     data object RebindProtection : SignalWandSettingAction
     data object EditIndicator : SignalWandSettingAction
+    data object EditPlacement : SignalWandSettingAction
 }
 
 private enum class SignalWandOperation { BIND, PLACE, DELETE }

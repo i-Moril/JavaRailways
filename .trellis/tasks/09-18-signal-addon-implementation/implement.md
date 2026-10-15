@@ -2,7 +2,7 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
-后续顺序更新：用户于2026-10-15批准以下范围和执行顺序，测距放在其余建造交互之后。进路删除/保护主信号重绑、表示器新建/映射/入口编辑已完成离线门禁，下一批为实例参数数值编辑，不把旧测距下一批建议继续当作当前优先级。
+后续顺序更新：用户于2026-10-15批准以下范围和执行顺序，测距放在其余建造交互之后。进路删除/保护主信号重绑、表示器新建/映射/入口编辑、实例参数数值编辑已完成离线门禁，下一批为边界及区间编辑叠加，不把旧测距下一批建议继续当作当前优先级。
 
 边界显示已确认仅为编辑辅助：持建造工具时向编辑者显示，离手/上下文失效后清理，不创建面向所有玩家的常驻边界模型；沿用现有玩家隔离与显示生命周期。
 
@@ -23,11 +23,19 @@
 - [x] 表示器新建/映射编辑及跨入口重绑：提供模型支持的进路外观选择，允许缺项并显示补配提示；验证未映射进路使用明确无进路外观、已有映射正常、非法模型variant仍被拒绝。入口重绑须同时明确映射，不能猜测外观。
   - [x] 第一笔后端：映射改为入口进路的子集，未配输出使用明确noRouteModelVariant并保留selection身份；增加最小模型variant目录投影，不修改renderer/宿主API。机制归[工具合同](../../spec/simple-signals/backend/section-authoring-wands.md#表示器映射作者与新建)。
   - [x] 第二笔Wand：新建意图与既有身份区分，捕获位置后明确配置并确认才创建；设置页编辑既有表示器/新入口和映射，不移动模型。复用原事务及对话guard，不创建未摆放占位定义或另一个草稿仓库。
-- [ ] 实例参数数值编辑：三轴偏移、旋转角度及跟随轨道倾斜设置接入既有摆放流程；验证选中对象身份/修订、几何计算和逻辑绑定保持，不实现拖拽。
+- [x] 实例参数数值编辑：三轴偏移、旋转角度及跟随轨道倾斜设置接入既有摆放流程；验证选中对象身份/修订、几何计算和逻辑绑定保持，不实现拖拽。ground编辑绝对世界XYZ且无轨道倾斜；具体接口和失败边界归[工具合同](../../spec/simple-signals/backend/section-authoring-wands.md#实例参数数值编辑current)，离线通过不等于客户端验收。
 - [ ] 边界及区间编辑叠加：复用既有玩家隔离显示机制，补齐位置、方向及区间提示；验证离手、退出、切世界及卸载后清理，显示不参与行车逻辑。
 - [ ] 最后实现独立测距：直线与沿轨距离，沿轨采用物理最短路，不依赖当前道岔选择，不实际扳岔或申请行车资源。
 
 各批按影响运行SimpleSignals及相邻消费者测试、API/JAR边界检查，收尾执行联合门禁及部署构建；不把离线通过写成游戏验收。Paper/Folia、客户端交互与资源包另列实际验证结果，部署仍须单独授权。测距之前的四批不重开Core/Basic全模块审计或修改ATO算法。
+
+#### 实例参数数值编辑验证（2026-10-15）
+
+- 四个产品文件：SignalWandBackend、SignalWandHandler、WandDialogs及新PlacementWandEditor。设置页明确选已有设备，输入并单独确认，后台只替换placement/revision；不把重新摆放的模型偏好混入实例编辑。复用原manager事务、owner/worker会话及现有摆放/handle保留，无新schema、PDC字段、manager或tick扫描。
+- 两个既有suite新增16个执行案例：handler 11项，manager 5个设备kind参数各实际验证rail/ground（共10条保存/重载路径，含两种保护主信号）。验证实际模型/逻辑/映射不变、独立解析XYZ角期望、Euler奇点处未改旋转精确保留、旧identity/anchor拒绝、无变化无写入、取消/过期及真实Basic静态依赖和动态claim阻挡。
+- 独立check修正测试构造误用private copy、菜单数量断言、未加载第二种真实signalType及关闭后重用manager；重载使用新manager，不为测试放宽生产关闭语义。产品初轮编译也将表示器的private copy误用改为既有public构造。最终生产复核无剩余问题。
+- 同一隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`使用`GRADLE_USER_HOME=/workspace/.gradle`，offline/no-build-cache/no-parallel/max-workers=2、Kotlin in-process且incremental=false，仅排除WebUI前端任务。定向manager测试18秒通过；随后完整`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries`32秒通过，34task中3执行31up-to-date。48套543项实际重跑，失败/错误/跳过0；本轮前序已实际编译产品和测试，最终门禁复用未变编译/API产物，并实际执行测试及JAR边界检查。
+- 最终全部`SimpleSignals/src`按相对路径排序的文件清单摘要为`be45d174644f72c2e5f1e7ed311b6abccdbeee35734c140ab1af33b96fcc7a57`，工作区与候选一致。最终日志`/tmp/javarailways-placement-final-check.log`，定向日志`/tmp/javarailways-placement-focused-check.log`，XML位于候选`SimpleSignals/build/test-results/test`。未部署、未验证Paper/Folia对话框/客户端，不重跑Core/Basic全套或前端。Stage 2保持in_progress，接下来边界叠加，最后测距；提交预览工具仍不可用。
 
 #### 表示器部分映射后端验证（2026-10-15）
 

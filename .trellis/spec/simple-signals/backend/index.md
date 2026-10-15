@@ -17,7 +17,7 @@ plugin-local immutable section occupancy snapshot，并以同一exact frozen-rou
 既有进路表示器可从有向入口选择后改位、换模型或删除。右键空气/轨道使用轨道附着，右键真实方块面使用面中心和玩家水平朝向的地面姿态；
 二者复用相同定义事务和模型生命周期。[表示器新建/映射与入口编辑](section-authoring-wands.md#表示器映射作者与新建)已接线：明确选择无进路外观，逐进路映射可缺项且提示补配，确认后才提交完整设备；缺项选中时使用明确无进路外观，不猜模型default。
 删除进路保留设备、明确解除失效固定进路绑定及保留空表禁行，具体机制归[工具合同](section-authoring-wands.md#删除进路保留设备与显式重绑)；[Wand删除进路/保护主信号重绑](section-authoring-wands.md#wand删除进路与保护信号重绑)也已接线并通过离线门禁。Route Wand选入口后Shift+右键选择进路并确认删除，Signal Wand设置页选择既有保护主信号及新目标并确认重绑，不移动模型；表示器跨入口重绑已在映射编辑流程实现，真实客户端操作仍待验收。
-Signal Wand设置页已接入命名轨道摆放预设：选择时复制参数到物品，明确rail放置/更新时应用；不重写旧设备、不影响ground，也不新增tick扫描。自由实例参数编辑仍未实现，机制归[工具契约](section-authoring-wands.md#命名轨道摆放预设的设置页接线current)。
+Signal Wand设置页已接入命名轨道摆放预设：选择时复制参数到物品，明确rail放置/更新时应用；不重写旧设备、不影响ground，也不新增tick扫描。现有设备另可通过[数值编辑](section-authoring-wands.md#实例参数数值编辑current)修改自己的位置、XYZ旋转和轨道倾斜设置，不改变模型或逻辑绑定；不包含拖拽、轨道锚点/方向或任意模型样式参数编辑。
 用户已确认距离敏感规则使用 JS，不扩展距离条件配置表；[JS 规则契约](js-signal-rules.md)中的统一包加载、独立
 GraalJS 沙箱、有向区间图到不可变前视树的编译，以及真实 world publication 到连接图的准备均已实现。
 同步 signal epoch 填值、JS 求值以及 catalog-backed 主信号的模型绑定已接线；区间环和正长度无区间环都只停止命中分支。真实 Folia/客户端画面

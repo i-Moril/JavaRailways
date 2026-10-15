@@ -23,6 +23,14 @@ data class RailSpeedLimits(
 
 `OperationalSpeedLimitSignalMaterializer`在每rail AB/BA entry各建一个direction-filtered signal，namespace固定`javarailways.speed-limit`；metadata empty也materialize release transition。Signal runtime-only，restore后重建。
 
+### 准备阶段的静态限速读取
+
+`RailInfrastructureMetadataStore.speedLimits(topology: TopologyState, railIds: Collection<UUID>): Map<UUID, Double?>`在已有transactionLock内按请求的不同rail捕获`effectiveLimitMetersPerSecond()`，输出不可修改的脱离store值。每个请求rail须在给定topology存在；有key且null表示没有有限限制，不允许省略key。只处理U个不同rail，时间/空间O(U)，不复制全world元数据。
+
+`SUBGRADE`由RailWand的designSpeed保存，属于物理线路设计/上级速度；CURVE更低时effective取CURVE，没有CURVE时自然回退SUBGRADE，不新建速度配置。Basic负责metadata值与subset捕获，当前world/exact-root校验及公开Java入口归[Bukkit附属API](../../bukkit-plugin/backend/interaction-render-persistence.md#静态轨道限速子集读取)，信号扫描距离计算归SimpleSignals。用户确认该速度不在运行时变化，不新增速度事件或tick读取；轨道编辑后的重准备沿现有流程，不将静态数据假装成同physics epoch观测。
+
+回归必须断言双限制最小值、仅SUBGRADE、无metadata的显式null、缺轨道拒绝、subset去重以及store改变后旧map值和只读性不变。此查询不写存档、不改元数据形状或版本，不计算新的限速或脱轨阈值。
+
 ## Worker→main request contract
 
 ```kotlin

@@ -8,8 +8,29 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.encodeToString
 import java.util.UUID
+import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
+import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 
 class RailInfrastructureMetadataStoreTest {
+    @Test
+    fun `static speed subset captures effective curve subgrade and explicit missing speed without live reads`() {
+        val rails = List(3) { UUID.randomUUID() }
+        val topology = buildTestTopology(7, rails.map { TestTopologyRail(it, 100.0) }, emptyMap())
+        val store = RailInfrastructureMetadataStore()
+        store.put(rails[0], RailInfrastructureMetadata(speedLimits = SpeedLimitMetadata(listOf(
+            SpeedLimitEntry(20.0, SpeedLimitType.CURVE), SpeedLimitEntry(30.0, SpeedLimitType.SUBGRADE)))))
+        store.put(rails[1], RailInfrastructureMetadata(speedLimits = SpeedLimitMetadata(listOf(
+            SpeedLimitEntry(25.0, SpeedLimitType.SUBGRADE)))))
+        val captured = store.speedLimits(topology, rails)
+        assertEquals(mapOf(rails[0] to 20.0, rails[1] to 25.0, rails[2] to null), captured)
+        store.remove(rails[0])
+        store.put(rails[1], RailInfrastructureMetadata.EMPTY)
+        assertEquals(20.0, captured[rails[0]])
+        assertEquals(25.0, captured[rails[1]])
+        assertThrows(UnsupportedOperationException::class.java) { (captured as MutableMap).clear() }
+        assertThrows(IllegalArgumentException::class.java) { store.speedLimits(topology, listOf(UUID.randomUUID())) }
+    }
+
     @Test
     fun `authoring and turnout edits preserve all speed categories and curve safety`() {
         val original = RailInfrastructureMetadata(

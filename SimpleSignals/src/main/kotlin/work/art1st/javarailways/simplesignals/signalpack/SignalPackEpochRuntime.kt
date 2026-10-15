@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochInput
 import work.art1st.javarailways.simplesignals.region.SIMPLE_SIGNALS_NAMESPACED_ID
 import work.art1st.javarailways.simplesignals.runtime.SectionOccupancyObservation
@@ -17,7 +18,9 @@ import work.art1st.javarailways.simplesignals.runtime.SectionSignalState
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsRuntimePublication
 import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionSnapshot
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
+import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
 import java.util.Collections
+import java.util.UUID
 
 /** Explicit in-memory association; a placed device ID is never inferred from a catalog signal type ID. */
 internal data class SignalTypeBinding(
@@ -96,7 +99,7 @@ internal class SignalPackEpochRuntime private constructor(
             val next = try {
                 hostUnavailable(deviceId)?.let { throw HostUnavailable(it) }
                 val plan = prepared.selectPlan(selection, fixedRouteReady)
-                val json = project(plan, occupancy, input.observation.activeContinuations, selection, candidate)
+                val json = project(prepared, plan, occupancy, input.observation.activeContinuations, selection, candidate)
                 val output = checkNotNull(logic).evaluate(prepared.signal.logicId, json)
                 require(output.modelVariant in prepared.signal.model.materialized.variants()) {
                     "signal device '$deviceId' selected undeclared model variant '${output.modelVariant}'"
@@ -125,6 +128,7 @@ internal class SignalPackEpochRuntime private constructor(
     }
 
     private fun project(
+        prepared: PreparedBinding,
         plan: SignalObservationPlan,
         occupancy: SectionOccupancySnapshot,
         continuations: ActiveRailContinuationsSnapshot,
@@ -201,6 +205,10 @@ internal class SignalPackEpochRuntime private constructor(
 
         val root = observation(plan.root)
         return jsonObject(
+            "scanDistanceMeters" to JsonPrimitive(prepared.scanDistanceMeters),
+            "referenceSpeedMetersPerSecond" to prepared.referenceSpeedMetersPerSecond?.let(::JsonPrimitive),
+            "referenceDecelerationMetersPerSecondSquared" to
+                prepared.signal.logic.referenceDecelerationMetresPerSecondSquared?.let(::JsonPrimitive),
             "self" to jsonObject(
                 "occupied" to JsonPrimitive(root.occupants.isNotEmpty()),
                 "lengthMeters" to JsonPrimitive(plan.root.lengthMeters)
@@ -213,6 +221,8 @@ internal class SignalPackEpochRuntime private constructor(
     private class PreparedBinding(
         val signal: SignalPackSignal,
         val plans: List<SignalObservationPlan>,
+        val scanDistanceMeters: Double,
+        val referenceSpeedMetersPerSecond: Double?,
         private val fixedRouteId: String?,
         private val currentEntryId: String?
     ) {
@@ -253,7 +263,8 @@ internal class SignalPackEpochRuntime private constructor(
             publication: SimpleSignalsRuntimePublication,
             catalog: SignalPackCatalog,
             logic: SignalLogicRuntime,
-            bindings: Collection<SignalTypeBinding>
+            bindings: Collection<SignalTypeBinding>,
+            railSpeedLimits: ((TopologyState, Collection<UUID>) -> Map<UUID, Double?>)? = null
         ): SignalPackEpochRuntime {
             val byDevice = bindings.associateBy(SignalTypeBinding::deviceId)
             require(byDevice.size == bindings.size) { "signal device bindings must be unique" }
@@ -271,6 +282,21 @@ internal class SignalPackEpochRuntime private constructor(
             }
             val fixed = publication.definitions.fixedBlockSignals.associateBy { it.signalId }
             val protection = publication.definitions.protectionSignals.associateBy { it.signalId }
+            val dynamic = byDevice.filter { (deviceId, binding) ->
+                catalog.signals[binding.signalType]?.logic?.referenceDecelerationMetresPerSecondSquared != null &&
+                    graph.logicalRootsByDeviceId[deviceId].orEmpty().isNotEmpty()
+            }
+            val boundaries = checkNotNull(publication.regions.compilationSnapshot()).boundariesById
+            val entryRails = dynamic.mapValues { (deviceId, _) ->
+                fixed[deviceId]?.let { definition ->
+                    publication.fixedBlocks.snapshot(publication.topology).blocksById.getValue(definition.controlledBlockId)
+                        .entryTraversal(definition.entryDirection == FixedBlockEntryDirection.REVERSE).railId
+                } ?: boundaries.getValue(graph.logicalRootsByDeviceId.getValue(deviceId).first().state.entryBoundaryId).position.railId
+            }
+            val speeds = if (entryRails.isEmpty()) emptyMap() else {
+                requireNotNull(railSpeedLimits) { "static rail speed limits are unavailable for reference-deceleration scanning" }
+                    .invoke(publication.topology, entryRails.values.toSet())
+            }
             val unavailable = linkedMapOf<String, String>()
             val prepared = byDevice.mapNotNull { (deviceId, binding) ->
                 require(deviceId in fixed || deviceId in protection) {
@@ -284,13 +310,26 @@ internal class SignalPackEpochRuntime private constructor(
                     unavailable[deviceId] = "signal device '$deviceId' has no usable observation root"
                     return@mapNotNull null
                 }
+                val referenceSpeed = entryRails[deviceId]?.let { railId ->
+                    requireNotNull(speeds[railId]) { "signal device '$deviceId' entry rail '$railId' has no finite static speed limit" }
+                        .also { require(it.isFinite() && it > 0.0) { "reference speed must be finite and positive" } }
+                }
+                val distance = signal.logic.scanDistanceMetres ?: run {
+                    val speed = checkNotNull(referenceSpeed)
+                    val deceleration = checkNotNull(signal.logic.referenceDecelerationMetresPerSecondSquared)
+                    (speed * speed / (2.0 * deceleration)).also {
+                        require(it.isFinite() && it > 0.0) { "signal device '$deviceId' calculated scan distance must be finite and positive" }
+                    }
+                }
                 val plans = roots.map { root ->
-                    SignalObservationPlanCompiler.compile(graph.graph, root.state, signal.logic.scanDistanceMetres)
+                    SignalObservationPlanCompiler.compile(graph.graph, root.state, distance)
                 }
                 val definition = protection[deviceId]
                 deviceId to PreparedBinding(
                     signal,
                     java.util.List.copyOf(plans),
+                    distance,
+                    referenceSpeed,
                     definition?.bindingId?.takeIf { definition.kind == ProtectionSignalKind.FIXED_ROUTE },
                     definition?.bindingId?.takeIf { definition.kind == ProtectionSignalKind.CURRENT_ENTRY }
                 )

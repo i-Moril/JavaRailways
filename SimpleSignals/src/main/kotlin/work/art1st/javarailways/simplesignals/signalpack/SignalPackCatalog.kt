@@ -48,8 +48,17 @@ data class SignalPackLogic(
     val sourceFile: Path,
     /** Captured while the catalog candidate is prepared; runtime evaluation never rereads [sourceFile]. */
     val source: String,
-    val scanDistanceMetres: Double
-)
+    val scanDistanceMetres: Double? = null,
+    val referenceDecelerationMetresPerSecondSquared: Double? = null
+) {
+    init {
+        require((scanDistanceMetres == null) != (referenceDecelerationMetresPerSecondSquared == null)) {
+            "logic requires exactly one scan distance or reference deceleration"
+        }
+        require(listOfNotNull(scanDistanceMetres, referenceDecelerationMetresPerSecondSquared)
+            .all { it.isFinite() && it > 0.0 }) { "logic scan distance and reference deceleration must be finite and positive" }
+    }
+}
 
 data class SignalPackSignal(
     /** Reusable catalog identity referenced by placed devices' `signalType`. */

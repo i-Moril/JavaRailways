@@ -40,7 +40,17 @@ world `type`。另一套完整信号系统插件可以拥有自己的 domain/run
 
 ### 表示与编译
 
-每个逻辑声明一个最大扫描距离，单位为沿轨米数。该距离属于逻辑定义：同一逻辑和不同模型组合时保持一致，也不成为每台已放置信号可任意覆盖的参数。它只决定插件向 JS 暴露多远，不代替 JS 的灯色或限速判断。
+每个逻辑选择固定扫描距离，或声明参考减速度以计算距离，精确字段归[统一包](model-packages.md#统一信号包modellogic-与一等-signal-类型)。模式和减速度属于逻辑定义，不属于模型或玩家每台设备的任意覆盖参数；计算模式的实际距离由入口轨道速度决定。扫描范围只决定向JS暴露多远，不代替JS的灯色或限速判断。
+
+### 准备时按静态轨道速度计算范围
+
+新模式显式提供有限正参考减速度`a`（m/s²），无默认值。准备阶段从固定闭塞的有向entryTraversal或保护入口boundary取得逻辑入口rail UUID，不按设备模型摆放位置取速，也不扫描全观察范围求最小/最大。通过宿主只读subset一次捕获这些入口轨道的有效限速`v`（m/s）：复用Basic `CURVE/SUBGRADE`最小值，SUBGRADE已在其中，等价于没有更低局部限制时使用线路设计/上级速度；不引用时刻表运营Line、车辆性能、实际车速或本信号输出。
+
+计算`D = v² / (2a)`，要求结果有限正数，随后调用原观察树编译器。例：入口20m/s、a=0.5m/s²得到400m。真实缺少有限速度时拒绝准备，不猜120km/h、2000m或巨大数值。不同逻辑入口可以用同一logic得到不同D；每条路径仍按原距离/环规则展开。
+
+`PreparedBinding`缓存参考速度、减速度和实际距离。JS输入顶层总有`scanDistanceMeters`；计算模式另有`referenceSpeedMetersPerSecond`和`referenceDecelerationMetersPerSecondSquared`，固定距离模式省略后二者且不查询host速度。运行时只投影缓存标量，不重新读metadata、不调host、不重建计划。用户确认速度运行时不变，不新增速度事件、订阅或轮询；轨道编辑后的准备沿现有publication流程。该参考减速度用于信号观察/作者规则，不替代列车真实制动能力或授予资源。
+
+速度subset读取成本为O(U)时间/空间，U是不同入口rail数；准备中还按S个逻辑绑定选择模式并保存动态入口映射，因此额外准备时间/空间为O(S+U)，每个计划只增加O(1)标量计算；图编译仍由原O(V+E)机制承担。保护入口复用已有boundary索引，不再展平全部区域。host缺轨道、缺key或过期world/root不得解释成无速度；显式null只表示该轨道确无有限限速。计算模式的缺速/非法D使显式候选编辑失败并保留旧publication，启动/安全恢复按既有不可用路径收紧。固定距离模式不依赖新的速度provider。无新增持久化边界、schema升版或旧格式reader。
 
 低频编译从有向控制入口展开所有合法后继，而不是只沿当前选中的支路：
 
@@ -94,6 +104,9 @@ cursor 被拒绝，不能把整个正长度环或包含它的包判为非法。
 ```ts
 type SignalInput = {
   readonly self: { readonly occupied: boolean; readonly lengthMeters: number };
+  readonly scanDistanceMeters: number;
+  readonly referenceSpeedMetersPerSecond?: number;
+  readonly referenceDecelerationMetersPerSecondSquared?: number;
   readonly forward: ReadonlyArray<ForwardBranch>;
 };
 

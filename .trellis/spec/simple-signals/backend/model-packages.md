@@ -34,7 +34,7 @@ YAML 部件树、外观、场景、variant 与宿主摆放 metadata 的解析和
   `import` 指向同包另一 model 的安全相对 model ID，只把目标 parts 树作为 identity-position `Group` 子树导入；
   不继承目标的 default、variants 或 rail-placement，首批不支持跨包 model import。模型身份不携带速度或信号语义。
 - `logic/<路径>.yml` 与同目录同 stem 的 `logic/<路径>.js` 共同定义一个逻辑，`logicId` 同样从 YAML 相对路径派生。
-  YAML 只允许 `scan-distance-metres`；扫描距离属于逻辑，不属于模型、signal 类型、已放置设备或 SimpleATO。
+  YAML在`scan-distance-metres`和`reference-deceleration-metres-per-second-squared`中恰选一项，均须有限正数；固定距离或参考减速度属于逻辑，不属于模型、signal类型、已放置设备或SimpleATO。后者在设备准备时按入口轨道静态速度计算实际扫描距离，机制归[JS观察计划](js-signal-rules.md#准备时按静态轨道速度计算范围)。
   缺任一配对文件均拒绝整个候选，JS 在 catalog 准备时捕获，运行期不重读。
 - `signal/**/*.yml` 每个文件定义一个玩家可见信号类型；其 `signalType` 从文件相对路径派生，文件包含非空
   `display-name` 以及 namespaced `model`、`logic` 引用。只有 signal 文件进入未来 Wand／UI；存在但未被 signal
@@ -60,6 +60,14 @@ display-name: Example signals
 scan-distance-metres: 800
 ```
 
+也可改为计算模式（不能同时保留上述字段）：
+
+```yaml
+reference-deceleration-metres-per-second-squared: 0.5
+```
+
+这里0.5仅为配置语法示例，不是加载器默认值，也不冻结正式四灯包的参数。
+
 `signal/automatic-four-light.yml`：
 ```yaml
 display-name: Automatic four-light
@@ -70,7 +78,7 @@ logic: example:automatic
 包入口只允许两个必填字段和可选 `display-name`；model/signal 只接受 `.yml`，logic 只接受成对的 `.yml`/`.js`。
 包名、派生本地 ID 和完整 `包名:本地ID` 均使用严格稳定身份，不使用类名。相对路径中的每一段都必须符合小写
 稳定 ID 规则；真实路径必须仍位于对应包和子目录内，符号链接不能逃逸。logic 的
-`scan-distance-metres` 必须是有限正数。
+两种扫描字段必须恰好提供一个有限正数；缺失、并存、null或非法类型均拒绝候选。固定距离模式是合法并存能力，不是旧开发格式兼容路径。
 
 发现使用两阶段解析：第一阶段读取全部包身份、模型文件和逻辑文件，捕获 JS 源并检查身份；第二阶段解析全部 signal
 文件的跨包引用。因此包目录枚举顺序不影响结果。包 A 的 signal 可引用包 B 的模型或逻辑，只要稳定 ID 能解析，
@@ -100,7 +108,7 @@ JS 的执行 foundation、同步信号阶段目标和树形输入见[JS 信号�
 5. **不变量与版本**：一个 logic 必须恰有同 stem 的 YAML 和 JS；一个 signal 必须解析到一个
    modelId 和一个 logicId。候选准备不发布部分结果。未发布格式仍为 schema 1，不提供旧
    `models/logics/combinations` 入口的运行时兼容。
-6. **错误矩阵**：未知字段或扩展名、空显示名、非法 ID 段、缺失 logic 配对、非正有限扫描距离、
+6. **错误矩阵**：未知字段或扩展名、空显示名、非法 ID 段、缺失 logic 配对、两种扫描参数缺失/并存或任一非正有限、
    重复包或 ID、未知／错类型引用、符号链接逃逸均拒绝完整 candidate；错误包含包、文件和字段位置。
 7. **复杂度与降级**：设候选目录节点数为 F、实际读取总字节为 B、signal 引用数为 R、模型展开/校验实际访问量为 V，准备成本为
    `O(F log F + B + R + V)`，内存为 `O(F + B + V)` 量级；只在低频准备阶段发生。任一错误使本次加载失败，
@@ -109,7 +117,7 @@ JS 的执行 foundation、同步信号阶段目标和树形输入见[JS 信号�
    的 model 与 logic；错误案例是孤立 `.js`、逃逸目录链接或把 logicId 写到 model 字段。
 9. **必需测试**：固定验证嵌套路径派生、跨包与反向枚举顺序、同 stem 配对、未知字段、
    `.`/`..` 段、文件与目录符号链接逃逸、实际模型 materialization、model import/cycle/variant、
-   捕获后不重读源文件和返回表不可变；生产绑定还须证明同一 catalog signal 同时选择 JS 与模型、未知类型不创建 handle、
+   捕获后不重读源文件和返回表不可变；两种扫描模式的互斥、无默认减速度、零/负/非有限值及模式解析均须直接过真实loader。生产绑定还须证明同一 catalog signal 同时选择 JS 与模型、未知类型不创建 handle、
    非法改绑保留旧磁盘／publication／source／模型。
 10. **迁移与错误用法**：正确做法是由 `signalType` 显式引出 modelId/logicId，并让世界 deviceId 保持独立；
     错误做法是从已放置设备 ID、模型 ID 或文件名猜测逻辑，或在主信号内再保存可冲突的 modelId。

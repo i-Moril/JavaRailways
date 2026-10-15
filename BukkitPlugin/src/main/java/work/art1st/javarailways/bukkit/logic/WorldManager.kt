@@ -182,6 +182,7 @@ class WorldManager internal constructor(
                     railExists = { railId -> railWorld.getRail(railId) != null },
                     topologyNodeExists = { key -> railWorld.topologyState.structuralNodeWithPorts(key.ports) != null },
                     operatingDirections = railWorld.basicWorldData.operatingDirections::snapshot,
+                    railSpeedLimits = railWorld.basicWorldData.railMetadata::speedLimits,
                     observeTopologyChanges = railWorld::registerTopologyChangeListener,
                     resourceExists = { resource ->
                     when (resource) {

@@ -3,6 +3,7 @@ package work.art1st.javarailways.basic.rail
 import kotlinx.serialization.Serializable
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.api.physics.rail.Rail
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -62,6 +63,14 @@ class RailInfrastructureMetadataStore {
 
     fun snapshot(): Map<UUID, RailInfrastructureMetadata> = synchronized(transactionLock) {
         values.toSortedMap(compareBy(UUID::toString))
+    }
+
+    /** Detached static limits for exactly these rails; null means neither CURVE nor SUBGRADE exists. */
+    fun speedLimits(topology: TopologyState, railIds: Collection<UUID>): Map<UUID, Double?> = synchronized(transactionLock) {
+        require(railIds.all(topology.railProjection::containsKey)) { "speed limit subset references a missing rail" }
+        java.util.Collections.unmodifiableMap(railIds.associateWith { railId ->
+            values[railId]?.speedLimits?.effectiveLimitMetersPerSecond()
+        })
     }
 
     fun restore(restored: Map<UUID, RailInfrastructureMetadata>) = synchronized(transactionLock) {

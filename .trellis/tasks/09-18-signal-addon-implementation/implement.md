@@ -6,12 +6,23 @@
 
 用户已批准G不附加限速、扫描范围按参考速度与拟定减速度计算，参考速度不含本信号输出。按小提交拆开：第一笔只改SimpleSignals输出/下游/inspection及集中回归，显式clear与数值setter二选一，缺输出/失效仍0，保留授权底线；第二笔须先核实公开可取得的速度来源和变更通知，再接计算扫描范围。Y/YG速度、减速度数值及实际“线路”速度归属不得猜测冻结。正式四灯包随后，不部署、不迁移、不改版本或添加旧reader。旧smoke不作为正式包交付。
 
+第二笔恢复（用户随后纠正并批准）：静态CURVE/SUBGRADE元数据就是所需来源，不新增通知或订阅。Basic store一次捕获所需rail速度，Bukkit公开exact-root只读subset；SimpleSignals逻辑配置固定距离与参考减速度二选一，动态模式按逻辑入口rail速度计算D并缓存v/a/D，固定模式不读新provider，tick不查host。新增语法/空值/过期root/不可用世界/不可变subset、真实manager准备与重准备及JS输入回归，独立check后运行受影响Basic/Bukkit/Signals及下游门禁。下方第一笔末尾的“暂停/来源待确认”是当时记录，已由本段取代；不把当时缺少订阅当作当前缺口。
+
 - 第一笔已完成离线实现及独立check：4个SimpleSignals产品文件（SignalLogicRuntime、SectionSignalState、SignalPackEpochRuntime、FixedBlockInspectionSource），3个既有测试类新增5项回归；JS输出新增明确clear，内部nullable值不传入通用ATO数值限制，inspection只省略速度restriction，资源/声明/完整区间floor不变。下游明确写JSON null，同入口有限限制原位取最小值，全部clear才null，缺失/Unavailable仍0。
 - 测试旧码首次12项全失败来自Paper Registry未初始化，不算行为红灯；复用已有SharedConstants/Bootstrap初始化后，旧产品12项准确2失败，22秒、30tasks（3执行/27up-to-date）。日志`/tmp/javarailways-signal-unlimited-red2.log`，XML保留`/tmp/javarailways-unlimited-red2.XscdTWLb`。其余consumer回归未在旧码执行，不声称全部红灯。
 - 首轮完整567项有2项新manager fixture失败，1分6秒，日志`/tmp/javarailways-signal-unlimited-final.log`：终止分支有end而非空forward，及每次新建epoch导致撤销owner不脏。独立check修正fixture并保持原断言；另修桥接器首次失败记录与JS类型先检，脚本捕获重复/错误类型setter异常后仍不能提交；下游聚合改原位循环避免临时列表，无新框架/锁。
 - 最终隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`执行`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries`通过，53 suites/567项全部实际执行，零failure/error/skip，1分5秒、34tasks（8执行/26up-to-date）。日志`/tmp/javarailways-signal-unlimited-final2.log`；SimpleSignals编译/test/JAR边界与module门禁执行，未变Java consumer复用成功缓存，不计为本次重新编译。未重跑无关Core/Basic/SimpleATO/Bukkit测试或WebUI前端。
 - live/candidate全部SimpleSignals/src按相对路径排序的SHA256清单摘要一致：`31c1345e90ea8b06740bf4e1f9f557fea486078b6ca9469c6ea8a2f3c3f325a7`；新SimpleSignals JAR SHA256 `92560cf3f0c995b4456def3a781daa9164beabcee8305fcf2f3d2ae3788676c8`。沿用`/workspace/.gradle` JDK25与cache、offline/no-build-cache/nonincremental/in-process、2workers/1536m heap/1024m metaspace，跳过未改前端install/build；仍有既有Graal POM-as-zip、JDK native/Unsafe等warning，无独立lint任务，scoped diff--check通过。未部署或做真实服务器验收。
 - 第二笔暂停在速度归属确认：已有rail CURVE/SUBGRADE局部限速，另有时刻表按运营Line最高速度，但没有公开物理线路最高速度/变化订阅；不能擅把每车ATO或时刻表上限作为共享物理信号输入。证据见[速度来源](research/signal-reference-speed-source-gap.md)，已向用户提出区分问题。动态扫描和正式四灯包仍未实现，不将第一笔当作Stage2结束。
+
+#### 第二笔：静态速度计算扫描距离验证
+
+- 已完成9个产品/consumer文件、4个既有测试文件，新增8项测试调用（Basic1、Bukkit2、Signals5；其中含固定/计算模式参数化），并将已有保护入口聚合用例改为计算模式。Basic同锁捕获速度子集；宿主只读API仿原operatingDirections检查exact world/root并返回脱离provider的不可修改nullable map；WorldManager和Java consumer接线。Signals loader支持两模式严格互斥，无默认a；prepare按每台逻辑入口rail批量取速、复用boundary索引，缓存v/a/D及只读JS字段，正常tick不调用host。无新DTO、事件、订阅、轮询、速度配置、schema或兼容reader。
+- 旧码首次尝试12秒因LoaderTest误加第二个companion导致编译失败，修正为原companion内真实Bootstrap，不算红灯；第二次16项准确1失败（新减速度字段未知），20秒、30tasks（3执行/27up-to-date），日志`/tmp/javarailways-signal-distance-red2.log`，XML保留`/tmp/javarailways-distance-red2.mfFCJGHm`。其他新增回归只在新产品执行，不冒称旧码红灯。
+- 定向Basic store6、Bukkit service29、Signals loader/manager142，共177项全过，1分36秒、37tasks（18执行/19up-to-date），日志`/tmp/javarailways-signal-distance-focused.log`。独立check未改源码、无本批阻塞；文档据复核补正新增准备空间为O(S+U)，绑定数S不能混同去重入口rail数U。
+- 最终候选`/tmp/javarailways-fixed-block-authority.nsoyCU`运行Core409、Basic410、SimpleATO377、Bukkit402、Signals572，共315 suites/2170项，零failure/error/skip。Core/Basic/SimpleATO/Bukkit显式test --rerun，Signals从定向过滤切回全套实际执行；Java consumer编译、两插件JAR/模块边界、Basic Dokka均通过。1分20秒、47tasks（11执行/36up-to-date），日志`/tmp/javarailways-signal-distance-final.log`。Dokka仍有既有缺注释/失效链接告警，不以任务成功宣称文档全仓合规；编译仍有既有Graal POM-as-zip、JDK native/Unsafe等warning，无独立lint任务，diff--check通过。
+- live/candidate src摘要一致：Basic `92a685177e3d437510cb79294e5dbd980da7a139708c75d1fe458d084ceeeab5`，Bukkit `156fd5bcd8a4be6fa1c8fdb8ee4eac358803f853987f0248b08e6e604cbd88c9`，Signals `ee7456bd64f6321755a389f32d6a823dd0482bc88dbf86a3e677d67566ea5565`。主fat JAR SHA256 `bab580a5db07188eafbb3f5f80eb647e4af831c94bb3ee8d78df2380916fe71f`，Signals JAR `829379fa31c001ac4e4514da7d7173419ab3b0852501de3ceba5de16b831849f`。沿用/workspace/.gradle JDK25/cache、offline/no-build-cache/nonincremental/in-process、2workers及1536m heap/1024m metaspace；跳过未改WebUI frontend install/build，未跑WebUI测试、未宣称本批含前端重新打包。
+- 读取/缓存行为及AB/BA/保护入口、缺速startup不可用、显式编辑缺速拒绝且source/publication/disk保旧、距离溢出拒绝均有离线回归。此能力不冻结正式四灯包的a/Y/YG数值，不替代真实列车制动或资源授权。未部署、未迁移、未进行真实Paper/Folia或客户端验收，Stage2继续in_progress；下一批才是正式包规则及资源交付，不继续扩大本批。
 
 2026-10-15正式游戏准备已核对，当前基线与后续顺序见[就绪清单](research/game-test-readiness-2026-10-15.md)：建造交互离线完成；用户单独批准的Basic CR-040和随后CR-041现已修复，最新五模块2157项回归通过，证据归[审查任务批次](../10-09-stage2-code-review/implement.md#cr-041配置ui收口2026-10-15用户单独批准)。需正式规则包而非smoke规则；本地旧配置/世界不能直接换JAR启动，远端现状未刷新。未部署或完成游戏验收；动态贡献依赖触发缺口单列审查台账，不冒称所有配置场景均完成。历史未勾选框与早期研究保留当时上下文，不再当作当前功能计数。
 

@@ -7,8 +7,11 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.io.TempDir
 import org.bukkit.Material
+import net.minecraft.SharedConstants
+import net.minecraft.server.Bootstrap
 import work.art1st.javarailways.bukkit.api.model.ModelPart
 import java.nio.file.Files
 import java.nio.file.Path
@@ -16,6 +19,40 @@ import java.nio.file.Path
 class SignalPackLoaderTest {
     @TempDir
     lateinit var temporary: Path
+
+    @Test
+    fun `reference deceleration metadata loads without a fixed scan distance`() {
+        val root = pack("dynamic", manifest("dynamic"))
+        Files.writeString(root.resolve("logic/logic.yml"),
+            "reference-deceleration-metres-per-second-squared: 0.5")
+
+        assertTrue("dynamic:logic" in SignalPackLoader.load(temporary).logics)
+    }
+
+    @Test
+    fun `scan distance and reference deceleration are exclusive finite positive modes`() {
+        val root = pack("modes", manifest("modes"))
+        val metadata = root.resolve("logic/logic.yml")
+        listOf(
+            "{}",
+            "scan-distance-metres: 100\nreference-deceleration-metres-per-second-squared: 0.5",
+            "reference-deceleration-metres-per-second-squared: 0",
+            "reference-deceleration-metres-per-second-squared: -1",
+            "reference-deceleration-metres-per-second-squared: .inf",
+            "reference-deceleration-metres-per-second-squared: .nan"
+        ).forEach { invalid ->
+            Files.writeString(metadata, invalid)
+            assertThrows(IllegalArgumentException::class.java) { SignalPackLoader.load(temporary) }
+        }
+        Files.writeString(metadata, "reference-deceleration-metres-per-second-squared: 0.5")
+        val calculated = SignalPackLoader.load(temporary).logics.getValue("modes:logic")
+        assertEquals(null, calculated.scanDistanceMetres)
+        assertEquals(0.5, calculated.referenceDecelerationMetresPerSecondSquared)
+        Files.writeString(metadata, "scan-distance-metres: 250")
+        val fixed = SignalPackLoader.load(temporary).logics.getValue("modes:logic")
+        assertEquals(250.0, fixed.scanDistanceMetres)
+        assertEquals(null, fixed.referenceDecelerationMetresPerSecondSquared)
+    }
 
     @Test
     fun `discovers first-class files and resolves cross-package references independently of directory order`() {
@@ -331,7 +368,13 @@ class SignalPackLoaderTest {
 
     private data class Logic(val distance: Double, val source: String = VALID_LOGIC)
 
-    private companion object {
+    companion object {
+        @JvmStatic @BeforeAll
+        fun bootstrapPaperItems() {
+            SharedConstants.tryDetectVersion()
+            Bootstrap.bootStrap()
+        }
+
         const val VALID_LOGIC = "function evaluate(input, output) { output.setSpeedLimit(0); output.setModelVariant('stop'); }"
         const val VALID_MODEL = """
             parts:

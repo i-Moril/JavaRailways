@@ -61,6 +61,7 @@ internal class DefaultInfrastructureResourceService(
         val currentTopology: () -> TopologyState,
         val registry: InfrastructureCoordinationRegistry,
         val operatingDirections: ((TopologyState, Collection<UUID>) -> work.art1st.javarailways.basic.api.route.RailOperatingDirections)?,
+        val railSpeedLimits: ((TopologyState, Collection<UUID>) -> Map<UUID, Double?>)?,
         val observeTopologyChanges: ((RailTopologyChangeListener) -> AutoCloseable)?,
         var routeAdmission: RouteResourceAdmissionRuntime? = null,
         var manualTurnoutSelection: ManualTurnoutSelectionRuntime? = null,
@@ -106,6 +107,7 @@ internal class DefaultInfrastructureResourceService(
         topologyNodeExists: (StableTopologyNodeKey) -> Boolean = { false },
         operatingDirections: ((TopologyState, Collection<UUID>) -> work.art1st.javarailways.basic.api.route.RailOperatingDirections)? = null,
         observeTopologyChanges: ((RailTopologyChangeListener) -> AutoCloseable)? = null,
+        railSpeedLimits: ((TopologyState, Collection<UUID>) -> Map<UUID, Double?>)? = null,
         resourceExists: (InfrastructureResource) -> Boolean
     ) = synchronized(lock) {
         check(!closed) { "InfrastructureResourceService is closed" }
@@ -113,6 +115,7 @@ internal class DefaultInfrastructureResourceService(
         worlds[worldId] = WorldRuntime(
             currentTopology = currentTopology,
             operatingDirections = operatingDirections,
+            railSpeedLimits = railSpeedLimits,
             observeTopologyChanges = observeTopologyChanges,
             registry = InfrastructureCoordinationRegistry(
                 { currentTopology().revision }, resourceExists, railExists, topologyNodeExists
@@ -178,6 +181,27 @@ internal class DefaultInfrastructureResourceService(
             }
         }
         return snapshot
+    }
+
+    override fun railSpeedLimits(worldId: UUID, topology: TopologyState, railIds: Collection<UUID>): Map<UUID, Double?> {
+        val world = synchronized(lock) {
+            check(!closed) { "InfrastructureResourceService is closed" }
+            checkNotNull(worlds[worldId]) { "Railway world is not registered: $worldId" }
+        }
+        check(world.currentTopology() === topology) { "speed limit topology is stale" }
+        val requested = railIds.toSet()
+        require(requested.all(topology.railProjection::containsKey)) { "speed limit subset references a missing rail" }
+        val values = checkNotNull(world.railSpeedLimits) { "rail speed limits are unavailable" }(topology, requested)
+        check(values.keys == requested && values.values.all { it == null || it.isFinite() && it > 0.0 }) {
+            "speed limit subset does not match the request or contains an invalid speed"
+        }
+        val captured = java.util.Collections.unmodifiableMap(LinkedHashMap(values))
+        synchronized(lock) {
+            check(!closed && worlds[worldId] === world && world.currentTopology() === topology) {
+                "speed limit world or topology changed during the read"
+            }
+        }
+        return captured
     }
 
     /** Completes world composition after Basic data is attached and before the first physics wake. */

@@ -355,6 +355,68 @@ class DefaultInfrastructureResourceServiceTest {
     }
 
     @Test
+    fun `static speed subset is detached nullable immutable and rejects invalid provider results`() {
+        val service = DefaultInfrastructureResourceService()
+        val worldId = UUID.randomUUID()
+        val rails = List(2) { UUID.randomUUID() }
+        val topology = buildTestTopology(7, rails.map { TestTopologyRail(it, 100.0) }, emptyMap())
+        var values: Map<UUID, Double?> = linkedMapOf(rails[0] to 20.0, rails[1] to null)
+        var calls = 0
+        service.registerWorld(worldId, { topology }, railSpeedLimits = { _, _ -> calls++; values }) { false }
+        val captured = service.railSpeedLimits(worldId, topology, rails)
+        assertEquals(1, calls)
+        assertEquals(values, captured)
+        (values as MutableMap)[rails[0]] = 10.0
+        assertEquals(20.0, captured[rails[0]])
+        assertThrows(UnsupportedOperationException::class.java) { (captured as MutableMap).clear() }
+        listOf(
+            emptyMap(), mapOf(rails[0] to 20.0),
+            mapOf(rails[0] to 20.0, rails[1] to null, UUID.randomUUID() to 25.0),
+            mapOf(rails[0] to Double.POSITIVE_INFINITY, rails[1] to null),
+            mapOf(rails[0] to Double.NaN, rails[1] to null),
+            mapOf(rails[0] to 0.0, rails[1] to null),
+            mapOf(rails[0] to -1.0, rails[1] to null)
+        ).forEach { invalid ->
+            values = invalid
+            assertThrows(IllegalStateException::class.java) { service.railSpeedLimits(worldId, topology, rails) }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            service.railSpeedLimits(worldId, topology, listOf(UUID.randomUUID()))
+        }
+        assertThrows(IllegalStateException::class.java) {
+            service.railSpeedLimits(worldId, buildTestTopology(7, emptyList(), emptyMap()), rails)
+        }
+        service.removeWorld(worldId)
+        assertThrows(IllegalStateException::class.java) { service.railSpeedLimits(worldId, topology, rails) }
+        service.registerWorld(worldId, { topology }) { false }
+        assertThrows(IllegalStateException::class.java) { service.railSpeedLimits(worldId, topology, rails) }
+        service.close()
+        assertThrows(IllegalStateException::class.java) { service.railSpeedLimits(worldId, topology, rails) }
+    }
+
+    @Test
+    fun `static speed capture refuses topology replacement and world reload during provider read`() {
+        val worldId = UUID.randomUUID()
+        val railId = UUID.randomUUID()
+        val rails = listOf(TestTopologyRail(railId, 100.0))
+        val original = buildTestTopology(7, rails, emptyMap())
+        val replacement = buildTestTopology(8, rails, emptyMap())
+        for (reload in listOf(false, true)) {
+            val service = DefaultInfrastructureResourceService()
+            var topology = original
+            service.registerWorld(worldId, { topology }, railSpeedLimits = { _, _ ->
+                if (reload) {
+                    service.removeWorld(worldId)
+                    service.registerWorld(worldId, { topology }, railSpeedLimits = { _, requested -> requested.associateWith { 20.0 } }) { false }
+                } else topology = replacement
+                mapOf(railId to 20.0)
+            }) { false }
+            assertThrows(IllegalStateException::class.java) { service.railSpeedLimits(worldId, original, listOf(railId)) }
+            service.close()
+        }
+    }
+
+    @Test
     fun `requested direction subset is immutable exact-root bound and taken in one store read`() {
         val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()

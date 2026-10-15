@@ -1000,7 +1000,9 @@ internal class SimpleSignalsWorldRuntimeManager(
         if (packages != null) {
             return try {
                 SectionOccupancyRuntime.from(publication,
-                    SignalPackEpochRuntime.compile(publication, packages.catalog, packages.logic, bindings))
+                    SignalPackEpochRuntime.compile(publication, packages.catalog, packages.logic, bindings) { topology, rails ->
+                        infrastructure.railSpeedLimits(publication.definitions.worldId, topology, rails)
+                    })
             } catch (failure: Exception) {
                 if (fallback != SignalPackFallback.ANY_FAILURE) throw failure
                 SectionOccupancyRuntime.from(publication, SignalPackEpochRuntime.unavailable(

@@ -1882,6 +1882,140 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(indicator.model, r.runtime.currentDefinitions().routeIndicators.single().model)
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    fun `scan plan captures static speed only in calculated mode and rebuilds only on topology preparation`(calculated: Boolean) {
+        val rails = (1L..3L).map { UUID(12L, it) }
+        fun topology(revision: Long) = topologyState(revision, rails, rails.zipWithNext().map { (first, second) ->
+            endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A)
+        })
+        val initial = topology(71)
+        val worldId = UUID.randomUUID()
+        val blocks = rails.mapIndexed { index, rail -> FixedBlockDefinition("test:scan-block-$index", 1,
+            listOf(FixedBlockTraversal(rail, ViewDirection.AB, 0.0, 5.0))) }
+        val signal = FixedBlockSignalDefinition("test:scan-head", 1, blocks.first().blockId, 0.0, "automatic:block")
+        val definitions = store()
+        definitions.save(worldId, SimpleSignalsWorldDefinitions(worldId, 1,
+            emptyList(), emptyList(), blocks, listOf(signal)))
+        val infrastructure = MutableTopologyService(initial)
+        infrastructure.staticSpeedLimits = mapOf(rails.first() to 3.0)
+        val sources = CapturingSignalEpochSourceService()
+        val pending = arrayListOf<() -> Unit>()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            sources, topologyWorker = { pending += it }, loadDefaultSignalCatalog = false)
+        val packs = writeAutomaticSignalPack(script = """
+            function evaluate(input, output) {
+              if ($calculated) {
+                if (input.referenceDecelerationMetersPerSecondSquared !== 0.5 ||
+                    input.scanDistanceMeters !== input.referenceSpeedMetersPerSecond ** 2) throw new Error('wrong calculation');
+                if (input.referenceSpeedMetersPerSecond === 3 && input.forward[0].section !== undefined) {
+                  throw new Error('short stopping distance exposed a distant section');
+                }
+              } else if (input.scanDistanceMeters !== 100 || 'referenceSpeedMetersPerSecond' in input ||
+                         'referenceDecelerationMetersPerSecondSquared' in input) throw new Error('fixed mode leaked reference inputs');
+              output.setSpeedLimit(input.scanDistanceMeters);
+              output.setModelVariant('clear');
+            }
+        """.trimIndent())
+        if (calculated) Files.writeString(packs.resolve("automatic/logic/block.yml"),
+            "reference-deceleration-metres-per-second-squared: 0.5")
+        manager.loadSignalPacks(packs)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(worldId).status)
+        fun process(number: Long) {
+            val topology = infrastructure.topology!!
+            SignalEpochRuntime(worldId.toString(), TrainRestrictionSnapshotStore(worldId.toString())).also {
+                it.replaceSources(sources.sources.getValue(worldId))
+                it.process(RailwayWorldFrameSnapshot.create(number, topology.revision, emptyList(),
+                    ActiveRailContinuationsSnapshot.empty(topology.revision)))
+            }
+        }
+        process(1)
+        val captured = manager.authoringRuntime(worldId)!!.sectionSignalSnapshot()!!
+        assertEquals(if (calculated) 9.0 else 100.0, captured.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+        assertEquals(if (calculated) 1 else 0, infrastructure.speedLimitReadCount)
+        infrastructure.staticSpeedLimits = mapOf(rails.first() to 10.0)
+        process(2)
+        assertEquals(if (calculated) 9.0 else 100.0,
+            manager.authoringRuntime(worldId)!!.sectionSignalSnapshot()!!.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond,
+            "physical epochs reuse the captured plan and reference scalars")
+        assertEquals(if (calculated) 1 else 0, infrastructure.speedLimitReadCount)
+        infrastructure.commitTopology(topology(72), setOf(rails.first()))
+        pending.removeFirst().invoke()
+        process(3)
+        assertEquals(100.0, manager.authoringRuntime(worldId)!!.sectionSignalSnapshot()!!.states
+            .getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+        assertEquals(if (calculated) 2 else 0, infrastructure.speedLimitReadCount)
+        assertEquals(if (calculated) 9.0 else 100.0, captured.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `calculated scan captures each directed entry rail and rejects missing speed without replacing live permission`() {
+        val rails = listOf(UUID(13, 1), UUID(13, 2))
+        val topology = topologyState(71, rails,
+            listOf(endpoint(rails[0], RailEndpoint.B) to endpoint(rails[1], RailEndpoint.A)))
+        val worldId = UUID.randomUUID()
+        val block = FixedBlockDefinition("test:directed-scan", 1, rails.map {
+            FixedBlockTraversal(it, ViewDirection.AB, 0.0, 10.0)
+        }, true)
+        val signals = listOf(FixedBlockEntryDirection.FORWARD, FixedBlockEntryDirection.REVERSE).map { direction ->
+            FixedBlockSignalDefinition("test:scan-${direction.name.lowercase()}", 1, block.blockId, 0.0,
+                "automatic:block", direction)
+        }
+        val definitions = store()
+        definitions.save(worldId, SimpleSignalsWorldDefinitions(worldId, 1,
+            emptyList(), emptyList(), listOf(block), signals))
+        val infrastructure = MutableTopologyService(topology)
+        infrastructure.operatingDirectionOverride = rails.associateWith { null }
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            sources, loadDefaultSignalCatalog = false)
+        val packs = writeAutomaticSignalPack(script = """
+            function evaluate(input, output) {
+              output.setSpeedLimit(input.referenceSpeedMetersPerSecond);
+              output.setModelVariant('clear');
+            }
+        """.trimIndent())
+        Files.writeString(packs.resolve("automatic/logic/block.yml"),
+            "reference-deceleration-metres-per-second-squared: 0.5")
+        manager.loadSignalPacks(packs)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(worldId).status)
+        val runtime = manager.authoringRuntime(worldId)!!
+        fun process(number: Long) = SignalEpochRuntime(worldId.toString(), TrainRestrictionSnapshotStore(worldId.toString())).also {
+            it.replaceSources(sources.sources.getValue(worldId))
+            it.process(RailwayWorldFrameSnapshot.create(number, topology.revision, emptyList(),
+                ActiveRailContinuationsSnapshot.empty(topology.revision)))
+        }
+        process(1)
+        assertTrue(runtime.sectionSignalSnapshot()!!.states.values.all { it is SectionSignalState.Unavailable },
+            "missing finite static speed must retain startup fail-closed output")
+        infrastructure.staticSpeedLimits = mapOf(rails[0] to 4.0, rails[1] to 8.0)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
+            manager.applyDefinitionPatch(worldId, 1, SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(
+                signals.first().reconfigured(revision = 2)))).status)
+        process(2)
+        assertEquals(listOf(4.0, 8.0), signals.map {
+            runtime.sectionSignalSnapshot()!!.states.getValue(it.signalId).effectiveSpeedLimitMetersPerSecond
+        })
+        val before = runtime.authoringPublication()
+        val source = sources.sources.getValue(worldId)
+        val disk = Files.readString(definitions.primaryFile(worldId))
+        infrastructure.staticSpeedLimits = mapOf(rails[0] to 4.0, rails[1] to null)
+        val rejected = manager.applyDefinitionPatch(worldId, 2, SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(
+            signals.first().reconfigured(revision = 3))))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED, rejected.status)
+        assertTrue(rejected.diagnostics.any { it.contains("no finite static speed limit") })
+        assertSame(before, runtime.authoringPublication())
+        assertSame(source, sources.sources.getValue(worldId))
+        assertEquals(disk, Files.readString(definitions.primaryFile(worldId)))
+        infrastructure.staticSpeedLimits = mapOf(rails[0] to Double.MAX_VALUE, rails[1] to 8.0)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
+            manager.applyDefinitionPatch(worldId, 2, SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(
+                signals.first().reconfigured(revision = 3)))).status, "overflowing scan distance cannot install a plan")
+        assertSame(before, runtime.authoringPublication())
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
     @Test
     fun `shared protection entrance combines only finite signal limits and preserves all clear as null`() {
         val f = Fixture()
@@ -1896,9 +2030,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
         definitions.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1, listOf(f.region),
             listOf(f.table(1, selected)), listOf(block), listOf(approach), listOf(clear, peer)))
         val sources = CapturingSignalEpochSourceService()
-        val manager = runtimeManager(plugin(), MutableTopologyService(f.currentTopology).service,
+        val infrastructure = MutableTopologyService(f.currentTopology)
+        infrastructure.staticSpeedLimits = mapOf(f.entry to 10.0)
+        val manager = runtimeManager(plugin(), infrastructure.service,
             CapturingRoutePlanningService(), definitions, sources, loadDefaultSignalCatalog = false)
-        manager.loadSignalPacks(writeAutomaticSignalPack(script = """
+        val packs = writeAutomaticSignalPack(script = """
             function evaluate(input, output) {
               if (input.self.lengthMeters === 4) {
                 const speed = input.forward[0].downstreamSignal.speedLimitMetersPerSecond;
@@ -1906,7 +2042,10 @@ class SimpleSignalsWorldRuntimeManagerTest {
               } else output.clearSpeedLimit();
               output.setModelVariant('clear');
             }
-        """.trimIndent()))
+        """.trimIndent())
+        Files.writeString(packs.resolve("automatic/logic/block.yml"),
+            "reference-deceleration-metres-per-second-squared: 0.5")
+        manager.loadSignalPacks(packs)
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
         val runtime = manager.authoringRuntime(f.worldId)!!
         val route = RouteSnapshot("test:clear-mission", 1, f.currentTopology.revision,
@@ -5258,6 +5397,9 @@ class SimpleSignalsWorldRuntimeManagerTest {
         }
         var nextEditDecision = TopologyEditDecision(TopologyEditStatus.GRANTED)
         var operatingDirectionOverride: Map<UUID, ViewDirection?>? = null
+        var staticSpeedLimits: Map<UUID, Double?> = emptyMap()
+        var speedLimitReadCount = 0
+            private set
         var afterPermitGranted: () -> Unit = {}
         var permitAcquisitionCount = 0
             private set
@@ -5280,6 +5422,14 @@ class SimpleSignalsWorldRuntimeManagerTest {
                     work.art1st.javarailways.basic.api.route.RailOperatingDirections(
                         arguments[1] as TopologyState, rails.associateWith { rail ->
                             if (operatingDirectionOverride == null) ViewDirection.AB else operatingDirectionOverride!!.getValue(rail) })
+                }
+                "railSpeedLimits" -> {
+                    speedLimitReadCount++
+                    check(arguments!![1] === topology)
+                    @Suppress("UNCHECKED_CAST")
+                    val rails = arguments[2] as Collection<UUID>
+                    require(rails.all(topology!!.railProjection::containsKey))
+                    rails.associateWith { staticSpeedLimits[it] }
                 }
                 "acquireEditPermit" -> {
                     permitAcquisitionCount++

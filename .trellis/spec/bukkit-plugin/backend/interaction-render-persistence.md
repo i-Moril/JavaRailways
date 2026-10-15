@@ -166,6 +166,16 @@ worker的record比较、JSON编码、旧文件复制均为`O(render record count
 不会复制其他轨道的政策；时间和空间都是 O(U)，U 为本次请求的不同轨道数。
 worker 和信号回调都可读取这份值，不能从公开接口取得可写 store、live World 或 SimpleATO 私有状态。
 
+### 静态轨道限速子集读取
+
+`InfrastructureResourceService.railSpeedLimits(UUID worldId, TopologyState topology, Collection<UUID> railIds): Map<UUID, Double>`向附属插件暴露Basic已有元数据的有效限速，单位m/s。Java map的值允许null：每个请求rail都有key，null表示它没有任何有限CURVE/SUBGRADE限制，不代表轨道或世界缺失。非null值有限正数；effective已取CURVE与SUBGRADE最小，不额外建立线路/时刻表速度存储。
+
+读取流程复用operatingDirections的world注册provider：先验证service/world有效及exact current root，调用Basic store在同一个transactionLock下捕获所需不同rail的值，再校验返回key集合/值并复制为不可修改map，返回前复核同一world实例和root。Basic只读查询按所给topology校验rail存在，不反向导入Bukkit。null不能用`Map.copyOf`丢弃/拒绝，也不能以省略key冒充缺速。既有值复制后不受store后续变更影响，map不暴露live store或World。
+
+这是低频准备API，worker可读；成本O(U)时间/空间，U为请求的不同rail数，不复制全world。service关闭、world卸载/同UUID重载、过期/外来root、缺rail、provider返回缺/多key或非法数值均明确失败；旧map仍是可读值，不代表当前world或授权。没有速度变更事件、订阅或tick轮询，静态速度只在已有准备/编辑流程重新捕获，不更改schema或版本。
+
+必须验证真实store的CURVE/SUBGRADE最小、空limits显式null、subset/duplicate请求、复制不可变；service的过期root/world、provider前后world替换和返回值完整性；Java consumer编译。SimpleSignals如何计算距离与缓存由[JS观察计划](../../simple-signals/backend/js-signal-rules.md#准备时按静态轨道速度计算范围)拥有，不在host实现制动或信号规则。
+
 ## Persistence 与配置
 
 - 全局`config.yml`的`ato.safety-distance-meters`默认5.0米，有限且非负，允许0；缺失取明确默认值，存在但类型/数值错误时拒绝加载。值加载为immutable配置，同步传给所有真实world和隔离仿真的Dispatcher与`AtoSafetyProfile`，不随train profile改变；制动能力仍按各车计算。用于静态保护及真实授权的机制归[SimpleATO停车目标与授权终点](../../javarailways/simpleato/terminal-route-completion.md)。这是带默认值的新增字段，不升级schema、不新增迁移/兼容reader，也不增加在线热切换。

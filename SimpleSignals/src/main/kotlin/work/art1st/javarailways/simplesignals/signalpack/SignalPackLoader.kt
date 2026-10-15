@@ -156,10 +156,18 @@ object SignalPackLoader {
                     io(metadataFile.source, "$") { Files.readString(metadataFile.file) },
                     metadataFile.source
                 )
-                val fields = value.mapping(setOf("scan-distance-metres"))
-                val distanceValue = value.required(fields, "scan-distance-metres")
-                val distance = distanceValue.number()
-                if (distance <= 0.0) distanceValue.fail("scan-distance-metres must be finite and positive")
+                val fields = value.mapping(setOf("scan-distance-metres", "reference-deceleration-metres-per-second-squared"))
+                val distanceValue = fields["scan-distance-metres"]
+                val decelerationValue = fields["reference-deceleration-metres-per-second-squared"]
+                if ((distanceValue == null) == (decelerationValue == null)) {
+                    value.fail("requires exactly one scan-distance-metres or reference-deceleration-metres-per-second-squared")
+                }
+                val distance = distanceValue?.number()?.also {
+                    if (it <= 0.0) distanceValue.fail("scan-distance-metres must be finite and positive")
+                }
+                val deceleration = decelerationValue?.number()?.also {
+                    if (it <= 0.0) decelerationValue.fail("reference-deceleration-metres-per-second-squared must be finite and positive")
+                }
                 val logicId = "$packageName:$localId"
                 val sourceFile = scripts.getValue(localId)
                 logicId to SignalPackLogic(
@@ -167,7 +175,8 @@ object SignalPackLoader {
                     metadataFile.file,
                     sourceFile.file,
                     io(sourceFile.source, "$") { Files.readString(sourceFile.file) },
-                    distance
+                    distance,
+                    deceleration
                 )
             }
         }

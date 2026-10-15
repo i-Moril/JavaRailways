@@ -21,6 +21,7 @@ Signal Wand设置页已接入命名轨道摆放预设：选择时复制参数到
 闭塞/保护区域工具已接入[玩家专用边界与覆盖叠加](section-authoring-wands.md#持工具的边界与区间编辑叠加current)：缓存几何、附近粒子和公开EditorTextService文字，离手/上下文失效即清理，不参与行车逻辑，真实客户端仍待验收。
 用户已确认距离敏感规则使用 JS，不扩展距离条件配置表；[JS 规则契约](js-signal-rules.md)中的统一包加载、独立
 GraalJS 沙箱、有向区间图到不可变前视树的编译，以及真实 world publication 到连接图的准备均已实现。
+扫描范围现可固定给定，或在准备时按入口轨道静态有效限速及逻辑参考减速度计算并缓存；不新增速度事件或tick读取，具体机制归[准备期扫描](js-signal-rules.md#准备时按静态轨道速度计算范围)。
 同步 signal epoch 填值、JS 求值以及 catalog-backed 主信号的模型绑定已接线；区间环和正长度无区间环都只停止命中分支。真实 Folia/客户端画面
 仍待验证，不得把 foundation 描述为完整建造/呈现系统。
 轨道编辑后的局部失效、后台重验与恢复归[区间局部重验](section-topology-revalidation.md)；

@@ -28,7 +28,10 @@ main配置直接反向依赖。语义ownership和公开API使用仍由代码审�
 灯色名称、模型 variant 和具体速度由 JS 决定，不存在另一套 Kotlin 阈值规则。每次求值必须在`setSpeedLimit(...)`与`clearSpeedLimit()`中恰好选择一个，并调用一次`setModelVariant(...)`。
 `clearSpeedLimit()`明确不附加本信号限速；它不授予资源，不取消线路、车辆或其他限制。漏调用、脚本异常或不可用状态仍按0限制处理，不能默认解释为不限速。
 
-插件按逻辑声明的最远扫描距离预编译树形观察，运行时填入同 epoch 的区间长度、占用、分支选择及可用的下游信号限速。
+逻辑YAML可填写固定的`scan-distance-metres`，或改填`reference-deceleration-metres-per-second-squared`，必须二选一且为有限正数，减速度没有默认值。计算模式在准备时读取逻辑入口轨道已有的CURVE/SUBGRADE有效限速，按`D = v² / (2a)`计算扫描范围；不使用模型位置、列车实时速度或时刻表Line。缺少有限轨道速度时准备失败，不猜测默认最高速度或距离。
+
+插件按准备好的扫描范围预编译树形观察，运行时填入同 epoch 的区间长度、占用、分支选择及可用的下游信号限速。
+JS输入顶层提供`scanDistanceMeters`；计算模式另提供`referenceSpeedMetersPerSecond`和`referenceDecelerationMetersPerSecondSquared`。这些标量随计划缓存，不在tick读取宿主或metadata；轨道编辑沿已有重准备流程，不新增速度事件或轮询。扫描范围不自动决定灯色，仍由JS判断。
 JS 可检查未选支路，不只观察当前路径。物理环只终止命中的分支，并以 `cycle` 告知 JS，其他分支继续；
 循环段不暴露递归下游输出，实际信号输出依赖仍必须无环。这不是禁止环线，也不执行迭代求解。
 包布局和身份见[统一信号包契约](../.trellis/spec/simple-signals/backend/model-packages.md)，

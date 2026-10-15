@@ -67,6 +67,19 @@ public interface InfrastructureResourceService {
     );
 
     /**
+     * Captures detached static effective speed limits in metres per second for exactly these rails.
+     * Each value is the minimum of Basic's CURVE and SUBGRADE limits; a present null value means
+     * neither finite limit exists. Missing rails fail rather than disappearing from the map.
+     * The returned map is immutable and remains unchanged by subsequent metadata edits.
+     * The supplied topology must be this world's exact current root before and after the read.
+     * Intended for low-frequency preparation, not a live-train or signal-output lookup.
+     *
+     * @throws IllegalStateException if closed, unloaded, stale, or the speed provider is unavailable
+     * @throws IllegalArgumentException if any requested rail is absent from the topology
+     */
+    java.util.Map<UUID, Double> railSpeedLimits(UUID worldId, TopologyState topology, Collection<UUID> railIds);
+
+    /**
      * Returns the route-resource admission entry point for one plugin and railway world.
      *
      * <p>The returned service authenticates every request, handle inspection, and grant end as

@@ -270,6 +270,9 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             work.art1st.javarailways.basic.api.route.RailOperatingDirections directionSubset =
                 services.infrastructure().operatingDirections(worldId, topology, List.of());
             directionSubset.getDirections(); // null facing means both; no host implementation imports
+            java.util.Map<UUID, Double> staticSpeedSubset =
+                services.infrastructure().railSpeedLimits(worldId, topology, List.of());
+            staticSpeedSubset.size(); // present null means no finite CURVE/SUBGRADE limit
             if (topology.getRevision() != observation.getStamp().getTopologyRevision()) {
                 throw new IllegalStateException("Observation and topology root are not coherent");
             }

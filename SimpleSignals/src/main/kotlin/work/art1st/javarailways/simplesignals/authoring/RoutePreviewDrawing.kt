@@ -10,7 +10,7 @@ import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinitio
 import java.util.UUID
 import kotlin.math.ceil
 
-internal enum class PreviewParticleKind { PATH, DIRECTION, ENTRY, REQUESTED_EXIT, ACTUAL_END, WARNING }
+internal enum class PreviewParticleKind { PATH, DIRECTION, ENTRY, REQUESTED_EXIT, ACTUAL_END, WARNING, OVERLAY_BOUNDARY }
 internal data class PreviewParticle(val x: Double, val y: Double, val z: Double, val kind: PreviewParticleKind)
 
 /** All geometry is prepared on the worker. The owner sends bounded rotating batches of these values. */
@@ -35,7 +35,7 @@ internal class RoutePreviewDrawing(points: Collection<PreviewParticle>, val conn
             val color = when (point.kind) {
                 PreviewParticleKind.PATH -> if (connected) Color.LIME else Color.ORANGE
                 PreviewParticleKind.DIRECTION -> Color.WHITE
-                PreviewParticleKind.ENTRY -> Color.AQUA
+                PreviewParticleKind.ENTRY, PreviewParticleKind.OVERLAY_BOUNDARY -> Color.AQUA
                 PreviewParticleKind.REQUESTED_EXIT -> Color.YELLOW
                 PreviewParticleKind.ACTUAL_END -> if (connected) Color.LIME else Color.RED
                 PreviewParticleKind.WARNING -> Color.ORANGE
@@ -48,6 +48,26 @@ internal class RoutePreviewDrawing(points: Collection<PreviewParticle>, val conn
     companion object {
         const val BUDGET = 512
         const val REFRESH_TICKS = 20L
+        fun sampleSpan(points: MutableList<PreviewParticle>, geometry: Curve, start: Double, end: Double,
+            kind: PreviewParticleKind = PreviewParticleKind.PATH) {
+            val steps = maxOf(1, ceil(kotlin.math.abs(end - start) / 2.0).toInt())
+            for (step in 0..steps) {
+                val p = geometry.getPointAt(start + (end - start) * step / steps).position
+                points += PreviewParticle(p.x(), p.y() + 0.15, p.z(), kind)
+            }
+        }
+
+        fun chevron(points: MutableList<PreviewParticle>, geometry: Curve, ab: Double, facing: ViewDirection) {
+            val p = geometry.getPointAt(ab)
+            val sign = if (facing == ViewDirection.AB) 1.0 else -1.0
+            val side = org.joml.Vector3d(p.tangent).cross(p.normal).normalize()
+            for (arm in listOf(-1.0, 1.0)) for (step in 0..3) {
+                val back = step * 0.18
+                points += PreviewParticle(p.position.x() - sign * p.tangent.x() * back + side.x() * back * arm,
+                    p.position.y() + 0.25 - sign * p.tangent.y() * back + side.y() * back * arm,
+                    p.position.z() - sign * p.tangent.z() * back + side.z() * back * arm, PreviewParticleKind.DIRECTION)
+            }
+        }
         fun warnings(boundaries: Collection<ProtectionBoundaryDefinition>, findCurve: (UUID) -> Curve?): RoutePreviewDrawing {
             val points = arrayListOf<PreviewParticle>()
             val missing = linkedSetOf<UUID>()
@@ -75,26 +95,11 @@ internal class RoutePreviewDrawing(points: Collection<PreviewParticle>, val conn
             path.traversals.forEach { span ->
                 val geometry = curve(span.railId) ?: return@forEach
                 val distance = span.upperAbMeters - span.lowerAbMeters
-                val steps = maxOf(1, ceil(distance / 2.0).toInt())
-                for (step in 0..steps) {
-                    val ab = span.travelStartAbMeters + (span.travelEndAbMeters - span.travelStartAbMeters) * step / steps
-                    val p = geometry.getPointAt(ab).position
-                    points += PreviewParticle(p.x(), p.y() + 0.15, p.z(), PreviewParticleKind.PATH)
-                }
+                sampleSpan(points, geometry, span.travelStartAbMeters, span.travelEndAbMeters)
                 val arrows = maxOf(1, ceil(distance / 8.0).toInt())
                 for (index in 0 until arrows) {
                     val ab = span.travelStartAbMeters + (span.travelEndAbMeters - span.travelStartAbMeters) * (index + 0.5) / arrows
-                    val p = geometry.getPointAt(ab)
-                    val sign = if (span.facing == ViewDirection.AB) 1.0 else -1.0
-                    val tangent = p.tangent
-                    val normal = p.normal
-                    val side = org.joml.Vector3d(tangent).cross(normal).normalize()
-                    for (arm in listOf(-1.0, 1.0)) for (step in 0..3) {
-                        val back = step * 0.18
-                        points += PreviewParticle(p.position.x() - sign * tangent.x() * back + side.x() * back * arm,
-                            p.position.y() + 0.25 - sign * tangent.y() * back + side.y() * back * arm,
-                            p.position.z() - sign * tangent.z() * back + side.z() * back * arm, PreviewParticleKind.DIRECTION)
-                    }
+                    chevron(points, geometry, ab, span.facing)
                 }
             }
             fun mark(position: RailPositionSnapshot, kind: PreviewParticleKind, height: Double) {

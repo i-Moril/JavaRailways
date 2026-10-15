@@ -8,6 +8,7 @@ import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService;
 import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService;
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService;
 import work.art1st.javarailways.bukkit.api.model.ModelPresentationService;
+import work.art1st.javarailways.bukkit.api.editor.EditorTextService;
 
 import java.util.Objects;
 import java.util.function.Function;
@@ -20,7 +21,8 @@ record SimpleSignalsHostServices(
     InspectionSourceService inspectionSources,
     RoutePlanningRestrictionSourceService routePlanningSources,
     RailTargetService railTargets,
-    ModelPresentationService models
+    ModelPresentationService models,
+    EditorTextService editorTexts
 ) {
     SimpleSignalsHostServices {
         Objects.requireNonNull(observations, "observations");
@@ -30,6 +32,7 @@ record SimpleSignalsHostServices(
         Objects.requireNonNull(routePlanningSources, "routePlanningSources");
         Objects.requireNonNull(railTargets, "railTargets");
         Objects.requireNonNull(models, "models");
+        Objects.requireNonNull(editorTexts, "editorTexts");
     }
 
     static SimpleSignalsHostServices load(ServicesManager servicesManager) {
@@ -46,7 +49,8 @@ record SimpleSignalsHostServices(
             require(lookup, InspectionSourceService.class),
             require(lookup, RoutePlanningRestrictionSourceService.class),
             require(lookup, RailTargetService.class),
-            require(lookup, ModelPresentationService.class)
+            require(lookup, ModelPresentationService.class),
+            require(lookup, EditorTextService.class)
         );
     }
 

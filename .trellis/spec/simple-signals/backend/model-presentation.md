@@ -272,7 +272,7 @@ ModelPlacementCalculator.calculate(placement: RailAttached, curve: Curve?): Mode
 
 ### 生产接线与编辑边界
 
-插件启动时除了既有五个后端能力，还取得 `RailTargetService` 和 `ModelPresentationService`。
+插件启动时除后端能力外，还取得 `RailTargetService`、`ModelPresentationService` 和编辑叠加使用的 `EditorTextService`；全部必需服务清单归模块索引。
 后端世界安装不等待显示包；Paper 工作线程同时准备统一 `signal-packs/` catalog 和
 `dataFolder/models` 的 model-only 直接子目录，各目录有
 `manifest.yml`。根目录不存在表示空模型表；缺文件、包名冲突或包内容错误给出明确诊断，不猜模型或造占位。
@@ -325,7 +325,7 @@ manager 提交锁和物理线程不等待模型树构造或实体清理。
 此锁内不读取文件、不采样曲线、不构造模型树、不创建实体，也不同步写日志；显示故障在退出锁后报告。
 
 删除设备只关闭其对应 handle；世界卸载使旧绑定立即失效，然后在提交锁外关闭世界内全部 handles。插件停用不等待正在创建模型的
-工作线程；异步收尾先关闭这些 handles，再观察主插件 `closeOwner` 的完成结果。记录完成或失败，
+工作线程；异步收尾先关闭这些 handles，再合并观察主插件模型与编辑文字服务各自 `closeOwner` 的完成结果。记录完成或失败，
 不能把“已请求清理”报告为“实体已删完”。不新增另一套资源卸载门禁。
 
 实际私有入口是 `SimpleSignalsModelPackages.load(Path): Map<String, LoadedPackageModel>`、

@@ -50,7 +50,8 @@ internal class SectionWandHandler(
         val task = player.scheduler.runAtFixedRate(plugin, { action() }, retired, 1L, RoutePreviewDrawing.REFRESH_TICKS)
         AutoCloseable { task?.cancel() }
     },
-    private val render: (Player, RoutePreviewDrawing, Int) -> Unit = { player, drawing, offset -> drawing.draw(player, offset) }
+    private val render: (Player, RoutePreviewDrawing, Int) -> Unit = { player, drawing, offset -> drawing.draw(player, offset) },
+    private val checkOverlay: (Player) -> Unit = {}
 ) : Listener, CommandExecutor {
     private val sessions = SectionWandSessions()
 
@@ -73,6 +74,7 @@ internal class SectionWandHandler(
                 SectionWandTool.REGION_DELETE -> "Region delete wand: click a boundary. Existing regions retain their routes/devices and become unavailable until repaired."
             }))
         } catch (failure: Exception) { sender.sendMessage(Component.text(failure.message ?: "Cannot create wand")) }
+        checkOverlay(sender)
         return true
     }
 
@@ -81,6 +83,7 @@ internal class SectionWandHandler(
         if (event.hand != EquipmentSlot.HAND || event.action == Action.PHYSICAL) return
         val player = event.player
         val tool = toolInHand(player) ?: return
+        checkOverlay(player)
         event.isCancelled = true
         click(player, tool, event.action == Action.LEFT_CLICK_AIR || event.action == Action.LEFT_CLICK_BLOCK)
     }
@@ -194,7 +197,7 @@ internal class SectionWandHandler(
         const val PERMISSION = "simplesignals.admin"
         const val USAGE = "/simplesignals wand block|region [create|delete], or /simplesignals wand route"
         private fun key(plugin: Plugin) = NamespacedKey(plugin, "section_wand")
-        private fun readTool(plugin: Plugin, stack: ItemStack): SectionWandTool? {
+        internal fun readTool(plugin: Plugin, stack: ItemStack): SectionWandTool? {
             val value = stack.itemMeta?.persistentDataContainer?.get(key(plugin), PersistentDataType.STRING) ?: return null
             return SectionWandTool.entries.singleOrNull { it.key == value }
         }

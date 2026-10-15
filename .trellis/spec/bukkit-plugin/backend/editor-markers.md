@@ -4,7 +4,7 @@
 
 统一轨道、车站、闭塞和保护区域工具的显示含义，不统一业务定义。
 已有 RailWand 使用锚点 ItemDisplay、轨道信息 TextDisplay 和粒子；道岔工具和通路预览使用玩家粒子。
-这些工具尚未全部迁移到统一显示实现。本批接入保护区域多通路警告；完整 TextDisplay 方向与区间显示仍待后续实现。
+这些工具尚未全部迁移到统一显示实现。保护区域多通路警告及SimpleSignals持工具的边界/方向/区间叠加已接入，文字由公开EditorTextService管理；全轨道/车站标记的统一显示仍待后续实现。
 
 ## 一次编辑如何显示
 
@@ -43,7 +43,7 @@ Core/Basic 不保存符号、颜色或 Bukkit 实体；各业务模块保留自�
 
 状态：CURRENT，2026-10-15实现并通过独立复核；离线门禁与未验范围归Stage 2任务记录，实际Paper/Folia/客户端另验。
 
-目的仅是让附属插件显示玩家专用的临时文字并可靠清理。BukkitPlugin提供服务实现，首个计划消费者是当前SimpleSignals及以后SimpleSignalsBukkit，不要求先实施领域模块拆分；本API批次尚未接入边界显示。首批不公开Wand内部模式、通用脚本交互系统或完整RailWand控制权，轨道高亮继续复用已有粒子准备，后续有真实需求时再提取公共接口。
+目的仅是让附属插件显示玩家专用的临时文字并可靠清理。BukkitPlugin提供服务实现，当前SimpleSignals的边界/区间编辑叠加已作为首个消费者接入，不要求先实施领域模块拆分；以后可由SimpleSignalsBukkit承接。具体几何缓存和持物生命周期归[信号工具合同](../../simple-signals/backend/section-authoring-wands.md#持工具的边界与区间编辑叠加current)。首批不公开Wand内部模式、通用脚本交互系统或完整RailWand控制权，轨道高亮继续复用已有粒子准备，后续有真实需求时再提取公共接口。
 
 已实现的公开类型位于`bukkit.api.editor`，服务由宿主统一注册到Bukkit ServicesManager：
 

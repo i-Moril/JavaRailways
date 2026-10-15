@@ -9,6 +9,8 @@ import work.art1st.javarailways.simplesignals.command.SimpleSignalsAdminCommand
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsDefinitionDrafts
 import work.art1st.javarailways.simplesignals.authoring.RuntimeSectionWandBackend
 import work.art1st.javarailways.simplesignals.authoring.SectionWandHandler
+import work.art1st.javarailways.simplesignals.authoring.SectionWandOverlay
+import work.art1st.javarailways.simplesignals.authoring.RuntimeSectionOverlayBackend
 import work.art1st.javarailways.simplesignals.authoring.RoutePreviewWandHandler
 import work.art1st.javarailways.simplesignals.authoring.RuntimeRoutePreviewBackend
 import work.art1st.javarailways.simplesignals.authoring.CurrentRouteRecording
@@ -23,6 +25,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
     private var hostServices: SimpleSignalsHostServices? = null
     private var worldRuntimes: SimpleSignalsWorldRuntimeManager? = null
     private var sectionWands: SectionWandHandler? = null
+    private var sectionOverlay: SectionWandOverlay? = null
     private var routePreviewWand: RoutePreviewWandHandler? = null
     private var signalWand: SignalWandHandler? = null
     private var modelCleanup: CompletionStage<Void> = CompletableFuture.completedFuture(null)
@@ -79,9 +82,15 @@ class SimpleSignalsPlugin : JavaPlugin() {
             }
         }
         val admin = SimpleSignalsAdminCommand(this, runtimes, SimpleSignalsDefinitionDrafts(dataFolder.toPath()))
+        val overlay = SectionWandOverlay(this,
+            RuntimeSectionOverlayBackend(runtimes::authoringRuntime, services.infrastructure(), services.railTargets()),
+            services.editorTexts())
+        sectionOverlay = overlay
+        server.pluginManager.registerEvents(overlay, this)
+        server.onlinePlayers.forEach(overlay::check)
         val wands = SectionWandHandler(this,
             RuntimeSectionWandBackend(runtimes, services.infrastructure(), settings.protectionRegionMaxDistanceMeters),
-            services.railTargets())
+            services.railTargets(), checkOverlay = overlay::check)
         sectionWands = wands
         server.pluginManager.registerEvents(wands, this)
         val previewBackend = RuntimeRoutePreviewBackend(this, runtimes::authoringRuntime, services.infrastructure(),
@@ -109,6 +118,8 @@ class SimpleSignalsPlugin : JavaPlugin() {
     }
 
     override fun onDisable() {
+        sectionOverlay?.close()
+        sectionOverlay = null
         signalWand?.close()
         signalWand = null
         routePreviewWand?.close()
@@ -117,11 +128,13 @@ class SimpleSignalsPlugin : JavaPlugin() {
         sectionWands = null
         // Host PluginDisableEvent handling removes dead callbacks. Do not create a second unload gate.
         val services = hostServices
-        modelCleanup = worldRuntimes?.clearLocal()
+        val models = worldRuntimes?.clearLocal()
             ?: services?.models()?.closeOwner(this) ?: CompletableFuture.completedFuture(null)
+        val texts = services?.editorTexts()?.closeOwner(this) ?: CompletableFuture.completedFuture(null)
+        modelCleanup = CompletableFuture.allOf(models.toCompletableFuture(), texts.toCompletableFuture())
         modelCleanup.whenComplete { _, failure ->
-            if (failure == null) logger.info("SimpleSignals model cleanup completed")
-            else logger.log(Level.SEVERE, "SimpleSignals model cleanup failed; keep JavaRailways enabled until cleanup is resolved", failure)
+            if (failure == null) logger.info("SimpleSignals model/editor cleanup completed")
+            else logger.log(Level.SEVERE, "SimpleSignals model/editor cleanup failed; keep JavaRailways enabled until cleanup is resolved", failure)
         }
         worldRuntimes = null
         hostServices = null

@@ -2,7 +2,7 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
-后续顺序更新：用户于2026-10-15批准以下范围和执行顺序，测距放在其余建造交互之后。进路删除/保护主信号重绑、表示器新建/映射/入口编辑、实例参数数值编辑已完成离线门禁，下一批为边界及区间编辑叠加，不把旧测距下一批建议继续当作当前优先级。
+后续顺序更新：用户于2026-10-15批准以下范围和执行顺序，测距放在其余建造交互之后。进路删除/保护主信号重绑、表示器新建/映射/入口编辑、实例参数数值编辑及边界/区间编辑叠加已接线；下一独立批次为测距。离线完成与真实游戏验收分开记录。
 
 用户另于2026-10-15要求后续将SimpleSignals领域逻辑与Bukkit解耦，已创建独立[平台拆分任务](../10-15-simplesignals-platform-split/prd.md)。目前仅做简要评估并记录为planning，不切换当前任务、不立即重构，也不把它加入本轮游戏测试的前置条件。
 
@@ -26,18 +26,25 @@
   - [x] 第一笔后端：映射改为入口进路的子集，未配输出使用明确noRouteModelVariant并保留selection身份；增加最小模型variant目录投影，不修改renderer/宿主API。机制归[工具合同](../../spec/simple-signals/backend/section-authoring-wands.md#表示器映射作者与新建)。
   - [x] 第二笔Wand：新建意图与既有身份区分，捕获位置后明确配置并确认才创建；设置页编辑既有表示器/新入口和映射，不移动模型。复用原事务及对话guard，不创建未摆放占位定义或另一个草稿仓库。
 - [x] 实例参数数值编辑：三轴偏移、旋转角度及跟随轨道倾斜设置接入既有摆放流程；验证选中对象身份/修订、几何计算和逻辑绑定保持，不实现拖拽。ground编辑绝对世界XYZ且无轨道倾斜；具体接口和失败边界归[工具合同](../../spec/simple-signals/backend/section-authoring-wands.md#实例参数数值编辑current)，离线通过不等于客户端验收。
-- [ ] 边界及区间编辑叠加：复用既有玩家隔离显示机制，补齐位置、方向及区间提示；验证离手、退出、切世界及卸载后清理，显示不参与行车逻辑。
-  - [x] 前置公开文字API：BukkitPlugin提供EditorTextService/Handle/Label、玩家隔离、完整列表更新与宿主调度/关闭完成结果，独立复核及联合离线门禁通过；尚未接入边界消费者。
-  - [ ] 将已有边界/区间几何和持工具生命周期接到该API，真实客户端验收另记；不启动后续平台模块拆分。
+- [x] 边界及区间编辑叠加：复用既有玩家隔离显示机制，补齐位置、方向及区间提示；验证离手、退出、切世界及卸载后清理，显示不参与行车逻辑。完成证据见下述批次记录；真实客户端另验。
+  - [x] 前置公开文字API：BukkitPlugin提供EditorTextService/Handle/Label、玩家隔离、完整列表更新与宿主调度/关闭完成结果，独立复核及联合离线门禁通过。
+  - [x] 已有边界/区间几何和持工具生命周期接到该API，真实客户端验收另记；不启动后续平台模块拆分。
 - [ ] 最后实现独立测距：直线与沿轨距离，沿轨采用物理最短路，不依赖当前道岔选择，不实际扳岔或申请行车资源。
 
 #### 边界叠加前置发现（2026-10-15，公开能力方向已确认）
 
-当前Section Wand只有点击后的警告显示，Route Wand已有独立粒子预览；本批仍需完整的持工具自动显示、文字及关闭清理。可复用RoutePreviewDrawing的worker几何准备、20tick/512点分批，不新增拓扑搜索；附近筛选使用已准备值，准备成本随作者定义/显示点数量增长。
+开始本批前Section Wand只有点击后的警告显示，Route Wand已有独立粒子预览；需要完整的持工具自动显示、文字及关闭清理。已复用RoutePreviewDrawing的几何采样、20tick/512点分批，不新增拓扑搜索；附近筛选使用已准备值，准备成本随作者定义/显示点数量增长。
 实现前发现TextDisplay停用清理的生命周期接缝：附属插件停用后不能依赖自己的调度任务完成Folia实体删除，PluginDisableEvent也不能保证排队任务不被取消。现有宿主ModelPresentationService提供host-owned调度和可观察closeOwner完成结果，但只支持普通模型，无文字/编辑者隔离接口。不能通过私有实现导入、借用宿主Plugin对象调度或改成粒子/聊天替代完整文字来隐瞒问题。
-用户已同意BukkitPlugin公开Wand、Rail可视化等通用平台能力，方向归[编辑标记规范](../../spec/bukkit-plugin/backend/editor-markers.md#已确认的公开能力方向target2026-10-15)。该前置发现已通过下述最小临时文字API解决；不加入区间/信号语义，不一次重构全部Wand。边界消费者尚未实现，因此不勾选整项完成。
+用户已同意BukkitPlugin公开Wand、Rail可视化等通用平台能力，方向归[编辑标记规范](../../spec/bukkit-plugin/backend/editor-markers.md#已确认的公开能力方向target2026-10-15)。该前置发现已通过下述最小临时文字API解决；不加入区间/信号语义，不一次重构全部Wand。边界消费者在后续独立批次接入，见下述验证记录。
 
 用户已批准[首批文字API](../../spec/bukkit-plugin/backend/editor-markers.md#首批临时文字-api)：先独立实现公开service/handle/不可变标签值、宿主调度/清理及Java消费与平台回归，再独立接边界叠加。采用完整标签列表、稳定显示身份及只保留最新待显示状态；本段记录开始前的批准基线，具体完成证据另记。继续使用本任务，不新建重复任务；后续平台拆分任务仍为planning。
+
+#### 边界与区间叠加接线验证（2026-10-15）
+
+- 七个产品文件：新增SectionOverlayDrawing/RuntimeSectionOverlayBackend/SectionWandOverlay，复用RoutePreviewDrawing采样与箭头、SectionWandHandler物品识别；HostServices取得必需EditorTextService，插件接持物会话及模型/文字联合关闭。四个测试文件（其中三个新suite）覆盖几何、真实runtime基线失效、持物/玩家隔离/关闭及必需服务。具体算法与成本归[工具合同](../../spec/simple-signals/backend/section-authoring-wands.md#持工具的边界与区间编辑叠加current)。无Core/Basic/ATO、持久化字段或版本变化；不实施后续平台拆分。
+- 独立复核修复同UUID重连的旧Player回调可能清理新会话的问题：会话绑定具体玩家实例，并验证旧排队刷新、退休及退出不能关闭新显示；强化不可用标签断言，避免空集合使all断言无效。没有新增generation框架或业务规模限制。首次产品编译发现interior字段名误用并修正；首次测试编译发现函数列表last解析失去函数类型，改为显式索引后通过。
+- 初步定向六套32项通过（18秒），随后复核修复加入最终完整门禁。同一隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`，Java25与`GRADLE_USER_HOME=/workspace/.gradle`，执行`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries --offline --no-build-cache --no-parallel --max-workers=2 -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=1024m' -x :WebUI:installFrontend -x :WebUI:buildFrontend --console=plain`。59秒，34task中8执行26up-to-date，51套555项实际重跑，失败/错误/跳过0；产品/测试编译与模块/JAR边界实际执行，未变Java消费者和宿主shadowJar复用前序产物。另scoped git diff --check通过，无独立lint任务。
+- 最终全部SimpleSignals/src相对路径排序文件清单摘要`b8230b9373eb11548b66e15c1530db46b54b96bbc4f2dbc50cbecf6b9c6fc7b5`，工作区与已测候选相同。日志`/tmp/javarailways-section-overlay-final-check.log`，XML在候选SimpleSignals/build/test-results/test。Bukkit源未变，未重跑其测试或Core/Basic全套、前端。未部署，真实Paper/Folia调度、文字可见性/遮挡与客户端辨识度仍待实测；Stage 2保持in_progress，下一独立批次测距。
 
 #### 公开临时文字API验证（2026-10-15）
 

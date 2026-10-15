@@ -12,6 +12,9 @@ import java.util.UUID
  * 2. 运行时通过 [get]/[getOrDefault] 读取配置值
  * 3. 需要展示 Dialog 时调用 [buildGroupForPlayer]
  * 4. 其他插件通过 [registerToGroup] 贡献项，通过 [addBuildListener] 动态注入
+ *
+ * 注册与结构变更由调用方串行安排，不得与构建并发。同一玩家会话由其 owner 串行使用。
+ * 快照只承诺逐键捕获后稳定，不保证跨键原子提交或整个注册中心的线程安全。
  */
 interface ConfigUI {
     // ═══════════════════════════════════════════
@@ -173,10 +176,10 @@ fun interface ConfigGroupBuildListener {
  * [buildGroupForPlayer] 的返回结果。
  *
  * @param group 原始分组
- * @param effectiveItems 排序后的全部有效项（已过滤不可见项）
- * @param effectiveSubGroups 有效子分组（已过滤不可见分组）
+ * @param effectiveItems 递归过滤分组/项及事件贡献后按 key 唯一、稳定排序的全部有效项；这是渲染和输入处理的唯一项来源
+ * @param effectiveSubGroups 过滤后的子分组展示树，仅用于标题/导航，不应将其 items 再追加到 effectiveItems
  * @param hiddenItemIds 被 visibleWhen 或事件隐藏的项 ID 集合
- * @param snapshot 构建时的值快照
+ * @param snapshot 事件收集完成后逐键捕获的构建值和成员关系；不随后续 registry/session 更改
  */
 data class BuiltGroup(
     val group: ConfigGroup,

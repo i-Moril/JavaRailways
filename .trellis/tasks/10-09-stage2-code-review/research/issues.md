@@ -28,8 +28,13 @@
 
 ### CR-041：嵌套配置UI有效视图与快照失真
 
-- P2；待集中修复。registry隐藏子组未移除已flatten条目；Bukkit renderer重新加入原始子组items，造成隐藏字段复现/重复；advertised snapshot实际访问live registry。
-- 先修统一effectiveItems消费及值捕获，补nested producer/consumer回归。注册线程owner尚须明确，不按ConcurrentHashMap推断所有列表线程安全，也不因此无差别加锁。
+- P2；2026-10-15已修复并通过独立复核/五模块2157项离线门禁。原问题：registry隐藏子组未移除已flatten条目；Bukkit renderer重新加入原始子组items，造成隐藏字段复现/重复；advertised snapshot实际访问live registry。
+- 事件收集后捕获值，递归过滤子树并按key去重、排序；平台输入/按钮/回复只消费effectiveItems，初始值读取built.snapshot。4项新增回归在旧产品全部失败，修复后通过；线程注释明确调用方串行及非跨key事务，不新增全局锁。合同归[配置UI](../../../spec/javarailways/basic/config-ui.md)，完整证据见[执行记录](../implement.md#cr-041配置ui收口2026-10-15用户单独批准)。未真实游戏验收。
+
+### 配置UI动态依赖触发（CR-041复核时另记，待处理）
+
+- 静态发现：`BuiltGroup.triggerKeyIds`仍只遍历原始`group`的`dependsOn`；构建事件通过`addItem/addGroup`新增的依赖项不贡献触发键。若其可见性依赖枚举，修改枚举可能不立即重建界面。现有注册字段的隐藏依赖触发回归不覆盖此动态贡献场景。
+- 这是既有的动态依赖刷新缺口，不等同于CR-041的子树隐藏、重复消费或live快照；本批不改变`BuiltGroup.group`公开含义或新增字段。后续应在已有构建流程收集动态依赖并补实际重建回归，不以本次测试绿色声称该场景通过。
 
 ### 复用原台账的Basic维护项
 

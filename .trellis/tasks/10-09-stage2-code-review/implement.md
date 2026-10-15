@@ -6,6 +6,17 @@
 
 ## 当前执行顺序（2026-10-12用户纠正后）
 
+### CR-041配置UI收口（2026-10-15，用户单独批准）
+
+本批只修嵌套配置有效视图与值快照，不扩大为线程系统、存档、全仓清理或部署。Basic在构建事件收集完成后捕获注册/动态字段的值，再递归过滤整棵分组树；按key去重、稳定排序后的`effectiveItems`是唯一字段来源。Bukkit的输入、枚举触发按钮及回复读取不再拼回子组原始items，初始显示读本次snapshot。快照只固定映射及值引用，不深拷贝任意payload，不承诺跨key原子事务；注册/结构变更及同玩家session由调用方串行，不以并发Map声称整体线程安全。算法合同见[配置UI](../../spec/javarailways/basic/config-ui.md)。
+
+- 修复前仅复制两个既有测试文件的新回归到旧产品候选：7项中4项失败（Basic2、Bukkit2），18秒、27tasks（4执行/23up-to-date）。日志`/tmp/javarailways-cr041-red-check.log`，原XML保留`/tmp/javarailways-cr041-red.jt0RtxoL`；是实际断言/隐藏数字解析失败，不是编译或Paper bootstrap错误。
+- 已完成7个Kotlin文件：两个产品实现、三个API KDoc和两个既有测试文件，新增4项集中回归，无新产品类型/API方法。首轮定向7项全过（1分9秒、27tasks，12执行/15up-to-date），日志`/tmp/javarailways-cr041-focused-check.log`。独立check补强既有断言的非默认order/并列稳定序、存在与未知key读取，收集helper改单builder递归填充以避免逐层复制；修正新增反射warning、会话隔离过度承诺与失效KDoc链接。无剩余本批源码阻塞。
+- 最终候选`/tmp/javarailways-fixed-block-authority.nsoyCU`：Core409、Basic409、SimpleATO377、Bukkit400、SimpleSignals562，共315 suites/2157项，零failure/error/skip。Core/Basic/SimpleATO/Bukkit test均显式`--rerun`，SimpleSignals check随本批Basic输入变化执行；API consumer Java编译、verifySignalModuleBoundaries、SimpleSignals JAR校验与Bukkit shadowJar通过。2分4秒、47tasks（20执行/27up-to-date），日志`/tmp/javarailways-cr041-final-check.log`。
+- 最后仅修改ConfigSnapshot KDoc失效链接，另跑Basic test/Dokka及Bukkit shadowJar：14秒、25tasks（2执行/23up-to-date），Basic编译及Dokka执行，test/shadowJar输出不变而up-to-date；不称全套重跑。日志`/tmp/javarailways-cr041-doc-check.log`。Dokka仍有其他既有缺注释/失效链接warning，本批ConfigSnapshot链接告警已消失，不以task成功宣称全仓文档合规。编译仍有既有unchecked cast、JDK native/Unsafe及Graal POM作zip等warning，未扩大修复。
+- 最终live/candidate src摘要一致：Basic `db3355845e4bab7fb2fe405b038bd1b48bbad39d0d6ddbb5a77dbe27039307e9`，Bukkit `78e24c41a1b95041eded8894976cd80efe3e01b55964a19354a05135c5aa7760`。主候选fat JAR SHA256 `c91d6c5cbafbc130dfd85ed843b4d691cde0f6a28a666cfbfc3d0e0cee319153`；SimpleSignals JAR仍为`65b445bf52a906fb27f22f426e1fe0254de554c0e8545b5cc85dab7cbb26308c`。缓存/JDK使用`/workspace/.gradle`，offline/no-build-cache/nonincremental/in-process、2workers、1536m heap/1024m metaspace，跳过无关WebUI frontend install/build；不是本批含前端重新构建的正式部署包。
+- 附加WebUI:test尝试在23秒处因offline缓存缺JUnit BOM5.11.4未能编译，未修改依赖或联网下载；五模块门禁不包含该任务，不声称WebUI测试通过。本批无WebUI shape/入口变化。复核发现事件新增字段的dependsOn不贡献triggerKeyIds，作为既有独立刷新缺口单列[台账](research/issues.md#配置ui动态依赖触发cr-041复核时另记待处理)，未擅改BuiltGroup.group含义。未真实Paper/Folia界面验收、未迁移存档、未部署；不关闭审查父任务或Stage2。
+
 ### CR-040恢复执行（2026-10-15，用户单独批准）
 
 用户明确先修CR-040，不执行CR-041或其他维护项。改动限定Basic曲线生成/测量/分界映射与RailWand必要消费，既有审查B1/B2/B3为回归输入，不重开整模块审查。先补独立数值/实际接点回归，再修水平station→三维弧长及逐lane/纵断面重建映射，最后独立复核并运行Core/Basic/Bukkit及受影响消费者门禁。算法合同归[曲线规范](../../spec/javarailways/basic/curve-authoring.md#最终弧长与工程分界)。不改Core查询热路径、旧世界格式、版本号或限速/脱轨物理公式，不部署；旧存档不会因本修复被自动重新参数化。

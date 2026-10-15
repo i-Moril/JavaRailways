@@ -1,10 +1,11 @@
 package work.art1st.javarailways.basic.api.ui.config
 
 /**
- * 配置值快照（只读）。
+ * 构建时逐键捕获的配置值和成员关系（只读），不再读取后续 registry/session 更改。
+ * 捕获不是跨键原子事务。值按引用保存；调用方应使用不可变值，或替换可变值而不是原地修改。
  *
  * 供 [ConfigKey.visibleWhen] 和 [ConfigGroup.visibleWhen] 评估依赖项的值。
- * 实现由 [ConfigUIRegistry] 在构建 [BuiltGroup] 时提供。
+ * 实现由 [ConfigUI] 的默认实现在构建 [BuiltGroup] 时提供。
  */
 interface ConfigSnapshot {
     /**

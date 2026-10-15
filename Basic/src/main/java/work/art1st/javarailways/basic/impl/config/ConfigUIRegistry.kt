@@ -7,7 +7,9 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * [ConfigUI] 的默认实现。
  *
- * 线程安全（使用 [ConcurrentHashMap]），支持多玩家并发访问。
+ * 注册/结构变更由调用方串行安排，不得与分组构建并发；同一玩家会话也由其调用方串行使用。
+ * 并发映射只隔离身份查找，不保证可变分组、配置项或跨键提交的整体原子性。
+ * 构建快照逐键捕获后保持稳定，不是跨键配置事务；全局写入协调仍属于调用方。
  *
  * ## 分组合并语义
  * - 注册同名分组时，新分组的 items 和 subGroups **追加**到现有分组
@@ -167,7 +169,8 @@ class ConfigUIRegistry : ConfigUI {
     override fun getEffectiveItems(groupId: String): List<ConfigItem> {
         val group = groups[groupId] ?: return emptyList()
         val snapshot = createSnapshot()
-        return flattenItems(group, snapshot, emptySet()).sortedBy { it.key.order }
+        val filtered = filterGroup(group, snapshot, emptySet(), emptySet()) ?: return emptyList()
+        return collectItems(filtered).distinctBy { it.key.id }.sortedBy { it.key.order }
     }
 
     // ═══════════════════════════════════════════
@@ -194,40 +197,20 @@ class ConfigUIRegistry : ConfigUI {
                 createSnapshot(playerId)
             )
 
-        val snapshot = createSnapshot(playerId)
-
-        // Step 1: 展平 items（评估 visibleWhen）
-        val flattenedItems = flattenItems(group, snapshot, emptySet())
-
-        // Step 2: 展平 subGroups（评估 visibleWhen）
-        val visibleSubGroups = group.subGroups.filter { subGroup ->
-            val visible = subGroup.visibleWhen?.invoke(snapshot) ?: true
-            visible
-        }
-
-        // Step 3: 触发 BuildEvent
         val event = ConfigGroupBuildEvent(groupId, playerId, context)
         buildListeners[groupId]?.forEach { it.onBuild(event) }
-
-        // Step 4: 收集隐藏项
-        val hiddenIds = mutableSetOf<String>()
-        // visibleWhen 隐藏的项
-        val allItemIds = collectAllItemIds(group)
-        val visibleItemIds = flattenedItems.map { it.key.id }.toSet()
-        hiddenIds.addAll(allItemIds - visibleItemIds)
-        // 事件隐藏的项
-        hiddenIds.addAll(event.collectHiddenItemIds())
-
-        // Step 5: 合并事件添加的额外项
-        val allItems = (flattenedItems + event.collectExtraItems())
-            .filter { it.key.id !in hiddenIds }
-            .sortedBy { it.key.order }
-
-        // Step 6: 合并事件添加的额外分组
-        val allSubGroups = (visibleSubGroups + event.collectExtraGroups())
-            .filter { it.id !in event.collectHiddenGroupIds() }
-
-        return BuiltGroup(group, allItems, allSubGroups, hiddenIds, snapshot)
+        val candidates = ConfigGroup(group.id, group.label, group.description,
+            (group.items + event.collectExtraItems()).toMutableList(),
+            (group.subGroups + event.collectExtraGroups()).toMutableList(),
+            group.allowExtensions, group.isExpanded, group.visibleWhen)
+        val candidateItems = collectItems(candidates)
+        val snapshot = createSnapshot(playerId, candidateItems)
+        val filtered = filterGroup(candidates, snapshot, event.collectHiddenItemIds(), event.collectHiddenGroupIds())
+        val effectiveItems = filtered?.let(::collectItems).orEmpty()
+            .distinctBy { it.key.id }.sortedBy { it.key.order }
+        val hiddenIds = event.collectHiddenItemIds() +
+            (candidateItems.map { it.key.id }.toSet() - effectiveItems.map { it.key.id }.toSet())
+        return BuiltGroup(group, effectiveItems, filtered?.subGroups.orEmpty(), hiddenIds, snapshot)
     }
 
     // ═══════════════════════════════════════════
@@ -292,52 +275,42 @@ class ConfigUIRegistry : ConfigUI {
         }
     }
 
-    /** 展平分组的所有项（评估可见性，递归处理子分组） */
-    private fun flattenItems(
+    /** Filter whole subtrees before flattening; hidden descendants never remain editable. */
+    private fun filterGroup(
         group: ConfigGroup,
         snapshot: ConfigSnapshot,
-        hiddenIds: Set<String>
-    ): List<ConfigItem> {
-        val result = mutableListOf<ConfigItem>()
-
-        // 自身的 items
-        group.items.forEach { item ->
-            if (item.key.id !in hiddenIds) {
-                val visible = item.key.visibleWhen?.invoke(snapshot) ?: true
-                if (visible) {
-                    result.add(item)
-                }
-            }
-        }
-
-        // 子分组的 items（递归）
-        group.subGroups.forEach { subGroup ->
-            val groupVisible = subGroup.visibleWhen?.invoke(snapshot) ?: true
-            if (groupVisible && subGroup.id !in hiddenIds) {
-                result.addAll(flattenItems(subGroup, snapshot, hiddenIds))
-            }
-        }
-
-        return result
+        hiddenItems: Set<String>,
+        hiddenGroups: Set<String>
+    ): ConfigGroup? {
+        if (group.id in hiddenGroups || group.visibleWhen?.invoke(snapshot) == false) return null
+        return ConfigGroup(group.id, group.label, group.description,
+            group.items.filter { it.key.id !in hiddenItems && it.key.visibleWhen?.invoke(snapshot) != false }.toMutableList(),
+            group.subGroups.mapNotNull { filterGroup(it, snapshot, hiddenItems, hiddenGroups) }.toMutableList(),
+            group.allowExtensions, group.isExpanded)
     }
 
-    /** 收集分组及其子分组的所有项 ID */
-    private fun collectAllItemIds(group: ConfigGroup): Set<String> {
-        val ids = mutableSetOf<String>()
-        group.items.forEach { ids.add(it.key.id) }
-        group.subGroups.forEach { ids.addAll(collectAllItemIds(it)) }
-        return ids
+    private fun collectItems(group: ConfigGroup): List<ConfigItem> = buildList {
+        fun visit(current: ConfigGroup) {
+            addAll(current.items)
+            current.subGroups.forEach(::visit)
+        }
+        visit(group)
     }
 
     /** 创建当前玩家会话优先、全局值回退的配置快照。 */
-    private fun createSnapshot(playerId: UUID? = null): ConfigSnapshot {
+    private fun createSnapshot(playerId: UUID? = null, extraItems: List<ConfigItem> = emptyList()): ConfigSnapshot {
         val session = playerId?.let(playerSessions::get)
+        val candidates = LinkedHashMap(items)
+        extraItems.forEach { candidates.putIfAbsent(it.key.id, it) }
+        val values = candidates.mapValues { (_, item) ->
+            @Suppress("UNCHECKED_CAST")
+            val key = item.key as ConfigKey<Any?>
+            session?.getValue(key) ?: item.currentValue
+        }
         return object : ConfigSnapshot {
             @Suppress("UNCHECKED_CAST")
             override fun <T> get(keyId: String): T? {
-                val item = items[keyId] ?: return null
-                val key = item.key as ConfigKey<Any?>
-                return (session?.getValue(key) ?: item.currentValue) as? T
+                return values[keyId] as? T
             }
 
             override fun <T> getOrDefault(keyId: String, default: T): T {
@@ -345,7 +318,7 @@ class ConfigUIRegistry : ConfigUI {
             }
 
             override fun contains(keyId: String): Boolean {
-                return items.containsKey(keyId)
+                return values.containsKey(keyId)
             }
         }
     }

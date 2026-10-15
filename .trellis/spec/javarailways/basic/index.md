@@ -12,6 +12,7 @@
 | 文档 | 何时加载 | 唯一归属 |
 | --- | --- | --- |
 | [API 边界](./api-boundaries.md) | 改`basic.api.*`、Dokka、Core/Bukkit imports | 候选API与consumer边界 |
+| [配置UI](./config-ui.md) | 嵌套可见性、构建事件、session及BuiltGroup快照 | Basic有效条目/捕获值，Bukkit仅消费 |
 | [world runtime](./world-runtime.md) | 构造/查找`BasicWorldData`或world stores | world-local composition与RailObject lifecycle |
 | [threading 与 publication](./threading-and-publication.md) | main↔physics command、observation publication、Dispatcher顺序 | cross-thread handoff与Basic safety interlock |
 | [监测区占用](./railway-area-occupancy.md) | 区间占用、边界ENTER/LEFT、响应式信号输入 | Basic通用物理派生，不包含信号制式策略 |

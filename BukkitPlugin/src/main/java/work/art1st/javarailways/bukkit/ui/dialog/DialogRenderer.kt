@@ -127,7 +127,7 @@ class DialogRenderer(
         val group = builtGroup.group
 
         // 构建 DialogInput 列表
-        val inputs = buildInputs(builtGroup, session, textResolver)
+        val inputs = buildInputs(builtGroup, textResolver)
 
         // 构建 body（描述文本）
         val bodies = mutableListOf<DialogBody>()
@@ -194,16 +194,14 @@ class DialogRenderer(
         additionalBody: List<Component>,
         onConfirmed: ((Player) -> Unit)?
     ): List<ActionButton> {
-        val allItems = builtGroup.effectiveItems +
-            builtGroup.effectiveSubGroups.flatMap { it.items }
-        return allItems.flatMap { item ->
+        return builtGroup.effectiveItems.flatMap { item ->
             val key = item.key
             if (key.id !in builtGroup.triggerKeyIds || key.valueType != ConfigValueType.ENUM) {
                 return@flatMap emptyList()
             }
             val constraints = key.constraints as? ConfigConstraints.EnumOptions<*>
                 ?: return@flatMap emptyList()
-            val current = session.getValue(key as ConfigKey<Any?>) ?: key.defaultValue
+            val current = builtGroup.snapshot.get<Any?>(key.id) ?: key.defaultValue
             constraints.options.map { option ->
                 val selected = option == current
                 val label = buildString {
@@ -288,10 +286,8 @@ class DialogRenderer(
         textResolver: (String) -> String,
         ignoredKeyIds: Set<String> = emptySet()
     ): Boolean {
-        val allItems = builtGroup.effectiveItems +
-            builtGroup.effectiveSubGroups.flatMap { it.items }
         var needsRebuild = false
-        allItems.filterNot { it.key.id in ignoredKeyIds }.forEach { item ->
+        builtGroup.effectiveItems.filterNot { it.key.id in ignoredKeyIds }.forEach { item ->
             val key = item.key
             val inputKey = toInputKey(key.id)
             val oldValue = session.getValue(key as ConfigKey<Any?>)
@@ -347,15 +343,11 @@ class DialogRenderer(
      */
     private fun buildInputs(
         builtGroup: BuiltGroup,
-        session: PlayerConfigSession,
         textResolver: (String) -> String
     ): List<DialogInput> {
-        val allItems = builtGroup.effectiveItems +
-            builtGroup.effectiveSubGroups.flatMap { it.items }
-
-        return allItems
+        return builtGroup.effectiveItems
             .filterNot { it.key.id in builtGroup.triggerKeyIds && it.key.valueType == ConfigValueType.ENUM }
-            .mapNotNull { item -> toDialogInput(item, session, textResolver) }
+            .mapNotNull { item -> toDialogInput(item, builtGroup.snapshot, textResolver) }
     }
 
     /**
@@ -364,11 +356,11 @@ class DialogRenderer(
     @Suppress("UNCHECKED_CAST")
     private fun toDialogInput(
         item: ConfigItem,
-        session: PlayerConfigSession,
+        snapshot: ConfigSnapshot,
         textResolver: (String) -> String
     ): DialogInput? {
         val key = item.key
-        val current = session.getValue(key as ConfigKey<Any?>) ?: key.defaultValue
+        val current = snapshot.get<Any?>(key.id) ?: key.defaultValue
 
         val inputKey = toInputKey(key.id)
 

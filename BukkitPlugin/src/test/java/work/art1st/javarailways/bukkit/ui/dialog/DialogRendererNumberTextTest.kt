@@ -3,8 +3,65 @@ package work.art1st.javarailways.bukkit.ui.dialog
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Assertions.assertFalse
+import io.papermc.paper.dialog.DialogResponseView
+import io.papermc.paper.registry.data.dialog.input.DialogInput
+import io.papermc.paper.registry.data.dialog.input.TextDialogInput
+import work.art1st.javarailways.basic.api.ui.config.*
+import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
+import work.art1st.javarailways.bukkit.render.model.ModelRuntimeTestSupport
+import java.lang.reflect.Proxy
+import java.util.UUID
 
 class DialogRendererNumberTextTest {
+    @Test
+    fun `real renderer inputs use the authoritative filtered list once`() {
+        ModelRuntimeTestSupport.bootstrap()
+        val (renderer, built, session) = filteredFixture()
+        @Suppress("UNCHECKED_CAST")
+        session.setValue(built.effectiveItems.single().key as ConfigKey<Double>, 7.0)
+        val method = DialogRenderer::class.java.getDeclaredMethod("buildInputs", BuiltGroup::class.java,
+            Function1::class.java).also { it.isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val inputs = method.invoke(renderer, built, { text: String -> text }) as List<DialogInput>
+        assertEquals(listOf("visible"), inputs.map { it.key() })
+        assertEquals("1", (inputs.single() as TextDialogInput).initial()) // Built values, not later session edits.
+    }
+
+    @Test
+    fun `real renderer capture never validates raw hidden subgroup inputs or writes duplicates`() {
+        val (renderer, built, session) = filteredFixture()
+        val reads = arrayListOf<String>()
+        val view = Proxy.newProxyInstance(DialogResponseView::class.java.classLoader,
+            arrayOf(DialogResponseView::class.java)) { _, method, args ->
+            check(method.name == "getText")
+            val key = args!![0] as String
+            reads += key
+            if (key == "visible") "12.5" else "invalid hidden number"
+        } as DialogResponseView
+        val method = DialogRenderer::class.java.getDeclaredMethod("captureInputs", DialogResponseView::class.java,
+            BuiltGroup::class.java, PlayerConfigSession::class.java, Function1::class.java,
+            Set::class.java).also { it.isAccessible = true }
+        assertFalse(method.invoke(renderer, view, built, session, { text: String -> text }, emptySet<String>()) as Boolean)
+        assertEquals(listOf("visible"), reads)
+        assertEquals(setOf("visible"), session.getDirtyKeyIds())
+        @Suppress("UNCHECKED_CAST")
+        assertEquals(12.5, session.getValue(built.effectiveItems.single().key as ConfigKey<Double>))
+    }
+
+    private fun filteredFixture(): Triple<DialogRenderer, BuiltGroup, PlayerConfigSession> {
+        val registry = ConfigUIRegistry()
+        val visible = ConfigItemImpl(ConfigKey("visible", "visible", defaultValue = 1.0, valueType = ConfigValueType.NUMBER_TEXT))
+        val hidden = ConfigItemImpl(ConfigKey("hidden", "hidden", defaultValue = 2.0, valueType = ConfigValueType.NUMBER_TEXT))
+        val sub = ConfigGroup("sub", "sub", items = mutableListOf(visible, hidden))
+        val root = ConfigGroup("root", "root", subGroups = mutableListOf(sub))
+        registry.register(root)
+        val player = UUID.randomUUID()
+        val snapshot = registry.buildGroupForPlayer("root", player).snapshot
+        val built = BuiltGroup(root, listOf(visible), listOf(sub), setOf("hidden"), snapshot)
+        return Triple(DialogRenderer(registry), built, registry.getPlayerSession(player))
+    }
+
     @Test
     fun `tiny finite values use a bounded round-trip representation`() {
         val values = listOf(1.0e-40, -1.0e-200, Double.MIN_VALUE)

@@ -8,14 +8,14 @@ import java.util.UUID
  * 每个玩家有独立的配置值副本。在 Dialog 中修改值时，先写入 session，
  * 玩家确认后通过 [commit] 将值同步到全局 [ConfigUI]。
  *
- * 支持多玩家同时打开同一分组 Dialog，互不干扰。
+ * 各玩家未提交的本地值相互隔离；commit 写共享全局值，不保证跨玩家事务隔离。
  */
 interface PlayerConfigSession {
     /** 玩家 UUID */
     val playerId: UUID
 
     /**
-     * 获取玩家会话中的配置值。未设置时返回 null。
+     * 获取玩家会话中的配置值；没有本地值时回退注册中心当前值，未注册时返回 null。
      */
     fun <T> getValue(key: ConfigKey<T>): T?
 

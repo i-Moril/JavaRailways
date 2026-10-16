@@ -329,3 +329,40 @@ Committed prior deployed shared-runtime fix separately; corrected generated-ID U
 ### Next Steps
 
 - 获准后同时部署两JAR；游戏验收F、中文文案与旧编辑接续失效；不归档Stage 2。
+
+
+## Session 11: Unified section wand and crossing enclosure
+<!-- trellis-session: v=2 fp=eaef8cc77b07fb19 -->
+
+**Date**: 2026-10-16
+**Task**: Unified section wand and crossing enclosure
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+统一区间工具按围合拓扑自动生成闭塞或保护区域，菱形交叉只参与冲突围合不增加通行方向；本批未部署。
+
+### Main Changes
+
+- pending边界沿用现有模型；最近切口一次行走保留普通闭塞端点/长区间能力，保护区域修复保留ID和设备。
+- F仅创建/删除，状态栏复用overlay；共享有向边界删除/警告按内向选择，不猜测。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `03bf4acd` | fix(signals): enclose all diamond crossing conflict legs |
+| `24a84a2a` | feat(signals): unify section wand with automatic interval classification |
+
+### Testing
+
+- [OK] 24项定向检查通过，9秒；编译及JAR/模块边界通过，未跑完整套件；首次缺失测试import已修。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 检查两笔提交；获准部署前核对旧交叉保护区域完整性，部署仅更新Signals并重发section工具；游戏验收后再收尾Stage 2。

@@ -5,11 +5,13 @@ It supplies the shared `javarailways:editor_markers` font used by the Bukkit edi
 
 - U+E100: direction arrow; its tip points along the supplied rail tangent.
 - U+E101: double transverse boundary bar.
-- U+E102: dashed longitudinal coverage marks.
+- U+E102: solid coverage rectangle, scaled into short continuous centreline bars following the curve.
 
 The white alpha masks are tinted by the label Component. They are displayed as fixed,
 unshadowed, transparent-background, full-bright TextDisplays in the rail plane, not particles.
 Readable captions continue to face the player and use the normal text font.
+Section tools show only transverse boundary marks and the thin centreline, without direction arrows
+or repeated captions inside the section. Direction arrows remain available to the rail direction tool.
 
 Install the `resourcepack/` directory (or ZIP its **contents**, with `pack.mcmeta` at the root)
 as a client resource pack. It can be enabled beside the train, rail and four-light signal packs.

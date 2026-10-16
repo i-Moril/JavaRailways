@@ -4,7 +4,7 @@
 
 统一轨道、车站、闭塞和保护区域工具的显示含义，不统一业务定义。
 已有 RailWand 使用锚点 ItemDisplay、轨道信息 TextDisplay 和粒子；道岔工具和通路预览使用玩家粒子。
-这些工具尚未全部迁移到统一显示实现。SimpleSignals的闭塞/保护区域工具及Signal Wand共用TextDisplay边界、入口方向、区间覆盖与说明文字；RailObjectWand的运行方向和到达方向复用同一自定义字体图案。实体由公开EditorTextService管理；独立通路预览、多通路警告、其他RailWand/车站标记不在此次几何迁移内。
+这些工具尚未全部迁移到统一显示实现。SimpleSignals的闭塞/保护区域工具及Signal Wand共用TextDisplay分界点、区间中心细线和仅分界处的说明文字，不画区间箭头；RailObjectWand专门表达运行方向和到达方向，继续使用同一字体的箭头图案。实体由公开EditorTextService管理；独立通路预览、多通路警告、其他RailWand/车站标记不在此次几何迁移内。
 
 ## 一次编辑如何显示
 
@@ -16,7 +16,7 @@
 
 - 点标记说明位置，可用于轨道锚点、运营停车点、闭塞分界点和保护区域边界。
 - 方向标记沿轨道切线指示方向；不能用 AB/BA 枚举文字代替玩家看到的实际方向。
-- 区间高亮说明覆盖范围，路径预览还显示行进方向；同色不表示属于同一业务对象。
+- 区间高亮用连续中心细线说明覆盖范围，不放箭头或内部重复文字；独立路径预览仍可显示行进方向。同色不表示属于同一业务对象。
 
 选中、警告和不可用须与业务状态区分。警告用显眼标识并说明原因，不能只染红让玩家误认停车信号。
 通路入口/出口颜色与警告可以并存；多通路警告位于有关出入口，不散布到内部道岔。
@@ -91,7 +91,7 @@ record EditorTextAppearance(ModelPose transform, double scaleX, double scaleY, M
 
 当前字形为8字体像素高、ascent 7、advance 9；26.1.2实际TextDisplay客户端矩阵使其中心落在局部(+0.5,+5)像素，需沿横向补偿`-width/16`、沿切线补偿`-5*length/8`。尺寸换算采用每字体像素0.025米，不能仅凭位图中心猜偏移。矩阵组合回归同时验证世界中心和宽/长边；客户端字体布局变化时须先核对目标renderer，不能调整业务边界或选轨容差来抵消显示偏差。
 
-字体`javarailways:editor_markers`的U+E100/E101/E102分别为方向箭头、双横边界和虚线覆盖，白色透明遮罩由Component染色。源码位于`BukkitPlugin/examples/editor-markers/resourcepack`，PNG由相邻Node脚本确定性生成，不覆写minecraft:default字体或现有物品/模型。`./gradlew :BukkitPlugin:editorMarkersResourcePack`生成独立26.1.2/84.0客户端ZIP；元数据是Minecraft资源格式而非世界schema，不修改服务器持久化。缺少客户端包不会自动退回粒子，也不能宣称该客户端能正确显示私有字形；安装/合并说明由示例README负责。
+字体`javarailways:editor_markers`的U+E100/E101/E102分别为方向箭头、双横边界和实心覆盖矩形，Component负责染色。实心矩形可拉伸为首尾相接的细线段；旧双侧虚线已移除，方向与边界字形不变。源码位于`BukkitPlugin/examples/editor-markers/resourcepack`，PNG由相邻Node脚本确定性生成，不覆写minecraft:default字体或现有物品/模型。`./gradlew :BukkitPlugin:editorMarkersResourcePack`生成独立26.1.2/84.0客户端ZIP；本次需客户端替换旧编辑资源包，不能只更新服务端。元数据是Minecraft资源格式而非世界schema，不修改服务器持久化。缺少客户端包不会自动退回粒子，也不能宣称该客户端能正确显示私有字形；安装/合并说明由示例README负责。
 
 RailObjectWand在worker准备运行方向和到达方向图案，按轨道实例、不可变曲线、方向及目的地参数缓存；玩家移动只筛选缓存，不导致重复采样。每玩家一个显示会话，切模式/离手/换世界或关闭时令旧会话失效，迟到计算不能向新会话提交；原WayPoint标记不迁移。准备及筛选随候选轨道/标记数量增长，不增加物理tick工作或轨道业务缓存。
 

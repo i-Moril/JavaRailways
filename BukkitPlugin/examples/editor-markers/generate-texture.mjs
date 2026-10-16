@@ -9,8 +9,8 @@ const glyphs = [
   (x, y) => (y <= 7 && Math.abs(x - 7.5) <= y + 0.5) || (y >= 7 && x >= 6 && x <= 9),
   // Boundary: double transverse bars, with a short connecting centre mark.
   (x, y) => (y >= 3 && y <= 5) || (y >= 10 && y <= 12) || (x >= 7 && x <= 8 && y >= 5 && y <= 10),
-  // Coverage: two dashed longitudinal rails. Full cell width keeps font metrics identical.
-  (x, y) => (x <= 1 || x >= 14) && y % 8 < 5,
+  // Coverage: solid rectangle, scaled to a thin short chord by the section overlay.
+  () => true,
 ];
 const width = size * glyphs.length;
 const scanlines = Buffer.alloc(size * (width * 4 + 1));

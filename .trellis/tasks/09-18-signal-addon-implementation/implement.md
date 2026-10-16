@@ -2,6 +2,14 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
+### 区间中心连续细线与分界去重（2026-10-16，离线完成，未部署）
+
+用户随后要求避免浪费资源的测试：删除本批逐段重算姿态/拼接的几何矩阵测试，把可见范围测试由1000米缩至150米并去掉固定分段数量断言。只保留直接行为与真实边界身份回归，不再重跑整模块套件；下述1002项属于精简前的历史执行结果，不代表精简后的套件数量。此次仅调整测试及验证规则，产品代码和已构建产物未变；精简后的测试未重新执行，画面仍待客户端验收。
+
+根据用户实际截图收敛显示：移除区间所有箭头/中段文字，COVERAGE改实心遮罩，通过曲线样本间短弦段连续描线；相邻闭塞分界聚合后只画一份。RuntimeSectionOverlayBackend只复用captured topology的真实端点身份，不建新图或按XYZ合并。只改SectionOverlayDrawing、最小backend接线、字形作者源/PNG及直接测试，RailObjectWand方向不变，具体方法归[区间叠加规范](../../spec/simple-signals/backend/section-authoring-wands.md#持工具的边界与区间编辑叠加current)。
+
+独立check无产品阻塞，只补强实际glyph字符的no-arrow断言和LoopAnchor端点分支；首轮42秒实际运行Bukkit410项和Signals592项全部通过，复核后最终34秒/42tasks（5执行/37up-to-date），Signals592项实际重跑、Bukkit结果复用，均0failure/error/skip。公开Java消费者及未变主JAR复用缓存，Signal JAR/模块门禁执行，资源ZIP强制重建哈希一致。源树与候选一致、unzip -t及diff --check通过；精确产物与日志归[验证记录](research/editor-marker-ui-validation-2026-10-16.md#区间显示简化后续截图反馈批次)。未部署，后续需配套更新Signals及客户端编辑ZIP，主JAR无需更换，Stage 2仍in_progress。
+
 ### 游戏建造显示三批修正（2026-10-16，已部署，待客户端验收）
 
 用户实测指出UUID干扰、区间几何仍为粒子、Signal Wand看不到区间。三批已完成：普通建造UUID清理；共享固定朝向TextDisplay字体图案及RailObjectWand方向迁移；区间几何迁移并接入Signal Wand持物显示。第二批按共享能力与工具消费者再拆成两笔提交，便于独立检查。三批复用同一显示服务和原有定义事务，不重构完整工具、不改授权或存档；研究定位见[交互问题记录](research/editor-marker-ui-live-issues-2026-10-16.md)。

@@ -1,9 +1,10 @@
 package work.art1st.javarailways.simplesignals.authoring
 
 import org.joml.Vector3d
-import org.joml.Quaterniond
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.bukkit.api.editor.EditorMarkerGlyph
+import work.art1st.javarailways.bukkit.api.editor.EditorTextAppearance
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
@@ -25,21 +26,24 @@ class SectionOverlayDrawingTest {
     private fun cut(id: String, ab: Double, direction: ViewDirection = ViewDirection.AB) =
         ProtectionBoundaryDefinition("test:$id", RailPositionSnapshot(rail, direction, ab))
 
-    @Test fun `entry glyphs face inward and one way exit has no entry arrow`() {
+    @Test fun `section overlays contain boundary markers and one continuous line without arrows or interior captions`() {
         fun drawing(facing: ViewDirection, both: Boolean) = SectionOverlayDrawing.prepare(
             definitions(block(facing = facing, both = both)), emptySet(), emptySet()) { curve(10.0) }
         val forward = drawing(ViewDirection.AB, false)
         val reverse = drawing(ViewDirection.BA, false)
-        fun along(value: SectionOverlayDrawing, end: String): Vector3d {
-            val pose = value.labels.single { it.id() == "block/test:block/$end/direction" }.appearance().transform()
-            return Quaterniond(pose.rotationX(), pose.rotationY(), pose.rotationZ(), pose.rotationW()).transform(Vector3d(0.0, 1.0, 0.0))
-        }
-        assertEquals(1.0, along(forward, "start").x, 1e-12)
-        assertEquals(-1.0, along(reverse, "start").x, 1e-12)
-        assertFalse(forward.labels.any { it.id() == "block/test:block/end/direction" })
         val both = drawing(ViewDirection.AB, true)
-        assertEquals(1.0, along(both, "start").x, 1e-12)
-        assertEquals(-1.0, along(both, "end").x, 1e-12)
+        fun spans(value: SectionOverlayDrawing) = value.labels.filter { it.id().contains("coverage") }
+        assertEquals(spans(forward), spans(reverse))
+        assertEquals(spans(forward), spans(both))
+        assertEquals(6, spans(forward).size)
+        listOf(forward, reverse, both).forEach { value ->
+            assertFalse(value.labels.any {
+                (it.text() as? net.kyori.adventure.text.TextComponent)?.content() == EditorMarkerGlyph.DIRECTION.text()
+            })
+            assertFalse(value.labels.any { it.id().contains("direction") })
+            assertTrue(value.labels.filter { it.appearance().mode() == EditorTextAppearance.Mode.READABLE_TEXT }
+                .all { it.x() == 2.0 || it.x() == 8.0 })
+        }
         assertEquals(setOf(2.0, 8.0), forward.labels.filter { it.id().endsWith("/boundary") }.map { it.x() }.toSet())
         assertTrue(forward.labels.filter { it.id().contains("coverage") }.all { it.x() in 2.0..8.0 })
         val short = SectionOverlayDrawing.prepare(definitions(block(lower = 2.0, upper = 2.2)),
@@ -81,7 +85,7 @@ class SectionOverlayDrawingTest {
             if (it == rail) curve(6.0) else null
         }
         assertEquals(setOf(rail, missingRail), drawing.unavailableGeometry)
-        assertEquals(3, drawing.labels.size) // Only the valid start has a meaningful pose: name, boundary, arrow.
+        assertEquals(2, drawing.labels.size) // Only the valid start has a meaningful pose: name and boundary.
         assertTrue(drawing.labels.single { it.id() == "block/test:broken/start" }.text().toString().contains("unavailable"))
         assertFalse(drawing.labels.any { it.id().contains("coverage") })
     }
@@ -96,19 +100,30 @@ class SectionOverlayDrawingTest {
         val drawing = SectionOverlayDrawing.prepare(defs, emptySet(), emptySet()) { curve(10.0) }
         assertTrue(drawing.labels.any { it.id().contains(generated) })
         assertTrue(drawing.labels.none { it.text().toString().contains("12345678") })
-        assertTrue(drawing.labels.any { it.text().toString().contains("Block start") })
+        assertTrue(drawing.labels.any { it.text().toString().contains("Block boundary") })
         assertTrue(drawing.labels.any { it.text().toString().contains("test:named-exit") })
         assertTrue(drawing.labels.any { it.text().toString().contains("pending") })
     }
 
-    @Test fun `long block uses sparse text geometry and body remains identifiable within64m`() {
-        val long = SectionOverlayDrawing.prepare(definitions(block(upper = 1000.0)), emptySet(), emptySet()) { curve(1000.0) }
-        val near = long.nearby(500.0, 0.0, 0.0)
+    @Test fun `long block filters continuous coverage nearby without repeated interior text`() {
+        val long = SectionOverlayDrawing.prepare(definitions(block(upper = 150.0)), emptySet(), emptySet()) { curve(150.0) }
+        val near = long.nearby(75.0, 0.0, 0.0)
         assertTrue(near.labels.isNotEmpty())
         assertTrue(near.labels.all { it.id().contains("coverage") })
-        assertTrue(near.labels.any { it.text().toString().contains("test:block") })
-        assertTrue(near.labels.all { (it.x() - 500.0) * (it.x() - 500.0) + it.y() * it.y() + it.z() * it.z() <= 4096.0 })
-        assertTrue(long.labels.size < 400)
+        assertTrue(near.labels.none { it.appearance().mode() == EditorTextAppearance.Mode.READABLE_TEXT })
+        assertTrue(near.labels.all { (it.x() - 75.0) * (it.x() - 75.0) + it.y() * it.y() + it.z() * it.z() <= 4096.0 })
+    }
+
+    @Test fun `adjacent blocks share one boundary caption and unavailable status wins`() {
+        val drawing = SectionOverlayDrawing.prepare(definitions(block("test:first", lower = 1.0, upper = 5.0),
+            block("test:second", lower = 5.0, upper = 9.0)), setOf("test:second"), emptySet()) { curve() }
+        val shared = drawing.labels.filter { it.x() == 5.0 }
+        assertEquals(2, shared.size)
+        assertEquals("Block boundary · unavailable", (shared.single {
+            it.appearance().mode() == EditorTextAppearance.Mode.READABLE_TEXT
+        }.text() as net.kyori.adventure.text.TextComponent).content())
+        assertEquals(net.kyori.adventure.text.format.NamedTextColor.RED,
+            shared.single { it.id().endsWith("/boundary") }.text().color())
     }
 
     companion object {

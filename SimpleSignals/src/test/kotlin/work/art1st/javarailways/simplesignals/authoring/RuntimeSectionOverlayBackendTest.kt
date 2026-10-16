@@ -7,11 +7,14 @@ import work.art1st.javarailways.bukkit.api.editor.EditorTextAppearance
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.region.lineTopologyState
+import work.art1st.javarailways.simplesignals.region.endpoint
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntime
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionPublicationStatus
 import java.util.Optional
@@ -19,6 +22,35 @@ import java.util.UUID
 import work.art1st.javarailways.simplesignals.authoring.RuntimeRoutePreviewBackendTest.Companion.proxy
 
 class RuntimeSectionOverlayBackendTest {
+    @Test fun `boundary identity joins real connected endpoints but not coincident unconnected rails`() {
+        val first = UUID(0, 2)
+        val second = UUID(0, 3)
+        val connected = lineTopologyState(1, first, second)
+        val end = RailPositionSnapshot(first, ViewDirection.AB, 10.0)
+        val start = RailPositionSnapshot(second, ViewDirection.BA, 0.0)
+        assertEquals(connected.overlayBoundaryIdentity(end), connected.overlayBoundaryIdentity(start))
+        val blocks = listOf(
+            FixedBlockDefinition("test:first", 0, listOf(FixedBlockTraversal(first, ViewDirection.AB, 5.0, 10.0))),
+            FixedBlockDefinition("test:second", 0, listOf(FixedBlockTraversal(second, ViewDirection.BA, 0.0, 5.0))))
+        val definitions = SimpleSignalsWorldDefinitions(UUID(0, 1), 0, emptyList(), emptyList(), blocks)
+        val joined = SectionOverlayDrawing.prepare(definitions, emptySet(), emptySet(),
+            boundaryIdentity = connected::overlayBoundaryIdentity) { SectionOverlayDrawingTest.curve() }
+        assertEquals(3, joined.labels.count { it.id().endsWith("/boundary") })
+        val separate = work.art1st.javarailways.simplesignals.region.topologyState(1,
+            listOf(first, second), emptyList())
+        assertNotEquals(separate.overlayBoundaryIdentity(end), separate.overlayBoundaryIdentity(start))
+        val unconnected = SectionOverlayDrawing.prepare(definitions, emptySet(), emptySet(),
+            boundaryIdentity = separate::overlayBoundaryIdentity) { SectionOverlayDrawingTest.curve() }
+        assertEquals(4, unconnected.labels.count { it.id().endsWith("/boundary") })
+        val loop = work.art1st.javarailways.simplesignals.region.topologyState(1,
+            listOf(first, second), listOf(
+                endpoint(first, RailEndpoint.A) to endpoint(second, RailEndpoint.B),
+                endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A)))
+        assertEquals(loop.overlayBoundaryIdentity(RailPositionSnapshot(first, ViewDirection.AB, 0.0)),
+            loop.overlayBoundaryIdentity(RailPositionSnapshot(second, ViewDirection.BA, 10.0)),
+            "the structural loop anchor is still one ordinary physical connection")
+    }
+
     @Test fun `runtime publication topology and guard identities expire capture without rebuilding topology`() {
         val world = UUID(0, 1)
         val rail = UUID(0, 2)

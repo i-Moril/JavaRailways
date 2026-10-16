@@ -82,7 +82,7 @@ class EditorMarkerLabelsTest {
     }
 
     @Test
-    fun `shipped font maps every API glyph to complete transparent tintable texture with equal metrics`() {
+    fun `shipped font maps API glyphs to tintable masks with solid coverage and equal metrics`() {
         val pack = Path.of("examples/editor-markers/resourcepack")
         val metadata = Json.parseToJsonElement(Files.readString(pack.resolve("pack.mcmeta"))).jsonObject.getValue("pack").jsonObject
         assertEquals("84", metadata.getValue("min_format").jsonArray[0].jsonPrimitive.content)
@@ -111,7 +111,9 @@ class EditorMarkerLabelsTest {
                     rightmost = maxOf(rightmost, x)
                 }
             }
-            assertTrue(transparent && opaque)
+            assertTrue(opaque)
+            assertEquals(glyph != EditorMarkerGlyph.COVERAGE.ordinal, transparent,
+                "coverage is a solid bar; the arrow and boundary retain their alpha masks")
             assertEquals(15, rightmost, "all glyphs must preserve the helper's nine-pixel advance")
         }
     }

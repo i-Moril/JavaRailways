@@ -91,8 +91,8 @@ bukkitPluginYaml {
     foliaSupported = true
     authors.add('__ART1st__')
     depend.add('JavaRailways')
-    libraries.add('org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.3.0')
-    libraries.add('org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.9.0')
+    // Host APIs expose Kotlin and serialization types. Resolve their runtime classes through
+    // JavaRailways; private Paper libraries would create incompatible classloader identities.
     libraries.add('org.graalvm.polyglot:polyglot:24.2.2')
     // Paper's plugin library loader requires concrete JAR coordinates; js-community is POM-only.
     libraries.add('org.graalvm.js:js-language:24.2.2')
@@ -132,7 +132,6 @@ def verifyPluginJar = tasks.register('verifyPluginJar') {
             'folia-supported: true',
             'simplesignals:',
             'simplesignals.admin:',
-            'org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.9.0',
             'org.graalvm.polyglot:polyglot:24.2.2',
             'org.graalvm.js:js-language:24.2.2',
             'org.graalvm.truffle:truffle-runtime:24.2.2'
@@ -141,18 +140,25 @@ def verifyPluginJar = tasks.register('verifyPluginJar') {
                 throw new GradleException("SimpleSignals plugin.yml is missing: ${requiredText}")
             }
         }
+        if (descriptor =~ /org\.jetbrains\.kotlin:|org\.jetbrains\.kotlinx:kotlinx-serialization-/) {
+            throw new GradleException(
+                'SimpleSignals plugin.yml must inherit Kotlin and serialization from JavaRailways, not declare private libraries'
+            )
+        }
         def forbiddenPrefixes = [
             'work/art1st/javarailways/core/',
             'work/art1st/javarailways/basic/',
             'work/art1st/javarailways/simpleato/',
             'work/art1st/javarailways/bukkit/',
+            'kotlin/',
+            'kotlinx/serialization/',
             'org/graalvm/'
         ]
         def shadowedHostClasses = relativeEntries.findAll { entry ->
             forbiddenPrefixes.any { prefix -> entry.startsWith(prefix) }
         }
         if (!shadowedHostClasses.isEmpty()) {
-            throw new GradleException("SimpleSignals JAR contains host classes: ${shadowedHostClasses.sort()}")
+            throw new GradleException("SimpleSignals JAR contains host or library classes: ${shadowedHostClasses.sort()}")
         }
     }
 }

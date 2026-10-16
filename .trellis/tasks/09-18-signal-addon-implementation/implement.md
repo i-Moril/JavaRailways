@@ -2,6 +2,18 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
+### 游戏验收发现共享运行库类加载冲突（2026-10-16，已部署重启，待原操作复验）
+
+用户06:51创建闭塞时触发`ViewDirection.entries`的`EnumEntries` loader constraint violation。宿主已内嵌Kotlin/serialization，SimpleSignals descriptor却另外声明私有Paper libraries；单classpath回归和插件空启动没有覆盖该跨插件调用。只修改SimpleSignals/build.gradle：移除两项私有library声明，保留compileOnly/test依赖与Graal，强化实际descriptor及JAR条目校验；不改枚举遍历、区间算法、Error捕获、版本或存档。共享运行库机制归[依赖与打包不变量](../../spec/simple-signals/backend/index.md#依赖与打包不变量)。
+
+独立check核实Paper先查private library再查plugin group，Graal闭包12个实际JAR无Kotlin/serialization类，收窄guard仅禁共享Kotlin/serialization坐标、不泛禁全部kotlinx。隔离候选首轮`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries`35秒通过，54套585项实际执行、0failure/error/skip；Java consumer复用编译缓存。仅/tmp分别恢复错误Kotlin和serialization声明，两次均在verifyPluginJar准确失败；恢复最终审查配置后门禁7秒通过（测试复用首轮成功结果）。最终Signals JAR SHA256 `b577b0a4b10e1593d2e11415beb190c10599397f996dc969af7e7fc1a28c0f44`；宿主JAR仍为`70dd91f9a35ad9173e7e4ddf76f8550a8a11ded34c51f89b80963fd6dbd3e894`，实际包含EnumEntries、KSerializer、JsonElement。未部署/重启，仍须正常重启后由玩家重新创建闭塞；旧远端JAR仍存在此阻塞，不得将本地门禁冒充游戏验收通过。
+
+上述“未部署”是本地修正批次结束时的状态。用户随后批准备份部署：06:59向在线玩家提示10秒后重启，经MCSManager正常停服并确认保存和进程退出，将两个完整配置目录及原两个JAR打包到外部唯一恢复目录；只替换Signals JAR，未改变主JAR、信号包或回退存档。07:00:13正常启动完成，Signals实际只加载Graal依赖，不再私有加载Kotlin/serialization；插件启用、bridge健康与WebUI HTTP200。恢复点和hash归[部署记录](research/dev-server-deployment-2026-10-16.md#共享运行库修正部署06590700-utc)。本批未操作创建区间，仍待玩家复验原报错步骤。
+
+### 配套部署与启动（2026-10-16，已启动，待玩家验收）
+
+迁移后已获用户授权部署新版主JAR、SimpleSignals及完整JR四灯包，并通过MCSManager正常启动。发现并纠正干净候选跳过前端构建导致WebUI资源缺失的问题；复用现有前端构建链，无产品代码或配置变更。前端78项、tsc/Vite、两级JAR及模块门禁通过；最终首页/JS/CSS均HTTP200、bridge健康、ATO RUNNING、SimpleSignals installed。纠正前另在外部完整归档两个配置目录，未回退迁移后存档。精确产物hash、恢复点、目标资源版本及未验证项归[部署记录](research/dev-server-deployment-2026-10-16.md)。未创建信号/闭塞/列车或应用时刻表；Stage 2保持in_progress，下一步为真实玩家正式验收。下方“未启动”是上一迁移批次结束时的历史状态。
+
 ### 开发服整目录备份与离线迁移（2026-10-16，已应用，未启动）
 
 用户明确批准正常停服、整目录外部归档后迁移，不在配置同目录生成逐文件备份。本批新增不进入JAR的离线source set/CLI及3项回归；

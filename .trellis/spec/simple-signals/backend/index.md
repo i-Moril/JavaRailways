@@ -450,10 +450,11 @@ JS 明确设置速度和不透明模型名，物理／下游变化只触发受�
 ## 依赖与打包不变量
 
 - 对 `Core`、`Basic`、`SimpleATO`、`BukkitPlugin` 和 Paper 使用 `compileOnly`；运行时由
-  `JavaRailways` 与服务器提供。kotlinx serialization同样不打入JAR，由plugin descriptor声明Paper library。
+  `JavaRailways` 与服务器提供。Kotlin stdlib与kotlinx serialization同样使用`compileOnly`，运行时复用JavaRailways主JAR中的同一份类，不打入附属JAR，也不在附属descriptor中声明独立Paper library。
 - 只允许导入 `core.api.*`、`basic.api.*`、`simpleato.api.*` 与 `bukkit.api.*`；不得导入
   `*.internal` 或平台无关模块的实现包。
-- Kotlin stdlib 由 Paper descriptor 的 library declaration 提供；仍不得打入插件 JAR。
+- `depend: [JavaRailways]`除了确保启用顺序，也让附属插件能够解析宿主公开API及其共享运行库。跨插件类型身份是“类名＋定义它的classloader”，版本相同不代表类型相同。例如`ViewDirection.entries`返回`kotlin.enums.EnumEntries`；附属插件若声明私有Kotlin library，会先得到另一份同名类型，从而在调用宿主API时抛`LinkageError`。`KSerializer`、`JsonElement`等serialization类型同理。不能靠把`.entries`换成其他枚举遍历方法掩盖重复加载。
+- Graal规则引擎仍由附属插件声明其自身的concrete libraries；这不改变共享API的Kotlin/serialization归属，也不允许导入宿主私有脚本实现。修正共享运行库来源只需更新插件并正常重启，不涉及持久化格式或schema升版。
 - Paper descriptor 的 `libraries` 只能列出实际存在的 JAR artifact。Graal 的
   `org.graalvm.polyglot:js-community` 是 POM-only 聚合项，Gradle 可用它解析传递依赖，但 Paper 会把声明项本身按 JAR
   下载而失败；部署描述必须改列 concrete `polyglot`、`js-language` 与 `truffle-runtime`，再由 Maven 解析各自传递依赖。
@@ -483,7 +484,7 @@ git diff --check
 ```
 
 `verifyPluginJar` 必须证明 artifact 含 `plugin.yml`，且不含 Core、Basic、SimpleATO 或 BukkitPlugin
-宿主 package。服务发现测试必须覆盖完整 capability 集合和缺少必需 capability 时的 fail-fast。
+宿主 package；也必须拒绝附属descriptor里的Kotlin/serialization library声明以及附属JAR中的`kotlin/`、`kotlinx/serialization/`类，避免从另一入口重新引入重复运行库。宿主实际JAR须包含共享类型；干净类加载下还需在真实Paper/Folia操作一次跨插件API，例如创建固定闭塞。单classpath单元测试无法证明插件classloader身份一致。服务发现测试必须覆盖完整 capability 集合和缺少必需 capability 时的 fail-fast。
 根级 `verifySignalModuleBoundaries` 只补充直接声明和产物回归：SimpleSignals的宿主项目依赖若存在，不能
 声明在`api`／`implementation`／`compileOnlyApi`／`runtimeOnly`；SimpleSignals也不能以`compileOnly`
 依赖或在字节码中引用SimpleATOBukkit；adapter不得包含

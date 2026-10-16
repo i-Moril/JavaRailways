@@ -478,3 +478,45 @@ pending、区域修复草稿与工具输入使用真正无向模型，严格curr
 ### Next Steps
 
 - 玩家进游戏用区间工具左键原交叉渡线内部确认已有4个无向切口；继续现场验收。Stage 2保留in_progress。恢复须旧JAR和旧方向数据同恢复点配套，不能仅降级JAR。
+
+
+## Session 15: Section route overlays, unbound devices and confirmed deletion
+<!-- trellis-session: v=2 fp=da262f7d012eb0cc -->
+
+**Date**: 2026-10-16
+**Task**: Section route overlays, unbound devices and confirmed deletion
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+完成已批准三笔区间交互实现；本地定向门禁和独立复核通过，未部署，Stage2保持in_progress。
+
+### Main Changes
+
+- Overlay按入口出口仍放置的已保存进路合并中心线，不改变草稿禁行。
+- 固定闭塞主信号和表示器支持显式null绑定与原设置页手动重绑，保留模型/身份/附属，不读旧开发格式或升版。
+- 区间Wand严格物品状态、Shift右键保留设备设置、F保偏好、右键确认整体区域删除；复用唯一patch、编辑许可及原子publication。
+- 表示器尚无snapshot时使用当前定义的noRoute初始输出/模型，已有交接仅保留current IDs，不继承普通编辑前物理baseline。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4532774e` | fix(signals): retain only confirmed route centerlines in region drafts |
+| `11d6432f` | feat(signals): retain unbound section devices and support rebinding |
+| `81ffc387` | feat(signals): add whole-region deletion and device-retention settings |
+
+### Testing
+
+- [OK] 三笔最终定向门禁分别3/14/37项通过；第三笔37项及JAR隔离11秒，测试清理调整后仅重跑组合1项8秒通过，未跑全套。
+- [OK] verifyPluginJar与verifySignalModuleBoundaries实际执行通过；宿主/API消费者编译复用缓存；source checksum同步一致、diff检查及独立只读复核通过。
+- [OK] 实际manager/store/Basic许可及模型场景有断言；平台handler调度使用替身，不称真实Folia/客户端验证。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 交用户统一检查三笔提交；另获部署授权后备份并部署，新区间Wand需重新领取，再做游戏内验收。

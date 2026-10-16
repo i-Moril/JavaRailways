@@ -102,8 +102,14 @@ class ProtectionRouteDiscoveryTest {
         val other = UUID(0, 100)
         val root = topologyState(1, listOf(a, other), emptyList(), listOf(AtGradeRailCrossing(RailCrossingPoint(a, 5.0), RailCrossingPoint(other, 5.0))))
         val definition = ProtectionRegionDefinition("test:line", 0,
-            listOf(cut("entry", a, ViewDirection.AB, 2.0), cut("exit", a, ViewDirection.BA, 8.0)))
-        assertTrue(find(root, mapOf(a to null), definition).routes.all { it.traversals.single().railId == a })
+            listOf(cut("entry", a, ViewDirection.AB, 2.0), cut("exit", a, ViewDirection.BA, 8.0),
+                cut("other-entry", other, ViewDirection.AB, 2.0), cut("other-exit", other, ViewDirection.BA, 8.0)))
+        val routes = find(root, mapOf(a to null, other to null), definition).routes
+        assertEquals(setOf("test:entry" to "test:exit", "test:exit" to "test:entry",
+            "test:other-entry" to "test:other-exit", "test:other-exit" to "test:other-entry"),
+            routes.map { it.entryBoundaryId to it.exitBoundaryId }.toSet())
+        assertEquals(4, routes.size)
+        assertEquals(mapOf(a to 2, other to 2), routes.groupingBy { it.traversals.single().railId }.eachCount())
     }
 
     @Test fun `extra cyclic walk containing all shortest edges is not another simple route`() {

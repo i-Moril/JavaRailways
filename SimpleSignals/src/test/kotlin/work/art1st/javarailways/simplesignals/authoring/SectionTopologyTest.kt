@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
+import work.art1st.javarailways.core.api.physics.rail.topology.RailCrossingPoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
@@ -67,6 +69,11 @@ class SectionTopologyTest {
         assertEquals(6.0, complete.farthestDistanceMeters)
         assertFalse(ProtectionBoundarySearch.search(topology, first,
             listOf(first, last.copy(position = last.position.copy(facing = ViewDirection.AB))), 100.0).complete)
+        val shared = last.copy(position = last.position.copy(facing = ViewDirection.AB))
+        val reused = ProtectionBoundarySearch.search(topology, first, listOf(first, shared), 100.0,
+            undirectedBoundaryIds = setOf(shared.boundaryId))
+        assertTrue(reused.complete)
+        assertEquals(ViewDirection.BA, reused.boundaries.single { it.boundaryId == shared.boundaryId }.insideFacing)
     }
 
     @Test fun `branch distances share stem and are never summed`() {
@@ -107,6 +114,27 @@ class SectionTopologyTest {
         val first = cut(a, 1.0)
         assertTrue(ProtectionBoundarySearch.search(topology, first,
             listOf(first, cut(a, 9.0, ViewDirection.BA), cut(b, 5.0)), 100.0).complete)
+    }
+
+    @Test fun `crossing requires all conflict legs bounded without creating train continuations`() {
+        val topology = buildTestTopology(1, listOf(TestTopologyRail(a, 10.0), TestTopologyRail(b, 10.0)),
+            emptyMap(), atGradeCrossings = listOf(AtGradeRailCrossing(
+                RailCrossingPoint(a, 5.0), RailCrossingPoint(b, 5.0))))
+        val first = cut(a, 2.0)
+        val ownCuts = listOf(first, cut(a, 8.0, ViewDirection.BA))
+        assertFalse(ProtectionBoundarySearch.search(topology, first, ownCuts, 20.0).complete)
+        val closed = ProtectionBoundarySearch.search(topology, first,
+            ownCuts + listOf(cut(b, 2.0), cut(b, 8.0, ViewDirection.BA)), 6.0)
+        assertTrue(closed.complete, closed.detail)
+        assertEquals(setOf(a, b), closed.interior.map { it.railId }.toSet())
+        assertEquals(6.0, closed.farthestDistanceMeters)
+        assertFalse(ProtectionBoundarySearch.search(topology, first,
+            ownCuts + listOf(cut(b, 2.0), cut(b, 8.0, ViewDirection.BA)), 5.9).complete)
+        val beforeCrossing = listOf(first, cut(a, 4.0, ViewDirection.BA))
+        assertTrue(ProtectionBoundarySearch.search(topology, first, beforeCrossing, 20.0).complete)
+        assertThrows(IllegalArgumentException::class.java) {
+            BlockPathBuilder.path(topology, point(a, 2.0), point(b, 8.0))
+        }
     }
 
     @Test fun `loop with two physical paths is rejected rather than guessing a block path`() {

@@ -3,10 +3,13 @@ package work.art1st.javarailways.simplesignals.region
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
+import work.art1st.javarailways.core.api.physics.rail.topology.RailCrossingPoint
 import java.util.UUID
 
 class ProtectionRegionGraphResolverTest {
@@ -14,6 +17,33 @@ class ProtectionRegionGraphResolverTest {
     private val railB = UUID.randomUUID()
     private val railC = UUID.randomUUID()
     private val topology = ProtectionRegionTopology.derive(lineTopologyState(7L, railA, railB, railC))
+
+    @Test
+    fun `crossing rails share one protected interior but not physical connections`() {
+        val first = UUID(0, 1)
+        val second = UUID(0, 2)
+        val crossingTopology = ProtectionRegionTopology.derive(topologyState(7L,
+            listOf(first, second), emptyList(), listOf(AtGradeRailCrossing(
+                RailCrossingPoint(first, 5.0), RailCrossingPoint(second, 5.0)))))
+        val definition = region("test:region/crossing",
+            boundary("test:boundary/a", first, 2.0, ViewDirection.AB),
+            boundary("test:boundary/b", first, 8.0, ViewDirection.BA),
+            boundary("test:boundary/c", second, 2.0, ViewDirection.AB),
+            boundary("test:boundary/d", second, 8.0, ViewDirection.BA))
+        val result = assertInstanceOf(ProtectionRegionGraphResolution.Resolved::class.java,
+            ProtectionRegionGraphResolver.resolve(definition, crossingTopology)).region
+        assertEquals(setOf(first, second), result.interior.map { it.railId }.toSet())
+        assertTrue(crossingTopology.rails.getValue(first).connectionsFromA.isEmpty())
+        assertTrue(crossingTopology.rails.getValue(first).connectionsFromB.isEmpty())
+
+        // The crossing is outside the bounded first-rail interval, so it cannot connect interiors.
+        val outside = ProtectionRegionDefinition(definition.regionId, definition.revision,
+            listOf(definition.boundaries[0], boundary("test:boundary/b", first, 4.0, ViewDirection.BA)) +
+                definition.boundaries.drop(2))
+        assertEquals(ProtectionRegionValidationCode.DISCONNECTED_INTERIOR,
+            assertInstanceOf(ProtectionRegionGraphResolution.Rejected::class.java,
+                ProtectionRegionGraphResolver.resolve(outside, crossingTopology)).diagnostic.code)
+    }
 
     @Test
     fun `multi-rail boundaries derive one connected interior`() {

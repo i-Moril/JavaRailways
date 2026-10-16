@@ -145,6 +145,25 @@ internal object ProtectionRegionGraphResolver {
                     queue.add(connection.entrySegment(cuts))
                 }
             }
+            // Crossing conflicts belong to one enclosure even though trains cannot turn there.
+            // Keep these links local to the cut resolver, never in physical connections/routes.
+            val slice = segment.toSlice(cuts, topology)
+            topology.topologyState.atGradeCrossingsOn(segment.railId).forEach { crossing ->
+                val own = if (crossing.first.railId == segment.railId) crossing.first else crossing.second
+                if (own.arcLengthAbMeters < slice.startAbMeters || own.arcLengthAbMeters > slice.endAbMeters) {
+                    return@forEach
+                }
+                val other = if (own == crossing.first) crossing.second else crossing.first
+                val otherCuts = cuts[other.railId].orEmpty()
+                val cutIndex = otherCuts.binarySearch(other.arcLengthAbMeters)
+                if (cutIndex >= 0) {
+                    // A cut on the conflict point cannot split ownership of the crossing.
+                    queue.add(SegmentKey(other.railId, cutIndex))
+                    queue.add(SegmentKey(other.railId, cutIndex + 1))
+                } else {
+                    queue.add(SegmentKey(other.railId, -cutIndex - 1))
+                }
+            }
         }
         return visited
     }

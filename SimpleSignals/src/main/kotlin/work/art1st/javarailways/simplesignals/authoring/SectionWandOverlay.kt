@@ -24,8 +24,9 @@ internal class SectionWandOverlay(
     private val plugin: Plugin,
     private val backend: SectionOverlayBackend,
     private val texts: EditorTextService,
-    private val toolInHand: (Player) -> SectionWandTool? = {
-        SectionWandHandler.readTool(plugin, it.inventory.itemInMainHand)
+    private val toolInHand: (Player) -> Boolean = {
+        SectionWandHandler.readTool(plugin, it.inventory.itemInMainHand) != null ||
+            SignalWandHandler.readTool(plugin, it.inventory.itemInMainHand) != null
     },
     private val enabled: () -> Boolean = { plugin.isEnabled },
     private val worker: (() -> Unit) -> Unit = { action -> plugin.server.asyncScheduler.runNow(plugin) { action() } },
@@ -36,10 +37,9 @@ internal class SectionWandOverlay(
         val task = player.scheduler.runAtFixedRate(plugin, { action() }, retired, 1L, RoutePreviewDrawing.REFRESH_TICKS)
         if (task == null) retired()
         AutoCloseable { task?.cancel() }
-    },
-    private val render: (Player, RoutePreviewDrawing, Int) -> Unit = { player, drawing, offset -> drawing.draw(player, offset) }
+    }
 ) : Listener, AutoCloseable {
-    private class Session(val viewer: Player, val world: World, val worldId: UUID, val tool: SectionWandTool,
+    private class Session(val viewer: Player, val world: World, val worldId: UUID,
         val text: EditorTextHandle) {
         val active = AtomicBoolean(true)
         val busy = AtomicBoolean(false)
@@ -47,7 +47,6 @@ internal class SectionWandOverlay(
         @Volatile var capture: SectionOverlayCapture? = null
         @Volatile var drawing: SectionOverlayDrawing? = null
         var revision = 0L
-        var offset = 0
         var failure: String? = null
         fun close() { active.set(false); try { refresh?.close() } finally { text.close() } }
     }
@@ -65,14 +64,14 @@ internal class SectionWandOverlay(
     private fun refresh(player: Player) {
         val id = player.uniqueId
         val tool = if (!closed.get() && enabled() && player.isOnline && player.hasPermission(SectionWandHandler.PERMISSION))
-            toolInHand(player) else null
-        if (tool == null) { invalidate(player); return }
+            toolInHand(player) else false
+        if (!tool) { invalidate(player); return }
         val world = player.world
         var session = sessions[id]
-        if (session == null || session.viewer !== player || session.world !== world || session.tool != tool) {
+        if (session == null || session.viewer !== player || session.world !== world) {
             invalidate(id)
             val text = texts.create(plugin, player, "section-overlay")
-            val next = Session(player, world, world.uid, tool, text)
+            val next = Session(player, world, world.uid, text)
             sessions[id] = next
             session = next
             try {
@@ -95,13 +94,13 @@ internal class SectionWandOverlay(
                         owner(player, {
                             if (sessions[id] === current && current.active.get() && !closed.get()) {
                                 if (player.isOnline && player.world === world && player.hasPermission(SectionWandHandler.PERMISSION) &&
-                                    toolInHand(player) == tool && enabled()) {
+                                    toolInHand(player) && enabled()) {
                                     val stillCurrent = valid && (capture == null || runCatching { backend.current(capture) }.getOrDefault(false))
                                     current.capture = capture.takeIf { stillCurrent }
                                     current.drawing = drawing.takeIf { stillCurrent }
                                     current.failure = null
                                     val position = player.location
-                                    display(player, current, position.x, position.y, position.z)
+                                    display(current, position.x, position.y, position.z)
                                 } else invalidate(id, current)
                             }
                             current.busy.set(false)
@@ -111,11 +110,11 @@ internal class SectionWandOverlay(
                         owner(player, {
                             if (sessions[id] === current && current.active.get() && !closed.get() &&
                                 player.isOnline && player.world === world && enabled() &&
-                                player.hasPermission(SectionWandHandler.PERMISSION) && toolInHand(player) == tool) {
+                                player.hasPermission(SectionWandHandler.PERMISSION) && toolInHand(player)) {
                                 current.capture = null; current.drawing = null
                                 current.failure = reason
                                 val position = player.location
-                                display(player, current, position.x, position.y, position.z)
+                                display(current, position.x, position.y, position.z)
                             } else invalidate(id, current)
                             current.busy.set(false)
                         }, { current.busy.set(false); invalidate(id, current) })
@@ -125,7 +124,7 @@ internal class SectionWandOverlay(
         }
     }
 
-    private fun display(player: Player, session: Session, x: Double, y: Double, z: Double) {
+    private fun display(session: Session, x: Double, y: Double, z: Double) {
         val prepared = session.drawing
         val near = prepared?.nearby(x, y, z)
         val labels = near?.labels.orEmpty().toMutableList()
@@ -133,10 +132,6 @@ internal class SectionWandOverlay(
             x, y + 2.0, z, Component.text(if (prepared == null) "SimpleSignals overlay unavailable${session.failure?.let { ": $it" }.orEmpty()}" else
                 "Unavailable rail geometry: ${prepared.unavailableGeometry.size}; invalid points omitted"))
         session.text.submit(++session.revision, labels)
-        // All overlay particles rotate, including boundary dots: unlike a two-ended route, there may be thousands.
-        val drawing = RoutePreviewDrawing(near?.points.orEmpty(), true)
-        render(player, drawing, session.offset)
-        session.offset = drawing.nextOffset(session.offset)
     }
 
     private fun invalidate(id: UUID) { sessions.remove(id)?.close() }

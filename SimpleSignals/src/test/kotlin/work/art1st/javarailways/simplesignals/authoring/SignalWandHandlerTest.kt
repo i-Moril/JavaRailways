@@ -53,6 +53,13 @@ import kotlin.math.sqrt
 
 /** Deterministic owner/worker/UI coverage; live Folia dialog rendering remains a deployment check. */
 class SignalWandHandlerTest {
+    @Test fun `giving signal wand and opening settings activate the shared section overlay`() = Fixture().use { f ->
+        f.command("wand", "signal")
+        assertEquals(1, f.overlayChecks)
+        f.handler.openSettings(f.player, f.tool)
+        assertEquals(2, f.overlayChecks)
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
     fun `placement input edits rail offsets or absolute ground position only after confirmation`(ground: Boolean) = Fixture().use { f ->
@@ -342,6 +349,22 @@ class SignalWandHandlerTest {
         assertEquals(true, glint)
         assertTrue(lore.any { it.toString().contains("protection current-entry") })
         assertTrue(lore.last().toString().contains("test:entry"))
+
+        val generated = "simplesignals:12345678-1234-1234-1234-123456789abc"
+        val bindings = listOf(
+            SignalWandControlKind.FIXED_BLOCK to FixedBlockSignalWandBinding(f.worldId, generated, FixedBlockEntryDirection.FORWARD),
+            SignalWandControlKind.PROTECTION_CURRENT_ENTRY to ProtectionCurrentEntrySignalWandBinding(f.worldId, generated, ExistingProtectionSignal(generated, 0)),
+            SignalWandControlKind.PROTECTION_FIXED_ROUTE to ProtectionFixedRouteSignalWandBinding(f.worldId, generated, generated, ExistingProtectionSignal(generated, 0)),
+            SignalWandControlKind.ATTACHED_SIGNAL to AttachedSignalWandBinding(f.worldId, generated, 0, ExistingAttachedSignal(generated, 0)),
+            SignalWandControlKind.ROUTE_INDICATOR to RouteIndicatorSignalWandBinding(f.worldId, generated, generated, 0)
+        )
+        bindings.forEach { (kind, binding) ->
+            val state = f.tool.copy(controlKind = kind, binding = binding)
+            SignalWandHandler.decorate(meta, state)
+            assertFalse(lore.any { it.toString().contains("12345678") })
+            assertFalse(SignalWandHandler.statusText(state, f.available, f.modelIds).toString().contains("12345678"))
+            assertEquals(binding, state.binding)
+        }
     }
 
     @Test fun `command has no type argument rejects unavailable catalogs and chooses sorted default`() = Fixture().use { f ->
@@ -677,7 +700,7 @@ class SignalWandHandlerTest {
         f.click(Action.LEFT_CLICK_AIR)
         f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0)))
         f.drainOwners(); f.drainWorkers(); f.drainOwners()
-        assertEquals(listOf("new", "existing"), f.choices.map { it.label })
+        assertEquals(listOf("1. new", "2. existing"), f.choices.map { it.label })
         f.chooseChoice!!(f.choices.last()); f.drainOwners(); f.drainWorkers(); f.drainOwners()
         assertEquals(selected, f.tool.binding)
         assertEquals(1L, f.tool.stateRevision)
@@ -947,7 +970,9 @@ class SignalWandHandlerTest {
                 return SignalWandOutcome("deleted")
             }
         }
+        var overlayChecks = 0
         val handler = SignalWandHandler(plugin, backend, targets, enabled = { pluginEnabled },
+            checkOverlay = { check(ownerThread); overlayChecks++ },
             showAuthoringDialog = { _, _, options -> check(ownerThread); dialogOptions = options },
             showPlacementInput = { _, _, initial, submit -> check(ownerThread); placementInput = initial; submitPlacement = submit },
             worker = { workers += it }, entity = { _, action -> owners += action },

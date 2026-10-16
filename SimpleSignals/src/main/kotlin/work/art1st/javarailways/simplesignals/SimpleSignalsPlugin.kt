@@ -105,7 +105,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
         routePreviewWand = previews
         server.pluginManager.registerEvents(previews, this)
         val signals = SignalWandHandler(this, RuntimeSignalWandBackend(runtimes, services.infrastructure()),
-            services.railTargets())
+            services.railTargets(), checkOverlay = overlay::check)
         signalWand = signals
         server.pluginManager.registerEvents(signals, this)
         val measurements = MeasurementWandHandler(this, RailMeasurementBackend(services.infrastructure(), services.railTargets()),

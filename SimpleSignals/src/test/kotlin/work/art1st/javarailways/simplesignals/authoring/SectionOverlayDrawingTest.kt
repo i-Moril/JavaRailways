@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals.authoring
 
 import org.joml.Vector3d
+import org.joml.Quaterniond
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -24,21 +25,29 @@ class SectionOverlayDrawingTest {
     private fun cut(id: String, ab: Double, direction: ViewDirection = ViewDirection.AB) =
         ProtectionBoundaryDefinition("test:$id", RailPositionSnapshot(rail, direction, ab))
 
-    @Test fun `canonical tangent arrows reverse in space and bidirectional endpoints show both`() {
+    @Test fun `entry glyphs face inward and one way exit has no entry arrow`() {
         fun drawing(facing: ViewDirection, both: Boolean) = SectionOverlayDrawing.prepare(
             definitions(block(facing = facing, both = both)), emptySet(), emptySet()) { curve(10.0) }
         val forward = drawing(ViewDirection.AB, false)
         val reverse = drawing(ViewDirection.BA, false)
-        fun arrows(value: SectionOverlayDrawing, x: Double) = value.points.filter {
-            it.kind == PreviewParticleKind.DIRECTION && kotlin.math.abs(it.x - x) < 1.0
+        fun along(value: SectionOverlayDrawing, end: String): Vector3d {
+            val pose = value.labels.single { it.id() == "block/test:block/$end/direction" }.appearance().transform()
+            return Quaterniond(pose.rotationX(), pose.rotationY(), pose.rotationZ(), pose.rotationW()).transform(Vector3d(0.0, 1.0, 0.0))
         }
-        assertTrue(arrows(forward, 2.0).all { it.x <= 2.0 })
-        assertTrue(arrows(reverse, 2.0).all { it.x >= 2.0 })
+        assertEquals(1.0, along(forward, "start").x, 1e-12)
+        assertEquals(-1.0, along(reverse, "start").x, 1e-12)
+        assertFalse(forward.labels.any { it.id() == "block/test:block/end/direction" })
         val both = drawing(ViewDirection.AB, true)
-        assertTrue(arrows(both, 2.0).any { it.x < 2.0 })
-        assertTrue(arrows(both, 2.0).any { it.x > 2.0 })
-        assertEquals(setOf(2.0, 8.0), forward.points.filter { it.kind == PreviewParticleKind.OVERLAY_BOUNDARY }.map { it.x }.toSet())
-        assertTrue(forward.points.filter { it.kind == PreviewParticleKind.PATH }.all { it.x in 2.0..8.0 })
+        assertEquals(1.0, along(both, "start").x, 1e-12)
+        assertEquals(-1.0, along(both, "end").x, 1e-12)
+        assertEquals(setOf(2.0, 8.0), forward.labels.filter { it.id().endsWith("/boundary") }.map { it.x() }.toSet())
+        assertTrue(forward.labels.filter { it.id().contains("coverage") }.all { it.x() in 2.0..8.0 })
+        val short = SectionOverlayDrawing.prepare(definitions(block(lower = 2.0, upper = 2.2)),
+            emptySet(), emptySet()) { curve(10.0) }
+        val coverage = short.labels.single { it.id() == "block/test:block/0/coverage/0" }
+        assertEquals(2.1, coverage.x(), 1e-12)
+        assertTrue(coverage.appearance().scaleX() > 0.0)
+        assertTrue(coverage.appearance().scaleY() > 0.0)
     }
 
     @Test fun `draft replaces effective markers pending state is explicit and overlapping labels retain identity`() {
@@ -54,11 +63,13 @@ class SectionOverlayDrawingTest {
         assertFalse(drawing.labels.any { it.id().endsWith("test:old") || it.id().endsWith("test:exit") })
         assertTrue(drawing.labels.single { it.id() == "region/test:region/test:draft" }.text().toString().contains("draft"))
         assertTrue(drawing.labels.single { it.id() == "pending/test:pending" }.text().toString().contains("pending"))
-        val stacked = drawing.labels.filter { it.x() == 3.0 && !it.id().contains("coverage") }
+        val stacked = drawing.labels.filter { it.x() == 3.0 && it.appearance().mode() ==
+            work.art1st.javarailways.bukkit.api.editor.EditorTextAppearance.Mode.READABLE_TEXT }
         assertEquals(3, stacked.size)
         assertEquals(3, stacked.map { it.y() }.distinct().size)
         assertEquals(drawing.labels.size, drawing.labels.map { it.id() }.distinct().size)
-        assertTrue(drawing.points.any { it.kind == PreviewParticleKind.WARNING })
+        assertTrue(drawing.labels.any { it.id().contains("coverage") && it.text().color() ==
+            net.kyori.adventure.text.format.NamedTextColor.RED })
     }
 
     @Test fun `shortened and missing curves omit invalid objects and label valid neighbours unavailable`() {
@@ -70,29 +81,34 @@ class SectionOverlayDrawingTest {
             if (it == rail) curve(6.0) else null
         }
         assertEquals(setOf(rail, missingRail), drawing.unavailableGeometry)
-        assertEquals(1, drawing.labels.size) // Only the valid start has a meaningful pose.
-        assertTrue(drawing.labels.single().text().toString().contains("unavailable"))
-        assertFalse(drawing.points.any { it.kind == PreviewParticleKind.PATH })
+        assertEquals(3, drawing.labels.size) // Only the valid start has a meaningful pose: name, boundary, arrow.
+        assertTrue(drawing.labels.single { it.id() == "block/test:broken/start" }.text().toString().contains("unavailable"))
+        assertFalse(drawing.labels.any { it.id().contains("coverage") })
     }
 
-    @Test fun `long block body stays identifiable within64m and many nearby boundaries rotate under512`() {
+    @Test fun `generated identities stay internal while labels retain authored names and boundary states`() {
+        val generated = "simplesignals:12345678-1234-1234-1234-123456789abc"
+        val boundary = ProtectionBoundaryDefinition(generated, RailPositionSnapshot(rail, ViewDirection.AB, 2.0))
+        val region = ProtectionRegionDefinition(generated, 0,
+            listOf(boundary, cut("named-exit", 8.0, ViewDirection.BA)))
+        val defs = SimpleSignalsWorldDefinitions(world, 0, listOf(region), emptyList(), listOf(block(generated)),
+            pendingProtectionBoundaries = listOf(boundary))
+        val drawing = SectionOverlayDrawing.prepare(defs, emptySet(), emptySet()) { curve(10.0) }
+        assertTrue(drawing.labels.any { it.id().contains(generated) })
+        assertTrue(drawing.labels.none { it.text().toString().contains("12345678") })
+        assertTrue(drawing.labels.any { it.text().toString().contains("Block start") })
+        assertTrue(drawing.labels.any { it.text().toString().contains("test:named-exit") })
+        assertTrue(drawing.labels.any { it.text().toString().contains("pending") })
+    }
+
+    @Test fun `long block uses sparse text geometry and body remains identifiable within64m`() {
         val long = SectionOverlayDrawing.prepare(definitions(block(upper = 1000.0)), emptySet(), emptySet()) { curve(1000.0) }
         val near = long.nearby(500.0, 0.0, 0.0)
         assertTrue(near.labels.isNotEmpty())
-        assertTrue(near.labels.all { it.id().contains("coverage") && it.text().toString().contains("test:block") })
-        assertTrue(near.points.all { (it.x - 500.0) * (it.x - 500.0) + it.y * it.y + it.z * it.z <= 4096.0 })
-        val crowded = SectionOverlayDrawing.prepare(definitions(*(1..100).map { block("test:b$it") }.toTypedArray()),
-            emptySet(), emptySet()) { curve(10.0) }
-        val drawing = RoutePreviewDrawing(crowded.points, true)
-        val seen = hashSetOf<PreviewParticle>()
-        var offset = 0
-        repeat(crowded.points.size / 512 + 2) {
-            val batch = drawing.batch(offset)
-            assertTrue(batch.size <= 512)
-            seen += batch
-            offset = drawing.nextOffset(offset)
-        }
-        assertTrue(seen.containsAll(crowded.points))
+        assertTrue(near.labels.all { it.id().contains("coverage") })
+        assertTrue(near.labels.any { it.text().toString().contains("test:block") })
+        assertTrue(near.labels.all { (it.x() - 500.0) * (it.x() - 500.0) + it.y() * it.y() + it.z() * it.z() <= 4096.0 })
+        assertTrue(long.labels.size < 400)
     }
 
     companion object {

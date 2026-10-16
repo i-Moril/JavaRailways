@@ -20,7 +20,7 @@ internal class PlacementWandEditor(
     fun selectDevice() {
         val devices = backend.placedDevices(capture)
         require(devices.isNotEmpty()) { "This world has no placed signal device to edit" }
-        page("Select placed signal device", devices.map { device -> "${device.id} | ${device.kind}" to {
+        page("Select placed signal device", devices.mapIndexed { index, device -> "${sectionAuthoringName(device.id, "Signal ${index + 1}")} | ${device.kind}" to {
             require(backend.current(capture)) { "Signal selection expired; select again" }
             val placement = device.placement
             val pose = when (placement) {
@@ -64,7 +64,7 @@ internal class PlacementWandEditor(
             is ModelPlacement.RailAttached -> old.copy(adjustment = pose, followRailTilt = checkNotNull(submitted.followRailTilt))
             is ModelPlacement.Ground -> old.copy(pose = pose)
         }
-        page("Confirm ${device.id} | ${submitted.fields} | tilt: ${submitted.followRailTilt ?: "not applicable"}", listOf(
+        page("Confirm ${sectionAuthoringName(device.id, "signal")} | ${submitted.fields} | tilt: ${submitted.followRailTilt ?: "not applicable"}", listOf(
             "Save placement (keep model / binding)" to {
                 reply(backend.savePlacement(capture, device, replacement, active).message)
             }, "Cancel" to { reply("Placement editing cancelled") }))

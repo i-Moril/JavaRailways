@@ -169,7 +169,7 @@ internal class RuntimeSignalWandBackend(
                 "Numeric editing must retain ground placement"
             }
         }
-        if (device.placement == placement) return SignalWandOutcome("${device.id} already has this placement; no changes")
+        if (device.placement == placement) return SignalWandOutcome("${sectionAuthoringName(device.id, "Signal device")} already has this placement; no changes")
         val revision = nextRevision(device.revision)
         val definitions = captured.publication.definitions
         val patch = when (device.kind) {
@@ -192,7 +192,7 @@ internal class RuntimeSignalWandBackend(
         val result = manager.applyDefinitionPatch(captured.worldId, definitions.definitionRevision, patch,
             captured.runtime, captured.topology, { active() && current(captured) })
         return SignalWandOutcome(if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
-            "Updated placement of ${device.id}; model and logical binding unchanged"
+            "Updated placement of ${sectionAuthoringName(device.id, "signal device")}; model and logical binding unchanged"
         else SimpleSignalsAdminCommand.formatResult(result))
     }
 
@@ -219,13 +219,13 @@ internal class RuntimeSignalWandBackend(
         require(active()) { "Signal selection is no longer active" }
         require(target in rebindTargets(captured, device)) { "The selected protection target is not currently usable" }
         val definition = device.definition
-        if (definition.bindingId == target.bindingId) return SignalWandOutcome("Signal ${definition.signalId} already has this binding; no changes")
+        if (definition.bindingId == target.bindingId) return SignalWandOutcome("Signal ${sectionAuthoringName(definition.signalId, "device")} already has this binding; no changes")
         val updated = definition.copy(revision = nextRevision(definition.revision), bindingId = target.bindingId)
         val result = manager.applyDefinitionPatch(captured.worldId, captured.publication.definitions.definitionRevision,
             SimpleSignalsDefinitionPatch(upsertProtectionSignals = listOf(updated)), captured.runtime, captured.topology,
             { active() && current(captured) })
         return SignalWandOutcome(if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
-            "Rebound ${definition.signalId} to ${target.bindingId}; model placement unchanged"
+            "Rebound ${sectionAuthoringName(definition.signalId, "signal")} to ${sectionAuthoringName(target.bindingId, "selected entry / route")}; model placement unchanged"
         else SimpleSignalsAdminCommand.formatResult(result))
     }
 
@@ -275,7 +275,7 @@ internal class RuntimeSignalWandBackend(
         require((existing == null) == (placement != null)) { "Only a new indicator accepts placement in the mapping editor" }
         if (existing != null && existing.entryBoundaryId == entryBoundaryId &&
             existing.noRouteModelVariant == noRouteVariant && existing.modelVariantsByRouteId == mappings)
-            return SignalWandOutcome("Route indicator ${existing.indicatorId} already has this configuration; no changes")
+            return SignalWandOutcome("Route indicator ${sectionAuthoringName(existing.indicatorId, "device")} already has this configuration; no changes")
         val replacement = RouteIndicatorDefinition(existing?.indicatorId ?: uniqueSignalId(captured.publication),
             existing?.let { nextRevision(it.revision) } ?: 0L, entryBoundaryId, noRouteVariant, mappings,
             existing?.model ?: DeviceModelDefinition(checkNotNull(captured.modelId), checkNotNull(placement)))
@@ -283,7 +283,7 @@ internal class RuntimeSignalWandBackend(
             SimpleSignalsDefinitionPatch(upsertRouteIndicators = listOf(replacement)), captured.runtime, captured.topology,
             { active() && current(captured) })
         return SignalWandOutcome(if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
-            "${if (existing == null) "Created" else "Updated"} route indicator ${replacement.indicatorId}; " +
+            "${if (existing == null) "Created" else "Updated"} route indicator ${sectionAuthoringName(replacement.indicatorId, "device")}; " +
                 if (existing == null) "model placed" else "model placement unchanged"
         else SimpleSignalsAdminCommand.formatResult(result))
     }
@@ -308,7 +308,7 @@ internal class RuntimeSignalWandBackend(
                 }
                 listOf(SignalWandChoice(
                     FixedBlockSignalWandBinding(captured.worldId, resolved.blockId, resolved.entryDirection),
-                    "${resolved.blockId} ${resolved.entryDirection}"
+                    "${sectionAuthoringName(resolved.blockId, "Block")} ${resolved.entryDirection}"
                 ))
             }
             SignalWandControlKind.PROTECTION_CURRENT_ENTRY,
@@ -423,7 +423,7 @@ internal class RuntimeSignalWandBackend(
                     "signal device" to "with model ${requireNotNull(captured.modelId)}"
                 else -> "signal" to "as ${captured.signalType}"
             }
-            SignalWandOutcome("$verb $kind $replacementId $configuration; " +
+            SignalWandOutcome("$verb $kind ${sectionAuthoringName(replacementId, "device")} $configuration; " +
                 "definition revision ${result.definitions!!.definitionRevision}")
         } else {
             SignalWandOutcome(SimpleSignalsAdminCommand.formatResult(result))
@@ -481,7 +481,7 @@ internal class RuntimeSignalWandBackend(
             ::selectionCurrent
         )
         return if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED) {
-            SignalWandOutcome("Deleted signal device $signalId and ${if (attachedSignal == null) attachedIds.size else 0} attached device(s); " +
+            SignalWandOutcome("Deleted signal device ${sectionAuthoringName(signalId, "at selected entrance")} and ${if (attachedSignal == null) attachedIds.size else 0} attached device(s); " +
                 "definition revision ${result.definitions!!.definitionRevision}")
         } else {
             SignalWandOutcome(SimpleSignalsAdminCommand.formatResult(result))
@@ -509,7 +509,7 @@ internal class RuntimeSignalWandBackend(
         primaries.forEach { primary ->
             if (mode == SignalWandMode.PLACEMENT) choices += SignalWandChoice(
                 AttachedSignalWandBinding(captured.worldId, primary.signalId, primary.revision, NewAttachedSignal),
-                "New attached signal for ${primary.signalId}"
+                "New attached signal for ${sectionAuthoringName(primary.signalId, "primary signal")}"
             )
             definitions.attachedSignals.asSequence()
                 .filter { it.primarySignalId == primary.signalId }
@@ -517,7 +517,7 @@ internal class RuntimeSignalWandBackend(
                 .forEach { attached -> choices += SignalWandChoice(
                     AttachedSignalWandBinding(captured.worldId, primary.signalId, primary.revision,
                         ExistingAttachedSignal(attached.signalId, attached.revision)),
-                    "Existing ${attached.signalId} -> ${primary.signalId}"
+                    "Existing ${sectionAuthoringName(attached.signalId, "attached signal")} -> ${sectionAuthoringName(primary.signalId, "primary signal")}"
                 ) }
         }
         require(choices.isNotEmpty()) { "The selected primary signal has no attached signal to delete" }
@@ -540,11 +540,11 @@ internal class RuntimeSignalWandBackend(
         }
         val newChoice = if (mode == SignalWandMode.PLACEMENT) listOf(SignalWandChoice(
             RouteIndicatorSignalWandBinding(captured.worldId, entrance.boundary.boundaryId),
-            "New route indicator at ${entrance.boundary.boundaryId}")) else emptyList()
+            "New route indicator at ${sectionAuthoringName(entrance.boundary.boundaryId, "selected entrance")}")) else emptyList()
         return newChoice + indicators.map { indicator -> SignalWandChoice(
             RouteIndicatorSignalWandBinding(captured.worldId, indicator.entryBoundaryId,
                 indicator.indicatorId, indicator.revision),
-            "Existing route indicator ${indicator.indicatorId}"
+            "Existing route indicator ${sectionAuthoringName(indicator.indicatorId, "device")}"
         ) }
     }
 
@@ -619,13 +619,13 @@ internal class RuntimeSignalWandBackend(
             when (controlKind) {
                 SignalWandControlKind.PROTECTION_CURRENT_ENTRY -> choices += SignalWandChoice(
                     ProtectionCurrentEntrySignalWandBinding(captured.worldId, entryId, NewProtectionSignal),
-                    "New current-entry signal at $entryId")
+                    "New current-entry signal at ${sectionAuthoringName(entryId, "selected entrance")}")
                 SignalWandControlKind.PROTECTION_FIXED_ROUTE -> authoredRoutes
                     .filter { it.routeId in usableRouteIds }
                     .forEach { route -> choices += SignalWandChoice(
                         ProtectionFixedRouteSignalWandBinding(captured.worldId, entryId, route.routeId,
                             NewProtectionSignal),
-                        "New fixed-route signal: ${route.routeId} -> ${route.exitBoundaryId}") }
+                        "New fixed-route signal: ${sectionAuthoringName(route.routeId, "route")} -> ${sectionAuthoringName(route.exitBoundaryId, "exit")}") }
                 else -> Unit
             }
         }
@@ -646,10 +646,10 @@ internal class RuntimeSignalWandBackend(
                     }
             }
             val logical = if (controlKind == SignalWandControlKind.PROTECTION_FIXED_ROUTE) {
-                "route ${signal.bindingId}"
-            } else "entry ${signal.bindingId}"
+                "route ${signal.bindingId?.let { sectionAuthoringName(it, "selected route") } ?: "unbound"}"
+            } else "entry ${signal.bindingId?.let { sectionAuthoringName(it, "selected entrance") } ?: "unbound"}"
             choices += SignalWandChoice(binding,
-                "Existing ${signal.signalId} | $logical | ${if (available) "available" else "unavailable"}")
+                "Existing ${sectionAuthoringName(signal.signalId, "signal")} | $logical | ${if (available) "available" else "unavailable"}")
         }
         require(choices.isNotEmpty()) {
             if (mode == SignalWandMode.DELETION) "This protection entrance has no matching primary signal to delete"

@@ -2,9 +2,11 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
-### 游戏建造显示三批修正（2026-10-16，实施中）
+### 游戏建造显示三批修正（2026-10-16，离线完成，未部署）
 
-用户实测指出UUID干扰、区间几何仍为粒子、Signal Wand看不到区间。按三批处理：第一批普通建造UUID清理，第二批共享固定朝向TextDisplay字体图案及RailObjectWand方向迁移，第三批区间几何迁移并接入Signal Wand持物显示。三批复用同一显示服务和原有定义事务，不重构完整工具、不改授权或存档；研究定位见[交互问题记录](research/editor-marker-ui-live-issues-2026-10-16.md)。各批需独立复核，统一运行Bukkit/Signals受影响测试、Java消费者与两层打包/模块门禁，交付完整资源包；未进行远端部署或客户端验收。
+用户实测指出UUID干扰、区间几何仍为粒子、Signal Wand看不到区间。三批已完成：普通建造UUID清理；共享固定朝向TextDisplay字体图案及RailObjectWand方向迁移；区间几何迁移并接入Signal Wand持物显示。第二批按共享能力与工具消费者再拆成两笔提交，便于独立检查。三批复用同一显示服务和原有定义事务，不重构完整工具、不改授权或存档；研究定位见[交互问题记录](research/editor-marker-ui-live-issues-2026-10-16.md)。
+
+独立复核修正目标26.1.2客户端字形原点、剩余设备选择/绑定UUID及一项旧测试的文本假设。最终49秒、42tasks（15执行/27up-to-date），Bukkit97套410项、Signals54套589项，均0failure/error/skip；Java消费者重新编译、主JAR/Signals边界和独立资源ZIP通过。候选源码与工作区逐目录diff一致；ZIP重建哈希一致，主JAR内WebUI与此前完整产物哈希一致。精确方法、产物身份、测试边界和仍需游戏验证项归[验证记录](research/editor-marker-ui-validation-2026-10-16.md)。未进行远端部署或客户端验收；Stage 2与审查任务保持in_progress。
 
 ### 游戏验收发现共享运行库类加载冲突（2026-10-16，已部署重启，待原操作复验）
 

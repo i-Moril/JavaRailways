@@ -21,12 +21,14 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 ## Requirements
 
-### 游戏建造显示修正（2026-10-16，用户已批准，实施中）
+### 游戏建造显示修正（2026-10-16，离线完成，未部署）
 
 - 普通建造叠加、选轨信息与操作确认不显示闭塞/轨道的UUID，包括截短UUID；内部身份、存档和管理员诊断不变，真实作者命名仍可显示。
 - 闭塞/保护区域边界、入口方向及覆盖标记改为TextDisplay自定义字体图案，并提供完整客户端资源包；RailObjectWand的运行方向与到达方向显示复用同一能力。不以普通文字加旧粒子冒充几何迁移。
 - Signal Wand同样显示现有区间和有向入口，方便先绑定逻辑入口再摆放模型；复用已有区间叠加的准备缓存、玩家隔离和工具生命周期，不新增观察/授权系统。
 - 不改变区间划分、进路/授权、信号JS、存档和版本；本次未获新部署授权。离线测试、打包与真实客户端显示分别记录，具体机制归[编辑标记合同](../../spec/bukkit-plugin/backend/editor-markers.md)。
+
+三项均已实现并通过独立复核；最终Bukkit410项、Signals589项、公开API消费者、插件/资源包和模块门禁通过。方法、交付hash及真实客户端未验范围归[验证记录](research/editor-marker-ui-validation-2026-10-16.md)。用户批准分批提交、不包含新部署，Stage 2继续in_progress。
 
 ### 当前游戏验收就绪状态（2026-10-16）
 

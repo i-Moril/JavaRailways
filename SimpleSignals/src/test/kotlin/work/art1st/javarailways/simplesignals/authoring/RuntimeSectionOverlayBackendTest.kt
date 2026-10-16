@@ -2,6 +2,8 @@ package work.art1st.javarailways.simplesignals.authoring
 
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
+import net.kyori.adventure.text.format.NamedTextColor
+import work.art1st.javarailways.bukkit.api.editor.EditorTextAppearance
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -49,7 +51,13 @@ class RuntimeSectionOverlayBackendTest {
         val invalidated = backend.capture(world)!!
         val unavailable = backend.prepare(invalidated)
         assertTrue(unavailable.labels.isNotEmpty())
-        assertTrue(unavailable.labels.all { it.text().toString().contains("unavailable") })
+        val readable = unavailable.labels.filter { it.appearance().mode() == EditorTextAppearance.Mode.READABLE_TEXT }
+        val glyphs = unavailable.labels.filter { it.appearance().mode() == EditorTextAppearance.Mode.FIXED_GLYPH }
+        assertTrue(readable.isNotEmpty())
+        assertTrue(readable.all { it.text().toString().contains("unavailable") })
+        assertTrue(glyphs.isNotEmpty())
+        assertTrue(glyphs.all { it.text().color() == NamedTextColor.RED })
+        assertEquals(2, curveCalls)
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
             runtime.initializeDefinitions(root, SimpleSignalsWorldDefinitions(world, 2,
                 emptyList(), emptyList(), listOf(block))).status)

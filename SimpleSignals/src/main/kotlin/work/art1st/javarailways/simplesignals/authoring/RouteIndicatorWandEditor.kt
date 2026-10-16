@@ -15,12 +15,12 @@ internal class RouteIndicatorWandEditor(
     fun selectDevice() {
         val devices = backend.indicatorDevices(capture)
         require(devices.isNotEmpty()) { "This world has no route indicator to edit" }
-        page("Select route indicator", devices.map { device -> device.indicatorId to {
+        page("Select route indicator", devices.mapIndexed { index, device -> sectionAuthoringName(device.indicatorId, "Indicator ${index + 1}") to {
             require(backend.current(capture)) { "Signal selection expired; select again" }
             val binding = RouteIndicatorSignalWandBinding(capture.worldId, device.entryBoundaryId,
                 device.indicatorId, device.revision)
             val entries = (backend.indicatorEntries(capture) + device.entryBoundaryId).distinct().sorted()
-            page("Select indicator entry (keep model position)", entries.map { entry -> entry to {
+            page("Select indicator entry (keep model position)", entries.mapIndexed { entryIndex, entry -> sectionAuthoringName(entry, "Entrance ${entryIndex + 1}") to {
                 configure(binding, entry, null)
             } } + cancel)
         } } + cancel)
@@ -37,19 +37,19 @@ internal class RouteIndicatorWandEditor(
         options: RouteIndicatorWandOptions, noRoute: String, mappings: Map<String, String>) {
         require(backend.current(capture)) { "Signal selection expired; select again" }
         val missing = options.routeIds.count { it !in mappings }
-        val routes = options.routeIds.map { route ->
-            "$route: ${mappings[route] ?: "UNMAPPED (uses no-route appearance)"}" to {
+        val routes = options.routeIds.mapIndexed { index, route ->
+            "${sectionAuthoringName(route, "Route ${index + 1}")}: ${mappings[route] ?: "UNMAPPED (uses no-route appearance)"}" to {
                 val variants = options.variants.map { variant -> variant to {
                     mappingPage(binding, entry, placement, options, noRoute, mappings + (route to variant))
                 } }
-                page("Appearance for $route", listOf("Unmapped" to {
+                page("Appearance for ${sectionAuthoringName(route, "route ${index + 1}")}", listOf("Unmapped" to {
                     mappingPage(binding, entry, placement, options, noRoute, mappings - route)
                 }) + variants + cancel)
             }
         }
         page("Route mappings: $missing missing | no-route: $noRoute", routes + listOf(
             "Review and save ($missing unmapped)" to {
-                page("Confirm indicator at $entry?", listOf(
+                page("Confirm indicator at ${sectionAuthoringName(entry, "selected entrance")}?", listOf(
                     (if (placement == null) "Save mapping / entry (keep model position)" else "Create placed indicator") to {
                         reply(backend.saveIndicator(capture, binding, entry, noRoute, mappings, placement, active).message)
                     }, cancel))

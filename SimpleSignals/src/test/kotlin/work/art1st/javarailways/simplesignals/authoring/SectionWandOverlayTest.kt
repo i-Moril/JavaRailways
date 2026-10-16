@@ -21,6 +21,19 @@ import java.util.concurrent.CompletableFuture
 
 /** Actual overlay consumer, deterministic owner/worker queues; host service entity semantics have separate tests. */
 class SectionWandOverlayTest {
+    @Test fun `block to signal tool reuses prepared capture and one handle until leaving editor tools`() {
+        val f = Fixture(); f.start()
+        f.tool = null; f.signalTool = true
+        f.overlay.check(f.player); f.drainOwner(); f.drainWorker(); f.drainOwner()
+        assertEquals(1, f.handles.size)
+        assertEquals(1, f.prepares)
+        assertFalse(f.handles.single().closed)
+        f.signalTool = false
+        f.overlay.check(f.player); f.drainOwner()
+        assertTrue(f.handles.single().closed)
+        assertEquals(1, f.cancelled)
+    }
+
     @Test fun `held event starts overlay and stable refresh reuses geometry while filtering current owner position`() {
         val f = Fixture()
         f.overlay.onHeld(PlayerItemHeldEvent(f.player, 0, 1))
@@ -36,17 +49,15 @@ class SectionWandOverlayTest {
         f.token = f.capture()
         f.tick(); f.drainWorker(); f.drainOwner()
         assertEquals(2, f.prepares)
-        assertTrue(f.rendered.all { it <= 512 })
     }
 
-    @Test fun `two players receive separate handles and particles only through their own owner`() {
+    @Test fun `two players receive separate text handles through their own owner`() {
         val f = Fixture()
         val other = f.player(UUID(0, 9))
         f.overlay.check(f.player); f.overlay.check(other)
         f.drainOwner(); f.drainWorker(); f.drainOwner()
         assertEquals(2, f.handles.size)
         assertEquals(setOf(f.player, other), f.viewers.toSet())
-        assertEquals(setOf(f.player, other), f.renderViewers.toSet())
         f.overlay.onQuit(PlayerQuitEvent(f.player, Component.empty()))
         assertTrue(f.handles[0].closed)
         assertFalse(f.handles[1].closed)
@@ -64,9 +75,9 @@ class SectionWandOverlayTest {
             val f = Fixture(); f.start()
             stop(f)
             assertTrue(f.handles.single().closed)
-            val rendered = f.rendered.size
+            val revision = f.handles.single().revision
             f.tick(); f.drainWorker(); f.drainOwner()
-            assertEquals(rendered, f.rendered.size)
+            assertEquals(revision, f.handles.single().revision)
         }
         val f = Fixture(); f.start()
         val old = f.world
@@ -84,7 +95,7 @@ class SectionWandOverlayTest {
         f.overlay.close(); f.drainWorker(); f.drainOwner()
         assertTrue(f.handles.single().closed)
         assertEquals(0, f.prepares)
-        assertTrue(f.rendered.isEmpty())
+        assertEquals(-1L, f.handles.single().revision)
         val g = Fixture()
         g.overlay.check(g.player); g.drainOwner(); g.drainWorker()
         val oldTask = g.refreshes[g.refreshes.lastIndex]
@@ -93,10 +104,10 @@ class SectionWandOverlayTest {
         g.overlay.check(g.player); g.drainOwner(); g.drainWorker(); g.drainOwner()
         assertTrue(g.handles.first().closed)
         assertFalse(g.handles.last().closed)
-        val count = g.rendered.size
+        val revision = g.handles.last().revision
         oldTask()
         g.drainWorker(); g.drainOwner()
-        assertEquals(count, g.rendered.size)
+        assertEquals(revision, g.handles.last().revision)
         assertEquals(2, g.handles.size)
     }
 
@@ -147,7 +158,7 @@ class SectionWandOverlayTest {
         f.overlay.check(f.player); f.drainOwner(); f.drainWorker(); f.drainOwner()
         assertTrue(f.handles.single().closed)
         assertEquals(1, f.cancelled)
-        assertTrue(f.rendered.isEmpty())
+        assertEquals(-1L, f.handles.single().revision)
     }
 
     private class Handle : EditorTextHandle {
@@ -180,8 +191,7 @@ class SectionWandOverlayTest {
         val retired = arrayListOf<() -> Unit>()
         val handles = arrayListOf<Handle>()
         val viewers = arrayListOf<Player>()
-        val renderViewers = arrayListOf<Player>()
-        val rendered = arrayListOf<Int>()
+        var signalTool = false
         val offline = arrayListOf<Player>()
         val player = player(UUID(0, 2))
         private val plugin = proxy(Plugin::class.java) { name, _ -> error("Unexpected plugin access $name") }
@@ -213,8 +223,7 @@ class SectionWandOverlayTest {
             override fun current(capture: SectionOverlayCapture) = available && capture === token
             override fun prepare(capture: SectionOverlayCapture): SectionOverlayDrawing {
                 check(!ownerThread); prepares++
-                return SectionOverlayDrawing((0..1200).map { PreviewParticle(0.0, 0.0, 0.0, PreviewParticleKind.OVERLAY_BOUNDARY) },
-                    listOf(EditorTextLabel("near", 0.0, 1.0, 0.0, Component.text("near")),
+                return SectionOverlayDrawing(listOf(EditorTextLabel("near", 0.0, 1.0, 0.0, Component.text("near")),
                         EditorTextLabel("far", 100.0, 1.0, 0.0, Component.text("far"))), emptySet())
             }
         }
@@ -226,14 +235,12 @@ class SectionWandOverlayTest {
             override fun closeOwner(owner: Plugin) = CompletableFuture.completedFuture<Void>(null)
         }
         val overlay = SectionWandOverlay(plugin, backend, texts,
-            toolInHand = { check(ownerThread); tool }, enabled = { check(ownerThread); enabled },
+            toolInHand = { check(ownerThread); tool != null || signalTool }, enabled = { check(ownerThread); enabled },
             worker = { workers += it }, owner = { _, action, onRetired -> owners += action; ownerRetirements += onRetired },
             repeat = { _, action, onRetired ->
                 check(ownerThread); refreshes += action; retired += onRetired
                 if (retireOnAttach) onRetired()
                 AutoCloseable { cancelled++ }
-            }, render = { viewer, drawing, offset ->
-                check(ownerThread); renderViewers += viewer; rendered += drawing.batch(offset).size
             })
         fun drainOwner() { ownerThread = true; while (owners.isNotEmpty()) owners.removeFirst().invoke() }
         fun drainWorker() {

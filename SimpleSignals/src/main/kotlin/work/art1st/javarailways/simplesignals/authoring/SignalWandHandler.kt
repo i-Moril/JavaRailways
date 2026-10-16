@@ -93,7 +93,8 @@ internal class SignalWandHandler(
     private val findTarget: (Player) -> CompletionStage<Optional<RailTarget>> =
         { player -> targets.findLookedAtRail(player, 64.0, 0.75) },
     private val showAuthoringDialog: (Player, String, List<Pair<String, () -> Unit>>) -> Unit = WandDialogs::show,
-    private val showPlacementInput: (Player, String, PlacementWandInput, (PlacementWandInput?) -> Unit) -> Unit = WandDialogs::placement
+    private val showPlacementInput: (Player, String, PlacementWandInput, (PlacementWandInput?) -> Unit) -> Unit = WandDialogs::placement,
+    private val checkOverlay: (Player) -> Unit = {}
 ) : Listener, CommandExecutor {
     private val sessions = SignalWandSessions()
     private val statusTasks = ConcurrentHashMap<UUID, SignalWandStatusRegistration>()
@@ -124,6 +125,7 @@ internal class SignalWandHandler(
         sessions.invalidate(sender.uniqueId)
         try {
             giveTool(sender, state)
+            checkOverlay(sender)
             refreshStatus(sender)
             sender.sendMessage(Component.text(
                 "Signal Wand created. Shift-right-click for mode/type; left-click a binding target, then right-click air/rail or a block face to place."
@@ -153,6 +155,7 @@ internal class SignalWandHandler(
 
     internal fun openSettings(player: Player, openingState: SignalWandState) {
         if (!canUse(player) || toolInHand(player) != openingState) return
+        checkOverlay(player)
         choiceTokens.remove(player.uniqueId)
         val available = currentTypes()
         if (available == null) {
@@ -322,16 +325,16 @@ internal class SignalWandHandler(
             val capture = backend.capture(worldId, state.signalType, state.presentationModelId)
             val devices = backend.rebindDevices(capture)
             require(devices.isNotEmpty()) { "This world has no protection signal to rebind" }
-            page("Select protection signal", devices.map { device ->
-                "${device.definition.signalId} | ${device.definition.kind} | ${device.definition.bindingId ?: "unbound"}" to {
+            page("Select protection signal", devices.mapIndexed { index, device ->
+                "${index + 1}. ${sectionAuthoringName(device.definition.signalId, "Signal")} | ${device.definition.kind} | ${device.definition.bindingId?.let { sectionAuthoringName(it, "entry / route") } ?: "unbound"}" to {
                     require(backend.current(capture)) { "Signal selection expired; select again" }
                     val targets = backend.rebindTargets(capture, device)
                     require(targets.isNotEmpty()) { "No currently usable protection target is available" }
-                    page("Select new entry / route", targets.map { target ->
-                        "Entry ${target.entryBoundaryId} | ${target.bindingId}" to {
+                    page("Select new entry / route", targets.mapIndexed { targetIndex, target ->
+                        "${targetIndex + 1}. Entry ${sectionAuthoringName(target.entryBoundaryId, "entrance")} | ${sectionAuthoringName(target.bindingId, "route")}" to {
                             require(backend.current(capture)) { "Signal selection expired; select again" }
-                            page("Rebind ${device.definition.signalId}?", listOf(
-                                "Confirm: ${target.bindingId} (keep model position)" to {
+                            page("Rebind ${sectionAuthoringName(device.definition.signalId, "signal")}?", listOf(
+                                "Confirm: ${sectionAuthoringName(target.bindingId, "selected entry / route")} (keep model position)" to {
                                     reply(backend.rebind(capture, device, target, ::active).message)
                                 },
                                 "Cancel" to { reply("Signal rebinding cancelled") }
@@ -530,7 +533,9 @@ internal class SignalWandHandler(
             val token = Any()
             choiceTokens[playerId] = token
             session.busy.set(false)
-            showChoices(player, choices) { choice ->
+            showChoices(player, choices.mapIndexed { index, choice ->
+                choice.copy(label = "${index + 1}. ${choice.label}")
+            }) { choice ->
                 entity(player) choiceOwner@{
                     if (choiceTokens.remove(playerId, token).not() || !ownerCurrent() ||
                         !session.busy.compareAndSet(false, true)) return@choiceOwner
@@ -1037,21 +1042,21 @@ internal data class RouteIndicatorSignalWandBinding(
 }
 
 private fun SignalWandBinding.description(): String = when (this) {
-    is FixedBlockSignalWandBinding -> "$blockId $entryDirection"
-    is ProtectionCurrentEntrySignalWandBinding -> "$entryBoundaryId current-entry ${intent.description()}"
-    is ProtectionFixedRouteSignalWandBinding -> "$entryBoundaryId route $routeId ${intent.description()}"
-    is AttachedSignalWandBinding -> "$primarySignalId attached ${intent.description()}"
-    is RouteIndicatorSignalWandBinding -> "$entryBoundaryId indicator ${indicatorId ?: "new"}"
+    is FixedBlockSignalWandBinding -> "${sectionAuthoringName(blockId, "Block")} $entryDirection"
+    is ProtectionCurrentEntrySignalWandBinding -> "${sectionAuthoringName(entryBoundaryId, "Entrance")} current-entry ${intent.description()}"
+    is ProtectionFixedRouteSignalWandBinding -> "${sectionAuthoringName(entryBoundaryId, "Entrance")} route ${sectionAuthoringName(routeId, "selected route")} ${intent.description()}"
+    is AttachedSignalWandBinding -> "${sectionAuthoringName(primarySignalId, "Primary signal")} attached ${intent.description()}"
+    is RouteIndicatorSignalWandBinding -> "${sectionAuthoringName(entryBoundaryId, "Entrance")} indicator ${indicatorId?.let { sectionAuthoringName(it, "device") } ?: "new"}"
 }
 
 private fun ProtectionSignalIntent.description(): String = when (this) {
     NewProtectionSignal -> "new"
-    is ExistingProtectionSignal -> signalId
+    is ExistingProtectionSignal -> sectionAuthoringName(signalId, "existing signal")
 }
 
 private fun AttachedSignalIntent.description(): String = when (this) {
     NewAttachedSignal -> "new"
-    is ExistingAttachedSignal -> signalId
+    is ExistingAttachedSignal -> sectionAuthoringName(signalId, "existing signal")
 }
 
 @Serializable

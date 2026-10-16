@@ -4,7 +4,7 @@
 
 统一轨道、车站、闭塞和保护区域工具的显示含义，不统一业务定义。
 已有 RailWand 使用锚点 ItemDisplay、轨道信息 TextDisplay 和粒子；道岔工具和通路预览使用玩家粒子。
-这些工具尚未全部迁移到统一显示实现。保护区域多通路警告及SimpleSignals持工具的边界/方向/区间叠加已接入，文字由公开EditorTextService管理；全轨道/车站标记的统一显示仍待后续实现。
+这些工具尚未全部迁移到统一显示实现。SimpleSignals的闭塞/保护区域工具及Signal Wand共用TextDisplay边界、入口方向、区间覆盖与说明文字；RailObjectWand的运行方向和到达方向复用同一自定义字体图案。实体由公开EditorTextService管理；独立通路预览、多通路警告、其他RailWand/车站标记不在此次几何迁移内。
 
 ## 一次编辑如何显示
 
@@ -20,7 +20,7 @@
 
 选中、警告和不可用须与业务状态区分。警告用显眼标识并说明原因，不能只染红让玩家误认停车信号。
 通路入口/出口颜色与警告可以并存；多通路警告位于有关出入口，不散布到内部道岔。
-速度颜色不兼任选中、多通路或未连通。具体速度配色、资源包图案及完整 TextDisplay 风格尚未定稿。
+速度颜色不兼任选中、多通路或未连通。普通建造说明不显示轨道/闭塞自动UUID，包括截短UUID；真实作者名称可以保留，内部稳定身份、存档和管理员诊断不变。说明文字与几何标记是不同用途：说明面向玩家，几何符号必须沿轨道方向摆放，不能仅用面向玩家的箭头字符表达真实朝向。
 
 ## Ownership、线程与生命周期
 
@@ -43,7 +43,7 @@ Core/Basic 不保存符号、颜色或 Bukkit 实体；各业务模块保留自�
 
 状态：CURRENT，2026-10-15实现并通过独立复核；离线门禁与未验范围归Stage 2任务记录，实际Paper/Folia/客户端另验。
 
-目的仅是让附属插件显示玩家专用的临时文字并可靠清理。BukkitPlugin提供服务实现，当前SimpleSignals的边界/区间编辑叠加已作为首个消费者接入，不要求先实施领域模块拆分；以后可由SimpleSignalsBukkit承接。具体几何缓存和持物生命周期归[信号工具合同](../../simple-signals/backend/section-authoring-wands.md#持工具的边界与区间编辑叠加current)。首批不公开Wand内部模式、通用脚本交互系统或完整RailWand控制权，轨道高亮继续复用已有粒子准备，后续有真实需求时再提取公共接口。
+目的仅是让工具显示玩家专用的临时文字/图案并可靠清理。BukkitPlugin提供服务实现，SimpleSignals的边界/区间编辑叠加及宿主RailObjectWand方向显示复用本能力，不要求先实施领域模块拆分；以后信号适配可由SimpleSignalsBukkit承接。具体几何缓存和持物生命周期归[信号工具合同](../../simple-signals/backend/section-authoring-wands.md#持工具的边界与区间编辑叠加current)。不公开Wand内部模式、通用脚本交互系统或完整RailWand控制权，不接管区间、进路或运营方向的业务含义。
 
 已实现的公开类型位于`bukkit.api.editor`，服务由宿主统一注册到Bukkit ServicesManager：
 
@@ -56,12 +56,18 @@ interface EditorTextHandle extends AutoCloseable {
     void submit(long revision, List<EditorTextLabel> labels);
     void close();
 }
-record EditorTextLabel(String id, double x, double y, double z, Component text) {}
+record EditorTextLabel(String id, double x, double y, double z,
+                       Component text, EditorTextAppearance appearance) {}
+record EditorTextAppearance(ModelPose transform, double scaleX, double scaleY, Mode mode) {
+    enum Mode { READABLE_TEXT, FIXED_GLYPH }
+}
 ```
 
 `create`在viewer所属线程捕获当前世界实例，分配操作对象而不生成实体；身份为实际owner插件实例、viewer玩家实例、世界实例和非空objectId，拒绝同时活动的重复身份。不接收轨道/闭塞/信号ID，不对label的id赋予业务含义。坐标为该世界中的绝对米制位置；Component为不可变Adventure文字，调用方提交完整列表，服务复制后持有。标签id非空且本次列表内唯一，坐标有限；非法输入在替换待显示状态前拒绝。显示序号非负且在handle内递增，与schema/epoch无关；旧序号和关闭后提交不恢复显示。
 
-正常流程是玩家owner创建handle，调用方worker准备纯标签值，submit交给宿主后台调度，再在标签位置/实体owner上创建或更新非持久化TextDisplay，最后在玩家owner上仅向viewer显示。显示实体默认对其他玩家不可见，使用固定朝向玩家的文字样式；首批不加尚无需求的字体/动画/点击交互配置。完整空列表清除本handle的所有文字；后续列表按稳定label id与上次实际显示状态比较，保留未变标签，删除缺项，只更新变化部分。只改文字时更新原实体；位置改变均删除旧实体后在新目标位置创建，不使用可能跨Folia区域的同步传送。
+正常流程是玩家owner创建handle，调用方worker准备纯标签值，submit交给宿主后台调度，再在标签位置/实体owner上创建或更新非持久化TextDisplay，最后在玩家owner上仅向viewer显示。显示实体默认对其他玩家不可见。保留五参数EditorTextLabel构造器，默认appearance为READABLE：面向玩家、有文字阴影和默认背景。FIXED_GLYPH使用固定朝向、透明背景、无阴影和15/15亮度，局部姿态与缩放不修改label的世界锚点。appearance使用已有不可变ModelPose，平面缩放必须有限且为正；不保存Bukkit实体、可变JOML向量或业务对象。
+
+完整空列表清除本handle的所有文字；后续列表按稳定label id与上次实际显示状态比较，保留未变标签，删除缺项，只更新变化部分。只改文字/外观时在原实体owner更新；从图案切回普通文字时必须完整恢复背景、亮度、朝向和单位变换。位置改变均删除旧实体后在新目标位置创建，不使用可能跨Folia区域的同步传送。相同值不重建或重复修改实体。
 
 内部复用现有`PlatformDispatcher`、`LatestAffinityTaskDispatcher`及RailWand中默认隐藏/仅对指定玩家显示的方式，不公开其私有对象。每handle只保存一份最新待显示列表及一个调度工作，不能堆积历史画面；实体操作不在状态锁内执行。这里要求复用实际机制，不要求为提取通用基类而重构整个模型服务。
 
@@ -77,4 +83,16 @@ record EditorTextLabel(String id, double x, double y, double z, Component text) 
 
 检查位置/方向、警告仅命中相关出入口、数量预算、玩家隔离和关闭后迟到结果不显示。
 真实客户端的辨识度、遮挡及 Folia 跨区显示须实测，不能用平台替身宣称完成。
-车站、停车点、全轨道方向、连续区间横杠及资源包样式的统一迁移不在本批。
+普通车站/停车点ItemDisplay、全RailWand几何、独立进路预览和警告不在此次迁移范围。
+
+## 共用轨道平面图案与客户端资源
+
+`EditorMarkerLabels.at(id, glyph, position, tangent, normal, widthMeters, lengthMeters, color)`是纯值准备入口，三类图案为`EditorMarkerGlyph.DIRECTION/BOUNDARY/COVERAGE`。只读取Vector3dc并复制，不保留输入。沿轨切线归一化为局部+Y，对法线做正交化得到局部+Z，横向为切线×法线（局部+X），再将基底转换为单位四元数。图案沿法线抬高0.08米以免与轨面重合；宽度跨轨、长度沿轨，均为米。非有限、零或平行的方向输入拒绝，不猜测有效朝向；共享helper不查询轨道或Bukkit世界，单个标记准备成本O(1)。具体字形像素居中由helper处理，业务模块不得复制字体常量/四元数或各自猜像素补偿。
+
+当前字形为8字体像素高、ascent 7、advance 9；26.1.2实际TextDisplay客户端矩阵使其中心落在局部(+0.5,+5)像素，需沿横向补偿`-width/16`、沿切线补偿`-5*length/8`。尺寸换算采用每字体像素0.025米，不能仅凭位图中心猜偏移。矩阵组合回归同时验证世界中心和宽/长边；客户端字体布局变化时须先核对目标renderer，不能调整业务边界或选轨容差来抵消显示偏差。
+
+字体`javarailways:editor_markers`的U+E100/E101/E102分别为方向箭头、双横边界和虚线覆盖，白色透明遮罩由Component染色。源码位于`BukkitPlugin/examples/editor-markers/resourcepack`，PNG由相邻Node脚本确定性生成，不覆写minecraft:default字体或现有物品/模型。`./gradlew :BukkitPlugin:editorMarkersResourcePack`生成独立26.1.2/84.0客户端ZIP；元数据是Minecraft资源格式而非世界schema，不修改服务器持久化。缺少客户端包不会自动退回粒子，也不能宣称该客户端能正确显示私有字形；安装/合并说明由示例README负责。
+
+RailObjectWand在worker准备运行方向和到达方向图案，按轨道实例、不可变曲线、方向及目的地参数缓存；玩家移动只筛选缓存，不导致重复采样。每玩家一个显示会话，切模式/离手/换世界或关闭时令旧会话失效，迟到计算不能向新会话提交；原WayPoint标记不迁移。准备及筛选随候选轨道/标记数量增长，不增加物理tick工作或轨道业务缓存。
+
+必需测试：正反向、坡道/倾斜与输入向量不变；字体codepoint→纹理链、透明遮罩和资源元数据；同位置改姿态复用实体、回到普通文字恢复全部样式；重复提交无操作及关闭后迟到创建清理；RailObject方向缓存不因移动失效，轨道/方向/目的地修改会更新。Java消费者同时编译旧五参数标签和新图案入口。真实客户端的字体原点、尺寸、遮挡与Folia跨区显示须另验，不能由数值测试代替。

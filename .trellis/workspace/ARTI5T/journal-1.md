@@ -292,3 +292,40 @@ Committed prior deployed shared-runtime fix separately; corrected generated-ID U
 ### Next Steps
 
 - Review four UI commits, then obtain deployment approval for both JARs and perform real-client glyph/entry/cleanup acceptance.
+
+
+## Session 10: Wand i18n and shared F mode routing
+<!-- trellis-session: v=2 fp=38339a174fb5255a -->
+
+**Date**: 2026-10-16
+**Task**: Wand i18n and shared F mode routing
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+提取公开无状态Wand F路由，SimpleSignals按玩家locale呈现中英工具文案并接入模式切换；不部署，Stage 2待真实客户端验收。
+
+### Main Changes
+
+- 宿主公共helper先取消换手再回调，只响应主手；信号业务/PDC/会话仍由消费者拥有。
+- 中英各223键，WandText跨worker传消息键与参数；区间文字本地化复用几何缓存。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `81621f64` | feat(editor): expose shared wand F-key mode routing |
+| `fcc839d7` | feat(signals): localize authoring tools and enable F mode switching |
+
+### Testing
+
+- [OK] Bukkit定向13项和SimpleSignals定向6项通过；编译、Java消费者、双JAR与模块边界通过，未跑整套。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 获准后同时部署两JAR；游戏验收F、中文文案与旧编辑接续失效；不归档Stage 2。

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 15
+- **Total Sessions**: 16
 - **Last Active**: 2026-10-16
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~522 | Active |
+| `journal-1.md` | ~559 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 16 | 2026-10-16 | Deploy section editing and retained-device changes | `e5b4faf7` | `dev/signal-system` |
 | 15 | 2026-10-16 | Section route overlays, unbound devices and confirmed deletion | `4532774e`, `11d6432f`, `81ffc387` | `dev/signal-system` |
 | 14 | 2026-10-16 | 无向切口开发服迁移与部署 | `e1bb62cc` | `dev/signal-system` |
 | 13 | 2026-10-16 | 清理无向切口的方向占位 | `50afd64c` | `dev/signal-system` |

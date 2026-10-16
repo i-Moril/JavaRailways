@@ -520,3 +520,40 @@ pending、区域修复草稿与工具输入使用真正无向模型，严格curr
 ### Next Steps
 
 - 交用户统一检查三笔提交；另获部署授权后备份并部署，新区间Wand需重新领取，再做游戏内验收。
+
+
+## Session 16: Deploy section editing and retained-device changes
+<!-- trellis-session: v=2 fp=37c69d8f608ba194 -->
+
+**Date**: 2026-10-16
+**Task**: Deploy section editing and retained-device changes
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+用户批准后正常停服、外部完整打包备份，仅部署已验证的SimpleSignals三笔提交；运行加载及健康通过，未做游戏内验收。
+
+### Main Changes
+
+- 部署4532774e/11d6432f/81ffc387产物SHA bef59191f61d17100999de95233b026e8bdfa6106f965896c953d419f6efbebc；宿主与配置不变，无迁移。
+- 外部恢复点section-retain-20261016-L6ndpF包含完整两配置目录和两旧JAR，manifest124项核验，替换外另123项hash不变。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e5b4faf7` | docs(signals): record section editing deployment |
+
+### Testing
+
+- [OK] MCS正常停服保存和启动Done26.718s；primary rev22安装，1区域/1表/2闭塞保留，ATO RUNNING，bridge ok:true/WebUI200；无新类加载错误，既有TerraUnsafe告警未扩修。
+- [OK] 部署记录和一次性脚本独立只读复核、git diff检查通过；本次未重复离线测试或构建。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 重新领取区间Wand，在游戏内验证Shift设置/F偏好、中心线与整区删除，Stage2继续in_progress。

@@ -45,7 +45,7 @@ internal class RailWandEditMode(private val wand: RailWand) {
                     player.sendActionBar(RailWandI18n.component(
                         player,
                         "message.anchor_selected",
-                        anchor.id
+                        RailWandI18n.anchorName(player, anchor.id)
                     ).color(NamedTextColor.YELLOW))
                     return
                 }

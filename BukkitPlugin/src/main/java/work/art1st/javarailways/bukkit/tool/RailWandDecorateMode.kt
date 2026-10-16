@@ -36,8 +36,7 @@ internal class RailWandDecorateMode(private val wand: RailWand) {
                 wand.persistPlayerState(player, state)
                 player.sendActionBar(RailWandI18n.component(
                     player,
-                    "message.decorate_delete_selected",
-                    rail.id.toString().take(8)
+                    "message.decorate_delete_selected"
                 ).color(NamedTextColor.YELLOW))
                 return@findLookedAtRailAsync
             }

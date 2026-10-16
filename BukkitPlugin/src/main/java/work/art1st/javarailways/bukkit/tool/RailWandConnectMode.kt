@@ -33,7 +33,7 @@ internal class RailWandConnectMode(private val wand: RailWand) {
                             player.sendActionBar(RailWandI18n.component(
                                 player,
                                 "message.anchor_selected_count",
-                                clickedAnchor.id,
+                                RailWandI18n.anchorName(player, clickedAnchor.id),
                                 state.selectedAnchors.size
                             ).color(NamedTextColor.YELLOW))
                         }
@@ -43,7 +43,7 @@ internal class RailWandConnectMode(private val wand: RailWand) {
                         player.sendActionBar(RailWandI18n.component(
                             player,
                             "message.anchor_selected",
-                            clickedAnchor.id
+                            RailWandI18n.anchorName(player, clickedAnchor.id)
                         ).color(NamedTextColor.YELLOW))
                     }
                     wand.updateAnchorDisplay(player)

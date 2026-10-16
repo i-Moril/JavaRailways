@@ -2016,8 +2016,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val editedRail = coreWorld.getRail(editedRailId) ?: run {
             player.sendActionBar(RailWandI18n.component(
                 player,
-                "message.rail_missing",
-                editedRailId
+                "message.rail_missing"
             ).color(NamedTextColor.RED))
             return
         }
@@ -3896,7 +3895,6 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         player.sendActionBar(RailWandI18n.component(
             player,
             "message.rail_selected",
-            rail.id,
             subgradeLabel,
             curveLabel,
             derailLabel,
@@ -3918,7 +3916,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val yaw = AnchorGeometry.yawDegrees(anchor.tangent)
         val pitch = AnchorGeometry.pitchDegrees(anchor.tangent)
         val roll = AnchorGeometry.rollDegrees(anchor)
-        session.setValue(editKeys.anchorId, anchor.id)
+        session.setValue(editKeys.anchorId, RailWandI18n.anchorName(player, anchor.id))
         session.setValue(editKeys.posX, formatEditNumber(anchor.position.x()))
         session.setValue(editKeys.posY, formatEditNumber(anchor.position.y()))
         session.setValue(editKeys.posZ, formatEditNumber(anchor.position.z()))
@@ -4935,8 +4933,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             refreshAllAnchorsForPlayer(player)
             player.sendActionBar(RailWandI18n.component(
                 player,
-                "message.rail_cleanup",
-                railId
+                "message.rail_cleanup"
             ).color(NamedTextColor.YELLOW))
             return
         }

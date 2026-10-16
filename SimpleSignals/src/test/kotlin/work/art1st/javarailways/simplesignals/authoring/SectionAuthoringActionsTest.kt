@@ -148,6 +148,15 @@ class SectionAuthoringActionsTest {
         assertEquals("test:next", SectionAuthoringActions.createBlock(defs, block("next", 5.0, 9.0)).patch.upsertFixedBlocks.single().blockId)
     }
 
+    @Test fun `block creation keeps storage identity out of player confirmation`() {
+        val id = "12345678-1234-1234-1234-123456789abc"
+        val edit = SectionAuthoringActions.createBlock(definitions(), block(id, 2.0, 8.0))
+        assertEquals("test:$id", edit.patch.upsertFixedBlocks.single().blockId)
+        assertEquals("Created bidirectional block: block", edit.message)
+        assertEquals("Created bidirectional block: test:platform", SectionAuthoringActions.createBlock(
+            definitions(), block("platform", 2.0, 8.0)).message)
+    }
+
     @Test fun `ordinary joint has one block boundary identity across its two rail coordinates`() {
         val topology = lineTopologyState(1, rail, otherRail)
         val a = block("a", 2.0, 10.0)

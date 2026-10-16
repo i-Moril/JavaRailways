@@ -2,6 +2,10 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
+### 游戏建造显示三批修正（2026-10-16，实施中）
+
+用户实测指出UUID干扰、区间几何仍为粒子、Signal Wand看不到区间。按三批处理：第一批普通建造UUID清理，第二批共享固定朝向TextDisplay字体图案及RailObjectWand方向迁移，第三批区间几何迁移并接入Signal Wand持物显示。三批复用同一显示服务和原有定义事务，不重构完整工具、不改授权或存档；研究定位见[交互问题记录](research/editor-marker-ui-live-issues-2026-10-16.md)。各批需独立复核，统一运行Bukkit/Signals受影响测试、Java消费者与两层打包/模块门禁，交付完整资源包；未进行远端部署或客户端验收。
+
 ### 游戏验收发现共享运行库类加载冲突（2026-10-16，已部署重启，待原操作复验）
 
 用户06:51创建闭塞时触发`ViewDirection.entries`的`EnumEntries` loader constraint violation。宿主已内嵌Kotlin/serialization，SimpleSignals descriptor却另外声明私有Paper libraries；单classpath回归和插件空启动没有覆盖该跨插件调用。只修改SimpleSignals/build.gradle：移除两项私有library声明，保留compileOnly/test依赖与Graal，强化实际descriptor及JAR条目校验；不改枚举遍历、区间算法、Error捕获、版本或存档。共享运行库机制归[依赖与打包不变量](../../spec/simple-signals/backend/index.md#依赖与打包不变量)。

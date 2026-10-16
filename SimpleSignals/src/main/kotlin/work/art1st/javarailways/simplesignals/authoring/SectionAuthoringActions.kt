@@ -46,7 +46,7 @@ internal object SectionAuthoringActions {
             a.railId == b.railId && min(a.upperAbMeters, b.upperAbMeters) - max(a.lowerAbMeters, b.lowerAbMeters) > Curve.TOLERANCE
         } } }) { "Block interior overlaps an existing block" }
         return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(block)),
-            "Created ${if (block.bidirectional) "bidirectional" else "one-way"} block ${block.blockId}")
+            "Created ${if (block.bidirectional) "bidirectional" else "one-way"} block: ${sectionAuthoringName(block.blockId, "block")}")
     }
 
     fun deleteBlock(definitions: SimpleSignalsWorldDefinitions, point: RailPositionSnapshot, boundary: Boolean,
@@ -82,7 +82,7 @@ internal object SectionAuthoringActions {
             "Removed pending protection boundary")
         else SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertRegions = listOf(ProtectionRegionDefinition(
             owner.regionId, owner.revision + 1, owner.boundaries, owner.effectiveBoundaries.filter { it.boundaryId != cut.boundaryId }))),
-            "Protection region ${owner.regionId} is unavailable; its remaining boundaries, routes and devices are retained")
+            "${sectionAuthoringName(owner.regionId, "Protection region")} is unavailable; its remaining boundaries, routes and devices are retained")
     }
 
     fun placeRegionBoundary(topology: TopologyState, definitions: SimpleSignalsWorldDefinitions,
@@ -128,7 +128,8 @@ internal object SectionAuthoringActions {
         val region = ProtectionRegionDefinition(owner?.regionId ?: newId(), (owner?.revision ?: -1) + 1, search.boundaries)
         return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertRegions = listOf(region),
             pendingProtectionBoundaries = definitions.pendingProtectionBoundaries.filter { it.boundaryId !in foundIds }),
-            if (owner == null) "Created protection region ${region.regionId}" else "Revalidated protection region ${region.regionId}; retained routes and devices")
+            if (owner == null) "Created protection region: ${sectionAuthoringName(region.regionId, "region")}" else
+                "Revalidated protection region: ${sectionAuthoringName(region.regionId, "region")}; retained routes and devices")
     }
 
     private fun overlaps(first: List<ProtectionRegionInteriorSlice>, second: List<ProtectionRegionInteriorSlice>): Boolean {

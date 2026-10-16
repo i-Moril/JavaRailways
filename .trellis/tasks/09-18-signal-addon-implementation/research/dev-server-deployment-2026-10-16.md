@@ -108,3 +108,34 @@ MCSManager正常启动，07:46:55日志`Done (25.819s)!`。JavaRailways/RailWand
 仅替换Signals JAR为`4670ccf412bf1b6043cc7312629c1e7a7e2322d2ca09ff7b20e44762579f41ae`；主完整shadow JAR仍为`6964a9e72537a97fe34cdd1dd45e9ac2905b942b39778317d3098a9e2c535ad4`，客户端资源包不变。旧block/region工具不增兼容reader，玩家更新后使用`/simplesignals wand section`重领；F切换创建/删除，创建/删除有向边界均须朝对应区间内部。启动健康检查结果另续。
 
 10:22:11 SimpleSignals正常启用，Minecraft `Done (25.995s)!`；bridge健康`ok:true`、WebUI HTTP200。当前启动日志无LinkageError/NoClassDefFoundError/NoSuchMethodError；仍有既有Terra Unsafe反射字段错误但随后完成加载，本次检查未见physics overload/clamp。未创建游戏对象或验收实际多边界围合/F/状态栏，未修改世界定义、认证设置或其他实例。Stage 2继续in_progress，下一步由玩家使用新工具实测。
+
+## 无向切口模型与一次性迁移部署（15:49 UTC起）
+
+用户批准部署`bec5cee9`、`50afd64c`。复用已通过28项定向测试及模块/JAR门禁的隔离候选，核对完整SimpleSignals源checksum一致，不重复构建或重跑产品测试。只替换SimpleSignals；主shadow JAR与客户端资源包不变。向玩家发10秒正常重启通知，MCSManager正常停服；15:49:42全部世界和玩家保存完成，实例status0、原PID503846退出，未强制kill或操作其他实例。
+
+外部恢复点`/opt/mcsmanager/backups/javarailways/undirected-cuts-20261016-NKBtfewt/configs-and-installed-jars.tar.gz`，
+SHA256 `b8c97e2167501d733c825acd09299877ba22f276e5fc6632f371cc47d87aee5c`。
+15:50:19完成完整JavaRailways/、SimpleSignals/及两旧JAR的打包、tar目录可读性与122文件源hash核验；ACL/xattr保留，目录0700、归档0600。没有把逐文件备份放进配置目录。
+
+### 精确迁移范围与结果
+
+仅处理主世界`2952ad2c-41ce-40bc-b83b-1b578ae7af12`的primary定义及其`.bak`：
+
+- primary：revision19，2闭塞、4待完成切口、0保护区域；删除4个pending `insideFacing`。
+- `.bak`：revision18，2闭塞、3待完成切口、0保护区域；删除3个pending `insideFacing`。
+- 现场没有修复草稿或独立导出draft需要变更。没有替玩家完成围合、创建对象或更改revision/schema。
+
+一次性Node脚本保存在恢复点的`cut-migration.cjs`，SHA256 `950aa20fcc0c0e432429b6ec8cba9323cf48edbd776948f93a9765705b53fa79`；不进入插件JAR。先通过语法及3项轻量合成检查（dry-run字节不变、仅移除指定字段且正式方向保留、非法第二文档整次拒绝），经独立只读复核。远端dry-run与apply均核对完整备份hash和两个停服后输入hash；两文档先全部校验及暂存，再逐个原子替换，保留uid/gid/mode，失败可恢复原字节。计划和完成audit只在外部恢复点，未在配置目录另存backup。
+
+完整JSON对象排除批准移除的字段后，迁移前后语义hash相等，确认ID、弧长、闭塞、进路/设备和正式方向未改；此次现场没有正式区域。原/新文件hash：
+
+- primary：`8d563506186a204425b8355bb26a80b9c4f0d829268a0a9172ebad7830340a33` → `e9493299d19f1bdcac1abfbb5fb713deca1d56dfd83a08a525c71a9101db8a91`。
+- `.bak`：`153b430e7679f8d5bed74cd1b9d06ce5b26c7fcde061b23f16b245205f52ddc9` → `30f3dabc58b42b44c257ca6d145875eef89e389edef28b7356ab007810ac761a`。
+
+其余120个配置/存档文件在替换前及替换JAR后、启动前逐文件hash一致；没有回退玩家新增内容。15:52:45安装后SimpleSignals JAR SHA256 `38f0cbc6cbb742f88efcc6c4bf9f191a976b997da6d9e981df757e5faa156f0c`；主JAR仍为`6964a9e72537a97fe34cdd1dd45e9ac2905b942b39778317d3098a9e2c535ad4`。
+
+这是未发布schema 1的离线数据修正，不是运行时兼容。若回滚，旧JAR和旧方向数据必须从同一恢复点配套恢复，不能只降级JAR。
+
+15:53:22 JavaRailways/SimpleSignals正常启用，主世界明确从primary加载；15:53:23 `Done (26.014s)!`。15:53:51 bridge返回`ok:true`、WebUI HTTP200；15:54:08只读inspect确认installed、definitionRevision19/topologyRevision1、2闭塞、0保护区域和设备，15:54:11 ATO world RUNNING，MCS状态3、新PID508478。启动日志未见新的LinkageError/NoClassDefFoundError/NoSuchMethodError或physics overload/clamp；仍有既有Terra Unsafe反射字段错误及离线模式等告警，未扩修。
+
+没有创建游戏对象、应用时刻表或替用户确认围合；Stage 2仍未结束。玩家可继续用区间工具左键原交叉渡线内部，触发识别现有4个无向待完成切口；若内部不唯一再明确选择，不要求重新按朝向放置边界。真实画面、实际围合和行车仍由后续现场验收证明，不能把启动成功等同于这些操作已通过。

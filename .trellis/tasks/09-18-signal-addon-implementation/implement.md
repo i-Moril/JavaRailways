@@ -1039,6 +1039,8 @@ Java consumer编译门禁复用up-to-date结果；源checksum同步检查、`git
 无Core/Basic/宿主公开API变化，无运行时兼容或版本号变更。旧开发服pending/draft仍带insideFacing，
 部署前须单独批准备份和一次性迁移，本批不对服务器执行任何操作。
 
+后续用户已批准部署：15:49–15:54 UTC正常停服、完整外部打包备份、一次性迁移primary4个及bak3个pending旧方向字段，核对其他120文件未变后仅替换Signals；正常启动、primary加载、bridge/WebUI及ATO RUNNING检查通过。实际产物、恢复点、迁移审计与现场验收界限见[部署记录](research/dev-server-deployment-2026-10-16.md#无向切口模型与一次性迁移部署1549-utc起)。未代替玩家完成围合或修改时刻表，Stage 2仍in_progress。
+
 ## Rollback points
 
 - Keep module extraction, protection migration, route integration, reactive policy, persistence and rendering in separate commits.

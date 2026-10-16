@@ -98,3 +98,13 @@ MCSManager正常启动，07:46:55日志`Done (25.819s)!`。JavaRailways/RailWand
 已向用户报告；检查完整`JavaRailways-1.0-SNAPSHOT-all.jar`确有plugin.yml、WandModeSwitch.class和完整嵌入WebUI，完整主包hash `6964a9e72537a97fe34cdd1dd45e9ac2905b942b39778317d3098a9e2c535ad4`。不重新编译或加测试。再次提示10秒后正常停服，09:23:29保存完成，旧PID502021退出。在同一外部恢复目录新增完整`pre-correction-configs-and-jars.tar.gz`，hash `399b7435f3a02ecffade972e54b69f861fc299c476f41157877e22aff5d8c859`；122个配置/存档文件与最初停服清单仍逐字一致，纠正前后再次校验通过，仅替换主JAR，未回退任何存档。后续部署必须取shadow任务的完整归档，传输前同时核对descriptor和所需新API，不能由相近文件名或“已通过打包门禁”推断手选文件可运行。
 
 纠正后09:24:21 `Done (24.789s)!`，主插件与SimpleSignals正常启用，bridge返回`ok:true`、WebUI HTTP200，当前启动日志未见上述加载错误/LinkageError/NoSuchMethodError。仍有既有Terra Unsafe反射错误、启动一次210.7ms physics overload和epoch34的226.2→200ms步长截断，未扩修。没有创建游戏测试对象、运行自动化测试或验收客户端F/语言效果。Stage 2继续in_progress，客户端沿用上一版编辑资源包即可。
+
+## 统一区间工具部署（10:21 UTC起）
+
+用户批准部署`03bf4acd`、`24a84a2a`。部署前候选全src与工作区一致，核对实际Signals plugin.yml及JAR hash，未重建或重跑测试。只读检查现有primary定义为0保护区域/0进路表、2闭塞/0信号/0待定边界，不涉及旧单腿交叉保护区域修复；未改变这些定义。向玩家提示10秒正常重启，MCSManager正常停服，10:21:14世界及玩家保存完成，实例status0、旧PID502515退出。
+
+外部完整恢复点：`/opt/mcsmanager/backups/javarailways/unified-section-20261016-EHob2sVF/configs-and-installed-jars.tar.gz`，SHA256 `a664ec576dc6685adea79f922f5e47db4fa36ecae7fc3059d0bcb7a22bc88f14`。整包保存JavaRailways/、SimpleSignals/及两旧JAR，保留ACL/xattr，目录0700、归档0600，tar可读性校验通过；122个配置/存档文件在备份后和替换后、启动前校验一致。没有配置同目录逐文件备份或迁移/回退存档。
+
+仅替换Signals JAR为`4670ccf412bf1b6043cc7312629c1e7a7e2322d2ca09ff7b20e44762579f41ae`；主完整shadow JAR仍为`6964a9e72537a97fe34cdd1dd45e9ac2905b942b39778317d3098a9e2c535ad4`，客户端资源包不变。旧block/region工具不增兼容reader，玩家更新后使用`/simplesignals wand section`重领；F切换创建/删除，创建/删除有向边界均须朝对应区间内部。启动健康检查结果另续。
+
+10:22:11 SimpleSignals正常启用，Minecraft `Done (25.995s)!`；bridge健康`ok:true`、WebUI HTTP200。当前启动日志无LinkageError/NoClassDefFoundError/NoSuchMethodError；仍有既有Terra Unsafe反射字段错误但随后完成加载，本次检查未见physics overload/clamp。未创建游戏对象或验收实际多边界围合/F/状态栏，未修改世界定义、认证设置或其他实例。Stage 2继续in_progress，下一步由玩家使用新工具实测。

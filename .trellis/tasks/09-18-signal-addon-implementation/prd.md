@@ -21,7 +21,7 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 ## Requirements
 
-### Signal Wand Dialog与灯头反馈（2026-10-16，讨论中）
+### Signal Wand Dialog与灯头反馈（2026-10-16，灯面先行，UI继续讨论）
 
 用户反馈设置界面不友好，希望先用Dialog UI模拟器讨论，再决定正式交互；同时报告灯头方向反了，并建议灯泡独立模型以单独设置亮度。
 
@@ -30,7 +30,9 @@ The result must prove that protection regions and fixed blocks are optional poli
 - 方向研究核对26.1.2客户端已有JAR，确认ItemDisplay绘制在部件变换后另乘Yπ；正式四灯Y+90与旧测试遗漏此步骤。候选修复仅将本包部件适配改为Y−90并更新真实方向断言，不全局反转通用姿态；具体现场placement/客户端覆盖情况仍未核验。依据见[方向研究](research/signal-model-direction-2026-10-16.md)。
 - 灯面拆分复用现有多部件及每部件brightness，无需增加信号身份、attached设备、JS规则或区间扫描。初步候选为外壳自然光+独立亮灯层，以最少部件表达；逐灯独立亮度、亮度数值及是否按实例编辑尚未冻结。brightness只改变显示光照，不会照亮世界。依据见[灯面研究](research/signal-lamp-parts-2026-10-16.md)。
 
-本批不修改产品代码/正式包/用户models工作区，不部署、不迁移或升版。先收敛UI工作流，再按用户批准的范围分笔实现；已部署的Stage 2游戏验收状态不因此变为完成。
+以上为初始研究范围。用户随后批准先实施灯面拆分：正式包采用自然光外壳/暗灯与15/15亮灯层两个Item叶子，复用既有多部件、brightness和lamp场景；不改JS、通用运行时、方向、版本、原models工作区或ZIP，不部署。定向更新原资产测试，不扩展测试矩阵。
+
+UI按分组方案继续讨论，但已有设备应从右键信号机或轨道进入编辑，不把全世界设备列表作为主要入口。轨道入口可复用选轨与既有保存事务，直接模型点击尚缺公开拾取能力；多设备选择及与放置动作的优先级待讨论，不在灯面批次实现UI。见[现场编辑研究](research/contextual-signal-editing-2026-10-16.md)。方向修复单独一笔；已部署的Stage 2游戏验收状态不因此变为完成。
 
 ### 区域经路显示、整体删除与设备保留（需求与三笔实施计划已批准）
 

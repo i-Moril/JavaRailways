@@ -584,6 +584,14 @@ SimpleATO 只执行中立的“入口以前须具备到某位置的连续可行�
 
 ## Open decisions
 
+### 已批准先行：灯面独立显示（2026-10-16）
+
+只改正式JR四灯包及直接资产回归：共同dummy保留既有安装变换，下面housing自然光和活动灯面15/15两个Item叶子。
+四个现示资源只保留实际亮灯片，新增共用壳/暗灯资源；亮片前移0.05模型单位避免共面。
+复用既有compiler、handle、lamp动画和JS输出，不新增运行时或每帧工作。亮度和成本归[正式包合同](../../spec/simple-signals/backend/formal-four-light.md#灯头分层)。
+用户认可UI分组，但设备编辑应从现场点击进入；本笔不实施UI/模型拾取，也不顺带修正已知朝向。
+不改版本、原models资产或ZIP，不部署。定向运行现有资产与正式包两类测试，独立复核后单独提交。
+
 - JS 技术栈、同步信号阶段、包目录、完整分支树、逐分支扫描距离、无通用预算及遇环停止均已批准。
   待实现批次只需确定不影响这些语义的具体类拆分、未冻结的 YAML/API 字段、跨包错误诊断和串行 context 生命周期；
   以[所属 owner 契约](../../spec/simple-signals/backend/js-signal-rules.md)为准，不恢复 flat-array、context-pool、watchdog 或 SCC 方案。

@@ -10,6 +10,15 @@
 0.6m/s²计算并缓存观察距离。信号阶段只消费同epoch的只读树，输出入口速度决定与不透明模型外观。
 不增加寻路、资源申请、制动控制或客户端资源自动分发。包目录、安装操作和实际档位见[包说明](../../../../SimpleSignals/examples/jr-four-light/README.md)。
 
+## 灯头分层
+
+`model/head.yml`在同一dummy父节点下保留两个Item叶子：共用housing保存外壳、遮檐及四个暗灯，
+不设brightness；活动层仅包含该现示点亮的灯面，基础外观及每个完整场景均为block15/sky15。
+R/Y/G各一片，YG两片，共用既有lamp动画和不透明variant，不增加设备身份、JS调用或扫描。
+活动灯面沿源模型north方向错开0.05模型单位，避免与暗灯共面；PNG和灯头尺寸不变。
+brightness不产生世界光源。相较单Item灯头增加一个显示部件，仍复用一个模型handle和既有生命周期。
+分层不修改已有父偏移/+90°旋转；客户端额外Yπ导致的现场反向问题另批修复，离线姿态测试不证明实际朝向。
+
 ## 判断算法与前提
 
 包读取`referenceSpeedMetersPerSecond`和`referenceDecelerationMetersPerSecondSquared`，不在JS复制减速度常量。

@@ -1,23 +1,32 @@
 parts:
-  - type: item_display
+  - type: dummy
     # Rebasing the client mesh by -16 units preserves its size; restore its base height here.
     offset: {y: 1.5}
-    # The source lamp faces -Z; rotate it toward approaching trains (-X).
+    # Preserve the existing +90-degree correction; live facing verification is separate.
     rotation: {y: 90.0}
-    item:
-      type: PAPER
-      item-model: jr:four_light_signal_stop
-    animations:
-      - name: lamp
-        scenes:
-          stop:
-            item: {type: PAPER, item-model: jr:four_light_signal_stop}
-          caution:
-            item: {type: PAPER, item-model: jr:four_light_signal_caution}
-          slow:
-            item: {type: PAPER, item-model: jr:four_light_signal_slow}
-          proceed:
-            item: {type: PAPER, item-model: jr:four_light_signal_proceed}
+    parts:
+      - type: item_display
+        item:
+          type: PAPER
+          item-model: jr:four_light_signal_housing
+      - type: item_display
+        # Only active lamp faces receive full display brightness; dark faces stay in housing.
+        # Their meshes sit 0.05 model units north of the dark faces to avoid coplanar surfaces.
+        item:
+          type: PAPER
+          item-model: jr:four_light_signal_stop
+          brightness: {block: 15, sky: 15}
+        animations:
+          - name: lamp
+            scenes:
+              stop:
+                item: {type: PAPER, item-model: jr:four_light_signal_stop, brightness: {block: 15, sky: 15}}
+              caution:
+                item: {type: PAPER, item-model: jr:four_light_signal_caution, brightness: {block: 15, sky: 15}}
+              slow:
+                item: {type: PAPER, item-model: jr:four_light_signal_slow, brightness: {block: 15, sky: 15}}
+              proceed:
+                item: {type: PAPER, item-model: jr:four_light_signal_proceed, brightness: {block: 15, sky: 15}}
 default: {lamp: stop}
 variants:
   stop: {lamp: stop}

@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.bukkit.api.model.ModelPart
 import work.art1st.javarailways.bukkit.api.model.ModelPose
 import work.art1st.javarailways.bukkit.api.model.ModelScale
+import work.art1st.javarailways.bukkit.api.model.ItemAppearance
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
@@ -37,10 +38,22 @@ class JrFourLightDemoTest {
         assertEquals("jr_four_light", loaded.name)
         assertEquals(setOf("jr_four_light:head"), loaded.models.keys)
         val model = loaded.models.getValue("jr_four_light:head").presentation
-        val head = model.definition.parts().single() as ModelPart.Item
+        val group = model.definition.parts().single() as ModelPart.Group
+        assertTrue(group.animations().isEmpty())
+        assertEquals(2, group.children().size)
+        val housing = group.children()[0] as ModelPart.Item
+        val head = group.children()[1] as ModelPart.Item
+        assertEquals("jr:four_light_signal_housing", housing.appearance().itemModelKey())
+        assertNull(housing.appearance().brightness())
+        assertTrue(housing.animations().isEmpty())
+        listOf(housing, head).forEach {
+            assertEquals(ModelPose.IDENTITY, it.pose())
+            assertEquals(ModelScale.UNIT, it.scale())
+        }
         assertEquals(Material.PAPER, head.appearance().material())
         assertEquals("jr:four_light_signal_stop", head.appearance().itemModelKey())
         assertNull(head.appearance().customModelData())
+        assertEquals(ItemAppearance.Brightness(15, 15), head.appearance().brightness())
         assertEquals(ModelScale.UNIT, head.scale())
         assertEquals(mapOf("lamp" to "stop"), model.defaultScenes)
         assertEquals(variants.toSet(), model.variants.keys)
@@ -55,6 +68,7 @@ class JrFourLightDemoTest {
             assertEquals(Material.PAPER, frame.appearance().material())
             assertEquals("jr:four_light_signal_$variant", frame.appearance().itemModelKey())
             assertNull(frame.appearance().customModelData())
+            assertEquals(ItemAppearance.Brightness(15, 15), frame.appearance().brightness())
         }
         assertFalse(model.followRailTilt)
         assertEquals(setOf("left", "right"), model.railPlacementPresets.keys)
@@ -73,7 +87,7 @@ class JrFourLightDemoTest {
         assertEquals(PackFormat.of(75, 0), metadata.supportedFormats().minInclusive())
         assertEquals(PackFormat.of(75, 0), metadata.supportedFormats().maxInclusive())
         assertEquals("1.21.11", SharedConstants.getCurrentVersion().name())
-        variants.forEach { variant ->
+        val geometryByPart = (variants + "housing").associateWith { variant ->
             val wrapper = json(resourcePack.resolve("assets/jr/items/four_light_signal_$variant.json"))
                 .getAsJsonObject("model")
             assertEquals("minecraft:model", wrapper.get("type").asString)
@@ -87,15 +101,9 @@ class JrFourLightDemoTest {
                 assertEquals(16, image.height)
             }
             val elements = geometry.getAsJsonArray("elements").map { it.asJsonObject }
-            assertEquals(29, elements.size)
             val corners = elements.flatMap { listOf(it.getAsJsonArray("from"), it.getAsJsonArray("to")) }
             assertTrue(corners.flatMap { it.toList() }.all { it.asDouble in -16.0..32.0 })
-            assertEquals(-16.0, corners.minOf { it[1].asDouble })
-            assertEquals(26.0, corners.maxOf { it[1].asDouble })
-            assertEquals(42.0, corners.maxOf { it[1].asDouble } - corners.minOf { it[1].asDouble })
-            assertEquals(20.0, corners.maxOf { it[0].asDouble } - corners.minOf { it[0].asDouble })
             val lenses = elements.filter { it.get("name").asString.endsWith("pixel lens") }
-            assertEquals(4, lenses.size)
             lenses.forEach { assertEquals(setOf("north"), it.getAsJsonObject("faces").keySet()) }
             elements.forEach { element ->
                 element.getAsJsonObject("faces").entrySet().forEach { (_, face) ->
@@ -106,14 +114,56 @@ class JrFourLightDemoTest {
             }
             // NONE does not apply the existing GUI display transform.
             assertEquals(setOf("gui"), geometry.getAsJsonObject("display").keySet())
+            elements
+        }
+        val housing = geometryByPart.getValue("housing")
+        assertEquals(29, housing.size)
+        val darkLenses = housing.filter { it.get("name").asString.endsWith("pixel lens") }
+            .associateBy { it.get("name").asString }
+        assertEquals(4, darkLenses.size)
+        darkLenses.values.forEach {
+            assertEquals(4.0, it.getAsJsonArray("from")[0].asDouble)
+            assertEquals(12.0, it.getAsJsonArray("to")[0].asDouble)
+            assertEquals(listOf(0.0, 0.0, 4.0, 8.0), it.getAsJsonObject("faces").getAsJsonObject("north")
+                .getAsJsonArray("uv").map { coordinate -> coordinate.asDouble })
+            assertEquals(7.0, it.getAsJsonArray("from")[2].asDouble)
+            assertEquals(8.0, it.getAsJsonArray("to")[2].asDouble)
+        }
+        val lampsByVariant = mapOf("stop" to listOf(2), "caution" to listOf(3), "slow" to listOf(1, 4), "proceed" to listOf(4))
+        val uvByVariant = mapOf("stop" to listOf(4.0), "caution" to listOf(8.0), "slow" to listOf(8.0, 12.0), "proceed" to listOf(12.0))
+        val lowerYByLamp = mapOf(1 to 14.0, 2 to 5.0, 3 to -3.0, 4 to -12.0)
+        variants.forEach { variant ->
+            val lit = geometryByPart.getValue(variant)
+            assertEquals(lampsByVariant.getValue(variant).map { "lamp $it pixel lens" }, lit.map { it.get("name").asString })
+            lit.forEachIndexed { index, lamp ->
+                val dark = darkLenses.getValue(lamp.get("name").asString)
+                for (end in listOf("from", "to")) {
+                    assertEquals(dark.getAsJsonArray(end)[0].asDouble, lamp.getAsJsonArray(end)[0].asDouble)
+                    assertEquals(dark.getAsJsonArray(end)[1].asDouble, lamp.getAsJsonArray(end)[1].asDouble)
+                    // Active north faces are 0.05 model units (3.125mm) forward, never coplanar.
+                    assertEquals(0.05, dark.getAsJsonArray(end)[2].asDouble - lamp.getAsJsonArray(end)[2].asDouble, 1e-12)
+                }
+                assertEquals(lowerYByLamp.getValue(lampsByVariant.getValue(variant)[index]), lamp.getAsJsonArray("from")[1].asDouble)
+                val u = uvByVariant.getValue(variant)[index]
+                assertEquals(listOf(u, 0.0, u + 4.0, 8.0), lamp.getAsJsonObject("faces").getAsJsonObject("north")
+                    .getAsJsonArray("uv").map { it.asDouble })
+            }
+            val corners = (housing + lit).flatMap { listOf(it.getAsJsonArray("from"), it.getAsJsonArray("to")) }
+            assertEquals(-16.0, corners.minOf { it[1].asDouble })
+            assertEquals(26.0, corners.maxOf { it[1].asDouble })
+            assertEquals(42.0, corners.maxOf { it[1].asDouble } - corners.minOf { it[1].asDouble })
+            assertEquals(20.0, corners.maxOf { it[0].asDouble } - corners.minOf { it[0].asDouble })
+            assertEquals(7.0, corners.maxOf { it[2].asDouble } - corners.minOf { it[2].asDouble })
         }
         assertFalse(Files.exists(resourcePack.resolve("assets/minecraft")))
     }
 
     @Test
-    fun `head faces approaching trains in both rail directions and centered base remains at attachment height`() {
+    fun `existing offline parent correction and centered base stay unchanged in both rail directions`() {
         val model = SignalPackLoader.load(directory.resolve("signal-packs")).models.getValue("jr_four_light:head").presentation
-        val head = model.definition.parts().single() as ModelPart.Item
+        val head = model.definition.parts().single() as ModelPart.Group
+        // Preserve the previous offline transform only; this omits the client's extra ItemDisplay Yπ.
+        assertEquals(2, head.children().size)
         assertEquals(1.5, head.pose().y())
         val curve = PrimeCurve.fromPoints(listOf(
             Curve.RawPoint(Vector3d(10.0, 20.0, 30.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0, Curve.SegmentType.LINE_START),

@@ -1072,6 +1072,16 @@ Java consumer编译门禁复用up-to-date结果；源checksum同步检查、`git
 
 ## Rollback points
 
+### 灯面先行拆分（2026-10-16，离线完成，未部署）
+
+用户批准先改灯泡模型，UI分组/现场编辑继续讨论，方向修复独立。正式head采用共同dummy与两个Item叶子：
+自然光外壳/四暗灯、15/15活动灯片；新增共用housing资源，原四现示网格只留实际亮片，向north错开0.05模型单位。
+复用现有完整场景brightness、handle及lamp动画，不改JS、运行时、持久化/版本、原models或ZIP。更新README及owner契约。
+按trellis-before-dev/check执行，原资产回归3项更新、正式包既有9项，共12项在隔离候选7秒通过，零失败/错误/跳过；
+没有新增case或运行全模块套件。源与examples均同步候选，真实loader/compiler、资源引用/灯位/UV/深度/亮度及真实Graal规则通过。
+未构建新插件/客户端ZIP、未部署、未验证真实画面；+90°方向问题明确保留，测试和文档不再声称已证明客户端朝向。
+独立只读复核确认housing与原网格对应、活动灯位/UV不变及深度分层、亮度完整替换、资源引用和范围均无阻塞；git diff --check通过。
+
 - Keep module extraction, protection migration, route integration, reactive policy, persistence and rendering in separate commits.
 - Do not delete the old owner until the new owner is wired and parity tests pass in the same reviewed slice.
 - Do not enable permissive aspects until resource/grant/constraint integration tests pass.

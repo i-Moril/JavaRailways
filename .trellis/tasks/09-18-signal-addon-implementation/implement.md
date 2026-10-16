@@ -1068,6 +1068,8 @@ Java consumer编译门禁复用up-to-date结果；源checksum同步检查、`git
 组合用例后来仅调整测试清理为clearLocal完成后新manager读存档；单项8秒再次通过，生产未变。既有API消费编译为UP-TO-DATE；verifyPluginJar和verifySignalModuleBoundaries实际执行通过，宿主shadowJar复用缓存。
 最终源码checksum同步一致，独立复核与git diff --check通过。PDC不兼容旧mode-only工具，需重新领取；schema仍1，无迁移、SSH写操作、部署或真实客户端验收。
 
+用户随后批准部署：16:59:10正常停服并保存全部数据，完整配置目录和两旧JAR打包到外部恢复点，逐文件核验后17:00:26仅安装SimpleSignals。17:01:08正常启动，主世界primary的revision22、1区域/1表/2闭塞保留，bridge/WebUI健康、ATO RUNNING。无数据迁移或配置变更，其他123文件hash不变；恢复点、产物与实际验收界限见[部署记录](research/dev-server-deployment-2026-10-16.md)末节。旧区间Wand重新领取，真实交互和Stage 2验收尚未完成。
+
 ## Rollback points
 
 - Keep module extraction, protection migration, route integration, reactive policy, persistence and rendering in separate commits.

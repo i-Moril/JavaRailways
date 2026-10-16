@@ -139,3 +139,20 @@ SHA256 `b8c97e2167501d733c825acd09299877ba22f276e5fc6632f371cc47d87aee5c`。
 15:53:22 JavaRailways/SimpleSignals正常启用，主世界明确从primary加载；15:53:23 `Done (26.014s)!`。15:53:51 bridge返回`ok:true`、WebUI HTTP200；15:54:08只读inspect确认installed、definitionRevision19/topologyRevision1、2闭塞、0保护区域和设备，15:54:11 ATO world RUNNING，MCS状态3、新PID508478。启动日志未见新的LinkageError/NoClassDefFoundError/NoSuchMethodError或physics overload/clamp；仍有既有Terra Unsafe反射字段错误及离线模式等告警，未扩修。
 
 没有创建游戏对象、应用时刻表或替用户确认围合；Stage 2仍未结束。玩家可继续用区间工具左键原交叉渡线内部，触发识别现有4个无向待完成切口；若内部不唯一再明确选择，不要求重新按朝向放置边界。真实画面、实际围合和行车仍由后续现场验收证明，不能把启动成功等同于这些操作已通过。
+
+## 经路显示、未绑定设备与整区删除部署（16:59–17:02 UTC）
+
+用户批准部署`4532774e`、`11d6432f`、`81ffc387`。只替换SimpleSignals，复用已通过3/14/37项定向门禁、独立复核及JAR隔离检查的隔离候选；部署前再次校验完整SimpleSignals源checksum一致。候选JAR SHA256为`bef59191f61d17100999de95233b026e8bdfa6106f965896c953d419f6efbebc`。主插件、资源包及配置不变，不升版、不迁移、不清空区域或设备。
+
+通过MCSManager向玩家发10秒重启通知并正常停服。16:59:10世界和玩家保存完成，status0且原PID508478退出。完整外部恢复点：
+
+`/opt/mcsmanager/backups/javarailways/section-retain-20261016-L6ndpF/configs-and-installed-jars.tar.gz`
+
+SHA256 `1d9063005a0a138f6af27ffc4e8f15bfd97c07866b2bdb4cc67d4f2b359b38ab`。
+归档包含整个`plugins/JavaRailways/`、`plugins/SimpleSignals/`以及两份旧JAR，保留ACL/xattr和数值owner；恢复目录0700、归档0600。124个文件在备份前后逐一核验一致，tar目录可读。`manifest.json`保存输入hash；`install-audit.json`保存安装后核验；无秘密的`deployment-audit.cjs`保存在同一外部恢复目录，SHA256 `6b9d2496bb7908d3ac3491af78c53e359a644223a35fd935501d10c8fb430010`。备份和审计没有放进插件配置目录。
+
+17:00:26安装核验通过：SimpleSignals变为上述候选hash，其他123个文件hash完全不变，包含主JAR及全部配置/存档文件。主JAR仍为`6964a9e72537a97fe34cdd1dd45e9ac2905b942b39778317d3098a9e2c535ad4`。没有手工修改JSON或旧Wand物品；新物品状态不读取旧的mode-only工具，玩家需重新领取`/simplesignals wand section`。
+
+MCSManager正常启动，新PID510344。17:01:03–17:01:07 JavaRailways/SimpleSignals启用，主世界明确从primary加载；17:01:08 `Done (26.718s)!`。17:01:39只读inspect确认主世界installed、definitionRevision22/topologyRevision1、regions1/tables1/blocks2，四类设备均0；与停服后的原配置保持一致。bridge `/health`返回`ok:true`，WebUI HTTP200，17:02:10只读`jr ato status world`确认RUNNING。启动中首次健康探测发生在插件启用前而未连接，等待正常启动完成后才确认健康，不把此探测当运行故障。
+
+新启动日志未见LinkageError、NoClassDefFoundError、NoSuchMethodError或physics overload/clamp；仍有既有Terra `theUnsafe`反射错误及ViaVersion更新告警，未扩修。没有代玩家创建区间/设备、删除区域、应用时刻表或断言客户端显示通过。Stage 2继续in_progress，当前部署只建立实际插件加载、存档安装和服务健康证据；Shift+右键设置、F保留偏好、中心线及整区删除仍待玩家游戏内验收。

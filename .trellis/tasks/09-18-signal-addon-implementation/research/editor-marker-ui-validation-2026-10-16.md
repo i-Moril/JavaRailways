@@ -44,3 +44,5 @@
 资源源树和安装/合并说明为`BukkitPlugin/examples/editor-markers/`，构建输出`BukkitPlugin/build/distributions/JavaRailways-editor-markers-26.1.2.zip`。独立font namespace不覆盖现有列车/轨道/四灯模型资源；需由客户端安装，不新增自动托管/下载配置，也不以缺包粒子fallback冒充成功。
 
 本批未部署。以后部署需同时更新主JAR与SimpleSignals（新公开图案API），客户端启用编辑资源；真实玩家需验证普通建造不再出现UUID、Signal Wand能找到有向入口、不同工具切换、方向/覆盖图案的辨识度、遮挡、超高/坡道、玩家隔离、跨Folia区域及离手清理。999项离线测试不是上述真实游戏验收，Stage 2仍in_progress。
+
+上述是实现/离线验收批次结束时的状态；后续用户单独批准部署，07:46已正常重启，恢复现有定义并通过启动检查，精确备份及运行结果见[部署记录](dev-server-deployment-2026-10-16.md#编辑标记与工具交互修正部署07450747-utc)。真实客户端图像/工具操作仍待验收，未将启动成功当作这些项目通过。

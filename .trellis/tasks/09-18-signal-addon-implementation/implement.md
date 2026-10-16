@@ -2,11 +2,13 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
-### 游戏建造显示三批修正（2026-10-16，离线完成，未部署）
+### 游戏建造显示三批修正（2026-10-16，已部署，待客户端验收）
 
 用户实测指出UUID干扰、区间几何仍为粒子、Signal Wand看不到区间。三批已完成：普通建造UUID清理；共享固定朝向TextDisplay字体图案及RailObjectWand方向迁移；区间几何迁移并接入Signal Wand持物显示。第二批按共享能力与工具消费者再拆成两笔提交，便于独立检查。三批复用同一显示服务和原有定义事务，不重构完整工具、不改授权或存档；研究定位见[交互问题记录](research/editor-marker-ui-live-issues-2026-10-16.md)。
 
 独立复核修正目标26.1.2客户端字形原点、剩余设备选择/绑定UUID及一项旧测试的文本假设。最终49秒、42tasks（15执行/27up-to-date），Bukkit97套410项、Signals54套589项，均0failure/error/skip；Java消费者重新编译、主JAR/Signals边界和独立资源ZIP通过。候选源码与工作区逐目录diff一致；ZIP重建哈希一致，主JAR内WebUI与此前完整产物哈希一致。精确方法、产物身份、测试边界和仍需游戏验证项归[验证记录](research/editor-marker-ui-validation-2026-10-16.md)。未进行远端部署或客户端验收；Stage 2与审查任务保持in_progress。
+
+上述“未部署”是实现批次结束时的状态。用户随后批准部署：正常停服保存后，将两个完整配置目录及旧JAR归档到外部唯一恢复目录，核验122个配置/存档文件在备份和替换前后完全一致，再同时更新两个匹配JAR。07:46:55正常重启，07:47只读检查ATO RUNNING、现有2blocks/1fixedBlockSignal与definitionRevision3恢复，bridge健康、WebUI首页/JS均200；未见LinkageError/NoClassDefFoundError。具体恢复点、hash及既有启动告警归[部署记录](research/dev-server-deployment-2026-10-16.md#编辑标记与工具交互修正部署07450747-utc)。客户端资源包已独立交付，尚未进行真实客户端显示验收，不归档Stage 2。
 
 ### 游戏验收发现共享运行库类加载冲突（2026-10-16，已部署重启，待原操作复验）
 

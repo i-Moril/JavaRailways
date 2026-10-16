@@ -56,3 +56,19 @@
 仅替换`plugins/SimpleSignals.jar`，安装后SHA256 `b577b0a4b10e1593d2e11415beb190c10599397f996dc969af7e7fc1a28c0f44`；主JAR仍为`70dd91f9a35ad9173e7e4ddf76f8550a8a11ded34c51f89b80963fd6dbd3e894`。没有重装包、编辑配置、迁移/回退存档或修改其他实例。临时上传JAR哈希在安装前校验通过。
 
 MCSManager正常启动，07:00:13日志`Done (26.964s)!`；JavaRailways和SimpleSignals启用，Signals的实际library日志仅为Graal闭包、不再包含私有Kotlin/serialization。bridge健康返回ok，WebUI首页HTTP200。新启动日志截至检查未见LinkageError，但还没有重试区间创建，不能据此宣称原操作已通过。远端没有unzip，描述符读取命令未执行成功；以已校验的完整JAR哈希、候选描述符和实际library日志确认部署内容，未为此安装工具。
+
+## 编辑标记与工具交互修正部署（07:45–07:47 UTC）
+
+用户在四笔交互修正提交与999项离线测试通过后明确批准部署。源码批次`40a62c1d`、`44c510bb`、`1e569162`、`66cc3314`，候选身份归[离线验证](editor-marker-ui-validation-2026-10-16.md)。部署前核对目标实例和现有两个JAR与上一已审计版本相同；有一个客户端连接，先通过控制台发10秒正常重启提示。MCSManager正常停服，07:45:37世界和玩家保存完成，旧主服498138及WebUI498336退出，目标端口停止监听。
+
+外部恢复点：`/opt/mcsmanager/backups/javarailways/editor-ui-20261016-A5ezO4F8/configs-and-installed-jars.tar.gz`，SHA256 `edc1206f0234cd3c0017af9b2e5762d259036e6de41f895463c15f4c70b4de70`。整包保存JavaRailways/、SimpleSignals/及两个原JAR，保留ACL/xattr；父目录0700、归档0600，tar目录可读性校验通过。同目录`configs.before.sha256`记录122个文件，备份后及替换JAR后、启动前两次逐文件校验均一致；没有回退玩家新增区间或旧存档，没有生成配置同目录逐文件备份。重启后的正常运行保存不要求仍匹配这份停服清单。
+
+安装前后均核验实际字节：
+
+- JavaRailways.jar：`8770d68dc6f5d7d57edcea5f1e944546b0da41923e0217e5c71cc462f37a2f36`。
+- SimpleSignals.jar：`4135e84020261180ebb65c85be6da44fbd882fa22ccc78fc6a747f0f4930c723`。
+- 独立客户端编辑ZIP：`44540a04470c96956f7dff459fd602afee2e5f83919d43e6d813054a91e6de75`；远端留存`/opt/mcsmanager/backups/javarailways/editor-ui-20261016-A5ezO4F8/JavaRailways-editor-markers-26.1.2.zip`，没有覆盖现有综合资源包或添加自动托管/下载配置。
+
+MCSManager正常启动，07:46:55日志`Done (25.819s)!`。JavaRailways/RailWand/RailObjectWand及SimpleSignals启用，模型包1train/3rail；SimpleSignals从primary加载玩家已有定义。07:47:23只读命令确认ATO world RUNNING，主世界installed、definitionRevision3/topologyRevision1、regions0/tables0/blocks2/fixedBlockSignals1，其余设备0。bridge `/health`返回ok，WebUI首页及引用JS均HTTP200。检查的新启动日志未见LinkageError/NoClassDefFoundError；没有借此宣称玩家字体、选择/清理或JS联动已通过。
+
+保留未扩修告警：Terra仍报sun.misc.Unsafe反射字段缺失但随后完成加载；本次启动有一次187.8ms physics epoch overload及epoch33的234.3→200ms步长截断，亦有既有离线模式/HTTP/JDK等警告。未做性能根因诊断或负载测试，不将正常启动概括为无任何错误。未影响另一模组服、改变认证/API key、创建测试对象、应用时刻表或执行数据迁移。下一步由玩家安装独立资源包后实测显示/交互，Stage 2继续in_progress。

@@ -39,7 +39,8 @@ internal object ProtectionBoundarySearch {
 
     fun search(topology: TopologyState, start: ProtectionBoundaryDefinition,
         boundaries: Collection<ProtectionBoundaryDefinition>, maxDistanceMeters: Double,
-        undirectedBoundaryIds: Set<String> = emptySet()): ProtectionBoundarySearchResult {
+        undirectedBoundaryIds: Set<String> = emptySet(),
+        fromInterior: Boolean = false): ProtectionBoundarySearchResult {
         require(maxDistanceMeters.isFinite() && maxDistanceMeters > 0.0)
         val cuts = boundaries.groupBy { it.position.railId }.mapValues { (_, values) ->
             values.sortedBy { it.position.arcLengthInAbMeters }
@@ -63,7 +64,8 @@ internal object ProtectionBoundarySearch {
                 if (it.first.railId == rail) it.first.arcLengthAbMeters to it.second
                 else it.second.arcLengthAbMeters to it.first
             }.groupBy({ it.first }, { it.second })
-            val positions = (listOf(0.0, topology.railLength(rail)) + boundariesByArc.keys +
+            val seed = if (fromInterior && rail == start.position.railId) listOf(start.position.arcLengthInAbMeters) else emptyList()
+            val positions = (listOf(0.0, topology.railLength(rail)) + boundariesByArc.keys + seed +
                 crossingTargets.keys).distinct().sorted()
             RailPoints(positions, positions.withIndex().associate { it.value to it.index },
                 boundariesByArc, crossingTargets)
@@ -72,7 +74,7 @@ internal object ProtectionBoundarySearch {
             val positions = points(segment.rail).positions
             return positions[segment.index] to positions[segment.index + 1]
         }
-        require(cuts[start.position.railId].orEmpty().any { it.boundaryId == start.boundaryId }) {
+        require(fromInterior || cuts[start.position.railId].orEmpty().any { it.boundaryId == start.boundaryId }) {
             "Starting boundary is absent"
         }
         val startIndex = points(start.position.railId).indices.getValue(start.position.arcLengthInAbMeters)
@@ -92,7 +94,11 @@ internal object ProtectionBoundarySearch {
                 frontier += Visit(end, distance)
             }
         }
-        offer(startEnd, 0.0)
+        if (fromInterior) {
+            if (startIndex > 0) offer(End(Segment(start.position.railId, startIndex - 1), true), 0.0)
+            if (startIndex < points(start.position.railId).positions.lastIndex)
+                offer(End(Segment(start.position.railId, startIndex), false), 0.0)
+        } else offer(startEnd, 0.0)
         while (frontier.isNotEmpty()) {
             val visit = frontier.remove()
             val end = visit.end

@@ -130,16 +130,16 @@ class SectionWandHandlerTest {
         assertEquals(2, f.targetCalls)
     }
 
-    @Test fun `perpendicular sight refuses boundary direction rather than guessing`() {
+    @Test fun `section creation and deletion do not require an inward viewing direction`() {
         val f = Fixture()
         f.tool = SectionWandTool.CREATE
         f.yaw = 0f // Looking +Z, while the rail tangent points +X.
         f.clickAndDrain()
-        assertEquals(0, f.performs)
+        assertEquals(1, f.performs)
         assertTrue(f.messages.isNotEmpty())
         f.tool = SectionWandTool.DELETE
         f.clickAndDrain()
-        assertEquals(0, f.performs)
+        assertEquals(2, f.performs)
     }
 
     @Test fun `obsolete callback cannot remove a new session`() {

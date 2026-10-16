@@ -5,6 +5,12 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.bukkit.api.model.ModelPose
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
+import work.art1st.javarailways.core.api.physics.rail.topology.RailCrossingPoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
+import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
@@ -101,14 +107,15 @@ class SectionAuthoringActionsTest {
         assertEquals(2, twice.revision)
     }
 
-    @Test fun `deletion at a shared protection border selects the inward direction`() {
+    @Test fun `deletion at a shared protection border refuses ambiguous ownership without direction guessing`() {
         val neighbour = ProtectionRegionDefinition("test:neighbour", 0,
             listOf(boundary("neighbour-in", 8.0, ViewDirection.AB), boundary("neighbour-out", 9.0, ViewDirection.BA)))
         val defs = definitions(regions = listOf(region, neighbour))
-        assertEquals(neighbour.regionId, SectionAuthoringActions.deleteSection(defs,
-            point(8.0), false, topology).patch.upsertRegions.single().regionId)
-        assertEquals(region.regionId, SectionAuthoringActions.deleteSection(defs,
-            point(8.0, ViewDirection.BA), false, topology).patch.upsertRegions.single().regionId)
+        val forward = SectionAuthoringActions.deleteSection(defs, point(8.0), false, topology)
+        val reverse = SectionAuthoringActions.deleteSection(defs, point(8.0, ViewDirection.BA), false, topology)
+        assertTrue(forward.patch.upsertRegions.isEmpty())
+        assertTrue(reverse.patch.upsertRegions.isEmpty())
+        assertEquals(forward.text, reverse.text)
     }
 
     private val directions: (Set<UUID>) -> Map<UUID, ViewDirection?> = { rails -> rails.associateWith { null } }
@@ -171,11 +178,11 @@ class SectionAuthoringActionsTest {
             definitions(blocks = listOf(old)), point(8.0, ViewDirection.BA), 1.0, emptyMap(), directions) { "test:auto${id++}" }
         assertEquals(listOf(FixedBlockTraversal(rail, ViewDirection.BA, 2.0, 8.0)), edit.patch.upsertFixedBlocks.single().traversals)
         assertTrue(edit.patch.removeFixedBlockIds.isEmpty())
-        val wrong = SectionAuthoringActions.placeSectionBoundary(topology,
+        val unoriented = SectionAuthoringActions.placeSectionBoundary(topology,
             definitions(pending = listOf(first.copy(position = point(2.0, ViewDirection.BA)))),
             point(8.0, ViewDirection.BA), 100.0, emptyMap(), directions) { "test:wrong${id++}" }
-        assertTrue(wrong.patch.upsertFixedBlocks.isEmpty())
-        assertEquals(2, wrong.patch.pendingProtectionBoundaries!!.size)
+        assertEquals(edit.patch.upsertFixedBlocks.single().traversals, unoriented.patch.upsertFixedBlocks.single().traversals)
+        assertTrue(unoriented.patch.pendingProtectionBoundaries!!.isEmpty())
     }
 
     @Test fun `block creation keeps storage identity out of player confirmation`() {
@@ -197,6 +204,21 @@ class SectionAuthoringActionsTest {
         assertEquals(point(10.0, ViewDirection.BA), SectionAuthoringActions.selectBlockEnd(definitions(blocks = listOf(a)), target, topology))
     }
 
+    @Test fun `adjacent blocks can be created from either rail coordinate of their ordinary joint`() {
+        val joined = lineTopologyState(1, rail, otherRail)
+        var id = 0
+        val old = SectionAuthoringActions.placeSectionBoundary(joined, definitions(pending = listOf(first)),
+            point(10.0), 1.0, emptyMap(), directions) { "test:joint-${id++}" }.patch.upsertFixedBlocks.single()
+        val nextEnd = ProtectionBoundaryDefinition("test:next-end", RailPositionSnapshot(otherRail, ViewDirection.AB, 8.0))
+        val next = SectionAuthoringActions.placeSectionBoundary(joined,
+            definitions(blocks = listOf(old), pending = listOf(nextEnd)), RailPositionSnapshot(otherRail, ViewDirection.AB, 0.0),
+            1.0, emptyMap(), directions) { "test:joint-${id++}" }.patch
+        assertEquals(listOf(FixedBlockTraversal(otherRail, ViewDirection.AB, 0.0, 8.0)), next.upsertFixedBlocks.single().traversals)
+        assertTrue(next.removeFixedBlockIds.isEmpty())
+        assertTrue(next.upsertRegions.isEmpty())
+        assertTrue(next.pendingProtectionBoundaries!!.isEmpty())
+    }
+
     @Test fun `a new block outside an established region reuses its border without stealing ownership`() {
         var id = 0
         val edit = SectionAuthoringActions.placeSectionBoundary(topology, definitions(regions = listOf(region)),
@@ -204,6 +226,63 @@ class SectionAuthoringActionsTest {
         assertTrue(edit.patch.upsertRegions.isEmpty())
         assertEquals(listOf(FixedBlockTraversal(rail, ViewDirection.AB, 0.8, 2.0)), edit.patch.upsertFixedBlocks.single().traversals)
         assertTrue(edit.patch.pendingProtectionBoundaries!!.isEmpty())
+    }
+
+    @Test fun `four cuts with the same stored facing enclose a scissors crossover`() {
+        val rails = (1L..8L).map { UUID(0, it) }
+        val (a, b, c, d) = rails.take(4)
+        val (straightA, straightB, crossA, crossB) = rails.drop(4)
+        fun port(rail: UUID, end: RailEndpoint) = RailEndpointRef(rail, end)
+        val connections = listOf(a to straightA, a to crossA, b to straightB, b to crossB).map {
+            port(it.first, RailEndpoint.B) to port(it.second, RailEndpoint.A)
+        } + listOf(straightA to c, crossB to c, straightB to d, crossA to d).map {
+            port(it.first, RailEndpoint.B) to port(it.second, RailEndpoint.A)
+        }
+        val adjacency = linkedMapOf<RailEndpointRef, MutableSet<RailEndpointRef>>()
+        connections.forEach { (from, to) ->
+            adjacency.getOrPut(from, ::linkedSetOf) += to
+            adjacency.getOrPut(to, ::linkedSetOf) += from
+        }
+        val topology = buildTestTopology(1, rails.map { TestTopologyRail(it, 10.0) }, adjacency,
+            atGradeCrossings = listOf(AtGradeRailCrossing(RailCrossingPoint(crossA, 5.0), RailCrossingPoint(crossB, 5.0))))
+        val cuts = listOf(a, b, c, d).map { ProtectionBoundaryDefinition("test:cut-${it.leastSignificantBits}",
+            RailPositionSnapshot(it, ViewDirection.BA, 5.0)) }
+        fun create(facing: ViewDirection): ProtectionRegionDefinition {
+            var id = 0
+            val edit = SectionAuthoringActions.placeSectionBoundary(topology, definitions(pending = cuts.take(3)),
+                cuts.last().position.copy(facing = facing), 100.0, emptyMap(), directions) { "test:created-${id++}" }
+            assertTrue(edit.patch.pendingProtectionBoundaries!!.isEmpty())
+            return edit.patch.upsertRegions.single()
+        }
+        val forward = create(ViewDirection.AB)
+        assertEquals(mapOf(a to ViewDirection.AB, b to ViewDirection.AB, c to ViewDirection.BA, d to ViewDirection.BA),
+            forward.boundaries.associate { it.position.railId to it.insideFacing })
+        assertEquals(forward, create(ViewDirection.BA))
+        assertTrue(ProtectionRegionGraphResolver.resolve(forward, ProtectionRegionTopology.direct(topology)) is ProtectionRegionGraphResolution.Resolved)
+        // Existing failed drafts can be completed by clicking the interior without replacing cuts.
+        val confirmed = SectionAuthoringActions.confirmSection(topology, definitions(pending = cuts),
+            RailPositionSnapshot(crossA, ViewDirection.BA, 4.0), 100.0, emptyMap(), directions) { "test:confirmed" }
+        assertEquals(cuts.map { it.boundaryId }.toSet(), confirmed.patch.upsertRegions.single().boundaries.map { it.boundaryId }.toSet())
+    }
+
+    @Test fun `two closed loop components require an interior click instead of arbitrary direction`() {
+        val aEnd = RailEndpointRef(rail, RailEndpoint.B)
+        val aStart = RailEndpointRef(rail, RailEndpoint.A)
+        val bEnd = RailEndpointRef(otherRail, RailEndpoint.B)
+        val bStart = RailEndpointRef(otherRail, RailEndpoint.A)
+        val loop = buildTestTopology(1, listOf(TestTopologyRail(rail, 10.0), TestTopologyRail(otherRail, 10.0)),
+            mapOf(aEnd to setOf(bStart), bStart to setOf(aEnd), bEnd to setOf(aStart), aStart to setOf(bEnd)))
+        var id = 0
+        val pending = SectionAuthoringActions.placeSectionBoundary(loop, definitions(pending = listOf(first)),
+            point(8.0), 1.0, emptyMap(), directions) { "test:loop-${id++}" }
+        assertTrue(pending.patch.upsertFixedBlocks.isEmpty())
+        assertEquals(2, pending.patch.pendingProtectionBoundaries!!.size)
+        val defs = definitions(pending = pending.patch.pendingProtectionBoundaries)
+        val middle = SectionAuthoringActions.confirmSection(loop, defs, point(5.0), 1.0, emptyMap(), directions) { "test:middle" }
+        assertEquals(6.0, middle.patch.upsertFixedBlocks.single().traversals.sumOf { it.lengthMeters })
+        val outside = SectionAuthoringActions.confirmSection(loop, defs, point(9.0, ViewDirection.BA), 1.0, emptyMap(), directions) { "test:outside" }
+        assertEquals(14.0, outside.patch.upsertFixedBlocks.single().traversals.sumOf { it.lengthMeters })
+        assertTrue(outside.patch.pendingProtectionBoundaries!!.isEmpty())
     }
 
     private fun signal(name: String, blockId: String) =

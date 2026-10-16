@@ -65,10 +65,16 @@ internal class RuntimeSectionWandBackend(
             return ProtectionRouteDiscovery.discover(topology, region, interior, directions.directions)
         }
         if (tool == SectionWandTool.CREATE && leftClick) {
-            val region = publication.regions.compilationSnapshot()!!.regionIdsByRail[point.railId].orEmpty()
+            val compiled = publication.regions.compilationSnapshot()!!
+            val nearby = compiled.regionIdsByRail[point.railId].orEmpty()
                 .mapNotNull { id -> definitions.regions.singleOrNull { it.regionId == id } }
-                .singleOrNull { it.effectiveBoundaries.any { boundary -> boundary.insideFacing == point.facing &&
-                    samePoint(boundary.position, point, SectionAuthoringActions.SNAP_METERS) } }
+                .filter { it.boundaryDraft == null }
+            val inside = nearby.filter { region -> compiled.regionsById[region.regionId]!!.interior.any { slice ->
+                slice.railId == point.railId && point.arcLengthInAbMeters > slice.startAbMeters && point.arcLengthInAbMeters < slice.endAbMeters } }
+            val candidates = inside.ifEmpty { nearby.filter { region ->
+                region.effectiveBoundaries.any { samePoint(it.position, point) } } }
+            if (candidates.size > 1) return SectionWandOutcome(WandText.key("section.select.interior"))
+            val region = candidates.singleOrNull()
             if (region != null) {
                 val found = discover(region)
                 return SectionWandOutcome(WandText.key("region.warnings", found.routes.size, found.warningBoundaryIds.size), SectionWandKind.REGION,
@@ -78,9 +84,12 @@ internal class RuntimeSectionWandBackend(
         val edit = when (tool) {
             SectionWandTool.DELETE -> SectionAuthoringActions.deleteSection(definitions, point, leftClick, topology)
             SectionWandTool.CREATE -> {
-                val placed = SectionAuthoringActions.placeSectionBoundary(topology, definitions, point,
-                    maxRegionDistanceMeters, publication.regions.compilationSnapshot()!!.regionsById.mapValues { it.value.interior },
-                    { rails -> infrastructure.operatingDirections(captured.worldId, topology, rails).directions })
+                val interiors = publication.regions.compilationSnapshot()!!.regionsById.mapValues { it.value.interior }
+                val directions = { rails: Set<UUID> -> infrastructure.operatingDirections(captured.worldId, topology, rails).directions }
+                val placed = if (leftClick) SectionAuthoringActions.confirmSection(topology, definitions, point,
+                    maxRegionDistanceMeters, interiors, directions)
+                else SectionAuthoringActions.placeSectionBoundary(topology, definitions, point,
+                    maxRegionDistanceMeters, interiors, directions)
                 val region = placed.patch.upsertRegions.singleOrNull()?.takeIf { it.boundaryDraft == null &&
                     definitions.regions.none { old -> old.regionId == it.regionId } }
                 if (region == null) placed else {
@@ -95,6 +104,9 @@ internal class RuntimeSectionWandBackend(
                 }
             }
         }
+        if (edit.patch.upsertRegions.isEmpty() && edit.patch.upsertFixedBlocks.isEmpty() &&
+            edit.patch.removeFixedBlockIds.isEmpty() && edit.patch.pendingProtectionBoundaries == null)
+            return SectionWandOutcome(edit.text)
         require(active() && current(capture)) { "Selection expired before submission" }
         val result = manager.applyDefinitionPatch(captured.worldId, definitions.definitionRevision, edit.patch,
             captured.runtime, topology, active)

@@ -1005,6 +1005,24 @@ Each commit must explain which runtime flow it changes, the mechanism used, the 
 搜索和警告几何在worker，每个入口一次最短路搜索；替代通路用移除路径连接后的局部可达性检查。
 没有新增每tick图遍历或schema升级；完整TextDisplay、信号机Wand、测距及单线多闭塞协调不在本批，Stage2继续进行。
 
+## 当前批次：取消建造边界方向（2026-10-16）
+
+- [x] 无向切口自动识别唯一闭塞/保护区域；多个合法内部时点击内部确认，沿用局部拓扑搜索与正式候选校验。
+- [x] 旧待完成切口的facing不影响识别，正式入口方向由内部推导；修复保留区域、边界、进路和设备身份。
+- [x] 创建、唯一目标删除和警告查询不依赖玩家视线；多保护区域共用切口删除明确拒绝，不静默猜选。
+- [x] 更新中英文提示、所属合同，执行小范围有效回归及模块打包门禁，不运行全仓测试。
+- [x] 本地提交后统一交用户检查；本批不部署、不改开发服存档，Stage 2不因此标记完成。
+
+实际验证：隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`中，`SectionAuthoringActionsTest`18项、
+`SectionWandHandlerTest`侧向观察/过期publication 2项、真实manager待定点端点/长闭塞与区域+表原子完成/重载2项，
+共22项/3套，零失败、错误或跳过；最终定向门禁8秒。测试源全量编译，但只执行这些过滤用例，
+`verifySignalModuleBoundaries`/`verifyPluginJar`通过，`git diff --check`通过。
+新增三项有意义的算法回归：四个同BA切口的交叉渡线（含既存四pending内部确认）、环线两个候选由内部点选6米/14米路径，以及普通接头两条轨道坐标表示同一点时继续创建相邻闭塞；其余更新旧断言，不增加大矩阵。
+首轮编译发现不存在的UNCHANGED状态引用，已在门禁前修正；独立静态复核无阻断，提示文案小修已采纳。
+收尾窄复核另修正接头peer坐标被当成零长后继边界：复用真实拓扑的sameBlockBoundary排除起点的同位置表示，不按空间距离跳过沿途切口。最终只加跑接头创建/删除2项，3秒，通过且重新编译最终生产/测试源、模块/JAR门禁；两轮共覆盖23个不同用例，没有重复执行整套。已删除新编译警告中的多余非空断言。
+未验证真实客户端/服务器行为或规模延迟；未改变开发服定义、存档形状、schema/PDC版本、Core/Basic或ATO运行逻辑。
+多保护区域共享切口的删除选择仍未实现：当前明确拒绝且不修改数据，不宣称已解决全部共享边界删除。
+
 ## Rollback points
 
 - Keep module extraction, protection migration, route integration, reactive policy, persistence and rendering in separate commits.

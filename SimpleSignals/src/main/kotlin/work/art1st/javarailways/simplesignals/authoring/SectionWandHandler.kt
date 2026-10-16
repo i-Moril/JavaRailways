@@ -25,12 +25,10 @@ import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.Plugin
 import work.art1st.javarailways.bukkit.api.rail.RailTarget
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
-import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import java.util.Optional
 import java.util.concurrent.CompletionStage
-import kotlin.math.abs
 
 /** Platform capture and entity replies only; searches and definition transactions run on workers. */
 internal class SectionWandHandler(
@@ -103,10 +101,6 @@ internal class SectionWandHandler(
         if (captured == null) {
             session.busy.set(false); player.sendMessage(Component.text(WandI18n.format(locale, "world.unavailable"))); return
         }
-        val direction = player.eyeLocation.direction
-        val sightX = direction.x
-        val sightY = direction.y
-        val sightZ = direction.z
         fun active(): Boolean = sessions.current(playerId, session) && enabled()
         fun ownerCurrent(): Boolean = active() && player.isOnline && player.world.uid == worldId &&
             player.hasPermission(PERMISSION) && toolInHand(player) == tool
@@ -135,14 +129,9 @@ internal class SectionWandHandler(
                                 }
                                 return@worker
                             }
-                            val curve: Curve = targets.findCurve(worldId, selected.rail().id).orElseThrow { IllegalArgumentException("Rail no longer exists") }
-                            val tangent = curve.getPointAt(selected.arcLength()).tangent
-                            val dot = tangent.x() * sightX + tangent.y() * sightY + tangent.z() * sightZ
-                            require(abs(dot) >= 0.15) {
-                                WandI18n.format(locale, "section.direction")
-                            }
-                            val point = RailPositionSnapshot(selected.rail().id,
-                                if (dot >= 0) ViewDirection.AB else ViewDirection.BA, selected.arcLength())
+                            // Pending cuts have no player-authored facing. Formal inward directions
+                            // are derived only after a component has been selected.
+                            val point = RailPositionSnapshot(selected.rail().id, ViewDirection.AB, selected.arcLength())
                             val result = backend.perform(captured, tool, leftClick, point, ::active)
                             val warnings = RoutePreviewDrawing.warnings(result.warnings) { id -> targets.findCurve(worldId, id).orElse(null) }
                             entity(player) {

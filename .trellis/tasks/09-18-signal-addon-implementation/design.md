@@ -560,6 +560,10 @@ SimpleATO 只执行中立的“入口以前须具备到某位置的连续可行�
 具体方向字段、声明身份、错误和复杂度只在[双向闭塞合同](../../spec/simple-signals/backend/bidirectional-fixed-block.md)维护；
 准确代码影响见[研究](research/directional-fixed-block-signals.md)。未发布格式直接修正并保持schema 1；误升版2/3已恢复，无运行时旧开发reader。
 
+## 当前批次：无向建造切口与内部推导
+
+2026-10-16批准取消玩家放置边界时的方向要求，正式区域的有向入口不变。复用局部切分搜索、普通闭塞路径和唯一manager事务；唯一内部自动完成，多解时由内部点确认，不枚举边界朝向组合或新增tick扫描。既有区域修复保留身份和配置，邻区边界只作只读屏障。算法、生命周期和拒绝规则统一归[区间建造合同](../../spec/simple-signals/backend/section-authoring-wands.md)，替代此前依赖玩家视线确定区域内侧的交互设计。此批不部署、不迁移开发服存档。
+
 ## Open decisions
 
 - JS 技术栈、同步信号阶段、包目录、完整分支树、逐分支扫描距离、无通用预算及遇环停止均已批准。

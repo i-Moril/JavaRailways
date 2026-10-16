@@ -75,20 +75,23 @@ internal object SectionAuthoringActions {
     }
 
     fun deleteRegionBoundary(definitions: SimpleSignalsWorldDefinitions, point: RailPositionSnapshot): SectionAuthoringEdit {
-        val candidates = markers(definitions).filter { it.insideFacing == point.facing && samePoint(it.position, point, SNAP_METERS) }
+        val candidates = markers(definitions).filter { samePoint(it.position, point, SNAP_METERS) }
         val distance = candidates.minOfOrNull { abs(it.position.arcLengthInAbMeters - point.arcLengthInAbMeters) }
-            ?: throw IllegalArgumentException("No boundary faces this direction at this position")
-        val cut = candidates.filter { abs(abs(it.position.arcLengthInAbMeters - point.arcLengthInAbMeters) - distance) <= Curve.TOLERANCE }
-            .singleOrNull() ?: throw IllegalArgumentException("Several boundaries match this position and direction")
+            ?: throw IllegalArgumentException("No boundary at this position")
+        val nearest = candidates.filter { abs(abs(it.position.arcLengthInAbMeters - point.arcLengthInAbMeters) - distance) <= Curve.TOLERANCE }
+        val cut = nearest.first()
+        require(nearest.all { samePoint(it.position, cut.position) }) { "Several boundary positions are equally near" }
+        val owners = definitions.regions.filter { region -> region.effectiveBoundaries.any { samePoint(it.position, cut.position) } }
+        if (owners.size > 1) return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(), WandText.key("section.delete.ambiguous"))
         require(definitions.fixedBlocks.none { blockEnds(it).any { end -> samePoint(end, cut.position) } }) {
             "Left-click to delete the adjoining block before removing this protection boundary"
         }
-        val owner = definitions.regions.singleOrNull { cut in it.effectiveBoundaries }
+        val owner = owners.singleOrNull()
         return if (owner == null) SectionAuthoringEdit(SimpleSignalsDefinitionPatch(
-            pendingProtectionBoundaries = definitions.pendingProtectionBoundaries.filter { it.boundaryId != cut.boundaryId }),
+            pendingProtectionBoundaries = definitions.pendingProtectionBoundaries.filterNot { samePoint(it.position, cut.position) }),
             WandText.key("boundary.removed"))
         else SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertRegions = listOf(ProtectionRegionDefinition(
-            owner.regionId, owner.revision + 1, owner.boundaries, owner.effectiveBoundaries.filter { it.boundaryId != cut.boundaryId }))),
+            owner.regionId, owner.revision + 1, owner.boundaries, owner.effectiveBoundaries.filterNot { samePoint(it.position, cut.position) }))),
             WandText.key("region.unavailable", authoringName(owner.regionId, "name.region")))
     }
 
@@ -109,86 +112,98 @@ internal object SectionAuthoringActions {
         directions: (Set<UUID>) -> Map<UUID, ViewDirection?>,
         newId: () -> String = { "simplesignals:${UUID.randomUUID()}" }): SectionAuthoringEdit {
         val retainedCut = definitions.regions.filter { it.boundaryDraft != null }.flatMap { it.boundaries }
-            .filter { it.insideFacing == point.facing && samePoint(it.position, point, SNAP_METERS) }
+            .filter { samePoint(it.position, point, SNAP_METERS) }
             .minByOrNull { abs(it.position.arcLengthInAbMeters - point.arcLengthInAbMeters) }
-        val snapped = retainedCut?.position ?: snap(definitions, point)
+        val snapped = (retainedCut?.position ?: snap(definitions, point)).copy(facing = ViewDirection.AB)
         require(snapped.arcLengthInAbMeters <= topology.railLength(snapped.railId)) { "Boundary lies beyond its rail" }
-        val existing = markers(definitions)
-        // Restoring an accepted cut restores its stable boundary identity and every device reference.
-        val original = definitions.regions.flatMap { it.boundaries }
-            .filter { samePoint(it.position, snapped) && it.insideFacing == snapped.facing }
-        require(original.size <= 1) { "Boundary position has ambiguous established ownership" }
-        require(existing.none { samePoint(it.position, snapped) && it.insideFacing == snapped.facing }) {
-            "A boundary already occupies this position and direction"
+        val original = definitions.regions.filter { it.boundaryDraft != null }.flatMap { it.boundaries }
+            .filter { samePoint(it.position, snapped) }.singleOrNull()
+        val cut = markers(definitions).firstOrNull { samePoint(it.position, snapped) }
+            ?: original ?: ProtectionBoundaryDefinition(newId(), snapped)
+        val components = components(topology, definitions, maxDistanceMeters, cut).beside(cut)
+            .filterNot { occupied(definitions, it, retainedInteriors) }
+        if (components.size == 1) return completeSection(topology, definitions, components.single(), retainedInteriors, directions, maxDistanceMeters, newId)
+        val draftOwners = definitions.regions.filter { it.boundaryDraft != null &&
+            retainedInteriors[it.regionId].orEmpty().any { slice -> slice.railId == snapped.railId &&
+                snapped.arcLengthInAbMeters > slice.startAbMeters - Curve.TOLERANCE &&
+                snapped.arcLengthInAbMeters < slice.endAbMeters + Curve.TOLERANCE } }
+        require(draftOwners.size <= 1) { "This cut would merge established protection regions" }
+        val owner = draftOwners.singleOrNull()
+        val message = WandText.key(if (components.size > 1) "section.ambiguous" else "section.pending")
+        if (owner != null && owner.effectiveBoundaries.none { samePoint(it.position, snapped) }) {
+            return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertRegions = listOf(ProtectionRegionDefinition(
+                owner.regionId, owner.revision + 1, owner.boundaries, owner.effectiveBoundaries + cut))), message)
         }
-        val cut = original.singleOrNull() ?: ProtectionBoundaryDefinition(newId(), snapped)
-        // Published block/region borders are read-only barriers for a neighbouring component.
-        // Pending cuts retain the direction explicitly chosen by their author.
+        return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(pendingProtectionBoundaries =
+            if (markers(definitions).any { samePoint(it.position, cut.position) }) null
+            else definitions.pendingProtectionBoundaries + cut.copy(position = snapped)), message)
+    }
+
+    fun confirmSection(topology: TopologyState, definitions: SimpleSignalsWorldDefinitions,
+        point: RailPositionSnapshot, maxDistanceMeters: Double,
+        retainedInteriors: Map<String, List<ProtectionRegionInteriorSlice>>,
+        directions: (Set<UUID>) -> Map<UUID, ViewDirection?>,
+        newId: () -> String = { "simplesignals:${UUID.randomUUID()}" }): SectionAuthoringEdit {
+        val search = components(topology, definitions, maxDistanceMeters)
+        if (search.cuts.any { samePoint(it.position, point) || topology.sameBlockBoundary(it.position, point) })
+            return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(), WandText.key("section.select.interior"))
+        val component = search.containing(point)
+            ?: return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(), WandText.key("section.not.closed"))
+        require(!occupied(definitions, component, retainedInteriors)) { "This section already exists" }
+        return completeSection(topology, definitions, component, retainedInteriors, directions, maxDistanceMeters, newId)
+    }
+
+    private fun components(topology: TopologyState, definitions: SimpleSignalsWorldDefinitions,
+        maxDistanceMeters: Double, cut: ProtectionBoundaryDefinition? = null): SectionBoundaryComponents {
         val blockCuts = definitions.fixedBlocks.flatMap { block -> blockEnds(block).mapIndexed { index, end ->
             ProtectionBoundaryDefinition("${block.blockId}/boundary-$index", end)
         } }
-        val barriers = (existing + blockCuts).distinctBy { it.position.railId to it.position.arcLengthInAbMeters }
-        val establishedIds = (definitions.regions.flatMap { it.effectiveBoundaries } + blockCuts).map { it.boundaryId }.toSet()
-        val repairing = definitions.regions.any { region -> region.boundaries.any { it.boundaryId == cut.boundaryId } &&
-            region.boundaryDraft != null } || retainedInteriors.values.any { slices -> slices.any {
-            it.railId == snapped.railId && snapped.arcLengthInAbMeters > it.startAbMeters + Curve.TOLERANCE &&
-                snapped.arcLengthInAbMeters < it.endAbMeters - Curve.TOLERANCE
-        } }
-        if (!repairing) {
-            val nearest = BlockPathBuilder.nearestBoundary(topology, snapped, barriers.map { it.position })
-            if (nearest != null) {
-                val other = barriers.first { it.position == nearest }
-                val path = BlockPathBuilder.path(topology, snapped, nearest)
-                if (path.first().facing == snapped.facing &&
-                    (other.boundaryId in establishedIds || path.last().facing.reversed() == other.insideFacing)) {
-                    val block = BlockPathBuilder.definition(newId(), path, directions(path.map { it.railId }.toSet()))
-                    val made = createBlock(definitions, block)
-                    return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(block),
-                        pendingProtectionBoundaries = definitions.pendingProtectionBoundaries.filter {
-                            it.boundaryId != cut.boundaryId && it.boundaryId != other.boundaryId }), made.text)
-                }
-            }
-        }
-        val endpoint = snapped.arcLengthInAbMeters <= Curve.TOLERANCE ||
-            snapped.arcLengthInAbMeters >= topology.railLength(snapped.railId) - Curve.TOLERANCE
-        if (endpoint) return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(
-            pendingProtectionBoundaries = definitions.pendingProtectionBoundaries + cut), WandText.key("section.pending"))
-        val regionBarriers = barriers.filter { it.position.arcLengthInAbMeters > Curve.TOLERANCE &&
-            it.position.arcLengthInAbMeters < topology.railLength(it.position.railId) - Curve.TOLERANCE &&
-            !samePoint(it.position, cut.position) }
-        val search = ProtectionBoundarySearch.search(topology, cut, regionBarriers + cut, maxDistanceMeters, establishedIds)
-        val foundIds = search.boundaries.map { it.boundaryId }.toSet()
-        val owners = definitions.regions.filter { region ->
-            region.boundaries.any { it.boundaryId == cut.boundaryId && it.insideFacing == cut.insideFacing } ||
-                region.effectiveBoundaries.any { boundary -> search.boundaries.any {
-                    it.boundaryId == boundary.boundaryId && it.insideFacing == boundary.insideFacing } } ||
-                overlaps(search.interior, retainedInteriors[region.regionId].orEmpty())
-        }
-        require(owners.size <= 1) { "These boundaries would merge established protection regions; edit their cuts separately" }
+        return SectionBoundaryComponents(topology, listOfNotNull(cut) + markers(definitions) + blockCuts, maxDistanceMeters)
+    }
+
+    private fun occupied(definitions: SimpleSignalsWorldDefinitions, component: SectionBoundaryComponent,
+        retainedInteriors: Map<String, List<ProtectionRegionInteriorSlice>>): Boolean =
+        definitions.fixedBlocks.any { block -> overlaps(component.interior, block.traversals.map {
+            ProtectionRegionInteriorSlice(it.railId, it.lowerAbMeters, it.upperAbMeters) }) } ||
+            definitions.regions.any { it.boundaryDraft == null && overlaps(component.interior, retainedInteriors[it.regionId].orEmpty()) }
+
+    private fun completeSection(topology: TopologyState, definitions: SimpleSignalsWorldDefinitions,
+        component: SectionBoundaryComponent, retainedInteriors: Map<String, List<ProtectionRegionInteriorSlice>>,
+        directions: (Set<UUID>) -> Map<UUID, ViewDirection?>, maxDistanceMeters: Double, newId: () -> String): SectionAuthoringEdit {
+        val owners = definitions.regions.filter { overlaps(component.interior, retainedInteriors[it.regionId].orEmpty()) }
+        require(owners.size <= 1) { "These cuts would merge established protection regions" }
         val owner = owners.singleOrNull()
-        if (!search.complete) {
-            // A new cut is durable even while open. Existing ownership is retained independently
-            // of whether the bounded search reached any of the old remaining cuts.
-            return if (owner == null) SectionAuthoringEdit(SimpleSignalsDefinitionPatch(
-                pendingProtectionBoundaries = definitions.pendingProtectionBoundaries + cut), WandText.key("section.pending.detail", search.detail))
-            else SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertRegions = listOf(ProtectionRegionDefinition(
-                owner.regionId, owner.revision + 1, owner.boundaries, owner.effectiveBoundaries + cut))),
-                WandText.key("region.pending", search.detail))
+        val found = component.boundaries
+        val pending = definitions.pendingProtectionBoundaries.filterNot { pending -> found.any { samePoint(it.position, pending.position) } }
+        if (owner == null && component.blockPath != null) {
+            val block = BlockPathBuilder.definition(newId(), component.blockPath, directions(component.blockPath.map { it.railId }.toSet()))
+            val made = createBlock(definitions, block)
+            return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(block), pendingProtectionBoundaries = pending), made.text)
         }
-        require(owner == null || owner.effectiveBoundaries.all { it.boundaryId in foundIds }) {
+        require(owner == null || owner.effectiveBoundaries.all { remaining -> found.any { samePoint(it.position, remaining.position) } }) {
             "The closed component does not include every remaining boundary of the existing region"
         }
-        require(owner != null || containsConflict(topology, search.interior)) {
-            "A turnout-free section requires two unambiguous inward-facing boundaries"
+        require(owner != null || containsConflict(topology, component.interior)) {
+            "A turnout-free section requires two distinct boundaries"
         }
-        val regionBoundaries = search.boundaries.map { boundary ->
-            // A neighbouring component keeps its boundary and device identity.
-            if (owner == null && boundary.boundaryId in establishedIds)
-                boundary.copy(boundaryId = newId()) else boundary
+        val established = definitions.regions.flatMap { it.effectiveBoundaries }.map { it.boundaryId }.toSet()
+        val blockBorderIds = definitions.fixedBlocks.flatMap { block -> blockEnds(block).indices.map { "${block.blockId}/boundary-$it" } }.toSet()
+        val regionBoundaries = found.map { boundary ->
+            val accepted = (owner?.boundaries.orEmpty() + owner?.effectiveBoundaries.orEmpty())
+                .firstOrNull { samePoint(it.position, boundary.position) }
+            when {
+                accepted != null -> boundary.copy(boundaryId = accepted.boundaryId)
+                boundary.boundaryId in established || boundary.boundaryId in blockBorderIds -> boundary.copy(boundaryId = newId())
+                else -> boundary
+            }
         }
+        // Plain paths repaired as an existing protection region still obey its formal endpoint/range rules.
+        val verified = ProtectionBoundarySearch.search(topology, regionBoundaries.first(), regionBoundaries,
+            maxDistanceMeters)
+        require(verified.complete) { verified.detail }
         val region = ProtectionRegionDefinition(owner?.regionId ?: newId(), (owner?.revision ?: -1) + 1, regionBoundaries)
         return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertRegions = listOf(region),
-            pendingProtectionBoundaries = definitions.pendingProtectionBoundaries.filter { it.boundaryId !in foundIds }),
+            pendingProtectionBoundaries = pending),
             if (owner == null) WandText.key("region.created", authoringName(region.regionId, "name.region")) else
                 WandText.key("region.revalidated", authoringName(region.regionId, "name.region")))
     }

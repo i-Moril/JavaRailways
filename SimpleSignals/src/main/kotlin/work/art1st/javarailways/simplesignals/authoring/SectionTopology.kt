@@ -65,19 +65,19 @@ internal object BlockPathBuilder {
     fun nearestBoundary(topology: TopologyState, first: RailPositionSnapshot,
         boundaries: Collection<RailPositionSnapshot>): RailPositionSnapshot? {
         val byRail = boundaries.groupBy { it.railId }
-        val visited = hashSetOf<Pair<UUID, ViewDirection>>()
+        val visited = hashSetOf<Triple<UUID, ViewDirection, Double>>()
         var rail = first.railId
         var position = first.arcLengthInAbMeters
         var facing = first.facing
-        while (visited.add(rail to facing)) {
+        while (visited.add(Triple(rail, facing, position))) {
             val target = byRail[rail].orEmpty().filter {
-                !samePoint(it, first) && if (facing == ViewDirection.AB)
+                !topology.sameBlockBoundary(it, first) && if (facing == ViewDirection.AB)
                     it.arcLengthInAbMeters >= position - Curve.TOLERANCE
                 else it.arcLengthInAbMeters <= position + Curve.TOLERANCE
             }.minByOrNull { abs(it.arcLengthInAbMeters - position) }
             val end = target?.arcLengthInAbMeters ?: if (facing == ViewDirection.AB) topology.railLength(rail) else 0.0
             if (topology.crossesConflict(rail, position, end)) return null
-            if (target != null) return target
+            if (target != null) return target.copy(facing = facing.reversed())
             val port = RailEndpointRef(rail, if (facing == ViewDirection.AB) RailEndpoint.B else RailEndpoint.A)
             if (topology.structuralNodeAt(port) is TopologyNode.Turnout) return null
             val next = topology.continuations(port).singleOrNull() ?: return null
@@ -101,6 +101,10 @@ internal object BlockPathBuilder {
         return paths.single()
     }
 
+    /** The component was selected geometrically; do not reject the other side of a loop. */
+    fun directedPath(topology: TopologyState, first: RailPositionSnapshot, second: RailPositionSnapshot): List<FixedBlockTraversal> =
+        requireNotNull(walk(topology, first, second, first.facing)) { "No turnout-free path in the selected component" }
+
     fun definition(blockId: String, path: List<FixedBlockTraversal>, directions: Map<UUID, ViewDirection?>): FixedBlockDefinition {
         require(path.all { directions.containsKey(it.railId) }) { "Operating direction snapshot is incomplete" }
         val both = path.all { directions[it.railId] == null }
@@ -114,11 +118,11 @@ internal object BlockPathBuilder {
     private fun walk(topology: TopologyState, first: RailPositionSnapshot, target: RailPositionSnapshot,
         initialFacing: ViewDirection): List<FixedBlockTraversal>? {
         val path = mutableListOf<FixedBlockTraversal>()
-        val visited = hashSetOf<Pair<UUID, ViewDirection>>()
+        val visited = hashSetOf<Triple<UUID, ViewDirection, Double>>()
         var rail = first.railId
         var position = first.arcLengthInAbMeters
         var facing = initialFacing
-        while (visited.add(rail to facing)) {
+        while (visited.add(Triple(rail, facing, position))) {
             if (rail == target.railId && abs(position - target.arcLengthInAbMeters) <= Curve.TOLERANCE && path.isNotEmpty()) return path
             val length = topology.railLength(rail)
             val reachesTarget = rail == target.railId &&

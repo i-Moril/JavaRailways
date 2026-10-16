@@ -14,6 +14,8 @@ import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsRuntimePublic
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntime
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntimeManager
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
+import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry
+import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
 import work.art1st.javarailways.simplesignals.signal.AttachedSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
@@ -30,8 +32,36 @@ internal data class SignalWandOutcome(val text: WandText) {
 
 internal data class SignalWandChoice(val binding: SignalWandBinding, val label: WandText)
 
-internal data class ProtectionSignalRebindChoice(val definition: ProtectionSignalDefinition)
-internal data class ProtectionSignalRebindTarget(val entryBoundaryId: String, val bindingId: String)
+internal sealed interface SignalRebindChoice {
+    val signalId: String
+    val controlKind: SignalWandControlKind
+    val bindingId: String?
+}
+internal data class ProtectionSignalRebindChoice(val definition: ProtectionSignalDefinition) : SignalRebindChoice {
+    override val signalId get() = definition.signalId
+    override val controlKind get() = when (definition.kind) {
+        ProtectionSignalKind.FIXED_ROUTE -> SignalWandControlKind.PROTECTION_FIXED_ROUTE
+        ProtectionSignalKind.CURRENT_ENTRY -> SignalWandControlKind.PROTECTION_CURRENT_ENTRY
+    }
+    override val bindingId get() = definition.bindingId
+}
+internal data class FixedBlockSignalRebindChoice(val definition: FixedBlockSignalDefinition) : SignalRebindChoice {
+    override val signalId get() = definition.signalId
+    override val controlKind get() = SignalWandControlKind.FIXED_BLOCK
+    override val bindingId get() = definition.controlledBlockId
+}
+internal sealed interface SignalRebindTarget {
+    val bindingId: String
+    val description: WandText
+}
+internal data class ProtectionSignalRebindTarget(val entryBoundaryId: String, override val bindingId: String) : SignalRebindTarget {
+    override val description get() = WandText.key("signal.rebind.protection_target", authoringName(entryBoundaryId, "name.entrance"), authoringName(bindingId, "name.route"))
+}
+internal data class FixedBlockSignalRebindTarget(val entry: FixedBlockSignalEntry) : SignalRebindTarget {
+    override val bindingId get() = entry.blockId
+    override val description get() = WandText.key("signal.rebind.block_target", authoringName(entry.blockId, "name.block"),
+        WandText.key("signal.entry.${entry.direction.name}"))
+}
 internal data class RouteIndicatorWandOptions(val routeIds: List<String>, val variants: List<String>,
     val mappings: Map<String, String>)
 internal enum class PlacedSignalKind { FIXED_BLOCK, PROTECTION, ATTACHED, INDICATOR }
@@ -48,10 +78,10 @@ internal interface SignalWandBackend {
     fun placedDevices(capture: SignalWandCapture): List<PlacedSignalChoice>
     fun savePlacement(capture: SignalWandCapture, device: PlacedSignalChoice,
         placement: ModelPlacement, active: () -> Boolean): SignalWandOutcome
-    fun rebindDevices(capture: SignalWandCapture): List<ProtectionSignalRebindChoice>
-    fun rebindTargets(capture: SignalWandCapture, device: ProtectionSignalRebindChoice): List<ProtectionSignalRebindTarget>
-    fun rebind(capture: SignalWandCapture, device: ProtectionSignalRebindChoice,
-        target: ProtectionSignalRebindTarget, active: () -> Boolean): SignalWandOutcome
+    fun rebindDevices(capture: SignalWandCapture): List<SignalRebindChoice>
+    fun rebindTargets(capture: SignalWandCapture, device: SignalRebindChoice): List<SignalRebindTarget>
+    fun rebind(capture: SignalWandCapture, device: SignalRebindChoice,
+        target: SignalRebindTarget, active: () -> Boolean): SignalWandOutcome
     fun indicatorDevices(capture: SignalWandCapture): List<RouteIndicatorDefinition>
     fun indicatorEntries(capture: SignalWandCapture): List<String>
     fun indicatorOptions(capture: SignalWandCapture, binding: RouteIndicatorSignalWandBinding,
@@ -137,11 +167,11 @@ internal class RuntimeSignalWandBackend(
             infrastructure.currentTopology(captured.worldId) === captured.topology
     }
 
-    override fun rebindDevices(capture: SignalWandCapture): List<ProtectionSignalRebindChoice> {
+    override fun rebindDevices(capture: SignalWandCapture): List<SignalRebindChoice> {
         val captured = capture as Capture
         require(current(captured)) { "Signal selection expired; select again" }
-        return captured.publication.definitions.protectionSignals.sortedBy { it.signalId }
-            .map(::ProtectionSignalRebindChoice)
+        return (captured.publication.definitions.protectionSignals.map(::ProtectionSignalRebindChoice) +
+            captured.publication.definitions.fixedBlockSignals.map(::FixedBlockSignalRebindChoice)).sortedBy { it.signalId }
     }
 
     override fun placedDevices(capture: SignalWandCapture): List<PlacedSignalChoice> {
@@ -199,9 +229,20 @@ internal class RuntimeSignalWandBackend(
     }
 
     override fun rebindTargets(capture: SignalWandCapture,
-        device: ProtectionSignalRebindChoice): List<ProtectionSignalRebindTarget> {
+        device: SignalRebindChoice): List<SignalRebindTarget> {
         val captured = capture as Capture
         require(current(captured)) { "Signal selection expired; select again" }
+        if (device is FixedBlockSignalRebindChoice) {
+            require(device.definition in captured.publication.definitions.fixedBlockSignals) { "The selected fixed-block signal changed; select again" }
+            val blocks = captured.publication.fixedBlocks.snapshot(captured.topology)
+            val occupied = captured.publication.definitions.fixedBlockSignals.filter { it.signalId != device.signalId }.mapNotNull { it.entry }.toSet()
+            return blocks.blocksById.values.filter { it.definition.blockId !in blocks.unavailableBlockIds }.sortedBy { it.definition.blockId }
+                .flatMap { block ->
+                    val directions = if (block.definition.bidirectional) FixedBlockEntryDirection.entries else listOf(FixedBlockEntryDirection.FORWARD)
+                    directions.map { FixedBlockSignalEntry(block.definition.blockId, it) }
+                }.filterNot { it in occupied }.map(::FixedBlockSignalRebindTarget)
+        }
+        require(device is ProtectionSignalRebindChoice)
         require(device.definition in captured.publication.definitions.protectionSignals) {
             "The selected protection signal changed; select again"
         }
@@ -215,19 +256,31 @@ internal class RuntimeSignalWandBackend(
         }
     }
 
-    override fun rebind(capture: SignalWandCapture, device: ProtectionSignalRebindChoice,
-        target: ProtectionSignalRebindTarget, active: () -> Boolean): SignalWandOutcome {
+    override fun rebind(capture: SignalWandCapture, device: SignalRebindChoice,
+        target: SignalRebindTarget, active: () -> Boolean): SignalWandOutcome {
         val captured = capture as Capture
         require(active()) { "Signal selection is no longer active" }
-        require(target in rebindTargets(captured, device)) { "The selected protection target is not currently usable" }
-        val definition = device.definition
-        if (definition.bindingId == target.bindingId) return SignalWandOutcome(WandText.key("binding.unchanged", authoringName(definition.signalId, "name.signal")))
-        val updated = definition.copy(revision = nextRevision(definition.revision), bindingId = target.bindingId)
+        require(target in rebindTargets(captured, device)) { "The selected signal target is not currently usable" }
+        val patch = when (device) {
+            is ProtectionSignalRebindChoice -> {
+                require(target is ProtectionSignalRebindTarget)
+                val definition = device.definition
+                if (definition.bindingId == target.bindingId) return SignalWandOutcome(WandText.key("binding.unchanged", authoringName(device.signalId, "name.signal")))
+                SimpleSignalsDefinitionPatch(upsertProtectionSignals = listOf(definition.copy(revision = nextRevision(definition.revision), bindingId = target.bindingId)))
+            }
+            is FixedBlockSignalRebindChoice -> {
+                require(target is FixedBlockSignalRebindTarget)
+                val definition = device.definition
+                if (definition.entry == target.entry) return SignalWandOutcome(WandText.key("binding.unchanged", authoringName(device.signalId, "name.signal")))
+                SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(definition.copy(revision = nextRevision(definition.revision),
+                    controlledBlockId = target.entry.blockId, entryDirection = target.entry.direction)))
+            }
+        }
         val result = manager.applyDefinitionPatch(captured.worldId, captured.publication.definitions.definitionRevision,
-            SimpleSignalsDefinitionPatch(upsertProtectionSignals = listOf(updated)), captured.runtime, captured.topology,
+            patch, captured.runtime, captured.topology,
             { active() && current(captured) })
         return SignalWandOutcome(if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
-            WandText.key("binding.saved", authoringName(definition.signalId, "name.signal"), authoringName(target.bindingId, "name.route"))
+            WandText.key("binding.saved", authoringName(device.signalId, "name.signal"), target.description)
         else WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result)))
     }
 
@@ -565,7 +618,7 @@ internal class RuntimeSignalWandBackend(
         publication: SimpleSignalsRuntimePublication,
         binding: RouteIndicatorSignalWandBinding
     ): RouteIndicatorDefinition? {
-        require(binding.entryBoundaryId in checkNotNull(publication.regions.compilationSnapshot()).boundariesById) {
+        require(binding.entryBoundaryId == null || binding.entryBoundaryId in checkNotNull(publication.regions.compilationSnapshot()).boundariesById) {
             "The bound protection entrance no longer exists"
         }
         if (binding.indicatorId == null) return null

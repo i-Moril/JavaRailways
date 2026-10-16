@@ -34,10 +34,10 @@ class FixedBlockSignalCompilerTest {
         val reverse = signal("test:reverse", direction = FixedBlockEntryDirection.REVERSE, lead = 4.0)
         val compiled = CompiledFixedBlockSignals.compile(listOf(reverse, forward), snapshot())
 
-        assertTrue(compiled.hasSignalForEntry(forward.entry))
-        assertTrue(compiled.hasSignalForEntry(reverse.entry))
-        assertEquals(0.0, compiled.inspectionLeadTimeSeconds(forward.entry))
-        assertEquals(4.0, compiled.inspectionLeadTimeSeconds(reverse.entry))
+        assertTrue(compiled.hasSignalForEntry(requireNotNull(forward.entry)))
+        assertTrue(compiled.hasSignalForEntry(requireNotNull(reverse.entry)))
+        assertEquals(0.0, compiled.inspectionLeadTimeSeconds(requireNotNull(forward.entry)))
+        assertEquals(4.0, compiled.inspectionLeadTimeSeconds(requireNotNull(reverse.entry)))
         assertFalse(compiled.hasSignalForEntry(FixedBlockSignalEntry("test:other")))
     }
 

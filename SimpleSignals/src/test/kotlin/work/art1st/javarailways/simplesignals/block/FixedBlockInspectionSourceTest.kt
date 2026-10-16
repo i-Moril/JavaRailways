@@ -153,8 +153,8 @@ class FixedBlockInspectionSourceTest {
         val occupancy = worldRuntime.initializeSectionOccupancy()
         assertEquals(1, occupancy.source!!.areas.size)
         assertEquals(2, occupancy.source.areas.single().boundaries.size)
-        assertTrue(worldRuntime.authoringPublication().fixedBlockSignals.hasSignalForEntry(forwardSignal.entry))
-        assertTrue(worldRuntime.authoringPublication().fixedBlockSignals.hasSignalForEntry(reverseSignal.entry))
+        assertTrue(worldRuntime.authoringPublication().fixedBlockSignals.hasSignalForEntry(requireNotNull(forwardSignal.entry)))
+        assertTrue(worldRuntime.authoringPublication().fixedBlockSignals.hasSignalForEntry(requireNotNull(reverseSignal.entry)))
         val source = worldRuntime.fixedBlockInspectionSource
         val forward = route(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 10.0),
             RouteSegmentSnapshot(second, ViewDirection.AB, 0.0, 10.0))

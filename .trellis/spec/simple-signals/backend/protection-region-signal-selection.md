@@ -20,10 +20,11 @@
 `ProtectionSignalDefinition.kind`为稳定的`FIXED_ROUTE`或`CURRENT_ENTRY`，可空`bindingId`分别指向固定进路或有向入口；null明确表示未绑定，不选择其他进路，运行输出为Unavailable/0。非空引用仍严格校验。删除进路时的设备保留、入口关系与空表禁行归[工具合同](section-authoring-wands.md#删除进路保留设备与显式重绑)。
 定义还保存 `inspectionLeadTimeSeconds`、必填 `signalType` 和可选实例 placement。`signalType` 从 SimpleSignals catalog
 解析 modelId 与 logicId；占用、选路、route-ready 和树形下游事实交给 JS，Kotlin 只投影／校验输入输出，不保留速度档位表。
-`RouteIndicatorDefinition`保存入口ID、无进路variant及route-to-variant映射，不包含任何速度字段。
+`RouteIndicatorDefinition`保存可空入口ID、无进路variant及route-to-variant映射，不包含任何速度字段。入口null明确表示保留但未绑定，此时映射必须为空；非空未知入口或错误映射仍拒绝，不能用null支持吞掉非法配置。未绑定表示器的`RouteIndicatorState.selection`为空，使用明确配置的noRouteModelVariant，不为它创建假入口ID、资源或信号根。
 映射允许只配置本入口进路的子集，未知或其他入口的进路仍拒绝；选中缺项进路时使用明确配置的无进路外观，但保留真实selection身份。机制及界面状态归[表示器作者合同](section-authoring-wands.md#表示器映射作者与新建)。
 三类设备共用可选模型/摆放配置，轨道或地面位置不改变逻辑入口；具体存档与校验归
 [模型显示合同](model-presentation.md)，不保留显示器原有的第二份轨道坐标。
+未绑定设备仍按原稳定身份显示模型；附属设备仍指向保留主信号，不因逻辑绑定为空而丢失。表示器手动重绑复用原入口/映射编辑流程，先选真实可用入口，再配置和确认映射，不按模型位置或以后重现的同名ID自动绑定。
 
 固定进路信号不跟随当前入口的选路：即使当前入口选择B，它仍检查自己绑定的A的占用、实际道岔方向和出口下游。
 A必须有匹配的当前准入请求、覆盖本区域要求范围及车尾净空目标的完整授权、正确实际道岔状态和当前净空证明，才算准备完成。

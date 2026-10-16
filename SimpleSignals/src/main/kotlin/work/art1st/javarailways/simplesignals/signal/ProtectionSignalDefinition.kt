@@ -36,12 +36,12 @@ internal data class ProtectionSignalDefinition(
 internal data class RouteIndicatorDefinition private constructor(
     val indicatorId: String,
     val revision: Long,
-    val entryBoundaryId: String,
+    val entryBoundaryId: String?,
     val noRouteModelVariant: String,
     val modelVariantsByRouteId: java.util.SortedMap<String, String>,
     val model: DeviceModelDefinition?
 ) {
-    constructor(indicatorId: String, revision: Long, entryBoundaryId: String,
+    constructor(indicatorId: String, revision: Long, entryBoundaryId: String?,
         noRouteModelVariant: String, modelVariantsByRouteId: Map<String, String>,
         model: DeviceModelDefinition? = null
     ) : this(indicatorId, revision, entryBoundaryId, noRouteModelVariant,
@@ -49,7 +49,8 @@ internal data class RouteIndicatorDefinition private constructor(
 
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(indicatorId)) { "indicatorId must be namespaced" }
-        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(entryBoundaryId)) { "indicator entry must be namespaced" }
+        require(entryBoundaryId == null || SIMPLE_SIGNALS_NAMESPACED_ID.matches(entryBoundaryId)) { "indicator entry must be namespaced" }
+        require(entryBoundaryId != null || modelVariantsByRouteId.isEmpty()) { "unbound indicator must not configure route mappings" }
         require(revision >= 0) { "indicator revision must be non-negative" }
         require(noRouteModelVariant.isNotBlank() && modelVariantsByRouteId.values.all(String::isNotBlank)) {
             "indicator variants must not be blank"
@@ -61,6 +62,6 @@ internal data class RouteIndicatorDefinition private constructor(
 }
 
 internal data class RouteIndicatorState(
-    val selection: SelectedProtectionRoute,
+    val selection: SelectedProtectionRoute?,
     val modelVariant: String
 )

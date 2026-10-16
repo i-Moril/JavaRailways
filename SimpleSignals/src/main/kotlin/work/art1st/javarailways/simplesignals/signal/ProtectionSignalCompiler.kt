@@ -18,7 +18,8 @@ internal class CompiledProtectionSignals private constructor(
     val indicatorsById: Map<String, RouteIndicatorDefinition>,
     val routeIdsBySignal: Map<String, List<String>>
 ) {
-    val indicatorsByEntry = indicatorsById.values.groupBy { it.entryBoundaryId }
+    val indicatorsByEntry = indicatorsById.values.mapNotNull { indicator -> indicator.entryBoundaryId?.let { it to indicator } }
+        .groupBy({ it.first }, { it.second })
     val signalIdsByRoute = routeIdsBySignal.entries.flatMap { (signal, routes) -> routes.map { it to signal } }
         .groupBy({ it.first }, { it.second })
     val signalIdsByDeclaration = definitionsById.keys.associateBy(::protectionSignalDeclarationId)
@@ -68,7 +69,7 @@ internal class CompiledProtectionSignals private constructor(
             }
 
             val geometryCatalog = FixedBlockCatalog(allowTurnoutGeometry = true)
-            val indicatorEntries = indicators.mapTo(hashSetOf()) { it.entryBoundaryId }
+            val indicatorEntries = indicators.mapNotNullTo(hashSetOf()) { it.entryBoundaryId }
             val observedRouteIds = routeIdsBySignal.values.flatten().toSortedSet().also { ids ->
                 routes.routesById.values.filter { it.definition.entryBoundaryId in indicatorEntries }
                     .forEach { ids += it.definition.routeId }
@@ -100,6 +101,7 @@ internal class CompiledProtectionSignals private constructor(
             }
             indicators.forEach { indicator ->
                 if (!revalidatingTopology) indicator.model?.validatePlacement(topology, indicator.indicatorId)
+                if (indicator.entryBoundaryId == null) return@forEach
                 val entryRoutes = usableByEntry[indicator.entryBoundaryId].orEmpty()
                 val authoredEntry = authoredByEntry[indicator.entryBoundaryId].orEmpty()
                 require(entryRoutes.isNotEmpty() || authoredEntry.isNotEmpty() ||

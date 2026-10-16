@@ -60,6 +60,16 @@ Wand 的两种编辑操作含义不同：改变轨道附着的 AB/BA 方向时�
 两种摆放方式最终都交给主插件相同的 `ModelPose` 和模型显示接口，不增加第二套渲染器。
 地面摆放只改变显示位置，不能取代信号逻辑所需的闭塞区间或保护区域绑定。
 
+### 保留但未绑定的设备
+
+设备逻辑绑定与模型摆放相互独立。固定闭塞主信号的`controlledBlockId`、保护主信号的`bindingId`、表示器的`entryBoundaryId`均可用显式null表达未绑定，不能以拼错/已删除的非空ID代替。未绑定仍保留signalType或model、设备ID/revision、placement及附属primary关系，不创建另一个“废弃设备”存档。
+
+候选编译继续检查设备身份、catalog/model及真实摆放。固定闭塞未绑定设备不注册真实entry/观察根/inspection；主信号Unavailable，主模型及附属模型按原无效状态路径显示。表示器null入口必须配空映射，selection为空并使用自己的noRouteModelVariant；模型准备仍校验该外观。逻辑为空不等于隐藏设备，且不能伪造一个区间给规则计算。
+
+current codec保持schema 1，writer对nullable绑定写明确null，reader不为缺失字段补猜测绑定，也不新增别名或旧开发reader。显式手动重绑通过同一事务提高原设备revision，只改目标绑定/必要表示器映射，不改变类型、模型或位置；目标存在相同ID不能自动恢复旧绑定。详细界面、旧/新编辑保护及无副作用拒绝见[工具合同](section-authoring-wands.md)。
+
+必要回归为null绑定current round-trip、非空未知ID拒绝、无观察根仍保留主从显示、表示器无入口显示no-route、手动重绑和过期确认不改旧状态。解除绑定和模型变更沿用同一worker准备及原子publication，普通signal epoch只消费已准备输出，不新增每tick找目标或曲线定位。
+
 ### 显示绑定不在每 tick 重新定位
 
 绑定准备取得不可变曲线后保存计算结果，信号状态更新只选择场景，不再次查曲线。

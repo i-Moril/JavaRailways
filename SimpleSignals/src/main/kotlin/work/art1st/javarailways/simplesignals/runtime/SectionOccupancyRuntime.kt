@@ -101,12 +101,12 @@ internal class SectionOccupancyRuntime private constructor(
     private val definitionsBySignal = publication.definitions.fixedBlockSignals.associateBy { it.signalId } +
         publication.definitions.protectionSignals.associateBy { it.signalId }
     private val fixedBlockIdByDeviceId = publication.definitions.fixedBlockSignals
-        .associate { it.signalId to it.controlledBlockId }
+        .mapNotNull { definition -> definition.controlledBlockId?.let { definition.signalId to it } }.toMap()
     private val fixedSignalIdByEntry = publication.definitions.fixedBlockSignals
-        .associate { it.entry to it.signalId }
-    private val declarationIdBySignalId = publication.definitions.fixedBlockSignals.associate { definition ->
-        definition.signalId to fixedBlockSignalDeclarationId(definition.controlledBlockId, definition.entryDirection)
-    } + publication.definitions.protectionSignals.associate { definition ->
+        .mapNotNull { definition -> definition.entry?.let { it to definition.signalId } }.toMap()
+    private val declarationIdBySignalId = publication.definitions.fixedBlockSignals.mapNotNull { definition ->
+        definition.controlledBlockId?.let { definition.signalId to fixedBlockSignalDeclarationId(it, definition.entryDirection) }
+    }.toMap() + publication.definitions.protectionSignals.associate { definition ->
         definition.signalId to work.art1st.javarailways.simplesignals.signal.protectionSignalDeclarationId(definition.signalId)
     }
 
@@ -178,7 +178,7 @@ internal class SectionOccupancyRuntime private constructor(
     fun selectionSnapshot() = latest?.selection
 
     val source: SignalEpochSource? = if (bindingsByArea.isEmpty() && protectionRouteSelection.source == null &&
-        signalPackRules == null) {
+        signalPackRules == null && protectionSignals.indicatorsById.isEmpty()) {
         null
     } else {
         SignalEpochSource(
@@ -279,12 +279,12 @@ internal class SectionOccupancyRuntime private constructor(
                 changedEntries.flatMap { protectionSignals.indicatorsByEntry[it].orEmpty() }
             changedIndicators.forEach { indicator ->
                 changedIndicatorIds += indicator.indicatorId
-                val selected = selection?.selections?.get(indicator.entryBoundaryId) ?:
-                    work.art1st.javarailways.simplesignals.signal.SelectedProtectionRoute(indicator.entryBoundaryId,
+                val selected = indicator.entryBoundaryId?.let { entry -> selection?.selections?.get(entry) ?:
+                    work.art1st.javarailways.simplesignals.signal.SelectedProtectionRoute(entry,
                         work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionSource.NONE,
-                        available = false)
+                        available = false) }
                 next[indicator.indicatorId] = work.art1st.javarailways.simplesignals.signal.RouteIndicatorState(
-                    selected, selected.routeId?.takeIf { selected.available }?.let(indicator.modelVariantsByRouteId::get)
+                    selected, selected?.takeIf { it.available }?.routeId?.let(indicator.modelVariantsByRouteId::get)
                         ?: indicator.noRouteModelVariant)
             }
             indicatorStates = java.util.Map.copyOf(next)

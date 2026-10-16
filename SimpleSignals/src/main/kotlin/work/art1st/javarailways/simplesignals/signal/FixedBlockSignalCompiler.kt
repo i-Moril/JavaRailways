@@ -24,23 +24,23 @@ internal class CompiledFixedBlockSignals private constructor(
             require(copied.map(FixedBlockSignalDefinition::signalId).distinct().size == copied.size) {
                 "fixed-block signal IDs must be unique"
             }
-            require(copied.map(FixedBlockSignalDefinition::entry).distinct().size == copied.size) {
+            val entries = copied.mapNotNull(FixedBlockSignalDefinition::entry)
+            require(entries.distinct().size == entries.size) {
                 "fixed-block entries may define at most one signal"
             }
             copied.forEach { definition ->
-                val block = requireNotNull(fixedBlocks.blocksById[definition.controlledBlockId]) {
+                if (!revalidatingTopology) definition.placement?.validatePlacement(fixedBlocks.topology, definition.signalId)
+                val blockId = definition.controlledBlockId ?: return@forEach
+                val block = requireNotNull(fixedBlocks.blocksById[blockId]) {
                     "signal ${definition.signalId} controls unknown block ${definition.controlledBlockId}"
                 }
                 require(definition.entryDirection != FixedBlockEntryDirection.REVERSE || block.definition.bidirectional) {
                     "signal ${definition.signalId} cannot bind the reverse entry of a single-direction block"
                 }
-                if (!revalidatingTopology) {
-                    definition.placement?.validatePlacement(fixedBlocks.topology, definition.signalId)
-                }
             }
-            return CompiledFixedBlockSignals(copied.associate {
-                it.entry to it.inspectionLeadTimeSeconds
-            })
+            return CompiledFixedBlockSignals(copied.mapNotNull { definition ->
+                definition.entry?.let { it to definition.inspectionLeadTimeSeconds }
+            }.toMap())
         }
     }
 }

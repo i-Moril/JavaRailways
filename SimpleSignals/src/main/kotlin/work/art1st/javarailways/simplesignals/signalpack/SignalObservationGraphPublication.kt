@@ -212,8 +212,13 @@ internal object SignalObservationGraphBuilder {
     ): Map<String, List<SignalObservationScanState>> {
         val result = linkedMapOf<String, List<SignalObservationScanState>>()
         definitions.fixedBlockSignals.sortedBy { it.signalId }.forEach { signal ->
+            val blockId = signal.controlledBlockId
+            if (blockId == null) {
+                result[signal.signalId] = emptyList()
+                return@forEach
+            }
             val state = sections.keys.singleOrNull { state ->
-                state.section == SectionRef(SectionKind.FIXED_BLOCK, signal.controlledBlockId) &&
+                state.section == SectionRef(SectionKind.FIXED_BLOCK, blockId) &&
                     state.entryBoundaryId == if (signal.entryDirection == FixedBlockEntryDirection.FORWARD)
                         "${signal.controlledBlockId}/entry" else "${signal.controlledBlockId}/exit"
             }

@@ -58,8 +58,9 @@ internal class SectionTopologyIndex(
             publication.definitions.protectionSignals.map { it.signalId }).toSet()
         logicalSignalIds.forEach { id -> rails[TopologySection(TopologySectionKind.SIGNAL, id)] = linkedSetOf() }
         publication.definitions.fixedBlockSignals.forEach { signal ->
+            val blockId = signal.controlledBlockId ?: return@forEach
             rails.getValue(TopologySection(TopologySectionKind.SIGNAL, signal.signalId))
-                .addAll(rails[TopologySection(TopologySectionKind.BLOCK, signal.controlledBlockId)].orEmpty())
+                .addAll(rails[TopologySection(TopologySectionKind.BLOCK, blockId)].orEmpty())
         }
         val authoredRoutes = publication.definitions.routeTables.flatMap { table -> table.routes.map { it.routeId to table.regionId } }.toMap()
         val routeRails = publication.definitions.routeTables.flatMap { it.routes }.associate { route ->
@@ -113,7 +114,7 @@ internal class SectionTopologyIndex(
         }
         val usableSignals = hashSetOf<String>()
         publication.definitions.fixedBlockSignals.filter { signal ->
-            signal.controlledBlockId !in blocks.unavailableBlockIds
+            signal.controlledBlockId != null && signal.controlledBlockId !in blocks.unavailableBlockIds
         }.mapTo(usableSignals) { it.signalId }
         publication.definitions.protectionSignals.filter { signal ->
             publication.protectionSignals.routeIdsBySignal[signal.signalId].orEmpty().isNotEmpty()

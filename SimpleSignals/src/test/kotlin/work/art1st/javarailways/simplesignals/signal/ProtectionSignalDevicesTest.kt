@@ -94,12 +94,12 @@ class ProtectionSignalDevicesTest {
             assertEquals(expected, speed(f.world, current.signalId))
         }
         speeds(0.0)
-        assertTrue(f.world.routeIndicatorStates().values.all { it.selection.source == ProtectionRouteSelectionSource.NONE })
+        assertTrue(f.world.routeIndicatorStates().values.all { requireNotNull(it.selection).source == ProtectionRouteSelectionSource.NONE })
         f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 20.0)))
         f.epoch.process(frame(2, first))
         speeds(0.0)
         assertTrue(f.world.routeIndicatorStates().values.all {
-            it.selection.routeId == routeA.routeId && !it.selection.routeReady })
+            requireNotNull(it.selection).routeId == routeA.routeId && !requireNotNull(it.selection).routeReady })
         f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(route, 20.0, 14.0)))
         f.epoch.process(frame(3, first))
         speeds(0.0)
@@ -119,7 +119,7 @@ class ProtectionSignalDevicesTest {
         f.epoch.process(frame(8, first))
         speeds(0.0)
         assertTrue(f.world.routeIndicatorStates().values.all {
-            it.selection.source == ProtectionRouteSelectionSource.NONE && it.selection.routeId == null &&
+            requireNotNull(it.selection).source == ProtectionRouteSelectionSource.NONE && requireNotNull(it.selection).routeId == null &&
                 it.modelVariant == "opaque/none" })
     }
 
@@ -140,7 +140,7 @@ class ProtectionSignalDevicesTest {
         f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(mission(first), 20.0, 20.0)))
         f.epoch.process(physical(1, 4.0))
         assertTrue(f.world.routeIndicatorStates().values.all {
-            it.selection.routeId == routeA.routeId && it.selection.routeReady })
+            requireNotNull(it.selection).routeId == routeA.routeId && requireNotNull(it.selection).routeReady })
         f.epoch.process(physical(2, 4.0))
         assertEquals(ProtectionRouteSelectionSource.REQUEST,
             f.world.protectionRouteSelectionSnapshot()!!.selections.getValue("test:entry").source)
@@ -148,7 +148,7 @@ class ProtectionSignalDevicesTest {
         assertEquals(0.0, speed(f.world, fixed.signalId))
         assertEquals(0.0, speed(f.world, current.signalId))
         assertTrue(f.world.routeIndicatorStates().values.all {
-            it.selection.source == ProtectionRouteSelectionSource.NONE && it.selection.routeId == null &&
+            requireNotNull(it.selection).source == ProtectionRouteSelectionSource.NONE && requireNotNull(it.selection).routeId == null &&
                 it.modelVariant == "opaque/none" })
         assertEquals(1, f.world.sectionOccupancySnapshot()!!.crossingsBySection.getValue(
             SectionRef(SectionKind.PROTECTION_ROUTE, routeA.routeId)).size)
@@ -169,15 +169,15 @@ class ProtectionSignalDevicesTest {
         assertInstanceOf(SectionSignalState.Unavailable::class.java,
             f.world.sectionSignalSnapshot()!!.states.getValue(current.signalId))
         f.world.routeIndicatorStates().values.forEach {
-            assertEquals(routeB.routeId, it.selection.routeId)
+            assertEquals(routeB.routeId, requireNotNull(it.selection).routeId)
             assertEquals("opaque/b", it.modelVariant)
-            assertFalse(it.selection.routeReady)
+            assertFalse(requireNotNull(it.selection).routeReady)
         }
         f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, admission(frozen, 20.0, 16.0)))
         f.epoch.process(frame(3, second))
         assertEquals(0.0, speed(f.world, current.signalId))
         assertEquals(0.0, speed(f.world, fixed.signalId))
-        assertTrue(f.world.routeIndicatorStates().values.all { it.selection.routeReady })
+        assertTrue(f.world.routeIndicatorStates().values.all { requireNotNull(it.selection).routeReady })
         assertTrue(f.invalidations.last().contains(protectionSignalDeclarationId(current.signalId)))
         val same = f.world.sectionSignalSnapshot()
         val sameIndicators = f.world.routeIndicatorStates()
@@ -199,7 +199,7 @@ class ProtectionSignalDevicesTest {
         f.epoch.process(frame(2, first))
         assertEquals(0.0, speed(f.world, fixed.signalId), "ambiguous owners must stop the fixed route")
         assertEquals(0.0, speed(f.world, current.signalId))
-        assertTrue(f.world.routeIndicatorStates().values.all { !it.selection.available })
+        assertTrue(f.world.routeIndicatorStates().values.all { !requireNotNull(it.selection).available })
         f.epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(other, null))
         f.epoch.process(frame(3, first))
         assertEquals(0.0, speed(f.world, fixed.signalId))

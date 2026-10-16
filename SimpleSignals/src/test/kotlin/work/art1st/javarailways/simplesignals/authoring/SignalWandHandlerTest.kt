@@ -204,12 +204,12 @@ class SignalWandHandlerTest {
 
     @Test fun `rebind dialog includes unbound device waits for confirmation and ignores repeated old callbacks`() = Fixture().use { f ->
         val original = f.tool
-        f.handler.selectSetting(f.player, original, SignalWandSettingAction.RebindProtection); f.drain()
+        f.handler.selectSetting(f.player, original, SignalWandSettingAction.RebindSignal); f.drain()
         assertTrue(f.dialogOptions.single().first.contains("unbound"))
         val old = f.dialogOptions.single().second
         // Escape is callback-free; reopening must still work and retires the old page.
         f.handler.openSettings(f.player, f.tool)
-        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.RebindProtection); f.drain()
+        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.RebindSignal); f.drain()
         old(); f.drain()
         assertTrue(f.dialogOptions.single().first.contains("unbound"))
         val device = f.dialogOptions.single().second
@@ -228,7 +228,7 @@ class SignalWandHandlerTest {
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = ["cancel", "tool", "permission", "settings", "catalog"])
     fun `rebind final confirmation rejects cancelled or stale continuation`(reason: String) = Fixture().use { f ->
-        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.RebindProtection); f.drain()
+        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.RebindSignal); f.drain()
         f.dialogOptions.single().second(); f.drain()
         f.dialogOptions.single().second(); f.drain()
         val confirm = f.dialogOptions.first().second
@@ -935,17 +935,17 @@ class SignalWandHandlerTest {
                 placement?.let(placements::add)
                 return SignalWandOutcome("indicator saved")
             }
-            override fun rebindDevices(capture: SignalWandCapture): List<ProtectionSignalRebindChoice> {
+            override fun rebindDevices(capture: SignalWandCapture): List<SignalRebindChoice> {
                 check(!ownerThread)
                 return listOf(ProtectionSignalRebindChoice(ProtectionSignalDefinition("test:unbound", 2,
                     ProtectionSignalKind.FIXED_ROUTE, null, 0.0, "test:a")))
             }
-            override fun rebindTargets(capture: SignalWandCapture, device: ProtectionSignalRebindChoice): List<ProtectionSignalRebindTarget> {
+            override fun rebindTargets(capture: SignalWandCapture, device: SignalRebindChoice): List<SignalRebindTarget> {
                 check(!ownerThread)
                 return listOf(ProtectionSignalRebindTarget("test:entry", "test:route"))
             }
-            override fun rebind(capture: SignalWandCapture, device: ProtectionSignalRebindChoice,
-                target: ProtectionSignalRebindTarget, active: () -> Boolean): SignalWandOutcome {
+            override fun rebind(capture: SignalWandCapture, device: SignalRebindChoice,
+                target: SignalRebindTarget, active: () -> Boolean): SignalWandOutcome {
                 check(!ownerThread)
                 assertTrue(active())
                 require(current) { "Signal selection expired" }

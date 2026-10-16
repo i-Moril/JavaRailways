@@ -1043,10 +1043,10 @@ Java consumer编译门禁复用up-to-date结果；源checksum同步检查、`git
 
 ## 待实施批次：经路中心线、未绑定设备与整体删除
 
-状态：需求及三笔实施计划已由用户最终确认，第一笔显示实现及定向检查已完成，准备第二笔。保持Stage 2为in_progress，不为本子批次重新建立一套任务生命周期。
+状态：需求及三笔实施计划已由用户最终确认，第一、二笔实现及定向检查已完成，准备第三笔。保持Stage 2为in_progress，不为本子批次重新建立一套任务生命周期。
 
 1. [x] `fix(signals): retain only confirmed route centerlines in region drafts`：改编辑显示准备，过滤出入口仍存在的已保存进路并合并共用片段。最小验证：删一边界只隐藏相关进路、共用片段不误删/重复画、零可保留进路无中心线、草稿仍不可用。仅复用/更新相关overlay用例，不运行全模块套件。
-2. [ ] `feat(signals): retain unbound section devices and support rebinding`：闭塞主信号/表示器补齐显式未绑定，复用保护主信号模式，贯通编译、图/状态、呈现、current codec和必要重绑页。最小验证：current round-trip、未知非空ID拒绝、未绑定不控制其他对象且外观不可用/无进路、主机/附属身份和摆放保留、显式重绑及过期拒绝；同名对象重建不自动绑定。先核对全部nullable消费者，测试源全部编译，仅运行直接行为回归。
+2. [x] `feat(signals): retain unbound section devices and support rebinding`：闭塞主信号/表示器补齐显式未绑定，复用保护主信号模式，贯通编译、图/状态、呈现、current codec和必要重绑页。最小验证：current round-trip、未知非空ID拒绝、未绑定不控制其他对象且外观不可用/无进路、主机/附属身份和摆放保留、显式重绑及过期拒绝；同名对象重建不自动绑定。先核对全部nullable消费者，测试源全部编译，仅运行直接行为回归。
 3. [ ] `feat(signals): add whole-region deletion and device-retention settings`：Shift+右键设置默认保留设备，F模式切换保留偏好；删除模式右键内部准备确认整体区域/草稿删除，复用原事务和第二笔的解绑能力，同时支持关闭保留的级联删除。最小验证：确认前无修改、开启/关闭分别保留解绑/精确删除、零边界草稿可整体移除、相邻对象不变、编辑保护/过期/权限/切物品拒绝、中文/英文提示。AB/BC/CD中取消/补回BC继续走既有内部点击路径，不增加AD整体拆分工具。
 4. [ ] 每笔主控执行受影响生产/测试源编译与定向门禁，独立复核后同步owner规范、提交并请求预览。最终执行模块/JAR隔离门禁；不重复全仓/完整Signals套件，不扩大测试矩阵。
 5. [ ] 本批不执行SSH写操作、迁移或部署；待用户检查提交后另行授权。记录实际执行范围、缓存复用与客户端未验证项，不标记Stage 2完成。
@@ -1054,6 +1054,12 @@ Java consumer编译门禁复用up-to-date结果；源checksum同步检查、`git
 第一笔验证：只改overlay生产/测试两个文件及合同/计划。生产编译12秒（启动新的Gradle daemon），定向门禁6秒，
 只执行3项overlay回归，零失败/错误/跳过；新增2项、更新旧draft断言。测试源全部编译，不等于运行完整套件。
 独立只读复核、`git diff --check`通过。无存档/宿主API/资源包或运行授权修改，未部署、未验证真实画面。
+
+第二笔验证：生产编译通过，测试源全部编译；最终定向门禁9秒、4个类14项，零失败/错误/跳过。
+范围为current explicit-null codec、固定闭塞编译器、真实manager未绑定主信号/附属模型、表示器独立空世界首baseline、真实手动重绑及handler确认/取消接续。
+复核发现indicator-only无baseline source会误用默认模型，已复用原source修正并检查实际noRoute红灯场景。
+测试首次尝试在线新建ground+未绑定设备因无影响轨道被正确拒绝，夹具改为初始存档装载后真实重绑，未放宽编辑许可。
+独立只读复核和`git diff --check`通过，候选源码checksum同步一致；保留schema 1，无旧reader、部署或客户端验证。整区删除和Wand保留开关留第三笔。
 
 ## Rollback points
 

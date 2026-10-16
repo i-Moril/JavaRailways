@@ -21,18 +21,18 @@ internal data class FixedBlockSignalEntry(
 internal data class FixedBlockSignalDefinition(
     val signalId: String,
     val revision: Long,
-    val controlledBlockId: String,
+    val controlledBlockId: String?,
     val inspectionLeadTimeSeconds: Double,
     val signalType: String,
     val entryDirection: FixedBlockEntryDirection = FixedBlockEntryDirection.FORWARD,
     val placement: ModelPlacement? = null
 ) {
-    val entry: FixedBlockSignalEntry get() = FixedBlockSignalEntry(controlledBlockId, entryDirection)
+    val entry: FixedBlockSignalEntry? get() = controlledBlockId?.let { FixedBlockSignalEntry(it, entryDirection) }
 
     init {
         require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(signalId)) { "signalId must be namespaced" }
         require(revision >= 0L) { "signal revision must be non-negative" }
-        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(controlledBlockId)) {
+        require(controlledBlockId == null || SIMPLE_SIGNALS_NAMESPACED_ID.matches(controlledBlockId)) {
             "controlledBlockId must be namespaced"
         }
         require(inspectionLeadTimeSeconds.isFinite() && inspectionLeadTimeSeconds >= 0.0) {

@@ -171,7 +171,7 @@ private data class SavedFixedBlockTraversalV1(
 private data class SavedFixedBlockSignalV1(
     val signalId: String,
     val revision: Long,
-    val controlledBlockId: String,
+    val controlledBlockId: String?,
     val inspectionLeadTimeSeconds: Double,
     @SerialName("type") val signalType: String,
     /** Instances persist placement without duplicating the catalog-selected model ID. */
@@ -191,7 +191,7 @@ private data class SavedProtectionSignal(
 
 @Serializable
 private data class SavedRouteIndicator(
-    val indicatorId: String, val revision: Long, val entryBoundaryId: String,
+    val indicatorId: String, val revision: Long, val entryBoundaryId: String?,
     val noRouteModelVariant: String, val modelVariantsByRouteId: Map<String, String>,
     val model: SavedDeviceModel? = null
 )

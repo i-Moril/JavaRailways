@@ -86,7 +86,7 @@ class SectionTopologyRevalidationTest {
         runtime.topologyGuard.requireUsable(route(initial, unrelated), 10.0)
         val next = refresh(runtime)
         assertSame(otherGeometry, next.fixedBlocks.snapshot(changed).blocksById.getValue(other.blockId))
-        assertTrue(next.fixedBlockSignals.hasSignalForEntry(signal(other).entry))
+        assertTrue(next.fixedBlockSignals.hasSignalForEntry(requireNotNull(signal(other).entry)))
         assertEquals(setOf(main.blockId), next.fixedBlocks.snapshot(changed).unavailableBlockIds)
         assertEquals(original.definitions, runtime.currentDefinitions())
         assertTrue(FixedBlockRouteMatcher.matchRoute(runtime.fixedBlockSnapshot(), route(initial, unrelated)) is FixedBlockAuthorityMatchResult.Matched)

@@ -68,11 +68,11 @@ declaration = fixedBlockSignalDeclarationId(blockId, entryDirection)
 `CompiledFixedBlock.reverseTraversals` 是可丢弃派生路径；`FixedBlockRouteWindow.reversed` 只表示本次经过方向，不写盘。
 定义包含 `FixedBlockEntryDirection { FORWARD, REVERSE }`，
 `FixedBlockSignalDefinition.entryDirection: FixedBlockEntryDirection = FORWARD`。
-私有键 `FixedBlockSignalEntry(blockId: String, direction: FixedBlockEntryDirection)` 用于提前时间与配置存在性查表。
+私有键 `FixedBlockSignalEntry(blockId: String, direction: FixedBlockEntryDirection)` 用于提前时间与配置存在性查表。`FixedBlockSignalDefinition.controlledBlockId: String?`为null时明确未绑定，派生entry也为空，不向任何区间注册入口；非空仍必须引用真实区间。多台未绑定设备可以共存，入口唯一性只比较真实绑定，不能把null当成一个公共入口。
 共享规则运行时以 `signalIdForDeclaration(declarationId)` 定位确定的规则，区间运行时以 `fixedBlockSignal(entry)`
 先检查整个闭塞的控制有效性、再读取该入口输出；不再提供无方向的“区间唯一信号”查询。
 FORWARD 指作者路径的首端入口，REVERSE 指其反向路径首端入口，不等同于某条轨道的 AB/BA。
-每个 `(controlledBlockId, entryDirection)` 最多一个主信号；REVERSE 仅允许绑定双向闭塞。
+每个非空 `(controlledBlockId, entryDirection)` 最多一个主信号；REVERSE 仅允许绑定双向闭塞。未绑定设备保留entryDirection作为配置，但不因此生成反向声明或虚构区间。
 固定闭塞声明 ID 使用 `simplesignals:fixed-block/forward/<namespace>/<path>` 或
 `simplesignals:fixed-block/reverse/<namespace>/<path>`，资源 ID 仍是原 block ID。
 方向放在 namespace/path 之前，避免合法作者 ID `test:x/reverse` 与其他反向声明撞名。
@@ -99,6 +99,7 @@ Basic 方向变化只通知相关轨道；SimpleSignals 通过反向索引重新
 不能用“不生成 token/声明”表示拒绝，那会被调用者理解为无需任何附加限制。
 信号阶段把失配发布为 `SectionSignalState.Unavailable`，有效限速为 0，下游不能把它解释为可低速通过。
 设备保留配置，使用自己的模型 `default`。修正方向后重新计算，满足规则才恢复；旧 claim 不因失效被清除。
+明确未绑定的主信号不进入有向入口索引、观察根或inspection声明，设备本身与附属显示仍保留并使用Unavailable外观，不调用JS计算假区间状态。以后新建同名区间不自动绑定；必须由设置页明确选择当前有效入口并确认，更新同一设备revision，不移动其模型。
 
 未知物理基线、过期拓扑或插件故障仍禁止放行。非法字段、非连续路径、重复身份及 revision 错误仍拒绝候选。
 正式闭塞定义禁止穿过道岔，包括直向；保护进路的占用几何复用不受这一作者规则限制。
@@ -137,6 +138,7 @@ Basic 方向变化只通知相关轨道；SimpleSignals 通过反向索引重新
 每端缺配置与缺基线的区别、独立主/附属模型输出、区间删除移除两端、规则改绑的旧新编辑保护；
 重复入口与单向反向规则失败原子性、固定 current schema 双端 JSON fixture 及未知版本拒绝。
 当前固定 fixture 使用 schema 1，同时覆盖2/3及其他未知版本拒绝，不为开发代际建立兼容性，见下节。
+未绑定回归另覆盖：多台null设备可共存、非空未知区间仍拒绝、无入口/图根/声明却保留主从模型、Unavailable输出、current null存档与精确手动重绑及过期拒绝。不为此重复执行全部方向/资源矩阵。
 
 ## 10. 存档和待实现项
 

@@ -8,7 +8,7 @@ Signal Wand 已把逻辑入口与模型位置分成两步，覆盖固定闭塞�
 并覆盖附属信号的完整建造及既有进路表示器的编辑／删除：
 放置模式左键绑定入口并明确选择新建或精确既有设备，右键轨道或空气使用轨道附着位置，右键真实方块面使用地面位置，
 然后更新位置和类型；删除模式精确选择并删除一台主信号及其直接附属设备。
-现已提供[进路Wand删除与保护主信号重绑](#wand删除进路与保护信号重绑)：前者从已保存进路列表确认删除，后者从设置页确认逻辑目标，均不靠重新摆放模型完成。
+现已提供[进路Wand删除与主信号重绑](#wand删除进路与主信号重绑)：前者从已保存进路列表确认删除，后者从设置页确认逻辑目标，均不靠重新摆放模型完成。
 新建设备的 `inspectionLeadTimeSeconds` 固定为明确策略值 `0.0` 秒，表示不要求信号插件增加额外准备提前量；
 SimpleATO 的 inspection threshold 取 `max(reachableDistance(leadTime), dynamicLookahead)`，route perception horizon 也取
 controller 制动／反应／安全距离与 `maxSpeed * leadTime` 的最大值，而不是把两者相加。同步信号求值本身没有 setup delay；
@@ -182,7 +182,7 @@ Wand交互：左键入口可明确选新建或精确既有表示器。新建绑�
 删除最后一条进路保留同ID的空表；现有catalog将该区域标为不可用并禁止穿越，不能删除空表恢复自由选路。
 这约束的是“删除进路”操作；管理员明确通过原有低层patch删除整张进路表属于移除固定进路策略，不在这里新增禁止规则，也不暗中重建被明确删除的表。Wand删除进路不得使用该入口。
 
-保护主信号的`bindingId: String?`以null明确表示未绑定；有值时仍须匹配真实作者进路/区域边界入口，不接受拼错的ID。删除进路不等于删除物理入口，因此当前入口信号和表示器保留仍存在的入口绑定；表示器`entryBoundaryId`不改为可空。
+保护主信号的`bindingId: String?`以null明确表示未绑定；有值时仍须匹配真实作者进路/区域边界入口，不接受拼错的ID。删除进路不等于删除物理入口，因此当前入口信号和表示器保留仍存在的入口绑定；表示器`entryBoundaryId`现允许显式null供整体删除后保留设备，null时映射必须为空。这不放宽非空未知入口校验，也不改变单独删进路仍保留真实入口的规则。
 未绑定固定进路信号保留其kind，不能把null当成“当前入口”或任选进路。主信号无可用观察根时复用已有Unavailable安全输出；附属设备仍引用原主信号。
 入口没有可用进路时，表示器使用自己的无进路外观，不建立行车限制；首个baseline也必须有此结果，不能依赖模型默认场景。模型和摆放仍独立保留，不能沿模型位置猜测逻辑绑定。
 
@@ -210,17 +210,17 @@ Wand批次另验证设备选择、目标选择、确认前无写入、过期回�
 
 本后端批次直接修正未发布current sidecar，保持schema 1，不修改PDC或新增旧格式reader。禁止“允许所有未知ID”或“删除设备/空表”作为实现捷径。
 
-### Wand删除进路与保护信号重绑
+### Wand删除进路与主信号重绑
 
 状态：交互已接线并通过独立复核和离线门禁（2026-10-15）；真实服务器/客户端尚未验证。复用既有原生设置/选择页、worker和玩家owner接续，不增加工具模式、PDC字段、存档边界或新的编辑管理器。
 进路Wand原有左键入口、潜行左键出口、普通右键录制/替换不变；选中区域后Shift+右键列出该区域作者表内的进路（按稳定ID排序），选择精确进路后另行确认删除。列表不按当前道岔选通路径过滤，删除不要求该路径当前连通。
 `CurrentRouteRecording`在worker准备删除选择并捕获runtime、publication、topology及表/进路身份；确认后检查仍是原基线，只upsert保留ID的表、checked递增表revision，最后一条也保留空表。设备解除绑定及映射清理由现有manager完成，工具不复制该算法。
 
-Signal Wand设置页增加“重绑已有保护信号”：worker从当前世界定义列出固定进路/当前入口主信号，按signalId排序，含bindingId为null、无placement或ground摆放的设备。选中设备后，固定进路类列出当前可用进路，当前入口类列出拥有可用进路的入口；按钮明确显示目标入口及进路身份，再经确认页提交。
-后台接口在既有`SignalWandBackend`增加不可变的设备/目标选择值及重绑方法，`RuntimeSignalWandBackend`复用capture与唯一manager事务；不调用`place`，只checked递增所选设备revision并修改bindingId。控制kind、signalType、提前时间、placement及附属关系保持不变，不读取Wand当前模型/预设去重写设备。表示器跨入口重绑采用上文独立映射编辑流程，不在此保护主信号接口中猜测variant。
+Signal Wand设置页提供“重绑已有主信号”：worker从当前世界定义列出固定闭塞、固定进路和当前入口主信号，按signalId排序，含绑定为null、无placement或ground摆放的设备。固定闭塞类只列出未被其他信号占用的真实入口，反向入口仍要求双向闭塞；固定进路类列出当前可用进路，当前入口类列出拥有可用进路的入口。按钮明确显示目标身份，再经确认页提交。
+后台接口在既有`SignalWandBackend`使用不可变设备/目标选择值及重绑方法，`RuntimeSignalWandBackend`复用capture与唯一manager事务；不调用`place`，只checked递增所选设备revision并修改逻辑绑定（固定闭塞同时明确入口方向）。控制kind、signalType、提前时间、placement及附属关系保持不变，不读取Wand当前模型/预设去重写设备。表示器跨入口重绑采用上文独立映射编辑流程；当前入口为null时，先选择真实入口再配置映射，不猜测variant或虚构入口。
 
 私有工作线程入口：`CurrentRouteRecording.deletionChoices(selection): List<RecordedRouteDeletion>`与`delete(choice, active): String`；选择值持有不可变selection、publication、topology、table、route，不把运行时选择重新解释为另一条进路。
-重绑接口为`rebindDevices(capture): List<ProtectionSignalRebindChoice>`、`rebindTargets(capture, device): List<ProtectionSignalRebindTarget>`及`rebind(capture, device, target, active): SignalWandOutcome`；device保留完整不可变设备定义用于精确修订核对，target明确保存entryBoundaryId和bindingId。返回值沿用既有工具结果/诊断，不新增公共API。
+重绑接口为`rebindDevices(capture): List<SignalRebindChoice>`、`rebindTargets(capture, device): List<SignalRebindTarget>`及`rebind(capture, device, target, active): SignalWandOutcome`；小型sealed选择值区分固定闭塞与保护主信号，device保留完整不可变设备定义用于精确修订核对，target分别保存真实`FixedBlockSignalEntry`或entryBoundaryId/bindingId。返回值沿用既有工具结果/诊断，不新增公共API。
 
 ```text
 owner确认权限/世界/仍持原工具 -> worker捕获候选与精确修订 -> owner显示选择

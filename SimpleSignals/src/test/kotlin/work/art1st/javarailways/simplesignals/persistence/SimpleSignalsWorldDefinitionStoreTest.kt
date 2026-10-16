@@ -17,6 +17,7 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition
+import work.art1st.javarailways.simplesignals.signal.RouteIndicatorDefinition
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
@@ -24,6 +25,29 @@ import java.util.UUID
 class SimpleSignalsWorldDefinitionStoreTest {
     @TempDir
     lateinit var directory: Path
+
+    @Test
+    fun `unbound fixed signals and indicators persist explicit null in current schema`() {
+        val signal = FixedBlockSignalDefinition("test:unbound", 2, null, 0.0, "automatic:block")
+        val indicator = RouteIndicatorDefinition("test:indicator", 3, null, "stop", emptyMap())
+        val document = SimpleSignalsWorldDefinitions(WORLD_ID, 4, emptyList(), emptyList(),
+            fixedBlockSignals = listOf(signal), routeIndicators = listOf(indicator))
+        val encoded = SimpleSignalsWorldDefinitionsCodec.encode(document)
+        assertEquals(document, SimpleSignalsWorldDefinitionsCodec.decode(encoded, WORLD_ID))
+        val root = Json.parseToJsonElement(encoded).jsonObject
+        assertEquals(kotlinx.serialization.json.JsonNull, root.getValue("fixedBlockSignals").jsonArray.single().jsonObject.getValue("controlledBlockId"))
+        assertEquals(kotlinx.serialization.json.JsonNull, root.getValue("routeIndicators").jsonArray.single().jsonObject.getValue("entryBoundaryId"))
+        assertTrue(encoded.contains("\"schemaVersion\": 1"))
+        assertThrows(IllegalArgumentException::class.java) {
+            RouteIndicatorDefinition("test:invalid", 1, null, "stop", mapOf("test:route" to "proceed"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            SimpleSignalsWorldDefinitionsCodec.decode(encoded.replace("\"controlledBlockId\": null,", ""), WORLD_ID)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            SimpleSignalsWorldDefinitionsCodec.decode(encoded.replace("\"entryBoundaryId\": null,", ""), WORLD_ID)
+        }
+    }
 
     @Test
     fun `fixed absent bidirectional fixture defaults false and explicit true stays in current schema`() {

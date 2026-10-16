@@ -183,7 +183,7 @@ internal class SignalWandHandler(
                 WandI18n.format(player, "signal.preset", name), openingState.railPreset?.let {
                     it.modelId == railModel.modelId && it.name == name
                 } == true)
-        } + SignalWandSetting(SignalWandSettingAction.RebindProtection, WandI18n.format(player, "signal.rebind"), false) +
+        } + SignalWandSetting(SignalWandSettingAction.RebindSignal, WandI18n.format(player, "signal.rebind"), false) +
             SignalWandSetting(SignalWandSettingAction.EditIndicator, WandI18n.format(player, "signal.indicator.edit"), false) +
             SignalWandSetting(SignalWandSettingAction.EditPlacement, WandI18n.format(player, "signal.placement.edit"), false)
         showSettings(player, settings) { action ->
@@ -201,7 +201,7 @@ internal class SignalWandHandler(
         if (current != openingState) {
             player.sendMessage(Component.text(WandI18n.format(player, "signal.expired"))); return
         }
-        if (action === SignalWandSettingAction.RebindProtection) {
+        if (action === SignalWandSettingAction.RebindSignal) {
             openRebind(player, current)
             return
         }
@@ -266,7 +266,7 @@ internal class SignalWandHandler(
             )
             is SignalWandSettingAction.RailPreset -> current.copy(stateRevision = revision, railPreset = selectedPreset)
             SignalWandSettingAction.ClearRailPreset -> current.copy(stateRevision = revision, railPreset = null)
-            SignalWandSettingAction.RebindProtection -> return
+            SignalWandSettingAction.RebindSignal -> return
             SignalWandSettingAction.EditIndicator -> return
             SignalWandSettingAction.EditPlacement -> return
         }
@@ -282,7 +282,7 @@ internal class SignalWandHandler(
             is SignalWandSettingAction.Model -> WandI18n.format(player, "signal.model.selected", action.modelId)
             is SignalWandSettingAction.RailPreset -> WandI18n.format(player, "signal.preset.selected", action.name)
             SignalWandSettingAction.ClearRailPreset -> WandI18n.format(player, "signal.preset.reset")
-            SignalWandSettingAction.RebindProtection -> return
+            SignalWandSettingAction.RebindSignal -> return
             SignalWandSettingAction.EditIndicator -> return
             SignalWandSettingAction.EditPlacement -> return
         }))
@@ -327,15 +327,15 @@ internal class SignalWandHandler(
             val devices = backend.rebindDevices(capture)
             require(devices.isNotEmpty()) { WandI18n.format(locale, "signal.rebind.empty") }
             page(WandI18n.format(locale, "signal.rebind.choose"), devices.mapIndexed { index, device ->
-                WandI18n.format(locale, "signal.rebind.device", index + 1, authoringName(device.definition.signalId, "name.signal"), WandI18n.format(locale, "control.PROTECTION_${device.definition.kind.name}"), device.definition.bindingId?.let { authoringName(it, "name.route") } ?: WandText.key("none")) to {
+                WandI18n.format(locale, "signal.rebind.device", index + 1, authoringName(device.signalId, "name.signal"), WandI18n.format(locale, "control.${device.controlKind.name}"), device.bindingId?.let { authoringName(it, "name.route") } ?: WandText.key("none")) to {
                     require(backend.current(capture)) { WandI18n.format(locale, "signal.selection.expired") }
                     val targets = backend.rebindTargets(capture, device)
                     require(targets.isNotEmpty()) { WandI18n.format(locale, "signal.rebind.target.empty") }
                     page(WandI18n.format(locale, "signal.rebind.target"), targets.mapIndexed { targetIndex, target ->
-                        WandI18n.format(locale, "signal.rebind.entry", targetIndex + 1, authoringName(target.entryBoundaryId, "name.entrance"), authoringName(target.bindingId, "name.route")) to {
+                        WandI18n.format(locale, "signal.rebind.entry", targetIndex + 1, target.description) to {
                             require(backend.current(capture)) { WandI18n.format(locale, "signal.selection.expired") }
-                            page(WandI18n.format(locale, "signal.rebind.confirm", authoringName(device.definition.signalId, "name.signal").render(locale)), listOf(
-                                WandI18n.format(locale, "signal.rebind.accept", authoringName(target.bindingId, "name.route").render(locale)) to {
+                            page(WandI18n.format(locale, "signal.rebind.confirm", authoringName(device.signalId, "name.signal").render(locale)), listOf(
+                                WandI18n.format(locale, "signal.rebind.accept", target.description.render(locale)) to {
                                     reply(backend.rebind(capture, device, target, ::active).text.render(locale))
                                 },
                                 WandI18n.format(locale, "cancel") to { reply(WandI18n.format(locale, "signal.rebind.cancelled")) }
@@ -388,7 +388,10 @@ internal class SignalWandHandler(
             val capture = creationCapture ?: backend.capture(worldId, state.signalType)
             require(backend.current(capture)) { WandI18n.format(locale, "signal.selection.expired") }
             val editor = RouteIndicatorWandEditor(backend, capture, ::page, ::reply, ::active, locale)
-            if (binding == null) editor.selectDevice() else editor.configure(binding, binding.entryBoundaryId, placement)
+            if (binding == null) editor.selectDevice() else {
+                val entry = requireNotNull(binding.entryBoundaryId) { WandI18n.format(locale, "signal.rebind.target.empty") }
+                editor.configure(binding, entry, placement)
+            }
         }
     }
 
@@ -1042,12 +1045,13 @@ internal data class AttachedSignalWandBinding(
 
 internal data class RouteIndicatorSignalWandBinding(
     override val worldId: UUID,
-    val entryBoundaryId: String,
+    val entryBoundaryId: String?,
     val indicatorId: String? = null,
     val indicatorRevision: Long? = null
 ) : SignalWandBinding {
     init {
-        require(SIMPLE_SIGNALS_NAMESPACED_ID.matches(entryBoundaryId)) { "entry boundary must be namespaced" }
+        require(entryBoundaryId == null || SIMPLE_SIGNALS_NAMESPACED_ID.matches(entryBoundaryId)) { "entry boundary must be namespaced" }
+        require(entryBoundaryId != null || indicatorId != null) { "a new indicator requires an entry" }
         require((indicatorId == null) == (indicatorRevision == null)) { "indicator identity requires both ID and revision" }
         require(indicatorId == null || SIMPLE_SIGNALS_NAMESPACED_ID.matches(indicatorId)) { "indicatorId must be namespaced" }
         require(indicatorRevision == null || indicatorRevision >= 0L) { "indicator revision must be non-negative" }
@@ -1059,7 +1063,7 @@ private fun SignalWandBinding.description(locale: java.util.Locale = java.util.L
     is ProtectionCurrentEntrySignalWandBinding -> WandI18n.format(locale, "binding.current", authoringName(entryBoundaryId, "name.entrance"))
     is ProtectionFixedRouteSignalWandBinding -> WandI18n.format(locale, "binding.route", authoringName(entryBoundaryId, "name.entrance"), authoringName(routeId, "name.route"))
     is AttachedSignalWandBinding -> WandI18n.format(locale, "binding.attached", authoringName(primarySignalId, "name.signal"))
-    is RouteIndicatorSignalWandBinding -> WandI18n.format(locale, "binding.indicator", authoringName(entryBoundaryId, "name.entrance"))
+    is RouteIndicatorSignalWandBinding -> WandI18n.format(locale, "binding.indicator", entryBoundaryId?.let { authoringName(it, "name.entrance") } ?: WandText.key("none"))
 }
 
 @Serializable
@@ -1127,7 +1131,7 @@ private data class PersistedAttachedSignalWandBinding(
 @SerialName("route_indicator")
 private data class PersistedRouteIndicatorSignalWandBinding(
     val worldId: String,
-    val entryBoundaryId: String,
+    val entryBoundaryId: String?,
     val indicatorId: String?,
     val indicatorRevision: Long?
 ) : PersistedSignalWandBinding
@@ -1187,7 +1191,7 @@ internal sealed interface SignalWandSettingAction {
     data class Model(val modelId: String) : SignalWandSettingAction
     data class RailPreset(val modelId: String, val name: String) : SignalWandSettingAction
     data object ClearRailPreset : SignalWandSettingAction
-    data object RebindProtection : SignalWandSettingAction
+    data object RebindSignal : SignalWandSettingAction
     data object EditIndicator : SignalWandSettingAction
     data object EditPlacement : SignalWandSettingAction
 }

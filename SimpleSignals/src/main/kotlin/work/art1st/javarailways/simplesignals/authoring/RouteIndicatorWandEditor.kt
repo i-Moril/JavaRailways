@@ -23,7 +23,8 @@ internal class RouteIndicatorWandEditor(
             require(backend.current(capture)) { text("editor.selection.expired") }
             val binding = RouteIndicatorSignalWandBinding(capture.worldId, device.entryBoundaryId,
                 device.indicatorId, device.revision)
-            val entries = (backend.indicatorEntries(capture) + device.entryBoundaryId).distinct().sorted()
+            val entries = (backend.indicatorEntries(capture) + listOfNotNull(device.entryBoundaryId)).distinct().sorted()
+            require(entries.isNotEmpty()) { text("signal.rebind.target.empty") }
             page(text("editor.indicator.entry"), entries.mapIndexed { entryIndex, entry ->
                 text("editor.numbered_choice", authoringName(entry, "name.entrance"), entryIndex + 1) to {
                 configure(binding, entry, null)

@@ -2,6 +2,10 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
+### 正式包减速度选值（2026-10-16）
+
+用户授权研究并直接设定包参数。官方交通运输部2022年规范第5.2条给出ATO站台精确停车目标0.5–0.7m/s²，本份正式四灯包取中值0.6m/s²，依据/范围和准确配置字段见[选值记录](research/formal-pack-braking-reference.md)。这不是通用runtime默认值，不更改实际列车制动、测试fixture或smoke包。当前正式logic/signal包仍未创建，因此本笔仅冻结参数/来源，未声称已可加载、运行或游戏验收；不能添加无配对JS的残缺配置。仅文档变更，未运行Gradle或部署。
+
 ### 区间最高速度修正（2026-10-15）
 
 用户纠正6504d4f1的入口取速：每rail先由既有Basic metadata给出effective=min(CURVE,SUBGRADE)，本信号再取整个受控区间的最大值。仅改SignalPackEpochRuntime及原manager测试；固定闭塞AB/BA取同一区间traversals全集，保护按每root对应编译进路独立计算，不混后继或兄弟路线。全候选rails仍仅一次host subset读取，任一缺速仍拒绝；PreparedPlan只将原observation与参考v配对，D复用原maximumDistanceMeters，选路后投影同一计划。无新寻路、缓存框架、API、Basic、配置形状、版本或速度通知。

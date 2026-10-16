@@ -29,7 +29,7 @@
 - `BukkitPlugin` 是 composition root：初始化顺序与反向 shutdown 都是 contract；每个 event/service/task/executor 必须有明确 cleanup。
 - Folia 下不存在万能主线程。global task 只做 simulation/value 协调；entity/location/block side effect 使用 `PlatformDispatcher` 或 target-aware scheduler/guard。
 - Heavy geometry/query/script/JSON IO 不在 owning region 或 simulation context 执行；异步结果回到正确 owner 后再次验证 world/entity/revision。
-- add-on 能力放入 `work.art1st.javarailways.bukkit.api.*` 并通过 Bukkit service registry 提供；不要要求独立插件链接 fat JAR 内部实现。
+- add-on 能力放入 `work.art1st.javarailways.bukkit.api.*`；有生命周期的服务通过 Bukkit service registry 提供，无状态的Wand按键路由可直接调用公开helper。不要要求独立插件链接 fat JAR 内部实现。
 - corrupt persistence/config 不得静默覆盖。fail-fast、保留原数据或明确禁用受影响 world，比 fallback 到 defaults 更安全。
 
 ## 质量检查

@@ -7,6 +7,16 @@
 - Dialog 输入 key 只允许 Paper 支持字符，当前用 `.` → `_`；NUMBER_TEXT 先 parse 再检查 finite，trigger enum 变更 commit 后重建可见字段。新增 `ConfigValueType` 时同步 input、capture、validation 与 tests。
 - 嵌套配置的唯一有效条目与值快照归[Basic配置UI合同](../../javarailways/basic/config-ui.md)。Dialog显示、触发按钮与回复捕获只消费`BuiltGroup.effectiveItems`，不能拼回原始子组items；初始值来自该构建的snapshot，不临时重读session。CR-041实现状态以该合同及审查记录为准。
 - 玩家文本使用 Adventure `Component` 和资源/locale owner；固定 enum/JSON token 不翻译。
+
+### 共用Wand按F切换模式（CURRENT）
+
+BukkitPlugin公开`bukkit.api.wand.WandModeSwitch.handle(PlayerSwapHandItemsEvent event, Predicate<ItemStack> matches, Consumer<Player> switchMode): boolean`。它只提取既有AbstractWand的输入路由，不拥有模式、物品状态或铁路业务，也不注册服务或监听器。宿主AbstractWand及附属工具在各自的事件监听器中调用。
+
+一次按F的流程是：已取消事件直接返回false；读取玩家当前主手物品，谓词不匹配返回false；匹配则先取消真正换手，再同步调用切模式回调，返回true。不要求按住Shift，只有副手持Wand时不接管F，避免副手工具抢占主手工具的快捷键。重复监听到已经取消的同一事件不会再切一次；F指默认换手动作，客户端可以重绑按键。
+
+调用位于玩家所属线程/region，谓词与回调同步执行，不调度、不保存Player或ItemStack、无额外生命周期注册。回调负责权限、允许的模式、写回PDC、撤销旧选点/对话/异步接续并反馈当前模式；helper不替调用方判断编辑权限。回调拒绝切换或抛异常时仍保持换手取消，异常交原监听器处理，不暗中吞掉。非匹配物品保留原换手行为。
+
+该处理为常数次调用，无轮询、全服扫描或额外任务。使用者必须复用原设置页的状态更新入口，而非只改临时显示。只读主手身份后直接执行回调，不使用事件中已交换语义的mainHandItem字段反推当前工具。无持久化字段/格式或版本变化；验证仅需真实swap事件的单次取消/路由回归及消费者模式和旧接续失效检查，不因这个小改动重复跑整模块套件。实际客户端按键效果另验。
 - RailWand结构替换先从immutable `TopologyState`捕获exact source-rail replacement plan，再申请world-local edit permit。
   Plan绑定同一root及最终影响中的既有rail实例；permit必须跨Core transaction、Basic metadata、render sidecar persistence
   与undo record写入持有。Split/merge/delete各用一个外层Core transaction覆盖结构mutation、Basic metadata、render sidecar、

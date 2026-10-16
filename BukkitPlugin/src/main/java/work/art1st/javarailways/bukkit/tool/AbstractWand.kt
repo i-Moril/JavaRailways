@@ -17,6 +17,7 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.ItemMeta
 import org.bukkit.persistence.PersistentDataType
 import work.art1st.javarailways.bukkit.BukkitPlugin
+import work.art1st.javarailways.bukkit.api.wand.WandModeSwitch
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.physics.CoreWorld
 import java.util.UUID
@@ -38,7 +39,7 @@ internal fun shouldGloballyClearSelection(
     modeHandlesSneakLeftClickAir: Boolean
 ): Boolean = sneaking && action == Action.LEFT_CLICK_AIR && !modeHandlesSneakLeftClickAir
 
-/** Temporarily disabled; Shift+F remains the only Wand mode-switch shortcut. */
+/** Temporarily disabled; F remains the Wand mode-switch shortcut. */
 private const val WAND_HELD_SLOT_MODE_SWITCH_ENABLED = false
 
 internal fun shouldSwitchWandModeOnHeldSlotChange(
@@ -159,12 +160,11 @@ abstract class AbstractWand<S, M>(
         player.inventory.addItem(item)
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     fun onSwapHands(event: PlayerSwapHandItemsEvent) {
-        val player = event.player
-        if (!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) return
-        event.isCancelled = true
-        switchToNextMode(player, getState(player))
+        WandModeSwitch.handle(event, ::isWandItem) { player ->
+            switchToNextMode(player, getState(player))
+        }
     }
 
     @EventHandler

@@ -50,8 +50,8 @@ enum class RailObjectWandMode(
     override val displayName: String,
     override val description: String
 ) : WandModeSpec {
-    WAY_POINT("路径点模式", "右键创建/编辑路径点 | 左键选择并删除 | Shift+F 切换模式"),
-    DIRECTION_RESTRICTION("方向限制模式", "右键添加方向限制 | 左键删除 | Shift+F 切换模式")
+    WAY_POINT("路径点模式", "右键创建/编辑路径点 | 左键选择并删除 | F 切换模式"),
+    DIRECTION_RESTRICTION("方向限制模式", "右键添加方向限制 | 左键删除 | F 切换模式")
 }
 
 data class RailObjectWandState(
@@ -183,7 +183,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     itemLore = listOf(
         Component.text("路径点：右键添加，左键删除", NamedTextColor.GRAY),
         Component.text("方向限制：右键添加，左键删除", NamedTextColor.GRAY),
-        Component.text("Shift+F 切换模式", NamedTextColor.GRAY),
+        Component.text("F 切换模式", NamedTextColor.GRAY),
         Component.text("Shift+右键 打开设置", NamedTextColor.GRAY)
     ),
     modes = RailObjectWandMode.entries.toList()

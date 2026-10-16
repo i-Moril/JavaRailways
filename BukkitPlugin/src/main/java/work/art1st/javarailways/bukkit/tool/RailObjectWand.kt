@@ -6,10 +6,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.format.NamedTextColor
-import org.bukkit.Color
 import org.bukkit.Location
 import org.bukkit.Material
-import org.bukkit.Particle
+import org.bukkit.World
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
@@ -17,7 +16,9 @@ import org.bukkit.event.block.Action
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerItemHeldEvent
 import org.bukkit.event.player.PlayerJoinEvent
+import org.bukkit.event.player.PlayerChangedWorldEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
+import org.bukkit.event.world.WorldUnloadEvent
 import org.bukkit.inventory.ItemStack
 import org.joml.Vector3d
 import org.joml.Vector3dc
@@ -30,6 +31,10 @@ import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.simpleatobukkit.tool.RailObjectDestinationEditor
 import work.art1st.javarailways.simpleatobukkit.tool.WayPointEditKeys
 import work.art1st.javarailways.bukkit.BukkitPlugin
+import work.art1st.javarailways.bukkit.api.editor.EditorMarkerGlyph
+import work.art1st.javarailways.bukkit.api.editor.EditorMarkerLabels
+import work.art1st.javarailways.bukkit.api.editor.EditorTextHandle
+import work.art1st.javarailways.bukkit.api.editor.EditorTextLabel
 import work.art1st.javarailways.bukkit.ui.dialog.DialogRenderer
 import work.art1st.javarailways.bukkit.util.BukkitAsyncTasks
 import work.art1st.javarailways.bukkit.util.HeavyRailQueries
@@ -112,40 +117,62 @@ internal fun findDirectionRestrictionTarget(
     return DirectionRestrictionTarget(pointA, pointB)
 }
 
-internal object DirectionRestrictionParticleLayout {
-    fun arcLengths(totalLength: Double, phase: Double, maxPoints: Int = 6): List<Double> {
-        if (totalLength <= 0.0 || maxPoints <= 0) return emptyList()
-        val spacing = if (totalLength <= 8.0) totalLength else maxOf(8.0, totalLength / maxPoints)
-        var arc = ((phase % spacing) + spacing) % spacing
-        val result = mutableListOf<Double>()
-        while (arc <= totalLength && result.size < maxPoints) {
-            result += arc
-            arc += spacing
-        }
-        return result
-    }
-}
+internal data class RailObjectDirectionSource(
+    val rail: CoreRail,
+    val direction: ViewDirection,
+    val destinationId: String? = null,
+    val destinationArcInAb: Double? = null
+)
 
-internal object WayPointApproachParticleLayout {
-    fun arcLengths(
-        destinationArcInView: Double,
-        phase: Double,
-        previewLength: Double = 24.0,
-        spacing: Double = 4.0,
-        maxPoints: Int = 6
-    ): List<Double> {
-        if (destinationArcInView < 0.0 || previewLength <= 0.0 || spacing <= 0.0 || maxPoints <= 0) {
-            return emptyList()
+/** One prepared scene per viewer; movement only filters geometry already sampled on a worker. */
+internal class RailObjectDirectionDrawing {
+    private var sources: List<RailObjectDirectionSource>? = null
+    private var prepared = emptyList<PreparedDirection>()
+
+    fun prepare(input: List<RailObjectDirectionSource>, position: Vector3dc): List<EditorTextLabel> {
+        if (sources != input) {
+            prepared = input.map(::prepareDirection)
+            sources = input.toList()
         }
-        val start = (destinationArcInView - previewLength).coerceAtLeast(0.0)
-        var arc = start + ((phase % spacing) + spacing) % spacing
-        val result = mutableListOf<Double>()
-        while (arc <= destinationArcInView && result.size < maxPoints) {
-            result += arc
-            arc += spacing
-        }
-        return result
+        return prepared.filter { candidate ->
+            candidate.probes.any { it.distanceSquared(position) <= 64.0 * 64.0 }
+        }.flatMap(PreparedDirection::labels)
     }
+
+    private fun prepareDirection(source: RailObjectDirectionSource): PreparedDirection {
+        val view = source.rail.getView(source.direction)
+        val destinationArc = source.destinationArcInAb?.let {
+            if (source.direction == ViewDirection.AB) it else view.curve.totalArcLength - it
+        }
+        val endArc = destinationArc ?: view.curve.totalArcLength
+        val startArc = if (destinationArc == null) 0.0 else (endArc - 24.0).coerceAtLeast(0.0)
+        val span = endArc - startArc
+        val spacing = if (destinationArc == null) 8.0 else 4.0
+        val count = kotlin.math.ceil(span / spacing).toInt().coerceIn(1, 6)
+        val prefix = source.destinationId?.let { "approach:$it" }
+            ?: "direction:${source.rail.id}"
+        val color = if (destinationArc == null) NamedTextColor.GREEN else NamedTextColor.AQUA
+        val labels = (0 until count).map { index ->
+            val point = view.curve.getPointAt(startArc + span * (index + 0.5) / count)
+            EditorMarkerLabels.at(
+                "$prefix:arrow:$index", EditorMarkerGlyph.DIRECTION,
+                point.position, point.tangent, point.normal, 0.7, 1.5, color
+            )
+        }.toMutableList()
+        val end = view.curve.getPointAt(endArc)
+        labels += EditorMarkerLabels.at(
+            "$prefix:end", EditorMarkerGlyph.BOUNDARY,
+            end.position, end.tangent, end.normal, 1.6, 0.25,
+            if (destinationArc == null) NamedTextColor.RED else NamedTextColor.AQUA
+        )
+        val probes = if (destinationArc != null) listOf(Vector3d(end.position)) else
+            listOf(0.0, 0.25, 0.5, 0.75, 1.0).map { ratio ->
+                Vector3d(view.curve.getPointAt(view.curve.totalArcLength * ratio).position)
+            }
+        return PreparedDirection(probes, labels)
+    }
+
+    private data class PreparedDirection(val probes: List<Vector3d>, val labels: List<EditorTextLabel>)
 }
 
 class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, RailObjectWandMode>(
@@ -168,10 +195,8 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     /** Unsaved clicks stay private to the dialog and are never registered or rendered. */
     private val pendingWayPoints = mutableMapOf<UUID, WayPoint>()
     private val heavyOperationGate = PlayerOperationGate()
-    private val visibleDirectionRails = ConcurrentHashMap<UUID, MutableSet<UUID>>()
-    private val visibleApproachWayPoints = ConcurrentHashMap<UUID, MutableSet<String>>()
-    private val particleViewers = ConcurrentHashMap.newKeySet<UUID>()
-    @Volatile private var directionParticleFrame: Long = 0L
+    private val directionOverlays = ConcurrentHashMap<UUID, DirectionOverlaySession>()
+    private val markerViewers = ConcurrentHashMap.newKeySet<UUID>()
     private val destinationEditor = RailObjectDestinationEditor()
     private val dialogRenderer = DialogRenderer(destinationEditor.configUI)
 
@@ -182,17 +207,16 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     override fun decodeState(encoded: String): RailObjectWandState? = RailObjectWandStateCodec.decode(encoded)
 
     override fun onAfterRegisterEvents() {
-        plugin.platformDispatcher.runGlobalAtFixedRate(PARTICLE_REFRESH_TICKS, PARTICLE_REFRESH_TICKS) {
-            directionParticleFrame++
-            particleViewers.forEach { playerId ->
+        plugin.platformDispatcher.runGlobalAtFixedRate(DIRECTION_REFRESH_TICKS, DIRECTION_REFRESH_TICKS) {
+            markerViewers.forEach { playerId ->
                 val player = plugin.server.getPlayer(playerId)
                 if (player == null) {
-                    particleViewers.remove(playerId)
+                    markerViewers.remove(playerId)
+                    closeDirectionOverlay(playerId)
                 } else {
                     plugin.platformDispatcher.runForEntity(player, action = {
                         BukkitThreadGuardBridge.runInSimulationContext {
-                            renderDirectionRestrictionParticles(player)
-                            renderWayPointApproachParticles(player)
+                            refreshDirectionOverlay(player)
                         }
                     })
                 }
@@ -213,6 +237,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     }
 
     override fun clearSelection(player: Player, state: RailObjectWandState) {
+        closeDirectionOverlay(player.uniqueId)
         state.pendingDeleteWayPoint?.let { setMarkerMaterial(player, it, Material.LIME_CONCRETE) }
         state.pendingDeleteWayPoint = null
     }
@@ -251,10 +276,10 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     }
 
     fun removeMarker(worldId: UUID, wayPointId: String) {
-        particleViewers.forEach { playerId ->
+        markerViewers.forEach { playerId ->
             val player = plugin.server.getPlayer(playerId)
             if (player == null) {
-                particleViewers.remove(playerId)
+                markerViewers.remove(playerId)
             } else {
                 plugin.platformDispatcher.runForEntity(player, action = {
                     if (player.world.uid == worldId) removeMarkerForPlayer(player, wayPointId)
@@ -468,7 +493,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                             }
                         ) {
                             livePlayer.sendMessage(Component.text(
-                                "已删除轨道 ${rail.id} 的方向限制",
+                                "已删除该轨道的方向限制",
                                 NamedTextColor.GREEN
                             ))
                         }
@@ -489,7 +514,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                     }
                 ) {
                     livePlayer.sendMessage(Component.text(
-                        "已限制轨道 ${rail.id} 只允许 ${allowedDirection.name} 方向行驶",
+                        "已限制该轨道沿箭头方向行驶",
                         NamedTextColor.GREEN
                     ))
                 }
@@ -522,125 +547,76 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         return Vector3d(block.x + 0.5, block.y + 0.5, block.z + 0.5)
     }
 
-    private fun renderDirectionRestrictionParticles(player: Player) {
-        if ((!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) ||
-            getState(player).mode != RailObjectWandMode.DIRECTION_RESTRICTION
-        ) {
-            visibleDirectionRails.remove(player.uniqueId)
+    private fun refreshDirectionOverlay(player: Player) {
+        val playerId = player.uniqueId
+        if (!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) {
+            markerViewers.remove(playerId)
+            closeDirectionOverlay(playerId)
             return
         }
-        val coreWorld = getCoreWorld(player) ?: return
-        val directions = coreWorld.basicWorldData.operatingDirections
-        val playerPosition = Vector3d(player.location.x, player.location.y, player.location.z)
-        val previousVisible = visibleDirectionRails.getOrPut(player.uniqueId) { mutableSetOf() }
-        val candidates = coreWorld.allRails.mapNotNull { rail ->
-            val allowedDirection = directions[rail.id] ?: return@mapNotNull null
-            val distanceSquared = approximateDistanceSquared(rail.curve, playerPosition)
-            val radius = if (rail.id in previousVisible) PARTICLE_EXIT_RADIUS else PARTICLE_ENTER_RADIUS
-            if (distanceSquared > radius * radius) return@mapNotNull null
-            Triple(rail, allowedDirection, distanceSquared)
-        }.sortedBy { it.third }.take(MAX_VISIBLE_DIRECTION_RAILS)
-
-        previousVisible.clear()
-        previousVisible.addAll(candidates.map { it.first.id })
-        var remainingParticles = MAX_PARTICLES_PER_REFRESH
-        val flowPhase = directionParticleFrame * FLOW_METERS_PER_REFRESH
-        for ((rail, allowedDirection, _) in candidates) {
-            if (remainingParticles <= 0) break
-            val view = rail.getView(allowedDirection)
-            for (arc in DirectionRestrictionParticleLayout.arcLengths(view.curve.totalArcLength, flowPhase)) {
-                if (remainingParticles <= 0) break
-                val point = view.curve.getPointAt(arc)
-                val position = Vector3d(point.position).fma(0.35, point.normal)
-                spawnDust(player, position, ALLOWED_DIRECTION_COLOR, 0.9f)
-                remainingParticles--
-            }
-            if (remainingParticles > 0) {
-                val end = view.endPoint
-                spawnDust(player, Vector3d(end.position).fma(0.4, end.normal), FORBIDDEN_ENTRY_COLOR, 1.3f)
-                remainingParticles--
-            }
-            if (remainingParticles > 0) {
-                val end = view.endPoint
-                spawnDust(player, Vector3d(end.position).fma(0.9, end.normal), FORBIDDEN_ENTRY_COLOR, 1.0f)
-                remainingParticles--
-            }
-        }
-    }
-
-    private fun renderWayPointApproachParticles(player: Player) {
-        if ((!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) ||
-            getState(player).mode != RailObjectWandMode.WAY_POINT
-        ) {
-            visibleApproachWayPoints.remove(player.uniqueId)
+        val coreWorld = getCoreWorld(player) ?: run {
+            closeDirectionOverlay(playerId)
             return
         }
-        val coreWorld = getCoreWorld(player) ?: return
-        val playerPosition = Vector3d(player.location.x, player.location.y, player.location.z)
-        val previousVisible = visibleApproachWayPoints.getOrPut(player.uniqueId) { mutableSetOf() }
-        val candidates = coreWorld.simpleAtoWorldData.destinations.all().mapNotNull { destination ->
-            val direction = destination.approachDirection ?: return@mapNotNull null
-            val rail = coreWorld.getRail(destination.railId) ?: return@mapNotNull null
-            val target = rail.curve.getPointAt(destination.arcLengthInAbMeters)
-            val distanceSquared = target.position.distanceSquared(playerPosition)
-            val radius = if (destination.id in previousVisible) PARTICLE_EXIT_RADIUS else PARTICLE_ENTER_RADIUS
-            if (distanceSquared > radius * radius) return@mapNotNull null
-            ApproachParticleTarget(destination.id, rail, direction, destination.arcLengthInAbMeters, distanceSquared)
-        }.sortedBy { it.distanceSquared }.take(MAX_VISIBLE_APPROACH_WAYPOINTS)
-
-        previousVisible.clear()
-        previousVisible.addAll(candidates.map(ApproachParticleTarget::wayPointId))
-        var remainingParticles = MAX_PARTICLES_PER_REFRESH
-        val flowPhase = directionParticleFrame * FLOW_METERS_PER_REFRESH
-        for (candidate in candidates) {
-            if (remainingParticles <= 0) break
-            val view = candidate.rail.getView(candidate.direction)
-            val arcInView = when (candidate.direction) {
-                ViewDirection.AB -> candidate.arcLengthInAb
-                ViewDirection.BA -> view.curve.totalArcLength - candidate.arcLengthInAb
-            }
-            for (arc in WayPointApproachParticleLayout.arcLengths(arcInView, flowPhase)) {
-                if (remainingParticles <= 0) break
-                val point = view.curve.getPointAt(arc)
-                spawnDust(
-                    player,
-                    Vector3d(point.position).fma(0.5, point.normal),
-                    WAYPOINT_APPROACH_COLOR,
-                    1.0f
-                )
-                remainingParticles--
-            }
-            if (remainingParticles > 0) {
-                val target = view.curve.getPointAt(arcInView)
-                spawnDust(
-                    player,
-                    Vector3d(target.position).fma(0.75, target.normal),
-                    WAYPOINT_TARGET_COLOR,
-                    1.35f
-                )
-                remainingParticles--
-            }
+        val mode = getState(player).mode
+        var session = directionOverlays[playerId]
+        if (session == null || !session.matches(player.world, mode)) {
+            closeDirectionOverlay(playerId)
+            session = DirectionOverlaySession(
+                player.world, mode, plugin.editorTextService.create(plugin, player, "rail-object-directions")
+            )
+            directionOverlays[playerId] = session
         }
-    }
-
-    private fun approximateDistanceSquared(
-        curve: work.art1st.javarailways.core.api.physics.curve.PrimeCurve,
-        position: Vector3d
-    ): Double = DISTANCE_PROBES.minOf { ratio ->
-        curve.getPointAt(curve.totalArcLength * ratio).position.distanceSquared(position)
-    }
-
-    private fun spawnDust(player: Player, position: Vector3d, color: Color, size: Float) {
-        player.spawnParticle(
-            Particle.DUST,
-            Location(player.world, position.x(), position.y(), position.z()),
-            1,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            Particle.DustOptions(color, size)
+        if (session.busy) return
+        session.busy = true
+        val capturedSession = session
+        val location = player.location
+        val position = Vector3d(location.x, location.y, location.z)
+        BukkitAsyncTasks.supply(
+            plugin, player, "RailObjectWand.directionOverlay",
+            supplier = {
+                val sources = when (mode) {
+                    RailObjectWandMode.DIRECTION_RESTRICTION ->
+                        coreWorld.basicWorldData.operatingDirections.entries().mapNotNull { (railId, direction) ->
+                            coreWorld.getRail(railId)?.let { RailObjectDirectionSource(it, direction) }
+                        }
+                    RailObjectWandMode.WAY_POINT ->
+                        coreWorld.simpleAtoWorldData.destinations.all().mapNotNull { destination ->
+                            val direction = destination.approachDirection ?: return@mapNotNull null
+                            val rail = coreWorld.getRail(destination.railId) ?: return@mapNotNull null
+                            RailObjectDirectionSource(
+                                rail, direction, destination.id, destination.arcLengthInAbMeters
+                            )
+                        }
+                }
+                capturedSession.drawing.prepare(sources, position)
+            },
+            onSuccess = { labels ->
+                capturedSession.busy = false
+                if (directionOverlays[playerId] !== capturedSession) return@supply
+                if (player.world !== capturedSession.world || getCoreWorld(player) !== coreWorld ||
+                    getState(player).mode != mode ||
+                    (!isWandItem(player.inventory.itemInMainHand) &&
+                        !isWandItem(player.inventory.itemInOffHand))
+                ) {
+                    closeDirectionOverlay(playerId)
+                    return@supply
+                }
+                capturedSession.publish(labels)
+            },
+            onFailure = { error ->
+                capturedSession.busy = false
+                if (directionOverlays.remove(playerId, capturedSession)) capturedSession.close()
+                plugin.logger.warning("RailObjectWand direction display failed: ${error.message ?: error::class.simpleName}")
+            },
+            onRetired = {
+                if (directionOverlays.remove(playerId, capturedSession)) capturedSession.close()
+            }
         )
+    }
+
+    private fun closeDirectionOverlay(playerId: UUID) {
+        directionOverlays.remove(playerId)?.close()
     }
 
     private fun showWayPointDialog(
@@ -813,12 +789,14 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     private fun refreshMarkersForPlayer(player: Player) {
         clearMarkersForPlayer(player)
         if (!isWandItem(player.inventory.itemInMainHand) && !isWandItem(player.inventory.itemInOffHand)) {
-            particleViewers.remove(player.uniqueId)
+            markerViewers.remove(player.uniqueId)
+            closeDirectionOverlay(player.uniqueId)
             return
         }
-        particleViewers.add(player.uniqueId)
+        markerViewers.add(player.uniqueId)
         val coreWorld = getCoreWorld(player) ?: return
         coreWorld.basicWorldData.wayPoints.all().forEach { spawnOrReplaceMarker(player, it) }
+        refreshDirectionOverlay(player)
     }
 
     private fun scheduleMarkerVisibilityRefresh(player: Player) {
@@ -844,14 +822,26 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         scheduleMarkerVisibilityRefresh(event.player)
     }
 
+    @EventHandler
+    fun onRailObjectWandWorldChanged(event: PlayerChangedWorldEvent) {
+        closeDirectionOverlay(event.player.uniqueId)
+        scheduleMarkerVisibilityRefresh(event.player)
+    }
+
+    @EventHandler
+    fun onRailObjectWandWorldUnload(event: WorldUnloadEvent) {
+        directionOverlays.forEach { (playerId, session) ->
+            if (session.world === event.world && directionOverlays.remove(playerId, session)) session.close()
+        }
+    }
+
     override fun onPlayerQuit(player: Player, state: RailObjectWandState) {
         clearMarkersForPlayer(player)
         editingWayPoint.remove(player.uniqueId)
         pendingWayPoints.remove(player.uniqueId)
         heavyOperationGate.clear(player.uniqueId)
-        visibleDirectionRails.remove(player.uniqueId)
-        visibleApproachWayPoints.remove(player.uniqueId)
-        particleViewers.remove(player.uniqueId)
+        closeDirectionOverlay(player.uniqueId)
+        markerViewers.remove(player.uniqueId)
         destinationEditor.configUI.removePlayerSession(player.uniqueId)
     }
 
@@ -862,13 +852,29 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         @Volatile var entity: ItemDisplay? = null
     )
 
-    private data class ApproachParticleTarget(
-        val wayPointId: String,
-        val rail: work.art1st.javarailways.core.physics.rail.CoreRail,
-        val direction: ViewDirection,
-        val arcLengthInAb: Double,
-        val distanceSquared: Double
-    )
+    internal class DirectionOverlaySession(
+        val world: World,
+        val mode: RailObjectWandMode,
+        private val handle: EditorTextHandle
+    ) {
+        val drawing = RailObjectDirectionDrawing()
+        var busy = false
+        private var revision = 0L
+        @Volatile private var closed = false
+
+        fun matches(world: World, mode: RailObjectWandMode): Boolean =
+            !closed && this.world === world && this.mode == mode
+
+        fun publish(labels: List<EditorTextLabel>) {
+            if (!closed) handle.submit(revision++, labels)
+        }
+
+        fun close() {
+            if (closed) return
+            closed = true
+            handle.close()
+        }
+    }
 
     private data class CreateWayPointLookup(
         val pointedRail: HeavyRailQueries.LookedAtRailMatch?,
@@ -878,17 +884,6 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     companion object {
         private const val MAX_SELECT_DISTANCE = 6.0
         private const val MIN_DIRECTION_ARC_DIFFERENCE = 0.25
-        private const val PARTICLE_REFRESH_TICKS = 4L
-        private const val PARTICLE_ENTER_RADIUS = 64.0
-        private const val PARTICLE_EXIT_RADIUS = 72.0
-        private const val MAX_VISIBLE_DIRECTION_RAILS = 16
-        private const val MAX_VISIBLE_APPROACH_WAYPOINTS = 12
-        private const val MAX_PARTICLES_PER_REFRESH = 128
-        private const val FLOW_METERS_PER_REFRESH = 1.25
-        private val DISTANCE_PROBES = doubleArrayOf(0.0, 0.25, 0.5, 0.75, 1.0)
-        private val ALLOWED_DIRECTION_COLOR = Color.fromRGB(64, 255, 96)
-        private val WAYPOINT_APPROACH_COLOR = Color.fromRGB(64, 255, 160)
-        private val WAYPOINT_TARGET_COLOR = Color.fromRGB(64, 200, 255)
-        private val FORBIDDEN_ENTRY_COLOR = Color.fromRGB(255, 48, 48)
+        private const val DIRECTION_REFRESH_TICKS = 10L
     }
 }

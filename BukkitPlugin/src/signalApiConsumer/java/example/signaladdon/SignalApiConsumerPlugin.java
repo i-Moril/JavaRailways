@@ -112,7 +112,11 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             work.art1st.javarailways.bukkit.api.editor.EditorTextService.class));
         var handle = service.create(this, viewer, "boundary-editor");
         handle.submit(0, List.of(new work.art1st.javarailways.bukkit.api.editor.EditorTextLabel(
-            "entry", 10, 65, 20, net.kyori.adventure.text.Component.text("Entry"))));
+            "entry", 10, 65, 20, net.kyori.adventure.text.Component.text("Entry")),
+            work.art1st.javarailways.bukkit.api.editor.EditorMarkerLabels.at("arrow",
+                work.art1st.javarailways.bukkit.api.editor.EditorMarkerGlyph.DIRECTION,
+                new org.joml.Vector3d(10, 64, 20), new org.joml.Vector3d(0, 0, 1),
+                new org.joml.Vector3d(0, 1, 0), 1, 2, net.kyori.adventure.text.format.NamedTextColor.AQUA)));
         return handle;
     }
 

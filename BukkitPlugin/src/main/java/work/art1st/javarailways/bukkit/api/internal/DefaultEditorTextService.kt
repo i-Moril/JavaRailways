@@ -1,12 +1,17 @@
 package work.art1st.javarailways.bukkit.api.internal
 
 import org.bukkit.Location
+import org.bukkit.Color
 import org.bukkit.World
 import org.bukkit.entity.Display
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import org.bukkit.entity.TextDisplay
 import org.bukkit.plugin.Plugin
+import org.bukkit.util.Transformation
+import org.joml.Quaternionf
+import org.joml.Vector3f
+import work.art1st.javarailways.bukkit.api.editor.EditorTextAppearance
 import work.art1st.javarailways.bukkit.api.editor.EditorTextHandle
 import work.art1st.javarailways.bukkit.api.editor.EditorTextLabel
 import work.art1st.javarailways.bukkit.api.editor.EditorTextService
@@ -175,7 +180,11 @@ internal class DefaultEditorTextService(
                         old == null -> spawn(label)
                         old.label == label -> CompletableFuture.completedFuture(null)
                         else -> onEntity(old.entity, at(old.label)) {
-                            if (live()) { old.entity.text(label.text()); shown[label.id()] = Shown(label, old.entity) }
+                            if (live()) {
+                                if (old.label.text() != label.text()) old.entity.text(label.text())
+                                if (old.label.appearance() != label.appearance()) applyAppearance(old.entity, label.appearance())
+                                shown[label.id()] = Shown(label, old.entity)
+                            }
                         }
                     }
                 }
@@ -192,8 +201,7 @@ internal class DefaultEditorTextService(
                         shown[label.id()] = Shown(label, it)
                         it.isVisibleByDefault = false
                         it.isPersistent = false
-                        it.billboard = Display.Billboard.CENTER
-                        it.isShadowed = true
+                        applyAppearance(it, label.appearance())
                         it.text(label.text())
                     }
                     shown[label.id()] = Shown(label, entity)
@@ -209,6 +217,24 @@ internal class DefaultEditorTextService(
         }
 
         private fun at(label: EditorTextLabel) = Location(identity.world, label.x(), label.y(), label.z())
+
+        private fun applyAppearance(entity: TextDisplay, appearance: EditorTextAppearance) {
+            val fixed = appearance.mode() == EditorTextAppearance.Mode.FIXED_GLYPH
+            entity.billboard = if (fixed) Display.Billboard.FIXED else Display.Billboard.CENTER
+            entity.isShadowed = !fixed
+            entity.isDefaultBackground = false
+            entity.backgroundColor = if (fixed) Color.fromARGB(0) else null
+            entity.brightness = if (fixed) Display.Brightness(15, 15) else null
+            entity.interpolationDuration = 0
+            entity.interpolationDelay = 0
+            val pose = appearance.transform()
+            entity.transformation = Transformation(
+                Vector3f(pose.x().toFloat(), pose.y().toFloat(), pose.z().toFloat()),
+                Quaternionf(pose.rotationX().toFloat(), pose.rotationY().toFloat(), pose.rotationZ().toFloat(), pose.rotationW().toFloat()),
+                Vector3f(appearance.scaleX().toFloat(), appearance.scaleY().toFloat(), 1f),
+                Quaternionf()
+            )
+        }
 
         private fun remove(id: String, old: Shown): CompletableFuture<Void> = onEntity(old.entity, at(old.label)) {
             old.entity.remove()

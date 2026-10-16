@@ -5,6 +5,7 @@ import net.kyori.adventure.text.Component
 import org.bukkit.Location
 import org.bukkit.Server
 import org.bukkit.World
+import org.bukkit.Color
 import org.bukkit.entity.Display
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
@@ -14,10 +15,15 @@ import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.server.PluginDisableEvent
 import org.bukkit.event.world.WorldUnloadEvent
 import org.bukkit.plugin.Plugin
+import org.bukkit.util.Transformation
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.bukkit.api.editor.EditorTextLabel
+import work.art1st.javarailways.bukkit.api.editor.EditorMarkerGlyph
+import work.art1st.javarailways.bukkit.api.editor.EditorMarkerLabels
+import net.kyori.adventure.text.format.NamedTextColor
+import org.joml.Vector3d
 import work.art1st.javarailways.bukkit.render.model.ModelRuntimeTestSupport
 import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 import work.art1st.javarailways.bukkit.util.PlatformDispatchMetrics
@@ -36,6 +42,36 @@ import java.util.logging.LogRecord
 import java.util.logging.Logger
 
 class DefaultEditorTextServiceTest {
+    @Test
+    fun `fixed glyph appearance updates on the entity owner and readable style restores completely`() = Fixture().use { f ->
+        val handle = f.create()
+        val glyph = EditorMarkerLabels.at("a", EditorMarkerGlyph.DIRECTION, Vector3d(0.0, 64.0, 0.0),
+            Vector3d(0.0, 0.0, 1.0), Vector3d(0.0, 1.0, 0.0), 1.0, 2.0, NamedTextColor.AQUA)
+        handle.submit(0, listOf(glyph))
+        f.dispatcher.drain()
+        val shown = f.visuals.single()
+        assertEquals(Display.Billboard.FIXED, shown.billboard)
+        assertFalse(shown.shadowed)
+        assertEquals(0, shown.background!!.alpha)
+        assertEquals(Display.Brightness(15, 15), shown.brightness)
+        assertEquals(5f, shown.transform!!.scale.x)
+        assertEquals(10f, shown.transform!!.scale.y)
+        val operations = f.events.toList()
+        handle.submit(1, listOf(glyph))
+        f.dispatcher.drain()
+        assertEquals(operations, f.events)
+        // Same world anchor: change style in place, rather than spawning another display.
+        handle.submit(2, listOf(EditorTextLabel("a", glyph.x(), glyph.y(), glyph.z(), Component.text("caption"))))
+        f.dispatcher.drain()
+        assertEquals(1, f.visuals.size)
+        assertEquals(Display.Billboard.CENTER, shown.billboard)
+        assertTrue(shown.shadowed)
+        assertNull(shown.background)
+        assertNull(shown.brightness)
+        assertEquals(1f, shown.transform!!.scale.x)
+        assertEquals(0f, shown.transform!!.translation.length())
+    }
+
     @Test
     fun `stable complete lists create update delete and no-op only the intended viewer`() = Fixture().use { f ->
         val handle = f.create()
@@ -353,6 +389,10 @@ class DefaultEditorTextServiceTest {
             var visibleByDefault = true
             var persistent = true
             var billboard: Display.Billboard? = null
+            var shadowed = false
+            var background: Color? = null
+            var brightness: Display.Brightness? = null
+            var transform: Transformation? = null
             var removals = 0
             var failRemove = false
             val viewers = Collections.newSetFromMap(IdentityHashMap<Player, Boolean>())
@@ -363,7 +403,10 @@ class DefaultEditorTextServiceTest {
                     "setVisibleByDefault" -> { visibleByDefault = args!![0] as Boolean; null }
                     "setPersistent" -> { persistent = args!![0] as Boolean; null }
                     "setBillboard" -> { billboard = args!![0] as Display.Billboard; null }
-                    "setShadowed" -> null
+                    "setShadowed" -> { shadowed = args!![0] as Boolean; null }
+                    "setBackgroundColor" -> { background = args!![0] as Color?; null }
+                    "setBrightness" -> { brightness = args!![0] as Display.Brightness?; null }
+                    "setTransformation" -> { transform = args!![0] as Transformation; events += "appearance"; null }
                     "remove" -> { check(!failRemove) { "scripted delete failure" }; removals++; viewers.clear(); events += "remove"; null }
                     else -> null
                 }

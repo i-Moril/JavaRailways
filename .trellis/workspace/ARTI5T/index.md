@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 13
+- **Total Sessions**: 14
 - **Last Active**: 2026-10-16
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~443 | Active |
+| `journal-1.md` | ~480 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 14 | 2026-10-16 | 无向切口开发服迁移与部署 | `e1bb62cc` | `dev/signal-system` |
 | 13 | 2026-10-16 | 清理无向切口的方向占位 | `50afd64c` | `dev/signal-system` |
 | 12 | 2026-10-16 | 无向区间切口与内部方向推导 | `bec5cee9` | `dev/signal-system` |
 | 11 | 2026-10-16 | Unified section wand and crossing enclosure | `03bf4acd`, `24a84a2a` | `dev/signal-system` |

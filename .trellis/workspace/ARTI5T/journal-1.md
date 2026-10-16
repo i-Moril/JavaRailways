@@ -441,3 +441,40 @@ pending、区域修复草稿与工具输入使用真正无向模型，严格curr
 ### Next Steps
 
 - 用户检查50afd64c；预览请求queued，尚未确认打开。部署前另行批准整目录打包备份与开发服pending/draft一次性迁移；本批不操作远端，Stage 2保持进行中。
+
+
+## Session 14: 无向切口开发服迁移与部署
+<!-- trellis-session: v=2 fp=2615e60b2bb960ac -->
+
+**Date**: 2026-10-16
+**Task**: 无向切口开发服迁移与部署
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+用户授权后正常停服，完整外部备份并迁移旧pending方向字段，部署已验证Signals候选；启动和只读运行状态检查通过。
+
+### Main Changes
+
+- 目标仅192.168.1.230的836082a48c4f48fcb1fea4e83c57dc96实例。整包备份两配置目录与旧JAR，恢复点undirected-cuts-20261016-NKBtfewt；primary4个及bak3个pending只移除insideFacing，其他120文件hash一致。
+- 仅更新SimpleSignals SHA38f0cbc6cbb742f88efcc6c4bf9f191a976b997da6d9e981df757e5faa156f0c；主插件/客户端包不变。迁移脚本与计划/结果audit保留外部恢复目录，不进入JAR，无runtime兼容。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e1bb62cc` | docs(signals): record undirected cut migration and deployment |
+
+### Testing
+
+- [OK] 一次性脚本语法及3项轻量合成检查、独立只读复核、远端dry-run/精确输入hash和完整语义对比通过。不重复产品测试或构建。15:53:23 Done，primary加载、bridge ok、WebUI200，ATO RUNNING，MCS3/PID508478。
+- [OK] 仍有既有Terra Unsafe反射错误/离线模式告警；本次检查无新类加载或physics overload/clamp。没有执行玩家围合、创建测试对象或应用时刻表，不宣称现场行车/视觉验证完成。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 玩家进游戏用区间工具左键原交叉渡线内部确认已有4个无向切口；继续现场验收。Stage 2保留in_progress。恢复须旧JAR和旧方向数据同恢复点配套，不能仅降级JAR。

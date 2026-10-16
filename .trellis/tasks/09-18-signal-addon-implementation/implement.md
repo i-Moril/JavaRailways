@@ -1072,6 +1072,15 @@ Java consumer编译门禁复用up-to-date结果；源checksum同步检查、`git
 
 ## Rollback points
 
+### 正式四灯方向修复（2026-10-16，离线完成，未部署）
+
+正式head共同父Y由+90改−90，灯面/外壳一起修正；只改包内适配，不改通用算法、实例placement、JS、网格或亮度。
+原姿态测试显式包含客户端localYπ，验证AB/BA左右预设及ground代表姿态的正面、基底与高度；没有新增测试方法。
+本轮再次读取现成26.1.2客户端submitInner字节码确认额外旋转；机制和人工补偿实例的处理边界归[正式包合同](../../spec/simple-signals/backend/formal-four-light.md#灯头分层)。
+隔离候选同步源和examples，原Demo类3项定向测试6秒通过，零失败/错误/跳过；未跑全模块或生成新ZIP/JAR。
+独立只读复核再次核对客户端字节码、右乘顺序、AB/BA与ground、范围及文档，未发现阻塞；git diff --check通过。
+未部署或改写远端数据，尚无真实客户端画面验收，Stage 2仍in_progress。
+
 ### 灯面先行拆分（2026-10-16，离线完成，未部署）
 
 用户批准先改灯泡模型，UI分组/现场编辑继续讨论，方向修复独立。正式head采用共同dummy与两个Item叶子：

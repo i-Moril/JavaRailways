@@ -2,8 +2,8 @@ parts:
   - type: dummy
     # Rebasing the client mesh by -16 units preserves its size; restore its base height here.
     offset: {y: 1.5}
-    # Preserve the existing +90-degree correction; live facing verification is separate.
-    rotation: {y: 90.0}
+    # ItemDisplay adds local Y+180 before drawing: source -Z then needs Y-90 to face model -X.
+    rotation: {y: -90.0}
     parts:
       - type: item_display
         item:

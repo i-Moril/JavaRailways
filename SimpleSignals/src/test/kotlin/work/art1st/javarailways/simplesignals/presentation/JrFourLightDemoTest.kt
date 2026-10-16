@@ -159,10 +159,9 @@ class JrFourLightDemoTest {
     }
 
     @Test
-    fun `existing offline parent correction and centered base stay unchanged in both rail directions`() {
+    fun `client item rotation faces approaching trains and preserves the base for rail and ground placement`() {
         val model = SignalPackLoader.load(directory.resolve("signal-packs")).models.getValue("jr_four_light:head").presentation
         val head = model.definition.parts().single() as ModelPart.Group
-        // Preserve the previous offline transform only; this omits the client's extra ItemDisplay Yπ.
         assertEquals(2, head.children().size)
         assertEquals(1.5, head.pose().y())
         val curve = PrimeCurve.fromPoints(listOf(
@@ -176,7 +175,8 @@ class JrFourLightDemoTest {
                     .applyPreset(model.railPlacementPresets.getValue(presetName))
                 val root = ModelPlacementCalculator.calculate(placement, curve)
                 val rootRotation = quaternion(root)
-                val headRotation = Quaterniond(rootRotation).mul(quaternion(head.pose()))
+                // Client ItemDisplayRenderer multiplies local Yπ after the display transformation.
+                val headRotation = Quaterniond(rootRotation).mul(quaternion(head.pose())).rotateY(Math.PI)
                 assertVector(headRotation.transform(Vector3d(0.0, 0.0, -1.0)), -direction, 0.0, 0.0)
                 val position = rootRotation.transform(Vector3d(head.pose().x(), head.pose().y(), head.pose().z()))
                     .add(root.x(), root.y(), root.z())
@@ -187,6 +187,16 @@ class JrFourLightDemoTest {
                 assertEquals(2.625, top.y - base.y, 1e-10)
             }
         }
+        // Ground yaw=0 aligns model +X with world +Z; its front must therefore face world -Z.
+        val groundRotation = Quaterniond().rotationY(-Math.PI / 2.0)
+        val ground = ModelPlacement.Ground(ModelPose(11.0, 63.5, -3.5,
+            groundRotation.x, groundRotation.y, groundRotation.z, groundRotation.w))
+        val groundRoot = ModelPlacementCalculator.calculate(ground)
+        val renderedRotation = quaternion(groundRoot).mul(quaternion(head.pose())).rotateY(Math.PI)
+        assertVector(renderedRotation.transform(Vector3d(0.0, 0.0, -1.0)), 0.0, 0.0, -1.0)
+        val groundHead = quaternion(groundRoot).transform(Vector3d(head.pose().x(), head.pose().y(), head.pose().z()))
+            .add(groundRoot.x(), groundRoot.y(), groundRoot.z())
+        assertVector(renderedRotation.transform(Vector3d(0.0, -1.5, 0.0)).add(groundHead), 11.0, 63.5, -3.5)
     }
 
     private fun json(path: Path): JsonObject = Files.newBufferedReader(path).use { JsonParser.parseReader(it).asJsonObject }

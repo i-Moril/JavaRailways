@@ -13,13 +13,13 @@ import work.art1st.javarailways.simplesignals.region.*
 import java.util.UUID
 
 internal enum class SectionWandTool(val key: String) {
-    BLOCK_CREATE("block:create"), BLOCK_DELETE("block:delete"),
-    REGION_CREATE("region:create"), REGION_DELETE("region:delete")
+    CREATE("create"), DELETE("delete")
 }
 
+internal enum class SectionWandKind { PENDING, BLOCK, REGION }
 internal interface SectionWandCapture { val worldId: UUID }
-internal data class SectionWandOutcome(val text: WandText, val firstPoint: RailPositionSnapshot? = null,
-    val firstCapture: SectionWandCapture? = null, val warnings: List<ProtectionBoundaryDefinition> = emptyList(),
+internal data class SectionWandOutcome(val text: WandText, val kind: SectionWandKind = SectionWandKind.PENDING,
+    val warnings: List<ProtectionBoundaryDefinition> = emptyList(),
     val warningCapture: SectionWandCapture? = null)
 
 /** Immutable capture and worker-only edit boundary, kept separate from player/Bukkit operations. */
@@ -27,7 +27,7 @@ internal interface SectionWandBackend {
     fun capture(worldId: UUID): SectionWandCapture?
     fun current(capture: SectionWandCapture): Boolean
     fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
-        firstPoint: RailPositionSnapshot?, point: RailPositionSnapshot, active: () -> Boolean): SectionWandOutcome
+        point: RailPositionSnapshot, active: () -> Boolean): SectionWandOutcome
 }
 
 internal class RuntimeSectionWandBackend(
@@ -50,13 +50,12 @@ internal class RuntimeSectionWandBackend(
     }
 
     override fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
-        firstPoint: RailPositionSnapshot?, point: RailPositionSnapshot, active: () -> Boolean): SectionWandOutcome {
+        point: RailPositionSnapshot, active: () -> Boolean): SectionWandOutcome {
         require(active() && current(capture)) { "Selection expired; select the rail again" }
         val captured = capture as Capture
         val publication = captured.publication
         val definitions = publication.definitions
         val topology = captured.topology
-        var continuation: RailPositionSnapshot? = null
         var warningBoundaries = emptyList<ProtectionBoundaryDefinition>()
         fun discover(region: ProtectionRegionDefinition): DiscoveredProtectionRoutes {
             val resolved = ProtectionRegionGraphResolver.resolve(region, ProtectionRegionTopology.direct(topology))
@@ -65,31 +64,23 @@ internal class RuntimeSectionWandBackend(
             val directions = infrastructure.operatingDirections(captured.worldId, topology, interior.map { it.railId }.toSet())
             return ProtectionRouteDiscovery.discover(topology, region, interior, directions.directions)
         }
-        if (tool == SectionWandTool.REGION_CREATE && leftClick) {
+        if (tool == SectionWandTool.CREATE && leftClick) {
             val region = publication.regions.compilationSnapshot()!!.regionIdsByRail[point.railId].orEmpty()
                 .mapNotNull { id -> definitions.regions.singleOrNull { it.regionId == id } }
-                .singleOrNull { it.effectiveBoundaries.any { boundary -> samePoint(boundary.position, point, SectionAuthoringActions.SNAP_METERS) } }
-                ?: throw IllegalArgumentException("Left-click an existing protection boundary to show route warnings")
-            val found = discover(region)
-            return SectionWandOutcome(WandText.key("region.warnings", found.routes.size, found.warningBoundaryIds.size),
-                warnings = region.boundaries.filter { it.boundaryId in found.warningBoundaryIds }, warningCapture = captured)
+                .singleOrNull { it.effectiveBoundaries.any { boundary -> boundary.insideFacing == point.facing &&
+                    samePoint(boundary.position, point, SectionAuthoringActions.SNAP_METERS) } }
+            if (region != null) {
+                val found = discover(region)
+                return SectionWandOutcome(WandText.key("region.warnings", found.routes.size, found.warningBoundaryIds.size), SectionWandKind.REGION,
+                    warnings = region.boundaries.filter { it.boundaryId in found.warningBoundaryIds }, warningCapture = captured)
+            }
         }
         val edit = when (tool) {
-            SectionWandTool.BLOCK_CREATE -> {
-                val selected = if (leftClick) SectionAuthoringActions.selectBlockEnd(definitions, point, topology)
-                    else SectionAuthoringActions.snap(definitions, point)
-                if (firstPoint == null) return SectionWandOutcome(WandText.key("block.first"), selected, captured)
-                continuation = selected
-                val path = BlockPathBuilder.path(topology, firstPoint, selected)
-                val directions = infrastructure.operatingDirections(captured.worldId, topology, path.map { it.railId }.toSet())
-                SectionAuthoringActions.createBlock(definitions, BlockPathBuilder.definition(
-                    "simplesignals:${UUID.randomUUID()}", path, directions.directions))
-            }
-            SectionWandTool.BLOCK_DELETE -> SectionAuthoringActions.deleteBlock(definitions, point, leftClick, topology)
-            SectionWandTool.REGION_DELETE -> SectionAuthoringActions.deleteRegionBoundary(definitions, point)
-            SectionWandTool.REGION_CREATE -> {
-                val placed = SectionAuthoringActions.placeRegionBoundary(topology, definitions, point,
-                    maxRegionDistanceMeters, publication.regions.compilationSnapshot()!!.regionsById.mapValues { it.value.interior })
+            SectionWandTool.DELETE -> SectionAuthoringActions.deleteSection(definitions, point, leftClick, topology)
+            SectionWandTool.CREATE -> {
+                val placed = SectionAuthoringActions.placeSectionBoundary(topology, definitions, point,
+                    maxRegionDistanceMeters, publication.regions.compilationSnapshot()!!.regionsById.mapValues { it.value.interior },
+                    { rails -> infrastructure.operatingDirections(captured.worldId, topology, rails).directions })
                 val region = placed.patch.upsertRegions.singleOrNull()?.takeIf { it.boundaryDraft == null &&
                     definitions.regions.none { old -> old.regionId == it.regionId } }
                 if (region == null) placed else {
@@ -108,11 +99,16 @@ internal class RuntimeSectionWandBackend(
         val result = manager.applyDefinitionPatch(captured.worldId, definitions.definitionRevision, edit.patch,
             captured.runtime, topology, active)
         return if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED) {
-            val next = if (continuation != null || warningBoundaries.isNotEmpty()) capture(captured.worldId) as? Capture else null
+            val next = if (warningBoundaries.isNotEmpty()) capture(captured.worldId) as? Capture else null
             val retain = next?.publication?.definitions === result.definitions
+            val kind = when {
+                edit.patch.upsertFixedBlocks.isNotEmpty() || edit.patch.removeFixedBlockIds.isNotEmpty() -> SectionWandKind.BLOCK
+                edit.patch.upsertRegions.isNotEmpty() -> SectionWandKind.REGION
+                else -> SectionWandKind.PENDING
+            }
             SectionWandOutcome(WandText.key("section.applied", edit.text, result.definitions!!.definitionRevision),
-                continuation.takeIf { retain }, next.takeIf { retain && continuation != null },
+                kind,
                 warningBoundaries.takeIf { retain }.orEmpty(), next.takeIf { retain && warningBoundaries.isNotEmpty() })
-        } else SectionWandOutcome(WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result)), firstPoint, captured)
+        } else SectionWandOutcome(WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result)))
     }
 }

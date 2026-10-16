@@ -2,6 +2,19 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
+### 统一区间工具与自动判型（2026-10-16，离线完成，未部署）
+
+1. 补齐菱形交叉冲突围合及正式region resolver的连通性，实际通行与进路方向不变。
+2. 统一创建/删除工具、命令、边界操作与已有区间屏障复用；围合后判型，移除废弃的两点选取临时状态；既有区域修复保留原身份。
+3. 接入F、复用overlay刷新显示模式/结果，更新中英文与文档，不改Bukkit/Core/Basic和授权。
+4. 独立复核，编译受影响代码/旧测试，仅执行少量真实围合、交叉直行和工具行为用例；分小批提交，不部署，Stage 2不归档。
+
+上述已完成。交叉冲突围合先单独提交`03bf4acd`；统一工具及owner规范在下一笔提交。命令收敛为`/simplesignals wand section [create|delete]`，沿新增边界内向一次最近切口行走，复用原BlockPathBuilder和运营方向校验；有冲突再进入完整围合/进路生成。共用既有邻区边界位置但不抢占原ID，删除与查看警告按方向唯一选择。移除firstPoint/firstCapture，pending仍用现有字段，F/潜行不删除已保存边界，状态栏复用overlay；正式保护边界仍为内点，仅pending允许端点。完整机制归[工具合同](../../spec/simple-signals/backend/section-authoring-wands.md)，交叉只圈定冲突、不跨线转弯。
+
+独立复核修正每段重复扫描切口/交叉的成本、原diamond用例仅两边界的错误fixture，以及共享区域切口删除/警告的方向歧义；删除模式也拒绝近垂直视线猜方向。最终无产品阻塞。产品编译先3秒通过；统一定向门禁首次仅测试fixture缺少lineTopologyState import而停，机械补齐后9秒/35tasks（5执行、30up-to-date）通过。实际仅24项，0failure/error/skip：SectionAuthoringActions16、crossing search1、resolver1、直行discovery1、真实manager端点/重载/超保护半径闭塞及区域自动表2、handler命令/旧动作失效/方向3。测试源码全部编译，不等于执行全部测试；未运行Core/Basic/Bukkit/SimpleATO/WebUI或完整Signals套件。旧两点实现测试删除，其他旧测试只适配签名；不建立大测试矩阵。中英key集合一致，diff --check通过。
+
+候选仍在`/tmp/javarailways-fixed-block-authority.nsoyCU`，SimpleSignals全src与工作区diff一致，JAR/模块边界门禁通过。Signals JAR SHA256 `4670ccf412bf1b6043cc7312629c1e7a7e2322d2ca09ff7b20e44762579f41ae`；完整主shadow JAR仍为`6964a9e72537a97fe34cdd1dd45e9ac2905b942b39778317d3098a9e2c535ad4`，客户端资源包不变。本批无SSH/部署，后续只需获准更新Signals并重领统一区间工具。现有区间不会自动改类型；旧保护区域若仅围住菱形交叉一条腿，新的完整冲突围合校验不再接受，应在部署前核对定义并补齐，不加旧错误数据的runtime兼容。真实客户端多边界建造、F/状态栏、四腿交叉及原区域修复仍待验收，Stage 2保持in_progress。
+
 ### 游戏工具本地化与F切模式（2026-10-16，离线完成，未部署）
 
 1. 从AbstractWand现有F处理提取最小公开helper，保留宿主工具行为并修正旧Shift+F说明。

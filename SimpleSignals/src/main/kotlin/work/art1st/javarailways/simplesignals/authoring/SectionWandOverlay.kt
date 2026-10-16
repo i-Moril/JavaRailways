@@ -28,6 +28,7 @@ internal class SectionWandOverlay(
         SectionWandHandler.readTool(plugin, it.inventory.itemInMainHand) != null ||
             SignalWandHandler.readTool(plugin, it.inventory.itemInMainHand) != null
     },
+    private val showStatus: (Player) -> Unit = {},
     private val enabled: () -> Boolean = { plugin.isEnabled },
     private val worker: (() -> Unit) -> Unit = { action -> plugin.server.asyncScheduler.runNow(plugin) { action() } },
     private val owner: (Player, () -> Unit, () -> Unit) -> Unit = { player, action, retired ->
@@ -66,6 +67,7 @@ internal class SectionWandOverlay(
         val tool = if (!closed.get() && enabled() && player.isOnline && player.hasPermission(SectionWandHandler.PERMISSION))
             toolInHand(player) else false
         if (!tool) { invalidate(player); return }
+        showStatus(player)
         val world = player.world
         var session = sessions[id]
         if (session == null || session.viewer !== player || session.world !== world) {

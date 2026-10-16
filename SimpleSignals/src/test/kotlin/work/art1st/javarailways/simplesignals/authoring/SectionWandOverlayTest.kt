@@ -100,7 +100,7 @@ class SectionWandOverlayTest {
         g.overlay.check(g.player); g.drainOwner(); g.drainWorker()
         val oldTask = g.refreshes[g.refreshes.lastIndex]
         g.tool = null; g.tick()
-        g.tool = SectionWandTool.REGION_DELETE
+        g.tool = SectionWandTool.DELETE
         g.overlay.check(g.player); g.drainOwner(); g.drainWorker(); g.drainOwner()
         assertTrue(g.handles.first().closed)
         assertFalse(g.handles.last().closed)
@@ -153,7 +153,7 @@ class SectionWandOverlayTest {
         f.tool = null
         f.overlay.onJoin(PlayerJoinEvent(f.player, Component.empty())); f.drainOwner()
         assertTrue(f.handles.isEmpty())
-        f.tool = SectionWandTool.BLOCK_CREATE
+        f.tool = SectionWandTool.CREATE
         f.retireOnAttach = true
         f.overlay.check(f.player); f.drainOwner(); f.drainWorker(); f.drainOwner()
         assertTrue(f.handles.single().closed)
@@ -177,7 +177,7 @@ class SectionWandOverlayTest {
         var permitted = true
         var online = true
         var x = 0.0
-        var tool: SectionWandTool? = SectionWandTool.BLOCK_CREATE
+        var tool: SectionWandTool? = SectionWandTool.CREATE
         var available = true
         var token = capture()
         var prepares = 0

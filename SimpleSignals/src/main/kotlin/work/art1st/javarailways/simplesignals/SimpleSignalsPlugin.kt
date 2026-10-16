@@ -87,7 +87,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
         val admin = SimpleSignalsAdminCommand(this, runtimes, SimpleSignalsDefinitionDrafts(dataFolder.toPath()))
         val overlay = SectionWandOverlay(this,
             RuntimeSectionOverlayBackend(runtimes::authoringRuntime, services.infrastructure(), services.railTargets()),
-            services.editorTexts())
+            services.editorTexts(), showStatus = { sectionWands?.showStatus(it) })
         sectionOverlay = overlay
         server.pluginManager.registerEvents(overlay, this)
         server.onlinePlayers.forEach(overlay::check)

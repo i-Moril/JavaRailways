@@ -1,6 +1,5 @@
 package work.art1st.javarailways.simplesignals.authoring
 
-import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -10,8 +9,7 @@ internal class SectionWandSessions {
     internal class Session(val worldId: UUID, val tool: SectionWandTool) {
         val active = AtomicBoolean(true)
         val busy = AtomicBoolean(false)
-        @Volatile var firstPoint: RailPositionSnapshot? = null
-        @Volatile var firstCapture: SectionWandCapture? = null
+        @Volatile var kind: SectionWandKind = SectionWandKind.PENDING
         @Volatile var refresh: AutoCloseable? = null
         fun close() { active.set(false); refresh?.close() }
     }
@@ -30,6 +28,8 @@ internal class SectionWandSessions {
 
     fun current(playerId: UUID, session: Session): Boolean =
         !closed.get() && session.active.get() && sessions[playerId] === session
+
+    fun kind(playerId: UUID): SectionWandKind = sessions[playerId]?.kind ?: SectionWandKind.PENDING
 
     fun invalidate(playerId: UUID) { sessions.remove(playerId)?.close() }
     fun invalidate(playerId: UUID, session: Session) {

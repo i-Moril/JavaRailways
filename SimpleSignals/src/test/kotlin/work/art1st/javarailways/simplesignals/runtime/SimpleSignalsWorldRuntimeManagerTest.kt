@@ -78,6 +78,7 @@ import work.art1st.javarailways.simplesignals.region.ProtectionRouteDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTraversal
 import work.art1st.javarailways.simplesignals.region.endpoint
+import work.art1st.javarailways.simplesignals.region.lineTopologyState
 import work.art1st.javarailways.simplesignals.region.topologyState
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStore
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
@@ -127,6 +128,39 @@ class SimpleSignalsWorldRuntimeManagerTest {
     @TempDir
     lateinit var directory: Path
 
+    @Test fun `unified section wand persists endpoint cuts and creates a block beyond the protection search range`() {
+        val world = UUID(0, 812)
+        val rail = UUID(0, 813)
+        val topology = lineTopologyState(1, rail)
+        val infrastructure = MutableTopologyService(topology)
+        val store = store()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), store, CapturingSignalEpochSourceService())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(world).status)
+        val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1.0)
+        val first = backend.perform(backend.capture(world)!!, SectionWandTool.CREATE, false,
+            RailPositionSnapshot(rail, ViewDirection.AB, 0.0)) { true }
+        assertEquals(SectionWandKind.PENDING, first.kind)
+        assertEquals(0.0, manager.authoringRuntime(world)!!.currentDefinitions().pendingProtectionBoundaries.single().position.arcLengthInAbMeters)
+        manager.remove(world)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(world).status)
+        val closed = backend.perform(backend.capture(world)!!, SectionWandTool.CREATE, false,
+            RailPositionSnapshot(rail, ViewDirection.BA, 10.0)) { true }
+        assertEquals(SectionWandKind.BLOCK, closed.kind, closed.text.render(java.util.Locale.US))
+        val saved = manager.authoringRuntime(world)!!.currentDefinitions()
+        assertTrue(saved.regions.isEmpty())
+        assertTrue(saved.pendingProtectionBoundaries.isEmpty())
+        assertEquals(listOf(FixedBlockTraversal(rail, ViewDirection.AB, 0.0, 10.0)), saved.fixedBlocks.single().traversals)
+        manager.remove(world)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(world).status)
+        assertEquals(saved, manager.authoringRuntime(world)!!.currentDefinitions())
+        val illegalRegion = ProtectionRegionDefinition("test:endpoint-region", 0, listOf(
+            ProtectionBoundaryDefinition("test:endpoint-a", RailPositionSnapshot(rail, ViewDirection.AB, 0.0)),
+            ProtectionBoundaryDefinition("test:endpoint-b", RailPositionSnapshot(rail, ViewDirection.BA, 10.0))))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED, manager.applyDefinitionPatch(world, saved.definitionRevision,
+            SimpleSignalsDefinitionPatch(upsertRegions = listOf(illegalRegion))).status)
+        assertEquals(saved, manager.authoringRuntime(world)!!.currentDefinitions())
+    }
+
     @Test fun `region wand completes new region and shortest table atomically with endpoint warnings and reload`() {
         val f = Fixture()
         val store = store()
@@ -138,8 +172,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val manager = runtimeManager(plugin(), infrastructure.service, plans, store, sources)
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
         val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
-        val result = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.REGION_CREATE, false,
-            null, f.region.boundaries.last().position) { true }
+        val result = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.CREATE, false,
+            f.region.boundaries.last().position) { true }
         assertTrue(result.text.render(java.util.Locale.US).contains("generated 1 shortest"), result.text.render(java.util.Locale.US))
         val saved = manager.authoringRuntime(f.worldId)!!.currentDefinitions()
         assertEquals(2, saved.definitionRevision)
@@ -169,7 +203,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val before = Files.readString(store.primaryFile(f.worldId))
         val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
         val failure = assertThrows(IllegalArgumentException::class.java) {
-            backend.perform(backend.capture(f.worldId)!!, SectionWandTool.REGION_CREATE, false, null,
+            backend.perform(backend.capture(f.worldId)!!, SectionWandTool.CREATE, false,
                 f.region.boundaries.last().position) { true }
         }
         assertTrue(failure.message!!.contains("No direction-legal"))
@@ -195,7 +229,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val unprotect = protect(registry, f.currentTopology, f.lowerIn, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM)
         try {
             val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
-            val result = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.REGION_CREATE, false, null,
+            val result = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.CREATE, false,
                 f.region.boundaries.last().position) { true }
             assertFalse(result.text.render(java.util.Locale.US).contains("generated"))
             assertSame(old, runtime.authoringPublication())
@@ -209,9 +243,9 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val r = RecordingFixture(f, tables = listOf(f.table(1, f.lowerRoute())))
         val backend = RuntimeSectionWandBackend(r.manager, r.infrastructure.service, 1000.0)
         val before = r.runtime.currentDefinitions().routeTables
-        backend.perform(backend.capture(f.worldId)!!, SectionWandTool.REGION_DELETE, false, null,
+        backend.perform(backend.capture(f.worldId)!!, SectionWandTool.DELETE, false,
             f.region.boundaries.first().position) { true }
-        val repaired = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.REGION_CREATE, false, null,
+        val repaired = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.CREATE, false,
             f.region.boundaries.first().position) { true }
         assertTrue(repaired.text.render(java.util.Locale.US).contains("Revalidated"), repaired.text.render(java.util.Locale.US))
         assertEquals(before, r.runtime.currentDefinitions().routeTables)

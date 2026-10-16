@@ -37,7 +37,7 @@ class SectionWandHandlerTest {
         val f = Fixture()
         f.permitted = false
         f.handler.click(f.player, f.tool!!, false)
-        f.handler.onCommand(f.player, command, "simplesignals", arrayOf("wand", "block"))
+        f.handler.onCommand(f.player, command, "simplesignals", arrayOf("wand", "section"))
         assertEquals(0, f.targetCalls)
         assertEquals(0, f.given)
         assertTrue(f.workers.isEmpty())
@@ -46,8 +46,8 @@ class SectionWandHandlerTest {
 
     @Test fun `command supplies distinct create and delete tools without a naming or confirm step`() {
         val f = Fixture()
-        f.handler.onCommand(f.player, command, "simplesignals", arrayOf("wand", "region", "delete"))
-        assertEquals(SectionWandTool.REGION_DELETE, f.lastGiven)
+        f.handler.onCommand(f.player, command, "simplesignals", arrayOf("wand", "section", "delete"))
+        assertEquals(SectionWandTool.DELETE, f.lastGiven)
         assertEquals(1, f.given)
         assertEquals(0, f.targetCalls)
     }
@@ -69,12 +69,9 @@ class SectionWandHandlerTest {
         assertEquals(1, f.messages.size)
     }
 
-    @Test fun `stale publication rejects worker result and clears old selection`() {
+    @Test fun `stale publication rejects the pending click before another capture`() {
         val f = Fixture()
-        val first = RailPositionSnapshot(f.railId, ViewDirection.AB, 2.0)
-        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("first"), first, f.capture)
         f.clickAndDrain()
-        assertEquals(listOf(null), f.firstInputs)
 
         f.target = CompletableFuture()
         f.handler.click(f.player, f.tool!!, false)
@@ -87,7 +84,6 @@ class SectionWandHandlerTest {
         f.advanceCapture()
         f.nextOutcome = SectionWandOutcome(WandText.diagnostic("recovered"))
         f.clickAndDrain()
-        assertEquals(listOf(null, null), f.firstInputs)
         assertEquals(2, f.performs)
         assertTrue(f.messages.isNotEmpty())
     }
@@ -105,7 +101,7 @@ class SectionWandHandlerTest {
     @Test fun `tool swap before targeting completion invalidates click`() {
         val f = Fixture()
         f.handler.click(f.player, f.tool!!, false)
-        f.tool = SectionWandTool.REGION_DELETE
+        f.tool = SectionWandTool.DELETE
         f.completeTarget(); f.drainOwner(); f.drainWorkers()
         assertEquals(0, f.performs)
     }
@@ -134,36 +130,24 @@ class SectionWandHandlerTest {
         assertEquals(2, f.targetCalls)
     }
 
-    @Test fun `worker receives first point from previous selection and continued block outcome`() {
+    @Test fun `perpendicular sight refuses boundary direction rather than guessing`() {
         val f = Fixture()
-        val first = RailPositionSnapshot(f.railId, ViewDirection.AB, 2.0)
-        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("first"), first, f.capture)
-        f.clickAndDrain()
-        assertNull(f.lastFirst)
-        val second = first.copy(arcLengthInAbMeters = 5.0)
-        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("created"), second, f.capture)
-        f.clickAndDrain()
-        assertEquals(first, f.lastFirst)
-        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("next"), null)
-        f.clickAndDrain()
-        assertEquals(second, f.lastFirst)
-    }
-
-    @Test fun `perpendicular sight refuses region direction rather than guessing`() {
-        val f = Fixture()
-        f.tool = SectionWandTool.REGION_CREATE
+        f.tool = SectionWandTool.CREATE
         f.yaw = 0f // Looking +Z, while the rail tangent points +X.
         f.clickAndDrain()
         assertEquals(0, f.performs)
         assertTrue(f.messages.isNotEmpty())
+        f.tool = SectionWandTool.DELETE
+        f.clickAndDrain()
+        assertEquals(0, f.performs)
     }
 
     @Test fun `obsolete callback cannot remove a new session`() {
         val sessions = SectionWandSessions()
         val player = UUID(0, 1)
-        val old = sessions.begin(player, UUID(0, 2), SectionWandTool.BLOCK_CREATE, true)!!
+        val old = sessions.begin(player, UUID(0, 2), SectionWandTool.CREATE, true)!!
         sessions.invalidate(player)
-        val fresh = sessions.begin(player, UUID(0, 2), SectionWandTool.BLOCK_CREATE, true)!!
+        val fresh = sessions.begin(player, UUID(0, 2), SectionWandTool.CREATE, true)!!
         sessions.invalidate(player, old)
         assertTrue(sessions.current(player, fresh))
         assertFalse(old.active.get())
@@ -171,7 +155,7 @@ class SectionWandHandlerTest {
 
     @Test fun `region warnings are worker prepared and owner refresh performs no geometry work`() {
         val f = Fixture()
-        f.tool = SectionWandTool.REGION_CREATE
+        f.tool = SectionWandTool.CREATE
         val cut = work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition("test:warn",
             RailPositionSnapshot(f.railId, ViewDirection.AB, 5.0))
         f.nextOutcome = SectionWandOutcome(WandText.diagnostic("multiple paths"), warnings = listOf(cut), warningCapture = f.capture)
@@ -235,15 +219,13 @@ class SectionWandHandlerTest {
         var ownerThread = true
         var current = true
         var yaw = -90f
-        var tool: SectionWandTool? = SectionWandTool.BLOCK_CREATE
+        var tool: SectionWandTool? = SectionWandTool.CREATE
         var target = CompletableFuture<Optional<RailTarget>>()
         var targetCalls = 0
         var curveCalls = 0
         var performs = 0
         var given = 0
         var lastGiven: SectionWandTool? = null
-        var lastFirst: RailPositionSnapshot? = null
-        val firstInputs = mutableListOf<RailPositionSnapshot?>()
         var refresh: (() -> Unit)? = null
         var openRefresh = 0
         var closedRefresh = 0
@@ -269,6 +251,7 @@ class SectionWandHandlerTest {
                 "getEyeLocation" -> Location(world, 0.0, 0.0, 0.0, yaw, 0f)
                 "locale" -> java.util.Locale.US
                 "sendMessage" -> { messages += args!![0] as Component; null }
+                "sendActionBar" -> null
                 else -> error("Unexpected player method $name")
             }
         }
@@ -295,12 +278,10 @@ class SectionWandHandlerTest {
             override fun current(capture: SectionWandCapture): Boolean =
                 current && capture === this@Fixture.capture
             override fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
-                firstPoint: RailPositionSnapshot?, point: RailPositionSnapshot, active: () -> Boolean): SectionWandOutcome {
+                point: RailPositionSnapshot, active: () -> Boolean): SectionWandOutcome {
                 check(!ownerThread)
                 assertTrue(active())
                 performs++
-                lastFirst = firstPoint
-                firstInputs += firstPoint
                 return nextOutcome
             }
         }

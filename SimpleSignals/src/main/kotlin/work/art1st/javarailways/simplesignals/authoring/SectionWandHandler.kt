@@ -61,17 +61,15 @@ internal class SectionWandHandler(
             sender.sendMessage(Component.text(WandI18n.format(sender, "permission", PERMISSION))); return true
         }
         if (sender !is Player) { sender.sendMessage(Component.text(WandI18n.format(sender, "section.player"))); return true }
-        val tool = if (args.size in 2..3 && args[0] == "wand")
-            SectionWandTool.entries.singleOrNull { it.key == "${args[1]}:${args.getOrNull(2) ?: "create"}" } else null
+        val tool = if (args.size in 2..3 && args[0] == "wand" && args[1] == "section")
+            SectionWandTool.entries.singleOrNull { it.key == (args.getOrNull(2) ?: "create") } else null
         if (tool == null) { sender.sendMessage(Component.text(USAGE)); return true }
         sessions.invalidate(sender.uniqueId)
         try {
             giveTool(sender, tool)
             sender.sendMessage(Component.text(when (tool) {
-                SectionWandTool.BLOCK_CREATE -> WandI18n.format(sender, "section.block.create")
-                SectionWandTool.BLOCK_DELETE -> WandI18n.format(sender, "section.block.delete")
-                SectionWandTool.REGION_CREATE -> WandI18n.format(sender, "section.region.create")
-                SectionWandTool.REGION_DELETE -> WandI18n.format(sender, "section.region.delete")
+                SectionWandTool.CREATE -> WandI18n.format(sender, "section.create")
+                SectionWandTool.DELETE -> WandI18n.format(sender, "section.delete")
             }))
         } catch (failure: Exception) { sender.sendMessage(Component.text(failure.message ?: WandI18n.format(sender, "section.create.failed"))) }
         checkOverlay(sender)
@@ -125,15 +123,12 @@ internal class SectionWandHandler(
                         return@entity
                     }
                     val selected = target.get()
-                    val firstPoint = session.firstPoint
-                    val firstCapture = session.firstCapture
                     worker {
                         if (!active()) return@worker
                         try {
-                            if (!backend.current(captured) || (firstCapture != null && !backend.current(firstCapture))) {
+                            if (!backend.current(captured)) {
                                 entity(player) {
                                     if (ownerCurrent()) {
-                                        session.firstPoint = null; session.firstCapture = null
                                         player.sendMessage(Component.text(WandI18n.format(locale, "selection.expired")))
                                     }
                                     session.busy.set(false)
@@ -143,18 +138,18 @@ internal class SectionWandHandler(
                             val curve: Curve = targets.findCurve(worldId, selected.rail().id).orElseThrow { IllegalArgumentException("Rail no longer exists") }
                             val tangent = curve.getPointAt(selected.arcLength()).tangent
                             val dot = tangent.x() * sightX + tangent.y() * sightY + tangent.z() * sightZ
-                            if (tool == SectionWandTool.REGION_CREATE && !leftClick) require(abs(dot) >= 0.15) {
-                                "Look along the rail toward the intended region interior"
+                            require(abs(dot) >= 0.15) {
+                                WandI18n.format(locale, "section.direction")
                             }
                             val point = RailPositionSnapshot(selected.rail().id,
                                 if (dot >= 0) ViewDirection.AB else ViewDirection.BA, selected.arcLength())
-                            val result = backend.perform(captured, tool, leftClick, firstPoint, point, ::active)
+                            val result = backend.perform(captured, tool, leftClick, point, ::active)
                             val warnings = RoutePreviewDrawing.warnings(result.warnings) { id -> targets.findCurve(worldId, id).orElse(null) }
                             entity(player) {
                                 if (ownerCurrent()) {
-                                    session.firstPoint = result.firstPoint
-                                    session.firstCapture = result.firstCapture
+                                    session.kind = result.kind
                                     player.sendMessage(Component.text(result.text.render(player.locale()).take(8192)))
+                                    showStatus(player)
                                     session.refresh?.close(); session.refresh = null
                                     if (warnings.points.isNotEmpty()) {
                                         var offset = 0
@@ -196,10 +191,8 @@ internal class SectionWandHandler(
             if (!enabled() || !player.hasPermission(PERMISSION)) return@handle
             val current = readTool(plugin, player.inventory.itemInMainHand) ?: return@handle
             val next = when (current) {
-                SectionWandTool.BLOCK_CREATE -> SectionWandTool.BLOCK_DELETE
-                SectionWandTool.BLOCK_DELETE -> SectionWandTool.BLOCK_CREATE
-                SectionWandTool.REGION_CREATE -> SectionWandTool.REGION_DELETE
-                SectionWandTool.REGION_DELETE -> SectionWandTool.REGION_CREATE
+                SectionWandTool.CREATE -> SectionWandTool.DELETE
+                SectionWandTool.DELETE -> SectionWandTool.CREATE
             }
             val item = player.inventory.itemInMainHand
             val decoration = createItem(plugin, next, player.locale()).itemMeta
@@ -208,7 +201,7 @@ internal class SectionWandHandler(
                 meta.displayName(decoration.displayName())
                 meta.lore(decoration.lore())
             }
-            player.sendActionBar(Component.text(WandI18n.format(player, "section.mode", WandI18n.format(player, "section.name." + next.name))))
+            showStatus(player)
             checkOverlay(player)
         }
     }
@@ -217,9 +210,18 @@ internal class SectionWandHandler(
     @EventHandler(ignoreCancelled = true) fun onWorldUnload(event: WorldUnloadEvent) { sessions.invalidateWorld(event.world.uid) }
     fun close() = sessions.close()
 
+    /** Called by the existing editor overlay refresh on the player owner; no graph or world query. */
+    fun showStatus(player: Player) {
+        val tool = toolInHand(player) ?: return
+        val locale = player.locale()
+        player.sendActionBar(Component.text(WandI18n.format(locale, "section.status",
+            WandI18n.format(locale, "section.mode.${tool.name}"),
+            WandI18n.format(locale, "section.kind.${sessions.kind(player.uniqueId).name}"))))
+    }
+
     companion object {
         const val PERMISSION = "simplesignals.admin"
-        const val USAGE = "/simplesignals wand block|region [create|delete], or /simplesignals wand route|measure"
+        const val USAGE = "/simplesignals wand section [create|delete], or /simplesignals wand signal|route|measure"
         private fun key(plugin: Plugin) = NamespacedKey(plugin, "section_wand")
         internal fun readTool(plugin: Plugin, stack: ItemStack): SectionWandTool? {
             val value = stack.itemMeta?.persistentDataContainer?.get(key(plugin), PersistentDataType.STRING) ?: return null

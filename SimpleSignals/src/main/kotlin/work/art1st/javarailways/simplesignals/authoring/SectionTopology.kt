@@ -51,8 +51,43 @@ internal fun TopologyState.sameBlockBoundary(first: RailPositionSnapshot, second
         (structuralNodeAt(a) as? TopologyNode.LoopAnchor)?.ports?.let { a in it && b in it } == true
 }
 
+/** Conflict points are barriers for an ordinary block, not connections on which a train may turn. */
+internal fun TopologyState.crossesConflict(rail: UUID, from: Double, to: Double): Boolean =
+    atGradeCrossingsOn(rail).any { crossing ->
+        val point = if (crossing.first.railId == rail) crossing.first else crossing.second
+        point.arcLengthAbMeters >= min(from, to) - Curve.TOLERANCE &&
+            point.arcLengthAbMeters <= max(from, to) + Curve.TOLERANCE
+    }
+
 /** Two selected positions define exactly one simple, bounded, turnout-free physical path. */
 internal object BlockPathBuilder {
+    /** One local walk, stopping at the first cut or physical conflict; no walk per world boundary. */
+    fun nearestBoundary(topology: TopologyState, first: RailPositionSnapshot,
+        boundaries: Collection<RailPositionSnapshot>): RailPositionSnapshot? {
+        val byRail = boundaries.groupBy { it.railId }
+        val visited = hashSetOf<Pair<UUID, ViewDirection>>()
+        var rail = first.railId
+        var position = first.arcLengthInAbMeters
+        var facing = first.facing
+        while (visited.add(rail to facing)) {
+            val target = byRail[rail].orEmpty().filter {
+                !samePoint(it, first) && if (facing == ViewDirection.AB)
+                    it.arcLengthInAbMeters >= position - Curve.TOLERANCE
+                else it.arcLengthInAbMeters <= position + Curve.TOLERANCE
+            }.minByOrNull { abs(it.arcLengthInAbMeters - position) }
+            val end = target?.arcLengthInAbMeters ?: if (facing == ViewDirection.AB) topology.railLength(rail) else 0.0
+            if (topology.crossesConflict(rail, position, end)) return null
+            if (target != null) return target
+            val port = RailEndpointRef(rail, if (facing == ViewDirection.AB) RailEndpoint.B else RailEndpoint.A)
+            if (topology.structuralNodeAt(port) is TopologyNode.Turnout) return null
+            val next = topology.continuations(port).singleOrNull() ?: return null
+            rail = next.railId
+            facing = if (next.endpoint == RailEndpoint.A) ViewDirection.AB else ViewDirection.BA
+            position = if (next.endpoint == RailEndpoint.A) 0.0 else topology.railLength(rail)
+        }
+        return null
+    }
+
     fun path(topology: TopologyState, first: RailPositionSnapshot, second: RailPositionSnapshot): List<FixedBlockTraversal> {
         require(!samePoint(first, second)) { "Choose two distinct boundary positions" }
         listOf(first, second).forEach {

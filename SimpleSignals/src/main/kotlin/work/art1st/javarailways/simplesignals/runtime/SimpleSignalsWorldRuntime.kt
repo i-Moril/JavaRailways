@@ -544,11 +544,15 @@ internal class SimpleSignalsWorldRuntime(
             if (!search.complete || search.boundaries.map { it.boundaryId }.toSet() != region.boundaries.map { it.boundaryId }.toSet())
                 return@synchronized preparationRejected("region ${region.regionId}: ${search.detail}")
         }
+        val pendingBoundaryIds = copiedDefinitions.pendingProtectionBoundaries.map { it.boundaryId }.toSet()
         for (boundary in placedBoundaries) {
             val rail = topology.railProjection[boundary.position.railId]?.singleOrNull()
                 ?: return@synchronized preparationRejected("boundary ${boundary.boundaryId} references missing rail")
-            if (boundary.position.arcLengthInAbMeters <= Curve.TOLERANCE ||
-                boundary.position.arcLengthInAbMeters >= maxOf(rail.railStartAbMeters, rail.railEndAbMeters) - Curve.TOLERANCE) {
+            val length = maxOf(rail.railStartAbMeters, rail.railEndAbMeters)
+            val arc = boundary.position.arcLengthInAbMeters
+            if (boundary.boundaryId in pendingBoundaryIds) {
+                if (arc > length) return@synchronized preparationRejected("pending boundary ${boundary.boundaryId} lies beyond its rail")
+            } else if (arc <= Curve.TOLERANCE || arc >= length - Curve.TOLERANCE) {
                 return@synchronized preparationRejected("boundary ${boundary.boundaryId} must lie strictly inside its rail")
             }
         }

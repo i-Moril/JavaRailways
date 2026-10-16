@@ -253,3 +253,42 @@ Complete reviewed protection-region authoring batch: shortest route tables, endp
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: Fix editor UUIDs and migrate section direction glyphs
+<!-- trellis-session: v=2 fp=f51f32e60df0bdd9 -->
+
+**Date**: 2026-10-16
+**Task**: Fix editor UUIDs and migrate section direction glyphs
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+Committed prior deployed shared-runtime fix separately; corrected generated-ID UI, added oriented TextDisplay editor glyph API/client pack, migrated RailObjectWand directions and shared section overlays with Signal Wand. Stage 2 remains in progress; no new deployment.
+
+### Main Changes
+
+- Preserved persistent identities/admin diagnostics and unrelated dirty files; shared cached glyph geometry and viewer-scoped cleanup.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `54a10deb` | fix(signals): share host Kotlin runtime across plugin boundary |
+| `40a62c1d` | fix(editor): hide generated identities in authoring messages |
+| `44c510bb` | feat(editor): add oriented TextDisplay glyphs and client pack |
+| `1e569162` | refactor(editor): render RailObjectWand directions as text glyphs |
+| `66cc3314` | fix(signals): share section glyph overlays with Signal Wand |
+
+### Testing
+
+- [OK] Bukkit 410 and SimpleSignals 589 tests passed; Java consumer, plugin/module gates, reproducible resource ZIP and embedded WebUI checked.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Review four UI commits, then obtain deployment approval for both JARs and perform real-client glyph/entry/cleanup acceptance.

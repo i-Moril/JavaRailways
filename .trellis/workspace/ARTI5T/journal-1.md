@@ -404,3 +404,40 @@ Committed prior deployed shared-runtime fix separately; corrected generated-ID U
 ### Next Steps
 
 - 等待用户检查bec5cee9；获得单独部署指令后再备份并部署，现场验证既有四pending交叉渡线围合。共享多保护区cut删除目标选择仍未实现。
+
+
+## Session 13: 清理无向切口的方向占位
+<!-- trellis-session: v=2 fp=67960c32c0ae6864 -->
+
+**Date**: 2026-10-16
+**Task**: 清理无向切口的方向占位
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+pending、区域修复草稿与工具输入使用真正无向模型，严格current格式保持schema1，无旧reader；仅本地提交，未部署。
+
+### Main Changes
+
+- 新增模块私有RailCutPosition和ProtectionBoundaryCut，pending/draft保存DTO只有boundaryId、railId与canonical AB米数；正式认可边界和信号方向保留。
+- 去掉AB输入占位、effectiveBoundaries及undirectedBoundaryIds；几何/编辑影响读effectiveCuts，有向编辑读placedEntrances，仍保留完整认可边界的禁行依据。同步owner合同及必要测试类型。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `50afd64c` | refactor(signals): model pending section cuts without direction |
+
+### Testing
+
+- [OK] 生产编译5秒；最终定向门禁11秒，28项/6套零失败、错误或跳过。生产及全部测试源编译、模块/JAR隔离通过，Java consumer编译门禁up-to-date；checksum同步与diff检查通过，独立静态复核无阻断。
+- [OK] 只新增1项codec关键用例：pending/draft恰为三字段，正式边界保留insideFacing，两处旧字段分别严格拒绝。其余为既有测试适配；未运行全仓测试或现场验收。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 用户检查50afd64c；预览请求queued，尚未确认打开。部署前另行批准整目录打包备份与开发服pending/draft一次性迁移；本批不操作远端，Stage 2保持进行中。

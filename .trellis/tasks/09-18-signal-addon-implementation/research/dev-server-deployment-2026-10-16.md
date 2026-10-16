@@ -72,3 +72,13 @@ MCSManager正常启动，07:00:13日志`Done (26.964s)!`；JavaRailways和Simple
 MCSManager正常启动，07:46:55日志`Done (25.819s)!`。JavaRailways/RailWand/RailObjectWand及SimpleSignals启用，模型包1train/3rail；SimpleSignals从primary加载玩家已有定义。07:47:23只读命令确认ATO world RUNNING，主世界installed、definitionRevision3/topologyRevision1、regions0/tables0/blocks2/fixedBlockSignals1，其余设备0。bridge `/health`返回ok，WebUI首页及引用JS均HTTP200。检查的新启动日志未见LinkageError/NoClassDefFoundError；没有借此宣称玩家字体、选择/清理或JS联动已通过。
 
 保留未扩修告警：Terra仍报sun.misc.Unsafe反射字段缺失但随后完成加载；本次启动有一次187.8ms physics epoch overload及epoch33的234.3→200ms步长截断，亦有既有离线模式/HTTP/JDK等警告。未做性能根因诊断或负载测试，不将正常启动概括为无任何错误。未影响另一模组服、改变认证/API key、创建测试对象、应用时刻表或执行数据迁移。下一步由玩家安装独立资源包后实测显示/交互，Stage 2继续in_progress。
+
+## 区间连续细线显示部署（08:43–08:45 UTC）
+
+用户批准部署`e87444bb`。仅部署已有构建的SimpleSignals JAR，不重跑测试、不重建、不改主插件或世界定义；核对两份产品源码与隔离候选一致。向玩家提示10秒后重启，经MCSManager正常停服，08:43:55所有世界和玩家保存完成，实例status0且旧PID499447退出。
+
+外部恢复点`/opt/mcsmanager/backups/javarailways/section-centerline-20261016-UipEB3ZZ/configs-and-installed-jars.tar.gz`，SHA256 `e5f43385d0beeb44bd8768ea033098ea9d5611de1ef0128ed6293596799023af`。完整打包JavaRailways/、SimpleSignals/和原两JAR，保留ACL/xattr，目录0700、归档0600，tar可读性检查通过；122个配置/存档文件在备份后和替换后、启动前逐文件校验一致。没有配置同目录备份或回退玩家数据。
+
+实际产物SHA256：主JAR仍为`8770d68dc6f5d7d57edcea5f1e944546b0da41923e0217e5c71cc462f37a2f36`；Signals为`6780bf046b2f8ae09e0a7a3181e94f5684cebd7ab9790b282b77a9e12008d6b6`。配套客户端编辑ZIP为`f3ff10250c1f26a99ed38d86f40b059ea36b068bb6b175281d7da435f9b97dff`，留存同一外部恢复目录的`JavaRailways-editor-markers-26.1.2.zip`，本地交付路径不变；服务器不会自动更新玩家客户端资源包。
+
+经MCSManager正常启动，08:45:08 `Done (26.564s)!`；bridge健康`ok:true`，WebUI HTTP200。启动日志未见LinkageError/NoClassDefFoundError。仍有既有Terra Unsafe反射错误，启动时一次248.1ms physics overload及epoch33的287.7→200ms步长截断，未扩修。未进行游戏对象操作或性能/显示测试；玩家须替换客户端编辑资源包后验收连续细线及分界点，Stage 2仍in_progress。

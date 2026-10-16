@@ -162,6 +162,7 @@ class MeasurementWandHandlerTest {
                 "isOnline" -> online
                 "hasPermission" -> permitted
                 "isSneaking" -> sneaking
+                "locale" -> java.util.Locale.US
                 "sendMessage" -> { messages += args!![0] as Component; null }
                 else -> error(name)
             }

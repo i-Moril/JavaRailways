@@ -18,7 +18,7 @@ internal enum class SectionWandTool(val key: String) {
 }
 
 internal interface SectionWandCapture { val worldId: UUID }
-internal data class SectionWandOutcome(val message: String, val firstPoint: RailPositionSnapshot? = null,
+internal data class SectionWandOutcome(val text: WandText, val firstPoint: RailPositionSnapshot? = null,
     val firstCapture: SectionWandCapture? = null, val warnings: List<ProtectionBoundaryDefinition> = emptyList(),
     val warningCapture: SectionWandCapture? = null)
 
@@ -71,15 +71,14 @@ internal class RuntimeSectionWandBackend(
                 .singleOrNull { it.effectiveBoundaries.any { boundary -> samePoint(boundary.position, point, SectionAuthoringActions.SNAP_METERS) } }
                 ?: throw IllegalArgumentException("Left-click an existing protection boundary to show route warnings")
             val found = discover(region)
-            return SectionWandOutcome("${found.routes.size} reachable entry/exit pair(s); ${found.warningBoundaryIds.size} boundary warning(s). " +
-                "Amber !: multiple legal paths; shortest initially selected. Use the route wand to replace a path.",
+            return SectionWandOutcome(WandText.key("region.warnings", found.routes.size, found.warningBoundaryIds.size),
                 warnings = region.boundaries.filter { it.boundaryId in found.warningBoundaryIds }, warningCapture = captured)
         }
         val edit = when (tool) {
             SectionWandTool.BLOCK_CREATE -> {
                 val selected = if (leftClick) SectionAuthoringActions.selectBlockEnd(definitions, point, topology)
                     else SectionAuthoringActions.snap(definitions, point)
-                if (firstPoint == null) return SectionWandOutcome("First boundary selected; choose the second point", selected, captured)
+                if (firstPoint == null) return SectionWandOutcome(WandText.key("block.first"), selected, captured)
                 continuation = selected
                 val path = BlockPathBuilder.path(topology, firstPoint, selected)
                 val directions = infrastructure.operatingDirections(captured.worldId, topology, path.map { it.railId }.toSet())
@@ -101,8 +100,7 @@ internal class RuntimeSectionWandBackend(
                         0, region.regionId, region.revision, found.routes)
                     SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertRegions = placed.patch.upsertRegions,
                         upsertRouteTables = listOf(table), pendingProtectionBoundaries = placed.patch.pendingProtectionBoundaries),
-                        placed.message + "; generated ${found.routes.size} shortest route(s)" +
-                            if (warningBoundaries.isEmpty()) "" else "; amber ! at ${warningBoundaries.size} boundaries: multiple legal paths; shortest selected")
+                        WandText.key("region.routes.generated", placed.text, found.routes.size, warningBoundaries.size))
                 }
             }
         }
@@ -112,9 +110,9 @@ internal class RuntimeSectionWandBackend(
         return if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED) {
             val next = if (continuation != null || warningBoundaries.isNotEmpty()) capture(captured.worldId) as? Capture else null
             val retain = next?.publication?.definitions === result.definitions
-            SectionWandOutcome("${edit.message}; definition revision ${result.definitions!!.definitionRevision}",
+            SectionWandOutcome(WandText.key("section.applied", edit.text, result.definitions!!.definitionRevision),
                 continuation.takeIf { retain }, next.takeIf { retain && continuation != null },
                 warningBoundaries.takeIf { retain }.orEmpty(), next.takeIf { retain && warningBoundaries.isNotEmpty() })
-        } else SectionWandOutcome(SimpleSignalsAdminCommand.formatResult(result), firstPoint, captured)
+        } else SectionWandOutcome(WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result)), firstPoint, captured)
     }
 }

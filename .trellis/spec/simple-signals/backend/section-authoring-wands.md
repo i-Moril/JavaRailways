@@ -42,6 +42,16 @@ controller 制动／反应／安全距离与 `maxSpeed * leadTime` 的最大值�
 
 ## 4. 数据和单位
 
+### 玩家语言与F模式切换
+
+工具的中英文玩家文案归SimpleSignals自己的`i18n/wands_en_US.properties`、`wands_zh_CN.properties`；读取方式沿用宿主Wand的UTF-8 Properties约定，不依赖宿主内部翻译类。玩家语言为中文时使用简体中文资源，其他语言使用英文；某键缺少中文时回退同一英文键，不从已生成的英文句子反查翻译。console反馈默认英文，后台日志/编译诊断不翻译；作者名称、signalType、模型variant和持久化token保持原值。
+
+正常流程是玩家owner捕获locale，工具选择/编辑在worker中返回消息键及参数，回到玩家owner后渲染为Adventure文字；异步编辑器需要locale时只传捕获的Locale值，worker不得调用Player.locale。item名称/lore、设置/选择页、状态栏和操作结果使用同一catalog。区间几何缓存保留独立说明消息，呈现附近标签时才按viewer语言生成文字，不为翻译重新查图、采样曲线或另建几何缓存。资源每次启用加载一次，普通文字解析只是常数次键查询及按参数长度格式化。
+
+闭塞和保护区域工具按F在同类的创建/删除之间切换，不把闭塞工具切成保护区域工具；信号工具按F在放置/删除之间切换，沿用设置页状态更新，递增原有stateRevision并清除失效binding。进路和测距工具没有新增模式。输入调用宿主[公共Wand helper](../../bukkit-plugin/backend/interaction-render-persistence.md#共用wand按f切换模式current)，只响应当前主手且取消真实换手。消费者验证权限、撤销旧选点/警告/对话和异步接续，再保存物品状态并显示当前模式；不能只改状态栏、不更新PDC。普通物品仍可正常换手，切模式不改世界定义。
+
+例如中文玩家收到“已选择第一个边界”，英文玩家收到对应英文提示，两者复用相同消息身份；自动生成的UUID继续隐藏，作者自定义名称原样插入。语言资源丢失属于打包错误，首次加载catalog时明确失败，不静默使用空catalog；未知底层异常保留原诊断内容，但玩家提示外层按locale显示。既有工具物品在重新生成/更新文案时使用当前玩家语言，不修改PDC形状或增加旧数据迁移/版本号。必要检查为中英键/参数、直接模式切换与旧编辑失效，不复制整个UI流程作大型测试矩阵；真实按键与客户端显示另验。
+
 轨道位置仍为 `RailPositionSnapshot`：rail UUID、canonical AB 米数、朝向；保护边界朝向指向内部。
 命令为 `/simplesignals wand block|region [create|delete]`，默认 create，权限 `simplesignals.admin`。
 信号工具命令固定为 `/simplesignals wand signal`，只在 catalog 已就绪且非空时发放一个通用 Signal Wand。

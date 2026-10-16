@@ -38,8 +38,8 @@ internal class MeasurementWandHandler(
     },
     private val held: (Player) -> Boolean = { isTool(plugin, it.inventory.itemInMainHand) },
     private val give: (Player) -> Unit = {
-        require(it.inventory.firstEmpty() >= 0) { "Make one empty inventory slot for the wand" }
-        it.inventory.addItem(createItem(plugin))
+        require(it.inventory.firstEmpty() >= 0) { WandI18n.format(it, "inventory.full") }
+        it.inventory.addItem(createItem(plugin, it.locale()))
     },
     private val target: (Player) -> CompletionStage<Optional<RailTarget>> = { targets.findLookedAtRail(it, 64.0, 0.75) }
 ) : Listener, CommandExecutor, AutoCloseable {
@@ -55,17 +55,17 @@ internal class MeasurementWandHandler(
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
         if (!enabled() || closed.get()) return true
         if (!sender.hasPermission(SectionWandHandler.PERMISSION)) {
-            sender.sendMessage(Component.text("SimpleSignals: missing permission ${SectionWandHandler.PERMISSION}")); return true
+            sender.sendMessage(Component.text(WandI18n.format(sender, "permission", SectionWandHandler.PERMISSION))); return true
         }
-        if (sender !is Player) { sender.sendMessage(Component.text("Measurement wand requires a player")); return true }
+        if (sender !is Player) { sender.sendMessage(Component.text(WandI18n.format(sender, "measure.player"))); return true }
         if (args.toList() != listOf("wand", "measure")) {
             sender.sendMessage(Component.text("/simplesignals wand measure")); return true
         }
         invalidate(sender)
         try {
             give(sender)
-            sender.sendMessage(Component.text("Measurement wand: right-click two rail points for straight-line and shortest track distance. Left-click or sneak-click clears."))
-        } catch (failure: Exception) { sender.sendMessage(Component.text(failure.message ?: "Cannot create measurement wand")) }
+            sender.sendMessage(Component.text(WandI18n.format(sender, "measure.created")))
+        } catch (failure: Exception) { sender.sendMessage(Component.text(failure.message ?: WandI18n.format(sender, "measure.create.failed"))) }
         return true
     }
 
@@ -76,12 +76,13 @@ internal class MeasurementWandHandler(
     }
 
     internal fun click(player: Player, leftClick: Boolean = false) {
+        val locale = player.locale()
         val id = player.uniqueId
         if (closed.get() || !enabled() || !player.hasPermission(SectionWandHandler.PERMISSION) || !held(player)) {
             invalidate(player); return
         }
         if (leftClick || player.isSneaking) {
-            invalidate(player); player.sendMessage(Component.text("Measurement selection cleared")); return
+            invalidate(player); player.sendMessage(Component.text(WandI18n.format(locale, "measure.clear"))); return
         }
         val world = player.world
         val session = sessions.compute(id) { _, previous ->
@@ -97,13 +98,13 @@ internal class MeasurementWandHandler(
             try {
                 if (ownerCurrent()) try { action() } catch (failure: Exception) {
                     invalidate(id, session)
-                    player.sendMessage(Component.text("Measurement unavailable: ${failure.message?.take(256)}"))
+                    player.sendMessage(Component.text(WandI18n.format(locale, "measure.failed", failure.message?.take(256))))
                 } else invalidate(id, session)
             } finally { session.busy.set(false) }
         }, { session.busy.set(false); invalidate(id, session) })
         val capture = try { backend.capture(session.worldId) } catch (failure: Exception) {
             session.busy.set(false); invalidate(id, session)
-            player.sendMessage(Component.text("Measurement unavailable: ${failure.message?.take(256)}")); return
+            player.sendMessage(Component.text(WandI18n.format(locale, "measure.failed", failure.message?.take(256)))); return
         }
         val firstCapture = session.capture
         val first = session.first
@@ -112,7 +113,7 @@ internal class MeasurementWandHandler(
                 owner(player, {
                     if (!ownerCurrent()) { invalidate(id, session); session.busy.set(false); return@owner }
                     if (failure != null || selected == null || selected.isEmpty) {
-                        session.busy.set(false); player.sendMessage(Component.text("No rail selected")); return@owner
+                        session.busy.set(false); player.sendMessage(Component.text(WandI18n.format(locale, "rail.none"))); return@owner
                     }
                     val railId = selected.get().rail().id
                     val ab = selected.get().arcLength()
@@ -121,36 +122,36 @@ internal class MeasurementWandHandler(
                             if (!active()) { session.busy.set(false); return@worker }
                             try {
                                 require(backend.current(capture) && (firstCapture == null || backend.current(firstCapture))) {
-                                    "Topology changed; select both points again"
+                                    WandI18n.format(locale, "measure.expired")
                                 }
                                 val point = backend.select(capture, railId, ab)
                                 val result = first?.let { backend.measure(capture, it, point) }
                                 dispatch {
                                     if (!backend.current(capture)) {
                                         invalidate(id, session)
-                                        player.sendMessage(Component.text("Topology changed; select both points again"))
+                                        player.sendMessage(Component.text(WandI18n.format(locale, "measure.expired")))
                                     } else if (result == null) {
                                         session.capture = capture; session.first = point
-                                        player.sendMessage(Component.text("First measurement point selected; right-click the second rail point"))
+                                        player.sendMessage(Component.text(WandI18n.format(locale, "measure.first")))
                                     } else {
                                         invalidate(id, session)
-                                        player.sendMessage(Component.text(format(result)))
+                                        player.sendMessage(Component.text(format(result, locale)))
                                     }
                                 }
                             } catch (failure: Exception) {
                                 val message = failure.message?.take(256) ?: failure.javaClass.simpleName
-                                dispatch { invalidate(id, session); player.sendMessage(Component.text("Measurement unavailable: $message")) }
+                                dispatch { invalidate(id, session); player.sendMessage(Component.text(WandI18n.format(locale, "measure.failed", message))) }
                             }
                         }
                     } catch (failure: Exception) {
                         session.busy.set(false); invalidate(id, session)
-                        player.sendMessage(Component.text("Measurement unavailable: ${failure.message?.take(256)}"))
+                        player.sendMessage(Component.text(WandI18n.format(locale, "measure.failed", failure.message?.take(256))))
                     }
                 }, { session.busy.set(false); invalidate(id, session) })
             }
         } catch (failure: Exception) {
             session.busy.set(false); invalidate(id, session)
-            player.sendMessage(Component.text("Rail selection failed: ${failure.message?.take(256)}"))
+            player.sendMessage(Component.text(WandI18n.format(locale, "rail.failed", failure.message?.take(256))))
         }
     }
 
@@ -170,16 +171,16 @@ internal class MeasurementWandHandler(
     override fun close() { closed.set(true); sessions.keys.forEach(::invalidate) }
 
     companion object {
-        internal fun format(result: RailMeasurementResult): String = "Straight-line: %.3f m; shortest track: %s".format(
-            Locale.ROOT, result.straightMeters, result.trackMeters?.let { "%.3f m".format(Locale.ROOT, it) } ?: "disconnected")
+        internal fun format(result: RailMeasurementResult, locale: Locale = Locale.US): String =
+            WandI18n.format(locale, "measure.result", result.straightMeters, result.trackMeters?.let { WandI18n.format(locale, "measure.distance", it) } ?: WandI18n.format(locale, "measure.disconnected"))
         private fun key(plugin: Plugin) = NamespacedKey(plugin, "measurement_wand")
         private fun isTool(plugin: Plugin, item: ItemStack) =
             item.itemMeta?.persistentDataContainer?.get(key(plugin), PersistentDataType.STRING) == "measure"
-        private fun createItem(plugin: Plugin) = ItemStack(Material.BLAZE_ROD).apply {
+        private fun createItem(plugin: Plugin, locale: java.util.Locale) = ItemStack(Material.BLAZE_ROD).apply {
             editMeta { meta ->
-                meta.displayName(Component.text("SimpleSignals measurement wand"))
+                meta.displayName(Component.text(WandI18n.format(locale, "measure.name")))
                 meta.persistentDataContainer.set(key(plugin), PersistentDataType.STRING, "measure")
-                meta.lore(listOf(Component.text("Right-click two rails; left-click clears")))
+                meta.lore(listOf(Component.text(WandI18n.format(locale, "measure.lore"))))
             }
         }
     }

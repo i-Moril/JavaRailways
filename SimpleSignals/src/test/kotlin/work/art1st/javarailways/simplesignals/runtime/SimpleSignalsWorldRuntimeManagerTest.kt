@@ -140,7 +140,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
         val result = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.REGION_CREATE, false,
             null, f.region.boundaries.last().position) { true }
-        assertTrue(result.message.contains("generated 1 shortest"), result.message)
+        assertTrue(result.text.render(java.util.Locale.US).contains("generated 1 shortest"), result.text.render(java.util.Locale.US))
         val saved = manager.authoringRuntime(f.worldId)!!.currentDefinitions()
         assertEquals(2, saved.definitionRevision)
         assertTrue(saved.pendingProtectionBoundaries.isEmpty())
@@ -197,7 +197,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
             val result = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.REGION_CREATE, false, null,
                 f.region.boundaries.last().position) { true }
-            assertFalse(result.message.contains("generated"))
+            assertFalse(result.text.render(java.util.Locale.US).contains("generated"))
             assertSame(old, runtime.authoringPublication())
             assertEquals(before, Files.readString(store.primaryFile(f.worldId)))
             assertTrue(plans.single(f.worldId).source.restrictions(f.currentTopology).pathReplacements.isEmpty())
@@ -213,7 +213,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             f.region.boundaries.first().position) { true }
         val repaired = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.REGION_CREATE, false, null,
             f.region.boundaries.first().position) { true }
-        assertTrue(repaired.message.contains("Revalidated"), repaired.message)
+        assertTrue(repaired.text.render(java.util.Locale.US).contains("Revalidated"), repaired.text.render(java.util.Locale.US))
         assertEquals(before, r.runtime.currentDefinitions().routeTables)
         assertEquals(f.lowerRoute().traversals, r.runtime.currentDefinitions().routeTables.single().routes.single().traversals)
     }
@@ -224,7 +224,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             listOf(f.upperRoute(), f.lowerRoute()))
         val r = RecordingFixture(f, tables = listOf(table))
         val same = r.capture()
-        assertTrue(r.recorder.record(same.first, same.second) { true }.contains("already recorded"))
+        assertTrue(r.recorder.record(same.first, same.second) { true }.render(java.util.Locale.US).contains("already recorded"))
         // Third physically legal route, not one of the two rows.
         r.active = ActiveRailContinuationsSnapshot.create(r.topology.revision, 3, mapOf(
             endpoint(f.entry, RailEndpoint.B) to endpoint(f.upperIn, RailEndpoint.A),
@@ -233,7 +233,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val third = r.capture()
         val before = r.runtime.authoringPublication()
         val disk = Files.readString(r.store.primaryFile(f.worldId))
-        val failure = assertThrows(IllegalArgumentException::class.java) { r.recorder.record(third.first, third.second) { true } }
+        val failure = assertThrows(IllegalArgumentException::class.java) { r.recorder.record(third.first, third.second) { true }.render(java.util.Locale.US) }
         assertTrue(failure.message!!.contains("JSON editor"))
         assertSame(before, r.runtime.authoringPublication())
         assertEquals(disk, Files.readString(r.store.primaryFile(f.worldId)))
@@ -246,7 +246,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val selectedBranch = if (r.f.upperIn in unrestricted) r.f.lowerIn else r.f.upperIn
         if (selectedBranch == r.f.lowerIn) r.lower() else r.upper()
         val (selection, preview) = r.capture()
-        val message = r.recorder.record(selection, preview) { true }
+        val message = r.recorder.record(selection, preview) { true }.render(java.util.Locale.US)
         assertTrue(message.contains("Recorded region"), message)
         val saved = r.runtime.currentDefinitions()
         assertEquals(2L, saved.definitionRevision)
@@ -264,20 +264,20 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, r.manager.install(r.f.worldId).status)
         assertEquals(saved, r.runtime.currentDefinitions())
         assertEquals(recorded, r.f.plan(r.binding, r.topology).route.segments.map { it.railId })
-        assertThrows(IllegalArgumentException::class.java) { r.recorder.record(selection, preview) { true } }
+        assertThrows(IllegalArgumentException::class.java) { r.recorder.record(selection, preview) { true }.render(java.util.Locale.US) }
     }
 
     @Test fun `duplicate recording leaves revision file backup sources and permits unchanged`() {
         val r = RecordingFixture()
         var capture = r.capture()
-        r.recorder.record(capture.first, capture.second) { true }
+        r.recorder.record(capture.first, capture.second) { true }.render(java.util.Locale.US)
         capture = r.capture()
         val before = r.runtime.authoringPublication()
         val file = Files.readString(r.store.primaryFile(r.f.worldId))
         val backup = Files.readString(r.store.backupFile(r.f.worldId))
         val sources = r.sources.sources.getValue(r.f.worldId)
         val permits = r.infrastructure.permitAcquisitionCount
-        val result = r.recorder.record(capture.first, capture.second) { true }
+        val result = r.recorder.record(capture.first, capture.second) { true }.render(java.util.Locale.US)
         assertTrue(result.contains(before.definitions.routeTables.single().routes.single().routeId), result)
         assertTrue(result.contains("already recorded"), result)
         assertSame(before, r.runtime.authoringPublication())
@@ -290,7 +290,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     @Test fun `same gates different branches replace while retaining route and device identity`() {
         val r = RecordingFixture()
         val first = r.capture()
-        r.recorder.record(first.first, first.second) { true }
+        r.recorder.record(first.first, first.second) { true }.render(java.util.Locale.US)
         val table = r.runtime.currentDefinitions().routeTables.single()
         val device = protectionSignal(ProtectionSignalKind.FIXED_ROUTE, table.routes.single())
         val indicator = RouteIndicatorDefinition("test:route-display", 0, table.routes.single().entryBoundaryId,
@@ -302,7 +302,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val before = r.runtime.currentDefinitions().routeTables.single()
         r.lower()
         val next = r.capture()
-        assertTrue(r.recorder.record(next.first, next.second) { true }.contains("Recorded region"))
+        assertTrue(r.recorder.record(next.first, next.second) { true }.render(java.util.Locale.US).contains("Recorded region"))
         val after = r.runtime.currentDefinitions().routeTables.single()
         assertEquals(before.tableId, after.tableId)
         assertEquals(2L, after.revision)
@@ -325,7 +325,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(4, value.path.traversals.size)
         assertTrue(value.path.traversals.all { it.facing == ViewDirection.BA })
         val curves = r.curveReads
-        assertTrue(r.recorder.record(selection, value) { true }.contains("Recorded region"))
+        assertTrue(r.recorder.record(selection, value) { true }.render(java.util.Locale.US).contains("Recorded region"))
         assertEquals(curves, r.curveReads)
         assertEquals(value.path.traversals, r.runtime.currentDefinitions().routeTables.single().routes.single().traversals)
     }
@@ -334,12 +334,12 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val r = RecordingFixture()
         val capture = r.capture()
         r.lower()
-        assertThrows(IllegalArgumentException::class.java) { r.recorder.record(capture.first, capture.second) { true } }
+        assertThrows(IllegalArgumentException::class.java) { r.recorder.record(capture.first, capture.second) { true }.render(java.util.Locale.US) }
         r.upper()
         val frozen = r.capture()
         val curves = r.curveReads
         r.sources.beforeCommitAction = { r.lower() }
-        assertTrue(r.recorder.record(frozen.first, frozen.second) { true }.contains("Recorded region"))
+        assertTrue(r.recorder.record(frozen.first, frozen.second) { true }.render(java.util.Locale.US).contains("Recorded region"))
         assertEquals(frozen.second.path.traversals, r.runtime.currentDefinitions().routeTables.single().routes.single().traversals)
         assertEquals(curves, r.curveReads)
     }
@@ -349,12 +349,12 @@ class SimpleSignalsWorldRuntimeManagerTest {
         r.active = ActiveRailContinuationsSnapshot.empty(r.topology.revision)
         val incomplete = r.capture()
         assertEquals(CurrentRouteEnd.UNSELECTED, incomplete.second.path.end)
-        assertThrows(IllegalArgumentException::class.java) { r.recorder.record(incomplete.first, incomplete.second) { true } }
+        assertThrows(IllegalArgumentException::class.java) { r.recorder.record(incomplete.first, incomplete.second) { true }.render(java.util.Locale.US) }
         r.upper()
         val capture = r.capture()
-        assertThrows(IllegalArgumentException::class.java) { r.recorder.record(capture.first, capture.second) { false } }
+        assertThrows(IllegalArgumentException::class.java) { r.recorder.record(capture.first, capture.second) { false }.render(java.util.Locale.US) }
         assertThrows(IllegalArgumentException::class.java) {
-            r.recorder.record(capture.first.copy(regionId = "test:unknown"), capture.second) { true }
+            r.recorder.record(capture.first.copy(regionId = "test:unknown"), capture.second) { true }.render(java.util.Locale.US)
         }
         assertEquals(1L, r.runtime.currentDefinitions().definitionRevision)
         assertEquals(0, r.infrastructure.permitAcquisitionCount)
@@ -370,7 +370,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val sources = r.sources.sources.getValue(f.worldId)
         for (kind in listOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM)) {
             val release = protect(registry, f.currentTopology, f.lowerIn, kind)
-            val result = r.recorder.record(capture.first, capture.second) { true }
+            val result = r.recorder.record(capture.first, capture.second) { true }.render(java.util.Locale.US)
             assertTrue(result.contains("EDIT_BLOCKED"), result)
             assertTrue(result.contains(kind.name), result)
             assertSame(before, r.runtime.authoringPublication())
@@ -378,7 +378,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             assertEquals(disk, Files.readString(r.store.primaryFile(f.worldId)))
             release()
         }
-        assertTrue(r.recorder.record(capture.first, capture.second) { true }.contains("Recorded region"))
+        assertTrue(r.recorder.record(capture.first, capture.second) { true }.render(java.util.Locale.US).contains("Recorded region"))
         assertTrue(registry.claimSnapshots().isEmpty())
         assertTrue(r.infrastructure.lastEditRequest!!.impact.railIds.contains(f.lowerIn), "whole region is protected")
     }
@@ -397,7 +397,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         r.lower()
         val capture = r.capture()
         assertEquals(CurrentRouteEnd.REACHED_EXIT, capture.second.path.end)
-        val result = r.recorder.record(capture.first, capture.second) { true }
+        val result = r.recorder.record(capture.first, capture.second) { true }.render(java.util.Locale.US)
         assertTrue(result.contains("VALIDATION_REJECTED"), result)
         assertSame(before, r.runtime.authoringPublication())
         assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
@@ -410,12 +410,12 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val disk = Files.readString(r.store.primaryFile(r.f.worldId))
         var active = true
         r.sources.beforeCommitAction = { active = false }
-        assertTrue(r.recorder.record(capture.first, capture.second) { active }.contains("WORLD_UNAVAILABLE"))
+        assertTrue(r.recorder.record(capture.first, capture.second) { active }.render(java.util.Locale.US).contains("WORLD_UNAVAILABLE"))
         assertSame(before, r.runtime.authoringPublication())
         assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
         r.sources.beforeCommitAction = {}
         r.sources.nextPrevalidationFailure = IllegalArgumentException("source rejected")
-        assertTrue(r.recorder.record(capture.first, capture.second) { true }.contains("VALIDATION_REJECTED"))
+        assertTrue(r.recorder.record(capture.first, capture.second) { true }.render(java.util.Locale.US).contains("VALIDATION_REJECTED"))
         assertSame(before, r.runtime.authoringPublication())
         assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
         r.manager.remove(r.f.worldId)
@@ -428,7 +428,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val value = backend.compute(selected)
         val retained = manager.authoringRuntime(r.f.worldId)!!.authoringPublication()
         val result = CurrentRouteRecording(manager, r.infrastructure.service, backend).record(selected, value) { true }
-        assertTrue(result.contains("PERSISTENCE_FAILED"), result)
+        assertTrue(result.render(java.util.Locale.US).contains("PERSISTENCE_FAILED"), result.render(java.util.Locale.US))
         assertSame(retained, manager.authoringRuntime(r.f.worldId)!!.authoringPublication())
         assertEquals(disk, Files.readString(r.store.primaryFile(r.f.worldId)))
         assertEquals(r.infrastructure.permitAcquisitionCount, r.infrastructure.permitCloseCount)
@@ -1184,7 +1184,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             SignalWandMode.PLACEMENT, position).single().binding
         val outcome = backend.place(capture, binding, placement) { true }
 
-        assertTrue(outcome.message.contains("Updated signal"), outcome.message)
+        assertTrue(outcome.text.render(java.util.Locale.US).contains("Updated signal"), outcome.text.render(java.util.Locale.US))
         val live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         val edited = live.fixedBlockSignals.single { it.signalId == signal.signalId }
         assertEquals(2, live.definitionRevision)
@@ -1244,7 +1244,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             SignalWandControlKind.FIXED_BLOCK, SignalWandMode.PLACEMENT, position).single().binding,
             position) { true }
 
-        assertTrue(outcome.message.contains("active route uses this rail"), outcome.message)
+        assertTrue(outcome.text.render(java.util.Locale.US).contains("active route uses this rail"), outcome.text.render(java.util.Locale.US))
         assertSame(publication, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
         assertEquals(initial, manager.authoringRuntime(fixture.worldId)!!.currentDefinitions())
         assertEquals(disk, Files.readString(definitions.primaryFile(fixture.worldId)))
@@ -1282,7 +1282,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             SignalWandMode.DELETION, position).single().binding
         val outcome = backend.delete(capture, binding) { true }
 
-        assertTrue(outcome.message.contains("1 attached device"), outcome.message)
+        assertTrue(outcome.text.render(java.util.Locale.US).contains("1 attached device"), outcome.text.render(java.util.Locale.US))
         val live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         assertEquals(listOf(selectedBlock, retainedBlock), live.fixedBlocks)
         assertEquals(listOf(retainedSignal), live.fixedBlockSignals)
@@ -1317,7 +1317,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
         val outcome = backend.place(capture, binding, entrance) { true }
 
-        assertTrue(outcome.message.contains("Created signal test:generated-signal"), outcome.message)
+        assertTrue(outcome.text.render(java.util.Locale.US).contains("Created signal test:generated-signal"), outcome.text.render(java.util.Locale.US))
         val live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         val created = live.fixedBlockSignals.single()
         assertEquals("test:generated-signal", created.signalId)
@@ -1408,7 +1408,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
         val outcome = backend.place(capture, binding, entrance) { true }
 
-        assertTrue(outcome.message.contains("active route uses this rail"), outcome.message)
+        assertTrue(outcome.text.render(java.util.Locale.US).contains("active route uses this rail"), outcome.text.render(java.util.Locale.US))
         assertSame(publication, manager.authoringRuntime(fixture.worldId)!!.authoringPublication())
         assertEquals(initial, manager.authoringRuntime(fixture.worldId)!!.currentDefinitions())
         assertEquals(disk, Files.readString(definitions.primaryFile(fixture.worldId)))
@@ -1456,7 +1456,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             ((it.binding as ProtectionCurrentEntrySignalWandBinding).intent as ExistingProtectionSignal).signalId })
         val staleExactBinding = choices.last().binding
         val updateOutcome = backend.place(capture, staleExactBinding, placement) { true }
-        assertTrue(updateOutcome.message.contains("Updated"), updateOutcome.message)
+        assertTrue(updateOutcome.text.render(java.util.Locale.US).contains("Updated"), updateOutcome.text.render(java.util.Locale.US))
         var live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         assertEquals(first, live.protectionSignals.single { it.signalId == first.signalId })
         val updated = live.protectionSignals.single { it.signalId == second.signalId }
@@ -1561,7 +1561,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         choices = backend.resolveEntrance(capture, SignalWandControlKind.PROTECTION_FIXED_ROUTE,
             SignalWandMode.PLACEMENT, entrance)
         assertTrue(choices.all { (it.binding as ProtectionFixedRouteSignalWandBinding).intent is ExistingProtectionSignal })
-        assertTrue(choices.all { it.label.contains("unavailable") })
+        assertTrue(choices.all { it.label.render(java.util.Locale.US).contains("unavailable") })
         val unavailableNew = ProtectionFixedRouteSignalWandBinding(fixture.worldId, "test:entry",
             lower.routeId, NewProtectionSignal)
         assertTrue(assertThrows(IllegalArgumentException::class.java) {
@@ -1570,7 +1570,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val retainedChoice = choices.single {
             ((it.binding as ProtectionFixedRouteSignalWandBinding).intent as ExistingProtectionSignal).signalId == existing.signalId
         }
-        assertTrue(backend.place(capture, retainedChoice.binding, placement) { true }.message.contains("Updated"))
+        assertTrue(backend.place(capture, retainedChoice.binding, placement) { true }.text.render(java.util.Locale.US).contains("Updated"))
 
         val finalDefinitions = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         assertEquals(finalDefinitions, (definitions.load(fixture.worldId) as
@@ -1606,7 +1606,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             ((it.binding as ProtectionCurrentEntrySignalWandBinding).intent as ExistingProtectionSignal).signalId == selected.signalId
         }
 
-        assertTrue(backend.delete(capture, selectedChoice.binding) { true }.message.contains("1 attached device"))
+        assertTrue(backend.delete(capture, selectedChoice.binding) { true }.text.render(java.util.Locale.US).contains("1 attached device"))
 
         val live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         assertEquals(listOf(retained), live.protectionSignals)
@@ -1686,8 +1686,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
             ((it.binding as AttachedSignalWandBinding).intent as? ExistingAttachedSignal)?.signalId == original.signalId
         }
         val updateOutcome = backend.place(capture, existingChoice.binding, updatedPlacement) { true }
-        assertTrue(updateOutcome.message.contains("Updated"), updateOutcome.message)
-        assertTrue(updateOutcome.message.contains("with model demo_signals:home"), updateOutcome.message)
+        assertTrue(updateOutcome.text.render(java.util.Locale.US).contains("Updated"), updateOutcome.text.render(java.util.Locale.US))
+        assertTrue(updateOutcome.text.render(java.util.Locale.US).contains("with model demo_signals:home"), updateOutcome.text.render(java.util.Locale.US))
         var live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         val updated = live.attachedSignals.single()
         assertEquals(3, updated.revision)
@@ -1710,7 +1710,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         choices = backend.resolveEntrance(capture, SignalWandControlKind.ATTACHED_SIGNAL,
             SignalWandMode.PLACEMENT, primaryPosition)
         val newChoice = choices.single { (it.binding as AttachedSignalWandBinding).intent === NewAttachedSignal }
-        assertTrue(backend.place(capture, newChoice.binding, updatedPlacement) { true }.message.contains("Created"))
+        assertTrue(backend.place(capture, newChoice.binding, updatedPlacement) { true }.text.render(java.util.Locale.US).contains("Created"))
         live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         assertEquals(setOf(original.signalId, "test:attached-wand-created"), live.attachedSignals.map { it.signalId }.toSet())
 
@@ -1720,7 +1720,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val deleteChoice = choices.single {
             ((it.binding as AttachedSignalWandBinding).intent as ExistingAttachedSignal).signalId == original.signalId
         }
-        assertTrue(backend.delete(capture, deleteChoice.binding) { true }.message.contains(original.signalId))
+        assertTrue(backend.delete(capture, deleteChoice.binding) { true }.text.render(java.util.Locale.US).contains(original.signalId))
         live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         assertEquals(listOf("test:attached-wand-created"), live.attachedSignals.map { it.signalId })
         assertEquals(listOf(primary, reversePrimary), live.fixedBlockSignals)
@@ -1761,8 +1761,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
                 (it.binding as RouteIndicatorSignalWandBinding).indicatorId == indicator.indicatorId
             }.binding
         val updateOutcome = backend.place(capture, binding, placement) { true }
-        assertTrue(updateOutcome.message.contains("Updated"), updateOutcome.message)
-        assertTrue(updateOutcome.message.contains("with model demo_signals:home"), updateOutcome.message)
+        assertTrue(updateOutcome.text.render(java.util.Locale.US).contains("Updated"), updateOutcome.text.render(java.util.Locale.US))
+        assertTrue(updateOutcome.text.render(java.util.Locale.US).contains("with model demo_signals:home"), updateOutcome.text.render(java.util.Locale.US))
         var live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         val updated = live.routeIndicators.single()
         assertEquals(6, updated.revision)
@@ -1785,7 +1785,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         capture = backend.capture(fixture.worldId, "automatic:block")
         val deleteBinding = backend.resolveEntrance(capture, SignalWandControlKind.ROUTE_INDICATOR,
             SignalWandMode.DELETION, entrance).single().binding
-        assertTrue(backend.delete(capture, deleteBinding) { true }.message.contains(indicator.indicatorId))
+        assertTrue(backend.delete(capture, deleteBinding) { true }.text.render(java.util.Locale.US).contains(indicator.indicatorId))
         live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         assertTrue(live.routeIndicators.isEmpty())
         capture = backend.capture(fixture.worldId, "automatic:block", "demo_signals:home")
@@ -1801,7 +1801,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(live, (definitions.load(fixture.worldId) as
             work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
         assertTrue(backend.saveIndicator(capture, newBinding, newBinding.entryBoundaryId,
-            "stop", emptyMap(), placement) { true }.message.contains("Created"))
+            "stop", emptyMap(), placement) { true }.text.render(java.util.Locale.US).contains("Created"))
         val created = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions().routeIndicators.single()
         assertEquals(0, created.revision)
         assertEquals("stop", created.noRouteModelVariant)
@@ -1810,7 +1810,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         capture = backend.capture(fixture.worldId, "automatic:block", "demo_signals:home")
         // The original new-device intention must not turn into an update after another device appears.
         assertTrue(backend.saveIndicator(capture, newBinding, newBinding.entryBoundaryId,
-            "stop", mapOf(route.routeId to "proceed"), placement) { true }.message.contains("Created"))
+            "stop", mapOf(route.routeId to "proceed"), placement) { true }.text.render(java.util.Locale.US).contains("Created"))
         live = manager.authoringRuntime(fixture.worldId)!!.currentDefinitions()
         assertEquals(2, live.routeIndicators.size)
         assertEquals(created, live.routeIndicators.single { it.indicatorId == created.indicatorId })
@@ -1850,7 +1850,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         listOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM).forEach { kind ->
             val release = protect(registry, f.currentTopology, f.upperIn, kind)
             try { assertTrue(backend.saveIndicator(capture, binding, reverse.entryBoundaryId,
-                "stop", mapOf(reverse.routeId to "proceed"), null) { true }.message.contains("EDIT_BLOCKED")) }
+                "stop", mapOf(reverse.routeId to "proceed"), null) { true }.text.render(java.util.Locale.US).contains("EDIT_BLOCKED")) }
             finally { release() }
             assertEquals(before, Files.readString(r.store.primaryFile(f.worldId)))
             assertSame(publication, r.runtime.authoringPublication())
@@ -1866,7 +1866,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             backend.saveIndicator(capture, binding, reverse.entryBoundaryId, "stop", emptyMap(), null) { false }
         }
         assertTrue(backend.saveIndicator(capture, binding, reverse.entryBoundaryId,
-            "stop", mapOf(reverse.routeId to "proceed"), null) { true }.message.contains("placement unchanged"))
+            "stop", mapOf(reverse.routeId to "proceed"), null) { true }.text.render(java.util.Locale.US).contains("placement unchanged"))
         val updated = r.runtime.currentDefinitions().routeIndicators.single()
         assertEquals(RouteIndicatorDefinition(indicator.indicatorId, 1, reverse.entryBoundaryId, "stop",
             mapOf(reverse.routeId to "proceed"), indicator.model), updated)
@@ -1877,7 +1877,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val exact = RouteIndicatorSignalWandBinding(f.worldId, updated.entryBoundaryId, updated.indicatorId, updated.revision)
         val saved = Files.readString(r.store.primaryFile(f.worldId))
         assertTrue(backend.saveIndicator(latest, exact, updated.entryBoundaryId,
-            updated.noRouteModelVariant, updated.modelVariantsByRouteId, null) { true }.message.contains("no changes"))
+            updated.noRouteModelVariant, updated.modelVariantsByRouteId, null) { true }.text.render(java.util.Locale.US).contains("no changes"))
         assertEquals(saved, Files.readString(r.store.primaryFile(f.worldId)))
         assertEquals(indicator.model, r.runtime.currentDefinitions().routeIndicators.single().model)
     }
@@ -3251,7 +3251,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             val publication = runtime.authoringPublication()
             val source = sources.sources.getValue(f.worldId)
             val disk = Files.readString(definitions.primaryFile(f.worldId))
-            assertTrue(backend.savePlacement(capture, device, device.placement) { true }.message.contains("no changes"))
+            assertTrue(backend.savePlacement(capture, device, device.placement) { true }.text.render(java.util.Locale.US).contains("no changes"))
             assertEquals(0, infrastructure.permitAcquisitionCount)
             assertThrows(IllegalArgumentException::class.java) {
                 backend.savePlacement(capture, device, replacement) { false }
@@ -3266,14 +3266,14 @@ class SimpleSignalsWorldRuntimeManagerTest {
             }
             listOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM).forEach { blocker ->
                 val release = protect(registry, f.currentTopology, f.entry, blocker)
-                assertTrue(backend.savePlacement(capture, device, replacement) { true }.message.contains("EDIT_BLOCKED"))
+                assertTrue(backend.savePlacement(capture, device, replacement) { true }.text.render(java.util.Locale.US).contains("EDIT_BLOCKED"))
                 assertSame(publication, runtime.authoringPublication())
                 assertSame(source, sources.sources.getValue(f.worldId))
                 assertEquals(disk, Files.readString(definitions.primaryFile(f.worldId)))
                 release()
             }
             val outcome = backend.savePlacement(capture, device, replacement) { true }
-            assertTrue(outcome.message.startsWith("Updated placement"), outcome.message)
+            assertTrue(outcome.text.render(java.util.Locale.US).startsWith("Updated placement"), outcome.text.render(java.util.Locale.US))
             val expectedDevices = deviceModelDefinitions(f, kind, originalModel.copy(placement = replacement), 2)
             val expected = SimpleSignalsWorldDefinitions(expectedDevices.worldId, 2, expectedDevices.regions,
                 expectedDevices.routeTables, expectedDevices.fixedBlocks, expectedDevices.fixedBlockSignals,
@@ -3570,13 +3570,13 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(listOf("test:lower", "test:upper"), choices.map { it.route.routeId })
         assertNull(selection.exit)
         val before = Files.readString(r.store.primaryFile(f.worldId))
-        assertThrows(IllegalArgumentException::class.java) { r.recorder.delete(choices.first()) { false } }
+        assertThrows(IllegalArgumentException::class.java) { r.recorder.delete(choices.first()) { false }.render(java.util.Locale.US) }
         assertEquals(before, Files.readString(r.store.primaryFile(f.worldId)))
-        assertTrue(r.recorder.delete(choices.first()) { true }.contains("Deleted route test:lower"))
+        assertTrue(r.recorder.delete(choices.first()) { true }.render(java.util.Locale.US).contains("Deleted route test:lower"))
         assertNull(r.runtime.currentDefinitions().protectionSignals.single().bindingId)
-        assertThrows(IllegalArgumentException::class.java) { r.recorder.delete(choices.last()) { true } }
+        assertThrows(IllegalArgumentException::class.java) { r.recorder.delete(choices.last()) { true }.render(java.util.Locale.US) }
         val last = r.recorder.deletionChoices(selection).single()
-        assertTrue(r.recorder.delete(last) { true }.contains("Deleted route test:upper"))
+        assertTrue(r.recorder.delete(last) { true }.render(java.util.Locale.US).contains("Deleted route test:upper"))
         val empty = r.runtime.currentDefinitions().routeTables.single()
         assertEquals("test:table", empty.tableId)
         assertEquals(3L, empty.revision)
@@ -3619,7 +3619,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val before = Files.readString(r.store.primaryFile(f.worldId))
         listOf(TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM).forEach { kind ->
             val release = protect(registry, f.currentTopology, f.lowerIn, kind)
-            try { assertTrue(backend.rebind(captured, selected, target) { true }.message.contains("EDIT_BLOCKED")) }
+            try { assertTrue(backend.rebind(captured, selected, target) { true }.text.render(java.util.Locale.US).contains("EDIT_BLOCKED")) }
             finally { release() }
             assertEquals(before, Files.readString(r.store.primaryFile(f.worldId)))
         }
@@ -3627,7 +3627,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
             backend.rebind(captured, selected, ProtectionSignalRebindTarget("test:entry", "test:missing")) { true }
         }
         assertThrows(IllegalArgumentException::class.java) { backend.rebind(captured, selected, target) { false } }
-        assertTrue(backend.rebind(captured, selected, target) { true }.message.contains("Rebound"))
+        assertTrue(backend.rebind(captured, selected, target) { true }.text.render(java.util.Locale.US).contains("Rebound"))
         assertEquals(fixed.copy(revision = 2, bindingId = target.bindingId),
             r.runtime.currentDefinitions().protectionSignals.single { it.signalId == fixed.signalId })
         assertEquals(listOf(attached), r.runtime.currentDefinitions().attachedSignals)
@@ -3635,12 +3635,12 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val latest = capture()
         val bound = backend.rebindDevices(latest).single { it.definition.signalId == fixed.signalId }
         val saved = Files.readString(r.store.primaryFile(f.worldId))
-        assertTrue(backend.rebind(latest, bound, target) { true }.message.contains("no changes"))
+        assertTrue(backend.rebind(latest, bound, target) { true }.text.render(java.util.Locale.US).contains("no changes"))
         assertEquals(saved, Files.readString(r.store.primaryFile(f.worldId)))
         val entryDevice = backend.rebindDevices(latest).single { it.definition.signalId == current.signalId }
         val entryTarget = backend.rebindTargets(latest, entryDevice).single()
         assertEquals("test:entry", entryTarget.bindingId)
-        assertTrue(backend.rebind(latest, entryDevice, entryTarget) { true }.message.contains("Rebound"))
+        assertTrue(backend.rebind(latest, entryDevice, entryTarget) { true }.text.render(java.util.Locale.US).contains("Rebound"))
         assertEquals(current.copy(revision = 2, bindingId = "test:entry"),
             r.runtime.currentDefinitions().protectionSignals.single { it.signalId == current.signalId })
     }

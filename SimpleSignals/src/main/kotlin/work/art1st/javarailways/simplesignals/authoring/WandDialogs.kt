@@ -16,22 +16,21 @@ internal object WandDialogs {
     fun placement(player: Player, title: String, initial: PlacementWandInput,
         submitted: (PlacementWandInput?) -> Unit) {
         val inputs = initial.fields.map { (key, value) ->
-            DialogInput.text(key, Component.text(if (key.startsWith("r")) "$key (degrees)" else "$key (metres)"))
+            DialogInput.text(key, Component.text(WandI18n.format(player, if (key.startsWith("r")) "placement.degrees" else "placement.metres", key)))
                 .initial(value).maxLength(64).build()
         } + if (initial.followRailTilt == null) emptyList() else listOf(
-            DialogInput.bool("tilt", Component.text("Follow rail slope / cant")).initial(initial.followRailTilt).build())
-        val submit = ActionButton.builder(Component.text("Review placement")).action(DialogAction.customClick(
+            DialogInput.bool("tilt", Component.text(WandI18n.format(player, "placement.tilt"))).initial(initial.followRailTilt).build())
+        val submit = ActionButton.builder(Component.text(WandI18n.format(player, "placement.review"))).action(DialogAction.customClick(
             { view, audience -> if (audience === player) submitted(PlacementWandInput(
                 initial.fields.keys.associateWith { view.getText(it).orEmpty() },
                 if (initial.followRailTilt == null) null else view.getBoolean("tilt"))) },
             ClickCallback.Options.builder().uses(1).lifetime(ClickCallback.DEFAULT_LIFETIME).build())).build()
-        val cancel = ActionButton.builder(Component.text("Cancel")).action(DialogAction.customClick(
+        val cancel = ActionButton.builder(Component.text(WandI18n.format(player, "cancel"))).action(DialogAction.customClick(
             { _, audience -> if (audience === player) submitted(null) },
             ClickCallback.Options.builder().uses(1).lifetime(ClickCallback.DEFAULT_LIFETIME).build())).build()
         player.showDialog(Dialog.create { factory -> factory.empty()
             .base(DialogBase.builder(Component.text(title)).body(listOf(DialogBody.plainMessage(
-                Component.text("Rotation: intrinsic XYZ degrees, applied in the model placement frame. " +
-                    "Position offsets are not rotated by these angles."))))
+                Component.text(WandI18n.format(player, "placement.help")))))
                 .inputs(inputs).canCloseWithEscape(true).build())
             .type(DialogType.multiAction(listOf(submit, cancel), null, 1)) })
     }

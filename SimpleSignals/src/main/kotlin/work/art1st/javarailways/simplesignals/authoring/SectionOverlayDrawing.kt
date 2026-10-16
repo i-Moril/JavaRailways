@@ -15,13 +15,18 @@ import java.util.UUID
 
 /** Worker-prepared authoring geometry. No train, signal output, platform world or player state. */
 internal class SectionOverlayDrawing(labels: Collection<EditorTextLabel>,
-    val unavailableGeometry: Set<UUID>) {
+    val unavailableGeometry: Set<UUID>, private val captions: Map<String, WandText> = emptyMap()) {
     val labels: List<EditorTextLabel> = java.util.List.copyOf(labels)
 
     fun nearby(x: Double, y: Double, z: Double): SectionOverlayDrawing {
         fun near(px: Double, py: Double, pz: Double): Boolean =
             (px - x) * (px - x) + (py - y) * (py - y) + (pz - z) * (pz - z) <= 64.0 * 64.0
-        return SectionOverlayDrawing(labels.filter { near(it.x(), it.y(), it.z()) }, unavailableGeometry)
+        return SectionOverlayDrawing(labels.filter { near(it.x(), it.y(), it.z()) }, unavailableGeometry, captions)
+    }
+
+    fun localizedLabels(locale: java.util.Locale): List<EditorTextLabel> = labels.map { label ->
+        captions[label.id()]?.let { caption -> EditorTextLabel(label.id(), label.x(), label.y(), label.z(),
+            Component.text(caption.render(locale)), label.appearance()) } ?: label
     }
 
     companion object {
@@ -31,6 +36,7 @@ internal class SectionOverlayDrawing(labels: Collection<EditorTextLabel>,
             boundaryIdentity: (RailPositionSnapshot) -> RailPositionSnapshot = { it.copy(facing = ViewDirection.AB) },
             findCurve: (UUID) -> Curve?): SectionOverlayDrawing {
             val labels = arrayListOf<EditorTextLabel>()
+            val captions = hashMapOf<String, WandText>()
             val missing = linkedSetOf<UUID>()
             val curves = hashMapOf<UUID, Curve?>()
             val labelRows = hashMapOf<Triple<Double, Double, Double>, Int>()
@@ -38,7 +44,7 @@ internal class SectionOverlayDrawing(labels: Collection<EditorTextLabel>,
                 findCurve(id).also { curves[id] = it }
             fun valid(id: UUID, ab: Double): Curve? = curve(id)?.takeIf { ab <= it.totalArcLength }
                 .also { if (it == null) missing += id }
-            fun mark(id: String, text: String, position: RailPositionSnapshot, unavailable: Boolean) {
+            fun mark(id: String, text: WandText, position: RailPositionSnapshot, unavailable: Boolean) {
                 val geometry = valid(position.railId, position.arcLengthInAbMeters) ?: return
                 val point = geometry.getPointAt(position.arcLengthInAbMeters)
                 val p = point.position
@@ -48,7 +54,8 @@ internal class SectionOverlayDrawing(labels: Collection<EditorTextLabel>,
                 val key = Triple(p.x(), p.y(), p.z())
                 val row = labelRows[key] ?: 0
                 labelRows[key] = row + 1
-                labels += EditorTextLabel(id, p.x(), p.y() + 1.4 + row * 0.35, p.z(), Component.text(text))
+                captions[id] = text
+                labels += EditorTextLabel(id, p.x(), p.y() + 1.4 + row * 0.35, p.z(), Component.text(text.render(java.util.Locale.US)))
             }
             fun coverage(id: String, rail: UUID, lower: Double, upper: Double, unavailable: Boolean) {
                 val geometry = valid(rail, upper) ?: return
@@ -98,26 +105,27 @@ internal class SectionOverlayDrawing(labels: Collection<EditorTextLabel>,
             }
             blockBoundaries.values.forEach { boundary ->
                 val name = boundary.names.singleOrNull() ?: "Block"
-                mark(boundary.id, "$name boundary · ${if (boundary.unavailable) "unavailable" else "defined"}",
+                mark(boundary.id, WandText.key("overlay.block", if (name == "Block") WandText.key("name.block.overlay") else name,
+                    WandText.key(if (boundary.unavailable) "overlay.unavailable" else "overlay.defined")),
                     boundary.position, boundary.unavailable)
             }
             definitions.regions.forEach { region ->
                 val interior = regionInteriors[region.regionId].orEmpty()
                 val invalid = region.effectiveBoundaries.any { valid(it.position.railId, it.position.arcLengthInAbMeters) == null } ||
                     interior.any { valid(it.railId, it.endAbMeters) == null }
-                val status = if (region.boundaryDraft != null) "draft · unavailable" else
-                    if (invalid || region.regionId in unavailableRegions) "unavailable" else "defined"
-                val name = sectionAuthoringName(region.regionId, "Protection region")
+                val status = WandText.key(if (region.boundaryDraft != null) "overlay.draft" else
+                    if (invalid || region.regionId in unavailableRegions) "overlay.unavailable" else "overlay.defined")
+                val name = authoringName(region.regionId, "name.region")
                 region.effectiveBoundaries.forEach { boundary -> mark("region/${region.regionId}/${boundary.boundaryId}",
-                    "$name / ${sectionAuthoringName(boundary.boundaryId, "Boundary")} · $status", boundary.position,
+                    WandText.key("overlay.region", name, authoringName(boundary.boundaryId, "name.boundary"), status), boundary.position,
                     invalid || region.regionId in unavailableRegions || region.boundaryDraft != null) }
                 interior.forEachIndexed { index, span -> coverage("region/${region.regionId}/$index",
                     span.railId, span.startAbMeters, span.endAbMeters,
                     invalid || region.regionId in unavailableRegions || region.boundaryDraft != null) }
             }
             definitions.pendingProtectionBoundaries.forEach { boundary -> mark("pending/${boundary.boundaryId}",
-                "${sectionAuthoringName(boundary.boundaryId, "Protection boundary")} · pending · unavailable", boundary.position, true) }
-            return SectionOverlayDrawing(labels, java.util.Set.copyOf(missing))
+                WandText.key("overlay.pending", authoringName(boundary.boundaryId, "name.protection-boundary")), boundary.position, true) }
+            return SectionOverlayDrawing(labels, java.util.Set.copyOf(missing), captions)
         }
     }
 }

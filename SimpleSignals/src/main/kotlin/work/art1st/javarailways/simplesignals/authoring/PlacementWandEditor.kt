@@ -4,6 +4,7 @@ import org.joml.Quaterniond
 import org.joml.Vector3d
 import work.art1st.javarailways.bukkit.api.model.ModelPose
 import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
+import java.util.Locale
 
 /** Text fields avoid slider rounding; null tilt means ground placement, not a rail default. */
 internal data class PlacementWandInput(val fields: Map<String, String>, val followRailTilt: Boolean?)
@@ -15,13 +16,18 @@ internal class PlacementWandEditor(
     private val page: (String, List<Pair<String, () -> Unit>>) -> Unit,
     private val input: (String, PlacementWandInput, (PlacementWandInput?) -> Unit) -> Unit,
     private val reply: (String) -> Unit,
-    private val active: () -> Boolean
+    private val active: () -> Boolean,
+    private val locale: Locale = Locale.US
 ) {
+    private fun text(key: String, vararg arguments: Any?): String = WandI18n.format(locale, key, *arguments)
+
     fun selectDevice() {
         val devices = backend.placedDevices(capture)
-        require(devices.isNotEmpty()) { "This world has no placed signal device to edit" }
-        page("Select placed signal device", devices.mapIndexed { index, device -> "${sectionAuthoringName(device.id, "Signal ${index + 1}")} | ${device.kind}" to {
-            require(backend.current(capture)) { "Signal selection expired; select again" }
+        require(devices.isNotEmpty()) { text("editor.placement.empty") }
+        page(text("editor.placement.select"), devices.mapIndexed { index, device ->
+            text("editor.placement.choice", authoringName(device.id, "name.signal"), index + 1,
+                text("editor.kind.${device.kind.name.lowercase(Locale.ROOT)}")) to {
+            require(backend.current(capture)) { text("editor.selection.expired") }
             val placement = device.placement
             val pose = when (placement) {
                 is ModelPlacement.RailAttached -> placement.adjustment
@@ -34,23 +40,23 @@ internal class PlacementWandEditor(
                 "rx" to Math.toDegrees(angles.x).toString(), "ry" to Math.toDegrees(angles.y).toString(),
                 "rz" to Math.toDegrees(angles.z).toString()),
                 (placement as? ModelPlacement.RailAttached)?.followRailTilt)
-            input(if (placement is ModelPlacement.RailAttached) "Rail offsets: X forward / Y up / Z right (m)"
-                else "Ground position: absolute world XYZ (m)", initial) { submitted ->
-                if (submitted == null) reply("Placement editing cancelled")
+            input(text(if (placement is ModelPlacement.RailAttached) "editor.placement.rail"
+                else "editor.placement.ground"), initial) { submitted ->
+                if (submitted == null) reply(text("editor.placement.cancelled"))
                 else confirm(device, pose, initial, submitted)
             }
-        } } + ("Cancel" to { reply("Placement editing cancelled") }))
+        } } + (text("editor.cancel") to { reply(text("editor.placement.cancelled")) }))
     }
 
     private fun confirm(device: PlacedSignalChoice, oldPose: ModelPose,
         initial: PlacementWandInput, submitted: PlacementWandInput) {
-        require(backend.current(capture)) { "Signal selection expired; select again" }
+        require(backend.current(capture)) { text("editor.selection.expired") }
         require((initial.followRailTilt == null) == (submitted.followRailTilt == null)) {
-            "Only rail placement accepts a tilt setting"
+            text("editor.placement.tilt.rail_only")
         }
         val values = initial.fields.keys.associateWith { key ->
             requireNotNull(submitted.fields[key]?.toDoubleOrNull()?.takeIf { it.isFinite() }) {
-                "$key must be a finite number"
+                text("editor.number.finite", key)
             }
         }
         // Unchanged angles preserve the exact original quaternion, including at Euler singularities.
@@ -64,9 +70,14 @@ internal class PlacementWandEditor(
             is ModelPlacement.RailAttached -> old.copy(adjustment = pose, followRailTilt = checkNotNull(submitted.followRailTilt))
             is ModelPlacement.Ground -> old.copy(pose = pose)
         }
-        page("Confirm ${sectionAuthoringName(device.id, "signal")} | ${submitted.fields} | tilt: ${submitted.followRailTilt ?: "not applicable"}", listOf(
-            "Save placement (keep model / binding)" to {
-                reply(backend.savePlacement(capture, device, replacement, active).message)
-            }, "Cancel" to { reply("Placement editing cancelled") }))
+        val tilt = text(when (submitted.followRailTilt) {
+            true -> "editor.placement.tilt.enabled"
+            false -> "editor.placement.tilt.disabled"
+            null -> "editor.placement.tilt.not_applicable"
+        })
+        page(text("editor.placement.confirm", authoringName(device.id, "name.signal"), submitted.fields, tilt), listOf(
+            text("editor.placement.save") to {
+                reply(backend.savePlacement(capture, device, replacement, active).text.render(locale))
+            }, text("editor.cancel") to { reply(text("editor.placement.cancelled")) }))
     }
 }

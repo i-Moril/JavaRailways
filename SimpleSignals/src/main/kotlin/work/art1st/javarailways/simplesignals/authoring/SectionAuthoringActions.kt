@@ -15,7 +15,9 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-internal data class SectionAuthoringEdit(val patch: SimpleSignalsDefinitionPatch, val message: String)
+internal data class SectionAuthoringEdit(val patch: SimpleSignalsDefinitionPatch, val text: WandText) {
+    constructor(patch: SimpleSignalsDefinitionPatch, message: String) : this(patch, WandText.diagnostic(message))
+}
 
 /** Pure patch construction. All mutation, permits, persistence and publication belong to the manager. */
 internal object SectionAuthoringActions {
@@ -46,7 +48,7 @@ internal object SectionAuthoringActions {
             a.railId == b.railId && min(a.upperAbMeters, b.upperAbMeters) - max(a.lowerAbMeters, b.lowerAbMeters) > Curve.TOLERANCE
         } } }) { "Block interior overlaps an existing block" }
         return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(block)),
-            "Created ${if (block.bidirectional) "bidirectional" else "one-way"} block: ${sectionAuthoringName(block.blockId, "block")}")
+            WandText.key("block.created", WandText.key(if (block.bidirectional) "block.bidirectional" else "block.one-way"), authoringName(block.blockId, "name.block")))
     }
 
     fun deleteBlock(definitions: SimpleSignalsWorldDefinitions, point: RailPositionSnapshot, boundary: Boolean,
@@ -66,7 +68,7 @@ internal object SectionAuthoringActions {
             removeFixedBlockIds = ids,
             removeFixedBlockSignalIds = signals,
             removeAttachedSignalIds = definitions.attachedSignals.filter { it.primarySignalId in signals }.map { it.signalId }),
-            "Removed ${ids.size} block(s) and their signals/attached displays; protection boundaries retained")
+            WandText.key("block.removed", ids.size))
     }
 
     fun deleteRegionBoundary(definitions: SimpleSignalsWorldDefinitions, point: RailPositionSnapshot): SectionAuthoringEdit {
@@ -79,10 +81,10 @@ internal object SectionAuthoringActions {
         val owner = definitions.regions.singleOrNull { cut in it.effectiveBoundaries }
         return if (owner == null) SectionAuthoringEdit(SimpleSignalsDefinitionPatch(
             pendingProtectionBoundaries = definitions.pendingProtectionBoundaries.filter { it.boundaryId != cut.boundaryId }),
-            "Removed pending protection boundary")
+            WandText.key("boundary.removed"))
         else SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertRegions = listOf(ProtectionRegionDefinition(
             owner.regionId, owner.revision + 1, owner.boundaries, owner.effectiveBoundaries.filter { it.boundaryId != cut.boundaryId }))),
-            "${sectionAuthoringName(owner.regionId, "Protection region")} is unavailable; its remaining boundaries, routes and devices are retained")
+            WandText.key("region.unavailable", authoringName(owner.regionId, "name.region")))
     }
 
     fun placeRegionBoundary(topology: TopologyState, definitions: SimpleSignalsWorldDefinitions,
@@ -120,7 +122,7 @@ internal object SectionAuthoringActions {
                 pendingProtectionBoundaries = definitions.pendingProtectionBoundaries + cut), search.detail)
             else SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertRegions = listOf(ProtectionRegionDefinition(
                 owner.regionId, owner.revision + 1, owner.boundaries, owner.effectiveBoundaries + cut))),
-                search.detail + "; existing region remains unavailable")
+                WandText.key("region.pending", search.detail))
         }
         require(owner == null || owner.effectiveBoundaries.all { it.boundaryId in foundIds }) {
             "The closed component does not include every remaining boundary of the existing region"
@@ -128,8 +130,8 @@ internal object SectionAuthoringActions {
         val region = ProtectionRegionDefinition(owner?.regionId ?: newId(), (owner?.revision ?: -1) + 1, search.boundaries)
         return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(upsertRegions = listOf(region),
             pendingProtectionBoundaries = definitions.pendingProtectionBoundaries.filter { it.boundaryId !in foundIds }),
-            if (owner == null) "Created protection region: ${sectionAuthoringName(region.regionId, "region")}" else
-                "Revalidated protection region: ${sectionAuthoringName(region.regionId, "region")}; retained routes and devices")
+            if (owner == null) WandText.key("region.created", authoringName(region.regionId, "name.region")) else
+                WandText.key("region.revalidated", authoringName(region.regionId, "name.region")))
     }
 
     private fun overlaps(first: List<ProtectionRegionInteriorSlice>, second: List<ProtectionRegionInteriorSlice>): Boolean {

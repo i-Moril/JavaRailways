@@ -127,10 +127,10 @@ internal class SectionWandOverlay(
     private fun display(session: Session, x: Double, y: Double, z: Double) {
         val prepared = session.drawing
         val near = prepared?.nearby(x, y, z)
-        val labels = near?.labels.orEmpty().toMutableList()
+        val labels = near?.localizedLabels(session.viewer.locale()).orEmpty().toMutableList()
         if (prepared == null || prepared.unavailableGeometry.isNotEmpty()) labels += EditorTextLabel("geometry-status",
-            x, y + 2.0, z, Component.text(if (prepared == null) "SimpleSignals overlay unavailable${session.failure?.let { ": $it" }.orEmpty()}" else
-                "Unavailable rail geometry: ${prepared.unavailableGeometry.size}; invalid points omitted"))
+            x, y + 2.0, z, Component.text(if (prepared == null) WandI18n.format(session.viewer, "overlay.failed", session.failure.orEmpty()) else
+                WandI18n.format(session.viewer, "overlay.geometry", prepared.unavailableGeometry.size)))
         session.text.submit(++session.revision, labels)
     }
 

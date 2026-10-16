@@ -30,9 +30,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 internal class RoutePreviewWandHandler(private val plugin: Plugin, private val backend: RoutePreviewBackend,
     targets: RailTargetService,
-    private val record: (RoutePreviewSelection, RoutePreviewComputation, () -> Boolean) -> String,
+    private val record: (RoutePreviewSelection, RoutePreviewComputation, () -> Boolean) -> WandText,
     private val deletionChoices: (RoutePreviewSelection) -> List<RecordedRouteDeletion>,
-    private val deleteRoute: (RecordedRouteDeletion, () -> Boolean) -> String,
+    private val deleteRoute: (RecordedRouteDeletion, () -> Boolean) -> WandText,
     private val enabled: () -> Boolean = { plugin.isEnabled },
     worker: ((() -> Unit) -> Unit)? = null,
     private val entity: (Player, () -> Unit) -> Unit = { player, action -> player.scheduler.run(plugin, { action() }, {}) },
@@ -42,8 +42,8 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
     },
     private val inHand: (Player) -> Boolean = { readTool(plugin, it.inventory.itemInMainHand) },
     private val giveTool: (Player) -> Unit = { player ->
-        require(player.inventory.firstEmpty() >= 0) { "Make one empty inventory slot for the wand" }
-        player.inventory.addItem(createItem(plugin))
+        require(player.inventory.firstEmpty() >= 0) { WandI18n.format(player, "inventory.full") }
+        player.inventory.addItem(createItem(plugin, player.locale()))
     },
     private val findTarget: (Player) -> CompletionStage<Optional<RailTarget>> = { targets.findLookedAtRail(it, 64.0, 0.75) },
     private val render: (Player, RoutePreviewDrawing, Int) -> Unit = { player, drawing, offset -> drawing.draw(player, offset) },
@@ -71,21 +71,22 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
         if (closed.get() || !enabled()) return true
         if (!sender.hasPermission(SectionWandHandler.PERMISSION)) {
-            sender.sendMessage(Component.text("SimpleSignals: missing permission ${SectionWandHandler.PERMISSION}")); return true
+            sender.sendMessage(Component.text(WandI18n.format(sender, "permission", SectionWandHandler.PERMISSION))); return true
         }
-        if (sender !is Player) { sender.sendMessage(Component.text("Route preview wand requires a player")); return true }
+        if (sender !is Player) { sender.sendMessage(Component.text(WandI18n.format(sender, "route.player"))); return true }
         if (!args.contentEquals(arrayOf("wand", "route"))) {
             sender.sendMessage(Component.text("/simplesignals wand route")); return true
         }
         invalidate(sender.uniqueId)
         try {
             giveTool(sender)
-            sender.sendMessage(Component.text("Route wand: left-click an existing region entry; Shift-left-click its exit to preview; right-click saves/replaces; Shift-right opens route deletion. Physical connectivity does not grant movement authority."))
-        } catch (failure: Exception) { sender.sendMessage(Component.text(failure.message ?: "Cannot create preview wand")) }
+            sender.sendMessage(Component.text(WandI18n.format(sender, "route.created")))
+        } catch (failure: Exception) { sender.sendMessage(Component.text(failure.message ?: WandI18n.format(sender, "route.create.failed"))) }
         return true
     }
 
     private fun record(player: Player) {
+        val locale = player.locale()
         val playerId = player.uniqueId
         val choice = choices[playerId]
         val selection = choice?.selection
@@ -94,11 +95,11 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
         if (choice == null || selection?.exit == null || session == null || value == null ||
             value.path.end != CurrentRouteEnd.REACHED_EXIT || value.path.waitingForObservation ||
             choice.worldId != player.world.uid || !player.isOnline || !inHand(player)) {
-            player.sendMessage(Component.text("Hold the route wand and select an entry and exit with a current complete preview first"))
+            player.sendMessage(Component.text(WandI18n.format(locale, "route.preview.required")))
             return
         }
         if (!choice.busy.compareAndSet(false, true)) {
-            player.sendMessage(Component.text("Route selection or recording is already in progress"))
+            player.sendMessage(Component.text(WandI18n.format(locale, "route.busy")))
             return
         }
         // This guard is passed into the atomic transaction: only session values, never Bukkit reads.
@@ -115,12 +116,12 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
                 if (!active()) return@worker
                 try {
                     require(session.visible() === value) { "Route preview expired; wait for the current path" }
-                    reply(record.invoke(selection, value, ::active))
+                    reply(record.invoke(selection, value, ::active).render(locale))
                 } catch (failure: Exception) {
                     reply("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
                 }
             }
-        } catch (failure: Exception) { reply("Cannot start route recording: ${failure.message}") }
+        } catch (failure: Exception) { reply(WandI18n.format(locale, "route.record.failed", failure.message)) }
     }
 
     @EventHandler(priority = EventPriority.HIGH)
@@ -132,13 +133,14 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
     }
 
     internal fun openRoutes(player: Player) {
+        val locale = player.locale()
         val playerId = player.uniqueId
         val choice = choices[playerId]
         val selection = choice?.selection
         if (closed.get() || !enabled() || !player.hasPermission(SectionWandHandler.PERMISSION) ||
             !player.isOnline || !inHand(player) || choice == null || selection == null ||
             choice.worldId != player.world.uid) {
-            player.sendMessage(Component.text("Select a region entry with the route wand first"))
+            player.sendMessage(Component.text(WandI18n.format(locale, "route.entry.required")))
             return
         }
         if (!choice.busy.compareAndSet(false, true)) return
@@ -158,7 +160,7 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
                 try { action() } catch (failure: Exception) {
                     reply("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
                 }
-            } } catch (failure: Exception) { reply("Cannot start route deletion: ${failure.message}") }
+            } } catch (failure: Exception) { reply(WandI18n.format(locale, "route.delete.failed", failure.message)) }
         }
         fun page(title: String, options: List<Pair<String, () -> Unit>>) = entity(player) {
             choice.busy.set(false)
@@ -173,12 +175,12 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
         }
         work {
             val routes = deletionChoices(selection)
-            require(routes.isNotEmpty()) { "This region has no authored routes to delete" }
-            page("Delete route in ${selection.regionId}", routes.map { route ->
-                "${route.route.routeId} | ${route.route.entryBoundaryId} -> ${route.route.exitBoundaryId}" to {
-                    page("Delete ${route.route.routeId}?", listOf(
-                        "Confirm deletion (keep devices)" to { reply(deleteRoute(route, ::active)) },
-                        "Cancel" to { reply("Route deletion cancelled") }
+            require(routes.isNotEmpty()) { WandI18n.format(locale, "route.delete.empty") }
+            page(WandI18n.format(locale, "route.delete.title", authoringName(selection.regionId, "name.region")), routes.map { route ->
+                "${authoringName(route.route.routeId, "name.route").render(locale)} | ${authoringName(route.route.entryBoundaryId, "name.entrance").render(locale)} → ${authoringName(route.route.exitBoundaryId, "name.entrance").render(locale)}" to {
+                    page(WandI18n.format(locale, "route.delete.confirm", authoringName(route.route.routeId, "name.route")), listOf(
+                        WandI18n.format(locale, "route.confirm.delete") to { reply(deleteRoute(route, ::active).render(locale)) },
+                        WandI18n.format(locale, "cancel") to { reply(WandI18n.format(locale, "route.delete.cancelled")) }
                     ))
                 }
             })
@@ -186,6 +188,7 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
     }
 
     internal fun click(player: Player, left: Boolean) {
+        val locale = player.locale()
         val playerId = player.uniqueId
         choices[playerId]?.dialogToken = null
         if (closed.get() || !enabled() || !player.hasPermission(SectionWandHandler.PERMISSION)) {
@@ -198,7 +201,7 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
             invalidate(playerId)
             Choice(worldId).also { choices[playerId] = it }
         } else choices[playerId]?.takeIf { it.worldId == worldId && it.selection != null } ?: run {
-            player.sendMessage(Component.text("Left-click a protection-region entry first")); return
+            player.sendMessage(Component.text(WandI18n.format(locale, "route.entry.first"))); return
         }
         if (!choice.busy.compareAndSet(false, true)) return
         fun active() = !closed.get() && choice.active.get() && choices[playerId] === choice
@@ -211,7 +214,7 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
         try {
             findTarget(player).whenComplete { target, failure -> entity(player) {
                 if (!ownerCurrent()) { invalidate(playerId, choice); return@entity }
-                if (failure != null || target == null || target.isEmpty) { fail("No existing region boundary selected"); return@entity }
+                if (failure != null || target == null || target.isEmpty) { fail(WandI18n.format(locale, "route.boundary.none")); return@entity }
                 val hit = target.get()
                 val point = RailPositionSnapshot(hit.rail().id, ViewDirection.AB, hit.arcLength())
                 val previous = if (selectingEntry) null else choice.selection
@@ -223,13 +226,13 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
                             if (!ownerCurrent()) { invalidate(playerId, choice); return@entity }
                             choice.selection = selection
                             choice.busy.set(false)
-                            if (selectingEntry) player.sendMessage(Component.text("Entry ${selection.entry.boundaryId} selected; Shift-left-click the desired exit"))
+                            if (selectingEntry) player.sendMessage(Component.text(WandI18n.format(locale, "route.entry.selected", authoringName(selection.entry.boundaryId, "name.entrance"))))
                             else {
                                 choice.preview?.close()
                                 choice.refresh?.close()
                                 val session = CurrentRoutePreviewSession(selection, backend, worker) { value -> entity(player) {
                                     if (ownerCurrent() && choice.preview?.visible() === value)
-                                        player.sendMessage(Component.text(describe(value)))
+                                        player.sendMessage(Component.text(describe(value, locale)))
                                 } }
                                 choice.preview = session
                                 choice.refresh = repeatDisplay(player, {
@@ -244,7 +247,7 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
                                 if (!active()) choice.close()
                                 else worker {
                                     if (active()) try { session.start() } catch (failure: Exception) {
-                                        fail("Route preview unavailable: ${failure.message}")
+                                        fail(WandI18n.format(locale, "route.preview.failed", failure.message))
                                     }
                                 }
                             }
@@ -252,7 +255,7 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
                     } catch (failure: Exception) { fail("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}") }
                 }
             } }
-        } catch (failure: Exception) { fail("Rail selection failed: ${failure.message}") }
+        } catch (failure: Exception) { fail(WandI18n.format(locale, "rail.failed", failure.message)) }
     }
 
     private fun invalidate(id: UUID) { choices.remove(id)?.close() }
@@ -275,20 +278,18 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
         private fun key(plugin: Plugin) = NamespacedKey(plugin, "route_preview_wand")
         private fun readTool(plugin: Plugin, stack: ItemStack): Boolean =
             stack.itemMeta?.persistentDataContainer?.get(key(plugin), PersistentDataType.BYTE) == 1.toByte()
-        private fun createItem(plugin: Plugin): ItemStack = ItemStack(Material.BLAZE_ROD).apply { editMeta { meta ->
-            meta.displayName(Component.text("SimpleSignals current route preview"))
+        private fun createItem(plugin: Plugin, locale: java.util.Locale): ItemStack = ItemStack(Material.BLAZE_ROD).apply { editMeta { meta ->
+            meta.displayName(Component.text(WandI18n.format(locale, "route.name")))
             meta.persistentDataContainer.set(key(plugin), PersistentDataType.BYTE, 1.toByte())
-            meta.lore(listOf(Component.text("Left: entry; Shift-left: exit; right: save/replace; Shift-right: delete route")))
+            meta.lore(listOf(Component.text(WandI18n.format(locale, "route.lore"))))
         } }
-        internal fun describe(value: RoutePreviewComputation): String {
+        internal fun describe(value: RoutePreviewComputation, locale: java.util.Locale = java.util.Locale.US): String {
             val path = value.path
             val reached = path.reached
-            return "${path.end}: ${path.detail}. Actual end: ${reached.railId} ${reached.facing} @ ${reached.arcLengthInAbMeters} m; " +
-                "${path.traversals.size} directed rail spans. Cyan: entry; yellow: requested exit; raised ${if (value.drawing.connected) "green" else "red"}: actual end; white arrows: travel direction. " +
-                "Physical connectivity only; no movement authority." +
-                (if (value.drawing.points.any { it.kind == PreviewParticleKind.WARNING }) " Amber ! at boundaries: multiple legal paths; shortest initially selected; right-click can replace the selected pair with this preview." else "") +
-                (if (value.drawing.batched) " Long display rotates in batches of at most ${RoutePreviewDrawing.BUDGET} particles." else "") +
-                (if (value.drawing.unavailableGeometry.isNotEmpty()) " Cannot draw missing geometry on ${value.drawing.unavailableGeometry.size} rails." else "")
+            return WandI18n.format(locale, "route.preview.result", path.end, path.detail, reached.facing, reached.arcLengthInAbMeters, path.traversals.size) +
+                (if (value.drawing.points.any { it.kind == PreviewParticleKind.WARNING }) WandI18n.format(locale, "route.preview.warning") else "") +
+                (if (value.drawing.batched) WandI18n.format(locale, "route.preview.batch", RoutePreviewDrawing.BUDGET) else "") +
+                (if (value.drawing.unavailableGeometry.isNotEmpty()) WandI18n.format(locale, "route.preview.geometry", value.drawing.unavailableGeometry.size) else "")
         }
     }
 }

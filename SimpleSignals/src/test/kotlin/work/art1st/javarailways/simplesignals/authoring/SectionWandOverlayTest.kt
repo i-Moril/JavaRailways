@@ -204,6 +204,7 @@ class SectionWandOverlayTest {
             viewer = proxy(Player::class.java) { name, _ ->
                 check(ownerThread) { "Player accessed by worker: $name" }
                 when (name) {
+                    "locale" -> java.util.Locale.US
                     "getUniqueId" -> id
                     "isOnline" -> online && viewer !in offline
                     "hasPermission" -> permitted

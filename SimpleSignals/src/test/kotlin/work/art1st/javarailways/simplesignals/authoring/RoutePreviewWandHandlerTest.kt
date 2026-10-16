@@ -329,6 +329,7 @@ class RoutePreviewWandHandlerTest {
                 "isOnline" -> online
                 "isSneaking" -> sneaking
                 "getWorld" -> world
+                "locale" -> java.util.Locale.US
                 "sendMessage" -> { messages += args!![0] as Component; null }
                 else -> error("Unexpected player call: $name")
             }
@@ -383,13 +384,13 @@ class RoutePreviewWandHandlerTest {
                 check(!owner); recordings++
                 assertTrue(active())
                 assertEquals(selection.entry, value.path.entry)
-                recordAction?.invoke(selection, value, active) ?: "Recorded region test:region, route test:route"
+                WandText.diagnostic(recordAction?.invoke(selection, value, active) ?: "Recorded region test:region, route test:route")
             },
             deletionChoices = { chosen ->
                 check(!owner)
                 listOf(RecordedRouteDeletion(chosen, runtime.authoringPublication(), topology, table, route))
             },
-            deleteRoute = { _, active -> check(!owner); assertTrue(active()); deletions++; "deleted" },
+            deleteRoute = { _, active -> check(!owner); assertTrue(active()); deletions++; WandText.diagnostic("deleted") },
             showAuthoringDialog = { _, _, options -> check(owner); dialogOptions = options },
             worker = { workers += it }, entity = { _, action -> owners += action },
             repeatDisplay = { _, action, retire ->

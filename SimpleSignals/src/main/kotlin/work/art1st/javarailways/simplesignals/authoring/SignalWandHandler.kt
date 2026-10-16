@@ -75,8 +75,8 @@ internal class SignalWandHandler(
     private val entity: (Player, () -> Unit) -> Unit = { player, action -> player.scheduler.run(plugin, { action() }, {}) },
     private val toolInHand: (Player) -> SignalWandState? = { player -> readTool(plugin, player.inventory.itemInMainHand) },
     private val giveTool: (Player, SignalWandState) -> Unit = { player, state ->
-        require(player.inventory.firstEmpty() >= 0) { "Make one empty inventory slot for the wand" }
-        player.inventory.addItem(createItem(plugin, state))
+        require(player.inventory.firstEmpty() >= 0) { WandI18n.format(player, "inventory.full") }
+        player.inventory.addItem(createItem(plugin, state, player.locale()))
     },
     private val replaceToolState: (Player, SignalWandState, SignalWandState) -> Boolean =
         { player, expected, replacement -> replaceMainHandState(plugin, player, expected, replacement) },
@@ -104,20 +104,20 @@ internal class SignalWandHandler(
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
         if (!operational()) return true
         if (!sender.hasPermission(PERMISSION)) {
-            sender.sendMessage(Component.text("SimpleSignals: missing permission $PERMISSION")); return true
+            sender.sendMessage(Component.text(WandI18n.format(sender, "permission", PERMISSION))); return true
         }
         if (sender !is Player) {
-            sender.sendMessage(Component.text("Signal wands require a player")); return true
+            sender.sendMessage(Component.text(WandI18n.format(sender, "signal.player"))); return true
         }
         if (args.size != 2 || args[0] != "wand" || args[1] != "signal") {
             sender.sendMessage(Component.text(USAGE)); return true
         }
         val available = currentTypes()
         if (available == null) {
-            sender.sendMessage(Component.text("Signal type catalog is not ready")); return true
+            sender.sendMessage(Component.text(WandI18n.format(sender, "signal.catalog"))); return true
         }
         if (available.isEmpty()) {
-            sender.sendMessage(Component.text("No signal types are available")); return true
+            sender.sendMessage(Component.text(WandI18n.format(sender, "signal.empty"))); return true
         }
         val state = SignalWandState(newItemId(), 0L, SignalWandMode.PLACEMENT,
             SignalWandControlKind.FIXED_BLOCK, available.first().signalType,
@@ -128,10 +128,10 @@ internal class SignalWandHandler(
             checkOverlay(sender)
             refreshStatus(sender)
             sender.sendMessage(Component.text(
-                "Signal Wand created. Shift-right-click for mode/type; left-click a binding target, then right-click air/rail or a block face to place."
+                WandI18n.format(sender, "signal.created")
             ))
         } catch (failure: Exception) {
-            sender.sendMessage(Component.text(failure.message ?: "Cannot create signal wand"))
+            sender.sendMessage(Component.text(failure.message ?: WandI18n.format(sender, "signal.create.failed")))
         }
         return true
     }
@@ -159,33 +159,33 @@ internal class SignalWandHandler(
         choiceTokens.remove(player.uniqueId)
         val available = currentTypes()
         if (available == null) {
-            player.sendMessage(Component.text("Signal type catalog is not ready")); return
+            player.sendMessage(Component.text(WandI18n.format(player, "signal.catalog"))); return
         }
         if (available.isEmpty()) {
-            player.sendMessage(Component.text("No signal types are available")); return
+            player.sendMessage(Component.text(WandI18n.format(player, "signal.empty"))); return
         }
         val railModel = backend.railPlacementModel(openingState.controlKind, openingState.signalType,
             openingState.presentationModelId)
         val settings = SignalWandMode.entries.map { mode ->
-            SignalWandSetting(SignalWandSettingAction.Mode(mode), "Mode: ${mode.label}", mode == openingState.mode)
+            SignalWandSetting(SignalWandSettingAction.Mode(mode), WandI18n.format(player, "signal.mode", WandI18n.format(player, "mode.${mode.label}")), mode == openingState.mode)
         } + SignalWandControlKind.entries.map { kind ->
             SignalWandSetting(SignalWandSettingAction.ControlKind(kind),
-                "Control: ${kind.label}", kind == openingState.controlKind)
+                WandI18n.format(player, "signal.control", WandI18n.format(player, "control.${kind.name}")), kind == openingState.controlKind)
         } + available.map {
             SignalWandSetting(SignalWandSettingAction.Type(it.signalType),
                 "${it.signalType} — ${it.displayName}", it.signalType == openingState.signalType)
         } + backend.availableModelIds().orEmpty().map { modelId ->
             SignalWandSetting(SignalWandSettingAction.Model(modelId),
-                "Presentation model: $modelId", modelId == openingState.presentationModelId)
-        } + SignalWandSetting(SignalWandSettingAction.ClearRailPreset, "Rail placement: unadjusted",
+                WandI18n.format(player, "signal.model", modelId), modelId == openingState.presentationModelId)
+        } + SignalWandSetting(SignalWandSettingAction.ClearRailPreset, WandI18n.format(player, "signal.preset.clear"),
             openingState.railPreset == null) + railModel?.presets.orEmpty().keys.map { name ->
             SignalWandSetting(SignalWandSettingAction.RailPreset(checkNotNull(railModel).modelId, name),
-                "Rail placement: $name", openingState.railPreset?.let {
+                WandI18n.format(player, "signal.preset", name), openingState.railPreset?.let {
                     it.modelId == railModel.modelId && it.name == name
                 } == true)
-        } + SignalWandSetting(SignalWandSettingAction.RebindProtection, "Rebind existing protection signal", false) +
-            SignalWandSetting(SignalWandSettingAction.EditIndicator, "Edit route indicator mapping / entry", false) +
-            SignalWandSetting(SignalWandSettingAction.EditPlacement, "Edit existing device placement", false)
+        } + SignalWandSetting(SignalWandSettingAction.RebindProtection, WandI18n.format(player, "signal.rebind"), false) +
+            SignalWandSetting(SignalWandSettingAction.EditIndicator, WandI18n.format(player, "signal.indicator.edit"), false) +
+            SignalWandSetting(SignalWandSettingAction.EditPlacement, WandI18n.format(player, "signal.placement.edit"), false)
         showSettings(player, settings) { action ->
             entity(player) { selectSetting(player, openingState, action) }
         }
@@ -199,7 +199,7 @@ internal class SignalWandHandler(
         if (!canUse(player)) return
         val current = toolInHand(player)
         if (current != openingState) {
-            player.sendMessage(Component.text("Signal Wand settings expired; reopen the settings page")); return
+            player.sendMessage(Component.text(WandI18n.format(player, "signal.expired"))); return
         }
         if (action === SignalWandSettingAction.RebindProtection) {
             openRebind(player, current)
@@ -214,28 +214,28 @@ internal class SignalWandHandler(
             return
         }
         val available = currentTypes()
-        if (available == null) {
-            player.sendMessage(Component.text("Signal type catalog is not ready")); return
+        if (action is SignalWandSettingAction.Type && available == null) {
+            player.sendMessage(Component.text(WandI18n.format(player, "signal.catalog"))); return
         }
-        if (action is SignalWandSettingAction.Type && available.none { it.signalType == action.signalType }) {
-            player.sendMessage(Component.text("Signal type is no longer available: ${action.signalType}")); return
+        if (action is SignalWandSettingAction.Type && available.orEmpty().none { it.signalType == action.signalType }) {
+            player.sendMessage(Component.text(WandI18n.format(player, "signal.type.missing", action.signalType))); return
         }
         if (action is SignalWandSettingAction.Model &&
             backend.availableModelIds()?.contains(action.modelId) != true) {
-            player.sendMessage(Component.text("Presentation model is no longer available: ${action.modelId}")); return
+            player.sendMessage(Component.text(WandI18n.format(player, "signal.model.missing", action.modelId))); return
         }
         val selectedPreset = if (action is SignalWandSettingAction.RailPreset) {
             val model = backend.railPlacementModel(current.controlKind, current.signalType, current.presentationModelId)
             val preset = model?.takeIf { it.modelId == action.modelId }?.presets?.get(action.name)
             if (preset == null) {
-                player.sendMessage(Component.text("Rail placement preset is no longer available: ${action.name}")); return
+                player.sendMessage(Component.text(WandI18n.format(player, "signal.preset.missing", action.name))); return
             }
             SignalWandRailPreset(action.modelId, action.name, preset.adjustment, checkNotNull(preset.followRailTilt))
         } else null
         val revision = try {
             Math.addExact(current.stateRevision, 1L)
         } catch (_: ArithmeticException) {
-            player.sendMessage(Component.text("Signal Wand state revision overflow; replace this wand")); return
+            player.sendMessage(Component.text(WandI18n.format(player, "signal.overflow"))); return
         }
         val replacement = when (action) {
             is SignalWandSettingAction.Mode -> current.copy(
@@ -271,17 +271,17 @@ internal class SignalWandHandler(
             SignalWandSettingAction.EditPlacement -> return
         }
         if (!replaceToolState(player, current, replacement)) {
-            player.sendMessage(Component.text("Signal Wand settings expired; reopen the settings page")); return
+            player.sendMessage(Component.text(WandI18n.format(player, "signal.expired"))); return
         }
         sessions.invalidate(player.uniqueId)
         refreshStatus(player)
         player.sendMessage(Component.text(when (action) {
-            is SignalWandSettingAction.Mode -> "Signal Wand mode selected: ${action.mode.label}"
-            is SignalWandSettingAction.ControlKind -> "Signal Wand control selected: ${action.controlKind.label}"
-            is SignalWandSettingAction.Type -> "Signal Wand type selected: ${action.signalType}"
-            is SignalWandSettingAction.Model -> "Signal Wand presentation model selected: ${action.modelId}"
-            is SignalWandSettingAction.RailPreset -> "Signal Wand rail placement selected: ${action.name}"
-            SignalWandSettingAction.ClearRailPreset -> "Signal Wand rail placement reset to unadjusted"
+            is SignalWandSettingAction.Mode -> WandI18n.format(player, "signal.mode.selected", WandI18n.format(player, "mode.${action.mode.label}"))
+            is SignalWandSettingAction.ControlKind -> WandI18n.format(player, "signal.control.selected", WandI18n.format(player, "control.${action.controlKind.name}"))
+            is SignalWandSettingAction.Type -> WandI18n.format(player, "signal.type.selected", action.signalType)
+            is SignalWandSettingAction.Model -> WandI18n.format(player, "signal.model.selected", action.modelId)
+            is SignalWandSettingAction.RailPreset -> WandI18n.format(player, "signal.preset.selected", action.name)
+            SignalWandSettingAction.ClearRailPreset -> WandI18n.format(player, "signal.preset.reset")
             SignalWandSettingAction.RebindProtection -> return
             SignalWandSettingAction.EditIndicator -> return
             SignalWandSettingAction.EditPlacement -> return
@@ -289,6 +289,7 @@ internal class SignalWandHandler(
     }
 
     private fun openRebind(player: Player, state: SignalWandState) {
+        val locale = player.locale()
         val playerId = player.uniqueId
         val worldId = player.world.uid
         sessions.invalidate(playerId)
@@ -308,7 +309,7 @@ internal class SignalWandHandler(
                 try { action() } catch (failure: Exception) {
                     reply("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
                 }
-            } } catch (failure: Exception) { reply("Cannot start signal rebinding: ${failure.message}") }
+            } } catch (failure: Exception) { reply(WandI18n.format(locale, "signal.rebind.failed", failure.message)) }
         }
         fun page(title: String, options: List<Pair<String, () -> Unit>>) = entity(player) {
             session.busy.set(false)
@@ -324,20 +325,20 @@ internal class SignalWandHandler(
         work {
             val capture = backend.capture(worldId, state.signalType, state.presentationModelId)
             val devices = backend.rebindDevices(capture)
-            require(devices.isNotEmpty()) { "This world has no protection signal to rebind" }
-            page("Select protection signal", devices.mapIndexed { index, device ->
-                "${index + 1}. ${sectionAuthoringName(device.definition.signalId, "Signal")} | ${device.definition.kind} | ${device.definition.bindingId?.let { sectionAuthoringName(it, "entry / route") } ?: "unbound"}" to {
-                    require(backend.current(capture)) { "Signal selection expired; select again" }
+            require(devices.isNotEmpty()) { WandI18n.format(locale, "signal.rebind.empty") }
+            page(WandI18n.format(locale, "signal.rebind.choose"), devices.mapIndexed { index, device ->
+                WandI18n.format(locale, "signal.rebind.device", index + 1, authoringName(device.definition.signalId, "name.signal"), WandI18n.format(locale, "control.PROTECTION_${device.definition.kind.name}"), device.definition.bindingId?.let { authoringName(it, "name.route") } ?: WandText.key("none")) to {
+                    require(backend.current(capture)) { WandI18n.format(locale, "signal.selection.expired") }
                     val targets = backend.rebindTargets(capture, device)
-                    require(targets.isNotEmpty()) { "No currently usable protection target is available" }
-                    page("Select new entry / route", targets.mapIndexed { targetIndex, target ->
-                        "${targetIndex + 1}. Entry ${sectionAuthoringName(target.entryBoundaryId, "entrance")} | ${sectionAuthoringName(target.bindingId, "route")}" to {
-                            require(backend.current(capture)) { "Signal selection expired; select again" }
-                            page("Rebind ${sectionAuthoringName(device.definition.signalId, "signal")}?", listOf(
-                                "Confirm: ${sectionAuthoringName(target.bindingId, "selected entry / route")} (keep model position)" to {
-                                    reply(backend.rebind(capture, device, target, ::active).message)
+                    require(targets.isNotEmpty()) { WandI18n.format(locale, "signal.rebind.target.empty") }
+                    page(WandI18n.format(locale, "signal.rebind.target"), targets.mapIndexed { targetIndex, target ->
+                        WandI18n.format(locale, "signal.rebind.entry", targetIndex + 1, authoringName(target.entryBoundaryId, "name.entrance"), authoringName(target.bindingId, "name.route")) to {
+                            require(backend.current(capture)) { WandI18n.format(locale, "signal.selection.expired") }
+                            page(WandI18n.format(locale, "signal.rebind.confirm", authoringName(device.definition.signalId, "name.signal").render(locale)), listOf(
+                                WandI18n.format(locale, "signal.rebind.accept", authoringName(target.bindingId, "name.route").render(locale)) to {
+                                    reply(backend.rebind(capture, device, target, ::active).text.render(locale))
                                 },
-                                "Cancel" to { reply("Signal rebinding cancelled") }
+                                WandI18n.format(locale, "cancel") to { reply(WandI18n.format(locale, "signal.rebind.cancelled")) }
                             ))
                         }
                     })
@@ -349,6 +350,7 @@ internal class SignalWandHandler(
     private fun openIndicatorEditor(player: Player, state: SignalWandState,
         creationCapture: SignalWandCapture? = null, binding: RouteIndicatorSignalWandBinding? = null,
         placement: ModelPlacement? = null) {
+        val locale = player.locale()
         val playerId = player.uniqueId
         val worldId = player.world.uid
         sessions.invalidate(playerId)
@@ -369,7 +371,7 @@ internal class SignalWandHandler(
                 try { action() } catch (failure: Exception) {
                     reply("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
                 }
-            } } catch (failure: Exception) { reply("Cannot start indicator editing: ${failure.message}") }
+            } } catch (failure: Exception) { reply(WandI18n.format(locale, "signal.indicator.failed", failure.message)) }
         }
         fun page(title: String, options: List<Pair<String, () -> Unit>>) = entity(player) {
             session.busy.set(false)
@@ -384,13 +386,14 @@ internal class SignalWandHandler(
         }
         work {
             val capture = creationCapture ?: backend.capture(worldId, state.signalType)
-            require(backend.current(capture)) { "Signal selection expired; select again" }
-            val editor = RouteIndicatorWandEditor(backend, capture, ::page, ::reply, ::active)
+            require(backend.current(capture)) { WandI18n.format(locale, "signal.selection.expired") }
+            val editor = RouteIndicatorWandEditor(backend, capture, ::page, ::reply, ::active, locale)
             if (binding == null) editor.selectDevice() else editor.configure(binding, binding.entryBoundaryId, placement)
         }
     }
 
     private fun openPlacementEditor(player: Player, state: SignalWandState) {
+        val locale = player.locale()
         val playerId = player.uniqueId
         val worldId = player.world.uid
         sessions.invalidate(playerId)
@@ -411,7 +414,7 @@ internal class SignalWandHandler(
                 try { action() } catch (failure: Exception) {
                     reply("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
                 }
-            } } catch (failure: Exception) { reply("Cannot start placement editing: ${failure.message}") }
+            } } catch (failure: Exception) { reply(WandI18n.format(locale, "signal.placement.failed", failure.message)) }
         }
         fun page(title: String, options: List<Pair<String, () -> Unit>>) = entity(player) {
             session.busy.set(false)
@@ -435,7 +438,7 @@ internal class SignalWandHandler(
         }
         work {
             val capture = backend.capture(worldId, state.signalType)
-            PlacementWandEditor(backend, capture, ::page, ::input, ::reply, ::active).selectDevice()
+            PlacementWandEditor(backend, capture, ::page, ::input, ::reply, ::active, locale).selectDevice()
         }
     }
 
@@ -445,12 +448,13 @@ internal class SignalWandHandler(
         action: Action,
         groundPlacement: ModelPlacement.Ground? = null
     ) {
+        val locale = player.locale()
         val playerId = player.uniqueId
         choiceTokens.remove(playerId)
         if (!canUse(player) || toolInHand(player) != state) {
             sessions.invalidate(playerId)
             if (operational() && !player.hasPermission(PERMISSION)) {
-                player.sendMessage(Component.text("SimpleSignals: missing permission $PERMISSION"))
+                player.sendMessage(Component.text(WandI18n.format(locale, "permission", PERMISSION)))
             }
             return
         }
@@ -462,12 +466,12 @@ internal class SignalWandHandler(
             state.mode == SignalWandMode.PLACEMENT &&
                 (action == Action.RIGHT_CLICK_AIR || action == Action.RIGHT_CLICK_BLOCK) -> SignalWandOperation.PLACE
             else -> {
-                player.sendMessage(Component.text("Deletion mode uses left-click on a controlled entrance"))
+                player.sendMessage(Component.text(WandI18n.format(locale, "signal.delete.hint")))
                 return
             }
         }
         if (operation == SignalWandOperation.PLACE && state.binding == null) {
-            player.sendMessage(Component.text("Left-click the device binding target before placing it"))
+            player.sendMessage(Component.text(WandI18n.format(locale, "signal.bind.hint")))
             return
         }
         val worldId = player.world.uid
@@ -498,7 +502,7 @@ internal class SignalWandHandler(
                     if (ownerCurrent()) openIndicatorEditor(player, state, captured, binding, placement)
                     else sessions.invalidate(playerId, session)
                 }
-            } else complete(backend.place(captured, binding, placement, ::active).message)
+            } else complete(backend.place(captured, binding, placement, ::active).text.render(locale))
         }
         fun completeBindingOnOwner(binding: SignalWandBinding) {
             if (!ownerCurrent()) {
@@ -509,19 +513,19 @@ internal class SignalWandHandler(
                 Math.addExact(state.stateRevision, 1L)
             } catch (_: ArithmeticException) {
                 session.busy.set(false)
-                player.sendMessage(Component.text("Signal Wand state revision overflow; replace this wand"))
+                player.sendMessage(Component.text(WandI18n.format(locale, "signal.overflow")))
                 return
             }
             val replacement = state.copy(stateRevision = revision, binding = binding)
             if (!replaceToolState(player, state, replacement)) {
                 sessions.invalidate(playerId, session)
-                player.sendMessage(Component.text("Signal selection expired; select again"))
+                player.sendMessage(Component.text(WandI18n.format(locale, "signal.selection.expired")))
                 return
             }
             sessions.invalidate(playerId, session)
             refreshStatus(player)
             player.sendMessage(Component.text(
-                "Bound ${binding.description()}; right-click air/rail or a block face to place the signal"
+                WandI18n.format(locale, "signal.bound.hint", binding.description(locale))
             ))
         }
         fun completeBinding(binding: SignalWandBinding) = entity(player) { completeBindingOnOwner(binding) }
@@ -534,7 +538,7 @@ internal class SignalWandHandler(
             choiceTokens[playerId] = token
             session.busy.set(false)
             showChoices(player, choices.mapIndexed { index, choice ->
-                choice.copy(label = "${index + 1}. ${choice.label}")
+                choice.copy(label = WandText.key("choice.numbered", index + 1, choice.label))
             }) { choice ->
                 entity(player) choiceOwner@{
                     if (choiceTokens.remove(playerId, token).not() || !ownerCurrent() ||
@@ -542,8 +546,8 @@ internal class SignalWandHandler(
                     worker {
                         if (!active()) return@worker
                         try {
-                            require(backend.current(captured)) { "Signal selection expired; select again" }
-                            if (deleting) complete(backend.delete(captured, choice.binding, ::active).message)
+                            require(backend.current(captured)) { WandI18n.format(locale, "signal.selection.expired") }
+                            if (deleting) complete(backend.delete(captured, choice.binding, ::active).text.render(locale))
                             else completeBinding(choice.binding)
                         } catch (failure: Exception) {
                             complete("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
@@ -556,7 +560,7 @@ internal class SignalWandHandler(
             worker {
                 if (!active()) return@worker
                 try {
-                    require(backend.current(captured)) { "Signal selection expired; select again" }
+                    require(backend.current(captured)) { WandI18n.format(locale, "signal.selection.expired") }
                     place(groundPlacement)
                 } catch (failure: Exception) {
                     complete("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}")
@@ -570,21 +574,21 @@ internal class SignalWandHandler(
                     if (!ownerCurrent()) { sessions.invalidate(playerId, session); return@entity }
                     if (failure != null || target == null || target.isEmpty) {
                         session.busy.set(false)
-                        player.sendMessage(Component.text("No rail selected${failure?.message?.let { ": ${it.take(256)}" }.orEmpty()}"))
+                        player.sendMessage(Component.text(WandI18n.format(locale, "rail.none.detail", failure?.message?.let { ": ${it.take(256)}" }.orEmpty())))
                         return@entity
                     }
                     val selected = target.get()
                     worker {
                         if (!active()) return@worker
                         try {
-                            require(backend.current(captured)) { "Signal selection expired; select again" }
+                            require(backend.current(captured)) { WandI18n.format(locale, "signal.selection.expired") }
                             val curve: Curve = targets.findCurve(worldId, selected.rail().id)
                                 .orElseThrow { IllegalArgumentException("Rail no longer exists") }
                             val tangent = curve.getPointAt(selected.arcLength()).tangent
                             val selectedSight = checkNotNull(sight)
                             val dot = tangent.x() * selectedSight.x + tangent.y() * selectedSight.y +
                                 tangent.z() * selectedSight.z
-                            require(abs(dot) >= 0.15) { "Look along the rail into the controlled section" }
+                            require(abs(dot) >= 0.15) { WandI18n.format(locale, "signal.direction") }
                             val point = RailPositionSnapshot(selected.rail().id,
                                 if (dot >= 0) ViewDirection.AB else ViewDirection.BA, selected.arcLength())
                             when (operation) {
@@ -598,7 +602,7 @@ internal class SignalWandHandler(
                                     val placement = state.railPreset?.let { preset ->
                                         require(backend.railPlacementModel(state.controlKind, state.signalType,
                                             state.presentationModelId)?.modelId == preset.modelId) {
-                                            "Rail placement model changed; select a preset again or clear it"
+                                            WandI18n.format(locale, "signal.model.changed")
                                         }
                                         ModelPlacement.RailAttached(point).applyPreset(
                                             RailPlacementPreset(preset.adjustment, preset.followRailTilt))
@@ -608,7 +612,7 @@ internal class SignalWandHandler(
                                 SignalWandOperation.DELETE -> {
                                     val choices = backend.resolveEntrance(captured, state.controlKind, state.mode, point)
                                     if (state.controlKind == SignalWandControlKind.FIXED_BLOCK) {
-                                        complete(backend.delete(captured, choices.single().binding, ::active).message)
+                                        complete(backend.delete(captured, choices.single().binding, ::active).text.render(locale))
                                     } else continueChoice(choices, deleting = true)
                                 }
                             }
@@ -620,7 +624,7 @@ internal class SignalWandHandler(
             }
         } catch (failure: Exception) {
             session.busy.set(false)
-            player.sendMessage(Component.text("Rail selection failed: ${failure.message?.take(256)}"))
+            player.sendMessage(Component.text(WandI18n.format(locale, "rail.failed", failure.message?.take(256))))
         }
     }
 
@@ -632,7 +636,7 @@ internal class SignalWandHandler(
             return
         }
         ensureStatus(player)
-        player.sendActionBar(statusText(state, backend.availableSignalTypes(), backend.availableModelIds()))
+        player.sendActionBar(statusText(state, backend.availableSignalTypes(), backend.availableModelIds(), player.locale()))
     }
 
     private fun ensureStatus(player: Player) {
@@ -680,10 +684,17 @@ internal class SignalWandHandler(
         sessions.invalidate(event.player.uniqueId)
         deferRefresh(event.player)
     }
-    @EventHandler(ignoreCancelled = true) fun onSwapHands(event: PlayerSwapHandItemsEvent) {
-        choiceTokens.remove(event.player.uniqueId)
-        sessions.invalidate(event.player.uniqueId)
-        deferRefresh(event.player)
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    fun onSwapHands(event: PlayerSwapHandItemsEvent) {
+        work.art1st.javarailways.bukkit.api.wand.WandModeSwitch.handle(event,
+            { readTool(plugin, it) != null }) { player ->
+            choiceTokens.remove(player.uniqueId)
+            sessions.invalidate(player.uniqueId)
+            val state = toolInHand(player) ?: return@handle
+            selectSetting(player, state, SignalWandSettingAction.Mode(
+                if (state.mode == SignalWandMode.PLACEMENT) SignalWandMode.DELETION else SignalWandMode.PLACEMENT))
+            checkOverlay(player)
+        }
     }
     @EventHandler(ignoreCancelled = true) fun onInventoryClick(event: InventoryClickEvent) {
         choiceTokens.remove(event.whoClicked.uniqueId)
@@ -773,11 +784,11 @@ internal class SignalWandHandler(
             null
         }
 
-        internal fun createItem(plugin: Plugin, state: SignalWandState): ItemStack = ItemStack(Material.BLAZE_ROD).apply {
+        internal fun createItem(plugin: Plugin, state: SignalWandState, locale: java.util.Locale = java.util.Locale.US): ItemStack = ItemStack(Material.BLAZE_ROD).apply {
             editMeta { meta ->
-                meta.displayName(Component.text("SimpleSignals Signal Wand"))
+                meta.displayName(Component.text(WandI18n.format(locale, "signal.name")))
                 writeTool(plugin, meta.persistentDataContainer, state)
-                decorate(meta, state)
+                decorate(meta, state, locale)
             }
         }
 
@@ -791,7 +802,7 @@ internal class SignalWandHandler(
             if (readTool(plugin, item) != expected) return false
             item.editMeta { meta ->
                 writeTool(plugin, meta.persistentDataContainer, replacement)
-                decorate(meta, replacement)
+                decorate(meta, replacement, player.locale())
             }
             return readTool(plugin, item) == replacement
         }
@@ -799,32 +810,34 @@ internal class SignalWandHandler(
         internal fun statusText(
             state: SignalWandState,
             available: List<AvailableSignalType>?,
-            availableModels: List<String>?
+            availableModels: List<String>?,
+            locale: java.util.Locale = java.util.Locale.US
         ): Component {
             val availableNow = available?.any { it.signalType == state.signalType } == true
             val suffix = when {
-                available == null -> " (catalog unavailable)"
-                !availableNow -> " (unavailable)"
+                available == null -> WandI18n.format(locale, "catalog.unavailable")
+                !availableNow -> WandI18n.format(locale, "unavailable")
                 else -> ""
             }
-            val binding = state.binding?.let { " | bound: ${it.description()}" } ?: " | bound: none"
-            val model = state.presentationModelId?.let {
-                val modelSuffix = if (availableModels?.contains(it) == true) "" else " (unavailable)"
-                " | model: $it$modelSuffix"
-            } ?: " | model: none"
-            return Component.text("Signal Wand | mode: ${state.mode.label} | control: ${state.controlKind.label} | " +
-                "type: ${state.signalType}$suffix$model | rail-only preset: ${state.railPreset?.name ?: "none"}$binding")
+            val modelSuffix = if (state.presentationModelId != null && availableModels?.contains(state.presentationModelId) != true)
+                WandI18n.format(locale, "unavailable") else ""
+            return Component.text(WandI18n.format(locale, "signal.status",
+                WandI18n.format(locale, "mode." + state.mode.label), WandI18n.format(locale, "control." + state.controlKind.name),
+                state.signalType + suffix, (state.presentationModelId ?: WandI18n.format(locale, "none")) + modelSuffix,
+                state.railPreset?.name ?: WandI18n.format(locale, "none"),
+                state.binding?.description(locale) ?: WandI18n.format(locale, "none")))
         }
 
-        internal fun decorate(meta: org.bukkit.inventory.meta.ItemMeta, state: SignalWandState) {
+        internal fun decorate(meta: org.bukkit.inventory.meta.ItemMeta, state: SignalWandState, locale: java.util.Locale = java.util.Locale.US) {
+            meta.displayName(Component.text(WandI18n.format(locale, "signal.name")))
             meta.lore(listOf(
-                Component.text("Shift-right-click: mode, control, signal type, model and rail preset"),
-                Component.text("Mode: ${state.mode.label}"),
-                Component.text("Control: ${state.controlKind.label}"),
-                Component.text("Selected type: ${state.signalType}"),
-                Component.text("Presentation model: ${state.presentationModelId ?: "none"}"),
-                Component.text("Rail-only preset: ${state.railPreset?.name ?: "none"}"),
-                Component.text(state.binding?.let { "Bound: ${it.description()}" } ?: "Bound: none")
+                Component.text(WandI18n.format(locale, "signal.lore")),
+                Component.text(WandI18n.format(locale, "signal.mode", WandI18n.format(locale, "mode." + state.mode.label))),
+                Component.text(WandI18n.format(locale, "signal.control", WandI18n.format(locale, "control." + state.controlKind.name))),
+                Component.text(WandI18n.format(locale, "signal.type", state.signalType)),
+                Component.text(WandI18n.format(locale, "signal.model", state.presentationModelId ?: WandI18n.format(locale, "none"))),
+                Component.text(WandI18n.format(locale, "signal.preset", state.railPreset?.name ?: WandI18n.format(locale, "none"))),
+                Component.text(WandI18n.format(locale, "signal.bound", state.binding?.description(locale) ?: WandI18n.format(locale, "none")))
             ))
             meta.setEnchantmentGlintOverride(state.binding != null)
         }
@@ -847,9 +860,9 @@ internal class SignalWandHandler(
             }
             val dialog = Dialog.create { factory ->
                 factory.empty()
-                    .base(DialogBase.builder(Component.text("Signal Wand settings", NamedTextColor.GOLD))
+                    .base(DialogBase.builder(Component.text(WandI18n.format(player, "signal.settings.title"), NamedTextColor.GOLD))
                         .body(listOf(DialogBody.plainMessage(Component.text(
-                            "Select the mode, control, signal type and presentation model stored by this Wand.",
+                            WandI18n.format(player, "signal.settings.body"),
                             NamedTextColor.GRAY))))
                         .canCloseWithEscape(true)
                         .build())
@@ -864,16 +877,16 @@ internal class SignalWandHandler(
             selected: (SignalWandChoice) -> Unit
         ) {
             val buttons = choices.map { choice ->
-                ActionButton.builder(Component.text(choice.label.take(DISPLAY_NAME_LIMIT), NamedTextColor.YELLOW))
+                ActionButton.builder(Component.text(choice.label.render(player.locale()).take(DISPLAY_NAME_LIMIT), NamedTextColor.YELLOW))
                     .action(DialogAction.customClick(
                         { _, audience -> if (audience === player) selected(choice) },
                         ClickCallback.Options.builder().uses(1).lifetime(ClickCallback.DEFAULT_LIFETIME).build()))
                     .build()
             }
             player.showDialog(Dialog.create { factory -> factory.empty()
-                .base(DialogBase.builder(Component.text("Select signal device", NamedTextColor.GOLD))
+                .base(DialogBase.builder(Component.text(WandI18n.format(player, "signal.choose.title"), NamedTextColor.GOLD))
                     .body(listOf(DialogBody.plainMessage(Component.text(
-                        "Choose one exact new or existing device.", NamedTextColor.GRAY))))
+                        WandI18n.format(player, "signal.choose.body"), NamedTextColor.GRAY))))
                     .canCloseWithEscape(true).build())
                 .type(DialogType.multiAction(buttons, null, 1)) })
         }
@@ -1041,22 +1054,12 @@ internal data class RouteIndicatorSignalWandBinding(
     }
 }
 
-private fun SignalWandBinding.description(): String = when (this) {
-    is FixedBlockSignalWandBinding -> "${sectionAuthoringName(blockId, "Block")} $entryDirection"
-    is ProtectionCurrentEntrySignalWandBinding -> "${sectionAuthoringName(entryBoundaryId, "Entrance")} current-entry ${intent.description()}"
-    is ProtectionFixedRouteSignalWandBinding -> "${sectionAuthoringName(entryBoundaryId, "Entrance")} route ${sectionAuthoringName(routeId, "selected route")} ${intent.description()}"
-    is AttachedSignalWandBinding -> "${sectionAuthoringName(primarySignalId, "Primary signal")} attached ${intent.description()}"
-    is RouteIndicatorSignalWandBinding -> "${sectionAuthoringName(entryBoundaryId, "Entrance")} indicator ${indicatorId?.let { sectionAuthoringName(it, "device") } ?: "new"}"
-}
-
-private fun ProtectionSignalIntent.description(): String = when (this) {
-    NewProtectionSignal -> "new"
-    is ExistingProtectionSignal -> sectionAuthoringName(signalId, "existing signal")
-}
-
-private fun AttachedSignalIntent.description(): String = when (this) {
-    NewAttachedSignal -> "new"
-    is ExistingAttachedSignal -> sectionAuthoringName(signalId, "existing signal")
+private fun SignalWandBinding.description(locale: java.util.Locale = java.util.Locale.US): String = when (this) {
+    is FixedBlockSignalWandBinding -> WandI18n.format(locale, "binding.block", authoringName(blockId, "name.block"), entryDirection)
+    is ProtectionCurrentEntrySignalWandBinding -> WandI18n.format(locale, "binding.current", authoringName(entryBoundaryId, "name.entrance"))
+    is ProtectionFixedRouteSignalWandBinding -> WandI18n.format(locale, "binding.route", authoringName(entryBoundaryId, "name.entrance"), authoringName(routeId, "name.route"))
+    is AttachedSignalWandBinding -> WandI18n.format(locale, "binding.attached", authoringName(primarySignalId, "name.signal"))
+    is RouteIndicatorSignalWandBinding -> WandI18n.format(locale, "binding.indicator", authoringName(entryBoundaryId, "name.entrance"))
 }
 
 @Serializable

@@ -2,6 +2,21 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
+### 游戏工具本地化与F切模式（2026-10-16，离线完成，未部署）
+
+1. 从AbstractWand现有F处理提取最小公开helper，保留宿主工具行为并修正旧Shift+F说明。
+2. SimpleSignals接入闭塞/保护区域创建删除及信号放置删除切换，复用PDC和旧会话失效流程。
+3. 沿用properties资源补齐工具中英提示、对话、状态栏与区间说明，语言解析不触发几何重算。
+4. 独立复核公开API与实际消费者；仅编译受影响模块、运行直接涉及的locale/按键及已有handler回归，不跑整模块套件。不部署，不归档Stage 2。
+
+已完成上述四步。宿主按键helper单独提交`81621f64`；SimpleSignals中英资源各223键，统一WandText消息键/参数，覆盖物品、设置/选择、状态栏、编辑对话、进路/测量反馈与区间说明。机制归[Wand公共输入](../../spec/bukkit-plugin/backend/interaction-render-persistence.md#共用wand按f切换模式current)和[工具语言与模式](../../spec/simple-signals/backend/section-authoring-wands.md#玩家语言与f模式切换)。不更改持久化字段、版本、世界定义或授权。
+
+独立复核修正两处错误sender引用、设备选择页漏译及worker读取Player.locale，最终无产品阻塞。任意底层校验/编译诊断保留英文原文，不能宣称所有技术错误都已翻译。测试仅新增宿主2项F路由和SimpleSignals1项语言回归，其他改动为旧断言适配消息值、代理返回locale；无测试矩阵。首次宿主新fixture误用AIR触发离线Bukkit server依赖，改为非工具DIRT后仅重跑2项；首次产品编译的sender漏项与一次旧测试漏用render已修正。
+
+最终受影响源码与隔离候选逐目录diff一致。Bukkit定向13项通过（F路由2、原交互路由3、原RailWand/RailObjectWand语言8，分两轮执行而非重复整套）；SimpleSignals最终8秒/36tasks（5执行、31up-to-date），仅6项实际执行，0failure/error/skip：WandI18n1、SignalWandHandler设置/物品/模式3、SectionWandHandler旧选择失效1、SectionOverlayDrawing共用边界1。全部测试源码编译通过不代表执行了全部测试。Java API消费者编译、两个JAR与模块边界检查通过；未重跑Core/Basic/SimpleATO/WebUI/全模块测试。既有JDK/Gradle/弃用警告未扩修，git diff --check通过。
+
+隔离产物仍在`/tmp/javarailways-fixed-block-authority.nsoyCU`。主JAR SHA256 `2c94760183c8acb73b50b1d6a7db4d37d784876b8734483f0081a958c3929f0b`，Signals JAR `3d443f288044087fceb2b2b0bd5e174ae65b0b310c704044b6d876d058eb1640`；客户端编辑ZIP未变。本批未部署或SSH操作。下次获准部署须同时更新主插件与Signals，不能将调用新helper的Signals单独装到旧主插件。待玩家验收F实际输入/PDC更新与旧对话失效、中文物品/菜单/反馈和边界说明；不把定向测试当作Folia客户端通过，Stage 2仍in_progress。
+
 ### 区间中心连续细线与分界去重（2026-10-16，离线完成，未部署）
 
 随后用户批准部署：08:43正常停服保存，完整配置目录及旧JAR归档到外部恢复点，122个文件替换前后校验一致；仅更新Signals，主JAR不变。08:45:08正常启动，bridge健康、WebUI200；未重跑测试，未验收客户端画面。玩家需同步替换编辑ZIP，恢复点与精确hash见[部署记录](research/dev-server-deployment-2026-10-16.md#区间连续细线显示部署08430845-utc)。本节下文“未部署”为离线批次结束时的历史状态。

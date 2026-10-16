@@ -42,8 +42,8 @@ internal class SectionWandHandler(
     private val entity: (Player, () -> Unit) -> Unit = { player, action -> player.scheduler.run(plugin, { action() }, {}) },
     private val toolInHand: (Player) -> SectionWandTool? = { player -> readTool(plugin, player.inventory.itemInMainHand) },
     private val giveTool: (Player, SectionWandTool) -> Unit = { player, tool ->
-        require(player.inventory.firstEmpty() >= 0) { "Make one empty inventory slot for the wand" }
-        player.inventory.addItem(createItem(plugin, tool))
+        require(player.inventory.firstEmpty() >= 0) { WandI18n.format(player, "inventory.full") }
+        player.inventory.addItem(createItem(plugin, tool, player.locale()))
     },
     private val findTarget: (Player) -> CompletionStage<Optional<RailTarget>> = { player -> targets.findLookedAtRail(player, 64.0, 0.75) },
     private val repeatDisplay: (Player, () -> Unit, () -> Unit) -> AutoCloseable = { player, action, retired ->
@@ -58,9 +58,9 @@ internal class SectionWandHandler(
     override fun onCommand(sender: CommandSender, command: Command, label: String, args: Array<out String>): Boolean {
         if (!enabled()) return true
         if (!sender.hasPermission(PERMISSION)) {
-            sender.sendMessage(Component.text("SimpleSignals: missing permission $PERMISSION")); return true
+            sender.sendMessage(Component.text(WandI18n.format(sender, "permission", PERMISSION))); return true
         }
-        if (sender !is Player) { sender.sendMessage(Component.text("Section wands require a player")); return true }
+        if (sender !is Player) { sender.sendMessage(Component.text(WandI18n.format(sender, "section.player"))); return true }
         val tool = if (args.size in 2..3 && args[0] == "wand")
             SectionWandTool.entries.singleOrNull { it.key == "${args[1]}:${args.getOrNull(2) ?: "create"}" } else null
         if (tool == null) { sender.sendMessage(Component.text(USAGE)); return true }
@@ -68,12 +68,12 @@ internal class SectionWandHandler(
         try {
             giveTool(sender, tool)
             sender.sendMessage(Component.text(when (tool) {
-                SectionWandTool.BLOCK_CREATE -> "Block wand: right-click two rail positions; left-click existing block boundaries to continue. Sneak-click cancels."
-                SectionWandTool.BLOCK_DELETE -> "Block delete wand: left-click a boundary to remove adjoining blocks, right-click a block body to remove only that block."
-                SectionWandTool.REGION_CREATE -> "Region wand: look toward the intended interior and right-click each boundary. A complete region and shortest routes form automatically. Left-click an existing boundary to show multiple-path warnings."
-                SectionWandTool.REGION_DELETE -> "Region delete wand: click a boundary. Existing regions retain their routes/devices and become unavailable until repaired."
+                SectionWandTool.BLOCK_CREATE -> WandI18n.format(sender, "section.block.create")
+                SectionWandTool.BLOCK_DELETE -> WandI18n.format(sender, "section.block.delete")
+                SectionWandTool.REGION_CREATE -> WandI18n.format(sender, "section.region.create")
+                SectionWandTool.REGION_DELETE -> WandI18n.format(sender, "section.region.delete")
             }))
-        } catch (failure: Exception) { sender.sendMessage(Component.text(failure.message ?: "Cannot create wand")) }
+        } catch (failure: Exception) { sender.sendMessage(Component.text(failure.message ?: WandI18n.format(sender, "section.create.failed"))) }
         checkOverlay(sender)
         return true
     }
@@ -89,20 +89,21 @@ internal class SectionWandHandler(
     }
 
     internal fun click(player: Player, tool: SectionWandTool, leftClick: Boolean) {
+        val locale = player.locale()
         val playerId = player.uniqueId
         if (!enabled() || !player.hasPermission(PERMISSION)) {
             sessions.invalidate(playerId)
-            if (enabled()) player.sendMessage(Component.text("SimpleSignals: missing permission $PERMISSION"))
+            if (enabled()) player.sendMessage(Component.text(WandI18n.format(locale, "permission", PERMISSION)))
             return
         }
         if (player.isSneaking) {
-            sessions.invalidate(playerId); player.sendMessage(Component.text("Section selection cleared")); return
+            sessions.invalidate(playerId); player.sendMessage(Component.text(WandI18n.format(locale, "section.clear"))); return
         }
         val worldId = player.world.uid
         val session = sessions.begin(playerId, worldId, tool, true) ?: return
         val captured = try { backend.capture(worldId) } catch (_: Exception) { null }
         if (captured == null) {
-            session.busy.set(false); player.sendMessage(Component.text("SimpleSignals world is unavailable")); return
+            session.busy.set(false); player.sendMessage(Component.text(WandI18n.format(locale, "world.unavailable"))); return
         }
         val direction = player.eyeLocation.direction
         val sightX = direction.x
@@ -120,7 +121,7 @@ internal class SectionWandHandler(
                     if (!ownerCurrent()) { sessions.invalidate(playerId, session); return@entity }
                     if (failure != null || target == null || target.isEmpty) {
                         session.busy.set(false)
-                        player.sendMessage(Component.text("No rail selected${failure?.message?.let { ": ${it.take(256)}" }.orEmpty()}"))
+                        player.sendMessage(Component.text(WandI18n.format(locale, "rail.none.detail", failure?.message?.let { ": ${it.take(256)}" }.orEmpty())))
                         return@entity
                     }
                     val selected = target.get()
@@ -133,7 +134,7 @@ internal class SectionWandHandler(
                                 entity(player) {
                                     if (ownerCurrent()) {
                                         session.firstPoint = null; session.firstCapture = null
-                                        player.sendMessage(Component.text("Selection expired after a world or definition edit; select again"))
+                                        player.sendMessage(Component.text(WandI18n.format(locale, "selection.expired")))
                                     }
                                     session.busy.set(false)
                                 }
@@ -153,7 +154,7 @@ internal class SectionWandHandler(
                                 if (ownerCurrent()) {
                                     session.firstPoint = result.firstPoint
                                     session.firstCapture = result.firstCapture
-                                    player.sendMessage(Component.text(result.message.take(8192)))
+                                    player.sendMessage(Component.text(result.text.render(player.locale()).take(8192)))
                                     session.refresh?.close(); session.refresh = null
                                     if (warnings.points.isNotEmpty()) {
                                         var offset = 0
@@ -180,14 +181,37 @@ internal class SectionWandHandler(
                 }
             }
         } catch (failure: Exception) {
-            session.busy.set(false); player.sendMessage(Component.text("Rail selection failed: ${failure.message?.take(256)}"))
+            session.busy.set(false); player.sendMessage(Component.text(WandI18n.format(locale, "rail.failed", failure.message?.take(256))))
         }
     }
 
     @EventHandler fun onQuit(event: PlayerQuitEvent) { sessions.invalidate(event.player.uniqueId) }
     @EventHandler fun onWorldChange(event: PlayerChangedWorldEvent) { sessions.invalidate(event.player.uniqueId) }
     @EventHandler(ignoreCancelled = true) fun onHeldItem(event: PlayerItemHeldEvent) { sessions.invalidate(event.player.uniqueId) }
-    @EventHandler(ignoreCancelled = true) fun onSwapHands(event: PlayerSwapHandItemsEvent) { sessions.invalidate(event.player.uniqueId) }
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    fun onSwapHands(event: PlayerSwapHandItemsEvent) {
+        work.art1st.javarailways.bukkit.api.wand.WandModeSwitch.handle(event,
+            { readTool(plugin, it) != null }) { player ->
+            sessions.invalidate(player.uniqueId)
+            if (!enabled() || !player.hasPermission(PERMISSION)) return@handle
+            val current = readTool(plugin, player.inventory.itemInMainHand) ?: return@handle
+            val next = when (current) {
+                SectionWandTool.BLOCK_CREATE -> SectionWandTool.BLOCK_DELETE
+                SectionWandTool.BLOCK_DELETE -> SectionWandTool.BLOCK_CREATE
+                SectionWandTool.REGION_CREATE -> SectionWandTool.REGION_DELETE
+                SectionWandTool.REGION_DELETE -> SectionWandTool.REGION_CREATE
+            }
+            val item = player.inventory.itemInMainHand
+            val decoration = createItem(plugin, next, player.locale()).itemMeta
+            item.editMeta { meta ->
+                meta.persistentDataContainer.set(key(plugin), PersistentDataType.STRING, next.key)
+                meta.displayName(decoration.displayName())
+                meta.lore(decoration.lore())
+            }
+            player.sendActionBar(Component.text(WandI18n.format(player, "section.mode", WandI18n.format(player, "section.name." + next.name))))
+            checkOverlay(player)
+        }
+    }
     @EventHandler(ignoreCancelled = true) fun onInventoryClick(event: InventoryClickEvent) { sessions.invalidate(event.whoClicked.uniqueId) }
     @EventHandler(ignoreCancelled = true) fun onDrop(event: PlayerDropItemEvent) { sessions.invalidate(event.player.uniqueId) }
     @EventHandler(ignoreCancelled = true) fun onWorldUnload(event: WorldUnloadEvent) { sessions.invalidateWorld(event.world.uid) }
@@ -201,11 +225,11 @@ internal class SectionWandHandler(
             val value = stack.itemMeta?.persistentDataContainer?.get(key(plugin), PersistentDataType.STRING) ?: return null
             return SectionWandTool.entries.singleOrNull { it.key == value }
         }
-        private fun createItem(plugin: Plugin, tool: SectionWandTool): ItemStack = ItemStack(Material.BLAZE_ROD).apply {
+        private fun createItem(plugin: Plugin, tool: SectionWandTool, locale: java.util.Locale): ItemStack = ItemStack(Material.BLAZE_ROD).apply {
             editMeta { meta ->
-                meta.displayName(Component.text("SimpleSignals ${tool.key.replace(':', ' ')}"))
+                meta.displayName(Component.text(WandI18n.format(locale, "section.name.${tool.name}")))
                 meta.persistentDataContainer.set(key(plugin), PersistentDataType.STRING, tool.key)
-                meta.lore(listOf(Component.text("${tool.key}; /simplesignals wand block|region create|delete")))
+                meta.lore(listOf(Component.text(WandI18n.format(locale, "section.lore"))))
             }
         }
     }

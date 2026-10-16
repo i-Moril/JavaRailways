@@ -72,7 +72,7 @@ class SectionWandHandlerTest {
     @Test fun `stale publication rejects worker result and clears old selection`() {
         val f = Fixture()
         val first = RailPositionSnapshot(f.railId, ViewDirection.AB, 2.0)
-        f.nextOutcome = SectionWandOutcome("first", first, f.capture)
+        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("first"), first, f.capture)
         f.clickAndDrain()
         assertEquals(listOf(null), f.firstInputs)
 
@@ -85,7 +85,7 @@ class SectionWandHandlerTest {
 
         f.current = true
         f.advanceCapture()
-        f.nextOutcome = SectionWandOutcome("recovered")
+        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("recovered"))
         f.clickAndDrain()
         assertEquals(listOf(null, null), f.firstInputs)
         assertEquals(2, f.performs)
@@ -137,14 +137,14 @@ class SectionWandHandlerTest {
     @Test fun `worker receives first point from previous selection and continued block outcome`() {
         val f = Fixture()
         val first = RailPositionSnapshot(f.railId, ViewDirection.AB, 2.0)
-        f.nextOutcome = SectionWandOutcome("first", first, f.capture)
+        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("first"), first, f.capture)
         f.clickAndDrain()
         assertNull(f.lastFirst)
         val second = first.copy(arcLengthInAbMeters = 5.0)
-        f.nextOutcome = SectionWandOutcome("created", second, f.capture)
+        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("created"), second, f.capture)
         f.clickAndDrain()
         assertEquals(first, f.lastFirst)
-        f.nextOutcome = SectionWandOutcome("next", null)
+        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("next"), null)
         f.clickAndDrain()
         assertEquals(second, f.lastFirst)
     }
@@ -174,7 +174,7 @@ class SectionWandHandlerTest {
         f.tool = SectionWandTool.REGION_CREATE
         val cut = work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition("test:warn",
             RailPositionSnapshot(f.railId, ViewDirection.AB, 5.0))
-        f.nextOutcome = SectionWandOutcome("multiple paths", warnings = listOf(cut), warningCapture = f.capture)
+        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("multiple paths"), warnings = listOf(cut), warningCapture = f.capture)
         f.target = CompletableFuture()
         f.handler.click(f.player, f.tool!!, true)
         f.completeTarget(); f.drainOwner(); f.drainWorkers(); f.drainOwner()
@@ -193,14 +193,14 @@ class SectionWandHandlerTest {
         val f = Fixture()
         val cut = work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition("test:warn",
             RailPositionSnapshot(f.railId, ViewDirection.AB, 5.0))
-        f.nextOutcome = SectionWandOutcome("warnings", warnings = listOf(cut))
+        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("warnings"), warnings = listOf(cut))
         f.closeOnAttach = true
         f.clickAndDrain()
         assertEquals(1, f.closedRefresh)
         f.refresh!!.invoke()
         assertEquals(0, f.draws)
         val next = Fixture()
-        next.nextOutcome = SectionWandOutcome("warnings", warnings = listOf(cut.copy(position = cut.position.copy(railId = next.railId))))
+        next.nextOutcome = SectionWandOutcome(WandText.diagnostic("warnings"), warnings = listOf(cut.copy(position = cut.position.copy(railId = next.railId))))
         next.clickAndDrain()
         next.handler.onWorldChange(PlayerChangedWorldEvent(next.player, next.world))
         assertEquals(1, next.closedRefresh)
@@ -212,9 +212,9 @@ class SectionWandHandlerTest {
         val f = Fixture()
         val cut = work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition("test:warn",
             RailPositionSnapshot(f.railId, ViewDirection.AB, 5.0))
-        f.nextOutcome = SectionWandOutcome("first warning", warnings = listOf(cut), warningCapture = f.capture)
+        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("first warning"), warnings = listOf(cut), warningCapture = f.capture)
         f.clickAndDrain()
-        f.nextOutcome = SectionWandOutcome("next edit succeeded")
+        f.nextOutcome = SectionWandOutcome(WandText.diagnostic("next edit succeeded"))
         f.target = CompletableFuture()
         f.handler.click(f.player, f.tool!!, false)
         f.completeTarget(); f.drainOwner(); f.drainWorkers()
@@ -253,7 +253,7 @@ class SectionWandHandlerTest {
         val workers = ArrayDeque<() -> Unit>()
         val owners = ArrayDeque<() -> Unit>()
         var capture: SectionWandCapture = newCapture()
-        var nextOutcome = SectionWandOutcome("edited")
+        var nextOutcome = SectionWandOutcome(WandText.diagnostic("edited"))
         val world: World = proxy(World::class.java) { name, _ -> when (name) {
             "getUID" -> worldId
             else -> error("Unexpected world method $name")
@@ -267,6 +267,7 @@ class SectionWandHandlerTest {
                 "isOnline" -> online
                 "isSneaking" -> false
                 "getEyeLocation" -> Location(world, 0.0, 0.0, 0.0, yaw, 0f)
+                "locale" -> java.util.Locale.US
                 "sendMessage" -> { messages += args!![0] as Component; null }
                 else -> error("Unexpected player method $name")
             }

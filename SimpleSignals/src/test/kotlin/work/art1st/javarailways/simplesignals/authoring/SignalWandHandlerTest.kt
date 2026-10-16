@@ -325,6 +325,7 @@ class SignalWandHandlerTest {
         var lore = emptyList<Component>()
         var glint: Boolean? = null
         val meta = proxy(ItemMeta::class.java) { name, args -> when (name) {
+            "displayName" -> null
             "lore" -> {
                 @Suppress("UNCHECKED_CAST")
                 val updated = args!![0] as List<Component>
@@ -694,13 +695,13 @@ class SignalWandHandlerTest {
         val selected = ProtectionCurrentEntrySignalWandBinding(f.worldId, "test:entry",
             ExistingProtectionSignal("test:second", 7))
         f.resolvedChoices = listOf(
-            SignalWandChoice(ProtectionCurrentEntrySignalWandBinding(f.worldId, "test:entry", NewProtectionSignal), "new"),
-            SignalWandChoice(selected, "existing"))
+            SignalWandChoice(ProtectionCurrentEntrySignalWandBinding(f.worldId, "test:entry", NewProtectionSignal), WandText.diagnostic("new")),
+            SignalWandChoice(selected, WandText.diagnostic("existing")))
         f.tool = f.tool.copy(controlKind = SignalWandControlKind.PROTECTION_CURRENT_ENTRY, binding = null)
         f.click(Action.LEFT_CLICK_AIR)
         f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0)))
         f.drainOwners(); f.drainWorkers(); f.drainOwners()
-        assertEquals(listOf("1. new", "2. existing"), f.choices.map { it.label })
+        assertEquals(listOf("1. new", "2. existing"), f.choices.map { it.label.render(java.util.Locale.US) })
         f.chooseChoice!!(f.choices.last()); f.drainOwners(); f.drainWorkers(); f.drainOwners()
         assertEquals(selected, f.tool.binding)
         assertEquals(1L, f.tool.stateRevision)
@@ -835,7 +836,7 @@ class SignalWandHandlerTest {
         var choose: ((SignalWandSettingAction) -> Unit)? = null
         var choices = emptyList<SignalWandChoice>()
         var chooseChoice: ((SignalWandChoice) -> Unit)? = null
-        var resolvedChoices: List<SignalWandChoice> = listOf(SignalWandChoice(binding, "fixed"))
+        var resolvedChoices: List<SignalWandChoice> = listOf(SignalWandChoice(binding, WandText.diagnostic("fixed")))
         var statusTick: (() -> Unit)? = null
         var statusRetired: (() -> Unit)? = null
         var statusStarts = 0
@@ -855,6 +856,7 @@ class SignalWandHandlerTest {
                 "isSneaking" -> sneaking
                 "getLocation" -> Location(world, 0.0, 0.0, 0.0, 90f, 0f)
                 "getEyeLocation" -> Location(world, 0.0, 0.0, 0.0, -90f, 0f)
+                "locale" -> java.util.Locale.US
                 "sendMessage" -> { messages += args!![0] as Component; null }
                 "sendActionBar" -> { actionBars += args!![0] as Component; null }
                 else -> error("Unexpected player method $name")

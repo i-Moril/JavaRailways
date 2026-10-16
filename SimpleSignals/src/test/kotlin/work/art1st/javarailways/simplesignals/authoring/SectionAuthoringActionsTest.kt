@@ -152,9 +152,9 @@ class SectionAuthoringActionsTest {
         val id = "12345678-1234-1234-1234-123456789abc"
         val edit = SectionAuthoringActions.createBlock(definitions(), block(id, 2.0, 8.0))
         assertEquals("test:$id", edit.patch.upsertFixedBlocks.single().blockId)
-        assertEquals("Created bidirectional block: block", edit.message)
+        assertEquals("Created bidirectional block: block", edit.text.render(java.util.Locale.US))
         assertEquals("Created bidirectional block: test:platform", SectionAuthoringActions.createBlock(
-            definitions(), block("platform", 2.0, 8.0)).message)
+            definitions(), block("platform", 2.0, 8.0)).text.render(java.util.Locale.US))
     }
 
     @Test fun `ordinary joint has one block boundary identity across its two rail coordinates`() {

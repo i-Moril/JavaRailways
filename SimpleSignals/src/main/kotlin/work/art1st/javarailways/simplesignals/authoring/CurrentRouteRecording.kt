@@ -34,7 +34,7 @@ internal class CurrentRouteRecording(private val manager: SimpleSignalsWorldRunt
         return table.routes.sortedBy { it.routeId }.map { RecordedRouteDeletion(selection, publication, topology, table, it) }
     }
 
-    fun delete(choice: RecordedRouteDeletion, active: () -> Boolean): String {
+    fun delete(choice: RecordedRouteDeletion, active: () -> Boolean): WandText {
         ThreadGuard.ensureOffMainThread("SimpleSignals route deletion")
         val selection = choice.selection
         require(active() && manager.authoringRuntime(selection.worldId) === selection.runtime &&
@@ -49,11 +49,11 @@ internal class CurrentRouteRecording(private val manager: SimpleSignalsWorldRunt
         val result = manager.applyDefinitionPatch(selection.worldId, choice.publication.definitions.definitionRevision,
             SimpleSignalsDefinitionPatch(upsertRouteTables = listOf(updated)), selection.runtime, choice.topology, active)
         return if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
-            "Deleted route ${choice.route.routeId}; devices retained; definition revision ${result.definitions!!.definitionRevision}"
-        else SimpleSignalsAdminCommand.formatResult(result)
+            WandText.key("route.deleted", authoringName(choice.route.routeId, "name.route"), result.definitions!!.definitionRevision)
+        else WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result))
     }
 
-    fun record(selection: RoutePreviewSelection, value: RoutePreviewComputation, active: () -> Boolean): String {
+    fun record(selection: RoutePreviewSelection, value: RoutePreviewComputation, active: () -> Boolean): WandText {
         ThreadGuard.ensureOffMainThread("SimpleSignals current route recording")
         require(active()) { "Route selection is no longer active" }
         val runtime = selection.runtime
@@ -79,7 +79,7 @@ internal class CurrentRouteRecording(private val manager: SimpleSignalsWorldRunt
         val paired = table?.routes.orEmpty().filter {
             it.entryBoundaryId == path.entry.boundaryId && it.exitBoundaryId == path.requestedExit.boundaryId }
         val duplicate = paired.firstOrNull { it.traversals == path.traversals }
-        if (duplicate != null) return "Region ${region.regionId}: route ${duplicate.routeId} already recorded; no changes"
+        if (duplicate != null) return WandText.key("route.unchanged", authoringName(region.regionId, "name.region"), authoringName(duplicate.routeId, "name.route"))
         require(paired.size <= 1) { "This boundary pair has several authored routes; use the definition JSON editor to choose which route to replace" }
         val previous = paired.singleOrNull()
         val route = ProtectionRouteDefinition(previous?.routeId ?: "simplesignals:${UUID.randomUUID()}", path.entry.boundaryId,
@@ -90,7 +90,7 @@ internal class CurrentRouteRecording(private val manager: SimpleSignalsWorldRunt
         val result = manager.applyDefinitionPatch(selection.worldId, definitions.definitionRevision,
             SimpleSignalsDefinitionPatch(upsertRouteTables = listOf(updated)), runtime, topology, active)
         return if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
-            "Recorded region ${region.regionId}, route ${route.routeId}; definition revision ${result.definitions!!.definitionRevision}"
-        else SimpleSignalsAdminCommand.formatResult(result)
+            WandText.key("route.recorded", authoringName(region.regionId, "name.region"), authoringName(route.routeId, "name.route"), result.definitions!!.definitionRevision)
+        else WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result))
     }
 }

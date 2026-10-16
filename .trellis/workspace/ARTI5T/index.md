@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 11
+- **Total Sessions**: 12
 - **Last Active**: 2026-10-16
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~368 | Active |
+| `journal-1.md` | ~406 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 12 | 2026-10-16 | 无向区间切口与内部方向推导 | `bec5cee9` | `dev/signal-system` |
 | 11 | 2026-10-16 | Unified section wand and crossing enclosure | `03bf4acd`, `24a84a2a` | `dev/signal-system` |
 | 10 | 2026-10-16 | Wand i18n and shared F mode routing | `81621f64`, `fcc839d7` | `dev/signal-system` |
 | 9 | 2026-10-16 | Fix editor UUIDs and migrate section direction glyphs | `54a10deb`, `40a62c1d`, `44c510bb`, `1e569162`, `66cc3314` | `dev/signal-system` |

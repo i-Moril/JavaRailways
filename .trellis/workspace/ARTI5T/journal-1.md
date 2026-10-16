@@ -366,3 +366,41 @@ Committed prior deployed shared-runtime fix separately; corrected generated-ID U
 ### Next Steps
 
 - 检查两笔提交；获准部署前核对旧交叉保护区域完整性，部署仅更新Signals并重发section工具；游戏验收后再收尾Stage 2。
+
+
+## Session 12: 无向区间切口与内部方向推导
+<!-- trellis-session: v=2 fp=46f016daf3eff0c4 -->
+
+**Date**: 2026-10-16
+**Task**: 无向区间切口与内部方向推导
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+区间Wand取消玩家朝向要求，按连通分量推导正式入口；本地完成并提交，未部署，Stage 2继续。
+
+### Main Changes
+
+- 新切口两侧局部搜索，唯一内部自动完成，多解左键内部确认；旧pending朝向不参与选择，正式区域及信号仍有向。
+- 沿用唯一manager事务和现有拓扑，保留修复身份及邻区所有权；歧义共享保护切口删除明确拒绝。同步中英文与owner合同。
+- 普通接头两轨坐标按真实拓扑识别同一几何切口，避免零长度后继误判；未触及其他任务的脏文件。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bec5cee9` | feat(signals): derive section directions from undirected cuts |
+
+### Testing
+
+- [OK] 定向门禁22项/3套通过（8秒）；最终接头创建/删除2项通过（3秒），合计23个不同用例。生产/测试源编译及verifySignalModuleBoundaries/verifyPluginJar通过，独立静态复核和diff检查通过。未跑全仓测试。
+- [OK] 未部署、未修改开发服数据；真实Folia/客户端与规模延迟未验证。review工具返回queued，未确认窗口已打开。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 等待用户检查bec5cee9；获得单独部署指令后再备份并部署，现场验证既有四pending交叉渡线围合。共享多保护区cut删除目标选择仍未实现。

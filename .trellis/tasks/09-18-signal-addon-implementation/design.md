@@ -1,5 +1,12 @@
 # Stage 2 design
 
+## 正式四灯包（2026-10-16）
+
+复用统一包loader、既有JR灯头/资源、缓存观察计划与同步Graal求值；分发目录只保留一份统一服务器包，
+不复制model-only YAML或修改smoke。用户确认0.6m/s²为包级工程参考，不作为日本铁路统一标准或ATO制动指令。
+距离敏感选择及短区间/环/未确定通路的处理归[包规则契约](../../spec/simple-signals/backend/formal-four-light.md)。
+不修改通用Kotlin运行时、宿主API、Basic/SimpleATO、schema或客户端目标版本；离线交付与游戏验收分开。
+
 ## 正式包前置：不限速与参考速度（2026-10-15）
 
 已批准G不附加限速，先在SimpleSignals自身的JS输出、同epoch下游投影及inspection之间贯通；通用SimpleATO限制类型仍只表达有限数值，“不限速”通过不增加该信号的速度restriction实现，而不是把Infinity传播进制动公式。资源、完整区间授权和不可用时停车的边界不变。具体表示与调用合同归[明确不限速](../../spec/simple-signals/backend/js-signal-rules.md#明确不附加限速)。

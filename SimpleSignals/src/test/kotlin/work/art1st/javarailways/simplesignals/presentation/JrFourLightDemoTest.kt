@@ -20,6 +20,7 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simplesignals.signalpack.SignalPackLoader
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
@@ -32,10 +33,10 @@ class JrFourLightDemoTest {
 
     @Test
     fun `actual example loads one head with complete four appearances default and rail presets`() {
-        val loaded = ModelPackageLoader.load(directory.resolve("model-package"))
+        val loaded = SignalPackLoader.load(directory.resolve("signal-packs")).packages.getValue("jr_four_light")
         assertEquals("jr_four_light", loaded.name)
         assertEquals(setOf("jr_four_light:head"), loaded.models.keys)
-        val model = loaded.models.getValue("jr_four_light:head")
+        val model = loaded.models.getValue("jr_four_light:head").presentation
         val head = model.definition.parts().single() as ModelPart.Item
         assertEquals(Material.PAPER, head.appearance().material())
         assertEquals("jr:four_light_signal_stop", head.appearance().itemModelKey())
@@ -111,7 +112,7 @@ class JrFourLightDemoTest {
 
     @Test
     fun `head faces approaching trains in both rail directions and centered base remains at attachment height`() {
-        val model = ModelPackageLoader.load(directory.resolve("model-package")).models.getValue("jr_four_light:head")
+        val model = SignalPackLoader.load(directory.resolve("signal-packs")).models.getValue("jr_four_light:head").presentation
         val head = model.definition.parts().single() as ModelPart.Item
         assertEquals(1.5, head.pose().y())
         val curve = PrimeCurve.fromPoints(listOf(

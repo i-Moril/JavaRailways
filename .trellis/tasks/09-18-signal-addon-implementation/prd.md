@@ -31,9 +31,11 @@ The result must prove that protection regions and fixed blocks are optional poli
 
 用户纠正参考范围：应取整个受控闭塞区间内各轨道有效限速的最大值，不只看入口。固定闭塞两向共用区间最高值，保护root按对应进路区间取值，不能混入下游区间或其他进路；任一受控rail缺少有限速度仍拒绝准备。该要求取代上一笔入口取速实现，缓存/静态读取边界不变。
 
-2026-10-16用户授权查证城市轨道交通常用减速度并直接选值：本份正式四灯包的`reference-deceleration-metres-per-second-squared`确定为`0.6`。依据交通运输部2022年规范第5.2条的ATO站台精确停车目标范围0.5–0.7m/s²，取中值作为本包常用参考，是作者工程取值，不声称全体城轨统一0.6或这是最大/紧急制动能力。来源及适用边界归[参考值记录](research/formal-pack-braking-reference.md)。值只属于这份包，通用loader/runtime仍无默认a；不改列车物理、ATO实际制动力或测试fixture。正式包尚未创建，参数须随完整JS包一起交付，不向smoke目录或不完整包写入冒称生效。
+2026-10-16用户在区分站台停车、区间行车和日本铁路信号设计后，明确批准本份正式四灯包先采用`reference-deceleration-metres-per-second-squared: 0.6`。这是本包扫描/现示判断的工程参考，不以站台停车范围证明区间行车或日本铁路采用统一数值，也不是实际ATO制动指令。来源及适用边界归[参考值记录](research/formal-pack-braking-reference.md)。值只属于这份包，通用loader/runtime仍无默认a；不改列车物理或ATO实际制动力。须随完整JS包一起交付，不向smoke目录或不完整包写入冒称生效。
 
 分笔实现：先贯通明确不限速的JS输出、同epoch下游观察及inspection消费；再确认并接入参考速度来源/扫描计划，最后补正式包。不限速不移除资源授权底线，也不改变无效、缺失或过期状态收紧至0的语义。包规则与速度来源仍未确定的部分不得用smoke值、猜测线路速度或旧输出补齐。不部署、迁移存档或修改测试目标版本。
+
+2026-10-16上述前置与完整JR四灯包均已离线实现：0.6参考值、距离敏感JS、Y45/YG65作者档位及G明确clear，规则和四灯能力限制归[包契约](../../spec/simple-signals/backend/formal-four-light.md)。585项离线门禁通过，实际客户端资源版本、一次性存档迁移及真实游戏验收仍未完成，Stage 2保持in_progress。Y/YG暂沿此前已告知默认档位，不冒称用户已单独确认备选档位。
 
 ### 建造交互收尾顺序（2026-10-14）
 

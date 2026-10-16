@@ -1,0 +1,33 @@
+parts:
+  - type: item_display
+    # Rebasing the client mesh by -16 units preserves its size; restore its base height here.
+    offset: {y: 1.5}
+    # The source lamp faces -Z; rotate it toward approaching trains (-X).
+    rotation: {y: 90.0}
+    item:
+      type: PAPER
+      item-model: jr:four_light_signal_stop
+    animations:
+      - name: lamp
+        scenes:
+          stop:
+            item: {type: PAPER, item-model: jr:four_light_signal_stop}
+          caution:
+            item: {type: PAPER, item-model: jr:four_light_signal_caution}
+          slow:
+            item: {type: PAPER, item-model: jr:four_light_signal_slow}
+          proceed:
+            item: {type: PAPER, item-model: jr:four_light_signal_proceed}
+default: {lamp: stop}
+variants:
+  stop: {lamp: stop}
+  caution: {lamp: caution}
+  slow: {lamp: slow}
+  proceed: {lamp: proceed}
+rail-placement:
+  follow-rail-tilt: false
+  presets:
+    left:
+      offset: {z: -2.0}
+    right:
+      offset: {z: 2.0}

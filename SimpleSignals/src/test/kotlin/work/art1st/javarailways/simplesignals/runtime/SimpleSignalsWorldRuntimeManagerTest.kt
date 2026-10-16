@@ -2206,6 +2206,62 @@ class SimpleSignalsWorldRuntimeManagerTest {
         manager.clearLocal().toCompletableFuture().join()
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    fun `distributed four light package propagates actual same epoch occupancy through mixed and short blocks`(shortBlocks: Boolean) {
+        val lengths = if (shortBlocks) listOf(10, 10, 10, 10) else listOf(500, 300, 150, 500)
+        val rails = (1L..lengths.sum() / 10).map { UUID(14L, it) }
+        val topology = topologyState(71, rails, rails.zipWithNext().map { (first, second) ->
+            endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A)
+        })
+        var start = 0
+        val blocks = lengths.mapIndexed { index, length ->
+            val blockRails = rails.subList(start, start + length / 10)
+            start += length / 10
+            FixedBlockDefinition("test:formal-block-$index", 1,
+                blockRails.map { FixedBlockTraversal(it, ViewDirection.AB, 0.0, 10.0) })
+        }
+        val signals = blocks.mapIndexed { index, block -> FixedBlockSignalDefinition(
+            "test:formal-signal-$index", 1, block.blockId, 0.0, "jr_four_light:block") }
+        val worldId = UUID.randomUUID()
+        val definitions = store()
+        definitions.save(worldId, SimpleSignalsWorldDefinitions(worldId, 1,
+            emptyList(), emptyList(), blocks, signals))
+        val infrastructure = MutableTopologyService(topology)
+        infrastructure.staticSpeedLimits = rails.associateWith { 100.0 / 3.6 }
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            sources, loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(Path.of(requireNotNull(javaClass.getResource("/examples/jr-four-light/signal-packs")).toURI()))
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(worldId).status)
+        val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionSnapshotStore(worldId.toString()))
+        epoch.replaceSources(sources.sources.getValue(worldId))
+        val occupiedRail = blocks.last().traversals.first().railId
+        val interval = work.art1st.javarailways.core.api.physics.rail.RailInterval(occupiedRail, 1.0, 2.0)
+        val head = RailPositionSnapshot(occupiedRail, ViewDirection.AB, 2.0)
+        val tail = RailPositionSnapshot(occupiedRail, ViewDirection.AB, 1.0)
+        epoch.process(RailwayWorldFrameSnapshot.create(1, topology.revision,
+            listOf(TrainFrameSnapshot.create("formal-train", "Formal train", 1, 1, 0.0, false, false, emptyList(),
+                head, tail, listOf(interval), emptyList(), emptyList(), emptyList(), emptyList())),
+            ActiveRailContinuationsSnapshot.empty(topology.revision)))
+        val captured = manager.authoringRuntime(worldId)!!.sectionSignalSnapshot()!!
+        assertTrue(captured.states.values.all { it is SectionSignalState.Available }, captured.states.toString())
+        assertEquals(if (shortBlocks) listOf(0.0, 0.0, 0.0, 0.0) else listOf(null, 65.0 / 3.6, 45.0 / 3.6, 0.0),
+            signals.map { captured.states.getValue(it.signalId).effectiveSpeedLimitMetersPerSecond })
+        assertEquals(if (shortBlocks) listOf("stop", "stop", "stop", "stop")
+            else listOf("proceed", "slow", "caution", "stop"),
+            signals.map { (captured.states.getValue(it.signalId) as SectionSignalState.Available).output.modelVariant })
+        epoch.process(RailwayWorldFrameSnapshot.create(2, topology.revision, emptyList(),
+            ActiveRailContinuationsSnapshot.empty(topology.revision)))
+        if (!shortBlocks) assertEquals(65.0 / 3.6, manager.authoringRuntime(worldId)!!.sectionSignalSnapshot()!!.states
+            .getValue(signals.last().signalId).effectiveSpeedLimitMetersPerSecond,
+            "the cleared last section still brakes toward its physical track end")
+        assertEquals(0.0, captured.states.getValue(signals.last().signalId).effectiveSpeedLimitMetersPerSecond,
+            "the completed first epoch snapshot remains immutable")
+        assertEquals(1, infrastructure.speedLimitReadCount, "physical epochs reuse static prepared scanning")
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
     @Test
     fun `JS signal types publish a transitive downstream chain in one physical epoch`() {
         val rails = (1L..3L).map { UUID(10L, it) }

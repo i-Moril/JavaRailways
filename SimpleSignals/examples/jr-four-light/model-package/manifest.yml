@@ -1,5 +1,0 @@
-config-version: 1
-name: jr_four_light
-display-name: JR 四灯灯头示例
-models:
-  - head

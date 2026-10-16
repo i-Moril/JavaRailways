@@ -276,8 +276,10 @@ animations:
 
 ### 带客户端资产的 JR 灯头示例
 
-[JR 四灯式 demo](../../../../SimpleSignals/examples/jr-four-light/README.md)复用用户提供的灯头网格和贴图，
-分别提供 `stop`、`caution`、`slow`、`proceed` 外观；名称仍然只是配置数据，不包含速度规则。
+[JR 四灯包](../../../../SimpleSignals/examples/jr-four-light/README.md)复用用户提供的灯头网格和贴图，
+分别提供 `stop`、`caution`、`slow`、`proceed` 外观；模型中的名称仍然只是配置数据。
+分发目录现为完整统一信号包，具体速度和距离敏感判断由其中的JS承担，见[四灯规则](formal-four-light.md)；
+不再为同一个灯头维护第二份model-only YAML，也不改变通用model-only加载器。
 服务器模型包和客户端资源包分别保存，不把客户端网格解析进服务器部件树。
 客户端物品定义用各自的 `jr:` 模型键引用相应网格，不覆盖 `minecraft:paper`。
 这个模型没有立柱，`default` 明确选择停止外观，不增加不存在的熄灯模型。

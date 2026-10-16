@@ -2,9 +2,22 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
+### 正式四灯包实现（2026-10-16，离线通过）
+
+用户在查证日本铁路信号设计原则后批准先用0.6m/s²并继续实现。本批只交付真实统一包和直接读取它的回归：
+复用JR灯头/资源、loader及既有同步JS观察API，将旧model-only示例替换为一份完整服务器包；
+按累计距离检查前方限制后向下选择四灯档位，具体机制归[包规则](../../spec/simple-signals/backend/formal-four-light.md)。
+0.6是包级工程参考，不是日本铁路标准或ATO制动指令。无通用运行时/API、Basic/SimpleATO、版本或部署变化。
+已交付完整`signal-packs/jr_four_light/`，公开类型`jr_four_light:block`；Y45/YG65暂沿已告知默认档位，备选值未获单独回复，不冒称另有确认。旧灯头model-only YAML合并为同一统一模型，客户端资产逐字节未改；只新增包JS/YAML及测试，不改变运行时Kotlin或smoke。新增9项真实Graal用例和2项复用manager的真实epoch用例，原3项资产/摆放测试改读统一包，无重复JS或模型fixture。
+
+- 独立`trellis-check`冻结复核无阻塞、未改文件；检查实际JSON绝对距离、clear继续向远方查看、选择/ready、终止与固定档量化。真实epoch验证500/300/150/500米链得到G/YG/Y/R、10米短链传播R，下一帧清空占用后更新，旧快照不变，静态速度provider只读取1次。极短区间R传播是包的明确四档限制，不偷偷增加YY或可变Y。
+- 隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`执行`:SimpleSignals:check :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries`成功：54套585项，failure/error/skip均0，50秒、34tasks（6执行/28up-to-date）。11项新增测试均执行；插件/JAR和模块边界实际执行，未变Java消费者、产品编译和JAR复用缓存，不计重新编译或新产物。未重跑Core/Basic/SimpleATO/Bukkit测试或WebUI前端，无独立lint任务；scoped diff --check通过。
+- 工作区与候选的全部Signals/src、交付example树`diff -qr`一致；相对路径排序SHA256清单摘要`44e0686e3f14f6b19281af0414570a01092e3711b6cd7452b130b92991285657`。插件JAR保持上一笔SHA256 `3c29213563abf3060afdcab48ef89b4f42ec468cbaad75296b134d272521e99d`，外置包不打入JAR。完整日志`/tmp/javarailways-formal-four-light-check.log`，XML在候选Signals模块build/test-results/test。
+- 沿用/workspace/.gradle的JDK25/cache、offline/no-build-cache/nonincremental/in-process、2workers、1536m heap/1024m metaspace；既有Graal POM-as-zip/JDK native/Unsafe及旧测试deprecated warning未扩修。没有部署/迁移；真实资源包版本、客户端交互、Folia运行和正式游戏验收仍未完成，Stage 2保持in_progress。下一批应准备既定一次性存档迁移/测试输入，不重开全仓审查或擅自启动服务器。
+
 ### 正式包减速度选值（2026-10-16）
 
-用户授权研究并直接设定包参数。官方交通运输部2022年规范第5.2条给出ATO站台精确停车目标0.5–0.7m/s²，本份正式四灯包取中值0.6m/s²，依据/范围和准确配置字段见[选值记录](research/formal-pack-braking-reference.md)。这不是通用runtime默认值，不更改实际列车制动、测试fixture或smoke包。当前正式logic/signal包仍未创建，因此本笔仅冻结参数/来源，未声称已可加载、运行或游戏验收；不能添加无配对JS的残缺配置。仅文档变更，未运行Gradle或部署。
+以下是前一笔c8e3175a的历史记录，不代表上方实现批次状态。用户授权研究并直接设定包参数。官方交通运输部2022年规范第5.2条给出ATO站台精确停车目标0.5–0.7m/s²，当时取中值0.6m/s²，后续用户明确确认仅作为本包工程参考，依据/范围和准确配置字段见[选值记录](research/formal-pack-braking-reference.md)。这不是通用runtime默认值，不更改实际列车制动、测试fixture或smoke包。该笔提交时正式logic/signal包尚未创建，仅冻结参数/来源，未声称已可加载、运行或游戏验收；仅文档变更，未运行Gradle或部署。
 
 ### 区间最高速度修正（2026-10-15）
 

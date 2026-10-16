@@ -355,12 +355,11 @@ variants:
 完整示例位于 [demo_signals](src/test/resources/model-packages/demo_signals/manifest.yml)。设备摆放存档见上文。
 完整行为及测试要求见[信号模型显示契约](../.trellis/spec/simple-signals/backend/model-presentation.md)。
 
-另有包含实际网格和贴图的 [JR 四灯式灯头 demo](examples/jr-four-light/README.md)，
-使用用户提供的模型，分别配置停止、注意、减速、进行四种外观。
-示例分为服务器模型包和客户端资源包；不会替换普通纸张，也不包含立柱或速度规则。
-默认显示选择停止外观，但不改变信号后端的限速与资源授权。
-它仍是 model-only 资产示例，不是可选择的信号类型；若要作为主信号使用，需要另写正式逻辑和 `signal/` 声明。
-客户端还需单独安装资源包。尚未验证真实客户端画面，具体步骤见示例说明。
+另有包含实际网格、贴图及距离敏感JS规则的 [JR 四灯包](examples/jr-four-light/README.md)，
+使用用户提供的灯头，分为完整服务器信号包和客户端资源包；不会替换普通纸张，也不包含立柱。
+规则的参考减速度是包声明的0.6m/s²，G明确不附加限速；信号规则不授予资源或代替ATO实际制动。
+复制完整`signal-packs/`内容后，Signal Wand可选择包中声明的类型，不需要另写规则或`signal/`文件。
+客户端仍需单独安装匹配版本资源包。离线测试不等于真实客户端画面已验证，具体档位和步骤见包说明。
 
 ### 模型摆放
 

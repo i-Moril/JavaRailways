@@ -58,7 +58,7 @@ class ProtectionSignalDevicesTest {
             world.commitPrepared(prepared.value)
         }
         install(2, ProtectionRegionDefinition(region.regionId, 2, region.boundaries,
-            region.boundaries.filter { it.boundaryId != "test:second-exit" }))
+            region.boundaries.filter { it.boundaryId != "test:second-exit" }.map { it.cut() }))
         assertTrue(world.authoringPublication().routeSelection.routesById.isEmpty())
         val repairedCuts = region.boundaries.map { if (it.boundaryId == "test:second-exit")
             boundary(it.boundaryId, second, 6.0, ViewDirection.BA) else it }

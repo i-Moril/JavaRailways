@@ -9,6 +9,8 @@ import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simplesignals.block.FixedBlockDefinition
 import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
+import work.art1st.javarailways.simplesignals.region.RailCutPosition
+import work.art1st.javarailways.simplesignals.region.cutPosition
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.max
@@ -32,12 +34,25 @@ internal fun TopologyState.continuations(port: RailEndpointRef): Collection<Rail
 internal fun ViewDirection.reversed(): ViewDirection = if (this == ViewDirection.AB) ViewDirection.BA else ViewDirection.AB
 
 internal fun samePoint(first: RailPositionSnapshot, second: RailPositionSnapshot, tolerance: Double = Curve.TOLERANCE): Boolean =
+    samePoint(first.cutPosition(), second.cutPosition(), tolerance)
+
+internal fun samePoint(first: RailCutPosition, second: RailCutPosition, tolerance: Double = Curve.TOLERANCE): Boolean =
     first.railId == second.railId && abs(first.arcLengthInAbMeters - second.arcLengthInAbMeters) <= tolerance
+
+internal fun samePoint(first: RailPositionSnapshot, second: RailCutPosition, tolerance: Double = Curve.TOLERANCE): Boolean =
+    samePoint(first.cutPosition(), second, tolerance)
+
+internal fun samePoint(first: RailCutPosition, second: RailPositionSnapshot, tolerance: Double = Curve.TOLERANCE): Boolean =
+    samePoint(first, second.cutPosition(), tolerance)
 
 /** Only exact ordinary endpoint continuity joins different rail coordinates; spatial proximity never does. */
 internal fun TopologyState.sameBlockBoundary(first: RailPositionSnapshot, second: RailPositionSnapshot): Boolean {
+    return sameBlockBoundary(first.cutPosition(), second.cutPosition())
+}
+
+internal fun TopologyState.sameBlockBoundary(first: RailCutPosition, second: RailCutPosition): Boolean {
     if (samePoint(first, second)) return true
-    fun endpoint(point: RailPositionSnapshot): RailEndpointRef? {
+    fun endpoint(point: RailCutPosition): RailEndpointRef? {
         val end = when {
             point.arcLengthInAbMeters <= Curve.TOLERANCE -> RailEndpoint.A
             abs(point.arcLengthInAbMeters - railLength(point.railId)) <= Curve.TOLERANCE -> RailEndpoint.B
@@ -63,7 +78,7 @@ internal fun TopologyState.crossesConflict(rail: UUID, from: Double, to: Double)
 internal object BlockPathBuilder {
     /** One local walk, stopping at the first cut or physical conflict; no walk per world boundary. */
     fun nearestBoundary(topology: TopologyState, first: RailPositionSnapshot,
-        boundaries: Collection<RailPositionSnapshot>): RailPositionSnapshot? {
+        boundaries: Collection<RailCutPosition>): RailPositionSnapshot? {
         val byRail = boundaries.groupBy { it.railId }
         val visited = hashSetOf<Triple<UUID, ViewDirection, Double>>()
         var rail = first.railId
@@ -71,13 +86,13 @@ internal object BlockPathBuilder {
         var facing = first.facing
         while (visited.add(Triple(rail, facing, position))) {
             val target = byRail[rail].orEmpty().filter {
-                !topology.sameBlockBoundary(it, first) && if (facing == ViewDirection.AB)
+                !topology.sameBlockBoundary(it, first.cutPosition()) && if (facing == ViewDirection.AB)
                     it.arcLengthInAbMeters >= position - Curve.TOLERANCE
                 else it.arcLengthInAbMeters <= position + Curve.TOLERANCE
             }.minByOrNull { abs(it.arcLengthInAbMeters - position) }
             val end = target?.arcLengthInAbMeters ?: if (facing == ViewDirection.AB) topology.railLength(rail) else 0.0
             if (topology.crossesConflict(rail, position, end)) return null
-            if (target != null) return target.copy(facing = facing.reversed())
+            if (target != null) return target.facing(facing.reversed())
             val port = RailEndpointRef(rail, if (facing == ViewDirection.AB) RailEndpoint.B else RailEndpoint.A)
             if (topology.structuralNodeAt(port) is TopologyNode.Turnout) return null
             val next = topology.continuations(port).singleOrNull() ?: return null

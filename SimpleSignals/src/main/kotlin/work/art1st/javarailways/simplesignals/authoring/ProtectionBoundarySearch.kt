@@ -7,6 +7,9 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.api.physics.rail.topology.RailCrossingPoint
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition
+import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryCut
+import work.art1st.javarailways.simplesignals.region.RailCutPosition
+import work.art1st.javarailways.simplesignals.region.cutPosition
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionInteriorSlice
 import java.util.PriorityQueue
 import java.util.UUID
@@ -33,15 +36,32 @@ internal object ProtectionBoundarySearch {
     private data class RailPoints(
         val positions: List<Double>,
         val indices: Map<Double, Int>,
-        val boundaries: Map<Double, ProtectionBoundaryDefinition>,
+        val boundaries: Map<Double, ProtectionBoundaryCut>,
         val crossingTargets: Map<Double, List<RailCrossingPoint>>
     )
 
     fun search(topology: TopologyState, start: ProtectionBoundaryDefinition,
-        boundaries: Collection<ProtectionBoundaryDefinition>, maxDistanceMeters: Double,
-        undirectedBoundaryIds: Set<String> = emptySet(),
-        fromInterior: Boolean = false): ProtectionBoundarySearchResult {
+        boundaries: Collection<ProtectionBoundaryDefinition>, maxDistanceMeters: Double): ProtectionBoundarySearchResult {
+        require(boundaries.any { it.boundaryId == start.boundaryId }) { "Starting boundary is absent" }
+        return searchComponent(topology, start.position.cutPosition(), start.insideFacing, boundaries.map { it.cut() },
+            maxDistanceMeters, boundaries.associate { it.boundaryId to it.insideFacing })
+    }
+
+    fun searchCuts(topology: TopologyState, start: ProtectionBoundaryDefinition,
+        boundaries: Collection<ProtectionBoundaryCut>, maxDistanceMeters: Double): ProtectionBoundarySearchResult {
+        require(boundaries.any { it.boundaryId == start.boundaryId }) { "Starting boundary is absent" }
+        return searchComponent(topology, start.position.cutPosition(), start.insideFacing, boundaries, maxDistanceMeters, emptyMap())
+    }
+
+    fun searchInterior(topology: TopologyState, point: RailCutPosition,
+        boundaries: Collection<ProtectionBoundaryCut>, maxDistanceMeters: Double): ProtectionBoundarySearchResult =
+        searchComponent(topology, point, null, boundaries, maxDistanceMeters, emptyMap())
+
+    private fun searchComponent(topology: TopologyState, position: RailCutPosition, facing: ViewDirection?,
+        boundaries: Collection<ProtectionBoundaryCut>, maxDistanceMeters: Double,
+        requiredFacings: Map<String, ViewDirection>): ProtectionBoundarySearchResult {
         require(maxDistanceMeters.isFinite() && maxDistanceMeters > 0.0)
+        val fromInterior = facing == null
         val cuts = boundaries.groupBy { it.position.railId }.mapValues { (_, values) ->
             values.sortedBy { it.position.arcLengthInAbMeters }
         }
@@ -64,7 +84,7 @@ internal object ProtectionBoundarySearch {
                 if (it.first.railId == rail) it.first.arcLengthAbMeters to it.second
                 else it.second.arcLengthAbMeters to it.first
             }.groupBy({ it.first }, { it.second })
-            val seed = if (fromInterior && rail == start.position.railId) listOf(start.position.arcLengthInAbMeters) else emptyList()
+            val seed = if (fromInterior && rail == position.railId) listOf(position.arcLengthInAbMeters) else emptyList()
             val positions = (listOf(0.0, topology.railLength(rail)) + boundariesByArc.keys + seed +
                 crossingTargets.keys).distinct().sorted()
             RailPoints(positions, positions.withIndex().associate { it.value to it.index },
@@ -74,13 +94,7 @@ internal object ProtectionBoundarySearch {
             val positions = points(segment.rail).positions
             return positions[segment.index] to positions[segment.index + 1]
         }
-        require(fromInterior || cuts[start.position.railId].orEmpty().any { it.boundaryId == start.boundaryId }) {
-            "Starting boundary is absent"
-        }
-        val startIndex = points(start.position.railId).indices.getValue(start.position.arcLengthInAbMeters)
-        val startEnd = End(Segment(start.position.railId,
-            if (start.insideFacing == ViewDirection.AB) startIndex else startIndex - 1),
-            start.insideFacing == ViewDirection.BA)
+        val startIndex = points(position.railId).indices.getValue(position.arcLengthInAbMeters)
         val distances = hashMapOf<End, Double>()
         val settled = hashSetOf<End>()
         val segments = linkedSetOf<Segment>()
@@ -95,10 +109,11 @@ internal object ProtectionBoundarySearch {
             }
         }
         if (fromInterior) {
-            if (startIndex > 0) offer(End(Segment(start.position.railId, startIndex - 1), true), 0.0)
-            if (startIndex < points(start.position.railId).positions.lastIndex)
-                offer(End(Segment(start.position.railId, startIndex), false), 0.0)
-        } else offer(startEnd, 0.0)
+            if (startIndex > 0) offer(End(Segment(position.railId, startIndex - 1), true), 0.0)
+            if (startIndex < points(position.railId).positions.lastIndex)
+                offer(End(Segment(position.railId, startIndex), false), 0.0)
+        } else offer(End(Segment(position.railId, if (facing == ViewDirection.AB) startIndex else startIndex - 1),
+            facing == ViewDirection.BA), 0.0)
         while (frontier.isNotEmpty()) {
             val visit = frontier.remove()
             val end = visit.end
@@ -118,11 +133,9 @@ internal object ProtectionBoundarySearch {
             }
             if (boundary != null) {
                 val expected = if (end.upper) ViewDirection.BA else ViewDirection.AB
-                if (boundary.boundaryId in undirectedBoundaryIds && boundary.boundaryId != start.boundaryId) {
-                    if (found[boundary.boundaryId]?.insideFacing?.let { it != expected } == true) wrongFacing = true
-                    found[boundary.boundaryId] = boundary.copy(position = boundary.position.copy(facing = expected))
-                } else if (boundary.insideFacing != expected) wrongFacing = true
-                else found[boundary.boundaryId] = boundary
+                if (requiredFacings[boundary.boundaryId]?.let { it != expected } == true ||
+                    found[boundary.boundaryId]?.insideFacing?.let { it != expected } == true) wrongFacing = true
+                else found[boundary.boundaryId] = boundary.facing(expected)
             } else if (arc == 0.0 || arc == topology.railLength(end.segment.rail)) {
                 val port = RailEndpointRef(end.segment.rail, if (end.upper) RailEndpoint.B else RailEndpoint.A)
                 val connections = topology.continuations(port)

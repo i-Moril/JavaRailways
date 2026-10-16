@@ -1,7 +1,6 @@
 package work.art1st.javarailways.simplesignals.authoring
 
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService
-import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.simplesignals.command.SimpleSignalsAdminCommand
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionAuthoringStatus
@@ -27,7 +26,7 @@ internal interface SectionWandBackend {
     fun capture(worldId: UUID): SectionWandCapture?
     fun current(capture: SectionWandCapture): Boolean
     fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
-        point: RailPositionSnapshot, active: () -> Boolean): SectionWandOutcome
+        point: RailCutPosition, active: () -> Boolean): SectionWandOutcome
 }
 
 internal class RuntimeSectionWandBackend(
@@ -50,7 +49,7 @@ internal class RuntimeSectionWandBackend(
     }
 
     override fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
-        point: RailPositionSnapshot, active: () -> Boolean): SectionWandOutcome {
+        point: RailCutPosition, active: () -> Boolean): SectionWandOutcome {
         require(active() && current(capture)) { "Selection expired; select the rail again" }
         val captured = capture as Capture
         val publication = captured.publication
@@ -72,7 +71,7 @@ internal class RuntimeSectionWandBackend(
             val inside = nearby.filter { region -> compiled.regionsById[region.regionId]!!.interior.any { slice ->
                 slice.railId == point.railId && point.arcLengthInAbMeters > slice.startAbMeters && point.arcLengthInAbMeters < slice.endAbMeters } }
             val candidates = inside.ifEmpty { nearby.filter { region ->
-                region.effectiveBoundaries.any { samePoint(it.position, point) } } }
+                region.effectiveCuts.any { samePoint(it.position, point) } } }
             if (candidates.size > 1) return SectionWandOutcome(WandText.key("section.select.interior"))
             val region = candidates.singleOrNull()
             if (region != null) {

@@ -11,6 +11,8 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionInteriorSlice
+import work.art1st.javarailways.simplesignals.region.RailCutPosition
+import work.art1st.javarailways.simplesignals.region.cutPosition
 import java.util.UUID
 
 /** Worker-prepared authoring geometry. No train, signal output, platform world or player state. */
@@ -44,7 +46,7 @@ internal class SectionOverlayDrawing(labels: Collection<EditorTextLabel>,
                 findCurve(id).also { curves[id] = it }
             fun valid(id: UUID, ab: Double): Curve? = curve(id)?.takeIf { ab <= it.totalArcLength }
                 .also { if (it == null) missing += id }
-            fun mark(id: String, text: WandText, position: RailPositionSnapshot, unavailable: Boolean) {
+            fun mark(id: String, text: WandText, position: RailCutPosition, unavailable: Boolean) {
                 val geometry = valid(position.railId, position.arcLengthInAbMeters) ?: return
                 val point = geometry.getPointAt(position.arcLengthInAbMeters)
                 val p = point.position
@@ -107,16 +109,16 @@ internal class SectionOverlayDrawing(labels: Collection<EditorTextLabel>,
                 val name = boundary.names.singleOrNull() ?: "Block"
                 mark(boundary.id, WandText.key("overlay.block", if (name == "Block") WandText.key("name.block.overlay") else name,
                     WandText.key(if (boundary.unavailable) "overlay.unavailable" else "overlay.defined")),
-                    boundary.position, boundary.unavailable)
+                    boundary.position.cutPosition(), boundary.unavailable)
             }
             definitions.regions.forEach { region ->
                 val interior = regionInteriors[region.regionId].orEmpty()
-                val invalid = region.effectiveBoundaries.any { valid(it.position.railId, it.position.arcLengthInAbMeters) == null } ||
+                val invalid = region.effectiveCuts.any { valid(it.position.railId, it.position.arcLengthInAbMeters) == null } ||
                     interior.any { valid(it.railId, it.endAbMeters) == null }
                 val status = WandText.key(if (region.boundaryDraft != null) "overlay.draft" else
                     if (invalid || region.regionId in unavailableRegions) "overlay.unavailable" else "overlay.defined")
                 val name = authoringName(region.regionId, "name.region")
-                region.effectiveBoundaries.forEach { boundary -> mark("region/${region.regionId}/${boundary.boundaryId}",
+                region.effectiveCuts.forEach { boundary -> mark("region/${region.regionId}/${boundary.boundaryId}",
                     WandText.key("overlay.region", name, authoringName(boundary.boundaryId, "name.boundary"), status), boundary.position,
                     invalid || region.regionId in unavailableRegions || region.boundaryDraft != null) }
                 interior.forEachIndexed { index, span -> coverage("region/${region.regionId}/$index",

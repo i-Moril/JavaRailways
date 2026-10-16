@@ -50,7 +50,8 @@ internal class SectionTopologyIndex(
             val key = TopologySection(TopologySectionKind.REGION, region.definition.regionId)
             spans[key] = region.interior
             rails[key] = region.interior.mapTo(linkedSetOf()) { it.railId }.also { ids ->
-                (region.definition.boundaries + region.definition.effectiveBoundaries).forEach { ids += it.position.railId }
+                region.definition.boundaries.forEach { ids += it.position.railId }
+                region.definition.effectiveCuts.forEach { ids += it.position.railId }
             }
         }
         val logicalSignalIds = (publication.definitions.fixedBlockSignals.map { it.signalId } +

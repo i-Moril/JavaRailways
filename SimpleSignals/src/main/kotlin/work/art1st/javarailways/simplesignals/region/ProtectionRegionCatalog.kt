@@ -56,7 +56,7 @@ internal class ProtectionRegionCompilationSnapshot(
 
     private companion object {
         fun boundaryIndex(regions: Collection<ResolvedProtectionRegion>): Map<String, ProtectionBoundaryDefinition> {
-            val boundaries = regions.flatMap { it.definition.effectiveBoundaries }
+            val boundaries = regions.flatMap { it.definition.placedEntrances }
             val byId = boundaries.associateBy { it.boundaryId }
             require(byId.size == boundaries.size) { "published protection boundary IDs must be unique" }
             return java.util.Map.copyOf(byId)

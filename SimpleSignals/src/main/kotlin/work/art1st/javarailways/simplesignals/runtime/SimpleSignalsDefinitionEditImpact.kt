@@ -107,7 +107,7 @@ internal object SimpleSignalsDefinitionEditImpact {
             if (successors.any { it.definition.blockId in changedBlocks }) regions += region.regionId
             if (region.regionId in regions) {
                 region.boundaries.mapTo(rails) { it.position.railId }
-                region.effectiveBoundaries.mapTo(rails) { it.position.railId }
+                region.effectiveCuts.mapTo(rails) { it.position.railId }
                 regionSnapshot.regionsById.getValue(region.regionId).interior.mapTo(rails) { it.railId }
                 successors.forEach { block -> block.traversals.mapTo(rails) { it.railId } }
             }

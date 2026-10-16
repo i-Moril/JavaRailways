@@ -16,6 +16,7 @@ import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+import work.art1st.javarailways.simplesignals.region.RailCutPosition
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.createRailForTest
@@ -278,7 +279,7 @@ class SectionWandHandlerTest {
             override fun current(capture: SectionWandCapture): Boolean =
                 current && capture === this@Fixture.capture
             override fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
-                point: RailPositionSnapshot, active: () -> Boolean): SectionWandOutcome {
+                point: RailCutPosition, active: () -> Boolean): SectionWandOutcome {
                 check(!ownerThread)
                 assertTrue(active())
                 performs++

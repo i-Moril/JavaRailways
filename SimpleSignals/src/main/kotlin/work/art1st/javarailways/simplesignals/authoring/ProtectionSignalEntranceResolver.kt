@@ -12,7 +12,7 @@ internal object ProtectionSignalEntranceResolver {
         val candidates = snapshot.regionIdsByRail[point.railId].orEmpty()
             .mapNotNull(snapshot.regionsById::get)
             .flatMap { region ->
-                region.definition.effectiveBoundaries.mapNotNull { boundary ->
+                region.definition.placedEntrances.mapNotNull { boundary ->
                     Resolved(region.definition.regionId, boundary).takeIf {
                         boundary.insideFacing == point.facing &&
                             samePoint(boundary.position, point, SectionAuthoringActions.SNAP_METERS)

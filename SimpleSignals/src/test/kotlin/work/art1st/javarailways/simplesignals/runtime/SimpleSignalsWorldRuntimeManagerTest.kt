@@ -108,6 +108,9 @@ import work.art1st.javarailways.simplesignals.command.SimpleSignalsAdminCommand
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsDefinitionDrafts
 import work.art1st.javarailways.simplesignals.persistence.definitionDraftPatch
 import net.kyori.adventure.text.Component
+import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryCut
+import work.art1st.javarailways.simplesignals.region.RailCutPosition
+import work.art1st.javarailways.simplesignals.region.cutPosition
 import org.bukkit.command.Command
 import org.bukkit.command.CommandSender
 import org.bukkit.command.ConsoleCommandSender
@@ -138,13 +141,13 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(world).status)
         val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1.0)
         val first = backend.perform(backend.capture(world)!!, SectionWandTool.CREATE, false,
-            RailPositionSnapshot(rail, ViewDirection.AB, 0.0)) { true }
+            RailCutPosition(rail, 0.0)) { true }
         assertEquals(SectionWandKind.PENDING, first.kind)
         assertEquals(0.0, manager.authoringRuntime(world)!!.currentDefinitions().pendingProtectionBoundaries.single().position.arcLengthInAbMeters)
         manager.remove(world)
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(world).status)
         val closed = backend.perform(backend.capture(world)!!, SectionWandTool.CREATE, false,
-            RailPositionSnapshot(rail, ViewDirection.BA, 10.0)) { true }
+            RailCutPosition(rail, 10.0)) { true }
         assertEquals(SectionWandKind.BLOCK, closed.kind, closed.text.render(java.util.Locale.US))
         val saved = manager.authoringRuntime(world)!!.currentDefinitions()
         assertTrue(saved.regions.isEmpty())
@@ -165,7 +168,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val f = Fixture()
         val store = store()
         store.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1, emptyList(), emptyList(),
-            pendingProtectionBoundaries = listOf(f.region.boundaries.first())))
+            pendingProtectionBoundaries = listOf(f.region.boundaries.first().cut())))
         val infrastructure = MutableTopologyService(f.currentTopology)
         val sources = CapturingSignalEpochSourceService()
         val plans = CapturingRoutePlanningService()
@@ -173,7 +176,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
         val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
         val result = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.CREATE, false,
-            f.region.boundaries.last().position) { true }
+            f.region.boundaries.last().position.cutPosition()) { true }
         assertTrue(result.text.render(java.util.Locale.US).contains("generated 1 shortest"), result.text.render(java.util.Locale.US))
         val saved = manager.authoringRuntime(f.worldId)!!.currentDefinitions()
         assertEquals(2, saved.definitionRevision)
@@ -193,7 +196,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val f = Fixture()
         val store = store()
         val pending = SimpleSignalsWorldDefinitions(f.worldId, 1, emptyList(), emptyList(),
-            pendingProtectionBoundaries = listOf(f.region.boundaries.first()))
+            pendingProtectionBoundaries = listOf(f.region.boundaries.first().cut()))
         store.save(f.worldId, pending)
         val infrastructure = MutableTopologyService(f.currentTopology)
         infrastructure.operatingDirectionOverride = f.currentTopology.railProjection.keys.associateWith {
@@ -204,7 +207,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
         val failure = assertThrows(IllegalArgumentException::class.java) {
             backend.perform(backend.capture(f.worldId)!!, SectionWandTool.CREATE, false,
-                f.region.boundaries.last().position) { true }
+                f.region.boundaries.last().position.cutPosition()) { true }
         }
         assertTrue(failure.message!!.contains("No direction-legal"))
         assertEquals(pending, manager.authoringRuntime(f.worldId)!!.currentDefinitions())
@@ -216,7 +219,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val f = Fixture()
         val store = store()
         val pending = SimpleSignalsWorldDefinitions(f.worldId, 1, emptyList(), emptyList(),
-            pendingProtectionBoundaries = listOf(f.region.boundaries.first()))
+            pendingProtectionBoundaries = listOf(f.region.boundaries.first().cut()))
         store.save(f.worldId, pending)
         val registry = editRegistry { f.currentTopology }
         val infrastructure = MutableTopologyService(f.currentTopology, registry)
@@ -230,7 +233,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         try {
             val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
             val result = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.CREATE, false,
-                f.region.boundaries.last().position) { true }
+                f.region.boundaries.last().position.cutPosition()) { true }
             assertFalse(result.text.render(java.util.Locale.US).contains("generated"))
             assertSame(old, runtime.authoringPublication())
             assertEquals(before, Files.readString(store.primaryFile(f.worldId)))
@@ -244,9 +247,9 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val backend = RuntimeSectionWandBackend(r.manager, r.infrastructure.service, 1000.0)
         val before = r.runtime.currentDefinitions().routeTables
         backend.perform(backend.capture(f.worldId)!!, SectionWandTool.DELETE, false,
-            f.region.boundaries.first().position) { true }
+            f.region.boundaries.first().position.cutPosition()) { true }
         val repaired = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.CREATE, false,
-            f.region.boundaries.first().position) { true }
+            f.region.boundaries.first().position.cutPosition()) { true }
         assertTrue(repaired.text.render(java.util.Locale.US).contains("Revalidated"), repaired.text.render(java.util.Locale.US))
         assertEquals(before, r.runtime.currentDefinitions().routeTables)
         assertEquals(f.lowerRoute().traversals, r.runtime.currentDefinitions().routeTables.single().routes.single().traversals)
@@ -571,7 +574,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         manager.remove(fixture.worldId)
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
         val reloaded = manager.authoringRuntime(fixture.worldId)!!
-        assertEquals(emptyList<ProtectionBoundaryDefinition>(), reloaded.currentDefinitions().regions.single().boundaryDraft)
+        assertEquals(emptyList<ProtectionBoundaryCut>(), reloaded.currentDefinitions().regions.single().boundaryDraft)
         assertEquals(fixture.region.boundaries, reloaded.currentDefinitions().regions.single().boundaries)
         assertThrows(IllegalStateException::class.java) { manager.validateRouteAdmission(fixture.worldId, intent(inside)) }
         val restored = ProtectionRegionDefinition(fixture.region.regionId, 3, fixture.region.boundaries)
@@ -591,8 +594,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val sources = CapturingSignalEpochSourceService()
         val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), store(), sources)
         manager.install(fixture.worldId)
-        val first = ProtectionBoundaryDefinition("test:pending-first", RailPositionSnapshot(fixture.entry, ViewDirection.AB, 3.0))
-        val second = ProtectionBoundaryDefinition("test:pending-second", RailPositionSnapshot(fixture.exit, ViewDirection.BA, 7.0))
+        val first = ProtectionBoundaryCut("test:pending-first", RailCutPosition(fixture.entry, 3.0))
+        val second = ProtectionBoundaryCut("test:pending-second", RailCutPosition(fixture.exit, 7.0))
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, manager.applyDefinitionPatch(fixture.worldId, 0,
             SimpleSignalsDefinitionPatch(pendingProtectionBoundaries = listOf(first))).status)
         protect(registry, topology, fixture.entry, TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY)
@@ -604,7 +607,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertTrue(runtime.currentDefinitions().regions.isEmpty())
         assertTrue(runtime.protectionRegionSnapshot().derivedTopology.rails.isEmpty(),
             "pending-only edits validate native rail projections without deriving the world graph")
-        val moved = ProtectionBoundaryDefinition(second.boundaryId, RailPositionSnapshot(fixture.exit, ViewDirection.BA, 8.0))
+        val moved = ProtectionBoundaryCut(second.boundaryId, RailCutPosition(fixture.exit, 8.0))
         val canceled = SimpleSignalsDefinitionPatch(pendingProtectionBoundaries = listOf(first, moved))
         var active = true
         sources.beforeCommitAction = { active = false }
@@ -624,7 +627,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     fun `pending-only publication lazily derives a shared topology index for the first completed section`() {
         val fixture = Fixture()
         val runtime = signalWorldRuntime(fixture.worldId)
-        val pending = ProtectionBoundaryDefinition("test:pending", RailPositionSnapshot(fixture.exit, ViewDirection.BA, 7.0))
+        val pending = ProtectionBoundaryCut("test:pending", RailCutPosition(fixture.exit, 7.0))
         val seed = SimpleSignalsWorldDefinitions(fixture.worldId, 1, emptyList(), emptyList(),
             pendingProtectionBoundaries = listOf(pending))
         assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED,
@@ -639,7 +642,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val index = runtime.protectionRegionSnapshot().derivedTopology
         assertEquals(fixture.currentTopology.railProjection.keys, index.rails.keys)
         assertSame(index, runtime.fixedBlockSnapshot().routeTopology)
-        val moved = ProtectionBoundaryDefinition(pending.boundaryId, RailPositionSnapshot(fixture.exit, ViewDirection.BA, 8.0))
+        val moved = ProtectionBoundaryCut(pending.boundaryId, RailCutPosition(fixture.exit, 8.0))
         val edit = runtime.prepareDefinitions(fixture.currentTopology, SimpleSignalsWorldDefinitions(fixture.worldId,
             3, emptyList(), emptyList(), listOf(block), pendingProtectionBoundaries = listOf(moved))) as
             SimpleSignalsDefinitionPreparationResult.Prepared
@@ -1585,7 +1588,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
         val runtime = manager.authoringRuntime(fixture.worldId)!!
         val unavailableRegion = ProtectionRegionDefinition(fixture.region.regionId, 2,
-            fixture.region.boundaries, fixture.region.boundaries)
+            fixture.region.boundaries, fixture.region.boundaries.map { it.cut() })
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, manager.applyDefinitionPatch(
             fixture.worldId, live.definitionRevision,
             SimpleSignalsDefinitionPatch(upsertRegions = listOf(unavailableRegion)),

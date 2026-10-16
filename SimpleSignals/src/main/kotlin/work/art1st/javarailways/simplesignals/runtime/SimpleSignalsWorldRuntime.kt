@@ -93,7 +93,7 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
     val removeRouteIndicatorIds: List<String>,
     val upsertAttachedSignals: List<AttachedSignalDefinition>,
     val removeAttachedSignalIds: List<String>,
-    val pendingProtectionBoundaries: List<work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition>?
+    val pendingProtectionBoundaries: List<work.art1st.javarailways.simplesignals.region.ProtectionBoundaryCut>?
 ) {
     constructor(
         upsertRegions: Collection<ProtectionRegionDefinition> = emptyList(),
@@ -110,7 +110,7 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
         removeRouteIndicatorIds: Collection<String> = emptyList(),
         upsertAttachedSignals: Collection<AttachedSignalDefinition> = emptyList(),
         removeAttachedSignalIds: Collection<String> = emptyList(),
-        pendingProtectionBoundaries: Collection<work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition>? = null
+        pendingProtectionBoundaries: Collection<work.art1st.javarailways.simplesignals.region.ProtectionBoundaryCut>? = null
     ) : this(
         java.util.List.copyOf(upsertRegions),
         java.util.List.copyOf(removeRegionIds),
@@ -530,7 +530,7 @@ internal class SimpleSignalsWorldRuntime(
                 work.art1st.javarailways.simplesignals.region.ProtectionRegionTopology.direct(topology)
                     .also { topologyIndex = it }
             }
-        val placedBoundaries = copiedRegions.filter { it.regionId !in retainedRegions }.flatMap { it.effectiveBoundaries } + copiedDefinitions.pendingProtectionBoundaries
+        val placedBoundaries = copiedRegions.filter { it.regionId !in retainedRegions }.flatMap { it.effectiveCuts } + copiedDefinitions.pendingProtectionBoundaries
         if (placedBoundaries.map { it.boundaryId }.distinct().size != placedBoundaries.size) {
             return@synchronized preparationRejected("placed protection boundary IDs must be unique")
         }

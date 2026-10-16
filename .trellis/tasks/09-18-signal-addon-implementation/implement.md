@@ -1023,6 +1023,22 @@ Each commit must explain which runtime flow it changes, the mechanism used, the 
 未验证真实客户端/服务器行为或规模延迟；未改变开发服定义、存档形状、schema/PDC版本、Core/Basic或ATO运行逻辑。
 多保护区域共享切口的删除选择仍未实现：当前明确拒绝且不修改数据，不宣称已解决全部共享边界删除。
 
+## 当前批次：删除无向切口的方向占位
+
+- [x] 待完成切口、区域修复草稿和工具输入使用真正无向模型，去掉持久化insideFacing和新切口AB占位；必要消费者同步，正式边界方向与完整认可边界保留。
+- [x] 严格current codec和fixture同步，保持schema 1；不增加旧格式reader、字段别名或打包迁移器。
+- [x] 定向验证围合、修复、普通接头、存档/重载与显示编译；不运行全仓测试。
+- [x] 同步owner合同，独立复核后小批提交交用户检查；不部署、不操作开发服存档，Stage 2仍进行中。
+
+验证：隔离候选`/tmp/javarailways-fixed-block-authority.nsoyCU`中生产编译5秒通过；最终定向门禁11秒，
+28项/6套零失败、错误或跳过：Actions19、codec当前pending/空draft及新三字段/严格拒绝2、
+manager端点长闭塞/零marker重载保护及修复/手录进路保留3、正式方向及交叉搜索2、草稿显示1、无视线输入1。
+最终生产及全部测试源已编译；实际只运行上述过滤用例。`verifySignalModuleBoundaries`、`verifyPluginJar`通过，
+Java consumer编译门禁复用up-to-date结果；源checksum同步检查、`git diff --check`通过，独立静态复核无阻断。
+只新增1项codec关键断言，其余为现有测试/fixture类型适配；未运行全仓套件或实际客户端。
+无Core/Basic/宿主公开API变化，无运行时兼容或版本号变更。旧开发服pending/draft仍带insideFacing，
+部署前须单独批准备份和一次性迁移，本批不对服务器执行任何操作。
+
 ## Rollback points
 
 - Keep module extraction, protection migration, route integration, reactive policy, persistence and rendering in separate commits.

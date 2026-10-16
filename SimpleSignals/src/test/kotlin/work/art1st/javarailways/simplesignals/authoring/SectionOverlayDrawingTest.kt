@@ -56,10 +56,10 @@ class SectionOverlayDrawingTest {
 
     @Test fun `draft replaces effective markers pending state is explicit and overlapping labels retain identity`() {
         val old = listOf(cut("old", 2.0), cut("exit", 8.0, ViewDirection.BA))
-        val draft = listOf(cut("draft", 3.0))
+        val draft = listOf(cut("draft", 3.0).cut())
         val region = ProtectionRegionDefinition("test:region", 0, old, draft)
         val definitions = SimpleSignalsWorldDefinitions(world, 0, listOf(region), emptyList(),
-            listOf(block(lower = 3.0)), pendingProtectionBoundaries = listOf(cut("pending", 3.0)))
+            listOf(block(lower = 3.0)), pendingProtectionBoundaries = listOf(cut("pending", 3.0).cut()))
         var lookups = 0
         val drawing = SectionOverlayDrawing.prepare(definitions, emptySet(), emptySet(),
             mapOf("test:region" to listOf(ProtectionRegionInteriorSlice(rail, 2.0, 8.0)))) { lookups++; curve(10.0) }
@@ -96,7 +96,7 @@ class SectionOverlayDrawingTest {
         val region = ProtectionRegionDefinition(generated, 0,
             listOf(boundary, cut("named-exit", 8.0, ViewDirection.BA)))
         val defs = SimpleSignalsWorldDefinitions(world, 0, listOf(region), emptyList(), listOf(block(generated)),
-            pendingProtectionBoundaries = listOf(boundary))
+            pendingProtectionBoundaries = listOf(boundary.cut()))
         val drawing = SectionOverlayDrawing.prepare(defs, emptySet(), emptySet()) { curve(10.0) }
         assertTrue(drawing.labels.any { it.id().contains(generated) })
         assertTrue(drawing.labels.none { it.text().toString().contains("12345678") })

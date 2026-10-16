@@ -212,7 +212,7 @@ class SignalObservationGraphPublicationTest {
             "test:draft-region",
             1,
             listOf(entry, exit),
-            boundaryDraft = listOf(entry)
+            boundaryDraft = listOf(entry.cut())
         )
         val route = ProtectionRouteDefinition(
             "test:draft-route",

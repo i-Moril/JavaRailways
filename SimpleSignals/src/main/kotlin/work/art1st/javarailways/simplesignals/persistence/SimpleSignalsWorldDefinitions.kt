@@ -16,6 +16,8 @@ import work.art1st.javarailways.simplesignals.block.FixedBlockTraversal
 import work.art1st.javarailways.simplesignals.presentation.DeviceModelDefinition
 import work.art1st.javarailways.simplesignals.presentation.ModelPlacement
 import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryDefinition
+import work.art1st.javarailways.simplesignals.region.ProtectionBoundaryCut
+import work.art1st.javarailways.simplesignals.region.RailCutPosition
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
@@ -39,7 +41,7 @@ internal data class SimpleSignalsWorldDefinitions private constructor(
     val protectionSignals: List<ProtectionSignalDefinition>,
     val routeIndicators: List<RouteIndicatorDefinition>,
     val attachedSignals: List<AttachedSignalDefinition>,
-    val pendingProtectionBoundaries: List<ProtectionBoundaryDefinition>
+    val pendingProtectionBoundaries: List<ProtectionBoundaryCut>
 ) {
     constructor(
         worldId: UUID,
@@ -51,7 +53,7 @@ internal data class SimpleSignalsWorldDefinitions private constructor(
         protectionSignals: Collection<ProtectionSignalDefinition> = emptyList(),
         routeIndicators: Collection<RouteIndicatorDefinition> = emptyList(),
         attachedSignals: Collection<AttachedSignalDefinition> = emptyList(),
-        pendingProtectionBoundaries: Collection<ProtectionBoundaryDefinition> = emptyList()
+        pendingProtectionBoundaries: Collection<ProtectionBoundaryCut> = emptyList()
     ) : this(
         worldId,
         definitionRevision,
@@ -91,7 +93,7 @@ private data class SimpleSignalsWorldDefinitionsFile(
     val protectionSignals: List<SavedProtectionSignal> = emptyList(),
     val routeIndicators: List<SavedRouteIndicator> = emptyList(),
     val attachedSignals: List<SavedAttachedSignal> = emptyList(),
-    val pendingProtectionBoundaries: List<SavedProtectionBoundaryV1> = emptyList()
+    val pendingProtectionBoundaries: List<SavedProtectionCut> = emptyList()
 )
 
 @Serializable
@@ -99,8 +101,11 @@ private data class SavedProtectionRegionV1(
     val regionId: String,
     val revision: Long,
     val boundaries: List<SavedProtectionBoundaryV1>,
-    val boundaryDraft: List<SavedProtectionBoundaryV1>? = null
+    val boundaryDraft: List<SavedProtectionCut>? = null
 )
+
+@Serializable
+private data class SavedProtectionCut(val boundaryId: String, val railId: String, val arcLengthInAbMeters: Double)
 
 @Serializable
 private data class SavedProtectionBoundaryV1(
@@ -272,7 +277,7 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                 it.noRouteModelVariant, it.modelVariantsByRouteId, it.model?.restore(it.indicatorId)) },
             file.attachedSignals.map { AttachedSignalDefinition(it.signalId, it.revision, it.primarySignalId,
                 it.model.restore(it.signalId)) },
-            file.pendingProtectionBoundaries.map { it.restoreBoundary() }
+            file.pendingProtectionBoundaries.map { it.restoreCut() }
         )
     }
 
@@ -292,7 +297,7 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                         boundary.insideFacing
                     )
                 },
-                region.boundaryDraft?.map { it.savedBoundary() }
+                region.boundaryDraft?.map { it.savedCut() }
             )
         },
         routeTables.map { table ->
@@ -350,7 +355,7 @@ internal object SimpleSignalsWorldDefinitionsCodec {
         routeIndicators.map { SavedRouteIndicator(it.indicatorId, it.revision, it.entryBoundaryId,
             it.noRouteModelVariant, it.modelVariantsByRouteId, it.model?.saved()) },
         attachedSignals.map { SavedAttachedSignal(it.signalId, it.revision, it.primarySignalId, it.model.saved()) },
-        pendingProtectionBoundaries.map { it.savedBoundary() }
+        pendingProtectionBoundaries.map { it.savedCut() }
     )
 
     private fun DeviceModelDefinition.saved() = SavedDeviceModel(modelId, placement.saved())
@@ -394,14 +399,13 @@ internal object SimpleSignalsWorldDefinitionsCodec {
                 )
             )
         },
-        boundaryDraft?.map { it.restoreBoundary() }
+        boundaryDraft?.map { it.restoreCut() }
     )
 
-    private fun ProtectionBoundaryDefinition.savedBoundary() = SavedProtectionBoundaryV1(
-        boundaryId, position.railId.toString(), position.arcLengthInAbMeters, insideFacing)
+    private fun ProtectionBoundaryCut.savedCut() = SavedProtectionCut(boundaryId, position.railId.toString(), position.arcLengthInAbMeters)
 
-    private fun SavedProtectionBoundaryV1.restoreBoundary() = ProtectionBoundaryDefinition(boundaryId,
-        RailPositionSnapshot(parseCanonicalUuid(railId, "boundary $boundaryId railId"), insideFacing, arcLengthInAbMeters))
+    private fun SavedProtectionCut.restoreCut() = ProtectionBoundaryCut(boundaryId,
+        RailCutPosition(parseCanonicalUuid(railId, "boundary $boundaryId railId"), arcLengthInAbMeters))
 
     private fun SavedProtectionRouteTableV1.restore() = ProtectionRouteTableDefinition(
         tableId,

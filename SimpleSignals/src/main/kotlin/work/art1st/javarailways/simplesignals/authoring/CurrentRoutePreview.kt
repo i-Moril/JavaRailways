@@ -64,7 +64,7 @@ internal class RuntimeRoutePreviewBackend(private val plugin: Plugin,
         val candidates = snapshot.regionIdsByRail[point.railId].orEmpty()
             .mapNotNull { snapshot.regionsById[it] }
             .filter { entry == null || it.definition.regionId == entry.regionId }
-            .flatMap { region -> region.definition.effectiveBoundaries.filter {
+            .flatMap { region -> region.definition.placedEntrances.filter {
                 samePoint(it.position, point, 0.75)
             }.map { region to it } }
         require(candidates.size == 1) { "Select one existing ${if (entry == null) "protection-region" else "same-region exit"} boundary" }

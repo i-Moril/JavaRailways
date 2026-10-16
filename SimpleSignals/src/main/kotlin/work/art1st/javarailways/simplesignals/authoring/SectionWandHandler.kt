@@ -25,8 +25,7 @@ import org.bukkit.persistence.PersistentDataType
 import org.bukkit.plugin.Plugin
 import work.art1st.javarailways.bukkit.api.rail.RailTarget
 import work.art1st.javarailways.bukkit.api.rail.RailTargetService
-import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
-import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simplesignals.region.RailCutPosition
 import java.util.Optional
 import java.util.concurrent.CompletionStage
 
@@ -129,9 +128,7 @@ internal class SectionWandHandler(
                                 }
                                 return@worker
                             }
-                            // Pending cuts have no player-authored facing. Formal inward directions
-                            // are derived only after a component has been selected.
-                            val point = RailPositionSnapshot(selected.rail().id, ViewDirection.AB, selected.arcLength())
+                            val point = RailCutPosition(selected.rail().id, selected.arcLength())
                             val result = backend.perform(captured, tool, leftClick, point, ::active)
                             val warnings = RoutePreviewDrawing.warnings(result.warnings) { id -> targets.findCurve(worldId, id).orElse(null) }
                             entity(player) {

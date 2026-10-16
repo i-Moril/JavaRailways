@@ -1,5 +1,11 @@
 package work.art1st.javarailways.simplesignals.persistence
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -70,14 +76,41 @@ class SimpleSignalsWorldDefinitionStoreTest {
         val draft = work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition(
             region.regionId, region.revision + 1, region.boundaries, emptyList())
         val value = SimpleSignalsWorldDefinitions(WORLD_ID, 10, listOf(draft), current.routeTables,
-            pendingProtectionBoundaries = listOf(region.boundaries.first().copy(boundaryId = "test:pending")))
+            pendingProtectionBoundaries = listOf(region.boundaries.first().cut().copy(boundaryId = "test:pending")))
         val text = SimpleSignalsWorldDefinitionsCodec.encode(value)
         assertEquals(value, SimpleSignalsWorldDefinitionsCodec.decode(text, WORLD_ID))
         assertTrue(text.contains("\"schemaVersion\": 1"))
         assertTrue(text.contains("\"boundaryDraft\": []"))
         assertFalse(text.contains("interior"))
-        assertTrue(value.regions.single().effectiveBoundaries.isEmpty())
+        assertTrue(value.regions.single().effectiveCuts.isEmpty())
         assertEquals(region.boundaries, value.regions.single().boundaries)
+    }
+
+    @Test
+    fun `pending and repair draft cuts have no direction and reject obsolete facing fields`() {
+        val current = SimpleSignalsWorldDefinitionsCodec.decode(CURRENT_FIXTURE, WORLD_ID)
+        val accepted = current.regions.single()
+        val draft = work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition(
+            accepted.regionId, accepted.revision + 1, accepted.boundaries, listOf(accepted.boundaries.last().cut()))
+        val value = SimpleSignalsWorldDefinitions(WORLD_ID, 10, listOf(draft), current.routeTables,
+            pendingProtectionBoundaries = listOf(accepted.boundaries.first().cut().copy(boundaryId = "test:pending")))
+        val text = SimpleSignalsWorldDefinitionsCodec.encode(value)
+        assertEquals(value, SimpleSignalsWorldDefinitionsCodec.decode(text, WORLD_ID))
+        val root = Json.parseToJsonElement(text).jsonObject
+        val pending = root.getValue("pendingProtectionBoundaries").jsonArray.single().jsonObject
+        val region = root.getValue("protectionRegions").jsonArray.single().jsonObject
+        val cut = region.getValue("boundaryDraft").jsonArray.single().jsonObject
+        val fields = setOf("boundaryId", "railId", "arcLengthInAbMeters")
+        assertEquals(fields, pending.keys)
+        assertEquals(fields, cut.keys)
+        assertTrue(region.getValue("boundaries").jsonArray.all { "insideFacing" in it.jsonObject })
+        val obsoletePending = JsonObject(pending + ("insideFacing" to JsonPrimitive("AB")))
+        val obsoleteDraft = JsonObject(cut + ("insideFacing" to JsonPrimitive("BA")))
+        val oldPendingDocument = JsonObject(root + ("pendingProtectionBoundaries" to JsonArray(listOf(obsoletePending))))
+        val oldRegion = JsonObject(region + ("boundaryDraft" to JsonArray(listOf(obsoleteDraft))))
+        val oldDraftDocument = JsonObject(root + ("protectionRegions" to JsonArray(listOf(oldRegion))))
+        assertThrows(IllegalArgumentException::class.java) { SimpleSignalsWorldDefinitionsCodec.decode(oldPendingDocument.toString(), WORLD_ID) }
+        assertThrows(IllegalArgumentException::class.java) { SimpleSignalsWorldDefinitionsCodec.decode(oldDraftDocument.toString(), WORLD_ID) }
     }
 
     @Test

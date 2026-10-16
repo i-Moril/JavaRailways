@@ -70,8 +70,7 @@ class SectionTopologyTest {
         assertFalse(ProtectionBoundarySearch.search(topology, first,
             listOf(first, last.copy(position = last.position.copy(facing = ViewDirection.AB))), 100.0).complete)
         val shared = last.copy(position = last.position.copy(facing = ViewDirection.AB))
-        val reused = ProtectionBoundarySearch.search(topology, first, listOf(first, shared), 100.0,
-            undirectedBoundaryIds = setOf(shared.boundaryId))
+        val reused = ProtectionBoundarySearch.searchCuts(topology, first, listOf(first.cut(), shared.cut()), 100.0)
         assertTrue(reused.complete)
         assertEquals(ViewDirection.BA, reused.boundaries.single { it.boundaryId == shared.boundaryId }.insideFacing)
     }

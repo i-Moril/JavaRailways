@@ -114,7 +114,7 @@ best-effort把staged旧primary轮转为`.bak`。commit point之后的backup/clea
 ## 保护区域领域
 
 边界工具支持待补全边界和已有区域的未完成编辑：原完整边界用于重启后恢复局部禁行范围，
-`boundaryDraft` 保存当前放置的边界。区域、进路和设备配置保留，只有重新验证的部分可恢复运行。
+`pendingProtectionBoundaries`和`boundaryDraft`保存真正无向切口，每项只有boundaryId、railId和canonical AB米数，不读写insideFacing；原完整boundaries仍有方向。当前schema 1直接修正，不兼容含旧方向字段的开发草稿，开发服保留数据另做一次性迁移。区域、进路和设备配置保留，只有重新验证的部分可恢复运行。
 这些作者状态、修复和准入约束见[建造工具合同](section-authoring-wands.md)，并非任意坏拓扑的自动修复器。
 
 `region` package 只保存 SimpleSignals 自己的信号策略，不进入 Basic 公共 API：

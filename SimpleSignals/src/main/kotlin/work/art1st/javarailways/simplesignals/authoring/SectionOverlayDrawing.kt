@@ -11,6 +11,8 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionInteriorSlice
+import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
+import work.art1st.javarailways.simplesignals.region.ProtectionRouteTableDefinition
 import work.art1st.javarailways.simplesignals.region.RailCutPosition
 import work.art1st.javarailways.simplesignals.region.cutPosition
 import java.util.UUID
@@ -111,6 +113,7 @@ internal class SectionOverlayDrawing(labels: Collection<EditorTextLabel>,
                     WandText.key(if (boundary.unavailable) "overlay.unavailable" else "overlay.defined")),
                     boundary.position.cutPosition(), boundary.unavailable)
             }
+            val tablesByRegion = definitions.routeTables.groupBy { it.regionId }
             definitions.regions.forEach { region ->
                 val interior = regionInteriors[region.regionId].orEmpty()
                 val invalid = region.effectiveCuts.any { valid(it.position.railId, it.position.arcLengthInAbMeters) == null } ||
@@ -121,13 +124,32 @@ internal class SectionOverlayDrawing(labels: Collection<EditorTextLabel>,
                 region.effectiveCuts.forEach { boundary -> mark("region/${region.regionId}/${boundary.boundaryId}",
                     WandText.key("overlay.region", name, authoringName(boundary.boundaryId, "name.boundary"), status), boundary.position,
                     invalid || region.regionId in unavailableRegions || region.boundaryDraft != null) }
-                interior.forEachIndexed { index, span -> coverage("region/${region.regionId}/$index",
+                routeCoverage(region, tablesByRegion[region.regionId].orEmpty()).forEachIndexed { index, span -> coverage("region/${region.regionId}/$index",
                     span.railId, span.startAbMeters, span.endAbMeters,
                     invalid || region.regionId in unavailableRegions || region.boundaryDraft != null) }
             }
             definitions.pendingProtectionBoundaries.forEach { boundary -> mark("pending/${boundary.boundaryId}",
                 WandText.key("overlay.pending", authoringName(boundary.boundaryId, "name.protection-boundary")), boundary.position, true) }
             return SectionOverlayDrawing(labels, java.util.Set.copyOf(missing), captions)
+        }
+
+        /** Saved paths only. Draft cuts do not grant passage or trigger another route search. */
+        private fun routeCoverage(region: ProtectionRegionDefinition,
+            tables: List<ProtectionRouteTableDefinition>): List<ProtectionRegionInteriorSlice> {
+            val entrances = region.placedEntrances.mapTo(hashSetOf()) { it.boundaryId }
+            val spans = tables.flatMap { it.routes }.filter {
+                it.entryBoundaryId in entrances && it.exitBoundaryId in entrances
+            }.flatMap { it.traversals }.map {
+                ProtectionRegionInteriorSlice(it.railId, it.lowerAbMeters, it.upperAbMeters)
+            }.sortedWith(compareBy({ it.railId }, { it.startAbMeters }, { it.endAbMeters }))
+            val merged = arrayListOf<ProtectionRegionInteriorSlice>()
+            spans.forEach { span ->
+                val previous = merged.lastOrNull()
+                if (previous?.railId == span.railId && span.startAbMeters <= previous.endAbMeters)
+                    merged[merged.lastIndex] = previous.copy(endAbMeters = maxOf(previous.endAbMeters, span.endAbMeters))
+                else merged += span
+            }
+            return merged
         }
     }
 }

@@ -72,8 +72,7 @@ class SectionOverlayDrawingTest {
         assertEquals(3, stacked.size)
         assertEquals(3, stacked.map { it.y() }.distinct().size)
         assertEquals(drawing.labels.size, drawing.labels.map { it.id() }.distinct().size)
-        assertTrue(drawing.labels.any { it.id().contains("coverage") && it.text().color() ==
-            net.kyori.adventure.text.format.NamedTextColor.RED })
+        assertFalse(drawing.labels.any { it.id().startsWith("region/") && it.id().contains("coverage") })
     }
 
     @Test fun `shortened and missing curves omit invalid objects and label valid neighbours unavailable`() {
@@ -124,6 +123,57 @@ class SectionOverlayDrawingTest {
         }.text() as net.kyori.adventure.text.TextComponent).content())
         assertEquals(net.kyori.adventure.text.format.NamedTextColor.RED,
             shared.single { it.id().endsWith("/boundary") }.text().color())
+    }
+
+    @Test fun `region lines union shared and reverse saved routes and hide paths using a removed cut`() {
+        val branchA = UUID(0, 3)
+        val branchB = UUID(0, 4)
+        val entry = cut("entry", 2.0)
+        fun exit(id: String, railId: UUID) = ProtectionBoundaryDefinition("test:$id", RailPositionSnapshot(railId, ViewDirection.BA, 8.0))
+        val exitA = exit("exit-a", branchA)
+        val exitB = exit("exit-b", branchB)
+        val region = ProtectionRegionDefinition("test:region", 0, listOf(entry, exitA, exitB))
+        fun route(id: String, exit: ProtectionBoundaryDefinition) = ProtectionRouteDefinition("test:$id",
+            entry.boundaryId, exit.boundaryId, listOf(ProtectionRouteTraversal(rail, ViewDirection.AB, 2.0, 10.0),
+                ProtectionRouteTraversal(exit.position.railId, ViewDirection.AB, 0.0, 8.0)))
+        val first = route("a", exitA)
+        val reverse = ProtectionRouteDefinition("test:reverse-a", exitA.boundaryId, entry.boundaryId,
+            first.traversals.asReversed().map { it.copy(facing = ViewDirection.BA) })
+        val table = ProtectionRouteTableDefinition("test:table", 0, region.regionId, 0, listOf(first, reverse, route("b", exitB)))
+        val interior = mapOf(region.regionId to listOf(ProtectionRegionInteriorSlice(rail, 2.0, 10.0),
+            ProtectionRegionInteriorSlice(branchA, 0.0, 8.0), ProtectionRegionInteriorSlice(branchB, 0.0, 8.0)))
+        fun draw(definition: ProtectionRegionDefinition) = SectionOverlayDrawing.prepare(
+            SimpleSignalsWorldDefinitions(world, 0, listOf(definition), listOf(table)), emptySet(), emptySet(), interior) { curve() }
+        val complete = draw(region).labels.filter { it.id().contains("coverage") }
+        assertEquals(24, complete.size, "The common stem and reverse route must not duplicate the line")
+        val draft = ProtectionRegionDefinition(region.regionId, 1, region.boundaries, listOf(entry.cut(), exitA.cut()))
+        val drawing = draw(draft)
+        val retained = drawing.labels.filter { it.id().contains("coverage") }
+        assertEquals(16, retained.size, "Only the stem and surviving branch remain")
+        assertTrue(retained.all { it.text().color() == net.kyori.adventure.text.format.NamedTextColor.RED })
+        assertEquals(2, drawing.labels.count { it.id().endsWith("/boundary") })
+    }
+
+    @Test fun `regions with no eligible saved routes retain markers but never fall back to whole interior`() {
+        val entry = cut("entry", 2.0)
+        val exit = cut("exit", 8.0, ViewDirection.BA)
+        val region = ProtectionRegionDefinition("test:region", 0, listOf(entry, exit))
+        val route = ProtectionRouteDefinition("test:route", entry.boundaryId, exit.boundaryId,
+            listOf(ProtectionRouteTraversal(rail, ViewDirection.AB, 2.0, 8.0)))
+        val table = ProtectionRouteTableDefinition("test:table", 0, region.regionId, 0, listOf(route))
+        fun draw(definition: ProtectionRegionDefinition, tables: List<ProtectionRouteTableDefinition>) = SectionOverlayDrawing.prepare(
+            SimpleSignalsWorldDefinitions(world, 0, listOf(definition), tables), emptySet(), emptySet(),
+            mapOf(region.regionId to listOf(ProtectionRegionInteriorSlice(rail, 2.0, 8.0)))) { curve() }
+        val withoutTable = draw(region, emptyList())
+        assertFalse(withoutTable.labels.any { it.id().contains("coverage") })
+        assertEquals(2, withoutTable.labels.count { it.id().endsWith("/boundary") })
+        val moved = ProtectionRegionDefinition(region.regionId, 1, region.boundaries,
+            listOf(entry.cut(), exit.cut().copy(position = RailCutPosition(rail, 7.0))))
+        val drawing = draw(moved, listOf(table))
+        assertFalse(drawing.labels.any { it.id().contains("coverage") }, "A retained ID at a changed position is not an accepted exit")
+        assertEquals(setOf(2.0, 7.0), drawing.labels.filter { it.id().endsWith("/boundary") }.map { it.x() }.toSet())
+        val emptyDraft = ProtectionRegionDefinition(region.regionId, 1, region.boundaries, emptyList())
+        assertTrue(draw(emptyDraft, listOf(table)).labels.isEmpty())
     }
 
     companion object {

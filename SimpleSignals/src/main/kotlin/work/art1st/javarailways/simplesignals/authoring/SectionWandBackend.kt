@@ -17,6 +17,10 @@ internal enum class SectionWandTool(val key: String) {
 
 internal enum class SectionWandKind { PENDING, BLOCK, REGION }
 internal interface SectionWandCapture { val worldId: UUID }
+internal interface SectionWandDeletion {
+    val text: WandText
+    val retainDevices: Boolean
+}
 internal data class SectionWandOutcome(val text: WandText, val kind: SectionWandKind = SectionWandKind.PENDING,
     val warnings: List<ProtectionBoundaryDefinition> = emptyList(),
     val warningCapture: SectionWandCapture? = null)
@@ -26,7 +30,9 @@ internal interface SectionWandBackend {
     fun capture(worldId: UUID): SectionWandCapture?
     fun current(capture: SectionWandCapture): Boolean
     fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
-        point: RailCutPosition, active: () -> Boolean): SectionWandOutcome
+        point: RailCutPosition, retainDevices: Boolean, active: () -> Boolean): SectionWandOutcome
+    fun prepareDeletion(capture: SectionWandCapture, point: RailCutPosition, retainDevices: Boolean): SectionWandDeletion?
+    fun delete(selection: SectionWandDeletion, active: () -> Boolean): SectionWandOutcome
 }
 
 internal class RuntimeSectionWandBackend(
@@ -36,6 +42,8 @@ internal class RuntimeSectionWandBackend(
 ) : SectionWandBackend {
     private data class Capture(override val worldId: UUID, val runtime: SimpleSignalsWorldRuntime,
         val publication: SimpleSignalsRuntimePublication, val topology: TopologyState) : SectionWandCapture
+    private data class Deletion(val capture: Capture, val edit: SectionAuthoringEdit, val kind: SectionWandKind,
+        override val text: WandText, override val retainDevices: Boolean) : SectionWandDeletion
 
     override fun capture(worldId: UUID): SectionWandCapture? = manager.authoringRuntime(worldId)?.let {
         Capture(worldId, it, it.authoringPublication(), infrastructure.currentTopology(worldId))
@@ -48,8 +56,44 @@ internal class RuntimeSectionWandBackend(
             infrastructure.currentTopology(captured.worldId) === captured.topology
     }
 
+    override fun prepareDeletion(capture: SectionWandCapture, point: RailCutPosition, retainDevices: Boolean): SectionWandDeletion? {
+        require(current(capture)) { "Selection expired; select the rail again" }
+        val captured = capture as Capture
+        val definitions = captured.publication.definitions
+        val blocks = captured.publication.fixedBlocks.snapshot(captured.topology).candidates(setOf(point.railId)).filter { block ->
+            block.definition.traversals.any { it.railId == point.railId && point.arcLengthInAbMeters > it.lowerAbMeters &&
+                point.arcLengthInAbMeters < it.upperAbMeters } }
+        val regions = captured.publication.regions.compilationSnapshot()!!
+        val candidates = regions.regionIdsByRail[point.railId].orEmpty().mapNotNull(regions.regionsById::get)
+            .filter { region -> region.interior.any { it.railId == point.railId && point.arcLengthInAbMeters > it.startAbMeters &&
+                point.arcLengthInAbMeters < it.endAbMeters } }
+        require(blocks.size + candidates.size <= 1) { "Several sections overlap here; the deletion target is ambiguous" }
+        if (blocks.isNotEmpty()) {
+            val block = blocks.single().definition
+            return Deletion(captured, SectionAuthoringActions.deleteBlock(definitions, point, false, captured.topology, retainDevices),
+                SectionWandKind.BLOCK, authoringName(block.blockId, "name.block"), retainDevices)
+        }
+        val region = candidates.singleOrNull()?.definition ?: return null
+        // Existing cut gestures remain boundary repair; body deletion is a separate confirmed intent.
+        if (region.effectiveCuts.any { samePoint(it.position, point, SectionAuthoringActions.SNAP_METERS) }) return null
+        return Deletion(captured, SectionAuthoringActions.deleteRegion(definitions, region, retainDevices), SectionWandKind.REGION,
+            authoringName(region.regionId, "name.region"), retainDevices)
+    }
+
+    override fun delete(selection: SectionWandDeletion, active: () -> Boolean): SectionWandOutcome {
+        val selected = selection as Deletion
+        val captured = selected.capture
+        require(active() && current(captured)) { "Selection expired before submission" }
+        val result = manager.applyDefinitionPatch(captured.worldId, captured.publication.definitions.definitionRevision,
+            selected.edit.patch, captured.runtime, captured.topology, active)
+        return if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
+            SectionWandOutcome(WandText.key("section.applied", WandText.key("section.deleted", selected.edit.text,
+                WandText.key(if (selected.retainDevices) "section.retain.on" else "section.retain.off")), result.definitions!!.definitionRevision), selected.kind)
+        else SectionWandOutcome(WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result)))
+    }
+
     override fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
-        point: RailCutPosition, active: () -> Boolean): SectionWandOutcome {
+        point: RailCutPosition, retainDevices: Boolean, active: () -> Boolean): SectionWandOutcome {
         require(active() && current(capture)) { "Selection expired; select the rail again" }
         val captured = capture as Capture
         val publication = captured.publication
@@ -81,7 +125,7 @@ internal class RuntimeSectionWandBackend(
             }
         }
         val edit = when (tool) {
-            SectionWandTool.DELETE -> SectionAuthoringActions.deleteSection(definitions, point, leftClick, topology)
+            SectionWandTool.DELETE -> SectionAuthoringActions.deleteSection(definitions, point, leftClick, topology, retainDevices)
             SectionWandTool.CREATE -> {
                 val interiors = publication.regions.compilationSnapshot()!!.regionsById.mapValues { it.value.interior }
                 val directions = { rails: Set<UUID> -> infrastructure.operatingDirections(captured.worldId, topology, rails).directions }
@@ -117,7 +161,9 @@ internal class RuntimeSectionWandBackend(
                 edit.patch.upsertRegions.isNotEmpty() -> SectionWandKind.REGION
                 else -> SectionWandKind.PENDING
             }
-            SectionWandOutcome(WandText.key("section.applied", edit.text, result.definitions!!.definitionRevision),
+            val text = if (edit.patch.removeFixedBlockIds.isNotEmpty()) WandText.key("section.deleted", edit.text,
+                WandText.key(if (retainDevices) "section.retain.on" else "section.retain.off")) else edit.text
+            SectionWandOutcome(WandText.key("section.applied", text, result.definitions!!.definitionRevision),
                 kind,
                 warningBoundaries.takeIf { retain }.orEmpty(), next.takeIf { retain && warningBoundaries.isNotEmpty() })
         } else SectionWandOutcome(WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result)))

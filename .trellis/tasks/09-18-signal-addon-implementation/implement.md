@@ -1041,15 +1041,15 @@ Java consumer编译门禁复用up-to-date结果；源checksum同步检查、`git
 
 后续用户已批准部署：15:49–15:54 UTC正常停服、完整外部打包备份、一次性迁移primary4个及bak3个pending旧方向字段，核对其他120文件未变后仅替换Signals；正常启动、primary加载、bridge/WebUI及ATO RUNNING检查通过。实际产物、恢复点、迁移审计与现场验收界限见[部署记录](research/dev-server-deployment-2026-10-16.md#无向切口模型与一次性迁移部署1549-utc起)。未代替玩家完成围合或修改时刻表，Stage 2仍in_progress。
 
-## 待实施批次：经路中心线、未绑定设备与整体删除
+## 实施批次：经路中心线、未绑定设备与整体删除
 
-状态：需求及三笔实施计划已由用户最终确认，第一、二笔实现及定向检查已完成，准备第三笔。保持Stage 2为in_progress，不为本子批次重新建立一套任务生命周期。
+状态：三笔实现、定向门禁、独立复核与规范同步已完成；本批本地提交后交用户统一检查。保持Stage 2为in_progress，真实服务器/客户端验收尚未完成，不为本子批次重新建立一套任务生命周期。
 
 1. [x] `fix(signals): retain only confirmed route centerlines in region drafts`：改编辑显示准备，过滤出入口仍存在的已保存进路并合并共用片段。最小验证：删一边界只隐藏相关进路、共用片段不误删/重复画、零可保留进路无中心线、草稿仍不可用。仅复用/更新相关overlay用例，不运行全模块套件。
 2. [x] `feat(signals): retain unbound section devices and support rebinding`：闭塞主信号/表示器补齐显式未绑定，复用保护主信号模式，贯通编译、图/状态、呈现、current codec和必要重绑页。最小验证：current round-trip、未知非空ID拒绝、未绑定不控制其他对象且外观不可用/无进路、主机/附属身份和摆放保留、显式重绑及过期拒绝；同名对象重建不自动绑定。先核对全部nullable消费者，测试源全部编译，仅运行直接行为回归。
-3. [ ] `feat(signals): add whole-region deletion and device-retention settings`：Shift+右键设置默认保留设备，F模式切换保留偏好；删除模式右键内部准备确认整体区域/草稿删除，复用原事务和第二笔的解绑能力，同时支持关闭保留的级联删除。最小验证：确认前无修改、开启/关闭分别保留解绑/精确删除、零边界草稿可整体移除、相邻对象不变、编辑保护/过期/权限/切物品拒绝、中文/英文提示。AB/BC/CD中取消/补回BC继续走既有内部点击路径，不增加AD整体拆分工具。
-4. [ ] 每笔主控执行受影响生产/测试源编译与定向门禁，独立复核后同步owner规范、提交并请求预览。最终执行模块/JAR隔离门禁；不重复全仓/完整Signals套件，不扩大测试矩阵。
-5. [ ] 本批不执行SSH写操作、迁移或部署；待用户检查提交后另行授权。记录实际执行范围、缓存复用与客户端未验证项，不标记Stage 2完成。
+3. [x] `feat(signals): add whole-region deletion and device-retention settings`：Shift+右键设置默认保留设备，F模式切换保留偏好；删除模式右键内部准备确认整体区域/草稿删除，复用原事务和第二笔的解绑能力，同时支持关闭保留的级联删除。最小验证：确认前无修改、开启/关闭分别保留解绑/精确删除、零边界草稿可整体移除、相邻对象不变、编辑保护/过期/权限/切物品拒绝、中文/英文提示。AB/BC/CD中取消/补回BC继续走既有内部点击路径，不增加AD整体拆分工具。
+4. [x] 每笔主控执行受影响生产/测试源编译与定向门禁，独立复核后同步owner规范、提交并请求预览。最终执行模块/JAR隔离门禁；不重复全仓/完整Signals套件，不扩大测试矩阵。
+5. [x] 本批不执行SSH写操作、迁移或部署；待用户检查提交后另行授权。记录实际执行范围、缓存复用与客户端未验证项，不标记Stage 2完成。
 
 第一笔验证：只改overlay生产/测试两个文件及合同/计划。生产编译12秒（启动新的Gradle daemon），定向门禁6秒，
 只执行3项overlay回归，零失败/错误/跳过；新增2项、更新旧draft断言。测试源全部编译，不等于运行完整套件。
@@ -1060,6 +1060,13 @@ Java consumer编译门禁复用up-to-date结果；源checksum同步检查、`git
 复核发现indicator-only无baseline source会误用默认模型，已复用原source修正并检查实际noRoute红灯场景。
 测试首次尝试在线新建ground+未绑定设备因无影响轨道被正确拒绝，夹具改为初始存档装载后真实重绑，未放宽编辑许可。
 独立只读复核和`git diff --check`通过，候选源码checksum同步一致；保留schema 1，无旧reader、部署或客户端验证。整区删除和Wand保留开关留第三笔。
+
+第三笔验证：生产单独编译3秒、已有测试接口编译4秒；最终3个类37项定向回归与JAR/模块边界门禁11秒通过，零失败/错误/跳过。
+实际执行Actions 19项、SectionWandHandler 15项、manager 3项（整区组合内同时检查两种设备策略，另保留零边界修复/原手工进路修复）；没有运行完整Signals套件或全仓测试。
+整区组合验证原定义及source/disk不因claim拒绝而改变、零cut内部可选、精确prepare后确认、邻块/原未绑定设备不变、retain解绑和映射清空、cascade删除最后设备、实际模型及重载。
+门禁暴露普通authoring尚无新baseline时表示器查询为空、模型回default的问题；正式实现现预准备当前定义的不可用/noRoute初始值，模型缺snapshot也使用设备noRoute，不继承旧物理baseline/伪造epoch。另将已有publication交接表按当前ID过滤并复用初始值，独立静态复核通过。
+组合用例后来仅调整测试清理为clearLocal完成后新manager读存档；单项8秒再次通过，生产未变。既有API消费编译为UP-TO-DATE；verifyPluginJar和verifySignalModuleBoundaries实际执行通过，宿主shadowJar复用缓存。
+最终源码checksum同步一致，独立复核与git diff --check通过。PDC不兼容旧mode-only工具，需重新领取；schema仍1，无迁移、SSH写操作、部署或真实客户端验收。
 
 ## Rollback points
 

@@ -56,21 +56,25 @@ class SectionAuthoringActionsTest {
         val model = DeviceModelDefinition("test:head", ModelPlacement.Ground(ModelPose.IDENTITY))
         val attached = signals.map { AttachedSignalDefinition(it.signalId + "-attached", 0, it.signalId, model) }
         val defs = SimpleSignalsWorldDefinitions(world, 0, emptyList(), emptyList(), blocks, signals, attachedSignals = attached)
-        val patch = SectionAuthoringActions.deleteBlock(defs, point(4.2), true).patch
+        val patch = SectionAuthoringActions.deleteBlock(defs, point(4.2), true, retainDevices = false).patch
         assertEquals(setOf("test:a", "test:b"), patch.removeFixedBlockIds.toSet())
         assertEquals(setOf("test:a-signal", "test:b-signal"), patch.removeFixedBlockSignalIds.toSet())
         assertEquals(setOf("test:a-signal-attached", "test:b-signal-attached"), patch.removeAttachedSignalIds.toSet())
         assertTrue(patch.removeRegionIds.isEmpty())
-        assertEquals(listOf("test:b"), SectionAuthoringActions.deleteBlock(defs, point(5.0), false).patch.removeFixedBlockIds)
+        assertEquals(listOf("test:b"), SectionAuthoringActions.deleteBlock(defs, point(5.0), false, retainDevices = false).patch.removeFixedBlockIds)
+        val retained = SectionAuthoringActions.deleteBlock(defs, point(4.2), true, retainDevices = true).patch
+        assertEquals(signals.take(2).map { it.copy(controlledBlockId = null, revision = 1) }, retained.upsertFixedBlockSignals)
+        assertTrue(retained.removeFixedBlockSignalIds.isEmpty())
+        assertTrue(retained.removeAttachedSignalIds.isEmpty())
     }
 
     @Test fun `overlapped region cut requires deleting the block boundary first`() {
         val defs = definitions(regions = listOf(region), blocks = listOf(block("a", 8.0, 10.0)))
         assertThrows(IllegalArgumentException::class.java) { SectionAuthoringActions.deleteRegionBoundary(defs, point(8.2)) }
-        val deleted = SectionAuthoringActions.deleteBlock(defs, point(8.0), true).patch
+        val deleted = SectionAuthoringActions.deleteBlock(defs, point(8.0), true, retainDevices = false).patch
         assertTrue(deleted.upsertRegions.isEmpty())
         assertTrue(deleted.removeRegionIds.isEmpty())
-        val unified = SectionAuthoringActions.deleteSection(defs, point(8.0), true, topology).patch
+        val unified = SectionAuthoringActions.deleteSection(defs, point(8.0), true, topology, false).patch
         assertEquals(listOf("test:a"), unified.removeFixedBlockIds)
         assertTrue(unified.upsertRegions.isEmpty())
     }
@@ -87,7 +91,7 @@ class SectionAuthoringActionsTest {
         } }
         val defs = SimpleSignalsWorldDefinitions(world, 0, emptyList(), emptyList(), listOf(shared, other),
             listOf(forward, reverse, unrelated), attachedSignals = attachments)
-        val patch = SectionAuthoringActions.deleteBlock(defs, point(5.0), false).patch
+        val patch = SectionAuthoringActions.deleteBlock(defs, point(5.0), false, retainDevices = false).patch
         assertEquals(listOf(shared.blockId), patch.removeFixedBlockIds)
         assertEquals(setOf(forward.signalId, reverse.signalId), patch.removeFixedBlockSignalIds.toSet())
         assertEquals(attachments.filter { it.primarySignalId != unrelated.signalId }.map { it.signalId }.toSet(),
@@ -109,7 +113,7 @@ class SectionAuthoringActionsTest {
         val neighbour = ProtectionRegionDefinition("test:neighbour", 0,
             listOf(boundary("neighbour-in", 8.0, ViewDirection.AB), boundary("neighbour-out", 9.0, ViewDirection.BA)))
         val defs = definitions(regions = listOf(region, neighbour))
-        val edit = SectionAuthoringActions.deleteSection(defs, point(8.0), false, topology)
+        val edit = SectionAuthoringActions.deleteSection(defs, point(8.0), false, topology, false)
         assertTrue(edit.patch.upsertRegions.isEmpty())
         assertTrue(edit.text.render(java.util.Locale.SIMPLIFIED_CHINESE).contains("不能唯一确定"))
     }
@@ -196,7 +200,7 @@ class SectionAuthoringActionsTest {
         val b = FixedBlockDefinition("test:b", 0, listOf(FixedBlockTraversal(otherRail, ViewDirection.AB, 0.0, 8.0)), true)
         val defs = definitions(blocks = listOf(a, b))
         val target = RailCutPosition(otherRail, 0.0)
-        assertEquals(setOf("test:a", "test:b"), SectionAuthoringActions.deleteBlock(defs, target, true, topology).patch.removeFixedBlockIds.toSet())
+        assertEquals(setOf("test:a", "test:b"), SectionAuthoringActions.deleteBlock(defs, target, true, topology, false).patch.removeFixedBlockIds.toSet())
         assertEquals(point(10.0).facing(ViewDirection.BA), SectionAuthoringActions.selectBlockEnd(definitions(blocks = listOf(a)), target, topology))
     }
 

@@ -28,6 +28,7 @@ import work.art1st.javarailways.bukkit.api.rail.RailTargetService
 import work.art1st.javarailways.simplesignals.region.RailCutPosition
 import java.util.Optional
 import java.util.concurrent.CompletionStage
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Platform capture and entity replies only; searches and definition transactions run on workers. */
 internal class SectionWandHandler(
@@ -37,7 +38,10 @@ internal class SectionWandHandler(
     private val enabled: () -> Boolean = { plugin.isEnabled },
     private val worker: (() -> Unit) -> Unit = { action -> plugin.server.asyncScheduler.runNow(plugin) { action() } },
     private val entity: (Player, () -> Unit) -> Unit = { player, action -> player.scheduler.run(plugin, { action() }, {}) },
-    private val toolInHand: (Player) -> SectionWandTool? = { player -> readTool(plugin, player.inventory.itemInMainHand) },
+    private val stateInHand: (Player) -> SectionWandState? = { player -> readState(plugin, player.inventory.itemInMainHand) },
+    private val saveState: (Player, SectionWandState) -> Unit = { player, state ->
+        applyState(plugin, player.inventory.itemInMainHand, state, player.locale())
+    },
     private val giveTool: (Player, SectionWandTool) -> Unit = { player, tool ->
         require(player.inventory.firstEmpty() >= 0) { WandI18n.format(player, "inventory.full") }
         player.inventory.addItem(createItem(plugin, tool, player.locale()))
@@ -48,7 +52,8 @@ internal class SectionWandHandler(
         AutoCloseable { task?.cancel() }
     },
     private val render: (Player, RoutePreviewDrawing, Int) -> Unit = { player, drawing, offset -> drawing.draw(player, offset) },
-    private val checkOverlay: (Player) -> Unit = {}
+    private val checkOverlay: (Player) -> Unit = {},
+    private val showDialog: (Player, String, List<Pair<String, () -> Unit>>) -> Unit = WandDialogs::show
 ) : Listener, CommandExecutor {
     private val sessions = SectionWandSessions()
 
@@ -77,13 +82,14 @@ internal class SectionWandHandler(
     fun onInteract(event: PlayerInteractEvent) {
         if (event.hand != EquipmentSlot.HAND || event.action == Action.PHYSICAL) return
         val player = event.player
-        val tool = toolInHand(player) ?: return
+        val tool = stateInHand(player)?.tool ?: return
         checkOverlay(player)
         event.isCancelled = true
         click(player, tool, event.action == Action.LEFT_CLICK_AIR || event.action == Action.LEFT_CLICK_BLOCK)
     }
 
     internal fun click(player: Player, tool: SectionWandTool, leftClick: Boolean) {
+        val state = stateInHand(player)?.takeIf { it.tool == tool } ?: return
         val locale = player.locale()
         val playerId = player.uniqueId
         if (!enabled() || !player.hasPermission(PERMISSION)) {
@@ -91,18 +97,19 @@ internal class SectionWandHandler(
             if (enabled()) player.sendMessage(Component.text(WandI18n.format(locale, "permission", PERMISSION)))
             return
         }
+        if (player.isSneaking && !leftClick) { openSettings(player, state); return }
         if (player.isSneaking) {
             sessions.invalidate(playerId); player.sendMessage(Component.text(WandI18n.format(locale, "section.clear"))); return
         }
         val worldId = player.world.uid
-        val session = sessions.begin(playerId, worldId, tool, true) ?: return
+        val session = sessions.begin(playerId, worldId, state, true) ?: return
         val captured = try { backend.capture(worldId) } catch (_: Exception) { null }
         if (captured == null) {
             session.busy.set(false); player.sendMessage(Component.text(WandI18n.format(locale, "world.unavailable"))); return
         }
         fun active(): Boolean = sessions.current(playerId, session) && enabled()
         fun ownerCurrent(): Boolean = active() && player.isOnline && player.world.uid == worldId &&
-            player.hasPermission(PERMISSION) && toolInHand(player) == tool
+            player.hasPermission(PERMISSION) && stateInHand(player) == state
         fun reply(message: String) = entity(player) {
             if (ownerCurrent()) player.sendMessage(Component.text(message.take(8192)))
         }
@@ -129,7 +136,17 @@ internal class SectionWandHandler(
                                 return@worker
                             }
                             val point = RailCutPosition(selected.rail().id, selected.arcLength())
-                            val result = backend.perform(captured, tool, leftClick, point, ::active)
+                            if (tool == SectionWandTool.DELETE && !leftClick) {
+                                val deletion = backend.prepareDeletion(captured, point, state.retainDevices)
+                                if (deletion != null) {
+                                    entity(player) {
+                                        session.busy.set(false)
+                                        if (ownerCurrent()) confirmDeletion(player, state, session, deletion)
+                                    }
+                                    return@worker
+                                }
+                            }
+                            val result = backend.perform(captured, tool, leftClick, point, state.retainDevices, ::active)
                             val warnings = RoutePreviewDrawing.warnings(result.warnings) { id -> targets.findCurve(worldId, id).orElse(null) }
                             entity(player) {
                                 if (ownerCurrent()) {
@@ -166,30 +183,97 @@ internal class SectionWandHandler(
         }
     }
 
+    internal fun openSettings(player: Player, expected: SectionWandState) {
+        val playerId = player.uniqueId
+        if (!enabled() || !player.hasPermission(PERMISSION) || stateInHand(player) != expected) return
+        sessions.invalidate(playerId)
+        val worldId = player.world.uid
+        val session = sessions.begin(playerId, worldId, expected, true) ?: return
+        session.busy.set(false)
+        val token = Any()
+        session.dialogToken = token
+        val used = AtomicBoolean(false)
+        val locale = player.locale()
+        showDialog(player, WandI18n.format(locale, "section.settings"), listOf(
+            WandI18n.format(locale, "section.setting.retain", WandI18n.format(locale,
+                if (expected.retainDevices) "section.retain.on" else "section.retain.off")) to {
+                entity(player) {
+                    if (sessions.current(playerId, session) && session.dialogToken === token && enabled() && player.isOnline && player.world.uid == worldId &&
+                        player.hasPermission(PERMISSION) && stateInHand(player) == expected && used.compareAndSet(false, true)) {
+                        sessions.invalidate(playerId, session)
+                        saveState(player, expected.changed(retainDevices = !expected.retainDevices))
+                        showStatus(player)
+                    }
+                }
+            }, WandI18n.format(locale, "cancel") to { entity(player) {
+                if (session.dialogToken === token) sessions.invalidate(playerId, session)
+            } }))
+    }
+
+    private fun confirmDeletion(player: Player, state: SectionWandState, session: SectionWandSessions.Session,
+        selection: SectionWandDeletion) {
+        val locale = player.locale()
+        val playerId = player.uniqueId
+        val token = Any()
+        session.dialogToken = token
+        val used = AtomicBoolean(false)
+        fun active() = sessions.current(playerId, session) && enabled() && session.dialogToken === token
+        fun ownerCurrent() = active() && player.isOnline && player.world.uid == session.worldId &&
+            player.hasPermission(PERMISSION) && stateInHand(player) == state
+        fun complete(confirm: Boolean) = entity(player) {
+            if (!ownerCurrent() || !used.compareAndSet(false, true)) return@entity
+            if (!confirm) {
+                sessions.invalidate(playerId, session)
+                player.sendMessage(Component.text(WandI18n.format(locale, "section.delete.cancelled")))
+                return@entity
+            }
+            if (!session.busy.compareAndSet(false, true)) return@entity
+            try { worker {
+                try {
+                    if (!active()) return@worker
+                    val result = backend.delete(selection, ::active)
+                    entity(player) {
+                        if (ownerCurrent()) {
+                            session.kind = result.kind
+                            player.sendMessage(Component.text(result.text.render(player.locale()).take(8192)))
+                            showStatus(player)
+                        }
+                        sessions.invalidate(playerId, session)
+                    }
+                } catch (failure: Exception) {
+                    entity(player) {
+                        if (ownerCurrent()) player.sendMessage(Component.text("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}"))
+                        sessions.invalidate(playerId, session)
+                    }
+                }
+            } } catch (failure: Exception) {
+                sessions.invalidate(playerId, session)
+                player.sendMessage(Component.text(WandI18n.format(locale, "rail.failed", failure.message)))
+            }
+        }
+        showDialog(player, WandI18n.format(locale, "section.delete.confirm", selection.text,
+            WandI18n.format(locale, if (selection.retainDevices) "section.retain.on" else "section.retain.off")), listOf(
+            WandI18n.format(locale, "section.delete.accept") to { complete(true) },
+            WandI18n.format(locale, "cancel") to { complete(false) }))
+    }
+
+    internal fun switchMode(player: Player) {
+        sessions.invalidate(player.uniqueId)
+        if (!enabled() || !player.hasPermission(PERMISSION)) return
+        val state = stateInHand(player) ?: return
+        val next = if (state.tool == SectionWandTool.CREATE) SectionWandTool.DELETE else SectionWandTool.CREATE
+        saveState(player, state.changed(tool = next))
+        showStatus(player)
+        checkOverlay(player)
+    }
+
     @EventHandler fun onQuit(event: PlayerQuitEvent) { sessions.invalidate(event.player.uniqueId) }
     @EventHandler fun onWorldChange(event: PlayerChangedWorldEvent) { sessions.invalidate(event.player.uniqueId) }
     @EventHandler(ignoreCancelled = true) fun onHeldItem(event: PlayerItemHeldEvent) { sessions.invalidate(event.player.uniqueId) }
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     fun onSwapHands(event: PlayerSwapHandItemsEvent) {
         work.art1st.javarailways.bukkit.api.wand.WandModeSwitch.handle(event,
-            { readTool(plugin, it) != null }) { player ->
-            sessions.invalidate(player.uniqueId)
-            if (!enabled() || !player.hasPermission(PERMISSION)) return@handle
-            val current = readTool(plugin, player.inventory.itemInMainHand) ?: return@handle
-            val next = when (current) {
-                SectionWandTool.CREATE -> SectionWandTool.DELETE
-                SectionWandTool.DELETE -> SectionWandTool.CREATE
-            }
-            val item = player.inventory.itemInMainHand
-            val decoration = createItem(plugin, next, player.locale()).itemMeta
-            item.editMeta { meta ->
-                meta.persistentDataContainer.set(key(plugin), PersistentDataType.STRING, next.key)
-                meta.displayName(decoration.displayName())
-                meta.lore(decoration.lore())
-            }
-            showStatus(player)
-            checkOverlay(player)
-        }
+            { readTool(plugin, it) != null }, ::switchMode)
     }
     @EventHandler(ignoreCancelled = true) fun onInventoryClick(event: InventoryClickEvent) { sessions.invalidate(event.whoClicked.uniqueId) }
     @EventHandler(ignoreCancelled = true) fun onDrop(event: PlayerDropItemEvent) { sessions.invalidate(event.player.uniqueId) }
@@ -198,11 +282,12 @@ internal class SectionWandHandler(
 
     /** Called by the existing editor overlay refresh on the player owner; no graph or world query. */
     fun showStatus(player: Player) {
-        val tool = toolInHand(player) ?: return
+        val state = stateInHand(player) ?: return
         val locale = player.locale()
         player.sendActionBar(Component.text(WandI18n.format(locale, "section.status",
-            WandI18n.format(locale, "section.mode.${tool.name}"),
-            WandI18n.format(locale, "section.kind.${sessions.kind(player.uniqueId).name}"))))
+            WandI18n.format(locale, "section.mode.${state.tool.name}"),
+            WandI18n.format(locale, "section.kind.${sessions.kind(player.uniqueId).name}"),
+            WandI18n.format(locale, if (state.retainDevices) "section.retain.on" else "section.retain.off"))))
     }
 
     companion object {
@@ -210,13 +295,19 @@ internal class SectionWandHandler(
         const val USAGE = "/simplesignals wand section [create|delete], or /simplesignals wand signal|route|measure"
         private fun key(plugin: Plugin) = NamespacedKey(plugin, "section_wand")
         internal fun readTool(plugin: Plugin, stack: ItemStack): SectionWandTool? {
+            return readState(plugin, stack)?.tool
+        }
+        internal fun readState(plugin: Plugin, stack: ItemStack): SectionWandState? {
             val value = stack.itemMeta?.persistentDataContainer?.get(key(plugin), PersistentDataType.STRING) ?: return null
-            return SectionWandTool.entries.singleOrNull { it.key == value }
+            return try { SectionWandStateCodec.decode(value) } catch (_: IllegalArgumentException) { null }
         }
         private fun createItem(plugin: Plugin, tool: SectionWandTool, locale: java.util.Locale): ItemStack = ItemStack(Material.BLAZE_ROD).apply {
-            editMeta { meta ->
-                meta.displayName(Component.text(WandI18n.format(locale, "section.name.${tool.name}")))
-                meta.persistentDataContainer.set(key(plugin), PersistentDataType.STRING, tool.key)
+            applyState(plugin, this, SectionWandState.create(tool), locale)
+        }
+        private fun applyState(plugin: Plugin, stack: ItemStack, state: SectionWandState, locale: java.util.Locale) {
+            stack.editMeta { meta ->
+                meta.displayName(Component.text(WandI18n.format(locale, "section.name.${state.tool.name}")))
+                meta.persistentDataContainer.set(key(plugin), PersistentDataType.STRING, SectionWandStateCodec.encode(state))
                 meta.lore(listOf(Component.text(WandI18n.format(locale, "section.lore"))))
             }
         }

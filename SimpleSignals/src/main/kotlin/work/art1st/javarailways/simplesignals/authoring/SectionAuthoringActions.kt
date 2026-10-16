@@ -16,6 +16,8 @@ import work.art1st.javarailways.simplesignals.region.cutPosition
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionDefinition
 import work.art1st.javarailways.simplesignals.region.ProtectionRegionInteriorSlice
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsDefinitionPatch
+import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
+import work.art1st.javarailways.simplesignals.signal.RouteIndicatorDefinition
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.max
@@ -58,7 +60,7 @@ internal object SectionAuthoringActions {
     }
 
     fun deleteBlock(definitions: SimpleSignalsWorldDefinitions, point: RailCutPosition, boundary: Boolean,
-        topology: TopologyState? = null): SectionAuthoringEdit {
+        topology: TopologyState? = null, retainDevices: Boolean): SectionAuthoringEdit {
         val selected = if (boundary) {
             val end = selectBlockEnd(definitions, point, topology)
             definitions.fixedBlocks.filter { blockEnds(it).any { endPoint ->
@@ -69,12 +71,42 @@ internal object SectionAuthoringActions {
         } }.also { require(it.size <= 1) { "Several blocks overlap this body; select a boundary instead" } }
         require(selected.isNotEmpty()) { "No block at this position" }
         val ids = selected.map { it.blockId }.toSet()
-        val signals = definitions.fixedBlockSignals.filter { it.controlledBlockId in ids }.map { it.signalId }.toSet()
-        return SectionAuthoringEdit(SimpleSignalsDefinitionPatch(
-            removeFixedBlockIds = ids,
-            removeFixedBlockSignalIds = signals,
-            removeAttachedSignalIds = definitions.attachedSignals.filter { it.primarySignalId in signals }.map { it.signalId }),
+        return SectionAuthoringEdit(removeSections(definitions, ids, emptySet(), retainDevices),
             WandText.key("block.removed", ids.size))
+    }
+
+    fun deleteRegion(definitions: SimpleSignalsWorldDefinitions, region: ProtectionRegionDefinition,
+        retainDevices: Boolean): SectionAuthoringEdit {
+        require(region in definitions.regions) { "The selected protection region changed" }
+        return SectionAuthoringEdit(removeSections(definitions, emptySet(), setOf(region.regionId), retainDevices),
+            WandText.key("region.removed", authoringName(region.regionId, "name.region")))
+    }
+
+    private fun removeSections(definitions: SimpleSignalsWorldDefinitions, blockIds: Set<String>, regionIds: Set<String>,
+        retainDevices: Boolean): SimpleSignalsDefinitionPatch {
+        val tables = definitions.routeTables.filter { it.regionId in regionIds }
+        val routeIds = tables.flatMap { it.routes }.mapTo(hashSetOf()) { it.routeId }
+        val entryIds = definitions.regions.filter { it.regionId in regionIds }
+            .flatMap { region -> region.boundaries.map { it.boundaryId } + region.effectiveCuts.map { it.boundaryId } }.toSet()
+        val fixed = definitions.fixedBlockSignals.filter { it.controlledBlockId in blockIds }
+        val protection = definitions.protectionSignals.filter {
+            when (it.kind) {
+                ProtectionSignalKind.FIXED_ROUTE -> it.bindingId in routeIds
+                ProtectionSignalKind.CURRENT_ENTRY -> it.bindingId in entryIds
+            }
+        }
+        val indicators = definitions.routeIndicators.filter { it.entryBoundaryId in entryIds }
+        val primaryIds = (fixed.map { it.signalId } + protection.map { it.signalId }).toSet()
+        return SimpleSignalsDefinitionPatch(removeFixedBlockIds = blockIds, removeRegionIds = regionIds,
+            removeRouteTableIds = tables.map { it.tableId },
+            upsertFixedBlockSignals = if (retainDevices) fixed.map { it.copy(revision = Math.addExact(it.revision, 1), controlledBlockId = null) } else emptyList(),
+            upsertProtectionSignals = if (retainDevices) protection.map { it.copy(revision = Math.addExact(it.revision, 1), bindingId = null) } else emptyList(),
+            upsertRouteIndicators = if (retainDevices) indicators.map { RouteIndicatorDefinition(it.indicatorId, Math.addExact(it.revision, 1),
+                null, it.noRouteModelVariant, emptyMap(), it.model) } else emptyList(),
+            removeFixedBlockSignalIds = if (retainDevices) emptyList() else fixed.map { it.signalId },
+            removeProtectionSignalIds = if (retainDevices) emptyList() else protection.map { it.signalId },
+            removeRouteIndicatorIds = if (retainDevices) emptyList() else indicators.map { it.indicatorId },
+            removeAttachedSignalIds = if (retainDevices) emptyList() else definitions.attachedSignals.filter { it.primarySignalId in primaryIds }.map { it.signalId })
     }
 
     fun deleteRegionBoundary(definitions: SimpleSignalsWorldDefinitions, point: RailCutPosition): SectionAuthoringEdit {
@@ -99,14 +131,14 @@ internal object SectionAuthoringActions {
     }
 
     fun deleteSection(definitions: SimpleSignalsWorldDefinitions, point: RailCutPosition,
-        boundary: Boolean, topology: TopologyState): SectionAuthoringEdit {
+        boundary: Boolean, topology: TopologyState, retainDevices: Boolean): SectionAuthoringEdit {
         val atBlock = definitions.fixedBlocks.any { block ->
             if (boundary) blockEnds(block).any { samePoint(it, point, SNAP_METERS) || topology.sameBlockBoundary(it.cutPosition(), point) }
             else block.traversals.any { it.railId == point.railId &&
                 point.arcLengthInAbMeters > it.lowerAbMeters + Curve.TOLERANCE &&
                 point.arcLengthInAbMeters < it.upperAbMeters - Curve.TOLERANCE }
         }
-        return if (atBlock) deleteBlock(definitions, point, boundary, topology) else deleteRegionBoundary(definitions, point)
+        return if (atBlock) deleteBlock(definitions, point, boundary, topology, retainDevices) else deleteRegionBoundary(definitions, point)
     }
 
     fun placeSectionBoundary(topology: TopologyState, definitions: SimpleSignalsWorldDefinitions,

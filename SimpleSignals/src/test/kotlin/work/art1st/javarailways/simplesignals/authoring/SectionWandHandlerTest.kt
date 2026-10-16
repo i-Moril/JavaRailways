@@ -146,12 +146,65 @@ class SectionWandHandlerTest {
     @Test fun `obsolete callback cannot remove a new session`() {
         val sessions = SectionWandSessions()
         val player = UUID(0, 1)
-        val old = sessions.begin(player, UUID(0, 2), SectionWandTool.CREATE, true)!!
+        val state = SectionWandState.create(SectionWandTool.CREATE)
+        val old = sessions.begin(player, UUID(0, 2), state, true)!!
         sessions.invalidate(player)
-        val fresh = sessions.begin(player, UUID(0, 2), SectionWandTool.CREATE, true)!!
+        val fresh = sessions.begin(player, UUID(0, 2), state, true)!!
         sessions.invalidate(player, old)
         assertTrue(sessions.current(player, fresh))
         assertFalse(old.active.get())
+    }
+
+    @Test fun `item preference is strict and settings callbacks expire after normal clicks or mode changes`() {
+        val f = Fixture()
+        val initial = f.state!!
+        assertTrue(initial.retainDevices)
+        assertEquals(initial, SectionWandStateCodec.decode(SectionWandStateCodec.encode(initial)))
+        assertThrows(IllegalArgumentException::class.java) { SectionWandStateCodec.decode("create") }
+        assertThrows(IllegalArgumentException::class.java) {
+            SectionWandStateCodec.decode(SectionWandStateCodec.encode(initial).replace(",\"retainDevices\":true", ""))
+        }
+        f.handler.openSettings(f.player, initial)
+        val obsolete = f.dialog.first().second
+        f.clickAndDrain()
+        obsolete(); f.drainOwner()
+        assertEquals(initial, f.state)
+        f.handler.openSettings(f.player, initial)
+        f.dialog.first().second(); f.drainOwner()
+        assertFalse(f.state!!.retainDevices)
+        assertEquals(initial.itemId, f.state!!.itemId)
+        assertEquals(1, f.state!!.stateRevision)
+        f.handler.openSettings(f.player, f.state!!)
+        val beforeF = f.dialog
+        f.handler.switchMode(f.player)
+        beforeF.first().second(); beforeF.last().second(); f.drainOwner()
+        assertEquals(SectionWandTool.DELETE, f.tool)
+        assertFalse(f.state!!.retainDevices)
+        assertEquals(initial.itemId, f.state!!.itemId)
+        assertEquals(2, f.state!!.stateRevision)
+    }
+
+    @Test fun `body deletion requires confirmation and cancelled or stale callbacks never commit`() {
+        val f = Fixture()
+        f.tool = SectionWandTool.DELETE
+        f.prepareDeletion = true
+        f.clickAndDrain()
+        assertEquals(0, f.performs)
+        assertEquals(0, f.deletions)
+        f.dialog.last().second(); f.drainOwner(); f.drainWorkers()
+        assertEquals(0, f.deletions)
+        f.clickAndDrain()
+        val obsolete = f.dialog.first().second
+        f.handler.switchMode(f.player)
+        obsolete(); f.drainOwner(); f.drainWorkers()
+        assertEquals(0, f.deletions)
+        f.handler.switchMode(f.player)
+        f.clickAndDrain()
+        val confirm = f.dialog.first().second
+        confirm(); confirm(); f.drainOwner()
+        assertEquals(0, f.deletions)
+        f.drainWorkers(); f.drainOwner()
+        assertEquals(1, f.deletions)
     }
 
     @Test fun `region warnings are worker prepared and owner refresh performs no geometry work`() {
@@ -220,7 +273,13 @@ class SectionWandHandlerTest {
         var ownerThread = true
         var current = true
         var yaw = -90f
-        var tool: SectionWandTool? = SectionWandTool.CREATE
+        var state: SectionWandState? = SectionWandState.create(SectionWandTool.CREATE)
+        var tool: SectionWandTool?
+            get() = state?.tool
+            set(value) { state = value?.let { state?.changed(tool = it) ?: SectionWandState.create(it) } }
+        var dialog = emptyList<Pair<String, () -> Unit>>()
+        var prepareDeletion = false
+        var deletions = 0
         var target = CompletableFuture<Optional<RailTarget>>()
         var targetCalls = 0
         var curveCalls = 0
@@ -279,16 +338,30 @@ class SectionWandHandlerTest {
             override fun current(capture: SectionWandCapture): Boolean =
                 current && capture === this@Fixture.capture
             override fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
-                point: RailCutPosition, active: () -> Boolean): SectionWandOutcome {
+                point: RailCutPosition, retainDevices: Boolean, active: () -> Boolean): SectionWandOutcome {
                 check(!ownerThread)
                 assertTrue(active())
                 performs++
                 return nextOutcome
             }
+            override fun prepareDeletion(capture: SectionWandCapture, point: RailCutPosition, retainDevices: Boolean): SectionWandDeletion? {
+                check(!ownerThread)
+                return if (prepareDeletion) object : SectionWandDeletion {
+                    override val text = WandText.diagnostic("selected region")
+                    override val retainDevices = retainDevices
+                } else null
+            }
+            override fun delete(selection: SectionWandDeletion, active: () -> Boolean): SectionWandOutcome {
+                check(!ownerThread)
+                check(active() && current)
+                deletions++
+                return nextOutcome
+            }
         }
         val handler: SectionWandHandler = SectionWandHandler(plugin, backend, targets, enabled = { true },
             worker = { workers += it }, entity = { _, action -> owners += action },
-            toolInHand = { check(ownerThread); tool }, giveTool = { _, value -> check(ownerThread); given++; lastGiven = value },
+            stateInHand = { check(ownerThread); state }, saveState = { _, value -> check(ownerThread); state = value },
+            giveTool = { _, value -> check(ownerThread); given++; lastGiven = value; state = SectionWandState.create(value) },
             findTarget = { check(ownerThread); targetCalls++; target },
             repeatDisplay = { _, action, _ ->
                 check(ownerThread); refresh = action; openRefresh++
@@ -297,7 +370,7 @@ class SectionWandHandlerTest {
                 AutoCloseable { if (!closed) { closed = true; closedRefresh++ } }
             }, render = { _, drawing, offset ->
                 check(ownerThread); assertTrue(drawing.batch(offset).size <= 512); draws++
-            })
+            }, showDialog = { _, _, options -> check(ownerThread); dialog = options })
         fun completeTarget() { target.complete(Optional.of(RailTarget(rail, 5.0, 0.0))) }
         fun advanceCapture() { capture = newCapture() }
         fun drainOwner() { ownerThread = true; while (owners.isNotEmpty()) owners.removeFirst().invoke() }

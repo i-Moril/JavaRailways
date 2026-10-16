@@ -6,24 +6,25 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** Player intent only; the backend's captured runtime/publication remains the world authority. */
 internal class SectionWandSessions {
-    internal class Session(val worldId: UUID, val tool: SectionWandTool) {
+    internal class Session(val worldId: UUID, val state: SectionWandState) {
         val active = AtomicBoolean(true)
         val busy = AtomicBoolean(false)
         @Volatile var kind: SectionWandKind = SectionWandKind.PENDING
         @Volatile var refresh: AutoCloseable? = null
+        @Volatile var dialogToken: Any? = null
         fun close() { active.set(false); refresh?.close() }
     }
     private val sessions = ConcurrentHashMap<UUID, Session>()
     private val closed = AtomicBoolean(false)
 
-    fun begin(playerId: UUID, worldId: UUID, tool: SectionWandTool, permitted: Boolean): Session? {
+    fun begin(playerId: UUID, worldId: UUID, state: SectionWandState, permitted: Boolean): Session? {
         if (!permitted || closed.get()) { invalidate(playerId); return null }
         val session = sessions.compute(playerId) { _, old ->
-            if (old != null && old.active.get() && old.worldId == worldId && old.tool == tool) old
-            else { old?.close(); Session(worldId, tool) }
+            if (old != null && old.active.get() && old.worldId == worldId && old.state == state) old
+            else { old?.close(); Session(worldId, state) }
         }!!
         if (closed.get()) { invalidate(playerId); return null }
-        return session.takeIf { it.busy.compareAndSet(false, true) }
+        return session.takeIf { it.busy.compareAndSet(false, true) }?.also { it.dialogToken = null }
     }
 
     fun current(playerId: UUID, session: Session): Boolean =

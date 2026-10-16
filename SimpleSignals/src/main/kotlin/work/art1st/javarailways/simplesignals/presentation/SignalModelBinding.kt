@@ -44,7 +44,7 @@ internal class PreparedSignalModels private constructor(
     internal val explicitModels: Map<String, LoadedPackageModel>
 ) {
     internal class Device(val objectId: String, val model: LoadedPackageModel,
-        val configuration: DeviceModelDefinition, val pose: ModelPose)
+        val configuration: DeviceModelDefinition, val pose: ModelPose, val noSnapshotVariant: String? = null)
 
     companion object {
         fun prepare(definitions: SimpleSignalsWorldDefinitions, models: Map<String, LoadedPackageModel>,
@@ -56,7 +56,8 @@ internal class PreparedSignalModels private constructor(
                 (it.signals.values.flatten() + it.indicators.values).associateBy(Device::objectId)
             }.orEmpty()
             fun device(kind: String, id: String, configuration: DeviceModelDefinition,
-                variants: Collection<String>, selectedModel: LoadedPackageModel? = null): Device {
+                variants: Collection<String>, selectedModel: LoadedPackageModel? = null,
+                noSnapshotVariant: String? = null): Device {
                 try {
                     val model = selectedModel ?: models[configuration.modelId]
                         ?: throw IllegalArgumentException("model '${configuration.modelId}' is missing")
@@ -69,7 +70,7 @@ internal class PreparedSignalModels private constructor(
                         is ModelPlacement.RailAttached -> ModelPlacementCalculator.calculate(placement,
                             rails.findCurve(definitions.worldId, placement.position.railId).orElse(null))
                     }
-                    return Device("$kind/$id", model, configuration, pose)
+                    return Device("$kind/$id", model, configuration, pose, noSnapshotVariant)
                 } catch (failure: Exception) {
                     throw IllegalArgumentException("$kind $id: ${failure.message ?: failure.javaClass.simpleName}", failure)
                 }
@@ -120,7 +121,8 @@ internal class PreparedSignalModels private constructor(
             val indicators = linkedMapOf<String, Device>()
             definitions.routeIndicators.forEach { definition -> definition.model?.let { model ->
                 indicators[definition.indicatorId] = device("route-indicator", definition.indicatorId, model,
-                    listOf(definition.noRouteModelVariant) + definition.modelVariantsByRouteId.values)
+                    listOf(definition.noRouteModelVariant) + definition.modelVariantsByRouteId.values,
+                    noSnapshotVariant = definition.noRouteModelVariant)
             } }
             return PreparedSignalModels(java.util.Map.copyOf(signals.mapValues { java.util.List.copyOf(it.value) }),
                 java.util.Map.copyOf(indicators), topology, signalPacks, models)
@@ -278,7 +280,7 @@ internal class SignalModelBinding(
                 devices.forEach { submit(it, variant) }
             } }
             indicatorIds.forEach { id -> prepared.indicators[id]?.let { device ->
-                submit(device, state?.indicators?.get(id)?.modelVariant)
+                submit(device, state?.indicators?.get(id)?.modelVariant ?: device.noSnapshotVariant)
             } }
         }
         failures.forEach { (context, failure) -> report(context, failure) }

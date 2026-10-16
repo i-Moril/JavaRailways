@@ -66,6 +66,10 @@ Wand 的两种编辑操作含义不同：改变轨道附着的 AB/BA 方向时�
 
 候选编译继续检查设备身份、catalog/model及真实摆放。固定闭塞未绑定设备不注册真实entry/观察根/inspection；主信号Unavailable，主模型及附属模型按原无效状态路径显示。表示器null入口必须配空映射，selection为空并使用自己的noRouteModelVariant；模型准备仍校验该外观。逻辑为空不等于隐藏设备，且不能伪造一个区间给规则计算。
 
+runtime准备时按当前表示器定义建立不可变的无观测初始值：当前入口不可用、外观为明确noRoute，null入口的selection为null。普通定义编辑不继承旧物理baseline，尚无完成snapshot时表示器查询返回这些初始值；模型准备保存该设备自己的noSnapshotVariant，缺状态时也使用明确noRoute而非模型default。它不是伪造的epoch、occupancy或行车授权，不会把无观测解释为空闲。
+
+已有publication交接只按当前表示器定义建立状态表：设备定义对象未变才可继承旧状态；变更/新设备复用上述初始值。删除的ID不进入新表，解绑不能沿用旧进路外观到下个baseline。即使删除最后设备后不再需要epoch source，也不能永久保留旧表示器状态；不为此新增轮询，收紧只发生在已有准备/交接步骤。真实manager回归须先产生带真实入口selection的旧baseline，再检查删除/解绑后的交接、模型及下一baseline；不把这种状态交接断言称为已验证真实放行资源申请。
+
 current codec保持schema 1，writer对nullable绑定写明确null，reader不为缺失字段补猜测绑定，也不新增别名或旧开发reader。显式手动重绑通过同一事务提高原设备revision，只改目标绑定/必要表示器映射，不改变类型、模型或位置；目标存在相同ID不能自动恢复旧绑定。详细界面、旧/新编辑保护及无副作用拒绝见[工具合同](section-authoring-wands.md)。
 
 必要回归为null绑定current round-trip、非空未知ID拒绝、无观察根仍保留主从显示、表示器无入口显示no-route、手动重绑和过期确认不改旧状态。解除绑定和模型变更沿用同一worker准备及原子publication，普通signal epoch只消费已准备输出，不新增每tick找目标或曲线定位。

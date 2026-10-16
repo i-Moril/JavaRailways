@@ -125,6 +125,14 @@ internal class SectionOccupancyRuntime private constructor(
 
     @Volatile
     private var latest: PublishedState? = null
+    private val initialIndicators = java.util.Map.copyOf(protectionSignals.indicatorsById.mapValues { (_, indicator) ->
+        work.art1st.javarailways.simplesignals.signal.RouteIndicatorState(
+            indicator.entryBoundaryId?.let { entry ->
+                work.art1st.javarailways.simplesignals.signal.SelectedProtectionRoute(entry,
+                    work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionSource.NONE,
+                    available = false)
+            }, indicator.noRouteModelVariant)
+    })
 
     /** Immutable output handoff only. Mutable route-clearance state still transfers on the epoch owner. */
     fun retainPublishedFrom(previous: SectionOccupancyRuntime?) {
@@ -163,8 +171,12 @@ internal class SectionOccupancyRuntime private constructor(
                     id in awaitingDefinitionSignalBaseline)
                     SectionSignalState.Unavailable("signal awaits a valid replacement baseline") else state },
             emptySet()) }
+        val indicators = protectionSignals.indicatorsById.mapValues { (id, indicator) ->
+            old.indicators[id]?.takeIf { previous.protectionSignals.indicatorsById[id] === indicator } ?:
+                initialIndicators.getValue(id)
+        }
         latest = PublishedState(SectionOccupancySnapshot(old.occupancy.stamp, sections, emptySet(), emptyMap()),
-            signals, old.selection, old.indicators, old.blockControls)
+            signals, old.selection, java.util.Map.copyOf(indicators), old.blockControls)
     }
 
     @Volatile private var modelBinding: SignalModelBinding? = null
@@ -174,7 +186,7 @@ internal class SectionOccupancyRuntime private constructor(
 
     fun presentationSnapshot(): PublishedState? = latest
 
-    fun indicators() = latest?.indicators.orEmpty()
+    fun indicators() = latest?.indicators ?: initialIndicators
     fun selectionSnapshot() = latest?.selection
 
     val source: SignalEpochSource? = if (bindingsByArea.isEmpty() && protectionRouteSelection.source == null &&

@@ -15,7 +15,7 @@
 
 最终受影响源码与隔离候选逐目录diff一致。Bukkit定向13项通过（F路由2、原交互路由3、原RailWand/RailObjectWand语言8，分两轮执行而非重复整套）；SimpleSignals最终8秒/36tasks（5执行、31up-to-date），仅6项实际执行，0failure/error/skip：WandI18n1、SignalWandHandler设置/物品/模式3、SectionWandHandler旧选择失效1、SectionOverlayDrawing共用边界1。全部测试源码编译通过不代表执行了全部测试。Java API消费者编译、两个JAR与模块边界检查通过；未重跑Core/Basic/SimpleATO/WebUI/全模块测试。既有JDK/Gradle/弃用警告未扩修，git diff --check通过。
 
-隔离产物仍在`/tmp/javarailways-fixed-block-authority.nsoyCU`。主JAR SHA256 `2c94760183c8acb73b50b1d6a7db4d37d784876b8734483f0081a958c3929f0b`，Signals JAR `3d443f288044087fceb2b2b0bd5e174ae65b0b310c704044b6d876d058eb1640`；客户端编辑ZIP未变。本批未部署或SSH操作。下次获准部署须同时更新主插件与Signals，不能将调用新helper的Signals单独装到旧主插件。待玩家验收F实际输入/PDC更新与旧对话失效、中文物品/菜单/反馈和边界说明；不把定向测试当作Folia客户端通过，Stage 2仍in_progress。
+隔离产物仍在`/tmp/javarailways-fixed-block-authority.nsoyCU`。可部署的完整主shadow JAR为`BukkitPlugin/build/libs/JavaRailways-1.0-SNAPSHOT-all.jar`，SHA256 `6964a9e72537a97fe34cdd1dd45e9ac2905b942b39778317d3098a9e2c535ad4`；Signals JAR `3d443f288044087fceb2b2b0bd5e174ae65b0b310c704044b6d876d058eb1640`；客户端编辑ZIP未变。此处此前误将普通jar任务产物`2c947601...`记作部署主包；09:22实服拒绝加载后已确认并纠正，不能使用缺少plugin.yml的普通JAR。离线实现批次未部署或SSH操作，随后用户单独批准部署及纠正过程归[部署记录](research/dev-server-deployment-2026-10-16.md#工具中英文与f切模式部署0921-utc起)。须同时更新主插件与Signals，不能将调用新helper的Signals单独装到旧主插件。待玩家验收F实际输入/PDC更新与旧对话失效、中文物品/菜单/反馈和边界说明；不把定向测试当作Folia客户端通过，Stage 2仍in_progress。
 
 ### 区间中心连续细线与分界去重（2026-10-16，离线完成，未部署）
 

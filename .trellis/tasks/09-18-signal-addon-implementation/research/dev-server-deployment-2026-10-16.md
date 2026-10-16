@@ -82,3 +82,19 @@ MCSManager正常启动，07:46:55日志`Done (25.819s)!`。JavaRailways/RailWand
 实际产物SHA256：主JAR仍为`8770d68dc6f5d7d57edcea5f1e944546b0da41923e0217e5c71cc462f37a2f36`；Signals为`6780bf046b2f8ae09e0a7a3181e94f5684cebd7ab9790b282b77a9e12008d6b6`。配套客户端编辑ZIP为`f3ff10250c1f26a99ed38d86f40b059ea36b068bb6b175281d7da435f9b97dff`，留存同一外部恢复目录的`JavaRailways-editor-markers-26.1.2.zip`，本地交付路径不变；服务器不会自动更新玩家客户端资源包。
 
 经MCSManager正常启动，08:45:08 `Done (26.564s)!`；bridge健康`ok:true`，WebUI HTTP200。启动日志未见LinkageError/NoClassDefFoundError。仍有既有Terra Unsafe反射错误，启动时一次248.1ms physics overload及epoch33的287.7→200ms步长截断，未扩修。未进行游戏对象操作或性能/显示测试；玩家须替换客户端编辑资源包后验收连续细线及分界点，Stage 2仍in_progress。
+
+## 工具中英文与F切模式部署（09:21 UTC起）
+
+用户批准部署`81621f64`和`fcc839d7`。复用已定向验证的隔离产物，部署前两个模块src逐目录diff一致，不重跑测试/重建。现服JAR与上一部署记录一致，向玩家提示10秒后正常重启，经MCSManager停服，09:21:22全部世界与玩家数据保存完成，实例status0、旧PID500936退出。
+
+外部恢复点：`/opt/mcsmanager/backups/javarailways/wand-i18n-20261016-WMYXhKcL/configs-and-installed-jars.tar.gz`，SHA256 `5710a54ac43a5f4e99bbe00e547454a2afbce67e6fcdc7c881a3f0101149f612`。完整打包JavaRailways/、SimpleSignals/及两个旧JAR，保留ACL/xattr，目录0700/归档0600；tar可读性检查通过，122个配置/存档文件在备份后和替换JAR后、启动前校验一致。未在配置目录另建逐文件备份，未迁移或回退玩家数据。
+
+本次同时更新主插件和SimpleSignals，因为Signals依赖宿主新公开的WandModeSwitch。实际部署SHA256：JavaRailways.jar `2c94760183c8acb73b50b1d6a7db4d37d784876b8734483f0081a958c3929f0b`；SimpleSignals.jar `3d443f288044087fceb2b2b0bd5e174ae65b0b310c704044b6d876d058eb1640`。客户端资源包不变；没有修改资源包托管、认证/API key、其他实例或现有业务定义。启动及客户端验收结果另续。
+
+### 首次启动包选择错误与纠正
+
+09:22:00主插件报缺少plugin.yml，SimpleSignals/TunnelBridgeBuilder因依赖缺失未加载；09:22:18虽然Minecraft报告Done，但bridge/WebUI不可用，不能算部署成功。原因是本次错误选取普通`JavaRailways-1.0-SNAPSHOT.jar`而非已由模块门禁验证的`shadowJar.archiveFile`。普通包hash即上段的`2c947601...`，不是可运行主包；离线门禁检查的是正确shadow产物，但部署选取与报告未绑定该任务输出。
+
+已向用户报告；检查完整`JavaRailways-1.0-SNAPSHOT-all.jar`确有plugin.yml、WandModeSwitch.class和完整嵌入WebUI，完整主包hash `6964a9e72537a97fe34cdd1dd45e9ac2905b942b39778317d3098a9e2c535ad4`。不重新编译或加测试。再次提示10秒后正常停服，09:23:29保存完成，旧PID502021退出。在同一外部恢复目录新增完整`pre-correction-configs-and-jars.tar.gz`，hash `399b7435f3a02ecffade972e54b69f861fc299c476f41157877e22aff5d8c859`；122个配置/存档文件与最初停服清单仍逐字一致，纠正前后再次校验通过，仅替换主JAR，未回退任何存档。后续部署必须取shadow任务的完整归档，传输前同时核对descriptor和所需新API，不能由相近文件名或“已通过打包门禁”推断手选文件可运行。
+
+纠正后09:24:21 `Done (24.789s)!`，主插件与SimpleSignals正常启用，bridge返回`ok:true`、WebUI HTTP200，当前启动日志未见上述加载错误/LinkageError/NoSuchMethodError。仍有既有Terra Unsafe反射错误、启动一次210.7ms physics overload和epoch34的226.2→200ms步长截断，未扩修。没有创建游戏测试对象、运行自动化测试或验收客户端F/语言效果。Stage 2继续in_progress，客户端沿用上一版编辑资源包即可。

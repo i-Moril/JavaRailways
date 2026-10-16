@@ -51,8 +51,8 @@ ticket、队列或 controller。
 一次将 Destination、Line 交给 SimpleATO，将 `allowedDirection` 输出到 Basic 的稀疏方向列表。如果 source Core 仍为 format 1，纯转换器也会把其嵌入 rail
 metadata 拆到相同最终 owners；Core 与 Basic 同时声明 metadata 时拒绝，不猜测合并。
 
-当前只实现纯内存转换和 current target 严格复验；文件发现、dry-run、恢复点和 apply orchestration 属于独立
-09-24 世界格式迁移任务，不能由 runtime loader 或临时 Bukkit command 代替。不得加入 runtime fallback、nullable
+当前除纯内存转换外，已提供[已审计开发服的独立离线迁移](../../bukkit-plugin/backend/offline-development-migration.md)，仅支持空列车/空运营数据的真实旧源；
+09-24的未来端点格式和自动迁移仍未实现，不能由 runtime loader 或临时 Bukkit command 代替。不得加入 runtime fallback、nullable
 Dispatcher、双写或业务层版本分支。
 
 用户明确当前方向字段开发稿从未部署。本次删除 SimpleATO 中的方向列表并直接修正其 current fixture，

@@ -2,6 +2,18 @@
 
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
+### 开发服整目录备份与离线迁移（2026-10-16，已应用，未启动）
+
+用户明确批准正常停服、整目录外部归档后迁移，不在配置同目录生成逐文件备份。本批新增不进入JAR的离线source set/CLI及3项回归；
+复用纯infra转换、current codec和真实Core→Basic→SimpleATO恢复，限定已审计空旧runtime，受限曲线修复必须显式选择。
+机制归[离线合同](../../spec/bukkit-plugin/backend/offline-development-migration.md)，精确恢复点、hash、数据及验证归[执行记录](research/dev-server-migration-2026-10-16.md)。
+
+- 已正常停止开发服和WebUI；完整JavaRailways目录及旧JAR归档位于`/opt/mcsmanager/backups/javarailways/stage2-20261016-m4gFYGDe/JavaRailways-full.tar.gz`，SHA256 `b8516d2a138b882ad46764f460c07abb5949405163de84e1bc475b3299aaa041`。停服备份前后114文件清单一致，未影响另一模组服。
+- 原始重复arc准确失败；显式修复12对current/既有bak通过真实恢复。106rails、106metadata、26方向、30Destination、1Line及原revision/epoch保留；6处冗余点分别修复current/bak并逐处报告。physics仅旧schema/重力键迁到现有current，数值不变，无源码版本常量变化。
+- 最终代码完整Bukkit96套405项通过、0failure/error/skip，17秒；JAR/consumer/module门禁通过且离线类未进主JAR。真实12对dry-run和current配置/1列车包/3轨道包验证通过，无mock。独立check无剩余本次应用阻塞；源无symlink，工具不宣称支持任意旧非空运营数据。
+- 远端应用前复核停服、源清单与旧JAR，保留原权限/ownership/属性，把旧整目录移到外部`pre-migration-directory`后安装完整候选；应用后114文件与候选完全一致。只改变24个世界文件和physics，其余89文件保留。完整归档及旧整目录均未删除，未生成新逐文件bak。
+- 未更新远端JAR、未安装SimpleSignals/正式包或匹配资源，也未重启。**不可用原旧JAR启动已迁移数据**；下一步必须另获授权部署配套新版并进行真实游戏验收。Stage 2和审查子任务保持in_progress，不启动未来09-24端点/自动迁移或平台拆分。
+
 ### 正式四灯包实现（2026-10-16，离线通过）
 
 用户在查证日本铁路信号设计原则后批准先用0.6m/s²并继续实现。本批只交付真实统一包和直接读取它的回归：

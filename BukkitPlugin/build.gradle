@@ -111,11 +111,44 @@ dependencies {
 // Compile a minimal add-on against the same classpath exposed to external Bukkit plugins.
 // Keep this source set free of BukkitPlugin implementation-package imports.
 sourceSets {
+    // One-time development-save tooling: never included in the deployable plugin JAR.
+    offlineMigration {
+        compileClasspath = sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath = output + compileClasspath + sourceSets.main.runtimeClasspath
+    }
     signalApiConsumer {
         java.srcDir("src/signalApiConsumer/java")
         compileClasspath = sourceSets.main.output + sourceSets.main.compileClasspath
     }
 }
+
+kotlin.sourceSets.named('offlineMigration') {
+    kotlin.srcDir(rootProject.file('scripts/offline-world-migration'))
+}
+
+tasks.register('migrateDevelopmentWorlds', JavaExec) {
+    group = 'migration'
+    description = 'Dry-run old development worlds; -PmigrationOutput must name a new output directory.'
+    classpath = sourceSets.offlineMigration.runtimeClasspath
+    mainClass = 'work.art1st.javarailways.offline.DevelopmentWorldMigrationKt'
+    doFirst {
+        if (project.hasProperty('migrationValidateConfigDirectory')) {
+            args = ['--validate-config-directory', project.property('migrationValidateConfigDirectory').toString()]
+            return
+        }
+        if (project.hasProperty('migrationValidateDataDirectory')) {
+            args = ['--validate-data-directory', project.property('migrationValidateDataDirectory').toString()]
+            return
+        }
+        if (!project.hasProperty('migrationSource')) throw new GradleException('Specify -PmigrationSource=/absolute/source/worlds')
+        args = [project.property('migrationSource').toString()]
+        if (project.hasProperty('migrationOutput')) args += ['--output', project.property('migrationOutput').toString()]
+        if (project.hasProperty('repairRedundantCurvePoints')) args += '--repair-redundant-curve-points'
+    }
+}
+
+sourceSets.test.compileClasspath += sourceSets.offlineMigration.output
+sourceSets.test.runtimeClasspath += sourceSets.offlineMigration.output
 
 tasks.named("check") {
     dependsOn(tasks.named("compileSignalApiConsumerJava"))

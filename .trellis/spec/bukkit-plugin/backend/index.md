@@ -18,6 +18,7 @@
 | --- | --- |
 | [Lifecycle 与线程归属](./lifecycle-and-threading.md) | composition root、world tick、Folia scheduler、shutdown |
 | [交互、渲染与持久化](./interaction-render-persistence.md) | Cloud/Wand/Dialog、backend/model、add-on API、snapshot/sidecar |
+| [一次性离线开发服迁移](./offline-development-migration.md) | 整目录外部归档、旧split转换、受限曲线修复和真实restore；不进入JAR |
 | [独立道岔操作工具](./turnout-wand.md) | 来向/出口选择、安全手动切换、真实连接反馈 |
 | [铁路编辑标记视觉规范](./editor-markers.md) | 点、方向、区间和警告的共用含义；CURRENT临时文字公开API、玩家隔离及关闭完成；不统一业务模型 |
 | [通用模型显示与轨道定位 API](./model-presentation-api.md) | 曲线查询、不可变模型定义、完整场景应用、跨线程显示与清理完成通知 |

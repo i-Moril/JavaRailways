@@ -4,11 +4,8 @@
 
 SimpleSignals 拥有工具物品、玩家选点、建造算法和命令；宿主只提供公开的轨道定位、运营方向和编辑许可。
 本合同覆盖闭塞建造/删除，以及保护区域几何切口的放置/删除/自动补全；正式区域的入口仍有方向，但由内部推导，不由玩家视线指定。
-Signal Wand 已把逻辑入口与模型位置分成两步，覆盖固定闭塞、保护区域当前入口和保护区域固定进路三类主信号，
-并覆盖附属信号的完整建造及既有进路表示器的编辑／删除：
-放置模式左键绑定入口并明确选择新建或精确既有设备，右键轨道或空气使用轨道附着位置，右键真实方块面使用地面位置，
-然后更新位置和类型；删除模式精确选择并删除一台主信号及其直接附属设备。
-现已提供[进路Wand删除与主信号重绑](#wand删除进路与主信号重绑)：前者从已保存进路列表确认删除，后者从设置页确认逻辑目标，均不靠重新摆放模型完成。
+Signal Wand覆盖固定闭塞、保护区域当前入口和固定进路主信号，以及附属信号和表示器。正式入口为右键实际模型或局部轨道，先选精确设备编辑，或明确在此新建；设置页不再是全世界设备列表。逻辑入口与模型位置仍独立，手工左键绑定后右键轨道/方块摆放的两步操作保留；成功摆放后清除本工具的待摆放意图，回到现场编辑。
+现已提供[进路Wand删除与主信号重绑](#wand删除进路与主信号重绑)：前者从已保存进路列表确认删除，后者从精确设备进入游戏选入口并确认，均不靠重新摆放模型完成。
 新建设备的 `inspectionLeadTimeSeconds` 固定为明确策略值 `0.0` 秒，表示不要求信号插件增加额外准备提前量；
 SimpleATO 的 inspection threshold 取 `max(reachableDistance(leadTime), dynamicLookahead)`，route perception horizon 也取
 controller 制动／反应／安全距离与 `maxSpeed * leadTime` 的最大值，而不是把两者相加。同步信号求值本身没有 setup delay；
@@ -63,17 +60,16 @@ controller 制动／反应／安全距离与 `maxSpeed * leadTime` 的最大值�
 命令为 `/simplesignals wand section [create|delete]`，默认create，权限`simplesignals.admin`。旧block/region分开的命令与四种工具状态不再保留；开发中的旧物品重新领取，不增加兼容reader。
 删除沿用明确的左右键行为：左键闭塞边界删除相邻闭塞，设备按物品保留偏好处理，保护边界保留；右键闭塞/保护区域内部确认删除整个选中对象，否则按位置处理保护/待定边界。唯一目标删除不依赖视线；同位置属于多个保护区域时明确拒绝“不能唯一确定删除目标”，本批不提供歧义区域选择会话，不能按定义列表顺序删任意一侧。创建、删除及区域警告查询均不要求沿轨道向内观察。删除保护边界保留原区域、进路和设备并进入不可用草稿；共用闭塞/保护边界须先删除相邻闭塞，再单独删除保护边界。
 信号工具命令固定为 `/simplesignals wand signal`，只在 catalog 已就绪且非空时发放一个通用 Signal Wand。
-新物品从按 `signalType` 排序的当前 catalog 选择第一项作为确定性默认值；命令不接受类型参数，也不承担 catalog 列表界面。
-Shift+右键打开 SimpleSignals 自有的 Paper 原生设置页，选择放置／删除模式、五种控制类型，按 `signalType` 排序和标记当前项，
-并从独立 model-only catalog 选择 presentation model；统一信号包模型不冒充 presentation-only 模型来源；
-选择后才修改物品状态。PDC 使用稳定 marker 识别工具，并另存包含随机 `itemId`、非负单调 `stateRevision`、模式、
+新物品的内部创建接续从排序catalog取得有效类型，但`blockDefaultType`初始为null，不意味着替玩家选择区间默认。命令不接受类型参数。Shift+右键打开Paper原生设置草稿：首页两个按钮分别进入区间默认类型菜单和直接循环轨道预设，下一行应用/取消并排；清除默认只在类型子菜单中。F仍只切换放置/删除，不增加操作设置专页或全局控制对象选择。
+应用前草稿只在本次对话内，取消/过期不写物品。`railPresetName`是待创建时按真实模型解析的名字，未选择时为轨道原点（零额外偏移/旋转且竖直，不清除模型部件变换）；同名预设在实际模型中不存在则明确拒绝，不能套用其他模型参数。保护区域不保存默认类型。
+PDC 使用稳定 marker 识别工具，并另存包含随机 `itemId`、非负单调 `stateRevision`、模式、
 控制类型、namespaced `signalType`、可空 `presentationModelId` 与严格 tagged binding 的完整状态。固定闭塞 binding 保存 world/block/entry direction；
 保护当前入口保存 world/entry boundary，固定进路另存 route ID；两者还明确保存“新设备”或精确既有 `signalId + revision`。
 绑定随物品移动，且通过附魔光泽提示；
 状态跟随物品转移、换手和重启，不是玩家全局设置；格式损坏时不能编辑或自动覆盖。本工具状态尚未发布，直接修正当前格式，
 不增加旧 `signal_wand_type` reader、upcaster 或世界 schema 版本。
 选轨最大视线距离 64 米、命中半径 0.75 米；同轨道已有边界在 0.75 米内可吸附。
-Signal Wand 右键方块面时不执行选轨：模型根位于方块面中心，保持世界竖直，局部 +X 沿玩家当时的水平朝向、
+Signal Wand已有待摆放binding时右键方块面不执行选轨：模型根位于方块面中心，保持世界竖直，局部 +X 沿玩家当时的水平朝向、
 局部 +Y 朝上、局部 +Z 朝玩家右侧。该姿态在玩家 owner 线程从方块坐标、面方向和 yaw 一次性复制，worker 只接收不可变
 `ModelPlacement.Ground`。右键空气继续使用既有选轨路径；两种摆放都不改变左键保存的闭塞／入口／主信号逻辑 binding。
 真实普通连接的两个轨道端点另按拓扑视为同一位置，不以空间接近代替连接。
@@ -89,6 +85,20 @@ null 表示没有未完成边界编辑，空列表表示全部边界被删但区
 几何显示、选区和编辑影响读取派生`effectiveCuts`（draft存在时用draft，否则投影正式边界的位置）；需要有向入口的编辑消费者只读取仍放置的已认可入口`placedEntrances`。新草稿切口不能伪装成已生效入口，完整认可边界不得因移除草稿切口而从禁行依据中消失。两个视图均不持久化，不建立第二份权威定义。
 
 ## 5. 编辑和线程规则
+
+### 现场创建、选型与精确编辑（2026-10-17）
+
+生产接线已实现，验证/部署与客户端验收分开记录。SimpleSignals负责入口种类、Dialog和定义事务；宿主只提供[显式模型盒拾取](../../bukkit-plugin/backend/model-presentation-api.md)与已有选轨服务，不解释铁路信号。设置使用真实Paper body/action/exitAction：主页全局两列，保护用途一列，创建取消是独立底行，不用网页控件假装原生能力。
+
+普通右键优先按owner/world/objectId找到命中的已摆模型；没有命中则按所选轨道及canonical弧长0.75米筛局部rail-attached设备。多设备只列附近候选，并保留明确在此新建。查看已有设备不要求沿轨观察；只有新建/重绑有向入口才要求原0.15视线点积。模型未声明盒子时不做原点近似。方块遮挡读取在玩家owner，并按公开Bukkit区域所有权将射线截在已拥有chunk邻域内，再在worker查询纯模型几何；角点也检查两侧，首个非owner前收短1e-5米，零有效距离直接无命中。这是安全查询范围，不证明世界不存在设备；没有新增跨区域方块查询任务或tick扫描。
+
+创建先按真实入口判断固定闭塞或保护用途，再选真实catalog类型/模型。固定闭塞入口已有主信号时拒绝新建，不能借旧place更新语义搬移/换型既有设备；保护创建只取明确New意图，没有候选明确提示。当前目录未声明control-kind矩阵，页面如实说明最终保存验证，不按ID猜兼容性。附属从精确主信号页创建，其模型仍须表达主信号全部variant。
+
+`PlacedSignalChoice(kind,id,revision,placement)`为精确编辑身份；`deviceConfiguration(capture,device)`返回真实类型/模型，`changeType(capture,device,signalType?,modelId?,active)`独立只替换type或modelId并checked提高revision；同配置不写盘，原身份/pose/binding/lead time/附属关系/表示器映射保持。`deletePlaced`只删精确设备及主信号直接附属；数值编辑复用`PlacementWandEditor.editDevice`。完整候选仍执行manager原校验、编辑保护与原子事务，不绕过claim。
+
+右键页和跨页回调由精确工具状态、玩家/世界、页token保护；重绑回游戏的等待也有token，迟到选轨不得覆盖新页面。成功手工两步摆放使用明确`SignalWandOutcome.applied`通知玩家owner清待摆放binding，不能按翻译消息猜是否成功；失败保留重试意图。诊断只读[实际发布来源](device-diagnostics.md)，不展示绑定摘要，刷新不改世界或重新求值。附属不提供误用主信号入口的重绑按钮。
+
+点击几何遍历安全范围chunk数量，设备候选筛选/排序及目录查询只在低频交互发生；已有完整编译/写盘成本不变。没有第二个设备registry或世界菜单缓存。错误、取消、物品/定义过期、未知类型、预设缺失及编辑许可拒绝不修改定义或位置。旧开发PDC不加reader，世界/包版本不变。需验证草稿应用/取消、可空默认、用途/底行取消、精确点击与占用入口不误改、类型只改所需字段、重绑迟到结果失效、F/物品/权限保护及中英文；复用原用例，移除仅旧菜单存在的测试，不复制大型矩阵。真实画面另验。
 
 Wand 编辑流程的图搜索、候选编译、JSON 和文件 I/O 均在 worker；玩家物品和回复在玩家所属线程。
 捕获 runtime 对象、定义版本和本次拓扑；世界卸载重载、外部编辑或失效玩家动作不能提交旧选择。
@@ -126,21 +136,21 @@ join、切槽、换手、背包点击、丢弃、拾取和交互后在玩家 own
 
 ### 命名轨道摆放预设的设置页接线（CURRENT）
 
-本节描述把已有命名预设接到Signal Wand，不新增渲染器或共享样式继承；数值输入属于下节独立的实例编辑。主信号从当前`signalType`的catalog模型取得预设，附属信号/既有进路表示器从当前`presentationModelId`的model-only catalog取得预设。设置页按预设名稳定排序并列出清除选择项；提供不可变的模型身份、名称、局部`ModelPose`及已确定的倾斜值，不把模型树交给玩家UI。
+设置首页直接循环当前catalog中已声明的预设名及轨道原点，不新增渲染器或共享样式继承。区间默认类型可以为空，所以设置先保存`railPresetName`意图，在创建时确定真实signalType或model-only模型后才从该模型查同名预设；没有该名字明确拒绝，不把另一模型的同名参数复制过来。目录没有控制对象兼容矩阵，不能按类型名字猜兼容性；完整候选仍检查真实model/logic和附属全部variant。
 
-选择在玩家owner重新核对完整物品状态和当前catalog项，再将当时参数复制到物品偏好（概念形状：`modelId + name + adjustment + followRailTilt`），增加现有stateRevision并使旧continuation失效。显式预设的倾斜取预设值，再取其模型默认，再回退竖直；清除偏好保持原有无偏移/竖直轨道摆放行为。偏好随物品保存，不建立玩家全局设置或另一个存档边界，不升未发布PDC/世界schema，也不加旧开发reader。
+应用在玩家owner核对完整物品状态、提高stateRevision并使旧接续失效。实际创建时将真实模型的`modelId + name + adjustment + followRailTilt`复制到本次摆放值；需要回游戏摆放的附属创建将该副本保存在待摆放物品意图中。显式倾斜取预设值、模型默认、最后竖直；轨道原点保持零额外偏移/旋转且竖直。偏好随物品，不建立玩家全局设置，不升PDC/世界schema，不加旧开发reader。
 
 仅修改设置不改任何已放设备。下一次明确的rail放置/更新以本次选轨位置构造`RailAttached`，调用既有`applyPreset`复制保存的值，继续走原manager patch；不重读包中的预设来动态继承。原预设被修改或删除不改变物品中已有复制值和已摆设备；主动选择/重新选择预设时必须在当前表中找到。控制来源、类型或模型改变导致有效模型改变时清除旧偏好，不将前一模型预设静默用于另一模型。模式切换可以保留偏好，逻辑binding仍按原规则处理。
 
 Ground保持方块面捕获的绝对姿态，忽略rail预设。状态栏标明预设只适用于rail。主信号ID、控制区间/入口/进路、lead time、表示器映射和其他设备不因预设改变；旧物品回调、模型/catalog失效及事务拒绝仍保留原磁盘和live状态。
 
-例如选择右偏2米的预设后，包作者把该预设改为右偏3米，已有物品和设备仍保存2米；玩家在设置页重新选择才复制3米。切换到另一个实际模型时清除旧偏好；直接右键方块面则始终使用方块面姿态，不叠加这2米轨道偏移。
+例如设置选择right，新建设备时从其真实模型复制右偏2米；以后包改成3米，旧设备和已经开始的待摆放副本仍为2米，新的创建才取3米。另一模型没有right则拒绝该次创建，不静默清空。已有binding后右键方块面始终使用方块面姿态，不叠加轨道偏移。
 
 预设投影为`RailPlacementModel(modelId, presets)`，`presets`是按名称排序的不可修改参数表；物品偏好为`SignalWandRailPreset(modelId, name, adjustment, followRailTilt)`。查询投影会复制并排序该模型的预设，P个预设成本为O(P log P)，只在设置/放置交互执行，不增加tick扫描。单次应用复制参数不扫描其他设备。必需断言包括选项排序和有效模型来源、PDC round-trip、过期选择拒绝、设置不写定义、复制值不随源改变、ground不变，以及真实manager保存参数且保留逻辑binding和无关设备。既有数值算法测试不复制一套；预设与下节实例编辑独立，均不代表测距或真实客户端验证。
 
 ### 实例参数数值编辑（CURRENT）
 
-2026-10-15用户批准的本批由SimpleSignals负责：设置页“Edit existing device placement”选择已摆放的固定闭塞主信号、保护主信号、附属信号或表示器，再输入数值、检查摘要并确认。设备身份与revision来自当前定义，不从Wand当前模型偏好推断；尚未摆放的设备不创建占位位置。离线检查结果归任务记录，不代表真实Paper/Folia对话框和客户端验收。
+数值编辑由SimpleSignals负责：从现场精确选中的固定闭塞主信号、保护主信号、附属信号或表示器进入位置编辑，再输入数值、检查摘要并确认。设备身份与revision来自当前定义，不从Wand模型偏好推断；没有全世界设备列表，尚未摆放的设备不创建占位位置。离线检查结果归任务记录，不代表真实Paper/Folia和客户端验收。
 轨道设备编辑有向局部X前/Y上/Z右偏移（米）、模型自身XYZ旋转（度）及跟随轨道倾斜；保留rail、AB弧长和方向。地面设备编辑绝对世界XYZ及旋转，不接受轨道倾斜字段。旋转顺序沿用模型包的XYZ角约定，写回现有单位四元数；只改位移/倾斜时保留原旋转，不能用Euler往返造成无意重写。
 
 ```text
@@ -167,7 +177,7 @@ Ground保持方块面捕获的绝对姿态，忽略rail预设。状态栏标明�
 `ModelTypeCatalogSnapshot.variantNames(modelId): List<String>?`仅提供不可修改、按名称排序的variant列表，未知模型返回null，不向UI泄露模型树；查询只在低频作者操作执行，V个外观排序成本O(V log V)，运行时单次映射查找不增加扫描。
 
 Wand交互：左键入口可明确选新建或精确既有表示器。新建绑定只保存入口及成对为null的indicatorId/revision意图；已有绑定仍保存精确非空身份/修订，禁止半空身份。右键先捕获rail/ground位置，再显示明确的无进路外观及逐进路映射选择，允许标记“未配置”，最终确认才生成无冲突设备ID并经原manager事务保存完整模型和位置，不预建未摆放定义。未完成映射草稿只保存在本次对话回调，不另建玩家状态仓库。
-已有表示器从设置页进入编辑，选择原入口或新入口，再明确外观配置；只更新入口/映射及revision，保留设备ID、模型和摆放。跨入口不得沿用不属于新入口的映射或猜测新外观；页面明确提示未配进路，取消/关闭不提交。
+已有表示器从现场设备页编辑映射，跨入口则从重绑按钮回游戏点击新入口，再明确外观配置；只更新入口/映射及revision，保留设备ID、模型和摆放。跨入口不得沿用不属于新入口的映射或猜测新外观；页面明确提示未配进路，取消/关闭不提交。
 所有页面复用既有WandDialogs及原continuation、itemId/stateRevision、runtime/publication/topology/catalog基线检查；worker做定义/文件工作，玩家owner显示页面和读物品。重复/迟到回调、权限/工具/世界失效、未知模型/variant、revision溢出、编辑许可或保存失败均不修改旧磁盘/source/publication。
 具体映射页由`RouteIndicatorWandEditor`持有本次回调局部参数，并以不可变map加减条目，显示未配置数量和每条进路状态。`SignalWandBackend`提供`indicatorDevices(capture)`、`indicatorEntries(capture)`、`indicatorOptions(capture, binding, entryBoundaryId)`及`saveIndicator(capture, binding, entryBoundaryId, noRouteVariant, mappings, placement, active)`；选项包含routeIds、variants、原mappings。新建必须提供真实placement，已有设备编辑禁止传入placement，实际modelId从已有设备取得，不受Wand模型偏好覆盖。同配置不写盘/不推进revision。
 物品编码使用同一个严格current `STATE_JSON`，`explicitNulls=true`。表示器身份两字段无decode默认值，writer显式写入null/null表示新建；字段缺失、半空或非法修订均拒绝，不能把损坏的身份省略猜成新建设备。其余有明确默认值的物品字段仍按原义处理，不新增兼容reader或schema代际。
@@ -216,7 +226,7 @@ Wand批次另验证设备选择、目标选择、确认前无写入、过期回�
 进路Wand原有左键入口、潜行左键出口、普通右键录制/替换不变；选中区域后Shift+右键列出该区域作者表内的进路（按稳定ID排序），选择精确进路后另行确认删除。列表不按当前道岔选通路径过滤，删除不要求该路径当前连通。
 `CurrentRouteRecording`在worker准备删除选择并捕获runtime、publication、topology及表/进路身份；确认后检查仍是原基线，只upsert保留ID的表、checked递增表revision，最后一条也保留空表。设备解除绑定及映射清理由现有manager完成，工具不复制该算法。
 
-Signal Wand设置页提供“重绑已有主信号”：worker从当前世界定义列出固定闭塞、固定进路和当前入口主信号，按signalId排序，含绑定为null、无placement或ground摆放的设备。固定闭塞类只列出未被其他信号占用的真实入口，反向入口仍要求双向闭塞；固定进路类列出当前可用进路，当前入口类列出拥有可用进路的入口。按钮明确显示目标身份，再经确认页提交。
+Signal Wand从现场精确主信号进入重绑：返回游戏，右键新入口，必要时从该入口的合法进路中选择，然后确认。固定闭塞目标不得被其他主信号占用，反向入口要求双向闭塞；固定进路必须当前可用，当前入口必须有可用进路。内部仍持有确切binding，但编辑摘要不显示绑定信息，不发明上下行。等待选轨期间有独立choice token，F/换物品/新页面使迟到结果失效。附属信号不提供主信号的入口重绑按钮。
 后台接口在既有`SignalWandBackend`使用不可变设备/目标选择值及重绑方法，`RuntimeSignalWandBackend`复用capture与唯一manager事务；不调用`place`，只checked递增所选设备revision并修改逻辑绑定（固定闭塞同时明确入口方向）。控制kind、signalType、提前时间、placement及附属关系保持不变，不读取Wand当前模型/预设去重写设备。表示器跨入口重绑采用上文独立映射编辑流程；当前入口为null时，先选择真实入口再配置映射，不猜测variant或虚构入口。
 
 私有工作线程入口：`CurrentRouteRecording.deletionChoices(selection): List<RecordedRouteDeletion>`与`delete(choice, active): String`；选择值持有不可变selection、publication、topology、table、route，不把运行时选择重新解释为另一条进路。

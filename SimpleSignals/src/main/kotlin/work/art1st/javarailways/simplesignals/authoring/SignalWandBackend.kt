@@ -26,7 +26,7 @@ import java.util.UUID
 
 internal interface SignalWandCapture { val worldId: UUID }
 
-internal data class SignalWandOutcome(val text: WandText) {
+internal data class SignalWandOutcome(val text: WandText, val applied: Boolean = false) {
     constructor(message: String) : this(WandText.diagnostic(message))
 }
 
@@ -67,15 +67,23 @@ internal data class RouteIndicatorWandOptions(val routeIds: List<String>, val va
 internal enum class PlacedSignalKind { FIXED_BLOCK, PROTECTION, ATTACHED, INDICATOR }
 internal data class PlacedSignalChoice(val kind: PlacedSignalKind, val id: String, val revision: Long,
     val placement: ModelPlacement)
+internal data class SignalDeviceConfiguration(val signalType: String?, val modelId: String?)
 
 /** Worker-facing boundary. Catalog data exposed to commands is immutable intent, not edit authority. */
 internal interface SignalWandBackend {
     fun availableSignalTypes(): List<AvailableSignalType>?
     fun availableModelIds(): List<String>?
     fun railPlacementModel(controlKind: SignalWandControlKind, signalType: String, modelId: String?): RailPlacementModel?
-    fun capture(worldId: UUID, signalType: String, modelId: String? = null): SignalWandCapture
+    fun capture(worldId: UUID, signalType: String?, modelId: String? = null): SignalWandCapture
     fun current(capture: SignalWandCapture): Boolean
     fun placedDevices(capture: SignalWandCapture): List<PlacedSignalChoice>
+    fun protectionEntrance(capture: SignalWandCapture, point: RailPositionSnapshot): Boolean
+    fun occupiedPrimary(capture: SignalWandCapture, binding: FixedBlockSignalWandBinding): Boolean
+    fun deviceConfiguration(capture: SignalWandCapture, device: PlacedSignalChoice): SignalDeviceConfiguration
+    fun diagnostics(capture: SignalWandCapture, device: PlacedSignalChoice): work.art1st.javarailways.simplesignals.runtime.SignalDeviceDiagnostics?
+    fun changeType(capture: SignalWandCapture, device: PlacedSignalChoice,
+        signalType: String?, modelId: String?, active: () -> Boolean): SignalWandOutcome
+    fun deletePlaced(capture: SignalWandCapture, device: PlacedSignalChoice, active: () -> Boolean): SignalWandOutcome
     fun savePlacement(capture: SignalWandCapture, device: PlacedSignalChoice,
         placement: ModelPlacement, active: () -> Boolean): SignalWandOutcome
     fun rebindDevices(capture: SignalWandCapture): List<SignalRebindChoice>
@@ -122,7 +130,7 @@ internal class RuntimeSignalWandBackend(
 ) : SignalWandBackend {
     private data class Capture(
         override val worldId: UUID,
-        val signalType: String,
+        val signalType: String?,
         val modelId: String?,
         val catalog: SignalTypeCatalogSnapshot,
         val modelCatalog: ModelTypeCatalogSnapshot?,
@@ -143,10 +151,10 @@ internal class RuntimeSignalWandBackend(
         else -> manager.signalTypeCatalogSnapshot()?.railPlacementModel(signalType)
     }
 
-    override fun capture(worldId: UUID, signalType: String, modelId: String?): SignalWandCapture {
+    override fun capture(worldId: UUID, signalType: String?, modelId: String?): SignalWandCapture {
         val catalog = manager.signalTypeCatalogSnapshot()
             ?: throw IllegalStateException("Signal type catalog is not ready")
-        require(catalog.contains(signalType)) { "Unknown signal type: $signalType" }
+        require(signalType == null || catalog.contains(signalType)) { "Unknown signal type: $signalType" }
         val modelCatalog = manager.modelTypeCatalogSnapshot()
         if (modelId != null) require(modelCatalog?.contains(modelId) == true) {
             "Unknown presentation model: $modelId"
@@ -225,6 +233,101 @@ internal class RuntimeSignalWandBackend(
             captured.runtime, captured.topology, { active() && current(captured) })
         return SignalWandOutcome(if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
             WandText.key("placement.saved", authoringName(device.id, "name.signal"))
+        else WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result)))
+    }
+
+    override fun changeType(capture: SignalWandCapture, device: PlacedSignalChoice,
+        signalType: String?, modelId: String?, active: () -> Boolean): SignalWandOutcome {
+        val captured = capture as Capture
+        require(active() && current(captured)) { "Signal selection expired" }
+        require(device in placedDevices(captured)) { "The selected device changed" }
+        val definitions = captured.publication.definitions
+        val previous = deviceConfiguration(captured, device)
+        if ((previous.signalType != null && previous.signalType == signalType && modelId == null) ||
+            (previous.signalType == null && signalType == null && previous.modelId == modelId))
+            return SignalWandOutcome(WandText.key("signal.type.unchanged"))
+        val revision = nextRevision(device.revision)
+        val patch = when (device.kind) {
+            PlacedSignalKind.FIXED_BLOCK -> {
+                require(signalType != null && captured.catalog.contains(signalType)) { "Unknown signal type" }
+                SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(definitions.fixedBlockSignals
+                    .single { it.signalId == device.id }.copy(revision = revision, signalType = signalType)))
+            }
+            PlacedSignalKind.PROTECTION -> {
+                require(signalType != null && captured.catalog.contains(signalType)) { "Unknown signal type" }
+                SimpleSignalsDefinitionPatch(upsertProtectionSignals = listOf(definitions.protectionSignals
+                    .single { it.signalId == device.id }.copy(revision = revision, signalType = signalType)))
+            }
+            PlacedSignalKind.ATTACHED -> {
+                require(modelId != null && captured.modelCatalog?.contains(modelId) == true) { "Unknown model" }
+                val old = definitions.attachedSignals.single { it.signalId == device.id }
+                SimpleSignalsDefinitionPatch(upsertAttachedSignals = listOf(old.copy(revision = revision,
+                    model = old.model.copy(modelId = modelId))))
+            }
+            PlacedSignalKind.INDICATOR -> {
+                require(modelId != null && captured.modelCatalog?.contains(modelId) == true) { "Unknown model" }
+                val old = definitions.routeIndicators.single { it.indicatorId == device.id }
+                SimpleSignalsDefinitionPatch(upsertRouteIndicators = listOf(RouteIndicatorDefinition(old.indicatorId,
+                    revision, old.entryBoundaryId, old.noRouteModelVariant, old.modelVariantsByRouteId,
+                    checkNotNull(old.model).copy(modelId = modelId))))
+            }
+        }
+        val result = manager.applyDefinitionPatch(captured.worldId, definitions.definitionRevision, patch,
+            captured.runtime, captured.topology, { active() && current(captured) })
+        return SignalWandOutcome(if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
+            WandText.key("signal.type.changed") else WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result)))
+    }
+
+    override fun deviceConfiguration(capture: SignalWandCapture, device: PlacedSignalChoice): SignalDeviceConfiguration {
+        val captured = capture as Capture
+        require(device in placedDevices(captured)) { "The selected device changed" }
+        val definitions = captured.publication.definitions
+        return when (device.kind) {
+            PlacedSignalKind.FIXED_BLOCK -> definitions.fixedBlockSignals.single { it.signalId == device.id }.let {
+                SignalDeviceConfiguration(it.signalType, captured.catalog.railPlacementModel(it.signalType)?.modelId) }
+            PlacedSignalKind.PROTECTION -> definitions.protectionSignals.single { it.signalId == device.id }.let {
+                SignalDeviceConfiguration(it.signalType, captured.catalog.railPlacementModel(it.signalType)?.modelId) }
+            PlacedSignalKind.ATTACHED -> SignalDeviceConfiguration(null, definitions.attachedSignals.single { it.signalId == device.id }.model.modelId)
+            PlacedSignalKind.INDICATOR -> SignalDeviceConfiguration(null, definitions.routeIndicators.single { it.indicatorId == device.id }.model?.modelId)
+        }
+    }
+
+    override fun diagnostics(capture: SignalWandCapture, device: PlacedSignalChoice): work.art1st.javarailways.simplesignals.runtime.SignalDeviceDiagnostics? {
+        val captured = capture as Capture
+        require(device in placedDevices(captured)) { "The selected device changed" }
+        return captured.runtime.signalDeviceDiagnostics(device.id)
+    }
+
+    override fun protectionEntrance(capture: SignalWandCapture, point: RailPositionSnapshot): Boolean {
+        val captured = capture as Capture
+        require(current(captured)) { "Signal selection expired" }
+        return captured.publication.regions.compilationSnapshot()?.boundariesById?.values
+            ?.any { it.position.near(point) } == true
+    }
+
+    override fun occupiedPrimary(capture: SignalWandCapture, binding: FixedBlockSignalWandBinding): Boolean {
+        val captured = capture as Capture
+        require(current(captured)) { "Signal selection expired" }
+        return captured.publication.definitions.fixedBlockSignals.any {
+            it.controlledBlockId == binding.blockId && it.entryDirection == binding.entryDirection
+        }
+    }
+
+    override fun deletePlaced(capture: SignalWandCapture, device: PlacedSignalChoice, active: () -> Boolean): SignalWandOutcome {
+        val captured = capture as Capture
+        require(active() && device in placedDevices(captured)) { "The selected device changed" }
+        val attached = if (device.kind == PlacedSignalKind.FIXED_BLOCK || device.kind == PlacedSignalKind.PROTECTION)
+            captured.publication.definitions.attachedSignals.filter { it.primarySignalId == device.id }.map { it.signalId }
+            else emptyList()
+        val patch = SimpleSignalsDefinitionPatch(
+            removeFixedBlockSignalIds = if (device.kind == PlacedSignalKind.FIXED_BLOCK) listOf(device.id) else emptyList(),
+            removeProtectionSignalIds = if (device.kind == PlacedSignalKind.PROTECTION) listOf(device.id) else emptyList(),
+            removeRouteIndicatorIds = if (device.kind == PlacedSignalKind.INDICATOR) listOf(device.id) else emptyList(),
+            removeAttachedSignalIds = if (device.kind == PlacedSignalKind.ATTACHED) listOf(device.id) else attached)
+        val result = manager.applyDefinitionPatch(captured.worldId, captured.publication.definitions.definitionRevision,
+            patch, captured.runtime, captured.topology, { active() && current(captured) })
+        return SignalWandOutcome(if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
+            WandText.key("signal.deleted", authoringName(device.id, "name.signal"), attached.size, result.definitions!!.definitionRevision)
         else WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result)))
     }
 
@@ -339,7 +442,8 @@ internal class RuntimeSignalWandBackend(
             { active() && current(captured) })
         return SignalWandOutcome(if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
             WandText.key("indicator.saved", WandText.key(if (existing == null) "created" else "updated"), authoringName(replacement.indicatorId, "name.signal"), WandText.key(if (existing == null) "placement.created" else "placement.kept"))
-        else WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result)))
+        else WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result)),
+            applied = result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
     }
 
     override fun resolveEntrance(
@@ -386,6 +490,8 @@ internal class RuntimeSignalWandBackend(
         val patch: SimpleSignalsDefinitionPatch
         val replacementId: String
         val created: Boolean
+        val signalType = if (binding is AttachedSignalWandBinding || binding is RouteIndicatorSignalWandBinding)
+            null else requireNotNull(captured.signalType) { "Choose a signal type before placement" }
         when (binding) {
             is FixedBlockSignalWandBinding -> {
                 val resolved = FixedBlockSignalEntranceResolver.resolve(
@@ -395,10 +501,10 @@ internal class RuntimeSignalWandBackend(
                 )
                 val replacement = resolved.signal?.let { existing ->
                     existing.copy(revision = nextRevision(existing.revision),
-                        signalType = captured.signalType, placement = placement)
+                        signalType = checkNotNull(signalType), placement = placement)
                 } ?: FixedBlockSignalDefinition(
                     uniqueSignalId(publication), 0L, resolved.blockId,
-                    DEFAULT_INSPECTION_LEAD_TIME_SECONDS, captured.signalType,
+                    DEFAULT_INSPECTION_LEAD_TIME_SECONDS, checkNotNull(signalType),
                     resolved.entryDirection, placement
                 )
                 patch = SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(replacement))
@@ -409,10 +515,10 @@ internal class RuntimeSignalWandBackend(
                 val existing = validateProtectionBinding(publication, binding,
                     ProtectionSignalKind.CURRENT_ENTRY, requireUsableNewRoute = false)
                 val replacement = existing?.copy(revision = nextRevision(existing.revision),
-                    signalType = captured.signalType, placement = placement)
+                    signalType = checkNotNull(signalType), placement = placement)
                     ?: ProtectionSignalDefinition(uniqueSignalId(publication), 0L,
                         ProtectionSignalKind.CURRENT_ENTRY, binding.entryBoundaryId,
-                        DEFAULT_INSPECTION_LEAD_TIME_SECONDS, captured.signalType, placement)
+                        DEFAULT_INSPECTION_LEAD_TIME_SECONDS, checkNotNull(signalType), placement)
                 patch = SimpleSignalsDefinitionPatch(upsertProtectionSignals = listOf(replacement))
                 replacementId = replacement.signalId
                 created = existing == null
@@ -421,10 +527,10 @@ internal class RuntimeSignalWandBackend(
                 val existing = validateProtectionBinding(publication, binding,
                     ProtectionSignalKind.FIXED_ROUTE, requireUsableNewRoute = true)
                 val replacement = existing?.copy(revision = nextRevision(existing.revision),
-                    signalType = captured.signalType, placement = placement)
+                    signalType = checkNotNull(signalType), placement = placement)
                     ?: ProtectionSignalDefinition(uniqueSignalId(publication), 0L,
                         ProtectionSignalKind.FIXED_ROUTE, binding.routeId,
-                        DEFAULT_INSPECTION_LEAD_TIME_SECONDS, captured.signalType, placement)
+                        DEFAULT_INSPECTION_LEAD_TIME_SECONDS, checkNotNull(signalType), placement)
                 patch = SimpleSignalsDefinitionPatch(upsertProtectionSignals = listOf(replacement))
                 replacementId = replacement.signalId
                 created = existing == null
@@ -471,7 +577,7 @@ internal class RuntimeSignalWandBackend(
             ::selectionCurrent
         )
         return if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED) {
-            SignalWandOutcome(WandText.key(if (binding is AttachedSignalWandBinding || binding is RouteIndicatorSignalWandBinding) "device.saved" else "signal.saved", WandText.key(if (created) "created" else "updated"), authoringName(replacementId, "name.signal"), if (binding is AttachedSignalWandBinding || binding is RouteIndicatorSignalWandBinding) captured.modelId else captured.signalType, result.definitions!!.definitionRevision))
+            SignalWandOutcome(WandText.key(if (binding is AttachedSignalWandBinding || binding is RouteIndicatorSignalWandBinding) "device.saved" else "signal.saved", WandText.key(if (created) "created" else "updated"), authoringName(replacementId, "name.signal"), if (binding is AttachedSignalWandBinding || binding is RouteIndicatorSignalWandBinding) captured.modelId else captured.signalType, result.definitions!!.definitionRevision), applied = true)
         } else {
             SignalWandOutcome(SimpleSignalsAdminCommand.formatResult(result))
         }

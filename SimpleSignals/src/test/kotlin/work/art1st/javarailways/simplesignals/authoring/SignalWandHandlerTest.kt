@@ -69,8 +69,7 @@ class SignalWandHandlerTest {
             RailPositionSnapshot(f.rail.id, work.art1st.javarailways.core.api.physics.rail.ViewDirection.BA, 4.0), originalPose)
         f.placedDevice = f.placedDevice.copy(placement = original)
         val originalTool = f.tool
-        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.EditPlacement); f.drain()
-        f.dialogOptions.first().second(); f.drain()
+        f.handler.openPlacementEditor(f.player, f.tool, f.placedDevice); f.drain()
         val initial = checkNotNull(f.placementInput)
         assertEquals(if (ground) null else false, initial.followRailTilt)
         assertEquals("1.0", initial.fields["x"])
@@ -94,8 +93,7 @@ class SignalWandHandlerTest {
     }
 
     @Test fun `placement input uses intrinsic XYZ degrees without rotating its offsets`() = Fixture().use { f ->
-        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.EditPlacement); f.drain()
-        f.dialogOptions.first().second(); f.drain()
+        f.handler.openPlacementEditor(f.player, f.tool, f.placedDevice); f.drain()
         val initial = checkNotNull(f.placementInput)
         f.submitPlacement!!(initial.copy(fields = initial.fields + mapOf("rx" to "30", "ry" to "60", "rz" to "90")))
         f.drain(); f.dialogOptions.first().second(); f.drain()
@@ -112,8 +110,7 @@ class SignalWandHandlerTest {
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = ["NaN", "Infinity", "invalid", "cancel", "tool", "permission", "catalog", "settings"])
     fun `invalid input or stale placement continuation never saves`(reason: String) = Fixture().use { f ->
-        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.EditPlacement); f.drain()
-        f.dialogOptions.first().second(); f.drain()
+        f.handler.openPlacementEditor(f.player, f.tool, f.placedDevice); f.drain()
         val initial = checkNotNull(f.placementInput)
         if (reason in listOf("NaN", "Infinity", "invalid", "cancel")) {
             f.submitPlacement!!(if (reason == "cancel") null else initial.copy(fields = initial.fields + ("x" to reason)))
@@ -162,86 +159,9 @@ class SignalWandHandlerTest {
         assertEquals(0, f.performs)
     }
 
-    @Test fun `indicator settings edit can choose new entry leave route unmapped and keep placement and tool unchanged`() = Fixture().use { f ->
-        val original = f.tool
-        f.handler.selectSetting(f.player, original, SignalWandSettingAction.EditIndicator); f.drain()
-        f.dialogOptions.first().second(); f.drain()
-        f.dialogOptions.single { it.first == "test:new-entry" }.second(); f.drain()
-        f.dialogOptions.single { it.first == "dark" }.second(); f.drain()
-        assertTrue(f.dialogOptions.first().first.contains("UNMAPPED"))
-        f.dialogOptions.single { it.first.startsWith("Review") }.second(); f.drain()
-        assertEquals(0, f.indicatorSaves)
-        f.dialogOptions.first().second(); f.drain()
-        assertEquals(1, f.indicatorSaves)
-        assertEquals("test:new-entry", f.indicatorSavedEntry)
-        assertTrue(f.indicatorSavedMappings.isEmpty())
-        assertTrue(f.placements.isEmpty())
-        assertEquals(original, f.tool)
-    }
 
-    @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(strings = ["cancel", "tool", "permission", "catalog", "settings"])
-    fun `indicator final confirmation cannot save after cancellation or stale continuation`(reason: String) = Fixture().use { f ->
-        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.EditIndicator); f.drain()
-        f.dialogOptions.first().second(); f.drain()
-        f.dialogOptions.first().second(); f.drain()
-        f.dialogOptions.first().second(); f.drain()
-        f.dialogOptions.single { it.first.startsWith("Review") }.second(); f.drain()
-        val confirm = f.dialogOptions.first().second
-        when (reason) {
-            "cancel" -> { f.dialogOptions.last().second(); f.drain() }
-            "tool" -> f.tool = f.tool.copy(stateRevision = 1)
-            "permission" -> f.permitted = false
-            "catalog" -> f.current = false
-            "settings" -> {
-                f.handler.openSettings(f.player, f.tool)
-                f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.EditIndicator); f.drain()
-            }
-        }
-        confirm(); f.drain()
-        assertEquals(0, f.indicatorSaves)
-    }
 
-    @Test fun `rebind dialog includes unbound device waits for confirmation and ignores repeated old callbacks`() = Fixture().use { f ->
-        val original = f.tool
-        f.handler.selectSetting(f.player, original, SignalWandSettingAction.RebindSignal); f.drain()
-        assertTrue(f.dialogOptions.single().first.contains("unbound"))
-        val old = f.dialogOptions.single().second
-        // Escape is callback-free; reopening must still work and retires the old page.
-        f.handler.openSettings(f.player, f.tool)
-        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.RebindSignal); f.drain()
-        old(); f.drain()
-        assertTrue(f.dialogOptions.single().first.contains("unbound"))
-        val device = f.dialogOptions.single().second
-        device(); device(); f.drain()
-        assertTrue(f.dialogOptions.single().first.contains("Entry test:entry"))
-        f.dialogOptions.single().second(); f.drain()
-        assertEquals(0, f.rebindings)
-        val confirm = f.dialogOptions.first().second
-        confirm(); confirm(); f.drain()
-        assertEquals(1, f.rebindings)
-        assertEquals(original, f.tool)
-        assertEquals(0, f.performs)
-        assertTrue(f.placements.isEmpty())
-    }
 
-    @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(strings = ["cancel", "tool", "permission", "settings", "catalog"])
-    fun `rebind final confirmation rejects cancelled or stale continuation`(reason: String) = Fixture().use { f ->
-        f.handler.selectSetting(f.player, f.tool, SignalWandSettingAction.RebindSignal); f.drain()
-        f.dialogOptions.single().second(); f.drain()
-        f.dialogOptions.single().second(); f.drain()
-        val confirm = f.dialogOptions.first().second
-        when (reason) {
-            "cancel" -> { f.dialogOptions.last().second(); f.drain() }
-            "tool" -> f.tool = f.tool.copy(stateRevision = 1)
-            "permission" -> f.permitted = false
-            "settings" -> f.handler.openSettings(f.player, f.tool)
-            "catalog" -> f.current = false
-        }
-        confirm(); f.drain()
-        assertEquals(0, f.rebindings)
-    }
 
     @Test fun `wand marker and encoded state round trip while corrupt state fails closed`() = Fixture().use { f ->
         val state = SignalWandState(UUID(3, 4), 7L, SignalWandMode.PLACEMENT,
@@ -338,18 +258,17 @@ class SignalWandHandlerTest {
 
         SignalWandHandler.decorate(meta, f.tool)
         assertEquals(true, glint)
-        assertTrue(lore.last().toString().contains("test:block"))
+        assertFalse(lore.any { it.toString().contains("test:block") })
 
         SignalWandHandler.decorate(meta, f.tool.copy(binding = null))
         assertEquals(false, glint)
-        assertTrue(lore.last().toString().contains("none"))
+        assertTrue(lore.last().toString().contains("origin"))
 
         val protection = f.tool.copy(controlKind = SignalWandControlKind.PROTECTION_CURRENT_ENTRY,
             binding = ProtectionCurrentEntrySignalWandBinding(f.worldId, "test:entry", NewProtectionSignal))
         SignalWandHandler.decorate(meta, protection)
         assertEquals(true, glint)
-        assertTrue(lore.any { it.toString().contains("protection current-entry") })
-        assertTrue(lore.last().toString().contains("test:entry"))
+        assertFalse(lore.any { it.toString().contains("test:entry") })
 
         val generated = "simplesignals:12345678-1234-1234-1234-123456789abc"
         val bindings = listOf(
@@ -392,195 +311,11 @@ class SignalWandHandlerTest {
         assertEquals(f.newItemId, f.given.single().itemId)
     }
 
-    @Test fun `settings are sorted marked and valid callback persists with incremented revision`() = Fixture().use { f ->
-        f.available = listOf(AvailableSignalType("test:z", "Z"), AvailableSignalType("test:a", "A"))
-        f.tool = f.tool.copy(signalType = "test:z")
-        val opening = f.tool
-        f.handler.openSettings(f.player, opening)
-        assertEquals(listOf("Mode: placement", "Mode: deletion", "Control: fixed-block primary",
-            "Control: protection current-entry primary", "Control: protection fixed-route primary",
-            "Control: attached signal", "Control: route indicator",
-            "test:a — A", "test:z — Z", "Presentation model: test:model", "Rail placement: unadjusted",
-            "Rebind existing protection signal", "Edit route indicator mapping / entry", "Edit existing device placement"),
-            f.settings.map { it.label })
-        assertEquals(listOf(true, false, true, false, false, false, false, false, true, false, true, false, false, false),
-            f.settings.map { it.selected })
-        f.choose!!(SignalWandSettingAction.Type("test:a"))
-        f.drainOwners()
-        assertEquals(opening.itemId, f.tool.itemId)
-        assertEquals(1L, f.tool.stateRevision)
-        assertEquals("test:a", f.tool.signalType)
-        assertTrue(f.messages.last().toString().contains("selected"))
-        val modelOpening = f.tool
-        f.handler.openSettings(f.player, modelOpening)
-        f.choose!!(SignalWandSettingAction.Model("test:model"))
-        f.drainOwners()
-        assertEquals(2L, f.tool.stateRevision)
-        assertEquals("test:model", f.tool.presentationModelId)
-    }
 
-    @Test fun `rail preset settings copy sorted immutable values without editing devices and can explicitly reapply or clear`() = Fixture().use { f ->
-        val offset = ModelPose(0.0, 1.0, 2.0, 0.0, 0.0, 0.0, 1.0)
-        val source = linkedMapOf("right" to RailPlacementPreset(offset),
-            "left" to RailPlacementPreset(ModelPose.IDENTITY, false))
-        f.models = mapOf("test:primary" to railModel("test:primary", source, followRailTilt = true))
-        val capturedProjection = f.models.getValue("test:primary")
-        source.clear()
-        assertEquals(listOf("left", "right"), capturedProjection.presets.keys.toList())
-        assertThrows(UnsupportedOperationException::class.java) {
-            (capturedProjection.presets as MutableMap<String, RailPlacementPreset>).clear()
-        }
-        f.handler.openSettings(f.player, f.tool)
-        assertEquals(listOf("Rail placement: unadjusted", "Rail placement: left", "Rail placement: right"),
-            f.settings.filter { it.action is SignalWandSettingAction.RailPreset ||
-                it.action === SignalWandSettingAction.ClearRailPreset }.map { it.label })
-        f.choose!!(SignalWandSettingAction.RailPreset("test:primary", "right")); f.drainOwners()
-        assertEquals(SignalWandRailPreset("test:primary", "right", offset, true), f.tool.railPreset)
-        assertEquals(f.binding, f.tool.binding)
-        assertEquals(1L, f.tool.stateRevision)
-        assertEquals(0, f.performs)
-        assertTrue(f.workers.isEmpty())
-        assertTrue(SignalWandHandler.statusText(f.tool, f.available, f.modelIds).toString().contains("rail-only preset: right"))
-        f.handler.openSettings(f.player, f.tool)
-        assertTrue(f.settings.single { it.action == SignalWandSettingAction.RailPreset("test:primary", "right") }.selected)
 
-        val replacement = RailPlacementPreset(ModelPose.IDENTITY, false)
-        f.models = mapOf("test:primary" to railModel("test:primary", mapOf("right" to replacement)))
-        assertEquals(offset, f.tool.railPreset!!.adjustment)
-        f.choose!!(SignalWandSettingAction.RailPreset("test:primary", "right")); f.drainOwners()
-        assertEquals(SignalWandRailPreset("test:primary", "right", ModelPose.IDENTITY, false), f.tool.railPreset)
-        f.handler.openSettings(f.player, f.tool)
-        f.choose!!(SignalWandSettingAction.ClearRailPreset); f.drainOwners()
-        assertNull(f.tool.railPreset)
-        assertEquals(f.binding, f.tool.binding)
-        assertEquals(0, f.performs)
-        f.click()
-        f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0)))
-        f.drainOwners(); f.drainWorkers(); f.drainOwners()
-        val placement = f.placements.single() as ModelPlacement.RailAttached
-        assertEquals(ModelPose.IDENTITY, placement.adjustment)
-        assertFalse(placement.followRailTilt)
-    }
 
-    @Test fun `preset callbacks reject stale items missing presets and changed effective model`() = Fixture().use { f ->
-        fun withPreset() = railModel("test:primary", mapOf("right" to RailPlacementPreset(ModelPose.IDENTITY)))
-        f.models = mapOf("test:primary" to withPreset())
-        val original = f.tool
-        f.handler.openSettings(f.player, original)
-        val firstCallback = f.choose!!
-        f.tool = original.copy(stateRevision = 1)
-        firstCallback(SignalWandSettingAction.RailPreset("test:primary", "right")); f.drainOwners()
-        assertNull(f.tool.railPreset)
-        f.tool = original
-        f.handler.openSettings(f.player, f.tool)
-        f.models = mapOf("test:primary" to railModel("test:primary", emptyMap()))
-        f.choose!!(SignalWandSettingAction.RailPreset("test:primary", "right")); f.drainOwners()
-        assertEquals(original, f.tool)
-        assertTrue(f.messages.last().toString().contains("no longer available"))
-        f.models = mapOf("test:primary" to withPreset())
-        f.handler.openSettings(f.player, f.tool)
-        f.primaryModels = mapOf("test:a" to "test:other")
-        f.choose!!(SignalWandSettingAction.RailPreset("test:primary", "right")); f.drainOwners()
-        assertEquals(original, f.tool)
-    }
 
-    @Test fun `effective model switches clear preferences but unrelated settings retain them`() = Fixture().use { f ->
-        val copied = SignalWandRailPreset("test:primary", "right", ModelPose.IDENTITY, false)
-        f.tool = f.tool.copy(railPreset = copied)
-        fun select(action: SignalWandSettingAction) {
-            f.handler.openSettings(f.player, f.tool)
-            f.choose!!(action); f.drainOwners()
-        }
-        select(SignalWandSettingAction.Model("test:model"))
-        assertEquals(copied, f.tool.railPreset) // primary model is selected by signal type
-        select(SignalWandSettingAction.Mode(SignalWandMode.DELETION))
-        assertEquals(copied, f.tool.railPreset)
-        f.primaryModels = mapOf("test:a" to "test:primary", "test:b" to "test:primary")
-        select(SignalWandSettingAction.Type("test:b"))
-        assertEquals(copied, f.tool.railPreset)
-        f.primaryModels = mapOf("test:a" to "test:other", "test:b" to "test:primary")
-        select(SignalWandSettingAction.Type("test:a"))
-        assertNull(f.tool.railPreset)
-        f.tool = f.tool.copy(railPreset = copied)
-        select(SignalWandSettingAction.ControlKind(SignalWandControlKind.ATTACHED_SIGNAL))
-        assertNull(f.tool.railPreset) // model-only namespace is not the signal-pack namespace
-        f.tool = f.tool.copy(railPreset = copied.copy(modelId = "test:model"))
-        select(SignalWandSettingAction.Type("test:b"))
-        assertEquals("test:model", f.tool.railPreset!!.modelId)
-        f.modelIds = listOf("test:model", "test:other")
-        select(SignalWandSettingAction.Model("test:other"))
-        assertNull(f.tool.railPreset)
-        assertEquals(0, f.performs)
-    }
 
-    @Test fun `rail placement uses copied preference after source removal while ground placement ignores it`() = Fixture().use { f ->
-        val adjustment = ModelPose(0.0, 1.0, 2.0, 0.0, 0.0, 1.0, 0.0)
-        f.models = mapOf("test:primary" to railModel("test:primary", mapOf("right" to RailPlacementPreset(adjustment, true))))
-        f.handler.openSettings(f.player, f.tool)
-        f.choose!!(SignalWandSettingAction.RailPreset("test:primary", "right")); f.drainOwners()
-        f.models = mapOf("test:primary" to railModel("test:primary", emptyMap()))
-        f.click()
-        f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0)))
-        f.drainOwners(); f.drainWorkers(); f.drainOwners()
-        val railPlacement = f.placements.single() as ModelPlacement.RailAttached
-        assertEquals(adjustment, railPlacement.adjustment)
-        assertTrue(railPlacement.followRailTilt)
-        assertEquals(2.0, railPlacement.position.arcLengthInAbMeters)
-        val ground = SignalWandHandler.groundPlacement(10, 63, -4, BlockFace.EAST, 0f)
-        f.handler.click(f.player, f.tool, Action.RIGHT_CLICK_BLOCK, ground)
-        f.drainWorkers(); f.drainOwners()
-        assertEquals(ground, f.placements.last())
-        assertEquals(1, f.targetCalls)
-        f.primaryModels = mapOf("test:a" to "test:other")
-        f.target = CompletableFuture()
-        f.click()
-        f.target.complete(Optional.of(RailTarget(f.rail, 3.0, 0.0)))
-        f.drainOwners(); f.drainWorkers(); f.drainOwners()
-        assertEquals(2, f.performs)
-        assertTrue(f.messages.last().toString().contains("model changed"))
-    }
-
-    @Test fun `settings callback rejects swapped revised removed unauthorized disabled and overflow state`() = Fixture().use { f ->
-        fun openAndChoose(opening: SignalWandState = f.tool, type: String = "test:b") {
-            f.handler.openSettings(f.player, opening)
-            f.choose!!(SignalWandSettingAction.Type(type))
-            f.drainOwners()
-        }
-
-        val first = f.tool
-        f.handler.openSettings(f.player, first)
-        f.tool = SignalWandState(UUID(9, 9), 0, SignalWandMode.PLACEMENT,
-            SignalWandControlKind.FIXED_BLOCK, "test:a")
-        f.choose!!(SignalWandSettingAction.Type("test:b")); f.drainOwners()
-        assertEquals(0L, f.tool.stateRevision)
-
-        f.tool = first.copy(stateRevision = 1)
-        openAndChoose(first)
-        assertEquals(1L, f.tool.stateRevision)
-
-        f.tool = first
-        f.handler.openSettings(f.player, first)
-        f.available = listOf(AvailableSignalType("test:a", "A"))
-        f.choose!!(SignalWandSettingAction.Type("test:b")); f.drainOwners()
-        assertEquals(first, f.tool)
-
-        f.available = Fixture.DEFAULT_TYPES
-        f.handler.openSettings(f.player, first)
-        f.permitted = false
-        f.choose!!(SignalWandSettingAction.Type("test:b")); f.drainOwners()
-        assertEquals(first, f.tool)
-
-        f.permitted = true
-        f.handler.openSettings(f.player, first)
-        f.pluginEnabled = false
-        f.choose!!(SignalWandSettingAction.Type("test:b")); f.drainOwners()
-        assertEquals(first, f.tool)
-
-        f.pluginEnabled = true
-        f.tool = first.copy(stateRevision = Long.MAX_VALUE)
-        openAndChoose(f.tool)
-        assertEquals(Long.MAX_VALUE, f.tool.stateRevision)
-    }
 
     @Test fun `duplicate clicks coalesce and worker geometry replies only on player owner`() = Fixture().use { f ->
         f.click(); f.click()
@@ -620,34 +355,6 @@ class SignalWandHandlerTest {
         assertTrue(f.messages.single().toString().contains("updated"))
     }
 
-    @Test fun `block event captures ground placement while shift right click keeps settings priority`() = Fixture().use { f ->
-        val block = proxy(Block::class.java) { name, _ -> when (name) {
-            "getX" -> 10
-            "getY" -> 63
-            "getZ" -> -4
-            else -> error("Unexpected block method $name")
-        } }
-        val place = PlayerInteractEvent(f.player, Action.RIGHT_CLICK_BLOCK, null, block, BlockFace.EAST,
-            EquipmentSlot.HAND)
-
-        f.handler.onInteract(place)
-
-        assertEquals(Event.Result.DENY, place.useItemInHand())
-        assertEquals(0, f.targetCalls)
-        f.drainWorkers()
-        assertEquals(SignalWandHandler.groundPlacement(10, 63, -4, BlockFace.EAST, 90f), f.placements.single())
-        f.drainOwners()
-
-        f.sneaking = true
-        val settings = PlayerInteractEvent(f.player, Action.RIGHT_CLICK_BLOCK, null, block, BlockFace.UP,
-            EquipmentSlot.HAND)
-        f.handler.onInteract(settings)
-
-        assertEquals(Event.Result.DENY, settings.useItemInHand())
-        assertTrue(f.settings.isNotEmpty())
-        assertEquals(1, f.performs)
-        assertEquals(0, f.targetCalls)
-    }
 
     @Test fun `left click binds entrance into item state and increments revision`() = Fixture().use { f ->
         f.tool = f.tool.copy(binding = null)
@@ -662,34 +369,7 @@ class SignalWandHandlerTest {
         assertTrue(f.messages.last().toString().contains("Bound"))
     }
 
-    @Test fun `mode setting clears binding and deletion uses left click`() = Fixture().use { f ->
-        val opening = f.tool
-        f.handler.openSettings(f.player, opening)
-        f.choose!!(SignalWandSettingAction.Mode(SignalWandMode.DELETION))
-        f.drainOwners()
-        assertEquals(SignalWandMode.DELETION, f.tool.mode)
-        assertNull(f.tool.binding)
 
-        f.target = CompletableFuture()
-        f.click(Action.LEFT_CLICK_AIR)
-        f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0)))
-        f.drainOwners(); f.drainWorkers(); f.drainOwners()
-        assertEquals(1, f.deletes)
-    }
-
-    @Test fun `control kind clears binding while signal type retains it`() = Fixture().use { f ->
-        val opening = f.tool
-        f.handler.openSettings(f.player, opening)
-        f.choose!!(SignalWandSettingAction.Type("test:b")); f.drainOwners()
-        assertEquals(f.binding, f.tool.binding)
-
-        val typed = f.tool
-        f.handler.openSettings(f.player, typed)
-        f.choose!!(SignalWandSettingAction.ControlKind(SignalWandControlKind.PROTECTION_CURRENT_ENTRY))
-        f.drainOwners()
-        assertEquals(SignalWandControlKind.PROTECTION_CURRENT_ENTRY, f.tool.controlKind)
-        assertNull(f.tool.binding)
-    }
 
     @Test fun `protection entrance chooser persists exact selected identity and stale callback cannot replace item`() = Fixture().use { f ->
         val selected = ProtectionCurrentEntrySignalWandBinding(f.worldId, "test:entry",
@@ -759,15 +439,14 @@ class SignalWandHandlerTest {
         f.handler.refreshStatus(f.player)
         assertEquals(1, f.statusStarts)
         val firstRetired = f.statusRetired!!
-        assertTrue(f.actionBars.last().toString().contains("test:a"))
+        assertTrue(f.actionBars.last().toString().contains("none"))
         assertTrue(f.actionBars.last().toString().contains("placement"))
-        assertTrue(f.actionBars.last().toString().contains("fixed-block primary"))
-        assertTrue(f.actionBars.last().toString().contains("test:block"))
+        assertFalse(f.actionBars.last().toString().contains("test:block"))
         assertFalse(f.actionBars.last().toString().contains("unavailable"))
 
         f.available = listOf(AvailableSignalType("test:b", "B"))
         f.statusTick!!.invoke()
-        assertTrue(f.actionBars.last().toString().contains("unavailable"))
+        assertTrue(f.actionBars.last().toString().contains("none"))
 
         f.toolPresent = false
         f.statusTick!!.invoke()
@@ -792,6 +471,102 @@ class SignalWandHandlerTest {
         assertEquals(3, f.statusCancels)
         f.handler.refreshStatus(f.player)
         assertEquals(4, f.statusStarts)
+    }
+
+    @Test fun `settings collect one draft preserve preset across default pages and reject stale callbacks`() = Fixture().use { f ->
+        f.tool = f.tool.copy(binding = null)
+        f.models = f.models + ("test:primary" to railModel("test:primary", mapOf("right" to RailPlacementPreset(ModelPose.IDENTITY, false))))
+        val original = f.tool
+        f.handler.openSettings(f.player, original)
+        assertEquals(2, f.page!!.columns)
+        assertEquals(4, f.page!!.options.size)
+        f.page!!.options[1].second(); f.drain()
+        f.page!!.options[0].second(); f.drain()
+        f.page!!.options.first { it.first == "B" }.second(); f.drain()
+        assertEquals(original, f.tool)
+        assertTrue(f.page!!.options[1].first.contains("right"))
+        f.page!!.options.last().second(); f.drain()
+        assertEquals(original, f.tool)
+        f.handler.openSettings(f.player, original)
+        f.page!!.options[0].second(); f.drain()
+        f.page!!.options.first { it.first == "A" }.second(); f.drain()
+        val apply = f.page!!.options[2].second
+        apply(); apply(); f.drain()
+        assertEquals("test:a", f.tool.blockDefaultType)
+        assertEquals(1, f.tool.stateRevision)
+        assertEquals(f.tool, SignalWandHandler.decodeState(SignalWandHandler.encodeState(f.tool)))
+        f.handler.openSettings(f.player, f.tool)
+        val staleApply = f.page!!.options[2].second
+        f.handler.switchMode(f.player)
+        staleApply(); f.drain()
+        assertEquals(SignalWandMode.DELETION, f.tool.mode)
+        assertEquals("test:a", f.tool.blockDefaultType)
+    }
+
+    @Test fun `picked device opens local diagnostics and type changes require one guarded confirmation`() = Fixture().use { f ->
+        f.tool = f.tool.copy(binding = null)
+        val original = f.placedDevice
+        f.pickedObjectId = original.renderObjectId()
+        f.rightClick(); f.drain()
+        assertEquals(0, f.targetCalls)
+        assertTrue(f.page!!.body.any { it.contains("first rule result") })
+        f.page!!.options.first { it.first == "Refresh diagnostics" }.second(); f.drain()
+        assertEquals(0, f.typeChanges)
+        f.page!!.options.first { it.first.contains("signal type") }.second(); f.drain()
+        f.page!!.options.first { it.first == "B" }.second(); f.drain()
+        assertEquals(0, f.typeChanges)
+        val confirm = f.page!!.options.first().second
+        confirm(); confirm(); f.drain()
+        assertEquals(1, f.typeChanges)
+        assertEquals(original, f.placedDevice)
+        assertTrue(f.placements.isEmpty())
+    }
+
+    @Test fun `target creation uses optional block default and protection purpose always has separate cancel`() = Fixture().use { f ->
+        f.tool = f.tool.copy(binding = null)
+        f.rightClick(); f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0))); f.drain()
+        assertEquals(listOf("A", "B"), f.page!!.options.map { it.first })
+        assertEquals("Cancel creation", f.page!!.exit!!.first)
+        f.page!!.options.first().second(); f.drain()
+        assertEquals(1, f.performs)
+        assertNull(f.tool.binding)
+        f.tool = f.tool.copy(blockDefaultType = "test:a")
+        f.target = CompletableFuture()
+        f.rightClick(); f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0))); f.drain()
+        assertEquals(2, f.performs)
+        f.occupiedPrimary = true
+        f.target = CompletableFuture()
+        f.rightClick(); f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0))); f.drain()
+        assertEquals(2, f.performs)
+        assertTrue(f.messages.last().toString().contains("already has"))
+        f.protectionEntrance = true
+        f.target = CompletableFuture()
+        f.rightClick(); f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0))); f.drain()
+        assertEquals(1, f.page!!.columns)
+        assertEquals(3, f.page!!.options.size)
+        assertEquals("Cancel creation", f.page!!.exit!!.first)
+        f.page!!.exit!!.second(); f.drain()
+        assertEquals(2, f.performs)
+    }
+
+    @Test fun `local rebind waits for a clicked entrance and confirmation and late clicks cannot replace settings`() = Fixture().use { f ->
+        f.tool = f.tool.copy(binding = null)
+        f.handler.openLocalEditor(f.player, f.tool, f.placedDevice); f.drain()
+        f.page!!.options.first { it.first == "Rebind existing primary signal" }.second(); f.drain()
+        f.rightClick()
+        f.handler.openSettings(f.player, f.tool)
+        val settings = f.page
+        f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0))); f.drain()
+        assertEquals(settings, f.page)
+        assertEquals(0, f.rebindings)
+        f.handler.openLocalEditor(f.player, f.tool, f.placedDevice); f.drain()
+        f.page!!.options.first { it.first == "Rebind existing primary signal" }.second(); f.drain()
+        f.target = CompletableFuture()
+        f.rightClick(); f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0))); f.drain()
+        assertEquals(0, f.rebindings)
+        f.page!!.options.first().second(); f.drain()
+        assertEquals(1, f.rebindings)
+        assertTrue(f.placements.isEmpty())
     }
 
     private class Fixture : AutoCloseable {
@@ -832,8 +607,11 @@ class SignalWandHandlerTest {
         val given = mutableListOf<SignalWandState>()
         val workers = ArrayDeque<() -> Unit>()
         val owners = ArrayDeque<() -> Unit>()
-        var settings = emptyList<SignalWandSetting>()
-        var choose: ((SignalWandSettingAction) -> Unit)? = null
+        var page: SignalWandDialog? = null
+        var pickedObjectId: String? = null
+        var protectionEntrance = false
+        var occupiedPrimary = false
+        var typeChanges = 0
         var choices = emptyList<SignalWandChoice>()
         var chooseChoice: ((SignalWandChoice) -> Unit)? = null
         var resolvedChoices: List<SignalWandChoice> = listOf(SignalWandChoice(binding, WandText.diagnostic("fixed")))
@@ -888,12 +666,25 @@ class SignalWandHandlerTest {
                 SignalWandControlKind.ATTACHED_SIGNAL, SignalWandControlKind.ROUTE_INDICATOR -> modelId
                 else -> primaryModels[signalType]
             }]
-            override fun capture(worldId: UUID, signalType: String, modelId: String?): SignalWandCapture {
-                require(available?.any { it.signalType == signalType } == true)
+            override fun capture(worldId: UUID, signalType: String?, modelId: String?): SignalWandCapture {
+                require(available != null && (signalType == null || available?.any { it.signalType == signalType } == true))
                 require(modelId == null || modelIds?.contains(modelId) == true)
                 return capture
             }
             override fun current(capture: SignalWandCapture) = current
+            override fun protectionEntrance(capture: SignalWandCapture, point: RailPositionSnapshot) = protectionEntrance
+            override fun occupiedPrimary(capture: SignalWandCapture, binding: FixedBlockSignalWandBinding) = occupiedPrimary
+            override fun deviceConfiguration(capture: SignalWandCapture, device: PlacedSignalChoice) = SignalDeviceConfiguration("test:a", "test:primary")
+            override fun diagnostics(capture: SignalWandCapture, device: PlacedSignalChoice): work.art1st.javarailways.simplesignals.runtime.SignalDeviceDiagnostics? = null
+            override fun changeType(capture: SignalWandCapture, device: PlacedSignalChoice,
+                signalType: String?, modelId: String?, active: () -> Boolean): SignalWandOutcome {
+                check(!ownerThread); require(active() && current); typeChanges++
+                return SignalWandOutcome("type changed")
+            }
+            override fun deletePlaced(capture: SignalWandCapture, device: PlacedSignalChoice, active: () -> Boolean): SignalWandOutcome {
+                check(!ownerThread); require(active() && current); deletes++
+                return SignalWandOutcome("deleted")
+            }
             override fun placedDevices(capture: SignalWandCapture): List<PlacedSignalChoice> {
                 check(!ownerThread)
                 require(current)
@@ -937,12 +728,12 @@ class SignalWandHandlerTest {
             }
             override fun rebindDevices(capture: SignalWandCapture): List<SignalRebindChoice> {
                 check(!ownerThread)
-                return listOf(ProtectionSignalRebindChoice(ProtectionSignalDefinition("test:unbound", 2,
-                    ProtectionSignalKind.FIXED_ROUTE, null, 0.0, "test:a")))
+                return listOf(FixedBlockSignalRebindChoice(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalDefinition(
+                    placedDevice.id, placedDevice.revision, null, 0.0, "test:a")))
             }
             override fun rebindTargets(capture: SignalWandCapture, device: SignalRebindChoice): List<SignalRebindTarget> {
                 check(!ownerThread)
-                return listOf(ProtectionSignalRebindTarget("test:entry", "test:route"))
+                return listOf(FixedBlockSignalRebindTarget(work.art1st.javarailways.simplesignals.signal.FixedBlockSignalEntry("test:block", FixedBlockEntryDirection.FORWARD)))
             }
             override fun rebind(capture: SignalWandCapture, device: SignalRebindChoice,
                 target: SignalRebindTarget, active: () -> Boolean): SignalWandOutcome {
@@ -963,7 +754,7 @@ class SignalWandHandlerTest {
                 assertTrue(active())
                 placements += placement
                 performs++
-                return SignalWandOutcome("updated")
+                return SignalWandOutcome(WandText.diagnostic("updated"), applied = true)
             }
             override fun delete(capture: SignalWandCapture, binding: SignalWandBinding, active: () -> Boolean): SignalWandOutcome {
                 check(!ownerThread)
@@ -983,7 +774,8 @@ class SignalWandHandlerTest {
             replaceToolState = { _, expected, replacement ->
                 if (!toolPresent || tool != expected) false else { tool = replacement; true }
             },
-            showSettings = { _, values, callback -> settings = values; choose = callback },
+            showPage = { _, value -> check(ownerThread); page = value; dialogOptions = value.options },
+            findDevice = { check(ownerThread); CompletableFuture.completedFuture(Optional.ofNullable(pickedObjectId)) },
             showChoices = { _, values, callback -> choices = values; chooseChoice = callback },
             scheduleStatus = { _, tick, retired ->
                 statusStarts++
@@ -996,6 +788,7 @@ class SignalWandHandlerTest {
 
         fun command(vararg args: String) = handler.onCommand(player, command, "simplesignals", args)
         fun click(action: Action = Action.RIGHT_CLICK_AIR) = handler.click(player, tool, action)
+        fun rightClick() = handler.onInteract(PlayerInteractEvent(player, Action.RIGHT_CLICK_AIR, null, null, BlockFace.SELF, EquipmentSlot.HAND))
         fun drainOwners() { ownerThread = true; while (owners.isNotEmpty()) owners.removeFirst().invoke() }
         fun drain() { while (owners.isNotEmpty() || workers.isNotEmpty()) { drainOwners(); drainWorkers() } }
         fun drainWorkers() {

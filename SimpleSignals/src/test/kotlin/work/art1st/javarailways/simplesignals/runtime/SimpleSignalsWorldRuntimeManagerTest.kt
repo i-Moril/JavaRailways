@@ -3396,6 +3396,50 @@ class SimpleSignalsWorldRuntimeManagerTest {
     private fun railModel(rail: UUID, at: Double = 0.0) = DeviceModelDefinition("demo_signals:home",
         ModelPlacement.RailAttached(RailPositionSnapshot(rail, ViewDirection.BA, at)))
 
+    @Test
+    fun `contextual signal type change preserves exact binding placement and edit protection`() {
+        val f = Fixture()
+        val initial = deviceModelDefinitions(f, "fixed", railModel(f.entry, 2.0))
+        val definitions = store()
+        definitions.save(f.worldId, initial)
+        val registry = editRegistry(f.currentTopology)
+        val infrastructure = MutableTopologyService(f.currentTopology, registry)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, sources,
+            loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack("proceed", modelVariants = listOf("stop", "proceed")))
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        val backend = RuntimeSignalWandBackend(manager, infrastructure.service)
+        val capture = backend.capture(f.worldId, null)
+        val device = backend.placedDevices(capture).single()
+        val runtime = manager.authoringRuntime(f.worldId)!!
+        val publication = runtime.authoringPublication()
+        val disk = Files.readString(definitions.primaryFile(f.worldId))
+        backend.changeType(capture, device, "automatic:block", null) { true }
+        assertSame(publication, runtime.authoringPublication(), "same type must not write or advance revision")
+        assertEquals(0, infrastructure.permitAcquisitionCount)
+        assertThrows(IllegalArgumentException::class.java) {
+            backend.changeType(capture, device, "automatic:slow", null) { false }
+        }
+        val release = protect(registry, f.currentTopology, f.entry, TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM)
+        assertTrue(backend.changeType(capture, device, "automatic:slow", null) { true }.text.render(java.util.Locale.US).contains("EDIT_BLOCKED"))
+        assertSame(publication, runtime.authoringPublication())
+        assertEquals(disk, Files.readString(definitions.primaryFile(f.worldId)))
+        release()
+        backend.changeType(capture, device, "automatic:slow", null) { true }
+        val changed = runtime.currentDefinitions()
+        assertEquals(initial.fixedBlockSignals.single().copy(revision = device.revision + 1, signalType = "automatic:slow"),
+            changed.fixedBlockSignals.single())
+        assertEquals(initial.fixedBlocks, changed.fixedBlocks)
+        assertEquals(initial.routeTables, changed.routeTables)
+        assertEquals(changed, (definitions.load(f.worldId) as
+            work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionLoadResult.Loaded).definitions)
+        assertThrows(IllegalArgumentException::class.java) {
+            backend.changeType(capture, device, "automatic:block", null) { true }
+        }
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = ["fixed", "fixed-route", "current-entry", "attached-fixed", "indicator"])
     fun `numeric placement backend preserves device configuration and persists rail or ground edits atomically`(kind: String) {

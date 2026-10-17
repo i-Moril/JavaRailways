@@ -21,31 +21,26 @@ internal class PlacementWandEditor(
 ) {
     private fun text(key: String, vararg arguments: Any?): String = WandI18n.format(locale, key, *arguments)
 
-    fun selectDevice() {
-        val devices = backend.placedDevices(capture)
-        require(devices.isNotEmpty()) { text("editor.placement.empty") }
-        page(text("editor.placement.select"), devices.mapIndexed { index, device ->
-            text("editor.placement.choice", authoringName(device.id, "name.signal"), index + 1,
-                text("editor.kind.${device.kind.name.lowercase(Locale.ROOT)}")) to {
-            require(backend.current(capture)) { text("editor.selection.expired") }
-            val placement = device.placement
-            val pose = when (placement) {
-                is ModelPlacement.RailAttached -> placement.adjustment
-                is ModelPlacement.Ground -> placement.pose
-            }
-            val angles = Quaterniond(pose.rotationX(), pose.rotationY(), pose.rotationZ(), pose.rotationW())
-                .getEulerAnglesXYZ(Vector3d())
-            val initial = PlacementWandInput(linkedMapOf(
-                "x" to pose.x().toString(), "y" to pose.y().toString(), "z" to pose.z().toString(),
-                "rx" to Math.toDegrees(angles.x).toString(), "ry" to Math.toDegrees(angles.y).toString(),
-                "rz" to Math.toDegrees(angles.z).toString()),
-                (placement as? ModelPlacement.RailAttached)?.followRailTilt)
-            input(text(if (placement is ModelPlacement.RailAttached) "editor.placement.rail"
-                else "editor.placement.ground"), initial) { submitted ->
-                if (submitted == null) reply(text("editor.placement.cancelled"))
-                else confirm(device, pose, initial, submitted)
-            }
-        } } + (text("editor.cancel") to { reply(text("editor.placement.cancelled")) }))
+
+    fun editDevice(device: PlacedSignalChoice) {
+        require(backend.current(capture)) { text("editor.selection.expired") }
+        val placement = device.placement
+        val pose = when (placement) {
+            is ModelPlacement.RailAttached -> placement.adjustment
+            is ModelPlacement.Ground -> placement.pose
+        }
+        val angles = Quaterniond(pose.rotationX(), pose.rotationY(), pose.rotationZ(), pose.rotationW())
+            .getEulerAnglesXYZ(Vector3d())
+        val initial = PlacementWandInput(linkedMapOf(
+            "x" to pose.x().toString(), "y" to pose.y().toString(), "z" to pose.z().toString(),
+            "rx" to Math.toDegrees(angles.x).toString(), "ry" to Math.toDegrees(angles.y).toString(),
+            "rz" to Math.toDegrees(angles.z).toString()),
+            (placement as? ModelPlacement.RailAttached)?.followRailTilt)
+        input(text(if (placement is ModelPlacement.RailAttached) "editor.placement.rail"
+            else "editor.placement.ground"), initial) { submitted ->
+            if (submitted == null) reply(text("editor.placement.cancelled"))
+            else confirm(device, pose, initial, submitted)
+        }
     }
 
     private fun confirm(device: PlacedSignalChoice, oldPose: ModelPose,

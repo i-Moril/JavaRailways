@@ -13,6 +13,15 @@ import org.bukkit.entity.Player
 
 /** Shared owner-thread choice/confirmation presentation; callbacks still validate their own intent. */
 internal object WandDialogs {
+    fun page(player: Player, page: SignalWandDialog) {
+        fun button(option: Pair<String, () -> Unit>) = ActionButton.builder(Component.text(option.first.take(256)))
+            .action(DialogAction.customClick({ _, audience -> if (audience === player) option.second() },
+                ClickCallback.Options.builder().uses(1).lifetime(ClickCallback.DEFAULT_LIFETIME).build())).build()
+        player.showDialog(Dialog.create { factory -> factory.empty()
+            .base(DialogBase.builder(Component.text(page.title)).body(page.body.map { DialogBody.plainMessage(Component.text(it)) })
+                .canCloseWithEscape(true).build())
+            .type(DialogType.multiAction(page.options.map(::button), page.exit?.let(::button), page.columns)) })
+    }
     fun placement(player: Player, title: String, initial: PlacementWandInput,
         submitted: (PlacementWandInput?) -> Unit) {
         val inputs = initial.fields.map { (key, value) ->
@@ -32,7 +41,7 @@ internal object WandDialogs {
             .base(DialogBase.builder(Component.text(title)).body(listOf(DialogBody.plainMessage(
                 Component.text(WandI18n.format(player, "placement.help")))))
                 .inputs(inputs).canCloseWithEscape(true).build())
-            .type(DialogType.multiAction(listOf(submit, cancel), null, 1)) })
+            .type(DialogType.multiAction(listOf(submit, cancel), null, 2)) })
     }
 
     fun show(player: Player, title: String, options: List<Pair<String, () -> Unit>>) {
@@ -46,3 +55,6 @@ internal object WandDialogs {
             .type(DialogType.multiAction(buttons, null, 1)) })
     }
 }
+
+internal data class SignalWandDialog(val title: String, val body: List<String> = emptyList(),
+    val options: List<Pair<String, () -> Unit>>, val exit: Pair<String, () -> Unit>? = null, val columns: Int = 2)

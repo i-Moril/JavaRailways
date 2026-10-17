@@ -10,27 +10,12 @@ internal class RouteIndicatorWandEditor(
     private val page: (String, List<Pair<String, () -> Unit>>) -> Unit,
     private val reply: (String) -> Unit,
     private val active: () -> Boolean,
-    private val locale: Locale = Locale.US
+    private val locale: Locale = Locale.US,
+    private val saved: (SignalWandOutcome) -> Unit = { reply(it.text.render(locale)) }
 ) {
     private fun text(key: String, vararg arguments: Any?): String = WandI18n.format(locale, key, *arguments)
     private val cancel = text("editor.cancel") to { reply(text("editor.indicator.cancelled")) }
 
-    fun selectDevice() {
-        val devices = backend.indicatorDevices(capture)
-        require(devices.isNotEmpty()) { text("editor.indicator.empty") }
-        page(text("editor.indicator.select"), devices.mapIndexed { index, device ->
-            text("editor.numbered_choice", authoringName(device.indicatorId, "editor.name.indicator"), index + 1) to {
-            require(backend.current(capture)) { text("editor.selection.expired") }
-            val binding = RouteIndicatorSignalWandBinding(capture.worldId, device.entryBoundaryId,
-                device.indicatorId, device.revision)
-            val entries = (backend.indicatorEntries(capture) + listOfNotNull(device.entryBoundaryId)).distinct().sorted()
-            require(entries.isNotEmpty()) { text("signal.rebind.target.empty") }
-            page(text("editor.indicator.entry"), entries.mapIndexed { entryIndex, entry ->
-                text("editor.numbered_choice", authoringName(entry, "name.entrance"), entryIndex + 1) to {
-                configure(binding, entry, null)
-            } } + cancel)
-        } } + cancel)
-    }
 
     fun configure(binding: RouteIndicatorSignalWandBinding, entry: String, placement: ModelPlacement?) {
         val options = backend.indicatorOptions(capture, binding, entry)
@@ -59,7 +44,7 @@ internal class RouteIndicatorWandEditor(
             text("editor.indicator.review", missing) to {
                 page(text("editor.indicator.confirm", authoringName(entry, "name.entrance")), listOf(
                     text(if (placement == null) "editor.indicator.save" else "editor.indicator.create") to {
-                        reply(backend.saveIndicator(capture, binding, entry, noRoute, mappings, placement, active).text.render(locale))
+                        saved(backend.saveIndicator(capture, binding, entry, noRoute, mappings, placement, active))
                     }, cancel))
             }, cancel))
     }

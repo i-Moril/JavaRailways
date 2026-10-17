@@ -123,7 +123,7 @@ class RailInfrastructureMetadataMigrationTest {
         {"formatVersion":2,"infrastructureRevision":7,"rails":[{
           "id":"00000000-0000-0000-0000-000000000001",
           "curveAB":{"pointList":[]},
-          "nextRailAtA":[],"nextRailAtB":[],"activeTrackAtA":null,"activeTrackAtB":null
+          "connectionsAtA":[],"connectionsAtB":[],"activeConnectionAtA":null,"activeConnectionAtB":null
         }]}
     """.trimIndent()
 
@@ -138,7 +138,7 @@ class RailInfrastructureMetadataMigrationTest {
               "allowableCantDeficiencyMeters":0.075,"parallel":null},
             "assembly":null,"createdBySplit":null,"turnoutAtA":null,"turnoutAtB":null,
             "gradeLockedAtA":true,"gradeLockedAtB":false},
-          "nextRailAtA":[],"nextRailAtB":[],"activeTrackAtA":null,"activeTrackAtB":null
+          "connectionsAtA":[],"connectionsAtB":[],"activeConnectionAtA":null,"activeConnectionAtB":null
         }]}
     """.trimIndent()
 

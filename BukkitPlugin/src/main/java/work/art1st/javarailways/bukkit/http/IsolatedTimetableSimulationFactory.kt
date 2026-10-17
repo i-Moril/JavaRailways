@@ -110,8 +110,8 @@ internal class IsolatedTimetableSimulationFactory(
         val revision = 0L
         val coreInfrastructure = liveWorld.saveInfrastructure(revision).let { infrastructure ->
             infrastructure.copy(rails = infrastructure.rails.map { rail -> rail.copy(
-                activeTrackAtA = rail.nextRailAtA.sorted().firstOrNull(),
-                activeTrackAtB = rail.nextRailAtB.sorted().firstOrNull()
+                activeConnectionAtA = rail.connectionsAtA.sortedWith(compareBy({ it.railId }, { it.endpoint })).firstOrNull(),
+                activeConnectionAtB = rail.connectionsAtB.sortedWith(compareBy({ it.railId }, { it.endpoint })).firstOrNull()
             ) })
         }
         return IsolatedTimetableSimulationSnapshot(

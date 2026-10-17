@@ -111,8 +111,8 @@ class PreparedRailWorldSnapshotPlan private constructor(
         ): PreparedRailWorldSnapshotPlan {
             val currentCurves = currentSaved.mapValues { (_, saved) -> saved.curveAB.load(Unit) }
             val targetCurves = targetSaved.mapValues { (_, saved) -> saved.curveAB.load(Unit) }
-            val currentStates = decodeEndpointStates(currentSaved, currentCurves)
-            val targetStates = decodeEndpointStates(targetSaved, targetCurves)
+            val currentStates = decodeSavedRailGraph(currentSaved, currentCurves)
+            val targetStates = decodeSavedRailGraph(targetSaved, targetCurves)
             val changedExistingEndpoints = currentSaved.keys.intersect(targetSaved.keys)
                 .asSequence()
                 .filterNot(removedOrReplacedRailIds::contains)
@@ -247,29 +247,6 @@ class PreparedRailWorldSnapshotPlan private constructor(
                 preparedCreations, targetStates, removedCrossings, affectedExistingIds, capturedStates,
                 preserveCurrentActiveSelections, topologyUpdate
             )
-        }
-
-        private fun decodeEndpointStates(
-            savedById: Map<UUID, CoreRail.SavedRailV1>,
-            curvesById: Map<UUID, work.art1st.javarailways.core.api.physics.curve.PrimeCurve>
-        ): Map<RailEndpointRef, SnapshotEndpointState> {
-            val states = linkedMapOf<RailEndpointRef, SnapshotEndpointState>()
-            savedById.forEach { (railId, saved) ->
-                fun add(endpoint: RailEndpoint, nextIds: List<String>, activeId: String?) {
-                    val source = RailEndpointRef(railId, endpoint)
-                    states[source] = decodeSavedRailEndpoint(source, nextIds, activeId, curvesById::get)
-                }
-                add(RailEndpoint.A, saved.nextRailAtA, saved.activeTrackAtA)
-                add(RailEndpoint.B, saved.nextRailAtB, saved.activeTrackAtB)
-            }
-            states.forEach { (source, state) ->
-                state.connectedEndpoints.forEach { target ->
-                    require(source in states.getValue(target).connectedEndpoints) {
-                        "snapshot connection is not symmetric: $source <-> $target"
-                    }
-                }
-            }
-            return Collections.unmodifiableMap(states)
         }
 
         private fun crossingTouches(crossing: AtGradeRailCrossing, railIds: Set<UUID>): Boolean =

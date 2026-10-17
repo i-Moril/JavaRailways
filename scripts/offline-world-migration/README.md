@@ -1,14 +1,44 @@
 # One-time development-world migration
 
 This tool is an independent `offlineMigration` source set, not a runtime reader and not part of
-the JavaRailways plugin JAR. It accepts only the audited pre-SimpleATO outer format 1 / Basic
-infrastructure and runtime format 1 save. It reuses the infrastructure converter, strictly decodes
-all current Core/Basic/SimpleATO documents, then runs their real business restore methods.
+the JavaRailways plugin JAR. It has two explicitly selected modes. The default accepts the audited pre-SimpleATO outer format 1 /
+Basic infrastructure and runtime format 1 save. `-PmigrationEndpointsOnly` accepts already ownership-migrated
+outer format 2 pairs and converts UUID-only Core infrastructure 2 connections to exact target endpoints.
+Both strictly decode all current Core/Basic/SimpleATO documents, then run their real business restore methods.
+The default ownership conversion composes endpoint conversion before producing current output.
 
-It intentionally rejects non-empty legacy physical trains, timetables, rolling-stock ledgers and
+The default ownership mode intentionally rejects non-empty legacy physical trains, timetables, rolling-stock ledgers and
 dispatcher clocks/runs. Those records need a separately audited mapping, not guessed defaults.
 Dispatcher counters, infrastructure revisions and physics epochs are preserved. It does not run
 physics, install resource claims or apply timetables.
+
+## Exact endpoint conversion
+
+```bash
+./gradlew :BukkitPlugin:migrateDevelopmentWorlds --offline \
+  -PmigrationSource=/absolute/read-only-copy/worlds -PmigrationEndpointsOnly
+```
+
+This mode only replaces `nextRailAtA/B` and `activeTrackAtA/B` inside Core infrastructure with
+`connectionsAtA/B` and `activeConnectionAtA/B`, each reference containing `railId` and `endpoint`
+(`A` or `B`). It does not increment any version. Each UUID-only target must have exactly one end
+within Core's 5 mm connection tolerance of the source endpoint. Missing, zero-candidate or ambiguous
+targets, malformed active selections, unknown fields, mixed old/current shapes, asymmetric graphs
+and other current restore failures reject the entire candidate before output is created. The
+current decoder and real restore validate already explicit input too; successful current input is
+copied byte for byte. Current and `.bak` each require a matching runtime file and revision.
+
+Runtime files retain their original bytes, including gzip encoding; this mode does not impose the
+old ownership converter's empty-operations restriction. Outer, Basic and SimpleATO business values,
+rail curves, connection order, valid null selections, revisions and epochs are preserved. Every
+inferred connection is reported. Curve repair cannot be combined with endpoint mode.
+
+Use `-PmigrationOutput=/absolute/NEW-output` only after reviewing the dry-run. An online read-only
+copy is useful for investigation, but is not an atomic stopped-server recovery point. Before actual
+installation, stop writers, take the complete external archive described below, and revalidate a
+fresh source. The converter never contacts, stops, replaces files on or deploys to the development
+server at `192.168.1.230`. Its legacy-input support window lasts only until the retained UUID-only
+development saves have been converted and the user authorizes removing the independent tool.
 
 ## Before running
 
@@ -58,5 +88,5 @@ individual backups, contrary to the required whole-directory archive policy.
 Focused verification:
 
 ```bash
-./gradlew :BukkitPlugin:test --tests '*DevelopmentWorldMigrationTest'
+./gradlew :BukkitPlugin:test --tests '*DevelopmentWorldMigrationTest' --tests '*EndpointWorldMigrationTest'
 ```

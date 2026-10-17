@@ -1,5 +1,6 @@
 package work.art1st.javarailways.core.physics
 
+import work.art1st.javarailways.core.physics.rail.SavedRailEndpointRef
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -402,10 +403,10 @@ class CoreWorldRailTopologyTransactionTest {
         val prepared = connectionPlan.prepareTopologyUpdate()
         val targetStem = prepared.targetRailSnapshot.single { it.id == stem.id.toString() }
 
-        assertEquals(listOf(second.id.toString(), first.id.toString()), targetStem.nextRailAtB)
-        assertEquals(second.id.toString(), targetStem.activeTrackAtB)
+        assertEquals(listOf(SavedRailEndpointRef(second.id.toString(), RailEndpoint.A), SavedRailEndpointRef(first.id.toString(), RailEndpoint.A)), targetStem.connectionsAtB)
+        assertEquals(SavedRailEndpointRef(second.id.toString(), RailEndpoint.A), targetStem.activeConnectionAtB)
         assertThrows(UnsupportedOperationException::class.java) {
-            (targetStem.nextRailAtB as MutableList<String>).add(UUID.randomUUID().toString())
+            (targetStem.connectionsAtB as MutableList<SavedRailEndpointRef>).add(SavedRailEndpointRef(UUID.randomUUID().toString(), RailEndpoint.A))
         }
 
         IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(prepared) {
@@ -701,12 +702,12 @@ class CoreWorldRailTopologyTransactionTest {
     ): List<CoreRail.SavedRailV1> = current.map { saved ->
         when (saved.id) {
             firstId.toString() -> saved.copy(
-                nextRailAtB = listOf(secondId.toString()),
-                activeTrackAtB = secondId.toString()
+                connectionsAtB = listOf(SavedRailEndpointRef(secondId.toString(), RailEndpoint.A)),
+                activeConnectionAtB = SavedRailEndpointRef(secondId.toString(), RailEndpoint.A)
             )
             secondId.toString() -> saved.copy(
-                nextRailAtA = listOf(firstId.toString()),
-                activeTrackAtA = firstId.toString()
+                connectionsAtA = listOf(SavedRailEndpointRef(firstId.toString(), RailEndpoint.B)),
+                activeConnectionAtA = SavedRailEndpointRef(firstId.toString(), RailEndpoint.B)
             )
             else -> saved
         }

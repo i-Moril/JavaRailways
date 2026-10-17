@@ -96,10 +96,10 @@ class CoreRail @MainThread private constructor(
         return SavedRailV1(
             id.toString(),
             curveSnapshot,
-            viewBA.nextRails.map { it.rail.id.toString() },
-            viewAB.nextRails.map { it.rail.id.toString() },
-            viewBA.nextActiveRail?.rail?.id?.toString(),
-            viewAB.nextActiveRail?.rail?.id?.toString()
+            viewBA.nextRails.map(SavedRailEndpointRef::fromAwayView),
+            viewAB.nextRails.map(SavedRailEndpointRef::fromAwayView),
+            viewBA.nextActiveRail?.let(SavedRailEndpointRef::fromAwayView),
+            viewAB.nextActiveRail?.let(SavedRailEndpointRef::fromAwayView)
         )
     }
 
@@ -107,10 +107,10 @@ class CoreRail @MainThread private constructor(
     data class SavedRailV1(
         val id: String,
         val curveAB: PrimeCurveImpl.SavedPrimeCurveV1,
-        val nextRailAtA: List<String>,
-        val nextRailAtB: List<String>,
-        val activeTrackAtA: String?,
-        val activeTrackAtB: String?
+        val connectionsAtA: List<SavedRailEndpointRef>,
+        val connectionsAtB: List<SavedRailEndpointRef>,
+        val activeConnectionAtA: SavedRailEndpointRef?,
+        val activeConnectionAtB: SavedRailEndpointRef?
     ) : Loads<CoreRail, SavedRailV1.Dependency> {
         override fun load(dependency: Dependency): CoreRail =
             dependency.world.railTopologyTransaction {
@@ -120,9 +120,11 @@ class CoreRail @MainThread private constructor(
             }
 
         fun loadDisconnected(dependency: Dependency): CoreRail {
-            val curve = curveAB.load(Unit)
-            return dependency.world.createRailInTransaction(UUID.fromString(id), curve)
+            return loadDisconnected(dependency, curveAB.load(Unit))
         }
+
+        internal fun loadDisconnected(dependency: Dependency, curve: PrimeCurve): CoreRail =
+            dependency.world.createRailInTransaction(UUID.fromString(id), curve)
 
         fun restoreConnections(rail: CoreRail, dependency: Dependency) {
             require(rail.world === dependency.world) { "rail belongs to a different world" }
@@ -134,11 +136,17 @@ class CoreRail @MainThread private constructor(
         private fun restoreConnectionsInTransaction(rail: CoreRail, dependency: Dependency) {
             val curveById = { railId: UUID -> dependency.world.getRail(railId)?.curve }
             val stateA = decodeSavedRailEndpoint(
-                RailEndpointRef(rail.id, RailEndpoint.A), nextRailAtA, activeTrackAtA, curveById
+                RailEndpointRef(rail.id, RailEndpoint.A), connectionsAtA, activeConnectionAtA, curveById
             )
             val stateB = decodeSavedRailEndpoint(
-                RailEndpointRef(rail.id, RailEndpoint.B), nextRailAtB, activeTrackAtB, curveById
+                RailEndpointRef(rail.id, RailEndpoint.B), connectionsAtB, activeConnectionAtB, curveById
             )
+            restoreValidatedConnections(rail, dependency, stateA, stateB)
+        }
+
+        internal fun restoreValidatedConnections(
+            rail: CoreRail, dependency: Dependency, stateA: SnapshotEndpointState, stateB: SnapshotEndpointState
+        ) {
             fun awayView(endpoint: RailEndpointRef): RailView {
                 val target = requireNotNull(dependency.world.getRail(endpoint.railId))
                 return if (endpoint.endpoint == RailEndpoint.A) target.viewAB else target.viewBA

@@ -333,10 +333,10 @@ class PhysicalTopologyReplacementOrRemovalImpactResolverTest {
     private fun savedRail(id: java.util.UUID, curve: PrimeCurve) = CoreRail.SavedRailV1(
         id = id.toString(),
         curveAB = curve.save() as PrimeCurveImpl.SavedPrimeCurveV1,
-        nextRailAtA = emptyList(),
-        nextRailAtB = emptyList(),
-        activeTrackAtA = null,
-        activeTrackAtB = null
+        connectionsAtA = emptyList(),
+        connectionsAtB = emptyList(),
+        activeConnectionAtA = null,
+        activeConnectionAtB = null
     )
 
     private fun snapshotImpact(plan: work.art1st.javarailways.core.physics.rail.PreparedRailWorldSnapshotPlan) =

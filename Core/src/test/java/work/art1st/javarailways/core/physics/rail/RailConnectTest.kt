@@ -1,5 +1,6 @@
 package work.art1st.javarailways.core.physics.rail
 
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import org.joml.Vector3d
@@ -26,14 +27,14 @@ class RailConnectTest {
 
         val firstSaved = first.save()
         val secondSaved = second.save()
-        assertEquals(emptyList<String>(), firstSaved.nextRailAtA)
-        assertEquals(listOf(second.id.toString()), firstSaved.nextRailAtB)
-        assertNull(firstSaved.activeTrackAtA)
-        assertEquals(second.id.toString(), firstSaved.activeTrackAtB)
-        assertEquals(listOf(first.id.toString()), secondSaved.nextRailAtA)
-        assertEquals(emptyList<String>(), secondSaved.nextRailAtB)
-        assertEquals(first.id.toString(), secondSaved.activeTrackAtA)
-        assertNull(secondSaved.activeTrackAtB)
+        assertEquals(emptyList<SavedRailEndpointRef>(), firstSaved.connectionsAtA)
+        assertEquals(listOf(SavedRailEndpointRef(second.id.toString(), RailEndpoint.A)), firstSaved.connectionsAtB)
+        assertNull(firstSaved.activeConnectionAtA)
+        assertEquals(SavedRailEndpointRef(second.id.toString(), RailEndpoint.A), firstSaved.activeConnectionAtB)
+        assertEquals(listOf(SavedRailEndpointRef(first.id.toString(), RailEndpoint.B)), secondSaved.connectionsAtA)
+        assertEquals(emptyList<SavedRailEndpointRef>(), secondSaved.connectionsAtB)
+        assertEquals(SavedRailEndpointRef(first.id.toString(), RailEndpoint.B), secondSaved.activeConnectionAtA)
+        assertNull(secondSaved.activeConnectionAtB)
     }
 
     @Test

@@ -31,6 +31,8 @@ import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.core.physics.train.CollisionEnvelope
 import work.art1st.javarailways.core.physics.train.TrainCoupling
+import work.art1st.javarailways.core.physics.rail.SavedRailEndpointRef
+import work.art1st.javarailways.core.physics.rail.decodeSavedRailGraph
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.AtGradeRailCrossingIndex
 import work.art1st.javarailways.core.physics.rail.RailView
@@ -158,6 +160,13 @@ class CoreWorld(
                         infrastructure.infrastructureRevision
                 }
             }
+            val savedById = linkedMapOf<UUID, CoreRail.SavedRailV1>()
+            infrastructure.rails.forEach { saved ->
+                val id = UUID.fromString(saved.id)
+                require(savedById.put(id, saved) == null) { "duplicate snapshot rail ID: $id" }
+            }
+            val curves = savedById.mapValues { (_, saved) -> saved.curveAB.load(Unit) }
+            val endpointStates = decodeSavedRailGraph(savedById, curves)
             val world = CoreWorld(
                 dependency.tickManager,
                 dependency.physicsCoordinator,
@@ -167,9 +176,15 @@ class CoreWorld(
                 return world.physicsCoordinator.withStructuralMutation {
                     world.railTopologyTransaction {
                         val railDependency = CoreRail.SavedRailV1.Dependency(world)
-                        val loadedRails = infrastructure.rails.map { it.loadDisconnected(railDependency) }
+                        val loadedRails = infrastructure.rails.map { saved ->
+                            saved.loadDisconnected(railDependency, curves.getValue(UUID.fromString(saved.id)))
+                        }
                         infrastructure.rails.zip(loadedRails).forEach { (savedRail, rail) ->
-                            savedRail.restoreConnections(rail, railDependency)
+                            savedRail.restoreValidatedConnections(
+                                rail, railDependency,
+                                endpointStates.getValue(RailEndpointRef(rail.id, RailEndpoint.A)),
+                                endpointStates.getValue(RailEndpointRef(rail.id, RailEndpoint.B))
+                            )
                         }
                     }
                     runtime?.trains.orEmpty().forEach { savedTrain ->
@@ -700,16 +715,15 @@ class CoreWorld(
         finalActiveEndpoints: Map<RailEndpointRef, RailEndpointRef?>
     ): List<CoreRail.SavedRailV1> {
         val baseById = baseSnapshot.associateBy { saved -> UUID.fromString(saved.id) }
-        fun connections(endpoint: RailEndpointRef, base: List<String>): List<String> {
-            val targetIds = targetConnections[endpoint].orEmpty().mapTo(linkedSetOf(), RailEndpointRef::railId)
+        fun connections(endpoint: RailEndpointRef, base: List<SavedRailEndpointRef>): List<SavedRailEndpointRef> {
+            val targets = targetConnections[endpoint].orEmpty().mapTo(linkedSetOf(), SavedRailEndpointRef::fromEndpoint)
             val explicit = finalConnectionOrder[endpoint]
-            if (explicit != null) return explicit.map { it.railId.toString() }
-            val retained = base.filter { UUID.fromString(it) in targetIds }
-            val retainedIds = retained.mapTo(hashSetOf(), UUID::fromString)
-            return retained + (targetIds - retainedIds).map(UUID::toString).sorted()
+            if (explicit != null) return explicit.map(SavedRailEndpointRef::fromEndpoint)
+            val retained = base.filter { it in targets }
+            return retained + (targets - retained.toSet()).sortedWith(compareBy({ it.railId }, { it.endpoint }))
         }
-        fun active(endpoint: RailEndpointRef, connected: List<String>, base: String?): String? {
-            val explicit = finalActiveEndpoints[endpoint]?.railId?.toString()
+        fun active(endpoint: RailEndpointRef, connected: List<SavedRailEndpointRef>, base: SavedRailEndpointRef?): SavedRailEndpointRef? {
+            val explicit = finalActiveEndpoints[endpoint]?.let(SavedRailEndpointRef::fromEndpoint)
             return when {
                 endpoint in finalActiveEndpoints -> explicit
                 base in connected -> base
@@ -722,15 +736,15 @@ class CoreWorld(
                 ?: requireNotNull(base) { "missing curve for prepared target rail $railId" }.curveAB
             val endpointA = RailEndpointRef(railId, RailEndpoint.A)
             val endpointB = RailEndpointRef(railId, RailEndpoint.B)
-            val atA = connections(endpointA, base?.nextRailAtA.orEmpty())
-            val atB = connections(endpointB, base?.nextRailAtB.orEmpty())
+            val atA = connections(endpointA, base?.connectionsAtA.orEmpty())
+            val atB = connections(endpointB, base?.connectionsAtB.orEmpty())
             CoreRail.SavedRailV1(
                 id = railId.toString(),
                 curveAB = curve,
-                nextRailAtA = atA,
-                nextRailAtB = atB,
-                activeTrackAtA = active(endpointA, atA, base?.activeTrackAtA),
-                activeTrackAtB = active(endpointB, atB, base?.activeTrackAtB)
+                connectionsAtA = atA,
+                connectionsAtB = atB,
+                activeConnectionAtA = active(endpointA, atA, base?.activeConnectionAtA),
+                activeConnectionAtB = active(endpointB, atB, base?.activeConnectionAtB)
             )
         }
     }

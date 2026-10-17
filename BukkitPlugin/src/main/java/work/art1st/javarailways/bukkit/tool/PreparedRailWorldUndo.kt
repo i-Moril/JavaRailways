@@ -41,7 +41,7 @@ internal class PreparedRailWorldUndo(
 internal fun normalizeRailWandUndoRails(
     rails: List<CoreRail.SavedRailV1>
 ): List<CoreRail.SavedRailV1> = rails.map { saved ->
-    saved.copy(activeTrackAtA = null, activeTrackAtB = null)
+    saved.copy(activeConnectionAtA = null, activeConnectionAtB = null)
 }
 
 /**

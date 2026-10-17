@@ -154,6 +154,7 @@ tasks.register('migrateDevelopmentWorlds', JavaExec) {
         args = [project.property('migrationSource').toString()]
         if (project.hasProperty('migrationOutput')) args += ['--output', project.property('migrationOutput').toString()]
         if (project.hasProperty('repairRedundantCurvePoints')) args += '--repair-redundant-curve-points'
+        if (project.hasProperty('migrationEndpointsOnly')) args += '--endpoints-only'
     }
 }
 

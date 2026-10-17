@@ -2,9 +2,9 @@
 
 ## 范围与工作方式
 
-`CURRENT`的一次性离线工具，已在真实停服副本验证并应用；不代表游戏内验收完成。源码位于`scripts/offline-world-migration/`，由BukkitPlugin独立的
+`CURRENT`的一次性离线工具。旧ownership转换已在真实停服副本验证并应用；显式端点模式的本地验证和远端应用是独立事项，不代表游戏内验收完成。源码位于`scripts/offline-world-migration/`，由BukkitPlugin独立的
 `offlineMigration` source set编译；不进入插件JAR，不由启动或正常reader调用。
-负责已审计开发服的旧split文件转换和当前读取器验证，不实现09-24任务的未来显式端点格式、自动迁移或运行时兼容。
+负责已审计开发服的旧split文件转换、显式端点离线转换和当前读取器验证；不提供自动启动迁移或运行时旧格式reader。
 实际执行与验收归[Stage 2实施记录](../../../tasks/09-18-signal-addon-implementation/implement.md)。
 
 迁移先正常停服，打包整个`plugins/JavaRailways/`及匹配旧JAR到配置目录之外的独立恢复目录，
@@ -14,7 +14,7 @@
 ## 转换与验证
 
 - 基础设施复用`RailInfrastructureMetadataMigration`：旧outer1/Basic1直接拆分到当前outer2/Basic2/SimpleATO1，
-  Destination和Line进入SimpleATO，公共方向进入Basic。Core使用当前既有格式，不改变端点表示或版本常量。
+  Destination和Line进入SimpleATO，公共方向进入Basic。Core连接先经下方端点转换，再由当前严格reader验证，不改变约定版本常量。
 - 运行时只支持本次审计确认的空列车、空timetable/rolling-stock、空dispatcher clocks/runs。
   旧outer1/Basic1抽离到当前outer2/Basic3/SimpleATO1；保留dispatcher其他checkpoint标量、所有revision和epoch。
   非空旧运营数据明确拒绝，不静默清空，也不假称完成通用迁移。
@@ -24,6 +24,38 @@
   fresh隔离世界不tick、不移动列车、不授予资源。依赖服务一旦被要求修改live依赖直接失败。
 - `--validate-data-directory`另外读取当前config/physics及实际train/rail包，使用现有loader，不改模型。
   此类离线加载不证明真实客户端画面或服务器启用；缺真实Paper registry必须报告为验证缺口，不能mock后声称通过。
+
+### 已完成ownership转换后的显式端点模式
+
+`-PmigrationEndpointsOnly`对应独立入口`convertEndpoints(infrastructure, runtime)`及CLI `--endpoints-only`。
+输入必须是current outer2配对文件及Core infrastructure2；此模式不运行ownership拆分，也不限制已是current形状的runtime为空。
+它仅替换Core rail中UUID-only连接字段，Basic/SimpleATO及其他outer值原样保留；输出runtime保持原始字节（包括gzip），
+current显式形状和空rail文档通过严格验证后保持原始基础设施字节。模式禁止与`repairRedundantCurvePoints`并用。
+
+`RailEndpointMigration.convert`只在该独立source set中识别旧`nextRailAtA/B`、`activeTrackAtA/B`和新
+`connectionsAtA/B`、`activeConnectionAtA/B`。各rail必须拥有完整且一致的旧或新形状；单rail混用、跨rail混用、未知字段或未知version拒绝。
+Core旧metadata版本1只供原ownership转换组合使用，不是端点模式扩大输入范围。输出仍为当前Core infrastructure2，
+格式政策与具体当前表示归[Core持久化](../../javarailways/core/persistence.md#显式目标端点的保存和恢复)。
+
+转换先完整解码旧curve并建立UUID索引，source位置由其所属A/B决定；对每个目标UUID分别计算到目标A、B的距离，
+**必须恰好一个端点在`Curve.TOLERANCE=0.005 m`内**。输出该railId+endpoint，列表顺序不变；active映射到本端对应完整目标。
+例如A→target UUID且只有target B共点，得到`{"railId":"…","endpoint":"B"}`。两个端点都在容差内时即使某个更近也拒绝，
+不能复用旧reader的距离择优规则。逐连接报告source/target两端，缺rail、重复UUID、无候选、双候选或active不在声明列表时整次失败。
+全部候选交给current严格codec及真实Core→Basic→SimpleATO restore检查图对称性等业务规则，验证通过才允许写新输出。
+
+转换为`O(N+E)`，另计curve点解码与真实restore成本；文件编排沿用全批原件捕获、输出前逐文件字节复核及fresh-output，
+内存随捕获文件和curve样本增长。不在tick或插件启用路径运行；未完成校验不创建输出，写入中I/O失败保留失败目录供审计。
+支持窗口限仍需保留的UUID-only开发数据；用户确认所有保留数据转换后，可另批删除旧形状转换，不能为删除工具而放宽current reader。
+远端唯一开发服来源为`192.168.1.230`；本地路径是核对副本，不是运行服务器。应用前重新停写、归档及核对，不能拿在线采样副本当恢复点。
+
+正常案例须验证四种端点、顺序、null与第二active；边界案例须验证原始gzip/runtime字节和已current输入no-op；
+损坏案例须验证零/双候选、混合或未知字段、坏active/不对称/版本/配对失败且源字节不变。
+
+```bash
+./gradlew :BukkitPlugin:migrateDevelopmentWorlds -PmigrationSource=/absolute/source/worlds -PmigrationEndpointsOnly
+# 审阅dry-run后，仅写新的本地输出目录；这不是远端应用命令。
+./gradlew :BukkitPlugin:migrateDevelopmentWorlds -PmigrationSource=/absolute/source/worlds -PmigrationEndpointsOnly -PmigrationOutput=/absolute/new-output
+```
 
 ### 受限的旧曲线重复点修复
 

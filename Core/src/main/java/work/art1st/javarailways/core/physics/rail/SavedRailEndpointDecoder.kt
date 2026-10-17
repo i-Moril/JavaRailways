@@ -12,37 +12,40 @@ internal data class SnapshotEndpointState(
     val activeEndpoint: RailEndpointRef?
 )
 
-/** Resolves declared rail IDs against their geometry without inventing connections or selections. */
+/** Validates declared endpoint identities; geometry never substitutes another endpoint. */
 internal fun decodeSavedRailEndpoint(
     source: RailEndpointRef,
-    nextRailIds: List<String>,
-    activeRailId: String?,
+    connections: List<SavedRailEndpointRef>,
+    activeConnection: SavedRailEndpointRef?,
     curveById: (UUID) -> PrimeCurve?
 ): SnapshotEndpointState {
     val sourceCurve = requireNotNull(curveById(source.railId)) { "snapshot source rail is missing: $source" }
     val sourcePosition = sourceCurve.getPointAt(
         if (source.endpoint == RailEndpoint.A) 0.0 else sourceCurve.totalArcLength
     ).position
-    val targets = nextRailIds.map { text ->
-        val targetId = parseRailId(text, source, "connection")
-        val targetCurve = requireNotNull(curveById(targetId)) {
-            "snapshot connection at $source references missing rail $targetId"
+    fun decode(value: SavedRailEndpointRef, role: String): RailEndpointRef =
+        RailEndpointRef(parseRailId(value.railId, source, role), value.endpoint)
+    val targets = connections.map { value ->
+        val target = decode(value, "connection")
+        require(target != source) { "snapshot connection cannot return to the same endpoint: $source" }
+        val targetCurve = requireNotNull(curveById(target.railId)) {
+            "snapshot connection at $source references missing rail ${target.railId}"
         }
-        val distanceA = sourcePosition.distance(targetCurve.getPointAt(0.0).position)
-        val distanceB = sourcePosition.distance(targetCurve.getPointAt(targetCurve.totalArcLength).position)
-        require(minOf(distanceA, distanceB) <= Curve.TOLERANCE) {
-            "snapshot connection endpoints are not colocated: $source -> $targetId"
+        val position = targetCurve.getPointAt(
+            if (target.endpoint == RailEndpoint.A) 0.0 else targetCurve.totalArcLength
+        ).position
+        require(sourcePosition.distance(position) <= Curve.TOLERANCE) {
+            "snapshot connection endpoints are not colocated: $source -> $target"
         }
-        RailEndpointRef(targetId, if (distanceA < distanceB) RailEndpoint.A else RailEndpoint.B)
+        target
     }
     require(targets.distinct().size == targets.size && targets.size <= 2) {
         "snapshot connections at $source must be unique and contain at most two continuations"
     }
-    val active = activeRailId?.let { text ->
-        val activeId = parseRailId(text, source, "active")
-        requireNotNull(targets.singleOrNull { it.railId == activeId }) {
-            "snapshot active rail $activeId is not connected at $source"
-        }
+    val active = activeConnection?.let { value ->
+        val active = decode(value, "active")
+        require(active in targets) { "snapshot active endpoint $active is not connected at $source" }
+        active
     }
     return SnapshotEndpointState(targets, active)
 }
@@ -53,3 +56,30 @@ private fun parseRailId(text: String, source: RailEndpointRef, role: String): UU
     } catch (failure: IllegalArgumentException) {
         throw IllegalArgumentException("snapshot $role rail ID '$text' is invalid at $source", failure)
     }
+
+/** Complete graph validation shared by ordinary load and prepared snapshot restoration. */
+internal fun decodeSavedRailGraph(
+    savedById: Map<UUID, CoreRail.SavedRailV1>,
+    curvesById: Map<UUID, PrimeCurve>
+): Map<RailEndpointRef, SnapshotEndpointState> {
+    val states = linkedMapOf<RailEndpointRef, SnapshotEndpointState>()
+    savedById.forEach { (railId, saved) ->
+        RailEndpoint.entries.forEach { endpoint ->
+            val source = RailEndpointRef(railId, endpoint)
+            states[source] = decodeSavedRailEndpoint(
+                source,
+                if (endpoint == RailEndpoint.A) saved.connectionsAtA else saved.connectionsAtB,
+                if (endpoint == RailEndpoint.A) saved.activeConnectionAtA else saved.activeConnectionAtB,
+                curvesById::get
+            )
+        }
+    }
+    states.forEach { (source, state) ->
+        state.connectedEndpoints.forEach { target ->
+            require(source in states.getValue(target).connectedEndpoints) {
+                "snapshot connection is not symmetric: $source <-> $target"
+            }
+        }
+    }
+    return java.util.Collections.unmodifiableMap(states)
+}

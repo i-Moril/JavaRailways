@@ -33,11 +33,16 @@ class PreparedRailWorldSnapshotPlanTest {
             val target = current.map { saved ->
                 if (saved.id == source.id.toString()) saved.copy(
                     curveAB = reversed.save() as PrimeCurveImpl.SavedPrimeCurveV1,
-                    nextRailAtA = saved.nextRailAtB,
-                    nextRailAtB = saved.nextRailAtA,
-                    activeTrackAtA = saved.activeTrackAtB,
-                    activeTrackAtB = saved.activeTrackAtA
-                ) else saved
+                    connectionsAtA = saved.connectionsAtB,
+                    connectionsAtB = saved.connectionsAtA,
+                    activeConnectionAtA = saved.activeConnectionAtB,
+                    activeConnectionAtB = saved.activeConnectionAtA
+                ) else saved.copy(
+                    connectionsAtA = saved.connectionsAtA.map { ref ->
+                        if (ref.railId == source.id.toString()) ref.copy(endpoint = RailEndpoint.A) else ref
+                    },
+                    activeConnectionAtA = saved.activeConnectionAtA?.copy(endpoint = RailEndpoint.A)
+                )
             }
 
             val plan = world.prepareRailWorldSnapshotRestore(current, target)
@@ -45,8 +50,8 @@ class PreparedRailWorldSnapshotPlanTest {
             assertEquals(setOf(RailEndpointRef(peer.id, RailEndpoint.A)), plan.changedExistingEndpoints)
             IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) } }
             val restored = requireNotNull(world.getRail(source.id))
-            assertEquals(target.first { it.id == source.id.toString() }.nextRailAtA, restored.save().nextRailAtA)
-            assertEquals(target.first { it.id == peer.id.toString() }.nextRailAtA, peer.save().nextRailAtA)
+            assertEquals(target.first { it.id == source.id.toString() }.connectionsAtA, restored.save().connectionsAtA)
+            assertEquals(target.first { it.id == peer.id.toString() }.connectionsAtA, peer.save().connectionsAtA)
             assertEquals(Vector3d(10.0, 0.0, 0.0), restored.curve.getPointAt(0.0).position)
             assertEquals(
                 Vector3d(0.0, 0.0, 0.0),
@@ -69,12 +74,12 @@ class PreparedRailWorldSnapshotPlanTest {
             val target = current.map { saved ->
                 when (saved.id) {
                     first.id.toString() -> saved.copy(
-                        nextRailAtB = listOf(second.id.toString()),
-                        activeTrackAtB = second.id.toString()
+                        connectionsAtB = listOf(SavedRailEndpointRef(second.id.toString(), RailEndpoint.A)),
+                        activeConnectionAtB = SavedRailEndpointRef(second.id.toString(), RailEndpoint.A)
                     )
                     second.id.toString() -> saved.copy(
-                        nextRailAtA = listOf(first.id.toString()),
-                        activeTrackAtA = first.id.toString()
+                        connectionsAtA = listOf(SavedRailEndpointRef(first.id.toString(), RailEndpoint.B)),
+                        activeConnectionAtA = SavedRailEndpointRef(first.id.toString(), RailEndpoint.B)
                     )
                     else -> saved
                 }
@@ -119,7 +124,7 @@ class PreparedRailWorldSnapshotPlanTest {
             val current = world.allRails.map(CoreRail::save)
             val target = current.map { saved ->
                 if (saved.id == source.id.toString()) {
-                    saved.copy(activeTrackAtB = second.id.toString())
+                    saved.copy(activeConnectionAtB = SavedRailEndpointRef(second.id.toString(), RailEndpoint.A))
                 } else {
                     saved
                 }
@@ -164,8 +169,8 @@ class PreparedRailWorldSnapshotPlanTest {
             val restored = requireNotNull(world.getRail(source.id))
             assertSame(peer.viewAB, restored.viewAB.activeRail)
             assertSame(restored.viewBA, peer.viewBA.activeRail)
-            assertEquals(target.first { it.id == source.id.toString() }.nextRailAtB, restored.save().nextRailAtB)
-            assertEquals(target.first { it.id == peer.id.toString() }.nextRailAtA, peer.save().nextRailAtA)
+            assertEquals(target.first { it.id == source.id.toString() }.connectionsAtB, restored.save().connectionsAtB)
+            assertEquals(target.first { it.id == peer.id.toString() }.connectionsAtA, peer.save().connectionsAtA)
             assertEquals(1.0, restored.curve.getPointAt(5.1).position.z(), 1.0e-9)
         } finally {
             world.physicsCoordinator.close()
@@ -315,8 +320,8 @@ class PreparedRailWorldSnapshotPlanTest {
                     curveAB = if (saved.id == source.id.toString()) {
                         replacement.save() as PrimeCurveImpl.SavedPrimeCurveV1
                     } else saved.curveAB,
-                    activeTrackAtA = null,
-                    activeTrackAtB = null
+                    activeConnectionAtA = null,
+                    activeConnectionAtB = null
                 )
             }
             val plan = world.prepareRailWorldSnapshotRestorePreservingActiveSelections(current, target)
@@ -347,25 +352,25 @@ class PreparedRailWorldSnapshotPlanTest {
             val target = current.map { saved ->
                 when (saved.id) {
                     source.id.toString() -> saved.copy(
-                        nextRailAtB = listOf(first.id.toString()),
-                        activeTrackAtA = null,
-                        activeTrackAtB = null
+                        connectionsAtB = listOf(SavedRailEndpointRef(first.id.toString(), RailEndpoint.A)),
+                        activeConnectionAtA = null,
+                        activeConnectionAtB = null
                     )
                     second.id.toString() -> saved.copy(
-                        nextRailAtA = emptyList(),
-                        activeTrackAtA = null,
-                        activeTrackAtB = null
+                        connectionsAtA = emptyList(),
+                        activeConnectionAtA = null,
+                        activeConnectionAtB = null
                     )
-                    else -> saved.copy(activeTrackAtA = null, activeTrackAtB = null)
+                    else -> saved.copy(activeConnectionAtA = null, activeConnectionAtB = null)
                 }
             }
             val plan = world.prepareRailWorldSnapshotRestorePreservingActiveSelections(current, target)
 
             IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) } }
 
-            assertEquals(listOf(first.id.toString()), source.save().nextRailAtB)
+            assertEquals(listOf(SavedRailEndpointRef(first.id.toString(), RailEndpoint.A)), source.save().connectionsAtB)
             assertSame(first.viewAB, source.viewAB.activeRail)
-            assertEquals(emptyList<String>(), second.save().nextRailAtA)
+            assertEquals(emptyList<SavedRailEndpointRef>(), second.save().connectionsAtA)
             assertEquals(null, second.viewBA.activeRail)
         } finally {
             world.physicsCoordinator.close()

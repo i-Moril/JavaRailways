@@ -17,6 +17,8 @@ import work.art1st.javarailways.bukkit.logic.RailVisualBootstrap
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.physics.rail.SavedRailEndpointRef
+import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
@@ -204,13 +206,13 @@ class WandActionUndoSupportTest {
     @Test
     fun `structural undo snapshots ignore transient active branch without reordering connections`() {
         val railId = UUID.randomUUID()
-        val firstBranch = UUID.randomUUID().toString()
-        val secondBranch = UUID.randomUUID().toString()
+        val firstBranch = SavedRailEndpointRef(UUID.randomUUID().toString(), RailEndpoint.A)
+        val secondBranch = SavedRailEndpointRef(UUID.randomUUID().toString(), RailEndpoint.B)
         val curve = PrimeCurve.fromPoints(listOf(
             Curve.RawPoint(Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0),
             Curve.RawPoint(Vector3d(10.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 10.0)
         )).save() as PrimeCurveImpl.SavedPrimeCurveV1
-        fun saved(active: String?) = CoreRail.SavedRailV1(
+        fun saved(active: SavedRailEndpointRef?) = CoreRail.SavedRailV1(
             railId.toString(), curve, emptyList(), listOf(secondBranch, firstBranch), null, active
         )
         fun snapshot(rail: CoreRail.SavedRailV1) = RailWorldUndoSnapshot(
@@ -222,9 +224,9 @@ class WandActionUndoSupportTest {
             listOf(saved(secondBranch))
         ).build()
 
-        assertEquals(null, prepared.before.rails.single().activeTrackAtB)
-        assertEquals(null, prepared.expectedAfter.rails.single().activeTrackAtB)
-        assertEquals(listOf(secondBranch, firstBranch), prepared.before.rails.single().nextRailAtB)
+        assertEquals(null, prepared.before.rails.single().activeConnectionAtB)
+        assertEquals(null, prepared.expectedAfter.rails.single().activeConnectionAtB)
+        assertEquals(listOf(secondBranch, firstBranch), prepared.before.rails.single().connectionsAtB)
         assertEquals(prepared.before.rails, prepared.expectedAfter.rails)
     }
 }

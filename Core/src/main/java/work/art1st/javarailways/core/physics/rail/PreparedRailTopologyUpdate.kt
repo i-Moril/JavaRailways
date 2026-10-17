@@ -115,8 +115,8 @@ class PreparedRailTopologyUpdate internal constructor(
     private fun immutableSavedRails(values: List<CoreRail.SavedRailV1>): List<CoreRail.SavedRailV1> =
         Collections.unmodifiableList(values.map { saved ->
             saved.copy(
-                nextRailAtA = Collections.unmodifiableList(ArrayList(saved.nextRailAtA)),
-                nextRailAtB = Collections.unmodifiableList(ArrayList(saved.nextRailAtB))
+                connectionsAtA = Collections.unmodifiableList(ArrayList(saved.connectionsAtA)),
+                connectionsAtB = Collections.unmodifiableList(ArrayList(saved.connectionsAtB))
             )
         })
 }

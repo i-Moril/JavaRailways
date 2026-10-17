@@ -2,6 +2,10 @@ package work.art1st.javarailways.core.physics.rail
 
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
+import kotlinx.serialization.json.*
+import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
+import work.art1st.javarailways.core.di.WorldParentContext
+import work.art1st.javarailways.core.di.WorldContextRegistration
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -35,15 +39,26 @@ class SavedRailConnectionsTest {
         ACTIVE_WITHOUT_CONNECTION,
         REMOTE_ENDPOINTS,
         DUPLICATE_NEXT,
-        TOO_MANY_NEXT
+        TOO_MANY_NEXT,
+        WRONG_DECLARED_ENDPOINT,
+        ACTIVE_OTHER_ENDPOINT,
+        ASYMMETRIC,
+        SELF_ENDPOINT,
+        DUPLICATE_RAIL_ID
     }
 
     @ParameterizedTest
     @EnumSource(InvalidConnection::class)
     fun `world load rejects invalid declared endpoint state`(invalid: InvalidConnection) {
-        val failure = assertThrows(IllegalArgumentException::class.java) {
-            withLoadedWorld(invalidRails(invalid)) { }
+        var attachments = 0
+        val parent = WorldParentContext {
+            attachments++
+            WorldContextRegistration { }
         }
+        val failure = assertThrows(IllegalArgumentException::class.java) {
+            withLoadedWorld(invalidRails(invalid), parent) { }
+        }
+        assertEquals(0, attachments, "invalid rail graphs must fail before world/live rail creation")
         assertFailureContext(invalid, failure)
     }
 
@@ -75,22 +90,22 @@ class SavedRailConnectionsTest {
             SOURCE_ID,
             if (sourceEndpoint == RailEndpoint.A) anchor else sourceOther,
             if (sourceEndpoint == RailEndpoint.A) sourceOther else anchor,
-            atA = if (sourceEndpoint == RailEndpoint.A) listOf(FIRST_ID) else emptyList(),
-            atB = if (sourceEndpoint == RailEndpoint.B) listOf(FIRST_ID) else emptyList(),
-            activeA = if (sourceEndpoint == RailEndpoint.A) FIRST_ID else null,
-            activeB = if (sourceEndpoint == RailEndpoint.B) FIRST_ID else null
+            atA = if (sourceEndpoint == RailEndpoint.A) listOf(ref(FIRST_ID, targetEndpoint)) else emptyList(),
+            atB = if (sourceEndpoint == RailEndpoint.B) listOf(ref(FIRST_ID, targetEndpoint)) else emptyList(),
+            activeA = if (sourceEndpoint == RailEndpoint.A) ref(FIRST_ID, targetEndpoint) else null,
+            activeB = if (sourceEndpoint == RailEndpoint.B) ref(FIRST_ID, targetEndpoint) else null
         )
         val target = savedRail(
             FIRST_ID,
             if (targetEndpoint == RailEndpoint.A) anchor else targetOther,
             if (targetEndpoint == RailEndpoint.A) targetOther else anchor,
-            atA = if (targetEndpoint == RailEndpoint.A) listOf(SOURCE_ID) else emptyList(),
-            atB = if (targetEndpoint == RailEndpoint.B) listOf(SOURCE_ID) else emptyList(),
-            activeA = if (targetEndpoint == RailEndpoint.A) SOURCE_ID else null,
-            activeB = if (targetEndpoint == RailEndpoint.B) SOURCE_ID else null
+            atA = if (targetEndpoint == RailEndpoint.A) listOf(ref(SOURCE_ID, sourceEndpoint)) else emptyList(),
+            atB = if (targetEndpoint == RailEndpoint.B) listOf(ref(SOURCE_ID, sourceEndpoint)) else emptyList(),
+            activeA = if (targetEndpoint == RailEndpoint.A) ref(SOURCE_ID, sourceEndpoint) else null,
+            activeB = if (targetEndpoint == RailEndpoint.B) ref(SOURCE_ID, sourceEndpoint) else null
         )
 
-        withLoadedWorld(listOf(source, target)) { world ->
+        fun verify(world: CoreWorld) {
             val sourceRail = requireNotNull(world.getRail(UUID.fromString(SOURCE_ID)))
             val targetRail = requireNotNull(world.getRail(UUID.fromString(FIRST_ID)))
             val arriving = if (sourceEndpoint == RailEndpoint.A) sourceRail.viewBA else sourceRail.viewAB
@@ -99,6 +114,13 @@ class SavedRailConnectionsTest {
             assertSame(away, arriving.activeRail)
             assertEquals(listOf(arriving.reversed), away.reversed.nextRails)
             assertNull(arriving.reversed.activeRail)
+        }
+        val rails = listOf(source, target)
+        withLoadedWorld(rails, action = ::verify)
+        withWorld { world ->
+            val plan = world.prepareRailWorldSnapshotRestore(emptyList(), rails)
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) } }
+            verify(world)
         }
     }
 
@@ -112,9 +134,9 @@ class SavedRailConnectionsTest {
             assertEquals(listOf(SECOND_ID, FIRST_ID), source.viewAB.nextRails.map { it.rail.id.toString() })
             assertSame(if (selectSecond) first.viewAB else null, source.viewAB.activeRail)
             assertNull(source.viewBA.activeRail)
-            assertEquals(if (selectSecond) FIRST_ID else null, source.save().activeTrackAtB)
+            assertEquals(if (selectSecond) ref(FIRST_ID, RailEndpoint.A) else null, source.save().activeConnectionAtB)
         }
-        withLoadedWorld(rails, ::verify)
+        withLoadedWorld(rails, action = ::verify)
 
         withWorld { world ->
             val plan = world.prepareRailWorldSnapshotRestore(emptyList(), rails)
@@ -134,9 +156,9 @@ class SavedRailConnectionsTest {
             val original = source.save()
             val root = world.topologyState
             val invalid = original.copy(
-                nextRailAtA = emptyList(),
-                activeTrackAtA = null,
-                nextRailAtB = listOf(after.id.toString(), MISSING_ID)
+                connectionsAtA = emptyList(),
+                activeConnectionAtA = null,
+                connectionsAtB = listOf(ref(after.id.toString(), RailEndpoint.A), ref(MISSING_ID, RailEndpoint.A))
             )
 
             val failure = assertThrows(IllegalArgumentException::class.java) {
@@ -152,43 +174,123 @@ class SavedRailConnectionsTest {
         }
     }
 
+    @Test
+    fun `fixed current JSON contains exact endpoint identity and rejects unknown tokens and old shape`() {
+        val target = Json.decodeFromString(SavedRailEndpointRef.serializer(),
+            """{"railId":"00000000-0000-0000-0000-000000000002","endpoint":"B"}""")
+        assertEquals(ref(FIRST_ID, RailEndpoint.B), target)
+        assertThrows(kotlinx.serialization.SerializationException::class.java) {
+            Json.decodeFromString(SavedRailEndpointRef.serializer(),
+                """{"railId":"00000000-0000-0000-0000-000000000002","endpoint":"C"}""")
+        }
+        val fixed = """{
+          "formatVersion":2,"infrastructureRevision":7,"rails":[{
+            "id":"00000000-0000-0000-0000-000000000001",
+            "curveAB":{"pointList":[
+              {"position":{"x":0.0,"y":0.0,"z":0.0},"tangent":{"x":1.0,"y":0.0,"z":0.0},"normal":{"x":0.0,"y":1.0,"z":0.0},"arcLength":0.0,"segmentType":"DISCRETE"},
+              {"position":{"x":10.0,"y":0.0,"z":0.0},"tangent":{"x":1.0,"y":0.0,"z":0.0},"normal":{"x":0.0,"y":1.0,"z":0.0},"arcLength":10.0,"segmentType":"DISCRETE"}
+            ]},
+            "connectionsAtA":[],"connectionsAtB":[{"railId":"00000000-0000-0000-0000-000000000002","endpoint":"B"}],
+            "activeConnectionAtA":null,"activeConnectionAtB":{"railId":"00000000-0000-0000-0000-000000000002","endpoint":"B"}
+          }]
+        }"""
+        val decoded = WorldSnapshotCodec.decodeInfrastructure(fixed)
+        assertEquals(listOf(target), decoded.rails.single().connectionsAtB)
+        assertEquals(target, decoded.rails.single().activeConnectionAtB)
+        val encoded = Json.parseToJsonElement(WorldSnapshotCodec.encodeInfrastructure(decoded)).jsonObject
+        val rail = encoded.getValue("rails").jsonArray.single().jsonObject
+        assertEquals(Json.parseToJsonElement("""{"railId":"$FIRST_ID","endpoint":"B"}"""),
+            rail.getValue("connectionsAtB").jsonArray.single())
+        assertThrows(kotlinx.serialization.SerializationException::class.java) {
+            WorldSnapshotCodec.decodeInfrastructure(fixed.replace("connectionsAtA", "nextRailAtA"))
+        }
+    }
+
+    @Test
+    fun `same target rail different endpoints retain distinct identities and selected second endpoint`() {
+        val anchor = Vector3d(10.0, 0.0, 0.0)
+        // Both ends satisfy the existing tolerance. Geometry cannot identify the selected end.
+        val rails = listOf(
+            savedRail(SOURCE_ID, Vector3d(), anchor,
+                atB = listOf(ref(FIRST_ID, RailEndpoint.A), ref(FIRST_ID, RailEndpoint.B)),
+                activeB = ref(FIRST_ID, RailEndpoint.B)),
+            savedRail(FIRST_ID, anchor, Vector3d(10.001, 0.0, 0.0),
+                atA = listOf(ref(SOURCE_ID, RailEndpoint.B)),
+                atB = listOf(ref(SOURCE_ID, RailEndpoint.B)))
+        )
+        fun verify(world: CoreWorld) {
+            val source = requireNotNull(world.getRail(UUID.fromString(SOURCE_ID)))
+            val target = requireNotNull(world.getRail(UUID.fromString(FIRST_ID)))
+            assertEquals(listOf(target.viewAB, target.viewBA), source.viewAB.nextRails)
+            assertSame(target.viewBA, source.viewAB.activeRail)
+            assertEquals(rails.first().connectionsAtB, source.save().connectionsAtB)
+            assertEquals(rails.first().activeConnectionAtB, source.save().activeConnectionAtB)
+            val batch = world.prepareRailCreation(line(Vector3d(30.0, 0.0, 0.0), Vector3d(40.0, 0.0, 0.0)))
+            val update = world.capturePreparedRailConnectionPlan(batch, emptyList()).prepareTopologyUpdate()
+            val saved = update.targetRailSnapshot.single { it.id == SOURCE_ID }
+            assertEquals(rails.first().connectionsAtB, saved.connectionsAtB)
+            assertEquals(rails.first().activeConnectionAtB, saved.activeConnectionAtB)
+        }
+        withLoadedWorld(rails, action = ::verify)
+        withWorld { world ->
+            val plan = world.prepareRailWorldSnapshotRestore(emptyList(), rails)
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) } }
+            verify(world)
+        }
+    }
+
     private fun invalidRails(invalid: InvalidConnection): List<CoreRail.SavedRailV1> {
         val source = savedRail(
             SOURCE_ID, Vector3d(), Vector3d(10.0, 0.0, 0.0),
-            atB = listOf(FIRST_ID), activeB = FIRST_ID
+            atB = listOf(ref(FIRST_ID, RailEndpoint.A)), activeB = ref(FIRST_ID, RailEndpoint.A)
         )
         val first = savedRail(
             FIRST_ID, Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0),
-            atA = listOf(SOURCE_ID), activeA = SOURCE_ID
+            atA = listOf(ref(SOURCE_ID, RailEndpoint.B)), activeA = ref(SOURCE_ID, RailEndpoint.B)
         )
         return when (invalid) {
-            InvalidConnection.MALFORMED_NEXT -> listOf(source.copy(nextRailAtB = listOf("invalid-uuid"), activeTrackAtB = null))
-            InvalidConnection.MISSING_NEXT -> listOf(source.copy(nextRailAtB = listOf(MISSING_ID), activeTrackAtB = null))
-            InvalidConnection.MALFORMED_ACTIVE -> listOf(source.copy(activeTrackAtB = "invalid-uuid"), first)
+            InvalidConnection.MALFORMED_NEXT -> listOf(source.copy(connectionsAtB = listOf(ref("invalid-uuid", RailEndpoint.A)), activeConnectionAtB = null))
+            InvalidConnection.MISSING_NEXT -> listOf(source.copy(connectionsAtB = listOf(ref(MISSING_ID, RailEndpoint.A)), activeConnectionAtB = null))
+            InvalidConnection.MALFORMED_ACTIVE -> listOf(source.copy(activeConnectionAtB = ref("invalid-uuid", RailEndpoint.A)), first)
             InvalidConnection.UNCONNECTED_ACTIVE -> listOf(
-                source.copy(activeTrackAtB = SECOND_ID), first,
+                source.copy(activeConnectionAtB = ref(SECOND_ID, RailEndpoint.A)), first,
                 savedRail(SECOND_ID, Vector3d(30.0, 0.0, 0.0), Vector3d(40.0, 0.0, 0.0))
             )
-            InvalidConnection.ACTIVE_WITHOUT_CONNECTION -> listOf(source.copy(nextRailAtB = emptyList()))
+            InvalidConnection.ACTIVE_WITHOUT_CONNECTION -> listOf(source.copy(connectionsAtB = emptyList()))
             InvalidConnection.REMOTE_ENDPOINTS -> listOf(
                 source,
                 savedRail(
                     FIRST_ID, Vector3d(100.0, 0.0, 0.0), Vector3d(110.0, 0.0, 0.0),
-                    atA = listOf(SOURCE_ID), activeA = SOURCE_ID
+                    atA = listOf(ref(SOURCE_ID, RailEndpoint.B)), activeA = ref(SOURCE_ID, RailEndpoint.B)
                 )
             )
-            InvalidConnection.DUPLICATE_NEXT -> listOf(source.copy(nextRailAtB = listOf(FIRST_ID, FIRST_ID)), first)
+            InvalidConnection.ACTIVE_OTHER_ENDPOINT -> listOf(
+                source.copy(activeConnectionAtB = ref(FIRST_ID, RailEndpoint.B)), first
+            )
+            InvalidConnection.WRONG_DECLARED_ENDPOINT -> listOf(
+                source.copy(connectionsAtB = listOf(ref(FIRST_ID, RailEndpoint.B)), activeConnectionAtB = null), first
+            )
+            InvalidConnection.ASYMMETRIC -> listOf(source, first.copy(connectionsAtA = emptyList(), activeConnectionAtA = null))
+            InvalidConnection.SELF_ENDPOINT -> listOf(source.copy(
+                connectionsAtB = listOf(ref(SOURCE_ID, RailEndpoint.B)), activeConnectionAtB = null
+            ))
+            InvalidConnection.DUPLICATE_RAIL_ID -> listOf(source, source, first)
+            InvalidConnection.DUPLICATE_NEXT -> listOf(source.copy(connectionsAtB = listOf(ref(FIRST_ID, RailEndpoint.A), ref(FIRST_ID, RailEndpoint.A))), first)
             InvalidConnection.TOO_MANY_NEXT -> branchRails(true).map { rail ->
-                if (rail.id == SOURCE_ID) rail.copy(nextRailAtB = listOf(FIRST_ID, SECOND_ID, THIRD_ID)) else rail
+                if (rail.id == SOURCE_ID) rail.copy(connectionsAtB = listOf(ref(FIRST_ID, RailEndpoint.A), ref(SECOND_ID, RailEndpoint.A), ref(THIRD_ID, RailEndpoint.A))) else rail
             } + savedRail(
                 THIRD_ID, Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, -5.0),
-                atA = listOf(SOURCE_ID), activeA = SOURCE_ID
+                atA = listOf(ref(SOURCE_ID, RailEndpoint.B)), activeA = ref(SOURCE_ID, RailEndpoint.B)
             )
         }
     }
 
     private fun assertFailureContext(invalid: InvalidConnection, failure: IllegalArgumentException) {
-        assertTrue(failure.message.orEmpty().contains(SOURCE_ID))
+        if (invalid == InvalidConnection.DUPLICATE_RAIL_ID) {
+            assertTrue(failure.message.orEmpty().contains("duplicate"))
+        } else {
+            assertTrue(failure.message.orEmpty().contains(SOURCE_ID))
+        }
         if (invalid == InvalidConnection.MALFORMED_NEXT || invalid == InvalidConnection.MALFORMED_ACTIVE) {
             assertTrue(failure.message.orEmpty().contains("invalid-uuid"))
             assertTrue(failure.cause is IllegalArgumentException)
@@ -198,24 +300,28 @@ class SavedRailConnectionsTest {
     private fun branchRails(selectSecond: Boolean): List<CoreRail.SavedRailV1> = listOf(
         savedRail(
             SOURCE_ID, Vector3d(), Vector3d(10.0, 0.0, 0.0),
-            atB = listOf(SECOND_ID, FIRST_ID), activeB = if (selectSecond) FIRST_ID else null
+            atB = listOf(ref(SECOND_ID, RailEndpoint.A), ref(FIRST_ID, RailEndpoint.A)), activeB = if (selectSecond) ref(FIRST_ID, RailEndpoint.A) else null
         ),
         savedRail(
             FIRST_ID, Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 0.0),
-            atA = listOf(SOURCE_ID), activeA = SOURCE_ID
+            atA = listOf(ref(SOURCE_ID, RailEndpoint.B)), activeA = ref(SOURCE_ID, RailEndpoint.B)
         ),
         savedRail(
             SECOND_ID, Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 5.0),
-            atA = listOf(SOURCE_ID), activeA = SOURCE_ID
+            atA = listOf(ref(SOURCE_ID, RailEndpoint.B)), activeA = ref(SOURCE_ID, RailEndpoint.B)
         )
     )
 
-    private fun <T> withLoadedWorld(rails: List<CoreRail.SavedRailV1>, action: (CoreWorld) -> T): T {
+    private fun <T> withLoadedWorld(
+        rails: List<CoreRail.SavedRailV1>,
+        parent: WorldParentContext = NoOpWorldParentContext,
+        action: (CoreWorld) -> T
+    ): T {
         return withWorld(load = { tick, physics ->
             IsolatedSimulationThreadMarker.run { CoreWorld.load(
                 CoreWorld.SavedInfrastructureV2(CoreWorld.INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION, 7L, rails),
                 null,
-                CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics)
+                CoreWorld.SnapshotDependency(tick, parent, physics)
             ) }
         }, action = action)
     }
@@ -238,14 +344,16 @@ class SavedRailConnectionsTest {
         }
     }
 
+    private fun ref(id: String, endpoint: RailEndpoint) = SavedRailEndpointRef(id, endpoint)
+
     private fun savedRail(
         id: String,
         from: Vector3d,
         to: Vector3d,
-        atA: List<String> = emptyList(),
-        atB: List<String> = emptyList(),
-        activeA: String? = null,
-        activeB: String? = null
+        atA: List<SavedRailEndpointRef> = emptyList(),
+        atB: List<SavedRailEndpointRef> = emptyList(),
+        activeA: SavedRailEndpointRef? = null,
+        activeB: SavedRailEndpointRef? = null
     ) = CoreRail.SavedRailV1(
         id, line(from, to).save() as PrimeCurveImpl.SavedPrimeCurveV1,
         atA, atB, activeA, activeB

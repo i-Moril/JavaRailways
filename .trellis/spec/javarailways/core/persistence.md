@@ -39,7 +39,7 @@ data class SavedRuntimeV1(
 
 ## Decode、prevalidation、materialization
 
-以下是整体目标顺序，不代表所有检查已在创建world之前完成。当前codec先parse为JsonObject、检查exact root formatVersion，再对同一树严格decode；版本缺失、非整数或非current在任何extension decoder调用前拒绝。extension三类map使用[显式稳定类型注册](./extension-data.md#已注册payload的持久化边界current)，不再按存档FQCN反射。当前train load在构造返回后、成功frame/mailbox发布前执行[摆位校验](./train-physics.md#存档摆位恢复)，验证同一路径/方向/顺序、车内连接点三维距离、相邻车钩与车端offset；失败沿既有discardFailedLoad撤销本次列车副作用。rail连接使用下方严格端点解析，但全world materialization的完整预校验/失败回滚仍不能由codec保证，不把下图当作全部现状验收结论。
+以下是整体目标顺序，不代表所有子系统检查已在创建world之前完成。rail连接图与curve现在在创建world之前完整预校验；train等业务恢复仍沿用各自边界。当前codec先parse为JsonObject、检查exact root formatVersion，再对同一树严格decode；版本缺失、非整数或非current在任何extension decoder调用前拒绝。extension三类map使用[显式稳定类型注册](./extension-data.md#已注册payload的持久化边界current)，不再按存档FQCN反射。当前train load在构造返回后、成功frame/mailbox发布前执行[摆位校验](./train-physics.md#存档摆位恢复)，验证同一路径/方向/顺序、车内连接点三维距离、相邻车钩与车端offset；失败沿既有discardFailedLoad撤销本次列车副作用。rail连接使用下方严格端点图预校验，但全world materialization的完整预校验/失败回滚仍不能由codec保证，不把下图当作全部现状验收结论。
 
 ```text
 bytes/text → read boundary version → optional pure upcast（仅任务明确支持）
@@ -59,7 +59,35 @@ bytes/text → read boundary version → optional pure upcast（仅任务明确�
 | breaking shape/unit/meaning | 升最小boundary；decode边界单向upcast | business只见current |
 | unknown extension type/version | stable registry fail-fast | 禁止反射/忽略 |
 
-Rail connection restore与prepared snapshot restore共用Core内部`decodeSavedRailEndpoint`，只解析存档明确声明的rail ID，不扫描附近轨道补连接。每端引用必须是有效UUID、目标存在、真实端点在`Curve.TOLERANCE`内共点，且不重复/不超过两项；非null active必须在本端连接中，合法null与声明顺序原样保留。单rail的A/B均完整解析和resolve后才修改任一live endpoint；全图对称性仍由prepared validator或load的TopologyStateBuilder验证。坏引用拒绝，不静默删除/选首支路；合法运行时remove和preserve-active undo的fallback是不同边界，不受此规则改变。此保证不是全world load rollback；开发数据如需修复须离线审计迁移，不在JAR猜测兼容。
+### 显式目标端点的保存和恢复
+
+`CURRENT`，Core拥有该连接格式及校验。`SavedRailV1`的`connectionsAtA/B`为有序`List<SavedRailEndpointRef>`，
+`activeConnectionAtA/B`为同一值类型或null。每个值为`{"railId":"<uuid>","endpoint":"A"}`，端点只接受`A/B`。
+source端由所属A/B字段决定；target的UUID与端点共同构成身份，active也必须按两者比较，不能只比较railId。
+writer直接从目标away-view取身份：AB进入目标A、BA进入目标B。连接仍在rail-local列表双向保存，不增加世界级连接catalog。
+
+正常加载先以UUID索引所有保存的rail并拒绝重复ID，再解码每份curve，通过`decodeSavedRailGraph(savedById, curvesById)`
+生成完整端点状态图。该函数与prepared restore共享`decodeSavedRailEndpoint`：检查source存在、目标UUID有效且存在、
+无同端自引用、精确端点不重复、至多两项、非null active属于本端列表，再按目标声明端点检查`Curve.TOLERANCE=5e-3 m`共点。
+最后检查所有有向记录的精确反向声明。所有这些检查完成后才创建CoreWorld和disconnected rails；已解码curve与已验证state直接用于安装，
+不为每条连接重新解码curve。单rail restore仍先解析并resolve双端，再修改任一live endpoint。
+
+几何只验证声明身份：例如source B只与target A共点时，输入target B必须拒绝，不能因为A更近而改为A。
+未知endpoint token由严格serializer拒绝；非法UUID、缺目标、重复/超度数、错误active、非共点或不对称连接由验证器失败，
+错误携带相关rail/endpoint。坏连接图在world构造和parent binding前失败，不宣称这实现了其他world资源的通用rollback。
+合法null、连接顺序和第二条active原样保留；active-only restore复用同一topology root，structural undo按完整身份保留仍有效active，
+具体事务语义归[rail topology](./rail-topology-and-occupancy.md)。隔离模拟按railId再endpoint确定排序选择，不按几何猜测。
+
+索引和连接验证为`O(N+E)`时间与空间，另计各curve解码及既有空间索引成本；仅在保存/加载/结构prepare路径，不增加tick查询。
+curve只在本次prepare/load内复用，没有跨revision持久缓存。
+
+该未发布开发格式直接修正，Core infrastructure仍为2，runtime仍为1，不因改字段增加版本或新增SavedRailV2。
+UUID-only字段`nextRailAtA/B`、`activeTrackAtA/B`只在[独立离线工具](../../bukkit-plugin/backend/offline-development-migration.md)中转换，
+current reader不同时接受两套形状。错误做法是启用未知字段容忍或根据距离补齐当前缺失身份；正确做法是完整外部恢复点后离线转换并严格验证。
+该兼容转换只服务保留的开发数据，用户确认全部转换后可另批删除；不进入插件JAR。远端应用与新JAR部署需要单独授权。
+
+固定测试需覆盖JSON明确端点及未知token拒绝、A-A/A-B/B-A/B-B、同railId不同端点的active比较、顺序/null/第二active、
+完整图不对称/重复ID/共点错误在world创建前失败，以及prepared target snapshot与undo不再把目标降格成UUID。
 
 `physicsEpoch`不能被解释为restart后coordinator sequence自动续接。
 

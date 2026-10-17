@@ -23,7 +23,7 @@
 - prepared update同时冻结该delta涉及的旧rail instance/absent identity、prepared新curve identity、两端structural continuation、raw crossing pair与全局rail count。
   同一次worker prepare还冻结exact base root对应的完整`SavedRailV1`列表，并由prepared target root、明确endpoint顺序、active branch与新curve
   生成完整target列表；RailWand用这两份值构造undo，不得在owner commit重新遍历live rail。该完整快照是undo输入，不参与commit的delta验证。
-  `activeTrackAtA/B`是runtime选择而不是topology root内容；普通exact snapshot restore仍比较它，structural undo则必须在边界上明确归一化并使用
+  `activeConnectionAtA/B`是runtime选择而不是topology root内容；普通exact snapshot restore仍比较它，structural undo则必须在边界上明确归一化并使用
   下文的preserve-active apply语义，不能把topology root identity误称为完整saved-rail版本。
   action异常后只以`O(delta)`复核这些旧值：完全未改或完整恢复则保持world可用；任一结构结果未恢复才fault/stall。不得为了异常判断
   恢复`O(world)` fingerprint，也不得用“曾调用过mutation”代替最终结构检查。
@@ -150,19 +150,19 @@ apply还要求prepared batch是当前outer transaction中唯一已经发生的ra
 whole-world RailWand snapshot restore仍复用同一prepared geometry pipeline。普通创建入口先生成随机UUID；内部
 stable-identity入口接收snapshot中的`(UUID, PrimeCurve)`，其余sampling、spatial candidate capture与exact crossing
 detection完全相同。Bukkit只捕获current/target snapshot；Core以一次`O(N)` geometry/identity比较导出完整diff，并按target
-geometry解码saved connection及surviving endpoint变化。Bukkit不重复比较，也不从只保存相邻rail UUID的格式猜target endpoint。
-saved `nextRailAtA/B`与active selection仍是唯一连接来源，不搜索无声明的附近rail。same-UUID geometry replacement使用专用
+显式端点解码saved connection及surviving endpoint变化，geometry只校验声明端点共点。Bukkit不重复比较；Core和Bukkit均不按距离猜target endpoint。连接及active使用完整`SavedRailEndpointRef(railId, endpoint)`，详见[持久化端点合同](./persistence.md#显式目标端点的保存和恢复)。
+saved `connectionsAtA/B`与active selection仍是唯一连接来源，不搜索无声明的附近rail。same-UUID geometry replacement使用专用
 plan：在outer transaction内完整验证root、rail instance、endpoint state和occupancy后，批量断开/移除旧实例，再以相同
 UUID安装预采样实例，最后写入snapshot声明的endpoint state。普通`installPreparedRails`的duplicate-ID与
 install-before-remove规则不放宽。旧raw crossing去除被替换rail后与prepared crossings合并，并通过target explicit
 connections重新归一化。target topology和introduced crossings只在prepare内部用于导出removed old crossings及
 prospective crossing的existing-rail参与者，不随plan长期保留；Basic permit只提交这些current-valid身份。
 snapshot若只改变active branch selection，则它是runtime选择而非structural delta：apply更新active view，但复用exact同一个
-`TopologyState` root且revision不变；rail identity/geometry或`nextRailAtA/B`变化才构造并发布revision+1 candidate。
+`TopologyState` root且revision不变；rail identity/geometry或`connectionsAtA/B`变化才构造并发布revision+1 candidate。
 async prepare只解析owner线程已捕获的current/target saved values和immutable curve geometry，不读取live mutable connection或
 active branch；回到player owner后，plan以captured endpoint state逐项复核live rail，再允许permit/apply。
 上述exact-active语义仍用于普通snapshot restore。RailWand structural undo使用单独的preserve-active入口：undo的`before`、
-`expectedAfter`与相等性比较把`activeTrackAtA/B`归一化为null，connection列表及顺序保持不变；apply在持有topology transaction时
+`expectedAfter`与相等性比较把`activeConnectionAtA/B`归一化为null，connection列表及顺序保持不变；apply在持有topology transaction时
 读取每个受影响endpoint的当前选择，目标结构仍包含该连接时保留，否则按target connection顺序选第一条，无连接则为null。
 该模式的stale检查只忽略active变化，rail identity、geometry及ordered connection变化仍然fail-close；不改变persisted schema。
 比较与target topology构建为`O(N + M + K)`，其中`M`为snapshot连接数、`K`为相关crossing数；exact geometry成本仍沿用

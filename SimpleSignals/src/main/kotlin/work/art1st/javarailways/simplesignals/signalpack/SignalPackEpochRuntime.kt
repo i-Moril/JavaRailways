@@ -15,11 +15,13 @@ import work.art1st.javarailways.simplesignals.runtime.SectionOccupancySnapshot
 import work.art1st.javarailways.simplesignals.runtime.SectionSignalOutput
 import work.art1st.javarailways.simplesignals.runtime.SectionSignalSnapshot
 import work.art1st.javarailways.simplesignals.runtime.SectionSignalState
+import work.art1st.javarailways.simplesignals.runtime.SectionSignalEvaluation
 import work.art1st.javarailways.simplesignals.runtime.SimpleSignalsRuntimePublication
 import work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionSnapshot
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
 import java.util.Collections
 import java.util.UUID
+import java.time.Instant
 
 /** Explicit in-memory association; a placed device ID is never inferred from a catalog signal type ID. */
 internal data class SignalTypeBinding(
@@ -73,6 +75,8 @@ internal class SignalPackEpochRuntime private constructor(
             "signal observation belongs to another world"
         }
         val candidate = linkedMapOf<String, SectionSignalState>()
+        val evaluations = previous?.evaluations?.filterKeys(bindingsByDeviceId::containsKey)?.toMutableMap()
+            ?: linkedMapOf()
         val changed = linkedSetOf<String>()
         unavailableReasonsByDeviceId.forEach { (deviceId, reason) ->
             val next = SectionSignalState.Unavailable(reason)
@@ -95,10 +99,12 @@ internal class SignalPackEpochRuntime private constructor(
                 prepared.protectionEntryIds.any { it in evaluatedProtectionEntries } ||
                 prepared.downstreamDeviceIds.any { it in changed }
             if (!dirty) return@forEach
+            var actualInput: JsonElement? = null
             val next = try {
                 hostUnavailable(deviceId)?.let { throw HostUnavailable(it) }
                 val plan = prepared.selectPlan(selection, fixedRouteReady)
                 val json = project(prepared, plan, occupancy, input.observation.activeContinuations, selection, candidate)
+                actualInput = json
                 val output = checkNotNull(logic).evaluate(prepared.signal.logicId, json)
                 require(output.modelVariant in prepared.signal.model.materialized.variants()) {
                     "signal device '$deviceId' selected undeclared model variant '${output.modelVariant}'"
@@ -114,6 +120,7 @@ internal class SignalPackEpochRuntime private constructor(
                         (failure.message?.takeIf(String::isNotBlank) ?: failure.javaClass.name)
                 )
             }
+            evaluations[deviceId] = SectionSignalEvaluation(occupancy.stamp, Instant.now(), actualInput)
             candidate[deviceId] = next
             if (previous?.states?.get(deviceId) != next) changed += deviceId
         }
@@ -122,7 +129,8 @@ internal class SignalPackEpochRuntime private constructor(
         return SectionSignalSnapshot(
             occupancy.stamp,
             candidate,
-            changed
+            changed,
+            evaluations
         )
     }
 

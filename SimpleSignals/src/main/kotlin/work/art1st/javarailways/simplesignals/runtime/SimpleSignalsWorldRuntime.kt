@@ -395,6 +395,14 @@ internal class SimpleSignalsWorldRuntime(
 
     fun sectionSignalSnapshot(): SectionSignalSnapshot? = state.sectionOccupancy?.signalSnapshot()
 
+    /** One exact definition/runtime pair; attached models share their primary's logical result. */
+    fun signalDeviceDiagnostics(deviceId: String): SignalDeviceDiagnostics? {
+        val captured = state
+        val definitions = captured.publication?.definitions ?: return null
+        val primaryId = definitions.attachedSignals.firstOrNull { it.signalId == deviceId }?.primarySignalId ?: deviceId
+        return captured.sectionOccupancy?.deviceDiagnostics(primaryId)
+    }
+
     fun protectionRouteSelectionSnapshot() = state.sectionOccupancy?.selectionSnapshot()
 
     fun routeIndicatorStates() = state.sectionOccupancy?.indicators().orEmpty()

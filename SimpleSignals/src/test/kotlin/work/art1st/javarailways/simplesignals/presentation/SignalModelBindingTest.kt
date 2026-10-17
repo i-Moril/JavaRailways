@@ -5,6 +5,9 @@ import work.art1st.javarailways.bukkit.api.model.ModelDefinition
 import work.art1st.javarailways.bukkit.api.model.ModelHandle
 import work.art1st.javarailways.bukkit.api.model.ModelPresentation
 import work.art1st.javarailways.bukkit.api.model.ModelPresentationService
+import work.art1st.javarailways.bukkit.api.model.ModelPick
+import work.art1st.javarailways.bukkit.api.model.ModelRay
+import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
@@ -38,6 +41,7 @@ internal class SignalModelBindingTest {
             return Handle(objectId).also(handles::add)
         }
         fun byId(id: String) = handles.last { it.id == id }
+        override fun pick(owner: Plugin, worldId: UUID, ray: ModelRay): Optional<ModelPick> = Optional.empty()
         override fun closeOwner(owner: Plugin): CompletionStage<Void> {
             closeOwnerCalls++
             handles.filterNot { it.closed }.forEach(Handle::close)

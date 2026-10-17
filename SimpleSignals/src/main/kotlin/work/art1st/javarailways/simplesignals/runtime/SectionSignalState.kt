@@ -2,6 +2,8 @@ package work.art1st.javarailways.simplesignals.runtime
 
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import kotlinx.serialization.json.JsonElement
+import java.time.Instant
 
 /** One turnout selection required by a prepared route/observation branch. */
 internal data class RequiredActiveContinuation(
@@ -43,11 +45,20 @@ internal sealed interface SectionSignalState {
 internal class SectionSignalSnapshot(
     val stamp: RailwayStateStamp,
     states: Map<String, SectionSignalState>,
-    changedSignalIds: Collection<String>
+    changedSignalIds: Collection<String>,
+    evaluations: Map<String, SectionSignalEvaluation> = emptyMap()
 ) {
     val states: Map<String, SectionSignalState> = java.util.Collections.unmodifiableMap(states.toSortedMap())
     val changedSignalIds: Set<String> = java.util.Collections.unmodifiableSet(changedSignalIds.toSortedSet())
+    val evaluations: Map<String, SectionSignalEvaluation> = java.util.Map.copyOf(evaluations)
 }
+
+/** Last actual attempt, including its exact JS input when projection completed. Not a history. */
+internal data class SectionSignalEvaluation(
+    val stamp: RailwayStateStamp,
+    val evaluatedAt: Instant,
+    val input: JsonElement?
+)
 
 internal data class PublishedSectionSignal(
     val stamp: RailwayStateStamp,

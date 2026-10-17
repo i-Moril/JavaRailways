@@ -170,7 +170,11 @@ internal class SectionOccupancyRuntime private constructor(
                     TopologySection(TopologySectionKind.SIGNAL, id) in awaitingBaseline ||
                     id in awaitingDefinitionSignalBaseline)
                     SectionSignalState.Unavailable("signal awaits a valid replacement baseline") else state },
-            emptySet()) }
+            emptySet(), snapshot.evaluations.filterKeys { id ->
+                id in definitionsBySignal && guard?.signalUnavailable(id) != true &&
+                    TopologySection(TopologySectionKind.SIGNAL, id) !in awaitingBaseline &&
+                    id !in awaitingDefinitionSignalBaseline
+            }) }
         val indicators = protectionSignals.indicatorsById.mapValues { (id, indicator) ->
             old.indicators[id]?.takeIf { previous.protectionSignals.indicatorsById[id] === indicator } ?:
                 initialIndicators.getValue(id)
@@ -225,19 +229,38 @@ internal class SectionOccupancyRuntime private constructor(
     val sources: List<SignalEpochSource> = listOfNotNull(source)
 
     fun signalSnapshot(): SectionSignalSnapshot? = latest?.signals?.let { snapshot ->
-        val completed = lastCompletedRuntime()?.latest
-        if (completed != null) return@let SectionSignalSnapshot(completed.occupancy.stamp,
-            snapshot.states.mapValues { (id, state) -> signalById(id)?.state ?: state },
-            snapshot.changedSignalIds)
+        val completedRuntime = lastCompletedRuntime()
+        val completed = completedRuntime?.latest
+        if (completed != null) {
+            val evaluations = snapshot.evaluations.toMutableMap()
+            val states = snapshot.states.mapValues { (id, state) ->
+                if (awaitsSignalBaseline(id)) {
+                    evaluations.remove(id)
+                    SectionSignalState.Unavailable("signal awaits a valid baseline")
+                } else if (definitionsBySignal[id] != null &&
+                    definitionsBySignal[id] === completedRuntime.definitionsBySignal[id]) {
+                    val evaluation = completed.signals?.evaluations?.get(id)
+                    if (evaluation == null) evaluations.remove(id) else evaluations[id] = evaluation
+                    completed.signals?.states?.get(id) ?: state
+                } else state
+            }
+            return@let SectionSignalSnapshot(completed.occupancy.stamp, states,
+                snapshot.changedSignalIds, evaluations)
+        }
         val guard = publication.topologyGuard ?: return@let snapshot
         val unavailable = snapshot.states.keys.filter(guard::signalUnavailable)
         if (unavailable.isEmpty()) snapshot else SectionSignalSnapshot(snapshot.stamp,
             snapshot.states + unavailable.associateWith { SectionSignalState.Unavailable("signal topology is unavailable") },
-            unavailable)
+            unavailable, snapshot.evaluations.filterKeys { it !in unavailable })
     }
 
     private fun lastCompletedRuntime(): SectionOccupancyRuntime? =
         epochContinuity?.lastProcessed?.takeIf { retainedPublication && it !== this }
+
+    private fun awaitsSignalBaseline(signalId: String): Boolean =
+        publication.topologyGuard?.signalUnavailable(signalId) == true ||
+            TopologySection(TopologySectionKind.SIGNAL, signalId) in awaitingBaseline ||
+            signalId in awaitingDefinitionSignalBaseline
 
     /** Controller lookup is O(1); untouched bindings read the last completed epoch, not a worker copy. */
     fun signalById(signalId: String): PublishedSectionSignal? {
@@ -246,12 +269,24 @@ internal class SectionOccupancyRuntime private constructor(
         val sameDefinition = completed != null && definitionsBySignal[signalId] != null &&
             definitionsBySignal[signalId] === completed.definitionsBySignal[signalId]
         val captured = if (sameDefinition) completed.latest ?: own else own
-        if (publication.topologyGuard?.signalUnavailable(signalId) == true ||
-            TopologySection(TopologySectionKind.SIGNAL, signalId) in awaitingBaseline ||
-            signalId in awaitingDefinitionSignalBaseline)
+        if (awaitsSignalBaseline(signalId))
             return PublishedSectionSignal(captured.occupancy.stamp, SectionSignalState.Unavailable("signal awaits a valid baseline"))
         val signals = captured.signals ?: return null
         return signals.states[signalId]?.let { PublishedSectionSignal(signals.stamp, it) }
+    }
+
+    /** Captures the same output/input publication once, applying the controller's baseline guards. */
+    fun deviceDiagnostics(signalId: String): SignalDeviceDiagnostics? {
+        if (signalId !in definitionsBySignal) return null
+        val own = latest ?: return signalDeviceDiagnostics(null, null)
+        val completed = lastCompletedRuntime()
+        val sameDefinition = completed != null && definitionsBySignal[signalId] === completed.definitionsBySignal[signalId]
+        val captured = if (sameDefinition) completed.latest ?: own else own
+        if (awaitsSignalBaseline(signalId))
+            return signalDeviceDiagnostics(
+                SectionSignalState.Unavailable("signal awaits a valid baseline"), captured.occupancy.stamp)
+        val signals = captured.signals ?: return signalDeviceDiagnostics(null, null)
+        return signalDeviceDiagnostics(signals.states[signalId], signals.stamp, signals.evaluations[signalId])
     }
 
     fun fixedBlockSignal(entry: FixedBlockSignalEntry): PublishedSectionSignal? {

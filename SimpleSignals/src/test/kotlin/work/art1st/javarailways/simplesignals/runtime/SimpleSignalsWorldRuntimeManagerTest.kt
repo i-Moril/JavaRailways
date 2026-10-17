@@ -315,7 +315,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val sources = r.sources.sources.getValue(r.f.worldId)
         val permits = r.infrastructure.permitAcquisitionCount
         val result = r.recorder.record(capture.first, capture.second) { true }.render(java.util.Locale.US)
-        assertTrue(result.contains(before.definitions.routeTables.single().routes.single().routeId), result)
+        assertFalse(result.contains(before.definitions.routeTables.single().routes.single().routeId),
+            "ordinary authoring feedback must hide generated route UUIDs")
         assertTrue(result.contains("already recorded"), result)
         assertSame(before, r.runtime.authoringPublication())
         assertSame(sources, r.sources.sources.getValue(r.f.worldId))
@@ -2275,6 +2276,14 @@ class SimpleSignalsWorldRuntimeManagerTest {
         process(3, false)
         assertEquals(0.0, runtime.sectionSignalSnapshot()!!.states.getValue(approach.signalId).effectiveSpeedLimitMetersPerSecond,
             "an unavailable protection entry is zero, not an unlimited downstream signal")
+        val unavailableDiagnostic = runtime.signalDeviceDiagnostics(clear.signalId)!!
+        assertInstanceOf(SectionSignalState.Unavailable::class.java, unavailableDiagnostic.state)
+        assertEquals(3L, unavailableDiagnostic.stamp!!.physicsEpoch)
+        assertNotNull(unavailableDiagnostic.evaluatedAt)
+        assertNull(unavailableDiagnostic.selfOccupied,
+            "failure before projection must not expose the last successful input")
+        assertNull(unavailableDiagnostic.scanDistanceMeters)
+        assertTrue(unavailableDiagnostic.forward.isEmpty())
         manager.clearLocal().toCompletableFuture().join()
     }
 
@@ -2312,20 +2321,44 @@ class SimpleSignalsWorldRuntimeManagerTest {
             }
         """.trimIndent()))
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(worldId).status)
+        val runtime = manager.authoringRuntime(worldId)!!
+        assertNull(runtime.signalDeviceDiagnostics(signals.first().signalId)!!.state,
+            "a device without its first baseline is not an occupied or clear device")
+        assertNull(runtime.signalDeviceDiagnostics("test:missing"))
         val epoch = SignalEpochRuntime(worldId.toString(), TrainRestrictionSnapshotStore(worldId.toString()))
         epoch.replaceSources(sources.sources.getValue(worldId))
         epoch.process(RailwayWorldFrameSnapshot.create(1, topology.revision, emptyList(),
             ActiveRailContinuationsSnapshot.empty(topology.revision)))
-        val captured = manager.authoringRuntime(worldId)!!.sectionSignalSnapshot()!!
+        val captured = runtime.sectionSignalSnapshot()!!
         assertTrue(signals.all { captured.states.getValue(it.signalId) is SectionSignalState.Available })
         assertEquals(listOf(10.0, 12.0, null), signals.map {
             captured.states.getValue(it.signalId).effectiveSpeedLimitMetersPerSecond
         })
+        val diagnostic = runtime.signalDeviceDiagnostics(signals[1].signalId)!!
+        assertEquals(1L, diagnostic.stamp!!.physicsEpoch)
+        assertNotNull(diagnostic.evaluatedAt)
+        assertNull(diagnostic.observedAt, "no wall-clock observation time is supplied by the host")
+        assertEquals(false, diagnostic.selfOccupied)
+        assertEquals(5.0, diagnostic.selfLengthMeters)
+        assertEquals(100.0, diagnostic.scanDistanceMeters)
+        assertTrue(diagnostic.forward.any { it.hasDownstreamSignal && it.speedLimitMetersPerSecond == null })
+        assertTrue(diagnostic.forward.all { it.branchPath.isNotEmpty() && it.selection == "not-applicable" })
+        assertTrue(diagnostic.terminations.any { it.reason == "track-end" })
+        assertThrows(UnsupportedOperationException::class.java) {
+            (diagnostic.forward as MutableList<*>).clear()
+        }
+        epoch.process(RailwayWorldFrameSnapshot.create(2, topology.revision, emptyList(),
+            ActiveRailContinuationsSnapshot.empty(topology.revision)))
+        assertSame(captured.evaluations.getValue(signals[1].signalId),
+            runtime.sectionSignalSnapshot()!!.evaluations.getValue(signals[1].signalId),
+            "unchanged cached input retains its real source instead of pretending refresh evaluated it")
+        assertEquals(diagnostic.evaluatedAt, runtime.signalDeviceDiagnostics(signals[1].signalId)!!.evaluatedAt)
+        assertEquals(1L, runtime.signalDeviceDiagnostics(signals[1].signalId)!!.stamp!!.physicsEpoch)
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
             manager.applyDefinitionPatch(worldId, 1, SimpleSignalsDefinitionPatch(upsertFixedBlockSignals = listOf(
                 signals.last().reconfigured(revision = 2, signalType = "automatic:slow")))).status)
         epoch.replaceSources(sources.sources.getValue(worldId))
-        epoch.process(RailwayWorldFrameSnapshot.create(2, topology.revision, emptyList(),
+        epoch.process(RailwayWorldFrameSnapshot.create(3, topology.revision, emptyList(),
             ActiveRailContinuationsSnapshot.empty(topology.revision)))
         assertEquals(listOf(1.0, 3.0, 5.0), signals.map {
             manager.authoringRuntime(worldId)!!.sectionSignalSnapshot()!!.states.getValue(it.signalId)
@@ -2436,6 +2469,10 @@ class SimpleSignalsWorldRuntimeManagerTest {
                 signals.first().reconfigured(revision = 2, signalType = "automatic:slow")))).status)
         assertNull(manager.authoringRuntime(worldId)!!.sectionSignalSnapshot(),
             "a replacement source has no signal result and cannot expose the old permission before its baseline")
+        val awaiting = manager.authoringRuntime(worldId)!!.signalDeviceDiagnostics(signals.first().signalId)!!
+        assertNull(awaiting.state)
+        assertNull(awaiting.evaluatedAt)
+        assertNull(awaiting.selfOccupied, "a replacement must not reuse old observation facts as current input")
         epoch.replaceSources(sources.sources.getValue(worldId))
         epoch.process(RailwayWorldFrameSnapshot.create(2, topology.revision, emptyList(),
             ActiveRailContinuationsSnapshot.empty(topology.revision)))
@@ -2450,6 +2487,9 @@ class SimpleSignalsWorldRuntimeManagerTest {
             ActiveRailContinuationsSnapshot.empty(topology.revision)))
         assertFalse(manager.authoringRuntime(worldId)!!.sectionSignalSnapshot()!!.states
             .containsKey(signals.first().signalId), "source replacement must not retain a removed device state")
+        assertNull(manager.authoringRuntime(worldId)!!.signalDeviceDiagnostics(signals.first().signalId))
+        assertFalse(manager.authoringRuntime(worldId)!!.sectionSignalSnapshot()!!.evaluations
+            .containsKey(signals.first().signalId))
         manager.clearLocal().toCompletableFuture().join()
     }
 
@@ -2569,6 +2609,13 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertInstanceOf(SectionSignalState.Unavailable::class.java, state)
         assertEquals(0.0, state.effectiveSpeedLimitMetersPerSecond)
         assertTrue((state as SectionSignalState.Unavailable).reason.contains("undeclared model variant"))
+        val diagnostic = manager.authoringRuntime(fixture.worldId)!!.signalDeviceDiagnostics(signal.signalId)!!
+        assertSame(state, diagnostic.state)
+        assertEquals(1L, diagnostic.stamp!!.physicsEpoch)
+        assertNotNull(diagnostic.evaluatedAt)
+        assertEquals(false, diagnostic.selfOccupied,
+            "JS/output validation failures still retain the actual input of that attempt")
+        assertEquals(4.0, diagnostic.selfLengthMeters)
         assertEquals("automatic:head", manager.authoringRuntime(fixture.worldId)!!.currentModels()!!.prepared
             .signals.getValue(signal.signalId).single().model.id)
         assertEquals(1, models.handles.size)
@@ -3745,6 +3792,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val states = runtime.sectionSignalSnapshot()!!.states
         assertEquals(setOf(fixed.signalId, other.signalId), states.keys)
         assertTrue(states.values.all { it is SectionSignalState.Unavailable })
+        assertEquals(runtime.signalDeviceDiagnostics(fixed.signalId)!!.state,
+            runtime.signalDeviceDiagnostics(attached.signalId)!!.state, "attached devices share the exact primary result")
         assertEquals(setOf("fixed-block-signal/${fixed.signalId}", "fixed-block-signal/${other.signalId}",
             "attached-signal/${attached.signalId}"), models.handles.map { it.id }.toSet())
         assertTrue(models.handles.all { it.submissions.isNotEmpty() })

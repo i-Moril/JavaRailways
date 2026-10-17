@@ -196,6 +196,11 @@ class SectionTopologyRevalidationTest {
         val candidate = SectionTopologyRevalidation.compile(base, captured, 1000.0)
         val replacement = SectionOccupancyRuntime.from(candidate)
         replacement.retainPublishedFrom(occupancy) // Worker sees the old restrictive output.
+        val guarded = replacement.deviceDiagnostics(signal(main).signalId)!!
+        assertInstanceOf(SectionSignalState.Unavailable::class.java, guarded.state)
+        assertNull(guarded.selfOccupied)
+        assertNull(guarded.evaluatedAt)
+        assertTrue(guarded.forward.isEmpty(), "invalid topology cannot advertise retained observations as current")
         epochs.process(frame(2, changed, unrelated)) // Captured old source sees the real occupant later.
         epochs.replaceSourcesAtomically(replacement.sources) {
             assertTrue(runtime.commitTopologyRevalidation(base, captured, candidate, replacement))

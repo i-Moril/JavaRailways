@@ -11,7 +11,7 @@
 
 ## Prior migration verified
 
-10月16日[迁移记录](../../09-18-signal-addon-implementation/research/dev-server-migration-2026-10-16.md)记录整目录外部备份、ownership转换、受限重复点修复及12对真实restore；后续[部署记录](../../09-18-signal-addon-implementation/research/dev-server-deployment-2026-10-16.md)记录配套JAR安装。
+10月16日[迁移记录](../../../../09-18-signal-addon-implementation/research/dev-server-migration-2026-10-16.md)记录整目录外部备份、ownership转换、受限重复点修复及12对真实restore；后续[部署记录](../../../../09-18-signal-addon-implementation/research/dev-server-deployment-2026-10-16.md)记录配套JAR安装。
 
 本次远端12份infrastructure及其runtime均为outer2；Basic infrastructure2、SimpleATO infrastructure1、Core infrastructure2，SimpleATO字段存在，outer revision逐对相同。旧归属转换已经完成，不能重复列作本次待办。
 

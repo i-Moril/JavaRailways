@@ -2,4 +2,4 @@
 {"file": ".trellis/spec/javarailways/core/persistence.md", "reason": "Current strict snapshot and rail restore owner."}
 {"file": ".trellis/spec/javarailways/core/rail-topology-and-occupancy.md", "reason": "Exact endpoint, transaction, prepared snapshot and undo contracts."}
 {"file": ".trellis/spec/bukkit-plugin/backend/offline-development-migration.md", "reason": "Independent offline source-set, fresh output and whole-directory recovery boundary."}
-{"file": ".trellis/tasks/09-24-explicit-rail-endpoint-connections/research/endpoint-save-audit-2026-10-17.md", "reason": "Verified remote source and evidence limitations."}
+{"file": ".trellis/tasks/archive/2026-10/09-24-explicit-rail-endpoint-connections/research/endpoint-save-audit-2026-10-17.md", "reason": "Verified remote source and evidence limitations."}

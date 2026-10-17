@@ -580,3 +580,40 @@ Implemented UUID+A/B connection and active-selection persistence, shared pre-wor
 ### Status
 
 [OK] **Completed**
+
+
+## Session 18: Shared boundary display names
+<!-- trellis-session: v=2 fp=246424b6f30645dd -->
+
+**Date**: 2026-10-17
+**Task**: Shared boundary display names
+**Package**: simple-signals
+**Branch**: `dev/signal-system`
+
+### Summary
+
+实现可重复的边界名称、共享边界同步、一次命名操作及进路端点标签；仅提交本任务，保留其他修改。
+
+### Main Changes
+
+- Flat raw-cut name metadata in existing schema1; exact shared identity, conflicts, lifecycle cleanup and guarded UI.
+- Scoped staging excludes previous empty-dialog, diagnostics, logging, model and physics work; task archived.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6390dddd` | feat(signals): add shared boundary display names |
+
+### Testing
+
+- [OK] Combined workspace59 suites/622 tests passed; isolated HEAD plus exact scoped commit57 suites/614 tests passed, no failures/errors/skips.
+- [OK] SimpleSignals check/JAR, API consumer and root module boundary checks passed; no push or deployment.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Real Paper/Folia naming input and visible label layout await in-game acceptance.

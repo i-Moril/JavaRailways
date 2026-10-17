@@ -557,3 +557,26 @@ pending、区域修复草稿与工具输入使用真正无向模型，严格curr
 ### Next Steps
 
 - 重新领取区间Wand，在游戏内验证Shift设置/F偏好、中心线与整区删除，Stage2继续in_progress。
+
+
+## Session 17: Persist exact rail endpoint identities
+<!-- trellis-session: v=2 fp=47b87306e2bd8538 -->
+
+**Date**: 2026-10-17
+**Task**: Persist exact rail endpoint identities
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+Implemented UUID+A/B connection and active-selection persistence, shared pre-world graph validation, prepared/undo/simulation consumers and independent offline conversion. Six affected modules: 2259 tests passed with zero failures/errors/skips; validated 12 file pairs copied read-only from remote 192.168.1.230, source/runtime bytes and unrelated infrastructure preserved. User-approved work commit and task archive complete; other dirty work excluded, no push or deployment.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f90c6805` | fix(persistence): persist exact rail endpoint identities |
+
+### Status
+
+[OK] **Completed**

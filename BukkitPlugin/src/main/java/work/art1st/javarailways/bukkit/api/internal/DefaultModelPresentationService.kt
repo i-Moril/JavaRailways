@@ -3,6 +3,8 @@ package work.art1st.javarailways.bukkit.api.internal
 import org.bukkit.Location
 import org.bukkit.World as BukkitWorld
 import org.bukkit.plugin.Plugin
+import org.joml.Quaterniond
+import org.joml.Vector3d
 import work.art1st.javarailways.bukkit.api.model.*
 import work.art1st.javarailways.bukkit.config.model.ModelTreeBuilder
 import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackend
@@ -15,6 +17,7 @@ import work.art1st.javarailways.bukkit.util.LatestAffinityTaskDispatcher
 import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 import work.art1st.javarailways.core.api.physics.World
 import java.util.UUID
+import java.util.Optional
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.atomic.AtomicBoolean
@@ -80,6 +83,21 @@ internal class DefaultModelPresentationService(
         return CompletableFuture.allOf(*handles.map { it.cleanup }.toTypedArray()).minimalCompletionStage()
     }
 
+    override fun pick(owner: Plugin, worldId: UUID, ray: ModelRay): Optional<ModelPick> = synchronized(registryLock) {
+        check(!closed && host.isEnabled) { "Model presentation host is unavailable" }
+        check(owner.isEnabled) { "Model owner ${owner.name} is disabled" }
+        val binding = worlds[worldId] ?: error("Model presentation world $worldId is not loaded")
+        var nearest: ModelPick? = null
+        for ((identity, handle) in active) {
+            if (identity.owner !== owner || identity.world !== binding) continue
+            val hit = handle.pick(ray) ?: continue
+            val previous = nearest
+            if (previous == null || hit.distance() < previous.distance() ||
+                (hit.distance() == previous.distance() && hit.objectId() < previous.objectId())) nearest = hit
+        }
+        Optional.ofNullable(nearest)
+    }
+
     override fun close() {
         val handles = synchronized(registryLock) {
             if (closed) return
@@ -117,6 +135,8 @@ internal class DefaultModelPresentationService(
         @Volatile private var stopped = false
         private var revision = -1L
         private var pending: Pending? = null
+        // Selection follows accepted submissions even while rendering is queued/coalesced.
+        private var accepted: ModelPresentation? = null
         val cleanup = CompletableFuture<Void>()
         // Only the per-handle serial target task changes these; audience reads the adapter's volatile model.
         @Volatile private var model: OrdinaryModel? = null
@@ -132,6 +152,7 @@ internal class DefaultModelPresentationService(
                 if (!identity.world.available || !identity.owner.isEnabled) return
                 revision = presentation.revision()
                 pending = Pending(presentation, selection)
+                accepted = presentation
             }
             offer()
         }
@@ -141,10 +162,26 @@ internal class DefaultModelPresentationService(
                 if (stopped) return
                 stopped = true
                 pending = null
+                accepted = null
             }
             audience?.withdraw()
             synchronized(registryLock) { active.remove(identity, this) }
             offer()
+        }
+
+        fun pick(ray: ModelRay): ModelPick? = synchronized(stateLock) {
+            if (stopped || !identity.world.available || !identity.owner.isEnabled || definition.selectionBoxes().isEmpty()) return null
+            val presentation = accepted ?: return null
+            val pose = presentation.transform()
+            val inverse = Quaterniond(pose.rotationX(), pose.rotationY(), pose.rotationZ(), pose.rotationW()).invert()
+            val origin = inverse.transform(Vector3d(ray.originX() - pose.x(), ray.originY() - pose.y(), ray.originZ() - pose.z()))
+            val direction = inverse.transform(Vector3d(ray.directionX(), ray.directionY(), ray.directionZ()))
+            var nearest: Double? = null
+            for (box in definition.selectionBoxes()) {
+                val distance = intersect(box, origin, direction, ray.maxDistance()) ?: continue
+                if (nearest == null || distance < nearest) nearest = distance
+            }
+            nearest?.let { ModelPick(identity.objectId, it, presentation.revision()) }
         }
 
         private fun offer() {
@@ -252,7 +289,7 @@ internal class DefaultModelPresentationService(
         }
 
         private fun finish(failure: Throwable?) {
-            synchronized(stateLock) { stopped = true; pending = null }
+            synchronized(stateLock) { stopped = true; pending = null; accepted = null }
             synchronized(registryLock) {
                 active.remove(identity, this)
                 // A failed cleanup remains observable to closeOwner; never report its absence as success.
@@ -266,5 +303,27 @@ internal class DefaultModelPresentationService(
         private fun report(failure: Throwable) = logger.log(
             Level.SEVERE, "Model presentation failed for plugin ${identity.owner.name}, object ${identity.objectId}", failure
         )
+    }
+
+    /** Slab intersection in root-local metres; inverse rotation preserves ray distance. */
+    private fun intersect(box: ModelSelectionBox, origin: Vector3d, direction: Vector3d, maxDistance: Double): Double? {
+        var near = 0.0
+        var far = maxDistance
+        for (axis in 0..2) {
+            val min = when (axis) { 0 -> box.minX(); 1 -> box.minY(); else -> box.minZ() }
+            val max = when (axis) { 0 -> box.maxX(); 1 -> box.maxY(); else -> box.maxZ() }
+            val position = origin[axis]
+            val delta = direction[axis]
+            if (delta == 0.0) {
+                if (position < min || position > max) return null
+            } else {
+                val first = (min - position) / delta
+                val second = (max - position) / delta
+                near = maxOf(near, minOf(first, second))
+                far = minOf(far, maxOf(first, second))
+                if (near > far) return null
+            }
+        }
+        return near
     }
 }

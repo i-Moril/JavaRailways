@@ -25,6 +25,9 @@ import work.art1st.javarailways.bukkit.api.model.ModelScale;
 import work.art1st.javarailways.bukkit.api.model.ModelPresentation;
 import work.art1st.javarailways.bukkit.api.model.ModelPresentationService;
 import work.art1st.javarailways.bukkit.api.model.ModelHandle;
+import work.art1st.javarailways.bukkit.api.model.ModelRay;
+import work.art1st.javarailways.bukkit.api.model.ModelPick;
+import work.art1st.javarailways.bukkit.api.model.ModelSelectionBox;
 import work.art1st.javarailways.bukkit.api.model.asset.CompiledModelAsset;
 import work.art1st.javarailways.bukkit.api.model.asset.ModelAssetImportMode;
 import work.art1st.javarailways.bukkit.api.model.asset.ModelAssetYamlCompilation;
@@ -137,7 +140,14 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         ));
         var item = new ModelPart.Item(ModelPose.IDENTITY, ModelScale.UNIT,
             new ItemAppearance(Material.PAPER, null, null, null), List.of(animation));
-        return new ModelDefinition(List.of(new ModelPart.Group(ModelPose.IDENTITY, List.of(item), List.of())));
+        return new ModelDefinition(List.of(new ModelPart.Group(ModelPose.IDENTITY, List.of(item), List.of())),
+            List.of(new ModelSelectionBox(-0.5, 0, -0.5, 0.5, 2, 0.5)));
+    }
+
+    /** The caller captures the ray on the player owner thread and applies block occlusion there. */
+    public java.util.Optional<ModelPick> pickOrdinaryModel(UUID worldId, ModelRay capturedRay) {
+        return Objects.requireNonNull(getServer().getServicesManager().load(ModelPresentationService.class))
+            .pick(this, worldId, capturedRay);
     }
 
     /** Captured package text can be compiled on an add-on worker without Bukkit world access. */

@@ -1,5 +1,31 @@
 # 通用模型显示与轨道定位 API
 
+## 点击普通模型的显式选取盒（2026-10-17，CURRENT）
+
+本节由BukkitPlugin负责，供Signal Wand现场编辑使用；已完成实现、定向门禁及独立静态复核，客户端效果另验。复用已有显示服务、owner/world/objectId和handle，不新增实体交互框架。客户端物品网格不在服务端，因此作者声明根局部米制盒子，不能从模型原点距离推断点中。
+
+```java
+record ModelSelectionBox(double minX, double minY, double minZ,
+                         double maxX, double maxY, double maxZ) {}
+record ModelRay(double originX, double originY, double originZ,
+                double directionX, double directionY, double directionZ,
+                double maxDistance) {}
+record ModelPick(String objectId, double distance, long presentationRevision) {}
+// 原单参数ModelDefinition构造保留为空盒集合的便利入口。
+record ModelDefinition(List<ModelPart> parts, List<ModelSelectionBox> selectionBoxes) {}
+Optional<ModelPick> ModelPresentationService.pick(Plugin owner, UUID worldId, ModelRay ray);
+```
+
+ModelRay方向为单位向量，各分量有限，距离有限正数；盒子各轴有限且min<max，集合复制为不可变。普通模型YAML根级`selection-boxes`为可选列表，每项`min: [x,y,z]`、`max: [x,y,z]`，不继承import目标的盒子。没有声明盒子的模型不参与模型点击，仍可从局部轨道编辑；不自动生成猜测盒子。盒子相对模型根，不随动画部件移动或缩放；这种模型需作者声明覆盖所需交互范围。
+
+查询沿用服务现有活动handle表，先过滤指定插件实例和当前world实例，再比较未关闭、已有有效提交的模型。将视线按最新接受的根姿态逆旋转/平移，再逐轴求交，取射线有效距离内的最近命中；平行轴在盒外直接不命中，视线起点在盒内取距离0，相同距离按objectId稳定选择。返回表示最新提交的几何，不承诺客户端已显示。调用方在玩家所属线程捕获视线与实体/方块输入，传入普通值；方块遮挡由调用方以实际点击/射线结果限制maxDistance，服务不访问Bukkit世界或玩家。返回后编辑仍须复核确切设备及定义revision，不能把显示revision当作者revision。
+
+create/submit/close及查询沿用同一生命周期：世界卸载、owner停用、服务关闭或handle退休后不能再命中旧对象；同名重建不复活旧handle。非法输入在查询前拒绝；合法但没有命中返回empty，未注册world明确失败，不改模型/世界/授权。查询工作只在点击时发生，O(A+B)，A为服务全部活动handle数，B为目标owner/world的盒子数；不为低频点击新增另一份owner索引、tick扫描或永久空间索引，无几何历史。
+
+例如看向四灯头盒子可选中对应设备；侧旁另一个原点更近的模型不因距离更近被选中。没有盒子的自定义包必须走轨道入口，不猜选。测试在原服务fixture覆盖旋转根/平行和内部起点、owner隔离、最大距离、尚未提交和close/unload、非法盒/射线，以及compiler的显式几何/不继承。仅覆盖新边界，不增加真实渲染性能测试或大型UI矩阵。
+
+这是未发布开发模型的可选能力，不升世界/包版本，不增加旧reader或存档迁移。错误做法是按根位置最近选择或在worker读玩家视线；正确做法是作者明确选取盒、捕获值后求交及保存时再次认证作者状态。
+
 ## 1. 这份设计要解决什么问题
 
 本文描述当前已实现（`CURRENT`）的主插件通用模型显示能力：按 UUID 查询轨道曲线、不可变模型定义、完整场景应用，

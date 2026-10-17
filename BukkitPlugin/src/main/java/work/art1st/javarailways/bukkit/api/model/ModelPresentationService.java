@@ -1,6 +1,7 @@
 package work.art1st.javarailways.bukkit.api.model;
 
 import org.bukkit.plugin.Plugin;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
@@ -13,6 +14,14 @@ public interface ModelPresentationService {
      * Throws IllegalStateException if the host/world/owner is unavailable.
      */
     ModelHandle create(Plugin owner, UUID worldId, String objectId, ModelDefinition definition);
+
+    /**
+     * Intersect authored selection boxes at the latest accepted root poses of this exact owner's
+     * active models. Value-only and safe on workers; never queries blocks, entities or viewers.
+     * Missing boxes/submissions do not hit. Nearest distance wins, then lexical object ID.
+     * Throws IllegalStateException for an unavailable host, owner or unregistered world.
+     */
+    Optional<ModelPick> pick(Plugin owner, UUID worldId, ModelRay ray);
 
     /**
      * Close this exact owner's models and observe completion of all outstanding cleanup, including

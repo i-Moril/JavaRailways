@@ -59,6 +59,9 @@ class ModelAssetYamlCompilerTest {
               follow-rail-tilt: true
               presets:
                 left: {offset: {z: 2}}
+            selection-boxes:
+              - min: [-1, 0, -0.5]
+                max: [1, 2, 0.5]
         """.trimIndent()
         val home = """
             parts:
@@ -83,6 +86,23 @@ class ModelAssetYamlCompilerTest {
         assertEquals(setOf("home"), materializedHome.placement().presets().keys)
         assertEquals(setOf("stop"), materializedBase.variants().keys)
         assertEquals(setOf("left"), materializedBase.placement().presets().keys)
+        assertEquals(-1.0, materializedBase.definition().selectionBoxes().single().minX())
+        assertTrue(materializedHome.definition().selectionBoxes().isEmpty(), "imports only inherit parts, not root selection volumes")
+    }
+
+    @Test
+    fun `selection boxes require explicit finite three-coordinate ordered bounds`() {
+        for (box in listOf(
+            "{min: [0, 0], max: [1, 1, 1]}",
+            "{min: [0, 0, 0], max: [0, 1, 1]}",
+            "{min: [0, 0, .inf], max: [1, 1, 1]}",
+            "{min: [0, 0, 0], max: [1, 1, 1], guess: true}"
+        )) {
+            val failure = assertThrows(IllegalArgumentException::class.java) {
+                compileModels(mapOf("bad" to "$INLINE_MODEL\nselection-boxes: [$box]"))
+            }
+            assertTrue(failure.message.orEmpty().contains("selection-boxes"), failure.message)
+        }
     }
 
     @Test

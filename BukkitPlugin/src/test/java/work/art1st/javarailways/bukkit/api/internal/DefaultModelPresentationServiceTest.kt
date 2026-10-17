@@ -36,6 +36,52 @@ import java.util.logging.Logger
 
 class DefaultModelPresentationServiceTest {
     @Test
+    fun `picking uses authored rotated geometry at the latest accepted pose without rendering`(): Unit = Fixture().use { f ->
+        val box = ModelSelectionBox(0.0, 0.0, 0.0, 2.0, 1.0, 0.5)
+        val handle = f.service.create(f.owner.plugin, f.worldId, "selected", ModelDefinition(definition().parts(), listOf(box)))
+        val ray = ModelRay(10.25, 64.5, -5.0, 0.0, 0.0, 1.0, 10.0)
+        assertTrue(f.service.pick(f.owner.plugin, f.worldId, ray).isEmpty)
+        val half = kotlin.math.sqrt(0.5)
+        handle.submit(ModelPresentation(1, ModelPose(10.0, 64.0, 0.0, 0.0, half, 0.0, half), mapOf("Lamp" to "Base")))
+        val pick = f.service.pick(f.owner.plugin, f.worldId, ray).orElseThrow()
+        assertEquals("selected", pick.objectId())
+        assertEquals(3.0, pick.distance(), 1e-9)
+        assertEquals(1L, pick.presentationRevision())
+        assertTrue(f.backend.visuals.isEmpty(), "selection does not require rendering acknowledgment or run entity tasks")
+        assertTrue(f.service.pick(f.owner.plugin, f.worldId, ModelRay(10.25, 64.5, -5.0, 0.0, 0.0, 1.0, 2.9)).isEmpty)
+        assertTrue(f.service.pick(f.owner.plugin, f.worldId, ModelRay(12.0, 64.5, -5.0, 0.0, 0.0, 1.0, 10.0)).isEmpty)
+        assertEquals(0.0, f.service.pick(f.owner.plugin, f.worldId,
+            ModelRay(10.25, 64.5, -1.0, 0.0, 0.0, 1.0, 10.0)).orElseThrow().distance())
+        handle.submit(state(2, x = 40.0))
+        assertTrue(f.service.pick(f.owner.plugin, f.worldId, ray).isEmpty, "queued new pose replaces old selection immediately")
+        handle.close()
+    }
+
+    @Test
+    fun `picking isolates owners resolves equal hits and retires old world and handles`(): Unit = Fixture().use { f ->
+        val selected = ModelDefinition(definition().parts(), listOf(ModelSelectionBox(-0.5, 0.0, -0.5, 0.5, 1.0, 0.5)))
+        val ray = ModelRay(0.0, 64.5, -5.0, 0.0, 0.0, 1.0, 10.0)
+        val other = Owner("Addon")
+        f.service.create(other.plugin, f.worldId, "other", selected).submit(state(1))
+        assertTrue(f.service.pick(f.owner.plugin, f.worldId, ray).isEmpty)
+        f.create().submit(state(1)) // Model without authored boxes never gets an inferred box.
+        val b = f.service.create(f.owner.plugin, f.worldId, "b", selected)
+        val a = f.service.create(f.owner.plugin, f.worldId, "a", selected)
+        b.submit(state(1)); a.submit(state(1))
+        assertEquals("a", f.service.pick(f.owner.plugin, f.worldId, ray).orElseThrow().objectId())
+        a.close()
+        assertEquals("b", f.service.pick(f.owner.plugin, f.worldId, ray).orElseThrow().objectId())
+        val replacement = f.service.create(f.owner.plugin, f.worldId, "a", selected)
+        a.submit(state(99))
+        assertEquals("b", f.service.pick(f.owner.plugin, f.worldId, ray).orElseThrow().objectId())
+        replacement.submit(state(1))
+        f.service.removeWorld(f.worldId, f.bukkitWorld)
+        assertThrows(IllegalStateException::class.java) { f.service.pick(f.owner.plugin, f.worldId, ray) }
+        f.service.registerWorld(f.worldId, bukkitWorld(f.worldId), f.railWorld, f.audiences)
+        assertTrue(f.service.pick(f.owner.plugin, f.worldId, ray).isEmpty)
+    }
+
+    @Test
     fun `allocation and submit are value-only and both affinities display through the existing audience index`() {
         for (native in listOf(true, false)) Fixture(native).use { f ->
             val handle = f.create()

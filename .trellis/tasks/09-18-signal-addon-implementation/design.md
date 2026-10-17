@@ -606,3 +606,12 @@ SimpleATO 只执行中立的“入口以前须具备到某位置的连续可行�
 - Whether WebUI remains a host sidecar, moves beside SimpleATO, or becomes independently deployable.
 
 These decisions do not block module extraction, protection-region migration or the Java/Kotlin signalling core. The scaffold now fixes the Java package root as `work.art1st.javarailways.simplesignals`; persisted type IDs and script API identifiers remain separate decisions for their owning domain batches.
+# 正式现场编辑接线（2026-10-17，实施目标）
+
+本批以已经确认的Dialog方案为输入，复用现有作者事务与数值编辑，不调整行车策略。设置/目标选型、宿主模型拾取、只读运行诊断分开实现，再由Signal Wand接线；不把模拟器当产品。
+
+模型拾取复用普通模型显示服务，几何由模型作者声明根坐标系米制盒子；点击时将视线逆变换到根坐标，用射线/盒子求交，返回本owner和world内最近模型的objectId与提交修订。盒子不自动随部件动画变化，不声称按客户端网格/像素命中；调用者捕获视线及方块遮挡距离，宿主不跨线程访问玩家。对应合同写入[宿主模型API](../../spec/bukkit-plugin/backend/model-presentation-api.md)。
+
+类型目录没有控制对象兼容矩阵；不凭名字猜分类。创建先确定实际目标种类，主信号候选使用现有模型/逻辑及完整候选验证，附属模型必须表达主信号全部外观。现场只换类型/模型使用独立作者操作，禁止借重新摆放悄悄改位置。逻辑重绑只在显式游戏选入口及最终确认后执行。
+
+诊断从单个不可变发布值读取，复用最新实际求值输入摘要；无输入则显示未知，不在查询时扫描。保留最近一次输入/输出来源，不保留无界历史，不因缓存输出未重算而报错；页面读取时间与数据产生时间分开。具体字段由runtime投影负责，UI只本地化展示，不展示绑定摘要或发明上下行。

@@ -16,9 +16,12 @@ class ModelDefinitionTest {
         val children = mutableListOf<ModelPart>(item)
         val group = ModelPart.Group(ModelPose.IDENTITY, children, emptyList())
         val roots = mutableListOf<ModelPart>(group)
-        val definition = ModelDefinition(roots)
-        frames.clear(); animations.clear(); children.clear(); roots.clear()
+        val boxes = mutableListOf(ModelSelectionBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0))
+        val definition = ModelDefinition(roots, boxes)
+        frames.clear(); animations.clear(); children.clear(); roots.clear(); boxes.clear()
         assertEquals(1, definition.parts().size)
+        assertEquals(1, definition.selectionBoxes().size)
+        assertThrows(UnsupportedOperationException::class.java) { (definition.selectionBoxes() as MutableList).clear() }
         assertEquals(1, group.children().size)
         assertEquals(1, item.animations().size)
         assertEquals(1, animation.frames().size)
@@ -26,6 +29,16 @@ class ModelDefinitionTest {
         assertThrows(UnsupportedOperationException::class.java) { (group.children() as MutableList).clear() }
         assertThrows(UnsupportedOperationException::class.java) { (item.animations() as MutableList).clear() }
         assertThrows(UnsupportedOperationException::class.java) { (animation.frames() as MutableList).clear() }
+    }
+
+    @Test
+    fun `selection geometry rejects invalid bounds and nonunit rays without normalizing`() {
+        assertTrue(ModelDefinition(emptyList()).selectionBoxes().isEmpty())
+        assertThrows(IllegalArgumentException::class.java) { ModelSelectionBox(0.0, 0.0, 0.0, 0.0, 1.0, 1.0) }
+        assertThrows(IllegalArgumentException::class.java) { ModelSelectionBox(0.0, 0.0, 0.0, 1.0, Double.NaN, 1.0) }
+        assertThrows(IllegalArgumentException::class.java) { ModelRay(0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 10.0) }
+        assertThrows(IllegalArgumentException::class.java) { ModelRay(0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0) }
+        assertThrows(IllegalArgumentException::class.java) { ModelRay(Double.NaN, 0.0, 0.0, 0.0, 0.0, 1.0, 10.0) }
     }
 
     @Test

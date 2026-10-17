@@ -7,9 +7,14 @@ import java.util.List;
 import java.util.Set;
 
 /** Reusable immutable ordinary model tree; no package loader, registry, Car or mutable rendering values. */
-public record ModelDefinition(List<ModelPart> parts) {
+public record ModelDefinition(List<ModelPart> parts, List<ModelSelectionBox> selectionBoxes) {
+    public ModelDefinition(List<ModelPart> parts) {
+        this(parts, List.of());
+    }
+
     public ModelDefinition {
         parts = List.copyOf(parts);
+        selectionBoxes = List.copyOf(selectionBoxes);
         var sceneSets = new HashMap<String, Set<String>>();
         var pending = new ArrayDeque<ModelPart>(parts);
         while (!pending.isEmpty()) {

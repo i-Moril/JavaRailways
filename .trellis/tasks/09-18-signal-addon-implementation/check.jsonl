@@ -12,3 +12,4 @@
 {"file":".trellis/spec/bukkit-plugin/backend/editor-markers.md","reason":"Validate public temporary text API, immutable label replacement and viewer-only lifecycle"}
 {"file":".trellis/spec/bukkit-plugin/backend/model-presentation-api.md","reason":"Existing ordinary model regressions must remain unchanged; reuse async and cleanup patterns"}
 {"file":".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md","reason":"Verify location/entity/player ownership, late tasks and plugin/world teardown"}
+{"file":".trellis/tasks/09-18-signal-addon-implementation/research/signal-edit-api-seams-2026-10-17.md","reason":"Check actual contextual picking, exact device edits, missing catalog compatibility metadata and immutable diagnostics"}

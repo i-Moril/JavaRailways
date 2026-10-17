@@ -1,3 +1,8 @@
+# Explicit root-local selection volume after the common offset and ItemDisplay rotation.
+# This encloses the housing and visors; it is an interaction box, not mesh-level picking.
+selection-boxes:
+  - min: [-0.3125, 0.0, -0.625]
+    max: [0.125, 2.625, 0.625]
 parts:
   - type: dummy
     # Rebasing the client mesh by -16 units preserves its size; restore its base height here.

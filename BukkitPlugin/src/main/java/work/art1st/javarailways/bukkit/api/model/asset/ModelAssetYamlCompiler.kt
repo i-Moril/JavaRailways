@@ -17,6 +17,7 @@ import work.art1st.javarailways.bukkit.api.model.ModelDefinition
 import work.art1st.javarailways.bukkit.api.model.ModelPart
 import work.art1st.javarailways.bukkit.api.model.ModelPose
 import work.art1st.javarailways.bukkit.api.model.ModelScale
+import work.art1st.javarailways.bukkit.api.model.ModelSelectionBox
 import java.io.StringReader
 import java.util.Collections
 
@@ -104,7 +105,19 @@ object ModelAssetYamlCompiler {
             val entries = partsValue.list()
             if (entries.isEmpty()) partsValue.fail("model parts must not be empty")
             val parts = materializedParts ?: entries.map { expand(entry(it)) }
-            val definition = partsValue.publicValue { ModelDefinition(parts) }
+            val boxes = fields["selection-boxes"]?.list().orEmpty().map { box ->
+                val bounds = box.mapping(setOf("min", "max"))
+                fun coordinates(name: String): List<Double> {
+                    val coordinates = box.required(bounds, name)
+                    val values = coordinates.list()
+                    if (values.size != 3) coordinates.fail("selection box $name must contain exactly three coordinates")
+                    return values.map { it.number() }
+                }
+                val min = coordinates("min")
+                val max = coordinates("max")
+                box.publicValue { ModelSelectionBox(min[0], min[1], min[2], max[0], max[1], max[2]) }
+            }
+            val definition = partsValue.publicValue { ModelDefinition(parts, boxes) }
             val defaults = value.required(fields, "default")
             val defaultScenes = selection(defaults)
             val variantFields = fields["variants"]?.mapping().orEmpty()
@@ -138,7 +151,7 @@ object ModelAssetYamlCompiler {
         }
 
         private fun modelFields(value: YamlValue): Map<String, YamlValue> =
-            value.mapping(setOf("parts", "default", "variants", "rail-placement"))
+            value.mapping(setOf("parts", "default", "variants", "rail-placement", "selection-boxes"))
 
         private fun selection(value: YamlValue): Map<String, String> = value.mapping().mapValues { (name, scene) ->
             if (name.isBlank()) scene.fail("animation name must not be blank")

@@ -12,3 +12,4 @@
 {"file":".trellis/spec/bukkit-plugin/backend/editor-markers.md","reason":"Approved minimal editor text API, viewer isolation and cleanup before boundary overlay integration"}
 {"file":".trellis/spec/bukkit-plugin/backend/model-presentation-api.md","reason":"Reuse existing host-owned async presentation and observable cleanup semantics without changing model behavior"}
 {"file":".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md","reason":"Folia entity/player ownership and addon-disable cleanup ordering"}
+{"file":".trellis/tasks/09-18-signal-addon-implementation/research/signal-edit-api-seams-2026-10-17.md","reason":"Formal contextual editor, truthful type selection and coherent read-only diagnostic seams"}

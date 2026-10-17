@@ -131,6 +131,107 @@ class SimpleSignalsWorldRuntimeManagerTest {
     @TempDir
     lateinit var directory: Path
 
+    @Test fun `boundary names use sole metadata transaction preserve route devices and reload`() {
+        val f = Fixture()
+        val infrastructure = MutableTopologyService(f.currentTopology)
+        val definitions = store()
+        val indicator = RouteIndicatorDefinition("test:indicator", 7, "test:entry", "closed", mapOf("test:upper" to "1"))
+        val original = SimpleSignalsWorldDefinitions(f.worldId, 1, listOf(f.region), listOf(f.table(1, f.upperRoute())), routeIndicators = listOf(indicator))
+        definitions.save(f.worldId, original)
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, CapturingSignalEpochSourceService())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
+        val selection = backend.naming(backend.capture(f.worldId)!!, f.region.boundaries.first().position.cutPosition())!!
+        backend.rename(selection, " 西端 ") { true }
+        val named = manager.authoringRuntime(f.worldId)!!.currentDefinitions()
+        assertEquals(2, named.definitionRevision)
+        assertEquals(listOf(work.art1st.javarailways.simplesignals.persistence.BoundaryName(f.region.boundaries.first().position.cutPosition(), "西端")), named.boundaryNames)
+        assertEquals(setOf(f.entry), infrastructure.lastEditRequest!!.impact.railIds)
+        assertEquals(original.regions, named.regions); assertEquals(original.routeTables, named.routeTables)
+        assertEquals(original.routeIndicators, named.routeIndicators)
+        assertThrows(IllegalArgumentException::class.java) { backend.rename(selection, "stale") { true } }
+        manager.remove(f.worldId)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        assertEquals(named, manager.authoringRuntime(f.worldId)!!.currentDefinitions())
+        val clear = backend.naming(backend.capture(f.worldId)!!, f.region.boundaries.first().position.cutPosition())!!
+        backend.rename(clear, "  ") { true }
+        assertTrue(manager.authoringRuntime(f.worldId)!!.currentDefinitions().boundaryNames.isEmpty())
+        manager.remove(f.worldId)
+    }
+
+    @Test fun `metadata save failure and edit denial leave disk publication and revision intact`() {
+        val f = Fixture()
+        val p = f.region.boundaries.first().position.cutPosition()
+        val original = SimpleSignalsWorldDefinitions(f.worldId, 1, listOf(f.region), emptyList(),
+            boundaryNames = listOf(work.art1st.javarailways.simplesignals.persistence.BoundaryName(p, "原名")))
+        val seed = store(); seed.save(f.worldId, original)
+        val bytes = Files.readString(seed.primaryFile(f.worldId))
+        val failing = SimpleSignalsWorldDefinitionStore(directory.toFile()) { throw java.io.IOException("injected name save failure") }
+        val infrastructure = MutableTopologyService(f.currentTopology)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), failing, sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        val runtime = manager.authoringRuntime(f.worldId)!!
+        val publication = runtime.authoringPublication()
+        val patch = SimpleSignalsDefinitionPatch(boundaryNames = listOf(work.art1st.javarailways.simplesignals.persistence.BoundaryName(p, "新名")))
+        val result = manager.applyDefinitionPatch(f.worldId, 1, patch)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.PERSISTENCE_FAILED, result.status)
+        assertSame(publication, runtime.authoringPublication()); assertEquals(bytes, Files.readString(seed.primaryFile(f.worldId)))
+        infrastructure.nextEditDecision = TopologyEditDecision(TopologyEditStatus.CONFLICT, emptyList(), "blocked")
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.EDIT_BLOCKED, manager.applyDefinitionPatch(f.worldId, 1, patch).status)
+        assertSame(publication, runtime.authoringPublication()); assertEquals(bytes, Files.readString(seed.primaryFile(f.worldId)))
+        assertEquals(1, sources.atomicCommitCount)
+        manager.remove(f.worldId)
+    }
+
+    @Test fun `named pending cut survives block conversion and final owner deletion cleans metadata`() {
+        val world = UUID(0, 812); val rail = UUID(0, 813)
+        val infrastructure = MutableTopologyService(lineTopologyState(1, rail))
+        val definitions = store()
+        val p = RailCutPosition(rail, 0.0)
+        definitions.save(world, SimpleSignalsWorldDefinitions(world, 1, emptyList(), emptyList(),
+            pendingProtectionBoundaries = listOf(work.art1st.javarailways.simplesignals.region.ProtectionBoundaryCut("test:pending", p)),
+            boundaryNames = listOf(work.art1st.javarailways.simplesignals.persistence.BoundaryName(p, "站口"))))
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, CapturingSignalEpochSourceService())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(world).status)
+        val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
+        backend.perform(backend.capture(world)!!, SectionWandTool.CREATE, false, RailCutPosition(rail, 10.0), true) { true }
+        val saved = manager.authoringRuntime(world)!!.currentDefinitions()
+        assertEquals("站口", saved.boundaryNames.single().name)
+        assertEquals(p, saved.boundaryNames.single().position)
+        assertTrue(saved.pendingProtectionBoundaries.isEmpty())
+        val removed = manager.applyDefinitionPatch(world, saved.definitionRevision,
+            SimpleSignalsDefinitionPatch(removeFixedBlockIds = saved.fixedBlocks.map { it.blockId }))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, removed.status)
+        assertTrue(removed.definitions!!.boundaryNames.isEmpty())
+        manager.remove(world)
+    }
+
+    @Test fun `shared block boundary retains its name after one owner is removed and clears after last owner`() {
+        val world = UUID(0, 814); val rail = UUID(0, 815)
+        val infrastructure = MutableTopologyService(lineTopologyState(1, rail))
+        val left = FixedBlockDefinition("test:left", 1, listOf(FixedBlockTraversal(rail, ViewDirection.AB, 0.0, 5.0)))
+        val right = FixedBlockDefinition("test:right", 1, listOf(FixedBlockTraversal(rail, ViewDirection.AB, 5.0, 10.0)))
+        val definitions = store()
+        definitions.save(world, SimpleSignalsWorldDefinitions(world, 1, emptyList(), emptyList(), fixedBlocks = listOf(left, right)))
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions, CapturingSignalEpochSourceService())
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(world).status)
+        val backend = RuntimeSectionWandBackend(manager, infrastructure.service, 1000.0)
+        val shared = RailCutPosition(rail, 5.0)
+        backend.rename(backend.naming(backend.capture(world)!!, shared)!!, "共用边界") { true }
+        val result = manager.applyDefinitionPatch(world, 2, SimpleSignalsDefinitionPatch(removeFixedBlockIds = listOf(left.blockId)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, result.status, result.diagnostics.toString())
+        assertEquals(listOf(right), result.definitions!!.fixedBlocks)
+        assertEquals(listOf(work.art1st.javarailways.simplesignals.persistence.BoundaryName(shared, "共用边界")), result.definitions!!.boundaryNames)
+        val last = manager.applyDefinitionPatch(world, 3, SimpleSignalsDefinitionPatch(removeFixedBlockIds = listOf(right.blockId)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, last.status)
+        assertTrue(last.definitions!!.boundaryNames.isEmpty())
+        val recreated = manager.applyDefinitionPatch(world, 4, SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(right)))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, recreated.status)
+        assertTrue(recreated.definitions!!.boundaryNames.isEmpty())
+        manager.remove(world)
+    }
+
     @Test fun `unified section wand persists endpoint cuts and creates a block beyond the protection search range`() {
         val world = UUID(0, 812)
         val rail = UUID(0, 813)
@@ -168,7 +269,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val f = Fixture()
         val store = store()
         store.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1, emptyList(), emptyList(),
-            pendingProtectionBoundaries = listOf(f.region.boundaries.first().cut())))
+            pendingProtectionBoundaries = listOf(f.region.boundaries.first().cut()),
+            boundaryNames = listOf(work.art1st.javarailways.simplesignals.persistence.BoundaryName(f.region.boundaries.first().position.cutPosition(), "入口"))))
         val infrastructure = MutableTopologyService(f.currentTopology)
         val sources = CapturingSignalEpochSourceService()
         val plans = CapturingRoutePlanningService()
@@ -181,6 +283,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val saved = manager.authoringRuntime(f.worldId)!!.currentDefinitions()
         assertEquals(2, saved.definitionRevision)
         assertTrue(saved.pendingProtectionBoundaries.isEmpty())
+        assertEquals("入口", saved.boundaryNames.single().name)
         assertEquals(1, saved.regions.size)
         val table = saved.routeTables.single()
         assertEquals(saved.regions.single().regionId, table.regionId)
@@ -245,11 +348,19 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val f = Fixture()
         val r = RecordingFixture(f, tables = listOf(f.table(1, f.lowerRoute())))
         val backend = RuntimeSectionWandBackend(r.manager, r.infrastructure.service, 1000.0)
+        val retained = f.region.boundaries.last().position.cutPosition()
+        val naming = backend.naming(backend.capture(f.worldId)!!, retained)!!
+        backend.rename(naming, "保留出口") { true }
         val before = r.runtime.currentDefinitions().routeTables
         backend.perform(backend.capture(f.worldId)!!, SectionWandTool.DELETE, false,
             f.region.boundaries.first().position.cutPosition(), true) { true }
+        assertEquals("保留出口", r.runtime.currentDefinitions().boundaryNames.single().name)
+        assertNotNull(r.runtime.currentDefinitions().regions.single().boundaryDraft)
         val repaired = backend.perform(backend.capture(f.worldId)!!, SectionWandTool.CREATE, false,
             f.region.boundaries.first().position.cutPosition(), true) { true }
+        assertNull(r.runtime.currentDefinitions().regions.single().boundaryDraft)
+        assertEquals(listOf(work.art1st.javarailways.simplesignals.persistence.BoundaryName(retained, "保留出口")),
+            r.runtime.currentDefinitions().boundaryNames)
         assertTrue(repaired.text.render(java.util.Locale.US).contains("Revalidated"), repaired.text.render(java.util.Locale.US))
         assertEquals(before, r.runtime.currentDefinitions().routeTables)
         assertEquals(f.lowerRoute().traversals, r.runtime.currentDefinitions().routeTables.single().routes.single().traversals)

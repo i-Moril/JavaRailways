@@ -1,5 +1,9 @@
 # SimpleSignals Backend 规范
 
+
+边界名称元数据、真实共用边界归组、一次命名交互与进路两端标签见[边界名称](boundary-names.md)。名称不替代内部 ID，不参与几何相等和信号放行。
+
+
 ## 状态与范围
 
 `SimpleSignals` 是 `CURRENT/FOUNDATION` 的独立 Bukkit/Paper 插件模块。它单独生成可安装 JAR，

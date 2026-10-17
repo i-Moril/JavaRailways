@@ -54,8 +54,8 @@ internal sealed interface SignalRebindTarget {
     val bindingId: String
     val description: WandText
 }
-internal data class ProtectionSignalRebindTarget(val entryBoundaryId: String, override val bindingId: String) : SignalRebindTarget {
-    override val description get() = WandText.key("signal.rebind.protection_target", authoringName(entryBoundaryId, "name.entrance"), authoringName(bindingId, "name.route"))
+internal data class ProtectionSignalRebindTarget(val entryBoundaryId: String, override val bindingId: String, val entryLabel: WandText? = null, val routeLabel: WandText? = null) : SignalRebindTarget {
+    override val description get() = WandText.key("signal.rebind.protection_target", entryLabel ?: authoringName(entryBoundaryId, "name.entrance"), routeLabel ?: authoringName(bindingId, "name.route"))
 }
 internal data class FixedBlockSignalRebindTarget(val entry: FixedBlockSignalEntry) : SignalRebindTarget {
     override val bindingId get() = entry.blockId
@@ -63,7 +63,7 @@ internal data class FixedBlockSignalRebindTarget(val entry: FixedBlockSignalEntr
         WandText.key("signal.entry.${entry.direction.name}"))
 }
 internal data class RouteIndicatorWandOptions(val routeIds: List<String>, val variants: List<String>,
-    val mappings: Map<String, String>)
+    val mappings: Map<String, String>, val routeLabels: Map<String, WandText> = emptyMap())
 internal enum class PlacedSignalKind { FIXED_BLOCK, PROTECTION, ATTACHED, INDICATOR }
 internal data class PlacedSignalChoice(val kind: PlacedSignalKind, val id: String, val revision: Long,
     val placement: ModelPlacement)
@@ -71,6 +71,7 @@ internal data class SignalDeviceConfiguration(val signalType: String?, val model
 
 /** Worker-facing boundary. Catalog data exposed to commands is immutable intent, not edit authority. */
 internal interface SignalWandBackend {
+    fun boundaryLabel(capture: SignalWandCapture, boundaryId: String): WandText = authoringName(boundaryId, "name.entrance")
     fun availableSignalTypes(): List<AvailableSignalType>?
     fun availableModelIds(): List<String>?
     fun railPlacementModel(controlKind: SignalWandControlKind, signalType: String, modelId: String?): RailPlacementModel?
@@ -126,6 +127,7 @@ internal interface SignalWandBackend {
 internal class RuntimeSignalWandBackend(
     private val manager: SimpleSignalsWorldRuntimeManager,
     private val infrastructure: InfrastructureResourceService,
+    private val targets: work.art1st.javarailways.bukkit.api.rail.RailTargetService? = null,
     private val newSignalId: () -> String = { "simplesignals:${UUID.randomUUID()}" }
 ) : SignalWandBackend {
     private data class Capture(
@@ -136,8 +138,20 @@ internal class RuntimeSignalWandBackend(
         val modelCatalog: ModelTypeCatalogSnapshot?,
         val runtime: SimpleSignalsWorldRuntime,
         val publication: SimpleSignalsRuntimePublication,
-        val topology: TopologyState
-    ) : SignalWandCapture
+        val topology: TopologyState,
+        val prepareNames: () -> BoundaryNames
+    ) : SignalWandCapture {
+        val boundaryNames by lazy(prepareNames)
+        val boundariesById by lazy { publication.definitions.regions.flatMap { it.effectiveCuts }.associateBy { it.boundaryId } }
+    }
+
+    override fun boundaryLabel(capture: SignalWandCapture, boundaryId: String): WandText {
+        val captured = capture as Capture
+        require(current(captured)) { "Selection expired; select again" }
+        val boundary = captured.boundariesById[boundaryId]
+            ?: return WandText.key("boundary.unnamed")
+        return captured.boundaryNames.label(boundary.position)
+    }
 
     override fun availableSignalTypes(): List<AvailableSignalType>? =
         manager.signalTypeCatalogSnapshot()?.signalTypes
@@ -161,9 +175,11 @@ internal class RuntimeSignalWandBackend(
         }
         val runtime = manager.authoringRuntime(worldId)
             ?: throw IllegalStateException("SimpleSignals world is unavailable")
-        return Capture(worldId, signalType, modelId, catalog, modelCatalog,
-            runtime, runtime.authoringPublication(),
-            infrastructure.currentTopology(worldId))
+        val publication = runtime.authoringPublication()
+        val topology = infrastructure.currentTopology(worldId)
+        return Capture(worldId, signalType, modelId, catalog, modelCatalog, runtime, publication, topology) {
+            BoundaryNames(publication.definitions, topology) { targets?.findCurve(worldId, it)?.orElse(null) }
+        }
     }
 
     override fun current(capture: SignalWandCapture): Boolean {
@@ -352,10 +368,11 @@ internal class RuntimeSignalWandBackend(
         val routes = captured.publication.routeSelection.routesById.values
         return when (device.definition.kind) {
             ProtectionSignalKind.FIXED_ROUTE -> routes.sortedBy { it.definition.routeId }.map {
-                ProtectionSignalRebindTarget(it.definition.entryBoundaryId, it.definition.routeId)
+                ProtectionSignalRebindTarget(it.definition.entryBoundaryId, it.definition.routeId, boundaryLabel(captured, it.definition.entryBoundaryId),
+                    WandText.key("boundary.route", boundaryLabel(captured, it.definition.entryBoundaryId), boundaryLabel(captured, it.definition.exitBoundaryId)))
             }
             ProtectionSignalKind.CURRENT_ENTRY -> routes.map { it.definition.entryBoundaryId }.distinct().sorted()
-                .map { ProtectionSignalRebindTarget(it, it) }
+                .map { ProtectionSignalRebindTarget(it, it, boundaryLabel(captured, it)) }
         }
     }
 
@@ -415,8 +432,15 @@ internal class RuntimeSignalWandBackend(
         require(variants.isNotEmpty()) { "This model declares no route indicator variants" }
         val routeIds = captured.publication.definitions.routeTables.flatMap { it.routes }
             .filter { it.entryBoundaryId == entryBoundaryId }.map { it.routeId }.sorted()
+        val boundaries = captured.publication.definitions.regions.flatMap { it.boundaries }.associateBy { it.boundaryId }
+        val names = captured.boundaryNames
         return RouteIndicatorWandOptions(routeIds, variants,
-            existing?.modelVariantsByRouteId.orEmpty().filterKeys { it in routeIds })
+            existing?.modelVariantsByRouteId.orEmpty().filterKeys { it in routeIds },
+            captured.publication.definitions.routeTables.flatMap { it.routes }.filter { it.routeId in routeIds }.associate { route ->
+                route.routeId to WandText.key("boundary.route", boundaries[route.entryBoundaryId]?.let { names.label(it.position) }
+                    ?: authoringName(route.entryBoundaryId, "name.entrance"), boundaries[route.exitBoundaryId]?.let { names.label(it.position) }
+                    ?: authoringName(route.exitBoundaryId, "name.boundary"))
+            })
     }
 
     override fun saveIndicator(capture: SignalWandCapture, binding: RouteIndicatorSignalWandBinding,
@@ -692,7 +716,7 @@ internal class RuntimeSignalWandBackend(
         }
         val newChoice = if (mode == SignalWandMode.PLACEMENT) listOf(SignalWandChoice(
             RouteIndicatorSignalWandBinding(captured.worldId, entrance.boundary.boundaryId),
-            WandText.key("choice.indicator.new", authoringName(entrance.boundary.boundaryId, "name.entrance")))) else emptyList()
+            WandText.key("choice.indicator.new", boundaryLabel(captured, entrance.boundary.boundaryId)))) else emptyList()
         return newChoice + indicators.map { indicator -> SignalWandChoice(
             RouteIndicatorSignalWandBinding(captured.worldId, indicator.entryBoundaryId,
                 indicator.indicatorId, indicator.revision),
@@ -771,13 +795,13 @@ internal class RuntimeSignalWandBackend(
             when (controlKind) {
                 SignalWandControlKind.PROTECTION_CURRENT_ENTRY -> choices += SignalWandChoice(
                     ProtectionCurrentEntrySignalWandBinding(captured.worldId, entryId, NewProtectionSignal),
-                    WandText.key("choice.current.new", authoringName(entryId, "name.entrance")))
+                    WandText.key("choice.current.new", boundaryLabel(captured, entryId)))
                 SignalWandControlKind.PROTECTION_FIXED_ROUTE -> authoredRoutes
                     .filter { it.routeId in usableRouteIds }
                     .forEach { route -> choices += SignalWandChoice(
                         ProtectionFixedRouteSignalWandBinding(captured.worldId, entryId, route.routeId,
                             NewProtectionSignal),
-                        WandText.key("choice.route.new", authoringName(route.routeId, "name.route"), authoringName(route.exitBoundaryId, "name.exit"))) }
+                        WandText.key("choice.route.new", authoringName(route.routeId, "name.route"), boundaryLabel(captured, route.exitBoundaryId))) }
                 else -> Unit
             }
         }

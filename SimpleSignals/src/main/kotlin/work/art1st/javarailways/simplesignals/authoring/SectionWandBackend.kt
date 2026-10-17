@@ -21,12 +21,15 @@ internal interface SectionWandDeletion {
     val text: WandText
     val retainDevices: Boolean
 }
+internal interface SectionBoundaryNaming { val initial: String; val description: WandText }
 internal data class SectionWandOutcome(val text: WandText, val kind: SectionWandKind = SectionWandKind.PENDING,
     val warnings: List<ProtectionBoundaryDefinition> = emptyList(),
     val warningCapture: SectionWandCapture? = null)
 
 /** Immutable capture and worker-only edit boundary, kept separate from player/Bukkit operations. */
 internal interface SectionWandBackend {
+    fun naming(capture: SectionWandCapture, point: RailCutPosition): SectionBoundaryNaming? = null
+    fun rename(selection: SectionBoundaryNaming, name: String, active: () -> Boolean): SectionWandOutcome = error("Naming unavailable")
     fun capture(worldId: UUID): SectionWandCapture?
     fun current(capture: SectionWandCapture): Boolean
     fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
@@ -38,12 +41,38 @@ internal interface SectionWandBackend {
 internal class RuntimeSectionWandBackend(
     private val manager: SimpleSignalsWorldRuntimeManager,
     private val infrastructure: InfrastructureResourceService,
-    private val maxRegionDistanceMeters: Double
+    private val maxRegionDistanceMeters: Double,
+    private val targets: work.art1st.javarailways.bukkit.api.rail.RailTargetService? = null
 ) : SectionWandBackend {
     private data class Capture(override val worldId: UUID, val runtime: SimpleSignalsWorldRuntime,
         val publication: SimpleSignalsRuntimePublication, val topology: TopologyState) : SectionWandCapture
     private data class Deletion(val capture: Capture, val edit: SectionAuthoringEdit, val kind: SectionWandKind,
         override val text: WandText, override val retainDevices: Boolean) : SectionWandDeletion
+
+    private data class Naming(val capture: Capture, val position: RailCutPosition,
+        override val initial: String, override val description: WandText) : SectionBoundaryNaming
+
+    override fun naming(capture: SectionWandCapture, point: RailCutPosition): SectionBoundaryNaming? {
+        require(current(capture)) { "Selection expired; select again" }
+        val captured = capture as Capture
+        val names = BoundaryNames(captured.publication.definitions, captured.topology) { targets?.findCurve(captured.worldId, it)?.orElse(null) }
+        val selected = names.nearest(point) ?: return null
+        val values = names.values(selected)
+        val description = if (values.size > 1) WandText.key("boundary.conflict_detail", names.label(selected), values.sorted().joinToString(" / "))
+            else names.label(selected)
+        return Naming(captured, selected, values.singleOrNull().orEmpty(), description)
+    }
+
+    override fun rename(selection: SectionBoundaryNaming, name: String, active: () -> Boolean): SectionWandOutcome {
+        val selected = selection as Naming
+        val captured = selected.capture
+        require(active() && current(captured)) { "Selection expired; select again" }
+        val replacement = BoundaryNames(captured.publication.definitions, captured.topology).rename(selected.position, name)
+        val result = manager.applyDefinitionPatch(captured.worldId, captured.publication.definitions.definitionRevision,
+            SimpleSignalsDefinitionPatch(boundaryNames = replacement), captured.runtime, captured.topology, active)
+        return SectionWandOutcome(if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED)
+            WandText.key("boundary.saved") else WandText.diagnostic(SimpleSignalsAdminCommand.formatResult(result)))
+    }
 
     override fun capture(worldId: UUID): SectionWandCapture? = manager.authoringRuntime(worldId)?.let {
         Capture(worldId, it, it.authoringPublication(), infrastructure.currentTopology(worldId))

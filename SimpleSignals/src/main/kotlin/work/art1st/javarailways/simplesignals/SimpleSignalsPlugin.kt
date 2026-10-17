@@ -92,7 +92,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
         server.pluginManager.registerEvents(overlay, this)
         server.onlinePlayers.forEach(overlay::check)
         val wands = SectionWandHandler(this,
-            RuntimeSectionWandBackend(runtimes, services.infrastructure(), settings.protectionRegionMaxDistanceMeters),
+            RuntimeSectionWandBackend(runtimes, services.infrastructure(), settings.protectionRegionMaxDistanceMeters, services.railTargets()),
             services.railTargets(), checkOverlay = overlay::check)
         sectionWands = wands
         server.pluginManager.registerEvents(wands, this)
@@ -104,7 +104,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
             deleteRoute = routeAuthoring::delete)
         routePreviewWand = previews
         server.pluginManager.registerEvents(previews, this)
-        val signals = SignalWandHandler(this, RuntimeSignalWandBackend(runtimes, services.infrastructure()),
+        val signals = SignalWandHandler(this, RuntimeSignalWandBackend(runtimes, services.infrastructure(), targets = services.railTargets()),
             services.railTargets(), checkOverlay = overlay::check)
         signalWand = signals
         server.pluginManager.registerEvents(signals, this)

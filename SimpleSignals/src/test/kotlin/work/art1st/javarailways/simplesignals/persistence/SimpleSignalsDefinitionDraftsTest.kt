@@ -20,6 +20,16 @@ class SimpleSignalsDefinitionDraftsTest {
     private val world = UUID(0, 20)
     private val rail = UUID(0, 1)
 
+    @Test fun `draft file roundtrip retains duplicate names and omission explicitly clears metadata`() {
+        val names = listOf(BoundaryName(RailCutPosition(rail, 2.0), "站口"), BoundaryName(RailCutPosition(rail, 8.0), "站口"))
+        val source = SimpleSignalsWorldDefinitions(world, 1, emptyList(), emptyList(), boundaryNames = names)
+        val transport = SimpleSignalsDefinitionDrafts(directory)
+        transport.export("names", source)
+        val restored = transport.read("names", world)
+        assertEquals(source, restored)
+        assertEquals(emptyList<BoundaryName>(), definitionDraftPatch(source, SimpleSignalsWorldDefinitions.empty(world)).boundaryNames)
+    }
+
     @Test fun `export uses current codec and preserves existing draft`() {
         val transport = SimpleSignalsDefinitionDrafts(directory)
         val definitions = document("one", 1)

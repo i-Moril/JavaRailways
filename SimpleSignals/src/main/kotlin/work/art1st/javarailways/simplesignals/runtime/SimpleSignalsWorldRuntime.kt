@@ -93,7 +93,8 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
     val removeRouteIndicatorIds: List<String>,
     val upsertAttachedSignals: List<AttachedSignalDefinition>,
     val removeAttachedSignalIds: List<String>,
-    val pendingProtectionBoundaries: List<work.art1st.javarailways.simplesignals.region.ProtectionBoundaryCut>?
+    val pendingProtectionBoundaries: List<work.art1st.javarailways.simplesignals.region.ProtectionBoundaryCut>?,
+    val boundaryNames: List<work.art1st.javarailways.simplesignals.persistence.BoundaryName>?
 ) {
     constructor(
         upsertRegions: Collection<ProtectionRegionDefinition> = emptyList(),
@@ -110,7 +111,8 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
         removeRouteIndicatorIds: Collection<String> = emptyList(),
         upsertAttachedSignals: Collection<AttachedSignalDefinition> = emptyList(),
         removeAttachedSignalIds: Collection<String> = emptyList(),
-        pendingProtectionBoundaries: Collection<work.art1st.javarailways.simplesignals.region.ProtectionBoundaryCut>? = null
+        pendingProtectionBoundaries: Collection<work.art1st.javarailways.simplesignals.region.ProtectionBoundaryCut>? = null,
+        boundaryNames: Collection<work.art1st.javarailways.simplesignals.persistence.BoundaryName>? = null
     ) : this(
         java.util.List.copyOf(upsertRegions),
         java.util.List.copyOf(removeRegionIds),
@@ -123,7 +125,8 @@ internal data class SimpleSignalsDefinitionPatch private constructor(
         java.util.List.copyOf(upsertProtectionSignals), java.util.List.copyOf(removeProtectionSignalIds),
         java.util.List.copyOf(upsertRouteIndicators), java.util.List.copyOf(removeRouteIndicatorIds),
         java.util.List.copyOf(upsertAttachedSignals), java.util.List.copyOf(removeAttachedSignalIds),
-        pendingProtectionBoundaries?.let { java.util.List.copyOf(it) }
+        pendingProtectionBoundaries?.let { java.util.List.copyOf(it) },
+        boundaryNames?.let { java.util.List.copyOf(it) }
     )
 }
 
@@ -480,7 +483,8 @@ internal class SimpleSignalsWorldRuntime(
             definitions.protectionSignals.sortedBy { it.signalId },
             definitions.routeIndicators.sortedBy { it.indicatorId },
             definitions.attachedSignals.sortedBy { it.signalId },
-            definitions.pendingProtectionBoundaries.sortedBy { it.boundaryId }
+            definitions.pendingProtectionBoundaries.sortedBy { it.boundaryId },
+            definitions.boundaryNames
         )
         val current = state.publication
         if (current != null && definitions.definitionRevision < current.definitions.definitionRevision) {
@@ -1461,7 +1465,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                 "definition revision ${current.definitionRevision} cannot be advanced"
             ))
         }
-        val candidate = when (val application = applyPatch(current, nextRevision, patch)) {
+        val appliedCandidate = when (val application = applyPatch(current, nextRevision, patch)) {
             is PatchApplication.Applied -> application.definitions
             is PatchApplication.Rejected -> return PatchPreparation.Rejected(authoringResult(
                 SimpleSignalsDefinitionAuthoringStatus.PATCH_REJECTED,
@@ -1480,6 +1484,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             return PatchPreparation.Rejected(authoringResult(SimpleSignalsDefinitionAuthoringStatus.STALE_TOPOLOGY,
                 "topology changed after the authoring selection"))
         }
+        val candidate = work.art1st.javarailways.simplesignals.authoring.BoundaryNames.normalize(appliedCandidate, topology)
         val prepared = when (val preparation = runtime.prepareDefinitions(topology, candidate)) {
             SimpleSignalsDefinitionPreparationResult.Unchanged -> return PatchPreparation.Rejected(authoringResult(
                 SimpleSignalsDefinitionAuthoringStatus.PATCH_REJECTED,
@@ -1805,7 +1810,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             patch.upsertProtectionSignals.isEmpty() && patch.removeProtectionSignalIds.isEmpty() &&
             patch.upsertRouteIndicators.isEmpty() && patch.removeRouteIndicatorIds.isEmpty() &&
             patch.upsertAttachedSignals.isEmpty() && patch.removeAttachedSignalIds.isEmpty() &&
-            patch.pendingProtectionBoundaries == null
+            patch.pendingProtectionBoundaries == null && patch.boundaryNames == null
         ) {
             diagnostics += "definition patch is empty"
         }
@@ -1868,7 +1873,8 @@ internal class SimpleSignalsWorldRuntimeManager(
             fixedBlockSignals.values.sortedBy { it.signalId },
             protectionSignals.values.sortedBy { it.signalId }, indicators.values.sortedBy { it.indicatorId },
             attachedSignals.values.sortedBy { it.signalId },
-            (patch.pendingProtectionBoundaries ?: current.pendingProtectionBoundaries).sortedBy { it.boundaryId }
+            (patch.pendingProtectionBoundaries ?: current.pendingProtectionBoundaries).sortedBy { it.boundaryId },
+            patch.boundaryNames ?: current.boundaryNames
         )
         if (candidate.regions == current.regions &&
             candidate.routeTables == current.routeTables &&
@@ -1876,7 +1882,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             candidate.fixedBlockSignals == current.fixedBlockSignals &&
             candidate.protectionSignals == current.protectionSignals &&
             candidate.routeIndicators == current.routeIndicators && candidate.attachedSignals == current.attachedSignals &&
-            candidate.pendingProtectionBoundaries == current.pendingProtectionBoundaries
+            candidate.pendingProtectionBoundaries == current.pendingProtectionBoundaries && candidate.boundaryNames == current.boundaryNames
         ) {
             return PatchApplication.Rejected(
                 listOf("definition patch does not change the current definitions")

@@ -264,6 +264,45 @@ class SectionWandHandlerTest {
         assertEquals(1, f.closedRefresh)
     }
 
+    @Test fun `naming mode consumes clicks saves once and exits without creating geometry`() {
+        val f = Fixture()
+        f.handler.openSettings(f.player, f.state!!)
+        f.dialog.single { it.first == "Name boundary" }.second(); f.drainOwner()
+        f.clickAndDrain()
+        assertEquals(0, f.performs)
+        val submit = f.nameSubmit!!
+        submit(" 西端 "); submit("other")
+        f.drainOwner(); f.drainWorkers(); f.drainOwner()
+        assertEquals(listOf(" 西端 "), f.renames)
+        f.clickAndDrain()
+        assertEquals(1, f.performs)
+    }
+
+    @Test fun `naming cancellation validation and permission expiry never save`() {
+        val f = Fixture()
+        fun select() {
+            f.handler.openSettings(f.player, f.state!!)
+            f.dialog.single { it.first == "Name boundary" }.second(); f.drainOwner(); f.clickAndDrain()
+        }
+        select(); f.nameSubmit!!("bad\nname"); f.drainOwner()
+        assertTrue(f.renames.isEmpty())
+        f.nameSubmit!!(null); f.drainOwner(); f.drainWorkers()
+        assertTrue(f.renames.isEmpty())
+        select(); f.permitted = false; f.nameSubmit!!("West"); f.drainOwner(); f.drainWorkers()
+        assertTrue(f.renames.isEmpty())
+    }
+
+    @Test fun `naming miss stays armed and stale input does not fall through to geometry`() {
+        val f = Fixture()
+        f.handler.openSettings(f.player, f.state!!)
+        f.dialog.single { it.first == "Name boundary" }.second(); f.drainOwner()
+        f.nameHit = false; f.clickAndDrain()
+        assertNull(f.nameSubmit); assertEquals(0, f.performs)
+        f.nameHit = true; f.clickAndDrain()
+        f.current = false; f.nameSubmit!!(""); f.drainOwner(); f.drainWorkers(); f.drainOwner()
+        assertTrue(f.renames.isEmpty()); assertEquals(0, f.performs)
+    }
+
     private inner class Fixture {
         val worldId = UUID(0, 1)
         val playerId = UUID(0, 2)
@@ -278,6 +317,9 @@ class SectionWandHandlerTest {
             get() = state?.tool
             set(value) { state = value?.let { state?.changed(tool = it) ?: SectionWandState.create(it) } }
         var dialog = emptyList<Pair<String, () -> Unit>>()
+        var nameSubmit: ((String?) -> Unit)? = null
+        var nameHit = true
+        val renames = mutableListOf<String>()
         var prepareDeletion = false
         var deletions = 0
         var target = CompletableFuture<Optional<RailTarget>>()
@@ -334,6 +376,16 @@ class SectionWandHandlerTest {
             }
         }
         private val backend = object : SectionWandBackend {
+            override fun naming(capture: SectionWandCapture, point: RailCutPosition): SectionBoundaryNaming? =
+                if (!nameHit) null else object : SectionBoundaryNaming {
+                    override val initial = ""
+                    override val description = WandText.diagnostic("boundary")
+                }
+            override fun rename(selection: SectionBoundaryNaming, name: String, active: () -> Boolean): SectionWandOutcome {
+                check(!ownerThread && active() && current)
+                renames += name
+                return nextOutcome
+            }
             override fun capture(worldId: UUID) = capture
             override fun current(capture: SectionWandCapture): Boolean =
                 current && capture === this@Fixture.capture
@@ -370,7 +422,8 @@ class SectionWandHandlerTest {
                 AutoCloseable { if (!closed) { closed = true; closedRefresh++ } }
             }, render = { _, drawing, offset ->
                 check(ownerThread); assertTrue(drawing.batch(offset).size <= 512); draws++
-            }, showDialog = { _, _, options -> check(ownerThread); dialog = options })
+            }, showDialog = { _, _, options -> check(ownerThread); dialog = options },
+            showName = { _, _, _, submitted -> check(ownerThread); nameSubmit = submitted })
         fun completeTarget() { target.complete(Optional.of(RailTarget(rail, 5.0, 0.0))) }
         fun advanceCapture() { capture = newCapture() }
         fun drainOwner() { ownerThread = true; while (owners.isNotEmpty()) owners.removeFirst().invoke() }

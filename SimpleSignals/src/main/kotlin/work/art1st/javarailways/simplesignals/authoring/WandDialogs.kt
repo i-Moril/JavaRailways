@@ -22,6 +22,20 @@ internal object WandDialogs {
                 .canCloseWithEscape(true).build())
             .type(DialogType.multiAction(page.options.map(::button), page.exit?.let(::button), page.columns)) })
     }
+    fun boundaryName(player: Player, description: String, initial: String, submitted: (String?) -> Unit) {
+        fun button(key: String, submit: Boolean) = ActionButton.builder(Component.text(WandI18n.format(player, key)))
+            .action(DialogAction.customClick({ view, audience -> if (audience === player)
+                submitted(if (submit) view.getText("name").orEmpty() else null) },
+                ClickCallback.Options.builder().uses(1).lifetime(ClickCallback.DEFAULT_LIFETIME).build())).build()
+        player.showDialog(Dialog.create { factory -> factory.empty()
+            .base(DialogBase.builder(Component.text(WandI18n.format(player, "boundary.edit")))
+                .body(listOf(DialogBody.plainMessage(Component.text(description)),
+                    DialogBody.plainMessage(Component.text(WandI18n.format(player, "boundary.help")))))
+                .inputs(listOf(DialogInput.text("name", Component.text(WandI18n.format(player, "boundary.edit")))
+                    .initial(initial).maxLength(128).build())).canCloseWithEscape(true).build())
+            .type(DialogType.multiAction(listOf(button("boundary.save", true), button("cancel", false)), null, 2)) })
+    }
+
     fun placement(player: Player, title: String, initial: PlacementWandInput,
         submitted: (PlacementWandInput?) -> Unit) {
         val inputs = initial.fields.map { (key, value) ->

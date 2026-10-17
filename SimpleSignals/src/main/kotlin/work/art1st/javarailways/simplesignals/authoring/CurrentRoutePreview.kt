@@ -21,7 +21,26 @@ import java.util.concurrent.atomic.AtomicReference
 
 internal data class RoutePreviewSelection(val worldId: UUID, val runtime: SimpleSignalsWorldRuntime,
     val regionId: String, val entry: ProtectionBoundaryDefinition, val exit: ProtectionBoundaryDefinition? = null,
-    val regionRailIds: Set<UUID> = emptySet(), val warnings: RegionRouteWarnings = RegionRouteWarnings())
+    val regionRailIds: Set<UUID> = emptySet(), val warnings: RegionRouteWarnings = RegionRouteWarnings(),
+    val boundaryLabels: RoutePreviewBoundaryLabels = RoutePreviewBoundaryLabels())
+
+/** Reuse one name index and curve cache for labels from the same exact captured inputs. */
+internal class RoutePreviewBoundaryLabels {
+    private data class Prepared(val definitions: work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions,
+        val topology: TopologyState, val names: BoundaryNames)
+    @Volatile private var prepared: Prepared? = null
+    fun label(definitions: work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions,
+        topology: TopologyState, boundary: ProtectionBoundaryDefinition,
+        curve: (UUID) -> work.art1st.javarailways.core.api.physics.curve.Curve?): WandText {
+        val cached = prepared?.takeIf { it.definitions === definitions && it.topology === topology } ?: run {
+            val curves = hashMapOf<UUID, work.art1st.javarailways.core.api.physics.curve.Curve?>()
+            Prepared(definitions, topology, BoundaryNames(definitions, topology) { id ->
+                if (curves.containsKey(id)) curves[id] else curve(id).also { curves[id] = it }
+            }).also { prepared = it }
+        }
+        return cached.names.label(boundary.position)
+    }
+}
 
 /** One derived value per player selection, not a world cache or signal watcher. */
 internal class RegionRouteWarnings {
@@ -45,6 +64,7 @@ internal class RoutePreviewComputation(val path: CurrentRoutePath, val regionSta
 
 /** Worker-only reads/geometry plus closeable read-only subscriptions; never authoring or admission. */
 internal interface RoutePreviewBackend {
+    fun boundaryLabel(selection: RoutePreviewSelection, boundary: ProtectionBoundaryDefinition): WandText = authoringName(boundary.boundaryId, "name.entrance")
     fun select(worldId: UUID, point: RailPositionSnapshot, entry: RoutePreviewSelection?): RoutePreviewSelection
     fun compute(selection: RoutePreviewSelection): RoutePreviewComputation
     fun current(selection: RoutePreviewSelection, computation: RoutePreviewComputation): Boolean
@@ -55,6 +75,12 @@ internal interface RoutePreviewBackend {
 internal class RuntimeRoutePreviewBackend(private val plugin: Plugin,
     private val runtimeForWorld: (UUID) -> SimpleSignalsWorldRuntime?, private val infrastructure: InfrastructureResourceService,
     private val observations: RailwayObservationService, private val targets: RailTargetService) : RoutePreviewBackend {
+    override fun boundaryLabel(selection: RoutePreviewSelection, boundary: ProtectionBoundaryDefinition): WandText =
+        selection.boundaryLabels.label(selection.runtime.authoringPublication().definitions,
+            infrastructure.currentTopology(selection.worldId), boundary) {
+            targets.findCurve(selection.worldId, it).orElse(null)
+        }
+
     override fun select(worldId: UUID, point: RailPositionSnapshot, entry: RoutePreviewSelection?): RoutePreviewSelection {
         val runtime = runtimeForWorld(worldId) ?: error("SimpleSignals world is unavailable")
         require(entry == null || entry.runtime === runtime) { "Selected entry belongs to a retired world; select again" }

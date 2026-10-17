@@ -12,6 +12,7 @@ internal class SectionWandSessions {
         @Volatile var kind: SectionWandKind = SectionWandKind.PENDING
         @Volatile var refresh: AutoCloseable? = null
         @Volatile var dialogToken: Any? = null
+        @Volatile var naming: Boolean = false
         fun close() { active.set(false); refresh?.close() }
     }
     private val sessions = ConcurrentHashMap<UUID, Session>()

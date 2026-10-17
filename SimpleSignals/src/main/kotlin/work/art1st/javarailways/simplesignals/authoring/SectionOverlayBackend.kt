@@ -45,13 +45,17 @@ internal class RuntimeSectionOverlayBackend(
 
     override fun prepare(capture: SectionOverlayCapture): SectionOverlayDrawing {
         val value = capture as Capture
+        val curves = hashMapOf<UUID, Curve?>()
+        fun curve(id: UUID): Curve? = if (curves.containsKey(id)) curves[id] else
+            targets.findCurve(value.worldId, id).orElse(null).also { curves[id] = it }
+        val names = BoundaryNames(value.publication.definitions, value.topology, ::curve)
         val unavailable = value.guard.pending.keys + value.guard.index.unavailable
         return SectionOverlayDrawing.prepare(value.publication.definitions,
             unavailable.filter { it.kind == TopologySectionKind.BLOCK }.map { it.id }.toSet(),
             unavailable.filter { it.kind == TopologySectionKind.REGION }.map { it.id }.toSet(),
             value.publication.regions.compilationSnapshot()!!.regionsById.mapValues { it.value.interior },
-            boundaryIdentity = { value.topology.overlayBoundaryIdentity(it) }) {
-            targets.findCurve(value.worldId, it).orElse(null)
+            boundaryName = names::label, boundaryIdentity = { value.topology.overlayBoundaryIdentity(it) }) {
+            curve(it)
         }
     }
 }

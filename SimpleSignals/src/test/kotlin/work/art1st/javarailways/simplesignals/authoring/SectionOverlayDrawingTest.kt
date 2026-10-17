@@ -26,6 +26,23 @@ class SectionOverlayDrawingTest {
     private fun cut(id: String, ab: Double, direction: ViewDirection = ViewDirection.AB) =
         ProtectionBoundaryDefinition("test:$id", RailPositionSnapshot(rail, direction, ab))
 
+    @Test fun `physical names and world coordinates localize on block region and pending overlays`() {
+        val position = RailCutPosition(rail, 2.0)
+        val region = ProtectionRegionDefinition("test:region", 0, listOf(cut("entry", 2.0), cut("exit", 8.0, ViewDirection.BA)))
+        val defs = SimpleSignalsWorldDefinitions(world, 1, listOf(region), emptyList(), listOf(block()),
+            pendingProtectionBoundaries = listOf(cut("pending", 2.0).cut()), boundaryNames =
+                listOf(work.art1st.javarailways.simplesignals.persistence.BoundaryName(position, "<red>西端</red>")))
+        val names = BoundaryNames(defs, lineTopologyState(1, rail)) { curve(10.0) }
+        val drawing = SectionOverlayDrawing.prepare(defs, emptySet(), emptySet(), boundaryName = names::label) { curve(10.0) }
+        val labels = drawing.localizedLabels(java.util.Locale.SIMPLIFIED_CHINESE)
+        listOf("block/test:block/start", "region/test:region/test:entry", "pending/test:pending").forEach { id ->
+            val caption = labels.single { it.id() == id }.text().toString()
+            assertTrue(caption.contains("<red>西端</red>"), caption)
+            assertTrue(caption.contains("2.0"), caption)
+        }
+        assertTrue(labels.single { it.id() == "block/test:block/end" }.text().toString().contains("未命名边界"))
+    }
+
     @Test fun `section overlays contain boundary markers and one continuous line without arrows or interior captions`() {
         fun drawing(facing: ViewDirection, both: Boolean) = SectionOverlayDrawing.prepare(
             definitions(block(facing = facing, both = both)), emptySet(), emptySet()) { curve(10.0) }

@@ -55,6 +55,9 @@ internal object SimpleSignalsDefinitionEditImpact {
             }
         }
         val result = linkedSetOf<UUID>()
+        val oldNames = old.boundaryNames.associateBy { it.position }
+        val nextNames = next.boundaryNames.associateBy { it.position }
+        (oldNames.keys + nextNames.keys).filter { oldNames[it] != nextNames[it] }.mapTo(result) { it.railId }
         val changedPending = changed(old.pendingProtectionBoundaries, next.pendingProtectionBoundaries) { it.boundaryId }
         (old.pendingProtectionBoundaries + next.pendingProtectionBoundaries).filter { it.boundaryId in changedPending }
             .mapTo(result) { it.position.railId }

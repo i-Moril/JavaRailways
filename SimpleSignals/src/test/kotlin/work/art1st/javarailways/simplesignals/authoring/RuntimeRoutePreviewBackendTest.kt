@@ -56,6 +56,25 @@ class RuntimeRoutePreviewBackendTest {
         assertEquals(0, f.mutations)
     }
 
+    @Test fun `boundary labels reuse captured index and curves but refresh on definitions and topology`() {
+        val f = Fixture(lineTopologyState(1, a, b), listOf(entry, exit))
+        val selection = f.backend.select(world, entry.position, null)
+        val locale = java.util.Locale.SIMPLIFIED_CHINESE
+        assertTrue(f.backend.boundaryLabel(selection, entry).render(locale).contains("未命名边界"))
+        f.backend.boundaryLabel(selection, entry)
+        assertEquals(1, f.curveReads)
+        val definitions = f.runtime.currentDefinitions()
+        val named = SimpleSignalsWorldDefinitions(world, definitions.definitionRevision + 1, definitions.regions,
+            definitions.routeTables, boundaryNames = listOf(
+                work.art1st.javarailways.simplesignals.persistence.BoundaryName(entry.position.cutPosition(), "西端")))
+        assertEquals(SimpleSignalsDefinitionPublicationStatus.PUBLISHED, f.runtime.initializeDefinitions(f.root, named).status)
+        assertTrue(f.backend.boundaryLabel(selection, entry).render(locale).contains("西端"))
+        assertEquals(2, f.curveReads)
+        f.root = lineTopologyState(2, a, b)
+        assertTrue(f.backend.boundaryLabel(selection, entry).render(locale).contains("西端"))
+        assertEquals(3, f.curveReads)
+    }
+
     @Test fun `valid near-joint cut snaps on its own rail but is not merged with neighbouring lines`() {
         // Region authoring requires strictly interior cuts, even at an ordinary connected joint.
         val endpointExit = cut("exit", b, 0.5, ViewDirection.BA)
@@ -134,6 +153,7 @@ class RuntimeRoutePreviewBackendTest {
         var active = ActiveRailContinuationsSnapshot.empty(root.revision)
         var hasObservation = true
         var mutations = 0
+        var curveReads = 0
         var closes = 0
         private val plugin = proxy(Plugin::class.java) { _, _ -> error("No Bukkit access on preview worker") }
         init {
@@ -162,7 +182,7 @@ class RuntimeRoutePreviewBackendTest {
             Curve.RawPoint(Vector3d(), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0, Curve.SegmentType.LINE_START),
             Curve.RawPoint(Vector3d(10.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 10.0, Curve.SegmentType.LINE_END)))
         private val targets = proxy(RailTargetService::class.java) { name, _ -> when (name) {
-            "findCurve" -> Optional.of(curve)
+            "findCurve" -> { curveReads++; Optional.of(curve) }
             else -> error("No player targeting during computation")
         } }
         val backend = RuntimeRoutePreviewBackend(plugin, { currentRuntime }, infrastructure, observations, targets)

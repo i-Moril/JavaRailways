@@ -53,7 +53,8 @@ internal class SectionWandHandler(
     },
     private val render: (Player, RoutePreviewDrawing, Int) -> Unit = { player, drawing, offset -> drawing.draw(player, offset) },
     private val checkOverlay: (Player) -> Unit = {},
-    private val showDialog: (Player, String, List<Pair<String, () -> Unit>>) -> Unit = WandDialogs::show
+    private val showDialog: (Player, String, List<Pair<String, () -> Unit>>) -> Unit = WandDialogs::show,
+    private val showName: (Player, String, String, (String?) -> Unit) -> Unit = WandDialogs::boundaryName
 ) : Listener, CommandExecutor {
     private val sessions = SectionWandSessions()
 
@@ -136,6 +137,17 @@ internal class SectionWandHandler(
                                 return@worker
                             }
                             val point = RailCutPosition(selected.rail().id, selected.arcLength())
+                            if (session.naming) {
+                                val naming = backend.naming(captured, point)
+                                entity(player) {
+                                    session.busy.set(false)
+                                    if (ownerCurrent()) {
+                                        if (naming == null) player.sendMessage(Component.text(WandI18n.format(locale, "boundary.select")))
+                                        else { session.naming = false; editName(player, state, session, naming) }
+                                    }
+                                }
+                                return@worker
+                            }
                             if (tool == SectionWandTool.DELETE && !leftClick) {
                                 val deletion = backend.prepareDeletion(captured, point, state.retainDevices)
                                 if (deletion != null) {
@@ -205,9 +217,51 @@ internal class SectionWandHandler(
                         showStatus(player)
                     }
                 }
-            }, WandI18n.format(locale, "cancel") to { entity(player) {
+            },
+            WandI18n.format(locale, "boundary.edit") to { entity(player) {
+                if (sessions.current(playerId, session) && session.dialogToken === token && enabled() && player.isOnline &&
+                    player.world.uid == worldId && player.hasPermission(PERMISSION) && stateInHand(player) == expected && used.compareAndSet(false, true)) {
+                    session.dialogToken = null; session.naming = true
+                    player.sendMessage(Component.text(WandI18n.format(locale, "boundary.select")))
+                }
+            } }, WandI18n.format(locale, "cancel") to { entity(player) {
                 if (session.dialogToken === token) sessions.invalidate(playerId, session)
             } }))
+    }
+
+    private fun editName(player: Player, state: SectionWandState, session: SectionWandSessions.Session,
+        selection: SectionBoundaryNaming) {
+        val playerId = player.uniqueId
+        val token = Any()
+        session.dialogToken = token
+        val used = AtomicBoolean(false)
+        fun current() = sessions.current(playerId, session) && enabled() && session.dialogToken === token
+        fun owner() = current() && player.isOnline && player.world.uid == session.worldId &&
+            player.hasPermission(PERMISSION) && stateInHand(player) == state
+        showName(player, selection.description.render(player.locale()), selection.initial) { input -> entity(player) {
+            if (!owner() || !used.compareAndSet(false, true)) return@entity
+            if (input == null) { sessions.invalidate(playerId, session); return@entity }
+            try { work.art1st.javarailways.simplesignals.persistence.normalizeBoundaryName(input) }
+            catch (failure: IllegalArgumentException) {
+                player.sendMessage(Component.text(failure.message.orEmpty()))
+                editName(player, state, session, selection)
+                return@entity
+            }
+            session.busy.set(true)
+            worker {
+                try {
+                    if (!current()) return@worker
+                    val result = backend.rename(selection, input, ::current)
+                    entity(player) {
+                        if (owner()) player.sendMessage(Component.text(result.text.render(player.locale())))
+                        sessions.invalidate(playerId, session)
+                    }
+                } catch (failure: Exception) { entity(player) {
+                    if (owner()) player.sendMessage(Component.text(failure.message.orEmpty()))
+                    sessions.invalidate(playerId, session)
+                } }
+            }
+        } }
     }
 
     private fun confirmDeletion(player: Player, state: SectionWandState, session: SectionWandSessions.Session,

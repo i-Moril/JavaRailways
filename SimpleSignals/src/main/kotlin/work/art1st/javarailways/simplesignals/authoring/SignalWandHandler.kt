@@ -413,7 +413,7 @@ internal class SignalWandHandler(
                 }
             }
         }
-        fun completeBindingOnOwner(binding: SignalWandBinding) {
+        fun completeBindingOnOwner(binding: SignalWandBinding, description: String) {
             if (!ownerCurrent()) {
                 sessions.invalidate(playerId, session)
                 return
@@ -434,10 +434,13 @@ internal class SignalWandHandler(
             sessions.invalidate(playerId, session)
             refreshStatus(player)
             player.sendMessage(Component.text(
-                WandI18n.format(locale, "signal.bound.hint", binding.description(locale))
+                WandI18n.format(locale, "signal.bound.hint", description)
             ))
         }
-        fun completeBinding(binding: SignalWandBinding) = entity(player) { completeBindingOnOwner(binding) }
+        fun completeBinding(binding: SignalWandBinding) {
+            val description = binding.description(locale) { backend.boundaryLabel(captured, it) }
+            entity(player) { completeBindingOnOwner(binding, description) }
+        }
         fun continueChoice(choices: List<SignalWandChoice>, deleting: Boolean) = entity(player) {
             if (!ownerCurrent()) {
                 sessions.invalidate(playerId, session)
@@ -797,7 +800,13 @@ internal class SignalWandHandler(
                             is ProtectionCurrentEntrySignalWandBinding -> ProtectionSignalRebindTarget(binding.entryBoundaryId, binding.entryBoundaryId)
                             is ProtectionFixedRouteSignalWandBinding -> ProtectionSignalRebindTarget(binding.entryBoundaryId, binding.routeId)
                             else -> error("This device does not support entrance rebinding")
-                        } }.distinct().filter { it in backend.rebindTargets(capture, device) }
+                        } }.distinct().mapNotNull { local -> backend.rebindTargets(capture, device).singleOrNull { target ->
+                            when {
+                                local is ProtectionSignalRebindTarget && target is ProtectionSignalRebindTarget ->
+                                    local.entryBoundaryId == target.entryBoundaryId && local.bindingId == target.bindingId
+                                else -> local == target
+                            }
+                        } }
                     require(localTargets.isNotEmpty()) { WandI18n.format(locale, "signal.rebind.target.empty") }
                     fun confirm(target: SignalRebindTarget) {
                         page(SignalWandDialog(WandI18n.format(locale, "signal.rebind.confirm", authoringName(device.signalId, "name.signal")),
@@ -1199,12 +1208,13 @@ internal data class RouteIndicatorSignalWandBinding(
     }
 }
 
-private fun SignalWandBinding.description(locale: java.util.Locale = java.util.Locale.US): String = when (this) {
+private fun SignalWandBinding.description(locale: java.util.Locale = java.util.Locale.US,
+    boundaryLabel: (String) -> WandText = { authoringName(it, "name.entrance") }): String = when (this) {
     is FixedBlockSignalWandBinding -> WandI18n.format(locale, "binding.block", authoringName(blockId, "name.block"), entryDirection)
-    is ProtectionCurrentEntrySignalWandBinding -> WandI18n.format(locale, "binding.current", authoringName(entryBoundaryId, "name.entrance"))
-    is ProtectionFixedRouteSignalWandBinding -> WandI18n.format(locale, "binding.route", authoringName(entryBoundaryId, "name.entrance"), authoringName(routeId, "name.route"))
+    is ProtectionCurrentEntrySignalWandBinding -> WandI18n.format(locale, "binding.current", boundaryLabel(entryBoundaryId))
+    is ProtectionFixedRouteSignalWandBinding -> WandI18n.format(locale, "binding.route", boundaryLabel(entryBoundaryId), authoringName(routeId, "name.route"))
     is AttachedSignalWandBinding -> WandI18n.format(locale, "binding.attached", authoringName(primarySignalId, "name.signal"))
-    is RouteIndicatorSignalWandBinding -> WandI18n.format(locale, "binding.indicator", entryBoundaryId?.let { authoringName(it, "name.entrance") } ?: WandText.key("none"))
+    is RouteIndicatorSignalWandBinding -> WandI18n.format(locale, "binding.indicator", entryBoundaryId?.let(boundaryLabel) ?: WandText.key("none"))
 }
 
 @Serializable

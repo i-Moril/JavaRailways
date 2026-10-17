@@ -29,12 +29,12 @@ internal class RouteIndicatorWandEditor(
         require(backend.current(capture)) { text("editor.selection.expired") }
         val missing = options.routeIds.count { it !in mappings }
         val routes = options.routeIds.mapIndexed { index, route ->
-            text("editor.indicator.mapping", authoringName(route, "editor.name.route"), index + 1,
+            text("editor.indicator.mapping", options.routeLabels[route] ?: authoringName(route, "editor.name.route"), index + 1,
                 mappings[route] ?: text("editor.indicator.unmapped_hint")) to {
                 val variants = options.variants.map { variant -> variant to {
                     mappingPage(binding, entry, placement, options, noRoute, mappings + (route to variant))
                 } }
-                page(text("editor.indicator.appearance", authoringName(route, "editor.name.route"), index + 1),
+                page(text("editor.indicator.appearance", options.routeLabels[route] ?: authoringName(route, "editor.name.route"), index + 1),
                     listOf(text("editor.indicator.unmapped") to {
                     mappingPage(binding, entry, placement, options, noRoute, mappings - route)
                 }) + variants + cancel)
@@ -42,7 +42,7 @@ internal class RouteIndicatorWandEditor(
         }
         page(text("editor.indicator.mappings", missing, noRoute), routes + listOf(
             text("editor.indicator.review", missing) to {
-                page(text("editor.indicator.confirm", authoringName(entry, "name.entrance")), listOf(
+                page(text("editor.indicator.confirm", backend.boundaryLabel(capture, entry)), listOf(
                     text(if (placement == null) "editor.indicator.save" else "editor.indicator.create") to {
                         saved(backend.saveIndicator(capture, binding, entry, noRoute, mappings, placement, active))
                     }, cancel))

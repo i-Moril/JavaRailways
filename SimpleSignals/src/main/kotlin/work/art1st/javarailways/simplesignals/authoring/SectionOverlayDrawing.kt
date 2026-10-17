@@ -37,6 +37,7 @@ internal class SectionOverlayDrawing(labels: Collection<EditorTextLabel>,
         fun prepare(definitions: SimpleSignalsWorldDefinitions,
             unavailableBlocks: Set<String>, unavailableRegions: Set<String>,
             regionInteriors: Map<String, List<ProtectionRegionInteriorSlice>> = emptyMap(),
+            boundaryName: (RailCutPosition) -> WandText? = { null },
             boundaryIdentity: (RailPositionSnapshot) -> RailPositionSnapshot = { it.copy(facing = ViewDirection.AB) },
             findCurve: (UUID) -> Curve?): SectionOverlayDrawing {
             val labels = arrayListOf<EditorTextLabel>()
@@ -58,8 +59,9 @@ internal class SectionOverlayDrawing(labels: Collection<EditorTextLabel>,
                 val key = Triple(p.x(), p.y(), p.z())
                 val row = labelRows[key] ?: 0
                 labelRows[key] = row + 1
-                captions[id] = text
-                labels += EditorTextLabel(id, p.x(), p.y() + 1.4 + row * 0.35, p.z(), Component.text(text.render(java.util.Locale.US)))
+                val caption = boundaryName(position)?.let { WandText.key("boundary.overlay", it, text) } ?: text
+                captions[id] = caption
+                labels += EditorTextLabel(id, p.x(), p.y() + 1.4 + row * 0.35, p.z(), Component.text(caption.render(java.util.Locale.US)))
             }
             fun coverage(id: String, rail: UUID, lower: Double, upper: Double, unavailable: Boolean) {
                 val geometry = valid(rail, upper) ?: return

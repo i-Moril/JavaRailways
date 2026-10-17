@@ -26,6 +26,16 @@ class SimpleSignalsWorldDefinitionStoreTest {
     @TempDir
     lateinit var directory: Path
 
+    @Test fun `fixed pre-name fixture loads through world store with empty names`() {
+        val fixture = requireNotNull(javaClass.getResource("/fixed-block-without-bidirectional.json")).readText()
+        val world = UUID(0, 32)
+        val store = SimpleSignalsWorldDefinitionStore(directory.toFile())
+        Files.createDirectories(store.primaryFile(world).parent)
+        Files.writeString(store.primaryFile(world), fixture)
+        val loaded = assertInstanceOf(SimpleSignalsWorldDefinitionLoadResult.Loaded::class.java, store.load(world))
+        assertTrue(loaded.definitions.boundaryNames.isEmpty())
+    }
+
     @Test
     fun `unbound fixed signals and indicators persist explicit null in current schema`() {
         val signal = FixedBlockSignalDefinition("test:unbound", 2, null, 0.0, "automatic:block")

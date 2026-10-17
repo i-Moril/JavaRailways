@@ -163,6 +163,23 @@ class SignalWandHandlerTest {
 
 
 
+    @Test fun `duplicate endpoint captions keep distinct route callbacks and explicit appearance mappings`() = Fixture().use { f ->
+        f.indicatorRoutes = listOf("test:first", "test:second")
+        f.indicatorRouteLabels = f.indicatorRoutes.associateWith { WandText.diagnostic("西口 → 一站台") }
+        f.tool = f.tool.copy(controlKind = SignalWandControlKind.ROUTE_INDICATOR,
+            presentationModelId = "test:model", binding = RouteIndicatorSignalWandBinding(f.worldId, "test:entry"))
+        f.click(); f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0))); f.drain()
+        f.dialogOptions.single { it.first == "dark" }.second(); f.drain()
+        assertTrue(f.dialogOptions[0].first.contains("西口 → 一站台"))
+        assertTrue(f.dialogOptions[1].first.contains("西口 → 一站台"))
+        assertFalse(f.dialogOptions[0].first == f.dialogOptions[1].first)
+        f.dialogOptions[1].second(); f.drain()
+        f.dialogOptions.single { it.first == "straight" }.second(); f.drain()
+        f.dialogOptions.single { it.first.startsWith("Review") }.second(); f.drain()
+        f.dialogOptions.first().second(); f.drain()
+        assertEquals(mapOf("test:second" to "straight"), f.indicatorSavedMappings)
+    }
+
     @Test fun `wand marker and encoded state round trip while corrupt state fails closed`() = Fixture().use { f ->
         val state = SignalWandState(UUID(3, 4), 7L, SignalWandMode.PLACEMENT,
             SignalWandControlKind.FIXED_BLOCK, "automatic:jr-four-light",
@@ -588,6 +605,8 @@ class SignalWandHandlerTest {
         var performs = 0
         var deletes = 0
         var rebindings = 0
+        var indicatorRoutes = listOf("test:route")
+        var indicatorRouteLabels = emptyMap<String, WandText>()
         var indicatorSaves = 0
         var indicatorSavedEntry: String? = null
         var indicatorSavedMappings = emptyMap<String, String>()
@@ -711,7 +730,7 @@ class SignalWandHandlerTest {
                 entryBoundaryId: String): RouteIndicatorWandOptions {
                 check(!ownerThread)
                 require(current)
-                return RouteIndicatorWandOptions(listOf("test:route"), listOf("dark", "straight"), emptyMap())
+                return RouteIndicatorWandOptions(indicatorRoutes, listOf("dark", "straight"), emptyMap(), indicatorRouteLabels)
             }
             override fun saveIndicator(capture: SignalWandCapture, binding: RouteIndicatorSignalWandBinding,
                 entryBoundaryId: String, noRouteVariant: String, mappings: Map<String, String>,

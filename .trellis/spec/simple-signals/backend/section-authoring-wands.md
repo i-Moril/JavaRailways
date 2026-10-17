@@ -362,3 +362,7 @@ JS 输出或模型 handle。PDC 中即使仍有格式合法但已删除的 `sign
 正确做法：PDC 分离稳定 marker 与带身份/revision的类型意图；设置和编辑都重新校验完整物品状态及
 exact catalog/runtime/publication/topology，通过唯一入口找到
 既有设备，再用一个标准 definition patch 原子重编译逻辑、模型、许可、存档和 publication。
+
+## 边界命名
+
+区间工具设置中的一次命名流程、共享物理边界的名称同步、文本输入和进路标签由[边界名称合同](boundary-names.md)统一定义。名称只作展示，创建/删除默认手势保持原有语义。

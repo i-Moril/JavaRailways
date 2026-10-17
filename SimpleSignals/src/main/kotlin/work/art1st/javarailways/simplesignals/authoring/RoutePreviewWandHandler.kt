@@ -176,8 +176,13 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
         work {
             val routes = deletionChoices(selection)
             require(routes.isNotEmpty()) { WandI18n.format(locale, "route.delete.empty") }
-            page(WandI18n.format(locale, "route.delete.title", authoringName(selection.regionId, "name.region")), routes.map { route ->
-                "${authoringName(route.route.routeId, "name.route").render(locale)} | ${authoringName(route.route.entryBoundaryId, "name.entrance").render(locale)} → ${authoringName(route.route.exitBoundaryId, "name.entrance").render(locale)}" to {
+            val boundaries = routes.first().publication.definitions.regions.flatMap { it.boundaries }.associateBy { it.boundaryId }
+            page(WandI18n.format(locale, "route.delete.title", authoringName(selection.regionId, "name.region")), routes.mapIndexed { index, route ->
+                "${index + 1}. " + run {
+                    fun label(id: String) = boundaries[id]?.let { backend.boundaryLabel(selection, it).render(locale) }
+                        ?: authoringName(id, "name.entrance").render(locale)
+                    "${label(route.route.entryBoundaryId)} → ${label(route.route.exitBoundaryId)}"
+                } to {
                     page(WandI18n.format(locale, "route.delete.confirm", authoringName(route.route.routeId, "name.route")), listOf(
                         WandI18n.format(locale, "route.confirm.delete") to { reply(deleteRoute(route, ::active).render(locale)) },
                         WandI18n.format(locale, "cancel") to { reply(WandI18n.format(locale, "route.delete.cancelled")) }
@@ -222,11 +227,12 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
                     if (!active()) return@worker
                     try {
                         val selection = backend.select(worldId, point, previous)
+                        val entryLabel = backend.boundaryLabel(selection, selection.entry)
                         entity(player) {
                             if (!ownerCurrent()) { invalidate(playerId, choice); return@entity }
                             choice.selection = selection
                             choice.busy.set(false)
-                            if (selectingEntry) player.sendMessage(Component.text(WandI18n.format(locale, "route.entry.selected", authoringName(selection.entry.boundaryId, "name.entrance"))))
+                            if (selectingEntry) player.sendMessage(Component.text(WandI18n.format(locale, "route.entry.selected", entryLabel)))
                             else {
                                 choice.preview?.close()
                                 choice.refresh?.close()

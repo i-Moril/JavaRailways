@@ -33,6 +33,11 @@ data class TrainControlConfig(
     val jerk: JerkLimitConfig = JerkLimitConfig()
 ) : TrainDynamics.TrainProfile {
     init {
+        maxSpeed.requireNonNegative("maxSpeed")
+        brakeApplyTime.requireNonNegative("brakeApplyTime")
+        brakeReleaseTime.requireNonNegative("brakeReleaseTime")
+        tractionNotchScales.forEach { (handle, scale) -> scale.requireNonNegative("tractionNotchScales.$handle") }
+        brakeNotchScales.forEach { (handle, scale) -> scale.requireNonNegative("brakeNotchScales.$handle") }
         require(curveSpeedLimitOffset.isFinite()) { "curveSpeedLimitOffset must be finite" }
     }
 
@@ -117,6 +122,16 @@ data class CarControlConfig(
     val brake: CarBrakeControlConfig = CarBrakeControlConfig(),
     val resistance: DavisResistanceConfig? = null
 ) : TrainDynamics.CarProfile {
+    init {
+        require(mass.isFinite() && mass > 0.0) { "mass must be finite and positive" }
+        require(rotatingMassFactor.isFinite() && rotatingMassFactor > 0.0) {
+            "rotatingMassFactor must be finite and positive"
+        }
+        require((mass * rotatingMassFactor).isFinite() && mass * rotatingMassFactor > 0.0) {
+            "effectiveMass must be finite and positive"
+        }
+    }
+
     override val effectiveMass: Double get() = mass * rotatingMassFactor
     override val motorAdhesionMassRatio: Double get() = motor.adhesionMassRatio
     override val brakeMaxForce: Double get() = brake.maxForce
@@ -151,12 +166,18 @@ data class MotorControlConfig(
     val adhesionMassRatio: Double = 1.0,
     val forceCurve: List<SpeedForcePoint> = emptyList()
 ) {
+    init {
+        maxForce.requireNonNegative("motor.maxForce")
+        maxPower.requireNonNegative("motor.maxPower")
+        adhesionMassRatio.requireNonNegative("motor.adhesionMassRatio")
+    }
+
     fun forceAt(speed: Double): Double {
         if (!enabled) return 0.0
         if (forceCurve.isNotEmpty()) return interpolateForceCurve(speed)
-        if (maxPower <= 0.0) return maxForce.coerceAtLeast(0.0)
+        if (maxPower <= 0.0) return maxForce
         val powerLimitedForce = maxPower / speed.coerceAtLeast(0.5)
-        return minOf(maxForce.coerceAtLeast(0.0), powerLimitedForce)
+        return minOf(maxForce, powerLimitedForce)
     }
 
     private fun interpolateForceCurve(speed: Double): Double {
@@ -198,6 +219,12 @@ data class CarBrakeControlConfig(
     val regenerativeForce: Double = 0.0,
     val adhesionMassRatio: Double = 1.0
 ) {
+    init {
+        maxForce.requireNonNegative("brake.maxForce")
+        regenerativeForce.requireNonNegative("brake.regenerativeForce")
+        adhesionMassRatio.requireNonNegative("brake.adhesionMassRatio")
+    }
+
     companion object {
         fun parse(root: Map<String, Any>?): CarBrakeControlConfig {
             val source = root ?: throw IllegalArgumentException("brake control config is required")
@@ -220,6 +247,12 @@ data class DavisResistanceConfig(
     val b: Double = 20.0,
     val c: Double = 4.0
 ) {
+    init {
+        a.requireNonNegative("resistance.a")
+        b.requireNonNegative("resistance.b")
+        c.requireNonNegative("resistance.c")
+    }
+
     fun forceAt(speed: Double): Double = a + b * speed + c * speed * speed
 
     companion object {
@@ -239,6 +272,10 @@ data class DavisResistanceConfig(
 data class AdhesionConfig(
     val coefficient: Double = 0.22
 ) {
+    init {
+        coefficient.requireNonNegative("adhesion.coefficient")
+    }
+
     companion object {
         fun parse(root: Map<String, Any>?): AdhesionConfig {
             val source = root ?: throw IllegalArgumentException("adhesion config is required")
@@ -255,6 +292,11 @@ data class JerkLimitConfig(
     val traction: Double = 0.7,
     val brake: Double = 1.0
 ) {
+    init {
+        traction.requireNonNegative("jerk.traction")
+        brake.requireNonNegative("jerk.brake")
+    }
+
     companion object {
         fun parse(root: Map<String, Any>?): JerkLimitConfig {
             val source = root ?: throw IllegalArgumentException("jerk config is required")
@@ -272,6 +314,11 @@ data class SpeedForcePoint(
     val speed: Double,
     val force: Double
 ) {
+    init {
+        speed.requireNonNegative("force-curve.speed")
+        force.requireNonNegative("force-curve.force")
+    }
+
     companion object {
         fun parse(root: Map<String, Any>): SpeedForcePoint {
             root.requireOnlyKeys(setOf("speed", "force"), "force-curve point")
@@ -384,3 +431,6 @@ internal fun Map<String, Any>.requireList(key: String, subject: String): List<*>
         ?: throw IllegalArgumentException("$subject.$key must be a list")
 }
 
+private fun Double.requireNonNegative(subject: String) {
+    require(isFinite() && this >= 0.0) { "$subject must be finite and nonnegative" }
+}

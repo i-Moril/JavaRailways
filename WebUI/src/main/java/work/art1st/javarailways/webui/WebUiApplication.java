@@ -29,6 +29,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Standalone browser-facing service. The Bukkit bearer token never leaves this process. */
 public final class WebUiApplication {
+    private static final System.Logger LOGGER = System.getLogger(WebUiApplication.class.getName());
+    private final java.util.Set<String> failedTrainPolls = ConcurrentHashMap.newKeySet();
     private final WebUiConfig config;
     private final ObjectMapper mapper;
     private final DraftRepository drafts;
@@ -59,10 +61,11 @@ public final class WebUiApplication {
     );
     private static final int MAX_STREAM_CLIENTS = 64;
     private static final int MAX_STREAM_CLIENTS_PER_WORLD = 16;
+    private record TrainEvent(String name, String payload) {}
     private static final class TrainSubscriber {
         final SseClient client;
         final String sessionId;
-        final AtomicReference<String> latest = new AtomicReference<>();
+        final AtomicReference<TrainEvent> latest = new AtomicReference<>();
         final AtomicBoolean delivering = new AtomicBoolean();
         TrainSubscriber(SseClient client, String sessionId) { this.client = client; this.sessionId = sessionId; }
     }
@@ -105,6 +108,7 @@ public final class WebUiApplication {
 
         app.get("/api/v1/worlds", context -> proxyGet(context, "worlds"));
         app.get("/api/v1/worlds/{world}/metadata", this::metadata);
+        app.get("/api/v1/worlds/{world}/issues", context -> proxyGet(context, worldPath(context) + "/issues"));
         app.get("/api/v1/worlds/{world}/rail-map", context -> proxyGet(context, worldPath(context) + "/rail-map"));
         app.sse("/api/v1/worlds/{world}/rail-map/trains", this::trainStream);
         app.get("/api/v1/worlds/{world}/scripts", this::scripts);
@@ -256,7 +260,15 @@ public final class WebUiApplication {
     private void pollAndBroadcastWorld(String world, Queue<TrainSubscriber> clients, AtomicBoolean inFlight) {
         try {
             BridgeClient.Response response = bridge.get("worlds/" + world + "/rail-map/trains");
-            if (response.status() >= 400) return;
+            if (response.status() >= 400) {
+                reportTrainPollFailure(world, "HTTP " + response.status(), null);
+                return;
+            }
+            if (!response.body().isArray()) {
+                reportTrainPollFailure(world, "invalid train frame", null);
+                return;
+            }
+            failedTrainPolls.remove(world);
             String payload = response.body().toString();
             clients.removeIf(subscriber -> {
                 SseClient client = subscriber.client;
@@ -264,22 +276,39 @@ public final class WebUiApplication {
                     if (!client.terminated()) client.close();
                     return true;
                 }
-                subscriber.latest.set(payload); // one latest-only slot per client
+                subscriber.latest.set(new TrainEvent("trains", payload)); // one latest-only slot per client
                 scheduleTrainDelivery(clients, subscriber);
                 return false;
             });
-        } catch (IOException ignored) {
-            // The next bounded interval retries; browser clients keep their existing positions.
+        } catch (IOException failure) {
+            reportTrainPollFailure(world, "transport failure", failure);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-        } catch (RuntimeException ignored) {
-            // Keep the shared stream workers alive across transient bridge/configuration failures.
+        } catch (RuntimeException failure) {
+            reportTrainPollFailure(world, "poll failure", failure);
         } finally {
             inFlight.set(false);
             if (clients.isEmpty()) {
                 trainStreamClients.remove(world, clients);
                 trainPollsInFlight.remove(world, inFlight);
+                failedTrainPolls.remove(world);
             }
+        }
+    }
+
+    private void reportTrainPollFailure(String world, String reason, Throwable failure) {
+        Queue<TrainSubscriber> clients = trainStreamClients.get(world);
+        if (clients != null) {
+            String status = reason.equals("invalid train frame") ? "invalid-frame" : "bridge-unavailable";
+            for (TrainSubscriber subscriber : clients) {
+                subscriber.latest.set(new TrainEvent("stream-error", status));
+                scheduleTrainDelivery(clients, subscriber);
+            }
+        }
+        // Status events never renew the age of the last train frame.
+        // Log the first failure of an outage; a successful frame re-arms reporting.
+        if (failedTrainPolls.add(world)) {
+            LOGGER.log(System.Logger.Level.WARNING, "Train position stream unavailable for world " + world + ": " + reason, failure);
         }
     }
 
@@ -298,9 +327,9 @@ public final class WebUiApplication {
     private void deliverLatestTrainFrame(Queue<TrainSubscriber> clients, TrainSubscriber subscriber) {
         try {
             while (!subscriber.client.terminated()) {
-                String payload = subscriber.latest.getAndSet(null);
-                if (payload == null) break;
-                subscriber.client.sendEvent("trains", payload);
+                TrainEvent event = subscriber.latest.getAndSet(null);
+                if (event == null) break;
+                subscriber.client.sendEvent(event.name(), event.payload());
             }
         } catch (RuntimeException failure) {
             clients.remove(subscriber);

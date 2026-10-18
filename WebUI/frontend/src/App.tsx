@@ -8,6 +8,7 @@ import { DutyEditor } from './DutyEditor';
 import { LinesPage } from './LinesPage';
 import { Graph } from './Graph';
 import { filterTimetableForDiagramLine } from './graph';
+import { IssuesPage } from './IssuesPage';
 import { RailMap } from './RailMap';
 import {
   actionLabel, addRowAction, assignLineToService, canInitializeServiceRows, deleteRowAction, deleteServiceRow, insertServiceRow,
@@ -41,10 +42,10 @@ const actionTypes = [
   'DESTINATION', 'STOP', 'HALT', 'REVERSE', 'TAKE_FROM_DEPOT', 'TAKE_FROM_WAYPOINT', 'STORE_AT_DEPOT',
   'DESTINATION_OPTIONS', 'STATION_DESTINATION_OPTIONS', 'EXTENSION',
 ] as const satisfies readonly ActionType[];
-export type View = 'graph' | 'map' | 'lines' | 'scripts' | 'simulation';
+export type View = 'graph' | 'map' | 'lines' | 'scripts' | 'simulation' | 'issues';
 export const DEFAULT_VIEW:View='map';
 export const navigationForAuthentication=(authenticated:boolean|null):View[]=>authenticated
-  ?['graph','map','lines','scripts','simulation']
+  ?['graph','map','lines','scripts','simulation','issues']
   :['map'];
 
 export { LinesPage } from './LinesPage';
@@ -158,7 +159,8 @@ export default function App() {
     view==='scripts'?t('scripts.readOnly'):
     view==='graph'?t('duties.workspace'):
     view==='lines'?t('lines.description'):
-    view==='simulation'?t('simulation.pending'):t('map.public');
+    view==='simulation'?t('simulation.pending'):
+    view==='issues'?t('issues.description'):t('map.public');
   return <ConfigProvider
     locale={antDesignLocale(locale)}
     theme={antDesignTheme(theme)}
@@ -199,7 +201,8 @@ export default function App() {
     </section>
 
     {authenticated&&<section className="persistent-graph-view" hidden={view!=='graph'}><DutyEditor world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
-    {view === 'map' && <RailMap world={world} onError={setError} />}
+    {authenticated&&view === 'issues' && <IssuesPage key={world} world={world} />}
+    {view === 'map' && <RailMap key={world} world={world} onError={setError} />}
     {view === 'lines' && <LinesPage world={world} metadata={metadata} collection={lineCollection}
       onCollection={setLineCollection} run={run} />}
     {view === 'scripts' && <ScriptsPage world={world} metadata={metadata} run={run} />}

@@ -3,17 +3,21 @@ package work.art1st.javarailways.basic.control
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.Car
 import java.util.IdentityHashMap
+import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
 import work.art1st.javarailways.core.api.control.ControllerConsistState
 
 /** Stateful adapter around the pure [TrainDynamics] step shared by manual and automatic control. */
 class TrainDynamicsExecutor(
     private val train: Train,
-    val trainProfile: TrainDynamics.TrainProfile,
+    trainProfile: TrainDynamics.TrainProfile,
     carProfiles: List<TrainDynamics.CarProfile>,
     val gravityMetersPerSecondSquared: Double,
     initialSpeedMetersPerSecond: Double = train.speed,
     private val profileResolver: ((Car) -> TrainDynamics.CarProfile?)? = null
 ) : DynamicsProfileSource {
+    private val currentTrainProfile = ControllerConsistState(trainProfile)
+    val trainProfile: TrainDynamics.TrainProfile get() = currentTrainProfile.value
+
     private val profilesByCar: ControllerConsistState<Map<Car, TrainDynamics.CarProfile>>
 
     /** Profiles for the current consist, in its current order; removed cars are not included. */
@@ -52,6 +56,18 @@ class TrainDynamicsExecutor(
             profile
         }
         return PreparedDynamicsChange(ordered, profilesByCar.prepare(profiles))
+    }
+
+    fun prepareConfigurationChange(
+        trainProfile: TrainDynamics.TrainProfile,
+        carProfiles: List<TrainDynamics.CarProfile>
+    ): List<PreparedControllerStateUpdate> {
+        val cars = train.cars.toList()
+        require(carProfiles.size == cars.size) { "car profile count does not match current consist" }
+        TrainDynamics.totalEffectiveMass(carProfiles)
+        val profiles = IdentityHashMap<Car, TrainDynamics.CarProfile>()
+        cars.forEachIndexed { index, car -> profiles[car] = carProfiles[index] }
+        return listOf(currentTrainProfile.prepare(trainProfile), profilesByCar.prepare(profiles))
     }
 
     fun preview(

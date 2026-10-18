@@ -2,8 +2,8 @@
 # 除明确说明默认值的键外，每个键都是必填项；缺失或写错类型时启动报错。
 
 # 已保存列车在模型包更新后的跟随策略。
-# follow-package: 保留已保存的车厢模型名，但按当前包文件重新构建模型。
-# snapshot: 保存解析后的模型快照，后续不跟随包文件变更。
+# follow-package: reload 按创建模板类型统一更新全部实例的模型与运行配置；失败类型保留原版本。
+# snapshot: 模型与运行配置固定在创建时的快照，重启后保持；reload 只更新可创建的资源。
 train-model-update-policy: follow-package
 
 # JavaRailways 展示实体渲染后端。座椅在两种模式下都使用 packet 虚拟 ArmorStand，

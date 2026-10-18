@@ -48,6 +48,8 @@ internal class SignalPackEpochRuntime private constructor(
     private val evaluationOrder: List<String>,
     private val unavailableReasonsByDeviceId: Map<String, String> = emptyMap()
 ) {
+    internal var issueChanged: (String, String?) -> Unit = { _, _ -> }
+
     val watchedContinuationEntries: Set<RailEndpointRef> = Collections.unmodifiableSet(
         bindingsByDeviceId.values.flatMapTo(sortedSetOf()) { prepared ->
             prepared.plans.flatMapTo(linkedSetOf()) { it.observation.watchedContinuationEntries }
@@ -81,7 +83,10 @@ internal class SignalPackEpochRuntime private constructor(
         unavailableReasonsByDeviceId.forEach { (deviceId, reason) ->
             val next = SectionSignalState.Unavailable(reason)
             candidate[deviceId] = next
-            if (previous?.states?.get(deviceId) != next) changed += deviceId
+            if (previous?.states?.get(deviceId) != next) {
+                changed += deviceId
+                issueChanged(deviceId, reason)
+            }
         }
         require(bindingsByDeviceId.isEmpty() ||
             input.observation.stamp.topologyRevision == publication.topology.revision) {
@@ -100,6 +105,7 @@ internal class SignalPackEpochRuntime private constructor(
                 prepared.downstreamDeviceIds.any { it in changed }
             if (!dirty) return@forEach
             var actualInput: JsonElement? = null
+            var evaluationFailure: Exception? = null
             val next = try {
                 hostUnavailable(deviceId)?.let { throw HostUnavailable(it) }
                 val plan = prepared.selectPlan(selection, fixedRouteReady)
@@ -115,6 +121,7 @@ internal class SignalPackEpochRuntime private constructor(
             } catch (failure: HostUnavailable) {
                 SectionSignalState.Unavailable(failure.message!!)
             } catch (failure: Exception) {
+                if (failure !is ExpectedUnavailable) evaluationFailure = failure
                 SectionSignalState.Unavailable(
                     "signal device '$deviceId' (type ${prepared.signal.signalType}) failed: " +
                         (failure.message?.takeIf(String::isNotBlank) ?: failure.javaClass.name)
@@ -122,7 +129,11 @@ internal class SignalPackEpochRuntime private constructor(
             }
             evaluations[deviceId] = SectionSignalEvaluation(occupancy.stamp, Instant.now(), actualInput)
             candidate[deviceId] = next
-            if (previous?.states?.get(deviceId) != next) changed += deviceId
+            if (previous?.states?.get(deviceId) != next) {
+                changed += deviceId
+                if (evaluationFailure != null) issueChanged(deviceId, (next as SectionSignalState.Unavailable).reason)
+                else if (next is SectionSignalState.Available) issueChanged(deviceId, null)
+            }
         }
         val expected = bindingsByDeviceId.keys + unavailableReasonsByDeviceId.keys
         require(candidate.keys == expected) { "signal epoch did not establish an exact signal result" }
@@ -147,7 +158,7 @@ internal class SignalPackEpochRuntime private constructor(
             requireNotNull(occupancy.sections[node.state.section]) {
                 "section ${node.state.section} has no same-epoch observation"
             }.also {
-                require(it.available) { "section ${node.state.section} is unavailable" }
+                if (!it.available) throw ExpectedUnavailable("section ${node.state.section} is unavailable")
             }
 
         fun end(termination: SignalObservationTermination): JsonObject = jsonObject(
@@ -252,14 +263,13 @@ internal class SignalPackEpochRuntime private constructor(
             fixedRouteReady: (String) -> Boolean
         ): PreparedPlan {
             fixedRouteId?.let { routeId ->
-                require(fixedRouteReady(routeId)) { "fixed protection route '$routeId' is not ready" }
+                if (!fixedRouteReady(routeId)) throw ExpectedUnavailable("fixed protection route '$routeId' is not ready")
                 return plans.single()
             }
             currentEntryId?.let { entryId ->
                 val selected = selection?.selections?.get(entryId)
-                require(selected?.available == true && selected.routeReady) {
-                    "protection entry '$entryId' has no ready route"
-                }
+                if (selected?.available != true || !selected.routeReady)
+                    throw ExpectedUnavailable("protection entry '$entryId' has no ready route")
                 val routeId = requireNotNull(selected.routeId) { "protection entry '$entryId' has no selected route" }
                 return plans.singleOrNull { it.observation.root.state.protectionRouteId == routeId }
                     ?: throw IllegalArgumentException("selected route '$routeId' has no observation plan")
@@ -269,6 +279,7 @@ internal class SignalPackEpochRuntime private constructor(
     }
 
     private class HostUnavailable(message: String) : IllegalStateException(message)
+    private class ExpectedUnavailable(message: String) : IllegalStateException(message)
 
     companion object {
         fun compile(

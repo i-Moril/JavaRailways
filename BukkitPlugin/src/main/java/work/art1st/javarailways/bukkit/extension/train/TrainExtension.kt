@@ -9,6 +9,7 @@ import work.art1st.javarailways.bukkit.config.model.DriverControlEnd
 import work.art1st.javarailways.bukkit.config.model.SavedTrainPackageSnapshot
 import work.art1st.javarailways.bukkit.config.model.TrainActionConfig
 import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
+import work.art1st.javarailways.bukkit.config.model.TrainResourceVersion
 import work.art1st.javarailways.bukkit.extension.bukkitWorldData
 import work.art1st.javarailways.bukkit.operation.RegionTrainOperationDispatcher
 import work.art1st.javarailways.bukkit.persistence.TrainPackageSnapshotStore
@@ -119,28 +120,36 @@ class TrainExtension : CoreTrainExtension {
 
     fun modelPackageName(): String? = resolvePackageName()
 
-    fun resolveControl(): TrainControlConfig {
-        if (hasPinnedOperationalSnapshot()) return operationalSnapshot()?.control
-            ?: error("Pinned train package snapshot '$savedPackageSnapshotHash' is unavailable")
-        return BukkitPlugin.INSTANCE.modelManager.getTrainControl(resolvePackageName())
+    fun bindCreatedResources(type: String, version: TrainResourceVersion) {
+        savedPackageName = type
+        savedPackageSnapshot = version.packageSnapshot
+        savedPackageSnapshotHash = version.packageSnapshot.hash
     }
 
-    private fun hasPinnedOperationalSnapshot() = BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT && savedPackageSnapshotHash != null
+    fun resolveControl(): TrainControlConfig {
+        val type = requireNotNull(resolvePackageName()) { "Train '${self.id}' has no creation template" }
+        if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.FOLLOW_PACKAGE)
+            return BukkitPlugin.INSTANCE.modelManager.resourceVersion(type).packageSnapshot.control
+        return requireNotNull(operationalSnapshot()) { "Train '${self.id}' has no creation-time configuration snapshot" }.control
+    }
 
     private fun operationalSnapshot(): SavedTrainPackageSnapshot? {
         if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy != TrainModelUpdatePolicy.SNAPSHOT) return null
         savedPackageSnapshot?.let { return it }
-        val hash = savedPackageSnapshotHash ?: return null
-        return TrainPackageSnapshotStore.load(hash)?.also { savedPackageSnapshot = it }
+        val hash = requireNotNull(savedPackageSnapshotHash) { "Train '${self.id}' has no creation-time configuration snapshot" }
+        return requireNotNull(TrainPackageSnapshotStore.load(hash)) {
+            "Pinned train package snapshot '$hash' is unavailable"
+        }.also { savedPackageSnapshot = it }
     }
 
-    private fun resolvePackageName(): String? {
-        savedPackageName?.let { return it }
-        val model = self.cars.firstOrNull()?.carRendererOrNull?.carModelName ?: return null
-        return BukkitPlugin.INSTANCE.modelManager.getCar(model)?.packageName?.also { savedPackageName = it }
-    }
+    private fun resolvePackageName(): String? = savedPackageName
 
-    override fun splitBefore(carId: String, newId: String): CoreTrainExtension = TrainExtension()
+    override fun splitBefore(carId: String, newId: String): CoreTrainExtension = TrainExtension().also {
+        it.savedPackageName = savedPackageName
+        it.savedPackageSnapshotHash = savedPackageSnapshotHash
+        it.savedPackageSnapshot = savedPackageSnapshot
+        it.preparedPackageState = true
+    }
     override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: CoreTrainExtension?): CoreTrainExtension =
         TrainExtension().also {
             it.savedPackageName = savedPackageName
@@ -149,13 +158,7 @@ class TrainExtension : CoreTrainExtension {
             it.preparedPackageState = true
         }
 
-    fun pinCurrentPackageSnapshot(): String? {
-        savedPackageSnapshotHash?.let { return it }
-        return resolvePackageName()?.let { BukkitPlugin.INSTANCE.modelManager.createTrainPackageSnapshot(it) }
-            ?.let { TrainPackageSnapshotStore.save(it) }?.also { savedPackageSnapshotHash = it }
-    }
-
     override fun save(): Pair<String, SerializableExtensionData> = BukkitPlugin.EXTENSION_ID to SavedTrainRenderState(
         packageName = resolvePackageName(),
-        packageSnapshotHash = if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) pinCurrentPackageSnapshot() else null)
+        packageSnapshotHash = savedPackageSnapshotHash)
 }

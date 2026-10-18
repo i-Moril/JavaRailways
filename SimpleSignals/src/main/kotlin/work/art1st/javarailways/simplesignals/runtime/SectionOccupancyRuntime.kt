@@ -110,6 +110,8 @@ internal class SectionOccupancyRuntime private constructor(
         definition.signalId to work.art1st.javarailways.simplesignals.signal.protectionSignalDeclarationId(definition.signalId)
     }
 
+    internal fun ownsRules(rules: SignalPackEpochRuntime): Boolean = signalPackRules === rules
+
     fun attachEpochContinuity(continuity: EpochContinuity) {
         check(epochContinuity == null || epochContinuity === continuity)
         epochContinuity = continuity

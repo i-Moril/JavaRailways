@@ -65,8 +65,8 @@ object TrainDynamics {
         }
 
         val normalizedHandle = handle.uppercase()
-        val powerScale = config.normalizedPowerScale(normalizedHandle).coerceAtLeast(0.0)
-        val targetBrakeScale = config.normalizedBrakeScale(normalizedHandle).coerceAtLeast(0.0)
+        val powerScale = config.normalizedPowerScale(normalizedHandle)
+        val targetBrakeScale = config.normalizedBrakeScale(normalizedHandle)
         val brakeScale = approachBrakeScale(
             current = state.brakeScale,
             target = targetBrakeScale,
@@ -75,8 +75,8 @@ object TrainDynamics {
             deltaSeconds = deltaSeconds
         )
 
-        val effectiveMass = cars.sumOf { it.control.effectiveMass }.coerceAtLeast(1.0)
-        val speed = state.speed.coerceIn(0.0, config.maxSpeed.coerceAtLeast(0.0))
+        val effectiveMass = totalEffectiveMass(cars.map { it.control })
+        val speed = state.speed.coerceIn(0.0, config.maxSpeed)
 
         val tractionForce = if (speed >= config.maxSpeed && powerScale > 0.0) {
             0.0
@@ -86,7 +86,7 @@ object TrainDynamics {
                 val adhesionLimit = car.control.mass * car.control.motorAdhesionMassRatio *
                     gravityMetersPerSecondSquared *
                     config.adhesionCoefficient
-                raw.coerceIn(0.0, adhesionLimit.coerceAtLeast(0.0))
+                raw.coerceIn(0.0, adhesionLimit)
             }
         }
         val brakeForce = cars.sumOf { car ->
@@ -94,7 +94,7 @@ object TrainDynamics {
             val adhesionLimit = car.control.mass * car.control.brakeAdhesionMassRatio *
                 gravityMetersPerSecondSquared *
                 config.adhesionCoefficient
-            raw.coerceIn(0.0, adhesionLimit.coerceAtLeast(0.0))
+            raw.coerceIn(0.0, adhesionLimit)
         }
         val resistanceForce = cars.sumOf { car ->
             car.control.resistanceForceAt(speed, config::resistanceForceAt)
@@ -143,12 +143,11 @@ object TrainDynamics {
     ): Double {
         require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
         val brakeScale = config.normalizedBrakeScale(strongestServiceBrakeHandle(config))
-            .coerceAtLeast(0.0)
         return cars.sumOf { car ->
             val raw = car.brakeMaxForce * brakeScale
             val adhesionLimit = car.mass * car.brakeAdhesionMassRatio *
                 gravityMetersPerSecondSquared * config.adhesionCoefficient
-            raw.coerceIn(0.0, adhesionLimit.coerceAtLeast(0.0))
+            raw.coerceIn(0.0, adhesionLimit)
         }
     }
 
@@ -158,8 +157,19 @@ object TrainDynamics {
         gravityMetersPerSecondSquared: Double
     ): Double {
         require(cars.isNotEmpty()) { "at least one car profile is required" }
-        val effectiveMass = cars.sumOf(CarProfile::effectiveMass).coerceAtLeast(1.0)
+        val effectiveMass = totalEffectiveMass(cars)
         return steadyServiceBrakeForce(config, cars, gravityMetersPerSecondSquared) / effectiveMass
+    }
+
+    internal fun totalEffectiveMass(cars: List<CarProfile>): Double {
+        val total = cars.sumOf { car ->
+            require(car.mass.isFinite() && car.mass > 0.0) { "car mass must be finite and positive" }
+            car.effectiveMass.also {
+                require(it.isFinite() && it > 0.0) { "car effective mass must be finite and positive" }
+            }
+        }
+        require(total.isFinite() && total > 0.0) { "total effective mass must be finite and positive" }
+        return total
     }
 
     private fun approachBrakeScale(

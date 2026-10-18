@@ -36,6 +36,10 @@ data class CarDefinition(
             return if (idx >= 0) name.substring(idx + 1) else name
         }
 
+    /** Catalog identity; the part namespace in [name] may differ from the package name. */
+    val resourceName: String
+        get() = "${requireNotNull(packageName) { "Car '$name' has no package" }}/$simpleName"
+
     /** The package this car belongs to. Set by PackageLoader after loading. */
     @Transient
     var packageName: String? = null

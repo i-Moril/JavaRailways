@@ -1,5 +1,9 @@
 package work.art1st.javarailways.simplesignals.runtime
 
+import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService
+import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueInput
+import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueKind
+
 import org.bukkit.plugin.Plugin
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.TopologyEditDecision
@@ -949,7 +953,8 @@ internal class SimpleSignalsWorldRuntimeManager(
     private val modelWorker: (() -> Unit) -> Unit = { action -> CompletableFuture.runAsync(action) },
     private val modelFailure: (String, Throwable) -> Unit = { _, _ -> },
     private val protectionRegionMaxDistanceMeters: Double = 1000.0,
-    private val topologyWorker: (() -> Unit) -> Unit = { action -> CompletableFuture.runAsync(action) }
+    private val topologyWorker: (() -> Unit) -> Unit = { action -> CompletableFuture.runAsync(action) },
+    private val worldIssues: WorldIssueService = WorldIssueService()
 ) {
     private data class PreparedSignalPacks(
         val catalog: SignalPackCatalog,
@@ -963,6 +968,7 @@ internal class SimpleSignalsWorldRuntimeManager(
     }
 
     private val lock = Any()
+    private val issueLock = Any()
     private val runtimes = linkedMapOf<UUID, SimpleSignalsWorldRuntime>()
 
     @Volatile
@@ -1018,11 +1024,11 @@ internal class SimpleSignalsWorldRuntimeManager(
                 SectionOccupancyRuntime.from(publication,
                     SignalPackEpochRuntime.compile(publication, packages.catalog, packages.logic, bindings) { topology, rails ->
                         infrastructure.railSpeedLimits(publication.definitions.worldId, topology, rails)
-                    })
+                    }.also { bindIssues(it, publication) })
             } catch (failure: Exception) {
                 if (fallback != SignalPackFallback.ANY_FAILURE) throw failure
                 SectionOccupancyRuntime.from(publication, SignalPackEpochRuntime.unavailable(
-                    publication, bindings, "signal type binding is unavailable: ${describe(failure)}"))
+                    publication, bindings, "signal type binding is unavailable: ${describe(failure)}").also { bindIssues(it, publication) })
             }
         }
         if (fallback == SignalPackFallback.NONE) {
@@ -1033,7 +1039,63 @@ internal class SimpleSignalsWorldRuntimeManager(
         return SectionOccupancyRuntime.from(publication, SignalPackEpochRuntime.unavailable(
             publication, bindings, "signal catalog is unavailable: " +
                 (signalPackFailure?.let { it.message ?: it.javaClass.simpleName }
-                    ?: "startup preparation has not completed")))
+                    ?: "startup preparation has not completed")).also { bindIssues(it, publication) })
+    }
+
+    private fun bindIssues(epoch: SignalPackEpochRuntime, publication: SimpleSignalsRuntimePublication) {
+        epoch.issueChanged = { id, message -> synchronized(issueLock) {
+            val runtime = runtimeReadView[publication.definitions.worldId]
+            if (!closed && runtime != null && !runtime.closed &&
+                runtime.authoringPublication() === publication && runtime.currentSectionOccupancy()?.ownsRules(epoch) == true) {
+                if (message == null) worldIssues.resolve(runtime.worldId, "simplesignals:rules", WorldIssueKind.SIGNAL, id, "rule-unavailable")
+                else worldIssues.report(runtime.worldId, "simplesignals:rules",
+                    WorldIssueInput(WorldIssueKind.SIGNAL, id, "rule-unavailable", message))
+            }
+        } }
+    }
+
+    private fun publishIssues(runtime: SimpleSignalsWorldRuntime) {
+        synchronized(issueLock) {
+            if (closed || runtime.closed || runtimeReadView[runtime.worldId] !== runtime) return
+            val view = runtime.topologyGuard.capture()
+            val definitions = runtime.currentDefinitions()
+            val unboundBlocks = definitions.fixedBlockSignals.filter { it.controlledBlockId == null }.mapTo(hashSetOf()) { it.signalId }
+            val unboundProtection = definitions.protectionSignals.filter { it.bindingId == null }.mapTo(hashSetOf()) { it.signalId }
+            worldIssues.replace(runtime.worldId, "simplesignals:topology", view.index.unavailable.map { section ->
+                val kind = when (section.kind) {
+                    TopologySectionKind.BLOCK -> WorldIssueKind.BLOCK
+                    TopologySectionKind.REGION -> WorldIssueKind.PROTECTION_REGION
+                    TopologySectionKind.SIGNAL -> WorldIssueKind.SIGNAL
+                }
+                val message = when (section.kind) {
+                    TopologySectionKind.BLOCK -> "区间路径不可用，请检查引用轨道、连接及范围冲突。"
+                    TopologySectionKind.REGION -> "保护区域或进路不可用，请检查边界及关联轨道。"
+                    TopologySectionKind.SIGNAL -> when {
+                        section.id in unboundBlocks ->
+                            "信号机尚未绑定区间。"
+                        section.id in unboundProtection ->
+                            "信号机尚未绑定进路或入口。"
+                        else -> "信号机绑定的区间、进路或入口不可用。"
+                    }
+                }
+                WorldIssueInput(kind, section.id, "definition-unavailable", message,
+                    "definitionRevision=${definitions.definitionRevision}; topologyRevision=${view.topology.revision}")
+            })
+            val ids = runtime.currentDefinitions().let { definitions ->
+                (definitions.fixedBlockSignals.map { it.signalId } + definitions.protectionSignals.map { it.signalId }).toSet()
+            }
+            // Removed devices cannot be evaluated again to clear their old diagnostics.
+            worldIssues.snapshot(runtime.worldId).filter { it.source in setOf("simplesignals:rules", "simplesignals:preparation") && it.objectId !in ids }
+                .forEach { worldIssues.resolve(runtime.worldId, it.source, it.kind, it.objectId, it.code) }
+            val displayIds = definitions.fixedBlockSignals.filter { it.placement != null }.map { it.signalId } +
+                definitions.protectionSignals.filter { it.placement != null }.map { it.signalId } +
+                definitions.routeIndicators.filter { it.model != null }.map { it.indicatorId } +
+                definitions.attachedSignals.map { it.signalId }
+            worldIssues.snapshot(runtime.worldId).filter {
+                it.source in setOf("simplesignals:models", "simplesignals:model-preparation") && it.objectId !in displayIds
+            }.forEach { worldIssues.resolve(runtime.worldId, it.source, it.kind, it.objectId, it.code) }
+            if (view.pending.isEmpty()) worldIssues.replace(runtime.worldId, "simplesignals:revalidation", emptyList())
+        }
     }
 
     /**
@@ -1066,6 +1128,14 @@ internal class SimpleSignalsWorldRuntimeManager(
                 prepareSectionOccupancy(publication, SignalPackFallback.NONE).also { it.retainPublishedFrom(previous) }
             } catch (failure: Exception) {
                 if (runtime.authoringPublication() !== publication) continue
+                synchronized(issueLock) {
+                    if (!runtime.closed && runtimeReadView[runtime.worldId] === runtime) {
+                        worldIssues.replace(runtime.worldId, "simplesignals:preparation", signalTypeBindings(publication).map {
+                            WorldIssueInput(WorldIssueKind.SIGNAL, it.deviceId, "rule-preparation-failed",
+                                "信号规则准备失败。", describe(failure))
+                        })
+                    }
+                }
                 reportModelFailure("SimpleSignals signal rules unavailable for world ${runtime.worldId}; " +
                     "bound devices remain restrictive", failure)
                 return false
@@ -1088,7 +1158,13 @@ internal class SimpleSignalsWorldRuntimeManager(
                     "bound devices remain restrictive", failure)
                 return false
             }
-            if (committed) return true
+            if (committed) {
+                synchronized(issueLock) {
+                    if (!runtime.closed && runtimeReadView[runtime.worldId] === runtime)
+                        worldIssues.replace(runtime.worldId, "simplesignals:preparation", emptyList())
+                }
+                return true
+            }
         }
         return false
     }
@@ -1101,6 +1177,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             SimpleSignalsModelPackages.load(directory)
         } catch (failure: Exception) {
             modelPackageFailure = failure
+            runtimeReadView.values.forEach { reportModelPreparationIssue(it, it.authoringPublication(), failure) }
             reportModelFailure("SimpleSignals rendering unavailable: model packages could not be loaded from $directory", failure)
             return
         }
@@ -1128,9 +1205,36 @@ internal class SimpleSignalsWorldRuntimeManager(
     }
 
     private fun modelBinding(runtime: SimpleSignalsWorldRuntime, publication: SimpleSignalsRuntimePublication,
-        models: PreparedSignalModels): SignalModelBinding =
-        SignalModelBinding(plugin, publication.definitions.worldId, publication.topology.revision,
-            models, modelPresentation, ::reportModelFailure, runtime.modelHandles)
+        models: PreparedSignalModels): SignalModelBinding {
+        lateinit var binding: SignalModelBinding
+        binding = SignalModelBinding(plugin, publication.definitions.worldId, publication.topology.revision,
+            models, modelPresentation, ::reportModelFailure, runtime.modelHandles) { id, failure ->
+                synchronized(issueLock) {
+                    if (!closed && !runtime.closed && runtimeReadView[runtime.worldId] === runtime &&
+                        runtime.authoringPublication() === publication && runtime.currentModels() === binding) {
+                        if (failure == null) worldIssues.resolve(runtime.worldId, "simplesignals:models", WorldIssueKind.SIGNAL, id, "model-unavailable")
+                        else worldIssues.report(runtime.worldId, "simplesignals:models", WorldIssueInput(
+                            WorldIssueKind.SIGNAL, id, "model-unavailable", "信号设备显示失败。",
+                            "${failure.javaClass.simpleName}: ${failure.message.orEmpty()}"))
+                    }
+                }
+            }
+        return binding
+    }
+
+    private fun reportModelPreparationIssue(runtime: SimpleSignalsWorldRuntime,
+        publication: SimpleSignalsRuntimePublication, failure: Exception) = synchronized(issueLock) {
+        if (!closed && !runtime.closed && runtimeReadView[runtime.worldId] === runtime && runtime.authoringPublication() === publication) {
+            val definitions = publication.definitions
+            val ids = definitions.fixedBlockSignals.filter { it.placement != null }.map { it.signalId } +
+                definitions.protectionSignals.filter { it.placement != null }.map { it.signalId } +
+                definitions.routeIndicators.filter { it.model != null }.map { it.indicatorId } +
+                definitions.attachedSignals.map { it.signalId }
+            worldIssues.replace(runtime.worldId, "simplesignals:model-preparation", ids.map { id ->
+                WorldIssueInput(WorldIssueKind.SIGNAL, id, "model-preparation-failed", "信号设备显示准备失败。", describe(failure))
+            })
+        }
+    }
 
     private fun reportModelFailure(context: String, failure: Throwable) {
         try { modelFailure(context, failure) } catch (_: Exception) { }
@@ -1151,6 +1255,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             } catch (failure: Exception) {
                 // A concurrent edit may have removed the invalid configuration; catch up to that exact publication.
                 if (runtime.authoringPublication() !== publication) continue
+                reportModelPreparationIssue(runtime, publication, failure)
                 reportModelFailure("SimpleSignals rendering unavailable for world ${runtime.worldId}", failure)
                 return
             }
@@ -1170,6 +1275,10 @@ internal class SimpleSignalsWorldRuntimeManager(
                 return
             }
             if (attached) {
+                synchronized(issueLock) {
+                    if (!runtime.closed && runtimeReadView[runtime.worldId] === runtime)
+                        worldIssues.replace(runtime.worldId, "simplesignals:model-preparation", emptyList())
+                }
                 runtime.startModels()
                 return
             }
@@ -1356,7 +1465,11 @@ internal class SimpleSignalsWorldRuntimeManager(
             diagnostics = loaded.diagnostics
         )
         }
-        if (result.status == SimpleSignalsWorldInstallStatus.INSTALLED) runtimeReadView[worldId]?.let(::scheduleModels)
+        if (result.status == SimpleSignalsWorldInstallStatus.INSTALLED) runtimeReadView[worldId]?.let {
+            worldIssues.replace(worldId, "simplesignals:installation", emptyList())
+            publishIssues(it)
+            scheduleModels(it)
+        }
         return result
     }
 
@@ -1386,11 +1499,16 @@ internal class SimpleSignalsWorldRuntimeManager(
                             if (runtime.closed || runtime.topologyGuard.capture() !== captured || runtime.authoringPublication() !== base) continue
                             throw failure
                         }
-                        if (committed) scheduleModels(runtime)
+                        if (committed) {
+                            publishIssues(runtime)
+                            worldIssues.replace(runtime.worldId, "simplesignals:revalidation", emptyList())
+                            scheduleModels(runtime)
+                        }
                         if (committed && runtime.topologyGuard.capture().pending.isEmpty()) break
                     }
                 } catch (failure: Exception) {
                     failed = runtime.topologyGuard.capture()
+                    reportRevalidationIssue(runtime, failure)
                     reportModelFailure("SimpleSignals topology revalidation failed for world ${runtime.worldId}; affected sections remain unavailable", failure)
                 } finally {
                     runtime.topologyWorkerScheduled.set(false)
@@ -1402,7 +1520,20 @@ internal class SimpleSignalsWorldRuntimeManager(
             }
         } catch (failure: Exception) {
             runtime.topologyWorkerScheduled.set(false)
+            reportRevalidationIssue(runtime, failure)
             reportModelFailure("SimpleSignals topology worker could not be scheduled", failure)
+        }
+    }
+
+    private fun reportRevalidationIssue(runtime: SimpleSignalsWorldRuntime, failure: Exception) = synchronized(issueLock) {
+        if (!closed && !runtime.closed && runtimeReadView[runtime.worldId] === runtime) {
+            worldIssues.replace(runtime.worldId, "simplesignals:revalidation", runtime.topologyGuard.capture().pending.keys.map { section ->
+                WorldIssueInput(when (section.kind) {
+                    TopologySectionKind.BLOCK -> WorldIssueKind.BLOCK
+                    TopologySectionKind.REGION -> WorldIssueKind.PROTECTION_REGION
+                    TopologySectionKind.SIGNAL -> WorldIssueKind.SIGNAL
+                }, section.id, "revalidation-failed", "轨道重验失败，等待修复。", describe(failure))
+            })
         }
     }
 
@@ -1411,6 +1542,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             val removed = runtimes.remove(worldId)
             removed?.retire()
             publishRuntimeReadView()
+            clearIssues(worldId)
             removed
         }
         removed?.let { CompletableFuture.runAsync { it.closeModels() } }
@@ -1420,8 +1552,10 @@ internal class SimpleSignalsWorldRuntimeManager(
         val (removed, logic) = synchronized(lock) {
             closed = true
             val removed = runtimes.values.toList()
-            removed.forEach(SimpleSignalsWorldRuntime::retire)
+            removed.forEach { it.retire(); clearIssues(it.worldId) }
             runtimes.clear()
+            listOf("simplesignals:topology", "simplesignals:rules", "simplesignals:revalidation", "simplesignals:installation", "simplesignals:preparation", "simplesignals:models", "simplesignals:model-preparation")
+                .forEach(worldIssues::clearSource)
             publishRuntimeReadView()
             removed to signalPacks?.logic
         }
@@ -1431,6 +1565,11 @@ internal class SimpleSignalsWorldRuntimeManager(
             logic?.close()
         }
             .thenCompose { modelPresentation.closeOwner(plugin) }
+    }
+
+    private fun clearIssues(worldId: UUID) = synchronized(issueLock) {
+        listOf("simplesignals:topology", "simplesignals:rules", "simplesignals:revalidation", "simplesignals:installation", "simplesignals:preparation", "simplesignals:models", "simplesignals:model-preparation")
+            .forEach { worldIssues.replace(worldId, it, emptyList()) }
     }
 
     private fun publishRuntimeReadView() {
@@ -1758,6 +1897,11 @@ internal class SimpleSignalsWorldRuntimeManager(
         }
         }
         if (result.status == SimpleSignalsDefinitionAuthoringStatus.APPLIED) {
+            synchronized(issueLock) {
+                if (!runtime.closed && runtimeReadView[runtime.worldId] === runtime && signalPacks != null)
+                    worldIssues.replace(runtime.worldId, "simplesignals:preparation", emptyList())
+            }
+            publishIssues(runtime)
             runtime.startModels()
         } else candidateModels.retire()
         return result
@@ -1941,6 +2085,8 @@ internal class SimpleSignalsWorldRuntimeManager(
         detail: String,
         diagnostics: List<String> = emptyList()
     ): SimpleSignalsWorldInstallResult {
+        worldIssues.report(worldId, "simplesignals:installation", WorldIssueInput(
+            WorldIssueKind.WORLD, worldId.toString(), "world-install-failed", detail, diagnostics.joinToString("\n")))
         val allDiagnostics = diagnostics.toMutableList()
         try {
             signalEpochSources.replaceSources(plugin, worldId, emptyList())

@@ -336,6 +336,7 @@ class RoutePreviewWandHandlerTest {
         }
         val plugin = RuntimeRoutePreviewBackendTest.proxy(Plugin::class.java) { name, _ -> when (name) {
             "isEnabled" -> true
+            "getLogger" -> java.util.logging.Logger.getAnonymousLogger()
             else -> error("Unexpected plugin call $name")
         } }
         private val curve = PrimeCurve.fromPoints(listOf(

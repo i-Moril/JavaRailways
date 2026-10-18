@@ -66,3 +66,6 @@ export interface TimetableSimulationResult {
 export interface TimetableScriptSummary { name:string; sizeBytes:number; modifiedAtEpochMillis:number }
 export interface RenderedTimetableScript { name:string; source:string; timetable:SavedTimetableV1; validation:{valid:boolean;errors:string[]} }
 export interface CompiledTimetableSource { timetable:SavedTimetableV1; validation:{valid:boolean;errors:string[]}; documentHash?:string }
+
+export type WorldIssueKind = 'WORLD' | 'TRAIN' | 'PROTECTION_REGION' | 'BLOCK' | 'SIGNAL';
+export interface WorldIssue { source:string;kind:WorldIssueKind;objectId:string;code:string;message:string;details:string|null;firstSeen:string;lastSeen:string }

@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals;
 
 import org.junit.jupiter.api.Test;
+import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService;
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService;
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService;
@@ -66,6 +67,7 @@ class SimpleSignalsHostServicesTest {
         services.put(RailTargetService.class, proxy(RailTargetService.class));
         services.put(ModelPresentationService.class, proxy(ModelPresentationService.class));
         services.put(EditorTextService.class, proxy(EditorTextService.class));
+        services.put(WorldIssueService.class, new WorldIssueService());
         return services;
     }
 

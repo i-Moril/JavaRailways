@@ -5,6 +5,8 @@ import kotlinx.serialization.json.Json
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.config.model.SavedCarModelTree
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 object CarModelSnapshotStore {
     private val json = Json {
@@ -19,8 +21,12 @@ object CarModelSnapshotStore {
 
     fun save(snapshot: SavedCarModelTree): String {
         val file = snapshotFile(snapshot.hash)
-        if (!file.exists()) {
-            file.writeText(json.encodeToString(snapshot))
+        val temporary = Files.createTempFile(file.parentFile.toPath(), snapshot.hash, ".tmp")
+        try {
+            Files.writeString(temporary, json.encodeToString(snapshot))
+            Files.move(temporary, file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            Files.deleteIfExists(temporary)
         }
         return snapshot.hash
     }
@@ -29,7 +35,11 @@ object CarModelSnapshotStore {
         val file = snapshotFile(hash)
         if (!file.exists() || !file.canRead()) return null
         return try {
-            json.decodeFromString<SavedCarModelTree>(file.readText())
+            json.decodeFromString<SavedCarModelTree>(file.readText()).also {
+                require(it.hash == hash && SavedCarModelTree.computeHash(it.car, it.parts) == hash) {
+                    "Car model snapshot hash does not match its contents"
+                }
+            }
         } catch (e: Exception) {
             BukkitPlugin.INSTANCE.logger.warning("Failed to load car model snapshot $hash: ${e.message}")
             null

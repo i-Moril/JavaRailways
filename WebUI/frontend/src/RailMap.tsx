@@ -1,31 +1,42 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import { frontendDemoEnabled, frontendDemoTrains } from './frontendDev';
-import { DESTINATION_MARKER_RADIUS, MAP_PADDING, RAIL_CASING_WIDTH, RAIL_STROKE_WIDTH, STATION_MARKER_RADIUS, layoutMapLabels, railMapBounds, railSegmentVisualLayers, trainCarRectangle, zoomMapViewport, type MapLabelInput, type MapViewport, type RailMapSegment } from './railMap';
+import { DESTINATION_MARKER_RADIUS, MAP_PADDING, RAIL_CASING_WIDTH, RAIL_STROKE_WIDTH, STATION_MARKER_RADIUS, layoutMapLabels, parseTrainFrame, trainFrameIsStale, railMapBounds, railSegmentVisualLayers, trainCarRectangle, zoomMapViewport, type MapLabelInput, type MapViewport, type RailMapSegment } from './railMap';
 import { useI18n } from './i18n';
 import { useTheme } from './theme';
 import type { RailMapFile, RailMapTrain } from './types';
 
 export function RailMap({world,onError}:{world:string;onError:(message:string)=>void}) {
-  const {t}=useI18n();
+  const {t,locale}=useI18n();
   const {theme}=useTheme();
   const canvas=useRef<HTMLCanvasElement>(null);
   const [map,setMap]=useState<RailMapFile>();
   const [trains,setTrains]=useState<RailMapTrain[]>([]);
+  const [lastReceivedAt,setLastReceivedAt]=useState<number|null>(null);
+  const [now,setNow]=useState(Date.now);
+  const [streamState,setStreamState]=useState<'waiting'|'live'|'invalidFrame'|'disconnected'|'bridgeUnavailable'>('waiting');
+  const stale=!frontendDemoEnabled&&trainFrameIsStale(lastReceivedAt,now);
   const [size,setSize]=useState({width:900,height:600});
   const [viewport,setViewport]=useState<MapViewport>({zoom:1,offsetX:0,offsetY:0});
   const drag=useRef<{x:number;y:number;offsetX:number;offsetY:number}|null>(null);
 
   useEffect(()=>{
+    setMap(undefined);setTrains([]);setLastReceivedAt(null);setStreamState('waiting');
     if(!world)return;
-    setMap(undefined);setTrains([]);setViewport({zoom:1,offsetX:0,offsetY:0});
+    setViewport({zoom:1,offsetX:0,offsetY:0});
     let cancelled=false;
-    void api.railMap(world).then((value)=>{if(!cancelled)setMap(value);}).catch((failure)=>onError(failure instanceof Error?failure.message:String(failure)));
-    if(frontendDemoEnabled){setTrains(frontendDemoTrains);return()=>{cancelled=true;};}
+    void api.railMap(world).then((value)=>{if(!cancelled)setMap(value);}).catch((failure)=>{if(!cancelled)onError(failure instanceof Error?failure.message:String(failure));});
+    if(frontendDemoEnabled){setTrains(frontendDemoTrains);setLastReceivedAt(Date.now());setStreamState('live');return()=>{cancelled=true;};}
     const source=new EventSource(`/api/v1/worlds/${encodeURIComponent(world)}/rail-map/trains`);
-    source.addEventListener('trains',(event)=>{try{setTrains(JSON.parse((event as MessageEvent).data) as RailMapTrain[]);}catch{/* ignore malformed frame */}});
-    source.onerror=()=>{/* EventSource reconnects with browser-managed backoff. */};
-    return()=>{cancelled=true;source.close();};
+    source.addEventListener('trains',(event)=>{
+      if(cancelled)return;
+      try{const frame=parseTrainFrame((event as MessageEvent).data);const receivedAt=Date.now();setTrains(frame);setLastReceivedAt(receivedAt);setNow(receivedAt);setStreamState('live');}
+      catch{setStreamState('invalidFrame');}
+    });
+    source.addEventListener('stream-error',(event)=>{if(!cancelled)setStreamState((event as MessageEvent).data==='invalid-frame'?'invalidFrame':'bridgeUnavailable');});
+    source.onerror=()=>{if(!cancelled)setStreamState('disconnected');};
+    const timer=window.setInterval(()=>setNow(Date.now()),250);
+    return()=>{cancelled=true;source.close();window.clearInterval(timer);};
   },[world]);
 
   useEffect(()=>{
@@ -63,7 +74,7 @@ export function RailMap({world,onError}:{world:string;onError:(message:string)=>
       if(viewport.zoom>=1.2||marker.kind==='STATION')labels.push({id:`marker:${marker.id}`,text:marker.label||marker.id,x:point.x,y:point.y,priority:marker.kind==='STATION'?0:marker.kind==='DEPOT'?1:2,color:labelColor});
     }
     for(const train of trains){
-      const carColor=train.derailed?'#d9364f':'#43a65d';
+      const carColor=stale?'#8793a5':train.derailed?'#d9364f':'#43a65d';
       for(const car of train.cars){
         const polygon=trainCarRectangle(car,project,scale);context.beginPath();context.moveTo(polygon[0].x,polygon[0].y);
         for(const point of polygon.slice(1))context.lineTo(point.x,point.y);context.closePath();context.fillStyle=carColor;context.fill();
@@ -71,7 +82,7 @@ export function RailMap({world,onError}:{world:string;onError:(message:string)=>
       }
       const firstCar=train.cars[0];if(!firstCar)continue;
       const point=project(firstCar.x,firstCar.z);
-      labels.push({id:`train:${train.id}`,text:train.name,x:point.x,y:point.y,priority:0,color:labelColor});
+      labels.push({id:`train:${train.id}`,text:train.name,x:point.x,y:point.y,priority:0,color:stale?'#8793a5':labelColor});
     }
     context.font='11px system-ui';context.lineWidth=1;
     for(const label of layoutMapLabels(labels,size.width,size.height,(text)=>context.measureText(text).width)){
@@ -79,10 +90,10 @@ export function RailMap({world,onError}:{world:string;onError:(message:string)=>
       context.fillStyle=background;context.fillRect(label.labelX-2,label.labelY-1,label.width+4,label.height+2);
       context.fillStyle=label.color;context.fillText(label.text,label.labelX+3,label.labelY+11);
     }
-  },[map,trains,size,viewport,t,theme]);
+  },[map,trains,size,viewport,t,theme,stale]);
 
   const position=(event:React.PointerEvent|React.WheelEvent)=>{const bounds=event.currentTarget.getBoundingClientRect();return{x:event.clientX-bounds.left,y:event.clientY-bounds.top};};
-  return <section className="rail-map-page"><div className="map-overlay"><strong>{t('map.title')}</strong><span>{t('map.hint')}</span><button onClick={()=>setViewport({zoom:1,offsetX:0,offsetY:0})}>{t('map.reset')}</button></div>
+  return <section className="rail-map-page"><div className="map-overlay"><strong>{t('map.title')}</strong><span>{t('map.hint')}</span><span className={`map-data-status ${stale?'stale':''}`} role="status">{stale?t(lastReceivedAt===null?'map.waiting':'map.stale'):''}{lastReceivedAt!==null&&<> · {t('map.updated')} <time dateTime={new Date(lastReceivedAt).toISOString()}>{new Date(lastReceivedAt).toLocaleTimeString(locale)}</time></>}{(streamState==='invalidFrame'||streamState==='disconnected'||streamState==='bridgeUnavailable')&&<> · {t(`map.${streamState}`)}</>}</span><button onClick={()=>setViewport({zoom:1,offsetX:0,offsetY:0})}>{t('map.reset')}</button></div>
     <canvas ref={canvas} className="rail-map-canvas" onWheel={(event)=>{event.preventDefault();const pointer=position(event);setViewport((current)=>zoomMapViewport(current,current.zoom*(event.deltaY<0?1.15:0.87),pointer));}}
       onPointerDown={(event)=>{const p=position(event);drag.current={...p,offsetX:viewport.offsetX,offsetY:viewport.offsetY};event.currentTarget.setPointerCapture(event.pointerId);}}
       onPointerMove={(event)=>{if(!drag.current)return;const p=position(event),start=drag.current;setViewport((current)=>({...current,offsetX:start.offsetX+p.x-start.x,offsetY:start.offsetY+p.y-start.y}));}}

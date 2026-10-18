@@ -170,7 +170,7 @@ class WorldSnapshotExtensionDataTest {
             "00000000-0000-0000-0000-00000000000b", 0.0, ViewDirection.AB
         )
         val trainState = SavedTrainRenderState(packageName = "s100", packageSnapshotHash = "package-hash")
-        val carState = SavedCarRenderState("s100/passenger", mapOf("door" to "open"), "model-hash", "package-hash")
+        val carState = SavedCarRenderState("s100/passenger", mapOf("door" to "open"), "model-hash", "package-hash", "creation-template")
         val car = SavedCarV1("car-a", SavedBogieV1(location, true, emptyMap()),
             SavedBogieV1(location, true, emptyMap()),
             CarConfigV1(10.0, 0.5, null, 3.0, null, -3.0, 0.3, 0.3, mapOf("BUKKIT" to carState)))

@@ -596,7 +596,8 @@ class PhysicsCoordinator(
                     AsyncTickThreadMarker.runInAsyncTickContext {
                         val workerStart = nanoTime()
                         batch.forEach { controller ->
-                            if (controller.profileId !in trainsPendingCollision) {
+                            if (controller.profileId !in trainsPendingCollision &&
+                                (controller.train as? CoreTrain)?.movementHeld != true) {
                                 val controllerStart = nanoTime()
                                 controller.tick(deltaMillis)
                                 controllerDurations[controller.profileId] = nanoTime() - controllerStart

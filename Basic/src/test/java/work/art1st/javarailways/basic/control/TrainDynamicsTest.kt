@@ -30,6 +30,37 @@ class TrainDynamicsTest {
     private val carProfile = TestCarProfile()
 
     @Test
+    fun `invalid car masses are rejected instead of repaired in dynamics and braking`() {
+        for (mass in listOf(0.0, -1.0, Double.NaN, Double.POSITIVE_INFINITY)) {
+            for (invalid in listOf(TestCarProfile(mass = mass), TestCarProfile(effectiveMass = mass))) {
+                assertThrows(IllegalArgumentException::class.java) {
+                    TrainDynamics.step(TrainDynamics.State(), trainProfile,
+                        listOf(TrainDynamics.CarInput(invalid)), "P2", 10.0, 1.0)
+                }
+                assertThrows(IllegalArgumentException::class.java) {
+                    TrainDynamics.flatServiceDeceleration(trainProfile, listOf(invalid), 10.0)
+                }
+                assertThrows(IllegalArgumentException::class.java) {
+                    GradeAwareBrakingEnvelope.fromDynamics(trainProfile, listOf(invalid), 10.0,
+                        listOf(BrakingGradeSegment(10.0, 0.0)))
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `positive effective mass below one kilogram is used exactly`() {
+        val light = TestCarProfile(mass = 0.5, motorForce = 1.0, brakeMaxForce = 1.0)
+        val result = TrainDynamics.step(TrainDynamics.State(), trainProfile,
+            listOf(TrainDynamics.CarInput(light)), "P2", 10.0, 0.1)
+        assertEquals(2.0, result.state.acceleration, 1.0e-12)
+        assertEquals(2.0, TrainDynamics.flatServiceDeceleration(trainProfile, listOf(light), 10.0), 1.0e-12)
+        val envelope = GradeAwareBrakingEnvelope.fromDynamics(trainProfile, listOf(light), 10.0,
+            listOf(BrakingGradeSegment(10.0, 0.0)))
+        assertEquals(kotlin.math.sqrt(40.0), envelope.permittedSpeedMetersPerSecond(0.0, 10.0), 1.0e-12)
+    }
+
+    @Test
     fun `manual direction requests commit FIFO and failures retain effective display direction`() {
         PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
             val world = createTestWorld(coordinator)
@@ -173,6 +204,34 @@ class TrainDynamicsTest {
         assertThrows(IllegalStateException::class.java) { executor.prepareConsistChange(train.currentCars, null) }
         assertSame(state, executor.state)
         assertSame(lastResult, executor.lastResult)
+    }
+
+    @Test
+    fun `manual configuration replacement is prepared without mutation and rejects stale owner`() = withDynamicsTrain { wrapper ->
+        val train = wrapper.original as work.art1st.javarailways.core.physics.train.CoreTrain
+        val controller = RealisticManualController(train, train.world, trainProfile, listOf(carProfile, carProfile), 10.0)
+        train.setControllerForTest(controller)
+        controller.setHandle("P2")
+        val replacement = TestCarProfile(mass = 20_000.0)
+        val nextProfile = object : TrainDynamics.TrainProfile by trainProfile {
+            override val powerHandles = listOf("P2", "P3")
+        }
+        val updates = controller.prepareConfigurationChange(nextProfile, listOf(replacement, replacement))
+        assertSame(carProfile, controller.dynamicsProfileFor(train.cars.first()))
+        assertTrue(!controller.setHandle("P3"))
+        train.world.onOwnerForTest { train.applyControllerConfiguration(controller, updates) }
+        assertSame(controller, train.controller)
+        assertSame(replacement, controller.dynamicsProfileFor(train.cars.first()))
+        assertEquals("P2", controller.handle)
+        assertTrue(controller.setHandle("P3"))
+        assertThrows(IllegalArgumentException::class.java) {
+            controller.prepareConfigurationChange(trainProfile, listOf(carProfile, carProfile))
+        }
+        train.setControllerForTest(null)
+        train.world.onOwnerForTest {
+            assertThrows(IllegalStateException::class.java) { train.applyControllerConfiguration(controller, updates) }
+        }
+        assertSame(replacement, controller.dynamicsProfileFor(train.cars.first()))
     }
 
     private fun withDynamicsTrain(action: (MutableConsist) -> Unit) {
@@ -516,9 +575,9 @@ class TrainDynamicsTest {
     private class TestCarProfile(
         override val mass: Double = 10_000.0,
         private val motorForce: Double = 10_000.0,
-        override val brakeMaxForce: Double = 20_000.0
+        override val brakeMaxForce: Double = 20_000.0,
+        override val effectiveMass: Double = mass
     ) : TrainDynamics.CarProfile {
-        override val effectiveMass = mass
         override val motorAdhesionMassRatio = 1.0
         override val brakeAdhesionMassRatio = 1.0
         override fun motorForceAt(speed: Double) = motorForce

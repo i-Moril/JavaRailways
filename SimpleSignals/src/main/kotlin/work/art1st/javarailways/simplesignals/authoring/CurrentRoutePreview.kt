@@ -18,6 +18,8 @@ import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import java.util.logging.Level
+import java.util.logging.Logger
 
 internal data class RoutePreviewSelection(val worldId: UUID, val runtime: SimpleSignalsWorldRuntime,
     val regionId: String, val entry: ProtectionBoundaryDefinition, val exit: ProtectionBoundaryDefinition? = null,
@@ -157,6 +159,7 @@ internal class RuntimeRoutePreviewBackend(private val plugin: Plugin,
 /** One in-flight worker, with actual input references as stale checks and no platform work in callbacks. */
 internal class CurrentRoutePreviewSession(val selection: RoutePreviewSelection,
     private val backend: RoutePreviewBackend, private val worker: (() -> Unit) -> Unit,
+    private val logger: Logger,
     private val deliver: (RoutePreviewComputation) -> Unit) : AutoCloseable {
     private val closed = AtomicBoolean(false)
     private val scheduled = AtomicBoolean(false)
@@ -213,7 +216,10 @@ internal class CurrentRoutePreviewSession(val selection: RoutePreviewSelection,
 
     private fun schedule() {
         if (closed.get() || !scheduled.compareAndSet(false, true)) return
-        try { worker(::runWorker) } catch (_: Exception) { close() }
+        try { worker(::runWorker) } catch (failure: Exception) {
+            logger.log(Level.WARNING, "Route preview worker could not be scheduled world=${selection.worldId} region=${selection.regionId}", failure)
+            close()
+        }
     }
 
     private fun runWorker() {
@@ -221,7 +227,10 @@ internal class CurrentRoutePreviewSession(val selection: RoutePreviewSelection,
         try {
             while (!closed.get()) {
                 val cause = request.get()
-                val value = try { backend.compute(selection) } catch (_: Exception) { close(); return }
+                val value = try { backend.compute(selection) } catch (failure: Exception) {
+                    logger.log(Level.WARNING, "Route preview computation failed world=${selection.worldId} region=${selection.regionId}", failure)
+                    close(); return
+                }
                 if (closed.get()) return
                 if (request.get() !== cause) continue
                 // New interests can arise along a newly selected branch while geometry is prepared.
@@ -254,7 +263,9 @@ internal class CurrentRoutePreviewSession(val selection: RoutePreviewSelection,
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         display.set(null)
-        handles.forEach { runCatching { it.close() } }
+        handles.forEach { runCatching { it.close() }.onFailure { failure ->
+            logger.log(Level.WARNING, "Route preview subscription cleanup failed world=${selection.worldId} region=${selection.regionId}", failure)
+        } }
         handles.clear()
     }
 }

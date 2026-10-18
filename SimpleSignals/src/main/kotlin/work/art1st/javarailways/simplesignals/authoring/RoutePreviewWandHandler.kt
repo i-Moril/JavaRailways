@@ -236,7 +236,7 @@ internal class RoutePreviewWandHandler(private val plugin: Plugin, private val b
                             else {
                                 choice.preview?.close()
                                 choice.refresh?.close()
-                                val session = CurrentRoutePreviewSession(selection, backend, worker) { value -> entity(player) {
+                                val session = CurrentRoutePreviewSession(selection, backend, worker, plugin.logger) { value -> entity(player) {
                                     if (ownerCurrent() && choice.preview?.visible() === value)
                                         player.sendMessage(Component.text(describe(value, locale)))
                                 } }

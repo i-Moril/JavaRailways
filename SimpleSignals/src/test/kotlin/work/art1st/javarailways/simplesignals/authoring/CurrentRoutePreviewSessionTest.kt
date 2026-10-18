@@ -9,6 +9,9 @@ import work.art1st.javarailways.simplesignals.region.*
 import work.art1st.javarailways.simplesignals.runtime.*
 import java.util.ArrayDeque
 import java.util.UUID
+import java.util.logging.Handler
+import java.util.logging.LogRecord
+import java.util.logging.Logger
 
 class CurrentRoutePreviewSessionTest {
     private val a = UUID(0, 1)
@@ -21,6 +24,19 @@ class CurrentRoutePreviewSessionTest {
     private val region = ProtectionRegionDefinition("test:region", 0, listOf(entry, exit))
     private fun active(revision: Long, value: RailEndpointRef? = exitPort, extra: Map<RailEndpointRef, RailEndpointRef> = emptyMap()) =
         ActiveRailContinuationsSnapshot.create(1, revision, extra + if (value == null) emptyMap() else mapOf(watched to value))
+
+    @Test fun `computation failure reports original exception and closes all subscriptions without retry`() {
+        val f = Fixture()
+        val failure = IllegalStateException("geometry failed")
+        f.duringCompute = { throw failure }
+        f.start()
+        assertEquals(3, f.closes)
+        assertNull(f.session.visible())
+        assertTrue(f.workers.isEmpty())
+        assertTrue(f.outputs.isEmpty())
+        assertSame(failure, f.records.single().thrown)
+        assertTrue(f.records.single().message.contains(f.runtime.worldId.toString()))
+    }
 
     @Test fun `unchanged observation pointer and unrelated choices and topology do no geometry work`() {
         val f = Fixture(); f.start()
@@ -132,6 +148,15 @@ class CurrentRoutePreviewSessionTest {
         lateinit var topology: (RailTopologyChange) -> Unit
         lateinit var regionChanged: (PreviewRegionState) -> Unit
         val outputs = mutableListOf<RoutePreviewComputation>()
+        val records = mutableListOf<LogRecord>()
+        private val logger = Logger.getAnonymousLogger().apply {
+            useParentHandlers = false
+            addHandler(object : Handler() {
+                override fun publish(record: LogRecord) { records += record }
+                override fun flush() = Unit
+                override fun close() = Unit
+            })
+        }
         val backend = object : RoutePreviewBackend {
             override fun select(worldId: UUID, point: RailPositionSnapshot, entry: RoutePreviewSelection?) = selection
             override fun compute(selection: RoutePreviewSelection): RoutePreviewComputation {
@@ -158,7 +183,7 @@ class CurrentRoutePreviewSessionTest {
                 return List(3) { AutoCloseable { closes++ } }
             }
         }
-        val session = CurrentRoutePreviewSession(selection, backend, { workers += it }, outputs::add)
+        val session = CurrentRoutePreviewSession(selection, backend, { workers += it }, logger, outputs::add)
         fun start() { session.start(); drain() }
         fun drain() { while (workers.isNotEmpty()) workers.removeFirst().invoke() }
     }

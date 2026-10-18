@@ -131,6 +131,49 @@ class SimpleSignalsWorldRuntimeManagerTest {
     @TempDir
     lateinit var directory: Path
 
+    @Test fun `unbound signal issue disappears on deletion and unload preserves other producers`() {
+        val f = Fixture()
+        val issues = work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService()
+        val definitions = store()
+        definitions.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1, emptyList(), emptyList(),
+            fixedBlockSignals = listOf(FixedBlockSignalDefinition("test:unbound", 1, null, 0.0, "automatic:block",
+                placement = ModelPlacement.RailAttached(RailPositionSnapshot(f.entry, ViewDirection.AB, 1.0))))))
+        val manager = runtimeManager(plugin(), MutableTopologyService(f.currentTopology).service,
+            CapturingRoutePlanningService(), definitions, CapturingSignalEpochSourceService(), worldIssues = issues)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        assertTrue(issues.snapshot(f.worldId).any { it.objectId == "test:unbound" && it.code == "definition-unavailable" })
+        val removed = manager.applyDefinitionPatch(f.worldId, 1,
+            SimpleSignalsDefinitionPatch(removeFixedBlockSignalIds = listOf("test:unbound")))
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, removed.status, removed.diagnostics.joinToString())
+        assertTrue(issues.snapshot(f.worldId).isEmpty())
+        issues.report(f.worldId, "other-plugin", work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueInput(
+            work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueKind.TRAIN, "train", "failed", "Train failure"))
+        manager.remove(f.worldId)
+        assertEquals("other-plugin", issues.snapshot(f.worldId).single().source)
+    }
+
+    @Test fun `display allocation failure reports device and successful edit clears issue`() {
+        val f = Fixture()
+        val issues = work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService()
+        val definitions = store()
+        val initial = deviceModelDefinitions(f, "fixed", railModel(f.entry))
+        definitions.save(f.worldId, initial)
+        val models = RecordingModels().also { it.failCreate = 1 }
+        val manager = runtimeManager(plugin(), MutableTopologyService(f.currentTopology).service,
+            CapturingRoutePlanningService(), definitions, CapturingSignalEpochSourceService(),
+            modelPresentation = models, worldIssues = issues)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        assertTrue(issues.snapshot(f.worldId).any { it.objectId == "test:device" && it.code == "model-unavailable" })
+        models.failCreate = -1
+        val repaired = deviceModelDefinitions(f, "fixed", railModel(f.entry, 1.0), 2)
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
+            manager.applyDefinitionPatch(f.worldId, 1, definitionDraftPatch(initial, repaired)).status)
+        assertFalse(issues.snapshot(f.worldId).any { it.source == "simplesignals:models" })
+        assertTrue(models.handles.any { !it.closed })
+        manager.remove(f.worldId)
+        assertTrue(issues.snapshot(f.worldId).isEmpty())
+    }
+
     @Test fun `boundary names use sole metadata transaction preserve route devices and reload`() {
         val f = Fixture()
         val infrastructure = MutableTopologyService(f.currentTopology)
@@ -1304,9 +1347,10 @@ class SimpleSignalsWorldRuntimeManagerTest {
         store.save(fixture.worldId, initial)
         val errors = mutableListOf<String>()
         val models = RecordingModels()
+        val issues = work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService()
         val manager = SimpleSignalsWorldRuntimeManager(plugin(), MutableTopologyService(fixture.currentTopology).service,
             CapturingRoutePlanningService(), store, signalSources(), inspectionSources(), fixtureRailTargets(), models,
-            { it() }, { context, _ -> errors += context })
+            { it() }, { context, _ -> errors += context }, worldIssues = issues)
         assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
         val packages = directory.resolve("models")
         Files.createDirectories(packages.resolve("broken"))
@@ -1314,11 +1358,13 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(1, errors.size)
         assertTrue(errors.single().contains("rendering unavailable"))
         assertTrue(models.handles.isEmpty())
+        assertTrue(issues.snapshot(fixture.worldId).any { it.objectId == "test:device" && it.code == "model-preparation-failed" })
         assertNotNull(manager.fixedBlockSnapshot(fixture.worldId))
         val backend = deviceModelDefinitions(fixture, "fixed", null, 2)
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED,
             manager.applyDefinitionPatch(fixture.worldId, 1, definitionDraftPatch(initial, backend)).status)
         assertTrue(models.handles.isEmpty())
+        assertFalse(issues.snapshot(fixture.worldId).any { it.source == "simplesignals:model-preparation" })
     }
 
     @Test
@@ -6171,7 +6217,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
             modelWorker: (() -> Unit) -> Unit = { it() },
             modelFailure: (String, Throwable) -> Unit = { _, _ -> },
             topologyWorker: (() -> Unit) -> Unit = { CompletableFuture.runAsync(it) },
-            loadDefaultSignalCatalog: Boolean = true
+            loadDefaultSignalCatalog: Boolean = true,
+            worldIssues: work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService = work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService()
         ) = SimpleSignalsWorldRuntimeManager(
             plugin,
             infrastructure,
@@ -6183,7 +6230,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
             modelPresentation,
             modelWorker,
             modelFailure,
-            topologyWorker = topologyWorker
+            topologyWorker = topologyWorker,
+            worldIssues = worldIssues
         ).also {
             SharedConstants.tryDetectVersion()
             Bootstrap.bootStrap()

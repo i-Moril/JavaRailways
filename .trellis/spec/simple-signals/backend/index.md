@@ -74,7 +74,7 @@ Paper 先启用 JavaRailways
 ```
 
 当前要求的能力是 coherent observation、通用 infrastructure/resource、signal epoch source、
-inspection source、route-planning restriction source、rail target、model presentation和editor text八个service。
+inspection source、route-planning restriction source、rail target、model presentation、editor text和当前世界Issue九个service。
 插件 descriptor 的 `depend: [JavaRailways]` 确保加载顺序；
 `api-version` 声明 Bukkit API 目标。宿主目前没有独立的数值化 signal API version，因此不能伪造
 字符串版本比较；实际 capability gate 是所需 service 类型能否全部发现。后续若宿主引入明确的

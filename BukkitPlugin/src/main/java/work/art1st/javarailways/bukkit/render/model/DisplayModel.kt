@@ -111,7 +111,7 @@ class DisplayModel internal constructor(
 
     private fun buildItemStack(displayState: AnimationDisplayState, current: ItemStack): ItemStack {
         val material = displayState.itemType?.let { type ->
-            runCatching { Material.valueOf(type.uppercase()) }.getOrNull()
+            Material.valueOf(type.uppercase())
         } ?: current.type
         val itemStack = if (material == current.type) current.clone() else ItemStack(material)
 

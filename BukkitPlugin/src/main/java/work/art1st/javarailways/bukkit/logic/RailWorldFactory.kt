@@ -38,6 +38,7 @@ import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
 import work.art1st.javarailways.bukkit.operation.BukkitTrainOperationGateway
 import work.art1st.javarailways.bukkit.persistence.RailRenderMetaStore
+import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 import work.art1st.javarailways.core.api.threading.ThreadGuard
@@ -185,6 +186,7 @@ object RailWorldFactory {
             infrastructureDependencyService = infrastructureDependencyService,
             operationGateway = BukkitTrainOperationGateway(coreWorld),
             atoFactory = TimetableAtoFactory { train, world ->
+                require(!(train as CoreTrain).movementHeld) { "Train ${train.id} configuration is unavailable; see /jr issues" }
                 val renderer = train.rendererOrNull
                     ?: throw IllegalArgumentException("Train ${train.id} has no model control profile")
                 val trainProfile = renderer.resolveControl()

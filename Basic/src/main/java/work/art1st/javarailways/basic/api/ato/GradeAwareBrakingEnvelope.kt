@@ -93,8 +93,7 @@ class GradeAwareBrakingEnvelope private constructor(
                 carProfiles,
                 gravityMetersPerSecondSquared
             )
-            val effectiveMass = carProfiles.sumOf(TrainDynamics.CarProfile::effectiveMass)
-                .coerceAtLeast(1.0)
+            val effectiveMass = TrainDynamics.totalEffectiveMass(carProfiles)
             val physicalMass = carProfiles.sumOf(TrainDynamics.CarProfile::mass)
             val entries = ArrayList<Entry>(segments.size)
             var distance = 0.0

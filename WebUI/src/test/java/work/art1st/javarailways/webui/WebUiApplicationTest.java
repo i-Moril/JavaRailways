@@ -122,6 +122,45 @@ class WebUiApplicationTest {
         }
     }
 
+    @Test void issuesRequireSessionAndProxyOnlyTheSelectedWorld() throws Exception {
+        HttpServer bridge = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        bridge.createContext("/auth/exchange", exchange -> {
+            byte[] body = "{\"playerId\":\"player\",\"playerName\":\"Player\",\"worldId\":\"world\"}".getBytes();
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body); exchange.close();
+        });
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        bridge.createContext("/worlds/world/issues", exchange -> {
+            calls.incrementAndGet();
+            String token = exchange.getRequestHeaders().getFirst("Authorization");
+            byte[] body = "[{\"source\":\"models\",\"kind\":\"TRAIN\",\"objectId\":\"t1\",\"code\":\"missing\",\"message\":\"Missing snapshot\",\"details\":null,\"firstSeen\":\"2026-10-17T00:00:00Z\",\"lastSeen\":\"2026-10-17T00:01:00Z\"}]".getBytes();
+            exchange.sendResponseHeaders("Bearer bridge-token".equals(token) ? 200 : 401, body.length);
+            exchange.getResponseBody().write(body); exchange.close();
+        });
+        bridge.createContext("/worlds/other/issues", exchange -> {
+            byte[] body = "[]".getBytes(); exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body); exchange.close();
+        });
+        bridge.start();
+        Javalin app = new WebUiApplication(new WebUiConfig(
+            URI.create("http://127.0.0.1:" + bridge.getAddress().getPort() + "/"),
+            "bridge-token", drafts, "127.0.0.1", false, 0, 4096, Duration.ofSeconds(2)
+        )).createApp().start(0);
+        try {
+            HttpClient client = HttpClient.newHttpClient(); String root = "http://127.0.0.1:" + app.port();
+            assertEquals(401, client.send(HttpRequest.newBuilder(URI.create(root + "/api/v1/worlds/world/issues")).GET().build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+            assertEquals(0, calls.get());
+            HttpResponse<String> login = client.send(HttpRequest.newBuilder(URI.create(root + "/auth/exchange"))
+                .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{\"token\":\"one-time-token\"}")).build(), HttpResponse.BodyHandlers.ofString());
+            String cookie = login.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0];
+            HttpResponse<String> result = client.send(HttpRequest.newBuilder(URI.create(root + "/api/v1/worlds/world/issues")).header("Cookie", cookie).GET().build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, result.statusCode()); assertEquals(1, calls.get());
+            assertTrue(result.body().contains("Missing snapshot")); assertTrue(!result.body().contains("bridge-token"));
+            HttpResponse<String> other = client.send(HttpRequest.newBuilder(URI.create(root + "/api/v1/worlds/other/issues")).header("Cookie", cookie).GET().build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, other.statusCode()); assertEquals("[]", other.body());
+        } finally { app.stop(); bridge.stop(0); }
+    }
+
     @Test void guestsCanReadOnlyTheWorldListAndRailMapApis() throws Exception {
         HttpServer bridge = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         bridge.createContext("/worlds", exchange -> {

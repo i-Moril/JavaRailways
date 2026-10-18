@@ -20,7 +20,7 @@ enum class TrainDriveDirection(val label: String) {
 class RealisticManualController(
     train: Train,
     world: World,
-    private val controlProfile: TrainDynamics.TrainProfile,
+    controlProfile: TrainDynamics.TrainProfile,
     carProfiles: List<TrainDynamics.CarProfile>,
     gravityMetersPerSecondSquared: Double,
     initialSpeedMetersPerSecond: Double = train.speed,
@@ -34,6 +34,7 @@ class RealisticManualController(
         initialSpeedMetersPerSecond,
         profileResolver
     )
+    private val controlProfile: TrainDynamics.TrainProfile get() = dynamics.trainProfile
     private val handleRef = AtomicReference(NEUTRAL_HANDLE)
     private val directionRef = AtomicReference(TrainDriveDirection.NEUTRAL)
     private val runningDirectionRef = AtomicReference(TrainDriveDirection.FORWARD)
@@ -60,6 +61,17 @@ class RealisticManualController(
 
     override fun prepareConsistChange(cars: List<Car>, counterpart: TrainController?): List<PreparedControllerStateUpdate> =
         listOf(dynamics.prepareConsistChange(cars, counterpart as? DynamicsProfileSource).update)
+
+    fun prepareConfigurationChange(
+        trainProfile: TrainDynamics.TrainProfile,
+        carProfiles: List<TrainDynamics.CarProfile>
+    ): List<PreparedControllerStateUpdate> {
+        require(handle == NEUTRAL_HANDLE || (trainProfile.powerHandles + trainProfile.brakeHandles)
+            .any { it.equals(handle, ignoreCase = true) }) {
+            "Updated configuration does not contain active manual handle '$handle'"
+        }
+        return dynamics.prepareConfigurationChange(trainProfile, carProfiles)
+    }
 
     fun setHandle(value: String): Boolean {
         val normalized = value.uppercase()

@@ -1,6 +1,8 @@
 package work.art1st.javarailways.bukkit.config.model
 
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -8,6 +10,25 @@ import java.io.File
 class ModelConfigStrictValidationTest {
     @TempDir
     lateinit var tempDir: File
+
+    @Test
+    fun `rejects unknown material names before model construction`() {
+        val failure = assertThrows(IllegalArgumentException::class.java) {
+            PartRegistry.parseItemConfig(mapOf("type" to "NOT_A_MATERIAL", "custom-model-data" to 1))
+        }
+        assertTrue(failure.message!!.contains("item.type"))
+        assertEquals("stone",
+            PartRegistry.parseItemConfig(mapOf("type" to "stone", "custom-model-data" to 1))!!.type)
+
+        for ((field, time) in listOf("commands" to "duration", "keyframes" to "at")) {
+            val animationFailure = assertThrows(IllegalArgumentException::class.java) {
+                PartRegistry.parseAnimations(listOf(mapOf("name" to "doors", field to listOf(
+                    mapOf(time to 0.0, "item-type" to "NOT_A_MATERIAL")
+                ))))
+            }
+            assertTrue(animationFailure.message!!.contains("$field[0].item-type"))
+        }
+    }
 
     @Test
     fun `rejects unknown part fields and wrong optional types`() {

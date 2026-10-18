@@ -28,16 +28,15 @@ import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunId
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult
 import work.art1st.javarailways.simpleato.timetable.TimetableValidator
 import work.art1st.javarailways.simpleato.timetable.TimetableWaypointProgressListener
+import work.art1st.javarailways.bukkit.logic.TrainResourceReloader
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.diagnostics.PluginDiagnosticLog
 import work.art1st.javarailways.bukkit.config.TimetableWebUiMode
-import work.art1st.javarailways.bukkit.config.TrainModelUpdatePolicy
 import work.art1st.javarailways.bukkit.http.TimetableScriptNormalizer
 import work.art1st.javarailways.simpleatobukkit.diagnostics.AtoStallDiagnostics
 import work.art1st.javarailways.simpleatobukkit.diagnostics.DepotResetDiagnostics
 import work.art1st.javarailways.bukkit.extension.renderChunkManager
 import work.art1st.javarailways.bukkit.control.TrainKeyItem
-import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
 import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.render.backend.PacketPlatformDiagnostics
 import work.art1st.javarailways.bukkit.render.model.SeatModel
@@ -83,6 +82,7 @@ class JavaRailwaysCommand {
 
         when (args[0].lowercase()) {
             "train" -> return TrainCommand.onCommand(sender, args.drop(1))
+            "issues" -> { WorldIssueCommand(BukkitPlugin.INSTANCE).execute(sender, args.drop(1)); return true }
             "wand" -> return handleWand(sender, args.drop(1))
             "waypoint", "wp", "stop" -> return handleWayPoint(sender, args.drop(1))
             "route" -> return handleRoute(sender, args.drop(1))
@@ -171,7 +171,7 @@ class JavaRailwaysCommand {
     private companion object {
         val ROOT_COMMANDS = listOf(
             "train", "wand", "waypoint", "route", "navigate", "timetable", "depot",
-            "ato", "stop", "perf", "resources", "undo", "redo", "help"
+            "ato", "stop", "perf", "resources", "issues", "undo", "redo", "help"
         )
     }
 
@@ -224,21 +224,21 @@ class JavaRailwaysCommand {
             return true
         }
         val plugin = BukkitPlugin.INSTANCE
-        if (plugin.javaRailwaysConfig.trainModelUpdatePolicy == TrainModelUpdatePolicy.SNAPSHOT) {
-            plugin.worldManager.railWorlds.values.flatMap { it.allTrains }.forEach { train ->
-                train.rendererOrNull?.pinCurrentPackageSnapshot()
-                train.cars.forEach { car ->
-                    car.carRendererOrNull?.let { it.pinCurrentModelSnapshot(); it.pinCurrentPackageSnapshot() }
+        sender.sendMessage("正在准备资源更新…")
+        TrainResourceReloader(plugin).reload().whenComplete { result, failure ->
+            val send = {
+                if (failure != null) {
+                    val cause = generateSequence(failure) { it.cause }.last()
+                    val path = PluginDiagnosticLog.command("RESOURCE_RELOAD_FAILED", "sender=${sender.name}", cause)
+                    sender.sendMessage("资源重载失败：${cause.message}；诊断：${path ?: "服务器日志"}")
+                } else {
+                    sender.sendMessage("资源重载完成：${result.trainPackages.size} 个列车包，${result.railPackages.size} 个轨道包" +
+                        if (result.failures.isEmpty()) "" else "；${result.failures.size} 个列车类型更新失败，保留原版本。使用 /jr issues 查看")
                 }
             }
+            if (sender is Player) plugin.platformDispatcher.runForEntity(sender, send)
+            else plugin.platformDispatcher.runGlobal(send)
         }
-        val result = plugin.modelManager.loadAll()
-        plugin.worldManager.railWorlds.values.filterIsInstance<CoreWorld>()
-            .forEach(plugin.worldManager::refreshTrainSpeedProfiles)
-        sender.sendMessage(
-            "资源重载完成：${result.trainPackages.size} 个列车包，" +
-                "${result.railPackages.size} 个轨道包（generation=${result.generation}）"
-        )
         return true
     }
 
@@ -1414,6 +1414,7 @@ class JavaRailwaysCommand {
         sender.sendMessage("/jr ato dump <world> - 写出最近一次 ATO Stall 报告")
         sender.sendMessage("/jr ato reset <world> - 手动解除 ATO Stall（不恢复列车位置）")
         sender.sendMessage("/jr perf [world] - 查看 Tick、物理和渲染耗时")
+        sender.sendMessage("/jr issues [世界] [编号] - 当前世界问题与详情")
         sender.sendMessage("/jr resources reload - 事务式重载外部列车与轨道资源")
         sender.sendMessage("/jr undo - 撤销操作")
         sender.sendMessage("/jr redo - 重做操作")

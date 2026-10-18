@@ -140,6 +140,24 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         private fun routeWorld(exchange: HttpExchange, parts: List<String>) {
             val worldName = decode(parts[0])
             when {
+                exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "issues" -> exchange.respond(200, await {
+                    withWorld(worldName) { bukkit, _ ->
+                        json.encodeToString(buildJsonArray {
+                            plugin.worldIssues.snapshot(bukkit.uid).forEach { issue ->
+                                add(buildJsonObject {
+                                    put("source", issue.source)
+                                    put("kind", issue.kind.name)
+                                    put("objectId", issue.objectId)
+                                    put("code", issue.code)
+                                    put("message", issue.message)
+                                    put("details", issue.details?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                                    put("firstSeen", issue.firstSeen.toString())
+                                    put("lastSeen", issue.lastSeen.toString())
+                                })
+                            }
+                        })
+                    }
+                })
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "metadata" -> exchange.respond(200, await { metadataJson(worldName) })
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "extensions" -> exchange.respond(200, await { extensionsJson(worldName) })
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "rail-map" -> {

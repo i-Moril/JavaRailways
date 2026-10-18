@@ -116,6 +116,8 @@ worker的record比较、JSON编码、旧文件复制均为`O(render record count
 - composite visual 显示顺序是 children before root passenger packet；隐藏顺序是 root before children。`CompositeModelVisibilityTest` 固定该 contract。
 - model/audience/revision pipeline 保持 latest-wins、有界队列和 stale revision rejection；不要引入每车遍历全服玩家或每 tick 无界 scheduler submission。
 - destroy/unload 必须幂等并清理 child/root/backend resources。
+- 列车模型部件的 `item.type` 与动画 command/keyframe 的 `item-type` 在包解析阶段校验 Bukkit 材质名；构建和播放不以石头或原材质掩盖非法输入。解析错误沿现有文件上下文上报，不新增格式版本。
+- 轨道模型的 `repeat_length > 0` 由配置边界约束；metadata 准备和实体显示直接使用其值，包括小于 0.1 米的合法间距，不在消费端再次夹到 0.1 米。
 
 ### Car frame runtime stream 与换属主（CURRENT）
 
@@ -201,3 +203,22 @@ worker 和信号回调都可读取这份值，不能从公开接口取得可写 
 - extension payload 新设计使用 stable `typeId`，不要复制当前 Core class-name reflection legacy。
 
 验证 persistence 时覆盖 missing、corrupt、primary/backup 组合、revision mismatch、atomic recovery、unknown field/version 与不可覆盖恢复点。权威路径：`persistence/WorldPersistence.kt`、`persistence/SplitWorldSnapshot.kt`、`ai_tasks/persistence_schema_evolution_rules.md`。
+
+### 列车资源与运行配置版本
+
+`train-model-update-policy`共用模型与运行配置策略。SNAPSHOT在创建前捕获完整模型树、列车控制和各车厢来源包操作资源，异步原子写入内容寻址快照后才能发布列车；重启恢复只读所引用的快照，缺失、损坏或内容hash不符必须明确失败，不借用当前包或默认控制。
+`SavedTrainRenderState.packageName`与`SavedCarRenderState.resourceType`记录创建模板身份，改名不改变身份，解编继承，联结保留每车身份与来源包行为。车厢模型/控制使用完整模型名作key，不能按basename混合；新字段保持开发中的既有schema，不新增运行时旧数据兼容分支。
+
+FOLLOW_PACKAGE只由资源reload触发按创建模板类型统一更新。异步准备模型、控制和快照，回到global simulation owner后同时排除全部已加载world的physics；预演所有实例的活动manual/ATO控制器、速度偏移和制动安全参数，再发布成功类型并安装准备好的不可抛错状态。保留控制器身份、当前档位和动力历史。任一实例验证失败，其类型全部保留原版并报告Issue，其他类型继续；混合编组的联合配置不能被控制器接受时，拒绝该编组涉及的候选类型并重新准备其余类型。车长、地板高度、连接器或转向架位置改变时拒绝已有实例热更新，要求重建。
+
+SNAPSHOT reload只发布资源目录，不刷新正常实例。已加载但运行配置不可用的列车保留对象、位置与占用并暂停移动，逐列报Issue；手动驾驶、ATO接管、联结与解编不得绕过暂停。reload可重验暂停实例，但固定模式只重读它自己的引用，验证成功才解除；不能用新目录替换旧配置。存档保留损坏对象原有引用，不能因快照缺失让整世界保存失败。模型不可用单独报Issue，不降级为当前包。世界owner清除已删除/退休列车的当前Issue，卸载清空该世界。
+
+快照writer原子替换完整文件，loader校验版本与内容hash；模型树和运行快照保持各自独立边界，不为本次开发语义修正递增版本。
+
+### 当前世界问题
+
+`WorldIssueService`是宿主公开的线程安全诊断汇总服务，按world UUID及source/kind/objectId/code去重。
+`report`保留首次出现时间并更新当前原因及最近时间；`replace`原子替换单个source的全集，其他生产者不受影响。
+`snapshot`返回不可修改副本，Issue包含WORLD、TRAIN、PROTECTION_REGION、BLOCK、SIGNAL对象类型；无法解码对象身份的世界安装错误使用WORLD。
+该列表不持久化、不保留历史，不改变铁路运行状态；生产者负责成功恢复/删除时解除，世界卸载清空世界，附属停用清空自己的source。
+游戏管理员通过`/jr issues [世界] [编号]`读取，玩家可点击列表打开原生详情并复制诊断，控制台必须指定世界。

@@ -34,6 +34,11 @@ executor构造时把当前每个实际`Car`实例与输入的`CarProfile`配对�
 结构准备为新车厢列表生成一张新身份表：优先复用本执行器绑定，再查询对方的`DynamicsProfileSource`，
 最后仅为缺项调用composition注入的只读`profileResolver`。任何缺项都明确失败，不借同ID或默认参数。
 表通过Core的prepared state update随结构安装；执行器、`State`、`lastResult`及选中手柄保持原对象/值。
+资源重载可调用`RealisticManualController.prepareConfigurationChange`和`HandleTrainActuator.prepareConfigurationChange`，
+返回Core拥有的prepared assignment tokens。准备替换immutable train profile、逐实例car profile与ATO手柄表，
+不修改executor `State`/`lastResult`、已选手柄或controller身份；当前手柄不被新配置支持时拒绝准备。
+安装由Core在排除worker后执行，不能通过重建controller丢失驾驶或ATO状态。
+
 这些Basic capability只供第一方controller/actuator协作，不是另一个公开插件注册接口。
 
 `HandleTrainActuator`只考虑配置中的正作用P档、N和非EB制动档，并每Tick向目标档移动一级。正常停车上限是
@@ -114,6 +119,12 @@ fun permittedSpeedMetersPerSecond(targetSpeedMetersPerSecond: Double, distanceMe
 - `track.gravity`是schema 2的必填正数字段；它由旧`track.gravity-mps2`破坏性重命名而来，不保留runtime兼容读取。
 - SimpleATO test source中的`KinematicTrainActuator`只可作为无真实车辆profile的纯规划/约束测试替身，production和
   isolated composition不得构造它；Basic main source不拥有该ATO测试策略。
+
+配置 owner 必须在解析/反序列化边界拒绝非有限与越界固有参数：质量、转动质量系数和有效质量为正，
+最大速度、力/功率、档位比例、制动建立/释放时间、jerk、黏着比例/系数和Davis系数非负。
+零功率保持恒力模式，零jerk表示不限制jerk，零建立/释放时间表示立即响应。
+动力学与制动包络使用真实有效质量，不施加1kg下限；正数小质量仍按其原值计算，非法质量明确失败。
+牵引/制动黏着饱和、速度物理范围和坡度数值容差仍保留。
 
 ## 6. 校验与错误矩阵
 

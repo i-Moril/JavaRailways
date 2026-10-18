@@ -18,10 +18,7 @@ BukkitPlugin拥有车辆模型行为；Core只拥有车厢、编组结构及物�
 
 ### 每车动力学参数的只读来源
 
-`CarExtension.resolveCarControl()`按本车完整模型名读取live control；SNAPSHOT且本车已引用package hash时，
-只读取该快照中本车basename对应的`carControls`。已引用文件或参数缺失明确失败，不借主编组或另一包的同名车辆。
-未固定来源时读取live配置，但不因此固定hash。查询不调用会保存/固定状态的`operationalSnapshot()`；
-`TrainPackageSnapshotStore.load`和路径查询也不创建目录，只有save负责创建。
+`CarExtension.resolveCarControl()`按完整模型名读取该实例的运行资源。SNAPSHOT固定创建时的来源包快照，缺失hash、文件或profile明确失败；FOLLOW_PACKAGE读取创建模板最近一次成功reload所发布的每车来源快照。两者都不临时借用当前model文件中的默认profile。
 
 命令、人工controller、ATO factory及模拟capture均逐车解析。live composition把该只读resolver注入Basic，
 只在结构准备缺少已有实例绑定时调用，不新增tick文件查询；隔离模拟仍仅使用capture的值。
@@ -114,7 +111,7 @@ onDelayedEffect(carInstance, capturedPhysicalEffect):
 
 ## 迁移与待细化事项
 
-包布局与JS声明不变。`SavedCarRenderState.packageSnapshotHash: String? = null`引用既有内容寻址的`SavedTrainPackageSnapshot`，复用`TrainPackageSnapshotStore`保存该车来源包的actions/behavior；原`modelSnapshotHash`只负责模型树，不能代替行为快照。SNAPSHOT模式逐车固定来源，缺失已引用快照明确失败；FOLLOW_PACKAGE模式沿用资源重载，源脚本改变时才替换Context。没有主编组包回退、新快照store或格式升版。列车级控制profile仍沿用原策略，不随本批改变。
+包布局与JS声明不变。`SavedCarRenderState.packageSnapshotHash: String? = null`引用既有内容寻址的`SavedTrainPackageSnapshot`，复用`TrainPackageSnapshotStore`保存该车来源包的actions/behavior；原`modelSnapshotHash`只负责模型树，不能代替行为快照。SNAPSHOT模式逐车固定来源，缺失已引用快照明确失败；FOLLOW_PACKAGE模式沿用资源重载，源脚本改变时才替换Context。没有主编组包回退、新快照store或格式升版。列车级与每车运行配置现在共用模型更新开关，创建及reload事务见[交互、渲染与持久化](./interaction-render-persistence.md)。
 
 真实开发服样本的六个world均没有列车，不存在需要转换的既存每车记录；这不代表旧outer/曲线数据已完成迁移。非空车辆快照由固定fixture验证。任意JS Context/闭包不作为存档数据；显式可保存脚本状态的协议另行设计，本批不顺带添加。
 

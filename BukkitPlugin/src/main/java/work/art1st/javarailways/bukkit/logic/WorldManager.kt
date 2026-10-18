@@ -13,6 +13,8 @@ import work.art1st.javarailways.basic.safety.SpeedSafetyMonitor
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
+import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueInput
+import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueKind
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
 import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
@@ -313,16 +315,32 @@ class WorldManager internal constructor(
         }
     }
 
-    fun refreshTrainSpeedProfiles(coreWorld: CoreWorld) {
-        coreWorld.allTrains.forEach { train ->
-            val control = runCatching { train.rendererOrNull?.resolveControl() }.getOrNull()
-            if (control == null) {
-                coreWorld.basicWorldData.trainSpeedProfiles.remove(train.id)
-            } else {
-                coreWorld.basicWorldData.trainSpeedProfiles.put(
-                    train.id,
-                    TrainSpeedProfile(control.curveSpeedLimitOffset)
-                )
+    fun refreshTrainSpeedProfiles(coreWorld: CoreWorld, onlyHeld: Boolean = false) {
+        val plugin = BukkitPlugin.INSTANCE
+        val worldId = coreWorld.bukkitWorldData.bukkitWorld.uid
+        coreWorld.physicsCoordinator.withStructuralMutation {
+            coreWorld.allTrains.filter { !onlyHeld || it.movementHeld }.forEach { train ->
+                try {
+                    val control = requireNotNull(train.rendererOrNull) {
+                        "Train '${train.id}' has no configuration binding"
+                    }.resolveControl()
+                    val cars = train.cars.map { car ->
+                        requireNotNull(car.carRendererOrNull?.resolveCarControl()) {
+                            "Car '${car.id}' has no control configuration"
+                        }
+                    }
+                    prepareTrainConfiguration(train, control, cars).install(train)
+                    train.setMovementHeld(false)
+                    plugin.worldIssues.resolve(worldId, "javarailways:train-configuration",
+                        WorldIssueKind.TRAIN, train.id, "CONFIGURATION_UNAVAILABLE")
+                } catch (failure: Exception) {
+                    train.setMovementHeld(true)
+                    plugin.worldIssues.report(worldId, "javarailways:train-configuration", WorldIssueInput(
+                        WorldIssueKind.TRAIN, train.id, "CONFIGURATION_UNAVAILABLE",
+                        "列车配置不可用，已暂停移动：${failure.message}", failure.stackTraceToString()))
+                    plugin.logger.log(java.util.logging.Level.SEVERE,
+                        "Train '${train.id}' configuration is unavailable; holding movement", failure)
+                }
             }
         }
     }
@@ -339,6 +357,8 @@ class WorldManager internal constructor(
                 BukkitPlugin.INSTANCE.logger.warning(
                     "Persisted train '${savedTrain.id}' could not be loaded; showing abnormal train marker"
                 )
+                BukkitPlugin.INSTANCE.worldIssues.report(bukkitWorld.uid, "javarailways:train-restore", WorldIssueInput(
+                    WorldIssueKind.TRAIN, savedTrain.id, "RESTORE_FAILED", "列车存档无法恢复，已标记原位置；详情见服务器日志"))
                 AbnormalTrainMarker.markSavedTrain(coreWorld, bukkitWorld, savedTrain, "load failed")
             }
     }
@@ -422,6 +442,7 @@ class WorldManager internal constructor(
             attempt { coreWorld?.let(releaseRuntimeBinding) }
             attempt { closeTick(ownedWorld) }
         }
+        attempt { BukkitPlugin.instanceOrNull()?.worldIssues?.clearWorld(bukkitWorld.uid) }
         attempt { clearAbnormalMarkers(bukkitWorld) }
         attempt {
             if (ownedWorld != null) {
@@ -475,6 +496,13 @@ class WorldManager internal constructor(
 
                     val operationsNanos = measureNanoTime {
                         coreWorld.physicsCoordinator.drainBetweenFramesOperations()
+                        val issues = BukkitPlugin.INSTANCE.worldIssues
+                        issues.snapshot(world.uid).filter {
+                            it.kind == WorldIssueKind.TRAIN && it.source != "javarailways:train-restore" &&
+                                coreWorld.getTrain(it.objectId) == null
+                        }.forEach { issue ->
+                            issues.resolve(world.uid, issue.source, issue.kind, issue.objectId, issue.code)
+                        }
                     }
                     phaseBreakdown["world:${world.name}:between_frames_operations"] = operationsNanos
                     computeNanos += operationsNanos

@@ -43,7 +43,7 @@ internal class PreparedSignalModels private constructor(
     internal val signalPackCatalog: SignalPackCatalog?,
     internal val explicitModels: Map<String, LoadedPackageModel>
 ) {
-    internal class Device(val objectId: String, val model: LoadedPackageModel,
+    internal class Device(val objectId: String, val diagnosticId: String, val model: LoadedPackageModel,
         val configuration: DeviceModelDefinition, val pose: ModelPose, val noSnapshotVariant: String? = null)
 
     companion object {
@@ -70,7 +70,7 @@ internal class PreparedSignalModels private constructor(
                         is ModelPlacement.RailAttached -> ModelPlacementCalculator.calculate(placement,
                             rails.findCurve(definitions.worldId, placement.position.railId).orElse(null))
                     }
-                    return Device("$kind/$id", model, configuration, pose, noSnapshotVariant)
+                    return Device("$kind/$id", id, model, configuration, pose, noSnapshotVariant)
                 } catch (failure: Exception) {
                     throw IllegalArgumentException("$kind $id: ${failure.message ?: failure.javaClass.simpleName}", failure)
                 }
@@ -174,7 +174,8 @@ internal class SignalModelBinding(
     internal val prepared: PreparedSignalModels,
     private val service: ModelPresentationService,
     private val reportFailure: (String, Throwable) -> Unit,
-    internal val handles: SignalModelHandles
+    internal val handles: SignalModelHandles,
+    private val issueChanged: (String, Throwable?) -> Unit = { _, _ -> }
 ) {
     private var lastEpoch = -1L
     private var initialized = false
@@ -234,6 +235,7 @@ internal class SignalModelBinding(
             if (!superseded) {
                 synchronized(handles.submissionLock) { if (handles.active === this) ready = true }
                 consume(snapshot(), prepared.signals.keys, prepared.indicators.keys)
+                devices.values.filter { it.objectId !in retained }.forEach { issueChanged(it.diagnosticId, failure) }
                 report("SimpleSignals rendering unavailable for world $worldId", failure)
             }
         }
@@ -267,11 +269,16 @@ internal class SignalModelBinding(
                 val display = handles.allocated[device.objectId] ?: return
                 try {
                     val scenes = variant?.let(device.model::variant) ?: device.model.defaultScenes
-                    if (scenes == display.scenes && device.pose == display.pose) return
+                    if (scenes == display.scenes && device.pose == display.pose) {
+                        issueChanged(device.diagnosticId, null)
+                        return
+                    }
                     display.handle.submit(ModelPresentation(display.revision++, device.pose, scenes))
                     display.scenes = scenes
                     display.pose = device.pose
+                    issueChanged(device.diagnosticId, null)
                 } catch (failure: Exception) {
+                    issueChanged(device.diagnosticId, failure)
                     failures += "SimpleSignals display ${device.objectId} in world $worldId failed" to failure
                 }
             }

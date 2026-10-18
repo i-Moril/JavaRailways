@@ -16,7 +16,7 @@
   ],
   "properties": {
     "config-version": {"const": 1},
-    "max-speed": {"type": "number"},
+    "max-speed": {"type": "number", "minimum": 0},
     "controller": {
       "type": "object",
       "additionalProperties": false,
@@ -44,7 +44,7 @@
         "notch-scales": {
           "type": "object",
           "minProperties": 1,
-          "additionalProperties": {"type": "number"}
+          "additionalProperties": {"type": "number", "minimum": 0}
         }
       }
     },
@@ -56,10 +56,10 @@
         "notch-scales": {
           "type": "object",
           "minProperties": 1,
-          "additionalProperties": {"type": "number"}
+          "additionalProperties": {"type": "number", "minimum": 0}
         },
-        "apply-time": {"type": "number"},
-        "release-time": {"type": "number"}
+        "apply-time": {"type": "number", "minimum": 0},
+        "release-time": {"type": "number", "minimum": 0}
       }
     },
     "resistance": {"$ref": "#/$defs/resistance"},
@@ -68,7 +68,7 @@
       "additionalProperties": false,
       "required": ["coefficient"],
       "properties": {
-        "coefficient": {"type": "number"}
+        "coefficient": {"type": "number", "minimum": 0}
       }
     },
     "jerk": {
@@ -76,8 +76,8 @@
       "additionalProperties": false,
       "required": ["traction", "brake"],
       "properties": {
-        "traction": {"type": "number"},
-        "brake": {"type": "number"}
+        "traction": {"type": "number", "minimum": 0},
+        "brake": {"type": "number", "minimum": 0}
       }
     }
   },
@@ -87,9 +87,9 @@
       "additionalProperties": false,
       "required": ["a", "b", "c"],
       "properties": {
-        "a": {"type": "number"},
-        "b": {"type": "number"},
-        "c": {"type": "number"}
+        "a": {"type": "number", "minimum": 0},
+        "b": {"type": "number", "minimum": 0},
+        "c": {"type": "number", "minimum": 0}
       }
     }
   }

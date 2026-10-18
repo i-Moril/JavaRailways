@@ -21,6 +21,17 @@ import java.util.concurrent.CompletableFuture
 
 /** Actual overlay consumer, deterministic owner/worker queues; host service entity semantics have separate tests. */
 class SectionWandOverlayTest {
+    @Test fun `owner validation exception is reported without preventing the next refresh`() {
+        val f = Fixture()
+        val failure = IllegalStateException("topology unavailable")
+        f.ownerValidationFailure = failure
+        f.start()
+        assertSame(failure, f.records.single().thrown)
+        f.ownerValidationFailure = null
+        f.tick(); f.drainWorker(); f.drainOwner()
+        assertEquals(1, f.records.size)
+        f.overlay.close()
+    }
     @Test fun `block to signal tool reuses prepared capture and one handle until leaving editor tools`() {
         val f = Fixture(); f.start()
         f.tool = null; f.signalTool = true
@@ -192,9 +203,21 @@ class SectionWandOverlayTest {
         val handles = arrayListOf<Handle>()
         val viewers = arrayListOf<Player>()
         var signalTool = false
+        var ownerValidationFailure: Exception? = null
+        val records = mutableListOf<java.util.logging.LogRecord>()
+        private val logger = java.util.logging.Logger.getAnonymousLogger().apply {
+            useParentHandlers = false
+            addHandler(object : java.util.logging.Handler() {
+                override fun publish(record: java.util.logging.LogRecord) { records += record }
+                override fun flush() = Unit
+                override fun close() = Unit
+            })
+        }
         val offline = arrayListOf<Player>()
         val player = player(UUID(0, 2))
-        private val plugin = proxy(Plugin::class.java) { name, _ -> error("Unexpected plugin access $name") }
+        private val plugin = proxy(Plugin::class.java) { name, _ ->
+            if (name == "getLogger") logger else error("Unexpected plugin access $name")
+        }
         fun newWorld() = proxy(World::class.java) { name, _ ->
             check(ownerThread) { "World accessed by worker" }
             if (name == "getUID") UUID(0, 1) else error(name)
@@ -221,7 +244,10 @@ class SectionWandOverlayTest {
                 check(!ownerThread)
                 return token.takeIf { available }
             }
-            override fun current(capture: SectionOverlayCapture) = available && capture === token
+            override fun current(capture: SectionOverlayCapture): Boolean {
+                if (ownerThread) ownerValidationFailure?.let { throw it }
+                return available && capture === token
+            }
             override fun prepare(capture: SectionOverlayCapture): SectionOverlayDrawing {
                 check(!ownerThread); prepares++
                 return SectionOverlayDrawing(listOf(EditorTextLabel("near", 0.0, 1.0, 0.0, Component.text("near")),

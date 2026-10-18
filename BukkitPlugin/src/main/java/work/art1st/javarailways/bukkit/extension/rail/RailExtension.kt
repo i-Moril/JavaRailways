@@ -115,7 +115,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         val config = self.templateSnapshot?.toModelConfig() ?: BukkitPlugin.INSTANCE.railModelConfig
         val curve = self.rail.curve
 
-        val repeatLength = config.repeatLength.coerceAtLeast(0.1)
+        val repeatLength = config.repeatLength
         val totalLength = curve.totalArcLength
         val segmentStart = self.arcStart.coerceIn(0.0, totalLength)
         val segmentEnd = self.arcEnd.coerceIn(segmentStart, totalLength)

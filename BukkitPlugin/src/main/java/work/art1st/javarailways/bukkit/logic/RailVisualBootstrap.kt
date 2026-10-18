@@ -69,7 +69,7 @@ object RailVisualBootstrap {
         val allArcs = if (assemblyIndex == null) {
             RailDecorationLayout.endpointInclusiveArcs(
                 totalArcLength,
-                templateSnapshot.repeatLength.coerceAtLeast(0.1)
+                templateSnapshot.repeatLength
             )
         } else {
             require(assemblyIndex in assemblyLengths.indices)
@@ -78,7 +78,7 @@ object RailVisualBootstrap {
             val assemblyTotal = assemblyLengths.sum()
             RailDecorationLayout.endpointInclusiveArcs(
                 assemblyTotal,
-                templateSnapshot.repeatLength.coerceAtLeast(0.1)
+                templateSnapshot.repeatLength
             ).filter { globalArc ->
                 globalArc >= offset - 1.0e-9 &&
                     (globalArc < offset + totalArcLength - 1.0e-9 || assemblyIndex == assemblyLengths.lastIndex)
@@ -124,7 +124,7 @@ object RailVisualBootstrap {
         val allArcs = if (assembly == null) {
             RailDecorationLayout.endpointInclusiveArcs(
                 totalArcLength = total,
-                repeatLength = templateSnapshot.repeatLength.coerceAtLeast(0.1)
+                repeatLength = templateSnapshot.repeatLength
             )
         } else {
             val candidates = rail.world.allRails.filter { candidate ->
@@ -142,7 +142,7 @@ object RailVisualBootstrap {
             val assemblyTotal = siblings.sumOf { it.curve.totalArcLength }
             RailDecorationLayout.endpointInclusiveArcs(
                 totalArcLength = assemblyTotal,
-                repeatLength = templateSnapshot.repeatLength.coerceAtLeast(0.1)
+                repeatLength = templateSnapshot.repeatLength
             ).filter { globalArc ->
                 globalArc >= offset - 1.0e-9 &&
                     (globalArc < offset + total - 1.0e-9 || assembly.segmentIndex == assembly.segmentCount - 1)

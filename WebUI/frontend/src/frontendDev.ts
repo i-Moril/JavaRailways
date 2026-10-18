@@ -87,6 +87,7 @@ function lineSimulation(lineId:string,profile:SimulationProfile):LineSimulationR
 }
 
 export const demoApi={
+  async issues(_worldId:string){return [];},
   async session(){return {authenticated:true,playerName:'Frontend Developer',worldId:'demo-world',expiresAtEpochMillis:Date.now()+86_400_000};},
   async worlds(){return [{id:'demo-world',name:'Frontend Demo World'}];},
   async metadata(_worldId:string){return clone(metadataSeed);},async railMap(_worldId:string){return clone(railMapSeed);},

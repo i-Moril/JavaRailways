@@ -668,7 +668,9 @@ internal class SignalWandHandler(
         val types = if (modelOnly) backend.availableModelIds().orEmpty().map { it to it }
             else backend.availableSignalTypes().orEmpty().map { it.signalType to it.displayName }
         page(SignalWandDialog(text(if (modelOnly) "signal.device.model.change" else "signal.device.type.change"),
-            listOf(text("signal.types.validation")), types.map { (id, label) -> label to { selected(id) } },
+            listOf(text(if (types.isEmpty()) {
+                if (modelOnly) "signal.model.empty" else "signal.empty"
+            } else "signal.types.validation")), types.map { (id, label) -> label to { selected(id) } },
             text("signal.creation.cancel") to { reply(text("signal.editor.closed")) }))
     }
 

@@ -60,17 +60,14 @@ class CarControlSourceTest {
     }
 
     @Test
-    fun `unpinned source lookup does not pin hash or create a snapshot directory`() = withCars { cars ->
+    fun `missing creation snapshot rejects lookup instead of borrowing current controls`() = withCars { cars ->
         val car = extension(cars[0], "second/head")
         val load: (String) -> SavedTrainPackageSnapshot? = { error("Read-only lookup must not pin a source") }
-        var current = CarControlConfig(mass = 1_000.0)
-        val live: (String) -> CarControlConfig? = { name ->
-            assertEquals("second/head", name)
-            current
+        assertThrows<IllegalArgumentException> {
+            car.resolveCarControl(TrainModelUpdatePolicy.SNAPSHOT, load) {
+                error("Missing creation snapshot must not borrow current controls")
+            }
         }
-        assertSame(current, car.resolveCarControl(TrainModelUpdatePolicy.SNAPSHOT, load, live))
-        current = CarControlConfig(mass = 2_000.0)
-        assertSame(current, car.resolveCarControl(TrainModelUpdatePolicy.SNAPSHOT, load, live))
         assertFalse(File(dataFolder, "train-package-snapshots").exists())
     }
 
@@ -96,6 +93,24 @@ class CarControlSourceTest {
         assertFalse(file.parentFile.exists())
     }
 
+    @Test
+    fun `creation binding preserves template identity and source control without reading live package`() = withCars { cars ->
+        val source = snapshot("external", 8_000.0)
+        val model = work.art1st.javarailways.bukkit.config.model.SavedCarModelTree.build(
+            work.art1st.javarailways.bukkit.config.model.CarDefinition("external/head"),
+            work.art1st.javarailways.bukkit.config.model.SnapshotPartRegistry(emptyMap()))
+        val version = work.art1st.javarailways.bukkit.config.model.TrainResourceVersion(
+            snapshot("template", 4_000.0), mapOf("external/head" to model), mapOf("external/head" to source), listOf("external/head"))
+        val binding = extension(cars.first(), "external/head")
+        binding.bindCreatedResources("template", "external/head", version)
+        assertEquals("template", binding.resourceType)
+        assertEquals("external/head", binding.carModelName)
+        val profile = binding.resolveCarControl(TrainModelUpdatePolicy.SNAPSHOT,
+            { error("Created binding already owns its captured source snapshot") },
+            { error("Creation-time control must not follow live packages") })
+        assertEquals(8_000.0, profile!!.mass)
+    }
+
     private fun extension(car: Car, name: String, hash: String? = null) = CarExtension().also {
         it.initialize(car, mapOf("BUKKIT" to SavedCarRenderState(carModelName = name, packageSnapshotHash = hash)))
     }
@@ -105,7 +120,7 @@ class CarControlSourceTest {
         actions = emptyMap(),
         behavior = null,
         control = TrainControlConfig(),
-        carControls = mapOf("head" to CarControlConfig(mass = mass))
+        carControls = mapOf("$name/head" to CarControlConfig(mass = mass))
     )
 
     private fun withCars(action: (List<Car>) -> Unit) {

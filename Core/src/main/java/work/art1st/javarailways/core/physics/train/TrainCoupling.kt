@@ -54,6 +54,7 @@ internal object TrainCoupling {
     ): Train = with(first) {
         check(this !== other && world === other.world) { "coupling requires two trains in one world" }
         check(world.getTrain(id) === this && world.getTrain(other.id) === other) { "collision train has retired" }
+        check(!movementHeld && !other.movementHeld) { "cannot couple a train with unavailable configuration" }
         check(!isDerailed && !other.isDerailed) { "cannot couple a derailed train" }
         check(beforeCollision.trainId == id && otherBeforeCollision.trainId == other.id &&
             beforeCollision.physicsEpoch == otherBeforeCollision.physicsEpoch) { "collision observations disagree" }

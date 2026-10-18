@@ -126,6 +126,7 @@ class TrainControlManager(
         playerId: UUID, coreTrain: CoreTrain, controlEnd: DriverControlEnd?
     ): AcquireResult {
         coreTrain.world.physicsCoordinator.ensureBetweenFrames("TrainControlManager.acquireManualControl")
+        if (coreTrain.movementHeld) return AcquireResult.ConfigError("列车配置不可用，请先修复 /jr issues 中的问题")
         val train: Train = coreTrain
         sessionsByTrain[train]?.let { existing ->
             if (coreTrain.controller !== existing.controller) {

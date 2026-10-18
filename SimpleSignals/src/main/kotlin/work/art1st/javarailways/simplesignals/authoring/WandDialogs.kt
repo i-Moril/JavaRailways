@@ -20,8 +20,12 @@ internal object WandDialogs {
         player.showDialog(Dialog.create { factory -> factory.empty()
             .base(DialogBase.builder(Component.text(page.title)).body(page.body.map { DialogBody.plainMessage(Component.text(it)) })
                 .canCloseWithEscape(true).build())
-            .type(DialogType.multiAction(page.options.map(::button), page.exit?.let(::button), page.columns)) })
+            .type(actionType(page.options.map(::button), page.exit?.let(::button), page.columns)) })
     }
+    internal fun actionType(buttons: List<ActionButton>, exit: ActionButton?, columns: Int): DialogType =
+        if (buttons.isEmpty()) exit?.let(DialogType::notice) ?: DialogType.notice()
+        else DialogType.multiAction(buttons, exit, columns)
+
     fun boundaryName(player: Player, description: String, initial: String, submitted: (String?) -> Unit) {
         fun button(key: String, submit: Boolean) = ActionButton.builder(Component.text(WandI18n.format(player, key)))
             .action(DialogAction.customClick({ view, audience -> if (audience === player)
@@ -66,7 +70,7 @@ internal object WandDialogs {
         }
         player.showDialog(Dialog.create { factory -> factory.empty()
             .base(DialogBase.builder(Component.text(title)).canCloseWithEscape(true).build())
-            .type(DialogType.multiAction(buttons, null, 1)) })
+            .type(actionType(buttons, null, 1)) })
     }
 }
 

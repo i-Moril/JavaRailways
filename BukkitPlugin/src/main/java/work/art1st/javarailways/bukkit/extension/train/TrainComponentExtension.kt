@@ -85,12 +85,19 @@ abstract class TrainComponentExtension<T : Renderable> : BukkitRenderable<T>, De
     internal fun sendToOwned(player: Player) {
         if (retired) return
         audience.add(player.uniqueId)
+        if (ensureModelBuilt()) refreshFor(player)
+    }
+
+    /** A failed first build can be retried by the next audience refresh after resources recover. */
+    @Synchronized
+    protected fun ensureModelBuilt(): Boolean {
+        if (retired) return false
         if (!modelBuilt) {
             buildModel()
             modelBuilt = true
             updateModel()
         }
-        refreshFor(player)
+        return true
     }
 
     @MainThread

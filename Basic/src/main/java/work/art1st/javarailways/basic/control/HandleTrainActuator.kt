@@ -7,6 +7,8 @@ import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import work.art1st.javarailways.basic.api.ato.TrainActuator
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.Car
+import work.art1st.javarailways.core.api.control.ControllerConsistState
+import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
 import kotlin.math.abs
 
 /** ATO actuator that selects configured handles and executes the same dynamics as manual control. */
@@ -26,18 +28,22 @@ class HandleTrainActuator(
         initialSpeedMetersPerSecond,
         profileResolver
     )
-    private val powerHandles = trainProfile.powerHandles
-        .filter { trainProfile.normalizedPowerScale(it) > 0.0 }
-        .sortedBy(trainProfile::normalizedPowerScale)
-    private val serviceBrakeHandles = trainProfile.brakeHandles
-        .filterNot { it.equals(EMERGENCY_BRAKE_HANDLE, ignoreCase = true) }
-        .filter { trainProfile.normalizedBrakeScale(it) > 0.0 }
-        .sortedBy(trainProfile::normalizedBrakeScale)
-    private val emergencyBrakeHandle = trainProfile.brakeHandles
-        .firstOrNull { it.equals(EMERGENCY_BRAKE_HANDLE, ignoreCase = true) }
-    private val progressiveOrder = serviceBrakeHandles.asReversed() + NEUTRAL_HANDLE + powerHandles
+    private data class HandleConfiguration(
+        val power: List<String>,
+        val serviceBrake: List<String>,
+        val emergencyBrake: String?
+    ) {
+        val progressiveOrder = serviceBrake.asReversed() + NEUTRAL_HANDLE + power
+    }
 
-    override val maximumSpeedMetersPerSecond: Double = trainProfile.maxSpeed
+    private val handles = ControllerConsistState(prepareHandles(trainProfile))
+    private val powerHandles get() = handles.value.power
+    private val serviceBrakeHandles get() = handles.value.serviceBrake
+    private val emergencyBrakeHandle get() = handles.value.emergencyBrake
+    private val progressiveOrder get() = handles.value.progressiveOrder
+
+    override val maximumSpeedMetersPerSecond: Double get() = dynamics.trainProfile.maxSpeed
+    val gravityMetersPerSecondSquared: Double get() = dynamics.gravityMetersPerSecondSquared
 
     @Volatile
     var selectedHandle: String = NEUTRAL_HANDLE
@@ -57,9 +63,15 @@ class HandleTrainActuator(
         )
     }
 
-    init {
-        require(maximumSpeedMetersPerSecond.isFinite() && maximumSpeedMetersPerSecond > 0.0)
-        require(progressiveOrder.isNotEmpty())
+    fun prepareConfigurationChange(
+        trainProfile: TrainDynamics.TrainProfile,
+        carProfiles: List<TrainDynamics.CarProfile>
+    ): List<PreparedControllerStateUpdate> {
+        val preparedHandles = prepareHandles(trainProfile)
+        require(selectedHandle in preparedHandles.progressiveOrder || selectedHandle == preparedHandles.emergencyBrake) {
+            "Updated configuration does not contain active automatic handle '$selectedHandle'"
+        }
+        return dynamics.prepareConfigurationChange(trainProfile, carProfiles) + handles.prepare(preparedHandles)
     }
 
     override fun step(
@@ -95,8 +107,9 @@ class HandleTrainActuator(
     private fun desiredHandle(currentSpeed: Double, targetSpeed: Double, deltaSeconds: Double): String {
         if (targetSpeed == 0.0 && currentSpeed > SPEED_EPSILON && serviceBrakeHandles.isNotEmpty()) {
             val serviceResult = dynamics.preview(currentSpeed, serviceBrakeHandles.last(), deltaSeconds)
-            if (serviceResult.state.speed >= currentSpeed && emergencyBrakeHandle != null) {
-                return emergencyBrakeHandle
+            val emergency = emergencyBrakeHandle
+            if (serviceResult.state.speed >= currentSpeed && emergency != null) {
+                return emergency
             }
         }
         return when {
@@ -150,6 +163,18 @@ class HandleTrainActuator(
         private const val SPEED_EPSILON = 1.0e-6
         private const val NOMINAL_CONTROL_STEP_SECONDS = 0.05
 
+        private fun prepareHandles(profile: TrainDynamics.TrainProfile): HandleConfiguration {
+            require(profile.maxSpeed.isFinite() && profile.maxSpeed >= 0.0)
+            return HandleConfiguration(
+                profile.powerHandles.filter { profile.normalizedPowerScale(it) > 0.0 }
+                    .sortedBy(profile::normalizedPowerScale),
+                profile.brakeHandles.filterNot { it.equals(EMERGENCY_BRAKE_HANDLE, ignoreCase = true) }
+                    .filter { profile.normalizedBrakeScale(it) > 0.0 }
+                    .sortedBy(profile::normalizedBrakeScale),
+                profile.brakeHandles.firstOrNull { it.equals(EMERGENCY_BRAKE_HANDLE, ignoreCase = true) }
+            )
+        }
+
         /**
          * Conservative delay before the strongest service brake can be treated as fully available.
          * It covers progressive handle travel, brake application, and the acceleration ramp imposed
@@ -181,7 +206,7 @@ class HandleTrainActuator(
                 ?: 0.0
             return planningMarginSeconds +
                 (powerSteps + brakeSteps) * controlStepSeconds +
-                trainProfile.brakeApplyTime.coerceAtLeast(0.0) +
+                trainProfile.brakeApplyTime +
                 jerkResponseSeconds
         }
     }

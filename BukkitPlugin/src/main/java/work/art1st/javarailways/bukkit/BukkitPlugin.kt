@@ -106,6 +106,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var editorTextService: EditorTextService
         private set
     private lateinit var editorTextServiceImpl: DefaultEditorTextService
+    val worldIssues = work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService()
     val webUiLoginTokens: WebUiLoginTokens = WebUiLoginTokens()
     lateinit var timetableScriptSandbox: TimetableScriptSandbox
 
@@ -217,6 +218,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             }
         )
         server.pluginManager.registerEvents(worldManager, this)
+        server.servicesManager.register(work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService::class.java,
+            worldIssues, this, org.bukkit.plugin.ServicePriority.Normal)
         server.servicesManager.registerJavaRailwaysServices(
             owner = this,
             railTargets = railTargetService,
@@ -275,7 +278,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
 
         // 加载版本化 trains/ 与 rails/ 模型包。
         modelManager = ModelManager(dataFolder)
-        modelManager.loadAll()
+        val modelLoad = modelManager.publishReload(modelManager.prepareReload())
+        modelLoad.failures.forEach { (type, failure) ->
+            logger.log(Level.SEVERE, "Train resources unavailable for type $type", failure)
+        }
         logger.info(
             "Model packages loaded: ${modelManager.trainPackages.size} train, " +
                 "${modelManager.railPackages.size} rail"

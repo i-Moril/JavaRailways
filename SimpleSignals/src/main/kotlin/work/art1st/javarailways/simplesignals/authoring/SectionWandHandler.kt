@@ -104,7 +104,10 @@ internal class SectionWandHandler(
         }
         val worldId = player.world.uid
         val session = sessions.begin(playerId, worldId, state, true) ?: return
-        val captured = try { backend.capture(worldId) } catch (_: Exception) { null }
+        val captured = try { backend.capture(worldId) } catch (failure: Exception) {
+            plugin.logger.log(java.util.logging.Level.WARNING, "Section tool capture failed world=$worldId player=$playerId", failure)
+            null
+        }
         if (captured == null) {
             session.busy.set(false); player.sendMessage(Component.text(WandI18n.format(locale, "world.unavailable"))); return
         }

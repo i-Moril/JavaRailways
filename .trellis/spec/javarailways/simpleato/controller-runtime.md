@@ -137,3 +137,11 @@ Core尚未调用commit/publication时，旧快照必须保持不变；publicatio
 ./gradlew :BukkitPlugin:shadowJar
 git diff --check
 ```
+
+## 配置重载的准备与安装
+
+`AbstractATO.prepareConfigurationChange(trainProfile, carProfiles)`只支持真实`HandleTrainActuator`，
+其他自定义actuator明确拒绝。先准备新profile、实例绑定和手柄表，再按新profile重算
+service deceleration与reaction time，保留其他safety覆盖值。全部成功才返回Core prepared tokens；
+失败保持旧引用，不清mission、route、命令队列、距离历史、手柄或actuator积分状态。
+平台按车型完成所有实例准备后，在排除worker的边界通过Core安装整批tokens。

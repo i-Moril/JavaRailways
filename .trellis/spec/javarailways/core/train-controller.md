@@ -46,6 +46,15 @@ interface ControlCommand {
 token的构造和安装由Core控制，只执行已准备值的引用赋值，不接收插件提交lambda；
 不能把查询、IO或可能失败的制动计算推迟到安装阶段。原控制器和控制输入不因此重建。
 
+配置重载复用同一套prepared state cell：平台先在排除所有相关worker的owner边界准备profile、实例绑定、
+手柄表和派生制动参数，然后调用`CoreTrain.applyControllerConfiguration(expectedController, updates)`。
+Core验证当前train/controller确切身份后只安装引用赋值；准备失败不更换任何cell，也不重建controller或清除输入/历史。
+
+`CoreTrain.setMovementHeld(held)`是帧间owner操作，配置不可用时只隔离该列车的运动。
+保留位置、占用、controller和资源；worker跳过该controller tick并发布零运动，显式距离移动同样不移动。
+释放仅由配置恢复验证成功的owner进行，下一epoch继续原控制输入；其他列车正常计算。
+标志只属于runtime，加载时由配置校验重建，不增加持久化字段。
+
 该机制不承诺任意线程同时读取多个state cell的原子快照；可见性依赖既有physics等待、结构锁及下一次worker提交。
 准备复杂度由控制器决定，安装为O(更新数)。联结调用点仍属于CR-030碰撞事务草稿，
 不能用参数token的单独测试宣称碰撞入口及接触位置处理已完成。

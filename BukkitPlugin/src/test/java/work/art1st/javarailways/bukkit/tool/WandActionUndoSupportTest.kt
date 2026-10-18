@@ -204,6 +204,24 @@ class WandActionUndoSupportTest {
     }
 
     @Test
+    fun `prepared render metadata preserves repeat lengths below one tenth metre`() {
+        val template = RailTemplateSnapshot("dense", 0.05, emptyList())
+        val standalone = RailVisualBootstrap.preparePersistedMeta(UUID.randomUUID(), 0.3, template)
+        val standaloneArcs = standalone.segments.flatMap { it.pointArcs }
+        assertEquals(RailDecorationLayout.endpointInclusiveArcs(0.3, 0.05), standaloneArcs)
+        assertTrue(standaloneArcs.size > 4)
+
+        val lengths = listOf(0.1, 0.2)
+        val first = RailVisualBootstrap.preparePersistedMeta(UUID.randomUUID(), lengths[0], template, 0, lengths)
+        val second = RailVisualBootstrap.preparePersistedMeta(UUID.randomUUID(), lengths[1], template, 1, lengths)
+        val assembledArcs = first.segments.flatMap { it.pointArcs } +
+            second.segments.flatMap { segment -> segment.pointArcs.map { it + lengths[0] } }
+        val expected = RailDecorationLayout.endpointInclusiveArcs(lengths.sum(), 0.05)
+        assertEquals(expected.size, assembledArcs.size)
+        expected.zip(assembledArcs).forEach { (a, b) -> assertEquals(a, b, 1.0e-12) }
+    }
+
+    @Test
     fun `structural undo snapshots ignore transient active branch without reordering connections`() {
         val railId = UUID.randomUUID()
         val firstBranch = SavedRailEndpointRef(UUID.randomUUID().toString(), RailEndpoint.A)

@@ -4,6 +4,7 @@ import work.art1st.javarailways.core.physics.train.setControllerForTest
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
 import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import work.art1st.javarailways.basic.api.ato.ControlDemand
@@ -77,6 +78,46 @@ class AbstractATOConsistTest {
                     assertSame(controller, train.controller)
                     assertSame(history, actuator.lastDynamicsResult)
                     assertEquals("P1", actuator.selectedHandle)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `configuration reload installs new dynamics and derived safety without replacing controller history`() {
+        val world = createTestWorld()
+        (world.tickManager as AutoCloseable).use {
+            AutoCloseable { world.releaseRuntimeBinding() }.use {
+                world.physicsCoordinator.use {
+                    val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
+                    val train = createTrainWithConfig("ato-reload", rail, world, listOf(10.0))
+                    val oldCar = CarProfile(10_000.0, 10_000.0)
+                    val nextCar = CarProfile(20_000.0, 40_000.0)
+                    val actuator = HandleTrainActuator(train, TrainProfile, listOf(oldCar), 10.0)
+                    val safety = AtoSafetyProfile(safetyDistanceMeters = 17.0)
+                    val controller = TestATO(train, actuator, safety)
+                    train.setControllerForTest(controller)
+                    actuator.step(0.0, ControlDemand(30.0), 0.1)
+                    val history = actuator.lastDynamicsResult
+                    val nextProfile = object : TrainDynamics.TrainProfile by TrainProfile { override val maxSpeed = 15.0 }
+                    val updates = controller.prepareConfigurationChange(nextProfile, listOf(nextCar))
+                    assertSame(safety, controller.currentSafety)
+                    assertSame(oldCar, actuator.dynamicsProfileFor(train.cars.single()))
+                    assertEquals(30.0, actuator.maximumSpeedMetersPerSecond)
+                    world.onOwnerForTest { train.applyControllerConfiguration(controller, updates) }
+                    assertSame(controller, train.controller)
+                    assertSame(history, actuator.lastDynamicsResult)
+                    assertEquals("P1", actuator.selectedHandle)
+                    assertEquals(15.0, actuator.maximumSpeedMetersPerSecond)
+                    assertEquals(2.0, controller.currentSafety.serviceDecelerationMetersPerSecondSquared)
+                    assertEquals(1.5, controller.currentSafety.reactionTimeSeconds, 1.0e-12)
+                    assertEquals(17.0, controller.currentSafety.safetyDistanceMeters)
+                    assertSame(nextCar, actuator.dynamicsProfileFor(train.cars.single()))
+                    assertThrows(IllegalArgumentException::class.java) {
+                        controller.prepareConfigurationChange(nextProfile, listOf(CarProfile(20_000.0, 0.0)))
+                    }
+                    assertSame(nextCar, actuator.dynamicsProfileFor(train.cars.single()))
+                    assertSame(history, actuator.lastDynamicsResult)
                 }
             }
         }

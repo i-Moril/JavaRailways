@@ -69,7 +69,9 @@ internal class SignalDeviceEditor(
     private fun types(modelOnly: Boolean) {
         val options = if (modelOnly) backend.availableModelIds().orEmpty().map { it to it }
             else backend.availableSignalTypes().orEmpty().map { it.signalType to it.displayName }
-        page(SignalWandDialog(text("signal.device.type.change"), listOf(text("signal.types.validation")), options.map { (id, label) -> label to {
+        page(SignalWandDialog(text("signal.device.type.change"), listOf(text(if (options.isEmpty()) {
+            if (modelOnly) "signal.model.empty" else "signal.empty"
+        } else "signal.types.validation")), options.map { (id, label) -> label to {
             page(SignalWandDialog(text("signal.device.type.confirm"), listOf(label, text("signal.device.preserve")), listOf(
                 text("apply") to { reply(backend.changeType(capture, device, if (modelOnly) null else id,
                     if (modelOnly) id else null, active).text.render(locale)) }, text("cancel") to { show() })))

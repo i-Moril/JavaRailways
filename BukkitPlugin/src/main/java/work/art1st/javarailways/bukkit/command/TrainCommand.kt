@@ -14,6 +14,9 @@ import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
 import work.art1st.javarailways.bukkit.debug.AbnormalTrainMarker
 import work.art1st.javarailways.bukkit.config.model.CarDefinition
+import work.art1st.javarailways.bukkit.config.model.TrainResourceVersion
+import work.art1st.javarailways.bukkit.persistence.TrainPackageSnapshotStore
+import work.art1st.javarailways.bukkit.persistence.CarModelSnapshotStore
 import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
 import work.art1st.javarailways.bukkit.extension.train.CarExtension
 import work.art1st.javarailways.bukkit.extension.train.TrainExtension
@@ -118,22 +121,21 @@ object TrainCommand {
         }
         val modelManager = BukkitPlugin.INSTANCE.modelManager
 
-        val trainDef = modelManager.getTrain(trainTypeName)
-        if (trainDef == null) {
+        if (modelManager.getTrain(trainTypeName) == null) {
             heavyOperationGate.finish(sender.uniqueId)
             sender.sendMessage("错误: 未知列车类型 '$trainTypeName'")
             sender.sendMessage("可用类型: ${modelManager.trainPackages.keys.joinToString(", ")}")
             return true
         }
 
-        val carDefs = trainDef.composition.map { carModelName ->
-            modelManager.getCar(carModelName)
-                ?: run {
-                    heavyOperationGate.finish(sender.uniqueId)
-                    sender.sendMessage("错误: 未知车厢模型 '$carModelName'")
-                    return true
-                }
+        val resourceVersion = try {
+            modelManager.resourceVersion(trainTypeName)
+        } catch (failure: Exception) {
+            heavyOperationGate.finish(sender.uniqueId)
+            sender.sendMessage("错误: 列车资源无效: ${failure.message}")
+            return true
         }
+        val carDefs = resourceVersion.composition.map { resourceVersion.models.getValue(it).car }
         if (carDefs.isEmpty()) {
             heavyOperationGate.finish(sender.uniqueId)
             sender.sendMessage("错误: 列车类型 '$trainTypeName' 没有车厢编组")
@@ -145,7 +147,12 @@ object TrainCommand {
             plugin = BukkitPlugin.INSTANCE,
             completionEntity = sender,
             operation = "TrainCommand.handleCreate",
-            supplier = { HeavyRailQueries.findNearestRail(railSnapshot, playerPos) },
+            supplier = {
+                TrainPackageSnapshotStore.save(resourceVersion.packageSnapshot)
+                resourceVersion.carPackages.values.distinctBy { it.hash }.forEach(TrainPackageSnapshotStore::save)
+                resourceVersion.models.values.forEach(CarModelSnapshotStore::save)
+                HeavyRailQueries.findNearestRail(railSnapshot, playerPos)
+            },
             onSuccess = { nearestRail ->
                 heavyOperationGate.finish(sender.uniqueId)
                 val livePlayer = BukkitPlugin.INSTANCE.server.getPlayer(sender.uniqueId) ?: return@supply
@@ -155,7 +162,7 @@ object TrainCommand {
                     return@supply
                 }
                 completeCreateOnMainThread(
-                    livePlayer, liveWorld, trainTypeName, trainName, trainDef, carDefs, playerPos, nearestRail
+                    livePlayer, liveWorld, trainTypeName, trainName, resourceVersion, carDefs, playerPos, nearestRail
                 )
             },
             onFailure = { error ->
@@ -163,7 +170,7 @@ object TrainCommand {
                 BukkitPlugin.INSTANCE.logger.warning(
                     "TrainCommand create lookup failed for player ${sender.name}: ${error::class.simpleName}: ${error.message ?: ""}"
                 )
-                BukkitPlugin.INSTANCE.server.getPlayer(sender.uniqueId)?.sendMessage("错误: 轨道查找失败，请重试")
+                BukkitPlugin.INSTANCE.server.getPlayer(sender.uniqueId)?.sendMessage("错误: 创建准备失败: ${error.message}")
             },
             onRetired = { heavyOperationGate.finish(sender.uniqueId) }
         )
@@ -225,7 +232,7 @@ object TrainCommand {
         coreWorld: CoreWorld,
         trainTypeName: String,
         trainName: String,
-        trainDef: work.art1st.javarailways.bukkit.config.model.TrainDefinition,
+        resourceVersion: TrainResourceVersion,
         carDefs: List<CarDefinition>,
         playerPos: Vector3dc,
         nearestRail: HeavyRailQueries.NearestRailMatch?
@@ -233,6 +240,9 @@ object TrainCommand {
         val playerName = sender.name
         val selectedRail = nearestRail?.let { coreWorld.getRail(it.railId) }
         coreWorld.physicsCoordinator.submitBetweenFrames {
+            check(BukkitPlugin.INSTANCE.modelManager.resourceVersion(trainTypeName) === resourceVersion) {
+                "列车资源已变化，请重新创建"
+            }
             val match = requireNotNull(nearestRail) { "世界中没有可放置的轨道" }
             val rail = requireNotNull(selectedRail) { "世界中没有可放置的轨道" }
             check(coreWorld.getRail(rail.id) === rail) { "轨道已变化，请重新创建" }
@@ -252,7 +262,7 @@ object TrainCommand {
             var createdTrain: CoreTrain? = null
             var published = false
             try {
-                for ((i, carModelName) in trainDef.composition.withIndex()) {
+                for (i in resourceVersion.composition.indices) {
                     val carDef = carDefs[i]
                     val bogieA = CoreBogie.create(initialBogieLocation)
                     val bogieB = CoreBogie.create(initialBogieLocation)
@@ -274,7 +284,7 @@ object TrainCommand {
                     val carExtension = CarExtension()
                     car.registerExtensionData(BukkitPlugin.INSTANCE, carExtension)
                     carExtension.initialize(car, emptyMap())
-                    carExtension.carModelName = carModelName
+                    carExtension.bindCreatedResources(trainTypeName, resourceVersion.composition[i], resourceVersion)
                 }
 
                 val trainId = UUID.randomUUID().toString()
@@ -288,6 +298,7 @@ object TrainCommand {
                 val trainExtension = TrainExtension()
                 train.registerExtensionData(BukkitPlugin.INSTANCE, trainExtension)
                 trainExtension.initialize(train, emptyMap())
+                trainExtension.bindCreatedResources(trainTypeName, resourceVersion)
                 coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.put(
                     train.id,
                     TrainSpeedProfile(trainExtension.resolveControl().curveSpeedLimitOffset)
@@ -303,7 +314,7 @@ object TrainCommand {
                     add("列车尾部位置: ${formatVector(train.tail.location.position)}")
                     cars.forEachIndexed { index, car ->
                         add(
-                            "车厢 ${index + 1}: model=${trainDef.composition[index]}, " +
+                            "车厢 ${index + 1}: model=${resourceVersion.composition[index]}, " +
                                 "center=${formatVector(car.position)}, " +
                                 "bogieA=${formatVector(car.bogieA.position)}, bogieB=${formatVector(car.bogieB.position)}"
                         )
@@ -327,7 +338,6 @@ object TrainCommand {
             BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
                 if (failure != null) {
                     sender.sendMessage("错误: 创建列车失败: ${failure.message}")
-                    sender.sendMessage("提示: 斜坡短轨道需要先连接到足够长的前后轨道，否则整列车无法排布。")
                 } else {
                     created.first.cars.forEach { it.renderer.sendTo(sender) }
                     created.second.forEach(sender::sendMessage)

@@ -47,6 +47,46 @@ import java.util.concurrent.atomic.AtomicReference
 
 class PhysicsCoordinatorTest {
     @Test
+    fun `movement hold preserves occupancy while other trains move and release resumes`() {
+        val coordinator = PhysicsCoordinator(2, automaticFallback = false)
+        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        try {
+            val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0, 1))
+            val held = createTrainWithConfig("held", rail, world, listOf(10.0))
+            val moving = createTrainWithConfig("moving", rail, world, listOf(10.0))
+            world.onOwnerForTest {
+                moving.setLocation(RailLocationWithFacing(rail.viewAB, 150.0))
+                moving.commit()
+            }
+            held.setControllerForTest(MockTrainController(held, world, 10.0))
+            moving.setControllerForTest(MockTrainController(moving, world, 10.0))
+            val position = held.headLocation.position.x()
+            val otherPosition = moving.headLocation.position.x()
+            val occupancy = held.publishedFrame.occupiedIntervals
+            world.onOwnerForTest { held.setMovementHeld(true) }
+            held.moveTrainForward(1.0)
+            assertEquals(position, held.headLocation.position.x())
+            coordinator.start()
+            coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+            assertEquals(position, held.headLocation.position.x())
+            assertEquals(0.0, held.publishedFrame.speedMetersPerSecond)
+            assertEquals(occupancy, held.publishedFrame.occupiedIntervals)
+            assertTrue(held.publishedFrame.cars.flatMap { listOf(it.state) + it.bogies }.all {
+                it.velocityX == 0.0 && it.velocityY == 0.0 && it.velocityZ == 0.0
+            })
+            assertEquals(otherPosition + 0.5, moving.headLocation.position.x(), 1.0e-9)
+            assertSame(held, world.getTrain(held.id))
+            world.onOwnerForTest { held.setMovementHeld(false) }
+            coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+            assertEquals(position + 0.5, held.headLocation.position.x(), 1.0e-9)
+            assertEquals(10.0, held.publishedFrame.speedMetersPerSecond)
+        } finally {
+            coordinator.close()
+            world.releaseRuntimeBinding()
+        }
+    }
+
+    @Test
     fun `published collision freezes stationary controller before its tick can accelerate`() {
         val coordinator = PhysicsCoordinator(workerThreads = 2, automaticFallback = false)
         var createdWorld: CoreWorld? = null

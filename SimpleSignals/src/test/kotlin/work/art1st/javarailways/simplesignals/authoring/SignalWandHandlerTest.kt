@@ -539,6 +539,23 @@ class SignalWandHandlerTest {
         assertTrue(f.placements.isEmpty())
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    fun `route indicator creation without models shows an empty explanation and can cancel`(unavailable: Boolean) = Fixture().use { f ->
+        f.tool = f.tool.copy(binding = null)
+        f.protectionEntrance = true
+        f.modelIds = if (unavailable) null else emptyList()
+        f.rightClick(); f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0))); f.drain()
+        f.page!!.options.single { it.first == "route indicator" }.second(); f.drain()
+        assertTrue(f.page!!.options.isEmpty())
+        assertEquals(listOf("No presentation models are currently available"), f.page!!.body)
+        assertEquals("Cancel creation", f.page!!.exit!!.first)
+        f.page!!.exit!!.second(); f.drain()
+        assertEquals(0, f.performs)
+        assertEquals(0, f.indicatorSaves)
+        assertTrue(f.messages.last().toString().contains("closed"))
+    }
+
     @Test fun `target creation uses optional block default and protection purpose always has separate cancel`() = Fixture().use { f ->
         f.tool = f.tool.copy(binding = null)
         f.rightClick(); f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0))); f.drain()

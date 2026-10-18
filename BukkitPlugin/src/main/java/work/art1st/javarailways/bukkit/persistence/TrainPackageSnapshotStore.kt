@@ -5,6 +5,8 @@ import kotlinx.serialization.json.Json
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.config.model.SavedTrainPackageSnapshot
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 object TrainPackageSnapshotStore {
     private val json = Json {
@@ -21,7 +23,13 @@ object TrainPackageSnapshotStore {
     fun save(snapshot: SavedTrainPackageSnapshot): String {
         val file = snapshotFile(snapshot.hash)
         file.parentFile.mkdirs()
-        if (!file.exists()) file.writeText(json.encodeToString(snapshot))
+        val temporary = Files.createTempFile(file.parentFile.toPath(), snapshot.hash, ".tmp")
+        try {
+            Files.writeString(temporary, json.encodeToString(snapshot))
+            Files.move(temporary, file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            Files.deleteIfExists(temporary)
+        }
         return snapshot.hash
     }
 
@@ -37,7 +45,10 @@ object TrainPackageSnapshotStore {
                 require(it.schemaVersion == SavedTrainPackageSnapshot.SCHEMA_VERSION) {
                     "Unsupported train package snapshot schema ${it.schemaVersion}"
                 }
-                require(it.hash == hash) { "Train package snapshot hash does not match file name" }
+                require(it.hash == hash && SavedTrainPackageSnapshot.build(it.packageName, it.actions,
+                    it.behavior, it.control, it.carControls).hash == hash) {
+                    "Train package snapshot hash does not match its contents"
+                }
             }
         } catch (failure: Exception) {
             reportFailure("Failed to load train package snapshot $hash: ${failure.message}")

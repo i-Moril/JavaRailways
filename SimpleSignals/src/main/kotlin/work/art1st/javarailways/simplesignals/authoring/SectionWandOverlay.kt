@@ -18,6 +18,7 @@ import net.kyori.adventure.text.Component
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.logging.Level
 
 /** Holding intent and prepared values only; host service owns every text entity and its cleanup. */
 internal class SectionWandOverlay(
@@ -97,7 +98,9 @@ internal class SectionWandOverlay(
                             if (sessions[id] === current && current.active.get() && !closed.get()) {
                                 if (player.isOnline && player.world === world && player.hasPermission(SectionWandHandler.PERMISSION) &&
                                     toolInHand(player) && enabled()) {
-                                    val stillCurrent = valid && (capture == null || runCatching { backend.current(capture) }.getOrDefault(false))
+                                    val stillCurrent = valid && (capture == null || runCatching { backend.current(capture) }
+                                        .onFailure { plugin.logger.log(Level.WARNING, "Section overlay validation failed world=${current.worldId} player=$id", it) }
+                                        .getOrDefault(false))
                                     current.capture = capture.takeIf { stillCurrent }
                                     current.drawing = drawing.takeIf { stillCurrent }
                                     current.failure = null
@@ -108,6 +111,7 @@ internal class SectionWandOverlay(
                             current.busy.set(false)
                         }, { current.busy.set(false); invalidate(id, current) })
                     } catch (failure: Exception) {
+                        plugin.logger.log(Level.WARNING, "Section overlay preparation failed world=${current.worldId} player=$id", failure)
                         val reason = (failure.message ?: failure.javaClass.simpleName).take(256)
                         owner(player, {
                             if (sessions[id] === current && current.active.get() && !closed.get() &&
@@ -122,7 +126,10 @@ internal class SectionWandOverlay(
                         }, { current.busy.set(false); invalidate(id, current) })
                     }
                 }
-            } catch (_: Exception) { current.busy.set(false); invalidate(id, current) }
+            } catch (failure: Exception) {
+                plugin.logger.log(Level.WARNING, "Section overlay worker could not be scheduled world=${current.worldId} player=$id", failure)
+                current.busy.set(false); invalidate(id, current)
+            }
         }
     }
 

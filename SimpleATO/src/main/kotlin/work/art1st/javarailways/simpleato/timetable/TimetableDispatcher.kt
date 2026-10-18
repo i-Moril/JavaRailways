@@ -3551,7 +3551,10 @@ class TimetableDispatcher(
                 pass = leg.point is AtoMissionPoint.Via,
                 timetableElapsedTicks = timetableElapsedTicks(run)
             )
-            listeners.forEach { listener -> runCatching { listener.onReached(event) } }
+            listeners.forEach { listener -> runCatching { listener.onReached(event) }.onFailure { failure ->
+                LOGGER.log(java.util.logging.Level.WARNING,
+                    "Timetable waypoint listener failed run=${run.id} cycle=${run.cycleIndex} waypoint=${event.waypointId}", failure)
+            } }
         }
     }
 
@@ -4865,6 +4868,7 @@ class TimetableDispatcher(
         "dispatcher:timetable-time/${run.instanceId}"
 
     private companion object {
+        val LOGGER = java.util.logging.Logger.getLogger(TimetableDispatcher::class.java.name)
         const val ORIGIN_TOLERANCE_METERS = 1.0
         const val POSITION_TOLERANCE_METERS = 0.5
         const val RELEASE_EPSILON_METERS = 1.0e-6

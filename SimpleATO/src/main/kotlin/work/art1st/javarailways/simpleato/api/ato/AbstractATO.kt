@@ -8,6 +8,8 @@ import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.control.ControllerConsistState
 import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
 import work.art1st.javarailways.core.api.physics.train.Car
+import work.art1st.javarailways.basic.control.HandleTrainActuator
+import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.basic.control.ConsistDynamicsActuator
 import work.art1st.javarailways.basic.control.DynamicsProfileSource
 import work.art1st.javarailways.core.api.physics.World
@@ -44,6 +46,22 @@ abstract class AbstractATO(
         )
         return listOf(prepared.update, consistSafety.prepare(safety))
     }
+    fun prepareConfigurationChange(
+        trainProfile: TrainDynamics.TrainProfile,
+        carProfiles: List<TrainDynamics.CarProfile>
+    ): List<PreparedControllerStateUpdate> {
+        val handles = actuator as? HandleTrainActuator
+            ?: error("ATO actuator does not support configuration replacement")
+        val updates = handles.prepareConfigurationChange(trainProfile, carProfiles)
+        val safety = safetyProfile.copy(
+            serviceDecelerationMetersPerSecondSquared = TrainDynamics.flatServiceDeceleration(
+                trainProfile, carProfiles, handles.gravityMetersPerSecondSquared),
+            reactionTimeSeconds = HandleTrainActuator.serviceBrakeReactionTimeSeconds(
+                trainProfile, carProfiles, handles.gravityMetersPerSecondSquared)
+        )
+        return updates + consistSafety.prepare(safety)
+    }
+
     protected data class PublishedAtoState(
         val trainSnapshot: TrainSnapshot,
         val lifetimeTravelDistanceMeters: Double,

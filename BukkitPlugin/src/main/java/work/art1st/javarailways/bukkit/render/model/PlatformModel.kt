@@ -34,8 +34,8 @@ class PlatformModel internal constructor(
 ) : AbstractModel(world, state, attachedModels, animation) {
     private val units: MutableList<PlatformUnit> = CopyOnWriteArrayList()
     private val cellOffsets = platformConfig.cellOffsets().map { Vector3d(it.x, it.y, it.z) }
-    private val platformHalfX = ((platformConfig.rows.coerceAtLeast(1) - 1) * platformConfig.spacingX) / 2.0 + CELL_HALF_EXTENT
-    private val platformHalfZ = ((platformConfig.columns.coerceAtLeast(1) - 1) * platformConfig.spacingZ) / 2.0 + CELL_HALF_EXTENT
+    private val platformHalfX = ((platformConfig.rows - 1) * platformConfig.spacingX) / 2.0 + CELL_HALF_EXTENT
+    private val platformHalfZ = ((platformConfig.columns - 1) * platformConfig.spacingZ) / 2.0 + CELL_HALF_EXTENT
     private val activePlayers = ConcurrentHashMap<UUID, Player>()
     private val lifecycleRevision = AtomicLong(0L)
     private val spawnScheduled = AtomicBoolean(false)

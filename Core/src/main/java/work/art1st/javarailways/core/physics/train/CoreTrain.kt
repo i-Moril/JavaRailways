@@ -3,6 +3,7 @@ package work.art1st.javarailways.core.physics.train
 import org.jetbrains.annotations.ApiStatus
 import org.joml.times
 import org.joml.Vector3d
+import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.event.DerailEvent
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
@@ -81,6 +82,17 @@ open class CoreTrain @MainThread internal constructor(
     private var _controller: TrainController? = null
     val controller: TrainController?
         get() = _controller
+    @Volatile
+    var movementHeld: Boolean = false
+        private set
+
+    /** Quarantine movement without removing the train or its physical occupancy. */
+    fun setMovementHeld(held: Boolean) {
+        world.physicsCoordinator.ensureBetweenFrames("CoreTrain.setMovementHeld")
+        check(world.getTrain(id) === this) { "Cannot hold a retired train '$id'" }
+        movementHeld = held
+    }
+
     override var cars: List<CoreCar> = cars
         protected set
     private data class DerailState(val derailed: Boolean, val reason: String?)
@@ -223,7 +235,7 @@ open class CoreTrain @MainThread internal constructor(
         get() = activeTailCar.activeTailBogie
     /* >=0 */
     override val speed: Double
-        get() = controller?.speed ?: 0.0
+        get() = if (movementHeld) 0.0 else controller?.speed ?: 0.0
 
     /**
      * 将列车向前移动 delta S
@@ -247,7 +259,7 @@ open class CoreTrain @MainThread internal constructor(
         require(speedMetersPerSecond.isFinite() && speedMetersPerSecond >= 0.0) {
             "speedMetersPerSecond must be finite and non-negative"
         }
-        if (activeDerailState.derailed) {
+        if (activeDerailState.derailed || movementHeld) {
             updateActiveMotion(0.0)
             return
         }
@@ -733,6 +745,7 @@ open class CoreTrain @MainThread internal constructor(
         world.physicsCoordinator.submitBetweenFrames {
             world.physicsCoordinator.withStructuralMutation {
                 check(world.getTrain(id) === this) { "Cannot split a retired train '$id'" }
+                check(!movementHeld) { "Cannot split a train with unavailable configuration" }
                 val matchingIndices = cars.indices.filter { cars[it].id == carId }
                 if (matchingIndices.size != 1 || matchingIndices.single() == 0) {
                     throw CannotCreateTrainException()
@@ -1227,6 +1240,18 @@ open class CoreTrain @MainThread internal constructor(
         check(world.getTrain(id) === this) { "Cannot control a retired train '$id'" }
         require(value == null || value.train === this) { "Controller belongs to another train" }
         applyController(value)
+    }
+
+    /** Install already prepared immutable controller parameters while physics is excluded. */
+    fun applyControllerConfiguration(
+        expectedController: TrainController,
+        updates: List<PreparedControllerStateUpdate>
+    ) {
+        world.physicsCoordinator.ensureBetweenFrames("CoreTrain.applyControllerConfiguration")
+        check(world.getTrain(id) === this && _controller === expectedController) {
+            "Controller no longer owns train '$id'"
+        }
+        updates.forEach { it.install() }
     }
 
     /** Common exact registration install; physics-origin derail calls it only at publication. */

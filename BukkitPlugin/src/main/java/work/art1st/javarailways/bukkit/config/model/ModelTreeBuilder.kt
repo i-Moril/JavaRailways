@@ -296,11 +296,7 @@ class ModelTreeBuilder internal constructor(
     }
 
     private fun buildItemStack(itemConfig: PartItemConfig): ItemStack {
-        val material = try {
-            Material.valueOf(itemConfig.type.uppercase())
-        } catch (e: Exception) {
-            Material.STONE
-        }
+        val material = Material.valueOf(itemConfig.type.uppercase())
 
         val itemStack = ItemStack(material)
 

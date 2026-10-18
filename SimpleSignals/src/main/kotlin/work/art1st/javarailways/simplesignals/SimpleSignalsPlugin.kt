@@ -55,7 +55,8 @@ class SimpleSignalsPlugin : JavaPlugin() {
                 CompletableFuture.runAsync { logger.log(Level.SEVERE, context, failure) }
             },
             protectionRegionMaxDistanceMeters = settings.protectionRegionMaxDistanceMeters,
-            topologyWorker = { action -> server.asyncScheduler.runNow(this) { if (isEnabled) action() } }
+            topologyWorker = { action -> server.asyncScheduler.runNow(this) { if (isEnabled) action() } },
+            worldIssues = services.worldIssues()
         )
         val fixedBlocks = FixedBlockRouteResourcePolicy(this, { worldId ->
             work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(

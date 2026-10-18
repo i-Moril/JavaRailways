@@ -7,7 +7,7 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 internal sealed interface ModelPlacement {
     /**
      * [position] always measures arc length from A, including when facing BA.
-     * [adjustment] stores metre offsets along directed X forward/Y up/Z right and a unit local rotation.
+     * [adjustment] stores metre offsets along directed X lateral (up × forward)/Y up/Z forward and a unit local rotation.
      * Its rotation turns the model in place, without rotating those offsets.
      */
     data class RailAttached(

@@ -38,17 +38,17 @@ internal object ModelPlacementCalculator {
         } else {
             Vector3d(0.0, 1.0, 0.0)
         }
-        val right = normalize(Vector3d(forward).cross(upReference), "$context: right axis")
-        val up = Vector3d(right).cross(forward)
+        val lateral = normalize(Vector3d(upReference).cross(forward), "$context: lateral axis")
+        val up = Vector3d(forward).cross(lateral)
         val adjustment = placement.adjustment
         // Offset is in the rail frame, independently of the model's subsequent local rotation.
         val position = Vector3d(point.position)
-            .fma(adjustment.x(), forward)
+            .fma(adjustment.x(), lateral)
             .fma(adjustment.y(), up)
-            .fma(adjustment.z(), right)
+            .fma(adjustment.z(), forward)
         require(position.isFinite) { "$context: offset produces a non-finite position" }
 
-        val basis = Matrix3d().setColumn(0, forward).setColumn(1, up).setColumn(2, right)
+        val basis = Matrix3d().setColumn(0, lateral).setColumn(1, up).setColumn(2, forward)
         val rotation = Quaterniond().setFromNormalized(basis).normalize().mul(
             Quaterniond(adjustment.rotationX(), adjustment.rotationY(), adjustment.rotationZ(), adjustment.rotationW())
         ).normalize()

@@ -22,9 +22,21 @@ class ModelPlacementCalculatorTest {
     private val epsilon = 1e-10
 
     @Test
-    fun `flat AB and BA offsets use directed forward up and right at the same canonical arc`() {
+    fun `world positive Z heading preserves model XYZ axes and BA reverses X and Z`() {
+        val curve = line(Vector3d(10.0, 20.0, 30.0), Vector3d(0.0, 0.0, 1.0), Vector3d(0.0, 1.0, 0.0))
+        val adjustment = ModelPose(1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0)
+        val ab = ModelPlacementCalculator.calculate(placement(adjustment = adjustment), curve)
+        val ba = ModelPlacementCalculator.calculate(placement(ViewDirection.BA, adjustment = adjustment), curve)
+        assertPosition(ab, 11.0, 22.0, 35.0)
+        assertPosition(ba, 9.0, 22.0, 29.0)
+        assertAxes(ab, Vector3d(0.0, 0.0, 1.0), Vector3d(0.0, 1.0, 0.0), Vector3d(-1.0, 0.0, 0.0))
+        assertAxes(ba, Vector3d(0.0, 0.0, -1.0), Vector3d(0.0, 1.0, 0.0), Vector3d(1.0, 0.0, 0.0))
+    }
+
+    @Test
+    fun `flat AB and BA offsets use directed lateral up and forward at the same canonical arc`() {
         val curve = line(Vector3d(10.0, 20.0, 30.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0))
-        val ab = placement(adjustment = ModelPose(1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0))
+        val ab = placement(adjustment = ModelPose(-3.0, 2.0, 1.0, 0.0, 0.0, 0.0, 1.0))
         val ba = ab.copy(position = ab.position.copy(facing = ViewDirection.BA))
         val abPose = ModelPlacementCalculator.calculate(ab, curve)
         val baPose = ModelPlacementCalculator.calculate(ba, curve)
@@ -40,7 +52,7 @@ class ModelPlacementCalculatorTest {
     @Test
     fun `upright placement removes combined slope and cant at an arbitrary heading`() {
         val curve = bankedSlope()
-        val adjustment = ModelPose(1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0)
+        val adjustment = ModelPose(-3.0, 2.0, 1.0, 0.0, 0.0, 0.0, 1.0)
         val ab = ModelPlacementCalculator.calculate(placement(adjustment = adjustment), curve)
         val ba = ModelPlacementCalculator.calculate(placement(ViewDirection.BA, adjustment = adjustment), curve)
 
@@ -57,7 +69,7 @@ class ModelPlacementCalculatorTest {
         val forward = Vector3d(0.48, 0.6, 0.64)
         val up = Vector3d(-0.18 - 0.8 * c, 0.4, -0.24 + 0.6 * c)
         val right = Vector3d(-0.4 + 0.36 * c, -0.8 * c, 0.3 + 0.48 * c)
-        val adjustment = ModelPose(1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0)
+        val adjustment = ModelPose(-3.0, 2.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 
         val ab = ModelPlacementCalculator.calculate(placement(adjustment = adjustment, tilt = true), curve)
         assertPosition(ab, 9.88 - 0.52 * c, 22.6 - 2.4 * c, 32.34 + 2.64 * c)
@@ -70,14 +82,14 @@ class ModelPlacementCalculatorTest {
     @Test
     fun `local rotation is composed after a non axis aligned frame and leaves offsets in place`() {
         val curve = bankedSlope()
-        val base = placement(adjustment = ModelPose(1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0), tilt = true)
-        val turned = base.copy(adjustment = ModelPose(1.0, 2.0, 3.0, 0.0, 0.0, sqrt(0.5), sqrt(0.5)))
+        val base = placement(adjustment = ModelPose(-3.0, 2.0, 1.0, 0.0, 0.0, 0.0, 1.0), tilt = true)
+        val turned = base.copy(adjustment = ModelPose(-3.0, 2.0, 1.0, -sqrt(0.5), 0.0, 0.0, sqrt(0.5)))
         val before = ModelPlacementCalculator.calculate(base, curve)
         val after = ModelPlacementCalculator.calculate(turned, curve)
         val c = sqrt(3.0) / 2.0
 
         assertPosition(after, before.x(), before.y(), before.z())
-        // Local +90 degrees about Z maps X to Y and Y to -X before applying the rail basis.
+        // Local -90 degrees about X maps Z (forward) to Y and Y to -Z before the rail basis.
         assertAxes(after,
             Vector3d(-0.18 - 0.8 * c, 0.4, -0.24 + 0.6 * c),
             Vector3d(-0.48, -0.6, -0.64),
@@ -89,7 +101,7 @@ class ModelPlacementCalculatorTest {
         for (sign in listOf(-1.0, 1.0)) {
             val scale = sqrt(1.0 + sign * (ModelPose.UNIT_LENGTH_TOLERANCE - 1e-15))
             val component = sqrt(0.5) * scale
-            val adjustment = ModelPose(1.0, 2.0, 3.0, 0.0, 0.0, component, component)
+            val adjustment = ModelPose(-3.0, 2.0, 1.0, -component, 0.0, 0.0, component)
             val input = placement(adjustment = adjustment, tilt = true)
             val pose = ModelPlacementCalculator.calculate(input, bankedSlope())
             val c = sqrt(3.0) / 2.0
@@ -127,7 +139,7 @@ class ModelPlacementCalculatorTest {
             }
         }
         val pose = ModelPlacementCalculator.calculate(placement(arc = 2.5,
-            adjustment = ModelPose(2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0)), observed)
+            adjustment = ModelPose(0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 1.0)), observed)
 
         assertEquals(listOf(2.5), sampledArcs)
         assertPosition(pose, 1.5 + sqrt(2.0), 0.0, 2.0 + sqrt(2.0))
@@ -213,7 +225,7 @@ class ModelPlacementCalculatorTest {
         val curve = line(Vector3d(Double.MAX_VALUE, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0))
         val failure = assertThrows(IllegalArgumentException::class.java) {
             ModelPlacementCalculator.calculate(placement(arc = 10.0,
-                adjustment = ModelPose(Double.MAX_VALUE, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0)), curve)
+                adjustment = ModelPose(0.0, 0.0, Double.MAX_VALUE, 0.0, 0.0, 0.0, 1.0)), curve)
         }
         assertTrue(failure.message!!.contains("offset produces a non-finite position"))
     }
@@ -244,7 +256,7 @@ class ModelPlacementCalculatorTest {
 
     private fun assertAxes(pose: ModelPose, forward: Vector3dc, up: Vector3dc, right: Vector3dc) {
         val rotation = Quaterniond(pose.rotationX(), pose.rotationY(), pose.rotationZ(), pose.rotationW())
-        val expected = listOf(forward, up, right)
+        val expected = listOf(Vector3d(right).negate(), up, forward)
         val actual = listOf(Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), Vector3d(0.0, 0.0, 1.0))
             .map(rotation::transform)
         expected.zip(actual).forEach { (want, got) ->

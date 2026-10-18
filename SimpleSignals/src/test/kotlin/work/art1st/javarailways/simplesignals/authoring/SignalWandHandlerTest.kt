@@ -351,6 +351,22 @@ class SignalWandHandlerTest {
             f.placements.single())
     }
 
+    @Test fun `ground placement maps model Z to player facing at cardinal and oblique headings`() {
+        for (yawDegrees in listOf(0f, 90f, -90f, 180f, 37f)) {
+            val pose = SignalWandHandler.groundPlacement(0, 0, 0, BlockFace.UP, yawDegrees).pose
+            val rotation = Quaterniond(pose.rotationX(), pose.rotationY(), pose.rotationZ(), pose.rotationW())
+            val yaw = Math.toRadians(yawDegrees.toDouble())
+            val forward = rotation.transform(org.joml.Vector3d(0.0, 0.0, 1.0))
+            val up = rotation.transform(org.joml.Vector3d(0.0, 1.0, 0.0))
+            val width = rotation.transform(org.joml.Vector3d(1.0, 0.0, 0.0))
+            assertEquals(-kotlin.math.sin(yaw), forward.x, 1e-12)
+            assertEquals(0.0, forward.y, 1e-12)
+            assertEquals(kotlin.math.cos(yaw), forward.z, 1e-12)
+            assertEquals(0.0, up.distance(org.joml.Vector3d(0.0, 1.0, 0.0)), 1e-12)
+            assertEquals(0.0, width.distance(org.joml.Vector3d(up).cross(forward)), 1e-12)
+        }
+    }
+
     @Test fun `ground placement uses face centre and upright player facing without rail lookup`() = Fixture().use { f ->
         val placement = SignalWandHandler.groundPlacement(10, 63, -4, BlockFace.EAST, 0f)
         val pose = placement.pose
@@ -358,9 +374,9 @@ class SignalWandHandlerTest {
         assertEquals(63.5, pose.y(), 1e-12)
         assertEquals(-3.5, pose.z(), 1e-12)
         assertEquals(0.0, pose.rotationX(), 1e-12)
-        assertEquals(-sqrt(0.5), pose.rotationY(), 1e-12)
+        assertEquals(0.0, pose.rotationY(), 1e-12)
         assertEquals(0.0, pose.rotationZ(), 1e-12)
-        assertEquals(sqrt(0.5), pose.rotationW(), 1e-12)
+        assertEquals(1.0, pose.rotationW(), 1e-12)
 
         f.handler.click(f.player, f.tool, Action.RIGHT_CLICK_BLOCK, placement)
         assertEquals(0, f.targetCalls)

@@ -1,14 +1,14 @@
 # Explicit root-local selection volume after the common offset and ItemDisplay rotation.
 # This encloses the housing and visors; it is an interaction box, not mesh-level picking.
 selection-boxes:
-  - min: [-0.3125, 0.0, -0.625]
-    max: [0.125, 2.625, 0.625]
+  - min: [-0.625, 0.0, -0.3125]
+    max: [0.625, 2.625, 0.125]
 parts:
   - type: dummy
     # Rebasing the client mesh by -16 units preserves its size; restore its base height here.
     offset: {y: 1.5}
-    # ItemDisplay adds local Y+180 before drawing: source -Z then needs Y-90 to face model -X.
-    rotation: {y: -90.0}
+    # ItemDisplay adds local Y+180 before drawing: source -Z then needs Y-180 to face model -Z.
+    rotation: {y: -180.0}
     parts:
       - type: item_display
         item:
@@ -42,6 +42,6 @@ rail-placement:
   follow-rail-tilt: false
   presets:
     left:
-      offset: {z: -2.0}
+      offset: {x: 2.0}
     right:
-      offset: {z: 2.0}
+      offset: {x: -2.0}

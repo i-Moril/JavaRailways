@@ -15,6 +15,7 @@ import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.bukkit.api.model.ModelPart
 import work.art1st.javarailways.bukkit.api.model.ModelPose
+import work.art1st.javarailways.bukkit.api.model.ModelSelectionBox
 import work.art1st.javarailways.bukkit.api.model.ModelScale
 import work.art1st.javarailways.bukkit.api.model.ItemAppearance
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -41,6 +42,8 @@ class JrFourLightDemoTest {
         val group = model.definition.parts().single() as ModelPart.Group
         assertTrue(group.animations().isEmpty())
         assertEquals(2, group.children().size)
+        assertEquals(listOf(ModelSelectionBox(-0.625, 0.0, -0.3125, 0.625, 2.625, 0.125)),
+            model.definition.selectionBoxes())
         val housing = group.children()[0] as ModelPart.Item
         val head = group.children()[1] as ModelPart.Item
         assertEquals("jr:four_light_signal_housing", housing.appearance().itemModelKey())
@@ -72,8 +75,8 @@ class JrFourLightDemoTest {
         }
         assertFalse(model.followRailTilt)
         assertEquals(setOf("left", "right"), model.railPlacementPresets.keys)
-        assertEquals(-2.0, model.railPlacementPresets.getValue("left").adjustment.z())
-        assertEquals(2.0, model.railPlacementPresets.getValue("right").adjustment.z())
+        assertEquals(2.0, model.railPlacementPresets.getValue("left").adjustment.x())
+        assertEquals(-2.0, model.railPlacementPresets.getValue("right").adjustment.x())
         model.railPlacementPresets.values.forEach {
             assertEquals(false, it.followRailTilt)
             assertEquals(1.0, it.adjustment.rotationW()) // No second facing rotation in the preset.
@@ -187,8 +190,8 @@ class JrFourLightDemoTest {
                 assertEquals(2.625, top.y - base.y, 1e-10)
             }
         }
-        // Ground yaw=0 aligns model +X with world +Z; its front must therefore face world -Z.
-        val groundRotation = Quaterniond().rotationY(-Math.PI / 2.0)
+        // Ground yaw=0 aligns model +Z with world +Z; its front faces world -Z.
+        val groundRotation = Quaterniond()
         val ground = ModelPlacement.Ground(ModelPose(11.0, 63.5, -3.5,
             groundRotation.x, groundRotation.y, groundRotation.z, groundRotation.w))
         val groundRoot = ModelPlacementCalculator.calculate(ground)

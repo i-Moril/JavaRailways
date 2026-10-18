@@ -2038,7 +2038,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals("demo_signals:home", railModel.modelId)
         assertEquals(listOf("left", "right"), railModel.presets.keys.toList())
         val railPlacement = ModelPlacement.RailAttached(entrance).applyPreset(railModel.presets.getValue("right"))
-        assertEquals(2.0, railPlacement.adjustment.z())
+        assertEquals(-2.0, railPlacement.adjustment.x())
         val placement = if (useRailPreset) railPlacement else
             ModelPlacement.Ground(ModelPose(5.0, 69.0, 0.0, 0.0, 0.0, 0.0, 1.0))
 

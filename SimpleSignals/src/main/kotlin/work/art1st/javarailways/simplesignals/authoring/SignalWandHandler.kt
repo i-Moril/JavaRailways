@@ -1046,8 +1046,8 @@ internal class SignalWandHandler(
         private const val MARKER_VALUE: Byte = 1
 
         /**
-         * Places the model root at the clicked face centre. It stays upright and points its local +X axis
-         * along the player's horizontal facing; local +Y remains world-up and local +Z is the player's right.
+         * Places the model root at the clicked face centre. It stays upright and points its local +Z axis
+         * along the player's horizontal facing; local +Y remains world-up and local +X = up × forward.
          */
         internal fun groundPlacement(block: Block, face: BlockFace, playerYawDegrees: Float): ModelPlacement.Ground =
             groundPlacement(block.x, block.y, block.z, face, playerYawDegrees)
@@ -1063,9 +1063,9 @@ internal class SignalWandHandler(
             val yaw = Math.toRadians(playerYawDegrees.toDouble())
             val forward = Vector3d(-sin(yaw), 0.0, cos(yaw))
             val up = Vector3d(0.0, 1.0, 0.0)
-            val right = Vector3d(forward).cross(up)
+            val lateral = Vector3d(up).cross(forward)
             val rotation = Quaterniond().setFromNormalized(
-                Matrix3d().setColumn(0, forward).setColumn(1, up).setColumn(2, right)
+                Matrix3d().setColumn(0, lateral).setColumn(1, up).setColumn(2, forward)
             ).normalize()
             return ModelPlacement.Ground(ModelPose(
                 blockX + 0.5 + face.modX * 0.5,

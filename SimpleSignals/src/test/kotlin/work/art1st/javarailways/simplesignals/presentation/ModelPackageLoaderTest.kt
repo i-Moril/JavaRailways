@@ -60,7 +60,7 @@ class ModelPackageLoaderTest {
         val green = head.animations().single().frames().single { it.scene() == "green" }
         assertEquals("demo_signals:signal/head_green", green.appearance().itemModelKey())
         assertEquals(ItemAppearance.Brightness(15, 15), green.appearance().brightness())
-        assertEquals(-2.0, home.railPlacementPresets.getValue("left").adjustment.z())
+        assertEquals(2.0, home.railPlacementPresets.getValue("left").adjustment.x())
         assertEquals(1.0, home.railPlacementPresets.getValue("left").adjustment.rotationY(), 1e-12)
         val catalog = ModelTypeCatalogSnapshot.from(loaded.models)
         val variants = checkNotNull(catalog.variantNames(home.id))

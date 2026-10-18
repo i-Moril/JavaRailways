@@ -1,0 +1,5 @@
+config-version: 2
+name: standard-railonly
+type: rail
+display-name: "Standard Gauge Rail (Rail only)"
+rail-config: "rail_model.yml"

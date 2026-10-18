@@ -42,7 +42,7 @@ internal data class RailDisplayPlacement(
 
 /**
  * Computes a display's visual position and a compensated entity position used as its light probe.
- * Both offsets use curve-local axes: tangent → x, normal → y, tangent × normal → z.
+ * Both offsets use curve-local axes: normal × tangent → x, normal → y, tangent → z.
  */
 internal fun computeRailDisplayPlacement(
     curvePosition: Vector3dc,
@@ -51,13 +51,12 @@ internal fun computeRailDisplayPlacement(
     visualOffset: OffsetConfig,
     lightProbeOffset: OffsetConfig
 ): RailDisplayPlacement {
-    val binormal = Vector3d()
-    tangent.cross(normal, binormal).normalize()
+    val lateral = Vector3d(normal).cross(tangent).normalize()
 
     fun applyLocalOffset(origin: Vector3dc, offset: OffsetConfig): Vector3d = Vector3d(
-        origin.x() + tangent.x() * offset.x + normal.x() * offset.y + binormal.x() * offset.z,
-        origin.y() + tangent.y() * offset.x + normal.y() * offset.y + binormal.y() * offset.z,
-        origin.z() + tangent.z() * offset.x + normal.z() * offset.y + binormal.z() * offset.z
+        origin.x() + lateral.x() * offset.x + normal.x() * offset.y + tangent.x() * offset.z,
+        origin.y() + lateral.y() * offset.x + normal.y() * offset.y + tangent.y() * offset.z,
+        origin.z() + lateral.z() * offset.x + normal.z() * offset.y + tangent.z() * offset.z
     )
 
     val visualPosition = applyLocalOffset(curvePosition, visualOffset)
@@ -67,6 +66,17 @@ internal fun computeRailDisplayPlacement(
         lightProbePosition = lightProbePosition,
         visualTranslation = Vector3d(visualPosition).sub(lightProbePosition)
     )
+}
+
+/** Maps model +X to lateral, +Y to normal and +Z to the curve tangent. */
+internal fun computeRailCurveRotation(tangent: Vector3dc, normal: Vector3dc): Quaterniond {
+    val lateral = Vector3d(normal).cross(tangent).normalize()
+    val rotationMatrix = Matrix3d(
+        lateral.x(), lateral.y(), lateral.z(),
+        normal.x(), normal.y(), normal.z(),
+        tangent.x(), tangent.y(), tangent.z()
+    )
+    return Quaterniond().setFromNormalized(rotationMatrix)
 }
 
 /**
@@ -189,7 +199,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
             visualOffset = element.offset,
             lightProbeOffset = element.lightProbeOffset
         )
-        val rotation = computeCurveRotation(point).mul(computeElementRotation(element.rotation))
+        val rotation = computeRailCurveRotation(point.tangent, point.normal).mul(computeElementRotation(element.rotation))
         val transformation = Transformation(
             Vector3f(
                 placement.visualTranslation.x().toFloat(),
@@ -236,26 +246,6 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
         ).also { visual ->
             element.brightness?.let { visual.setBrightness(it.block, it.sky) }
         }
-    }
-
-    /**
-     * 根据曲线点的切线和法线计算旋转四元数。
-     * local X = tangent, local Y = normal, local Z = tangent × normal.
-     */
-    private fun computeCurveRotation(point: Curve.Point): Quaterniond {
-        val tangent = point.tangent
-        val normal = point.normal
-        val binormal = Vector3d()
-        tangent.cross(normal, binormal).normalize()
-
-        // Matrix3d(a,b,c,d,e,f,g,h,i) fills columns: Col0=(a,b,c), Col1=(d,e,f), Col2=(g,h,i)
-        // Col0 = world dir of model+X = tangent, Col1 = normal, Col2 = binormal.
-        val rotationMatrix = Matrix3d(
-            tangent.x(), tangent.y(), tangent.z(),
-            normal.x(), normal.y(), normal.z(),
-            binormal.x(), binormal.y(), binormal.z()
-        )
-        return Quaterniond().setFromNormalized(rotationMatrix)
     }
 
     private fun computeElementRotation(rotation: RotationConfig): Quaterniond {

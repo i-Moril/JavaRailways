@@ -52,13 +52,13 @@ data class RailElementConfig(
     val blockMaterial: String? = null,
     /** 可选的显示实体光照覆盖；null 表示使用环境光照。 */
     val brightness: RailBrightnessConfig? = null,
-    /** 相对曲线点的视觉局部偏移。 */
+    /** 相对曲线点的视觉局部偏移：X 横向（normal × tangent），Y 法线，Z 沿轨切线。 */
     val offset: OffsetConfig,
     /** 相对视觉位置的光照采样点局部偏移；不改变模型的最终世界位置。 */
     val lightProbeOffset: OffsetConfig = OffsetConfig(),
     /** 局部欧拉角旋转（度） */
     val rotation: RotationConfig = RotationConfig(),
-    /** 模型缩放 (x=沿曲线方向长度, y=高度, z=宽度) */
+    /** 元素自身模型轴上的缩放，在局部旋转之前应用。 */
     val scale: ScaleConfig
 )
 

@@ -117,6 +117,7 @@ worker的record比较、JSON编码、旧文件复制均为`O(render record count
 - model/audience/revision pipeline 保持 latest-wins、有界队列和 stale revision rejection；不要引入每车遍历全服玩家或每 tick 无界 scheduler submission。
 - destroy/unload 必须幂等并清理 child/root/backend resources。
 - 列车模型部件的 `item.type` 与动画 command/keyframe 的 `item-type` 在包解析阶段校验 Bukkit 材质名；构建和播放不以石头或原材质掩盖非法输入。解析错误沿现有文件上下文上报，不新增格式版本。
+- 列车、轨道包及信号呈现统一使用局部 X=上方向×前方向、Y=上方向、Z=前方向；轨道 `offset` 和 `light_probe_offset` 均沿该基底，模型自身 XYZ 旋转不改变偏移轴。元素 scale 保留模型自身轴，不随轨道基底换轴交换。Core 曲线内部积分坐标不属于模型包合同。
 - 轨道模型的 `repeat_length > 0` 由配置边界约束；metadata 准备和实体显示直接使用其值，包括小于 0.1 米的合法间距，不在消费端再次夹到 0.1 米。
 
 ### Car frame runtime stream 与换属主（CURRENT）

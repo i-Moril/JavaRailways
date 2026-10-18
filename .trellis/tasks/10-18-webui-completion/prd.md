@@ -31,4 +31,3 @@ Initial implementation is complete and its historical evidence remains in resear
 
 ## Confirmed preview decisions
 The user confirmed: only remove the two standalone pages. Keep full timetable simulation inside Validation and internal Reset estimation; no backend removal. The six preview requests supersede the original point-drag/whole-run move/copy placement requirements.
-

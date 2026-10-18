@@ -146,7 +146,10 @@ def plan(source):
             if not path.is_file() or path.name=='uid.dat': continue
             if path.suffix not in ('.dat','.dat_old','.mca'): continue
             visited.append(path.relative_to(source).as_posix()); raw=path.read_bytes()
-            result=(rewrite_region if path.suffix=='.mca' else rewrite_dat)(raw,callback)
+            try:
+                result=(rewrite_region if path.suffix=='.mca' else rewrite_dat)(raw,callback)
+            except (ValueError,UnicodeError) as failure:
+                raise ValueError(f'{path.relative_to(source)}: {failure}') from failure
             # NBT helpers return bytes; source is retained if no targeted state changed.
             if not isinstance(result,tuple) or len(result)!=2 or not isinstance(result[0],bytes) or not isinstance(result[1],int): raise ValueError('Unexpected NBT rewrite result')
             result,count=result; changed_wands+=count

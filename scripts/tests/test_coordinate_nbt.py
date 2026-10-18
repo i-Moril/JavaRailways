@@ -68,13 +68,34 @@ class NbtTests(unittest.TestCase):
         self.assertGreater(int.from_bytes(changed[:4], 'big') >> 8, 2)
         self.assertEqual(nbt.rewrite_region(changed, lambda *_: None)[1], 0)
 
+    def test_partial_final_sector(self):
+        padded = region(fixture(), 3)
+        size = int.from_bytes(padded[8192:8196], 'big')
+        original = padded[:8192 + 4 + size]
+        self.assertNotEqual(len(original) % 4096, 0)
+        self.assertIs(nbt.rewrite_region(original, lambda *_: None)[0], original)
+        changed, count = nbt.rewrite_region(original, lambda *_: 'longer')
+        self.assertEqual(count, 1)
+        self.assertEqual(changed[:8192], original[:8192])
+        self.assertGreater(len(changed), len(original))
+        self.assertEqual(nbt.rewrite_region(changed, lambda *_: None)[1], 0)
+        grown, count = nbt.rewrite_region(original, lambda *_: 'x' * 9000)
+        self.assertEqual(count, 1)
+        self.assertEqual(grown[4:len(original)], original[4:])
+        self.assertEqual(grown[len(original):12288], b'\0' * (12288 - len(original)))
+        self.assertEqual(int.from_bytes(grown[:4], 'big') >> 8, 3)
+        self.assertEqual(nbt.rewrite_region(grown, lambda *_: None)[1], 0)
+        for truncated in (original[:-1], original[:8195]):
+            with self.assertRaises(ValueError):
+                nbt.rewrite_region(truncated, lambda *_: None)
+
     def test_invalid(self):
         for raw in (b'', fixture()[:-1], fixture() + b'x', b'\x0a\x00\x00\x07\x00\x00\xff\xff\xff\xff', b'\x0a\x00\x00\x09\x00\x00\x00\x00\x00\x00\x01'):
             with self.assertRaises(ValueError):
                 nbt.rewrite_nbt(raw, lambda *_: None)
         with self.assertRaises(ValueError):
             nbt.rewrite_nbt(fixture(), lambda *_: 'x' * 65536)
-        for raw in (b'', region(fixture())[:-1], region(fixture(), 4), region(fixture(), 130)):
+        for raw in (b'', region(fixture(), 4), region(fixture(), 130)):
             with self.assertRaises(ValueError):
                 nbt.rewrite_region(raw, lambda *_: None)
         corrupt = bytearray(region(fixture()))

@@ -133,8 +133,8 @@ def rewrite_dat(data, callback, target_key=TARGET_KEY):
 
 
 def rewrite_region(data, callback, target_key=TARGET_KEY):
-    if len(data) < 8192 or len(data) % 4096:
-        raise ValueError('Invalid region header or sector alignment')
+    if len(data) < 8192:
+        raise ValueError('Invalid region header')
     occupied = {0, 1}
     chunks = []
     for i in range(1024):
@@ -142,7 +142,8 @@ def rewrite_region(data, callback, target_key=TARGET_KEY):
         offset, sectors = entry >> 8, entry & 255
         if not entry:
             continue
-        if offset < 2 or not sectors or (offset + sectors) * 4096 > len(data):
+        if (offset < 2 or not sectors or offset * 4096 + 4 > len(data)
+                or offset + sectors > (len(data) + 4095) // 4096):
             raise ValueError('Invalid region sector allocation')
         allocated = set(range(offset, offset + sectors))
         if occupied & allocated:
@@ -150,7 +151,7 @@ def rewrite_region(data, callback, target_key=TARGET_KEY):
         occupied.update(allocated)
         start = offset * 4096
         size = int.from_bytes(data[start:start + 4], 'big')
-        if size < 1 or size + 4 > sectors * 4096:
+        if size < 1 or size + 4 > sectors * 4096 or start + 4 + size > len(data):
             raise ValueError('Invalid region chunk length')
         compression = data[start + 4]
         if compression & 128:
@@ -173,10 +174,11 @@ def rewrite_region(data, callback, target_key=TARGET_KEY):
         if output is None:
             output = bytearray(data)
         if needed > sectors:
-            offset = len(output) // 4096
+            offset = (len(output) + 4095) // 4096
             if offset > 0xffffff:
                 raise ValueError('Region offset exceeds 24 bits')
             sectors = needed
+            output.extend(b'\0' * (offset * 4096 - len(output)))
             output.extend(b'\0' * (sectors * 4096))
             output[i * 4:i * 4 + 4] = ((offset << 8) | sectors).to_bytes(4, 'big')
         start = offset * 4096

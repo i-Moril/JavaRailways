@@ -92,3 +92,53 @@
 @media (max-width:1350px) {
   .line-admin-grid { grid-template-columns: 260px minmax(500px,1fr); }
 }
+
+/* Management pages share the approved studio surfaces and panel spacing. */
+.duty-admin-grid { display:grid; grid-template-columns:270px minmax(0,1fr); gap:12px; min-height:calc(100% - 68px); }
+.duty-detail { overflow:auto; }
+.duty-properties,.function-fields,.simulation-setup { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; padding:16px 18px; }
+.duty-properties label,.function-fields label,.simulation-setup label { display:grid; gap:6px; color:var(--ant-color-text-secondary); font-size:12px; }
+.duty-properties .ant-input-number,.function-fields .ant-input-number,.simulation-setup .ant-input-number { width:100%; }
+.duty-toolbar { padding:12px 18px; border-top:1px solid var(--ant-color-border-secondary); }
+.duty-chain { display:grid; gap:12px; padding:18px; }
+.duty-element { border:1px solid var(--ant-color-border-secondary); background:var(--ant-color-fill-quaternary); border-radius:8px; padding:12px; }
+.duty-element .function-fields { padding:12px 0 0; }
+.validation-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-bottom:12px; }
+.metric { min-height:96px; display:flex; flex-direction:column; justify-content:center; gap:8px; padding:16px 20px; }
+.metric b { font-size:20px; overflow-wrap:anywhere; }
+.metric span { color:var(--ant-color-text-secondary); font-size:12px; }
+.validation-list { margin-bottom:12px; }
+.module-panel-title { min-height:52px; padding:15px 18px; border-bottom:1px solid var(--ant-color-border-secondary); }
+.validation-row { min-height:60px; padding:12px 18px; display:flex; gap:12px; align-items:center; border-bottom:1px solid var(--ant-color-border-secondary); overflow-wrap:anywhere; }
+.validation-row > span { flex:1; display:grid; gap:4px; }
+.validation-row small { color:var(--ant-color-text-secondary); }
+.issue-error { color:var(--ant-color-error); }
+.issue-warning { color:var(--ant-color-warning); }
+.simulation-details { padding:16px 18px; }
+.generated-source { padding:16px 18px; }
+.generated-source pre { overflow:auto; max-height:380px; }
+@media (max-width:900px) { .duty-admin-grid { grid-template-columns:190px minmax(0,1fr); } .validation-summary { grid-template-columns:1fr; } }
+@media (max-width:640px) { .duty-admin-grid { grid-template-columns:1fr; } .duty-admin-grid > aside { max-height:200px; } .duty-properties,.function-fields,.simulation-setup { grid-template-columns:1fr; } }
+
+/* Constrain grid min-content sizing so narrower desktops keep page actions reachable. */
+.app-shell { width:100%; min-width:0; grid-template-columns:minmax(0,1fr); }
+.app-shell > *,.persistent-graph-view,.studio-timetable-page,.module-page { min-width:0; max-width:100%; }
+.page-heading > div,.detail-heading > .ant-typography { min-width:0; overflow-wrap:anywhere; }
+.page-heading > .ant-btn,.detail-heading > .ant-btn { flex-shrink:0; }
+.studio-controls { min-width:0; }
+.studio-controls .ant-select:first-of-type { width:150px; flex-shrink:0; }
+.studio-controls .ant-select:last-of-type { width:116px; flex-shrink:0; }
+.studio-controls .ant-tag { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+@media (max-width:1100px) { .studio-brand > div > .ant-typography:last-child { display:none; } }
+@media (max-width:760px) {
+  .app-shell { grid-template-rows:auto auto auto minmax(0,1fr); }
+  .studio-topbar { height:auto; padding-block:6px; }
+  .studio-topbar > .ant-flex,.studio-controls { flex-wrap:wrap; }
+  .studio-controls { gap:6px !important; }
+  .page-heading,.detail-heading { flex-wrap:wrap; padding-bottom:12px; }
+}
+
+.graph-node-toolbar { position:fixed; z-index:950; width:310px; padding:12px; display:grid; gap:10px; box-shadow:0 8px 28px rgba(15,23,42,.2); }
+.graph-node-toolbar .ant-typography { overflow-wrap:anywhere; }
+.graph-node-toolbar label { display:grid; gap:6px; color:var(--ant-color-text-secondary); }
+.graph-node-toolbar .ant-input-number { width:100%; }

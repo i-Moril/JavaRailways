@@ -89,3 +89,15 @@ The safest first slice is **Foundation + compact shell only**. It changes no aut
 - Existing frontend tests and build pass, with new navigation/theme/locale coverage.
 
 Status on 2026-09-18: implemented. Ant Design is pinned, the compact shell and ribbon navigation are active, the existing providers drive Ant Design locale/theme configuration, and legacy page bodies remain unchanged. The next migration slice is page extraction, followed by timetable composition.
+
+## Completion batch on 2026-10-18
+
+The production studio now exposes controlled Duties and Validation pages under the existing shell, sharing the single mounted authoring owner. Duty selectors/functions, assignment/transfer/order, real document and server compile results, profile mapping and returned full-simulation reports are connected. Existing Reset/copy/shift operations and direction-aware creation are accessible; graph points support one-transaction drag/keyboard time edits and cancellation. Ribbon prerequisites and world/document async ownership are enforced. Layout, locale and theme reuse existing Ant Design surfaces; commands remain reachable at a 1000px desktop viewport.
+
+Frontend validation: 89 tests and production build pass; independent code review resolved identified owner/identity races. Browser checks used dev-demo data and explicitly scoped HTTP response fixtures (including delayed responses), not a live Bukkit server. See the task validation record and [owner contracts](../../.trellis/spec/webui/frontend/studio-authoring.md). Scripts and single-line Simulation remain in App; exhaustive legacy component/CSS retirement is deferred. The capability gaps listed above remain out of scope.
+
+## Preview UX revision on 2026-10-18
+
+User review superseded the point-drag and whole-run Move UI described above. Production navigation now exposes Timetable, Rail map, Lines, Duties and Validation; standalone JS timetables and line Simulation pages are removed, while formal JS mechanics, internal timing estimation and full simulation inside Validation remain. Point activation opens a node editing toolbar; suffix Shift affects the selected event and following events, validates actual effective times/dwell/period, and preserves earlier events. Time fields keep local drafts until blur/Enter. Run options regenerate the selected run from its existing origin departure; interval/count copying is a dedicated ribbon tool.
+
+Final revision gate:104 frontend tests and production build pass; independent review includes25 focused tests. Browser verified typing/blur/Enter/Escape boundaries, negative input, rejected and accepted suffix shifts with Undo, no drag time edit, route-change menu invalidation, regeneration origin preservation, dedicated copy and retained Validation simulation. Runtime caveats from the initial validation still apply.

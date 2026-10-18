@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/webui/frontend/index.md", "reason": "Frontend boundary and quality gates"}
+{"file": ".trellis/spec/webui/frontend/components-state-contracts.md", "reason": "Single editor owner, transactions, stale results, i18n and recovery"}
+{"file": ".trellis/spec/guides/cross-layer.md", "reason": "Preserve producer and consumer contracts"}
+{"file": "WebUI/frontend/WEBUI_REWRITE.md", "reason": "Approved presentation migration and deferred scope"}
+{"file": "WebUI/frontend/prototypes/timetable-studio/README.md", "reason": "Original visual reference and placeholder exclusions"}
+{"file": ".trellis/tasks/10-18-webui-completion/prd.md", "reason": "Requirements and observable acceptance"}
+{"file": ".trellis/tasks/10-18-webui-completion/design.md", "reason": "Navigation, state ownership and interaction design"}
+{"file": ".trellis/spec/webui/frontend/studio-authoring.md", "reason": "Final node-menu/suffix/local-draft contract and ownership guards"}

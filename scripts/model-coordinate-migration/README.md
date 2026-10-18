@@ -72,3 +72,52 @@ real server startup; it does not report the deferred check as successful. The mi
 checks transformed template references and keeps every ItemStack payload unchanged. Do not claim
 render recovery complete until the actual server has loaded the candidate without render-store
 corruption or missing-template errors.
+
+
+## Audited development-server run — 2026-10-18
+
+Completed against JavaRailwaysTest instance `836082a48c4f48fcb1fea4e83c57dc96`.
+Coordinate implementation: `6548a850`; migration tooling: `760cc43c`, `01384724`.
+The server was stopped normally before backup and conversion, then restarted normally.
+All server data, backup and conversion work remained on the server.
+
+Recovery directory:
+`/opt/mcsmanager/backups/javarailways/model-coordinates-20261018-a6s24mkk`.
+The full original world, both plugin data directories and matching old JARs are in
+`server-data-and-jars.tar.gz`, SHA256
+`9090b0207e08764edf194d274108881d73e2deae7cd7f0ca66f404bb3895e280`.
+The directory also retains source inventory, migration report, candidate audit,
+installed-file manifest and startup verification. Restore only with the instance stopped:
+verify the archive checksum, preserve the current state separately, then restore the original
+world, plugin data and both matching JARs together, preserving ownership and permissions.
+
+Results:
+
+- Seven data files and two JARs changed; the other 446 inventoried files were unchanged
+  before restart. All nine installed hashes matched the reviewed candidates.
+- Preserved 106 decorated rails and one render template; converted three rail configurations,
+  one signal model and seven ground placements across primary and backup definitions.
+- Scanned 319 NBT/storage files, including 275 region files; no copied Signal Wand presets
+  required conversion, and migration changed no world/player files. Rail Wand saved state
+  contains no render snapshots. World geometry, definition revision and schema versions stayed unchanged.
+- The companion JARs were patched from the installed baseline to exclude unrelated current
+  development changes: JavaRailways changed three entries (26,257 unchanged), SimpleSignals
+  four (672 unchanged), with no added or removed entries.
+- Installed JavaRailways SHA256:
+  `f2282294089a16e676ee29e2b2f7f12a91cfd0d3cda62ade4b69c346e2c4c58a`.
+- Installed SimpleSignals SHA256:
+  `996ba0b8dd9fcbf785cfbcfc69877da7f82482ed2f554f4e4bd788f5b6728543`.
+
+Validation: 1,078 JVM tests and 15 Python migration tests passed. Independent candidate
+matrix checks and real package/definition readers passed. The standalone render-reader
+check was deferred for Folia component bootstrap, then actual server startup loaded the
+render store without parse or missing-template errors. At 13:36 UTC both plugins enabled;
+Bridge health, WebUI health and homepage returned HTTP 200. Live signal inspection reported
+definition revision 46, six regions/tables/blocks and two fixed-block plus two protection signals.
+No new coordinate/render/linkage errors appeared. Existing Terra and startup physics warnings
+remain outside this change. Client visual and gameplay acceptance has not been performed.
+
+Local `models/rails.zip` and `models/jr-route-indicator.zip` were also rebuilt with only
+converted configuration entries; original copies and hashes are retained in
+`/tmp/jr-model-coordinate-zip-backups/`. Those local ZIP backups are temporary, while the
+server recovery archive above is the durable restoration point.

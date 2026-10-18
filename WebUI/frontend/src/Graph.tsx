@@ -10,11 +10,11 @@ type Pan={x:number;y:number};
 type DragState={pointerId:number;x:number;y:number;originX:number;originY:number};
 type ServicePath={serviceIndex:number;serviceId:string;points:GraphPoint[]};
 
-const pointKey=(point:GraphPoint)=>`${point.serviceIndex}:${point.stepIndex}:${point.kind}:${point.tick}:${point.location}`;
+const pointKey=(point:GraphPoint)=>`${point.serviceIndex}:${point.stepIndex}:${point.kind}:${point.location}`;
 const clamp=(value:number)=>Math.min(3.2,Math.max(.55,value));
 
 export function Graph({
-  value,onSelect,metadata,line,graphLineId,highlightedServiceIds,previewServiceIds,
+  value,onSelect,metadata,line,graphLineId,highlightedServiceIds,previewServiceIds,onSelectPoint,onDismissPoint,
 }:{
   value:SavedTimetableV1;
   metadata?:WorldMetadata;
@@ -23,6 +23,8 @@ export function Graph({
   highlightedServiceIds?:ReadonlySet<string>;
   previewServiceIds?:ReadonlySet<string>;
   onSelect?:(service:number,step:number)=>void;
+  onSelectPoint?:(point:GraphPoint,anchor:{x:number;y:number})=>void;
+  onDismissPoint?:()=>void;
 }) {
   const {locale,t}=useI18n();
   const {theme}=useTheme();
@@ -58,13 +60,14 @@ export function Graph({
   const ticks:Array<{tick:number;x:number}>=[];
   for(let tick=0;tick<=period;tick+=tickInterval)ticks.push({tick,x:layout.tickToX(tick)});
   const graphColor=(serviceIndex:number)=>line?.color||palette[serviceIndex%palette.length];
-  const reset=()=>{setPan({x:28,y:24});setScaleX(1);setScaleY(1);};
+  const reset=()=>{onDismissPoint?.();setPan({x:28,y:24});setScaleX(1);setScaleY(1);};
+  const zoom=(axis:'x'|'y',factor:number)=>{onDismissPoint?.();(axis==='x'?setScaleX:setScaleY)((current)=>clamp(current*factor));};
 
   return <div className={`graph-wrap ${panning?'is-panning':''}`}
-    onWheel={(event)=>{event.preventDefault();setPan((current)=>({x:current.x-event.deltaX,y:current.y-event.deltaY}));}}
+    onWheel={(event)=>{event.preventDefault();onDismissPoint?.();setPan((current)=>({x:current.x-event.deltaX,y:current.y-event.deltaY}));}}
     onPointerDown={(event)=>{
       if((event.target as HTMLElement).closest('.canvas-controls,[data-graph-point]'))return;
-      event.currentTarget.setPointerCapture(event.pointerId);
+      onDismissPoint?.();event.currentTarget.setPointerCapture(event.pointerId);
       drag.current={pointerId:event.pointerId,x:event.clientX,y:event.clientY,originX:pan.x,originY:pan.y};setPanning(true);
     }}
     onPointerMove={(event)=>{if(!drag.current||drag.current.pointerId!==event.pointerId)return;setPan({x:drag.current.originX+event.clientX-drag.current.x,y:drag.current.originY+event.clientY-drag.current.y});}}
@@ -72,16 +75,16 @@ export function Graph({
     onPointerCancel={()=>{drag.current=null;setPanning(false);}}>
     <div className="canvas-controls" aria-label={t('editor.graphViewport')} onPointerDown={(event)=>event.stopPropagation()}>
       <Button.Group>
-        <Tooltip title={t('editor.zoomXIn')}><Button onClick={()=>setScaleX((value)=>clamp(value*1.25))}>+X</Button></Tooltip>
-        <Tooltip title={t('editor.zoomXOut')}><Button onClick={()=>setScaleX((value)=>clamp(value*.8))}>−X</Button></Tooltip>
-        <Tooltip title={t('editor.zoomYIn')}><Button onClick={()=>setScaleY((value)=>clamp(value*1.25))}>+Y</Button></Tooltip>
-        <Tooltip title={t('editor.zoomYOut')}><Button onClick={()=>setScaleY((value)=>clamp(value*.8))}>−Y</Button></Tooltip>
+        <Tooltip title={t('editor.zoomXIn')}><Button onClick={()=>zoom('x',1.25)}>+X</Button></Tooltip>
+        <Tooltip title={t('editor.zoomXOut')}><Button onClick={()=>zoom('x',.8)}>−X</Button></Tooltip>
+        <Tooltip title={t('editor.zoomYIn')}><Button onClick={()=>zoom('y',1.25)}>+Y</Button></Tooltip>
+        <Tooltip title={t('editor.zoomYOut')}><Button onClick={()=>zoom('y',.8)}>−Y</Button></Tooltip>
         <Button className="axis-readout" disabled>{Math.round(scaleX*100)}% · {Math.round(scaleY*100)}%</Button>
         <Tooltip title={t('editor.graphReset')}><Button onClick={reset}>1:1</Button></Tooltip>
       </Button.Group>
     </div>
     <div className="canvas-sheet" style={{width:sheetWidth,height:sheetHeight,transform:`translate(${pan.x}px,${pan.y}px)`}}>
-      <svg className="diagram-svg" width={sheetWidth} height={sheetHeight} viewBox={`0 0 ${sheetWidth} ${sheetHeight}`} role="img" aria-label={t('editor.graph')}>
+      <svg className="diagram-svg" width={sheetWidth} height={sheetHeight} viewBox={`0 0 ${sheetWidth} ${sheetHeight}`} role={onSelectPoint||onSelect?'group':'img'} aria-label={t('editor.graph')}>
         <defs><pattern id="timetable-minor-grid" width="40" height="22" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 22" className="minor-grid-line"/></pattern></defs>
         <rect x={layout.left} width={Math.max(0,sheetWidth-layout.left)} height={sheetHeight} fill="url(#timetable-minor-grid)"/>
         {ticks.map(({tick,x})=><g key={tick}><line className="time-grid-line" x1={x} y1={42} x2={x} y2={sheetHeight}/><text className="time-axis tick-label" x={x+5} y={16}>{tick}</text><text className="time-axis translated-time" x={x+5} y={31}>{formatTimetableTick(tick,locale)}</text></g>)}
@@ -96,7 +99,21 @@ export function Graph({
           return <g key={`${service.serviceIndex}:${service.serviceId}`} opacity={selected?1:.28}>
             {service.points.length>1&&<polyline points={service.points.map((point)=>`${point.x},${point.y}`).join(' ')} fill="none" stroke={color} strokeWidth={selected?5:3} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={preview?'10 7':undefined} className={selected?'selected-path':undefined}/>}
             {first&&selected&&<g transform={`translate(${first.x+12} ${Math.max(43,first.y-34)})`}><rect width={labelWidth} height="25" rx="5" fill={color}/><text x={labelWidth/2} y="17" textAnchor="middle" fill="#fff" fontWeight="700" fontSize="12">{service.serviceId}</text></g>}
-            {service.points.map((point)=><circle key={pointKey(point)} data-graph-point cx={point.x} cy={point.y} r={selected?6:4.5} fill="var(--ant-color-bg-container)" stroke={color} strokeWidth={selected?4:3} onPointerDown={(event)=>event.stopPropagation()} onClick={()=>onSelect?.(point.serviceIndex,point.stepIndex)} onMouseEnter={()=>setHoveredPoint(pointKey(point))} onMouseLeave={()=>setHoveredPoint(null)}><title>{service.serviceId} · {stationNames.get(point.location)||point.location} · {point.tick} · {formatTimetableTick(point.tick,locale)}</title></circle>)}
+            {service.points.map((point)=>{
+              const label=`${service.serviceId} · ${stationNames.get(point.location)||point.location} · ${t(point.kind==='ARRIVAL'?'editor.arrivalTime':'editor.departureTime')} · ${point.tick} · ${formatTimetableTick(point.tick,locale)}`;
+              const select=(element:SVGCircleElement)=>{
+                const bounds=element.getBoundingClientRect();
+                onSelect?.(point.serviceIndex,point.stepIndex);
+                onSelectPoint?.(point,{x:bounds.left+bounds.width/2,y:bounds.top+bounds.height/2});
+              };
+              return <circle key={pointKey(point)} data-graph-point cx={point.x} cy={point.y} r={selected?6:4.5} fill="var(--ant-color-bg-container)" stroke={color} strokeWidth={selected?4:3}
+                role={onSelectPoint||onSelect?'button':undefined} tabIndex={onSelectPoint||onSelect?0:undefined} aria-label={label}
+                style={{cursor:onSelectPoint||onSelect?'pointer':undefined}}
+                onPointerDown={(event)=>event.stopPropagation()}
+                onClick={(event)=>select(event.currentTarget)}
+                onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(event.currentTarget);}}}
+                onMouseEnter={()=>setHoveredPoint(pointKey(point))} onMouseLeave={()=>setHoveredPoint(null)}><title>{label}</title></circle>;
+            })}
           </g>;
         })}
         {hoveredPoint&&layout.points.filter((point)=>pointKey(point)===hoveredPoint).map((point)=><g className="graph-point-tooltip" key={`tooltip-${pointKey(point)}`} transform={`translate(${point.x+10} ${point.y-30})`}><rect width="158" height="24" rx="5"/><text x="8" y="16">{stationNames.get(point.location)||point.location} · {point.tick}</text></g>)}

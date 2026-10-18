@@ -17,6 +17,7 @@
 | 文档 | 用途 |
 | --- | --- |
 | [组件、状态与跨层 contract](./components-state-contracts.md) | component/state/API、authoring/recovery、i18n/theme 与测试 |
+| [Studio 编辑与异步隔离](./studio-authoring.md) | 页面共享 owner、迟到响应、交路身份、图上改时刻与前置条件 |
 
 ## 核心规则
 

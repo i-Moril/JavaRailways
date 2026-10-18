@@ -2,7 +2,7 @@
 
 ## Component 与 state ownership
 
-- `App.tsx` 负责 session/world/navigation 和 page composition；复杂 authoring 工作区下沉到 `DutyEditor`，图、地图、线路、route editor 各有独立 component。
+- `App.tsx` 负责 session/world/navigation 和 page composition；时刻表、交路、校验由同一个挂载的 `DutyEditor` 管 document/history/recovery，受控页面不建立独立文档 owner。世界引用、异步写回及图点事务机制见 [Studio 编辑契约](./studio-authoring.md)。
 - 领域变换放纯函数：`authoring.ts` 管 document validation/generation，`schedule.ts` 管 service row projection，`graph.ts`/`railMap.ts` 管 view model。不要在 event handler 内复制同一规则。
 - 简单 editor 使用 reducer；document undo/redo 使用 `useDocumentHistory`，每次 accepted update 清空 future，history 默认有界 100。不要将 transient loading/error 放入可撤销领域 document。
 - async simulation/compile 返回前确认 document/run/revision 未变化；过期结果不应用到新 state。

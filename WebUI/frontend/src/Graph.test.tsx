@@ -15,6 +15,21 @@ const value:SavedTimetableV1={
 };
 
 describe('running graph component',()=>{
+  it('exposes arrival and departure points as accessible point actions without time dragging',()=>{
+    const render=(editable:boolean)=>renderToStaticMarkup(<I18nProvider><ThemeProvider><Graph value={value} graphLineId="airport" metadata={{stations:[{stationId:'harbour',berthId:'1',destinationId:'harbour@1'},{stationId:'airport',berthId:'1',destinationId:'airport@1'}]}} onSelectPoint={editable?()=>{}:undefined}/></ThemeProvider></I18nProvider>);
+    const interactive=render(true);
+    expect(interactive).toContain('role="group"');
+    expect(interactive.match(/data-graph-point="true"/g)).toHaveLength(2);
+    expect(interactive.match(/tabindex="0"/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(interactive).toContain('cursor:pointer');
+    expect(interactive).not.toContain('ew-resize');
+    expect(interactive).toContain('Departure');
+    expect(interactive).toContain('Arrival');
+    const readonly=render(false);
+    expect(readonly).toContain('role="img"');
+    expect(readonly).not.toContain('ew-resize');
+  });
+
   it('renders the studio canvas with independent axis controls',()=>{
     const html=renderToStaticMarkup(<I18nProvider><ThemeProvider><Graph value={value} graphLineId="airport" metadata={{stations:[
       {stationId:'harbour',stationDisplayName:'Harbour',berthId:'1',destinationId:'harbour@1'},

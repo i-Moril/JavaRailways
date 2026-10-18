@@ -1,22 +1,8 @@
 import type { LineV1, SavedTimetableV1, TimetableActionV1, WorldMetadata } from './types';
 
-export interface GraphViewport { scaleX:number; scaleY:number; offsetX:number; offsetY:number }
 const DARK_SERVICE_COLORS=['#56c5ff','#ffb454','#8bd17c','#d28cff','#ff718b','#54d6c5'];
 const LIGHT_SERVICE_COLORS=['#0076a8','#a94f00','#247a39','#7138ad','#b72b47','#00776c'];
 export const graphServiceColors=(theme:'dark'|'light')=>theme==='light'?LIGHT_SERVICE_COLORS:DARK_SERVICE_COLORS;
-
-export function zoomGraphViewport(viewport:GraphViewport, axis:'x'|'y', factor:number, anchor:number, origin:number, minimum=0.5, maximum=8):GraphViewport {
-  const scaleKey=axis==='x'?'scaleX':'scaleY';
-  const offsetKey=axis==='x'?'offsetX':'offsetY';
-  const previous=viewport[scaleKey];
-  const next=Math.min(maximum,Math.max(minimum,previous*factor));
-  return { ...viewport, [scaleKey]:next, [offsetKey]:anchor-origin-(anchor-origin-viewport[offsetKey])*next/previous };
-}
-
-export function graphScreenXToTick(layout:Pick<GraphLayout,'left'|'xToTick'>, viewport:GraphViewport, screenX:number):number {
-  const logicalX=layout.left+(screenX-layout.left-viewport.offsetX)/viewport.scaleX;
-  return layout.xToTick(logicalX);
-}
 
 export interface GraphPoint {
   serviceIndex: number;
@@ -41,10 +27,6 @@ export interface GraphLayout {
   points: GraphPoint[];
   tickToX: (tick: number) => number;
   xToTick: (x: number) => number;
-}
-
-export function snapTick(tick: number, snap = 20) {
-  return Math.max(0, Math.round(tick / snap) * snap);
 }
 
 export function filterTimetableForDiagramLine(value:SavedTimetableV1,lineId:string):SavedTimetableV1 {

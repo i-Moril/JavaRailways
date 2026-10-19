@@ -4,6 +4,8 @@ import work.art1st.javarailways.core.api.event.Event
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.logging.Level
+import java.util.logging.Logger
 import kotlin.reflect.KClass
 import kotlin.reflect.KFunction
 import kotlin.reflect.full.findAnnotation
@@ -97,11 +99,12 @@ internal class TypedRailEventBus<E : Event>(
                         handler.function.call(handler.listener, event)
                     } catch (failure: Throwable) {
                         successful = false
-                        System.err.println(
-                            "[JavaRailways] $busName event listener ${handler.listener::class.qualifiedName}." +
-                                "${handler.function.name} failed for ${event::class.qualifiedName}: ${failure.message}"
+                        LOGGER.log(
+                            Level.SEVERE,
+                            "$busName event listener ${handler.listener::class.qualifiedName}." +
+                                "${handler.function.name} failed for ${event::class.qualifiedName}",
+                            failure
                         )
-                        failure.printStackTrace()
                     }
                 }
             }
@@ -112,6 +115,10 @@ internal class TypedRailEventBus<E : Event>(
     private fun removeEmptyHandlerLists() {
         // Caller holds registrationLock, so a bucket cannot detach between lookup and add.
         handlers.entries.removeIf { (_, value) -> value.lists.all { it.isEmpty() } }
+    }
+
+    companion object {
+        private val LOGGER = Logger.getLogger(TypedRailEventBus::class.java.name)
     }
 
     private fun KClass<*>.allSuperTypes(): Set<KClass<*>> {

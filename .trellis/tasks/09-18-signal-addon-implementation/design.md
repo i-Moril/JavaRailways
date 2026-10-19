@@ -1,5 +1,11 @@
 # Stage 2 design
 
+## 模块错误文件与跨目标连续创建（2026-10-17）
+
+宿主提供无Bukkit对象依赖的共享日志helper，两独立插件分别拥有实例和文件；Core保留平台无关JUL错误出口，信号仅在真实故障状态变化时向现有manager报告。文件、队列及关闭机制归[Bukkit错误文件](../../spec/bukkit-plugin/backend/error-logging.md)，正常禁行与实际异常的分类归[JS规则失败处理](../../spec/simple-signals/backend/js-signal-rules.md#错误文件与正常禁行的区别)，不在此复制第二套合同。
+
+Signal Wand左键新入口复用已存在的右键目标判型/选型流程，只先保存待摆放binding；上次controlKind不决定新目标类别。附属/表示器的明确待摆放意图保持，既有设备走现场精确编辑。机制和失败边界归[工具合同](../../spec/simple-signals/backend/section-authoring-wands.md#现场创建选型与精确编辑2026-10-17)，不加模式、PDC字段、世界版本或扫描。
+
 ## 统一区间工具与自动判型（2026-10-16，离线完成，未部署）
 
 统一玩家工具与边界输入，不合并FixedBlock/ProtectionRegion的业务定义。创建沿用待完成边界和现有图切分，完整围合后按实际内部是否包含道岔或平面交叉冲突选择生成目标；普通闭塞仍复用BlockPathBuilder和运营方向校验，保护区域仍复用正式resolver与自动进路生成。旧区域补全保留原身份/类型/设备。实际算法及性能约束归工具与区域owner规范，研究见[交叉围合定位](research/unified-section-crossing-enclosure.md)。

@@ -23,6 +23,7 @@
 | [铁路编辑标记视觉规范](./editor-markers.md) | 点、方向、区间和警告的共用含义；CURRENT临时文字公开API、玩家隔离及关闭完成；不统一业务模型 |
 | [通用模型显示与轨道定位 API](./model-presentation-api.md) | 曲线查询、不可变模型定义、完整场景应用、跨线程显示与清理完成通知 |
 | [每车 JS 行为](./car-behavior.md) | CURRENT：车厢独立脚本状态、逐车调度、延迟效果汇总与来源包快照 |
+| [模块错误文件](./error-logging.md) | 独立插件各自errors.log、JUL出口、后台串行追加/轮转与关闭 |
 
 ## 核心规则
 

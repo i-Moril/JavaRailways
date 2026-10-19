@@ -46,7 +46,8 @@ internal class SignalPackEpochRuntime private constructor(
     private val logic: SignalLogicRuntime?,
     private val bindingsByDeviceId: Map<String, PreparedBinding>,
     private val evaluationOrder: List<String>,
-    private val unavailableReasonsByDeviceId: Map<String, String> = emptyMap()
+    private val unavailableReasonsByDeviceId: Map<String, String> = emptyMap(),
+    private val reportFailure: (String, Throwable) -> Unit = { _, _ -> }
 ) {
     internal var issueChanged: (String, String?) -> Unit = { _, _ -> }
 
@@ -133,6 +134,12 @@ internal class SignalPackEpochRuntime private constructor(
                 changed += deviceId
                 if (evaluationFailure != null) issueChanged(deviceId, (next as SectionSignalState.Unavailable).reason)
                 else if (next is SectionSignalState.Available) issueChanged(deviceId, null)
+                evaluationFailure?.let { failure ->
+                    reportFailure(
+                        "signal-rule-failed world=${publication.definitions.worldId} device=$deviceId " +
+                            "type=${prepared.signal.signalType} logic=${prepared.signal.logicId} " +
+                            "stamp=${occupancy.stamp} definition=${publication.definitions.definitionRevision}", failure)
+                }
             }
         }
         val expected = bindingsByDeviceId.keys + unavailableReasonsByDeviceId.keys
@@ -287,6 +294,7 @@ internal class SignalPackEpochRuntime private constructor(
             catalog: SignalPackCatalog,
             logic: SignalLogicRuntime,
             bindings: Collection<SignalTypeBinding>,
+            reportFailure: (String, Throwable) -> Unit = { _, _ -> },
             railSpeedLimits: ((TopologyState, Collection<UUID>) -> Map<UUID, Double?>)? = null
         ): SignalPackEpochRuntime {
             val byDevice = bindings.associateBy(SignalTypeBinding::deviceId)
@@ -367,7 +375,8 @@ internal class SignalPackEpochRuntime private constructor(
                 logic,
                 Collections.unmodifiableMap(prepared.toSortedMap()),
                 java.util.List.copyOf(order),
-                Collections.unmodifiableMap(unavailable)
+                Collections.unmodifiableMap(unavailable),
+                reportFailure
             )
         }
 

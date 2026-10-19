@@ -44,6 +44,12 @@ import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalDefinition
 import work.art1st.javarailways.simplesignals.signal.ProtectionSignalKind
 import work.art1st.javarailways.simplesignals.signal.RouteIndicatorDefinition
+import work.art1st.javarailways.simplesignals.runtime.SignalDeviceDiagnostics
+import work.art1st.javarailways.simplesignals.runtime.SignalScanTerminationDiagnostic
+import work.art1st.javarailways.simplesignals.runtime.SectionSignalState
+import work.art1st.javarailways.simplesignals.runtime.SectionSignalOutput
+import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
+import java.time.Instant
 import java.lang.reflect.Proxy
 import java.util.ArrayDeque
 import java.util.Optional
@@ -389,44 +395,63 @@ class SignalWandHandlerTest {
     }
 
 
-    @Test fun `left click binds entrance into item state and increments revision`() = Fixture().use { f ->
-        f.tool = f.tool.copy(binding = null)
-        val original = f.tool
-        f.click(Action.LEFT_CLICK_AIR)
-        f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0)))
-        f.drainOwners(); f.drainWorkers(); f.drainOwners()
-
-        assertEquals(original.itemId, f.tool.itemId)
-        assertEquals(original.stateRevision + 1, f.tool.stateRevision)
-        assertEquals(f.binding, f.tool.binding)
-        assertTrue(f.messages.last().toString().contains("Bound"))
+    @Test fun `one wand binds and places block then protection then block using each actual entrance`() = Fixture().use { f ->
+        f.tool = f.tool.copy(binding = null, blockDefaultType = "test:a")
+        val itemId = f.tool.itemId
+        for ((index, protection) in listOf(false, true, false).withIndex()) {
+            f.protectionEntrance = protection
+            f.target = CompletableFuture()
+            val revision = f.tool.stateRevision
+            f.click(Action.LEFT_CLICK_AIR)
+            f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0))); f.drain()
+            if (protection) {
+                assertEquals("Cancel creation", f.page!!.exit!!.first)
+                assertEquals(1, f.page!!.columns)
+                f.page!!.options.first().second(); f.drain()
+                assertEquals(listOf("A", "B"), f.page!!.options.map { it.first })
+                f.page!!.options.last().second(); f.drain()
+            }
+            val expected = if (protection) ProtectionCurrentEntrySignalWandBinding(f.worldId, "test:entry", NewProtectionSignal)
+                else f.binding
+            assertEquals(itemId, f.tool.itemId)
+            assertEquals(revision + 1, f.tool.stateRevision)
+            assertEquals(expected, f.tool.binding)
+            assertEquals(if (protection) SignalWandControlKind.PROTECTION_CURRENT_ENTRY else SignalWandControlKind.FIXED_BLOCK,
+                f.tool.controlKind)
+            assertEquals(if (protection) "test:b" else "test:a", f.tool.signalType)
+            assertEquals("test:a", f.tool.blockDefaultType)
+            assertEquals(index, f.performs)
+            f.rightClick(); f.drain()
+            assertEquals(expected, f.placedBindings.last())
+            assertEquals(index + 1, f.performs)
+            assertNull(f.tool.binding)
+            assertEquals(revision + 2, f.tool.stateRevision)
+        }
     }
 
 
 
-    @Test fun `protection entrance chooser persists exact selected identity and stale callback cannot replace item`() = Fixture().use { f ->
-        val selected = ProtectionCurrentEntrySignalWandBinding(f.worldId, "test:entry",
-            ExistingProtectionSignal("test:second", 7))
-        f.resolvedChoices = listOf(
-            SignalWandChoice(ProtectionCurrentEntrySignalWandBinding(f.worldId, "test:entry", NewProtectionSignal), WandText.diagnostic("new")),
-            SignalWandChoice(selected, WandText.diagnostic("existing")))
-        f.tool = f.tool.copy(controlKind = SignalWandControlKind.PROTECTION_CURRENT_ENTRY, binding = null)
+    @Test fun `protection entrance creation persists selected type and stale type callback cannot replace item`() = Fixture().use { f ->
+        f.protectionEntrance = true
+        f.tool = f.tool.copy(binding = null)
         f.click(Action.LEFT_CLICK_AIR)
         f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0)))
-        f.drainOwners(); f.drainWorkers(); f.drainOwners()
-        assertEquals(listOf("1. new", "2. existing"), f.choices.map { it.label.render(java.util.Locale.US) })
-        f.chooseChoice!!(f.choices.last()); f.drainOwners(); f.drainWorkers(); f.drainOwners()
-        assertEquals(selected, f.tool.binding)
+        f.drain()
+        f.page!!.options.first().second(); f.drain()
+        f.page!!.options.last().second(); f.drain()
+        assertEquals(ProtectionCurrentEntrySignalWandBinding(f.worldId, "test:entry", NewProtectionSignal), f.tool.binding)
+        assertEquals("test:b", f.tool.signalType)
         assertEquals(1L, f.tool.stateRevision)
 
         f.target = CompletableFuture()
         f.tool = f.tool.copy(binding = null)
         f.click(Action.LEFT_CLICK_AIR)
         f.target.complete(Optional.of(RailTarget(f.rail, 2.0, 0.0)))
-        f.drainOwners(); f.drainWorkers(); f.drainOwners()
-        val staleChoice = f.chooseChoice!!
+        f.drain()
+        f.page!!.options.first().second(); f.drain()
+        val staleChoice = f.page!!.options.first().second
         f.tool = f.tool.copy(stateRevision = f.tool.stateRevision + 1)
-        staleChoice(f.choices.first()); f.drainOwners(); f.drainWorkers(); f.drainOwners()
+        staleChoice(); f.drain()
         assertNull(f.tool.binding)
     }
 
@@ -543,7 +568,34 @@ class SignalWandHandlerTest {
         f.rightClick(); f.drain()
         assertEquals(0, f.targetCalls)
         assertTrue(f.page!!.body.any { it.contains("first rule result") })
+        val initialReport = requireNotNull(f.page!!.clipboardText)
+        assertTrue(initialReport.contains("worldId=${f.worldId}"))
+        assertTrue(initialReport.contains("deviceId=${original.id}; revision=${original.revision}"))
+        assertTrue(initialReport.contains("state=No baseline"))
+        assertTrue(initialReport.contains("Forward observation: unknown"))
+        f.page!!.options.first { it.first == "More diagnostics…" }.second(); f.drain()
+        assertEquals(initialReport, f.page!!.clipboardText)
+        assertEquals(1, f.diagnosticReads)
+        f.page!!.options.first { it.first == "Back" }.second(); f.drain()
+        assertEquals(initialReport, f.page!!.clipboardText)
+        val evaluated = Instant.parse("2026-10-17T01:02:03Z")
+        f.diagnostic = SignalDeviceDiagnostics(SectionSignalState.Unavailable("raw failure: sample"),
+            RailwayStateStamp(f.worldId.toString(), 42, 7), evaluated,
+            terminations = listOf(SignalScanTerminationDiagnostic("cycle", 10.0, "1.2"),
+                SignalScanTerminationDiagnostic("custom-reason", 12.0, "2")))
         f.page!!.options.first { it.first == "Refresh diagnostics" }.second(); f.drain()
+        val failedReport = requireNotNull(f.page!!.clipboardText)
+        assertTrue(failedReport.contains("raw failure: sample"))
+        assertTrue(failedReport.contains("state=Unavailable"))
+        assertTrue(failedReport.contains("physicsEpoch=42, topologyRevision=7"))
+        assertTrue(failedReport.contains(evaluated.toString()))
+        assertTrue(failedReport.contains("Cycle encountered"))
+        assertTrue(failedReport.contains("custom-reason"))
+        assertFalse(failedReport.contains("signal.diagnostic.reason.custom-reason"))
+        f.diagnostic = SignalDeviceDiagnostics(SectionSignalState.Available(SectionSignalOutput(null, "clear")))
+        f.page!!.options.first { it.first == "Refresh diagnostics" }.second(); f.drain()
+        assertTrue(requireNotNull(f.page!!.clipboardText).contains("JS speedLimitMetersPerSecond=null; modelVariant=clear"))
+        assertEquals(3, f.diagnosticReads)
         assertEquals(0, f.typeChanges)
         f.page!!.options.first { it.first.contains("signal type") }.second(); f.drain()
         f.page!!.options.first { it.first == "B" }.second(); f.drain()
@@ -553,6 +605,13 @@ class SignalWandHandlerTest {
         assertEquals(1, f.typeChanges)
         assertEquals(original, f.placedDevice)
         assertTrue(f.placements.isEmpty())
+        f.diagnostic = null
+        f.placedDevice = original.copy(kind = PlacedSignalKind.INDICATOR)
+        f.handler.openLocalEditor(f.player, f.tool, f.placedDevice); f.drain()
+        val indicatorReport = requireNotNull(f.page!!.clipboardText)
+        assertTrue(indicatorReport.contains("state=Not applicable (indicator has no independent JS)"))
+        assertFalse(indicatorReport.contains("state=No baseline"))
+        assertFalse(indicatorReport.contains("No JS output snapshot"))
     }
 
     @org.junit.jupiter.params.ParameterizedTest
@@ -650,6 +709,7 @@ class SignalWandHandlerTest {
         var placedDevice = PlacedSignalChoice(PlacedSignalKind.FIXED_BLOCK, "test:device", 2,
             ModelPlacement.Ground(ModelPose(1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0)))
         val placements = mutableListOf<ModelPlacement>()
+        val placedBindings = mutableListOf<SignalWandBinding>()
         var available: List<AvailableSignalType>? = DEFAULT_TYPES
         var modelIds: List<String>? = listOf("test:model")
         var primaryModels = mapOf("test:a" to "test:primary", "test:b" to "test:other")
@@ -664,9 +724,10 @@ class SignalWandHandlerTest {
         var protectionEntrance = false
         var occupiedPrimary = false
         var typeChanges = 0
+        var diagnostic: SignalDeviceDiagnostics? = null
+        var diagnosticReads = 0
         var choices = emptyList<SignalWandChoice>()
         var chooseChoice: ((SignalWandChoice) -> Unit)? = null
-        var resolvedChoices: List<SignalWandChoice> = listOf(SignalWandChoice(binding, WandText.diagnostic("fixed")))
         var statusTick: (() -> Unit)? = null
         var statusRetired: (() -> Unit)? = null
         var statusStarts = 0
@@ -727,7 +788,10 @@ class SignalWandHandlerTest {
             override fun protectionEntrance(capture: SignalWandCapture, point: RailPositionSnapshot) = protectionEntrance
             override fun occupiedPrimary(capture: SignalWandCapture, binding: FixedBlockSignalWandBinding) = occupiedPrimary
             override fun deviceConfiguration(capture: SignalWandCapture, device: PlacedSignalChoice) = SignalDeviceConfiguration("test:a", "test:primary")
-            override fun diagnostics(capture: SignalWandCapture, device: PlacedSignalChoice): work.art1st.javarailways.simplesignals.runtime.SignalDeviceDiagnostics? = null
+            override fun diagnostics(capture: SignalWandCapture, device: PlacedSignalChoice): SignalDeviceDiagnostics? {
+                diagnosticReads++
+                return diagnostic
+            }
             override fun changeType(capture: SignalWandCapture, device: PlacedSignalChoice,
                 signalType: String?, modelId: String?, active: () -> Boolean): SignalWandOutcome {
                 check(!ownerThread); require(active() && current); typeChanges++
@@ -798,13 +862,19 @@ class SignalWandHandlerTest {
             override fun resolveEntrance(capture: SignalWandCapture, controlKind: SignalWandControlKind,
                 mode: SignalWandMode, point: RailPositionSnapshot): List<SignalWandChoice> {
                 check(!ownerThread)
-                return resolvedChoices
+                return listOf(SignalWandChoice(when (controlKind) {
+                    SignalWandControlKind.FIXED_BLOCK -> binding
+                    SignalWandControlKind.PROTECTION_CURRENT_ENTRY ->
+                        ProtectionCurrentEntrySignalWandBinding(worldId, "test:entry", NewProtectionSignal)
+                    else -> error("Unexpected entrance kind $controlKind")
+                }, WandText.diagnostic("new")))
             }
             override fun place(capture: SignalWandCapture, binding: SignalWandBinding,
                 placement: ModelPlacement, active: () -> Boolean): SignalWandOutcome {
                 check(!ownerThread)
                 assertTrue(active())
                 placements += placement
+                placedBindings += binding
                 performs++
                 return SignalWandOutcome(WandText.diagnostic("updated"), applied = true)
             }

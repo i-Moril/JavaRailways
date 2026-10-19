@@ -22,6 +22,8 @@ import java.util.concurrent.Future
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import java.util.logging.Level
+import java.util.logging.Logger
 
 /** Identifies who caused a physics epoch to start. */
 enum class PhysicsWakeSource {
@@ -780,7 +782,7 @@ class PhysicsCoordinator(
                         } catch (failure: Throwable) {
                             if (status != PhysicsCoordinatorStatus.RUNNING) throw failure
                             val reason = "collision coupling failed between ${first.id} and ${second.id}: ${failure.message}"
-                            System.err.println("[JavaRailways] $reason")
+                            LOGGER.log(Level.SEVERE, reason, failure)
                             if (attachedWorld.getTrain(first.id) === first) first.derail(reason)
                             if (attachedWorld.getTrain(second.id) === second) second.derail(reason)
                         } finally {
@@ -799,8 +801,8 @@ class PhysicsCoordinator(
     private fun maybeLogClampedDelta(epoch: Long, rawDeltaMillis: Double, deltaMillis: Double, nowNanos: Long) {
         if (nowNanos < nextClampLogNanos) return
         nextClampLogNanos = nowNanos + TimeUnit.MILLISECONDS.toNanos(CLAMP_LOG_INTERVAL_MILLIS)
-        System.err.println(
-            "[JavaRailways] Physics delta clamped in epoch $epoch: " +
+        LOGGER.warning(
+            "Physics delta clamped in epoch $epoch: " +
                 "raw=${rawDeltaMillis}ms applied=${deltaMillis}ms"
         )
     }
@@ -813,8 +815,8 @@ class PhysicsCoordinator(
             }
             if (wallNanos >= TimeUnit.MILLISECONDS.toNanos(epochOverloadThresholdMillis)) {
                 overloadTimesNanos.addLast(nowNanos)
-                System.err.println(
-                    "[JavaRailways] Physics epoch overload: ${wallNanos / 1_000_000.0}ms " +
+                LOGGER.warning(
+                    "Physics epoch overload: ${wallNanos / 1_000_000.0}ms " +
                         "(${overloadTimesNanos.size}/$overloadsBeforeStall in ${overloadWindowMillis}ms)"
                 )
             }
@@ -892,6 +894,7 @@ class PhysicsCoordinator(
 
     companion object {
         const val BOOTSTRAP_DELTA_MILLIS = 50.0
+        private val LOGGER = Logger.getLogger(PhysicsCoordinator::class.java.name)
         const val FALLBACK_PERIOD_MILLIS = 50L
         const val MAIN_HEARTBEAT_TIMEOUT_MILLIS = 75L
         const val DEFAULT_EPOCH_OVERLOAD_THRESHOLD_MILLIS = 50L

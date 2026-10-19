@@ -15,6 +15,8 @@ import java.util.concurrent.Future
 import java.util.concurrent.FutureTask
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.atomic.AtomicLong
+import java.util.logging.Level
+import java.util.logging.Logger
 
 class TickManagerImpl(
     private val scheduler: ScheduledExecutorService,
@@ -111,7 +113,7 @@ class TickManagerImpl(
             tickLatch.await()
             val waitNanos = System.nanoTime() - waitStartNanos
             val wallTimeNanos = System.nanoTime() - asyncPhaseStartNanos
-            tickErrors.forEach { it.printStackTrace() }
+            tickErrors.forEach { LOGGER.log(Level.SEVERE, "Generic async tick $currentTickIndex failed", it) }
 
             lastAsyncPhaseMetricsSnapshot = AsyncTickPhaseMetrics(
                 tickIndex = currentTickIndex,
@@ -236,6 +238,7 @@ class TickManagerImpl(
     }
 
     companion object {
+        private val LOGGER = Logger.getLogger(TickManagerImpl::class.java.name)
         private const val DEFAULT_COMMIT_MAILBOX_CAPACITY = 65_536
     }
 

@@ -1,5 +1,25 @@
 # Stage 2 implementation plan
 
+> 2026-10-19提交收尾：用户已明确批准提交主工作区积压改动。下文“待提交确认”为历史批次状态，当前分组、检查和整合结果归[本次收尾记录](research/backlog-commit-2026-10-19.md)。Stage 2整体游戏验收仍未完成，不因本次提交而归档。
+
+## 当前批次：错误文件与连续创建状态（2026-10-17，本地）
+
+1. [x] 复用现有plugin logger/report边界，为宿主及独立Signals接入模块标识、原始异常、串行异步errors.log、轮转/关闭；信号真实异常转Unavailable前报告，正常HostUnavailable/等待不冒充错误；不改既有业务日志职责。
+2. [x] 定位Signal Wand跨闭塞/保护目标的残留状态，在状态owner修复并用既有handler用例覆盖双向连续创建，不新增全局类型菜单或重领工具绕过。
+3. [x] 独立复核、相应模块门禁及JAR/边界验证，更新owner规范，给出准确覆盖与未覆盖边界。代码仍待小批提交确认，不自动部署，不归档Stage 2。
+
+改动边界：日志由平台层写盘而非Core/Basic文件依赖，信号只报告已有真实失败，不增加线路扫描；Wand状态不改变区间定义或信号求值。主控负责文档/构建/提交，两名实现分别拥有日志运行时和authoring，均保留上批已部署未提交代码。
+
+实现：共用纯JVM`PluginErrorLog`供两独立插件各自注册/关闭，Core三类原stderr出口转JUL；文件格式、5MiB阈值/单备份及后台关闭归[错误文件owner](../../spec/bukkit-plugin/backend/error-logging.md)。信号复用manager报告及原状态比较，保留真实Graal异常链；正常无ready/已知不可用观测不当错误。Wand左键原来直接读上次controlKind，现与右键共用实际入口选型，bindOnly仅保存待摆放意图；已占用固定入口不隐式移动旧设备，改用既有现场精确编辑。
+
+验证：Wand原28项定向回归4秒通过；日志首次编译通过，3项真实IO测试暴露匿名Handler继承formatter属性遮蔽，改为messageFormatter消除NPE后，日志/真实规则及Wand聚焦10秒通过。最终隔离候选Core409、Basic410、Bukkit419、Signals595，共1833项，0失败/错误/跳过；受影响模块完整门禁55秒，另含宿主完整shadowJar、Java signal API consumer编译、Signals JAR隔离和模块边界检查。新测试方法仅writer3项与真实Graal/epoch1项，Wand扩展既有用例，不新增矩阵。独立复核纠正region完成回调阻塞排空及未追踪commonpool报告的关闭缺口，最终源码与候选checksum一致、diff检查通过。未跑SimpleATO/SimpleATOBukkit/WebUI自身测试，不冒称全仓门禁或真实Folia/客户端验收。
+
+候选仍在`/tmp/javarailways-fixed-block-authority.nsoyCU`，宿主完整JAR SHA256=`13fb17ac31bb1223db7be5f4299d3dfafc003c406b977819d95c3bdab0d8ed6c`，Signals=`1605f4ffdbdbde7cbc4ad9c2cda7adf17f11caaad33de6c732aa59c1d41e0433`。本批没有SSH/部署/存档或资源包更改；下次经授权部署须两JAR一起更新（新Signals消费宿主新日志API），无需改玩家配置或客户端资源。模块文件只覆盖已报告WARNING/SEVERE及显式故障，不是任意catch、stderr或独立WebUI进程的通用捕获器。提交计划已向用户请求一次确认，未收到批准前不提交。
+
+随后用户批准部署，08:35建立外部完整恢复点并更新两JAR。现场错误文件成功写入，同时暴露selectPlan正常未ready仍用require抛普通异常的分类遗漏；最小修复仅将两处守卫转ExpectedUnavailable，保持reason/0限制/授权，ready却缺routeId/plan仍真实报错。扩展既有真实保护信号方法同时覆盖当前入口与固定进路信号无请求、PREPARING及兄弟进路选择不报错；不新增测试方法。独立复核后完整Signals595项0失败/错误/跳过及JAR/边界门禁38秒通过，候选checksum一致，不重测未变的其他模块。08:41第二个完整恢复点后只更新Signals，最终SHA256=`40c46158b63f2031dc5fc87599305d739ce232608118dcd18c74dadceb045059`；宿主仍为上述13fb17ac。准确恢复点、第一次误报历史与启动验收归[当日部署记录](research/dev-server-deployment-2026-10-17.md#后续错误文件与wand连续创建部署0835-utc起)。本节前述“未部署”为当时离线状态，不再代表当前部署。代码提交仍待确认，Stage 2不归档。
+
+最终08:42正常启动、定义revision45原样加载、ATO RUNNING及health/WebUI200，实际错误文件module/原异常链已确认；修正后无新增正常未ready记录。另保留待处理现场问题：整服停用时SimpleSignals异步模型清理未完成，宿主DefaultModelPresentationService.close先关闭导致cleanup completion异常；需单独审查停服时序，不能在本批声称已修复或忽略此异常。客户端连续创建、实际复制体验仍待玩家验证。
+
 ## 当前收尾批次（2026-10-14，Core收尾后恢复Stage 2）
 
 ### 统一区间工具与自动判型（2026-10-16，离线完成，未部署）
@@ -1075,6 +1095,16 @@ Java consumer编译门禁复用up-to-date结果；源checksum同步检查、`git
 ## 正式Signal Wand设置、现场编辑和诊断（2026-10-17）
 
 用户已批准实施及验证后部署，不再修改模拟器代替产品接线。主控保留无关脏文件，复用既有Dialog、数值编辑器、定义事务和发布快照；不改行车策略、默认灯色、时刻表、资源仲裁或版本号。
+
+### 后续反馈：观测集合与复制诊断（2026-10-17，本地批次）
+
+1. [x] 用真实definitions→compiled graph/areas→signal epoch回归复现无直接设备保护进路丢失观测，修正ProtectionSignalCompiler几何集合，与既有全部合法保护进路一致；不把missing当clear，保留旧几何复用。
+2. [x] 使用已依赖Paper原生客户端clipboard action复制同一次诊断的完整文字，复用现有页与本地化，不增加文件/JS/扫描操作；验证空baseline/不可用/不限速及来源字段不混淆。
+3. [x] 独立check、门禁和owner规范同步。错误日志仅在研究/讨论记录建议，不实现，不部署。开发服只读定义副本revision40用于核对现象，保留远端最新玩家数据。
+
+验证：原编译器下新增真实回归准确报出`test:lower has no same-epoch observation`；修复后验证两分支首次baseline、非选择支路实际占用及离开恢复。完整SimpleSignals套件594项通过（0失败/错误/跳过），最终门禁29秒；JAR完整性及模块边界检查通过，候选全src与工作区校验一致。唯一新增测试方法为上述真实回归；复制行为补入既有handler用例，旧进路编辑断言区分“固定闭塞几何不变”和“保护进路几何正确替换”。中英键及diff检查通过。未运行全仓库测试、未部署，原生剪贴板实际体验须游戏内另验。独立复核纠正表示器没有独立JS却被误标缺baseline的报告文本。待按批准的小批次提交，不归档Stage 2。
+
+随后用户批准先部署：07:37正常保存停服、外部完整配置及旧JAR备份校验，07:37:56仅替换Signals，其余123文件未变；07:38:26正常启动，定义revision44原样加载、ATO RUNNING、bridge健康、WebUI200。备份及候选hash、一次启动期物理超时告警归[部署记录后续节](research/dev-server-deployment-2026-10-17.md#后续保护进路观测与复制诊断部署07370739-utc)。上述“未部署”为离线批次历史状态；客户端验收仍待完成，日志写入未实现，代码提交另待确认。
 
 1. [x] 设置与创建：首页直接轨道预设、可空区间默认类型子菜单、并排应用/取消；创建按实际入口进入选型/用途页，不再全局选控制对象。F与物品身份/修订检查保留。
 2. [x] 宿主通用模型拾取：显式模型局部选取盒、点击时视线求交；复用owner/world/objectId及handle生命周期，不以原点最近代替点中，不新增逐tick扫描。正式四灯包声明选取范围。

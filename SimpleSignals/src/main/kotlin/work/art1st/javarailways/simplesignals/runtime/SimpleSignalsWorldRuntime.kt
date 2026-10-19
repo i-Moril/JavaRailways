@@ -1022,11 +1022,14 @@ internal class SimpleSignalsWorldRuntimeManager(
         if (packages != null) {
             return try {
                 SectionOccupancyRuntime.from(publication,
-                    SignalPackEpochRuntime.compile(publication, packages.catalog, packages.logic, bindings) { topology, rails ->
+                    SignalPackEpochRuntime.compile(publication, packages.catalog, packages.logic, bindings,
+                        reportFailure = ::reportModelFailure) { topology, rails ->
                         infrastructure.railSpeedLimits(publication.definitions.worldId, topology, rails)
                     }.also { bindIssues(it, publication) })
             } catch (failure: Exception) {
                 if (fallback != SignalPackFallback.ANY_FAILURE) throw failure
+                reportModelFailure("signal-rule-preparation-failed world=${publication.definitions.worldId} " +
+                    "definition=${publication.definitions.definitionRevision} topology=${publication.topology.revision}", failure)
                 SectionOccupancyRuntime.from(publication, SignalPackEpochRuntime.unavailable(
                     publication, bindings, "signal type binding is unavailable: ${describe(failure)}").also { bindIssues(it, publication) })
             }

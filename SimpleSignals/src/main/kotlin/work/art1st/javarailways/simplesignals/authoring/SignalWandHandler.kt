@@ -370,8 +370,13 @@ internal class SignalWandHandler(
         }
         val worldId = player.world.uid
         val session = sessions.begin(playerId, worldId, state) ?: return
+        // A remembered kind is not an entrance choice; only an explicit display-device intent pins it.
+        val choosingEntrance = operation == SignalWandOperation.BIND &&
+            state.binding !is AttachedSignalWandBinding && state.binding !is RouteIndicatorSignalWandBinding
         val captured = try {
-            backend.capture(worldId, state.signalType, state.presentationModelId)
+            if (choosingEntrance) {
+                backend.capture(worldId, null)
+            } else backend.capture(worldId, state.signalType, state.presentationModelId)
         } catch (failure: Exception) {
             session.busy.set(false)
             player.sendMessage(Component.text("SimpleSignals: ${failure.message ?: failure.javaClass.simpleName}"))
@@ -505,10 +510,14 @@ internal class SignalWandHandler(
                                 if (dot >= 0) ViewDirection.AB else ViewDirection.BA, selected.arcLength())
                             when (operation) {
                                 SignalWandOperation.BIND -> {
-                                    val choices = backend.resolveEntrance(captured, state.controlKind, state.mode, point)
-                                    if (state.controlKind == SignalWandControlKind.FIXED_BLOCK) {
-                                        completeBinding(choices.single().binding)
-                                    } else continueChoice(choices, deleting = false)
+                                    if (!choosingEntrance) {
+                                        continueChoice(backend.resolveEntrance(captured, state.controlKind, state.mode, point), deleting = false)
+                                    } else entity(player) {
+                                        if (ownerCurrent()) authoringFlow(player, state) { capture, page, reply, active ->
+                                            chooseCreation(player, state, capture, point, null, page, reply, active, locale,
+                                                bindOnly = true)
+                                        }
+                                    }
                                 }
                                 SignalWandOperation.PLACE -> {
                                     val placement = state.railPreset?.let { preset ->
@@ -593,16 +602,16 @@ internal class SignalWandHandler(
 
     private fun chooseCreation(player: Player, state: SignalWandState, capture: SignalWandCapture,
         point: RailPositionSnapshot, ground: ModelPlacement.Ground?, page: (SignalWandDialog) -> Unit,
-        reply: (String) -> Unit, active: () -> Boolean, locale: java.util.Locale) {
+        reply: (String) -> Unit, active: () -> Boolean, locale: java.util.Locale, bindOnly: Boolean = false) {
         if (!backend.protectionEntrance(capture, point)) {
-            beginCreation(player, state, capture, point, ground, SignalWandControlKind.FIXED_BLOCK, null, page, reply, active, locale)
+            beginCreation(player, state, capture, point, ground, SignalWandControlKind.FIXED_BLOCK, null, page, reply, active, locale, bindOnly)
             return
         }
         val kinds = listOf(SignalWandControlKind.PROTECTION_CURRENT_ENTRY, SignalWandControlKind.PROTECTION_FIXED_ROUTE,
             SignalWandControlKind.ROUTE_INDICATOR)
         page(SignalWandDialog(WandI18n.format(locale, "signal.creation.purpose"), options = kinds.map { kind ->
             WandI18n.format(locale, "control.${kind.name}") to {
-                beginCreation(player, state, capture, point, ground, kind, null, page, reply, active, locale)
+                beginCreation(player, state, capture, point, ground, kind, null, page, reply, active, locale, bindOnly)
             }
         }, exit = WandI18n.format(locale, "signal.creation.cancel") to { reply(WandI18n.format(locale, "signal.editor.closed")) }, columns = 1))
     }
@@ -610,7 +619,7 @@ internal class SignalWandHandler(
     private fun beginCreation(player: Player, state: SignalWandState, capture: SignalWandCapture,
         point: RailPositionSnapshot?, ground: ModelPlacement.Ground?, kind: SignalWandControlKind,
         existingBinding: SignalWandBinding?, page: (SignalWandDialog) -> Unit, reply: (String) -> Unit,
-        active: () -> Boolean, locale: java.util.Locale) {
+        active: () -> Boolean, locale: java.util.Locale, bindOnly: Boolean = false) {
         fun text(key: String, vararg values: Any?) = WandI18n.format(locale, key, *values)
         val modelOnly = kind == SignalWandControlKind.ATTACHED_SIGNAL || kind == SignalWandControlKind.ROUTE_INDICATOR
         fun selected(id: String) {
@@ -635,7 +644,7 @@ internal class SignalWandHandler(
                 require(active() && backend.current(typed)) { text("editor.selection.expired") }
                 require(binding !is FixedBlockSignalWandBinding || !backend.occupiedPrimary(typed, binding)) {
                     text("signal.creation.occupied") }
-                if (point == null) {
+                if (bindOnly || point == null) {
                     entity(player) {
                         if (canUse(player) && player.isOnline && player.world.uid == typed.worldId && toolInHand(player) == state && active()) {
                             val replacement = state.copy(stateRevision = Math.addExact(state.stateRevision, 1), controlKind = kind,

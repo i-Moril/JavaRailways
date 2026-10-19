@@ -38,6 +38,7 @@ interface EventRegistration : AutoCloseable {
 - `@HandlesEvent` member 必须只有 receiver + 一个对应 root subtype 参数；非法 handler当前不会注册。private handler可被反射调用。
 - priority 固定 `HIGHEST → HIGH → MEDIUM → LOW → LOWEST`。同 declared type/priority 保持插入序；不同 supertype不承诺总顺序。
 - callback `Throwable` 被记录后继续后续 listener；无 cancellation、无 state rollback。
+- 错误通过以`TypedRailEventBus`命名的JDK JUL logger携带原Throwable报告，不直接写stderr。平台可订阅Core命名logger写自己的错误文件；Core不拥有writer或Bukkit依赖。文件机制归[Bukkit错误日志](../../bukkit-plugin/backend/error-logging.md)。
 - `close()` 幂等，只移除该次 registration；此前已捕获派发快照中的 callback 仍可执行，关闭不等待在途 callback。
 
 ### 注册变更与并发派发

@@ -69,12 +69,9 @@ internal class CompiledProtectionSignals private constructor(
             }
 
             val geometryCatalog = FixedBlockCatalog(allowTurnoutGeometry = true)
-            val indicatorEntries = indicators.mapNotNullTo(hashSetOf()) { it.entryBoundaryId }
-            val observedRouteIds = routeIdsBySignal.values.flatten().toSortedSet().also { ids ->
-                routes.routesById.values.filter { it.definition.entryBoundaryId in indicatorEntries }
-                    .forEach { ids += it.definition.routeId }
-            }
-            val geometryDefinitions = observedRouteIds.map { id ->
+            // Upstream signals observe every legal branch, including routes with no local device.
+            // Keep the monitored section universe identical to the prepared observation graph.
+            val geometryDefinitions = routes.routesById.keys.sorted().map { id ->
                 val route = routes.routesById.getValue(id)
                 FixedBlockDefinition(id, revision, route.definition.traversals.map {
                     FixedBlockTraversal(it.railId, it.facing, it.lowerAbMeters, it.upperAbMeters)

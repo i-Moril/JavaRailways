@@ -82,6 +82,14 @@ world `type`。另一套完整信号系统插件可以拥有自己的 domain/run
 对象可以跨无关 topology revision 复用；一致性由外层 `ProtectionRouteSelectionIndex.topology` 的精确对象身份和 authored
 definition 再校验保证，不能错误要求被复用对象内部保存的旧 revision 数字等于新 revision。
 
+### 观察树与真实监测区必须覆盖同一组进路
+
+保护进路的`SectionRef(PROTECTION_ROUTE, routeId)`不以是否安装设备为存在条件。`CompiledProtectionSignals.compile`必须从全部已成功编译的`routes.routesById`准备占用几何，`SectionOccupancyRuntime`再用既有`protectionRouteAreaId`向Basic注册这些面积；树中的合法分支才能在首个同epoch baseline取得真实占用与长度。不能只取直接关联保护信号或表示器的进路：上游固定信号同样可能观察没有信号机的咽喉及未选支路。
+
+几何仍在低频publication准备中由原FixedBlockCatalog编译，未变化的进路按原对象身份复用；拓扑失效进路不伪造为可用面积。回调仍填充同一次发布的占用/选路并原子求值，没有第二套扫描、资源或JS规则。不存在的观测仍使该设备Unavailable；`has no same-epoch observation`也可能是未注册面积，不等于已经证明两个epoch混用，不能删除检查、补空闲或跳过未选分支来掩盖。
+
+设注册面积总数为A，补齐进路会增加原Basic每epoch的O(A)区域状态/变更比较及相关记录内存；列车与区间的几何匹配仍复用轨道局部反向区间索引，不新增全车×全进路遍历。这不是零成本优化，而是原全分支观察必须取得的事实。无持久化/版本变更，不增加开发数据兼容路径。
+
 ### 环终止
 
 展开某条分支时维护该分支已经经过的有向扫描状态。状态身份至少包含轨道／区间身份、行驶方向、入口边界和已选保护进路上下文；仅用 rail UUID 会把反向经过或不同进路误判为环。当前编译器使用 branch-local state→path-index 表做常数时间回边检查，并把子树发现的最早循环起点沿递归返回，使每个路径 occurrence 最多标记一次；不能在每条回边上重新遍历整个循环段，否则多回边图会退化出 `O(V + E)` 之外的额外开销。若下一个状态已在当前分支出现：
@@ -202,6 +210,16 @@ JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／�
 
 诊断必须定位包、逻辑、设备和失败类别；重复异常可以限频，但不得把反复失败改成成功许可。
 
+### 错误文件与正常禁行的区别
+
+`SignalPackEpochRuntime.compile`接收现有manager的`reportFailure(context, Throwable)`。实际投影、JS或输出校验异常在转换成Unavailable时保留原Throwable；只有该设备状态相较上一完整快照确实变化，才上报一次`signal-rule-failed`，附实际world/device/type/logic、stamp及definition revision。相同故障因占用变更而重求值也不重复刷堆栈，恢复后再次失败重新报告。复用既有状态比较，不新增全局指纹、定时清理或tick日志扫描。
+
+`HostUnavailable`处理外层host拒绝；`ExpectedUnavailable`处理固定保护进路未ready、当前入口无ready选择以及显式已知不可用的区间观测。这些属于正常安全拒绝，不当成脚本异常；ready却缺routeId或匹配观察计划、缺少应已注册的观测、JS抛错、非法setter或未知外观仍是真实错误。不能整体排除IllegalArgumentException或按message过滤。正常JS输出0/clear、等待首baseline及环终止也不报错。两类状态都继续按原语义收紧，不因是否写日志而改变授权或许可。
+
+候选安全恢复采用ANY_FAILURE并转换限制性runtime时，实际编译异常也经原manager出口保留上下文和Throwable。SimpleSignals平台将这些报告送入自己的非阻塞日志队列，控制台/文件写入与关闭机制归[Bukkit共用错误文件](../../bukkit-plugin/backend/error-logging.md)。不能先将异常变成reason-only字符串再尝试恢复堆栈，不能把正常红灯逐tick记成错误。
+
+真实manager回归应覆盖正常0→实际Graal失败→占用变化使同样错误再次求值但不重复报告→恢复→再失败，并检查原cause和真实epoch；一般writer测试不能替代此边界。
+
 ## 7. 性能、复杂度与退化
 
 真实图准备只在定义／拓扑候选准备或局部重验中执行；它沿每个可见分支扫描到下一区间、终止点或首个重复 cursor，
@@ -239,6 +257,7 @@ JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／�
 - 分叉同时暴露全部候选，选择变化只更新运行事实；每条分支独立累计距离，兄弟长度不求和。计划编译和运行填值均已接线。
 - 连续短区间可扫描到距离边界，不存在固定“几个后继”的截断。计划编译已覆盖。
 - 保护区域与普通闭塞使用同一树节点语义；保护分支保留入口和进路身份，未知进路不能成为空数组或线路尽头。静态结构和运行期 `routeReady` 均已接线。
+- 真实definitions→manager/catalog计划→SignalEpochRuntime空baseline覆盖没有任何保护设备的分叉区域：两条SectionRef均有真实观测；另一物理支路有车时其占用进入JS，离开后恢复，旧baseline不可变。不能只测手工JSON或给每条进路都安装设备，否则会遗漏面积注册缺口。无下游设备仍是缺对象，不冒充明确不限速。
 - `A -> B -> C -> A` 只在当前分支终止，原因是 `cycle`，兄弟分支继续；环检测区分方向、入口和保护进路上下文。计划编译已覆盖。
 - 环回边不建立递归下游输出依赖；循环段内不暴露本轮或上一轮下游输出，改变规则求值顺序不改变输入；零长度环在准备阶段拒绝，旧 publication 保持不变。依赖集合和 publication 原子保留均已验证。
 - 真实 catalog/topology 组合覆盖双向闭塞、普通轨道间距、保护进路分支、道岔 continuation、同入口多逻辑信号、附属显示 root、不可用区域、歧义入口保留旧 publication、跨 revision 保留未受影响进路，以及正长度无区间环只终止命中分支。

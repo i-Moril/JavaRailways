@@ -52,3 +52,45 @@ SHA256：`3f8fe6202d4069d1243177e3588d9774ea3a8fb92da00df47f128001c2f8c6ef`。
 正常启动Folia26.1.2，06:46:58–06:47:02 JavaRailways/SimpleSignals启用；主世界明确从primary加载。06:47:03 `Done (27.002s)!`。06:47:18正式只读inspect为主世界installed、definitionRevision38/topologyRevision1、regions3/tables3/blocks6/fixedBlockSignals1/protectionSignals1，附属与表示器均0；06:47:20 ATO world RUNNING。公开bridge `/health`为`ok:true`，WebUI首页HTTP200。检查的新启动日志未见本批类加载或信号包错误；既有WebUI明文HTTP、其他插件警告不在本批修复范围。
 
 这证明产物安装与正常加载，不代表已用真实玩家验收Dialog、模型朝向/亮度/点击或信号联动。之前固定闭塞红灯的具体现场原因仍未定位；现可从右键设备的真实只读诊断读取，不能宣称已修复。Stage 2继续in_progress，不归档整个任务。
+
+## 后续：保护进路观测与复制诊断部署（07:37–07:39 UTC）
+
+用户要求“先部署”，本次只替换SimpleSignals JAR，包含全部合法保护进路监测注册修复及诊断原生clipboard按钮；不实现错误文件日志，不更新宿主、信号包、资源包、配置或玩家定义。源码为`3fc32374`之后本任务尚未提交的本地修复；相关源文件见implement.md本地批次，代码提交批准另行处理。隔离候选全src checksum与工作区一致，完整SimpleSignals 594项零失败/错误/跳过，JAR及模块边界门禁通过（29秒），不重跑既有无关模块测试。
+
+向玩家发出10秒重启提示，经MCSManager正常停服；07:37:14确认世界/玩家保存完毕，实例status=0且Java进程退出。完整归档两个插件目录和原两JAR，恢复点位于配置目录之外：
+
+`/opt/mcsmanager/backups/javarailways/signal-observation-20261017-JLjl8d/configs-and-installed-jars.tar.gz`
+
+归档SHA256为`ce329eaff7857d83829b86bb16295e3a6dde03a85c36401c22b643d9e2d79f75`，目录0700、文件0600，保留ACL/xattr/owner，tar可读且124个输入文件备份前后hash一致。manifest.json、deployment-audit.cjs和install-audit.json同目录留存。07:37:56安装`plugins/SimpleSignals.jar`，SHA256为`0b5a368e206bd22ea02bfd9001ab1bd5bb6742f2de66d3577a15e130fe0545a5`；其余123文件及总数不变，主JAR仍为`be768e57e87cfb1ec48bbb3080079488676788185c921334c78ece1194fb2d73`。没有使用早先revision40副本覆盖远端最新定义。
+
+07:38:25 SimpleSignals正常启用且主世界从primary加载，07:38:26 `Done (26.489s)!`。07:38:55只读inspect显示installed、definitionRevision44/topologyRevision1、regions6/tables6/blocks6、固定与保护信号各1，表示器/附属0；ATO RUNNING。07:39公开bridge健康`ok:true`、实际WebUI29002端口HTTP200，MCS status3/PID522475。首次误探默认WebUI8080端口无服务，核实启动日志的实际端口后检查成功，不修改配置。
+
+新启动日志未见类加载、信号包加载或same-epoch错误；但规则Unavailable不保证进入日志，因此不能仅凭日志宣称现场信号问题完全消失。07:38:27发生一次179ms物理epoch overload及202ms→200ms delta clamp，至07:39检查未再出现；保留记录，不在本批擅改物理逻辑。既有Terra Unsafe等其他插件告警仍在。客户端“复制诊断”及原红灯现场结果待玩家验收，Stage 2保持in_progress。
+
+## 后续：错误文件与Wand连续创建部署（08:35 UTC起）
+
+用户明确批准部署。发布前Core/Bukkit/Signals全src与隔离候选checksum一致，复用上批1833项完整受影响模块门禁及打包/API边界检查，不重复构建；代码提交仍未获明确批准，来源为`3fc32374`之后本任务未提交改动。仅替换两JAR，无配置、schema、资源包或玩家定义迁移。
+
+10秒提示后MCSManager正常停服，08:35:25世界/玩家保存完成、status0且Java已退出。完整两个插件目录及旧两JAR归档至目录外：
+
+`/opt/mcsmanager/backups/javarailways/error-wand-20261017-ycuJrK/configs-and-installed-jars.tar.gz`
+
+归档SHA256=`bed031911402ac3f937133af009d66d2b482cfe9c53ced652127bd5f565c8363`；124输入文件备份前后hash一致，tar可读，ACL/xattr/owner保留，目录0700/归档0600，manifest/安装审计/无秘密脚本同目录留存。
+
+08:35:54安装两JAR：主完整JAR=`13fb17ac31bb1223db7be5f4299d3dfafc003c406b977819d95c3bdab0d8ed6c`，Signals=`1605f4ffdbdbde7cbc4ad9c2cda7adf17f11caaad33de6c732aa59c1d41e0433`；其余122文件及文件数不变。08:36:24 `Done (26.416s)!`，bridge健康ok、WebUI29002 HTTP200。
+
+现场确认两个`logs/errors.log`真实存在且包含module/时间/原始异常链；主插件有Bukkit和Core警告，Signals记录了一条保护入口无ready进路的异常。后者暴露分类遗漏：`PreparedBinding.selectPlan`的正常ready守卫仍抛普通IllegalArgumentException，未被预期不可用分类排除。此时正常禁行和授权安全行为不受影响；主控已启动本范围最小修复及回归，不用消息过滤或关闭记录掩盖它。首次启动另有206ms overload及217→200ms clamp，保留现场证据。历史日志不删除，最终修正产物和二次恢复点另记。
+
+### 正常未ready分类修正与第二恢复点
+
+独立复核确认仅固定进路not-ready和当前入口未ready两处守卫归为`ExpectedUnavailable`；原reason包装、0限制和选路/授权不变。ready却缺routeId或观察计划等实际不变量错误继续报告，不按文字过滤。扩展原有真实manager方法同时验证两类保护信号在无请求、PREPARING及兄弟进路选择时error sink空，原速度扫描断言保留；真实Graal异常记录用例仍保持。最终Signals完整595项零失败/错误/跳过，JAR与模块边界检查38秒通过，运行时/test与隔离候选checksum一致；其他模块源码不变，不重复执行1833项。
+
+再次10秒提示后正常停服，08:41:21保存及进程退出确认。第二次完整归档两个插件目录（含首次错误文件历史）与两JAR，共126文件，位于：
+
+`/opt/mcsmanager/backups/javarailways/error-wand-20261017-QDXnqt/configs-and-installed-jars.tar.gz`
+
+归档SHA256=`7c8c69d460402a6d9bcd617c59fa1e675a21c7a31b05a32f0a2e3c00b3d84363`，同样保留ACL/xattr/owner、0700/0600及完整审计。08:41:44仅替换SimpleSignals.jar为`40c46158b63f2031dc5fc87599305d739ce232608118dcd18c74dadceb045059`，其余125文件和总数不变。初始恢复点ycuJrK仍保留，可恢复本批部署以前的两个JAR；QDXnqt保存第一次更新后的主JAR与误报历史。没有清空、篡改历史日志或回退玩家定义。
+
+08:42:13 SimpleSignals启用，08:42:14 `Done (26.203s)!`。08:42:35只读inspect为主世界installed、definitionRevision45/topologyRevision1、regions6/tables6/blocks6、固定信号2/保护信号1（其余设备0）；ATO RUNNING。bridge ok、WebUI HTTP200，MCS status3/PID524532。新启动日志未见signal-rule-failed或类加载故障；Signals errors.log保持4427字节、mtime08:41:20，证明本次正常未ready没有再追加误报。主文件的Bukkit/Core WARNING已实际写入；08:42:15一次186ms overload与218→200ms clamp沿原分类写入，检查时未再出现。
+
+未解决但保留的现场事项：第二次停服时08:41:20出现`JavaRailways was disabled before model cleanup completed`，原始cause来自`DefaultModelPresentationService.close`，经SimpleSignals model/editor cleanup completion写入错误文件。这是整服停用时附属异步显示清理与宿主停用的时序问题，不是本次JS规则故障，也不能宣称正常停服清理完全无异常。没有在部署中扩大为显示服务/停服协调器重构，后续单独审查；本次正常保存、再启用及health均已验证。历史误报与该真实清理异常都原样保留，客户端Wand普通→保护→普通仍待玩家验收。无资源包更新、版本变更、配置迁移或测试世界对象创建；Stage 2保持in_progress。

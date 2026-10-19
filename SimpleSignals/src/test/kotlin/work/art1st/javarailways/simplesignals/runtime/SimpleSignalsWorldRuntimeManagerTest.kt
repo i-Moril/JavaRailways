@@ -2307,22 +2307,96 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
+    fun `fixed signal observes uninstrumented protection branches through real epoch baseline and occupant updates`() {
+        val f = Fixture()
+        val routes = listOf(f.upperRoute(), f.lowerRoute())
+        val block = FixedBlockDefinition("test:uninstrumented-approach", 1,
+            listOf(FixedBlockTraversal(f.entry, ViewDirection.AB, 0.0, 4.0)))
+        val signal = FixedBlockSignalDefinition("test:uninstrumented-head", 1, block.blockId, 0.0, "automatic:block")
+        val definitions = store()
+        val table = ProtectionRouteTableDefinition("test:uninstrumented-table", 1, f.region.regionId, 1, routes)
+        definitions.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1, listOf(f.region),
+            listOf(table), listOf(block), listOf(signal))) // No protection signals or indicators register these routes.
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), MutableTopologyService(f.currentTopology).service,
+            CapturingRoutePlanningService(), definitions, sources, loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack(script = """
+            function evaluate(input, output) {
+              if (input.forward.length !== 2 || input.forward.some(branch =>
+                  branch.section.lengthMeters !== 30 || branch.downstreamSignal !== undefined)) {
+                throw new Error('both uninstrumented protection branches must be observable');
+              }
+              output.setSpeedLimit(input.forward.some(branch => branch.section.occupied) ? 0 : 25);
+              output.setModelVariant('clear');
+            }
+        """.trimIndent()))
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+        val runtime = manager.authoringRuntime(f.worldId)!!
+        val epoch = SignalEpochRuntime(f.worldId.toString(), TrainRestrictionSnapshotStore(f.worldId.toString()))
+        epoch.replaceSources(sources.sources.getValue(f.worldId))
+        fun process(number: Long, occupied: Boolean) {
+            val position = RailPositionSnapshot(f.lowerIn, ViewDirection.AB, 2.0)
+            val trains = if (!occupied) emptyList() else listOf(TrainFrameSnapshot.create(
+                "unselected-branch-train", "Branch train", number, number, 0.0, false, false, emptyList(),
+                position, position,
+                listOf(work.art1st.javarailways.core.api.physics.rail.RailInterval(f.lowerIn, 1.0, 2.0)),
+                emptyList(), emptyList(), emptyList(), emptyList()))
+            val continuations = runtime.authoringPublication().routeSelection.routesById.getValue(routes.first().routeId)
+                .requiredContinuations.associate { it.entry to it.selectedExit }
+            epoch.process(RailwayWorldFrameSnapshot.create(number, f.currentTopology.revision, trains,
+                ActiveRailContinuationsSnapshot.create(f.currentTopology.revision, number, continuations)))
+        }
+        process(1, false)
+        val baseline = runtime.sectionSignalSnapshot()!!
+        assertInstanceOf(SectionSignalState.Available::class.java, baseline.states.getValue(signal.signalId),
+            baseline.states.getValue(signal.signalId).toString())
+        assertEquals(25.0, baseline.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+        val forward = runtime.signalDeviceDiagnostics(signal.signalId)!!.forward
+        assertEquals(2, forward.size)
+        assertTrue(forward.none { it.hasDownstreamSignal }, "missing downstream devices are not explicit clear outputs")
+        assertTrue(forward.all { it.speedLimitMetersPerSecond == null })
+        val sectionRefs = routes.map { SectionRef(SectionKind.PROTECTION_ROUTE, it.routeId) }.toSet()
+        assertTrue(runtime.sectionOccupancySnapshot()!!.sections.keys.containsAll(sectionRefs))
+        assertTrue(runtime.sectionOccupancySnapshot()!!.sections.filterKeys(sectionRefs::contains)
+            .values.all { it.available && it.occupants.isEmpty() })
+
+        process(2, true)
+        val occupiedSnapshot = runtime.sectionOccupancySnapshot()!!
+        assertEquals(setOf("unselected-branch-train"), occupiedSnapshot.sections
+            .getValue(SectionRef(SectionKind.PROTECTION_ROUTE, routes.last().routeId)).occupants)
+        assertTrue(occupiedSnapshot.sections.getValue(SectionRef(SectionKind.PROTECTION_ROUTE, routes.first().routeId))
+            .occupants.isEmpty())
+        assertEquals(0.0, runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond,
+            "a real occupant on the other physical branch still reaches the full observation tree")
+        assertEquals(2L, runtime.signalDeviceDiagnostics(signal.signalId)!!.stamp!!.physicsEpoch)
+
+        process(3, false)
+        assertEquals(25.0, runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+        assertEquals(25.0, baseline.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond,
+            "later occupant updates do not mutate the completed baseline")
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
     fun `current protection signal captures maximum of its selected route without mixing sibling routes`() {
         val f = Fixture()
         val upper = f.upperRoute()
         val lower = f.lowerRoute()
         val signal = protectionSignal(ProtectionSignalKind.CURRENT_ENTRY, upper)
             .copy(signalType = "automatic:block")
+        val fixed = protectionSignal(ProtectionSignalKind.FIXED_ROUTE, upper)
+            .copy(signalId = "test:max-fixed", signalType = "automatic:block")
+        val reports = mutableListOf<Pair<String, Throwable>>()
         val definitions = store()
         val table = ProtectionRouteTableDefinition("test:max-table", 1, f.region.regionId, 1, listOf(upper, lower))
         definitions.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1, listOf(f.region),
-            listOf(table), protectionSignals = listOf(signal)))
+            listOf(table), protectionSignals = listOf(signal, fixed)))
         val infrastructure = MutableTopologyService(f.currentTopology)
         infrastructure.staticSpeedLimits = mapOf(f.entry to 5.0, f.exit to 6.0,
             f.upperIn to 15.0, f.upperOut to 14.0, f.lowerIn to 30.0, f.lowerOut to 25.0)
         val sources = CapturingSignalEpochSourceService()
         val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
-            sources, loadDefaultSignalCatalog = false)
+            sources, modelFailure = { context, failure -> reports += context to failure }, loadDefaultSignalCatalog = false)
         val packs = writeAutomaticSignalPack(script = """
             function evaluate(input, output) {
               if (input.scanDistanceMeters !== input.referenceSpeedMetersPerSecond ** 2 ||
@@ -2339,7 +2413,23 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val epoch = protectionTestEpoch(runtime, f.worldId.toString(), TrainRestrictionSnapshotStore(f.worldId.toString()))
         epoch.replaceSources(sources.sources.getValue(f.worldId))
         val owner = InfrastructureOwner("test:route-max-owner", 1)
-        fun process(number: Long, selected: ProtectionRouteDefinition) {
+        epoch.process(RailwayWorldFrameSnapshot.create(1, f.currentTopology.revision, emptyList(),
+            ActiveRailContinuationsSnapshot.empty(f.currentTopology.revision)))
+        fun assertWaiting() {
+            val states = runtime.sectionSignalSnapshot()!!.states
+            listOf(signal, fixed).forEach { device ->
+                assertInstanceOf(SectionSignalState.Unavailable::class.java, states.getValue(device.signalId))
+                assertEquals(0.0, states.getValue(device.signalId).effectiveSpeedLimitMetersPerSecond)
+            }
+            assertTrue((states.getValue(signal.signalId) as SectionSignalState.Unavailable).reason
+                .endsWith("protection entry '${upper.entryBoundaryId}' has no ready route"))
+            assertTrue((states.getValue(fixed.signalId) as SectionSignalState.Unavailable).reason
+                .endsWith("fixed protection route '${upper.routeId}' is not ready"))
+            assertTrue(reports.isEmpty(), "both normal protection waiting states must not produce rule errors: $reports")
+        }
+        assertWaiting() // Neither signal has a current train request.
+        fun process(number: Long, selected: ProtectionRouteDefinition,
+            state: ActiveRouteAdmissionState = ActiveRouteAdmissionState.GRANTED) {
             val route = RouteSnapshot("test:route-max-mission", number, f.currentTopology.revision,
                 selected.traversals.mapIndexed { index, traversal ->
                     RouteSegmentSnapshot(traversal.railId, traversal.facing,
@@ -2347,7 +2437,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
                         if (index == selected.traversals.lastIndex) 10.0 else traversal.upperAbMeters)
                 })
             epoch.publishAdmissionUpdate(ActiveRouteAdmissionUpdate(owner, ActiveRouteAdmissionSnapshot(owner,
-                "train", route, ActiveRouteAdmissionState.GRANTED, RouteBoundary(40.0), RouteBoundary(40.0))))
+                "train", route, state, RouteBoundary(40.0),
+                RouteBoundary(40.0).takeIf { state == ActiveRouteAdmissionState.GRANTED })))
             val position = RailPositionSnapshot(f.entry, ViewDirection.AB, 0.0)
             val continuations = runtime.authoringPublication().routeSelection.routesById.getValue(selected.routeId)
                 .requiredContinuations.associate { it.entry to it.selectedExit }
@@ -2356,15 +2447,18 @@ class SimpleSignalsWorldRuntimeManagerTest {
                     emptyList(), position, position, emptyList(), emptyList(), emptyList(), emptyList(), emptyList())),
                 ActiveRailContinuationsSnapshot.create(f.currentTopology.revision, number, continuations)))
         }
-        process(1, upper)
+        process(2, upper, ActiveRouteAdmissionState.PREPARING)
+        assertWaiting() // A selected request still has no completed authority/preparation.
+        process(3, upper)
         val captured = runtime.sectionSignalSnapshot()!!
         assertEquals(15.0, captured.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
-        process(2, lower)
+        process(4, lower)
         assertEquals(30.0, runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
-        process(3, upper)
+        process(5, upper)
         assertEquals(15.0, runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
         assertEquals(1, infrastructure.speedLimitReadCount, "route changes select cached per-root speeds and distances")
         assertEquals(15.0, captured.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+        assertTrue(reports.isEmpty(), "a fixed-route signal waiting while a sibling route is selected is also normal")
         manager.clearLocal().toCompletableFuture().join()
     }
 
@@ -2778,6 +2872,69 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(1, models.handles.size)
         models.cleanup.complete(null)
         manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `rule failures retain original throwable and report only changed failure states rather than normal red`() {
+        val f = Fixture()
+        val block = FixedBlockDefinition("test:logging-block", 1,
+            listOf(FixedBlockTraversal(f.entry, ViewDirection.AB, 0.0, 4.0)))
+        val signal = FixedBlockSignalDefinition("test:logging-device", 1, block.blockId, 0.0, "automatic:block")
+        val definitions = store()
+        definitions.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1,
+            emptyList(), emptyList(), listOf(block), listOf(signal)))
+        val reports = mutableListOf<Pair<String, Throwable>>()
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), MutableTopologyService(f.currentTopology).service,
+            CapturingRoutePlanningService(), definitions, sources,
+            modelFailure = { context, failure -> reports += context to failure }, loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(writeAutomaticSignalPack(script = """
+            function evaluate(input, output) {
+              if (input.self.occupied) throw new Error('broken-rule');
+              output.setSpeedLimit(0);
+              output.setModelVariant('clear');
+            }
+        """.trimIndent()))
+        try {
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+            val epoch = SignalEpochRuntime(f.worldId.toString(), TrainRestrictionSnapshotStore(f.worldId.toString()))
+            epoch.replaceSources(sources.sources.getValue(f.worldId))
+            val runtime = manager.authoringRuntime(f.worldId)!!
+            fun process(number: Long, trainId: String?) {
+                val position = RailPositionSnapshot(f.entry, ViewDirection.AB, 2.0)
+                val trains = trainId?.let { listOf(TrainFrameSnapshot.create(
+                    it, it, number, number, 0.0, false, false, emptyList(), position, position,
+                    listOf(work.art1st.javarailways.core.api.physics.rail.RailInterval(f.entry, 1.0, 2.0)),
+                    emptyList(), emptyList(), emptyList(), emptyList())) }.orEmpty()
+                epoch.process(RailwayWorldFrameSnapshot.create(number, f.currentTopology.revision, trains,
+                    ActiveRailContinuationsSnapshot.empty(f.currentTopology.revision)))
+            }
+            process(1, null)
+            assertTrue(reports.isEmpty(), "normal rule-selected stop is not an error")
+            process(2, "first")
+            assertEquals(1, reports.size)
+            val (context, failure) = reports.single()
+            assertTrue(context.contains("world=${f.worldId}"))
+            assertTrue(context.contains("device=${signal.signalId}"))
+            assertTrue(context.contains("logic=automatic:block"))
+            assertTrue(context.contains("physicsEpoch=2"))
+            assertTrue(context.contains("definition=1"))
+            assertTrue(failure.stackTraceToString().contains("broken-rule"))
+            assertNotNull(failure.cause, "do not replace the original JS exception chain with reason-only text")
+            assertInstanceOf(SectionSignalState.Unavailable::class.java,
+                runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId))
+            process(3, "second") // Actual occupant change reevaluates JS but retains the same failure state.
+            assertEquals(1, reports.size)
+            assertEquals(3L, runtime.signalDeviceDiagnostics(signal.signalId)!!.stamp!!.physicsEpoch)
+            process(4, null)
+            assertEquals(1, reports.size)
+            assertInstanceOf(SectionSignalState.Available::class.java,
+                runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId))
+            process(5, "first")
+            assertEquals(2, reports.size, "a failure after a real recovery must be reported again")
+        } finally {
+            manager.clearLocal().toCompletableFuture().join()
+        }
     }
 
     @Test
@@ -5463,7 +5620,12 @@ class SimpleSignalsWorldRuntimeManagerTest {
 
         assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, applied.status)
         val installed = signalSources.sources.getValue(fixture.worldId)
-        assertEquals(retainedSource.areas, installed.single { it.sourceId == SECTION_OCCUPANCY_SOURCE_ID }.areas)
+        val updatedAreas = installed.single { it.sourceId == SECTION_OCCUPANCY_SOURCE_ID }.areas
+        assertEquals(retainedSource.areas.single { it.areaId.toString() == block.blockId },
+            updatedAreas.single { it.areaId.toString() == block.blockId })
+        assertEquals(setOf("simplesignals:protection-route/test/lower", block.blockId), retainedSource.areas.map { it.areaId.toString() }.toSet())
+        assertEquals(setOf("simplesignals:protection-route/test/upper", block.blockId), updatedAreas.map { it.areaId.toString() }.toSet())
+        assertEquals(2L, updatedAreas.single { it.areaId.toString() != block.blockId }.definitionRevision)
         assertEquals(1, installed.size)
         assertEquals(2, signalSources.atomicCommitCount)
         assertEquals(1, infrastructure.permitCloseCount)

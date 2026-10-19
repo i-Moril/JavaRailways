@@ -10,6 +10,8 @@
 
 每个 `CoreWorld` 拥有一个 `PhysicsCoordinator`；generic `TickManagerImpl` 是另一条独立路径。`CoreTrain.setController` 只注册 coordinator。
 
+诊断出口使用各类命名的JDK JUL logger：联结处理异常及generic tick错误携带原Throwable，delta clamp/overload为WARNING且保持既有限频和Stall计数。Core不直接写文件，也不因日志改变ticket成功/失败或epoch顺序；平台文件writer和关闭规则归[Bukkit错误日志](../../bukkit-plugin/backend/error-logging.md)。
+
 ```kotlin
 class PhysicsTicket internal constructor(
     val epoch: Long,

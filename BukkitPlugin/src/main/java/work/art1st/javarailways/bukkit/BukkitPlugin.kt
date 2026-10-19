@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit
 
+import work.art1st.javarailways.bukkit.api.diagnostics.PluginErrorLog
+
 import org.bukkit.plugin.java.JavaPlugin
 import work.art1st.javarailways.bukkit.api.internal.BukkitRailTargetService
 import work.art1st.javarailways.bukkit.api.internal.DefaultPlayerOperationService
@@ -151,17 +153,34 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     private var trainReverseEventRegistration: EventRegistration? = null
     private var trainDebugMainEventRegistration: EventRegistration? = null
     private var threadGuardRegistration: ThreadGuardRegistration? = null
+    private var errorLog: PluginErrorLog? = null
 
     /** 运营对象工具（停车点、限速、方向限制、信号等） */
     lateinit var railObjectWand: RailObjectWand
 
     override fun onLoad() {
         INSTANCE = this
-        platformCapabilities = PlatformCapabilities.detect(javaClass.classLoader)
-        platformDispatcher = PaperPlatformDispatcher(this)
-        physicsConfig = PhysicsConfig.load(this)
-        javaRailwaysConfig = JavaRailwaysConfig.load(this)
-        packetEntityRuntime = PacketEntityRuntime(this).also { it.load() }
+        errorLog = PluginErrorLog(
+            dataFolder.toPath().resolve("logs/errors.log"), logger, "Bukkit",
+            mapOf(
+                java.util.logging.Logger.getLogger("work.art1st.javarailways.core") to "Core",
+                java.util.logging.Logger.getLogger("work.art1st.javarailways.basic") to "Basic",
+                java.util.logging.Logger.getLogger("work.art1st.javarailways.simpleato") to "SimpleATO",
+                java.util.logging.Logger.getLogger("work.art1st.javarailways.simpleatobukkit") to "SimpleATOBukkit"
+            )
+        )
+        try {
+            platformCapabilities = PlatformCapabilities.detect(javaClass.classLoader)
+            platformDispatcher = PaperPlatformDispatcher(this)
+            physicsConfig = PhysicsConfig.load(this)
+            javaRailwaysConfig = JavaRailwaysConfig.load(this)
+            packetEntityRuntime = PacketEntityRuntime(this).also { it.load() }
+        } catch (failure: Throwable) {
+            errorLog?.reportFailure("JavaRailways load failed", failure)
+            errorLog?.close()
+            errorLog = null
+            throw failure
+        }
     }
 
     override fun onEnable() {
@@ -369,6 +388,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         packetEntityRuntime = null
         runShutdownStep("thread guard bridge") { threadGuardRegistration?.close() }
         threadGuardRegistration = null
+        errorLog?.close()
+        errorLog = null
     }
 
     private inline fun runShutdownStep(component: String, action: () -> Unit) {

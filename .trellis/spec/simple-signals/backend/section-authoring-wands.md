@@ -94,6 +94,8 @@ null 表示没有未完成边界编辑，空列表表示全部边界被删但区
 
 创建先按真实入口判断固定闭塞或保护用途，再选真实catalog类型/模型。固定闭塞入口已有主信号时拒绝新建，不能借旧place更新语义搬移/换型既有设备；保护创建只取明确New意图，没有候选明确提示。当前目录未声明control-kind矩阵，页面如实说明最终保存验证，不按ID猜兼容性。附属从精确主信号页创建，其模型仍须表达主信号全部variant。
 
+左键选择新的逻辑入口也复用`chooseCreation`/`beginCreation`判型及选型，使用`bindOnly`只保存本次用途、真实类型和binding，不创建模型或写世界定义。普通入口使用可空的区间默认，保护入口每次选择用途/类型；物品里记住的上次`controlKind`不是本次入口的判定依据，捕获新目标时也不能先因上一type/model失效而拒绝。右键成功后清除binding，同一物品可连续普通→保护→普通。只有已经明确选择的附属/表示器待摆放binding继续使用其既定用途，不能将其误改为新建主信号；编辑、删除及回游戏重绑仍走各自精确入口。取消、失败或过期不写新意图。额外捕获只在低频点击发生，不新增tick工作或PDC字段。
+
 `PlacedSignalChoice(kind,id,revision,placement)`为精确编辑身份；`deviceConfiguration(capture,device)`返回真实类型/模型，`changeType(capture,device,signalType?,modelId?,active)`独立只替换type或modelId并checked提高revision；同配置不写盘，原身份/pose/binding/lead time/附属关系/表示器映射保持。`deletePlaced`只删精确设备及主信号直接附属；数值编辑复用`PlacementWandEditor.editDevice`。完整候选仍执行manager原校验、编辑保护与原子事务，不绕过claim。
 
 右键页和跨页回调由精确工具状态、玩家/世界、页token保护；重绑回游戏的等待也有token，迟到选轨不得覆盖新页面。成功手工两步摆放使用明确`SignalWandOutcome.applied`通知玩家owner清待摆放binding，不能按翻译消息猜是否成功；失败保留重试意图。诊断只读[实际发布来源](device-diagnostics.md)，不展示绑定摘要，刷新不改世界或重新求值。附属不提供误用主信号入口的重绑按钮。
@@ -108,15 +110,10 @@ Wand 编辑流程的图搜索、候选编译、JSON 和文件 I/O 均在 worker�
 返回`WORLD_UNAVAILABLE`且不改disk/source/publication，只有真实staging或primary commit I/O失败才返回`PERSISTENCE_FAILED`。
 
 信号工具通过固定闭塞 snapshot 的 rail 反向索引筛选候选，只允许距有向入口0.75米内且视线朝向区间内部的左键绑定。
-共享入口歧义、区间内部点击和单向闭塞反向入口拒绝；入口尚无主信号时仍可形成稳定绑定并在右键时创建，
-右键放置重新用当前 snapshot 校验绑定的 world、block 和 entry direction；已有设备保留 ID、受控入口与 inspection lead time，
-用 checked revision +1 替换 `signalType` 和本次 rail/ground placement。空入口则生成新的 namespaced UUID 设备 ID、revision 0 和明确的
-0秒额外 lead time。生成 ID 在 patch 前对四类现有设备身份检查；碰撞直接拒绝，不能把已有设备当作 update 或重新绑定。
-两种情况都走同一个 manager patch 事务。删除模式不使用旧绑定，而是按本次左键重新唯一解析入口。
+共享入口歧义、区间内部点击和单向闭塞反向入口拒绝；入口尚无主信号时形成稳定新建binding，右键时重新用当前snapshot校验world、block和entry direction，再生成新的namespaced UUID设备ID、revision 0及0秒额外lead time。
+生成ID在patch前对四类现有设备身份检查；碰撞拒绝，不能把已有设备当作update或重新绑定。已有设备换型/摆位使用现场精确编辑，不由左键新建隐式修改。最终仍走同一个manager patch事务。删除模式不使用旧绑定，而是按本次左键重新唯一解析入口。
 保护入口解析同样先用 region rail 反向索引缩小候选，再只比较同 rail 的 canonical AB 距离、0.75米容差和
-朝向内部的方向；不执行图搜索或全区域扫描。同一保护入口允许多个主信号，因此左键后由 SimpleSignals 的玩家／物品接续页列出：
-当前入口类型的明确新建设备和全部精确既有设备；固定进路类型则按稳定 route ID 列出当前可用作者进路的新建设备，
-并列出该入口全部精确既有固定进路设备及可用状态。暂时不可用的作者进路不能新建／改绑，但既有设备可更新摆放或删除。
+朝向内部的方向；不执行图搜索或全区域扫描。同一保护入口允许多个主信号，玩家先明确用途：当前入口类型取明确新建意图；固定进路类型按稳定route ID列出当前可用作者进路的新建意图。既有设备从现场精确编辑进入，不混入新建选择。暂时不可用的作者进路不能新建／改绑，但既有设备可更新摆放或删除。
 创建使用共享四类设备 ID namespace 中无冲突的 UUID、revision 0和0秒额外 lead time；更新保留逻辑 binding、ID与 lead time。
 删除只移除所选设备和直接附属设备，同入口／进路的其他主信号不变。
 附属信号控制类型按轨道附着位置、方向和0.75米容差寻找已经摆放的固定闭塞／保护主信号；候选保存主信号
@@ -327,7 +324,7 @@ JS 输出或模型 handle。PDC 中即使仍有格式合法但已删除的 `sign
 相邻闭塞共用同一点且同方向都可匹配时会报告歧义，玩家必须选择可唯一识别的入口；工具不能按集合顺序修改其中一个。
 
 空模型目录：新建进路表示器/附属信号或修改其模型时，候选来自`SimpleSignals/models/`的独立模型catalog，不按世界里已放置的设备数量生成。候选为空时显示明确的“当前没有可选的显示模型”，不创建占位模型或修改定义。
-共享`WandDialogs`仅在主操作按钮非空时使用Paper `multiAction`；空列表使用`notice`并保留原退出/返回动作，没有显式退出时使用原生关闭按钮。独立exit按钮不能使空multiAction合法。
+共享`WandDialogs`仅在主操作按钮非空时使用Paper `multiAction`；空列表使用`notice`并保留原退出/返回动作，没有显式退出时使用原生关闭按钮。独立exit按钮不能使空multiAction合法，clipboard按钮则计入主操作列表。
 此边界须通过真实Paper DialogType构造回归，以及创建表示器时empty/null模型目录后可取消且不保存设备的交互回归；注入替代showPage的流程测试不能单独证明原生页面可构造。
 
 ## 9. 必须验证

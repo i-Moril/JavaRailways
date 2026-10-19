@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals
 
 import org.bukkit.plugin.java.JavaPlugin
+import work.art1st.javarailways.bukkit.api.diagnostics.PluginErrorLog
 import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_RESOURCE_TYPE
 import work.art1st.javarailways.simplesignals.block.FixedBlockRouteResourcePolicy
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStore
@@ -24,6 +25,7 @@ import java.util.logging.Level
 
 /** Bukkit lifecycle owner for the independently installed SimpleSignals add-on. */
 class SimpleSignalsPlugin : JavaPlugin() {
+    private var errorLog: PluginErrorLog? = null
     private var hostServices: SimpleSignalsHostServices? = null
     private var worldRuntimes: SimpleSignalsWorldRuntimeManager? = null
     private var sectionWands: SectionWandHandler? = null
@@ -36,7 +38,12 @@ class SimpleSignalsPlugin : JavaPlugin() {
     /** Host shutdown must observe this result before disabling JavaRailways. Never block a region thread. */
     fun modelCleanupCompletion(): CompletionStage<Void> = modelCleanup
 
+    override fun onLoad() {
+        errorLog = PluginErrorLog(dataFolder.toPath().resolve("logs/errors.log"), logger, "SimpleSignals")
+    }
+
     override fun onEnable() {
+        val errors = checkNotNull(errorLog)
         saveDefaultConfig()
         val settings = SimpleSignalsConfig.from(config.get("protection-region-max-distance-meters"))
         val services = SimpleSignalsHostServices.load(server.servicesManager)
@@ -50,10 +57,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
             services.railTargets(),
             services.models(),
             { action -> server.asyncScheduler.runNow(this) { if (isEnabled) action() } },
-            { context, failure ->
-                // Signal callbacks only enqueue reporting; logger/Bukkit access happens on this worker.
-                CompletableFuture.runAsync { logger.log(Level.SEVERE, context, failure) }
-            },
+            errors::reportFailure,
             protectionRegionMaxDistanceMeters = settings.protectionRegionMaxDistanceMeters,
             topologyWorker = { action -> server.asyncScheduler.runNow(this) { if (isEnabled) action() } },
             worldIssues = services.worldIssues()
@@ -128,27 +132,40 @@ class SimpleSignalsPlugin : JavaPlugin() {
     }
 
     override fun onDisable() {
-        measurementWand?.close()
-        measurementWand = null
-        sectionOverlay?.close()
-        sectionOverlay = null
-        signalWand?.close()
-        signalWand = null
-        routePreviewWand?.close()
-        routePreviewWand = null
-        sectionWands?.close()
-        sectionWands = null
-        // Host PluginDisableEvent handling removes dead callbacks. Do not create a second unload gate.
-        val services = hostServices
-        val models = worldRuntimes?.clearLocal()
-            ?: services?.models()?.closeOwner(this) ?: CompletableFuture.completedFuture(null)
-        val texts = services?.editorTexts()?.closeOwner(this) ?: CompletableFuture.completedFuture(null)
-        modelCleanup = CompletableFuture.allOf(models.toCompletableFuture(), texts.toCompletableFuture())
-        modelCleanup.whenComplete { _, failure ->
-            if (failure == null) logger.info("SimpleSignals model/editor cleanup completed")
-            else logger.log(Level.SEVERE, "SimpleSignals model/editor cleanup failed; keep JavaRailways enabled until cleanup is resolved", failure)
+        val closingErrorLog = errorLog
+        errorLog = null
+        try {
+            measurementWand?.close()
+            measurementWand = null
+            sectionOverlay?.close()
+            sectionOverlay = null
+            signalWand?.close()
+            signalWand = null
+            routePreviewWand?.close()
+            routePreviewWand = null
+            sectionWands?.close()
+            sectionWands = null
+            // Host PluginDisableEvent handling removes dead callbacks. Do not create a second unload gate.
+            val services = hostServices
+            val models = worldRuntimes?.clearLocal()
+                ?: services?.models()?.closeOwner(this) ?: CompletableFuture.completedFuture(null)
+            val texts = services?.editorTexts()?.closeOwner(this) ?: CompletableFuture.completedFuture(null)
+            modelCleanup = CompletableFuture.allOf(models.toCompletableFuture(), texts.toCompletableFuture())
+        } catch (failure: Throwable) {
+            modelCleanup = CompletableFuture.failedFuture(failure)
+            throw failure
+        } finally {
+            // Model/text futures may finish on region owners. Draining the file writer must not.
+            modelCleanup = modelCleanup.whenCompleteAsync { _, failure ->
+                try {
+                    if (failure == null) logger.info("SimpleSignals model/editor cleanup completed")
+                    else logger.log(Level.SEVERE, "SimpleSignals model/editor cleanup failed; keep JavaRailways enabled until cleanup is resolved", failure)
+                } finally {
+                    closingErrorLog?.close()
+                }
+            }
+            worldRuntimes = null
+            hostServices = null
         }
-        worldRuntimes = null
-        hostServices = null
     }
 }

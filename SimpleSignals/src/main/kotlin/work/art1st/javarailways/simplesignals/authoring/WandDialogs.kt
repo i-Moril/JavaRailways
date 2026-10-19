@@ -9,6 +9,7 @@ import io.papermc.paper.registry.data.dialog.input.DialogInput
 import io.papermc.paper.registry.data.dialog.type.DialogType
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.event.ClickCallback
+import net.kyori.adventure.text.event.ClickEvent
 import org.bukkit.entity.Player
 
 /** Shared owner-thread choice/confirmation presentation; callbacks still validate their own intent. */
@@ -17,10 +18,14 @@ internal object WandDialogs {
         fun button(option: Pair<String, () -> Unit>) = ActionButton.builder(Component.text(option.first.take(256)))
             .action(DialogAction.customClick({ _, audience -> if (audience === player) option.second() },
                 ClickCallback.Options.builder().uses(1).lifetime(ClickCallback.DEFAULT_LIFETIME).build())).build()
+        val buttons = page.options.map(::button) + listOfNotNull(page.clipboardText?.let {
+            ActionButton.builder(Component.text(WandI18n.format(player, "signal.diagnostic.copy")))
+                .action(DialogAction.staticAction(ClickEvent.copyToClipboard(it))).build()
+        })
         player.showDialog(Dialog.create { factory -> factory.empty()
             .base(DialogBase.builder(Component.text(page.title)).body(page.body.map { DialogBody.plainMessage(Component.text(it)) })
                 .canCloseWithEscape(true).build())
-            .type(actionType(page.options.map(::button), page.exit?.let(::button), page.columns)) })
+            .type(actionType(buttons, page.exit?.let(::button), page.columns)) })
     }
     internal fun actionType(buttons: List<ActionButton>, exit: ActionButton?, columns: Int): DialogType =
         if (buttons.isEmpty()) exit?.let(DialogType::notice) ?: DialogType.notice()
@@ -75,4 +80,5 @@ internal object WandDialogs {
 }
 
 internal data class SignalWandDialog(val title: String, val body: List<String> = emptyList(),
-    val options: List<Pair<String, () -> Unit>>, val exit: Pair<String, () -> Unit>? = null, val columns: Int = 2)
+    val options: List<Pair<String, () -> Unit>>, val exit: Pair<String, () -> Unit>? = null, val columns: Int = 2,
+    val clipboardText: String? = null)

@@ -76,6 +76,8 @@ class IsolatedTimetableSimulationTest {
     fun `isolated world installs its replaceable signal processor before physics starts`() {
         val fixture = fixture()
         fixture.runtime.use { runtime ->
+            assertEquals(work.art1st.javarailways.core.api.physics.WorldExecutionMode.SIMULATION,
+                runtime.world.executionMode)
             val rail = runtime.world.allRails.single()
             var callbacks = 0
             runtime.world.simpleAtoWorldData.signalEpochRuntime.replaceSources(listOf(

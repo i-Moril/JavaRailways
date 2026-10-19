@@ -16,6 +16,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChang
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyNode
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.World
+import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
@@ -74,7 +75,8 @@ class CoreWorld(
     override val tickManager: TickManager,
     val physicsCoordinator: PhysicsCoordinator,
     worldParent: WorldParentContext,
-    private val extensionDataContainer: ExtensionDataContainer<Any> = ExtensionDataContainer()
+    private val extensionDataContainer: ExtensionDataContainer<Any> = ExtensionDataContainer(),
+    override val executionMode: WorldExecutionMode = WorldExecutionMode.LIVE
 ) : World, Extendable<Any> by extensionDataContainer {
     private val railSpatialIndex = RailSpatialIndex()
     private val atGradeRailCrossingIndex = AtGradeRailCrossingIndex(railSpatialIndex)
@@ -129,8 +131,10 @@ class CoreWorld(
     private constructor(
         tickManager: TickManager,
         physicsCoordinator: PhysicsCoordinator,
-        worldParent: WorldParentContext
-    ) : this(LinkedHashMap(), ConcurrentHashMap(), tickManager, physicsCoordinator, worldParent)
+        worldParent: WorldParentContext,
+        executionMode: WorldExecutionMode
+    ) : this(LinkedHashMap(), ConcurrentHashMap(), tickManager, physicsCoordinator, worldParent,
+        executionMode = executionMode)
 
     companion object {
         const val INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION = 2
@@ -140,8 +144,9 @@ class CoreWorld(
         fun createEmpty(
             tickManager: TickManager,
             worldParent: WorldParentContext,
-            physicsCoordinator: PhysicsCoordinator = PhysicsCoordinator(1)
-        ): CoreWorld = CoreWorld(tickManager, physicsCoordinator, worldParent)
+            physicsCoordinator: PhysicsCoordinator = PhysicsCoordinator(1),
+            executionMode: WorldExecutionMode = WorldExecutionMode.LIVE
+        ): CoreWorld = CoreWorld(tickManager, physicsCoordinator, worldParent, executionMode)
 
         fun load(
             infrastructure: SavedInfrastructureV2,
@@ -170,7 +175,8 @@ class CoreWorld(
             val world = CoreWorld(
                 dependency.tickManager,
                 dependency.physicsCoordinator,
-                dependency.worldParent
+                dependency.worldParent,
+                dependency.executionMode
             )
             try {
                 return world.physicsCoordinator.withStructuralMutation {
@@ -1629,6 +1635,7 @@ class CoreWorld(
     data class SnapshotDependency(
         val tickManager: TickManager,
         val worldParent: WorldParentContext,
-        val physicsCoordinator: PhysicsCoordinator = PhysicsCoordinator(1)
+        val physicsCoordinator: PhysicsCoordinator = PhysicsCoordinator(1),
+        val executionMode: WorldExecutionMode = WorldExecutionMode.LIVE
     )
 }

@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.debug
 
+import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.bukkit.extension.bukkitWorldDataOrNull
 import work.art1st.javarailways.core.api.event.DerailEvent
 import work.art1st.javarailways.core.api.event.processor.EventListener
@@ -9,6 +10,7 @@ import work.art1st.javarailways.core.physics.train.CoreTrain
 class TrainDebugEventListener : EventListener {
     @HandlesEvent
     fun onDerail(event: DerailEvent) {
+        if (event.world.executionMode == WorldExecutionMode.SIMULATION) return
         if (!TrainDebugLog.enabled) return
         val train = event.train
         val coreTrain = train as? CoreTrain

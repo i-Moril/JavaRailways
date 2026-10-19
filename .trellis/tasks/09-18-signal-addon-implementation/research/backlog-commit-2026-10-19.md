@@ -30,6 +30,23 @@
 
 独立检查未发现产品缺陷；唯一修正是docs-site的T5-04，将未提交新授权时“保持零速”改为“保留已有授权边界”，依据TimetableDispatcher的committedAuthority路径。其余六份文档变更与当前Basic共享准入/Dispatcher语义吻合。子模块提交为`29a59d8`，只含这六份架构文档，主仓库随后记录该gitlink。
 
-事件分支合并后的组合候选另行验证，不能把上述积压候选结果直接归给组合源码。
+积压提交为`dfc7b0e7`（运行时）、`cd2d04bb`（表示器示例）、`abec3837`（模型资源）、`01d2c7fe`（文档及子模块引用）。事件分支已无冲突合并到工作区，组合候选另行验证，不能把上述积压候选结果直接归给组合源码。
+
+组合验证第一次在SimpleATO的6项测试出现两个匿名内部类的ClassNotFoundException，其他已完成模块结果保留。失败后的class实际存在且javap可解析，没有类初始化错误；重建前后141个测试class逐字节相同，无源码或断言改动。保留原XML及class到`/tmp/jr-combined-simpleato-test-output-before-rebuild`，证据摘要在`/tmp/jr-combined-failure-evidence.json`。针对性重新编译后两个测试类6项通过（`/tmp/jr-combined-simpleato-rebuild.log`，1m02s）；根因尚未确定，只能记录为未再次复现的本地产物读取/类加载异常。随后继续实际执行SimpleATO及尚未完成模块的完整门禁，最终六模块完整结果如下。
 
 本次不修改持久化版本、输入格式或数据兼容路径。既有离线/部署记录只按其实际范围保留；不以本轮自动测试替代客户端交互、真实行车或Folia生命周期验收。
+
+
+## 组合候选最终结果
+
+积压提交：dfc7b0e7（运行时）、cd2d04bb（示例）、abec3837（资源）、01d2c7fe（文档及子模块引用）。事件分支无冲突合并，独立检查确认JUL日志、逐epoch Pre/Post、成功完整frame提交后锁外Post、普通listener异常隔离、碰撞及平台SIMULATION过滤均保留。
+
+最终Core442、Basic413、SimpleATO378、BukkitPlugin450、SimpleSignals629、TunnelBridgeBuilder31，共2343项，失败/错误/跳过均为0。Core/Basic在首轮实际通过，其他四模块在最终后续门禁完整执行通过（1m57s），并非只重跑最初失败的6项。Signal API consumer实际编译、插件JAR及模块边界通过；Core Dokka实际生成，本批新增事件属性的文档告警消除，其他既有API和离线链接告警保留。
+
+源码1070文件集合前后完全一致，SHA256为`6dd87af9cef34dd21aa4c77bf81ce37dd4a3ab2deff42ed16745876cc0dba56a`，清单`/tmp/jr-combined-source-after.json`。最终日志`/tmp/jr-combined-gate-final.log`，最终计数`/tmp/jr-combined-verification-summary.json`。首次类加载异常和重建证据如上保留，根因仍未确认，不声称修复了源码缺陷。
+
+```bash
+GRADLE_USER_HOME=/workspace/.gradle JAVA_HOME=/workspace/.gradle/jdks/eclipse_adoptium-25-amd64-linux.2 ./gradlew --offline --no-daemon --no-parallel --max-workers=2 '-Dorg.gradle.jvmargs=-Xmx1400m -XX:MaxMetaspaceSize=640m' -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process :Core:test :Basic:test :SimpleATO:test --rerun :BukkitPlugin:test --rerun :SimpleSignals:check :SimpleSignals:test --rerun :TunnelBridgeBuilder:test --rerun :BukkitPlugin:compileSignalApiConsumerJava verifySignalModuleBoundaries :Core:dokkaGeneratePublicationHtml -x :WebUI:installFrontend
+```
+
+Core/Basic已在首轮分别使用局部--rerun实际执行，最终命令复用其未变结果。World事件子任务已完成，可归档；World隔离/信号/行为三个后续子任务及Stage 2尚未完成，不随本次收尾启动或归档。无部署、迁移或推送。

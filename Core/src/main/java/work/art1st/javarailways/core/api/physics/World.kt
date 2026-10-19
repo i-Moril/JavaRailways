@@ -15,6 +15,9 @@ import java.util.UUID
  * should perform structural mutations on the server main thread and observe physics publication rules.
  */
 interface World : Extendable<Any> {
+    /** Immutable runtime mode; not part of the world's persisted infrastructure or runtime data. */
+    val executionMode: WorldExecutionMode
+
     /** General-purpose Tick manager; train physics uses a separate coordinator. */
     val tickManager: TickManager
 

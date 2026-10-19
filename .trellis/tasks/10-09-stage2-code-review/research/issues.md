@@ -391,6 +391,7 @@
 - 测试工具归属调整（2026-10-11）：`PrimeCurveGenerator`移到Core `testFixtures`，保留原包名/方法/算法，六模块测试继续复用；全仓检查没有production/注册/资源入口，五个下游已有fixture依赖。JAR归属检查通过；全量发现的SimpleATO三项既有失败已由CR-035单独定位和修复，完整模块352项及独立完整类37项通过。详见implement对应批次。不新增生产兼容副本，CR-032其余候选仍保持原评估边界。
 - 用户确认目前无仓库外插件；未用异常/seat等公开面仍按扩展价值评估，不直接按无caller删除。联结/解编已确认保留。Signal和DynamicRenderable.lastState有真实consumer，不删。
 - [旧事件专项评估](./core-event-api-assessment.md)初稿删除建议已撤回：用户要求保留PreTickEvent/PostTickEvent/RenderableEvent并考虑接入，从废代码删除候选中排除。暂无publisher只说明未接线；分组接口不必独立发布。接入阶段/线程契约尚未冻结，现有observation不作为所有事件用途的等价替代。
+- 2026-10-18后续：Pre/Post的阶段/线程合同现已获用户确认，按物理epoch、World来源、失败有Pre无Post处理；具体实现和验收由[World epoch事件子任务](../../10-18-world-epoch-events/implement.md)记录，不再把这两项语义列为未决。RenderableEvent具体子事件仍单独保留，不把本批范围扩大到平台呈现。
 
 ### CR-033：文档、诊断与可维护性不一致
 

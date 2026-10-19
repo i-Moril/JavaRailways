@@ -52,6 +52,10 @@ CoreTrain 复用已有原子 publication，不另建 snapshot。不能提供帧�
 
 `AtGradeRailCrossing`只携带按UUID稳定排序的两项`RailCrossingPoint(railId,arcLengthAbMeters)`；弧长为canonical AB米制位置。它是所属immutable `TopologyState`的几何观测，不是persistent资源身份、可跨线port或独立持久化边界。consumer必须与同一topology root的rail projection一起使用。
 
+## World来源与运行模式
+
+`World.executionMode: WorldExecutionMode`在创建时固定为`LIVE/SIMULATION`，不写入设施或runtime存档，也不等同于线程owner权限。`WorldEvent.world`直接提供运行实例；TrainEvent从train.world派生，碰撞和物理epoch事件直接携带World。该引用用于选择所属模块状态/效果出口；physics listener仍通过对应不可变frame观察一致结果，不能据此任意读写live集合。事件的阶段、线程与失败合同归[事件总线](./event-bus.md)，不增加独立environment对象或每次发布的归属校验。
+
 ## 边界结果矩阵
 
 | 场景 | 必须结果 | 禁止结果 |

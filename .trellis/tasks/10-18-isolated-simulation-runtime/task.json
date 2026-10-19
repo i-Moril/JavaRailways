@@ -1,0 +1,31 @@
+{
+  "id": "isolated-simulation-runtime",
+  "name": "isolated-simulation-runtime",
+  "title": "完整领域功能的隔离模拟与物理 epoch 事件",
+  "description": "按 World 隔离运行状态，复用完整运营、信号和碰撞逻辑，统一事件来源并接入逐物理 epoch 的 Pre/Post 通知。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": "javarailways",
+  "priority": "P2",
+  "creator": "ARTI5T",
+  "assignee": "ARTI5T",
+  "createdAt": "2026-10-18",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "dev/signal-system",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-18-world-epoch-events",
+    "10-18-world-runtime-isolation",
+    "10-18-simulation-signal-features",
+    "10-18-simulation-behavior-features"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

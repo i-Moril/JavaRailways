@@ -2,6 +2,8 @@ package work.art1st.javarailways.core.physics.tick
 
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.event.CollisionEvent
+import work.art1st.javarailways.core.api.event.PreTickEvent
+import work.art1st.javarailways.core.api.event.PostTickEvent
 import work.art1st.javarailways.core.api.event.CollisionResolution
 import work.art1st.javarailways.core.api.event.processor.PhysicsRailEventBus
 import work.art1st.javarailways.core.api.physics.RailwayEpochProcessor
@@ -122,8 +124,7 @@ class PhysicsCoordinator(
     private val maxPhysicsDeltaMillis: Double = DEFAULT_MAX_PHYSICS_DELTA_MILLIS,
     private val overloadWindowMillis: Long = OVERLOAD_WINDOW_MILLIS,
     private val overloadsBeforeStall: Int = OVERLOADS_BEFORE_STALL,
-    private val automaticFallback: Boolean = true,
-    private val publishCollisionEvents: Boolean = true
+    private val automaticFallback: Boolean = true
 ) : AutoCloseable {
     init {
         require(workerThreads > 0) { "physics workerThreads must be > 0" }
@@ -466,12 +467,12 @@ class PhysicsCoordinator(
             }
             val event = CollisionEvent(
                 epoch = runningEpoch,
-                worldId = attachedWorld.runtimeId,
+                world = attachedWorld,
                 trainAId = pair.firstTrainId,
                 trainBId = pair.secondTrainId,
                 relativeSpeed = relativeSpeed(train, other)
             )
-            if (publishCollisionEvents) PhysicsRailEventBus.publish(event)
+            PhysicsRailEventBus.publish(event)
             pendingCollisionDecisions[pair] = PendingCollisionDecision(
                 runningEpoch, pair, event.resolution, first, second, firstFrame, secondFrame, topologyRevision,
                 firstEnvelope, secondEnvelope
@@ -568,6 +569,7 @@ class PhysicsCoordinator(
         return ticket
     }
 
+    @OptIn(AsyncEventApi::class)
     private fun runEpoch(
         ticket: PhysicsTicket,
         source: PhysicsWakeSource,
@@ -576,6 +578,13 @@ class PhysicsCoordinator(
         deltaMillis: Double
     ) {
         try {
+            val attachedWorld = synchronized(stateLock) {
+                if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
+                checkNotNull(world)
+            }
+            AsyncTickThreadMarker.runInAsyncTickContext {
+                PhysicsRailEventBus.publish(PreTickEvent(attachedWorld, ticket.epoch, deltaMillis))
+            }
             runningEpoch = ticket.epoch
             collisionClaims.clear()
             epochCandidateChecks.set(0L)
@@ -615,7 +624,6 @@ class PhysicsCoordinator(
 
             val coordinatorStart = nanoTime()
             // Publish only after every worker has finished reading the previous epoch.
-            val attachedWorld = checkNotNull(world)
             val publishedTrains = LinkedHashSet<CoreTrain>()
             snapshot.forEach { controller ->
                 val published = attachedWorld.withRailTopologyReadLock {
@@ -724,10 +732,10 @@ class PhysicsCoordinator(
 
             // Topology transactions can stall physics while holding their write lock, so acquire
             // topology before stateLock. Close and exact-ticket publication then serialize here.
-            attachedWorld.withRailTopologyReadLock {
+            val committed = attachedWorld.withRailTopologyReadLock {
                 synchronized(stateLock) {
                     if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
-                        return@withRailTopologyReadLock
+                        return@withRailTopologyReadLock false
                     }
                     attachedWorld.publishCapturedWorldFrame(capturedWorldFrame)
                     lastMetrics = metrics
@@ -735,6 +743,12 @@ class PhysicsCoordinator(
                     latestCompleted = ticket
                     inFlight = null
                     ticket.completion.complete(metrics)
+                    true
+                }
+            }
+            if (committed) {
+                AsyncTickThreadMarker.runInAsyncTickContext {
+                    PhysicsRailEventBus.publish(PostTickEvent(attachedWorld, ticket.epoch, deltaMillis, capturedWorldFrame))
                 }
             }
         } catch (t: Throwable) {

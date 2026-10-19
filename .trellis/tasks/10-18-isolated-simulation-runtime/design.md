@@ -1,0 +1,72 @@
+# 技术方案
+
+## 唯一运行边界
+
+World继续拥有设施、列车及模块数据，增加创建时确定的LIVE/SIMULATION运行模式。该属性不持久化，不赋予线程或Bukkit权限。事件直接持World引用；已有CoreWorld运行实例身份继续使用，不引入Environment对象、全局currentWorld或可变的进程级“当前模拟”开关。
+
+实际与模拟使用同一套领域部件和阶段顺序。平台composition提供配置与效果出口，模拟composition提供捕获值、逻辑调度与本地效果记录；不复制领域算法。明确区分设施定义快照与可变运行状态：clone仍由设施及合成列车启动，所有预约/Dispatcher/插件运行对象新建。
+
+## 事件合同（子任务1）
+
+增加最小WorldEvent接口，只持`world: World`。TrainEvent继承它并从`train.world`提供属性；独立的TrainLinkEvent从参与列车取得World，CollisionEvent直接接收所属World。具体8类为CollisionEvent、PassSignalEvent、DerailEvent、TrainSwitchDirectionEvent、TrainLinkEvent、TrainLinkSuccessEvent、TrainSplitEvent、TrainSplitSuccessEvent。不新增逐次发布的归属校验或重复环境ID。
+
+PreTickEvent/PostTickEvent改为PhysicsRailEvent并同样实现WorldEvent；最小数据为World、epoch及实际delta，Post另提供本次已提交的不可变World frame，避免监听器稍后重新读取到其他epoch。通知同步发生在协调器线程，使用物理线程分类；不为它设置main/simulation marker。主线程决策事件保持原有帧间语义。
+
+Pre在一个分配的ticket真正进入epoch计算、应用碰撞决定及controller计算之前发一次；bootstrap ticket、未执行的唤醒和合并唤醒不发。Post只从完整frame成功提交分支发出，位于物理与信号处理之后。现有普通listener异常隔离保留，不把通知变成RailwayEpochProcessor安全门。
+
+扩展callback必须在stateLock/topology锁外执行。ticket仍以完整frame提交决定成功；Post不成为新的安全processor，也不要求为了通知把扩展代码放入提交锁。关闭和失败回归须证明未提交epoch无Post，已成功提交的epoch不因通知异常变回失败。不得把ticket.await误解释为Bukkit效果或所有异步消费完成。
+
+删除PhysicsCoordinator的碰撞发布开关及模拟工厂对应参数，所有模式走相同检测、决策与应用代码；仅保留原有正常碰撞业务判断。
+
+保留既有两套事件总线，不建立第二事件框架。运营listener使用event.world的模块状态；平台listener在入口按World模式选择平台效果或领域行为出口，不能在模式判断时把整个领域处理一起跳过。全局注册本身不自动证明listener状态隔离，必须审计当前consumer。
+
+StationCallNotification当前由具体ATO队列交给对应Dispatcher，RailTopologyChange在具体World注册；二者保持已有局部传递，不为统一名称强制全局化。未来若公开跨World广播，再复用WorldEvent。RenderableEvent保留分组能力，本任务不新增平台生命周期事件。
+
+## World归属与跨世界事务（子任务2）
+
+普通领域操作由所属World的同一串行执行入口保护，进入现有physics帧间阶段；主线程分类与互斥分离。同步入口可在不同线程执行，不要求所有World占用同一物理线程；不在每个业务方法重复检查World身份。
+
+WorldManager只触发各World的运行，不能在整个世界遍历或一次HTTP模拟外持共享simulationLock。分开安排各World的后续阶段，避免仅改锁而仍在全局调度线程等待某个World的ticket、间接阻塞其他World。复用已有exact ticket/coalescing和帧间队列，不新增第二物理循环或无界逐tick待办。
+
+必须保留的协调范围：
+
+- 资源包重载按已有稳定顺序取得有关World的帧间准入，检查并发布同类列车配置。
+- 插件resource contributor/provider注册和卸载先关闭相关准入或进入有关World边界，再做全世界活动检查及提交；普通注册表短锁不能替代检查/提交之间的协调。
+- 玩家驾驶会话按玩家处理旧World释放与新World接管，保留当前显式handoff，不要求所有World长期共锁。
+- 共享目录/注册生命周期继续用已有局部互斥；模拟不共享实际SignalLogicRuntime或其他可变脚本实例。
+
+区域等待必须释放并恢复真正持有的逻辑owner作用域，保留当前runOutsideSimulationContext避免持锁等待的性质；不得用Bukkit主线程分类替代entity/region归属。
+
+## 领域装配与Feature接线（子任务2-4）
+
+由现有simulation/world composition owner提供最小的捕获和安装接线，供已安装领域插件注册。捕获在实际World稳定的帧间阶段完成，worker只使用脱离实际运行状态的准备输入；安装针对目标World构造新的模块运行对象，并返回现有可关闭注册资源。保留稳定插件身份，运行实例的归属由目标World区分。
+
+注册目录和能力检查只放在创建/准备边界。只覆盖当前已存在的部件，不建立任意第三方对象自动克隆、通用DI环境或事务框架。未支持的必需领域Feature明确报告准备失败，不静默跳过或自动退回空实现。纯只读算法/源文本可共享；实际World、provider、reservation、JS状态和回调捕获的实际服务不可共享。
+
+统一实际与模拟的领域安装顺序及owner tick阶段，尤其补齐SpeedSafetyMonitor、发布后的脱轨请求消费、observation/admission/Dispatcher/逻辑操作顺序。Bukkit动画和实体提交继续留在平台出口。多处工厂可保留平台差别，但领域依赖清单必须来自同一装配事实，不能再手工维护两份不一致Feature列表。
+
+## SimpleSignals完整安装（子任务3）
+
+复用现有定义编译器、FixedBlockRouteResourcePolicy的领域规则、SectionOccupancyRuntime、ProtectionRouteSelectionRuntime、SignalPackEpochRuntime和SignalLogicRuntime。对模拟World的topology重新编译；不复用实际publication的root绑定或模型回调。
+
+同一模拟安装必须同时接通：区间占用与信号epoch source、routePlanning restriction、固定闭塞和保护区域inspection source、固定闭塞资源存在/贡献/准备策略，以及admission update到信号runtime的交接。模拟的registry/claim/尾部释放和source生命周期均为本地。
+
+捕获current定义、规则JS源和逻辑元数据、可用外观名、方向/速度子集及相关设置。领域求值使用自己的SignalLogicRuntime；预编译的只读输入可以复用，不能共享实际JS执行器。选路、声明和限速算法不得另写“simulation版”。
+
+现有catalog带CompiledModelAsset，runtime manager带Plugin/Bukkit服务，SectionOccupancyRuntime带可选模型绑定。只抽出这条运行链实际需要的中立值/效果端口，使同一领域代码可无Bukkit调用运行；平台仍负责包加载、模型资产和显示。当前模块可以保留既有Bukkit适配类，本任务不自行决定完整SimpleSignalsBukkit拆分或新公共模型库。
+
+## 车厢行为与运营扩展（子任务4）
+
+复用TrainBehaviorRuntime/CarBehavior的逐车JS状态、语义门侧转换、动作选择、拒绝及延迟效果汇总；只把逻辑运行部分从renderer所属monitor/效果绑定中提取到两模式共同可用的owner。模拟每车新建行为状态。
+
+模拟效果出口记录动画/声音请求并用逻辑时钟调度已声明延迟；不创建显示对象，也不调用Bukkit scheduler。相同JS和动作定义决定是否接受、何时全部已接受效果完成、取消及失败。删除只读取modelActionDurationTicks估算成功的执行旁路；保留该数据仅在仍有实际preview consumer时使用。
+
+时刻表扩展通过目标World的领域安装创建实例，审计现有simulation factory选择和遗漏情况。平台专属Feature不纳入领域完整性要求；其余必需Feature不能因缺少旧opt-in而悄悄消失。物理及运营事件继续经过同一总线，效果出口根据World选择。
+
+## 持久化、变更边界与回滚
+
+World模式、Feature准备包及执行owner都是运行态，不新增持久化格式或版本。沿用现有设施/时刻表/包文件与开发数据政策；若源文件需变更格式，先停止并补充有依据的独立方案，不新增runtime旧数据兼容。
+
+从已合并a76b076c建立独立实现工作区；当前未提交WIP保留在原位置，所需依赖先明确归属，不能顺手带入本任务提交。每个子任务独立验证和提交，最终集成时逐项处理WIP重叠。回滚按子任务提交，不回退已合并坐标/UI、不删除原世界数据或无关文件。
+
+同JVM下共享CPU、GC和进程故障属于已明确的限制；本方案承诺运行状态与执行归属隔离，不宣传为进程资源隔离。

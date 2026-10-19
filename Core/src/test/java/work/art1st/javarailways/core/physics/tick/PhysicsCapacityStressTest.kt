@@ -77,8 +77,7 @@ class PhysicsCapacityStressTest {
         val coordinator = PhysicsCoordinator(
             workerThreads = workerThreads,
             epochOverloadThresholdMillis = 1_000_000L,
-            automaticFallback = false,
-            publishCollisionEvents = false
+            automaticFallback = false
         )
         val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
         val controllers = createScenario(world, config, scenario, trainCount)

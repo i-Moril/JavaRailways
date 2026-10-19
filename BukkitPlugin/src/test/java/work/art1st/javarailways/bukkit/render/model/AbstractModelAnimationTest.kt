@@ -102,6 +102,7 @@ class AbstractModelAnimationTest {
 
     @OptIn(ExtensionData::class)
     private class FakeWorld : World {
+        override val executionMode = work.art1st.javarailways.core.api.physics.WorldExecutionMode.LIVE
         override val tickManager: FakeTickManager = FakeTickManager()
         override val topologyState: TopologyState
             get() = error("Topology is not used by this render test")

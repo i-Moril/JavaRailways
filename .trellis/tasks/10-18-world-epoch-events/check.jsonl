@@ -1,0 +1,12 @@
+{"file": ".trellis/spec/guides/cross-layer.md", "reason": "保持跨模块producer/consumer和副作用边界"}
+{"file": ".trellis/spec/javarailways/shared/modules-and-build.md", "reason": "保持现有领域与平台模块ownership"}
+{"file": ".trellis/tasks/10-18-isolated-simulation-runtime/prd.md", "reason": "父任务R1-R6及跨子任务验收范围"}
+{"file": ".trellis/tasks/10-18-isolated-simulation-runtime/design.md", "reason": "共同World、事件、装配、信号和行为方案"}
+{"file": ".trellis/tasks/10-18-isolated-simulation-runtime/research/current-state.md", "reason": "当前合并基线、WIP及已核实的缺口"}
+{"file": ".trellis/tasks/10-18-world-epoch-events/prd.md", "reason": "本子任务需求和可验证结果"}
+{"file": ".trellis/tasks/10-18-world-epoch-events/design.md", "reason": "本子任务技术边界和ownership"}
+{"file": ".trellis/spec/javarailways/core/event-bus.md", "reason": "总线、listener、决策与旧事件待办"}
+{"file": ".trellis/spec/javarailways/core/runtime-publication.md", "reason": "完整epoch、帧间与exact ticket边界"}
+{"file": ".trellis/spec/javarailways/core/api-boundaries.md", "reason": "公开World/事件的live和值边界"}
+{"file": ".trellis/spec/javarailways/core/train-physics.md", "reason": "原有碰撞与两阶段联结/解编语义"}
+{"file": ".trellis/spec/javarailways/core/testing.md", "reason": "真实coordinator及并发回归"}

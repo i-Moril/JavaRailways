@@ -107,3 +107,5 @@ Bukkit调度入口与共同领域装配一并接入，保留中间版本的装�
 ## 后续记账
 
 工作提交整合后只归档本子任务，按workflow记录journal。父任务、信号和车厢子任务保持开放；不把本批已完成等同全feature模拟验收完成。
+
+2026-10-19执行完成：docs-site `cb9263b`、Core `5d8cdabe`、runtime `1423116d`。dev/signal-system与主docs工作区均快进整合，产品字节与2395项通过候选一致。

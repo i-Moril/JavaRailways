@@ -27,7 +27,7 @@ git diff --check
 
 - [x] 原候选的实际owner规范、父验收及原任务对应开放项已更新。
 - [x] O1/O2实现/检查后同步观察服务规范和新验证结果，不把原候选测试标为新增项已完成。
-- [ ] 只提交本批拥有的修改，向父任务提供commit、验证结果和未验证范围。
+- [x] 只提交本批拥有的修改，向父任务提供commit、验证结果和未验证范围。
 
 ## 最终集成
 
@@ -65,7 +65,7 @@ git diff --check
 
 ## 当前交付状态
 
-2026-10-19：原owner/runner、管理事务、共同装配及新增O1/O2均已实现，独立静态复核无剩余本批具体缺陷。最终44源码指纹`702e1db6c9b6e16e8af8cb18cfdec639f9d204d432f7f4441e7383a842bd3c4e`，八模块2395项全执行、零失败/错误/跳过，API/module/shadow/Dokka及完整docs check通过。原42源码/2391项仅保留为历史证据。参见[最终验证记录](research/validation.md)、[独立检查](research/check-result.md)与[最终提交清单](research/commit-plan.md)。尚未提交/整合，不提前归档或启动子任务3/4。
+2026-10-19：原owner/runner、管理事务、共同装配及新增O1/O2均已实现，独立静态复核无剩余本批具体缺陷。最终44源码指纹`702e1db6c9b6e16e8af8cb18cfdec639f9d204d432f7f4441e7383a842bd3c4e`，八模块2395项全执行、零失败/错误/跳过，API/module/shadow/Dokka及完整docs check通过。原42源码/2391项仅保留为历史证据。参见[最终验证记录](research/validation.md)、[独立检查](research/check-result.md)与[最终提交清单](research/commit-plan.md)。已按用户确认清单本地提交并快进合入dev/signal-system：Core5d8cdabe、runtime1423116d、docs-sitecb9263b。只归档本子任务，不启动子任务3/4。
 
 ## O1/O2补充执行顺序
 

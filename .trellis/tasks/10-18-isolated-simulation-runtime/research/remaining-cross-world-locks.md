@@ -32,7 +32,7 @@
 
 ## 当前状态
 
-- 原锁/调度实现与原候选测试：完成，未提交。
-- O1/O2：已在子任务2完成，真实fromCore转换在World entry中独立串行，共享目录锁外运行；entry identity拒绝退休迟到结果，保留UUID订阅语义。新增4个正式回归及56项focused通过；最终44源702e1db6，8模块2395项和完整docs check通过，独立检查无剩余本批具体缺陷。待本地提交/整合，见子任务2最终证据及替换后的提交清单。
+- 原锁/调度及O1/O2：已通过Core5d8cdabe、runtime1423116d、docs-sitecb9263b提交并整合。
+- O1/O2：已在子任务2完成，真实fromCore转换在World entry中独立串行，共享目录锁外运行；entry identity拒绝退休迟到结果，保留UUID订阅语义。新增4个正式回归及56项focused通过；最终44源702e1db6，8模块2395项和完整docs check通过，独立检查无剩余本批具体缺陷。已提交/整合，见[子任务2最终验证](../../archive/2026-10/10-18-world-runtime-isolation/research/validation.md)及对应提交清单。
 - S1：已补入信号批次prd/design/implement和上下文，任务保持planning，尚未启动实现。
 - 父任务AC4/AC5/AC7保持未完成：O1/O2子验收已通过，S1及完整信号/车厢行为和最终联合验收仍待完成。

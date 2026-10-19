@@ -26,6 +26,6 @@
   ],
   "parent": null,
   "relatedFiles": [],
-  "notes": "2026-10-19: user requested missing lock work be added to plan. O1/O2 observation construction/lifecycle added to child2 (original lock/scheduling work verified, additional work pending); S1-S3 all LIVE/SIM signal evaluation isolation added to child3, still planning. Parent AC4/AC5/AC7 remain incomplete; necessary management/registration locks retained.",
+  "notes": "2026-10-19: children1/2 completed and merged (runtime1423116d, Core5d8cdabe, docs-sitecb9263b). O1/O2 observation isolation and lifecycle verified in2395-test complete gate. Child3 S1-S3 all LIVE/SIM signal isolation and child4 behavior remain planning. Parent AC4/AC5/AC7 await full-feature joint validation.",
   "meta": {}
 }

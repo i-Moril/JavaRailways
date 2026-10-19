@@ -2,7 +2,7 @@
 
 ## 最终候选与范围
 
-2026-10-19用户批准继续补齐O1/O2后，本批实现、规范及独立检查已完成，尚未提交/整合。基线dev/signal-system@8f156900，实现工作区`.worktree/world-runtime-isolation`、分支`codex/world-runtime-isolation`。docs-site独立工作区基线29a59d8。最终产品/测试44文件指纹`702e1db6c9b6e16e8af8cb18cfdec639f9d204d432f7f4441e7383a842bd3c4e`。父会话与检查代理独立核对逐文件SHA、全部changed/new Kotlin/Java清单及本轮全部XML。
+2026-10-19用户批准继续补齐O1/O2后，本批实现、规范及独立检查已完成，现已本地提交并整合：Core5d8cdabe、runtime1423116d、docs-sitecb9263b；无push/部署。基线dev/signal-system@8f156900，实现工作区`.worktree/world-runtime-isolation`、分支`codex/world-runtime-isolation`。docs-site独立工作区基线29a59d8。最终产品/测试44文件指纹`702e1db6c9b6e16e8af8cb18cfdec639f9d204d432f7f4441e7383a842bd3c4e`。父会话与检查代理独立核对逐文件SHA、全部changed/new Kotlin/Java清单及本轮全部XML。
 
 本批覆盖World owner/独立runner、必要LIVE管理事务、共同领域装配、每目标扩展创建及O1/O2观察构造隔离。完整SimpleSignals/各LIVE的JS求值隔离归子任务3，逐车JS归子任务4，均未实施；duration-only operation gateway不代表完整Feature。
 

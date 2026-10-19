@@ -62,3 +62,5 @@ git diff --check
 
 
 2026-10-19计划补充：用户要求补齐遗漏的跨World串行点；按[剩余锁清单](research/remaining-cross-world-locks.md)分配O1至子任务2、S1至子任务3。仅O1加入当前批次，当前用户请求为计划更新；本轮未改产品或启动子任务3。必要管理/注册锁继续保留，不把目标扩写为消除所有进程级锁。
+
+2026-10-19子任务2完成并整合：Core5d8cdabe、runtime1423116d、docs-sitecb9263b，O1/O2包含在2395项全通过候选，证据归档于[子任务2验证记录](../archive/2026-10/10-18-world-runtime-isolation/research/validation.md)。子任务3/4保持planning，父AC4/5/7未关闭。

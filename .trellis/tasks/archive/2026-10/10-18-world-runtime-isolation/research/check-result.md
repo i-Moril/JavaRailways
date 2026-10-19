@@ -12,7 +12,7 @@
 - **新完整门禁**：session`63573`，`BUILD SUCCESSFUL in 1m 51s`。检查代理独立解析并逐SHA核对356份本轮XML：Core447、Basic413、SimpleATO385、SimpleATOBukkit8、BukkitPlugin470、SimpleSignals629、TunnelBridgeBuilder31、WebUI12，合计**2395项，零失败/错误/跳过**。8个test task均实际执行；API consumer、模块边界、shadowJar、Core/Basic/SimpleATO Dokka通过。
 - 新完整日志`/tmp/world-runtime-observation-full-gate.log`，独立SHA256=`f17f99c0af06d2a8e033f1ceea224adf4807cbecd4977855c7f81fce5f816a85`；命令与下方原完整门禁命令一致，完整逐源/逐XML清单在上述新manifest。构建后44源指纹未变。
 - **新文档完整门禁**：父会话session`54799`执行`npm --prefix docs-site run check`并退出0。独立复读日志确认TS typecheck、58份YAML、schema rejection fixtures、reference copy、Docusaurus及Pagefind27页通过。日志`/tmp/world-runtime-observation-docs-check.log`独立SHA256=`1d43c1fab89e38db3778815dde22206ab154489b7a12d3d9a3bdefe84e446b9b`；新threading-model源码SHA256=`6fa7c8b6af6bd056222e7a97383e492c831a446c50ed10b245899e99856465f1`，scanner仍为`7b1981af53d9f08248a6026032b543225468f0d9002bc4d67b0bd1af58ca6cc0`，均与父会话记录吻合。
-- **本轮结论**：包括O1/O2的全批次静态审查、编译/类型检查、2395项JVM测试、API/模块/打包门禁、更新后的Basic/Bukkit规范及docs完整构建通过，未发现剩余本批具体缺陷。完整Signals JS/LIVE执行隔离、逐车行为及Paper/Folia现场验证依旧不在本轮完成范围。LIVE信号JS串行归子任务3的S1-S3，见[剩余锁清单](../../10-18-isolated-simulation-runtime/research/remaining-cross-world-locks.md)。
+- **本轮结论**：包括O1/O2的全批次静态审查、编译/类型检查、2395项JVM测试、API/模块/打包门禁、更新后的Basic/Bukkit规范及docs完整构建通过，未发现剩余本批具体缺陷。完整Signals JS/LIVE执行隔离、逐车行为及Paper/Folia现场验证依旧不在本轮完成范围。LIVE信号JS串行归子任务3的S1-S3，见[剩余锁清单](../../../../10-18-isolated-simulation-runtime/research/remaining-cross-world-locks.md)。
 
 ## 原42份候选的历史审查与验证
 

@@ -7,7 +7,7 @@
 ## 需求与来源
 
 本任务实现父任务的R1的共同领域装配、R2、R6；父任务AC4及AC7相关部分。
-完整用户决定与非目标以[父PRD](../10-18-isolated-simulation-runtime/prd.md)为唯一来源，不另行放宽。用户于2026-10-19回复“可以进入下一步”，批准启动本子任务实现。
+完整用户决定与非目标以[父PRD](../../../10-18-isolated-simulation-runtime/prd.md)为唯一来源，不另行放宽。用户于2026-10-19回复“可以进入下一步”，批准启动本子任务实现。
 
 ## 验收标准
 
@@ -19,7 +19,7 @@
 - [x] 同步等待能力释放并恢复实际持有的owner；停止/卸载只清理所属World。
 - [x] 共同装配包含真实速度安全、脱轨消费及admission更新；缺失必需Feature在准备边界明确失败。
 
-2026-10-19计划更新：原先明确列出的锁/调度改造已完成；O1/O2是补入本批的遗漏，现已实现并通过真实转换barrier、生命周期回归及新完整门禁；本批待本地提交/整合。各LIVE World之间的JS求值隔离及完整模拟信号安装归子任务3。分工及源码证据见[剩余锁清单](../10-18-isolated-simulation-runtime/research/remaining-cross-world-locks.md)。
+2026-10-19计划更新：原先明确列出的锁/调度改造已完成；O1/O2是补入本批的遗漏，现已实现并通过真实转换barrier、生命周期回归及新完整门禁；本批已通过Core5d8cdabe、runtime1423116d及docs-sitecb9263b本地提交并整合。各LIVE World之间的JS求值隔离及完整模拟信号安装归子任务3。分工及源码证据见[剩余锁清单](../../../10-18-isolated-simulation-runtime/research/remaining-cross-world-locks.md)。
 
 实例隔离在本批覆盖Core/Basic/Dispatcher、扩展provider及local contributor。完整信号JS和逐车行为实例由后续两个子任务及父任务联合验收；当前没有生产同步区域等待调用，不声称已完成这类平台调用迁移。验收证据见[验证记录](research/validation.md)与[独立检查](research/check-result.md)。
 

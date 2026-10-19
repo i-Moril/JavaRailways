@@ -4,7 +4,7 @@
 
 串行执行单位是World。移除整个world遍历/整场模拟的全局锁，并消除global scheduler等待一个World造成的间接阻塞；复用既有ticket、coalescing和帧间队列。跨World重载、provider注册/卸载按有关World边界单独协调；玩家handoff按玩家保留。建立当前领域部件实际需要的捕获/目标World安装接线，统一SpeedSafetyMonitor、脱轨消费、observation/admission/Dispatcher/操作顺序；不建独立Environment或任意对象clone框架。
 
-完整交界契约见[父设计](../10-18-isolated-simulation-runtime/design.md)，本任务不能自行改变用户已确认的模式/事件/失败语义。
+完整交界契约见[父设计](../../../10-18-isolated-simulation-runtime/design.md)，本任务不能自行改变用户已确认的模式/事件/失败语义。
 
 ## O1/O2：observation构造的World归属
 

@@ -617,3 +617,34 @@ Implemented UUID+A/B connection and active-selection persistence, shared pre-wor
 ### Next Steps
 
 - Real Paper/Folia naming input and visible label layout await in-game acceptance.
+
+
+## Session 19: Commit preserved backlog and integrate World epoch events
+<!-- trellis-session: v=2 fp=1394a35c58863387 -->
+
+**Date**: 2026-10-19
+**Task**: Commit preserved backlog and integrate World epoch events
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+用户授权提交dev/signal-system全部积压改动。分批提交日志/信号/Wand、表示器示例、原模型资源和文档，docs-site独立提交29a59d8。无冲突整合事件分支；组合2343项测试及API/JAR/模块/Dokka通过。首轮测试类加载异常证据保留，针对性重建后完整通过，无源码改动。仅归档完成的World事件子任务，后续隔离/信号/行为及Stage 2仍未完成。无部署、迁移或推送。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dfc7b0e7` | fix(signals): complete diagnostics and authoring fixes |
+| `cd2d04bb` | feat(signals): add route indicator model example |
+| `abec3837` | chore(models): track local model and resource packages |
+| `01d2c7fe` | docs: synchronize operational architecture and audit records |
+| `423ea7dd` | merge: integrate world epoch events with runtime fixes |
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 按已规划的World隔离子任务继续；尚未开始实现。

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.api.physics.WorldExecutionMode
+import org.junit.jupiter.params.provider.EnumSource
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -197,6 +199,12 @@ class CoreTrainCollisionCouplingTest {
     fun `collision decision veto follows terminal owner fallback without a post tick task`() =
         scenario(TrainEndSide.A, TrainEndSide.B, true, false, veto = true)
 
+    @ParameterizedTest
+    @EnumSource(WorldExecutionMode::class)
+    fun `collision coupling uses the same domain path in both world modes`(
+        mode: WorldExecutionMode
+    ) = scenario(TrainEndSide.A, TrainEndSide.B, true, false, executionMode = mode)
+
     @OptIn(AsyncEventApi::class)
     private fun scenario(movingEnd: TrainEndSide, fixedEnd: TrainEndSide,
                          movingMaster: Boolean, failPreparation: Boolean,
@@ -204,13 +212,15 @@ class CoreTrainCollisionCouplingTest {
                          bothMoving: Boolean = false, thirdObstacle: Boolean = false,
                          clearReverse: Boolean = false, shape: String = "straight", brakedStep: Boolean = false,
                          renameBeforeCollision: Boolean = false, renameOnSuccess: Boolean = false,
-                         veto: Boolean = false) {
+                         veto: Boolean = false,
+                         executionMode: WorldExecutionMode =
+                             WorldExecutionMode.LIVE) {
         val owner = Thread.currentThread()
         ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
             override fun isMainThread(): Boolean = Thread.currentThread() === owner
         }).use {
             val coordinator = PhysicsCoordinator(2, automaticFallback = false)
-            val world = try { createTestWorld(coordinator) } catch (failure: Throwable) {
+            val world = try { createTestWorld(coordinator, executionMode) } catch (failure: Throwable) {
                 coordinator.close()
                 throw failure
             }

@@ -28,7 +28,8 @@ Wall-clock delta首 epoch 50 ms，默认 clamp 200 ms；drop计入 `droppedDelta
 ## Epoch 顺序与结果矩阵
 
 ```text
-apply prior collision decisions
+publish PreTickEvent once on the coordinator physics context
+→ apply prior collision decisions
 → snapshot controllers（profileId stable order）
 → synchronous previous-epoch collision prepass（先标记双方，再启动worker；规则见train physics）
 → workers tick(deltaMillis)
@@ -42,7 +43,10 @@ apply prior collision decisions
 → run registered RailwayEpochProcessor synchronously in registration order
 → revalidate candidate topology/occupancy/train frames/active continuations and publish it
 → complete exact PhysicsTicket
+→ publish PostTickEvent for that committed frame outside commit locks
 ```
+
+Pre/Post同时携带World实例、epoch及实际delta，Post携带本次已提交frame，完整通知合同归[事件总线](./event-bus.md#world来源与物理epoch通知current2026-10-18)。bootstrap与合并唤醒不额外通知；未提交的失败epoch无Post。ticket完成保持现有物理发布成功语义，等待者可能先于Post listener完成继续运行；不能用await断言通知已消费或平台效果已完成。普通listener失败被总线隔离，不能把已经成功提交的epoch改判失败。扩展callback不进入stateLock或topology提交锁。
 
 | 条件 | 结果 | consumer行为 |
 | --- | --- | --- |

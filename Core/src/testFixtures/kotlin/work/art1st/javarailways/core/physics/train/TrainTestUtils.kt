@@ -1,5 +1,6 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
@@ -30,7 +31,11 @@ fun CoreTrain.setControllerForTest(controller: TrainController?) =
  * 成功后调用方负责关闭 world 的 physics、runtime binding 和 tick manager。
  * 创建失败时清理本函数分配的资源；显式传入的 coordinator 始终由调用方负责。
  */
-fun createTestWorld(physicsCoordinator: PhysicsCoordinator? = null): CoreWorld {
+@JvmOverloads
+fun createTestWorld(
+    physicsCoordinator: PhysicsCoordinator? = null,
+    executionMode: WorldExecutionMode = WorldExecutionMode.LIVE
+): CoreWorld {
     ensureJavaRailwaysKoinStarted()
     val scheduler = Executors.newSingleThreadScheduledExecutor()
     var tickManager: TickManagerImpl? = null
@@ -39,7 +44,7 @@ fun createTestWorld(physicsCoordinator: PhysicsCoordinator? = null): CoreWorld {
         val tick = TickManagerImpl(scheduler, System.currentTimeMillis())
         tickManager = tick
         val physics = physicsCoordinator ?: PhysicsCoordinator(1).also { ownedPhysics = it }
-        return CoreWorld.createEmpty(tick, NoOpWorldParentContext, physics)
+        return CoreWorld.createEmpty(tick, NoOpWorldParentContext, physics, executionMode)
     } catch (failure: Throwable) {
         try {
             ownedPhysics?.close()

@@ -1,5 +1,6 @@
 package work.art1st.javarailways.core.api.event
 
+import work.art1st.javarailways.core.api.physics.World
 import org.jetbrains.annotations.ApiStatus
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainEndSide
@@ -15,6 +16,7 @@ import work.art1st.javarailways.core.api.threading.ThreadGuard
  *
  * @property firstTrain first collision participant, in event order
  * @property secondTrain second collision participant, in event order
+ * @property world exact runtime world of [firstTrain], shared by both collision participants
  * @property firstEnd stable consist end of [firstTrain] at contact
  * @property secondEnd stable consist end of [secondTrain] at contact
  * @property firstSpeedBeforeCollision first participant's nonnegative speed magnitude in m/s before collision handling
@@ -37,7 +39,8 @@ class TrainLinkEvent internal constructor(
     val firstSpeedBeforeCollision: Double,
     val secondSpeedBeforeCollision: Double,
     private val defaultMaster: Train
-) : MainThreadRailEvent {
+) : MainThreadRailEvent, WorldEvent {
+    override val world: World get() = firstTrain.world
     val firstCarIds: List<String> = java.util.List.copyOf(firstTrain.cars.map { it.id })
     val secondCarIds: List<String> = java.util.List.copyOf(secondTrain.cars.map { it.id })
     val firstReversed: Boolean = firstTrain.isReversed

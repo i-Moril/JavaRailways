@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.timetable.simulation
 
+import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
@@ -252,8 +253,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                 epochOverloadThresholdMillis = 60_000L,
                 overloadWindowMillis = 60_000L,
                 overloadsBeforeStall = Int.MAX_VALUE,
-                automaticFallback = false,
-                publishCollisionEvents = false
+                automaticFallback = false
             )
             var routeAdmissionHost: IsolatedRouteAdmissionHost? = null
             var topologySubscription: AutoCloseable? = null
@@ -265,7 +265,8 @@ class IsolatedTimetableSimulationWorld private constructor(
                         dependency = CoreWorld.SnapshotDependency(
                             tickManager,
                             NoOpWorldParentContext,
-                            physics
+                            physics,
+                            WorldExecutionMode.SIMULATION
                         )
                     ).also { isolatedWorld ->
                         val worldId = "isolated"

@@ -133,3 +133,5 @@ json.decodeFromJsonElement(
 RailLocationWithFacing 以插值点的弧长作为唯一位置，不再保存或叠加 minorDeltaS。任意合法弧长由现有分段线性插值求值；反向及保存只进行一次 AB/view 弧长转换。当前未发布格式保持既有版本，不新增旧字段 runtime reader。
 
 已只读核对 JavaRailwaysTest 开发服六个世界的十二份 runtime 主文件/备份：展开 coreSnapshotJson 后 trains 均为空；当前 infrastructure/runtime/rail-render 文件及备份中未发现 minorDeltaS。针对这些存档无需迁移。此证据只覆盖核对时的落盘文件，不等同于实时内存列车清单，也不涵盖目录外历史归档。未修改开发服数据。
+
+加载失败的discardFailedLoad同步尝试撤销全部Core注册，并返回子资源清理的CompletionStage。同步load立即重抛原失败，不阻塞owner等待平台任务；稍后清理失败附加原异常并令coordinator stall。各清理独立尝试，不能因head或car清理失败跳过world注销。

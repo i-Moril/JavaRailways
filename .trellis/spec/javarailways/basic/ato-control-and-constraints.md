@@ -21,7 +21,7 @@ interface TrainActuator {
     val maximumSpeedMetersPerSecond: Double
     fun step(currentSpeedMetersPerSecond: Double, demand: ControlDemand, deltaTimeSeconds: Double): ActuationStep
     fun freeze(): ActuationStep
-    fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope?
+    fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope
 }
 ```
 
@@ -39,3 +39,5 @@ interface TrainActuator {
 ./gradlew :Basic:test --tests '*WorldSafetyInterlockTest'
 ./gradlew :SimpleATO:test --tests '*AtoPolicyTest' --tests '*KinematicTrainActuatorTest' --tests '*SimpleATOTest'
 ```
+
+`TrainActuator.brakingEnvelope`为必需的非nullable能力，只接受非空segments；调用方先处理空路线，禁止用null表示缺失制动实现。

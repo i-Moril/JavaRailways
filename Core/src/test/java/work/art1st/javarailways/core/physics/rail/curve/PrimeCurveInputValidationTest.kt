@@ -28,6 +28,8 @@ class PrimeCurveInputValidationTest {
             listOf(-1.0, 10.0),
             listOf(Double.MIN_VALUE, 10.0),
             listOf(0.0, 0.0),
+            listOf(0.0, Double.MIN_VALUE),
+            listOf(0.0, 1e-13),
             listOf(0.0, -1.0),
             listOf(0.0, Double.NaN),
             listOf(0.0, Double.POSITIVE_INFINITY),
@@ -74,6 +76,52 @@ class PrimeCurveInputValidationTest {
     }
 
     @Test
+    fun `constructor rejects adjacent frames whose interpolation degenerates`() {
+        val start = Curve.RawPoint(
+            Vector3d(), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0
+        )
+        val oppositeTangent = Curve.RawPoint(
+            Vector3d(10.0, 0.0, 0.0), Vector3d(-2.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 10.0
+        )
+        val oppositeNormal = Curve.RawPoint(
+            Vector3d(10.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, -2.0, 0.0), 10.0
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            PrimeCurve.fromPoints(listOf(start, oppositeTangent))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            PrimeCurve.fromPoints(listOf(start, oppositeNormal))
+        }
+    }
+
+    @Test
+    fun `constructor rejects interior parallel frames and overflowing position deltas`() {
+        val start = point(0.0).copy(tangent = Vector3d(1.0, 0.0, 0.0), normal = Vector3d(0.0, 1.0, 0.0))
+        val end = point(10.0).copy(tangent = Vector3d(0.0, 2.0, 0.0), normal = Vector3d(2.0, 0.0, 0.0))
+        // At t=1/3 both vectors are (2/3, 2/3, 0): nonzero but parallel.
+        assertThrows(IllegalArgumentException::class.java) { PrimeCurve.fromPoints(listOf(start, end)) }
+        assertThrows(IllegalArgumentException::class.java) {
+            PrimeCurve.fromPoints(listOf(
+                start.copy(position = Vector3d(-Double.MAX_VALUE, 0.0, 0.0)),
+                point(10.0).copy(position = Vector3d(Double.MAX_VALUE, 0.0, 0.0))
+            ))
+        }
+    }
+
+    @Test
+    fun `constructor accepts a rotating frame whose entire interval remains safe`() {
+        val curve = PrimeCurve.fromPoints(listOf(
+            point(0.0),
+            point(10.0).copy(tangent = Vector3d(0.0, 1.0, 0.0), normal = Vector3d(-1.0, 0.0, 0.0))
+        ))
+        val middle = curve.getPointAt(5.0)
+        assertEquals(1.0, middle.tangent.length(), 1e-12)
+        assertEquals(1.0, middle.normal.length(), 1e-12)
+        assertEquals(0.0, middle.tangent.dot(middle.normal), 1e-12)
+    }
+
+    @Test
     fun `constructor copies usable nonorthogonal frames and permits equal positions`() {
         val tangent = Vector3d(2.0, 0.0, 0.0)
         val normal = Vector3d(1.0, 3.0, 0.0)
@@ -100,10 +148,9 @@ class PrimeCurveInputValidationTest {
         assertEquals(1.0, interior.tangent.length(), 1e-9)
         assertEquals(1.0, interior.normal.length(), 1e-9)
         assertEquals(0.0, interior.tangent.dot(interior.normal), 1e-9)
-        assertEquals(
-            Double.MIN_VALUE,
-            PrimeCurve.fromPoints(listOf(point(0.0), point(Double.MIN_VALUE))).totalArcLength
-        )
+        val smallest = PrimeCurve.fromPoints(listOf(point(0.0), point(1e-12)))
+        assertEquals(5e-13, smallest.getPointAt(5e-13).arcLength)
+        assertEquals(5e-13, smallest.getPointAt(5e-13).position.x())
     }
 
     @ParameterizedTest

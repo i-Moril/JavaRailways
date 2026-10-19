@@ -32,7 +32,7 @@ canonical AB arc length s
 
 - `LINE_START -> LINE_END`使用精确线性位置插值，切线和法线保持该直线frame；
 - `DISCRETE`区间线性插值position、tangent和normal，归一化tangent，再用Gram-Schmidt把normal投影回tangent的垂直平面并归一化；
-- 区间长度小于`1e-12`时保守返回lo，正常输入的严格单调校验应使该分支只作为数值保护。
+- 区间长度小于`1e-12`的输入在构造边界拒绝，查询不向离散端点snap。
 
 `ReversedCurve.getPointAt(s)`只把查询转换为原曲线`totalArcLength - s`并反向tangent；canonical持久化坐标始终是AB。
 
@@ -76,7 +76,8 @@ Production authoring由Basic curve factory拥有；Core `PrimeCurveGenerator`仅
 ## 5. 不变量、生命周期、线程与版本
 
 - `PrimeCurve`是immutable canonical AB value；reverse是view，不复制另一份权威几何。
-- raw point至少两项，第一项arc精确为0，全部arc finite且严格递增；没有额外最小步长。position/tangent/normal的xyz全部finite，两个frame向量的length²必须finite且大于0，归一化后的cross length²也必须finite且大于0。
+- raw point至少两项，第一项arc精确为0，全部arc finite且严格递增；相邻arc间距至少`1e-12`米，小间距在输入边界拒绝而不在查询时snap。position/tangent/normal的xyz全部finite，两个frame向量的length²必须finite且大于0，归一化后的cross length²也必须finite且大于0。
+- DISCRETE区间用线性tangent/normal的cross二次Bernstein多项式验证整个区间：控制系数凸包某分量严格同号即可证明该子区间不退化，否则细分；缩放后的安全margin为`1e-12`，最多32层/256节点，无法证明安全就拒绝，不以有限采样点代替证明。位置差分必须finite。
 - raw frame不必预先unit或正交，原值保留；DISCRETE内部插值负责归一化/Gram-Schmidt。相同几何位置但不同递增arc允许存在，不以位置去重。构造后point order不得变化。
 - curve位置、split/concatenate和persistence均使用米制弧长；BA只在读取view时转换。
 - `getPointAt`可在高频路径使用，但`stream/getNearestPoint`标记`@Heavy`，不得用全量采样代替弧长索引。

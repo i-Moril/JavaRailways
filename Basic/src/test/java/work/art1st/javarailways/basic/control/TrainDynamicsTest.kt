@@ -449,6 +449,10 @@ class TrainDynamicsTest {
             9.80665
         )
 
+        assertThrows(IllegalArgumentException::class.java) { actuator.brakingEnvelope(emptyList()) }
+        val envelope = actuator.brakingEnvelope(listOf(BrakingGradeSegment(100.0, 0.0)))
+        assertEquals(100.0, envelope.totalDistanceMeters)
+
         val first = actuator.step(0.0, ControlDemand(trainProfile.maxSpeed), 0.1)
         val expected = TrainDynamics.step(
             TrainDynamics.State(),

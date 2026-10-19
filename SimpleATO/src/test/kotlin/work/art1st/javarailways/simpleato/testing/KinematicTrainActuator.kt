@@ -1,7 +1,9 @@
 package work.art1st.javarailways.simpleato.testing
 
 import work.art1st.javarailways.basic.api.ato.ActuationStep
+import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
 import work.art1st.javarailways.basic.api.ato.ControlDemand
+import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import work.art1st.javarailways.basic.api.ato.TrainActuator
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 
@@ -39,4 +41,7 @@ class KinematicTrainActuator(
             distanceMeters = (currentSpeedMetersPerSecond + nextSpeed) * 0.5 * deltaTimeSeconds
         )
     }
+
+    override fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope =
+        GradeAwareBrakingEnvelope.constant(profile.serviceDecelerationMetersPerSecondSquared, segments)
 }

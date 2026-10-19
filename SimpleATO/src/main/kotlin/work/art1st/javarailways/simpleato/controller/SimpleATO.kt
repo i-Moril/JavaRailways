@@ -629,7 +629,8 @@ class SimpleATO(
         latestPerceptionSnapshot = scan.perception
         activePerceptionHorizonMeters = scan.perceptionHorizonMeters
         currentSegments = scan.segments
-        activeBrakingEnvelope = actuator.brakingEnvelope(buildBrakingGradeSegments(scan.segments))
+        val gradeSegments = buildBrakingGradeSegments(scan.segments)
+        activeBrakingEnvelope = if (gradeSegments.isEmpty()) null else actuator.brakingEnvelope(gradeSegments)
 
         val geometryLength = frameLength?.takeIf { frame?.head == scan.perception.train.head }
         updateTrainRestrictions(scan.perception, restriction, if (clearances.isNotEmpty()) horizon else null)

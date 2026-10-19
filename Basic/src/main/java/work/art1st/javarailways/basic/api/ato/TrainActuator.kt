@@ -31,6 +31,12 @@ interface TrainActuator {
 
     fun freeze(): ActuationStep = ActuationStep(0.0, 0.0)
 
-    /** Returns a braking envelope for the current forward route, or null for a test-only fallback. */
-    fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope? = null
+    /**
+     * Returns the service-braking envelope for [segments].
+     *
+     * [segments] must be non-empty. Every actuator must provide an envelope for that route;
+     * callers handle absence of a forward route before calling this method.
+     * @throws IllegalArgumentException if [segments] is empty.
+     */
+    fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope
 }

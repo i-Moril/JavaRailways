@@ -93,16 +93,14 @@ class HandleTrainActuator(
         return ActuationStep(0.0, 0.0)
     }
 
-    override fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope? =
-        segments.takeIf { it.isNotEmpty() }?.let {
-            GradeAwareBrakingEnvelope.fromDynamics(
-                dynamics.trainProfile,
-                dynamics.carProfiles,
-                dynamics.gravityMetersPerSecondSquared,
-                it,
-                currentAccelerationMetersPerSecondSquared = dynamics.state.acceleration
-            )
-        }
+    override fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope =
+        GradeAwareBrakingEnvelope.fromDynamics(
+            dynamics.trainProfile,
+            dynamics.carProfiles,
+            dynamics.gravityMetersPerSecondSquared,
+            segments,
+            currentAccelerationMetersPerSecondSquared = dynamics.state.acceleration
+        )
 
     private fun desiredHandle(currentSpeed: Double, targetSpeed: Double, deltaSeconds: Double): String {
         if (targetSpeed == 0.0 && currentSpeed > SPEED_EPSILON && serviceBrakeHandles.isNotEmpty()) {

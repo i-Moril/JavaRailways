@@ -9,7 +9,9 @@ import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.ato.ActuationStep
+import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
 import work.art1st.javarailways.basic.api.ato.ControlDemand
+import work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope
 import work.art1st.javarailways.basic.api.ato.TrainActuator
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
@@ -391,5 +393,8 @@ class ProtectionSignalControllerHandoffTest {
             lastDemand = demand
             return ActuationStep(0.0, 0.0)
         }
+
+        override fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope =
+            GradeAwareBrakingEnvelope.constant(1.0, segments)
     }
 }

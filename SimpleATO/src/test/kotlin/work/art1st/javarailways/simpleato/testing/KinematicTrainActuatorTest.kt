@@ -1,6 +1,8 @@
 package work.art1st.javarailways.simpleato.testing
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
+import work.art1st.javarailways.basic.api.ato.BrakingGradeSegment
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.ControlDemand
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
@@ -20,4 +22,12 @@ class KinematicTrainActuatorTest {
         )
         assertEquals(0.0, actuator.freeze().speedMetersPerSecond)
     }
+    @Test
+    fun `braking capability requires a nonempty route`() {
+        val actuator = KinematicTrainActuator(10.0, AtoSafetyProfile())
+        assertThrows(IllegalArgumentException::class.java) { actuator.brakingEnvelope(emptyList()) }
+        val envelope = actuator.brakingEnvelope(listOf(BrakingGradeSegment(100.0, 0.0)))
+        assertEquals(100.0, envelope.totalDistanceMeters)
+    }
+
 }

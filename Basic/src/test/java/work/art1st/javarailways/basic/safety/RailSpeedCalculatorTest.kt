@@ -28,7 +28,7 @@ class RailSpeedCalculatorTest {
             Anchor("A", Vector3d(), Vector3d(1.0, 0.0, 0.0)),
             Vector3d(1.0, 0.0, -0.2),
             turnout
-        )).curve
+        ))
 
         val limits = RailSpeedCalculator.calculate(curve, 100.0, 0.075, 3.0)
         val expectedOperating = sqrt(
@@ -49,7 +49,7 @@ class RailSpeedCalculatorTest {
             Anchor("A", Vector3d(), Vector3d(1.0, 0.0, 0.0)),
             Vector3d(1.0, 0.0, -0.2),
             turnout
-        )).curve
+        ))
 
         val limits = RailSpeedCalculator.calculate(
             curve,

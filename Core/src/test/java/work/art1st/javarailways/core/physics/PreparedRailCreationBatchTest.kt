@@ -177,7 +177,7 @@ class PreparedRailCreationBatchTest {
     private fun withWorld(block: (CoreWorld) -> Unit): Unit {
         val world = createTestWorld()
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 world.physicsCoordinator.use {
                     block(world)
                 }

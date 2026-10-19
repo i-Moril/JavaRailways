@@ -198,9 +198,9 @@ class IsolatedTimetableSimulationTest {
             val world = simulation.world
             val rail = world.allRails.single()
             val train = world.allTrains.single()
-            assertEquals(3.0, (rail.viewAB.staticRailObjects.single() as OperationalSpeedLimitSignal).getSpeedLimit(train))
-            assertEquals(3.0, (rail.viewBA.staticRailObjects.single() as OperationalSpeedLimitSignal).getSpeedLimit(train))
-            val controller = FixedSpeedController(train, world)
+            assertEquals(3.0, (rail.viewAB.staticRailObjects.single() as OperationalSpeedLimitSignal).speedLimitMetersPerSecond)
+            assertEquals(3.0, (rail.viewBA.staticRailObjects.single() as OperationalSpeedLimitSignal).speedLimitMetersPerSecond)
+            val controller = FixedSpeedController(train)
             train.setControllerForTest(controller)
             controller.publishSpeed(10.0)
             IsolatedSimulationThreadMarker.run {
@@ -228,7 +228,7 @@ class IsolatedTimetableSimulationTest {
             assertNotSame(enabled.world.basicWorldData.safetyInterlock, disabled.world.basicWorldData.safetyInterlock)
             listOf(enabled, disabled).forEach { simulation ->
                 val train = simulation.world.allTrains.single()
-                val controller = FixedSpeedController(train, simulation.world)
+                val controller = FixedSpeedController(train)
                 train.setControllerForTest(controller)
                 controller.publishSpeed(10.0)
                 IsolatedSimulationThreadMarker.run {
@@ -252,7 +252,7 @@ class IsolatedTimetableSimulationTest {
         fixture.runtime.use { simulation ->
             val world = simulation.world
             val train = world.allTrains.single()
-            val controller = FixedSpeedController(train, world)
+            val controller = FixedSpeedController(train)
             train.setControllerForTest(controller)
             controller.publishSpeed(10.0)
             IsolatedSimulationThreadMarker.run {
@@ -478,7 +478,7 @@ class IsolatedTimetableSimulationTest {
         }
     }
 
-    private class FixedSpeedController(train: Train, world: World) : TrainController(train, world) {
+    private class FixedSpeedController(train: Train) : TrainController(train) {
         fun publishSpeed(value: Double) { speed = value; commit() }
     }
 

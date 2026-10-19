@@ -85,13 +85,7 @@ class RailSpatialIndex(
         val cells = railCells[rail.id] ?: return emptySet()
         val result = LinkedHashSet<CoreRail>()
         cells.forEach { cell ->
-            for (x in cell.x - 1..cell.x + 1) {
-                for (y in cell.y - 1..cell.y + 1) {
-                    for (z in cell.z - 1..cell.z + 1) {
-                        buckets[CellKey(x, y, z)]?.let(result::addAll)
-                    }
-                }
-            }
+            neighbourCells(cell).forEach { key -> buckets[key]?.let(result::addAll) }
         }
         result.remove(rail)
         return result
@@ -102,13 +96,7 @@ class RailSpatialIndex(
     internal fun candidatesFor(footprint: PreparedFootprint): Set<CoreRail> {
         val result = LinkedHashSet<CoreRail>()
         footprint.cells.forEach { cell ->
-            for (x in cell.x - 1..cell.x + 1) {
-                for (y in cell.y - 1..cell.y + 1) {
-                    for (z in cell.z - 1..cell.z + 1) {
-                        buckets[CellKey(x, y, z)]?.let(result::addAll)
-                    }
-                }
-            }
+            neighbourCells(cell).forEach { key -> buckets[key]?.let(result::addAll) }
         }
         return result
     }
@@ -157,5 +145,16 @@ class RailSpatialIndex(
 
     companion object {
         private const val DEFAULT_CELL_SIZE = 16.0
+
+        /** One cell and its 26 neighbours, shared by every broad-phase query. */
+        internal fun neighbourCells(cell: CellKey): Sequence<CellKey> = sequence {
+            for (x in cell.x - 1..cell.x + 1) {
+                for (y in cell.y - 1..cell.y + 1) {
+                    for (z in cell.z - 1..cell.z + 1) {
+                        yield(CellKey(x, y, z))
+                    }
+                }
+            }
+        }
     }
 }

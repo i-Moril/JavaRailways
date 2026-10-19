@@ -51,7 +51,7 @@ class CoreTrainLinkTest {
             val oldStream = follower.publicationStreamId
             val preparationFailure = IllegalStateException("controller preparation failed")
             var preparationCalls = 0
-            val controller = object : TrainController(lead, world) {
+            val controller = object : TrainController(lead) {
                 val consist = ControllerConsistState<List<Car>>(lead.cars.toList())
                 val handle = "P2"
                 override fun prepareConsistChange(cars: List<Car>, counterpart: TrainController?): List<PreparedControllerStateUpdate> {
@@ -142,7 +142,6 @@ class CoreTrainLinkTest {
             }
         } finally {
             world.physicsCoordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as AutoCloseable).close()
         }
     }

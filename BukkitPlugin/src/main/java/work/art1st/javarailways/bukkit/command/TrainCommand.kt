@@ -454,7 +454,7 @@ object TrainCommand {
                 playerControllers[playerId] == null) { "列车或驾驶员控制状态已变化，请重试" }
             val (controlConfig, carControls) = resolveControlProfile(train)
             val controller = RealisticManualController(
-                train, coreWorld, controlConfig, carControls,
+                train, controlConfig, carControls,
                 BukkitPlugin.INSTANCE.physicsConfig.track.gravityMetersPerSecondSquared,
                 profileResolver = { car -> car.carRendererOrNull?.resolveCarControl() }
             )

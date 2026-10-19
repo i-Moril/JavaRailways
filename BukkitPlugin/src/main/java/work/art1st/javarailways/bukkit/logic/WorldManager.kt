@@ -266,7 +266,6 @@ class WorldManager internal constructor(
                         attemptCleanup { coreWorld.physicsCoordinator.close() }
                     }
                     attemptCleanup { railWorld.renderChunkManager.close() }
-                    attemptCleanup { coreWorld?.releaseRuntimeBinding() }
                     attemptCleanup { (railWorld.tickManager as? AutoCloseable)?.close() }
                 }
                 if (coreWorld == null) cleanup() else coreWorld.executionOwner.run(cleanup)
@@ -382,7 +381,6 @@ class WorldManager internal constructor(
             },
             clearAbnormalMarkers = AbnormalTrainMarker::clearWorld,
             closeRender = { world -> world.renderChunkManager.close() },
-            releaseRuntimeBinding = CoreWorld::releaseRuntimeBinding,
             closeTick = { world -> (world.tickManager as? AutoCloseable)?.close() }
         )
     }
@@ -393,7 +391,6 @@ class WorldManager internal constructor(
         captureAndSave: (CoreWorld) -> Unit,
         clearAbnormalMarkers: (BukkitWorld) -> Unit,
         closeRender: (World) -> Unit,
-        releaseRuntimeBinding: (CoreWorld) -> Unit = CoreWorld::releaseRuntimeBinding,
         closeModelOperations: (World) -> Unit = { it.bukkitWorldData.closeModelOperations() },
         closeTick: (World) -> Unit
     ) {
@@ -445,7 +442,6 @@ class WorldManager internal constructor(
                     }
                     attempt { coreWorld?.physicsCoordinator?.close() }
                     attempt { closeRender(ownedWorld) }
-                    attempt { coreWorld?.let(releaseRuntimeBinding) }
                     attempt { closeTick(ownedWorld) }
                 }
                 attempt { BukkitPlugin.instanceOrNull()?.worldIssues?.clearWorld(bukkitWorld.uid) }

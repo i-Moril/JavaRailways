@@ -10,6 +10,7 @@ import work.art1st.javarailways.basic.testing.TestBasicWorldDataRegistry
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -19,13 +20,31 @@ import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.CoreTrain
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld as createCoreTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.physics.train.setControllerForTest
 
 class SpeedSafetyMonitorTest {
-    private fun createTestWorld() = createCoreTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
+    private val fixtures = mutableListOf<TestWorldFixture>()
+
+    private fun createTestWorld() = TestWorldFixture.create().also { fixtures += it }.world
+        .also { TestBasicWorldDataRegistry.getOrCreate(it) }
+
+    @AfterEach
+    fun closeTestWorlds() {
+        var firstFailure: Throwable? = null
+        fixtures.asReversed().forEach { fixture ->
+            try {
+                fixture.close()
+            } catch (failure: Throwable) {
+                val primary = firstFailure
+                if (primary == null) firstFailure = failure else primary.addSuppressed(failure)
+            }
+        }
+        fixtures.clear()
+        firstFailure?.let { throw it }
+    }
 
     @Test
     fun `exceeding operating limit alone does not derail`() {
@@ -43,7 +62,7 @@ class SpeedSafetyMonitorTest {
             curveSafety = CurveSafetyMetadata(12.0)
         )
         val train = createTrainWithConfig("T0", rail, world, listOf(8.0))
-        FixedSpeedController(train, world).also {
+        FixedSpeedController(train).also {
             train.setControllerForTest(it)
             it.publishSpeed(10.0)
         }
@@ -71,7 +90,7 @@ class SpeedSafetyMonitorTest {
             curveSafety = CurveSafetyMetadata(10.0)
         )
         val train = createTrainWithConfig("T1", rail, world, listOf(8.0))
-        FixedSpeedController(train, world).also {
+        FixedSpeedController(train).also {
             train.setControllerForTest(it)
             it.publishSpeed(12.0)
         }
@@ -113,7 +132,7 @@ class SpeedSafetyMonitorTest {
         )
         val train = createTrainWithConfig("offset", rail, world, listOf(8.0))
         world.basicWorldData.trainSpeedProfiles.put(train.id, TrainSpeedProfile(5.0))
-        FixedSpeedController(train, world).also {
+        FixedSpeedController(train).also {
             train.setControllerForTest(it)
             it.publishSpeed(23.0)
         }
@@ -134,7 +153,7 @@ class SpeedSafetyMonitorTest {
         return monitor.drainRequests(epoch)
     }
 
-    private class FixedSpeedController(train: Train, world: World) : TrainController(train, world) {
+    private class FixedSpeedController(train: Train) : TrainController(train) {
         fun publishSpeed(value: Double) {
             speed = value
             commit()

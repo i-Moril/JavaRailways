@@ -21,39 +21,27 @@ internal class AtGradeRailCrossingIndex(
 
     /** Synchronous bootstrap path used while restoring a world before live physics starts. */
     fun addOrReplace(rail: CoreRail) {
-        remove(rail.id)
+        remove(rail)
         val addedGeometry = prepareGeometry(rail.id, rail.curve)
-        spatialIndex.addRail(rail, addedGeometry.footprint)
         sampledRails[rail.id] = addedGeometry
+        spatialIndex.addRail(rail, addedGeometry.footprint)
         spatialIndex.candidatesFor(rail)
             .sortedBy { it.id.toString() }
             .forEach { candidate ->
                 val candidateGeometry = checkNotNull(sampledRails[candidate.id]) {
                     "spatial candidate ${candidate.id} has no sampled crossing geometry"
                 }
-                val pair = RailPair.of(rail.id, candidate.id)
-                val orderedFirst = if (pair.first == rail.id) rail else candidate
-                val orderedSecond = if (orderedFirst === rail) candidate else rail
-                val firstGeometry = if (orderedFirst === rail) addedGeometry else candidateGeometry
-                val secondGeometry = if (orderedSecond === rail) addedGeometry else candidateGeometry
-                if (!firstGeometry.bounds.overlaps(
-                        secondGeometry.bounds,
-                        AT_GRADE_CROSSING_TOLERANCE_METERS
-                    )
-                ) return@forEach
-                val crossing = detect(
-                    orderedFirst.id,
-                    firstGeometry.samples,
-                    orderedSecond.id,
-                    secondGeometry.samples
-                )
-                if (crossing != null) crossingsByPair[pair] = crossing
+                detectPair(addedGeometry, candidateGeometry)?.let { crossing ->
+                    crossingsByPair[RailPair.of(rail.id, candidate.id)] = crossing
+                }
             }
     }
 
-    fun remove(railId: UUID) {
-        crossingsByPair.keys.removeIf { it.first == railId || it.second == railId }
-        sampledRails.remove(railId)
+    /** Removes crossing geometry and its spatial footprint symmetrically for one rail. */
+    fun remove(rail: CoreRail) {
+        crossingsByPair.keys.removeIf { it.first == rail.id || it.second == rail.id }
+        sampledRails.remove(rail.id)
+        spatialIndex.removeRail(rail)
     }
 
     fun snapshot(): List<AtGradeRailCrossing> = crossingsByPair.entries
@@ -117,13 +105,9 @@ internal class AtGradeRailCrossingIndex(
         newRails.forEach { added ->
             val candidateNewRails = linkedMapOf<UUID, SampledRail>()
             added.footprint.cells.forEach { cell ->
-                for (x in cell.x - 1..cell.x + 1) {
-                    for (y in cell.y - 1..cell.y + 1) {
-                        for (z in cell.z - 1..cell.z + 1) {
-                            priorNewRailsByCell[RailSpatialIndex.CellKey(x, y, z)]?.forEach { candidate ->
-                                candidateNewRails.putIfAbsent(candidate.railId, candidate)
-                            }
-                        }
+                RailSpatialIndex.neighbourCells(cell).forEach { key ->
+                    priorNewRailsByCell[key]?.forEach { candidate ->
+                        candidateNewRails.putIfAbsent(candidate.railId, candidate)
                     }
                 }
             }

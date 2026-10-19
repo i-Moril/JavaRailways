@@ -29,8 +29,6 @@ dependencies {
     testImplementation("org.joml:joml:1.10.8")
     testFixturesImplementation("org.joml:joml:1.10.8")
     implementation("net.jcip:jcip-annotations:1.0")
-    implementation(platform("io.insert-koin:koin-bom:4.1.1"))
-    implementation("io.insert-koin:koin-core:4.1.1")
     //implementation(project(":Annotation"))
     //ksp(project(":Annotation"))
 }

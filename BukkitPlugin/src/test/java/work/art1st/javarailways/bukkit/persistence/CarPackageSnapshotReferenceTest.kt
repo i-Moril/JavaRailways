@@ -21,7 +21,7 @@ class CarPackageSnapshotReferenceTest {
         """.trimIndent())
         val world = createTestWorld()
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 world.physicsCoordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
                     val train = createTrainWithConfig("mixed", rail, world, listOf(10.0, 10.0))

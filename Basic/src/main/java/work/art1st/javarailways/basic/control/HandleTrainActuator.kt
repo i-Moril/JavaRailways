@@ -88,9 +88,8 @@ class HandleTrainActuator(
         return ActuationStep(result.state.speed, result.distance)
     }
 
-    override fun freeze(): ActuationStep {
+    override fun freeze() {
         selectedHandle = emergencyBrakeHandle ?: serviceBrakeHandles.lastOrNull() ?: NEUTRAL_HANDLE
-        return ActuationStep(0.0, 0.0)
     }
 
     override fun brakingEnvelope(segments: List<BrakingGradeSegment>): GradeAwareBrakingEnvelope =
@@ -127,12 +126,12 @@ class HandleTrainActuator(
                 } ?: serviceBrakeHandles.lastOrNull() ?: NEUTRAL_HANDLE
             }
             else -> (listOf(NEUTRAL_HANDLE) + powerHandles + serviceBrakeHandles)
+                .map { handle -> handle to dynamics.preview(currentSpeed, handle, deltaSeconds).state.speed }
                 .minWithOrNull(
-                    compareBy<String> {
-                        abs(dynamics.preview(currentSpeed, it, deltaSeconds).state.speed - targetSpeed)
-                    }.thenBy { if (it.equals(selectedHandle, ignoreCase = true)) 0 else 1 }
-                        .thenBy(::handleStrength)
-                ) ?: NEUTRAL_HANDLE
+                    compareBy<Pair<String, Double>> { (_, nextSpeed) -> abs(nextSpeed - targetSpeed) }
+                        .thenBy { (handle, _) -> if (handle.equals(selectedHandle, ignoreCase = true)) 0 else 1 }
+                        .thenBy { (handle, _) -> handleStrength(handle) }
+                )?.first ?: NEUTRAL_HANDLE
         }
     }
 

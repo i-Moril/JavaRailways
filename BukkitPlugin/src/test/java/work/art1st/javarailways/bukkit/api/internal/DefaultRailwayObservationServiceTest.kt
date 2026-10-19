@@ -11,7 +11,6 @@ import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
-import work.art1st.javarailways.core.api.control.ControlCommand
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
@@ -183,7 +182,6 @@ class DefaultRailwayObservationServiceTest {
         } finally {
             service.close()
             world.physicsCoordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as AutoCloseable).close()
         }
     }
@@ -275,7 +273,6 @@ class DefaultRailwayObservationServiceTest {
             workers.awaitTermination(5, TimeUnit.SECONDS)
             service.close()
             world.physicsCoordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as AutoCloseable).close()
         }
     }
@@ -351,7 +348,6 @@ class DefaultRailwayObservationServiceTest {
                 worker.awaitTermination(5, TimeUnit.SECONDS)
                 service.close()
                 world.physicsCoordinator.close()
-                world.releaseRuntimeBinding()
                 (world.tickManager as AutoCloseable).close()
             }
         }
@@ -428,15 +424,9 @@ class DefaultRailwayObservationServiceTest {
                 })
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
             train = createTrainWithConfig("moving", rail, world, listOf(10.0))
-            train.setControllerForTest(object : TrainController(train, world) {
+            train.setControllerForTest(object : TrainController(train) {
                 init {
-                    setCommand(object : ControlCommand {
-                        private var millis = 0.0
-                        override fun tick(deltaT: Double) { millis = deltaT }
-                        override val speed: Double get() = 5.0
-                        override val deltaS: Double get() = millis * 0.005
-                        override val isFinished: Boolean get() = false
-                    })
+                    speed = 5.0
                 }
             })
             world.onOwnerForTest { world.publishOwnerChanges(listOf(train)) }
@@ -461,7 +451,6 @@ class DefaultRailwayObservationServiceTest {
             world.physicsCoordinator.closeAndAwaitTermination()
             (world.tickManager as TickManagerImpl).closeAndAwaitTermination(world.runtimeId)
             runtime.close()
-            world.releaseRuntimeBinding()
         }
     }
 

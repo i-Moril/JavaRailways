@@ -44,7 +44,7 @@ class TrainControlManagerDirectionTest {
             PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
         )
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
-        val outgoing = ReverseTrackingController(train, world)
+        val outgoing = ReverseTrackingController(train)
         train.setControllerForTest(outgoing)
 
         world.onOwnerForTest { alignTrainHeadToDriverSeat(train, DriverControlEnd.TAIL) }
@@ -67,8 +67,8 @@ class TrainControlManagerDirectionTest {
         assertFalse(train.isReversed)
     }
 
-    private class ReverseTrackingController(train: Train, world: World) :
-        TrainController(train, world) {
+    private class ReverseTrackingController(train: Train) :
+        TrainController(train) {
         var reverseRequested = false
 
         override fun reverse(): java.util.concurrent.CompletableFuture<Unit> {

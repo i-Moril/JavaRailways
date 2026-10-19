@@ -30,7 +30,7 @@ class CoreTrainDerailEventTest {
                 createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
             }
             val train = createTrainWithConfig("external-event", rail, world, listOf(10.0))
-            train.setControllerForTest(MockTrainController(train, world, constantSpeed = 10.0))
+            train.setControllerForTest(MockTrainController(train, constantSpeed = 10.0))
             coordinator.start()
             val ticket = coordinator.stepSimulation(50.0)
             ticket.completion.get(5, TimeUnit.SECONDS)
@@ -64,7 +64,6 @@ class CoreTrainDerailEventTest {
         } finally {
             registration.close()
             coordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as? AutoCloseable)?.close()
         }
     }
@@ -98,7 +97,7 @@ class CoreTrainDerailEventTest {
             val initialTail = train.tailLocation
             val initialBogieLocation = train.headBogie.location
             // A 100 m movement runs the head bogie beyond the unconnected end of this rail.
-            train.setControllerForTest(MockTrainController(train, world, constantSpeed = 2000.0))
+            train.setControllerForTest(MockTrainController(train, constantSpeed = 2000.0))
             val listener = DerailCounter()
             val registration = MainRailEventBus.register(listener)
             try {

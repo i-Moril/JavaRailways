@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import java.util.UUID
+import work.art1st.javarailways.basic.infrastructure.admission.OccupancyQueryGeometry
 
 class OccupancyQueryGeometryTest {
     @Test

@@ -23,6 +23,7 @@ import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.api.render.DynamicRenderable
 import work.art1st.javarailways.core.api.util.plugin.Extendable
 import work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainer
+import work.art1st.javarailways.core.api.util.plugin.collectSavedExtensionData
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
 import work.art1st.configLib.persistence.PersistentBy
 import java.util.UUID
@@ -694,8 +695,9 @@ class CoreCar @MainThread internal constructor(
         val tailToHeadDirection = (headConnectorPosition - tailConnectorPosition).normalize()
         val headOffset = if (reversed) -bogieBOffset else bogieAOffset
         position = headConnectorPosition - tailToHeadDirection * headOffset
-        direction = if (reversed) -tailToHeadDirection else tailToHeadDirection
-        normal = (headLocation.normal + tailLocation.normal).projection(direction)
+        val restoredDirection = if (reversed) -tailToHeadDirection else tailToHeadDirection
+        direction = restoredDirection
+        normal = (headLocation.normal + tailLocation.normal).projection(restoredDirection)
         updateMotionStateByHeadBogie()
     }
 
@@ -781,10 +783,7 @@ class CoreCar @MainThread internal constructor(
     override fun save(): SavedCarV1 = save(installedReversed = false)
 
     internal fun save(installedReversed: Boolean): SavedCarV1 {
-        val savedExtension = HashMap<String, SerializableExtensionData>()
-        extensionDataContainer.extensionData.forEach { ext ->
-            ext?.save()?.let { savedExtension[it.first] = it.second }
-        }
+        val savedExtension = extensionDataContainer.extensionData.collectSavedExtensionData("car '$id'")
         return SavedCarV1(
             id,
             bogieA.save(),

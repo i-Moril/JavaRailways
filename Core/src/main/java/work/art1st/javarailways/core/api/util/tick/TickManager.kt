@@ -8,7 +8,6 @@ interface TickManager {
     fun unregister(obj: TickingObject)
     fun preTick(currentTimeMs: Long)
     fun postTick()
-    fun <T> scheduleMainThreadAfterCommitTask(task: Callable<T>): Future<T>
     fun <T> scheduleMainThreadPostTickTask(task: Callable<T>): Future<T>
 
     /** Drains platform commit requests without executing their side effects on the simulation path. */

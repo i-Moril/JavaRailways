@@ -52,7 +52,7 @@ import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignal
 import work.art1st.javarailways.basic.rail.infrastructureMetadata
 import work.art1st.javarailways.simpleato.routing.MissionRouteLayout
-import work.art1st.javarailways.basic.route.RouteAllocationTiming
+import work.art1st.javarailways.simpleato.routing.RouteAllocationTiming
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailObject
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
@@ -751,7 +751,7 @@ class SimpleATO(
                 .sortedBy(Observed::distanceMeters)
                 .forEach { observed ->
                     val signal = observed.railObject as? OperationalSpeedLimitSignal ?: return@forEach
-                    val limit = signal.getSpeedLimit(train) ?: return@forEach
+                    val limit = signal.speedLimitMetersPerSecond ?: return@forEach
                     add(RouteSpeedLimitConstraint(
                         key = ConstraintKey("basic", "infrastructure-signal/${signal.ref.id}"),
                         distanceToStartMeters = observed.distanceMeters.coerceAtLeast(0.0),
@@ -1037,7 +1037,7 @@ class SimpleATO(
                 val signal = scan.eventObjectsByRef[observation.subject.ref]?.railObject
                     as? OperationalSpeedLimitSignal ?: return@forEach
                 if (!signal.appliesTo(observation.subject.position.facing)) return@forEach
-                activeInfrastructureLimitMetersPerSecond = signal.getSpeedLimit(train)
+                activeInfrastructureLimitMetersPerSecond = signal.speedLimitMetersPerSecond
             }
     }
 

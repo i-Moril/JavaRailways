@@ -69,7 +69,6 @@ class WorldHttpRequestIsolationTest {
             asynchronous.shutdownNow()
             listOf(first, second).forEach {
                 it.physicsCoordinator.close()
-                it.releaseRuntimeBinding()
                 (it.tickManager as AutoCloseable).close()
             }
             guard.close()

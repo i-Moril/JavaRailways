@@ -5,7 +5,7 @@
 `BukkitPlugin.kt` 的阶段边界：
 
 - `onLoad`：检测 platform capabilities、创建 dispatcher、读取 physics/global config、加载 packet runtime；需在连接注入前完成的工作放这里。
-- `onEnable`：enable packet/runtime、创建 render backend、启动 Koin/Basic/plugin registry、安装 `ThreadGuard` bridge、注册 world/service/listener/control、加载模型、初始化 Wand/Cloud、注册 worlds，最后启动 WebUI sidecar 与 `WorldManager`。
+- `onEnable`：enable packet/runtime、创建 render backend、启动 Basic/plugin registry、安装 `ThreadGuard` bridge、注册 world/service/listener/control、加载模型、初始化 Wand/Cloud、注册 worlds，最后启动 WebUI sidecar 与 `WorldManager`。
 - `onDisable`：先停止外部入口/sidecar/HTTP，再停止 world manager、保存并 unregister worlds，关闭 control/event/log/packet/thread bridge。每步通过有上下文日志的 cleanup 隔离异常。
 
 新增 component 必须回答：谁创建、何时可用、谁注册、如何停止、world unload 与 plugin disable 是否都释放。不要依赖 JVM 退出回收 executor/task/registration。
@@ -217,7 +217,7 @@ SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重�
 - platform commit 执行前重新解析 affinity；目标跨 region 时 reschedule，而不是在旧 owner 上执行。
 - 每车JS行为见[车厢行为契约](car-behavior.md)。最终snapshot保存尝试及目标worker终止确认之后，先令该world尚未完成的模型操作future失败，再分别关闭每节车厢的行为及延迟效果，随后关闭render/tick；不能等region队列执行才完成旧ticket。各车关闭独立尝试，某车失败不跳过其余车厢或后续owner。
 
-上面的physics保存边界、CR-013卸载失败清理和CR-015 factory partial-init清理均已接入生产入口。没有因此承诺Bukkit跨region清理完成、失败输入可自动修复或Koin scope已经成对释放。
+上面的physics保存边界、CR-013卸载失败清理和CR-015 factory partial-init清理均已接入生产入口。没有因此承诺Bukkit跨region清理完成、失败输入可自动修复或所有平台资源已经成对释放。
 
 ### 构造失败资源归还（CURRENT）
 

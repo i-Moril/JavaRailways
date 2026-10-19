@@ -51,14 +51,9 @@ class InfrastructureDependencies(
 
 /** Applies or replaces one owner's complete dependency declaration against the current topology. */
 data class InfrastructureDependencyRequest(
-    val topologyRevision: Long,
     val owner: InfrastructureOwner,
     val dependencies: InfrastructureDependencies
-) {
-    init {
-        require(topologyRevision >= 0L) { "topologyRevision must be non-negative" }
-    }
-}
+)
 
 data class InfrastructureDependencySnapshot(
     val owner: InfrastructureOwner,
@@ -70,7 +65,6 @@ enum class InfrastructureDependencyMutationStatus {
     REPLACED,
     REMOVED,
     UNCHANGED,
-    STALE_TOPOLOGY,
     INVALID_REFERENCE,
     OWNER_REVISION_CONFLICT,
     EDIT_IN_PROGRESS,

@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.ato.provider
+package work.art1st.javarailways.basic.api.rail
 
 import work.art1st.javarailways.core.api.physics.rail.RailObject
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
@@ -16,14 +16,26 @@ import java.util.concurrent.CopyOnWriteArrayList
 class RailObjectStore {
     private val byRef = ConcurrentHashMap<RailObjectRef, RailObject>()
     private val byRail = ConcurrentHashMap<UUID, CopyOnWriteArrayList<RailObject>>()
+    /** Rail identity captured at registration so unregister never re-invokes owner getters. */
+    private val railIdByRef = ConcurrentHashMap<RailObjectRef, UUID>()
     private val mutationLock = Any()
 
     fun register(railObject: RailObject) = synchronized(mutationLock) {
+        // Capture and validate every external input before touching either index.
+        val ref = railObject.ref
+        val railId = railObject.location.rail.id
         require(railObject.lifecycleState == RailObjectLifecycleState.ACTIVE)
-        check(byRef.putIfAbsent(railObject.ref, railObject) == null) {
-            "RailObjectRef already registered: ${railObject.ref}"
+        check(byRef.putIfAbsent(ref, railObject) == null) {
+            "RailObjectRef already registered: $ref"
         }
-        byRail.computeIfAbsent(railObject.location.rail.id) { CopyOnWriteArrayList() }.add(railObject)
+        try {
+            byRail.computeIfAbsent(railId) { CopyOnWriteArrayList() }.add(railObject)
+            railIdByRef[ref] = railId
+        } catch (failure: Throwable) {
+            byRef.remove(ref, railObject)
+            railIdByRef.remove(ref)
+            throw failure
+        }
         Unit
     }
 
@@ -32,8 +44,10 @@ class RailObjectStore {
         check(registered.lifecycleState == RailObjectLifecycleState.REMOVED) {
             "RailObject owner must publish REMOVED before unregistering: $ref"
         }
+        val railId = railIdByRef[ref]
         check(byRef.remove(ref, registered)) { "RailObject changed during unregister: $ref" }
-        byRail[registered.location.rail.id]?.remove(registered)
+        if (railId != null) byRail[railId]?.remove(registered)
+        railIdByRef.remove(ref)
         registered
     }
 

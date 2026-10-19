@@ -10,6 +10,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
 import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import java.util.UUID
+import work.art1st.javarailways.basic.infrastructure.admission.CompiledRouteProgressPath
 
 internal fun lineTopologyState(revision: Long, vararg railIds: UUID): TopologyState =
     topologyState(

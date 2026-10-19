@@ -4,7 +4,6 @@ import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
 import work.art1st.javarailways.core.api.physics.train.Car
-import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import java.util.concurrent.CompletableFuture
@@ -19,13 +18,12 @@ enum class TrainDriveDirection(val label: String) {
 /** Platform-neutral manual handle controller; Bukkit owns only input and lifecycle wiring. */
 class RealisticManualController(
     train: Train,
-    world: World,
     controlProfile: TrainDynamics.TrainProfile,
     carProfiles: List<TrainDynamics.CarProfile>,
     gravityMetersPerSecondSquared: Double,
     initialSpeedMetersPerSecond: Double = train.speed,
     profileResolver: ((Car) -> TrainDynamics.CarProfile?)? = null
-) : TrainController(train, world), DynamicsProfileSource {
+) : TrainController(train), DynamicsProfileSource {
     private val dynamics = TrainDynamicsExecutor(
         train,
         controlProfile,

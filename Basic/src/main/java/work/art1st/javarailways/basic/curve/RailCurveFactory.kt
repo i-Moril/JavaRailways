@@ -33,15 +33,35 @@ data class CurveTemplateMatch(
     val reason: String
 )
 
-data class RailCurveBuildResult(
-    val curve: PrimeCurve?,
-    val error: String? = null,
-    val selectedTemplate: RailCurveTemplateType? = null,
-    val selectedReason: String? = null,
-    /** Internal player-invisible boundaries as fractions of total arc length. */
-    val logicalBreakFractions: List<Double> = emptyList()
-) {
-    val isSuccess: Boolean get() = curve != null
+sealed class RailCurveBuildResult {
+    /** Non-null only for [Success]; prefer an `is Success` check for exhaustive handling. */
+    abstract val curve: PrimeCurve?
+    abstract val error: String?
+    abstract val selectedTemplate: RailCurveTemplateType?
+    abstract val selectedReason: String?
+
+    val isSuccess: Boolean get() = this is Success
+
+    open val logicalBreakFractions: List<Double>
+        get() = (this as? Success)?.logicalBreakFractions.orEmpty()
+
+    data class Success(
+        override val curve: PrimeCurve,
+        override val selectedTemplate: RailCurveTemplateType,
+        override val selectedReason: String? = null,
+        /** Internal player-invisible boundaries as fractions of total arc length. */
+        override val logicalBreakFractions: List<Double> = emptyList()
+    ) : RailCurveBuildResult() {
+        override val error: String? get() = null
+    }
+
+    data class Failure(
+        override val error: String,
+        override val selectedTemplate: RailCurveTemplateType? = null,
+        override val selectedReason: String? = null
+    ) : RailCurveBuildResult() {
+        override val curve: PrimeCurve? get() = null
+    }
 
     companion object {
         fun success(
@@ -49,48 +69,58 @@ data class RailCurveBuildResult(
             template: RailCurveTemplateType,
             reason: String? = null,
             logicalBreakFractions: List<Double> = emptyList()
-        ): RailCurveBuildResult = RailCurveBuildResult(
-            curve,
-            selectedTemplate = template,
-            selectedReason = reason,
-            logicalBreakFractions = logicalBreakFractions
-        )
+        ): RailCurveBuildResult = Success(curve, template, reason, logicalBreakFractions)
 
         fun failure(
             error: String,
             template: RailCurveTemplateType? = null,
             reason: String? = null
-        ): RailCurveBuildResult = RailCurveBuildResult(null, error, template, reason)
+        ): RailCurveBuildResult = Failure(error, template, reason)
     }
 }
 
-data class RailParallelCurveBuildResult(
-    val curves: List<PrimeCurve>?,
-    val error: String? = null,
-    val selectedTemplate: RailCurveTemplateType? = null,
-    val selectedReason: String? = null,
-    val logicalBreakFractionsByLane: List<List<Double>> = emptyList()
-) {
-    val isSuccess: Boolean get() = curves != null
+sealed class RailParallelCurveBuildResult {
+    /** Non-null only for [Success]; prefer an `is Success` check for exhaustive handling. */
+    abstract val curves: List<PrimeCurve>?
+    abstract val error: String?
+    abstract val selectedTemplate: RailCurveTemplateType?
+    abstract val selectedReason: String?
+
+    val isSuccess: Boolean get() = this is Success
+
+    open val logicalBreakFractionsByLane: List<List<Double>>
+        get() = (this as? Success)?.logicalBreakFractionsByLane.orEmpty()
+
+    data class Success(
+        override val curves: List<PrimeCurve>,
+        override val selectedTemplate: RailCurveTemplateType,
+        override val selectedReason: String? = null,
+        override val logicalBreakFractionsByLane: List<List<Double>> = curves.map { emptyList() }
+    ) : RailParallelCurveBuildResult() {
+        override val error: String? get() = null
+    }
+
+    data class Failure(
+        override val error: String,
+        override val selectedTemplate: RailCurveTemplateType? = null,
+        override val selectedReason: String? = null
+    ) : RailParallelCurveBuildResult() {
+        override val curves: List<PrimeCurve>? get() = null
+    }
 
     companion object {
         fun success(
             curves: List<PrimeCurve>,
-            template: RailCurveTemplateType?,
+            template: RailCurveTemplateType,
             reason: String? = null,
             logicalBreakFractionsByLane: List<List<Double>> = curves.map { emptyList() }
-        ): RailParallelCurveBuildResult = RailParallelCurveBuildResult(
-            curves,
-            selectedTemplate = template,
-            selectedReason = reason,
-            logicalBreakFractionsByLane = logicalBreakFractionsByLane
-        )
+        ): RailParallelCurveBuildResult = Success(curves, template, reason, logicalBreakFractionsByLane)
 
         fun failure(
             error: String,
             template: RailCurveTemplateType? = null,
             reason: String? = null
-        ): RailParallelCurveBuildResult = RailParallelCurveBuildResult(null, error, template, reason)
+        ): RailParallelCurveBuildResult = Failure(error, template, reason)
     }
 }
 
@@ -126,16 +156,16 @@ object RailCurveFactory {
         if (fromAnchors.isEmpty()) return RailParallelCurveBuildResult.failure("并行曲线至少需要 1 组锚点")
         if (fromAnchors.size != toAnchors.size) return RailParallelCurveBuildResult.failure("并行曲线起终点数量不一致")
         if (fromAnchors.size == 1) {
-            val result = build(fromAnchors.single(), toAnchors.single(), options)
-            return if (result.isSuccess) {
-                RailParallelCurveBuildResult.success(
-                    listOf(result.curve!!),
+            return when (val result = build(fromAnchors.single(), toAnchors.single(), options)) {
+                is RailCurveBuildResult.Success -> RailParallelCurveBuildResult.Success(
+                    listOf(result.curve),
                     result.selectedTemplate,
                     result.selectedReason,
                     listOf(result.logicalBreakFractions)
                 )
-            } else {
-                RailParallelCurveBuildResult.failure(result.error ?: "曲线创建失败", result.selectedTemplate, result.selectedReason)
+                is RailCurveBuildResult.Failure -> RailParallelCurveBuildResult.Failure(
+                    result.error, result.selectedTemplate, result.selectedReason
+                )
             }
         }
 
@@ -143,12 +173,14 @@ object RailCurveFactory {
             ?: return RailParallelCurveBuildResult.failure("无法计算并行起点中心")
         val centerTo = centerAnchor("parallel-center-to", toAnchors)
             ?: return RailParallelCurveBuildResult.failure("无法计算并行终点中心")
-        val centerResult = build(centerFrom, centerTo, options)
-        if (!centerResult.isSuccess) {
-            return RailParallelCurveBuildResult.failure(centerResult.error ?: "中心曲线创建失败", centerResult.selectedTemplate, centerResult.selectedReason)
+        val centerResult = when (val built = build(centerFrom, centerTo, options)) {
+            is RailCurveBuildResult.Success -> built
+            is RailCurveBuildResult.Failure -> return RailParallelCurveBuildResult.Failure(
+                built.error, built.selectedTemplate, built.selectedReason
+            )
         }
 
-        val centerCurve = centerResult.curve!!
+        val centerCurve = centerResult.curve
         val startRight = rightVector(centerCurve.getPointAt(0.0).tangent)
             ?: return RailParallelCurveBuildResult.failure("无法计算并行起点偏移方向", centerResult.selectedTemplate, centerResult.selectedReason)
         val endRight = rightVector(centerCurve.getPointAt(centerCurve.totalArcLength).tangent)

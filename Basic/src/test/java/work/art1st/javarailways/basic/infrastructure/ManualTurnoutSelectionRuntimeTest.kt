@@ -69,7 +69,6 @@ class ManualTurnoutSelectionRuntimeTest {
         fixture.registry.acquireClaim(
             Any(),
             InfrastructureClaimRequest(
-                fixture.world.topologyState.revision,
                 routeOwner,
                 InfrastructureFootprint(listOf(fixture.resource))
             )

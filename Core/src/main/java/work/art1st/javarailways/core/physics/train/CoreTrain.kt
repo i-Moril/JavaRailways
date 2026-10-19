@@ -35,6 +35,7 @@ import work.art1st.javarailways.core.api.util.annotation.AsyncEventApi
 import work.art1st.javarailways.core.api.util.plugin.Extendable
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainer
+import work.art1st.javarailways.core.api.util.plugin.collectSavedExtensionData
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
 import work.art1st.javarailways.core.api.util.tick.Synchronizable
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
@@ -1375,10 +1376,7 @@ open class CoreTrain @MainThread internal constructor(
     }
 
     override fun save(): SavedTrainV1 {
-        val savedExtension = HashMap<String, SerializableExtensionData>()
-        extensionDataContainer.extensionData.forEach { ext ->
-            ext?.save()?.let { savedExtension[it.first] = it.second }
-        }
+        val savedExtension = extensionDataContainer.extensionData.collectSavedExtensionData("train '$id'")
         return SavedTrainV1(
             id,
             name,

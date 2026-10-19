@@ -3958,10 +3958,10 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val owner = InfrastructureOwner("test:operator/$rail", 1)
         when (kind) {
             TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY -> assertEquals(InfrastructureDependencyMutationStatus.APPLIED,
-                registry.setInfrastructureDependencies(platformOwner, InfrastructureDependencyRequest(topology.revision, owner,
+                registry.setInfrastructureDependencies(platformOwner, InfrastructureDependencyRequest(owner,
                     InfrastructureDependencies(setOf(rail), emptySet(), emptySet()))).status)
             TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM -> assertEquals(InfrastructureMutationStatus.ACQUIRED,
-                registry.acquireClaim(platformOwner, InfrastructureClaimRequest(topology.revision, owner,
+                registry.acquireClaim(platformOwner, InfrastructureClaimRequest(owner,
                     InfrastructureFootprint(listOf(RailIntervalResource(rail, 0.0, 5.0))))).status)
             else -> error("unsupported test blocker")
         }
@@ -5667,7 +5667,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val owner = InfrastructureOwner("test:applied-timetable", 1L)
         val planOwner = Any()
         assertEquals(InfrastructureDependencyMutationStatus.APPLIED,
-            registry.setInfrastructureDependencies(planOwner, InfrastructureDependencyRequest(topology.revision, owner,
+            registry.setInfrastructureDependencies(planOwner, InfrastructureDependencyRequest(owner,
                 InfrastructureDependencies(emptySet(), emptySet(), resources))).status)
         assertTrue(registry.claimSnapshots().isEmpty(), "edit dependencies acquire no train resources")
 
@@ -5675,7 +5675,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val trainOwner = Any()
         val claim = InfrastructureOwner("test:train", 1L)
         assertEquals(InfrastructureMutationStatus.ACQUIRED,
-            registry.acquireClaim(trainOwner, InfrastructureClaimRequest(topology.revision, claim,
+            registry.acquireClaim(trainOwner, InfrastructureClaimRequest(claim,
                 InfrastructureFootprint(listOf(token)))).status)
         assertEquals(InfrastructureMutationStatus.RELEASED, registry.releaseClaim(trainOwner, claim).status)
 

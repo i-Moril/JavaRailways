@@ -29,7 +29,8 @@ interface TrainActuator {
         deltaTimeSeconds: Double
     ): ActuationStep
 
-    fun freeze(): ActuationStep = ActuationStep(0.0, 0.0)
+    /** Adjusts the actuator's internal braking state; motion freezing remains the controller's job. */
+    fun freeze() = Unit
 
     /**
      * Returns the service-braking envelope for [segments].

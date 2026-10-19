@@ -2,7 +2,7 @@ package work.art1st.javarailways.simpleato.api.mission
 
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.route.PlannedRoute
-import work.art1st.javarailways.basic.route.RouteBuildResult
+import work.art1st.javarailways.simpleato.routing.RouteBuildResult
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.util.annotation.MainThread

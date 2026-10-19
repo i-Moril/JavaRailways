@@ -56,7 +56,7 @@ class PhysicsEpochEventsTest {
             if (!empty) {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
                 val train = createTrainWithConfig("same-name", rail, world, listOf(10.0))
-                train.setControllerForTest(object : TrainController(train, world) {
+                train.setControllerForTest(object : TrainController(train) {
                     override fun tick(deltaT: Double) { order.add("controller") }
                 })
             }
@@ -238,7 +238,7 @@ class PhysicsEpochEventsTest {
             if (phase == "controller") {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
                 val train = createTrainWithConfig("failure", rail, world, listOf(10.0))
-                train.setControllerForTest(object : TrainController(train, world) {
+                train.setControllerForTest(object : TrainController(train) {
                     override fun tick(deltaT: Double) { error("controller failure") }
                 })
             }
@@ -306,7 +306,7 @@ class PhysicsEpochEventsTest {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
             val first = createTrainWithConfig("first", rail, world, listOf(10.0))
             val second = createTrainWithConfig("second", rail, world, listOf(10.0))
-            first.setControllerForTest(object : TrainController(first, world) {
+            first.setControllerForTest(object : TrainController(first) {
                 override fun tick(deltaT: Double) { moveControlledTrain(0.5, 10.0) }
             })
             val collisions = CopyOnWriteArrayList<CollisionEvent>()
@@ -336,7 +336,7 @@ class PhysicsEpochEventsTest {
             throw failure
         }
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use { coordinator.use { action(world) } }
+            run { coordinator.use { action(world) } }
         }
     }
 

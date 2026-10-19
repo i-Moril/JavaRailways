@@ -24,7 +24,6 @@ import work.art1st.javarailways.core.api.physics.RailwayEpochProcessor
 import work.art1st.javarailways.core.api.util.tick.TickManager
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -49,7 +48,7 @@ class PhysicsCoordinatorTest {
     @Test
     fun `movement hold preserves occupancy while other trains move and release resumes`() {
         val coordinator = PhysicsCoordinator(2, automaticFallback = false)
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         try {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0, 1))
             val held = createTrainWithConfig("held", rail, world, listOf(10.0))
@@ -58,8 +57,8 @@ class PhysicsCoordinatorTest {
                 moving.setLocation(RailLocationWithFacing(rail.viewAB, 150.0))
                 moving.commit()
             }
-            held.setControllerForTest(MockTrainController(held, world, 10.0))
-            moving.setControllerForTest(MockTrainController(moving, world, 10.0))
+            held.setControllerForTest(MockTrainController(held, 10.0))
+            moving.setControllerForTest(MockTrainController(moving, 10.0))
             val position = held.headLocation.position.x()
             val otherPosition = moving.headLocation.position.x()
             val occupancy = held.publishedFrame.occupiedIntervals
@@ -82,26 +81,23 @@ class PhysicsCoordinatorTest {
             assertEquals(10.0, held.publishedFrame.speedMetersPerSecond)
         } finally {
             coordinator.close()
-            world.releaseRuntimeBinding()
         }
     }
 
     @Test
     fun `published collision freezes stationary controller before its tick can accelerate`() {
         val coordinator = PhysicsCoordinator(workerThreads = 2, automaticFallback = false)
-        var createdWorld: CoreWorld? = null
-        // use preserves the primary assertion failure while closing both owned resources.
+        // use preserves the primary assertion failure while closing the owned coordinator.
         AutoCloseable {
-            try { coordinator.close() } finally { createdWorld?.releaseRuntimeBinding() }
+            coordinator.close()
         }.use {
-            val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
-            createdWorld = world
+            val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
             val first = createTrainWithConfig("first", rail, world, listOf(10.0))
             val second = createTrainWithConfig("second", rail, world, listOf(10.0))
             val calls = AtomicInteger()
             listOf(first, second).forEach { train ->
-                train.setControllerForTest(object : TrainController(train, world) {
+                train.setControllerForTest(object : TrainController(train) {
                     override fun tick(deltaT: Double) {
                         calls.incrementAndGet()
                         moveControlledTrain(0.5, 10.0)
@@ -122,19 +118,17 @@ class PhysicsCoordinatorTest {
     @Test
     fun `derailed train remains a collision obstacle for a controlled train`() = withMainThread {
         val coordinator = PhysicsCoordinator(workerThreads = 2, automaticFallback = false)
-        var createdWorld: CoreWorld? = null
         AutoCloseable {
-            try { coordinator.close() } finally { createdWorld?.releaseRuntimeBinding() }
+            coordinator.close()
         }.use {
-            val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
-            createdWorld = world
+            val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
             val moving = createTrainWithConfig("moving", rail, world, listOf(10.0))
             val obstacle = createTrainWithConfig("derailed", rail, world, listOf(10.0))
             obstacle.derail("test obstacle")
             assertTrue(obstacle.isDerailed)
             val calls = AtomicInteger()
-            moving.setControllerForTest(object : TrainController(moving, world) {
+            moving.setControllerForTest(object : TrainController(moving) {
                 override fun tick(deltaT: Double) {
                     calls.incrementAndGet()
                     moveControlledTrain(0.5, 10.0)
@@ -165,7 +159,7 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val enteredWorkers = CountDownLatch(workerThreads)
         val releaseWorkers = CountDownLatch(1)
@@ -180,7 +174,7 @@ class PhysicsCoordinatorTest {
                 train.setLocation(checkNotNull(RailLocationWithFacing(rail.viewAB, 0.0).forward(20.0 + index * 30.0)))
                 train.commitMaintenancePlacement()
             }
-            train.setControllerForTest(object : TrainController(train, world) {
+            train.setControllerForTest(object : TrainController(train) {
                 override fun tick(deltaT: Double) {
                     val currentInFlight = inFlight.incrementAndGet()
                     peakInFlight.accumulateAndGet(currentInFlight, ::maxOf)
@@ -220,11 +214,11 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("simulation-step", rail, world, listOf(10.0))
         val deltas = mutableListOf<Double>()
-        train.setControllerForTest(object : TrainController(train, world) {
+        train.setControllerForTest(object : TrainController(train) {
             override fun tick(deltaT: Double) { synchronized(deltas) { deltas += deltaT } }
         })
         coordinator.start()
@@ -247,10 +241,10 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("processor", rail, world, listOf(10.0))
-        train.setControllerForTest(ConstantSpeedController(train, world))
+        train.setControllerForTest(ConstantSpeedController(train))
         val processedThreads = mutableListOf<String>()
         var completedEpoch = -1L
         coordinator.registerPublishedFrameProcessor(object : PublishedTrainFrameProcessor {
@@ -285,11 +279,11 @@ class PhysicsCoordinatorTest {
             mainHeartbeatTimeoutMillis = 1_000_000L,
             epochOverloadThresholdMillis = 1_000_000L
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("render-dirty", rail, world, listOf(10.0))
         val initialFrame = train.publishedFrame
-        train.setControllerForTest(ConstantSpeedController(train, world))
+        train.setControllerForTest(ConstantSpeedController(train))
         coordinator.start()
         try {
             val firstTicket = coordinator.wakeFromMainThread()
@@ -322,12 +316,12 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val trainB = createTrainWithConfig("world-frame-b", rail, world, listOf(10.0))
         val trainA = createTrainWithConfig("world-frame-a", rail, world, listOf(10.0))
-        trainA.setControllerForTest(ConstantSpeedController(trainA, world))
-        trainB.setControllerForTest(ConstantSpeedController(trainB, world))
+        trainA.setControllerForTest(ConstantSpeedController(trainA))
+        trainB.setControllerForTest(ConstantSpeedController(trainB))
         coordinator.start()
         try {
             val ticket = coordinator.stepSimulation(50.0)
@@ -363,7 +357,7 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor { frame ->
@@ -394,7 +388,7 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor {
             error("signal recomputation failed")
         })
@@ -419,7 +413,7 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        CoreWorld.createEmpty(DummyTickManager, coordinator)
         val processor = RailwayEpochProcessor { }
         coordinator.registerRailwayEpochProcessor(processor)
         coordinator.start()
@@ -442,7 +436,7 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        CoreWorld.createEmpty(DummyTickManager, coordinator)
         coordinator.close()
 
         assertThrows(IllegalStateException::class.java) {
@@ -457,7 +451,7 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("close-in-flight-worker", rail, world, listOf(10.0))
         val coordinatorThread = AtomicReference<Thread>()
@@ -469,7 +463,7 @@ class PhysicsCoordinatorTest {
         coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor {
             coordinatorThread.set(Thread.currentThread())
         })
-        train.setControllerForTest(object : TrainController(train, world) {
+        train.setControllerForTest(object : TrainController(train) {
             override fun tick(deltaT: Double) {
                 if (ticks.incrementAndGet() == 1) return
                 workerThread.set(Thread.currentThread())
@@ -541,10 +535,10 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("close-before-publication", rail, world, listOf(10.0))
-        train.setControllerForTest(MockTrainController(train, world, 10.0))
+        train.setControllerForTest(MockTrainController(train, 10.0))
         coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor {
             coordinatorThread.set(Thread.currentThread())
         })
@@ -582,7 +576,6 @@ class PhysicsCoordinatorTest {
         } finally {
             release.countDown()
             coordinator.close()
-            world.releaseRuntimeBinding()
         }
     }
 
@@ -597,7 +590,7 @@ class PhysicsCoordinatorTest {
             overloadsBeforeStall = 1,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val coordinatorThread = AtomicReference<Thread>()
         val entered = CountDownLatch(1)
         val interrupted = CountDownLatch(1)
@@ -650,7 +643,7 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor {
@@ -683,7 +676,7 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        CoreWorld.createEmpty(DummyTickManager, coordinator)
         coordinator.registerRailwayEpochProcessor(RailwayEpochProcessor {
             clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(7L))
         })
@@ -706,10 +699,10 @@ class PhysicsCoordinatorTest {
             mainHeartbeatTimeoutMillis = 1_000_000L,
             epochOverloadThresholdMillis = 1_000_000L
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("stationary-render", rail, world, listOf(10.0))
-        train.setControllerForTest(MutableSpeedController(train, world, requestedSpeed = 0.0))
+        train.setControllerForTest(MutableSpeedController(train, requestedSpeed = 0.0))
         world.drainPublishedTrainFrames()
         coordinator.start()
         try {
@@ -729,10 +722,10 @@ class PhysicsCoordinatorTest {
             mainHeartbeatTimeoutMillis = 1_000_000L,
             epochOverloadThresholdMillis = 1_000_000L
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("stopping-render", rail, world, listOf(10.0))
-        val controller = MutableSpeedController(train, world, requestedSpeed = 10.0)
+        val controller = MutableSpeedController(train, requestedSpeed = 10.0)
         train.setControllerForTest(controller)
         coordinator.start()
         try {
@@ -758,12 +751,12 @@ class PhysicsCoordinatorTest {
             mainHeartbeatTimeoutMillis = 1_000_000L,
             epochOverloadThresholdMillis = 1_000_000L
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("slow-consumer", rail, world, listOf(10.0))
         world.drainPublishedTrainFrames()
         val mailboxBaseline = world.trainFrameMailboxMetrics()
-        train.setControllerForTest(ConstantSpeedController(train, world))
+        train.setControllerForTest(ConstantSpeedController(train))
         coordinator.start()
         try {
             repeat(32) { coordinator.wakeFromMainThread().await() }
@@ -786,12 +779,12 @@ class PhysicsCoordinatorTest {
             mainHeartbeatTimeoutMillis = 1_000_000L,
             epochOverloadThresholdMillis = 1_000_000L
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("blocking", rail, world, listOf(10.0))
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        train.setControllerForTest(BlockingController(train, world, entered, release))
+        train.setControllerForTest(BlockingController(train, entered, release))
         coordinator.start()
         try {
             val startedTicket = coordinator.wakeFromMainThread()
@@ -818,14 +811,14 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         val executor = Executors.newSingleThreadExecutor()
         try {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
             val train = createTrainWithConfig("structural-wait", rail, world, listOf(10.0))
-            train.setControllerForTest(BlockingController(train, world, entered, release))
+            train.setControllerForTest(BlockingController(train, entered, release))
             coordinator.start()
             val ticket = coordinator.stepSimulation(50.0)
             assertTrue(entered.await(5, TimeUnit.SECONDS))
@@ -873,7 +866,6 @@ class PhysicsCoordinatorTest {
                 assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
             } finally {
                 coordinator.close()
-                world.releaseRuntimeBinding()
             }
         }
     }
@@ -881,7 +873,7 @@ class PhysicsCoordinatorTest {
     @Test
     fun `failed structural edit restores epoch admission`() {
         val coordinator = PhysicsCoordinator(workerThreads = 1, automaticFallback = false)
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         try {
             coordinator.start()
             val expected = IllegalArgumentException("prepare failed")
@@ -894,7 +886,6 @@ class PhysicsCoordinatorTest {
             assertEquals(1L, next.completion.get(5, TimeUnit.SECONDS).epoch)
         } finally {
             coordinator.close()
-            world.releaseRuntimeBinding()
         }
     }
 
@@ -902,7 +893,7 @@ class PhysicsCoordinatorTest {
     @ValueSource(strings = ["shutdown", "stall", "close"])
     fun `structural scope exit cannot reopen shutdown or terminal coordinator`(transition: String) {
         val coordinator = PhysicsCoordinator(workerThreads = 1, automaticFallback = false)
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         try {
             coordinator.start()
             val previous = coordinator.stepSimulation(50.0)
@@ -929,7 +920,6 @@ class PhysicsCoordinatorTest {
             )
         } finally {
             coordinator.close()
-            world.releaseRuntimeBinding()
         }
     }
 
@@ -943,13 +933,13 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("shutdown-running", rail, world, listOf(10.0))
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         val invocations = AtomicInteger()
-        train.setControllerForTest(object : TrainController(train, world) {
+        train.setControllerForTest(object : TrainController(train) {
             override fun tick(deltaT: Double) {
                 invocations.incrementAndGet()
                 entered.countDown()
@@ -1012,7 +1002,7 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         try {
             if (started) {
                 coordinator.start()
@@ -1053,13 +1043,13 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("shutdown-failure", rail, world, listOf(10.0))
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         val invocations = AtomicInteger()
-        train.setControllerForTest(object : TrainController(train, world) {
+        train.setControllerForTest(object : TrainController(train) {
             override fun tick(deltaT: Double) {
                 if (invocations.incrementAndGet() == 1) return
                 entered.countDown()
@@ -1105,11 +1095,11 @@ class PhysicsCoordinatorTest {
             mainHeartbeatTimeoutMillis = 1_000_000L,
             epochOverloadThresholdMillis = 1_000_000L
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val moving = createTrainWithConfig("A", rail, world, listOf(10.0))
         val stationary = createTrainWithConfig("B", rail, world, listOf(10.0))
-        moving.setControllerForTest(MockTrainController(moving, world, 10.0))
+        moving.setControllerForTest(MockTrainController(moving, 10.0))
         val listener = CollisionCounter()
         val registration = PhysicsRailEventBus.register(listener)
         coordinator.start()
@@ -1142,10 +1132,10 @@ class PhysicsCoordinatorTest {
             mainHeartbeatTimeoutMillis = 1_000_000L,
             epochOverloadThresholdMillis = 1_000_000L
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("T1", rail, world, listOf(10.0))
-        train.setControllerForTest(ConstantSpeedController(train, world))
+        train.setControllerForTest(ConstantSpeedController(train))
         val before = train.head.location.arcLength
         coordinator.start()
         try {
@@ -1166,7 +1156,7 @@ class PhysicsCoordinatorTest {
             mainHeartbeatTimeoutMillis = 1_000_000L,
             epochOverloadThresholdMillis = 1_000_000L
         )
-        CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        CoreWorld.createEmpty(DummyTickManager, coordinator)
         coordinator.start()
         try {
             val first = coordinator.wakeFromMainThread().await()
@@ -1194,11 +1184,11 @@ class PhysicsCoordinatorTest {
             epochOverloadThresholdMillis = 1_000_000L,
             maxPhysicsDeltaMillis = 200.0
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
         val train = createTrainWithConfig("clamped-delta", rail, world, listOf(10.0))
         val deltas = mutableListOf<Double>()
-        train.setControllerForTest(object : TrainController(train, world) {
+        train.setControllerForTest(object : TrainController(train) {
             override fun tick(deltaT: Double) { deltas += deltaT }
         })
         coordinator.start()
@@ -1232,7 +1222,7 @@ class PhysicsCoordinatorTest {
             maxPhysicsDeltaMillis = 200.0,
             automaticFallback = false
         )
-        CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        CoreWorld.createEmpty(DummyTickManager, coordinator)
         coordinator.start()
         try {
             assertThrows(IllegalArgumentException::class.java) {
@@ -1255,7 +1245,7 @@ class PhysicsCoordinatorTest {
             overloadWindowMillis = 1_000_000L,
             overloadsBeforeStall = 3
         )
-        CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        CoreWorld.createEmpty(DummyTickManager, coordinator)
         coordinator.start()
         try {
             coordinator.wakeFromMainThread().await()
@@ -1291,31 +1281,29 @@ class PhysicsCoordinatorTest {
 
     private class BlockingController(
         train: CoreTrain,
-        world: CoreWorld,
         private val entered: CountDownLatch,
         private val release: CountDownLatch
-    ) : TrainController(train, world) {
+    ) : TrainController(train) {
         override fun tick(deltaT: Double) {
             entered.countDown()
             check(release.await(5, TimeUnit.SECONDS)) { "timed out waiting to release blocking controller" }
         }
     }
 
-    private class ConstantSpeedController(train: CoreTrain, world: CoreWorld) : TrainController(train, world) {
+    private class ConstantSpeedController(train: CoreTrain) : TrainController(train) {
         override fun tick(deltaT: Double) {
             speed = 10.0
-            train.moveTrainForward(activeSpeed * deltaT * 0.001)
+            moveControlledTrain(activeSpeed * deltaT * 0.001, activeSpeed)
         }
     }
 
     private class MutableSpeedController(
         train: CoreTrain,
-        world: CoreWorld,
         @Volatile var requestedSpeed: Double
-    ) : TrainController(train, world) {
+    ) : TrainController(train) {
         override fun tick(deltaT: Double) {
             speed = requestedSpeed
-            train.moveTrainForward(activeSpeed * deltaT * 0.001)
+            moveControlledTrain(activeSpeed * deltaT * 0.001, activeSpeed)
         }
     }
 
@@ -1325,8 +1313,6 @@ class PhysicsCoordinatorTest {
         override fun preTick(currentTimeMs: Long) = Unit
         override fun postTick() = Unit
 
-        override fun <T> scheduleMainThreadAfterCommitTask(task: Callable<T>): Future<T> =
-            FutureTask(task).also { it.run() }
 
         override fun <T> scheduleMainThreadPostTickTask(task: Callable<T>): Future<T> =
             FutureTask(task).also { it.run() }

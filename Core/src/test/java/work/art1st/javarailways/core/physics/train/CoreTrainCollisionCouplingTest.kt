@@ -47,7 +47,7 @@ class CoreTrainCollisionCouplingTest {
             val coordinator = PhysicsCoordinator(1, automaticFallback = false)
             val world = createTestWorld(coordinator)
             (world.tickManager as AutoCloseable).use {
-                AutoCloseable { world.releaseRuntimeBinding() }.use {
+                run {
                     coordinator.use {
                         fun rail(from: Vector3d, to: Vector3d): CoreRail =
                             world.createRailForTest(PrimeCurve.fromPoints(listOf(
@@ -82,7 +82,7 @@ class CoreTrainCollisionCouplingTest {
                         val moving = train("selected-route", selected, towardJunction = true)
                         val parked = train("unselected-route", competing, towardJunction = true)
                         val controllerTicks = AtomicInteger()
-                        moving.setControllerForTest(object : TrainController(moving, world) {
+                        moving.setControllerForTest(object : TrainController(moving) {
                             override fun tick(deltaT: Double) {
                                 controllerTicks.incrementAndGet()
                                 speed = 0.0
@@ -225,7 +225,7 @@ class CoreTrainCollisionCouplingTest {
                 throw failure
             }
             (world.tickManager as AutoCloseable).use {
-                AutoCloseable { world.releaseRuntimeBinding() }.use {
+                run {
                     coordinator.use {
                         val slopeTangent = Vector3d(0.8, 0.48, 0.36)
                         val slopeNormal = Vector3d(0.0, 1.0, 0.0)
@@ -284,7 +284,7 @@ class CoreTrainCollisionCouplingTest {
                                 it.commitMaintenancePlacement()
                             }
                         } else null
-                        if (bothMoving) fixed.setControllerForTest(object : TrainController(fixed, world) {
+                        if (bothMoving) fixed.setControllerForTest(object : TrainController(fixed) {
                             override fun tick(deltaT: Double) {
                                 speed = 1.0
                                 moveControlledTrain(0.0, 1.0)
@@ -294,7 +294,7 @@ class CoreTrainCollisionCouplingTest {
                         val originalFixedCars = fixed.cars.toList()
                         val fixedBefore = fixed.publishedFrame
                         val calls = AtomicInteger()
-                        val controller = object : TrainController(moving, world) {
+                        val controller = object : TrainController(moving) {
                             val handle = "P2"
                             override fun tick(deltaT: Double) {
                                 calls.incrementAndGet()

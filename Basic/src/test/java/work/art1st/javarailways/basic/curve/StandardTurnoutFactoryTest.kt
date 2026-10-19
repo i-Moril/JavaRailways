@@ -20,11 +20,10 @@ class StandardTurnoutFactoryTest {
         }
 
         directions.forEach { towards ->
-            val result = requireNotNull(StandardTurnoutFactory.build(anchor, towards, geometry))
-            assertTrue(result.endTangent.dot(towards) > 1.0 - 1.0e-10)
-            val end = result.curve.getPointAt(result.curve.totalArcLength)
+            val curve = requireNotNull(StandardTurnoutFactory.build(anchor, towards, geometry))
+            val end = curve.getPointAt(curve.totalArcLength)
             assertTrue(Vector3d(end.tangent).normalize().dot(towards) > 1.0 - 1.0e-10)
-            val nearEnd = result.curve.getPointAt(result.curve.totalArcLength - 1.0e-4).position
+            val nearEnd = curve.getPointAt(curve.totalArcLength - 1.0e-4).position
             val geometryDirection = Vector3d(end.position).sub(nearEnd).normalize()
             assertTrue(geometryDirection.dot(towards) > 0.99999)
         }
@@ -34,14 +33,14 @@ class StandardTurnoutFactoryTest {
     fun `turnout keeps the anchor grade constant throughout its length`() {
         val grade = 0.025
         val anchorTangent = Vector3d(1.0, grade, 0.0).normalize()
-        val result = requireNotNull(StandardTurnoutFactory.build(
+        val curve = requireNotNull(StandardTurnoutFactory.build(
             Anchor("A", Vector3d(4.0, 12.0, -3.0), anchorTangent),
             Vector3d(1.0, 0.0, 0.2),
             StandardTurnoutGeometry(number = 9, radiusMeters = 90.0, divergingSpeedKmH = 25.0),
             sampleStepMeters = 1.0
         ))
 
-        val points = result.curve.stream().toList()
+        val points = curve.stream().toList()
         points.forEach { point ->
             val actualGrade = point.tangent.y() / kotlin.math.hypot(point.tangent.x(), point.tangent.z())
             assertEquals(grade, actualGrade, 1.0e-9)
@@ -53,13 +52,13 @@ class StandardTurnoutFactoryTest {
     @Test
     fun `reversed turnout direction reverses the represented grade`() {
         val grade = 0.025
-        val result = requireNotNull(StandardTurnoutFactory.build(
+        val curve = requireNotNull(StandardTurnoutFactory.build(
             Anchor("A", Vector3d(), Vector3d(1.0, grade, 0.0).normalize()),
             Vector3d(-1.0, 0.0, 0.2),
             StandardTurnoutGeometry(number = 9, radiusMeters = 90.0, divergingSpeedKmH = 25.0)
         ))
 
-        val start = result.curve.getPointAt(0.0).tangent
+        val start = curve.getPointAt(0.0).tangent
         assertEquals(-grade, start.y() / kotlin.math.hypot(start.x(), start.z()), 1.0e-9)
     }
 
@@ -67,16 +66,16 @@ class StandardTurnoutFactoryTest {
     fun `configured turnout geometry and sample step drive generated curve`() {
         val geometry = StandardTurnoutGeometry(number = 9, radiusMeters = 90.0, divergingSpeedKmH = 25.0)
         val step = 1.0
-        val result = requireNotNull(StandardTurnoutFactory.build(
+        val curve = requireNotNull(StandardTurnoutFactory.build(
             Anchor("A", Vector3d(), Vector3d(1.0, 0.0, 0.0)),
             Vector3d(1.0, 0.0, 0.2),
             geometry,
             step
         ))
 
-        assertEquals(geometry.radiusMeters * geometry.branchAngleRadians, result.curve.totalArcLength, 1.0e-9)
-        assertEquals(kotlin.math.ceil(result.curve.totalArcLength / step).toLong() + 1L,
-            result.curve.stream().count())
+        assertEquals(geometry.radiusMeters * geometry.branchAngleRadians, curve.totalArcLength, 1.0e-9)
+        assertEquals(kotlin.math.ceil(curve.totalArcLength / step).toLong() + 1L,
+            curve.stream().count())
     }
 
     @Test
@@ -91,12 +90,12 @@ class StandardTurnoutFactoryTest {
                 radiusMeters = standard.number * 10.0,
                 divergingSpeedKmH = 20.0
             )
-            val result = requireNotNull(StandardTurnoutFactory.build(
+            val curve = requireNotNull(StandardTurnoutFactory.build(
                 Anchor("A", Vector3d(), Vector3d(1.0, 0.0, 0.0)),
                 Vector3d(1.0, 0.0, 0.2),
                 geometry
             ))
-            assertEquals(geometry.radiusMeters * geometry.branchAngleRadians, result.curve.totalArcLength, 1.0e-9)
+            assertEquals(geometry.radiusMeters * geometry.branchAngleRadians, curve.totalArcLength, 1.0e-9)
         }
     }
 }

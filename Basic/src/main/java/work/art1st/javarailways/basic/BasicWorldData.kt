@@ -1,6 +1,6 @@
 package work.art1st.javarailways.basic
 
-import work.art1st.javarailways.basic.api.ato.provider.RailObjectStore
+import work.art1st.javarailways.basic.api.rail.RailObjectStore
 import work.art1st.javarailways.basic.api.safety.WorldSafetyInterlock
 import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataStore

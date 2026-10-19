@@ -125,7 +125,7 @@ class ProtectionRegionTimetableDependencyTest {
                 val token = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)
                 val claimant = InfrastructureOwner("test:train", 1L)
                 assertEquals(InfrastructureMutationStatus.ACQUIRED, registry.acquireClaim(requester,
-                    InfrastructureClaimRequest(world.topologyState.revision, claimant, InfrastructureFootprint(listOf(token)))).status)
+                    InfrastructureClaimRequest(claimant, InfrastructureFootprint(listOf(token)))).status)
                 assertEquals(InfrastructureMutationStatus.RELEASED, registry.releaseClaim(requester, claimant).status)
                 assertTrue(world.onOwnerForTest { dispatcher.stopFutureCycles("protection") })
                 assertTrue(registry.dependencySnapshots().isEmpty())

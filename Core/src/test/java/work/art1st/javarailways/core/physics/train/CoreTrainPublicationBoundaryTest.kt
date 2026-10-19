@@ -144,7 +144,7 @@ class CoreTrainPublicationBoundaryTest {
         val oldCar = oldFrame.cars.single()
         val publishedHead = train.headLocation
         val publishedTail = train.tailLocation
-        val controller = object : TrainController(train, world) {}
+        val controller = object : TrainController(train) {}
         train.setControllerForTest(controller)
 
         val reversed = controller.reverse()

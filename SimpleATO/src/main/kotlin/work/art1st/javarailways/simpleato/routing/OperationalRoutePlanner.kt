@@ -6,7 +6,7 @@ import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.basic.route.OperationalRouteLocation
 import work.art1st.javarailways.basic.api.route.RailViewRef
-import work.art1st.javarailways.basic.route.RouteBuildResult
+import work.art1st.javarailways.simpleato.routing.RouteBuildResult
 import work.art1st.javarailways.basic.api.route.RouteSegment
 import work.art1st.javarailways.basic.route.TopologyRoutePlanner
 import work.art1st.javarailways.basic.route.TopologyRoutePlanningInput

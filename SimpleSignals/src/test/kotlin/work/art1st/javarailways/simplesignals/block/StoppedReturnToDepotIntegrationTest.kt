@@ -27,8 +27,8 @@ import work.art1st.javarailways.basic.control.HandleTrainActuator
 import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
 import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
-import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
-import work.art1st.javarailways.basic.route.RouteAllocationTiming
+import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionRuntime
+import work.art1st.javarailways.simpleato.routing.RouteAllocationTiming
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -295,7 +295,7 @@ class StoppedReturnToDepotIntegrationTest {
                     }
                     if (fixedBlocks) {
                         val before = registry.claimSnapshots().map { it.footprint }
-                        val conflict = registry.acquireClaim(Any(), InfrastructureClaimRequest(topology.revision,
+                        val conflict = registry.acquireClaim(Any(), InfrastructureClaimRequest(
                             InfrastructureOwner("test:opposing", 1), InfrastructureFootprint(listOf(token))))
                         assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, conflict.status)
                         assertEquals(before, registry.claimSnapshots().map { it.footprint })
@@ -384,7 +384,6 @@ class StoppedReturnToDepotIntegrationTest {
             admissionToClose?.close()
             registryToClose?.close()
             world.physicsCoordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as? AutoCloseable)?.close()
         }
     }

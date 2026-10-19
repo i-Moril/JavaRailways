@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.basic.infrastructure.admission
 
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
@@ -8,9 +8,10 @@ import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
+import work.art1st.javarailways.basic.infrastructure.TurnoutResourceIdentity
 
 /** One ordered physical preparation required before a claimed route can become ready. */
-internal interface InfrastructurePreparationRequirement {
+internal sealed interface InfrastructurePreparationRequirement {
     val resource: InfrastructureResource
 }
 
@@ -60,29 +61,21 @@ internal class CompiledRouteAdmission private constructor(
     val routeProgressPath: CompiledRouteProgressPath
 ) {
     /**
-     * Adds validated contributor resources to this already compiled physical floor before any claim.
-     * [validate] is supplied by the world-local resource owner registry and must check the
-     * authenticated contributor, exact identity, and optional preparation descriptor without mutation.
-     * A duplicate physical identity may delay release, but cannot replace physical preparation.
+     * Adds already validated, unique contributor resources to this compiled physical floor before
+     * any claim. The world-local resource owner registry must have checked the authenticated
+     * contributor, exact identity, uniqueness, range, and optional preparation descriptor without
+     * mutation. A duplicate physical identity may delay release, but cannot replace physical
+     * preparation.
      */
     fun withContributions(
-        contributions: Collection<ContributedRouteResource>,
-        validate: (ContributedRouteResource) -> RouteAdmissionFailure?
+        contributions: Collection<ContributedRouteResource>
     ): RouteContributionsCompilation {
         if (contributions.isEmpty()) return RouteContributionsCompilation.Compiled(this)
         val originalResources = resources.resources.toSet()
-        val seen = HashSet<StableInfrastructureResource>()
         val added = ArrayList<StableInfrastructureResource>()
         val addedPreparations = ArrayList<InfrastructurePreparationRequirement>()
         val releaseByResource = tailReleaseEntries.associateByTo(LinkedHashMap()) { it.resource }
         for (contribution in contributions) {
-            if (!seen.add(contribution.resource)) {
-                return RouteContributionsCompilation.Rejected(RouteAdmissionFailure(
-                    RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
-                    "duplicate contributed resource ${contribution.resource.typeId}/${contribution.resource.resourceId}"
-                ))
-            }
-            validate(contribution)?.let { return RouteContributionsCompilation.Rejected(it) }
             if (contribution.resource in originalResources && contribution.preparation != null) {
                 return RouteContributionsCompilation.Rejected(RouteAdmissionFailure(
                     RouteAdmissionFailureCode.INVALID_PREPARATION,

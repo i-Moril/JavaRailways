@@ -114,7 +114,6 @@ class AbstractModelAnimationTest {
         override fun <T : Any> requireExtensionData(plugin: Plugin): T = error("No extensions")
         override fun <T : Any> registerExtensionData(plugin: Plugin, data: T) = Unit
         override fun forEachExtensionData(action: (Any) -> Unit) = Unit
-        override fun <T> forEachExtensionData(action: (Any) -> T): List<T> = emptyList()
     }
 
     private class FakeTickManager : TickManager {
@@ -130,7 +129,6 @@ class AbstractModelAnimationTest {
         fun commitAll() {
             registered.filterIsInstance<Synchronizable>().forEach { it.commit() }
         }
-        override fun <T> scheduleMainThreadAfterCommitTask(task: Callable<T>): Future<T> = runTask(task)
         override fun <T> scheduleMainThreadPostTickTask(task: Callable<T>): Future<T> = runTask(task)
         private fun <T> runTask(task: Callable<T>): Future<T> {
             return FutureTask(task).also { it.run() }

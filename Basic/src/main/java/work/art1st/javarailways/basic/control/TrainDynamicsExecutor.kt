@@ -47,7 +47,7 @@ class TrainDynamicsExecutor(
 
     override fun dynamicsProfileFor(car: Car): TrainDynamics.CarProfile? = profilesByCar.value[car]
 
-    fun prepareConsistChange(cars: List<Car>, source: DynamicsProfileSource?): PreparedDynamicsChange {
+    internal fun prepareConsistChange(cars: List<Car>, source: DynamicsProfileSource?): PreparedConsistDynamics {
         val profiles = IdentityHashMap<Car, TrainDynamics.CarProfile>()
         val ordered = cars.map { car ->
             val profile = dynamicsProfileFor(car) ?: source?.dynamicsProfileFor(car) ?: profileResolver?.invoke(car)
@@ -55,7 +55,7 @@ class TrainDynamicsExecutor(
             profiles[car] = profile
             profile
         }
-        return PreparedDynamicsChange(ordered, profilesByCar.prepare(profiles))
+        return PreparedConsistDynamics(ordered, profilesByCar.prepare(profiles))
     }
 
     fun prepareConfigurationChange(

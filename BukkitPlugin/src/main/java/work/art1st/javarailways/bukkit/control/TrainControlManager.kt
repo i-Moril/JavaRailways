@@ -172,7 +172,6 @@ class TrainControlManager internal constructor(
         val controller = existingManualController ?: resolvedControl!!.let { (controlConfig, carControls) ->
             RealisticManualController(
                 coreTrain,
-                coreTrain.world,
                 controlConfig,
                 carControls,
                 plugin.physicsConfig.track.gravityMetersPerSecondSquared,

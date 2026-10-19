@@ -4,8 +4,6 @@ import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
-import work.art1st.javarailways.core.di.ensureJavaRailwaysKoinStarted
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.CoreRail
@@ -27,8 +25,8 @@ fun CoreTrain.setControllerForTest(controller: TrainController?) =
     world.onOwnerForTest { setController(controller) }
 
 /**
- * 创建用于测试的 World：空轨道/列车，单线程 TickManager，使用 NoOpWorldParentContext 而非运行时宿主父 scope。
- * 成功后调用方负责关闭 world 的 physics、runtime binding 和 tick manager。
+ * 创建用于测试的 World：空轨道/列车，单线程 TickManager。
+ * 成功后调用方负责关闭 world 的 physics 和 tick manager。
  * 创建失败时清理本函数分配的资源；显式传入的 coordinator 始终由调用方负责。
  */
 @JvmOverloads
@@ -36,7 +34,6 @@ fun createTestWorld(
     physicsCoordinator: PhysicsCoordinator? = null,
     executionMode: WorldExecutionMode = WorldExecutionMode.LIVE
 ): CoreWorld {
-    ensureJavaRailwaysKoinStarted()
     val scheduler = Executors.newSingleThreadScheduledExecutor()
     var tickManager: TickManagerImpl? = null
     var ownedPhysics: PhysicsCoordinator? = null
@@ -44,7 +41,7 @@ fun createTestWorld(
         val tick = TickManagerImpl(scheduler, System.currentTimeMillis())
         tickManager = tick
         val physics = physicsCoordinator ?: PhysicsCoordinator(1).also { ownedPhysics = it }
-        return CoreWorld.createEmpty(tick, NoOpWorldParentContext, physics, executionMode)
+        return CoreWorld.createEmpty(tick, physics, executionMode)
     } catch (failure: Throwable) {
         try {
             ownedPhysics?.close()

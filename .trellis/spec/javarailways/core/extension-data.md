@@ -34,9 +34,9 @@ interface Extension<T> {
 | host | Core writer | initialize/destroy owner |
 | --- | --- | --- |
 | Train | 保存train extension map | composition attach/initialize；train destroy不统一destroy所有TrainExtension |
-| Car/Bogie | 保存extension map | render trait destroy |
+| Car/Bogie | 保存extension map | host显式初始化并聚合extension destroy完成结果 |
 | World | 不保存container | Basic/Bukkit sidecar owner |
-| Rail | 不保存container | rail owner；`CoreRail.destroy`仅signals |
+| Rail | 不保存container | rail owner；`CoreRail.destroy`聚合signals及render extension清理 |
 | Signal | 不持久化 | runtime materializer |
 
 Composition顺序：register slots → create/restore host → attach data → explicit initialize/restore → first wake。missing required data必须fail-fast，不在production accessor隐式new。

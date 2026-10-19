@@ -35,7 +35,6 @@ class TimetableInitialPositionerTest {
         worlds.forEach { world ->
             TestSimpleATOWorldDataRegistry.unregister(world)
             world.physicsCoordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as AutoCloseable).close()
         }
         worlds.clear()
@@ -157,7 +156,7 @@ class TimetableInitialPositionerTest {
         IsolatedSimulationThreadMarker.run {
             world.physicsCoordinator.processBetweenFrames { world.renameTrain(train, "s100-1") }
         }
-        train.setControllerForTest(object : TrainController(train, world) {})
+        train.setControllerForTest(object : TrainController(train) {})
         world.basicWorldData.wayPoints.add(WayPoint("yard@1", "Yard", rail.id, 70.0))
         val timetable = Timetable(
             id = "tt",

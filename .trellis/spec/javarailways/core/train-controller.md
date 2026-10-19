@@ -2,31 +2,21 @@
 
 ## 适用场景与用途
 
-触发：新增/修改 `TrainController` subclass、`ControlCommand`、speed publication、controller replace/remove或reverse request。
+触发：新增/修改 `TrainController` subclass、speed publication、controller replace/remove或reverse request。
 
 用途：controller只在physics worker计算非负speed/movement，并在完整epoch后发布；避免把毫秒当秒、worker访问platform或结构transfer无barrier。
 
 ## Owner、真实签名与单位
 
-```kotlin
-interface ControlCommand {
-    fun tick(deltaT: Double)
-    val speed: Double
-    val deltaS: Double
-    val isFinished: Boolean
-}
-```
+`deltaT`单位毫秒；`speed`单位m/s且`>=0`。来源：`Core/src/main/java/work/art1st/javarailways/core/api/control/TrainController.kt`。
 
-`deltaT`单位毫秒；`speed`单位m/s且`>=0`；`deltaS`单位米且`>=0`。来源：`Core/src/main/java/work/art1st/javarailways/core/api/control/ControlCommand.kt`。
+`abstract class TrainController(train: Train)`：
 
-`abstract class TrainController(train: Train, world: World)`：
-
-- `tick(deltaT: Double)`由owning world `PhysicsCoordinator` worker调用。
-- 无command：计算`deltaS = speed * deltaT * 0.001`；CoreTrain同时接收该epoch当前speed，其他Train仍调用公开distance API。
-- 有command：先`command.tick(deltaT)`，读取并设置本次`command.speed`，再用同一post-tick speed和`command.deltaS`移动；`isFinished`后清command。
+- `tick(deltaT: Double)`由owning world `PhysicsCoordinator` worker调用。基类读取`activeSpeed`（子类本tick写入active buffer后即为新值，否则为published值），计算`deltaS = activeSpeed * deltaT * 0.001`；CoreTrain同时接收该epoch当前speed，其他Train仍调用公开distance API。
+- 基类不再承载command解释器：测试用的定速/分步命令属于fixture，由子类覆写`tick`并经`moveControlledTrain`提交同一step的distance/speed。
 - speed经`CommitBuffer<Double>`；`publishPhysicsState()`只在所有workers结束后flip。
 - profiling identity固定 `profileCategory="train-controller"`、`profileId=train.id`；同train只允许一个registered controller。
-- train用weak reference；train不live时访问fail-fast。
+- train使用强引用；销毁入口负责撤销外部注册，循环引用交由JVM回收。构造参数不再包含未使用的`world`。
 - `CoreTrain.setController(value)`负责在帧间owner阶段同步安装、替换或移除控制器；协调器内部按确切旧实例校验并更新唯一注册表。
 - protected `moveControlledTrain(deltaS,speedMetersPerSecond)`是所有override `tick`的controller子类合同：两个值必须来自同一个physics tick。CoreTrain走内部速度传播，非Core Train才回退公开distance-only调用。
 
@@ -61,9 +51,7 @@ Core验证当前train/controller确切身份后只安装引用赋值；准备失
 
 | 条件 | 结果 | side effect |
 | --- | --- | --- |
-| `deltaT >= 0`、无command | 按m/s×ms移动 | 仅active state |
-| valid command | 更新command，移动`deltaS`，active speed更新 | epoch后published |
-| command完成 | 本tick结果仍应用 | 随后清pending command |
+| `deltaT >= 0` | 按本tick active speed的m/s×ms移动 | epoch后published |
 | 同一待执行操作捕获偶数次reverse | 在帧间抵消 | 不改方向或快照 |
 | 同一待执行操作捕获奇数次reverse | 帧间owner换向一次 | 下个physics tick正常计算movement，不插入空转epoch |
 | invalid/nonfinite/negative speed或distance | 新API必须明确reject/result并保持旧state | 不得新增silent ignore |
@@ -110,18 +98,12 @@ Basic方向输入在物理换向成功后才更新有效/显示方向；平台�
 `TrainController.tick` 显式把毫秒换成秒：
 
 ```kotlin
-if (pendingCommand == null) {
-    moveControlledTrain(speed * deltaT * 0.001, speed)
-} else {
-    val cmd = pendingCommand!!
-    cmd.tick(deltaT)
-    speed = cmd.speed
-    moveControlledTrain(cmd.deltaS, cmd.speed)
-}
+val currentSpeed = activeSpeed
+moveControlledTrain(currentSpeed * deltaT * 0.001, currentSpeed)
 ```
 
 来源：`Core/src/main/java/work/art1st/javarailways/core/api/control/TrainController.kt`。该换算防止50 ms Tick被误当50 seconds；
-post-command speed与本次geometry属于同一physics epoch，不能晚一tick或由render adapter补算。
+本tick active speed与本次geometry属于同一physics epoch，不能晚一tick或由render adapter补算。
 
 覆盖`tick`的生产controller同样必须调用该protected seam。当前Basic realistic manual和SimpleATO ATO都提交同一次
 dynamics/actuator step的distance与post-step speed；ATO freeze提交0 m与0 m/s。公开distance-only入口只保留给没有时间基准的
@@ -131,16 +113,16 @@ dynamics/actuator step的distance与post-step speed；ATO freeze提交0 m与0 m/
 
 ```text
 错误：controller.tick中调用Bukkit、sleep、wall-clock补算、直接renderer
-正确：immutable inputs → ControlCommand/active state；epoch后由adapter消费frame
+正确：immutable inputs → active state；epoch后由adapter消费frame
 ```
 
-不得把现有negative command silent return扩散为API约定；不得在worker对任意non-Core `Train`调用`@MainThread reverse()`。
+不得在worker对任意non-Core `Train`调用`@MainThread reverse()`。
 controller子类不得直接调用`train.moveTrainForward`，否则Core只能把该次manual距离移动的frame velocity按0发布。
 
 ## 必需测试与验证
 
-- 无command公式：给定`speed=10 m/s, delta=50 ms`断言`deltaS=0.5 m`。
-- command：断言tick先于movement、finished只应用一次、invalid输入无mutation并返回明确failure。
+- 基类公式：给定published `speed=10 m/s, delta=50 ms`断言`deltaS=0.5 m`。
+- 同tick active speed：子类在本tick写入新speed后，同一次`tick`的movement必须使用新值，不得落后一帧。
 - reverse：帧间两次抵消、一次完成后frame/world/occupancy一致，下一epoch直接按新方向运动；旧controller拒绝、取消副本及终态完成。
 - registration：replace/remove/destroy后coordinator中无旧profile。
 - `CoreTrainPublicationBoundaryTest.kt`：active speed/geometry在publish前不可见。

@@ -11,7 +11,7 @@ import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.route.planning.DirectedRailSpan
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictions
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictionSource
-import work.art1st.javarailways.basic.route.RouteBuildResult
+import work.art1st.javarailways.simpleato.routing.RouteBuildResult
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve

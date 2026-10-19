@@ -698,7 +698,7 @@ class TimetableDispatcherSharedAdmissionTest {
             "test:driver"
         ) }
         assertTrue(transfer is TimetableControlTransferResult.ManualRouted)
-        val manual = ManualController(fixture.train, fixture.world, maxSpeed = 5.0)
+        val manual = ManualController(fixture.train, maxSpeed = 5.0)
         fixture.train.setControllerForTest(manual)
         assertTrue(fixture.world.onOwnerForTest { fixture.dispatcher.bindManualRoutedController(
             fixture.train.id,

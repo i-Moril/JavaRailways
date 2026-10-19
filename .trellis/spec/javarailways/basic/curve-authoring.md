@@ -23,7 +23,11 @@ data class RailCurveBuildOptions(
 
 来源：`Basic/src/main/java/work/art1st/javarailways/basic/curve/RailCurveFactory.kt`。
 
-`build(from,to,options): RailCurveBuildResult(curve?,error?,selectedTemplate?,selectedReason?,logicalBreakFractions)`；`isSuccess` iff curve nonnull。`buildParallel`返回同形态多个curves。两入口都`ThreadGuard.ensureOffMainThread`；`@Heavy`不调度。
+`build(from,to,options): RailCurveBuildResult` 与 `buildParallel(...): RailParallelCurveBuildResult` 都是小型 sealed 结果：
+`Success` 持有非空 `curve`/`curves`、非空 `selectedTemplate`、可空 `selectedReason` 与break fractions；`Failure` 持有非空`error`、
+可选template/reason。两种结果不再用独立nullable字段表达成功/失败，也不提供公开构造/copy到达矛盾状态；消费端用
+exhaustive `when` 而不是`!!`或`listOfNotNull`兜底。`isSuccess`/nullable`curve`访问器只用于兼容既有测试读取。
+两入口都`ThreadGuard.ensureOffMainThread`；`@Heavy`不调度。
 
 ## Classification/validation矩阵
 

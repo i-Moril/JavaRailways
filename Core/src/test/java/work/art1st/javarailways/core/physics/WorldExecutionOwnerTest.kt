@@ -30,7 +30,6 @@ class WorldExecutionOwnerTest {
             }
         } finally {
             coordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as AutoCloseable).close()
         }
     }
@@ -65,7 +64,6 @@ class WorldExecutionOwnerTest {
             release.countDown()
             executor.shutdownNow()
             world.physicsCoordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as AutoCloseable).close()
         }
     }
@@ -132,7 +130,6 @@ class WorldExecutionOwnerTest {
             executor.shutdownNow()
             listOf(first, second).forEach {
                 it.physicsCoordinator.close()
-                it.releaseRuntimeBinding()
                 (it.tickManager as AutoCloseable).close()
             }
         }

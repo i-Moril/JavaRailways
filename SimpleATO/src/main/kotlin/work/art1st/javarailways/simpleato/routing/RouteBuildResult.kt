@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.route
+package work.art1st.javarailways.simpleato.routing
 
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
 

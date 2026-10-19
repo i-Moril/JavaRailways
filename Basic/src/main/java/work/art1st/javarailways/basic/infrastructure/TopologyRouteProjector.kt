@@ -69,16 +69,10 @@ internal data class ProjectedTopologyRoute private constructor(
     }
 }
 
-internal enum class TopologyRouteProjectionRejection {
-    STALE_TOPOLOGY,
-    INVALID_ROUTE
-}
-
 internal sealed interface TopologyRouteProjectionResult {
     data class Projected(val route: ProjectedTopologyRoute) : TopologyRouteProjectionResult
 
     data class Rejected(
-        val reason: TopologyRouteProjectionRejection,
         val detail: String
     ) : TopologyRouteProjectionResult {
         init {
@@ -279,15 +273,8 @@ internal object TopologyRouteProjector {
     private fun samePosition(first: Double, second: Double): Boolean =
         abs(first - second) <= Curve.TOLERANCE
 
-    private fun invalid(detail: String): TopologyRouteProjectionResult.Rejected = rejected(
-        TopologyRouteProjectionRejection.INVALID_ROUTE,
-        detail
-    )
-
-    private fun rejected(
-        reason: TopologyRouteProjectionRejection,
-        detail: String
-    ) = TopologyRouteProjectionResult.Rejected(reason, detail)
+    private fun invalid(detail: String): TopologyRouteProjectionResult.Rejected =
+        TopologyRouteProjectionResult.Rejected(detail)
 
     private sealed interface SegmentProjection {
         data class Projected(val occurrence: ProjectedRouteOccurrence) : SegmentProjection

@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.control.TrainController
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -28,7 +27,7 @@ class CoreTrainPersistenceStateTest {
             }
             val expected = Vector3d(train.cars.first().position)
 
-            val controller = object : TrainController(train, world) {
+            val controller = object : TrainController(train) {
                 var ticks = 0
                 override fun tick(deltaT: Double) {
                     super.tick(deltaT)
@@ -76,7 +75,7 @@ class CoreTrainPersistenceStateTest {
                 IsolatedSimulationThreadMarker.run { CoreWorld.load(
                     world.saveInfrastructure(1L),
                     world.saveRuntime(1L, 1L),
-                    CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics)
+                    CoreWorld.SnapshotDependency(tick, physics)
                 ) }
             }) { loaded ->
                 val loadedTrain = loaded.getTrain("persisted") ?: error("train should load")
@@ -93,16 +92,14 @@ class CoreTrainPersistenceStateTest {
 
     private fun withWorld(
         load: (TickManagerImpl, PhysicsCoordinator) -> CoreWorld = { tick, physics ->
-            CoreWorld.createEmpty(tick, NoOpWorldParentContext, physics)
+            CoreWorld.createEmpty(tick, physics)
         },
         block: (CoreWorld) -> Unit
     ) {
         TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
-            var world: CoreWorld? = null
-            AutoCloseable { world?.releaseRuntimeBinding() }.use {
+            run {
                 PhysicsCoordinator(1, automaticFallback = false).use { physics ->
                     val created = load(tick, physics)
-                    world = created
                     block(created)
                 }
             }

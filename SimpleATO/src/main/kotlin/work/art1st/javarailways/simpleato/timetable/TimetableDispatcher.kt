@@ -86,7 +86,7 @@ import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.restriction.TrainRestrictionSnapshotProvider
 import work.art1st.javarailways.simpleato.timetable.*
 import work.art1st.javarailways.simpleato.routing.MissionRouteLayout
-import work.art1st.javarailways.basic.route.RouteAllocationTiming
+import work.art1st.javarailways.simpleato.routing.RouteAllocationTiming
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.World
@@ -4261,7 +4261,7 @@ class TimetableDispatcher(
             physicalDependencies.resourceIds + previous.dependencies.resourceIds
         )
         val guardResult = infrastructureDependencyService.set(
-            InfrastructureDependencyRequest(topology.revision, guardOwner, guardDependencies)
+            InfrastructureDependencyRequest(guardOwner, guardDependencies)
         )
         if (!guardResult.successful) {
             return AppliedPlanInstallResult.Rejected(buildString {
@@ -4291,7 +4291,7 @@ class TimetableDispatcher(
             if (expanded == guard.dependencies) return null
             val owner = InfrastructureOwner(guard.owner.ownerId, nextAppliedPlanRevision(guard.owner.revision))
             val result = try {
-                infrastructureDependencyService.set(InfrastructureDependencyRequest(topology.revision, owner, expanded))
+                infrastructureDependencyService.set(InfrastructureDependencyRequest(owner, expanded))
             } catch (failure: Exception) { return failure.message ?: failure.javaClass.name }
             if (!result.successful) return "${result.status}: ${result.detail}"
             guard = AppliedTimetablePlan(owner, expanded)
@@ -4354,7 +4354,7 @@ class TimetableDispatcher(
         if (dependencies == guard.dependencies) return AppliedPlanInstallResult.Installed(guard)
         val owner = InfrastructureOwner(guard.owner.ownerId, nextAppliedPlanRevision(guard.owner.revision))
         val result = try {
-            infrastructureDependencyService.set(InfrastructureDependencyRequest(topology.revision, owner, dependencies))
+            infrastructureDependencyService.set(InfrastructureDependencyRequest(owner, dependencies))
         } catch (failure: Exception) {
             return rejectGuardedPlan("could not install applied timetable '$timetableId': " +
                 (failure.message ?: failure.javaClass.name))
@@ -4394,7 +4394,6 @@ class TimetableDispatcher(
         val restored = try {
             infrastructureDependencyService.set(
                 InfrastructureDependencyRequest(
-                    checkNotNull(boundWorld).topologyState.revision,
                     restoredOwner,
                     previous.dependencies
                 )

@@ -267,7 +267,7 @@ class CoreTrainConstructionTest {
         }
     }
 
-    private class CountingController(train: CoreTrain) : TrainController(train, train.world) {
+    private class CountingController(train: CoreTrain) : TrainController(train) {
         val ticks = AtomicInteger()
         override fun tick(deltaT: Double) {
             ticks.incrementAndGet()

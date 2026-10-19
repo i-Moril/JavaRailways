@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.basic.infrastructure.admission
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationResult
@@ -29,6 +29,12 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import java.util.Collections
+import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
+import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.basic.infrastructure.ProjectedTopologyRoute
+import work.art1st.javarailways.basic.infrastructure.RouteBoundResourceCatalog
+import work.art1st.javarailways.basic.infrastructure.TopologyRouteProjectionResult
+import work.art1st.javarailways.basic.infrastructure.TopologyRouteProjector
 
 /**
  * Internal route-admission owner for one world. Production world/catalog binding and authenticated
@@ -135,6 +141,11 @@ internal class RouteResourceAdmissionEngine(
         val complete: () -> Boolean,
         val rollback: () -> InfrastructureMutationResult
     )
+
+    private sealed interface ContributionValidation {
+        data class Accepted(val contributions: List<ContributedRouteResource>) : ContributionValidation
+        data class Rejected(val failure: RouteAdmissionFailure) : ContributionValidation
+    }
 
     private inner class PendingRequest(
         val handle: RouteAdmissionHandle,
@@ -330,8 +341,7 @@ internal class RouteResourceAdmissionEngine(
             when (val projected = TopologyRouteProjector.project(intent.route, topology)) {
                 is TopologyRouteProjectionResult.Projected -> projected.route
                 is TopologyRouteProjectionResult.Rejected -> return rejected(
-                    if (projected.reason == TopologyRouteProjectionRejection.STALE_TOPOLOGY)
-                        RouteAdmissionFailureCode.STALE_TOPOLOGY else RouteAdmissionFailureCode.INVALID_ROUTE,
+                    RouteAdmissionFailureCode.INVALID_ROUTE,
                     projected.detail
                 )
             }
@@ -379,33 +389,19 @@ internal class RouteResourceAdmissionEngine(
             return rejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
                 "route-resource contributor failed: ${failure.message ?: failure.javaClass.simpleName}")
         }
-        val contributionOwnerByResource = LinkedHashMap<StableInfrastructureResource, Any>()
-        val contributions = ArrayList<ContributedRouteResource>(authenticatedContributions.size)
         val acceptedTailProgress = release?.acceptedTailProgressMeters
-        for ((contributor, contribution) in authenticatedContributions) {
-            if (contribution.releaseAfterTailPasses.distanceFromRouteStartMeters > newFrontier) {
-                return rejected(RouteAdmissionFailureCode.INVALID_BOUNDARY,
-                    "contributed resource release boundary exceeds desired authority")
-            }
-            if (contributionOwnerByResource.putIfAbsent(contribution.resource, contributor) != null) {
-                return rejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
-                    "duplicate contributed resource ${contribution.resource.typeId}/${contribution.resource.resourceId}")
-            }
-            // Contributors see the complete requested prefix, including resources already cleared
-            // behind this route's tail. Validate those values, but do not reacquire their identities.
-            if (contribution.resource !in held && acceptedTailProgress != null &&
-                contribution.releaseAfterTailPasses.distanceFromRouteStartMeters <= acceptedTailProgress
-            ) {
-                val failure = try {
-                    validateContribution(contributor, contribution)
-                } catch (failure: Exception) {
-                    return rejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
-                        "resource owner validation failed: ${failure.message ?: failure.javaClass.simpleName}")
-                }
-                if (failure != null) return RouteAdmissionResult.Rejected(failure)
-                continue
-            }
-            contributions += contribution
+        // Contributors see the complete requested prefix, including resources already cleared
+        // behind this route's tail. Validate those values, but do not reacquire their identities.
+        val contributions = when (val validated = validateContributions(
+            authenticatedContributions,
+            newFrontier,
+            "contributed resource release boundary exceeds desired authority"
+        ) { contribution ->
+            contribution.resource in held || acceptedTailProgress == null ||
+                contribution.releaseAfterTailPasses.distanceFromRouteStartMeters > acceptedTailProgress
+        }) {
+            is ContributionValidation.Accepted -> validated.contributions
+            is ContributionValidation.Rejected -> return RouteAdmissionResult.Rejected(validated.failure)
         }
         for (contribution in contributions) {
             val previous = held[contribution.resource] ?: continue
@@ -422,14 +418,7 @@ internal class RouteResourceAdmissionEngine(
                     "request cannot change an already-held resource preparation")
             }
         }
-        val merged = try {
-            physical.withContributions(contributions) { contribution ->
-                validateContribution(contributionOwnerByResource.getValue(contribution.resource), contribution)
-            }
-        } catch (failure: Exception) {
-            return rejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
-                "resource owner validation failed: ${failure.message ?: failure.javaClass.simpleName}")
-        }
+        val merged = physical.withContributions(contributions)
         val compiled = when (merged) {
             is RouteContributionsCompilation.Compiled -> merged.admission
             is RouteContributionsCompilation.Rejected -> return RouteAdmissionResult.Rejected(merged.failure)
@@ -474,11 +463,11 @@ internal class RouteResourceAdmissionEngine(
         val deltaResources = compiled.resources.resources.filterNot { it in held }
         val reservation = if (release == null || release.resourceQueueEmpty) {
             val mutation = registry.beginAcquireClaim(hostClaimOwner,
-                InfrastructureClaimRequest(topology.revision, intent.owner, InfrastructureFootprint(deltaResources)))
+                InfrastructureClaimRequest(intent.owner, InfrastructureFootprint(deltaResources)))
             ReservedDelta(mutation.result, { registry.completeClaimMutation(mutation) },
                 { registry.rollbackClaimMutation(mutation) })
         } else {
-            val append = registry.beginAppendClaim(hostClaimOwner, intent.owner, topology.revision, deltaResources)
+            val append = registry.beginAppendClaim(hostClaimOwner, intent.owner, deltaResources)
             ReservedDelta(append.result, { registry.completeClaimAppend(append) },
                 { registry.rollbackClaimAppend(append) })
         }
@@ -665,8 +654,7 @@ internal class RouteResourceAdmissionEngine(
         val projection = when (val projected = TopologyRouteProjector.project(intent.route, topology)) {
             is TopologyRouteProjectionResult.Projected -> projected.route
             is TopologyRouteProjectionResult.Rejected -> return reversalRejected(
-                if (projected.reason == TopologyRouteProjectionRejection.STALE_TOPOLOGY)
-                    RouteAdmissionFailureCode.STALE_TOPOLOGY else RouteAdmissionFailureCode.INVALID_ROUTE,
+                RouteAdmissionFailureCode.INVALID_ROUTE,
                 projected.detail
             )
         }
@@ -706,27 +694,16 @@ internal class RouteResourceAdmissionEngine(
             return reversalRejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
                 "route-resource contributor failed: ${failure.message ?: failure.javaClass.simpleName}")
         }
-        val contributionOwnerByResource = LinkedHashMap<StableInfrastructureResource, Any>()
-        val contributions = ArrayList<ContributedRouteResource>(authenticatedContributions.size)
-        for ((contributor, contribution) in authenticatedContributions) {
-            if (contribution.releaseAfterTailPasses.distanceFromRouteStartMeters > bodyEnd) {
-                return reversalRejected(RouteAdmissionFailureCode.INVALID_BOUNDARY,
-                    "contributed reversal release boundary exceeds the observed train head")
-            }
-            if (contributionOwnerByResource.putIfAbsent(contribution.resource, contributor) != null) {
-                return reversalRejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
-                    "duplicate contributed resource ${contribution.resource.typeId}/${contribution.resource.resourceId}")
-            }
-            contributions += contribution
+        val contributions = when (val validated = validateContributions(
+            authenticatedContributions,
+            bodyEnd,
+            "contributed reversal release boundary exceeds the observed train head"
+        ) { true }) {
+            is ContributionValidation.Accepted -> validated.contributions
+            is ContributionValidation.Rejected ->
+                return RouteGrantReversalResult.Rejected(validated.failure)
         }
-        val merged = try {
-            physical.withContributions(contributions) { contribution ->
-                validateContribution(contributionOwnerByResource.getValue(contribution.resource), contribution)
-            }
-        } catch (failure: Exception) {
-            return reversalRejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
-                "resource owner validation failed: ${failure.message ?: failure.javaClass.simpleName}")
-        }
+        val merged = physical.withContributions(contributions)
         val compiled = when (merged) {
             is RouteContributionsCompilation.Compiled -> merged.admission
             is RouteContributionsCompilation.Rejected ->
@@ -1012,13 +989,53 @@ internal class RouteResourceAdmissionEngine(
         InfrastructureMutationStatus.WORLD_UNAVAILABLE,
         InfrastructureMutationStatus.SERVICE_CLOSED -> rejected(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
             result.detail.ifBlank { "resource registry is unavailable" })
-        InfrastructureMutationStatus.STALE_TOPOLOGY -> rejected(RouteAdmissionFailureCode.STALE_TOPOLOGY,
-            result.detail.ifBlank { "resource registry topology changed" })
         InfrastructureMutationStatus.INVALID_RESOURCE,
         InfrastructureMutationStatus.RESOURCE_PROVIDER_FAILED -> rejected(RouteAdmissionFailureCode.INVALID_INFRASTRUCTURE,
             result.detail.ifBlank { "claimed infrastructure resource is unavailable" })
         else -> rejected(RouteAdmissionFailureCode.OWNER_MISMATCH,
             result.detail.ifBlank { "logical claim owner is unavailable" })
+    }
+
+    /**
+     * Applies the contribution rules shared by ordinary and reversal requests. Contributor values
+     * are checked against the request range, deduplicated by physical identity, and validated by the
+     * host-owned callback. Only the callback call itself converts an exception into a rejection so
+     * later merge invariants are not mislabeled as owner-validation failures.
+     */
+    private fun validateContributions(
+        authenticated: List<Pair<Any, ContributedRouteResource>>,
+        maxRouteMeters: Double,
+        boundaryDetail: String,
+        retain: (ContributedRouteResource) -> Boolean
+    ): ContributionValidation {
+        val seen = HashSet<StableInfrastructureResource>()
+        val retained = ArrayList<ContributedRouteResource>(authenticated.size)
+        for ((contributor, contribution) in authenticated) {
+            if (contribution.releaseAfterTailPasses.distanceFromRouteStartMeters > maxRouteMeters) {
+                return ContributionValidation.Rejected(RouteAdmissionFailure(
+                    RouteAdmissionFailureCode.INVALID_BOUNDARY,
+                    boundaryDetail
+                ))
+            }
+            if (!seen.add(contribution.resource)) {
+                return ContributionValidation.Rejected(RouteAdmissionFailure(
+                    RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+                    "duplicate contributed resource " +
+                        "${contribution.resource.typeId}/${contribution.resource.resourceId}"
+                ))
+            }
+            val failure = try {
+                validateContribution(contributor, contribution)
+            } catch (failure: Exception) {
+                return ContributionValidation.Rejected(RouteAdmissionFailure(
+                    RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+                    "resource owner validation failed: ${failure.message ?: failure.javaClass.simpleName}"
+                ))
+            }
+            if (failure != null) return ContributionValidation.Rejected(failure)
+            if (retain(contribution)) retained += contribution
+        }
+        return ContributionValidation.Accepted(retained)
     }
 
     private fun isAppendOnlyContinuation(

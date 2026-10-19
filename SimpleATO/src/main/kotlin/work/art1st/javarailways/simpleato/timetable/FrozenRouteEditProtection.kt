@@ -65,7 +65,7 @@ internal class FrozenRouteEditProtection(
         }
         val owner = InfrastructureOwner(ownerId, revision)
         val mutation = dependencies.set(
-            InfrastructureDependencyRequest(topology.revision, owner, compiled)
+            InfrastructureDependencyRequest(owner, compiled)
         )
         if (!mutation.successful) {
             return FrozenRouteProtectionResult.Rejected(

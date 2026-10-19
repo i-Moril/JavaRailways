@@ -71,7 +71,6 @@ class DefaultSignalEpochSourceServiceTest {
             executor.shutdownNow()
             service.close()
             world.physicsCoordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as AutoCloseable).close()
         }
     }

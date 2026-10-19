@@ -130,8 +130,6 @@ enum class InfrastructureMutationStatus {
     UNCHANGED,
     /** The world is unloaded, disabled, or was never registered. */
     WORLD_UNAVAILABLE,
-    /** The request revision differs from the world's authoritative topology revision. */
-    STALE_TOPOLOGY,
     /** A referenced rail/object does not exist according to its authoritative provider. */
     INVALID_RESOURCE,
     /** An authoritative resource provider threw while validating; nothing was acquired. */

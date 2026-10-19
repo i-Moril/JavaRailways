@@ -1,6 +1,5 @@
 package work.art1st.javarailways.core.physics.rail
 
-import kotlinx.serialization.Serializable
 import work.art1st.javarailways.core.control.signal.Signal
 import work.art1st.javarailways.core.api.physics.exception.InvalidActiveRailException
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -75,23 +74,6 @@ class RailView(
         activeRail = nextRail?.let {
             it as? RailView ?: throw IllegalArgumentException("nextRail must be a Core RailView")
         }
-    }
-
-    @Serializable
-    data class SavedRailViewV1(
-        val rail: String,
-        val direction: ViewDirection,
-        val nextRails: List<String>,
-        val nextActiveRail: Int
-    )
-
-    fun save() : SavedRailViewV1 {
-        return SavedRailViewV1(
-            rail.id.toString(),
-            viewDirection,
-            mutableNextRails.map { it.rail.id.toString() },
-            mutableNextRails.indexOf(activeRail),
-        )
     }
 
     // 根据弧长获取 RailLocationWithFacing（唯一的公共入口）

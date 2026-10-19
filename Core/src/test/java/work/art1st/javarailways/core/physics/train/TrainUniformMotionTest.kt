@@ -2,7 +2,6 @@ package work.art1st.javarailways.core.physics.train
 
 import org.joml.Vector3d
 import work.art1st.javarailways.core.control.train.MockTrainController
-import work.art1st.javarailways.core.api.control.ControlCommand
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -49,7 +48,7 @@ class TrainUniformMotionTest {
             val rail = createStraightRailFromSegments(world, segments)
             val constantSpeed = 20.0 // m/s
             val train = createTrainWithConfig("t1", rail, world, listOf(10.0, 10.0), isLoop = false)
-            val controller = MockTrainController(train, world, constantSpeed)
+            val controller = MockTrainController(train, constantSpeed)
             train.setControllerForTest(controller)
             val startHeadX = train.headLocation.position.x()
             val startTailX = train.tailLocation.position.x()
@@ -96,8 +95,7 @@ class TrainUniformMotionTest {
         try {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
             val train = createTrainWithConfig("velocity-direction", rail, world, listOf(10.0, 10.0), isLoop = false)
-            val command = MutableSpeedCommand(10.0)
-            val controller = CommandController(train, world, command)
+            val controller = MutableMotionController(train, 10.0)
             train.setControllerForTest(controller)
             coordinator.start()
 
@@ -106,7 +104,7 @@ class TrainUniformMotionTest {
             assertEquals(startX + 0.5, train.headLocation.position.x(), distanceTolerance)
             assertPublishedVelocity(train, 10.0)
 
-            command.requestedDistance = 0.0
+            controller.requestedDistance = 0.0
             val instantaneousX = train.headLocation.position.x()
             val instantaneousCarPositions = train.publishedFrame.cars.map { car ->
                 car.state.positionVector() to car.bogies.map(RenderableFrameSnapshot::positionVector)
@@ -121,8 +119,8 @@ class TrainUniformMotionTest {
                 }
             }
 
-            command.requestedDistance = null
-            command.requestedSpeed = 0.0
+            controller.requestedDistance = null
+            controller.requestedSpeed = 0.0
             val stoppedX = train.headLocation.position.x()
             coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
             assertEquals(stoppedX, train.headLocation.position.x(), distanceTolerance)
@@ -136,7 +134,7 @@ class TrainUniformMotionTest {
             assertTrue(train.publishedFrame.headTraversal.isEmpty())
             assertPublishedVelocity(train, 0.0)
 
-            command.requestedSpeed = 10.0
+            controller.requestedSpeed = 10.0
             val reversedHeadX = train.headLocation.position.x()
             coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
             assertEquals(reversedHeadX - 0.5, train.headLocation.position.x(), distanceTolerance)
@@ -162,7 +160,7 @@ class TrainUniformMotionTest {
                 PrimeCurveGenerator.buildCircle(radius, segmentCount = 1, step = 0.02).single()
             )
             val train = createTrainWithConfig("curved-velocity", rail, world, listOf(10.0))
-            train.setControllerForTest(MockTrainController(train, world, speed))
+            train.setControllerForTest(MockTrainController(train, speed))
             coordinator.start()
 
             coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
@@ -214,7 +212,7 @@ class TrainUniformMotionTest {
         try {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
             val train = createTrainWithConfig("placement-velocity", rail, world, listOf(10.0))
-            train.setControllerForTest(MockTrainController(train, world, 10.0))
+            train.setControllerForTest(MockTrainController(train, 10.0))
             coordinator.start()
             coordinator.stepSimulation(tickMs).completion.get(5, TimeUnit.SECONDS)
             assertPublishedVelocity(train, 10.0)
@@ -246,7 +244,7 @@ class TrainUniformMotionTest {
             throw failure
         }
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 coordinator.use {
                     // 0.1m samples keep interpolation error below the existing 5mm position tolerance.
                     val rails = PrimeCurveGenerator.buildCircle(radius, step = 0.1).map(world::createRailForTest)
@@ -256,7 +254,7 @@ class TrainUniformMotionTest {
                     val railsById = rails.associateBy { it.id }
                     val speed = 15.0
                     val train = createTrainWithConfig("t-circle-$radius", rails.first(), world, List(carCount) { carLength }, isLoop = true)
-                    train.setControllerForTest(MockTrainController(train, world, speed))
+                    train.setControllerForTest(MockTrainController(train, speed))
                     val circumference = 2 * PI * radius
                     val ticksPerLoop = (circumference / speed / tickSeconds).toInt().coerceAtLeast(1)
                     val numTicks = 2 * ticksPerLoop + 50
@@ -325,28 +323,15 @@ class TrainUniformMotionTest {
         assertEquals(expected.z(), actual.z(), tolerance, "$message z")
     }
 
-    private class MutableSpeedCommand(
+    private class MutableMotionController(
+        train: CoreTrain,
         var requestedSpeed: Double,
         var requestedDistance: Double? = null
-    ) : ControlCommand {
-        private var deltaTMilliseconds = 0.0
-
+    ) : TrainController(train) {
         override fun tick(deltaT: Double) {
-            deltaTMilliseconds = deltaT
-        }
-
-        override val speed: Double get() = requestedSpeed
-        override val deltaS: Double get() = requestedDistance ?: requestedSpeed * deltaTMilliseconds * 0.001
-        override val isFinished: Boolean get() = false
-    }
-
-    private class CommandController(
-        train: CoreTrain,
-        world: World,
-        command: ControlCommand
-    ) : TrainController(train, world) {
-        init {
-            setCommand(command)
+            val distance = requestedDistance ?: requestedSpeed * deltaT * 0.001
+            speed = requestedSpeed
+            moveControlledTrain(distance, requestedSpeed)
         }
     }
 }

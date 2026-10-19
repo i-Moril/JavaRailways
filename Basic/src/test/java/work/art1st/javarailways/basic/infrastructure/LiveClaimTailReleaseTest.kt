@@ -14,6 +14,11 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import java.util.UUID
+import work.art1st.javarailways.basic.infrastructure.admission.CompiledTailReleaseQueue
+import work.art1st.javarailways.basic.infrastructure.admission.LiveClaimTailRelease
+import work.art1st.javarailways.basic.infrastructure.admission.LiveClaimTailReleaseResult
+import work.art1st.javarailways.basic.infrastructure.admission.ResolvedTailReleaseEntry
+import work.art1st.javarailways.basic.infrastructure.admission.TailReleaseFailureKind
 
 class LiveClaimTailReleaseTest {
     private val railId = UUID.randomUUID()
@@ -79,8 +84,7 @@ class LiveClaimTailReleaseTest {
         fixture.release.advance(25.0)
         assertEquals(20.0, fixture.release.releasedThroughRouteMeters)
         assertEquals(listOf(long), fixture.singleClaim().footprint.resources)
-        val competing = fixture.registry.acquireClaim(Any(), InfrastructureClaimRequest(
-            8L, InfrastructureOwner("test:competing", 1L), InfrastructureFootprint(listOf(interval(5.0, 15.0)))))
+        val competing = fixture.registry.acquireClaim(Any(), InfrastructureClaimRequest(InfrastructureOwner("test:competing", 1L), InfrastructureFootprint(listOf(interval(5.0, 15.0)))))
         assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, competing.status)
         assertEquals(listOf(long), fixture.singleClaim().footprint.resources)
     }
@@ -130,19 +134,21 @@ class LiveClaimTailReleaseTest {
     }
 
     @Test
-    fun `committed suffix appends to the active queue and releases in the same order`() {
+    fun `extended suffix appends to the active queue and releases in the same order`() {
         val first = interval(0.0, 10.0)
         val suffixResource = interval(20.0, 30.0)
         val fixture = fixture(listOf(entry(first, 10.0)))
         val append = fixture.registry.beginAppendClaim(
             platformOwner,
             claimOwner,
-            topologyRevision = 8L,
             deltaResources = listOf(suffixResource)
         )
+        fixture.release.stageExtendedHolds(listOf(entry(first, 10.0)))
         assertTrue(fixture.registry.completeClaimAppend(append))
 
-        fixture.release.installCommittedSuffix(listOf(entry(suffixResource, 20.0)))
+        val suffix = listOf(entry(suffixResource, 20.0))
+        fixture.release.validateExtendedSuffix(suffix)
+        fixture.release.installExtendedSuffix(suffix)
 
         assertEquals(
             listOf(first, suffixResource),
@@ -160,18 +166,21 @@ class LiveClaimTailReleaseTest {
     }
 
     @Test
-    fun `suffix append after partial release keeps only the unpassed queue tail`() {
+    fun `extended suffix keeps only the unpassed queue tail after partial release`() {
         val first = interval(0.0, 10.0)
         val second = interval(10.0, 20.0)
         val suffix = interval(20.0, 30.0)
         val fixture = fixture(listOf(entry(first, 10.0), entry(second, 20.0)))
         assertInstanceOf(LiveClaimTailReleaseResult.Shrunk::class.java, fixture.release.advance(10.0))
         val append = fixture.registry.beginAppendClaim(
-            platformOwner, claimOwner, topologyRevision = 8L, deltaResources = listOf(suffix)
+            platformOwner, claimOwner, deltaResources = listOf(suffix)
         )
+        fixture.release.stageExtendedHolds(listOf(entry(second, 20.0)))
         assertTrue(fixture.registry.completeClaimAppend(append))
 
-        fixture.release.installCommittedSuffix(listOf(entry(suffix, 30.0)))
+        val extended = listOf(entry(suffix, 30.0))
+        fixture.release.validateExtendedSuffix(extended)
+        fixture.release.installExtendedSuffix(extended)
 
         assertEquals(listOf(second, suffix), fixture.release.remainingEntries.map { it.resource })
         assertEquals(listOf(second, suffix), fixture.singleClaim().footprint.resources)
@@ -180,7 +189,7 @@ class LiveClaimTailReleaseTest {
     }
 
     @Test
-    fun `committed suffix revives an empty queue without resetting accepted progress`() {
+    fun `extended suffix revives an empty queue without resetting accepted progress`() {
         val first = interval(0.0, 10.0)
         val suffixResource = interval(20.0, 30.0)
         val fixture = fixture(listOf(entry(first, 10.0)))
@@ -191,14 +200,16 @@ class LiveClaimTailReleaseTest {
             fixture.registry.acquireClaim(
                 platformOwner,
                 InfrastructureClaimRequest(
-                    8L,
                     claimOwner,
                     InfrastructureFootprint(listOf(suffixResource))
                 )
             ).status
         )
 
-        fixture.release.installCommittedSuffix(listOf(entry(suffixResource, 20.0)))
+        fixture.release.stageExtendedHolds(emptyList())
+        val suffix = listOf(entry(suffixResource, 20.0))
+        fixture.release.validateExtendedSuffix(suffix)
+        fixture.release.installExtendedSuffix(suffix)
 
         assertEquals(15.0, fixture.release.maximumAcceptedTailRouteProgressMeters)
         assertEquals(listOf(suffixResource), fixture.release.remainingEntries.map { it.resource })
@@ -209,6 +220,28 @@ class LiveClaimTailReleaseTest {
     }
 
     @Test
+    fun `extended hold advances its release boundary when the suffix is installed`() {
+        val held = interval(0.0, 10.0)
+        val suffixResource = interval(20.0, 30.0)
+        val fixture = fixture(listOf(entry(held, 10.0)))
+        val append = fixture.registry.beginAppendClaim(
+            platformOwner, claimOwner, listOf(suffixResource)
+        )
+        fixture.release.stageExtendedHolds(listOf(entry(held, 20.0)))
+        assertTrue(fixture.registry.completeClaimAppend(append))
+
+        val suffix = listOf(entry(suffixResource, 30.0))
+        fixture.release.validateExtendedSuffix(suffix)
+        fixture.release.installExtendedSuffix(suffix)
+
+        assertEquals(listOf(held, suffixResource), fixture.release.remainingEntries.map { it.resource })
+        assertInstanceOf(LiveClaimTailReleaseResult.Retained::class.java, fixture.release.advance(15.0))
+        assertInstanceOf(LiveClaimTailReleaseResult.Shrunk::class.java, fixture.release.advance(20.0))
+        assertEquals(listOf(suffixResource), fixture.singleClaim().footprint.resources)
+        assertInstanceOf(LiveClaimTailReleaseResult.Completed::class.java, fixture.release.advance(30.0))
+    }
+
+    @Test
     fun `staged later hold stays claimed while other old resources release and safe abort reconciles it`() {
         val ordinary = interval(0.0, 20.0)
         val held = StableInfrastructureResource("test:block", "held")
@@ -216,7 +249,7 @@ class LiveClaimTailReleaseTest {
         val fixture = fixture(listOf(entry(ordinary, 20.0), entry(held, 20.0)))
         fixture.release.validateExtendedHolds(listOf(entry(held, 40.0)))
         val append = fixture.registry.beginAppendClaim(
-            platformOwner, claimOwner, 8L, listOf(delta)
+            platformOwner, claimOwner, listOf(delta)
         )
         fixture.release.stageExtendedHolds(listOf(entry(held, 40.0)))
 
@@ -233,24 +266,27 @@ class LiveClaimTailReleaseTest {
     }
 
     @Test
-    fun `invalid suffix order duplicate or cleared boundary is rejected without local mutation`() {
+    fun `invalid extended suffix duplicate or cleared boundary is rejected without local mutation`() {
         val first = interval(0.0, 10.0)
         val outOfOrder = interval(20.0, 30.0)
         val fixture = fixture(listOf(entry(first, 20.0)))
+        fixture.release.stageExtendedHolds(listOf(entry(first, 20.0)))
 
         assertThrows(IllegalArgumentException::class.java) {
-            fixture.release.installCommittedSuffix(listOf(entry(outOfOrder, 10.0)))
+            fixture.release.validateExtendedSuffix(listOf(entry(first, 30.0)))
         }
         assertEquals(listOf(first), fixture.release.remainingEntries.map { it.resource })
         assertThrows(IllegalArgumentException::class.java) {
-            fixture.release.installCommittedSuffix(listOf(entry(first, 30.0)))
+            fixture.release.validateExtendedSuffix(
+                listOf(entry(outOfOrder, 10.0), entry(outOfOrder, 15.0))
+            )
         }
         assertEquals(listOf(first), fixture.release.remainingEntries.map { it.resource })
 
         fixture.release.advance(20.0)
         fixture.release.advance(25.0)
         assertThrows(IllegalArgumentException::class.java) {
-            fixture.release.installCommittedSuffix(listOf(entry(outOfOrder, 25.0)))
+            fixture.release.validateExtendedSuffix(listOf(entry(outOfOrder, 25.0)))
         }
         assertTrue(fixture.release.resourceQueueEmpty)
         assertEquals(25.0, fixture.release.maximumAcceptedTailRouteProgressMeters)
@@ -382,7 +418,7 @@ class LiveClaimTailReleaseTest {
             InfrastructureMutationStatus.ACQUIRED,
             registry.acquireClaim(
                 platformOwner,
-                InfrastructureClaimRequest(8L, claimOwner, footprint)
+                InfrastructureClaimRequest(claimOwner, footprint)
             ).status
         )
         return Fixture(

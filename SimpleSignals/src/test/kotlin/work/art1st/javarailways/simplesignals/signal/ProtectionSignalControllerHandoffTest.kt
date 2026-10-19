@@ -20,7 +20,7 @@ import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.*
 import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
-import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
+import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval

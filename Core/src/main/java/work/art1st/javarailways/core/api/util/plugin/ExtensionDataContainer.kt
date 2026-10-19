@@ -42,5 +42,4 @@ class ExtensionDataContainer<Base> : Extendable<Base> {
     }
 
     override fun forEachExtensionData(action: (Base) -> Unit) = extensionData.forEach { it?.let(action) }
-    override fun <T> forEachExtensionData(action: (Base) -> T) : List<T> = extensionData.mapNotNull { it?.let(action) }
 }

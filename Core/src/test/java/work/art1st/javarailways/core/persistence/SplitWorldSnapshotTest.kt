@@ -4,7 +4,6 @@ import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
@@ -30,7 +29,7 @@ class SplitWorldSnapshotTest {
                 IsolatedSimulationThreadMarker.run { CoreWorld.load(
                     infrastructure,
                     runtime,
-                    CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics)
+                    CoreWorld.SnapshotDependency(tick, physics)
                 ) }
             }) { restored ->
                 assertEquals(42L, infrastructure.infrastructureRevision)
@@ -48,16 +47,14 @@ class SplitWorldSnapshotTest {
 
     private fun withWorld(
         load: (TickManagerImpl, PhysicsCoordinator) -> CoreWorld = { tick, physics ->
-            CoreWorld.createEmpty(tick, NoOpWorldParentContext, physics)
+            CoreWorld.createEmpty(tick, physics)
         },
         block: (CoreWorld) -> Unit
     ) {
         TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
-            var world: CoreWorld? = null
-            AutoCloseable { world?.releaseRuntimeBinding() }.use {
+            run {
                 PhysicsCoordinator(1, automaticFallback = false).use { physics ->
                     val created = load(tick, physics)
-                    world = created
                     block(created)
                 }
             }

@@ -88,7 +88,7 @@ class InfrastructureCoordinationRegistryTest {
             InfrastructureMutationStatus.ACQUIRED,
             registry.acquireClaim(
                 Any(),
-                InfrastructureClaimRequest(4L, owner("test:route", 1), footprint(0.0, 20.0))
+                InfrastructureClaimRequest(owner("test:route", 1), footprint(0.0, 20.0))
             ).status
         )
 
@@ -132,7 +132,7 @@ class InfrastructureCoordinationRegistryTest {
         registry.setInfrastructureDependencies(Any(), dependencies(owner("test:plan", 1)))
         registry.acquireClaim(
             Any(),
-            InfrastructureClaimRequest(4L, owner("test:route", 1), footprint(0.0, 10.0))
+            InfrastructureClaimRequest(owner("test:route", 1), footprint(0.0, 10.0))
         )
         val denied = registry.acquireEditPermit(
             Any(),
@@ -177,7 +177,7 @@ class InfrastructureCoordinationRegistryTest {
         )
         val blockedClaim = registry.acquireClaim(
             Any(),
-            InfrastructureClaimRequest(4L, owner("test:route", 1), footprint(0.0, 10.0))
+            InfrastructureClaimRequest(owner("test:route", 1), footprint(0.0, 10.0))
         )
         assertEquals(InfrastructureMutationStatus.RESOURCE_CONFLICT, blockedClaim.status)
         assertEquals(InfrastructureBlockerKind.EDIT_PERMIT, blockedClaim.blockers.single().kind)
@@ -193,7 +193,7 @@ class InfrastructureCoordinationRegistryTest {
             InfrastructureDependencyMutationStatus.APPLIED,
             registry.setInfrastructureDependencies(
                 platform,
-                dependencies(owner, topologyRevision = 3L)
+                dependencies(owner)
             ).status
         )
         registry.removeInfrastructureDependencies(platform, owner)
@@ -233,7 +233,7 @@ class InfrastructureCoordinationRegistryTest {
         registry.setInfrastructureDependencies(platform, dependencies(owner("test:plan", 1)))
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, owner("test:route", 1), footprint(20.0, 30.0))
+            InfrastructureClaimRequest(owner("test:route", 1), footprint(20.0, 30.0))
         )
         registry.acquireEditPermit(
             platform,
@@ -290,7 +290,7 @@ class InfrastructureCoordinationRegistryTest {
         val routeOwner = owner("test:route", 1)
         val mutation = registry.beginAcquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, footprint(0.0, 10.0))
+            InfrastructureClaimRequest(routeOwner, footprint(0.0, 10.0))
         )
 
         assertEquals(
@@ -308,7 +308,7 @@ class InfrastructureCoordinationRegistryTest {
     fun `registry close invalidates an unfinished admission token`() {
         val mutation = registry.beginAcquireClaim(
             Any(),
-            InfrastructureClaimRequest(4L, owner("test:route", 1), footprint(0.0, 10.0))
+            InfrastructureClaimRequest(owner("test:route", 1), footprint(0.0, 10.0))
         )
 
         registry.close()
@@ -328,7 +328,6 @@ class InfrastructureCoordinationRegistryTest {
         registry.acquireClaim(
             platform,
             InfrastructureClaimRequest(
-                4L,
                 routeOwner,
                 InfrastructureFootprint(listOf(first, overlapping, last))
             )
@@ -345,7 +344,6 @@ class InfrastructureCoordinationRegistryTest {
             registry.acquireClaim(
                 Any(),
                 InfrastructureClaimRequest(
-                    4L,
                     owner("test:overlapping-route", 1),
                     InfrastructureFootprint(listOf(interval(30.0, 35.0)))
                 )
@@ -356,7 +354,6 @@ class InfrastructureCoordinationRegistryTest {
             registry.acquireClaim(
                 Any(),
                 InfrastructureClaimRequest(
-                    4L,
                     owner("test:released-overlap", 1),
                     InfrastructureFootprint(listOf(interval(50.0, 55.0)))
                 )
@@ -373,13 +370,13 @@ class InfrastructureCoordinationRegistryTest {
         val delta = interval(40.0, 50.0)
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(first, second)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(first, second)))
         )
         val before = registry.claimSnapshots().single()
 
         assertEquals(InfrastructureMutationStatus.REPLACED, registry.shrinkClaim(platform, routeOwner, listOf(first)).status)
         val afterShrink = registry.claimSnapshots().single()
-        val append = registry.beginAppendClaim(platform, routeOwner, 4L, listOf(delta))
+        val append = registry.beginAppendClaim(platform, routeOwner, listOf(delta))
         assertEquals(InfrastructureMutationStatus.REPLACED, append.result.status)
         val afterAppend = registry.claimSnapshots().single()
         assertEquals(InfrastructureMutationStatus.REPLACED, registry.rollbackClaimAppend(append).status)
@@ -405,7 +402,7 @@ class InfrastructureCoordinationRegistryTest {
             InfrastructureMutationStatus.ACQUIRED,
             registry.acquireClaim(
                 platform,
-                InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(resources))
+                InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(resources))
             ).status
         )
 
@@ -420,7 +417,7 @@ class InfrastructureCoordinationRegistryTest {
             InfrastructureMutationStatus.ACQUIRED,
             registry.acquireClaim(
                 Any(),
-                InfrastructureClaimRequest(4L, owner("test:reuse", 1), InfrastructureFootprint(resources))
+                InfrastructureClaimRequest(owner("test:reuse", 1), InfrastructureFootprint(resources))
             ).status
         )
         assertEquals(resources, registry.claimSnapshots().single().footprint.resources)
@@ -435,7 +432,7 @@ class InfrastructureCoordinationRegistryTest {
         val last = interval(40.0, 50.0)
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(first, second, last)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(first, second, last)))
         )
         assertEquals(InfrastructureMutationStatus.REPLACED, registry.shrinkClaim(platform, routeOwner, listOf(first)).status)
 
@@ -443,14 +440,14 @@ class InfrastructureCoordinationRegistryTest {
             InfrastructureMutationStatus.UNCHANGED,
             registry.acquireClaim(
                 platform,
-                InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(second, last)))
+                InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(second, last)))
             ).status
         )
         assertEquals(
             InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
             registry.acquireClaim(
                 platform,
-                InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(last, second)))
+                InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(last, second)))
             ).status
         )
         assertEquals(listOf(second, last), registry.claimSnapshots().single().footprint.resources)
@@ -463,7 +460,7 @@ class InfrastructureCoordinationRegistryTest {
         val resources = listOf(interval(0.0, 10.0), interval(20.0, 30.0))
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(resources))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(resources))
         )
 
         assertEquals(
@@ -480,7 +477,7 @@ class InfrastructureCoordinationRegistryTest {
         val held = interval(0.0, 40.0)
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(held)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(held)))
         )
 
         val result = registry.shrinkClaim(platform, routeOwner, listOf(interval(10.0, 20.0)))
@@ -497,7 +494,7 @@ class InfrastructureCoordinationRegistryTest {
         val second = interval(20.0, 30.0)
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(first, second)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(first, second)))
         )
 
         val result = registry.shrinkClaim(
@@ -529,7 +526,7 @@ class InfrastructureCoordinationRegistryTest {
         val held = interval(0.0, 10.0)
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(held)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(held)))
         )
 
         assertEquals(
@@ -551,7 +548,7 @@ class InfrastructureCoordinationRegistryTest {
         val held = interval(0.0, 10.0)
         val mutation = registry.beginAcquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(held)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(held)))
         )
 
         val result = registry.shrinkClaim(platform, routeOwner, listOf(held))
@@ -582,7 +579,7 @@ class InfrastructureCoordinationRegistryTest {
         val second = interval(20.0, 30.0)
         independentRegistry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(first, second)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(first, second)))
         )
         revision = 5L
         revisionReads = 0
@@ -603,7 +600,7 @@ class InfrastructureCoordinationRegistryTest {
         val held = interval(0.0, 10.0)
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(held)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(held)))
         )
 
         assertThrows(IllegalArgumentException::class.java) {
@@ -645,12 +642,11 @@ class InfrastructureCoordinationRegistryTest {
         val established = interval(0.0, 10.0)
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(established)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(established)))
         )
         registry.acquireClaim(
             Any(),
             InfrastructureClaimRequest(
-                4L,
                 owner("test:blocker", 1),
                 InfrastructureFootprint(listOf(interval(30.0, 40.0)))
             )
@@ -659,7 +655,6 @@ class InfrastructureCoordinationRegistryTest {
         val append = registry.beginAppendClaim(
             platform,
             routeOwner,
-            4L,
             listOf(interval(35.0, 45.0))
         )
 
@@ -678,10 +673,10 @@ class InfrastructureCoordinationRegistryTest {
         val delta = interval(40.0, 50.0)
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(first, second)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(first, second)))
         )
 
-        val append = registry.beginAppendClaim(platform, routeOwner, 4L, listOf(delta))
+        val append = registry.beginAppendClaim(platform, routeOwner, listOf(delta))
         val shrink = registry.shrinkClaim(platform, routeOwner, listOf(first))
 
         assertEquals(InfrastructureMutationStatus.REPLACED, append.result.status)
@@ -700,13 +695,12 @@ class InfrastructureCoordinationRegistryTest {
         val secondDelta = interval(40.0, 50.0)
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(established)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(established)))
         )
 
         val append = registry.beginAppendClaim(
             platform,
             routeOwner,
-            4L,
             listOf(firstDelta, secondDelta)
         )
 
@@ -727,12 +721,11 @@ class InfrastructureCoordinationRegistryTest {
         registry.acquireClaim(
             platform,
             InfrastructureClaimRequest(
-                4L,
                 routeOwner,
                 InfrastructureFootprint(listOf(releasedPrefix, remainingPrefix))
             )
         )
-        val append = registry.beginAppendClaim(platform, routeOwner, 4L, listOf(delta))
+        val append = registry.beginAppendClaim(platform, routeOwner, listOf(delta))
         registry.shrinkClaim(platform, routeOwner, listOf(releasedPrefix))
 
         val rollback = registry.rollbackClaimAppend(append)
@@ -751,9 +744,9 @@ class InfrastructureCoordinationRegistryTest {
         val delta = interval(20.0, 30.0)
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(established)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(established)))
         )
-        val append = registry.beginAppendClaim(platform, routeOwner, 4L, listOf(delta))
+        val append = registry.beginAppendClaim(platform, routeOwner, listOf(delta))
 
         assertEquals(
             InfrastructureMutationStatus.REPLACED,
@@ -773,9 +766,9 @@ class InfrastructureCoordinationRegistryTest {
         val delta = listOf(interval(200.0, 201.0), interval(202.0, 203.0))
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(established))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(established))
         )
-        val append = registry.beginAppendClaim(platform, routeOwner, 4L, delta)
+        val append = registry.beginAppendClaim(platform, routeOwner, delta)
         assertEquals(InfrastructureMutationStatus.REPLACED, append.result.status)
 
         established.forEachIndexed { index, resource ->
@@ -796,14 +789,13 @@ class InfrastructureCoordinationRegistryTest {
         val firstDelta = interval(20.0, 30.0)
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(established)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(established)))
         )
-        val firstAppend = registry.beginAppendClaim(platform, routeOwner, 4L, listOf(firstDelta))
+        val firstAppend = registry.beginAppendClaim(platform, routeOwner, listOf(firstDelta))
 
         val secondAppend = registry.beginAppendClaim(
             platform,
             routeOwner,
-            4L,
             listOf(interval(40.0, 50.0))
         )
 
@@ -823,9 +815,9 @@ class InfrastructureCoordinationRegistryTest {
         val delta = interval(20.0, 30.0)
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(established)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(established)))
         )
-        val append = registry.beginAppendClaim(platform, routeOwner, 4L, listOf(delta))
+        val append = registry.beginAppendClaim(platform, routeOwner, listOf(delta))
 
         val shrink = registry.shrinkClaim(platform, routeOwner, listOf(established, delta))
 
@@ -844,16 +836,16 @@ class InfrastructureCoordinationRegistryTest {
         val established = interval(0.0, 10.0)
         registry.acquireClaim(
             platform,
-            InfrastructureClaimRequest(4L, routeOwner, InfrastructureFootprint(listOf(established)))
+            InfrastructureClaimRequest(routeOwner, InfrastructureFootprint(listOf(established)))
         )
 
         assertThrows(IllegalArgumentException::class.java) {
-            registry.beginAppendClaim(platform, routeOwner, 4L, emptyList())
+            registry.beginAppendClaim(platform, routeOwner, emptyList())
         }
         assertThrows(IllegalArgumentException::class.java) {
-            registry.beginAppendClaim(platform, routeOwner, 4L, listOf(established, established))
+            registry.beginAppendClaim(platform, routeOwner, listOf(established, established))
         }
-        val alreadyHeld = registry.beginAppendClaim(platform, routeOwner, 4L, listOf(established))
+        val alreadyHeld = registry.beginAppendClaim(platform, routeOwner, listOf(established))
 
         assertEquals(InfrastructureMutationStatus.INVALID_RESOURCE, alreadyHeld.result.status)
         assertEquals(listOf(established), registry.claimSnapshots().single().footprint.resources)
@@ -871,9 +863,8 @@ class InfrastructureCoordinationRegistryTest {
     private fun owner(id: String, revision: Long) = InfrastructureOwner(id, revision)
     private fun interval(start: Double, end: Double) = RailIntervalResource(railId, start, end)
     private fun footprint(start: Double, end: Double) = InfrastructureFootprint(listOf(interval(start, end)))
-    private fun dependencies(owner: InfrastructureOwner, topologyRevision: Long = 4L) =
+    private fun dependencies(owner: InfrastructureOwner) =
         InfrastructureDependencyRequest(
-            topologyRevision,
             owner,
             InfrastructureDependencies(setOf(railId), setOf(nodeKey), setOf(runtimeResource))
         )

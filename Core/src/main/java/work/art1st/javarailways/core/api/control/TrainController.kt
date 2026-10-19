@@ -1,6 +1,5 @@
 package work.art1st.javarailways.core.api.control
 
-import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.util.tick.Synchronizable
 import work.art1st.javarailways.core.api.util.tick.TickProfiled
 import work.art1st.javarailways.core.api.util.tick.TickingObject
@@ -19,16 +18,15 @@ import java.util.concurrent.CompletableFuture
  * only after the complete physics epoch is published.
  *
  * @param train controlled train; retained while this controller exists
- * @param world world that owns the train
  */
 abstract class TrainController(
-    train: Train,
-    world: World
+    train: Train
 ) : TickingObject, Synchronizable, TickProfiled {
-    /** Controlled train; world registrations are removed by its destruction owner. */
+    private val trainId: String = train.id
     val train: Train = train
+
     override val profileCategory: String = "train-controller"
-    override val profileId: String get() = train.id
+    override val profileId: String get() = trainId
     /** Meters per second, >=0. Published only after the whole physics epoch finishes. */
     private val speedBuffer = CommitBuffer(0.0)
     private var speedDirty: Boolean = false
@@ -43,19 +41,9 @@ abstract class TrainController(
 
     protected val activeSpeed: Double
         get() = if (speedDirty) speedBuffer.getActive() else speedBuffer.get()
-    protected var pendingCommand: ControlCommand? = null
-        private set
     private val reverseRequestLock = Any()
     private var pendingReverseRequests = 0
     private var pendingReverse: CompletableFuture<Unit>? = null
-
-    protected fun setCommand(command: ControlCommand) {
-        if (command.speed < 0 || command.deltaS < 0) {
-            //TODO: Warning
-            return
-        }
-        pendingCommand = command
-    }
 
     /**
      * Prepare controller state for [cars] without mutating either source, cars or external state.
@@ -127,17 +115,10 @@ abstract class TrainController(
     }
 
     override fun tick(deltaT: Double) {
-        if (pendingCommand == null) {
-            moveControlledTrain(speed * deltaT * 0.001, speed)
-        } else {
-            val cmd = pendingCommand!!
-            cmd.tick(deltaT)
-            speed = cmd.speed
-            moveControlledTrain(cmd.deltaS, cmd.speed)
-            if (cmd.isFinished) {
-                pendingCommand = null
-            }
-        }
+        // Apply this tick's active speed to this tick's movement; the published value belongs to
+        // the previous epoch until the coordinator commits it.
+        val currentSpeed = activeSpeed
+        moveControlledTrain(currentSpeed * deltaT * 0.001, currentSpeed)
     }
 
     /**

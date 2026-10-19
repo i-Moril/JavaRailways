@@ -70,7 +70,7 @@ class BasicInfrastructureSnapshotTest {
     private fun withFreshWorld(block: (work.art1st.javarailways.core.physics.CoreWorld) -> Unit) {
         val world = createTestWorld()
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 world.physicsCoordinator.use {
                     try {
                         TestBasicWorldDataRegistry.getOrCreate(world)

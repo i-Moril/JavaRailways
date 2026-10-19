@@ -30,7 +30,7 @@ class AbstractATOConsistTest {
     fun `split updates actuator and safety together only after all preparation succeeds`(failInitialization: Boolean) {
         val world = createTestWorld()
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 world.physicsCoordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
                     val train = createTrainWithConfig("ato-consist", rail, world, listOf(10.0, 10.0))
@@ -87,7 +87,7 @@ class AbstractATOConsistTest {
     fun `configuration reload installs new dynamics and derived safety without replacing controller history`() {
         val world = createTestWorld()
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 world.physicsCoordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
                     val train = createTrainWithConfig("ato-reload", rail, world, listOf(10.0))

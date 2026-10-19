@@ -44,7 +44,7 @@ coordinator与tick owner。attach失败不得把半构造world放入`WorldManage
 
 ## RailObject lifecycle
 
-- `RailObjectStore.register(obj)`要求`ACTIVE`，`RailObjectRef`world内唯一；duplicate→`IllegalStateException`且原object保持。
+- `RailObjectStore.register(obj)`要求`ACTIVE`，`RailObjectRef`world内唯一；duplicate→`IllegalStateException`且原object保持。注册前先捕获`ref`与`location.rail.id`，任何外部getter失败都不留下半注册状态；`railIdByRef`保存注册时的rail身份。
 - concrete owner先发布`REMOVED`再`unregister(ref)`；否则fail且registration保持。
 - `objectsOnRail(UUID)`只返回ACTIVE；`get(ref)` consumer仍检查lifecycle。
 - same live ref不得解析成不同object；perception必须Stall而非shadow。
@@ -53,11 +53,13 @@ coordinator与tick owner。attach失败不得把半构造world放入`WorldManage
 
 ```kotlin
 check(registered.lifecycleState == RailObjectLifecycleState.REMOVED)
+val railId = railIdByRef[ref]
 check(byRef.remove(ref, registered))
-byRail[registered.location.rail.id]?.remove(registered)
+if (railId != null) byRail[railId]?.remove(registered)
+railIdByRef.remove(ref)
 ```
 
-来源：`Basic/src/main/java/work/art1st/javarailways/basic/api/ato/provider/RailObjectStore.kt`。它避免by-ref与by-rail indexes分裂。
+来源：`Basic/src/main/java/work/art1st/javarailways/basic/api/rail/RailObjectStore.kt`。它避免by-ref与by-rail indexes分裂，并避免注销时再次调用owner的rail getter。
 
 ## 结果矩阵
 

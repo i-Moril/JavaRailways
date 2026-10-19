@@ -40,11 +40,22 @@ internal class TypedRailEventBus<E : Event>(
         val prepared = ArrayList<Triple<KClass<*>, Priority, Handler>>()
         listener::class.functions.forEach { function ->
             if (!function.hasAnnotation<HandlesEvent>()) return@forEach
+            val declared = "${listener::class.qualifiedName ?: listener::class.simpleName}." +
+                "${function.name}()"
             val parameters = function.parameters
-            if (parameters.size != 2 || !parameters[1].type.isSubtypeOf(eventRoot.starProjectedType)) {
-                return@forEach
+            require(parameters.size == 2) {
+                "@HandlesEvent function $declared must declare exactly one event parameter"
             }
-            val eventType = parameters[1].type.classifier as? KClass<*> ?: return@forEach
+            val parameterType = parameters[1].type
+            require(parameterType.isSubtypeOf(Event::class.starProjectedType)) {
+                "@HandlesEvent function $declared parameter must be a JavaRailways Event"
+            }
+            // A listener for the other typed bus is legal and belongs to that bus, not this one.
+            if (!parameterType.isSubtypeOf(eventRoot.starProjectedType)) return@forEach
+            val eventType = parameterType.classifier as? KClass<*>
+                ?: throw IllegalArgumentException(
+                    "@HandlesEvent function $declared parameter must be a concrete event type"
+                )
             val priority = function.findAnnotation<HandlesEvent>()!!.priority
             function.isAccessible = true
             val handler = Handler(listener, function)
@@ -92,9 +103,10 @@ internal class TypedRailEventBus<E : Event>(
     /** Dispatch normally, additionally reporting whether every listener completed successfully. */
     internal fun publishAndReportFailures(event: E): Boolean {
         var successful = true
-        event::class.allSuperTypes().forEach { eventType ->
-            handlers[eventType]?.lists?.forEach { priorityHandlers ->
-                priorityHandlers.forEach { handler ->
+        val eventTypes = event::class.allSuperTypes()
+        Priority.entries.forEach { priority ->
+            eventTypes.forEach { eventType ->
+                handlers[eventType]?.get(priority)?.forEach { handler ->
                     try {
                         handler.function.call(handler.listener, event)
                     } catch (failure: Throwable) {

@@ -60,7 +60,7 @@ class PhysOvalConnectionTest {
     private fun withWorld(block: (CoreWorld) -> Unit) {
         val world = createTestWorld()
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 world.physicsCoordinator.use { block(world) }
             }
         }

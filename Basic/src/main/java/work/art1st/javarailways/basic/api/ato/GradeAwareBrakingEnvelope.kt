@@ -78,6 +78,27 @@ class GradeAwareBrakingEnvelope private constructor(
     }
 
     companion object {
+        /**
+         * Deterministic constant-deceleration envelope for actuators that model braking without
+         * per-car dynamics (for example the kinematic test actuator).
+         */
+        fun constant(
+            decelerationMetersPerSecondSquared: Double,
+            segments: List<BrakingGradeSegment>
+        ): GradeAwareBrakingEnvelope {
+            require(decelerationMetersPerSecondSquared.isFinite() && decelerationMetersPerSecondSquared > 0.0)
+            require(segments.isNotEmpty())
+            val entries = ArrayList<Entry>(segments.size)
+            var distance = 0.0
+            var work = 0.0
+            segments.forEach { segment ->
+                entries += Entry(distance + segment.lengthMeters, work, decelerationMetersPerSecondSquared)
+                work += 2.0 * decelerationMetersPerSecondSquared * segment.lengthMeters
+                distance += segment.lengthMeters
+            }
+            return GradeAwareBrakingEnvelope(entries, distance, null, 0.0, 0.0, 0.0)
+        }
+
         fun fromDynamics(
             trainProfile: TrainDynamics.TrainProfile,
             carProfiles: List<TrainDynamics.CarProfile>,

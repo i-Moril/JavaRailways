@@ -14,8 +14,6 @@ import work.art1st.javarailways.bukkit.persistence.*
 import work.art1st.javarailways.bukkit.config.PhysicsConfig
 import work.art1st.javarailways.bukkit.config.JavaRailwaysConfig
 import work.art1st.javarailways.bukkit.config.model.PackageLoader
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
-import work.art1st.javarailways.core.di.ensureJavaRailwaysKoinStarted
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
@@ -176,42 +174,35 @@ object DevelopmentWorldMigration {
 
     /** Run the real current business loaders without Bukkit, tick publication or train movement. */
     fun materialize(infrastructure: InfrastructureFileV2, runtime: RuntimeFileV2) {
-        ensureJavaRailwaysKoinStarted()
         val basicPlugin = BasicPlugin.instanceOrNull() ?: BasicPlugin(0).also { BasicPlugin.INSTANCE = it }
         val atoPlugin = SimpleATOPlugin.instanceOrNull() ?: SimpleATOPlugin(101).also { SimpleATOPlugin.INSTANCE = it }
         TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
             PhysicsCoordinator(1, automaticFallback = false).use { physics ->
-                var world: CoreWorld? = null
-                try {
-                    IsolatedSimulationThreadMarker.run {
-                        val restored = CoreWorld.load(infrastructure.core(), runtime.core(),
-                            CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics))
-                        world = restored
-                        val basic = BasicWorldData()
-                        restored.registerExtensionData(basicPlugin, basic)
-                        val coordinator = AtoWorldCoordinator(safetyInterlock = basic.safetyInterlock)
-                        val restrictions = TrainRestrictionSnapshotStore(coordinator.worldId)
-                        val inspection = InspectionRuntime(publisher = restrictions,
-                            sourceUnavailable = { _, _, failure -> throw failure })
-                        val signal = SignalEpochRuntime(coordinator.worldId, restrictions,
-                            restrictions::completeEpoch, inspection::markDirty)
-                        val dependencies = object : InfrastructureDependencyService {
-                            override fun set(request: InfrastructureDependencyRequest): InfrastructureDependencyMutationResult =
-                                error("Offline materialization must not install live dependencies")
-                            override fun remove(owner: InfrastructureOwner): InfrastructureDependencyMutationResult =
-                                error("Offline materialization must not remove live dependencies")
-                        }
-                        val dispatcher = TimetableDispatcher({ null }, restrictions, inspection, dependencies)
-                        restored.registerExtensionData(atoPlugin,
-                            SimpleATOWorldData(coordinator, dispatcher, signal, restrictions, inspection,
-                                basic.railObjects, basic.safetyInterlock))
-                        infrastructure.basic().restore(restored)
-                        infrastructure.simpleAto().restore(restored)
-                        runtime.basic().restore()
-                        runtime.simpleAto().restore(restored)
+                IsolatedSimulationThreadMarker.run {
+                    val restored = CoreWorld.load(infrastructure.core(), runtime.core(),
+                        CoreWorld.SnapshotDependency(tick, physics))
+                    val basic = BasicWorldData()
+                    restored.registerExtensionData(basicPlugin, basic)
+                    val coordinator = AtoWorldCoordinator(safetyInterlock = basic.safetyInterlock)
+                    val restrictions = TrainRestrictionSnapshotStore(coordinator.worldId)
+                    val inspection = InspectionRuntime(publisher = restrictions,
+                        sourceUnavailable = { _, _, failure -> throw failure })
+                    val signal = SignalEpochRuntime(coordinator.worldId, restrictions,
+                        restrictions::completeEpoch, inspection::markDirty)
+                    val dependencies = object : InfrastructureDependencyService {
+                        override fun set(request: InfrastructureDependencyRequest): InfrastructureDependencyMutationResult =
+                            error("Offline materialization must not install live dependencies")
+                        override fun remove(owner: InfrastructureOwner): InfrastructureDependencyMutationResult =
+                            error("Offline materialization must not remove live dependencies")
                     }
-                } finally {
-                    world?.releaseRuntimeBinding()
+                    val dispatcher = TimetableDispatcher({ null }, restrictions, inspection, dependencies)
+                    restored.registerExtensionData(atoPlugin,
+                        SimpleATOWorldData(coordinator, dispatcher, signal, restrictions, inspection,
+                            basic.railObjects, basic.safetyInterlock))
+                    infrastructure.basic().restore(restored)
+                    infrastructure.simpleAto().restore(restored)
+                    runtime.basic().restore()
+                    runtime.simpleAto().restore(restored)
                 }
             }
         }

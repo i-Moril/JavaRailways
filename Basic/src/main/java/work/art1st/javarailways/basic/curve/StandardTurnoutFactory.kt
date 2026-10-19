@@ -44,12 +44,6 @@ enum class StandardTurnout(val number: Int) {
     N60(60)
 }
 
-data class StandardTurnoutBuildResult(
-    val curve: PrimeCurve,
-    val startTangent: Vector3d,
-    val endTangent: Vector3d
-)
-
 object StandardTurnoutFactory {
     private data class DirectionCandidate(
         val startTangent: Vector3d,
@@ -68,7 +62,7 @@ object StandardTurnoutFactory {
         towards: Vector3dc,
         geometry: StandardTurnoutGeometry,
         sampleStepMeters: Double = RailGeometryParameters().turnoutStepMeters
-    ): StandardTurnoutBuildResult? {
+    ): PrimeCurve? {
         require(sampleStepMeters.isFinite() && sampleStepMeters > 0.0)
         val axis = Vector3d(anchor.tangent.x(), 0.0, anchor.tangent.z())
         val target = Vector3d(towards.x(), 0.0, towards.z())
@@ -91,18 +85,13 @@ object StandardTurnoutFactory {
         val selected = candidates.maxBy { it.endTangent.dot(target) }
         val anchorHorizontal = kotlin.math.hypot(anchor.tangent.x(), anchor.tangent.z())
         val representedGrade = anchor.tangent.y() / anchorHorizontal * selected.directionSign
-        val curve = circularBranch(
+        return circularBranch(
             anchor.position,
             selected,
             geometry.radiusMeters,
             angle,
             representedGrade,
             sampleStepMeters
-        )
-        return StandardTurnoutBuildResult(
-            curve,
-            Vector3d(selected.startTangent.x(), representedGrade, selected.startTangent.z()).normalize(),
-            Vector3d(selected.endTangent.x(), representedGrade, selected.endTangent.z()).normalize()
         )
     }
 

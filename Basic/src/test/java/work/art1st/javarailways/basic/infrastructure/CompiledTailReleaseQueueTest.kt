@@ -6,6 +6,10 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.infrastructure.admission.CompiledRouteAdmission
+import work.art1st.javarailways.basic.infrastructure.admission.CompiledTailReleaseQueue
+import work.art1st.javarailways.basic.infrastructure.admission.OccupancyQueryGeometry
+import work.art1st.javarailways.basic.infrastructure.admission.ResolvedTailReleaseEntry
 
 class CompiledTailReleaseQueueTest {
     private val firstResource = StableInfrastructureResource("test:release", "first")

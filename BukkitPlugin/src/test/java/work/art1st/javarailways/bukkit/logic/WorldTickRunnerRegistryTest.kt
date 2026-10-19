@@ -55,7 +55,6 @@ class WorldTickRunnerRegistryTest {
         registry.offer(world, WorldTickWake(1L, 50L)) { WorldTickRunner("weak-retire", {}, { throw it }) }
         registry.retire(world)
         world.physicsCoordinator.close()
-        world.releaseRuntimeBinding()
         (world.tickManager as AutoCloseable).close()
         return java.lang.ref.WeakReference(world)
     }

@@ -45,7 +45,7 @@ class CoreTrainSplitTest {
     fun `retained controller state installs only after new train initialization succeeds`(failInitialization: Boolean) =
         withConsist { world, _, train ->
             val originalCars = train.cars.toList()
-            val controller = object : TrainController(train, world) {
+            val controller = object : TrainController(train) {
                 val consist = ControllerConsistState<List<Car>>(originalCars)
                 override fun prepareConsistChange(cars: List<Car>, counterpart: TrainController?): List<PreparedControllerStateUpdate> {
                     assertEquals(originalCars, train.cars)
@@ -88,7 +88,7 @@ class CoreTrainSplitTest {
             throw failure
         }
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 coordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
                     val train = createTrainWithConfig("admission-source", rail, world, List(4) { 10.0 })
@@ -424,7 +424,7 @@ class CoreTrainSplitTest {
             throw failure
         }
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 coordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
                     val train = createTrainWithConfig("moving-source", rail, world, List(4) { 10.0 },
@@ -511,7 +511,7 @@ class CoreTrainSplitTest {
                 connectorLength = connectorLength)
             val separated = executeSplit(train, "car-1", "closing-contact")
             val calls = AtomicInteger()
-            separated.setControllerForTest(object : TrainController(separated, world) {
+            separated.setControllerForTest(object : TrainController(separated) {
                 override fun tick(deltaT: Double) {
                     val closing = calls.incrementAndGet() > 1
                     speed = if (closing) 2.0 else 0.0
@@ -543,7 +543,6 @@ class CoreTrainSplitTest {
             }
         } finally {
             coordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as AutoCloseable).close()
         }
     }
@@ -560,7 +559,7 @@ class CoreTrainSplitTest {
             world.onOwnerForTest { train.reverse() }
             val calls = AtomicInteger()
             listOf(train, separated).forEach { participant ->
-                participant.setControllerForTest(object : TrainController(participant, world) {
+                participant.setControllerForTest(object : TrainController(participant) {
                     override fun tick(deltaT: Double) {
                         calls.incrementAndGet()
                         speed = 0.00002
@@ -591,7 +590,6 @@ class CoreTrainSplitTest {
             }
         } finally {
             coordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as AutoCloseable).close()
         }
     }
@@ -775,7 +773,7 @@ class CoreTrainSplitTest {
     private fun withWorld(action: (CoreWorld, CoreRail) -> Unit) {
         val world = createTestWorld()
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 world.physicsCoordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
                     action(world, rail)
@@ -820,14 +818,14 @@ class CoreTrainSplitTest {
         override fun prepareLink(masterTrain: Train, removedTrain: Train, counterpart: TrainExtension?): TrainExtension = error("not used")
     }
 
-    private class NoOpController(train: CoreTrain) : TrainController(train, train.world) {
+    private class NoOpController(train: CoreTrain) : TrainController(train) {
         override fun tick(deltaT: Double) = Unit
     }
 
     private class ConstantSpeedController(
         train: CoreTrain,
         private val commandedSpeed: Double
-    ) : TrainController(train, train.world) {
+    ) : TrainController(train) {
         override fun tick(deltaT: Double) {
             speed = commandedSpeed
             moveControlledTrain(commandedSpeed * deltaT * 0.001, commandedSpeed)

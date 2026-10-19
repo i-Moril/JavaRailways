@@ -161,7 +161,6 @@ class DefaultInfrastructureResourceServiceTest {
             service.close()
             sources.close()
             world.physicsCoordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as AutoCloseable).close()
             guard.close()
         }
@@ -253,7 +252,7 @@ class DefaultInfrastructureResourceServiceTest {
             IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, first) }
             IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, second) }
             val train = createTrainWithConfig("train", stem, world, listOf(10.0))
-            train.setControllerForTest(object : TrainController(train, world) {
+            train.setControllerForTest(object : TrainController(train) {
                 override fun tick(deltaT: Double) {
                     workerEntered.countDown()
                     check(releaseWorker.await(5, TimeUnit.SECONDS))
@@ -314,7 +313,6 @@ class DefaultInfrastructureResourceServiceTest {
             assertTrue(caller.awaitTermination(5, TimeUnit.SECONDS))
             service.close()
             world.physicsCoordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as AutoCloseable).close()
         }
     }
@@ -685,7 +683,6 @@ class DefaultInfrastructureResourceServiceTest {
                 planPlugin,
                 worldId,
                 InfrastructureDependencyRequest(
-                    7L,
                     planOwner,
                     InfrastructureDependencies(emptySet(), emptySet(), setOf(resource))
                 )
@@ -1821,7 +1818,6 @@ class DefaultInfrastructureResourceServiceTest {
     }
 
     private fun dependencies(ownerId: String, typeId: String, resourceId: String) = InfrastructureDependencyRequest(
-        7L,
         InfrastructureOwner(ownerId, 1L),
         InfrastructureDependencies(emptySet(), emptySet(), setOf(StableInfrastructureResource(typeId, resourceId)))
     )
@@ -1905,7 +1901,6 @@ class DefaultInfrastructureResourceServiceTest {
         override fun <T : Any> requireExtensionData(plugin: CorePlugin): T = error("no extensions")
         override fun <T : Any> registerExtensionData(plugin: CorePlugin, data: T) = Unit
         override fun forEachExtensionData(action: (Any) -> Unit) = Unit
-        override fun <T> forEachExtensionData(action: (Any) -> T): List<T> = emptyList()
     }
 
     private fun primitiveDefault(type: Class<*>): Any? = when (type) {

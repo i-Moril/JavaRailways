@@ -7,8 +7,6 @@ import work.art1st.javarailways.simpleatobukkit.diagnostics.AtoStallDiagnostics
 import work.art1st.javarailways.bukkit.extension.BukkitWorldData
 import work.art1st.javarailways.bukkit.render.chunk.RenderChunkManager
 import work.art1st.javarailways.core.api.physics.World
-import work.art1st.javarailways.core.di.KoinWorldParentContext
-import work.art1st.javarailways.core.di.javaRailwaysParentScope
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.control.HandleTrainActuator
@@ -43,7 +41,7 @@ import work.art1st.javarailways.basic.rail.OperatingDirectionStore
 import work.art1st.javarailways.simpleato.runtime.OperationalWorldRuntime
 
 /**
- * 为 Bukkit 世界创建对应的 Core [World]：Tick、Koin 父 scope、[BukkitWorldData] 扩展一步完成。
+ * 为 Bukkit 世界创建对应的 Core [World]：Tick、物理协调器、[BukkitWorldData] 扩展一步完成。
  */
 object RailWorldFactory {
     @OptIn(Heavy::class)
@@ -89,13 +87,12 @@ object RailWorldFactory {
         val physicsCoordinator = PhysicsCoordinator(
             workerThreads = BukkitPlugin.INSTANCE.physicsConfig.workerThreads
         ).also { construction.own(it::close) }
-        val worldParent = KoinWorldParentContext(javaRailwaysParentScope())
-        val dependency = CoreWorld.SnapshotDependency(tickManager, worldParent, physicsCoordinator)
+        val dependency = CoreWorld.SnapshotDependency(tickManager, physicsCoordinator)
         val coreWorld = if (infrastructure != null) {
             CoreWorld.load(infrastructure, runtime, dependency)
         } else {
-            CoreWorld.createEmpty(tickManager, worldParent, physicsCoordinator)
-        }.also { construction.own(it::releaseRuntimeBinding) }
+            CoreWorld.createEmpty(tickManager, physicsCoordinator)
+        }
         val renderChunkManager = RenderChunkManager(bukkitWorld)
             .also { construction.own(it::close) }
         coreWorld.registerExtensionData(

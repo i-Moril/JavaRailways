@@ -23,6 +23,7 @@ import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import java.util.UUID
+import kotlin.math.sqrt
 
 class CoreTrainPersistedPlacementTest {
     @Test
@@ -132,6 +133,31 @@ class CoreTrainPersistedPlacementTest {
         if (reverse) reverse(original)
 
         assertExactRestore(world, original)
+    }
+
+    @Test
+    fun `restored slope consist publishes a normal perpendicular to its direction`() = withWorld { world ->
+        val tangent = Vector3d(1.0, 1.0, 0.0).normalize()
+        val normal = Vector3d(-1.0, 1.0, 0.0).normalize()
+        val rail = world.createRailForTest(PrimeCurve.fromPoints(listOf(
+            Curve.RawPoint(Vector3d(0.0, 0.0, 0.0), tangent, normal, 0.0, Curve.SegmentType.LINE_START),
+            Curve.RawPoint(Vector3d(300.0, 300.0, 0.0), tangent, normal,
+                300.0 * sqrt(2.0), Curve.SegmentType.LINE_END)
+        )))
+        val original = configuredTrain(world, rail, "slope")
+        val saved = original.save()
+        val loaded = world.onOwnerForTest {
+            original.discardFailedLoad()
+            world.drainPublishedTrainFrames()
+            saved.load(world)
+        }
+
+        loaded.cars.forEach { car ->
+            assertEquals(0.0, car.direction.dot(car.normal), 1e-9,
+                "restored car normal must be perpendicular to the restored direction")
+            assertEquals(1.0, car.normal.length(), 1e-9)
+            assertTrue(car.direction.y() > 0.0)
+        }
     }
 
     @Test

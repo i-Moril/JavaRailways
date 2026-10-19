@@ -313,7 +313,8 @@ class RailCurveFactoryTemplateTest {
         )
 
         assertTrue(result.isSuccess, result.error)
-        assertEquals(3, result.curves!!.size)
+        val curves = requireNotNull(result.curves)
+        assertEquals(3, curves.size)
         assertEquals(RailCurveTemplateType.FIVE_SEGMENT, result.selectedTemplate)
         assertEquals(3, result.logicalBreakFractionsByLane.size)
         result.logicalBreakFractionsByLane.forEach { fractions ->
@@ -322,13 +323,13 @@ class RailCurveFactoryTemplateTest {
             assertTrue(fractions[1] in 0.0..1.0)
             assertTrue(fractions[0] < fractions[1])
         }
-        result.curves.forEachIndexed { index, curve ->
+        curves.forEachIndexed { index, curve ->
             assertTrue(curve.getPointAt(0.0).position.distance(starts[index].position) < Curve.TOLERANCE)
             assertTrue(curve.getPointAt(curve.totalArcLength).position.distance(ends[index].position) < Curve.TOLERANCE)
         }
-        val mid0 = result.curves[0].getPointAt(result.curves[0].totalArcLength * 0.5).position
-        val mid1 = result.curves[1].getPointAt(result.curves[1].totalArcLength * 0.5).position
-        val mid2 = result.curves[2].getPointAt(result.curves[2].totalArcLength * 0.5).position
+        val mid0 = curves[0].getPointAt(curves[0].totalArcLength * 0.5).position
+        val mid1 = curves[1].getPointAt(curves[1].totalArcLength * 0.5).position
+        val mid2 = curves[2].getPointAt(curves[2].totalArcLength * 0.5).position
         assertTrue(mid0.distance(mid1) > spacing * 0.8)
         assertTrue(mid1.distance(mid2) > spacing * 0.8)
     }
@@ -358,7 +359,8 @@ class RailCurveFactoryTemplateTest {
         )
 
         assertTrue(result.isSuccess, result.error)
-        result.curves!!.forEachIndexed { index, curve ->
+        val curves = requireNotNull(result.curves)
+        curves.forEachIndexed { index, curve ->
             val expectedTangent = Vector3d(ends[index].position).sub(starts[index].position).normalize()
             assertTrue(Vector3d(curve.getPointAt(0.0).tangent).dot(expectedTangent) > 1.0 - 1.0e-8)
             assertTrue(Vector3d(curve.getPointAt(curve.totalArcLength).tangent).dot(expectedTangent) > 1.0 - 1.0e-8)
@@ -391,8 +393,9 @@ class RailCurveFactoryTemplateTest {
         )
 
         assertTrue(result.isSuccess, result.error)
-        assertEquals(2, result.curves!!.size)
-        result.curves.forEachIndexed { index, curve ->
+        val curves = requireNotNull(result.curves)
+        assertEquals(2, curves.size)
+        curves.forEachIndexed { index, curve ->
             assertTrue(curve.getPointAt(0.0).position.distance(starts[index].position) < Curve.TOLERANCE)
             assertTrue(curve.getPointAt(curve.totalArcLength).position.distance(ends[index].position) < Curve.TOLERANCE)
             assertTangentContinuity(curve)
@@ -443,7 +446,8 @@ class RailCurveFactoryTemplateTest {
         )
 
         assertTrue(result.isSuccess, result.error)
-        assertEquals(2, result.curves!!.size)
+        val curves = requireNotNull(result.curves)
+        assertEquals(2, curves.size)
         val centerResult = RailCurveFactory.build(
             Anchor("center-start", Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0)),
             Anchor("center-end", Vector3d(50.0, 0.0, 50.0), Vector3d(0.0, 0.0, -1.0)),
@@ -451,8 +455,8 @@ class RailCurveFactoryTemplateTest {
         )
         assertTrue(centerResult.isSuccess, centerResult.error)
         assertTangentContinuity(centerResult.curve!!)
-        result.curves.forEach(::assertTangentContinuity)
-        val generatedEnds = result.curves.map { curve -> curve to curve.getPointAt(curve.totalArcLength) }
+        curves.forEach(::assertTangentContinuity)
+        val generatedEnds = curves.map { curve -> curve to curve.getPointAt(curve.totalArcLength) }
         ends.forEach { expected ->
             val (curve, generated) = generatedEnds.minBy { (_, point) -> point.position.distance(expected.position) }
             assertTrue(generated.position.distance(expected.position) < Curve.TOLERANCE)
@@ -488,8 +492,9 @@ class RailCurveFactoryTemplateTest {
         )
 
         assertTrue(result.isSuccess, result.error)
-        assertEquals(3, result.curves!!.size)
-        result.curves.forEach(::assertTangentContinuity)
+        val curves = requireNotNull(result.curves)
+        assertEquals(3, curves.size)
+        curves.forEach(::assertTangentContinuity)
     }
 
     @Test

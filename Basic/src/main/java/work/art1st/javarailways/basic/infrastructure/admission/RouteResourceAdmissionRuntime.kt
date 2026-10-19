@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.basic.infrastructure.admission
 
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot
@@ -17,6 +17,10 @@ import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.util.annotation.MainThread
+import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.basic.infrastructure.PhysicalTopologyResources
+import work.art1st.javarailways.basic.infrastructure.RouteBoundResourceCatalog
+import work.art1st.javarailways.basic.infrastructure.RouteBoundResourceCatalogUpdate
 
 /**
  * Platform composition owner for one world's generic route-resource admission pipeline.

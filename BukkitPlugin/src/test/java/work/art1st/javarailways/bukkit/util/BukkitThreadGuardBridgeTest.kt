@@ -78,7 +78,6 @@ class BukkitThreadGuardBridgeTest {
 
     private fun close(world: CoreWorld) {
         world.physicsCoordinator.close()
-        world.releaseRuntimeBinding()
         (world.tickManager as AutoCloseable).close()
     }
 }

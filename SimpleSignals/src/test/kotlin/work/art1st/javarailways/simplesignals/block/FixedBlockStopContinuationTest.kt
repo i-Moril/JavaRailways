@@ -26,7 +26,7 @@ import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot
 import work.art1st.javarailways.basic.api.route.ResourcePreparationState
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
-import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
+import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot

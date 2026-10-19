@@ -19,7 +19,7 @@ class RailGeometryMeasurementServiceTest {
         for (grade in listOf(0.0, 0.5, -0.5)) for (side in listOf(-1.0, 1.0)) {
             val curve = requireNotNull(StandardTurnoutFactory.build(
                 Anchor("A", Vector3d(), Vector3d(1.0, grade, 0.0).normalize()),
-                Vector3d(1.0, 0.0, side * 0.2), StandardTurnoutGeometry(9, 90.0, 25.0))).curve
+                Vector3d(1.0, 0.0, side * 0.2), StandardTurnoutGeometry(9, 90.0, 25.0)))
             for (oriented in listOf(curve, curve.reversed)) {
                 val measured = RailGeometryMeasurementService.measure(listOf(oriented), 1.435)
                 assertEquals(90.0, requireNotNull(measured.minimumHorizontalRadiusMeters), 1e-7)

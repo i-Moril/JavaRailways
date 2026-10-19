@@ -16,7 +16,7 @@ import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.depot.DepotResetCoordinator
 import work.art1st.javarailways.simpleato.depot.DepotResetResult
 import work.art1st.javarailways.basic.basicWorldData
-import work.art1st.javarailways.basic.route.RouteBuildResult
+import work.art1st.javarailways.simpleato.routing.RouteBuildResult
 import work.art1st.javarailways.simpleato.timetable.ManualNavigationParser
 import work.art1st.javarailways.simpleato.timetable.ManualNavigationTimetableFactory
 import work.art1st.javarailways.simpleato.timetable.TimetableDumper

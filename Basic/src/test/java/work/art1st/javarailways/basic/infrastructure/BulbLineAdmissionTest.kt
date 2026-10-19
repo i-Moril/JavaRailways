@@ -22,6 +22,11 @@ import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.createRailForTest
+import work.art1st.javarailways.basic.infrastructure.admission.InfrastructurePreparationActuator
+import work.art1st.javarailways.basic.infrastructure.admission.InfrastructurePreparationRequirement
+import work.art1st.javarailways.basic.infrastructure.admission.InfrastructurePreparationStart
+import work.art1st.javarailways.basic.infrastructure.admission.LiveInfrastructurePreparationActuator
+import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionEngine
 
 /** Real Core turnout topology and live preparation, with coherent immutable observation inputs. */
 class BulbLineAdmissionTest {
@@ -178,8 +183,7 @@ class BulbLineAdmissionTest {
             assertTrue(registry.claimSnapshots().single().footprint.resources.contains(turnout))
 
             // A competing route cannot acquire the turnout while the first visit still holds it.
-            val competitor = registry.beginAcquireClaim(Any(), InfrastructureClaimRequest(
-                topology.revision, InfrastructureOwner("test:competitor", 1L),
+            val competitor = registry.beginAcquireClaim(Any(), InfrastructureClaimRequest(InfrastructureOwner("test:competitor", 1L),
                 work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint(listOf(turnout))))
             assertFalse(competitor.result.successful)
             assertEquals(canClearFirstUse, ceiling.distanceFromRouteStartMeters - 50.0 > 340.0)

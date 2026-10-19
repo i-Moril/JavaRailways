@@ -76,7 +76,7 @@ class TrainNameTest {
             throw failure
         }
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 world.physicsCoordinator.use { IsolatedSimulationThreadMarker.run { block(world) } }
             }
         }

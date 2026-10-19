@@ -34,7 +34,7 @@ import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
 import work.art1st.javarailways.basic.infrastructure.ManualTurnoutSelectionRuntime
-import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
+import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPermit
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureEditPermitResult

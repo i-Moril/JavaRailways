@@ -60,7 +60,6 @@ import work.art1st.javarailways.core.api.event.processor.EventRegistration
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.util.plugin.Plugin
 import work.art1st.javarailways.core.api.util.plugin.PluginRegistry
-import work.art1st.javarailways.core.di.ensureJavaRailwaysKoinStarted
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardRegistration
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
@@ -204,7 +203,6 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             "Packet Seat motion is active: bundled train frames, virtual Seats, and ArmorStand authority carriers"
         )
         displayRenderBackend = DisplayRenderBackendFactory.create(this)
-        ensureJavaRailwaysKoinStarted()
         BasicPlugin.INSTANCE = BasicPlugin(0)
         PluginRegistry.register(BasicPlugin.INSTANCE)
         SimpleATOBukkitModule.install()

@@ -4,8 +4,6 @@ import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import kotlinx.serialization.json.*
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
-import work.art1st.javarailways.core.di.WorldParentContext
-import work.art1st.javarailways.core.di.WorldContextRegistration
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -20,7 +18,6 @@ import org.junit.jupiter.params.provider.ValueSource
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl
@@ -50,15 +47,9 @@ class SavedRailConnectionsTest {
     @ParameterizedTest
     @EnumSource(InvalidConnection::class)
     fun `world load rejects invalid declared endpoint state`(invalid: InvalidConnection) {
-        var attachments = 0
-        val parent = WorldParentContext {
-            attachments++
-            WorldContextRegistration { }
-        }
         val failure = assertThrows(IllegalArgumentException::class.java) {
-            withLoadedWorld(invalidRails(invalid), parent) { }
+            withLoadedWorld(invalidRails(invalid)) { }
         }
-        assertEquals(0, attachments, "invalid rail graphs must fail before world/live rail creation")
         assertFailureContext(invalid, failure)
     }
 
@@ -314,30 +305,27 @@ class SavedRailConnectionsTest {
 
     private fun <T> withLoadedWorld(
         rails: List<CoreRail.SavedRailV1>,
-        parent: WorldParentContext = NoOpWorldParentContext,
         action: (CoreWorld) -> T
     ): T {
         return withWorld(load = { tick, physics ->
             IsolatedSimulationThreadMarker.run { CoreWorld.load(
                 CoreWorld.SavedInfrastructureV2(CoreWorld.INFRASTRUCTURE_SNAPSHOT_FORMAT_VERSION, 7L, rails),
                 null,
-                CoreWorld.SnapshotDependency(tick, parent, physics)
+                CoreWorld.SnapshotDependency(tick, physics)
             ) }
         }, action = action)
     }
 
     private fun <T> withWorld(
         load: (TickManagerImpl, PhysicsCoordinator) -> CoreWorld = { tick, physics ->
-            CoreWorld.createEmpty(tick, NoOpWorldParentContext, physics)
+            CoreWorld.createEmpty(tick, physics)
         },
         action: (CoreWorld) -> T
     ): T {
         return TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
-            var world: CoreWorld? = null
-            AutoCloseable { world?.releaseRuntimeBinding() }.use {
+            run {
                 PhysicsCoordinator(1, automaticFallback = false).use { physics ->
                     val created = load(tick, physics)
-                    world = created
                     action(created)
                 }
             }

@@ -16,7 +16,7 @@ import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
-import work.art1st.javarailways.basic.infrastructure.RouteResourceAdmissionRuntime
+import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
 import work.art1st.javarailways.simpleato.timetable.Timetable
@@ -31,7 +31,6 @@ import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionConte
 import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContextProvider
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunSnapshot
 import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunState
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
@@ -223,8 +222,7 @@ class IsolatedTimetableSimulationWorld private constructor(
             closeSimulationResources(physicsCoordinator, tickManager, world.runtimeId) {
                 closed = true
                 closeOwned(installedFeatures.asReversed() + listOf(
-                    routeAdmissionHost, operationalRuntime,
-                    AutoCloseable { world.releaseRuntimeBinding() }
+                    routeAdmissionHost, operationalRuntime
                 ))
             }
         }
@@ -278,7 +276,6 @@ class IsolatedTimetableSimulationWorld private constructor(
                         runtime = null,
                         dependency = CoreWorld.SnapshotDependency(
                             tickManager,
-                            NoOpWorldParentContext,
                             physics,
                             WorldExecutionMode.SIMULATION
                         )
@@ -320,8 +317,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                 IsolatedSimulationThreadMarker.run {
                     closeSimulationResources(physics, tickManager, createdWorld?.runtimeId ?: "simulation-construction") {
                         closeOwned(installed.asReversed() + listOfNotNull(
-                            routeAdmissionHost, operationalRuntime,
-                            createdWorld?.let { target -> AutoCloseable { target.releaseRuntimeBinding() } }
+                            routeAdmissionHost, operationalRuntime
                         ), failure)
                     }
                 }

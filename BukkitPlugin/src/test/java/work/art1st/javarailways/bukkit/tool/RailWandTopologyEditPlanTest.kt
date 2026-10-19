@@ -14,7 +14,6 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.CoreRail
@@ -62,7 +61,6 @@ class RailWandTopologyEditPlanTest {
             assertEquals(before.epoch + 1L, world.latestWorldFrame().physicsEpoch)
         } finally {
             world.physicsCoordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as AutoCloseable).close()
         }
     }
@@ -80,7 +78,6 @@ class RailWandTopologyEditPlanTest {
         val editedWorld = createTestWorld(PhysicsCoordinator(1, automaticFallback = false))
         val otherWorld = CoreWorld.createEmpty(
             TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), System.currentTimeMillis()),
-            NoOpWorldParentContext,
             PhysicsCoordinator(1, automaticFallback = false)
         )
         val workers = Executors.newFixedThreadPool(2)
@@ -92,7 +89,7 @@ class RailWandTopologyEditPlanTest {
             val runningRail = otherWorld.createRailForTest(straightCurve(0.0, 100.0))
             val train = createTrainWithConfig("other-world-moving", runningRail, otherWorld, listOf(10.0))
             val origin = train.publishedFrame.head.arcLengthInAbMeters
-            train.setControllerForTest(ManualController(train, otherWorld).also { it.setThrottle(1.0) })
+            train.setControllerForTest(ManualController(train).also { it.setThrottle(1.0) })
             otherWorld.physicsCoordinator.start()
             editedWorld.physicsCoordinator.start()
             val geometry = straightCurve(10.0, 20.0)
@@ -115,7 +112,7 @@ class RailWandTopologyEditPlanTest {
             assertFalse(preparation.isDone)
 
             val frame = workers.submit(Callable {
-                // Manual control publishes acceleration first; movement reads that prior epoch's speed.
+                // Manual control publishes the newly accelerated speed and uses it in the same epoch.
                 otherWorld.physicsCoordinator.stepSimulation(200.0).await()
                 val completed = otherWorld.physicsCoordinator.stepSimulation(200.0).await()
                 otherWorld.latestWorldFrame().also { assertEquals(completed.epoch, it.physicsEpoch) }
@@ -126,7 +123,7 @@ class RailWandTopologyEditPlanTest {
             val publishedTrain = frame.trains.single()
             assertEquals(train.id, publishedTrain.trainId)
             assertEquals(0.4, publishedTrain.speedMetersPerSecond, 1.0e-9)
-            assertEquals(origin + 0.04, publishedTrain.head.arcLengthInAbMeters, 1.0e-9)
+            assertEquals(origin + 0.12, publishedTrain.head.arcLengthInAbMeters, 1.0e-9)
             assertFalse(preparation.isDone, "other-world physics must finish while sampling is still paused")
             assertSame(baseRoot, editedWorld.topologyState)
             assertEquals(listOf(existing), editedWorld.allRails.toList())

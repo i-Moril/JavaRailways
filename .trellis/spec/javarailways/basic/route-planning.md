@@ -31,7 +31,7 @@ data class RouteSegment(
 当前 `basic.api.route` 直接拥有 `RailViewRef`、`RouteSegment`、`ExpandedRoute` 和 `PlannedRoute`，
 SimpleATO 的 `CompiledLineLeg.route`、`AtoMissionLeg.plannedRoute` 和停站解析接口使用这些同一类型。
 不再通过公开签名泄漏隐藏的 `basic.route` 类型，也不创建用于跨包转换的第二套路线。
-`RouteBuildResult`、寻路实现、进度计算、`toSnapshot` 转换以及准备时间/道岔默认参数仍属于内部实现包。
+`RouteBuildResult`与`RouteAllocationTiming`属于SimpleATO运营策略（`work.art1st.javarailways.simpleato.routing`）；Basic保留通用`TopologyRoutePlanner`、`TopologyRoutePlanningResult`、snapshot与距离/制动原语，`TurnoutSafetyDefaults`单独留在`basic.route`供BasicWorldData/Bukkit世界创建共享。寻路实现、进度计算与`toSnapshot`转换仍属于各自内部实现包。
 
 一次正常调用由 SimpleATO 选择路线，产出有序的 view-local 段，再包装为带 `routeId/revision` 的 `PlannedRoute`。
 它们只校验数值和集合形状：段允许零长，路线必须非空且总长有限、严格为正；端点 ID 和 route ID 必须非空白，

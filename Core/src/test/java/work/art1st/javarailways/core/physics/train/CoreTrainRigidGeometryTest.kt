@@ -33,7 +33,7 @@ class CoreTrainRigidGeometryTest {
             throw failure
         }
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 coordinator.use { exercise(world, shape) }
             }
         }
@@ -61,7 +61,7 @@ class CoreTrainRigidGeometryTest {
             it.commitMaintenancePlacement()
         } }
         assertGeometry(train, "$shape placement")
-        train.setControllerForTest(MockTrainController(train, world, 10.0))
+        train.setControllerForTest(MockTrainController(train, 10.0))
         world.physicsCoordinator.start()
         repeat(60) { tick ->
             val head = train.headCar.headBogie.location
@@ -122,7 +122,7 @@ class CoreTrainRigidGeometryTest {
             } finally {
                 registration.close()
             }
-            train.setControllerForTest(MockTrainController(train, world, 10.0))
+            train.setControllerForTest(MockTrainController(train, 10.0))
             world.physicsCoordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
             assertFalse(train.isDerailed, "valid movement near finite track end")
             assertGeometry(train, "$shape finite end")

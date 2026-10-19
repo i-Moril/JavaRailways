@@ -20,7 +20,6 @@ import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 import work.art1st.javarailways.core.api.util.tick.TickManager
 import work.art1st.javarailways.core.api.util.tick.TickingObject
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
@@ -43,14 +42,14 @@ class BetweenFramesOperationsTest {
     @Test
     fun `queued creation and deletion publish complete current epoch observations`() = withOwner {
         PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
-            val world = CoreWorld.createEmpty(NoOpTickManager, NoOpWorldParentContext, coordinator)
+            val world = CoreWorld.createEmpty(NoOpTickManager, coordinator)
             val entered = CountDownLatch(1)
             val release = CountDownLatch(1)
             val helper = Executors.newSingleThreadExecutor()
             try {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
                 val existing = createTrainWithConfig("existing-create", rail, world, listOf(10.0))
-                existing.setControllerForTest(object : TrainController(existing, world) {
+                existing.setControllerForTest(object : TrainController(existing) {
                     override fun tick(deltaT: Double) {
                         entered.countDown()
                         check(release.await(5, TimeUnit.SECONDS))
@@ -105,7 +104,6 @@ class BetweenFramesOperationsTest {
             } finally {
                 release.countDown()
                 coordinator.close()
-                world.releaseRuntimeBinding()
                 helper.shutdownNow()
             }
         }
@@ -114,7 +112,7 @@ class BetweenFramesOperationsTest {
     @Test
     fun `failed staged placement preserves snapshots and motion then one batch publishes final placements`() = withOwner {
         PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
-            val world = CoreWorld.createEmpty(NoOpTickManager, NoOpWorldParentContext, coordinator)
+            val world = CoreWorld.createEmpty(NoOpTickManager, coordinator)
             try {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
                 val first = createTrainWithConfig("first-place", rail, world, listOf(10.0))
@@ -123,7 +121,7 @@ class BetweenFramesOperationsTest {
                     second.setLocation(requireNotNull(rail.viewAB.getRailLocationAt(0.0).forward(80.0)))
                     world.publishOwnerChanges(listOf(second))
                 }
-                first.setControllerForTest(object : TrainController(first, world) {
+                first.setControllerForTest(object : TrainController(first) {
                     init { speed = 10.0 }
                     override fun tick(deltaT: Double) { moveControlledTrain(0.5, 10.0) }
                 })
@@ -170,7 +168,6 @@ class BetweenFramesOperationsTest {
                 assertEquals(160.0, second.headLocation.position.x(), 1e-6)
             } finally {
                 coordinator.close()
-                world.releaseRuntimeBinding()
             }
         }
     }
@@ -213,21 +210,21 @@ class BetweenFramesOperationsTest {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         PhysicsCoordinator(1, nanoTime = clock::get, automaticFallback = false).use { coordinator ->
-            val world = CoreWorld.createEmpty(NoOpTickManager, NoOpWorldParentContext, coordinator)
+            val world = CoreWorld.createEmpty(NoOpTickManager, coordinator)
             val helper = Executors.newSingleThreadExecutor()
             try {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
                 val train = createTrainWithConfig("frame-operation", rail, world, listOf(10.0))
                 var oldTicks = 0
                 var newTicks = 0
-                val oldController = object : TrainController(train, world) {
+                val oldController = object : TrainController(train) {
                     override fun tick(deltaT: Double) {
                         oldTicks++
                         entered.countDown()
                         check(release.await(5, TimeUnit.SECONDS))
                     }
                 }
-                val replacement = object : TrainController(train, world) {
+                val replacement = object : TrainController(train) {
                     override fun tick(deltaT: Double) { newTicks++ }
                 }
                 train.setControllerForTest(oldController)
@@ -283,7 +280,6 @@ class BetweenFramesOperationsTest {
             } finally {
                 release.countDown()
                 coordinator.close()
-                world.releaseRuntimeBinding()
                 helper.shutdownNow()
             }
         }
@@ -293,7 +289,7 @@ class BetweenFramesOperationsTest {
     @ValueSource(strings = ["shutdown", "stall", "close", "epoch-failure"])
     fun `terminal transitions fail pending work and notify outside state lock`(transition: String) = withOwner {
         PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
-            val world = CoreWorld.createEmpty(NoOpTickManager, NoOpWorldParentContext, coordinator)
+            val world = CoreWorld.createEmpty(NoOpTickManager, coordinator)
             val observer = Executors.newSingleThreadExecutor()
             try {
                 val pending = coordinator.submitBetweenFrames { error("must never execute") }
@@ -320,7 +316,6 @@ class BetweenFramesOperationsTest {
                 assertTrue(coordinator.submitBetweenFrames { "too late" }.isCompletedExceptionally)
             } finally {
                 coordinator.close()
-                world.releaseRuntimeBinding()
                 observer.shutdownNow()
             }
         }
@@ -342,12 +337,12 @@ class BetweenFramesOperationsTest {
     @Test
     fun `queued reversal notifies coherent owner state and next worker moves without a skipped epoch`() = withOwner {
         PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
-            val world = CoreWorld.createEmpty(NoOpTickManager, NoOpWorldParentContext, coordinator)
+            val world = CoreWorld.createEmpty(NoOpTickManager, coordinator)
             try {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
                 val train = createTrainWithConfig("owner-reverse", rail, world, listOf(10.0))
                 var ticks = 0
-                val controller = object : TrainController(train, world) {
+                val controller = object : TrainController(train) {
                     init { speed = 10.0 }
                     override fun tick(deltaT: Double) {
                         ticks++
@@ -413,7 +408,6 @@ class BetweenFramesOperationsTest {
                 assertTrue(world.latestWorldFrame().trains.all { it.physicsEpoch == next.epoch })
                 assertEquals(PhysicsCoordinatorStatus.RUNNING, coordinator.status)
             } finally {
-                world.releaseRuntimeBinding()
             }
         }
     }
@@ -421,11 +415,11 @@ class BetweenFramesOperationsTest {
     @Test
     fun `reversal parity cancellation and stale controller failures do not affect another request`() = withOwner {
         PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
-            val world = CoreWorld.createEmpty(NoOpTickManager, NoOpWorldParentContext, coordinator)
+            val world = CoreWorld.createEmpty(NoOpTickManager, coordinator)
             try {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
                 val train = createTrainWithConfig("reverse-parity", rail, world, listOf(10.0))
-                val controller = object : TrainController(train, world) {}
+                val controller = object : TrainController(train) {}
                 train.setControllerForTest(controller)
                 val oldFrame = train.publishedFrame
                 val first = controller.reverse()
@@ -456,7 +450,6 @@ class BetweenFramesOperationsTest {
                 assertTrue(controller.reverse().isCompletedExceptionally)
                 assertTrue(train.isReversed)
             } finally {
-                world.releaseRuntimeBinding()
             }
         }
     }
@@ -473,8 +466,6 @@ class BetweenFramesOperationsTest {
         override fun unregister(obj: TickingObject) = Unit
         override fun preTick(currentTimeMs: Long) = Unit
         override fun postTick() = Unit
-        override fun <T> scheduleMainThreadAfterCommitTask(task: Callable<T>): Future<T> =
-            FutureTask(task).also { it.run() }
         override fun <T> scheduleMainThreadPostTickTask(task: Callable<T>): Future<T> =
             FutureTask(task).also { it.run() }
     }

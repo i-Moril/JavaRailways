@@ -76,17 +76,12 @@ class ManualTurnoutSelectionRuntime(
         val acquired = registry.acquireClaim(
             requester,
             InfrastructureClaimRequest(
-                request.topologyRevision,
                 owner,
                 InfrastructureFootprint(listOf(resource))
             )
         )
         if (!acquired.successful) {
             return when (acquired.status) {
-                InfrastructureMutationStatus.STALE_TOPOLOGY -> result(
-                    ManualTurnoutSelectionStatus.STALE_TOPOLOGY,
-                    acquired.detail
-                )
                 InfrastructureMutationStatus.RESOURCE_CONFLICT -> ManualTurnoutSelectionResult(
                     ManualTurnoutSelectionStatus.RESOURCE_CONFLICT,
                     blockers = acquired.blockers,

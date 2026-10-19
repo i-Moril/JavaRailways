@@ -25,7 +25,6 @@ class TickManagerImpl(
     private val tickingObjects: MutableSet<TickingObject> = HashSet()
     private val pendingCommits = LatestTickCommitMailbox(DEFAULT_COMMIT_MAILBOX_CAPACITY)
 
-    private val afterCommitTasks: ConcurrentLinkedQueue<Runnable> = ConcurrentLinkedQueue()
     private val postTickTasks: ConcurrentLinkedQueue<Runnable> = ConcurrentLinkedQueue()
     private var awaitAsyncAndCommit: () -> PostTickBarrierMetrics = { PostTickBarrierMetrics.EMPTY }
     private var currentTickIndex: Long = 0L
@@ -48,6 +47,7 @@ class TickManagerImpl(
     override fun unregister(obj: TickingObject) {
         scheduleMainThreadPostTickTask {
             tickingObjects.remove(obj)
+            asyncObjectStates.remove(obj.metricKey())
             if (obj is Synchronizable) pendingCommits.remove(obj)
         }
     }
@@ -135,7 +135,6 @@ class TickManagerImpl(
         val barrierMetrics = awaitAsyncAndCommit()
         phaseBreakdown["postTick.wait_async"] = barrierMetrics.waitNanos
         phaseBreakdown["postTick.publish_commit_requests"] = barrierMetrics.publishCommitRequestsNanos
-        phaseBreakdown["postTick.after_commit_tasks"] = drainQueue(afterCommitTasks)
         phaseBreakdown["postTick.post_tick_tasks"] = drainQueue(postTickTasks)
 
         val computeNanos = phaseBreakdown
@@ -154,14 +153,6 @@ class TickManagerImpl(
 
         awaitAsyncAndCommit = { PostTickBarrierMetrics.EMPTY }
         preTickComputeNanos = 0L
-    }
-
-    override fun <T> scheduleMainThreadAfterCommitTask(task: Callable<T>): Future<T> {
-        val futureTask = FutureTask(task)
-        afterCommitTasks.add {
-            futureTask.run()
-        }
-        return futureTask
     }
 
     override fun <T> scheduleMainThreadPostTickTask(task: Callable<T>): Future<T> {

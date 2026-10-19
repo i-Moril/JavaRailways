@@ -15,7 +15,6 @@ import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.util.tick.TickManager
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.geometryBreakpoints
@@ -79,7 +78,7 @@ class PhysicsCapacityStressTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext, coordinator)
+        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
         val controllers = createScenario(world, config, scenario, trainCount)
         val expectedEpochs = config.warmupEpochs + config.measurementEpochs
         val samples = ArrayList<PhysicsEpochMetrics>(config.measurementEpochs)
@@ -192,7 +191,6 @@ class PhysicsCapacityStressTest {
             val moving = scenario != StressScenario.MIXED || index % MIXED_STATIONARY_MODULUS != 0
             StressController(
                 controlledTrain = train,
-                world = world,
                 requestedSpeedMetersPerSecond = if (moving) config.speedMetersPerSecond else 0.0
             ).also(train::setController)
         }.also { check(it.size == trainCount) }
@@ -301,16 +299,15 @@ class PhysicsCapacityStressTest {
 
     private class StressController(
         val controlledTrain: CoreTrain,
-        world: CoreWorld,
         private val requestedSpeedMetersPerSecond: Double
-    ) : TrainController(controlledTrain, world) {
+    ) : TrainController(controlledTrain) {
         var tickCount: Long = 0
             private set
 
         override fun tick(deltaT: Double) {
             tickCount++
             speed = requestedSpeedMetersPerSecond
-            controlledTrain.moveTrainForward(activeSpeed * deltaT * 0.001)
+            moveControlledTrain(activeSpeed * deltaT * 0.001, activeSpeed)
         }
     }
 
@@ -596,8 +593,6 @@ class PhysicsCapacityStressTest {
         override fun preTick(currentTimeMs: Long) = Unit
         override fun postTick() = Unit
 
-        override fun <T> scheduleMainThreadAfterCommitTask(task: Callable<T>): Future<T> =
-            FutureTask(task).also(FutureTask<T>::run)
 
         override fun <T> scheduleMainThreadPostTickTask(task: Callable<T>): Future<T> =
             FutureTask(task).also(FutureTask<T>::run)

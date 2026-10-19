@@ -1,8 +1,9 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.basic.infrastructure.admission
 
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
+import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
 
 internal enum class TailReleaseFailureKind {
     INVALID_PROGRESS,
@@ -68,7 +69,6 @@ internal class LiveClaimTailRelease(
     private val lock = Any()
     private var remainingQueue: CompiledTailReleaseQueue? = queue
     private var headIndex = 0
-    private var committedQueueTail: ResolvedTailReleaseEntry = queue.entries.last()
     private var maximumProgress: Double? = null
     private var releasedPrefixMeters = 0.0
     private var terminalFailure: LiveClaimTailReleaseResult.FailedClosed? = null
@@ -150,7 +150,6 @@ internal class LiveClaimTailRelease(
         replaceRemainingQueue(remainingEntries.map { entry ->
             pendingExtendedHolds!![entry.resource]?.let { entry.copy(tailClearRouteMeters = it.second) } ?: entry
         } + entries)
-        committedQueueTail = remainingQueue!!.entries.last()
         pendingExtendedHolds = null
     }
 
@@ -170,46 +169,6 @@ internal class LiveClaimTailRelease(
     private fun replaceRemainingQueue(entries: Collection<ResolvedTailReleaseEntry>) {
         remainingQueue = CompiledTailReleaseQueue(entries.sortedWith(TAIL_RELEASE_ENTRY_ORDER))
         headIndex = 0
-    }
-
-    /**
-     * Installs release metadata for a suffix that the live-grant owner has already committed.
-     *
-     * The caller must first finish registry delta finalization and physical preparation. This
-     * method deliberately does neither: it only validates that [entries] continue the current
-     * committed queue order and have not already been passed by the authoritative train tail, then
-     * publishes the merged immutable queue in one local state change.
-     */
-    fun installCommittedSuffix(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
-        check(terminalFailure == null) { "cannot install a committed suffix after tail release failed closed" }
-
-        val suffix = CompiledTailReleaseQueue(entries)
-        validateSuffix(suffix)
-
-        val merged = remainingQueue?.let { current ->
-            CompiledTailReleaseQueue(current.entries.subList(headIndex, current.entries.size) + suffix.entries)
-        } ?: suffix
-        remainingQueue = merged
-        headIndex = 0
-        committedQueueTail = suffix.entries.last()
-    }
-
-    fun validateCommittedSuffix(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
-        check(terminalFailure == null) { "cannot install a committed suffix after tail release failed closed" }
-        validateSuffix(CompiledTailReleaseQueue(entries))
-    }
-
-    private fun validateSuffix(suffix: CompiledTailReleaseQueue) {
-        require(TAIL_RELEASE_ENTRY_ORDER.compare(committedQueueTail, suffix.entries.first()) < 0) {
-            "committed suffix must continue after the previously installed queue tail"
-        }
-        maximumProgress?.let { acceptedProgress ->
-            require(suffix.entries.all { it.tailClearRouteMeters > acceptedProgress }) {
-                "committed suffix contains a tail-clear boundary at or before accepted progress " +
-                    acceptedProgress
-            }
-        }
-
     }
 
     fun advance(authoritativeTailRouteProgressMeters: Double): LiveClaimTailReleaseResult =

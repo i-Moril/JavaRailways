@@ -45,8 +45,8 @@ interface EventRegistration : AutoCloseable {
 
 - `MainRailEventBus.publish` 调 `ThreadGuard.ensureMainThread`；`PhysicsRailEventBus.publish` 调 `ensureAsyncTickThread` 并要求 `@AsyncEventApi` opt-in。
 - 两者都在调用线程同步执行；registry process-wide，不是 world-local。
-- `@HandlesEvent` member 必须只有 receiver + 一个对应 root subtype 参数；非法 handler当前不会注册。private handler可被反射调用。
-- priority 固定 `HIGHEST → HIGH → MEDIUM → LOW → LOWEST`。同 declared type/priority 保持插入序；不同 supertype不承诺总顺序。
+- `@HandlesEvent` member 必须只有 receiver + 一个 JavaRailways `Event` 参数。参数数量错误、参数不是 `Event`、或事件类型无法解析为具体类时，`register` 在安装任何 handler 前抛出带类名/方法名的 `IllegalArgumentException`，注册保持原子；声明另一条已注册总线事件的 handler 合法地归属该总线，当前总线跳过。private handler可被反射调用。
+- priority 固定 `HIGHEST → HIGH → MEDIUM → LOW → LOWEST`，并跨事件继承层级优先：先遍历全部 priority，再遍历本次事件匹配的 declared type 与其 supertype。同一 priority 内按事件类型、再按插入序执行。
 - callback `Throwable` 被记录后继续后续 listener；无 cancellation、无 state rollback。
 - 错误通过以`TypedRailEventBus`命名的JDK JUL logger携带原Throwable报告，不直接写stderr。平台可订阅Core命名logger写自己的错误文件；Core不拥有writer或Bukkit依赖。文件机制归[Bukkit错误日志](../../bukkit-plugin/backend/error-logging.md)。
 - `close()` 幂等，只移除该次 registration；此前已捕获派发快照中的 callback 仍可执行，关闭不等待在途 callback。
@@ -95,7 +95,7 @@ fun requestLink() {
 正确：owner 保存 EventRegistration；listener 发布 stable request，由目标 owner消费
 ```
 
-不得依赖 handler signature错误时抛异常、重复注册自动去重、listener exception取消事件，或把声明但无 publisher 的 event 当可用 hook。
+不得依赖重复注册自动去重、listener exception取消事件、共享 mutable dispatch snapshot，或把声明但无 publisher 的 event 当可用 hook。畸形 `@HandlesEvent` 签名应在 register 时失败（见上文），运行时 listener 异常仍被记录后继续派发。
 
 ## 必需测试与验证
 

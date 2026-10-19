@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.basic.infrastructure.admission
 
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
 import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
@@ -13,6 +13,13 @@ import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
+import work.art1st.javarailways.basic.infrastructure.ProjectedRouteOccurrence
+import work.art1st.javarailways.basic.infrastructure.ProjectedTopologyRoute
+import work.art1st.javarailways.basic.infrastructure.ProjectedTurnoutTraversal
+import work.art1st.javarailways.basic.infrastructure.RouteBoundResourceCatalog
+import work.art1st.javarailways.basic.infrastructure.RouteBoundResourceHit
+import work.art1st.javarailways.basic.infrastructure.RouteBoundResourceQuery
+import work.art1st.javarailways.basic.infrastructure.TurnoutResourceIdentity
 
 /** Explicit route-coordinate range whose unavoidable physical resources must be compiled. */
 internal data class PhysicalRouteRange(
@@ -34,8 +41,7 @@ internal enum class PhysicalRouteCompilationRejection {
 
 internal sealed interface PhysicalRouteCompilation {
     data class Compiled(
-        val admission: CompiledRouteAdmission,
-        val controlledResources: Set<StableInfrastructureResource>
+        val admission: CompiledRouteAdmission
     ) : PhysicalRouteCompilation
 
     data class Rejected(
@@ -73,7 +79,6 @@ internal class PhysicalRouteResourceCompiler(
             is RouteBoundResourceQuery.Complete -> queried.hits
             is RouteBoundResourceQuery.Unavailable -> return stale(queried.detail)
             is RouteBoundResourceQuery.StaleTopology -> return stale(queried.detail)
-            is RouteBoundResourceQuery.InvalidRoute -> return invalid(queried.detail)
         }
         return compileResolved(
             projection,
@@ -84,19 +89,13 @@ internal class PhysicalRouteResourceCompiler(
         )
     }
 
-    /** Transitional adapter seam for a caller that already queried hits while checking policy. */
-    fun compileResolved(
+    private fun compileResolved(
         projection: ProjectedTopologyRoute,
         range: PhysicalRouteRange,
         routeBoundHits: List<RouteBoundResourceHit>,
         retainedProgressPath: CompiledRouteProgressPath? = null,
         heldResources: Set<InfrastructureResource> = emptySet()
     ): PhysicalRouteCompilation {
-        val routeEnd = projection.occurrences.lastOrNull()?.routeEndMeters
-            ?: return invalid("projected route has no occurrences")
-        if (range.endRouteMeters > routeEnd + Curve.TOLERANCE) {
-            return invalid("physical route range exceeds the projected route")
-        }
         val outsideHit = routeBoundHits.firstOrNull {
             it.routeStartMeters < range.startRouteMeters - Curve.TOLERANCE ||
                 it.routeEndMeters > range.endRouteMeters + Curve.TOLERANCE
@@ -161,7 +160,7 @@ internal class PhysicalRouteResourceCompiler(
             ),
             routeProgressPath = progressPath
         )
-        return PhysicalRouteCompilation.Compiled(admission, controlledResources.toSet())
+        return PhysicalRouteCompilation.Compiled(admission)
     }
 
     /**

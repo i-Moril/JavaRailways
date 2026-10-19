@@ -1,6 +1,5 @@
 package work.art1st.javarailways.basic.controller
 
-import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.control.TrainController
 import java.util.concurrent.atomic.AtomicReference
@@ -10,18 +9,16 @@ import java.util.concurrent.atomic.AtomicReference
  * 速度变化遵循线性加减速，每 tick 应用固定加速度。
  *
  * @param train 控制的列车
- * @param world 所属世界
  * @param acceleration 加速度 (m/s²)，默认 1.0
  * @param deceleration 减速度 (m/s²)，默认 2.0（制动比加速更快）
  * @param maxSpeed 最大速度 (m/s)，默认 10.0
  */
 class ManualController(
     train: Train,
-    world: World,
     private val acceleration: Double = 1.0,
     private val deceleration: Double = 2.0,
     private val maxSpeed: Double = 10.0
-) : TrainController(train, world) {
+) : TrainController(train) {
 
     private data class ManualInput(val throttle: Double, val targetSpeed: Double)
 

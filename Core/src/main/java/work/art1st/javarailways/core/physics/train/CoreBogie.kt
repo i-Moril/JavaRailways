@@ -18,6 +18,7 @@ import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.api.render.DynamicRenderable
 import work.art1st.javarailways.core.api.util.plugin.Extendable
 import work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainer
+import work.art1st.javarailways.core.api.util.plugin.collectSavedExtensionData
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
 import work.art1st.javarailways.core.util.CommitBuffer
 import work.art1st.configLib.persistence.PersistentBy
@@ -165,10 +166,7 @@ class CoreBogie @MainThread internal constructor(
     }
 
     override fun save(): SavedBogieV1 {
-        val savedExtension = HashMap<String, SerializableExtensionData>()
-        extensionDataContainer.extensionData.forEach { ext ->
-            ext?.save()?.let { savedExtension[it.first] = it.second }
-        }
+        val savedExtension = extensionDataContainer.extensionData.collectSavedExtensionData("bogie")
         return SavedBogieV1(location.save(), publishedSameDirectionAsFacing, savedExtension)
     }
 }

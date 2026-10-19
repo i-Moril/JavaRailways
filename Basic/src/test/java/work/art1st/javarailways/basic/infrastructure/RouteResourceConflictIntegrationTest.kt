@@ -32,6 +32,9 @@ import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import java.util.UUID
+import work.art1st.javarailways.basic.infrastructure.admission.InfrastructurePreparationActuator
+import work.art1st.javarailways.basic.infrastructure.admission.InfrastructurePreparationStart
+import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionEngine
 
 class RouteResourceConflictIntegrationTest {
     @Test

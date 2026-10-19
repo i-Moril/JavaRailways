@@ -8,17 +8,37 @@ import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.testing.TestBasicWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.configureTurnoutForTest
-import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import kotlin.math.cos
 import kotlin.math.sin
 
 class TurnoutTopologyTest {
+    private val fixtures = mutableListOf<TestWorldFixture>()
+
+    private fun newTestWorld() = TestWorldFixture.create().also { fixtures += it }.world
+
+    @AfterEach
+    fun closeTestWorlds() {
+        var firstFailure: Throwable? = null
+        fixtures.asReversed().forEach { fixture ->
+            try {
+                fixture.close()
+            } catch (failure: Throwable) {
+                val primary = firstFailure
+                if (primary == null) firstFailure = failure else primary.addSuppressed(failure)
+            }
+        }
+        fixtures.clear()
+        firstFailure?.let { throw it }
+    }
+
     @Test
     fun `split rejects a short replacement leg next to an existing turnout`() {
         val (stem, _, _) = turnout()
@@ -29,7 +49,7 @@ class TurnoutTopologyTest {
 
     @Test
     fun `ordinary two-leg node does not impose turnout locking clearance`() {
-        val world = createTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
+        val world = newTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
         val first = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         val second = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
         IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
@@ -57,7 +77,7 @@ class TurnoutTopologyTest {
     }
 
     private fun turnout(): Triple<CoreRail, CoreRail, CoreRail> {
-        val world = createTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
+        val world = newTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
         val stem = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         val straight = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
         val radians = Math.toRadians(20.0)

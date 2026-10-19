@@ -145,7 +145,6 @@ class WorldManagerUnloadTest {
         val fixture = Fixture()
         val primary = IllegalStateException("persistence failed")
         val renderFailure = IllegalArgumentException("render failed")
-        val bindingFailure = IllegalStateException("binding failed")
         val tickFailure = IllegalStateException("tick failed")
         val markerFailure = UnsupportedOperationException("marker failed")
         val modelFailure = IllegalStateException("model operations cleanup failed")
@@ -165,10 +164,6 @@ class WorldManagerUnloadTest {
                         fixture.events += "render"
                         throw renderFailure
                     },
-                    releaseRuntimeBinding = {
-                        fixture.events += "binding"
-                        throw bindingFailure
-                    },
                     closeModelOperations = {
                         fixture.closeModelOperations()
                         throw modelFailure
@@ -181,8 +176,8 @@ class WorldManagerUnloadTest {
             }
 
             assertSame(primary, thrown)
-            assertEquals(listOf(modelFailure, renderFailure, bindingFailure, tickFailure, markerFailure), thrown.suppressed.toList())
-            assertEquals(listOf("persist", "model-operations", "render", "binding", "tick", "marker"), fixture.events)
+            assertEquals(listOf(modelFailure, renderFailure, tickFailure, markerFailure), thrown.suppressed.toList())
+            assertEquals(listOf("persist", "model-operations", "render", "tick", "marker"), fixture.events)
             assertTrue(fixture.pendingModelOperation.isCompletedExceptionally)
             assertFalse(fixture.pendingModelOperation.complete(Unit))
             fixture.assertOldOwnerRemovedAndReloadable()
@@ -205,7 +200,6 @@ class WorldManagerUnloadTest {
                         fixture.events += "render"
                         throw renderFailure
                     },
-                    releaseRuntimeBinding = { fixture.events += "binding" },
                     closeModelOperations = { fixture.closeModelOperations() },
                     closeTick = {
                         fixture.events += "tick"
@@ -216,7 +210,7 @@ class WorldManagerUnloadTest {
 
             assertSame(renderFailure, thrown)
             assertEquals(emptyList<Throwable>(), thrown.suppressed.toList())
-            assertEquals(listOf("persist", "model-operations", "render", "binding", "tick", "marker"), fixture.events)
+            assertEquals(listOf("persist", "model-operations", "render", "tick", "marker"), fixture.events)
             assertTrue(fixture.pendingModelOperation.isCompletedExceptionally)
             fixture.assertReplacementPreserved()
         } finally {

@@ -17,7 +17,6 @@ import work.art1st.javarailways.core.api.event.processor.HandlesEvent
 import work.art1st.javarailways.core.api.event.processor.MainRailEventBus
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
@@ -107,7 +106,7 @@ class CoreTrainMixedInstallationTest {
             assertEquals(listOf(true), decoded.trains.single { it.id == train.id }.cars.map { it.installedReversed })
             assertEquals(listOf(false, true), decoded.trains.single { it.id == separated.id }.cars.map { it.installedReversed })
             withWorld(load = { tick, physics ->
-                IsolatedSimulationThreadMarker.run { CoreWorld.load(infrastructure, decoded, CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics)) }
+                IsolatedSimulationThreadMarker.run { CoreWorld.load(infrastructure, decoded, CoreWorld.SnapshotDependency(tick, physics)) }
             }) { restored ->
                 listOf(train, separated).forEach { original ->
                     val loaded = requireNotNull(restored.getTrain(original.id))
@@ -179,23 +178,21 @@ class CoreTrainMixedInstallationTest {
 
     private fun withWorld(
         load: (TickManagerImpl, PhysicsCoordinator) -> CoreWorld = { tick, physics ->
-            CoreWorld.createEmpty(tick, NoOpWorldParentContext, physics)
+            CoreWorld.createEmpty(tick, physics)
         },
         block: (CoreWorld) -> Unit
     ) {
         TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
-            var world: CoreWorld? = null
-            AutoCloseable { world?.releaseRuntimeBinding() }.use {
+            run {
                 PhysicsCoordinator(1, automaticFallback = false).use { physics ->
                     val created = load(tick, physics)
-                    world = created
                     block(created)
                 }
             }
         }
     }
 
-    private class ConstantSpeedController(train: CoreTrain) : TrainController(train, train.world) {
+    private class ConstantSpeedController(train: CoreTrain) : TrainController(train) {
         override fun tick(deltaT: Double) {
             speed = 10.0
             moveControlledTrain(10.0 * deltaT * 0.001, 10.0)

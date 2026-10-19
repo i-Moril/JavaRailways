@@ -34,7 +34,9 @@ import work.art1st.javarailways.basic.curve.AnchorGeometry
 import work.art1st.javarailways.basic.curve.ParallelAnchorGeometry
 import work.art1st.javarailways.basic.curve.ParallelAnchorMatch
 import work.art1st.javarailways.basic.curve.RailCurveBuildOptions
+import work.art1st.javarailways.basic.curve.RailCurveBuildResult
 import work.art1st.javarailways.basic.curve.RailCurveFactory
+import work.art1st.javarailways.basic.curve.RailParallelCurveBuildResult
 import work.art1st.javarailways.basic.curve.RailCurvePartitioner
 import work.art1st.javarailways.basic.curve.RailGeometryMeasurementService
 import work.art1st.javarailways.basic.curve.RailCurveTemplateType
@@ -1383,15 +1385,15 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     towards,
                     turnoutGeometry,
                     plugin.physicsConfig.geometrySampling.turnoutStepMeters
-                )?.let { result ->
-                    val built = result to RailSpeedCalculator.calculate(
-                        curve = result.curve,
+                )?.let { curve ->
+                    val built = curve to RailSpeedCalculator.calculate(
+                        curve = curve,
                         requestedLimitMetersPerSecond = turnoutGeometry.divergingSpeedKmH / 3.6,
                         allowableCantDeficiencyMeters = cantDeficiencyMeters,
                         derailLateralAccelerationMetersPerSecondSquared = derailAcceleration,
                         physics = plugin.physicsConfig.railSpeedPhysics()
                     )
-                    val railCreation = expectedCoreWorld.prepareRailCreation(result.curve)
+                    val railCreation = expectedCoreWorld.prepareRailCreation(curve)
                     val createdEndpointA = RailEndpointRef(
                         railCreation.creations.single().railId,
                         RailEndpoint.A
@@ -2413,20 +2415,21 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         settings: CurveBuildSettingsSnapshot
     ): PrimeCurve? {
         val options = railCurveBuildOptions(settings)
-        val result = RailCurveFactory.build(from, to, options)
-        if (!result.isSuccess) {
-            val detail = listOfNotNull(result.selectedReason, result.error)
-                .filter(String::isNotBlank)
-                .distinct()
-                .joinToString("; ")
-                .ifBlank { RailWandI18n.reference("failure.curve_build") }
-            plugin.logger.warning(
-                "RailWand curve build failed: template=${result.selectedTemplate ?: settings.curveTemplate}, " +
-                    "reason=${result.selectedReason ?: "n/a"}, error=${result.error ?: "unknown error"}"
-            )
-            throw IllegalArgumentException(detail)
+        return when (val result = RailCurveFactory.build(from, to, options)) {
+            is RailCurveBuildResult.Success -> result.curve
+            is RailCurveBuildResult.Failure -> {
+                val detail = listOfNotNull(result.selectedReason, result.error)
+                    .filter(String::isNotBlank)
+                    .distinct()
+                    .joinToString("; ")
+                    .ifBlank { RailWandI18n.reference("failure.curve_build") }
+                plugin.logger.warning(
+                    "RailWand curve build failed: template=${result.selectedTemplate ?: settings.curveTemplate}, " +
+                        "reason=${result.selectedReason ?: "n/a"}, error=${result.error}"
+                )
+                throw IllegalArgumentException(detail)
+            }
         }
-        return result.curve
     }
 
     private fun createCurvesBetweenParallelAnchors(
@@ -2435,20 +2438,22 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         settings: CurveBuildSettingsSnapshot
     ): CurvesBuild? {
         val options = railCurveBuildOptions(settings)
-        val result = RailCurveFactory.buildParallel(startAnchors, endAnchors, options)
-        if (!result.isSuccess) {
-            val detail = listOfNotNull(result.selectedReason, result.error)
-                .filter(String::isNotBlank)
-                .distinct()
-                .joinToString("; ")
-                .ifBlank { RailWandI18n.reference("failure.parallel_curve_build") }
-            plugin.logger.warning(
-                "RailWand parallel curve build failed: template=${result.selectedTemplate ?: settings.curveTemplate}, " +
-                    "reason=${result.selectedReason ?: "n/a"}, error=${result.error ?: "unknown error"}"
-            )
-            throw IllegalArgumentException(detail)
+        return when (val result = RailCurveFactory.buildParallel(startAnchors, endAnchors, options)) {
+            is RailParallelCurveBuildResult.Success ->
+                CurvesBuild(result.curves, result.logicalBreakFractionsByLane)
+            is RailParallelCurveBuildResult.Failure -> {
+                val detail = listOfNotNull(result.selectedReason, result.error)
+                    .filter(String::isNotBlank)
+                    .distinct()
+                    .joinToString("; ")
+                    .ifBlank { RailWandI18n.reference("failure.parallel_curve_build") }
+                plugin.logger.warning(
+                    "RailWand parallel curve build failed: template=${result.selectedTemplate ?: settings.curveTemplate}, " +
+                        "reason=${result.selectedReason ?: "n/a"}, error=${result.error}"
+                )
+                throw IllegalArgumentException(detail)
+            }
         }
-        return CurvesBuild(result.curves!!, result.logicalBreakFractionsByLane)
     }
 
     private fun adjacentRailBuildInput(

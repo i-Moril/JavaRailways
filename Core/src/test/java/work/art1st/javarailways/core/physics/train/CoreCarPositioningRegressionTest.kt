@@ -41,7 +41,7 @@ class CoreCarPositioningRegressionTest {
             throw failure
         }
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 coordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
                     // The fixture puts the 10m car's ends at x=20 and x=10, with a zero-height floor.
@@ -52,7 +52,7 @@ class CoreCarPositioningRegressionTest {
 
                     assertEquals(0.0, initialSeatPosition.distance(Vector3d(12.5, 0.5, 0.0)), 1e-6)
                     assertEquals(15.0, train.publishedFrame.cars.single().state.positionX, 1e-6)
-                    train.setControllerForTest(MockTrainController(train, world, 10.0))
+                    train.setControllerForTest(MockTrainController(train, 10.0))
                     coordinator.start()
 
                     val ticket = coordinator.stepSimulation(50.0)
@@ -216,7 +216,7 @@ class CoreCarPositioningRegressionTest {
     private fun withWorld(block: (CoreWorld) -> Unit) {
         val world = createTestWorld()
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 world.physicsCoordinator.use { block(world) }
             }
         }

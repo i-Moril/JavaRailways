@@ -28,7 +28,7 @@ class TrainControlWorldIsolationTest {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
                 createTrainWithConfig("same-train", rail, world, listOf(10.0)).also { train ->
                     train.setControllerForTest(RealisticManualController(
-                        train, world, TrainControlConfig(), listOf(CarControlConfig()), 9.80665))
+                        train, TrainControlConfig(), listOf(CarControlConfig()), 9.80665))
                 }
             }
             val requests = trains.map { train -> executor.submit<Boolean> {
@@ -64,7 +64,6 @@ class TrainControlWorldIsolationTest {
 
     private fun close(world: CoreWorld) {
         world.physicsCoordinator.close()
-        world.releaseRuntimeBinding()
         (world.tickManager as AutoCloseable).close()
     }
 }

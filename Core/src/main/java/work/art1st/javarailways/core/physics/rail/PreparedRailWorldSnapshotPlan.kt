@@ -103,14 +103,16 @@ class PreparedRailWorldSnapshotPlan private constructor(
             currentById: Map<UUID, CoreRail>,
             currentSaved: Map<UUID, CoreRail.SavedRailV1>,
             targetSaved: Map<UUID, CoreRail.SavedRailV1>,
+            currentCurves: Map<UUID, work.art1st.javarailways.core.api.physics.curve.PrimeCurve>,
+            targetCurves: Map<UUID, work.art1st.javarailways.core.api.physics.curve.PrimeCurve>,
             removedOrReplacedRailIds: Set<UUID>,
             createdOrReplacedRailIds: Set<UUID>,
             preparedCreations: PreparedRailCreationBatch?,
             rawCurrentCrossings: List<AtGradeRailCrossing>,
             preserveCurrentActiveSelections: Boolean = false
         ): PreparedRailWorldSnapshotPlan {
-            val currentCurves = currentSaved.mapValues { (_, saved) -> saved.curveAB.load(Unit) }
-            val targetCurves = targetSaved.mapValues { (_, saved) -> saved.curveAB.load(Unit) }
+            require(currentCurves.keys == currentSaved.keys) { "current snapshot curves are incomplete" }
+            require(targetCurves.keys == targetSaved.keys) { "target snapshot curves are incomplete" }
             val currentStates = decodeSavedRailGraph(currentSaved, currentCurves)
             val targetStates = decodeSavedRailGraph(targetSaved, targetCurves)
             val changedExistingEndpoints = currentSaved.keys.intersect(targetSaved.keys)

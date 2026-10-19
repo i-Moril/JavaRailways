@@ -28,14 +28,9 @@ import java.util.Collections
 
 /** Internal route-resource footprint request; public hosts do not expose raw claim mutation. */
 data class InfrastructureClaimRequest(
-    val topologyRevision: Long,
     val owner: InfrastructureOwner,
     val footprint: InfrastructureFootprint
-) {
-    init {
-        require(topologyRevision >= 0L) { "topologyRevision must be non-negative" }
-    }
-}
+)
 
 /**
  * World-local atomic registry. Platform ownership tokens are deliberately opaque and never enter
@@ -70,12 +65,6 @@ class InfrastructureCoordinationRegistry(
         val pendingAppendOnly: Boolean
     )
 
-    private interface Stored {
-        val platformOwner: Any
-        val owner: InfrastructureOwner
-        val resources: Collection<InfrastructureResource>
-    }
-
     private data class DependencyHeld(
         val platformOwner: Any,
         val owner: InfrastructureOwner,
@@ -90,11 +79,11 @@ class InfrastructureCoordinationRegistry(
 
     /** Only live claims mutate; insertion order is the public footprint order. Access is under [lock]. */
     private class ClaimHeld(
-        override val platformOwner: Any,
-        override val owner: InfrastructureOwner,
+        val platformOwner: Any,
+        val owner: InfrastructureOwner,
         footprint: InfrastructureFootprint
-    ) : Stored {
-        override val resources = LinkedHashSet(footprint.resources)
+    ) {
+        val resources = LinkedHashSet(footprint.resources)
 
         fun hasFootprint(footprint: InfrastructureFootprint): Boolean {
             if (resources.size != footprint.resources.size) return false
@@ -204,7 +193,6 @@ class InfrastructureCoordinationRegistry(
     internal fun beginAppendClaim(
         platformOwner: Any,
         expectedOwner: InfrastructureOwner,
-        topologyRevision: Long,
         deltaResources: Collection<InfrastructureResource>
     ): ClaimAppendReservation {
         val delta = deltaResources.toList()
@@ -251,8 +239,7 @@ class InfrastructureCoordinationRegistry(
             }
             val blockers = blockers(
                 footprint,
-                claims.values.filterNot { it === existing },
-                InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM
+                claims.values.filterNot { it === existing }
             ) + editPermitClaimBlockers(footprint)
             if (blockers.isNotEmpty()) {
                 return@synchronized ClaimAppendReservation(conflict(blockers), null)
@@ -564,8 +551,7 @@ class InfrastructureCoordinationRegistry(
         }
         val blockers = blockers(
             request.footprint,
-            claims.values,
-            InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM
+            claims.values
         ) + editPermitClaimBlockers(request.footprint)
         if (blockers.isNotEmpty()) return@synchronized ClaimMutation(conflict(blockers), null)
         val acquired = ClaimHeld(platformOwner, request.owner, request.footprint)
@@ -600,8 +586,7 @@ class InfrastructureCoordinationRegistry(
         pendingClaimAppends.values.firstOrNull { it.owner.ownerId == ownerId }
 
     private fun sameHeld(first: ClaimHeld?, pending: PendingClaimMutation): Boolean =
-        first === pending.after && first.platformOwner === pending.after.platformOwner &&
-            first.owner == pending.after.owner && first.hasFootprint(pending.expectedFootprint)
+        first === pending.after && first.hasFootprint(pending.expectedFootprint)
 
     private fun validateDependencies(
         request: InfrastructureDependencyRequest
@@ -739,14 +724,13 @@ class InfrastructureCoordinationRegistry(
 
     private fun blockers(
         requested: InfrastructureFootprint,
-        held: Collection<Stored>,
-        kind: InfrastructureBlockerKind
+        held: Collection<ClaimHeld>
     ): List<InfrastructureBlocker> = held.mapNotNull { holder ->
         val overlapping = requested.resources.filter { wanted ->
             holder.resources.any(wanted::overlaps)
         }
         overlapping.takeIf { it.isNotEmpty() }?.let {
-            InfrastructureBlocker(kind, holder.owner, it.toList())
+            InfrastructureBlocker(InfrastructureBlockerKind.LIVE_RUNTIME_CLAIM, holder.owner, it.toList())
         }
     }
 

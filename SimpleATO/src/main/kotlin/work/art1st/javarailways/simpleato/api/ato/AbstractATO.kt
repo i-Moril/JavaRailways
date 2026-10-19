@@ -26,7 +26,7 @@ abstract class AbstractATO(
     protected val actuator: TrainActuator,
     safetyProfile: AtoSafetyProfile,
     protected val atoCoordinator: AtoWorldCoordinator
-) : TrainController(train, world) {
+) : TrainController(train) {
     private val consistSafety = ControllerConsistState(safetyProfile)
     protected val safetyProfile: AtoSafetyProfile get() = consistSafety.value
 
@@ -41,8 +41,8 @@ abstract class AbstractATO(
         val dynamics = actuator as? ConsistDynamicsActuator ?: return emptyList()
         val prepared = dynamics.prepareDynamicsChange(cars, counterpart as? DynamicsProfileSource)
         val safety = safetyProfile.copy(
-            serviceDecelerationMetersPerSecondSquared = requireNotNull(prepared.serviceDecelerationMetersPerSecondSquared),
-            reactionTimeSeconds = requireNotNull(prepared.reactionTimeSeconds)
+            serviceDecelerationMetersPerSecondSquared = prepared.serviceDecelerationMetersPerSecondSquared,
+            reactionTimeSeconds = prepared.reactionTimeSeconds
         )
         return listOf(prepared.update, consistSafety.prepare(safety))
     }

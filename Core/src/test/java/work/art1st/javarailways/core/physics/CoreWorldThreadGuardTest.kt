@@ -9,7 +9,7 @@ import work.art1st.javarailways.core.api.threading.ThreadGuard
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
 import work.art1st.javarailways.core.api.util.tick.TickManager
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 import java.util.concurrent.Callable
 import java.util.concurrent.Future
@@ -30,9 +30,11 @@ class CoreWorldThreadGuardTest {
             override fun isMainThread(): Boolean = Thread.currentThread() === mainThread
         })
         try {
-            val world = CoreWorld.createEmpty(DummyTickManager, NoOpWorldParentContext)
-            assertThrows(IllegalStateException::class.java) {
-                world.getNearestRail(Vector3d())
+            PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
+                val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
+                assertThrows(IllegalStateException::class.java) {
+                    world.getNearestRail(Vector3d())
+                }
             }
         } finally {
             registration.close()
@@ -44,7 +46,6 @@ class CoreWorldThreadGuardTest {
         override fun unregister(obj: work.art1st.javarailways.core.api.util.tick.TickingObject) = Unit
         override fun preTick(currentTimeMs: Long) = Unit
         override fun postTick() = Unit
-        override fun <T> scheduleMainThreadAfterCommitTask(task: Callable<T>): Future<T> = FutureTask(task).apply { run() }
         override fun <T> scheduleMainThreadPostTickTask(task: Callable<T>): Future<T> = FutureTask(task).apply { run() }
     }
 }

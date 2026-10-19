@@ -40,8 +40,6 @@ internal sealed interface RouteBoundResourceQuery {
     data class Unavailable(val detail: String) : RouteBoundResourceQuery
 
     data class StaleTopology(val detail: String) : RouteBoundResourceQuery
-
-    data class InvalidRoute(val detail: String) : RouteBoundResourceQuery
 }
 
 /**

@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
@@ -62,11 +61,9 @@ class RailConnectTest {
 
     private fun withWorld(block: (CoreWorld) -> Unit) {
         TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
-            var world: CoreWorld? = null
-            AutoCloseable { world?.releaseRuntimeBinding() }.use {
+            run {
                 PhysicsCoordinator(1, automaticFallback = false).use { physics ->
-                    val created = CoreWorld.createEmpty(tick, NoOpWorldParentContext, physics)
-                    world = created
+                    val created = CoreWorld.createEmpty(tick, physics)
                     block(created)
                 }
             }

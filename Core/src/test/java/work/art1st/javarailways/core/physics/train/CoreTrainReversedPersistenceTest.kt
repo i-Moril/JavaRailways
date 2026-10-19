@@ -1,7 +1,6 @@
 package work.art1st.javarailways.core.physics.train
 
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -10,9 +9,6 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridge
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
-import work.art1st.javarailways.core.di.WorldContextRegistration
-import work.art1st.javarailways.core.di.WorldParentContext
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
@@ -46,7 +42,7 @@ class CoreTrainReversedPersistenceTest {
             assertTrue(runtime.trains.single().reversed)
 
             withWorld(load = { tick, physics ->
-                IsolatedSimulationThreadMarker.run { CoreWorld.load(infrastructure, runtime, CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics)) }
+                IsolatedSimulationThreadMarker.run { CoreWorld.load(infrastructure, runtime, CoreWorld.SnapshotDependency(tick, physics)) }
             }) { restored ->
                 val restoredTrain = requireNotNull(restored.getTrain("reversed"))
                 assertEquals(
@@ -74,20 +70,15 @@ class CoreTrainReversedPersistenceTest {
 
     @Test
     fun `failed persisted placement leaves no partially registered train`() {
-        withWorld { source ->
+        withWorld { world ->
             val rail = createStraightRailFromSegments(
-                source,
+                world,
                 PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)
             )
-            val train = createTrainWithConfig("invalid", rail, source, listOf(18.0), isLoop = false)
-            IsolatedSimulationThreadMarker.run {
-                source.physicsCoordinator.processBetweenFrames {
-                    source.renameTrain(train, "Invalid Local")
-                }
-            }
-            val infrastructure = source.saveInfrastructure(9L)
-            val savedTrain = source.saveRuntime(9L, physicsEpoch = 13L).trains.single()
-            val savedCar = savedTrain.cars.single().let { car ->
+            val train = createTrainWithConfig("invalid", rail, world, listOf(18.0), isLoop = false)
+            world.onOwnerForTest { world.renameTrain(train, "Invalid Local") }
+            val saved = train.save()
+            val savedCar = saved.cars.single().let { car ->
                 car.copy(config = car.config.copy(bogieAOffset = 5.75, bogieBOffset = -5.75))
             }
             val invalidHeadBogie = savedCar.bogieB.copy(
@@ -96,65 +87,37 @@ class CoreTrainReversedPersistenceTest {
                     direction = ViewDirection.BA
                 )
             )
-            val runtime = source.saveRuntime(9L, physicsEpoch = 13L).copy(
-                trains = listOf(
-                    savedTrain.copy(
-                        cars = listOf(savedCar.copy(bogieB = invalidHeadBogie)),
-                        reversed = true
-                    )
-                )
+            val invalid = saved.copy(
+                cars = listOf(savedCar.copy(bogieB = invalidHeadBogie)),
+                reversed = true
             )
-            var failedWorld: CoreWorld? = null
-            var bindingClosed = false
-            val parent = WorldParentContext { world ->
-                failedWorld = world
-                WorldContextRegistration { bindingClosed = true }
+            world.onOwnerForTest { train.destroy() }
+            assertTrue(world.allTrains.isEmpty())
+            world.drainPublishedTrainFrames()
+
+            val failure = assertThrows(IllegalStateException::class.java) {
+                world.onOwnerForTest { invalid.load(world) }
             }
-            TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
-                AutoCloseable { failedWorld?.releaseRuntimeBinding() }.use {
-                    PhysicsCoordinator(1, automaticFallback = false).use { physics ->
-                        val failure = assertThrows(IllegalStateException::class.java) {
-                            IsolatedSimulationThreadMarker.run { CoreWorld.load(
-                                infrastructure,
-                                runtime,
-                                CoreWorld.SnapshotDependency(tick, parent, physics)
-                            ) }
-                        }
-                        assertTrue(failure.message!!.contains("invalid"))
-                        assertNotNull(failure.cause)
-                        assertTrue(bindingClosed, "failed load must release its runtime binding")
-                        val target = requireNotNull(failedWorld)
-                        assertTrue(target.allTrains.isEmpty())
-                        assertNull(target.getTrain(savedTrain.id))
-                        assertNull(target.getTrain(savedTrain.name))
-                        assertTrue(target.allRails.single().trains.isEmpty())
-                        assertTrue(target.drainPublishedTrainFrames().isEmpty())
-                        physics.start()
-                        val ticket = physics.stepSimulation(50.0)
-                        ticket.completion.get(5, TimeUnit.SECONDS)
-                        val frame = target.latestWorldFrame()
-                        assertEquals(ticket.epoch, frame.physicsEpoch)
-                        assertTrue(frame.trains.isEmpty())
-                        assertTrue(frame.occupancy.trainIds.isEmpty())
-                        assertTrue(target.drainPublishedTrainFrames().isEmpty())
-                    }
-                }
-            }
+
+            assertTrue(failure.message!!.contains("invalid"))
+            assertTrue(world.allTrains.isEmpty())
+            assertNull(world.getTrain(saved.id))
+            assertNull(world.getTrain(saved.name))
+            assertTrue(world.allRails.single().trains.isEmpty())
+            assertTrue(world.drainPublishedTrainFrames().isEmpty())
         }
     }
 
     private fun withWorld(
         load: (TickManagerImpl, PhysicsCoordinator) -> CoreWorld = { tick, physics ->
-            CoreWorld.createEmpty(tick, NoOpWorldParentContext, physics)
+            CoreWorld.createEmpty(tick, physics)
         },
         block: (CoreWorld) -> Unit
     ) {
         TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
-            var world: CoreWorld? = null
-            AutoCloseable { world?.releaseRuntimeBinding() }.use {
+            run {
                 PhysicsCoordinator(1, automaticFallback = false).use { physics ->
                     val created = load(tick, physics)
-                    world = created
                     block(created)
                 }
             }

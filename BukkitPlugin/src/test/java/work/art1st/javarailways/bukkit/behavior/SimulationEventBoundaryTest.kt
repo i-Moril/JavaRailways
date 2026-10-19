@@ -22,7 +22,7 @@ class SimulationEventBoundaryTest {
             throw failure
         }
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 coordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(500.0))
                     val train = createTrainWithConfig("simulation", rail, world, listOf(10.0))

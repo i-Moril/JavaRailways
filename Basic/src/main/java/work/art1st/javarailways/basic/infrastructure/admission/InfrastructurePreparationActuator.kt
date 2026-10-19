@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.basic.infrastructure.admission
 
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
@@ -8,6 +8,7 @@ import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailView
 import work.art1st.javarailways.core.api.util.annotation.MainThread
+import work.art1st.javarailways.basic.infrastructure.LiveTurnoutSelection
 
 /** Result of asking the physical actuator to begin one validated preparation batch. */
 internal sealed interface InfrastructurePreparationStart {
@@ -47,37 +48,39 @@ internal class LiveInfrastructurePreparationActuator(
     override fun start(
         requirements: List<InfrastructurePreparationRequirement>
     ): InfrastructurePreparationStart {
-        val starters: List<() -> ResourcePreparationTicket> = try {
-            requirements.map { requirement ->
-                when (requirement) {
-                    is ResolvedTurnoutSelection -> {
-                        val prepared = turnoutSelection.resolve(
+        val starters = ArrayList<() -> ResourcePreparationTicket>(requirements.size)
+        for (requirement in requirements) {
+            when (requirement) {
+                is ResolvedTurnoutSelection -> {
+                    val prepared = try {
+                        turnoutSelection.resolve(
                             requirement.resource,
                             requirement.fromPort,
                             requirement.toPort
                         )
-                        val starter: () -> ResourcePreparationTicket = {
-                            prepared.apply()
-                            ReadyTicket
-                        }
-                        starter
+                    } catch (failure: IllegalArgumentException) {
+                        return InfrastructurePreparationStart.Rejected(failure)
+                    } catch (failure: IllegalStateException) {
+                        return InfrastructurePreparationStart.Rejected(failure)
                     }
-                    is ResolvedContributedResourcePreparation ->
-                        requireNotNull(resolveContributedPreparation(
-                            requirement.resource,
-                            requirement.descriptor
-                        )) {
+                    starters += {
+                        prepared.apply()
+                        ReadyTicket
+                    }
+                }
+                is ResolvedContributedResourcePreparation -> {
+                    val starter = resolveContributedPreparation(
+                        requirement.resource,
+                        requirement.descriptor
+                    ) ?: return InfrastructurePreparationStart.Rejected(
+                        IllegalStateException(
                             "preparation handler is unavailable for " +
                                 "${requirement.resource.typeId}/${requirement.descriptor.kindId}"
-                        }
-                    else -> error(
-                        "unsupported infrastructure preparation requirement: " +
-                            requirement::class.qualifiedName
+                        )
                     )
+                    starters += starter
                 }
             }
-        } catch (failure: Exception) {
-            return InfrastructurePreparationStart.Rejected(failure)
         }
         val tickets = starters.map { it() }
         return InfrastructurePreparationStart.Accepted(

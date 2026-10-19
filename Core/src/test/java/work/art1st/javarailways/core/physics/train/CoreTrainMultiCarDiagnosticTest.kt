@@ -54,7 +54,7 @@ class CoreTrainMultiCarDiagnosticTest {
                 train.setLocation(RailLocationWithFacing(rail.viewAB, 80.0))
                 train.commitMaintenancePlacement()
             }
-            train.setControllerForTest(MockTrainController(train, managedWorld, 10.0))
+            train.setControllerForTest(MockTrainController(train, 10.0))
             coordinator.start()
 
             val ticket = coordinator.stepSimulation(50.0)

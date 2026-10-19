@@ -58,7 +58,7 @@ class BukkitTrainOperationGatewayTest {
         ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge { override fun isMainThread() = true }).use {
             val world = createTestWorld()
             (world.tickManager as AutoCloseable).use {
-                AutoCloseable { world.releaseRuntimeBinding() }.use {
+                run {
                     world.physicsCoordinator.use {
                         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
                         test(world, createTrainWithConfig("T1", rail, world, listOf(10.0)))

@@ -72,7 +72,6 @@ class DepotResetCoordinatorTest {
         worlds.forEach { world ->
             TestSimpleATOWorldDataRegistry.unregister(world)
             world.physicsCoordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as AutoCloseable).close()
         }
         worlds.clear()
@@ -262,7 +261,7 @@ class DepotResetCoordinatorTest {
         world.onOwnerForTest { safeTrain.reverse() }
         world.onOwnerForTest { safeTrain.derail("test pre-reset state") }
         world.onOwnerForTest {
-            riskyTrain.setController(object : TrainController(riskyTrain, world) {
+            riskyTrain.setController(object : TrainController(riskyTrain) {
                 override fun tick(deltaT: Double) {
                     speed = 2.0
                     moveControlledTrain(0.1, 2.0)

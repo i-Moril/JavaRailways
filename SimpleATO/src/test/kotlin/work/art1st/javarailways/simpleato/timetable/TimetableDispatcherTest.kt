@@ -216,7 +216,7 @@ class TimetableDispatcherTest {
                             "injected $cause failure")
                     }
                     val result = plans.set(request)
-                    if (failing && setCalls == 2 && cause == "initial") train.setController(ManualController(train, world))
+                    if (failing && setCalls == 2 && cause == "initial") train.setController(ManualController(train))
                     return result
                 }
                 override fun remove(owner: InfrastructureOwner): InfrastructureDependencyMutationResult =
@@ -1356,7 +1356,7 @@ class TimetableDispatcherTest {
         world.simpleAtoWorldData.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
         world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") }
 
-        train.setControllerForTest(ManualController(train, world))
+        train.setControllerForTest(ManualController(train))
         world.onOwnerForTest { dispatcher.tick(world) }
 
         assertTrue(coordinator.isStalled)
@@ -1400,7 +1400,7 @@ class TimetableDispatcherTest {
         assertTrue(world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") } is TimetableServiceStartResult.Started)
         val transfer = world.onOwnerForTest { dispatcher.enterManualRoutedControl(world, train.id, "driver") }
         assertTrue(transfer is TimetableControlTransferResult.ManualRouted)
-        val manual = ManualController(train, world, maxSpeed = 8.0)
+        val manual = ManualController(train, maxSpeed = 8.0)
         train.setControllerForTest(manual)
         assertTrue(world.onOwnerForTest { dispatcher.bindManualRoutedController(train.id, "driver", manual) })
         manual.setThrottle(0.75)
@@ -1455,7 +1455,7 @@ class TimetableDispatcherTest {
         world.simpleAtoWorldData.timetables.add(timetable("tt", "s1", train.id, "A", "B"))
         world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") }
         world.onOwnerForTest { dispatcher.enterManualRoutedControl(world, train.id, "driver") }
-        val manual = ManualController(train, world, maxSpeed = 10.0)
+        val manual = ManualController(train, maxSpeed = 10.0)
         train.setControllerForTest(manual)
         assertTrue(world.onOwnerForTest { dispatcher.bindManualRoutedController(train.id, "driver", manual) })
         manual.setThrottle(1.0)
@@ -1502,7 +1502,7 @@ class TimetableDispatcherTest {
         )
         world.onOwnerForTest { dispatcher.startService(world, "tt", "s1") }
         world.onOwnerForTest { dispatcher.enterManualRoutedControl(world, train.id, "driver") }
-        val manual = ManualController(train, world, maxSpeed = 5.0)
+        val manual = ManualController(train, maxSpeed = 5.0)
         train.setControllerForTest(manual)
         assertTrue(world.onOwnerForTest { dispatcher.bindManualRoutedController(train.id, "driver", manual) })
         world.onOwnerForTest { dispatcher.tick(world) }

@@ -69,7 +69,7 @@ class TrainDynamicsTest {
                 val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
                 val train = createTrainWithConfig("manual-direction", rail, world, listOf(10.0))
                 val controller = RealisticManualController(
-                    train, world, trainProfile, listOf(carProfile), 9.80665,
+                    train, trainProfile, listOf(carProfile), 9.80665,
                     initialSpeedMetersPerSecond = 10.0
                 )
                 train.setControllerForTest(controller)
@@ -110,7 +110,6 @@ class TrainDynamicsTest {
             } finally {
                 coordinator.close()
                 TestBasicWorldDataRegistry.unregister(world)
-                world.releaseRuntimeBinding()
                 (world.tickManager as AutoCloseable).close()
             }
         }
@@ -147,7 +146,7 @@ class TrainDynamicsTest {
         val second = original.cars[1]
         val heavy = TestCarProfile(mass = 20_000.0)
         val light = TestCarProfile(mass = 10_000.0)
-        val controller = RealisticManualController(original, original.world, trainProfile, listOf(heavy, light), 10.0)
+        val controller = RealisticManualController(original, trainProfile, listOf(heavy, light), 10.0)
         controller.setHandle("P2")
         original.setControllerForTest(controller)
         val future = original.splitBefore(second.id, "manual-subset")
@@ -209,7 +208,7 @@ class TrainDynamicsTest {
     @Test
     fun `manual configuration replacement is prepared without mutation and rejects stale owner`() = withDynamicsTrain { wrapper ->
         val train = wrapper.original as work.art1st.javarailways.core.physics.train.CoreTrain
-        val controller = RealisticManualController(train, train.world, trainProfile, listOf(carProfile, carProfile), 10.0)
+        val controller = RealisticManualController(train, trainProfile, listOf(carProfile, carProfile), 10.0)
         train.setControllerForTest(controller)
         controller.setHandle("P2")
         val replacement = TestCarProfile(mass = 20_000.0)
@@ -237,7 +236,7 @@ class TrainDynamicsTest {
     private fun withDynamicsTrain(action: (MutableConsist) -> Unit) {
         val world = createTestWorld()
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 world.physicsCoordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
                     action(MutableConsist(createTrainWithConfig("profile-identity", rail, world, listOf(10.0, 10.0))))
@@ -483,7 +482,6 @@ class TrainDynamicsTest {
         TestBasicWorldDataRegistry.register(world, basicData)
         val controller = RealisticManualController(
             train,
-            world,
             trainProfile,
             listOf(carProfile),
             9.80665
@@ -516,7 +514,6 @@ class TrainDynamicsTest {
             val train = createTrainWithConfig("manual-frame-motion", rail, world, listOf(10.0))
             val controller = RealisticManualController(
                 train,
-                world,
                 trainProfile,
                 listOf(carProfile),
                 9.80665

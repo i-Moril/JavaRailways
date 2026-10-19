@@ -6,7 +6,6 @@ import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.safety.SpeedSafetyMonitor
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
-import work.art1st.javarailways.core.api.control.ControlCommand
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -102,15 +101,9 @@ class WorldTickRunnerTest {
             runtime.attachSpeedSafety(SpeedSafetyMonitor.Config(false, 0.0, 1))
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
             train = createTrainWithConfig("same-name", rail, world, listOf(10.0))
-            train.setControllerForTest(object : TrainController(train, world) {
+            train.setControllerForTest(object : TrainController(train) {
                 init {
-                    setCommand(object : ControlCommand {
-                        private var millis = 0.0
-                        override fun tick(deltaT: Double) { millis = deltaT }
-                        override val speed: Double get() = 5.0
-                        override val deltaS: Double get() = millis * 0.005
-                        override val isFinished: Boolean get() = false
-                    })
+                    speed = 5.0
                 }
             })
             initialX = train.publishedFrame.head.arcLengthInAbMeters
@@ -148,7 +141,6 @@ class WorldTickRunnerTest {
             world.executionOwner.run {
                 runtime.close()
                 world.physicsCoordinator.close()
-                world.releaseRuntimeBinding()
                 (world.tickManager as AutoCloseable).close()
             }
         }

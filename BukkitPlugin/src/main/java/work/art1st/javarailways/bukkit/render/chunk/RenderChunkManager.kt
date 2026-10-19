@@ -24,7 +24,7 @@ import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.render.Renderable
 import work.art1st.javarailways.core.api.render.Vector3Snapshot
-import work.art1st.javarailways.core.api.util.WeakReferenceWrapper
+import java.lang.ref.WeakReference
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
@@ -44,7 +44,11 @@ class RenderChunkManager(
     private val unregisterListener: (Listener) -> Unit = HandlerList::unregisterAll,
     initialPlayers: Collection<Player> = Bukkit.getOnlinePlayers().toList()
 ) : Listener {
-    val world: World by WeakReferenceWrapper(world)
+    private val worldRef: WeakReference<World> = WeakReference(world)
+
+    /** Owning platform world; fails fast rather than passing an expired reference as non-null. */
+    val world: World
+        get() = checkNotNull(worldRef.get()) { "RenderChunkManager world is no longer live" }
     private val visibleByPlayer: ConcurrentMap<UUID, MutableSet<Renderable>> = ConcurrentHashMap()
     private val refreshStateByPlayer: ConcurrentMap<UUID, PlayerRefreshState> = ConcurrentHashMap()
     private val audienceIndex = RenderAudienceIndex<Renderable>()

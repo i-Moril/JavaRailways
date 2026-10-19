@@ -172,7 +172,6 @@ class TopologyRouteProjectorTest {
 
         val rejected = reject(route, fixture.topology)
 
-        assertEquals(TopologyRouteProjectionRejection.INVALID_ROUTE, rejected.reason)
         assertTrue(rejected.detail.contains("illegal turnout continuation"))
         assertSame(before, fixture.topology)
     }

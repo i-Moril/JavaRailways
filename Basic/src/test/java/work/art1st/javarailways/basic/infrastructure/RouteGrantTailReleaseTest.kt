@@ -17,6 +17,16 @@ import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinu
 import work.art1st.javarailways.core.api.physics.train.SweptRailSpanSnapshot
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import java.util.UUID
+import work.art1st.javarailways.basic.infrastructure.admission.CompiledTailReleaseQueue
+import work.art1st.javarailways.basic.infrastructure.admission.LiveClaimTailRelease
+import work.art1st.javarailways.basic.infrastructure.admission.LiveClaimTailReleaseResult
+import work.art1st.javarailways.basic.infrastructure.admission.ResolvedTailReleaseEntry
+import work.art1st.javarailways.basic.infrastructure.admission.RouteGrantTailRelease
+import work.art1st.javarailways.basic.infrastructure.admission.RouteGrantTailReleaseFailureKind
+import work.art1st.javarailways.basic.infrastructure.admission.RouteGrantTailReleaseUpdate
+import work.art1st.javarailways.basic.infrastructure.admission.RouteProgressCursor
+import work.art1st.javarailways.basic.infrastructure.admission.RouteProgressCursorInitialization
+import work.art1st.javarailways.basic.infrastructure.admission.RouteProgressCursorState
 
 class RouteGrantTailReleaseTest {
     private val railId = UUID.randomUUID()
@@ -62,7 +72,7 @@ class RouteGrantTailReleaseTest {
     }
 
     @Test
-    fun `installing a committed suffix retains the same live route cursor`() {
+    fun `installing an extended suffix retains the same live route cursor`() {
         val first = RailIntervalResource(railId, 0.0, 10.0)
         val suffixResource = RailIntervalResource(railId, 20.0, 30.0)
         val fixture = fixture(listOf(ResolvedTailReleaseEntry(first, 10.0)))
@@ -77,16 +87,16 @@ class RouteGrantTailReleaseTest {
             fixture.registry.acquireClaim(
                 platformOwner,
                 InfrastructureClaimRequest(
-                    topologyRevision,
                     claimOwner,
                     InfrastructureFootprint(listOf(suffixResource))
                 )
             ).status
         )
 
-        fixture.tailRelease.installCommittedSuffix(
-            listOf(ResolvedTailReleaseEntry(suffixResource, 20.0))
-        )
+        fixture.tailRelease.stageExtendedHolds(emptyList())
+        val suffix = listOf(ResolvedTailReleaseEntry(suffixResource, 20.0))
+        fixture.tailRelease.validateExtendedSuffix(suffix)
+        fixture.tailRelease.installExtendedSuffix(suffix)
         val completed = consume(
             fixture.tailRelease,
             observation(epoch = 10L, tailMeters = 20.0)
@@ -178,7 +188,6 @@ class RouteGrantTailReleaseTest {
             registry.acquireClaim(
                 platformOwner,
                 InfrastructureClaimRequest(
-                    topologyRevision,
                     claimOwner,
                     InfrastructureFootprint(entries.map(ResolvedTailReleaseEntry::resource))
                 )

@@ -16,7 +16,7 @@ class CollisionEventTest {
             throw failure
         }
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 coordinator.use {
                     val event = CollisionEvent(
                         epoch = 7L,

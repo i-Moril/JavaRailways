@@ -112,6 +112,45 @@ class RailEventBusTest {
     }
 
     @Test
+    fun `priority orders handlers across event inheritance levels`() {
+        val order = mutableListOf<String>()
+        val listener = object : EventListener {
+            @HandlesEvent(Priority.LOWEST)
+            fun concrete(event: MockMainA) {
+                order += "concrete-lowest"
+            }
+
+            @HandlesEvent(Priority.HIGHEST)
+            fun base(event: MockMainInterfaceA) {
+                order += "base-highest"
+            }
+        }
+        MainRailEventBus.register(listener).use {
+            withMainThread { MainRailEventBus.publish(MockMainA()) }
+        }
+        assertEquals(listOf("base-highest", "concrete-lowest"), order)
+    }
+
+    @Test
+    fun `malformed event handler signatures fail registration`() {
+        val missingParameter = object : EventListener {
+            @HandlesEvent
+            fun handle() = Unit
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            MainRailEventBus.register(missingParameter)
+        }
+        val notAnEvent = object : EventListener {
+            @HandlesEvent
+            @Suppress("UNUSED_PARAMETER")
+            fun handle(value: String) = Unit
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            MainRailEventBus.register(notAnEvent)
+        }
+    }
+
+    @Test
     fun `registrations are idempotently closeable`() {
         val listener = MockEventListener()
         val registration = MainRailEventBus.register(listener)

@@ -20,7 +20,7 @@ class TrainResourceConfigurationTest {
     fun `prepared update replaces active dynamics and speed offset only when installed`() = withTrain { train ->
         val original = CarControlConfig(mass = 30_000.0)
         val control = TrainControlConfig()
-        val controller = RealisticManualController(train, train.world, control, listOf(original), 9.81)
+        val controller = RealisticManualController(train, control, listOf(original), 9.81)
         train.setControllerForTest(controller)
         controller.setHandle("P1")
         val replacement = CarControlConfig(mass = 40_000.0)
@@ -52,7 +52,7 @@ class TrainResourceConfigurationTest {
         val basic = BasicPlugin.instanceOrNull() ?: BasicPlugin(0).also { BasicPlugin.INSTANCE = it }
         world.registerExtensionData(basic, BasicWorldData())
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 world.physicsCoordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
                     action(createTrainWithConfig("resources", rail, world, listOf(10.0)))

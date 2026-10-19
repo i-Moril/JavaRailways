@@ -86,7 +86,7 @@ class WorldEventTest {
             throw failure
         }
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use { coordinator.use { action(world) } }
+            run { coordinator.use { action(world) } }
         }
     }
 }

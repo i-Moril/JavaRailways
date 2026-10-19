@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.basic.infrastructure.admission
 
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
@@ -52,7 +52,7 @@ internal sealed interface RouteGrantTailReleaseUpdate {
  * neither a claim nor a footprint: [LiveClaimTailRelease] only shrinks the current committed
  * registry resources. After that queue empties, this controller keeps projecting and committing
  * the same frozen-route cursor without touching the registry so its live grant can later accept
- * another committed suffix.
+ * another extended suffix.
  */
 internal class RouteGrantTailRelease(
     private val worldId: String,
@@ -106,19 +106,6 @@ internal class RouteGrantTailRelease(
     fun rollbackExtendedHolds(): LiveClaimTailReleaseResult? = synchronized(lock) {
         check(terminalFailure == null)
         claimRelease.rollbackExtendedHolds()
-    }
-
-    /** Installs an already-committed and physically-ready suffix without replacing the cursor. */
-    @MainThread
-    fun installCommittedSuffix(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
-        check(terminalFailure == null) { "cannot install a committed suffix after fail-closed recovery" }
-        claimRelease.installCommittedSuffix(entries)
-    }
-
-    @MainThread
-    fun validateCommittedSuffix(entries: Collection<ResolvedTailReleaseEntry>) = synchronized(lock) {
-        check(terminalFailure == null) { "cannot validate a committed suffix after fail-closed recovery" }
-        claimRelease.validateCommittedSuffix(entries)
     }
 
     init {

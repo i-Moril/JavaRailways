@@ -73,7 +73,6 @@ class CoreWorldRailTopologyTransactionTest {
         } finally {
             wakeThread.shutdownNow()
             coordinator.close()
-            world.releaseRuntimeBinding()
             (world.tickManager as AutoCloseable).close()
         }
     }

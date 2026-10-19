@@ -12,6 +12,9 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailSliceRef
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import java.util.UUID
+import work.art1st.javarailways.basic.infrastructure.admission.PhysicalRouteCompilation
+import work.art1st.javarailways.basic.infrastructure.admission.PhysicalRouteRange
+import work.art1st.javarailways.basic.infrastructure.admission.PhysicalRouteResourceCompiler
 
 class RouteBoundResourceCatalogTest {
     private val revision = 19L

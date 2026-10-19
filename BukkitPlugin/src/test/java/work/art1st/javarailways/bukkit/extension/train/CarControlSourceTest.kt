@@ -126,7 +126,7 @@ class CarControlSourceTest {
     private fun withCars(action: (List<Car>) -> Unit) {
         val world = createTestWorld()
         (world.tickManager as AutoCloseable).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 world.physicsCoordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
                     val train = createTrainWithConfig("sources", rail, world, listOf(10.0, 10.0))

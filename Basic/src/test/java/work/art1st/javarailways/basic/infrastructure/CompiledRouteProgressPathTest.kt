@@ -12,6 +12,12 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import java.util.UUID
+import work.art1st.javarailways.basic.infrastructure.admission.CompiledRouteProgressPath
+import work.art1st.javarailways.basic.infrastructure.admission.RouteProgressCursor
+import work.art1st.javarailways.basic.infrastructure.admission.RouteProgressCursorInitialization
+import work.art1st.javarailways.basic.infrastructure.admission.RouteProgressCursorState
+import work.art1st.javarailways.basic.infrastructure.admission.RouteProgressCursorUpdate
+import work.art1st.javarailways.basic.infrastructure.admission.RouteProgressOccurrence
 
 class CompiledRouteProgressPathTest {
     private val revision = 7L

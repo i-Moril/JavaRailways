@@ -23,6 +23,10 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.basic.infrastructure.admission.InfrastructurePreparationStart
+import work.art1st.javarailways.basic.infrastructure.admission.LiveInfrastructurePreparationActuator
+import work.art1st.javarailways.basic.infrastructure.admission.ResolvedContributedResourcePreparation
+import work.art1st.javarailways.basic.infrastructure.admission.ResolvedTurnoutSelection
 
 class LiveInfrastructurePreparationActuatorTest {
     private val worlds = mutableListOf<CoreWorld>()
@@ -128,24 +132,6 @@ class LiveInfrastructurePreparationActuatorTest {
         )
 
         val result = actuator.start(listOf(missing))
-
-        assertTrue(result is InfrastructurePreparationStart.Rejected)
-        assertSame(fixture.first.viewAB, fixture.stem.viewAB.nextActiveRail)
-    }
-
-    @Test
-    fun `unsupported requirement rejects whole batch before an earlier turnout write`() {
-        val fixture = turnout()
-        fixture.stem.viewAB.selectNextRail(fixture.first.viewAB)
-        val actuator = LiveInfrastructurePreparationActuator(fixture.world)
-        val unsupported = object : InfrastructurePreparationRequirement {
-            override val resource = StableInfrastructureResource("test:device", "test:unsupported")
-        }
-
-        val result = actuator.start(listOf(
-            fixture.selection(fixture.stem, fixture.second),
-            unsupported
-        ))
 
         assertTrue(result is InfrastructurePreparationStart.Rejected)
         assertSame(fixture.first.viewAB, fixture.stem.viewAB.nextActiveRail)

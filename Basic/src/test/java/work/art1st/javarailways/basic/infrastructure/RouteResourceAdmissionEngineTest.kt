@@ -42,6 +42,11 @@ import work.art1st.javarailways.core.physics.rail.topology.TestTopologyRail
 import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import java.util.UUID
 import java.util.IdentityHashMap
+import work.art1st.javarailways.basic.infrastructure.admission.InfrastructurePreparationActuator
+import work.art1st.javarailways.basic.infrastructure.admission.InfrastructurePreparationRequirement
+import work.art1st.javarailways.basic.infrastructure.admission.InfrastructurePreparationStart
+import work.art1st.javarailways.basic.infrastructure.admission.RouteGrantTailReleaseUpdate
+import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionEngine
 
 class RouteResourceAdmissionEngineTest {
     private val railId = UUID(0L, 101L)
@@ -1400,8 +1405,7 @@ class RouteResourceAdmissionEngineTest {
         val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
             service.request(requester, intent())).grant
         assertEquals(work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus.ACQUIRED,
-            registry.acquireClaim(Any(), InfrastructureClaimRequest(
-                topology.revision, InfrastructureOwner("test:route/blocker", 1L),
+            registry.acquireClaim(Any(), InfrastructureClaimRequest(InfrastructureOwner("test:route/blocker", 1L),
                 work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint(
                     listOf(RailIntervalResource(railId, 25.0, 35.0)))
             )).status)

@@ -23,7 +23,9 @@ object AsyncTickTestSupport {
 }
 ```
 
-consumer test通过`testFixtures(project(":Core"))`复用；production不得依赖fixture。`createTestWorld(physicsCoordinator: PhysicsCoordinator? = null)`在受保护的setup中创建TickManager和默认PhysicsCoordinator；Koin初始化在资源分配前。创建失败只释放helper拥有的coordinator及tick/scheduler，保留原异常并附suppressed；显式传入的coordinator仍由caller拥有。成功返回后caller在`finally/use`按physics→runtime binding→tick关闭并清world/global registrations。nullable默认值使默认coordinator不会在进入函数前分配，Kotlin无参/具名及JVM一参调用保持可用。
+consumer test通过`testFixtures(project(":Core"))`复用；production不得依赖fixture。`createTestWorld(physicsCoordinator: PhysicsCoordinator? = null)`在受保护的setup中创建TickManager和默认PhysicsCoordinator；不初始化任何global DI。创建失败只释放helper拥有的coordinator及tick/scheduler，保留原异常并附suppressed；显式传入的coordinator仍由caller拥有。成功返回后caller负责按physics→tick关闭并清world/global registrations。nullable默认值使默认coordinator不会在进入函数前分配，Kotlin无参/具名及JVM一参调用保持可用。
+
+需要scope化清理时使用`TestWorldFixture.create(...)`：fixture拥有world、tick manager及（未显式传入时）coordinator；`close()`逐项尝试并保留首个失败/追加suppressed，可重复close。新增测试优先用该fixture而不是复制`@AfterEach`/`withWorld`清理代码；场景与断言仍由测试自己组织。
 
 `TrainTestUtils`另提供`CoreWorld.onOwnerForTest(action: () -> T): T`和`CoreTrain.setControllerForTest(controller)`。
 前者只在一次操作的词法作用域中进入测试simulation owner，再调用真实`processBetweenFrames`；后者仅包住控制器安装/移除。
@@ -63,21 +65,21 @@ fixture使用JOML构造测试几何时，Core以`testFixturesImplementation`声�
 
 `CoreTrainAsymmetricTurnoutTest`的移动回归必须等待真实coordinator ticket，再从同一已发布epoch检查车头、车尾、body traversal和脱轨状态；不能在`moveTrainForward`之后、`commit`之前读取旧公开值。重复移动还要在每个已发布epoch验证车尾端与已解算转向架重新锚定，并在最终epoch检查累计实际位移。`CoreTrainMultiCarDiagnosticTest`只使用公开列车/car/frame状态：command-style relocation先证明commit前不可见、maintenance publication后出现固定fixture位置，再通过真实50 ms epoch验证两车都前移且固定编组间距保持。默认offset用fixture的明确数值断言，不以被测公式生成expected，也不反射`CommitBuffer`。
 
-`CoreTrainPublicationBoundaryTest`的reverse回归观察请求排队时live方向及immutable frame均不变，owner执行后新revision、同一已完成epoch及方向一起发布，同时保留旧frame验证不变；不再调用已删除的worker换向原语。derail回归仍观察pending mutation、`publishPhysicsState`翻转live buffer和`publishFrame`替换atomic frame三步。`commit`必须同时推进buffer与frame且保持最近physics epoch。运营换向交换车头/车尾及rail facing，但保留车厢稳定物理渲染方向；脱轨reason属于live API，当前frame只有`derailed`，不能假设frame携带reason。`BetweenFramesOperationsTest`另用真实coordinator检查换向事件在owner线程看到一致train/world/occupancy、下一epoch直接运动、偶数抵消、取消一个Future副本不影响其他请求，以及旧controller和shutdown拒绝。
+`CoreTrainPublicationBoundaryTest`的reverse回归观察请求排队时live方向及immutable frame均不变，owner执行后新revision、同一已完成epoch及方向一起发布，同时保留旧frame验证不变；不再调用已删除的worker换向原语。derail回归仍观察pending mutation、`publishPhysicsState`翻转live buffer和`publishFrame`替换atomic frame三步。`commit`必须同时推进buffer与frame且保持最近physics epoch。运营换向交换车头/车尾及rail facing，但保留车厢稳定物理渲染方向；脱轨frame同时携带`derailed`和`derailReason`，二者从同一个DerailState捕获；TrainSnapshot只读取这一帧。`BetweenFramesOperationsTest`另用真实coordinator检查换向事件在owner线程看到一致train/world/occupancy、下一epoch直接运动、偶数抵消、取消一个Future副本不影响其他请求，以及旧controller和shutdown拒绝。
 
-`TrainUniformMotionTest`六组环线参数化用例保留R30/60/100/200/500的两节10m编组和R100的五节20m编组，使用0.1m采样的四段顺切圆轨。每个50ms真实epoch后，用固定fixture起点及速度积分独立计算解析圆周车头位置，实际值从同epoch发布位置读取；另累计发布的`headTraversal`验证跨接缝里程及完成两圈，不以本地累加量同时作为expected/actual。各车轴距和零长车钩约束按fixture固定几何检查，不能把曲线车体中心速度误当作领转向架沿轨速度。0.1m采样在最小R30上的弦插值径向误差约0.042mm，小于既有5mm位置容差；此步长只属于测试，不修改生产默认精度。测试正常和异常退出均按physics→binding→tick释放，setup失败也关闭已创建的coordinator。
+`TrainUniformMotionTest`六组环线参数化用例保留R30/60/100/200/500的两节10m编组和R100的五节20m编组，使用0.1m采样的四段顺切圆轨。每个50ms真实epoch后，用固定fixture起点及速度积分独立计算解析圆周车头位置，实际值从同epoch发布位置读取；另累计发布的`headTraversal`验证跨接缝里程及完成两圈，不以本地累加量同时作为expected/actual。各车轴距和零长车钩约束按fixture固定几何检查，不能把曲线车体中心速度误当作领转向架沿轨速度。0.1m采样在最小R30上的弦插值径向误差约0.042mm，小于既有5mm位置容差；此步长只属于测试，不修改生产默认精度。测试正常和异常退出均按physics→tick释放，setup失败也关闭已创建的coordinator。
 
 这些用例不替代其他未覆盖场景：其余persistence fixture及RailWand完整split/merge事务集成继续跟踪；Basic observation集合复制与有序bodyTraversal已由[Basic测试契约](../basic/testing.md)所列回归覆盖，Basic整模块审查仍未完成。不能因为补了资源关闭就宣称全部publication断言已充分。清理失败必须在没有主失败时暴露，有主失败时作为suppressed附着，不能覆盖原始断言。拓扑锁阻塞回归捕获具体reader线程，并通过内部只读诊断确认该线程已进入`ReentrantReadWriteLock`等待队列后再检查future未完成；单纯在read调用前countDown仍可能在线程被抢占时产生假阳性。
 
-`TrainSlopeMotionTest`保留四节10m车在水平200m、爬升20m直坡上的100个50ms步进，等待关闭fallback的真实coordinator exact ticket后检查同epoch frame。10m/s沿坡速度应发布为`(100, 10, 0) / sqrt(101)`；每节车及两转向架的位移从初始immutable frame出发，与独立坡度解析值比较，不能只断言爬升超过某个下界。车头另按固定初始弧长50m验证每步前进0.5m。本用例验证运动增量，不替代绝对初始摆位测试；setup失败也须关闭caller-owned coordinator，成功后按physics→binding→tick释放并保留主异常。连接坡道接缝由`TrainSlopeJointMotionTest`另行覆盖，不以直坡测试代替。
+`TrainSlopeMotionTest`保留四节10m车在水平200m、爬升20m直坡上的100个50ms步进，等待关闭fallback的真实coordinator exact ticket后检查同epoch frame。10m/s沿坡速度应发布为`(100, 10, 0) / sqrt(101)`；每节车及两转向架的位移从初始immutable frame出发，与独立坡度解析值比较，不能只断言爬升超过某个下界。车头另按固定初始弧长50m验证每步前进0.5m。本用例验证运动增量，不替代绝对初始摆位测试；setup失败也须关闭caller-owned coordinator，成功后按physics→tick释放并保留主异常。连接坡道接缝由`TrainSlopeJointMotionTest`另行覆盖，不以直坡测试代替。
 
 `CoreTrainPersistenceStateTest`的零距离回归必须用关闭timer fallback的真实coordinator，逐次有界等待exact ticket，并记录controller实际执行次数、frame epoch/revision递增、固定摆位和car/bogie零速度；generic TickManager的pre/postTick不能证明physics controller被执行。恢复用例保留source/restored比较，同时检查fixture独立给定的head/tail/car位置。
 
-`WorldPersistenceRoundTripTest`保留真实Koin child scope的source→JSON→load集成；`SplitWorldSnapshotTest`、`CoreTrainPersistenceStateTest`、`CoreTrainReversedPersistenceTest`与`SavedRailConnectionsTest`使用显式dependency。各测试在创建world以前就拥有tick/coordinator，并覆盖source设置、loaded world构造及断言失败；按physics→world runtime binding→tick顺序释放。`use`负责保留主异常和suppressed清理异常，共享Koin parent不由单项fixture关闭；load失败释放binding但不关闭caller-owned tick/coordinator，fixture必须关闭这些显式dependency。
+`WorldPersistenceRoundTripTest`保留source→JSON→load集成；`SplitWorldSnapshotTest`、`CoreTrainPersistenceStateTest`、`CoreTrainReversedPersistenceTest`与`SavedRailConnectionsTest`使用显式`SnapshotDependency`，不读取global service registry。各测试在创建world以前就拥有tick/coordinator，并覆盖source设置、loaded world构造及断言失败；按physics→tick顺序释放。`use`/fixture负责保留主异常和suppressed清理异常；load失败不关闭caller-owned tick/coordinator，fixture必须关闭这些显式dependency。
 
-换向恢复同时保留source/restored bogie精确比较及独立固定位置/BA方向断言；数值容差遵循`Curve.TOLERANCE`的摆位求解合同。失败恢复通过已有`WorldParentContext.attachWorld`捕获实际目标world，验证binding释放、train ID/name索引、rail车端及mailbox无失败列车，并完成下一真实epoch检查world frame/occupancy为空；此单列车fixture不证明多列车world load整体回滚。endpoint恢复的8类拒绝输入、4种端部组合和2种active选择均保留。
+换向恢复同时保留source/restored bogie精确比较及独立固定位置/BA方向断言；数值容差遵循`Curve.TOLERANCE`的摆位求解合同。失败恢复验证train ID/name索引、rail车端及mailbox无失败列车，并完成下一真实epoch检查world frame/occupancy为空；此单列车fixture不证明多列车world load整体回滚。endpoint恢复的8类拒绝输入、4种端部组合和2种active选择均保留。
 
-`RailConnectTest`与`CoreTrainTailBogieTest`的原7项用例使用局部`withWorld`组合显式dependency的`use`：在创建world前纳入tick/physics owner，成功返回后登记binding，按physics→binding→tick释放，setup或断言失败同样保留主异常和suppressed。helper返回`Unit`以保证表达式体仍被JUnit发现；原连接、尾架、支路、换向及间距断言保持。`TrainSlopeJointMotionTest`两项沿用共享helper，在成功返回后以局部`use`关闭上述三类资源，setup失败由共享helper负责；原坡道运动断言保留。这些局部清理不代表全部fixture已经审计，RailWand完整事务集成继续单独跟踪。
+`RailConnectTest`与`CoreTrainTailBogieTest`的原7项用例使用局部`withWorld`组合显式dependency的`use`：在创建world前纳入tick/physics owner，成功返回后按physics→tick释放，setup或断言失败同样保留主异常和suppressed。helper返回`Unit`以保证表达式体仍被JUnit发现；原连接、尾架、支路、换向及间距断言保持。`TrainSlopeJointMotionTest`两项沿用共享helper，在成功返回后以局部`use`关闭上述三类资源，setup失败由共享helper负责；原坡道运动断言保留。这些局部清理不代表全部fixture已经审计，RailWand完整事务集成继续单独跟踪。
 
 ## 项目内正确示例
 

@@ -223,32 +223,6 @@ class StandardRailCurve(
     }
 
     /**
-     * 用有限差分法计算弧长 s 处的坐标（局部坐标系，起点原点，切线 +X）
-     *
-     * @param s 弧长
-     * @param step 积分步长（米）
-     * @return 坐标 (x, 0, z)，z 始终为 0（平面曲线，坡度需叠加）
-     */
-    fun positionAt(s: Double, step: Double = 0.001): Vector3d {
-        if (s <= 0) return Vector3d(0.0, 0.0, 0.0)
-
-        var x = 0.0
-        var z = 0.0
-        var sCur = 0.0
-
-        while (sCur < s) {
-            val ds = minOf(step, s - sCur)
-            val theta = tangentAngleAt(sCur)
-            // 沿切向方向前进 ds
-            x += cos(theta) * ds
-            z += sin(theta) * ds
-            sCur += ds
-        }
-
-        return Vector3d(x, 0.0, z)
-    }
-
-    /**
      * 工程精确位置计算。使用分段 16 点 Gauss-Legendre 积分计算
      * ∫cos(theta(s))ds / ∫sin(theta(s))ds，避免固定小步长积分带来的端点漂移和 O(L/step) 成本。
      */
@@ -283,27 +257,6 @@ class StandardRailCurve(
             sum += GAUSS_16_WEIGHTS[i] * f(mid + half * GAUSS_16_NODES[i])
         }
         return half * sum
-    }
-
-    /**
-     * 在弧长 s 处获取轨道点信息
-     *
-     * @param s 弧长（米）
-     * @return CurvePoint(position, tangentAngle, superelevation)
-     */
-    fun pointAt(s: Double): CurvePoint {
-        if (s <= 0) {
-            return CurvePoint(Vector3d(0.0, 0.0, 0.0), 0.0, superelevationAt(0.0))
-        }
-        if (s >= totalLength) {
-            val theta = tangentAngleAt(totalLength)
-            val pos = positionAt(totalLength, 0.001)
-            return CurvePoint(Vector3d(pos.x, 0.0, pos.z), theta, superelevationAt(totalLength))
-        }
-
-        val theta = tangentAngleAt(s)
-        val pos = positionAt(s, 0.001)
-        return CurvePoint(Vector3d(pos.x, 0.0, pos.z), theta, superelevationAt(s))
     }
 
     /**
@@ -416,16 +369,6 @@ class StandardRailCurve(
     )
 }
 
-/**
- * 超高过渡方式
- */
-enum class SuperelevationTransition {
-    /** 线性过渡。 */
-    LINEAR,
-    /** EN 13803 Sine/Klein 正弦过渡，形状系数 qN = 2。 */
-    SINE_KLEIN
-}
-
 object StandardRailCurveBuilder {
     /** 默认轨距（米） */
     const val DEFAULT_GAUGE = 1.435
@@ -435,80 +378,6 @@ object StandardRailCurveBuilder {
 
     /** 默认最大超高（米） */
     const val DEFAULT_MAX_SUPERELEVATION = 0.15
-
-    /**
-     * 从参数构建标准轨道曲线（无超高）
-     */
-    fun build(R: Double, L: Double, Lc: Double): StandardRailCurve {
-        return StandardRailCurve(R, L, Lc)
-    }
-
-    /**
-     * 从参数构建标准轨道曲线（带超高）
-     *
-     * @param superelevation 超高值（米），null 表示 autoCalculate
-     */
-    fun build(
-        R: Double,
-        L: Double,
-        Lc: Double,
-        superelevationConfig: SuperelevationConfig
-    ): StandardRailCurve {
-        return StandardRailCurve(R, L, Lc, superelevationConfig)
-    }
-
-    /**
-     * 从参数构建，并生成局部坐标系中的轨道点
-     */
-    fun buildAndGenerate(R: Double, L: Double, Lc: Double, step: Double = 1e-3): List<StandardRailCurve.CurveRawPoint> {
-        return StandardRailCurve(R, L, Lc).generatePoints(step)
-    }
-
-    /**
-     * 从参数构建，并生成局部坐标系中的轨道点（带超高）
-     */
-    fun buildAndGenerate(
-        R: Double,
-        L: Double,
-        Lc: Double,
-        superelevationConfig: SuperelevationConfig,
-        step: Double = 1e-3
-    ): List<StandardRailCurve.CurveRawPoint> {
-        return StandardRailCurve(R, L, Lc, superelevationConfig).generatePoints(step)
-    }
-
-    /**
-     * 从参数构建，并转换到全局坐标系
-     */
-    fun buildAndGenerateGlobal(
-        origin: Vector3dc,
-        startDirection: Vector3dc,
-        R: Double,
-        L: Double,
-        Lc: Double,
-        step: Double = 1e-3
-    ): List<StandardRailCurve.CurveRawPoint> {
-        val curve = StandardRailCurve(R, L, Lc)
-        val localPoints = curve.generatePoints(step)
-        return localPoints.map { curve.toGlobal(it, origin, startDirection) }
-    }
-
-    /**
-     * 从参数构建，并转换到全局坐标系（带超高）
-     */
-    fun buildAndGenerateGlobal(
-        origin: Vector3dc,
-        startDirection: Vector3dc,
-        R: Double,
-        L: Double,
-        Lc: Double,
-        superelevationConfig: SuperelevationConfig,
-        step: Double = 1e-3
-    ): List<StandardRailCurve.CurveRawPoint> {
-        val curve = StandardRailCurve(R, L, Lc, superelevationConfig)
-        val localPoints = curve.generatePoints(step)
-        return localPoints.map { curve.toGlobal(it, origin, startDirection) }
-    }
 
     /**
      * 计算指定速度和半径下的超高值

@@ -11,7 +11,6 @@ import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
 import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
-import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -21,6 +20,14 @@ import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossi
 import work.art1st.javarailways.core.api.physics.rail.topology.RailCrossingPoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import java.util.UUID
+import work.art1st.javarailways.basic.infrastructure.admission.InfrastructurePreparationRequirement
+import work.art1st.javarailways.basic.infrastructure.admission.PhysicalRouteCompilation
+import work.art1st.javarailways.basic.infrastructure.admission.PhysicalRouteCompilationRejection
+import work.art1st.javarailways.basic.infrastructure.admission.PhysicalRouteRange
+import work.art1st.javarailways.basic.infrastructure.admission.PhysicalRouteResourceCompiler
+import work.art1st.javarailways.basic.infrastructure.admission.ResolvedContributedResourcePreparation
+import work.art1st.javarailways.basic.infrastructure.admission.ResolvedTailReleaseEntry
+import work.art1st.javarailways.basic.infrastructure.admission.RouteContributionsCompilation
 
 class PhysicalRouteResourceCompilerTest {
     @Test
@@ -170,7 +177,6 @@ class PhysicalRouteResourceCompilerTest {
             listOf(firstTurnout, secondTurnout),
             compiled.admission.preparations.map(InfrastructurePreparationRequirement::resource)
         )
-        assertEquals(setOf(firstTurnout, secondTurnout, diamond), compiled.controlledResources)
         assertEquals(
             RailInterval(crossingRail, 4.5 - Curve.TOLERANCE, 4.5 + Curve.TOLERANCE),
             compiled.admission.occupancyGeometry.intervals.single { it.railId == crossingRail }
@@ -191,15 +197,10 @@ class PhysicalRouteResourceCompilerTest {
             ContributedRouteResource(diamond, RouteBoundary(20.0)),
             ContributedRouteResource(block, RouteBoundary(44.0), descriptor)
         )
-        val validated = ArrayList<StableInfrastructureResource>()
         val expanded = assertInstanceOf(
             RouteContributionsCompilation.Compiled::class.java,
-            compiled.admission.withContributions(contributions) { contribution ->
-                validated += contribution.resource
-                null
-            }
+            compiled.admission.withContributions(contributions)
         ).admission
-        assertEquals(listOf(diamond, block), validated)
         assertEquals(compiled.admission.resources.resources.toSet() + block, expanded.resources.resources.toSet())
         assertEquals(
             compiled.admission.preparations + ResolvedContributedResourcePreparation(block, descriptor),
@@ -218,7 +219,7 @@ class PhysicalRouteResourceCompilerTest {
             compiled.admission,
             assertInstanceOf(
                 RouteContributionsCompilation.Compiled::class.java,
-                compiled.admission.withContributions(emptyList()) { error("no contribution to validate") }
+                compiled.admission.withContributions(emptyList())
             ).admission
         )
         assertEquals(
@@ -227,34 +228,20 @@ class PhysicalRouteResourceCompilerTest {
                 RouteContributionsCompilation.Compiled::class.java,
                 compiled.admission.withContributions(listOf(
                     ContributedRouteResource(diamond, RouteBoundary(10.0))
-                )) { null }
+                ))
             ).admission.tailReleaseEntries.single { it.resource == diamond }.tailClearRouteMeters,
             1.0e-12
         )
 
-        val denied = RouteAdmissionFailure(RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "unregistered block")
-        assertEquals(
-            RouteContributionsCompilation.Rejected(denied),
-            compiled.admission.withContributions(contributions) { contribution ->
-                if (contribution.resource == block) denied else null
-            }
-        )
         assertEquals(compiled.admission.resources.resources.toSet(), compiled.admission.tailReleaseEntries
             .map(ResolvedTailReleaseEntry::resource).toSet())
-        assertEquals(
-            RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
-            assertInstanceOf(
-                RouteContributionsCompilation.Rejected::class.java,
-                compiled.admission.withContributions(listOf(contributions[0], contributions[0])) { null }
-            ).failure.code
-        )
         assertEquals(
             RouteAdmissionFailureCode.INVALID_PREPARATION,
             assertInstanceOf(
                 RouteContributionsCompilation.Rejected::class.java,
                 compiled.admission.withContributions(listOf(
                     ContributedRouteResource(diamond, RouteBoundary(20.0), descriptor)
-                )) { null }
+                ))
             ).failure.code
         )
     }

@@ -6,10 +6,6 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.core.di.KoinWorldParentContext
-import work.art1st.javarailways.core.di.NoOpWorldParentContext
-import work.art1st.javarailways.core.di.ensureJavaRailwaysKoinStarted
-import work.art1st.javarailways.core.di.javaRailwaysParentScope
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
@@ -25,9 +21,8 @@ class WorldPersistenceRoundTripTest {
 
     @Test
     fun worldSnapshotJsonRoundTrip() {
-        ensureJavaRailwaysKoinStarted()
         withWorld(load = { tick, physics ->
-            CoreWorld.createEmpty(tick, KoinWorldParentContext(javaRailwaysParentScope()), physics)
+            CoreWorld.createEmpty(tick, physics)
         }) { world ->
             val segments = PrimeCurveGenerator.buildStraight(80.0, segmentCount = 1)
             val rail = createStraightRailFromSegments(world, segments)
@@ -53,7 +48,6 @@ class WorldPersistenceRoundTripTest {
                     decodedRuntime,
                     CoreWorld.SnapshotDependency(
                         tick,
-                        KoinWorldParentContext(javaRailwaysParentScope()),
                         physics
                     )
                 ) }
@@ -113,7 +107,7 @@ class WorldPersistenceRoundTripTest {
                     IsolatedSimulationThreadMarker.run { CoreWorld.load(
                         infrastructure,
                         runtime,
-                        CoreWorld.SnapshotDependency(tick, NoOpWorldParentContext, physics)
+                        CoreWorld.SnapshotDependency(tick, physics)
                     ) }
                 }
                 assertTrue(failure.message!!.contains("broken-train"))
@@ -160,11 +154,9 @@ class WorldPersistenceRoundTripTest {
         block: (CoreWorld) -> Unit
     ) {
         TickManagerImpl(Executors.newSingleThreadScheduledExecutor(), 0L).use { tick ->
-            var world: CoreWorld? = null
-            AutoCloseable { world?.releaseRuntimeBinding() }.use {
+            run {
                 PhysicsCoordinator(1, automaticFallback = false).use { physics ->
                     val created = load(tick, physics)
-                    world = created
                     block(created)
                 }
             }

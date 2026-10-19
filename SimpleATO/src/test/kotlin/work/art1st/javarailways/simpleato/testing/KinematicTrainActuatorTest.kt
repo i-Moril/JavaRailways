@@ -20,7 +20,7 @@ class KinematicTrainActuatorTest {
             0.0,
             actuator.step(0.051605736934817736, ControlDemand(0.0), 0.1).speedMetersPerSecond
         )
-        assertEquals(0.0, actuator.freeze().speedMetersPerSecond)
+        actuator.freeze()
     }
     @Test
     fun `braking capability requires a nonempty route`() {

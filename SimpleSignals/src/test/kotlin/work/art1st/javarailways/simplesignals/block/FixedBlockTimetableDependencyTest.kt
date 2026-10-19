@@ -156,7 +156,7 @@ class FixedBlockTimetableDependencyTest {
                 assertTrue(token in registry.dependencySnapshots().single().dependencies.resourceIds)
                 val claimOwner = InfrastructureOwner("test:train", 1L)
                 assertEquals(InfrastructureMutationStatus.ACQUIRED, registry.acquireClaim(requester,
-                    InfrastructureClaimRequest(topology.revision, claimOwner, InfrastructureFootprint(listOf(token)))).status)
+                    InfrastructureClaimRequest(claimOwner, InfrastructureFootprint(listOf(token)))).status)
                 assertEquals(InfrastructureMutationStatus.RELEASED, registry.releaseClaim(requester, claimOwner).status)
                 assertTrue(world.onOwnerForTest { dispatcher.stopFutureCycles("race") })
                 assertTrue(registry.dependencySnapshots().isEmpty())

@@ -27,8 +27,6 @@ import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.api.util.plugin.Extendable
 import work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.javarailways.core.api.util.tick.TickManager
-import work.art1st.javarailways.core.di.WorldParentContext
-import work.art1st.javarailways.core.di.WorldContextRegistration
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.core.physics.train.CollisionEnvelope
@@ -75,7 +73,6 @@ class CoreWorld(
     private val trains: MutableMap<String, CoreTrain>,
     override val tickManager: TickManager,
     val physicsCoordinator: PhysicsCoordinator,
-    worldParent: WorldParentContext,
     private val extensionDataContainer: ExtensionDataContainer<Any> = ExtensionDataContainer(),
     override val executionMode: WorldExecutionMode = WorldExecutionMode.LIVE
 ) : World, Extendable<Any> by extensionDataContainer {
@@ -88,7 +85,6 @@ class CoreWorld(
     private val topologyListeners = CopyOnWriteArrayList<RailTopologyChangeListener>()
     private val trainsByName = ConcurrentHashMap<String, CoreTrain>()
     val runtimeId: String = UUID.randomUUID().toString()
-    private val worldContextRegistration: WorldContextRegistration
 
     private val publishedTrainFrames = LatestTrainFrameMailbox(DEFAULT_TRAIN_FRAME_MAILBOX_CAPACITY)
     private var activeRailSelectionRevision = 0L
@@ -116,26 +112,14 @@ class CoreWorld(
                 "duplicate train name: ${train.name}"
             }
         }
-        val registration = worldParent.attachWorld(this)
-        try {
-            physicsCoordinator.attachWorld(this)
-        } catch (failure: Throwable) {
-            try {
-                registration.close()
-            } catch (cleanupFailure: Throwable) {
-                if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
-            }
-            throw failure
-        }
-        worldContextRegistration = registration
+        physicsCoordinator.attachWorld(this)
     }
 
     private constructor(
         tickManager: TickManager,
         physicsCoordinator: PhysicsCoordinator,
-        worldParent: WorldParentContext,
         executionMode: WorldExecutionMode
-    ) : this(LinkedHashMap(), ConcurrentHashMap(), tickManager, physicsCoordinator, worldParent,
+    ) : this(LinkedHashMap(), ConcurrentHashMap(), tickManager, physicsCoordinator,
         executionMode = executionMode)
 
     companion object {
@@ -145,10 +129,9 @@ class CoreWorld(
 
         fun createEmpty(
             tickManager: TickManager,
-            worldParent: WorldParentContext,
             physicsCoordinator: PhysicsCoordinator = PhysicsCoordinator(1),
             executionMode: WorldExecutionMode = WorldExecutionMode.LIVE
-        ): CoreWorld = CoreWorld(tickManager, physicsCoordinator, worldParent, executionMode)
+        ): CoreWorld = CoreWorld(tickManager, physicsCoordinator, executionMode)
 
         fun load(
             infrastructure: SavedInfrastructureV2,
@@ -177,55 +160,36 @@ class CoreWorld(
             val world = CoreWorld(
                 dependency.tickManager,
                 dependency.physicsCoordinator,
-                dependency.worldParent,
                 dependency.executionMode
             )
-            try {
-                return world.physicsCoordinator.withStructuralMutation {
-                    world.railTopologyTransaction {
-                        val railDependency = CoreRail.SavedRailV1.Dependency(world)
-                        val loadedRails = infrastructure.rails.map { saved ->
-                            saved.loadDisconnected(railDependency, curves.getValue(UUID.fromString(saved.id)))
-                        }
-                        infrastructure.rails.zip(loadedRails).forEach { (savedRail, rail) ->
-                            savedRail.restoreValidatedConnections(
-                                rail, railDependency,
-                                endpointStates.getValue(RailEndpointRef(rail.id, RailEndpoint.A)),
-                                endpointStates.getValue(RailEndpointRef(rail.id, RailEndpoint.B))
-                            )
-                        }
+            return world.physicsCoordinator.withStructuralMutation {
+                world.railTopologyTransaction {
+                    val railDependency = CoreRail.SavedRailV1.Dependency(world)
+                    val loadedRails = infrastructure.rails.map { saved ->
+                        saved.loadDisconnected(railDependency, curves.getValue(UUID.fromString(saved.id)))
                     }
-                    runtime?.trains.orEmpty().forEach { savedTrain ->
-                        val train = try {
-                            savedTrain.load(world)
-                        } catch (failure: Exception) {
-                            throw IllegalStateException(
-                                "Failed to restore train '${savedTrain.name}' [${savedTrain.id}]",
-                                failure
-                            )
-                        }
-                        world.addTrain(train)
+                    infrastructure.rails.zip(loadedRails).forEach { (savedRail, rail) ->
+                        savedRail.restoreValidatedConnections(
+                            rail, railDependency,
+                            endpointStates.getValue(RailEndpointRef(rail.id, RailEndpoint.A)),
+                            endpointStates.getValue(RailEndpointRef(rail.id, RailEndpoint.B))
+                        )
                     }
-                    world
                 }
-            } catch (failure: Throwable) {
-                try {
-                    world.releaseRuntimeBinding()
-                } catch (cleanupFailure: Throwable) {
-                    if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+                runtime?.trains.orEmpty().forEach { savedTrain ->
+                    val train = try {
+                        savedTrain.load(world)
+                    } catch (failure: Exception) {
+                        throw IllegalStateException(
+                            "Failed to restore train '${savedTrain.name}' [${savedTrain.id}]",
+                            failure
+                        )
+                    }
+                    world.addTrain(train)
                 }
-                throw failure
+                world
             }
         }
-    }
-
-    /**
-     * Releases only this world's parent-context runtime attachment. The platform owner calls this
-     * after services, physics, and rendering no longer need DI, but before disposing the tick owner.
-     * It does not close the coordinator, tick manager, trains, or other platform-owned resources.
-     */
-    fun releaseRuntimeBinding() {
-        worldContextRegistration.close()
     }
 
     @MainThread
@@ -431,9 +395,12 @@ class CoreWorld(
             val current = currentSaved[railId]
             current == null || current.curveAB != targetSaved.getValue(railId).curveAB
         }
+        // Decode each snapshot curve once; creations, connection validation and the target
+        // topology all consume these instances instead of rebuilding them per stage.
+        val currentCurves = currentSaved.mapValues { (_, saved) -> saved.curveAB.load(Unit) }
+        val targetCurves = targetSaved.mapValues { (_, saved) -> saved.curveAB.load(Unit) }
         val targetCreations = createdOrReplacedRailIds.map { railId ->
-            val saved = requireNotNull(targetSaved[railId]) { "missing target rail $railId" }
-            PreparedRailCreation(railId, saved.curveAB.load(Unit))
+            PreparedRailCreation(railId, targetCurves.getValue(railId))
         }
         val prepared = targetCreations.takeIf(List<PreparedRailCreation>::isNotEmpty)?.let { creations ->
             prepareRailCreationBatchWithIds(creations, removedOrReplacedRailIds)
@@ -458,6 +425,8 @@ class CoreWorld(
             currentById = captured.second,
             currentSaved = currentSaved,
             targetSaved = targetSaved,
+            currentCurves = currentCurves,
+            targetCurves = targetCurves,
             removedOrReplacedRailIds = removedOrReplacedRailIds,
             createdOrReplacedRailIds = createdOrReplacedRailIds,
             preparedCreations = prepared,
@@ -476,9 +445,6 @@ class CoreWorld(
         val rawCrossings = railTopologyLock.read {
             ensureTopologyHealthy()
             plan.requireCurrent(this)
-            check(publishedTopologyState === plan.topologyRoot) {
-                "Prepared explicit connection plan is stale; rebuild it from the current topology"
-            }
             atGradeRailCrossingIndex.snapshot()
         }
         val baseInput = CoreTopologyInputAdapter.capture(plan.topologyRoot)
@@ -800,8 +766,7 @@ class CoreWorld(
             rail.viewAB.mutableNextRails.clear()
             rail.viewBA.mutableNextRails.clear()
             rails.remove(rail.id)
-            atGradeRailCrossingIndex.remove(rail.id)
-            railSpatialIndex.removeRail(rail)
+            atGradeRailCrossingIndex.remove(rail)
         }
 
         plan.preparedCreations?.let { batch ->
@@ -1260,8 +1225,7 @@ class CoreWorld(
             removed.viewBA.activeRail = null
             removed.viewAB.mutableNextRails.clear()
             removed.viewBA.mutableNextRails.clear()
-            atGradeRailCrossingIndex.remove(removed.id)
-            railSpatialIndex.removeRail(removed)
+            atGradeRailCrossingIndex.remove(removed)
         }
         rails.remove(rail.id)
     }
@@ -1640,7 +1604,6 @@ class CoreWorld(
 
     data class SnapshotDependency(
         val tickManager: TickManager,
-        val worldParent: WorldParentContext,
         val physicsCoordinator: PhysicsCoordinator = PhysicsCoordinator(1),
         val executionMode: WorldExecutionMode = WorldExecutionMode.LIVE
     )

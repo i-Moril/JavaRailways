@@ -24,7 +24,7 @@ class TrainSlopeJointMotionTest {
         world.onOwnerForTest { CoreRail.connect(level, slope) }
 
         val train = createTrainWithConfig("slope-joint", level, world, listOf(10.0, 10.0), isLoop = false)
-        train.setControllerForTest(MockTrainController(train, world, 10.0))
+        train.setControllerForTest(MockTrainController(train, 10.0))
 
         val coordinator = world.physicsCoordinator
         coordinator.start()
@@ -57,7 +57,7 @@ class TrainSlopeJointMotionTest {
         world.onOwnerForTest { CoreRail.connect(level, slope) }
 
         val train = createTrainWithConfig("long-slope-joint", level, world, List(4) { 17.8 }, isLoop = false)
-        train.setControllerForTest(MockTrainController(train, world, 10.0))
+        train.setControllerForTest(MockTrainController(train, 10.0))
 
         val coordinator = world.physicsCoordinator
         coordinator.start()
@@ -96,7 +96,7 @@ class TrainSlopeJointMotionTest {
             throw failure
         }
         (world.tickManager as TickManagerImpl).use {
-            AutoCloseable { world.releaseRuntimeBinding() }.use {
+            run {
                 world.physicsCoordinator.use { block(world) }
             }
         }

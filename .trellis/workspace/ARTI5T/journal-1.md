@@ -648,3 +648,43 @@ Implemented UUID+A/B connection and active-selection persistence, shared pre-wor
 ### Next Steps
 
 - 按已规划的World隔离子任务继续；尚未开始实现。
+
+
+## Session 20: World runtime isolation and observation completion
+<!-- trellis-session: v=2 fp=a65ef3002e9e7b48 -->
+
+**Date**: 2026-10-19
+**Task**: World runtime isolation and observation completion
+**Package**: javarailways
+**Branch**: `dev/signal-system`
+
+### Summary
+
+Complete and integrate per-world runtime ownership, scheduling, shared domain assembly and observation O1/O2;2395 tests passed, task2 archived, Signals JS remains next batch.
+
+### Main Changes
+
+用户确认最终三笔提交清单后完成本地提交和快进整合。
+
+- Core5d8cdabe：每World host owner、帧间入口与真实worker终止确认。
+- Runtime1423116d：逐World runner/入口、必要LIVE管理事务、共同领域装配及O1/O2观察构造隔离。
+- docs-site独立提交cb9263b，主docs工作区已快进更新，主仓gitlink一致。
+- 原42源码2391项仅历史；最终44源码fingerprint702e1db6c9b6e16e8af8cb18cfdec639f9d204d432f7f4441e7383a842bd3c4e，356 XML/2395项全执行且0失败/错误/跳过。root与独立checker逐源/逐XML/logSHA复核。整合到主工作区后产品字节再次核对相同，无需重复无源变更的完整构建。
+- Java API consumer/module boundary/shadowJar/Dokka和修改后docs完整check（TS/58 YAML/schema fixtures/reference/Docusaurus/Pagefind27页）通过。既有前端108项为相同前端源码历史证据，本轮未重复计为新执行。
+- 子任务2已归档至.trellis/tasks/archive/2026-10/10-18-world-runtime-isolation，链接和18项manifest有效。父任务进度2/4；子任务3 LIVE/SIM JS隔离、子任务4车厢行为及父AC4/5/7保持开放。
+- 不推送、不部署、不做持久化迁移；Paper/Folia/客户端现场验证未做。同JVM永不退出callback只能保留依赖等待，不能安全强杀释放。
+- 临时node_modules链接已移除，主依赖未改。主区重复task元数据在/tmp/jr-world-main-integration-_teu9c8d备份后按已有完整提交整合，无未识别改动。
+
+后续：按已更新子任务3的S1-S3计划开展真实规则求值隔离及完整信号模拟安装；当前收尾不自动启动新批次。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5d8cdabe` | feat(core): add per-world host ownership and termination barriers |
+| `1423116d` | feat(runtime): isolate world scheduling and observation construction |
+
+### Status
+
+[OK] **Completed**

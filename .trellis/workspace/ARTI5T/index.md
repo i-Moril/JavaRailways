@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 19
+- **Total Sessions**: 20
 - **Last Active**: 2026-10-19
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~650 | Active |
+| `journal-1.md` | ~690 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 20 | 2026-10-19 | World runtime isolation and observation completion | `5d8cdabe`, `1423116d` | `dev/signal-system` |
 | 19 | 2026-10-19 | Commit preserved backlog and integrate World epoch events | `dfc7b0e7`, `cd2d04bb`, `abec3837`, `01d2c7fe`, `423ea7dd` | `dev/signal-system` |
 | 18 | 2026-10-17 | Shared boundary display names | `6390dddd` | `dev/signal-system` |
 | 17 | 2026-10-17 | Persist exact rail endpoint identities | `f90c6805` | `dev/signal-system` |

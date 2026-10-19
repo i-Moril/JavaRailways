@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.ui.config
+package work.art1st.javarailways.bukkit.api.wand.config
 
 /**
  * 构建时逐键捕获的配置值和成员关系（只读），不再读取后续 registry/session 更改。

@@ -1,16 +1,16 @@
-package work.art1st.javarailways.basic.impl.config
+package work.art1st.javarailways.bukkit.ui.config
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.ui.config.ConfigConstraints
-import work.art1st.javarailways.basic.api.ui.config.ConfigGroup
-import work.art1st.javarailways.basic.api.ui.config.ConfigItemImpl
-import work.art1st.javarailways.basic.api.ui.config.ConfigItem
-import work.art1st.javarailways.basic.api.ui.config.ConfigKey
-import work.art1st.javarailways.basic.api.ui.config.ConfigValueType
+import work.art1st.javarailways.bukkit.api.wand.config.ConfigConstraints
+import work.art1st.javarailways.bukkit.api.wand.config.ConfigGroup
+import work.art1st.javarailways.bukkit.api.wand.config.WandConfigItemImpl
+import work.art1st.javarailways.bukkit.api.wand.config.WandConfigItem
+import work.art1st.javarailways.bukkit.api.wand.config.ConfigKey
+import work.art1st.javarailways.bukkit.api.wand.config.ConfigValueType
 import java.util.UUID
 
 class ConfigUIRegistryVisibilityTest {
@@ -19,7 +19,7 @@ class ConfigUIRegistryVisibilityTest {
     @Test
     fun `recursive event and predicate filtering defines one complete effective item list`() {
         val registry = ConfigUIRegistry()
-        fun item(id: String, visible: Boolean = true, order: Int = 0): ConfigItem = ConfigItemImpl(ConfigKey(
+        fun item(id: String, visible: Boolean = true, order: Int = 0): WandConfigItem = WandConfigItemImpl(ConfigKey(
             id, id, defaultValue = "value", valueType = ConfigValueType.STRING,
             visibleWhen = { visible }, order = order))
         val root = item("root", order = 20)
@@ -32,6 +32,8 @@ class ConfigUIRegistryVisibilityTest {
         registry.register(ConfigGroup("root", "root", items = mutableListOf(root),
             subGroups = mutableListOf(hiddenChild, visibleChild, hiddenPredicate)))
         val extraKey = ConfigKey("extra.value", "extra", defaultValue = "default", valueType = ConfigValueType.STRING, order = 5)
+        registry.register(WandConfigItemImpl(extraKey))
+        registry.register(sequenceOf(item("extra.hidden", false), item("extra.deep.keep", order = 10), item("extra.group.item")))
         val player = UUID.randomUUID()
         registry.getPlayerSession(player).setValue(extraKey, "player")
         registry.addBuildListener("root") { event ->
@@ -39,7 +41,7 @@ class ConfigUIRegistryVisibilityTest {
             event.hideItem("visible.event")
             event.addItem(root) // The same identity is not a second editable field.
             event.addItem(item("extra.hidden", false))
-            event.addGroup(ConfigGroup("extra", "extra", items = mutableListOf(ConfigItemImpl(extraKey)),
+            event.addGroup(ConfigGroup("extra", "extra", items = mutableListOf(WandConfigItemImpl(extraKey)),
                 subGroups = mutableListOf(ConfigGroup("extra.deep", "deep", items = mutableListOf(item("extra.deep.keep", order = 10))))))
             event.addGroup(ConfigGroup("extra.hiddenGroup", "hidden", items = mutableListOf(item("extra.group.item"))))
             event.hideGroup("extra.hiddenGroup")
@@ -60,8 +62,8 @@ class ConfigUIRegistryVisibilityTest {
         val global = ConfigKey("global", "global", defaultValue = 1, valueType = ConfigValueType.INTEGER)
         val local = ConfigKey("local", "local", defaultValue = 10, valueType = ConfigValueType.INTEGER)
         val default = ConfigKey("default", "default", defaultValue = 20, valueType = ConfigValueType.INTEGER)
-        registry.register(ConfigGroup("root", "root", items = mutableListOf(ConfigItemImpl(global),
-            ConfigItemImpl(local), ConfigItemImpl(default))))
+        registry.register(ConfigGroup("root", "root", items = mutableListOf(WandConfigItemImpl(global),
+            WandConfigItemImpl(local), WandConfigItemImpl(default))))
         registry.setValue(global, 2)
         val player = UUID.randomUUID()
         val session = registry.getPlayerSession(player)
@@ -75,7 +77,7 @@ class ConfigUIRegistryVisibilityTest {
         session.commit()
         session.reset()
         registry.removePlayerSession(player)
-        registry.register(ConfigItemImpl(ConfigKey("late", "late", defaultValue = 40, valueType = ConfigValueType.INTEGER)))
+        registry.register(WandConfigItemImpl(ConfigKey("late", "late", defaultValue = 40, valueType = ConfigValueType.INTEGER)))
 
         assertEquals(2, built.snapshot.get<Int>(global.id))
         assertEquals(11, built.snapshot.get<Int>(local.id))
@@ -110,7 +112,7 @@ class ConfigUIRegistryVisibilityTest {
             ConfigGroup(
                 id = "waypoint",
                 label = "waypoint",
-                items = mutableListOf(ConfigItemImpl(typeKey), ConfigItemImpl(stationKey))
+                items = mutableListOf(WandConfigItemImpl(typeKey), WandConfigItemImpl(stationKey))
             )
         )
         val regularPlayer = UUID.randomUUID()

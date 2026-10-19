@@ -7,8 +7,8 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import io.papermc.paper.dialog.DialogResponseView
 import io.papermc.paper.registry.data.dialog.input.DialogInput
 import io.papermc.paper.registry.data.dialog.input.TextDialogInput
-import work.art1st.javarailways.basic.api.ui.config.*
-import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
+import work.art1st.javarailways.bukkit.api.wand.config.*
+import work.art1st.javarailways.bukkit.ui.config.ConfigUIRegistry
 import work.art1st.javarailways.bukkit.render.model.ModelRuntimeTestSupport
 import java.lang.reflect.Proxy
 import java.util.UUID
@@ -49,10 +49,37 @@ class DialogRendererNumberTextTest {
         assertEquals(12.5, session.getValue(built.effectiveItems.single().key as ConfigKey<Double>))
     }
 
+    @Test
+    fun `commit feedback distinguishes rejected writes from failed notifications`() {
+        val messages = mutableListOf<net.kyori.adventure.text.Component>()
+        val player = Proxy.newProxyInstance(org.bukkit.entity.Player::class.java.classLoader,
+            arrayOf(org.bukkit.entity.Player::class.java)) { _, method, args ->
+            check(method.name == "sendMessage")
+            messages += args!!.single() as net.kyori.adventure.text.Component
+            null
+        } as org.bukkit.entity.Player
+        val renderer = DialogRenderer(ConfigUIRegistry())
+        val method = DialogRenderer::class.java.getDeclaredMethod("reportCommitFailures",
+            org.bukkit.entity.Player::class.java, ConfigCommitResult::class.java,
+            Function1::class.java).also { it.isAccessible = true }
+        val result = ConfigCommitResult(setOf("written"),
+            listOf(ConfigCommitFailure("rejected", "invalid value")),
+            listOf(ConfigCommitFailure("written", "listener failed")))
+        val resolver: (String) -> String = { "$it: %s" }
+
+        assertFalse(method.invoke(renderer, player, result, resolver) as Boolean)
+        assertEquals(listOf(
+            net.kyori.adventure.text.Component.text(
+                "dialog.commit_failed: rejected: invalid value", net.kyori.adventure.text.format.NamedTextColor.RED),
+            net.kyori.adventure.text.Component.text(
+                "dialog.commit_notification_failed: written: listener failed", net.kyori.adventure.text.format.NamedTextColor.RED)
+        ), messages)
+    }
+
     private fun filteredFixture(): Triple<DialogRenderer, BuiltGroup, PlayerConfigSession> {
         val registry = ConfigUIRegistry()
-        val visible = ConfigItemImpl(ConfigKey("visible", "visible", defaultValue = 1.0, valueType = ConfigValueType.NUMBER_TEXT))
-        val hidden = ConfigItemImpl(ConfigKey("hidden", "hidden", defaultValue = 2.0, valueType = ConfigValueType.NUMBER_TEXT))
+        val visible = WandConfigItemImpl(ConfigKey("visible", "visible", defaultValue = 1.0, valueType = ConfigValueType.NUMBER_TEXT))
+        val hidden = WandConfigItemImpl(ConfigKey("hidden", "hidden", defaultValue = 2.0, valueType = ConfigValueType.NUMBER_TEXT))
         val sub = ConfigGroup("sub", "sub", items = mutableListOf(visible, hidden))
         val root = ConfigGroup("root", "root", subGroups = mutableListOf(sub))
         registry.register(root)

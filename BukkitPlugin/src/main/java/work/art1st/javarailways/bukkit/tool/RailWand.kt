@@ -28,7 +28,7 @@ import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
-import work.art1st.javarailways.basic.api.ui.config.*
+import work.art1st.javarailways.bukkit.api.wand.config.*
 import work.art1st.javarailways.basic.curve.Anchor
 import work.art1st.javarailways.basic.curve.AnchorGeometry
 import work.art1st.javarailways.basic.curve.ParallelAnchorGeometry
@@ -42,7 +42,7 @@ import work.art1st.javarailways.basic.curve.StandardTurnout
 import work.art1st.javarailways.basic.curve.StandardTurnoutFactory
 import work.art1st.javarailways.basic.curve.SuperelevationConfig
 import work.art1st.javarailways.basic.curve.VerticalCurveRebuilder
-import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
+import work.art1st.javarailways.bukkit.ui.config.ConfigUIRegistry
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.basicWorldDataOrNull
 import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
@@ -935,12 +935,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             "settings.general.title",
             description = "settings.general.description",
             items = mutableListOf(
-                ConfigItemImpl(wandKeys.parallelCount),
-                ConfigItemImpl(wandKeys.parallelSpacing),
-                ConfigItemImpl(wandKeys.snapToAngle),
-                ConfigItemImpl(wandKeys.snapToBlock),
-                ConfigItemImpl(wandKeys.openConfigAfterCreate),
-                ConfigItemImpl(wandKeys.autoDecorate)
+                WandConfigItemImpl(wandKeys.parallelCount),
+                WandConfigItemImpl(wandKeys.parallelSpacing),
+                WandConfigItemImpl(wandKeys.snapToAngle),
+                WandConfigItemImpl(wandKeys.snapToBlock),
+                WandConfigItemImpl(wandKeys.openConfigAfterCreate),
+                WandConfigItemImpl(wandKeys.autoDecorate)
             )
         ))
         configUI.register(ConfigGroup(
@@ -948,27 +948,27 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             "settings.geometry.title",
             description = "settings.geometry.description",
             items = mutableListOf(
-                ConfigItemImpl(wandKeys.curveRadius),
-                ConfigItemImpl(wandKeys.automaticCurveRadius),
-                ConfigItemImpl(wandKeys.curveTemplate),
-                ConfigItemImpl(wandKeys.turnoutStandard),
-                ConfigItemImpl(wandKeys.designSpeedKmH),
-                ConfigItemImpl(wandKeys.curveSpeedLimitKmH),
-                ConfigItemImpl(wandKeys.automaticCurveSpeedLimit),
-                ConfigItemImpl(wandKeys.allowableCantDeficiencyMm),
-                ConfigItemImpl(wandKeys.superelevationEnabled)
+                WandConfigItemImpl(wandKeys.curveRadius),
+                WandConfigItemImpl(wandKeys.automaticCurveRadius),
+                WandConfigItemImpl(wandKeys.curveTemplate),
+                WandConfigItemImpl(wandKeys.turnoutStandard),
+                WandConfigItemImpl(wandKeys.designSpeedKmH),
+                WandConfigItemImpl(wandKeys.curveSpeedLimitKmH),
+                WandConfigItemImpl(wandKeys.automaticCurveSpeedLimit),
+                WandConfigItemImpl(wandKeys.allowableCantDeficiencyMm),
+                WandConfigItemImpl(wandKeys.superelevationEnabled)
             )
         ))
 
         // 锚点编辑分组 (单锚点)
         val editGroup = ConfigGroup("anchor.edit", "anchor_edit.title", description = "anchor_edit.description").apply {
-            items.add(ConfigItemImpl(editKeys.posX))
-            items.add(ConfigItemImpl(editKeys.posY))
-            items.add(ConfigItemImpl(editKeys.posZ))
-            items.add(ConfigItemImpl(editKeys.tangentYaw))
-            items.add(ConfigItemImpl(editKeys.tangentPitch))
-            items.add(ConfigItemImpl(editKeys.roll))
-            items.add(ConfigItemImpl(editKeys.gradeLocked))
+            items.add(WandConfigItemImpl(editKeys.posX))
+            items.add(WandConfigItemImpl(editKeys.posY))
+            items.add(WandConfigItemImpl(editKeys.posZ))
+            items.add(WandConfigItemImpl(editKeys.tangentYaw))
+            items.add(WandConfigItemImpl(editKeys.tangentPitch))
+            items.add(WandConfigItemImpl(editKeys.roll))
+            items.add(WandConfigItemImpl(editKeys.gradeLocked))
         }
         configUI.register(editGroup)
 
@@ -977,12 +977,12 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             label = "rail_edit.title",
             description = "rail_edit.description",
             items = mutableListOf(
-                ConfigItemImpl(railEditKeys.designSpeedKmH),
-                ConfigItemImpl(railEditKeys.curveSpeedLimitKmH),
-                ConfigItemImpl(railEditKeys.automaticCurveSpeedLimit),
-                ConfigItemImpl(railEditKeys.curveRadius),
-                ConfigItemImpl(railEditKeys.automaticCurveRadius),
-                ConfigItemImpl(railEditKeys.superelevationEnabled)
+                WandConfigItemImpl(railEditKeys.designSpeedKmH),
+                WandConfigItemImpl(railEditKeys.curveSpeedLimitKmH),
+                WandConfigItemImpl(railEditKeys.automaticCurveSpeedLimit),
+                WandConfigItemImpl(railEditKeys.curveRadius),
+                WandConfigItemImpl(railEditKeys.automaticCurveRadius),
+                WandConfigItemImpl(railEditKeys.superelevationEnabled)
             )
         ))
 
@@ -992,10 +992,10 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             "anchor_batch_edit.title",
             description = "anchor_batch_edit.description"
         ).apply {
-            items.add(ConfigItemImpl(editKeys!!.deltaX))
-            items.add(ConfigItemImpl(editKeys!!.deltaY))
-            items.add(ConfigItemImpl(editKeys!!.deltaZ))
-            items.add(ConfigItemImpl(editKeys!!.deltaYaw))
+            items.add(WandConfigItemImpl(editKeys!!.deltaX))
+            items.add(WandConfigItemImpl(editKeys!!.deltaY))
+            items.add(WandConfigItemImpl(editKeys!!.deltaZ))
+            items.add(WandConfigItemImpl(editKeys!!.deltaYaw))
         }
         configUI.register(batchGroup)
     }

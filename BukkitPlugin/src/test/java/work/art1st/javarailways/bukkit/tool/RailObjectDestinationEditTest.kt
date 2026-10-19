@@ -1,4 +1,4 @@
-package work.art1st.javarailways.simpleatobukkit.tool
+package work.art1st.javarailways.bukkit.tool
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull

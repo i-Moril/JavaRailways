@@ -1,4 +1,4 @@
-package work.art1st.javarailways.simpleatobukkit.tool
+package work.art1st.javarailways.bukkit.tool
 
 import java.util.UUID
 import org.junit.jupiter.api.AfterEach

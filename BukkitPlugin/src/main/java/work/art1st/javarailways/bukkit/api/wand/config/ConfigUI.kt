@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.ui.config
+package work.art1st.javarailways.bukkit.api.wand.config
 
 import java.util.UUID
 
@@ -31,38 +31,42 @@ interface ConfigUI {
     /**
      * 注册一个配置项。根据 [ConfigKey.group] 自动归属到对应分组。
      */
-    fun register(item: ConfigItem)
+    fun register(item: WandConfigItem)
 
     /**
      * 注册一组配置项。
      */
-    fun register(items: Sequence<ConfigItem>)
+    fun register(items: Sequence<WandConfigItem>)
 
     /**
      * 向已有分组贡献一个配置项（扩展点注册）。
      *
-     * 目标分组必须存在且 [ConfigGroup.allowExtensions] 为 true。
-     * 如果分组不存在，此项会被暂存，等分组注册后再合并。
+     * 目标分组存在时必须允许扩展；已知拒绝会抛出包含 group/key 的 [IllegalArgumentException]，
+     * 贡献不会进入正式索引。目标分组尚不存在时贡献被暂存，等分组注册后再统一结算；
+     * 若最终分组不允许扩展，暂存贡献会被丢弃并记录警告。
      *
-     * @param groupId 目标分组 ID
-     * @param item 要贡献的配置项
+     * @throws IllegalArgumentException 目标分组存在但不允许扩展，或贡献项不是受支持的实现
      */
-    fun registerToGroup(groupId: String, item: ConfigItem)
+    fun registerToGroup(groupId: String, item: WandConfigItem)
 
     /**
      * 向已有分组贡献一个子分组（扩展点注册）。
      *
-     * @param groupId 目标分组 ID
-     * @param subGroup 要贡献的子分组
+     * 与 [registerToGroup] 的项重载具有相同的接受、拒绝与暂存规则。
+     *
+     * @throws IllegalArgumentException 目标分组存在但不允许扩展
      */
     fun registerToGroup(groupId: String, subGroup: ConfigGroup)
+
+    /** 仍在等待目标分组注册的扩展贡献分组 ID；用于诊断悬而未决的贡献。 */
+    fun pendingExtensionGroupIds(): Set<String>
 
     // ═══════════════════════════════════════════
     // 值访问
     // ═══════════════════════════════════════════
 
     /**
-     * 按 [ConfigKey] 获取全局配置值。未设置时返回 null。
+     * 按 [ConfigKey] 获取全局配置值。未设置时返回 null；同 ID 的实际值类型冲突时报错。
      */
     fun <T> get(key: ConfigKey<T>): T?
 
@@ -73,6 +77,8 @@ interface ConfigUI {
 
     /**
      * 以编程方式设置全局配置值。触发 [onValueChanged] 回调。
+     * 未注册的键会被注册；同 ID 的实际值类型冲突时报错。
+     * [ConfigNotificationException] 表示值已写入但通知失败，不得把它当作写入拒绝。
      */
     fun <T> setValue(key: ConfigKey<T>, value: T)
 
@@ -83,7 +89,7 @@ interface ConfigUI {
     /**
      * 按 key ID 查找配置项。返回 null 如果不存在。
      */
-    fun getItem(keyId: String): ConfigItem?
+    fun getItem(keyId: String): WandConfigItem?
 
     /**
      * 按 ID 查找分组。返回 null 如果不存在。
@@ -99,7 +105,7 @@ interface ConfigUI {
      * 获取分组的所有有效项（展平：自身 items + 子组 items + 外部贡献）。
      * 使用全局默认快照评估可见性。
      */
-    fun getEffectiveItems(groupId: String): List<ConfigItem>
+    fun getEffectiveItems(groupId: String): List<WandConfigItem>
 
     // ═══════════════════════════════════════════
     // 预渲染事件
@@ -183,25 +189,22 @@ fun interface ConfigGroupBuildListener {
  */
 data class BuiltGroup(
     val group: ConfigGroup,
-    val effectiveItems: List<ConfigItem>,
+    val effectiveItems: List<WandConfigItem>,
     val effectiveSubGroups: List<ConfigGroup>,
     val hiddenItemIds: Set<String>,
-    val snapshot: ConfigSnapshot
+    val snapshot: ConfigSnapshot,
+    /**
+     * 被其他项 [ConfigKey.dependsOn] 引用的触发键 ID 集合，收集自本次构建的完整候选树
+     * （包括当前被隐藏、可能因输入变化而重新显示的项）。仅这些键变更时需重建 Dialog。
+     */
+    val triggerKeyIds: Set<String> = effectiveItems
+        .asSequence()
+        .flatMap { it.key.dependsOn.asSequence() }
+        .toSet()
 ) {
     /** 所有可见项的总数（含子组项） */
     val visibleCount: Int get() = effectiveItems.size
 
     /** 被隐藏的项总数 */
     val hiddenCount: Int get() = hiddenItemIds.size
-
-    /** 被其他项 [ConfigKey.dependsOn] 引用的触发键 ID 集合。仅这些键变更时需重建 Dialog。 */
-    val triggerKeyIds: Set<String> by lazy {
-        val referenced = mutableSetOf<String>()
-        fun collect(source: ConfigGroup) {
-            source.items.forEach { referenced.addAll(it.key.dependsOn) }
-            source.subGroups.forEach(::collect)
-        }
-        collect(group)
-        referenced
-    }
 }

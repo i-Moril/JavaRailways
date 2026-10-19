@@ -12,7 +12,7 @@ import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.event.ClickCallback
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
-import work.art1st.javarailways.basic.api.ui.config.*
+import work.art1st.javarailways.bukkit.api.wand.config.*
 
 internal const val DIALOG_NUMBER_TEXT_MAX_LENGTH = 32
 
@@ -218,7 +218,7 @@ class DialogRenderer(
                             captureInputs(view, builtGroup, session, textResolver, setOf(key.id))
                             @Suppress("UNCHECKED_CAST")
                             session.setValue(key as ConfigKey<Any?>, option)
-                            session.commit()
+                            reportCommitFailures(audience, session.commit(), textResolver)
                             val rebuilt = configUI.buildGroupForPlayer(
                                 builtGroup.group.id,
                                 audience.uniqueId,
@@ -243,6 +243,29 @@ class DialogRenderer(
         }
     }
 
+    /** Distinguishes rejected writes from notification failures after a successful write. */
+    private fun reportCommitFailures(
+        player: Player,
+        result: ConfigCommitResult,
+        textResolver: (String) -> String
+    ): Boolean {
+        if (result.failures.isNotEmpty()) {
+            val detail = result.failures.joinToString { "${it.keyId}: ${it.reason}" }
+            player.sendMessage(Component.text(
+                textResolver("dialog.commit_failed").format(detail),
+                NamedTextColor.RED
+            ))
+        }
+        if (result.notificationFailures.isNotEmpty()) {
+            val detail = result.notificationFailures.joinToString { "${it.keyId}: ${it.reason}" }
+            player.sendMessage(Component.text(
+                textResolver("dialog.commit_notification_failed").format(detail),
+                NamedTextColor.RED
+            ))
+        }
+        return result.succeeded
+    }
+
     /** 处理确认按钮回调：读取所有 Dialog 输入值并写入 session。 */
     private fun onConfirm(
         view: io.papermc.paper.dialog.DialogResponseView,
@@ -260,7 +283,11 @@ class DialogRenderer(
             showNativeDialog(player, builtGroup, session, textResolver, additionalBody, onConfirmed)
             return
         }
-        session.commit()
+        if (!reportCommitFailures(player, session.commit(), textResolver)) {
+            val rebuilt = configUI.buildGroupForPlayer(builtGroup.group.id, player.uniqueId, emptyMap())
+            showNativeDialog(player, rebuilt, session, textResolver, additionalBody, onConfirmed)
+            return
+        }
         if (needsRebuild) {
             val newGroup = configUI.buildGroupForPlayer(
                 builtGroup.group.id, player.uniqueId, emptyMap()
@@ -351,11 +378,11 @@ class DialogRenderer(
     }
 
     /**
-     * 将单个 [ConfigItem] 转换为 [DialogInput]。
+     * 将单个 [WandConfigItem] 转换为 [DialogInput]。
      */
     @Suppress("UNCHECKED_CAST")
     private fun toDialogInput(
-        item: ConfigItem,
+        item: WandConfigItem,
         snapshot: ConfigSnapshot,
         textResolver: (String) -> String
     ): DialogInput? {

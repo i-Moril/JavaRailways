@@ -1,15 +1,15 @@
-package work.art1st.javarailways.simpleatobukkit.tool
+package work.art1st.javarailways.bukkit.tool
 
 import java.util.UUID
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.operation.DoorSide
-import work.art1st.javarailways.basic.api.ui.config.ConfigConstraints
-import work.art1st.javarailways.basic.api.ui.config.ConfigGroup
-import work.art1st.javarailways.basic.api.ui.config.ConfigItemImpl
-import work.art1st.javarailways.basic.api.ui.config.ConfigKey
-import work.art1st.javarailways.basic.api.ui.config.ConfigValueType
-import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
+import work.art1st.javarailways.bukkit.api.wand.config.ConfigConstraints
+import work.art1st.javarailways.bukkit.api.wand.config.ConfigGroup
+import work.art1st.javarailways.bukkit.api.wand.config.WandConfigItemImpl
+import work.art1st.javarailways.bukkit.api.wand.config.ConfigKey
+import work.art1st.javarailways.bukkit.api.wand.config.ConfigValueType
+import work.art1st.javarailways.bukkit.ui.config.ConfigUIRegistry
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
@@ -144,7 +144,7 @@ class WayPointEditKeys {
         const val GROUP_ID = "railObject.waypoint.edit"
         const val ROLE_KEY_ID = "railObject.waypoint.role"
 
-        private fun roleVisible(role: DestinationRoleType): (work.art1st.javarailways.basic.api.ui.config.ConfigSnapshot) -> Boolean =
+        private fun roleVisible(role: DestinationRoleType): (work.art1st.javarailways.bukkit.api.wand.config.ConfigSnapshot) -> Boolean =
             { snapshot -> snapshot.get<DestinationRoleType>(ROLE_KEY_ID) == role }
 
         private fun stringKey(
@@ -182,16 +182,16 @@ class RailObjectDestinationEditor {
             label = "waypoint.dialog.title",
             description = "waypoint.dialog.description",
             items = mutableListOf(
-                ConfigItemImpl(keys.name),
-                ConfigItemImpl(keys.role),
-                ConfigItemImpl(keys.approachDirection),
-                ConfigItemImpl(keys.stationId),
-                ConfigItemImpl(keys.berthId),
-                ConfigItemImpl(keys.doorSide),
-                ConfigItemImpl(keys.depotId),
-                ConfigItemImpl(keys.stablingPointId),
-                ConfigItemImpl(keys.stablingUsableLength),
-                ConfigItemImpl(keys.stablingAllowedTags)
+                WandConfigItemImpl(keys.name),
+                WandConfigItemImpl(keys.role),
+                WandConfigItemImpl(keys.approachDirection),
+                WandConfigItemImpl(keys.stationId),
+                WandConfigItemImpl(keys.berthId),
+                WandConfigItemImpl(keys.doorSide),
+                WandConfigItemImpl(keys.depotId),
+                WandConfigItemImpl(keys.stablingPointId),
+                WandConfigItemImpl(keys.stablingUsableLength),
+                WandConfigItemImpl(keys.stablingAllowedTags)
             )
         ))
     }

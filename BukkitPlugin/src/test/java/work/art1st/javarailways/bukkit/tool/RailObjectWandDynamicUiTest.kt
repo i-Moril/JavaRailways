@@ -1,9 +1,9 @@
-package work.art1st.javarailways.simpleatobukkit.tool
+package work.art1st.javarailways.bukkit.tool
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.simpleato.api.destination.DestinationRoleType
-import work.art1st.javarailways.basic.impl.config.ConfigUIRegistry
+import work.art1st.javarailways.bukkit.ui.config.ConfigUIRegistry
 import java.util.UUID
 
 class RailObjectWandDynamicUiTest {

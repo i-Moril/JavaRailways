@@ -1,7 +1,7 @@
-package work.art1st.javarailways.basic.api.ui.config
+package work.art1st.javarailways.bukkit.api.wand.config
 
 /**
- * 配置分组：将相关的 [ConfigItem] 和子分组组织在一起。
+ * 配置分组：将相关的 [WandConfigItem] 和子分组组织在一起。
  *
  * 支持四种组合机制：
  * 1. **层级组合** — subGroups 嵌套子分组
@@ -22,7 +22,7 @@ class ConfigGroup @JvmOverloads constructor(
     val id: String,
     val label: String,
     val description: String = "",
-    val items: MutableList<ConfigItem> = mutableListOf(),
+    val items: MutableList<WandConfigItem> = mutableListOf(),
     val subGroups: MutableList<ConfigGroup> = mutableListOf(),
     val allowExtensions: Boolean = true,
     var isExpanded: Boolean = true,

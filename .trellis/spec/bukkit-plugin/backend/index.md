@@ -17,6 +17,7 @@
 | 文档 | 用途 |
 | --- | --- |
 | [Lifecycle 与线程归属](./lifecycle-and-threading.md) | composition root、world tick、Folia scheduler、shutdown |
+| [Wand 配置界面](./wand-config.md) | 配置项、注册、会话、动态显示和提交错误 |
 | [交互、渲染与持久化](./interaction-render-persistence.md) | Cloud/Wand/Dialog、backend/model、add-on API、snapshot/sidecar |
 | [一次性离线开发服迁移](./offline-development-migration.md) | 整目录外部归档、旧split转换、受限曲线修复和真实restore；不进入JAR |
 | [独立道岔操作工具](./turnout-wand.md) | 来向/出口选择、安全手动切换、真实连接反馈 |

@@ -28,8 +28,6 @@ import work.art1st.javarailways.basic.rail.DirectionRestrictionResolver
 import work.art1st.javarailways.simpleato.api.destination.DestinationRoleType
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
-import work.art1st.javarailways.simpleatobukkit.tool.RailObjectDestinationEditor
-import work.art1st.javarailways.simpleatobukkit.tool.WayPointEditKeys
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.api.editor.EditorMarkerGlyph
 import work.art1st.javarailways.bukkit.api.editor.EditorMarkerLabels

@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.ui.config
+package work.art1st.javarailways.bukkit.api.wand.config
 
 /**
  * 配置值约束。密封类，每种子类对应一种 [ConfigValueType] 的约束。

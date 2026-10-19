@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.ui.config
+package work.art1st.javarailways.bukkit.api.wand.config
 
 /**
  * 配置值类型枚举。决定 Dialog 使用什么 DialogInput 控件。
@@ -23,5 +23,19 @@ enum class ConfigValueType {
     VECTOR3D,
 
     /** 整数，映射到 [DialogInput.numberRange] + step=1。 */
-    INTEGER
+    INTEGER;
+
+    /**
+     * Whether [value] is a runtime value of this declared type.
+     *
+     * This validates the UI control choice; ConfigKey.valueClass identifies the actual value type.
+     */
+    fun accepts(value: Any?): Boolean = when (this) {
+        NUMBER, NUMBER_TEXT -> value is Double
+        STRING -> value is String
+        BOOLEAN -> value is Boolean
+        ENUM -> value is Enum<*>
+        VECTOR3D -> value is org.joml.Vector3d
+        INTEGER -> value is Int
+    }
 }

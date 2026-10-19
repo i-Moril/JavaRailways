@@ -1,8 +1,9 @@
-package work.art1st.javarailways.basic.impl.config
+package work.art1st.javarailways.bukkit.ui.config
 
-import work.art1st.javarailways.basic.api.ui.config.*
+import work.art1st.javarailways.bukkit.api.wand.config.*
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.logging.Logger
 
 /**
  * [ConfigUI] 的默认实现。
@@ -29,11 +30,11 @@ class ConfigUIRegistry : ConfigUI {
     /** 所有已注册的分组 (groupId -> ConfigGroup) */
     private val groups = ConcurrentHashMap<String, ConfigGroup>()
 
-    /** 所有已注册的项 (keyId -> ConfigItem) */
-    private val items = ConcurrentHashMap<String, ConfigItem>()
+    /** 所有已注册的项 (keyId -> WandConfigItem) */
+    private val items = ConcurrentHashMap<String, WandConfigItem>()
 
     /** 扩展点贡献：暂存的目标分组尚不存在的 items (groupId -> pending items) */
-    private val pendingItems = ConcurrentHashMap<String, MutableList<ConfigItem>>()
+    private val pendingItems = ConcurrentHashMap<String, MutableList<WandConfigItem>>()
 
     /** 扩展点贡献：暂存的目标分组尚不存在的 subGroups (groupId -> pending subGroups) */
     private val pendingSubGroups = ConcurrentHashMap<String, MutableList<ConfigGroup>>()
@@ -53,24 +54,33 @@ class ConfigUIRegistry : ConfigUI {
 
     override fun register(group: ConfigGroup) {
         val existing = groups[group.id]
-        if (existing != null) {
+        val acceptsPending = (existing ?: group).allowExtensions
+        val declaredItems = collectItems(group)
+        val incoming = declaredItems + if (acceptsPending) {
+            pendingItems[group.id].orEmpty() + pendingSubGroups[group.id].orEmpty().flatMap(::collectItems)
+        } else emptyList()
+        validateItems(incoming)
+        val target = if (existing != null) {
             // 合并：追加 items 和 subGroups
             synchronized(existing) {
                 existing.items.addAll(group.items)
                 existing.subGroups.addAll(group.subGroups)
             }
+            existing
         } else {
             groups[group.id] = group
+            group
         }
 
         // 注册所有项
-        registerAllItems(group)
+        declaredItems.forEach { items[it.key.id] = it }
 
-        // 处理该分组的待合并扩展
-        applyPendingExtensions(group.id, group)
+        // 结算该分组此前暂存的扩展贡献
+        applyPendingExtensions(group.id, target)
     }
 
-    override fun register(item: ConfigItem) {
+    override fun register(item: WandConfigItem) {
+        validateItems(listOf(item))
         items[item.key.id] = item
         val groupId = item.key.group
         if (groupId != null) {
@@ -88,71 +98,75 @@ class ConfigUIRegistry : ConfigUI {
         }
     }
 
-    override fun register(items: Sequence<ConfigItem>) {
-        items.forEach { register(it) }
+    override fun register(items: Sequence<WandConfigItem>) {
+        val batch = items.toList()
+        validateItems(batch)
+        batch.forEach { register(it) }
     }
 
-    override fun registerToGroup(groupId: String, item: ConfigItem) {
+    override fun registerToGroup(groupId: String, item: WandConfigItem) {
+        validateItems(listOf(item))
         val group = groups[groupId]
-        if (group != null && group.allowExtensions) {
-            items[item.key.id] = item
-            synchronized(group) {
-                if (!group.items.contains(item)) {
-                    group.items.add(item)
-                }
-            }
-        } else if (group == null) {
-            // 目标分组尚不存在，暂存
-            items[item.key.id] = item
+        if (group == null) {
+            // 目标分组尚不存在：只暂存，不接受进正式索引。
             pendingItems.getOrPut(groupId) { mutableListOf() }.add(item)
+            return
         }
-        // 如果 group 存在但 allowExtensions = false，静默忽略
+        require(group.allowExtensions) {
+            "Config group '$groupId' does not allow extensions; rejected item '${item.key.id}'"
+        }
+        acceptExtensionItem(group, item)
     }
 
     override fun registerToGroup(groupId: String, subGroup: ConfigGroup) {
+        validateItems(collectItems(subGroup))
         val group = groups[groupId]
-        if (group != null && group.allowExtensions) {
-            synchronized(group) {
-                if (!group.subGroups.contains(subGroup)) {
-                    group.subGroups.add(subGroup)
-                }
-            }
-            registerAllItems(subGroup)
-        } else if (group == null) {
+        if (group == null) {
             pendingSubGroups.getOrPut(groupId) { mutableListOf() }.add(subGroup)
-            registerAllItems(subGroup)
+            return
         }
+        require(group.allowExtensions) {
+            "Config group '$groupId' does not allow extensions; rejected subgroup '${subGroup.id}'"
+        }
+        acceptExtensionSubGroup(group, subGroup)
     }
+
+    override fun pendingExtensionGroupIds(): Set<String> =
+        (pendingItems.keys + pendingSubGroups.keys).toSet()
 
     // ═══════════════════════════════════════════
     // 值访问
     // ═══════════════════════════════════════════
 
-    @Suppress("UNCHECKED_CAST")
     override fun <T> get(key: ConfigKey<T>): T? {
-        return items[key.id]?.currentValue as? T
+        val item = items[key.id] ?: return null
+        item.key.requireSameType(key)
+        @Suppress("UNCHECKED_CAST")
+        return item.currentValue as T
     }
 
-    @Suppress("UNCHECKED_CAST")
     override fun <T> getOrDefault(key: ConfigKey<T>): T {
-        return (items[key.id]?.currentValue as? T) ?: key.defaultValue
+        return get(key) ?: key.defaultValue
     }
 
     override fun <T> setValue(key: ConfigKey<T>, value: T) {
-        key.constraints?.validateValue(value)
+        key.validateValue(value)
         val item = items[key.id]
-        if (item != null && item is ConfigItemImpl<*>) {
+        if (item != null) {
+            item.key.requireSameType(key)
+            require(item is WandConfigItemImpl<*>) {
+                "Config item '${key.id}' is ${item::class.qualifiedName}; ConfigUI.setValue requires " +
+                    "WandConfigItemImpl and will not replace a registered implementation"
+            }
             val oldValue = item.currentValue
-            (item as ConfigItemImpl<T>).setValue(value)
+            (item as WandConfigItemImpl<T>).setValue(value)
             item.commit()
-            valueChangedCallback?.invoke(key, oldValue, value)
-            onValueChanged(key, oldValue, value)
+            notifyValueChanged(key, oldValue, value)
         } else {
             // 项未注册，自动注册
-            val newItem = ConfigItemImpl(key, value)
+            val newItem = WandConfigItemImpl(key, value)
             items[key.id] = newItem
-            valueChangedCallback?.invoke(key, null, value)
-            onValueChanged(key, null, value)
+            notifyValueChanged(key, null, value)
         }
     }
 
@@ -160,13 +174,13 @@ class ConfigUIRegistry : ConfigUI {
     // 查找
     // ═══════════════════════════════════════════
 
-    override fun getItem(keyId: String): ConfigItem? = items[keyId]
+    override fun getItem(keyId: String): WandConfigItem? = items[keyId]
 
     override fun getGroup(groupId: String): ConfigGroup? = groups[groupId]
 
     override fun getAllGroups(): List<ConfigGroup> = groups.values.toList()
 
-    override fun getEffectiveItems(groupId: String): List<ConfigItem> {
+    override fun getEffectiveItems(groupId: String): List<WandConfigItem> {
         val group = groups[groupId] ?: return emptyList()
         val snapshot = createSnapshot()
         val filtered = filterGroup(group, snapshot, emptySet(), emptySet()) ?: return emptyList()
@@ -204,13 +218,24 @@ class ConfigUIRegistry : ConfigUI {
             (group.subGroups + event.collectExtraGroups()).toMutableList(),
             group.allowExtensions, group.isExpanded, group.visibleWhen)
         val candidateItems = collectItems(candidates)
-        val snapshot = createSnapshot(playerId, candidateItems)
+        candidateItems.forEach { candidate ->
+            val registered = requireNotNull(items[candidate.key.id]) {
+                "Config group '$groupId' contains unregistered item '${candidate.key.id}'; " +
+                    "build events may only compose registered items"
+            }
+            registered.key.requireSameType(candidate.key)
+        }
+        val snapshot = createSnapshot(playerId)
         val filtered = filterGroup(candidates, snapshot, event.collectHiddenItemIds(), event.collectHiddenGroupIds())
         val effectiveItems = filtered?.let(::collectItems).orEmpty()
             .distinctBy { it.key.id }.sortedBy { it.key.order }
         val hiddenIds = event.collectHiddenItemIds() +
             (candidateItems.map { it.key.id }.toSet() - effectiveItems.map { it.key.id }.toSet())
-        return BuiltGroup(group, effectiveItems, filtered?.subGroups.orEmpty(), hiddenIds, snapshot)
+        // Dependencies come from the complete candidate tree, including items hidden right now.
+        val triggerKeyIds = candidateItems.asSequence()
+            .flatMap { it.key.dependsOn.asSequence() }
+            .toSet()
+        return BuiltGroup(group, effectiveItems, filtered?.subGroups.orEmpty(), hiddenIds, snapshot, triggerKeyIds)
     }
 
     // ═══════════════════════════════════════════
@@ -244,35 +269,77 @@ class ConfigUIRegistry : ConfigUI {
     // 内部方法
     // ═══════════════════════════════════════════
 
-    /** 递归注册分组及其子分组中的所有项 */
+    private fun notifyValueChanged(key: ConfigKey<*>, oldValue: Any?, newValue: Any?) {
+        try {
+            valueChangedCallback?.invoke(key, oldValue, newValue)
+            onValueChanged(key, oldValue, newValue)
+        } catch (failure: Exception) {
+            throw ConfigNotificationException(key.id, failure)
+        }
+    }
+
+    /** Validate the whole incoming batch before changing any tree, index or pending contribution. */
+    private fun validateItems(incoming: List<WandConfigItem>) {
+        val keys = items.mapValues { it.value.key }.toMutableMap()
+        incoming.forEach { item ->
+            requireSupportedItem(item)
+            item.key.validateValue(item.currentValue)
+            keys.putIfAbsent(item.key.id, item.key)?.requireSameType(item.key)
+        }
+    }
+
+    /** 递归注册分组及其子分组中的所有项；调用者已完整验证。 */
     private fun registerAllItems(group: ConfigGroup) {
-        group.items.forEach { items[it.key.id] = it }
+        group.items.forEach {
+            items[it.key.id] = it
+        }
         group.subGroups.forEach { registerAllItems(it) }
     }
 
-    /** 将待合并的扩展应用到新注册的分组 */
+    private fun requireSupportedItem(item: WandConfigItem) {
+        require(item is WandConfigItemImpl<*>) {
+            "ConfigUI only supports WandConfigItemImpl values, got ${item::class.qualifiedName} " +
+                "for '${item.key.id}'"
+        }
+    }
+
+    private fun acceptExtensionItem(group: ConfigGroup, item: WandConfigItem) {
+        items[item.key.id] = item
+        synchronized(group) {
+            if (!group.items.contains(item)) {
+                group.items.add(item)
+            }
+        }
+    }
+
+    private fun acceptExtensionSubGroup(group: ConfigGroup, subGroup: ConfigGroup) {
+        synchronized(group) {
+            if (!group.subGroups.contains(subGroup)) {
+                group.subGroups.add(subGroup)
+            }
+        }
+        registerAllItems(subGroup)
+    }
+
+    /** 结算目标分组的暂存贡献；已知不允许扩展时丢弃而不是悬挂在半注册状态。 */
     private fun applyPendingExtensions(groupId: String, group: ConfigGroup) {
-        if (!group.allowExtensions) return
-
-        pendingItems.remove(groupId)?.let { pending ->
-            synchronized(group) {
-                pending.forEach { item ->
-                    if (!group.items.contains(item)) {
-                        group.items.add(item)
-                    }
-                }
-            }
+        val pendingItemList = pendingItems.remove(groupId).orEmpty()
+        val pendingSubGroupList = pendingSubGroups.remove(groupId).orEmpty()
+        if (pendingItemList.isEmpty() && pendingSubGroupList.isEmpty()) return
+        if (!group.allowExtensions) {
+            LOGGER.warning(
+                "Discarded extension contributions for config group '$groupId' because it does not " +
+                    "allow extensions: items=${pendingItemList.map { it.key.id }}, " +
+                    "subgroups=${pendingSubGroupList.map { it.id }}"
+            )
+            return
         }
+        pendingItemList.forEach { acceptExtensionItem(group, it) }
+        pendingSubGroupList.forEach { acceptExtensionSubGroup(group, it) }
+    }
 
-        pendingSubGroups.remove(groupId)?.let { pending ->
-            synchronized(group) {
-                pending.forEach { sub ->
-                    if (!group.subGroups.contains(sub)) {
-                        group.subGroups.add(sub)
-                    }
-                }
-            }
-        }
+    private companion object {
+        private val LOGGER = Logger.getLogger(ConfigUIRegistry::class.java.name)
     }
 
     /** Filter whole subtrees before flattening; hidden descendants never remain editable. */
@@ -289,7 +356,7 @@ class ConfigUIRegistry : ConfigUI {
             group.allowExtensions, group.isExpanded)
     }
 
-    private fun collectItems(group: ConfigGroup): List<ConfigItem> = buildList {
+    private fun collectItems(group: ConfigGroup): List<WandConfigItem> = buildList {
         fun visit(current: ConfigGroup) {
             addAll(current.items)
             current.subGroups.forEach(::visit)
@@ -298,11 +365,9 @@ class ConfigUIRegistry : ConfigUI {
     }
 
     /** 创建当前玩家会话优先、全局值回退的配置快照。 */
-    private fun createSnapshot(playerId: UUID? = null, extraItems: List<ConfigItem> = emptyList()): ConfigSnapshot {
+    private fun createSnapshot(playerId: UUID? = null): ConfigSnapshot {
         val session = playerId?.let(playerSessions::get)
-        val candidates = LinkedHashMap(items)
-        extraItems.forEach { candidates.putIfAbsent(it.key.id, it) }
-        val values = candidates.mapValues { (_, item) ->
+        val values = items.mapValues { (_, item) ->
             @Suppress("UNCHECKED_CAST")
             val key = item.key as ConfigKey<Any?>
             session?.getValue(key) ?: item.currentValue
@@ -337,37 +402,68 @@ class PlayerConfigSessionImpl(
     /** 玩家本地值副本 (keyId -> value) */
     private val localValues = ConcurrentHashMap<String, Any?>()
 
+    /** Type identity captured alongside each local value. */
+    private val localKeys = mutableMapOf<String, ConfigKey<*>>()
+
     /** dirty 标记 (keyId) */
     private val dirtyKeys = ConcurrentHashMap.newKeySet<String>()
 
     @Suppress("UNCHECKED_CAST")
     override fun <T> getValue(key: ConfigKey<T>): T? {
+        registry.getItem(key.id)?.key?.requireSameType(key)
+        localKeys[key.id]?.requireSameType(key)
         // 优先返回本地副本
         if (localValues.containsKey(key.id)) {
-            return localValues[key.id] as? T
+            return localValues[key.id] as T
         }
         // 回退到全局值
         return registry.get(key)
     }
 
     override fun <T> setValue(key: ConfigKey<T>, value: T) {
-        key.constraints?.validateValue(value)
+        registry.getItem(key.id)?.key?.requireSameType(key)
+        localKeys[key.id]?.requireSameType(key)
+        key.validateValue(value)
+        val unchanged = getValue(key) == value
+        localKeys[key.id] = key
         localValues[key.id] = value
-        dirtyKeys.add(key.id)
+        if (!unchanged) dirtyKeys.add(key.id)
     }
 
-    override fun commit() {
-        dirtyKeys.forEach { keyId ->
-            val item = registry.getItem(keyId) ?: return@forEach
-            val value = localValues[keyId] ?: return@forEach
-            @Suppress("UNCHECKED_CAST")
-            registry.setValue(item.key as ConfigKey<Any?>, value)
+    override fun commit(): ConfigCommitResult {
+        val committed = linkedSetOf<String>()
+        val failures = mutableListOf<ConfigCommitFailure>()
+        val notificationFailures = mutableListOf<ConfigCommitFailure>()
+        for (keyId in dirtyKeys.toList()) {
+            val item = registry.getItem(keyId)
+            if (item == null) {
+                failures += ConfigCommitFailure(keyId, "configuration item is not registered")
+                continue
+            }
+            val value = checkNotNull(localValues[keyId]) { "Dirty config '$keyId' has no local value" }
+            item.key.requireSameType(checkNotNull(localKeys[keyId]))
+            try {
+                @Suppress("UNCHECKED_CAST")
+                registry.setValue(item.key as ConfigKey<Any?>, value)
+                committed += keyId
+                // Only successful writes leave the dirty set; failures retain both value and flag.
+                dirtyKeys.remove(keyId)
+            } catch (failure: ConfigNotificationException) {
+                committed += keyId
+                dirtyKeys.remove(keyId)
+                notificationFailures += ConfigCommitFailure(keyId, failure.message ?: "change notification failed")
+            } catch (failure: IllegalArgumentException) {
+                failures += ConfigCommitFailure(
+                    keyId, failure.message ?: "configuration value is invalid"
+                )
+            }
         }
-        dirtyKeys.clear()
+        return ConfigCommitResult(committed, failures, notificationFailures)
     }
 
     override fun reset() {
         localValues.clear()
+        localKeys.clear()
         dirtyKeys.clear()
     }
 

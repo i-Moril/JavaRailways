@@ -5,7 +5,7 @@
 - Cloud `PaperCommandManager` 是 `/javarailways`/`/jr` 的注册入口；`CloudCommandRegistrar.ROUTES` 与 `JavaRailwaysCommand` delegate 必须同步。新增 nested route 同时测试 route set、trailing-space suggestion token 和 permission/console/player boundary。参考 `CloudCommandRegistrar.kt`、`CloudCommandRegistrarTest.kt`。
 - `AbstractWand` 将每个 item instance UUID 与 state 写入 PDC。decode 损坏时保留原 encoded data、使用内存 default 并记录警告；禁止自动覆盖不可读状态。interaction 进入 simulation context，但 player/entity UI 仍要 owner-aware。
 - Dialog 输入 key 只允许 Paper 支持字符，当前用 `.` → `_`；NUMBER_TEXT 先 parse 再检查 finite，trigger enum 变更 commit 后重建可见字段。新增 `ConfigValueType` 时同步 input、capture、validation 与 tests。
-- 嵌套配置的唯一有效条目与值快照归[Basic配置UI合同](../../javarailways/basic/config-ui.md)。Dialog显示、触发按钮与回复捕获只消费`BuiltGroup.effectiveItems`，不能拼回原始子组items；初始值来自该构建的snapshot，不临时重读session。CR-041实现状态以该合同及审查记录为准。
+- 嵌套配置的唯一有效条目与值快照归[Wand配置UI合同](./wand-config.md)。Dialog显示、触发按钮与回复捕获只消费`BuiltGroup.effectiveItems`，不能拼回原始子组items；初始值来自该构建的snapshot，不临时重读session。CR-041实现状态以该合同及审查记录为准。
 - 玩家文本使用 Adventure `Component` 和资源/locale owner；固定 enum/JSON token 不翻译。
 
 ### 共用Wand按F切换模式（CURRENT）

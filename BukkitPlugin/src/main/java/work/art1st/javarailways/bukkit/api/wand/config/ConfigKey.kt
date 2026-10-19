@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.ui.config
+package work.art1st.javarailways.bukkit.api.wand.config
 
 /**
  * 类型安全的配置键。
@@ -34,8 +34,32 @@ class ConfigKey<T> @JvmOverloads constructor(
     init {
         require(id.isNotBlank()) { "ConfigKey id must not be blank" }
         require(label.isNotBlank()) { "ConfigKey label must not be blank" }
+        require(valueType.accepts(defaultValue)) {
+            "ConfigKey '$id' defaultValue ${defaultValue?.let { it::class.qualifiedName }} " +
+                "does not match declared valueType $valueType"
+        }
         // 验证默认值满足约束
         constraints?.validateValue(defaultValue)
+    }
+
+    /** Actual JVM value type, independent of the choice of UI control. */
+    val valueClass: Class<*> = when (val value = defaultValue) {
+        is Enum<*> -> value.declaringJavaClass
+        else -> (value as Any).javaClass
+    }
+
+    internal fun requireSameType(other: ConfigKey<*>) {
+        require(valueClass == other.valueClass) {
+            "ConfigKey '$id' type conflict: ${valueClass.name} versus ${other.valueClass.name}"
+        }
+    }
+
+    internal fun validateValue(value: Any?) {
+        require(valueClass.isInstance(value)) {
+            "ConfigKey '$id' expects ${valueClass.name}, got ${value?.javaClass?.name}"
+        }
+        @Suppress("UNCHECKED_CAST")
+        constraints?.validateValue(value as T)
     }
 
     override fun equals(other: Any?): Boolean {

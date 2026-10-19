@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.ui.config
+package work.art1st.javarailways.bukkit.api.wand.config
 
 import java.util.UUID
 
@@ -6,7 +6,8 @@ import java.util.UUID
  * 分组构建事件。
  *
  * 在 [ConfigUI.buildGroupForPlayer] 过程中触发，
- * 允许监听器动态地添加或隐藏配置项/分组。
+ * 允许监听器动态地组合或隐藏已注册配置项/分组；事件不是新的配置值存储。
+ * 所有新增树中的项必须事先在全局注册，否则构建立即报错（即使该项被隐藏）。
  *
  * 与 [ConfigKey.visibleWhen] 互补：
  * - visibleWhen 是**数据驱动**的（值 → 可见性）
@@ -21,13 +22,13 @@ class ConfigGroupBuildEvent(
     val playerId: UUID,
     val context: Map<String, Any>
 ) {
-    private val _extraItems = mutableListOf<ConfigItem>()
+    private val _extraItems = mutableListOf<WandConfigItem>()
     private val _extraGroups = mutableListOf<ConfigGroup>()
     private val _hiddenItemIds = mutableSetOf<String>()
     private val _hiddenGroupIds = mutableSetOf<String>()
 
     /** 动态添加的额外项（在展平结果后追加） */
-    val extraItems: List<ConfigItem> get() = _extraItems.toList()
+    val extraItems: List<WandConfigItem> get() = _extraItems.toList()
 
     /** 动态添加的额外分组（在展平结果后追加） */
     val extraGroups: List<ConfigGroup> get() = _extraGroups.toList()
@@ -41,7 +42,7 @@ class ConfigGroupBuildEvent(
     /**
      * 动态添加一个配置项到当前构建结果中。
      */
-    fun addItem(item: ConfigItem) {
+    fun addItem(item: WandConfigItem) {
         _extraItems.add(item)
     }
 
@@ -77,7 +78,7 @@ class ConfigGroupBuildEvent(
     fun isGroupHidden(groupId: String): Boolean = groupId in _hiddenGroupIds
 
     /** 内部：收集所有额外项 */
-    internal fun collectExtraItems(): List<ConfigItem> = _extraItems.toList()
+    internal fun collectExtraItems(): List<WandConfigItem> = _extraItems.toList()
 
     /** 内部：收集所有额外分组 */
     internal fun collectExtraGroups(): List<ConfigGroup> = _extraGroups.toList()

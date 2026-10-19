@@ -18,6 +18,22 @@ import java.util.UUID
 
 class PreparedRailCreationBatchTest {
     @Test
+    fun `reverse views become ordinary AB curves before preparation and persistence`() = withWorld { world ->
+        val reverse = line(0.0, 0.0, 10.0, 0.0).reversed
+        assertThrows(UnsupportedOperationException::class.java) { reverse.save() }
+        val prepared = world.prepareRailCreation(reverse)
+        assertTrue(prepared.creations.single().curve is work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl)
+        val installed = IsolatedSimulationThreadMarker.run { world.installPreparedRails(prepared) }.single()
+        assertSame(prepared.creations.single().curve, installed.curve)
+        val loaded = installed.save().curveAB.load(Unit)
+        assertEquals(reverse.getPointAt(2.5).position, loaded.getPointAt(2.5).position)
+        assertEquals(reverse.getPointAt(2.5).tangent, loaded.getPointAt(2.5).tangent)
+        val direct = world.createRailForTest(line(0.0, 5.0, 10.0, 5.0).reversed)
+        assertTrue(direct.curve is work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl)
+        direct.save()
+    }
+
+    @Test
     fun `exact crossing detection happens during preparation and not installation`() = withWorld { world ->
         world.createRailForTest(line(-5.0, 0.0, 5.0, 0.0))
         val beforePrepare = world.atGradeExactDetectionCountForTesting()

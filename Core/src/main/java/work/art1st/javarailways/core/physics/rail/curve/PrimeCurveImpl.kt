@@ -406,6 +406,19 @@ open class PrimeCurveImpl : PrimeCurve {
         return builder.build()
     }
 
+    /** Materialize a new rail's AB authority from a runtime reverse view. */
+    internal fun reversedCopy(): PrimeCurveImpl = PrimeCurveImpl(pointList.asReversed().map { point ->
+        Curve.RawPoint(
+            Vector3d(point.position), Vector3d(point.tangent).negate(), Vector3d(point.normal),
+            totalArcLength - point.arcLength,
+            when (point.segmentType) {
+                Curve.SegmentType.LINE_START -> Curve.SegmentType.LINE_END
+                Curve.SegmentType.LINE_END -> Curve.SegmentType.LINE_START
+                Curve.SegmentType.DISCRETE -> Curve.SegmentType.DISCRETE
+            }
+        )
+    })
+
     override fun save(): PrimeCurve.SavedPrimeCurve {
         return SavedPrimeCurveV1.build(this)
     }

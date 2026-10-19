@@ -21,6 +21,7 @@ import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
 import work.art1st.javarailways.core.api.physics.train.Train
+import work.art1st.javarailways.core.physics.rail.curve.ReversedCurve
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.api.util.plugin.Extendable
@@ -347,7 +348,11 @@ class CoreWorld(
         require(creationsInOrder.map(PreparedRailCreation::railId).distinct().size == creationsInOrder.size) {
             "rail creation IDs must be unique"
         }
-        val sampledRails = creationsInOrder.map { creation ->
+        val canonicalCreations = creationsInOrder.map { creation ->
+            val curve = creation.curve
+            if (curve is ReversedCurve) creation.copy(curve = curve.materialize()) else creation
+        }
+        val sampledRails = canonicalCreations.map { creation ->
             atGradeRailCrossingIndex.prepareGeometry(creation.railId, creation.curve)
         }
         val captured = railTopologyLock.read {
@@ -370,7 +375,7 @@ class CoreWorld(
         return PreparedRailCreationBatch.create(
             ownerWorld = this,
             topologyRoot = captured.topologyRoot,
-            creations = creationsInOrder,
+            creations = canonicalCreations,
             excludedExistingRailIds = excludedExistingRailIds,
             sampledRails = sampledRails,
             crossings = crossings
@@ -950,7 +955,7 @@ class CoreWorld(
         val rail = CoreRail.createUnregistered(
             id = id,
             world = this,
-            curveAB = curveAB
+            curveAB = if (curveAB is ReversedCurve) curveAB.materialize() else curveAB
         )
         railTopologyTransactionContext.get()?.recordRailInventoryMutation(setOf(id))
         rails[id] = rail

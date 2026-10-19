@@ -62,5 +62,12 @@ class ReversedCurve(
         return reversedNext.originalCurve.concatenate(originalCurve).reversed
     }
 
-    override fun save(): PrimeCurve.SavedPrimeCurve = originalCurve.save()
+    internal fun materialize(): PrimeCurveImpl = when (val original = originalCurve) {
+        is PrimeCurveImpl -> original.reversedCopy()
+        is ReversedCurve -> original.materialize().reversedCopy()
+        else -> throw IllegalArgumentException("A rail requires a canonical sampled curve")
+    }
+
+    override fun save(): PrimeCurve.SavedPrimeCurve =
+        throw UnsupportedOperationException("ReversedCurve is a runtime view; materialize the rail's AB curve before saving")
 }

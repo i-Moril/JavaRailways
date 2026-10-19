@@ -34,7 +34,7 @@ canonical AB arc length s
 - `DISCRETE`区间线性插值position、tangent和normal，归一化tangent，再用Gram-Schmidt把normal投影回tangent的垂直平面并归一化；
 - 区间长度小于`1e-12`的输入在构造边界拒绝，查询不向离散端点snap。
 
-`ReversedCurve.getPointAt(s)`只把查询转换为原曲线`totalArcLength - s`并反向tangent；canonical持久化坐标始终是AB。
+`ReversedCurve.getPointAt(s)`只把查询转换为原曲线`totalArcLength - s`并反向tangent；canonical持久化坐标始终是AB。创建rail的直接和prepared入口把反向输入materialize为普通采样AB曲线；runtime `ReversedCurve.save()`拒绝调用，不增加第二份存档几何或新schema。
 
 ### 3.2 条件零点二分
 

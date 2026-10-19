@@ -1,5 +1,11 @@
 package work.art1st.javarailways.bukkit.extension.rail
 
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.CompletableFuture
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
+
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.block.data.BlockData
@@ -85,6 +91,7 @@ internal fun computeRailCurveRotation(tangent: Vector3dc, normal: Vector3dc): Qu
 class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderable<RailArcVisualSegment> {
     private lateinit var self: RailArcVisualSegment
     private val audience: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
+    private var retired = false
 
     override fun initialize(host: RailArcVisualSegment, savedExtensionData: Map<String, SerializableExtensionData>) {
         self = host
@@ -98,6 +105,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
     @Synchronized
     override fun sendTo(player: Player) {
         BukkitThreadOwnership.ensureEntity(player, "RailExtension.sendTo")
+        if (retired) return
         audience.add(player.uniqueId)
         buildModel()
         displayVisuals.forEach { it.showTo(player) }
@@ -120,7 +128,7 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
     @MainThread
     @Synchronized
     protected fun buildModel() {
-        if (displayVisuals.isNotEmpty()) return
+        if (retired || displayVisuals.isNotEmpty()) return
         val bukkitWorld = self.world.bukkitWorldData.bukkitWorld
         val config = self.templateSnapshot?.toModelConfig() ?: BukkitPlugin.INSTANCE.railModelConfig
         val curve = self.rail.curve
@@ -162,28 +170,50 @@ class RailExtension : RenderableExtension<RailArcVisualSegment>, BukkitRenderabl
             }
             displayVisuals += created
         } catch (error: Throwable) {
-            created.forEach { it.destroy() }
+            val cleanup = DestructionSteps()
+            created.forEach { visual -> cleanup.await { visual.destroy() } }
+            cleanup.finish().whenComplete { _, failure ->
+                if (failure != null) {
+                    error.addSuppressed(failure)
+                    BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.SEVERE,
+                        "Rail model construction cleanup failed", failure)
+                }
+            }
             throw error
         }
     }
 
+    private val destruction = Destruction()
+
     @MainThread
     @Synchronized
-    override fun destroy() {
+    override fun destroy(): CompletionStage<Void> = destruction.run {
+        val steps = DestructionSteps()
+        retired = true
         audience.clear()
-        self.world.renderChunkManager.remove(self)
-        destroyModel()
+        steps.await { self.world.renderChunkManager.remove(self) }
+        steps.await { destroyModel() }
+        pendingModelCleanup.toList().forEach { completion -> steps.await { completion } }
+        steps.finish()
     }
 
     /**
      * 主线程：销毁所有 ItemDisplay 实体。
      */
     @Synchronized
-    protected fun destroyModel() {
-        displayVisuals.forEach { it.destroy() }
+    protected fun destroyModel(): CompletionStage<Void> {
+        val steps = DestructionSteps()
+        displayVisuals.forEach { visual -> steps.await { visual.destroy() } }
         displayVisuals.clear()
+        val completion = steps.finish()
+        pendingModelCleanup += completion
+        completion.whenComplete { _, failure ->
+            if (failure == null) synchronized(this) { pendingModelCleanup.remove(completion) }
+        }
+        return completion
     }
 
+    private val pendingModelCleanup = mutableListOf<CompletionStage<Void>>()
     private val displayVisuals = mutableListOf<DisplayVisual>()
 
     /** Create one backend-specific display visual at the requested curve point. */

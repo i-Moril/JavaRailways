@@ -45,9 +45,6 @@ interface World : Extendable<Any> {
     /** Find a train by its world-unique player-assigned name; implementations may also accept an internal ID. */
     fun getTrain(name: String): Train?
 
-    /** Remove [train] from this world. Platform adapters may impose a main-thread requirement. */
-    fun removeTrain(train: Train)
-
     /** Find a rail by persistent UUID. */
     fun getRail(id: UUID): Rail?
 

@@ -4,7 +4,9 @@ import org.bukkit.Location
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import org.bukkit.util.Transformation
-import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.*
+import java.util.concurrent.CompletableFuture
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisual
 import work.art1st.javarailways.core.api.physics.World
@@ -37,6 +39,32 @@ class CompositeModelVisibilityTest {
         assertEquals(listOf("child-show", "root-show", "root-hide", "child-hide"), calls)
     }
 
+    @Test
+    fun `destruction attempts all children waits for cleanup and retains the same outcome`() {
+        val calls = mutableListOf<String>()
+        val world = FakeWorld()
+        val pending = CompletableFuture<Void>()
+        val failedChild = object : AbstractModel(world, ModelState(CompactTransform()), emptyList(), emptyMap()) {
+            override fun collectDestruction(steps: DestructionSteps) {
+                steps.action { calls += "failed-child"; error("child cleanup failed") }
+            }
+        }
+        val delayedChild = object : AbstractModel(world, ModelState(CompactTransform()), emptyList(), emptyMap()) {
+            override fun collectDestruction(steps: DestructionSteps) {
+                steps.await { calls += "delayed-child"; pending }
+            }
+        }
+        val composite = CompositeModel(world, listOf(failedChild, delayedChild), RecordingVisual(calls))
+        val result = composite.destroy().toCompletableFuture()
+        assertEquals(listOf("failed-child", "delayed-child", "root-destroy"), calls)
+        assertFalse(result.isDone)
+        assertSame(result, composite.destroy())
+        pending.complete(null)
+        assertTrue(result.isCompletedExceptionally)
+        assertSame(result, composite.destroy())
+        assertEquals(3, calls.size)
+    }
+
     private class RecordingModel(
         world: World,
         private val calls: MutableList<String>
@@ -59,7 +87,10 @@ class CompositeModelVisibilityTest {
         override fun setBrightness(blockLight: Int, skyLight: Int) = Unit
         override fun clearBrightness() = Unit
         override fun addPassenger(passenger: DisplayVisual): Boolean = true
-        override fun destroy() = Unit
+        override fun destroy(): java.util.concurrent.CompletionStage<Void> {
+            calls += "root-destroy"
+            return CompletableFuture.completedFuture(null)
+        }
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -85,7 +116,6 @@ class CompositeModelVisibilityTest {
             get() = error("Topology is not used by this render test")
         override val allTrains: Collection<Train> = emptyList()
         override fun getTrain(name: String): Train? = null
-        override fun removeTrain(train: Train) = Unit
         override fun getRail(id: UUID): Rail? = null
         override fun removeRail(rail: Rail) = Unit
         override fun <T : Any> getExtensionDataOrNull(plugin: Plugin): T? = null

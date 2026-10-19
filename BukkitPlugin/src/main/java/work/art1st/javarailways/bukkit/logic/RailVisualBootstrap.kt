@@ -42,9 +42,17 @@ object RailVisualBootstrap {
         )
     }
 
-    fun unregisterRail(railId: UUID) {
+    fun unregisterRail(railId: UUID): java.util.concurrent.CompletionStage<Void> {
         ThreadGuard.ensureMainThread("RailVisualBootstrap.unregisterRail")
-        railSegments.remove(railId)?.forEach { it.destroy() }
+        val segments = railSegments.remove(railId).orEmpty()
+        val steps = work.art1st.javarailways.core.api.util.DestructionSteps()
+        segments.forEach { segment -> steps.await { segment.destroy() } }
+        return steps.finish().whenComplete { _, failure ->
+            if (failure != null) {
+                BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.SEVERE,
+                    "Rail visual cleanup failed: rail=$railId", failure)
+            }
+        }
     }
 
     fun fromPersisted(coreWorld: CoreWorld, persisted: PersistedRailRenderMeta): Boolean {

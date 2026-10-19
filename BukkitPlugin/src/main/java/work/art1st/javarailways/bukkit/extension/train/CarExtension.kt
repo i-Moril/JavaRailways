@@ -1,5 +1,11 @@
 package work.art1st.javarailways.bukkit.extension.train
 
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.CompletableFuture
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
+
 import org.bukkit.Location
 import org.bukkit.entity.Player
 import org.joml.Matrix3d
@@ -164,7 +170,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     }
 
     internal fun behaviorLocation(): Location {
-        val position = latestFrame?.state?.positionVector() ?: self.lastState.position
+        val position = latestFrame?.state?.positionVector() ?: self.initialRenderState.position
         return Location(self.world.bukkitWorldData.bukkitWorld, position.x(), position.y(), position.z())
     }
 
@@ -222,15 +228,20 @@ class CarExtension : TrainComponentExtension<Car>() {
             override fun commitLocation() = behaviorLocation()
             override fun commit() = synchronized(this@CarExtension) {
                 if (!destroyed && elapsed >= delay) {
-                    try { action() } finally { destroy() }
+                    try { action() } finally { destroy().toCompletableFuture().getNow(null) }
                 }
             }
-            override fun destroy() = synchronized(this@CarExtension) {
-                if (!destroyed) { destroyed = true; self.world.tickManager.unregister(this) }
+            private val destruction = Destruction()
+            override fun destroy(): CompletionStage<Void> = destruction.run {
+                synchronized(this@CarExtension) {
+                    destroyed = true
+                    self.world.tickManager.unregister(this)
+                }
+                CompletableFuture.completedFuture(null)
             }
         }
         self.world.tickManager.register(effect)
-        return AutoCloseable { effect.destroy() }
+        return AutoCloseable { effect.destroy().toCompletableFuture().getNow(null) }
     }
 
     /** Synchronous commit entry point used by explicit Core command paths. */
@@ -260,7 +271,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         locationOwnershipChecked: Boolean = false
     ) {
         if (!locationOwnershipChecked) ensureFrameLocationOwned(frame)
-        val oldPosition = latestFrame?.state?.positionVector() ?: self.lastState.position
+        val oldPosition = latestFrame?.state?.positionVector() ?: self.initialRenderState.position
         latestFrame = frame
         self.world.renderChunkManager.update(self, oldPosition, frame.state.positionVector())
         super.commit()
@@ -278,21 +289,15 @@ class CarExtension : TrainComponentExtension<Car>() {
         )
     }
 
+    private val destruction = Destruction()
+
     @Synchronized
-    override fun destroy() {
-        // Retire and tear down the model before removing audience-index entries. Their removal is
-        // dispatched per player and may race with an already queued visibility update; retirement
-        // prevents either task from rebuilding an orphaned model after the train has gone.
-        var failure: Throwable? = null
-        fun attempt(action: () -> Unit) {
-            try { action() } catch (value: Throwable) {
-                if (failure == null) failure = value else if (failure !== value) failure.addSuppressed(value)
-            }
-        }
-        attempt(::closeBehavior)
-        attempt { super.destroy() }
-        attempt { self.world.renderChunkManager.remove(self, latestFrame?.state?.positionVector() ?: self.position) }
-        failure?.let { throw it }
+    override fun destroy(): CompletionStage<Void> = destruction.run {
+        val steps = DestructionSteps()
+        steps.action(::closeBehavior)
+        steps.await { super.destroy() }
+        steps.await { self.world.renderChunkManager.remove(self, latestFrame?.state?.positionVector() ?: self.position) }
+        steps.finish()
     }
 
     override fun buildModel() {
@@ -441,10 +446,11 @@ class CarExtension : TrainComponentExtension<Car>() {
         deactivateInteractiveModelsFor(player)
     }
 
-    override fun destroyModel() {
-        snapshotHeldScenesForReload()
-        bodyModel?.destroy()
-        bogieModels.forEach { it.destroy() }
+    override fun destroyModel(): CompletionStage<Void> {
+        val steps = DestructionSteps()
+        steps.action { snapshotHeldScenesForReload() }
+        bodyModel?.let { model -> steps.await { model.destroy() } }
+        bogieModels.forEach { model -> steps.await { model.destroy() } }
         bodyModel = null
         bogieModels = emptyList()
         platformModels = emptyList()
@@ -455,6 +461,7 @@ class CarExtension : TrainComponentExtension<Car>() {
         forceNextModelUpdate = false
         builtModelGeneration = -1L
         detailAudience.clear()
+        return steps.finish()
     }
 
     override fun applyAnimation(name: String): Boolean {

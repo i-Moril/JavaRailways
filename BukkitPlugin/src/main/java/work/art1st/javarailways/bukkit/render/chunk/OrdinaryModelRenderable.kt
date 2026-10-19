@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.render.chunk
 
+import java.util.concurrent.CompletionStage
 import org.bukkit.entity.Player
 import org.joml.Vector3d
 import org.joml.Vector3dc
@@ -11,7 +12,7 @@ import work.art1st.javarailways.core.api.render.Renderable
 /** Ordinary presentation adapter in the existing spatial audience index, never a railway object. */
 internal class OrdinaryModelRenderable(
     override val world: World,
-    private val closeHandle: () -> Unit
+    private val closeHandle: () -> CompletionStage<Void>
 ) : Renderable {
     @Volatile private var pose = ModelPose.IDENTITY
     @Volatile private var model: OrdinaryModel? = null

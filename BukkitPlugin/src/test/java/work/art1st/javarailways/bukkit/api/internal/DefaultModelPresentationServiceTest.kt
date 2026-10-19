@@ -463,7 +463,7 @@ class DefaultModelPresentationServiceTest {
             override fun setBrightness(blockLight: Int, skyLight: Int) { owner(); events += "$name:brightness" }
             override fun clearBrightness() { owner(); events += "$name:brightness-clear" }
             override fun addPassenger(passenger: DisplayVisual): Boolean { owner(); return true }
-            override fun destroy() { owner(); destroyCalls++; events += "$name:destroy"; check(!failDestroy) { "scripted delete failure" }; viewers.clear() }
+            override fun destroy(): java.util.concurrent.CompletionStage<Void> { owner(); destroyCalls++; events += "$name:destroy"; check(!failDestroy) { "scripted delete failure" }; viewers.clear(); return java.util.concurrent.CompletableFuture.completedFuture(null) }
         }
     }
 

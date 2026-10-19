@@ -18,6 +18,8 @@ import work.art1st.javarailways.bukkit.extension.rail.renderer
 import work.art1st.javarailways.bukkit.extension.train.renderer
 import work.art1st.javarailways.bukkit.render.asVector3d
 import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
+import work.art1st.javarailways.core.api.util.DestructionSteps
+import java.util.concurrent.CompletionStage
 import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.render.Renderable
@@ -287,7 +289,8 @@ class RenderChunkManager(
         }
     }
 
-    internal fun remove(renderable: Renderable, position: Vector3dc = renderable.position) {
+    internal fun remove(renderable: Renderable, position: Vector3dc = renderable.position): CompletionStage<Void> {
+        val steps = DestructionSteps()
         remove(renderable, RenderChunk(position))
         renderablePositions.remove(renderable)
         pendingAudienceUpdates.values.forEach { it.updates.remove(renderable) }
@@ -295,9 +298,11 @@ class RenderChunkManager(
         playerIds.forEach { playerId ->
             val player = playerLookup(playerId)
             if (player != null) {
-                dispatcher.runForEntity(player, action = {
-                    setVisible(player, renderable, visible = false)
-                })
+                steps.await {
+                    dispatcher.runForEntityCompletion(player) {
+                        setVisible(player, renderable, visible = false)
+                    }
+                }
             } else {
                 visibleByPlayer[playerId]?.let { renderables ->
                     renderables.remove(renderable)
@@ -305,6 +310,7 @@ class RenderChunkManager(
                 }
             }
         }
+        return steps.finish()
     }
 
     internal fun update(renderable: Renderable, oldPosition: Vector3dc?, newPosition: Vector3dc) {

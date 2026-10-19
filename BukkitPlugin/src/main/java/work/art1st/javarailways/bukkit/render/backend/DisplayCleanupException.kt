@@ -1,4 +1,10 @@
 package work.art1st.javarailways.bukkit.render.backend
 
-/** Explicit cleanup failure, distinct from an ordinary presentation failure that was fully cleaned. */
-internal class DisplayCleanupException(cause: Throwable) : RuntimeException("Display cleanup failed", cause)
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
+
+/** Presentation failed; [cleanup] tracks all cleanup already started before the failure escaped. */
+internal class DisplayCleanupException(
+    cause: Throwable,
+    val cleanup: CompletionStage<Void> = CompletableFuture.failedFuture(cause)
+) : RuntimeException("Display cleanup failed", cause)

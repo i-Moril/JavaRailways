@@ -7,7 +7,6 @@ import work.art1st.javarailways.core.api.util.tick.TickingObject
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.Car
 import org.jetbrains.annotations.ApiStatus
-import work.art1st.javarailways.core.api.util.WeakReferenceWrapper
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.util.CommitBuffer
 import java.util.concurrent.CompletableFuture
@@ -19,15 +18,15 @@ import java.util.concurrent.CompletableFuture
  * accessing Bukkit APIs or blocking the physics worker. Controller state becomes externally visible
  * only after the complete physics epoch is published.
  *
- * @param train controlled train; retained through a weak reference
+ * @param train controlled train; retained while this controller exists
  * @param world world that owns the train
  */
 abstract class TrainController(
     train: Train,
     world: World
 ) : TickingObject, Synchronizable, TickProfiled {
-    /** Controlled train. The weak reference fails fast after the train is no longer live. */
-    val train: Train by WeakReferenceWrapper(train)
+    /** Controlled train; world registrations are removed by its destruction owner. */
+    val train: Train = train
     override val profileCategory: String = "train-controller"
     override val profileId: String get() = train.id
     /** Meters per second, >=0. Published only after the whole physics epoch finishes. */

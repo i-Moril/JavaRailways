@@ -44,7 +44,7 @@ class WorldEventTest {
                             val signal = object : Signal(RailObjectRef("test", "signal"), RailLocationWithoutFacing(rail, 100.0)) {
                                 override val lifecycleState = RailObjectLifecycleState.ACTIVE
                                 override val velocity = org.joml.Vector3d()
-                                override fun destroy() = Unit
+                                override fun destroy(): java.util.concurrent.CompletionStage<Void> = java.util.concurrent.CompletableFuture.completedFuture(null)
                             }
                             val events = listOf(
                                 CollisionEvent(7, world, first.id, second.id, 0.5),

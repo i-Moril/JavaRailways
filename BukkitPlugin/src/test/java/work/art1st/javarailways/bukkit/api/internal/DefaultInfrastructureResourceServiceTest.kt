@@ -1899,7 +1899,6 @@ class DefaultInfrastructureResourceServiceTest {
         override val allTrains: Collection<Train> = emptyList()
 
         override fun getTrain(name: String): Train? = null
-        override fun removeTrain(train: Train) = Unit
         override fun getRail(id: UUID): Rail? = null
         override fun removeRail(rail: Rail) = Unit
         override fun <T : Any> getExtensionDataOrNull(plugin: CorePlugin): T? = null

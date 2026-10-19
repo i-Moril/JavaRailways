@@ -1,5 +1,9 @@
 package work.art1st.javarailways.bukkit.render.model
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
 import org.bukkit.Location
 import org.bukkit.entity.Player
 import org.joml.Vector3dc
@@ -17,6 +21,8 @@ abstract class AbstractModel(
     val attachedModels: Collection<AbstractModel>,
     val animation: Map<String, Animation>
 ) : Destroyable {
+    private val destruction = Destruction()
+
     protected var activeAnimation: Animation.ActiveAnimation? = null
     protected var heldAnimationTransform: CompactTransform? = null
     protected var heldAnimationDisplayState: AnimationDisplayState? = null
@@ -177,14 +183,21 @@ abstract class AbstractModel(
      * the held target scene from the normal held-animation snapshot path.
      */
     fun prepareForUnload() {
-        activeAnimation?.destroy()
+        activeAnimation?.destroy()?.toCompletableFuture()?.getNow(null)
         attachedModels.forEach { it.prepareForUnload() }
     }
 
     @MainThread
-    override fun destroy() {
-        activeAnimation?.destroy()
-        attachedModels.forEach { it.destroy() }
+    @Synchronized
+    final override fun destroy(): CompletionStage<Void> = destruction.run {
+        val steps = DestructionSteps()
+        collectDestruction(steps)
+        steps.finish()
+    }
+
+    protected open fun collectDestruction(steps: DestructionSteps) {
+        activeAnimation?.let { animation -> steps.await { animation.destroy() } }
+        attachedModels.forEach { child -> steps.await { child.destroy() } }
     }
 
     fun forEachModelRecursive(f: (AbstractModel) -> Unit) {

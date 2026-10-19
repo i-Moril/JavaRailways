@@ -1,5 +1,8 @@
 package work.art1st.javarailways.core.physics.train
 
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.CompletableFuture
+import work.art1st.javarailways.core.api.util.Destruction
 import work.art1st.javarailways.core.api.physics.rail.RailObject
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef
@@ -8,7 +11,6 @@ import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.api.util.tick.Synchronizable
 import work.art1st.javarailways.core.api.util.Destroyable
-import java.lang.ref.WeakReference
 import work.art1st.javarailways.core.util.CommitBuffer
 
 /**
@@ -33,10 +35,10 @@ open class TrainEnd(
     final override var lifecycleState: RailObjectLifecycleState = RailObjectLifecycleState.ACTIVE
         private set
 
-    private val trainRef = WeakReference(train)
+    private val ownerTrain = train
 
     val trainOrNull: CoreTrain?
-        get() = trainRef.get()
+        get() = ownerTrain.takeUnless { lifecycleState == RailObjectLifecycleState.REMOVED }
 
     val train: CoreTrain
         get() = trainOrNull ?: throw IllegalStateException("TrainEnd no longer references a live train")
@@ -67,11 +69,13 @@ open class TrainEnd(
 
     override fun commit() = Unit
 
+    private val destruction = Destruction()
+
     @MainThread
-    override fun destroy() {
-        if (lifecycleState == RailObjectLifecycleState.REMOVED) return
-        lifecycleState = RailObjectLifecycleState.REMOVED
+    override fun destroy(): CompletionStage<Void> = destruction.run {
         location.rail.removeTrainEnd(this)
+        lifecycleState = RailObjectLifecycleState.REMOVED
+        CompletableFuture.completedFuture(null)
     }
 
     @MainThread

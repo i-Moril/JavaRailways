@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.render.backend
 
+import java.util.concurrent.CompletionStage
 import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.block.data.BlockData
@@ -34,7 +35,8 @@ interface DisplayVisual {
     /** Remove the override so the client uses natural world light. */
     fun clearBrightness()
     fun addPassenger(passenger: DisplayVisual): Boolean
-    fun destroy()
+    /** Completes when backend removal finishes; repeated calls retain the same outcome. */
+    fun destroy(): CompletionStage<Void>
 }
 
 interface DisplayRenderBackend {

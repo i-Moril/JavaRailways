@@ -1,5 +1,9 @@
 package work.art1st.javarailways.bukkit.render.backend
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
 import com.github.retrooper.packetevents.protocol.entity.EntityPositionData
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes
 import com.github.retrooper.packetevents.util.Quaternion4f
@@ -79,6 +83,7 @@ private class EntityLibDisplayVisual(
 ) : DisplayVisual {
     @Volatile
     private var destroyed = false
+    private val destruction = Destruction()
 
     init {
         entity.entityMeta.setNotifyAboutChanges(false)
@@ -165,10 +170,11 @@ private class EntityLibDisplayVisual(
     }
 
     @Synchronized
-    override fun destroy() {
-        if (destroyed) return
+    override fun destroy(): CompletionStage<Void> = destruction.run {
         destroyed = true
-        entity.remove()
+        val steps = DestructionSteps()
+        steps.action { entity.remove() }
+        steps.finish()
     }
 
     private fun queueMetadata(meta: AbstractDisplayMeta) {

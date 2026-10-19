@@ -1,5 +1,8 @@
 package work.art1st.javarailways.core.physics.train
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import org.joml.*
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.physics.exception.BogieException
@@ -17,7 +20,7 @@ import work.art1st.javarailways.core.api.render.RenderableStateSnapshot
 import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
 import work.art1st.javarailways.core.api.render.Vector3Snapshot
 import work.art1st.javarailways.core.api.util.annotation.MainThread
-import work.art1st.javarailways.core.util.trait.render.DynamicRenderableTrait
+import work.art1st.javarailways.core.api.render.DynamicRenderable
 import work.art1st.javarailways.core.api.util.plugin.Extendable
 import work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
@@ -44,7 +47,7 @@ class CoreCar @MainThread internal constructor(
     override val world: CoreWorld,
     savedExtensionData: Map<String, SerializableExtensionData>,
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Car>> = ExtensionDataContainer()
-) : Car, Reversible, DynamicRenderableTrait<Car>, Extendable<RenderableExtension<Car>> by extensionDataContainer, PersistentBy<SavedCarV1> {
+) : Car, DynamicRenderable, Reversible, Extendable<RenderableExtension<Car>> by extensionDataContainer, PersistentBy<SavedCarV1> {
 
     private val trainOwner = AtomicReference<CoreTrain?>()
 
@@ -127,7 +130,7 @@ class CoreCar @MainThread internal constructor(
     override val velocity: Vector3dc
         get() = motionState.tangentialVelocity
 
-    override var lastState: RenderableStateSnapshot = takeSnapshot()
+    override val initialRenderState: RenderableStateSnapshot = initialRenderSnapshot()
     private var geometryPhysicsDirty: Boolean = false
     private var motionPhysicsDirty: Boolean = false
 
@@ -249,8 +252,16 @@ class CoreCar @MainThread internal constructor(
     )
 
     init {
-        this.initialize(savedExtensionData)
+        extensionDataContainer.extensionData.forEach { it?.initialize(this, savedExtensionData) }
     }
+
+    private fun initialRenderSnapshot(): RenderableStateSnapshot = RenderableStateSnapshot(
+        position = position,
+        direction = direction,
+        normal = normal,
+        velocity = velocity,
+        world = world
+    )
 
     private fun connectorPosition(location: RailLocationWithFacing): Vector3dc =
         location.position + location.normal * floorHeight
@@ -688,9 +699,13 @@ class CoreCar @MainThread internal constructor(
         updateMotionStateByHeadBogie()
     }
 
-    override fun destroy() {
-        bogies.forEach { it.destroy() }
-        super.destroy()
+    private val destruction = Destruction()
+
+    override fun destroy(): CompletionStage<Void> = destruction.run {
+        val steps = DestructionSteps()
+        bogies.forEach { steps.await { it.destroy() } }
+        extensionDataContainer.extensionData.filterNotNull().forEach { steps.await { it.destroy() } }
+        steps.finish()
     }
 
     /** Publishes Core state after all workers finish reading the previous epoch. */

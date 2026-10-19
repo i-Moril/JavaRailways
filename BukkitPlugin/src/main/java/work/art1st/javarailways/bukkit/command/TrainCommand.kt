@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.command
 
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import org.joml.Vector3d
@@ -325,12 +326,18 @@ object TrainCommand {
                 if (!published && coreWorld.physicsCoordinator.status ==
                     work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus.RUNNING
                 ) {
-                    runCatching {
-                        createdTrain?.let { failed ->
-                            coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.remove(failed.id)
-                            failed.destroyOnOwner()
-                        } ?: cars.forEach(CoreCar::destroy)
-                    }.exceptionOrNull()?.let(failure::addSuppressed)
+                    val cleanup = DestructionSteps()
+                    val failed = createdTrain
+                    if (failed != null) {
+                        cleanup.action { coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.remove(failed.id) }
+                        cleanup.await { failed.destroy() }
+                    } else cars.forEach { car -> cleanup.await { car.destroy() } }
+                    cleanup.finish().whenComplete { _, cleanupFailure ->
+                        if (cleanupFailure != null) {
+                            failure.addSuppressed(cleanupFailure)
+                            BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.SEVERE, "Failed train creation cleanup", cleanupFailure)
+                        }
+                    }
                 }
                 throw failure
             }
@@ -694,9 +701,8 @@ object TrainCommand {
             playerControllers.entries.removeIf { it.value.controlledTrain === train }
             BukkitPlugin.INSTANCE.trainControlManager.releaseTrain(train)
             coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.remove(train.id)
-            train.destroyOnOwner()
-            listOf("已删除列车: ${train.id}")
-        }
+            train.destroy()
+        }.thenCompose { cleanup -> cleanup.thenApply { listOf("已删除列车: ${train.id}") } }
         deletion.thenRun {
             BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
                 AbnormalTrainMarker.clearTrain(platformWorld, train.id)

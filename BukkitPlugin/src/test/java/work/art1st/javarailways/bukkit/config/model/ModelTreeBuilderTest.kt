@@ -158,6 +158,6 @@ class ModelTreeBuilderTest {
         override fun setBrightness(blockLight: Int, skyLight: Int) = Unit
         override fun clearBrightness() = Unit
         override fun addPassenger(passenger: DisplayVisual): Boolean = true
-        override fun destroy() = Unit
+        override fun destroy(): java.util.concurrent.CompletionStage<Void> = java.util.concurrent.CompletableFuture.completedFuture(null)
     }
 }

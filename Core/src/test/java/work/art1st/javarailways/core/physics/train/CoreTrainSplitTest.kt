@@ -393,7 +393,7 @@ class CoreTrainSplitTest {
             assertSame(train.publishedFrame, mailboxFrames[train.id])
             assertSame(separated.publishedFrame, mailboxFrames[separated.id])
 
-            world.onOwnerForTest { world.removeTrain(train) }
+            world.onOwnerForTest { world.unregisterTrain(train) }
             train.cars.forEach { assertNull(it.train) }
             separated.cars.forEach { assertSame(separated, it.train) }
         }

@@ -1,6 +1,11 @@
 package work.art1st.javarailways.bukkit.render.backend
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+
 import io.papermc.paper.entity.TeleportFlag
+import work.art1st.javarailways.bukkit.BukkitPlugin
+import work.art1st.javarailways.bukkit.util.PlatformDispatcher
 import org.bukkit.Location
 import org.bukkit.World
 import org.bukkit.entity.BlockDisplay
@@ -49,11 +54,13 @@ class NativeDisplayRenderBackend(
 
 internal class NativeDisplayVisual(
     private val plugin: Plugin,
-    private val entity: Display
+    private val entity: Display,
+    private val dispatcher: PlatformDispatcher = BukkitPlugin.INSTANCE.platformDispatcher
 ) : DisplayVisual {
     override val affinityEntity get() = entity
     @Volatile
     private var destroyed = false
+    private val destruction = Destruction()
 
     @Synchronized
     override fun showTo(player: Player) {
@@ -97,9 +104,8 @@ internal class NativeDisplayVisual(
     }
 
     @Synchronized
-    override fun destroy() {
-        if (destroyed) return
+    override fun destroy(): CompletionStage<Void> = destruction.run {
         destroyed = true
-        entity.remove()
+        dispatcher.runForEntityCompletion(entity) { entity.remove() }
     }
 }

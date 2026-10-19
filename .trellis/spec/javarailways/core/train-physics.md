@@ -151,7 +151,7 @@ head-forward mission route前面，以满足Basic“冻结路线从物理车尾�
 
 公开`tail`、`bodyTraversal`与`tailTraversal`的长期安全语义是“保守安全车尾”，而不是强制精确几何车尾。当前实现发布精确train-end；未来低精度模式可让安全车尾落后于真实车尾并延迟释放，但禁止让它沿行驶方向领先真实车尾。与此一致，`bodyTraversal`和`occupiedIntervals`必须覆盖epoch末真实车体；允许多占，不允许漏占。
 
-完整删除由`CoreTrain.destroyAsync()`提交协调器帧间操作：移除controller、销毁head/tail/cars/extensions、移除world索引，再刷新共享占用和世界帧。`destroy(): Unit`只提交同一操作；需要确认结果的调用方必须消费Future。`World.removeTrain`只删index并退休process-local render ownership proof，不能独立代表destroy。
+完整删除只有`Train.destroy(): CompletionStage<Void>`一个公开入口。它进入协调器帧间作用域，移除controller、head/tail、cars/extensions及world索引，再刷新共享占用和世界帧；返回结果等待所有子资源实际清理完成，包括平台实体异步删除。重复调用返回同一结果，失败通过结果传播并使协调器stall。World只保留internal unregisterTrain，不能绕过完整销毁。耦合内部retireAfterCoupling仅退休原身份，不销毁已转移车厢。TrainController和TrainEnd强引用所属列车，注销消除外部根引用；普通循环引用不阻止JVM回收。
 
 每个runtime `CoreTrain`持有不持久化的publication stream UUID；`CoreCar`只用一个`AtomicReference<CoreTrain?>`保存当前owner，公开`Car.train`读取同一引用，render proof从该owner派生UUID，不维护两份归属或全世界索引。构造完整成功后才绑定cars；prepare失败保留旧owner；link转移后移除旧train，split新构造取得其cars。`CoreWorld.removeTrain`按exact旧train实例CAS退休，仅清除仍属自己的car；已转移或同ID替换不受影响。查询/转移均O(1)，整列绑定沿用原cars遍历。原用例覆盖构造/解编失败及成功、旧owner退休和同ID重建；不改变旧link事务、epoch或存档语义。
 
@@ -165,7 +165,7 @@ head-forward mission route前面，以满足Basic“冻结路线从物理车尾�
 
 `CannotCreateTrainException(message: String? = null)`保留JVM无参构造和默认null消息，另可接收不可变诊断文本；不持有live列车或位置对象。正常构造的head/tail定位返回null时才生成消息，记录失败端、列车ID、输入转向架anchor的rail/facing/弧长以及有符号端点位移（米）。anchor是本次定位的起点，不是尚未生成的失败端点坐标；例如120m线路上从119m请求+2.5m定位HEAD，应说明起点119m和请求+2.5m，而非声称已得到121.5m的合法轨道位置。这里没有被捕获的原异常，不人为增加cause。消息供玩家/维护者排错，不是稳定可解析协议；split/link的其他拒绝点不因此改变。此改动不增加成功路径扫描或改变失败注册/清理边界。
 
-随后依次创建注册head/tail、添加world索引、初始化train extensions、生成初始published frame。该阶段失败时，构造器仅撤销自己已完成的注册：移除controller，分别destroy已创建的车端，只在本次`addTrain`成功后移除world索引。清理逐项尝试，失败附加到原异常的`suppressed`后继续，最终重抛原异常。不能在身份拒绝后无条件`removeTrain`，否则可能删除同ID的原列车及其frame。
+随后依次创建注册head/tail、添加world索引、初始化train extensions、生成初始published frame。该阶段失败时，构造器仅撤销自己已完成的注册：移除controller，分别destroy已创建的车端，只在本次`addTrain`成功后移除world索引。清理逐项尝试，失败附加到原异常的`suppressed`后继续，最终重抛原异常。不能在身份拒绝后无条件`unregisterTrain`，否则可能删除同ID的原列车及其frame。
 
 构造未返回时，传入cars仍由调用方拥有；此清理不调用完整`destroy()`或`discardFailedLoad()`，不销毁cars/bogies。已返回列车的加载恢复失败仍由[持久化加载边界](./persistence.md)处理。`TrainExtension`没有通用destroy/rollback协议，本边界不承诺撤销extension任意外部副作用；正常的列车销毁及结构变更也不能用此局部清理替代。
 
@@ -253,7 +253,7 @@ CoreCar 拥有车内和车间几何求解。正常运行时 controller 先移动
 | external `derail(reason)` / `derailAsync(reason)` | 完整帧间操作，reason非blank、确切live train | 共享train/world/occupancy发布后Main event，仅一次 |
 | controller reverse奇数request | 在帧间owner执行方向准备/安装 | 完整快照及Main事件后完成Future，下一epoch正常movement |
 | 同一待执行操作捕获偶数次reverse | 帧间抵消 | 无direction mutation或额外publication |
-| `destroy()` / `destroyAsync()` | 提交完整帧间cleanup | 共享占用/world刷新后Future完成 |
+| `destroy()` | 提交完整帧间cleanup | 共享占用/world刷新且子资源清理完成后stage完成 |
 
 Reverse改变operating head/tail，但保持`Car.direction`的模型/渲染朝向不变。`Car.operatingDirection`是只读派生值，
 表示正的`moveTrainForward`距离对应的当前物理前进方向；换向后它必须翻转，供Basic坡度计算使用。不得把这两个方向
@@ -317,8 +317,7 @@ Core拥有状态准备及发布；平台将完整创建/删除操作排队，初
 
 准备失败不发布；开始安装或共享发布失败令Core进入STALLED，不能再按普通创建/加载失败反向删除实体。
 创建者只在未成功发布且Core仍RUNNING时清理自己拥有的候选。方向通知发生在提交之后，通知失败不代表可以回滚。
-`destroyOnOwner()`校验作用域和确切live身份，完整清理后刷新共享观测；`destroyAsync(): CompletableFuture<Unit>`
-将该操作排队，结果表示真实删除完成，不表示Bukkit实体呈现已完成。
+`destroy(): CompletionStage<Void>`在当前owner作用域内直接执行，否则排队。owner同步撤销注册和刷新共享观测，随后异步汇总所有子资源结果；禁止在owner线程join/get等待平台任务。
 
 准备及安装随变化列车车厢/路径数量增长，共享索引每批低频重建一次；不增加普通tick扫描或另一套占用索引。
 `BetweenFramesOperationsTest`验证阻塞worker期间创建不可提前执行、运行中创建使用当前epoch、删除后注册/车厢归属/
@@ -330,7 +329,7 @@ Core拥有状态准备及发布；平台将完整创建/删除操作排队，初
 完整destroy按owner顺序清资源：
 
 ```kotlin
-train.destroyAsync().whenComplete { _, failure -> /* 将真实结果回送平台owner */ }
+train.destroy().whenComplete { _, failure -> /* 将真实结果回送平台owner */ }
 ```
 
 来源：`CoreTrain.kt`。它避免只删world map后遗留controller、TrainEnd或render extension。

@@ -120,9 +120,11 @@ internal object TrainCoupling {
             masterSlots.clear()
             masterSlots.addAll(extensions)
             prepared.structure.geometry.cars.forEach { it.transferPublicationOwnership(master) }
-            removed.head.destroy()
-            removed.tail.destroy()
-            world.removeTrain(removed)
+            removed.retireAfterCoupling().whenComplete { _, failure ->
+                if (failure != null) world.physicsCoordinator.stall(
+                    "Coupled train retirement failed: train=${removed.id}", failure
+                )
+            }
             master.applyPreparedStructure(prepared.structure)
             world.applyPreparedOccupancy(occupancy)
             world.publishWorldFrame(prepared.structure.frame.physicsEpoch)

@@ -1,5 +1,8 @@
 package work.art1st.javarailways.core.physics.train
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.joml.unaryMinus
@@ -12,7 +15,7 @@ import work.art1st.javarailways.core.api.render.RenderableStateSnapshot
 import work.art1st.javarailways.core.api.render.RenderableFrameSnapshot
 import work.art1st.javarailways.core.api.render.Vector3Snapshot
 import work.art1st.javarailways.core.api.util.annotation.MainThread
-import work.art1st.javarailways.core.util.trait.render.DynamicRenderableTrait
+import work.art1st.javarailways.core.api.render.DynamicRenderable
 import work.art1st.javarailways.core.api.util.plugin.Extendable
 import work.art1st.javarailways.core.api.util.plugin.ExtensionDataContainer
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
@@ -29,7 +32,7 @@ class CoreBogie @MainThread internal constructor(
     isSameDirectionAsFacing: Boolean = true,
     savedExtensionData: Map<String, SerializableExtensionData>,
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Bogie>> = ExtensionDataContainer()
-) : Bogie, DynamicRenderableTrait<Bogie>, Reversible, Extendable<RenderableExtension<Bogie>> by extensionDataContainer, PersistentBy<SavedBogieV1> {
+) : Bogie, DynamicRenderable, Reversible, Extendable<RenderableExtension<Bogie>> by extensionDataContainer, PersistentBy<SavedBogieV1> {
 
     companion object {
         @JvmStatic
@@ -64,12 +67,28 @@ class CoreBogie @MainThread internal constructor(
     override val world
         get() = location.rail.world
 
-    override var lastState: RenderableStateSnapshot = takeSnapshot()
+    override val initialRenderState: RenderableStateSnapshot = initialRenderSnapshot()
     private var locationPhysicsDirty = false
     private var velocityPhysicsDirty = false
 
     init {
-        this.initialize(savedExtensionData)
+        extensionDataContainer.extensionData.forEach { it?.initialize(this, savedExtensionData) }
+    }
+
+    private fun initialRenderSnapshot(): RenderableStateSnapshot = RenderableStateSnapshot(
+        position = position,
+        direction = direction,
+        normal = normal,
+        velocity = velocity,
+        world = world
+    )
+
+    private val destruction = Destruction()
+
+    override fun destroy(): CompletionStage<Void> = destruction.run {
+        val steps = DestructionSteps()
+        extensionDataContainer.extensionData.filterNotNull().forEach { steps.await { it.destroy() } }
+        steps.finish()
     }
 
     @Throws(BogieException::class)

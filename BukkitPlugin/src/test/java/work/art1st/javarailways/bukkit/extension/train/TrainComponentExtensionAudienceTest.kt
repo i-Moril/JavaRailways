@@ -54,8 +54,9 @@ class TrainComponentExtensionAudienceTest {
             calls += "refresh"
         }
 
-        override fun destroyModel() {
+        override fun destroyModel(): java.util.concurrent.CompletionStage<Void> {
             calls += "destroy"
+            return java.util.concurrent.CompletableFuture.completedFuture(null)
         }
     }
 

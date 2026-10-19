@@ -1,5 +1,9 @@
 package work.art1st.javarailways.bukkit.render.model
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
 import io.papermc.paper.datacomponent.DataComponentTypes
 import io.papermc.paper.datacomponent.item.CustomModelData
 import net.kyori.adventure.key.Key
@@ -12,7 +16,6 @@ import work.art1st.javarailways.bukkit.api.model.ModelAnimation
 import work.art1st.javarailways.bukkit.api.model.ModelPart
 import work.art1st.javarailways.bukkit.api.model.ModelPose
 import work.art1st.javarailways.bukkit.api.model.ModelScale
-import work.art1st.javarailways.bukkit.render.backend.DisplayCleanupException
 
 /**
  * Internal scene adapter over the existing renderer; construction and calls require the target owner.
@@ -26,6 +29,7 @@ internal class OrdinaryModel(
     private val visuals: List<work.art1st.javarailways.bukkit.render.backend.DisplayVisual>
 ) {
     internal val affinityEntity get() = composite.affinityEntity
+    private val destruction = Destruction()
     @Volatile private var destroyed = false
     internal class Binding(val model: AbstractModel, val path: String, val definition: ModelPart)
     private val modelsByPath = parts.associate { it.path to it.model }
@@ -61,17 +65,13 @@ internal class OrdinaryModel(
     // Kept out of the public API: dispatch, close gating and world lifecycle belong to the later handle.
     fun showTo(player: Player) { if (!destroyed) composite.showTo(player) }
     fun hideFrom(player: Player) { if (!destroyed) composite.hideFrom(player) }
-    fun destroy() {
-        if (destroyed) return
+    fun destroy(): CompletionStage<Void> = destruction.run {
         destroyed = true
-        var failure: Throwable? = null
-        visuals.asReversed().forEach { visual ->
-            try { visual.destroy() } catch (cleanup: Throwable) {
-                if (failure == null) failure = cleanup else failure.addSuppressed(cleanup)
-            }
-        }
-        failure?.let { throw DisplayCleanupException(it) }
+        val steps = DestructionSteps()
+        visuals.asReversed().forEach { visual -> steps.await { visual.destroy() } }
+        steps.finish()
     }
+
 }
 
 internal fun ModelPose.toCompactTransform(scale: ModelScale = ModelScale.UNIT): CompactTransform = CompactTransform(

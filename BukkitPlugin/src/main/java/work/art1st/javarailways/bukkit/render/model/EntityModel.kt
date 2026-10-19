@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.render.model
 
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import org.bukkit.Location
 import org.bukkit.entity.Entity
 import org.bukkit.entity.LivingEntity
@@ -71,13 +72,13 @@ abstract class EntityModel internal constructor(
         return yaw to pitch
     }
 
-    override fun destroy() {
-        super.destroy()
+    override fun collectDestruction(steps: DestructionSteps) {
+        super.collectDestruction(steps)
         entitySyncRevision.incrementAndGet()
         val current = entity
         entity = null
         if (current != null) {
-            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(current, action = { current.remove() })
+            steps.await { BukkitPlugin.INSTANCE.platformDispatcher.runForEntityCompletion(current) { current.remove() } }
         }
     }
 }

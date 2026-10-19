@@ -311,8 +311,8 @@ class CoreWorld(
     }
 
     @MainThread
-    override fun removeTrain(train: Train) {
-        physicsCoordinator.ensureBetweenFrames("CoreWorld.removeTrain")
+    internal fun unregisterTrain(train: Train) {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.unregisterTrain")
         if (trains.remove(train.id, train)) {
             publishedTrainFrames.remove(train.id)
         }

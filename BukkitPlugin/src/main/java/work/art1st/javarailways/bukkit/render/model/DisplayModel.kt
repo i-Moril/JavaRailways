@@ -3,6 +3,7 @@ package work.art1st.javarailways.bukkit.render.model
 import io.papermc.paper.datacomponent.DataComponentTypes
 import io.papermc.paper.datacomponent.item.CustomModelData
 import net.kyori.adventure.key.Key
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.entity.Player
@@ -128,8 +129,8 @@ class DisplayModel internal constructor(
     }
 
     @MainThread
-    override fun destroy() {
-        super.destroy()
-        visual.destroy()
+    override fun collectDestruction(steps: DestructionSteps) {
+        super.collectDestruction(steps)
+        steps.await { visual.destroy() }
     }
 }

@@ -194,7 +194,7 @@ class CoreTrainAsymmetricTurnoutTest {
     fun `exact saved train ends restore across the same unset reverse active path`() =
         withFixture { fixture ->
             val saved = fixture.train.save()
-            fixture.world.onOwnerForTest { fixture.world.removeTrain(fixture.train) }
+            fixture.world.onOwnerForTest { fixture.world.unregisterTrain(fixture.train) }
             fixture.junction.viewBA.activeRail = null
 
             assertDoesNotThrow {

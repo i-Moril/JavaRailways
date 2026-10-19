@@ -15,6 +15,7 @@ import work.art1st.javarailways.bukkit.render.model.OrdinarySceneIndex
 import work.art1st.javarailways.bukkit.render.backend.DisplayCleanupException
 import work.art1st.javarailways.bukkit.util.LatestAffinityTaskDispatcher
 import work.art1st.javarailways.bukkit.util.PlatformDispatcher
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import work.art1st.javarailways.core.api.physics.World
 import java.util.UUID
 import java.util.Optional
@@ -212,10 +213,13 @@ internal class DefaultModelPresentationService(
         }
 
         private fun execute(complete: () -> Unit) {
+            var completingAsynchronously = false
             try {
                 if (stopped || !identity.world.available || !identity.owner.isEnabled) {
-                    destroyModel()
-                    finish(null)
+                    completingAsynchronously = true
+                    destroyModel().whenComplete { _, failure ->
+                        try { finish(failure) } finally { complete() }
+                    }
                     return
                 }
                 val next = synchronized(stateLock) { pending.also { pending = null } } ?: return
@@ -227,11 +231,19 @@ internal class DefaultModelPresentationService(
                 val previous = applied?.transform()
                 if (model != null && previous != null && (previous.x() != state.transform().x() ||
                     previous.y() != state.transform().y() || previous.z() != state.transform().z())) {
-                    destroyModel()
-                    // Preserve a newer pending state if one arrived during the old-owner destruction.
-                    synchronized(stateLock) { if (!stopped && pending == null) pending = next }
-                    location = null
-                    offer()
+                    completingAsynchronously = true
+                    destroyModel().whenComplete { _, failure ->
+                        try {
+                            if (failure != null) {
+                                finish(failure)
+                            } else {
+                                // Rebuild only after the old model's resources have been removed.
+                                synchronized(stateLock) { if (!stopped && pending == null) pending = next }
+                                location = null
+                                offer()
+                            }
+                        } finally { complete() }
+                    }
                     return
                 }
                 if (model == null) {
@@ -248,8 +260,10 @@ internal class DefaultModelPresentationService(
                 model!!.submit(state.transform(), next.selection)
                 applied = state
                 if (stopped || !identity.world.available || !identity.owner.isEnabled) {
-                    destroyModel()
-                    finish(null)
+                    completingAsynchronously = true
+                    destroyModel().whenComplete { _, failure ->
+                        try { finish(failure) } finally { complete() }
+                    }
                     return
                 }
                 if (audience == null) {
@@ -259,28 +273,33 @@ internal class DefaultModelPresentationService(
                     identity.world.audiences.update(published, null, published.position)
                 }
             } catch (failure: Throwable) {
-                var cleanupFailure: Throwable? = failure.takeIf { it is DisplayCleanupException }
-                try { destroyModel() } catch (cleanup: Throwable) { failure.addSuppressed(cleanup); cleanupFailure = cleanup }
-                report(failure)
-                finish(cleanupFailure)
-            } finally { complete() }
+                completingAsynchronously = true
+                val steps = DestructionSteps()
+                if (failure is DisplayCleanupException) steps.await { failure.cleanup }
+                steps.await { destroyModel() }
+                steps.finish().whenComplete { _, cleanupFailure ->
+                    try {
+                        if (cleanupFailure != null && cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+                        report(failure)
+                        finish(cleanupFailure)
+                    } finally { complete() }
+                }
+            } finally { if (!completingAsynchronously) complete() }
         }
 
         private fun at(pose: ModelPose) = Location(identity.world.bukkitWorld, pose.x(), pose.y(), pose.z())
 
-        private fun destroyModel() {
+        private fun destroyModel(): CompletionStage<Void> {
             val oldAudience = audience
             audience = null
-            oldAudience?.withdraw()
-            var failure: Throwable? = null
-            try { oldAudience?.let { identity.world.audiences.remove(it) } } catch (error: Throwable) { failure = error }
             val oldModel = model
             model = null
             applied = null
-            try { oldModel?.destroy() } catch (error: Throwable) {
-                if (failure == null) failure = error else failure.addSuppressed(error)
-            }
-            failure?.let { throw DisplayCleanupException(it) }
+            val steps = DestructionSteps()
+            steps.action { oldAudience?.withdraw() }
+            if (oldAudience != null) steps.await { identity.world.audiences.remove(oldAudience) }
+            if (oldModel != null) steps.await { oldModel.destroy() }
+            return steps.finish()
         }
 
         fun unavailable(failure: Throwable) {

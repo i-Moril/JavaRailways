@@ -110,12 +110,10 @@ class ModelTreeBuilder internal constructor(
             val root = createDisplayVisual(rootLocation.clone(), ItemStack.of(Material.AIR), 0, 0).also(createdVisuals::add)
             return OrdinaryModel(CompositeModel(world, models, root, rootLocation.world), bindings, sceneIndex, createdVisuals.toList())
         } catch (failure: Throwable) {
-            var cleanupFailed = false
-            createdVisuals.asReversed().forEach { visual ->
-                try { visual.destroy() } catch (cleanup: Throwable) { failure.addSuppressed(cleanup); cleanupFailed = true }
-            }
-            if (cleanupFailed) throw DisplayCleanupException(failure)
-            throw failure
+            val cleanup = work.art1st.javarailways.core.api.util.DestructionSteps()
+            if (failure is DisplayCleanupException) cleanup.await { failure.cleanup }
+            createdVisuals.asReversed().forEach { visual -> cleanup.await { visual.destroy() } }
+            throw DisplayCleanupException(failure, cleanup.finish())
         }
     }
 

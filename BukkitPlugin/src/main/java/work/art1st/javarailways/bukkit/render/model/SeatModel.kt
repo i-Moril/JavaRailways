@@ -22,6 +22,9 @@ import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.physics.train.Train
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
@@ -47,6 +50,7 @@ class SeatModel internal constructor(
     private val spawnScheduled = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile
     private var retired = false
+    private val pendingRemovals = mutableListOf<CompletableFuture<Void>>()
 
     init {
         SeatInteractionListener.ensureRegistered()
@@ -79,7 +83,7 @@ class SeatModel internal constructor(
                         driverSeat = driverSeat,
                         controlEnd = controlEnd,
                         ensureCarrier = ::ensureCarrier,
-                        destroyCarrier = ::destroyCarrier,
+                        destroyCarrier = { destroyCarrier() },
                         alignAfterDismount = ::alignAfterDismount
                     ).also { binding ->
                         SeatInteractionListener.register(hitbox.uniqueId, binding)
@@ -92,6 +96,7 @@ class SeatModel internal constructor(
     }
 
     fun refreshActivation(player: Player, playerLocation: Location = player.location) {
+        if (retired) return
         if (!isEligible(player)) {
             deactivateFor(player)
             return
@@ -145,16 +150,18 @@ class SeatModel internal constructor(
         }
     }
 
-    override fun destroy() {
+    override fun collectDestruction(steps: DestructionSteps) {
         retired = true
         movementRevision.incrementAndGet()
         activePlayers.clear()
-        destroyRuntimeEntities(force = true)
-        super.destroy()
+        steps.await { destroyRuntimeEntities(force = true) }
+        pendingRemovals.forEach { pending -> steps.await { pending } }
+        super.collectDestruction(steps)
     }
 
     @Synchronized
     private fun ensureCarrier(): Entity {
+        check(!retired) { "Seat model is retired" }
         carrierEntity?.takeIf { it.isValid }?.let { return it }
         destroyCarrier()
         val hitbox = entity as? Interaction ?: error("Seat hitbox not initialized")
@@ -175,36 +182,42 @@ class SeatModel internal constructor(
     }
 
     @Synchronized
-    private fun destroyCarrier() {
+    private fun destroyCarrier(): CompletionStage<Void> {
         movementRevision.incrementAndGet()
         val binding = seatBinding
-        val carrier = carrierEntity ?: binding?.carrier ?: return
-        if (binding != null) SeatInteractionListener.unbindCarrier(binding)
+        val carrier = carrierEntity ?: binding?.carrier ?: return CompletableFuture.completedFuture(null)
         binding?.carrier = null
         carrierEntity = null
-        BukkitPlugin.INSTANCE.packetEntityMotion?.release(carrier)
-        BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(carrier, action = {
-            carrier.eject()
-            carrier.remove()
-        })
+        val steps = DestructionSteps()
+        // Remove the lookup using the captured carrier after detaching its binding.
+        steps.action { SeatInteractionListener.unbindCarrier(carrier) }
+        steps.action { BukkitPlugin.INSTANCE.packetEntityMotion?.release(carrier) }
+        steps.await { BukkitPlugin.INSTANCE.platformDispatcher.removeEntityWithPassengers(carrier) }
+        return trackRemoval(steps.finish())
     }
 
     @Synchronized
-    private fun destroyRuntimeEntities(force: Boolean) {
-        if (!force && carrierEntity != null) return
+    private fun destroyRuntimeEntities(force: Boolean): CompletionStage<Void> {
+        if (!force && carrierEntity != null) return CompletableFuture.completedFuture(null)
         movementRevision.incrementAndGet()
-        destroyCarrier()
-        (entity as? Interaction)?.let { hitbox ->
-            SeatInteractionListener.unregister(hitbox.uniqueId)
-            BukkitPlugin.INSTANCE.packetEntityMotion?.release(hitbox)
-            BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(hitbox, action = {
-                hitbox.eject()
-                hitbox.remove()
-            })
-        }
+        val steps = DestructionSteps()
+        steps.await { destroyCarrier() }
+        val hitbox = entity as? Interaction
         entity = null
         seatBinding = null
         latestCarrierLocation = null
+        if (hitbox != null) {
+            steps.action { SeatInteractionListener.unregister(hitbox.uniqueId) }
+            steps.action { BukkitPlugin.INSTANCE.packetEntityMotion?.release(hitbox) }
+            steps.await { BukkitPlugin.INSTANCE.platformDispatcher.removeEntityWithPassengers(hitbox) }
+        }
+        return trackRemoval(steps.finish())
+    }
+
+    private fun trackRemoval(completion: CompletionStage<Void>): CompletionStage<Void> {
+        pendingRemovals.removeAll { it.isDone && !it.isCompletedExceptionally }
+        pendingRemovals += completion.toCompletableFuture()
+        return completion
     }
 
     private fun alignAfterDismount(player: Player) {
@@ -337,8 +350,8 @@ class SeatModel internal constructor(
             seatsByCarrier[carrier.uniqueId] = binding
         }
 
-        fun unbindCarrier(binding: SeatBinding) {
-            binding.carrier?.let { seatsByCarrier.remove(it.uniqueId) }
+        fun unbindCarrier(carrier: Entity) {
+            seatsByCarrier.remove(carrier.uniqueId)
         }
 
         fun addDriverSeatVacatedHandler(handler: (Player, Train) -> Unit) {

@@ -31,11 +31,13 @@ class OrdinaryModelTest {
                 when (method.name) { "toString" -> "PartialModelWorld"; else -> error("Unexpected call ${method.name}") }
             } as BukkitWorld
             try {
-                assertThrows(IllegalStateException::class.java) {
+                val failure = assertThrows(work.art1st.javarailways.bukkit.render.backend.DisplayCleanupException::class.java) {
                     ModelTreeBuilder(world, backend, 1.0f).buildModel(
                         ModelDefinition(listOf(item(), item())), Location(bukkitWorld, 0.0, 64.0, 0.0)
                     )
                 }
+                assertTrue(failure.cleanup.toCompletableFuture().isDone)
+                assertFalse(failure.cleanup.toCompletableFuture().isCompletedExceptionally)
                 assertTrue(backend.visuals.isNotEmpty())
                 assertTrue(backend.visuals.all { it.destroyCalls == 1 }, "all partially created visuals must be released exactly once")
             } finally {
@@ -297,7 +299,10 @@ class OrdinaryModelTest {
         override fun setBrightness(blockLight: Int, skyLight: Int) { brightness = ItemAppearance.Brightness(blockLight, skyLight); calls++ }
         override fun clearBrightness() { brightness = null; clearBrightnessCalls++; calls++ }
         override fun addPassenger(passenger: DisplayVisual): Boolean { check(!failMount) { "Scripted mount failure" }; return true }
-        override fun destroy() { destroyCalls++; calls++ }
+        override fun destroy(): java.util.concurrent.CompletionStage<Void> {
+            destroyCalls++; calls++
+            return java.util.concurrent.CompletableFuture.completedFuture(null)
+        }
     }
 
     companion object {

@@ -6,6 +6,9 @@ import org.bukkit.Location
 import org.bukkit.entity.Entity
 import org.bukkit.plugin.Plugin
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.RejectedExecutionException
 
 /**
  * Paper/Folia-compatible execution boundary. Paper implements these schedulers too, so callers do
@@ -17,6 +20,39 @@ interface PlatformDispatcher {
     fun runAsync(action: () -> Unit)
     fun runAt(location: Location, action: () -> Unit)
     fun runForEntity(entity: Entity, action: () -> Unit, retired: () -> Unit = {}): Boolean
+    /** Completes only when the entity-owner action has run; retirement/rejection is an explicit failure. */
+    fun runForEntityCompletion(entity: Entity, action: () -> Unit): CompletionStage<Void> {
+        val completion = CompletableFuture<Void>()
+        try {
+            val accepted = runForEntity(entity, action = {
+                try {
+                    action()
+                    completion.complete(null)
+                } catch (failure: Throwable) {
+                    completion.completeExceptionally(failure)
+                }
+            }, retired = {
+                completion.completeExceptionally(RejectedExecutionException("Entity retired before cleanup ran"))
+            })
+            if (!accepted) {
+                completion.completeExceptionally(RejectedExecutionException("Entity cleanup was not accepted"))
+            }
+        } catch (failure: Throwable) {
+            completion.completeExceptionally(failure)
+        }
+        return completion
+    }
+
+    /** Ejection failure must not prevent the removal attempt. */
+    fun removeEntityWithPassengers(entity: Entity): CompletionStage<Void> = runForEntityCompletion(entity) {
+        var failure: Throwable? = null
+        try { entity.eject() } catch (caught: Throwable) { failure = caught }
+        try { entity.remove() } catch (caught: Throwable) {
+            if (failure == null) failure = caught else if (failure !== caught) failure.addSuppressed(caught)
+        }
+        failure?.let { throw it }
+    }
+
     fun runForEntityLater(
         entity: Entity,
         delayTicks: Long,

@@ -25,6 +25,31 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class CoreTrainConstructionTest {
+    @Test
+    fun `destroy detaches immediately on owner and waits for every child cleanup once`() = withWorld { world, rail ->
+        val train = createTrainWithConfig("async-cleanup", rail, world, listOf(10.0))
+        val pending = java.util.concurrent.CompletableFuture<Void>()
+        val calls = AtomicInteger()
+        train.cars.single().extensionDataContainer.extensionData.add(object : RenderableExtension<work.art1st.javarailways.core.api.physics.train.Car> {
+            override fun initialize(host: work.art1st.javarailways.core.api.physics.train.Car, savedExtensionData: Map<String, SerializableExtensionData>) = Unit
+            override fun save(): Pair<String, SerializableExtensionData>? = null
+            override fun commit() = Unit
+            override fun destroy(): java.util.concurrent.CompletionStage<Void> {
+                calls.incrementAndGet()
+                return pending
+            }
+        })
+        val result = world.onOwnerForTest { train.destroy() }
+        assertNull(world.getTrain(train.id))
+        assertEquals(RailObjectLifecycleState.REMOVED, train.head.lifecycleState)
+        assertEquals(RailObjectLifecycleState.REMOVED, train.tail.lifecycleState)
+        assertTrue(!result.toCompletableFuture().isDone)
+        assertSame(result, train.destroy())
+        assertEquals(1, calls.get())
+        pending.complete(null)
+        result.toCompletableFuture().get(5, TimeUnit.SECONDS)
+    }
+
     @ParameterizedTest(name = "id={0}, name={1}, saved load={2}")
     @CsvSource(
         "original-id, Other, false",
@@ -220,8 +245,9 @@ class CoreTrainConstructionTest {
         override fun initialize(host: T, savedExtensionData: Map<String, SerializableExtensionData>) = Unit
         override fun save(): Pair<String, SerializableExtensionData>? = null
         override fun commit() = Unit
-        override fun destroy() {
+        override fun destroy(): java.util.concurrent.CompletionStage<Void> {
             destroys.incrementAndGet()
+            return java.util.concurrent.CompletableFuture.completedFuture(null)
         }
     }
 

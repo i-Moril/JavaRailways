@@ -1,5 +1,11 @@
 package work.art1st.javarailways.bukkit.extension.rail
 
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.CompletableFuture
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
+
 import org.joml.Vector3d
 import org.joml.Vector3dc
 import org.bukkit.inventory.ItemStack
@@ -61,8 +67,12 @@ class RailArcVisualSegment(
     override val normal: Vector3dc = Vector3d(midPoint.normal)
     override val velocity: Vector3dc = ZERO_VELOCITY
 
-    override fun destroy() {
-        forEachExtensionData { it.destroy() }
+    private val destruction = Destruction()
+
+    override fun destroy(): CompletionStage<Void> = destruction.run {
+        val steps = DestructionSteps()
+        forEachExtensionData { extension -> steps.await { extension.destroy() } }
+        steps.finish()
     }
 
     companion object {

@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.render.model
 
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import org.bukkit.Location
 import org.bukkit.entity.Player
 import org.joml.Quaternionf
@@ -79,9 +80,9 @@ class LodDisplayModel internal constructor(
         }
     }
 
-    override fun destroy() {
-        super.destroy()
-        loVisual?.destroy()
-        hiVisual?.destroy()
+    override fun collectDestruction(steps: DestructionSteps) {
+        super.collectDestruction(steps)
+        loVisual?.let { steps.await { it.destroy() } }
+        hiVisual?.let { steps.await { it.destroy() } }
     }
 }

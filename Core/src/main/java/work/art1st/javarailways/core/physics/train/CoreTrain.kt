@@ -1,5 +1,8 @@
 package work.art1st.javarailways.core.physics.train
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import org.jetbrains.annotations.ApiStatus
 import org.joml.times
 import org.joml.Vector3d
@@ -43,7 +46,6 @@ import work.art1st.javarailways.core.api.util.Destroyable
 import work.art1st.configLib.persistence.PersistentBy
 import work.art1st.javarailways.core.util.CommitBuffer
 import work.art1st.javarailways.core.api.threading.ThreadGuard
-import work.art1st.javarailways.core.util.trait.TrainComponentTrait
 import java.util.concurrent.Future
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicLong
@@ -65,7 +67,7 @@ open class CoreTrain @MainThread internal constructor(
     private val persistedHeadLocation: RailLocationWithFacing? = null,
     private val persistedTailLocation: RailLocationWithFacing? = null,
     initialReversed: Boolean = false,
-) : Train, TrainComponentTrait<Train, TrainExtension>, Destroyable, Synchronizable, Extendable<TrainExtension> by extensionDataContainer, PersistentBy<SavedTrainV1> {
+) : Train, Destroyable, Synchronizable, Extendable<TrainExtension> by extensionDataContainer, PersistentBy<SavedTrainV1> {
     /** Process-local implementation identity for render handoff; not persistence or `core.api`. */
     val publicationStreamId: UUID = UUID.randomUUID()
 
@@ -191,7 +193,7 @@ open class CoreTrain @MainThread internal constructor(
             tail = TrainEnd(initialTailLocation, this, TrainEnd.Type.TAIL).also { createdTail = it }
             world.addTrain(this)
             attachedToWorld = true
-            this.initialize(savedExtensionData)
+            extensionDataContainer.extensionData.forEach { it?.initialize(this, savedExtensionData) }
             publishedSweptSpans = spansFromLocations(currentRailLocations())
             publishedPlacementIntervals = intervalsFromSpans(publishedSweptSpans)
             publishedBodyTraversal = try {
@@ -207,11 +209,13 @@ open class CoreTrain @MainThread internal constructor(
             cars.forEach { it.transferPublicationOwnership(this) }
         } catch (failure: Throwable) {
             // Only this constructor's registrations are owned here; its caller still owns the cars.
-            runCatching { removeController() }.exceptionOrNull()?.let(failure::addSuppressed)
-            runCatching { createdHead?.destroy() }.exceptionOrNull()?.let(failure::addSuppressed)
-            runCatching { createdTail?.destroy() }.exceptionOrNull()?.let(failure::addSuppressed)
-            if (attachedToWorld) {
-                runCatching { world.removeTrain(this) }.exceptionOrNull()?.let(failure::addSuppressed)
+            val cleanup = DestructionSteps()
+            cleanup.action { if (attachedToWorld) removeController() }
+            createdHead?.let { end -> cleanup.await { end.destroy() } }
+            createdTail?.let { end -> cleanup.await { end.destroy() } }
+            if (attachedToWorld) cleanup.action { world.unregisterTrain(this) }
+            cleanup.finish().whenComplete { _, cleanupFailure ->
+                if (cleanupFailure != null) failure.addSuppressed(cleanupFailure)
             }
             throw failure
         }
@@ -577,18 +581,21 @@ open class CoreTrain @MainThread internal constructor(
         }
     }
 
-    /** Revoke every registration even if an earlier cleanup fails. */
-    internal fun discardFailedLoad(): List<Throwable> {
-        val failures = mutableListOf<Throwable>()
-        fun cleanup(action: () -> Unit) {
-            try { action() } catch (failure: Throwable) { failures += failure }
-        }
-        cleanup { removeController() }
-        cleanup { head.destroy() }
-        cleanup { tail.destroy() }
-        cars.forEach { car -> cleanup { car.destroy() } }
-        cleanup { world.removeTrain(this) }
-        return failures
+    /**
+     * Removes constructor side effects when persisted placement validation fails.
+     *
+     * Every owner-side registration is revoked before return; platform cleanup completion and
+     * failures are propagated asynchronously without blocking the owner.
+     */
+    internal fun discardFailedLoad(): CompletionStage<Void> = destruction.run {
+        world.physicsCoordinator.ensureBetweenFrames("CoreTrain.discardFailedLoad")
+        val steps = DestructionSteps()
+        steps.action { removeController() }
+        steps.await { head.destroy() }
+        steps.await { tail.destroy() }
+        cars.forEach { car -> steps.await { car.destroy() } }
+        steps.action { world.unregisterTrain(this) }
+        steps.finish()
     }
 
     private fun updateAfterHeadBogie(deltaS: Double? = null): List<RailSegment> {
@@ -1220,26 +1227,33 @@ open class CoreTrain @MainThread internal constructor(
         publishFrame(publishedFrame.physicsEpoch)
     }
 
-    override fun destroy() {
-        destroyAsync()
+    private val destruction = Destruction()
+
+    override fun destroy(): CompletionStage<Void> = destruction.run {
+        world.physicsCoordinator.executeBetweenFrames {
+            check(world.getTrain(id) === this) { "Cannot destroy a retired train '$id'" }
+            val steps = DestructionSteps()
+            steps.action { removeController() }
+            steps.await { head.destroy() }
+            steps.await { tail.destroy() }
+            cars.forEach { car -> steps.await { car.destroy() } }
+            steps.action { world.unregisterTrain(this) }
+            steps.action { world.publishOwnerChanges(emptyList()) }
+            steps.finish()
+        }.thenCompose { it }.whenComplete { _, failure ->
+            if (failure != null) world.physicsCoordinator.stall("Train destruction failed: train=$id", failure)
+        }
     }
 
-    fun destroyAsync(): CompletableFuture<Unit> =
-        world.physicsCoordinator.submitBetweenFrames { destroyOnOwner() }
-
-    fun destroyOnOwner() {
-        world.physicsCoordinator.ensureBetweenFrames("CoreTrain.destroyOnOwner")
-        check(world.getTrain(id) === this) { "Cannot destroy a retired train '$id'" }
-        try {
-            removeController()
-            head.destroy()
-            tail.destroy()
-            cars.forEach(CoreCar::destroy)
-            world.removeTrain(this)
-            world.publishOwnerChanges(emptyList())
-        } catch (failure: Throwable) {
-            throw world.physicsCoordinator.stall("Train destruction failed: train=$id", failure)
-        }
+    /** Coupling has transferred the cars; retirement must never destroy their new owner's resources. */
+    internal fun retireAfterCoupling(): CompletionStage<Void> = destruction.run {
+        world.physicsCoordinator.ensureBetweenFrames("CoreTrain.retireAfterCoupling")
+        val steps = DestructionSteps()
+        steps.action { removeController() }
+        steps.await { head.destroy() }
+        steps.await { tail.destroy() }
+        steps.action { world.unregisterTrain(this) }
+        steps.finish()
     }
 
     fun setController(value: TrainController?) {

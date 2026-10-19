@@ -41,7 +41,8 @@ class DisplayAppearanceBackendTest {
         val plugin = Proxy.newProxyInstance(Plugin::class.java.classLoader, arrayOf(Plugin::class.java)) { _, method, _ ->
             error("Unexpected plugin call: ${method.name}")
         } as Plugin
-        val visual = NativeDisplayVisual(plugin, display)
+        val visual = NativeDisplayVisual(plugin, display,
+            work.art1st.javarailways.bukkit.util.EntityCleanupDispatcher().apply { immediate = true })
         val baseline = ItemAppearance(Material.PAPER, null, null, null).toItemStack()
         val changed = ItemAppearance(Material.DIAMOND, "another:signals/lamp", 42, null).toItemStack()
         try {
@@ -75,6 +76,32 @@ class DisplayAppearanceBackendTest {
         assertEquals(0, meta.brightnessOverride)
         meta.setBrightnessOverride(-1)
         assertEquals(-1, meta.brightnessOverride)
+    }
+
+    @Test
+    fun `native destroy waits for removal and repeated calls keep the failed result`() {
+        var removes = 0
+        val failure = IllegalStateException("cannot remove display")
+        val display = Proxy.newProxyInstance(ItemDisplay::class.java.classLoader, arrayOf(ItemDisplay::class.java)) { _, method, _ ->
+            when (method.name) {
+                "remove" -> { removes++; throw failure }
+                else -> error("Unexpected native call: ${method.name}")
+            }
+        } as ItemDisplay
+        val plugin = Proxy.newProxyInstance(Plugin::class.java.classLoader, arrayOf(Plugin::class.java)) { _, method, _ ->
+            error("Unexpected plugin call: ${method.name}")
+        } as Plugin
+        val dispatcher = work.art1st.javarailways.bukkit.util.EntityCleanupDispatcher()
+        val visual = NativeDisplayVisual(plugin, display, dispatcher)
+        val result = visual.destroy().toCompletableFuture()
+        assertFalse(result.isDone)
+        assertSame(result, visual.destroy())
+        assertEquals(0, removes)
+        dispatcher.action!!.invoke()
+        assertTrue(result.isCompletedExceptionally)
+        assertSame(failure, result.handle { _, actual -> actual }.getNow(null))
+        assertSame(result, visual.destroy())
+        assertEquals(1, removes)
     }
 
     private fun withPacketVersion(block: () -> Unit) = synchronized(PacketEvents::class.java) {

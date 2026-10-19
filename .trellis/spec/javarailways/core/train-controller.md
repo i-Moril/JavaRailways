@@ -148,3 +148,5 @@ controller子类不得直接调用`train.moveTrainForward`，否则Core只能把
 ```bash
 ./gradlew :Core:test --tests '*PhysicsCoordinatorTest' --tests '*CoreTrainPublicationBoundaryTest' --tests '*TrainUniformMotionTest'
 ```
+
+TrainController持有Train强引用。列车唯一destroy入口负责从协调器和world注销；循环引用本身不要求弱引用，生命周期完成结果由CompletionStage表达。

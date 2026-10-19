@@ -362,6 +362,13 @@ class PhysicsCoordinator(
         }
     }
 
+    /** Executes immediately only inside this coordinator's admitted owner phase. */
+    internal fun <T> executeBetweenFrames(action: () -> T): CompletableFuture<T> =
+        if (betweenFramesDepth.get() > 0) {
+            try { CompletableFuture.completedFuture(action()) }
+            catch (failure: Throwable) { CompletableFuture.failedFuture(failure) }
+        } else submitBetweenFrames(action)
+
     /** Asserts owner execution after the captured physics ticket completed, without scheduling. */
     fun ensureBetweenFrames(operation: String) {
         ThreadGuard.ensureMainThread(operation)

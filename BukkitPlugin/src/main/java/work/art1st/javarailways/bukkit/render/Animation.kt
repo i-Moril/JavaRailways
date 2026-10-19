@@ -1,5 +1,9 @@
 package work.art1st.javarailways.bukkit.render
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
 import org.bukkit.Location
 import work.art1st.javarailways.bukkit.render.model.CompactTransform
 import work.art1st.javarailways.bukkit.util.PlatformCommitAffinity
@@ -223,7 +227,8 @@ class Animation(
             if (destroyed) return
             onCommit.invoke(this)
             if (finished) {
-                destroy()
+                // Animation cleanup is synchronous; propagate callback failure without waiting.
+                destroy().toCompletableFuture().getNow(null)
             }
         }
 
@@ -257,11 +262,14 @@ class Animation(
             displayState = frames.take(nextIndex + 1).lastOrNull { it.displayState != null }?.displayState
         }
 
+        private val destruction = Destruction()
+
         @Synchronized
-        override fun destroy() {
-            if (destroyed) return
+        override fun destroy(): CompletionStage<Void> = destruction.run {
             destroyed = true
-            onDestroy.invoke(this)
+            val steps = DestructionSteps()
+            steps.action { onDestroy.invoke(this) }
+            steps.finish()
         }
     }
 

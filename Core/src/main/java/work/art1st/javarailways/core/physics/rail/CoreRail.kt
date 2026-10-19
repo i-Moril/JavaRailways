@@ -1,5 +1,8 @@
 package work.art1st.javarailways.core.physics.rail
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import kotlinx.serialization.Serializable
 import org.joml.Vector3dc
@@ -85,10 +88,15 @@ class CoreRail @MainThread private constructor(
         trains.add(x)
     }
 
-    override fun canDestroy(): Boolean = trains.isEmpty()
+    private val destruction = Destruction()
 
-    override fun destroy() {
-        signals.forEach { s -> s.destroy() }
+    override fun destroy(): CompletionStage<Void> = destruction.run {
+        val steps = DestructionSteps()
+        signals.toList().forEach { signal -> steps.await { signal.destroy() } }
+        forEachExtensionData { extension -> steps.await { extension.destroy() } }
+        steps.finish().whenComplete { _, failure ->
+            if (failure != null) world.physicsCoordinator.stall("Rail cleanup failed: rail=$id", failure)
+        }
     }
 
     override fun save(): SavedRailV1 {

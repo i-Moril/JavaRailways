@@ -1,5 +1,9 @@
 package work.art1st.javarailways.bukkit.render.model
 
+import java.util.concurrent.CompletionStage
+import work.art1st.javarailways.core.api.util.Destruction
+import work.art1st.javarailways.core.api.util.DestructionSteps
+
 import org.bukkit.Location
 import org.bukkit.entity.Player
 import org.joml.Quaterniond
@@ -25,17 +29,13 @@ class CompositeModel internal constructor(
     }
 
     private var lastRotation: Quaterniond? = null
-    private var destroyed: Boolean = false
+    private val destruction = Destruction()
 
-    override fun destroy() {
-        if (destroyed) return
-        destroyed = true
-        destroyNow()
-    }
-
-    private fun destroyNow() {
-        models.forEach { it.destroy() }
-        rootVisual.destroy()
+    override fun destroy(): CompletionStage<Void> = destruction.run {
+        val steps = DestructionSteps()
+        models.forEach { model -> steps.await { model.destroy() } }
+        steps.await { rootVisual.destroy() }
+        steps.finish()
     }
 
     fun prepareForUnload() {

@@ -89,7 +89,7 @@ class BetweenFramesOperationsTest {
                 assertFalse(before.trains.any { it.trainId == train.id })
 
                 val oldWorld = world.latestWorldFrame()
-                val removed = train.destroyAsync()
+                val removed = train.destroy().toCompletableFuture()
                 assertSame(train, world.getTrain(train.id))
                 assertFalse(removed.isDone)
                 coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }

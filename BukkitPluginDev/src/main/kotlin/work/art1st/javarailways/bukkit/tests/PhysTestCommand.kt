@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.tests
 
+import java.util.concurrent.CompletableFuture
+import work.art1st.javarailways.core.api.util.DestructionSteps
 import io.papermc.paper.command.brigadier.BasicCommand
 import io.papermc.paper.command.brigadier.CommandSourceStack
 import org.bukkit.command.CommandSender
@@ -202,8 +204,16 @@ class PhysTestCommand(
                 if (!published && world.physicsCoordinator.status ==
                     work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus.RUNNING
                 ) {
-                    runCatching { created?.destroyOnOwner() ?: cars.forEach(CoreCar::destroy) }
-                        .exceptionOrNull()?.let(failure::addSuppressed)
+                    val cleanup = DestructionSteps()
+                    val failed = created
+                    if (failed != null) cleanup.await { failed.destroy() }
+                    else cars.forEach { car -> cleanup.await { car.destroy() } }
+                    cleanup.finish().whenComplete { _, cleanupFailure ->
+                        if (cleanupFailure != null) {
+                            failure.addSuppressed(cleanupFailure)
+                            BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.SEVERE, "Playground creation cleanup failed", cleanupFailure)
+                        }
+                    }
                 }
                 throw failure
             }
@@ -286,12 +296,13 @@ class PhysTestCommand(
         val previousController = controller
         world.physicsCoordinator.submitBetweenFrames {
             check(previousTrain == null || previousTrain.world === world) { "Playground belongs to another world" }
-            if (previousTrain != null && world.getTrain(previousTrain.id) === previousTrain) {
-                previousTrain.destroyOnOwner()
-            }
+            val cleanup = if (previousTrain != null && world.getTrain(previousTrain.id) === previousTrain) {
+                previousTrain.destroy()
+            } else CompletableFuture.completedFuture<Void>(null)
             if (controller === previousController) controller = null
             if (train === previousTrain) train = null
-        }.whenComplete { _, failure ->
+            cleanup
+        }.thenCompose { it }.whenComplete { _, failure ->
             BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
                 if (failure != null) sender.sendMessage("Cleanup failed: ${failure.message}")
                 else if (cleanRails(sender, world)) afterCleanup()

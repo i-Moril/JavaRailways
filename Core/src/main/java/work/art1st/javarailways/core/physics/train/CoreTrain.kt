@@ -577,13 +577,18 @@ open class CoreTrain @MainThread internal constructor(
         }
     }
 
-    /** Remove constructor side effects when persisted placement validation fails. */
-    internal fun discardFailedLoad() {
-        removeController()
-        head.destroy()
-        tail.destroy()
-        cars.forEach { it.destroy() }
-        world.removeTrain(this)
+    /** Revoke every registration even if an earlier cleanup fails. */
+    internal fun discardFailedLoad(): List<Throwable> {
+        val failures = mutableListOf<Throwable>()
+        fun cleanup(action: () -> Unit) {
+            try { action() } catch (failure: Throwable) { failures += failure }
+        }
+        cleanup { removeController() }
+        cleanup { head.destroy() }
+        cleanup { tail.destroy() }
+        cars.forEach { car -> cleanup { car.destroy() } }
+        cleanup { world.removeTrain(this) }
+        return failures
     }
 
     private fun updateAfterHeadBogie(deltaS: Double? = null): List<RailSegment> {

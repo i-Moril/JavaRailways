@@ -47,7 +47,12 @@ data class SavedTrainV1(
             if (dependency.physicsCoordinator.status ==
                 work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus.RUNNING
             ) {
-                runCatching { train.discardFailedLoad() }.exceptionOrNull()?.let(failure::addSuppressed)
+                train.discardFailedLoad().filter { it !== failure }.forEach(failure::addSuppressed)
+                if (dependency.getTrain(id) === train) {
+                    dependency.physicsCoordinator.stall(
+                        "Failed to unregister train '$id' after a failed load", failure
+                    )
+                }
             }
             throw failure
         }

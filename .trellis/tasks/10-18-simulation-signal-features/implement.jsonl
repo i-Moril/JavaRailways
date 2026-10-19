@@ -10,3 +10,4 @@
 {"file": ".trellis/spec/javarailways/simpleato/reactive-signal-epochs.md", "reason": "source路由、声明失效及限制发布"}
 {"file": ".trellis/spec/javarailways/basic/route-resource-admission.md", "reason": "固定闭塞贡献不能替代物理底线"}
 {"file": ".trellis/tasks/10-15-simplesignals-platform-split/prd.md", "reason": "既有拆分方向与本任务局部抽取界限"}
+{"file": ".trellis/tasks/10-18-isolated-simulation-runtime/research/remaining-cross-world-locks.md", "reason": "2026-10-19补充O1 observation构造与S1各LIVE/SIM JS求值隔离的源码证据、任务归属和真实阻塞验收"}

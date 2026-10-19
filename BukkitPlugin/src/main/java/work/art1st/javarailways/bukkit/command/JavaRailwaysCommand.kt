@@ -56,11 +56,16 @@ import java.util.concurrent.atomic.AtomicLong
 
 class JavaRailwaysCommand {
     private val navigationCounter = AtomicLong()
+    private val WORLD_COMMANDS = setOf("train", "waypoint", "wp", "stop", "route", "navigate", "nav",
+        "timetable", "tt", "depot", "undo", "redo")
 
     fun execute(sender: CommandSender, label: String, args: Array<out String>): Boolean =
         BukkitThreadGuardBridge.runInSimulationContext {
         try {
-            executeCommand(sender, args)
+            if (sender is Player && args.firstOrNull()?.lowercase() in WORLD_COMMANDS &&
+                !(args.firstOrNull().equals("train", true) && args.getOrNull(1).equals("list", true))) {
+                BukkitThreadGuardBridge.runInPlayerWorldContext(sender) { executeCommand(sender, args) }
+            } else executeCommand(sender, args)
         } catch (failure: Throwable) {
             val path = PluginDiagnosticLog.command(
                 "COMMAND_FAILED",
@@ -102,7 +107,9 @@ class JavaRailwaysCommand {
 
     fun suggest(sender: CommandSender, args: Array<out String>): List<String> =
         BukkitThreadGuardBridge.runInSimulationContext {
-            completeCommand(sender, args)
+            if (sender is Player) BukkitThreadGuardBridge.runInPlayerWorldContext(sender) {
+                completeCommand(sender, args)
+            } else completeCommand(sender, args)
         }
 
     private fun completeCommand(sender: CommandSender, args: Array<out String>): List<String> {
@@ -753,88 +760,78 @@ class JavaRailwaysCommand {
                 BukkitPlugin.INSTANCE.timetableScriptSandbox.compileScriptAsync(scriptName, timetableId)
                     .whenComplete { saved, failure ->
                         val plugin = BukkitPlugin.INSTANCE
-                        plugin.platformDispatcher.runGlobal {
-                            BukkitThreadGuardBridge.runInSimulationContext {
-                                val player = Bukkit.getPlayer(playerId)
-                                val messageTarget: (Component) -> Unit = { message ->
-                                    if (player != null) player.sendMessage(message) else plugin.logger.info(message.toString())
-                                }
-                                if (failure != null) {
-                                    val cause = generateSequence(failure) { it.cause }.last()
-                                    val path = PluginDiagnosticLog.timetable(
-                                        "LOAD_COMPILE_FAILED",
-                                        "player=${player?.name ?: playerId}\nworld=$sourceWorldId\n" +
-                                            "script=$scriptName\ntimetable=$timetableId",
-                                        cause
-                                    )
-                                    messageTarget(Component.text(
-                                        "JS 时刻表编译失败；详见 ${path?.toString() ?: "服务器日志"}",
-                                        NamedTextColor.RED
-                                    ))
-                                    return@runInSimulationContext
-                                }
-                                if (player == null) {
-                                    PluginDiagnosticLog.timetable(
-                                        "LOAD_DISCARDED",
-                                        "player=$playerId disconnected\nworld=$sourceWorldId\n" +
-                                            "script=$scriptName\ntimetable=$timetableId"
-                                    )
-                                    return@runInSimulationContext
-                                }
-                                val sourceWorld = Bukkit.getWorld(sourceWorldId)
-                                val world = sourceWorld?.let(plugin.worldManager.railWorlds::get) ?: run {
-                                    messageTarget(Component.text("发起加载的世界已卸载或尚未初始化 JavaRailways", NamedTextColor.RED))
-                                    return@runInSimulationContext
-                                }
-                                val normalized = TimetableScriptNormalizer.normalize(
-                                    saved,
-                                    world.simpleAtoWorldData.destinations
+                        plugin.platformDispatcher.runGlobal completeLoad@ {
+                            val player = Bukkit.getPlayer(playerId)
+                            val messageTarget: (Component) -> Unit = { message ->
+                                if (player != null) plugin.platformDispatcher.runForEntity(player, action = {
+                                    player.sendMessage(message)
+                                }) else plugin.logger.info(message.toString())
+                            }
+                            if (failure != null) {
+                                val cause = generateSequence(failure) { it.cause }.last()
+                                val path = PluginDiagnosticLog.timetable(
+                                    "LOAD_COMPILE_FAILED",
+                                    "player=${player?.name ?: playerId}\nworld=$sourceWorldId\n" +
+                                        "script=$scriptName\ntimetable=$timetableId",
+                                    cause
                                 )
+                                messageTarget(Component.text(
+                                    "JS 时刻表编译失败；详见 ${path?.toString() ?: "服务器日志"}", NamedTextColor.RED))
+                                return@completeLoad
+                            }
+                            if (player == null) {
+                                PluginDiagnosticLog.timetable("LOAD_DISCARDED",
+                                    "player=$playerId disconnected\nworld=$sourceWorldId\nscript=$scriptName\ntimetable=$timetableId")
+                                return@completeLoad
+                            }
+                            val world = plugin.worldManager.loadedRailWorld(sourceWorldId) as? CoreWorld
+                            if (world == null) {
+                                messageTarget(Component.text("发起加载的世界已卸载或尚未初始化 JavaRailways", NamedTextColor.RED))
+                                return@completeLoad
+                            }
+                            val playerName = player.name
+                            world.physicsCoordinator.submitBetweenFrames worldLoad@ {
+                                if (plugin.worldManager.loadedRailWorld(sourceWorldId) !== world) {
+                                    messageTarget(Component.text("发起加载的世界已卸载或替换", NamedTextColor.RED))
+                                    return@worldLoad
+                                }
+                                val normalized = TimetableScriptNormalizer.normalize(saved, world.simpleAtoWorldData.destinations)
                                 val timetable = runCatching(normalized::restore).getOrElse { invalid ->
-                                    val path = PluginDiagnosticLog.timetable(
-                                        "LOAD_RESTORE_FAILED",
-                                        "player=${player.name}\nworld=$sourceWorldId\n" +
-                                            "script=$scriptName\ntimetable=$timetableId",
-                                        invalid
-                                    )
-                                    messageTarget(Component.text(
-                                        "JS 输出无效；详见 ${path?.toString() ?: "服务器日志"}",
-                                        NamedTextColor.RED
-                                    ))
-                                    return@runInSimulationContext
+                                    val path = PluginDiagnosticLog.timetable("LOAD_RESTORE_FAILED",
+                                        "player=$playerName\nworld=$sourceWorldId\nscript=$scriptName\ntimetable=$timetableId", invalid)
+                                    messageTarget(Component.text("JS 输出无效；详见 ${path?.toString() ?: "服务器日志"}", NamedTextColor.RED))
+                                    return@worldLoad
                                 }
                                 val validation = TimetableValidator(world).validate(timetable)
                                 if (!validation.isSuccess) {
-                                    val path = PluginDiagnosticLog.timetable(
-                                        "LOAD_VALIDATION_FAILED",
-                                        buildString {
-                                            append("player=${player.name}\nworld=$sourceWorldId\n")
-                                            append("script=$scriptName\ntimetable=$timetableId\n")
-                                            append("errors=${validation.errors.size}\n")
-                                            validation.errors.forEachIndexed { index, error ->
-                                                append(index + 1).append(". ").append(error).append('\n')
-                                            }
+                                    val path = PluginDiagnosticLog.timetable("LOAD_VALIDATION_FAILED", buildString {
+                                        append("player=$playerName\nworld=$sourceWorldId\nscript=$scriptName\ntimetable=$timetableId\n")
+                                        append("errors=${validation.errors.size}\n")
+                                        validation.errors.forEachIndexed { index, error ->
+                                            append(index + 1).append(". ").append(error).append('\n')
                                         }
-                                    )
-                                    messageTarget(Component.text(
-                                        "JS 时刻表验证失败（${validation.errors.size} 项）；详见 " +
-                                            (path?.toString() ?: "服务器日志"),
-                                        NamedTextColor.RED
-                                    ))
-                                    return@runInSimulationContext
+                                    })
+                                    messageTarget(Component.text("JS 时刻表验证失败（${validation.errors.size} 项）；详见 " +
+                                        (path?.toString() ?: "服务器日志"), NamedTextColor.RED))
+                                    return@worldLoad
                                 }
                                 world.simpleAtoWorldData.timetables.add(timetable)
-                                PluginDiagnosticLog.timetable(
-                                    "LOAD_SUCCEEDED",
-                                    "player=${player.name}\nworld=$sourceWorldId\nscript=$scriptName\n" +
+                                PluginDiagnosticLog.timetable("LOAD_SUCCEEDED",
+                                    "player=$playerName\nworld=$sourceWorldId\nscript=$scriptName\n" +
                                         "timetable=${timetable.id}\nservices=${timetable.services.size}\n" +
-                                        "initialPositions=${timetable.initialPositions.size}"
-                                )
+                                        "initialPositions=${timetable.initialPositions.size}")
                                 messageTarget(Component.text("已加载 JS 时刻表 ${timetable.id}", NamedTextColor.GREEN))
+                            }.whenComplete { _, loadFailure ->
+                                if (loadFailure != null) {
+                                    val path = PluginDiagnosticLog.timetable("LOAD_FAILED",
+                                        "player=$playerName\nworld=$sourceWorldId\nscript=$scriptName\ntimetable=$timetableId", loadFailure)
+                                    messageTarget(Component.text("JS 时刻表加载失败；详见 ${path?.toString() ?: "服务器日志"}", NamedTextColor.RED))
+                                }
                             }
                         }
                     }
             }
+
             "edit" -> {
                 if (!sender.hasPermission("javarailways.admin")) {
                     sender.sendMessage(Component.text("没有权限编辑时刻表", NamedTextColor.RED))

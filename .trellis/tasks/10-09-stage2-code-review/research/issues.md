@@ -174,6 +174,8 @@
 - 回归缺口：capture failure、write failure、teardown failure 下 map/lookup/资源都完成清理，同世界可重载，其他世界可继续 tick；已有 lookup 单测不覆盖真实 unload。
 - 处置：卸载捕获exact owner world，保存和每项资源关闭分别尝试；首个异常原样抛出，后续异常进入suppressed，最终按exact identity撤owner map。新增持久化失败与teardown失败2项回归，断言后续cleanup、physics关闭、map/lookup清除及同UUID重新绑定；capture/write失败共享同一卸载后继控制流，不复制只改异常文本的测试。定向测试通过，最终模块门禁见[执行记录](../implement.md#cr-013-卸载失败清理2026-10-10)。不把该修复扩写为factory/Koin/Folia全部生命周期完成。
 
+- 2026-10-19后续World隔离补充：失败卸载也在`finally`退休目标World指标和runner，目录不永久强持已卸载World；LIVE/SIMULATION均先确认真实physics/generic callback终止，再卸载领域资源。完整证据及边界见[本批验证](../../10-18-world-runtime-isolation/research/validation.md)，不据此关闭其他全项目审查项。
+
 ### CR-014：final save 未停止 timer fallback，等待一次 ticket 不等于冻结世界
 
 - 状态：正常卸载物理边界已修复（2026-10-10）；P1存档一致性风险。下列保留原审查基线，异常清理与其他owner生命周期仍由CR-013/015/017跟踪。
@@ -182,6 +184,8 @@
 - 最小建议：coordinator 拥有 stop-wake/quiesce 边界，在同一状态锁禁止新主线程/timer epoch 并返回当前 exact ticket，await 后再 capture/save，最后 close。重复 capture/await、只停平台 tick 或随意加 timeout 均不能替代该边界。
 - 回归缺口：注入 clock/latch，在 stop-wake 后推进 heartbeat，确认没有新 epoch且各 snapshot owner读到相同稳定状态。
 - 处置：`beginShutdown()`在既有状态锁内永久禁止新wake并返回exact ticket，宿主成功await后才capture/save；timer资格检查及分配同锁，保留在途epoch正常完成。新增4次执行验证真实worker、已启动timer/未启动bootstrap、在途失败不回退；7模块强制重跑1900项（1894执行、6跳过）零失败/错误，见[验证记录](../implement.md#cr-014-停止新物理工作后保存与验证2026-10-10)。未直接执行宿主多owner final-save I/O/Folia，不将物理停wake说成全世界所有任务已静止。
+
+- 2026-10-19后续World隔离补充：原`close()`仍为非阻塞取消；新实现层`closeAndAwaitTermination`明确等待真实executor退出，取消/失败ticket不能替代退出证据。宿主保存尝试后及启动后注册失败清理先用此边界再释放domain/service；generic workers另行确认，平台region效果仍未声称完成。验证同上本批记录，原历史审查证据保留。
 
 ### CR-015：世界部分初始化失败遗留已注册渲染监听器
 

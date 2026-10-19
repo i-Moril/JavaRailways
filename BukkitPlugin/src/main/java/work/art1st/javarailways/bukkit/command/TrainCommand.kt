@@ -830,11 +830,13 @@ object TrainCommand {
             return true
         }
 
+        return work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge.runInSimulationContext(world) {
         sender.sendMessage("=== 列车列表 ===")
         for (train in world.allTrains) {
             sender.sendMessage("  ${train.name} [${train.id}] - ${train.length} 节车厢")
         }
-        return true
+        true
+        }
     }
 
     private fun resolveControlProfile(train: CoreTrain): Pair<TrainControlConfig, List<CarControlConfig>> {

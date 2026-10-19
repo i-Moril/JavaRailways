@@ -6,9 +6,17 @@
 
 完整交界契约见[父设计](../10-18-isolated-simulation-runtime/design.md)，本任务不能自行改变用户已确认的模式/事件/失败语义。
 
+## O1/O2：observation构造的World归属
+
+现服务的`current/publish`在共享lock内执行`currentLocked`和真实fromCore转换。本批将转换移到共享目录锁外、复用目标World执行边界；只对必要目录/订阅/缓存交换保留短锁。不同World的转换不共享执行锁，同World保持既有观察顺序。不要以删除同步注解、复制一套observation算法或增加Environment/通用缓存框架代替隔离。
+
+保留不可变frame的epoch/identity事实、每epoch最多一次通知和同epoch owner更新、listener锁外调用及异常隔离。close/removeWorld与构造交错的结果不能写回失效的目标绑定；按现有实际World生命周期处理，不引入永久tombstone或额外公开代际协议。
+
+验收在真实转换路径内阻塞A并证明B正常构造/发布，同时验证same-World缓存/通知及退休交错；原owner/runner测试和旧候选绿门禁不足以证明新项。
+
 ## 代码ownership
 
-Core的World owner/physics协作入口；BukkitThreadGuardBridge、WorldManager、TimetableHttpBridge、RailWorldFactory、TrainResourceReloader及相关宿主服务/TrainControlManager；SimpleATO隔离runtime和共同装配；Basic安全/资源内核仅在真实复用需要时修改。
+Core的World owner/physics协作入口；BukkitThreadGuardBridge、WorldManager、TimetableHttpBridge、RailWorldFactory、TrainResourceReloader及相关宿主服务/TrainControlManager，补充DefaultRailwayObservationService及其正式测试；SimpleATO隔离runtime和共同装配；Basic安全/资源内核仅在真实复用需要时修改。
 
 派发前按实际最小变更文件限定ownership；其他子任务和会话可能同时存在，不能恢复或覆盖他人改动。源文件或持久化格式若需扩大范围，先记录真实依赖并更新设计。
 

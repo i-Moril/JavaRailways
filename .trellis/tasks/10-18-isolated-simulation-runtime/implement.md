@@ -11,15 +11,15 @@
 ## 子任务与依赖
 
 1. `10-18-world-epoch-events`：R3/R4及R5碰撞发布；交付World模式、统一运行事件来源和逐物理epoch通知。独立验收AC1-AC3相关部分。
-2. `10-18-world-runtime-isolation`：依赖1；交付每World执行归属、必要全局事务协调、共同领域运行装配及最小Feature安装接线。验收AC4及共同安全阶段。
-3. `10-18-simulation-signal-features`：依赖2；交付完整SimpleSignals模拟安装和真实规则对照。验收AC5。
+2. `10-18-world-runtime-isolation`：依赖1；交付每World执行归属、必要全局事务协调、共同领域运行装配及最小Feature安装接线，补齐O1 observation构造的跨World独立推进。验收AC4及共同安全阶段。
+3. `10-18-simulation-signal-features`：依赖2；交付完整SimpleSignals模拟安装和真实规则对照，并完成S1各LIVE World与每个SIM的信号JS求值/关闭归属隔离。验收AC5。
 4. `10-18-simulation-behavior-features`：依赖2，最终检查也依赖3；交付逐车行为/扩展的共同运行与模拟效果出口。验收AC6，并向父任务提供联合fixture。
 
 顺序是依赖约束，不因任务树自动启动其他子任务。3/4只有在2的接口与文件ownership明确后才可并行；未明确前串行。父任务拥有最终整合，不直接把所有模块交给同一个无边界worker。
 
 ## 实现工作区与分工
 
-- 批准后从已合并HEAD创建/复用适合的独立实现worktree。原工作区49项状态是他人WIP，不能stash/drop、重置或顺手提交。
+- 批准后从已合并HEAD创建/复用适合的独立实现worktree。规划时原工作区49项状态属于他人WIP；其后已按用户明确授权完整提交并保留，子任务2从干净基线`8f156900`启动。新出现的无关WIP仍不得stash/drop、重置或顺手提交。
 - 读取每个子任务prd/design/implement和相应phase 2.1；按本平台默认派发Trellis implement/check子代理，提示以`Active task: <子任务路径>`开头并声明确切文件ownership。
 - 子代理不是唯一编辑者，必须保留其他工作并适应已合入修改；父会话负责模块接线、冲突、验收汇总及小提交。
 - manifest校验提示train-physics、route-resource-admission及部分Signals规范超过自动注入上限；相关子代理须按原文件完整读取涉及章节，不能把截断注入当作完整合同。父会话派发时显式带上这条要求，不为本任务顺带拆分或改写这些既有规范。
@@ -30,6 +30,7 @@
 - [ ] 子任务1-4全部满足各自AC，比较最终源码与被测候选。
 - [ ] 联合fixture使用真实Core/Basic/SimpleATO/SimpleSignals逻辑与正式四灯规则：占用停车/释放、保护进路、折返、碰撞联结/脱轨、逐车脚本及延迟操作。
 - [ ] 真正并发地推进LIVE与SIMULATION，以及两个同源SIMULATION；暂停任一方仍可推进另一方；两边使用相同列车ID也不串状态。
+- [ ] 分别在真实observation构造与真实信号JS求值/执行锁内暂停A，B仍完成对应领域阶段；覆盖LIVE-LIVE、LIVE-SIM和SIM-SIM，不能只验证外层owner/runner。
 - [ ] 模拟前后实际World的frame、列车、预约、Dispatcher、信号状态保持不变；没有实际平台效果，诊断可区分所属World。模拟只释放自己的资源。
 - [ ] epoch事件包含正确World、epoch/对应frame；失败与合并唤醒无伪Post/重复Pre，取消及关闭无资源泄漏。
 - [ ] 重载/插件卸载/玩家跨世界handoff保持原业务一致性，callback不在协调器提交锁内运行。
@@ -57,4 +58,7 @@ git diff --check
 
 每个子任务保留独立提交/验证记录；回滚只操作这些提交，不撤回坐标/UI或无关WIP。父任务仅在联合验收完成后完成。
 
-2026-10-18：子任务1在独立工作区实现及检查通过，见[验证记录](../archive/2026-10/10-18-world-epoch-events/research/validation.md)，本地提交已于2026-10-19获批，本批已整合至dev/signal-system，组合2343项测试及边界/文档门禁通过，子任务1完成。子任务2–4尚未实施，父任务联合验收未执行，不能声称全隔离、全Feature模拟已经完成。
+2026-10-18：子任务1在独立工作区实现及检查通过，见[验证记录](../archive/2026-10/10-18-world-epoch-events/research/validation.md)，本地提交已于2026-10-19获批，本批已整合至dev/signal-system，组合2343项测试及边界/文档门禁通过，子任务1完成。子任务2于2026-10-19获用户批准后在`.worktree/world-runtime-isolation`实施，原计划锁/调度候选实现及独立检查完成，8模块2391项全执行通过；2026-10-19补入O1后回到实现/检查，暂缓原提交计划；子任务3–4尚未实施，父任务联合验收未执行，不能声称全隔离、全Feature模拟已经完成。
+
+
+2026-10-19计划补充：用户要求补齐遗漏的跨World串行点；按[剩余锁清单](research/remaining-cross-world-locks.md)分配O1至子任务2、S1至子任务3。仅O1加入当前批次，当前用户请求为计划更新；本轮未改产品或启动子任务3。必要管理/注册锁继续保留，不把目标扩写为消除所有进程级锁。

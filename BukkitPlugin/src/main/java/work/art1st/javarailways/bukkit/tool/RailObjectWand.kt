@@ -215,7 +215,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
                     closeDirectionOverlay(playerId)
                 } else {
                     plugin.platformDispatcher.runForEntity(player, action = {
-                        BukkitThreadGuardBridge.runInSimulationContext {
+                        BukkitThreadGuardBridge.runInPlayerWorldContext(player) runInSimulationContext@ {
                             refreshDirectionOverlay(player)
                         }
                     })
@@ -801,7 +801,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
 
     private fun scheduleMarkerVisibilityRefresh(player: Player) {
         plugin.platformDispatcher.runForEntityLater(player, 1L, action = {
-            BukkitThreadGuardBridge.runInSimulationContext {
+            BukkitThreadGuardBridge.runInPlayerWorldContext(player) runInSimulationContext@ {
                 refreshMarkersForPlayer(player)
             }
         })

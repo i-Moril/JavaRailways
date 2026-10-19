@@ -40,11 +40,81 @@ class WorldManagerUnloadTest {
     }
 
     @Test
+    @OptIn(work.art1st.javarailways.core.api.util.annotation.AsyncEventApi::class)
+    fun `failed capture retains world resources until post event and generic callbacks actually exit`() {
+        val fixture = Fixture()
+        val world = fixture.oldCoreWorld()
+        val postEntered = java.util.concurrent.CountDownLatch(1)
+        val genericEntered = java.util.concurrent.CountDownLatch(1)
+        val postInterrupted = java.util.concurrent.CountDownLatch(1)
+        val genericInterrupted = java.util.concurrent.CountDownLatch(1)
+        val releasePost = java.util.concurrent.CountDownLatch(1)
+        val releaseGeneric = java.util.concurrent.CountDownLatch(1)
+        val resourcesClosed = java.util.concurrent.atomic.AtomicBoolean()
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val captureFailure = IllegalStateException("capture failed")
+        fun waitIgnoringInterrupt(release: java.util.concurrent.CountDownLatch, interrupted: java.util.concurrent.CountDownLatch) {
+            while (true) {
+                try { release.await(); return } catch (_: InterruptedException) { interrupted.countDown() }
+            }
+        }
+        val listener = object : work.art1st.javarailways.core.api.event.processor.EventListener {
+            @work.art1st.javarailways.core.api.event.processor.HandlesEvent
+            fun post(event: work.art1st.javarailways.core.api.event.PostTickEvent) {
+                if (event.world !== world) return
+                postEntered.countDown()
+                waitIgnoringInterrupt(releasePost, postInterrupted)
+            }
+        }
+        val registration = work.art1st.javarailways.core.api.event.processor.PhysicsRailEventBus.register(listener)
+        try {
+            world.tickManager.register(object : work.art1st.javarailways.core.api.util.tick.TickingObject {
+                override fun tick(deltaT: Double) {
+                    genericEntered.countDown()
+                    waitIgnoringInterrupt(releaseGeneric, genericInterrupted)
+                }
+            })
+            world.tickManager.postTick()
+            world.tickManager.preTick(System.currentTimeMillis() + 50L)
+            world.physicsCoordinator.start()
+            val ticket = world.physicsCoordinator.stepSimulation(50.0)
+            ticket.await()
+            assertTrue(postEntered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            assertTrue(genericEntered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            val closed = executor.submit<Throwable?> {
+                runCatching {
+                    fixture.manager.unregisterRailWorld(fixture.oldBukkitWorld,
+                        captureAndSave = { throw captureFailure }, clearAbnormalMarkers = {}, closeRender = {},
+                        closeModelOperations = { resourcesClosed.set(true) }, closeTick = {})
+                }.exceptionOrNull()
+            }
+            assertTrue(postInterrupted.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            assertFalse(resourcesClosed.get())
+            assertFalse(closed.isDone)
+            releasePost.countDown()
+            assertTrue(genericInterrupted.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            assertFalse(resourcesClosed.get())
+            assertFalse(closed.isDone)
+            releaseGeneric.countDown()
+            assertSame(captureFailure, closed.get(5, java.util.concurrent.TimeUnit.SECONDS))
+            assertTrue(resourcesClosed.get())
+        } finally {
+            releasePost.countDown()
+            releaseGeneric.countDown()
+            registration.close()
+            executor.shutdownNow()
+            fixture.close()
+        }
+    }
+
+    @Test
     fun `unavailable physics still retires exact local manual references before teardown`() {
         val released = mutableListOf<CoreWorld>()
         val retired = mutableListOf<CoreWorld>()
         val fixture = Fixture({ released += it }, { retired += it })
         val saveFailure = IllegalStateException("closed world cannot save")
+        fixture.manager.rememberServerTickMetrics(fixture.oldBukkitWorld,
+            work.art1st.javarailways.bukkit.debug.JavaRailwaysServerTickMetrics(1L, 2L, 3L, 5L, emptyMap()))
         try {
             val oldWorld = fixture.closePhysics()
             val thrown = assertThrows(IllegalStateException::class.java) {
@@ -57,6 +127,7 @@ class WorldManagerUnloadTest {
                     closeTick = { fixture.events += "tick" }
                 )
             }
+            assertNull(fixture.manager.latestServerTickMetrics())
             assertTrue(thrown.message.orEmpty().contains("closed"))
             assertTrue(thrown.suppressed.contains(saveFailure))
             assertTrue(released.isEmpty(), "unavailable physics must not run physical lifecycle work")
@@ -160,8 +231,8 @@ class WorldManagerUnloadTest {
         val worldId: UUID = UUID.randomUUID()
         val oldBukkitWorld: BukkitWorld = bukkitWorld(worldId)
         private val newBukkitWorld: BukkitWorld = bukkitWorld(worldId)
-        private val oldWorld: CoreWorld = createTestWorld()
-        private val newWorld: CoreWorld = createTestWorld()
+        private val oldWorld: CoreWorld = createTestWorld(work.art1st.javarailways.core.physics.tick.PhysicsCoordinator(1, automaticFallback = false))
+        private val newWorld: CoreWorld = createTestWorld(work.art1st.javarailways.core.physics.tick.PhysicsCoordinator(1, automaticFallback = false))
         private val railWorlds = ConcurrentHashMap<BukkitWorld, World>()
         private val registry = LoadedRailWorldRegistry(railWorlds)
         val manager = WorldManager(
@@ -182,6 +253,8 @@ class WorldManagerUnloadTest {
         }
 
         fun closePhysics(): CoreWorld = oldWorld.also { it.physicsCoordinator.close() }
+
+        fun oldCoreWorld(): CoreWorld = oldWorld
 
         fun assertOldOwnerRemovedAndReloadable() {
             assertFalse(manager.railWorlds.containsKey(oldBukkitWorld))

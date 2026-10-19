@@ -169,7 +169,7 @@ abstract class AbstractWand<S, M>(
 
     @EventHandler
     fun onInteract(event: PlayerInteractEvent) {
-        BukkitThreadGuardBridge.runInSimulationContext { handleInteract(event) }
+        BukkitThreadGuardBridge.runInPlayerWorldContext(event.player) { handleInteract(event) }
     }
 
     private fun handleInteract(event: PlayerInteractEvent) {

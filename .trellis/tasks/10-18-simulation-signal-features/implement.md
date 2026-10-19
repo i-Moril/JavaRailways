@@ -9,8 +9,11 @@
 
 ## 实现与检查
 
-- [ ] 按design复用当前实现，补齐本子任务行为差距；不扩展相邻Feature。
-- [ ] 添加prd列出的真实路径回归及必要的barrier/失败矩阵。
+- [ ] **S1**：将manager的共享串行SignalLogicRuntime改为各LIVE/SIM目标自有执行/关闭归属；保留同World必要互斥和只读输入共享。
+- [ ] **S3**：核对manager/global catalog锁范围，单World规则编译/求值/等待不得占跨World目录锁。
+- [ ] 复用完整SimpleSignals编译/安装及规则，接通模拟资源/inspection/epoch/admission链。
+- [ ] **S2**：真实四灯规则及SignalLogicRuntime阻塞/关闭/失败矩阵覆盖LIVE-LIVE、LIVE-SIM、SIM-SIM，同World有序且其他实例继续正确发布。
+- [ ] 添加其余prd中的真实规则业务对照，不以空source、对象不同或空任务代替运行隔离。
 - [ ] 派发Trellis检查代理，处理本子任务确定问题；设计范围变化交回父会话。
 - [ ] 运行受影响定向检查后执行以下模块门禁，并记录实际候选与限制。
 
@@ -27,3 +30,6 @@ git diff --check
 ## 最终集成
 
 跨子任务并发/业务对照/平台副作用隔离由父任务最终复核，不以局部绿测试替代。
+
+
+2026-10-19计划更新：明确各LIVE World之间的JS求值隔离，与每SIM独立实例共同归本任务；O1 observation构造由依赖子任务2先完成。必要Live管理/注册短锁继续保留，任务状态仍planning。

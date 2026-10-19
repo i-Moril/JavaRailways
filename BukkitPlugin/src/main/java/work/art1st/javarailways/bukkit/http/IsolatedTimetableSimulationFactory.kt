@@ -9,7 +9,9 @@ import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
 import work.art1st.javarailways.basic.api.operation.TrainOperation
 import work.art1st.javarailways.basic.api.operation.TrainOperationRequest
 import work.art1st.javarailways.basic.api.operation.DoorSide
-import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionRegistry
+import work.art1st.javarailways.simpleato.api.timetable.TimetableSimulationExtensions
+import work.art1st.javarailways.basic.safety.SpeedSafetyMonitor
+import work.art1st.javarailways.simpleato.timetable.simulation.PreparedSimulationFeature
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
@@ -49,7 +51,9 @@ internal data class IsolatedTimetableSimulationSnapshot(
     val profilesByService: Map<String, SimulationControlProfile>,
     val gravityMetersPerSecondSquared: Double,
     val turnoutSafetyDefaults: TurnoutSafetyDefaults,
-    val timetableExtensions: TimetableExtensionRegistry,
+    val timetableExtensions: TimetableSimulationExtensions,
+    val speedSafety: SpeedSafetyMonitor.Config,
+    val domainFeatures: List<PreparedSimulationFeature>,
     val atoSafetyDistanceMeters: Double
 )
 
@@ -61,7 +65,10 @@ internal fun interface IsolatedSimulationProfileResolver {
 internal class IsolatedTimetableSimulationFactory(
     private val profileResolver: IsolatedSimulationProfileResolver,
     private val gravityMetersPerSecondSquared: Double,
-    private val atoSafetyDistanceMeters: Double = 5.0
+    private val atoSafetyDistanceMeters: Double = 5.0,
+    private val speedSafety: SpeedSafetyMonitor.Config = SpeedSafetyMonitor.Config(false, 0.0, 1),
+    private val requiredDomainFeatures: (CoreWorld) -> Set<String> = { emptySet() },
+    private val prepareDomainFeatures: (CoreWorld) -> List<PreparedSimulationFeature> = { emptyList() }
 ) {
     init {
         require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
@@ -71,11 +78,14 @@ internal class IsolatedTimetableSimulationFactory(
     constructor(
         profileCatalog: SimulationControlProfileCatalog,
         gravityMetersPerSecondSquared: Double,
-        atoSafetyDistanceMeters: Double = 5.0
+        atoSafetyDistanceMeters: Double = 5.0,
+        speedSafety: SpeedSafetyMonitor.Config = SpeedSafetyMonitor.Config(false, 0.0, 1),
+        requiredDomainFeatures: (CoreWorld) -> Set<String> = { emptySet() },
+        prepareDomainFeatures: (CoreWorld) -> List<PreparedSimulationFeature> = { emptyList() }
     ) : this(
         IsolatedSimulationProfileResolver { world, type, id -> profileCatalog.resolve(world, type, id) },
         gravityMetersPerSecondSquared,
-        atoSafetyDistanceMeters
+        atoSafetyDistanceMeters, speedSafety, requiredDomainFeatures, prepareDomainFeatures
     )
     fun capture(
         liveWorld: CoreWorld,
@@ -107,6 +117,13 @@ internal class IsolatedTimetableSimulationFactory(
             val selection = selectionsByService.getValue(service.id)
             service.id to profileResolver.resolve(liveWorld, selection.profileType, selection.profileId)
         }
+        val features = prepareDomainFeatures(liveWorld).toList()
+        require(features.map { it.id }.distinct().size == features.size) { "duplicate simulation domain feature" }
+        val unavailable = requiredDomainFeatures(liveWorld) - features.map { it.id }.toSet()
+        require(unavailable.isEmpty()) {
+            "simulation preparation unavailable for domain features: ${unavailable.sorted().joinToString()}"
+        }
+        val extensions = liveWorld.simpleAtoWorldData.timetableExtensions.prepareSimulation()
         val revision = 0L
         val coreInfrastructure = liveWorld.saveInfrastructure(revision).let { infrastructure ->
             infrastructure.copy(rails = infrastructure.rails.map { rail -> rail.copy(
@@ -126,7 +143,9 @@ internal class IsolatedTimetableSimulationFactory(
             profiles,
             gravityMetersPerSecondSquared,
             liveWorld.basicWorldData.turnoutSafetyDefaults,
-            liveWorld.simpleAtoWorldData.timetableExtensions.createSimulationRegistry(),
+            extensions,
+            speedSafety.copy(),
+            features,
             atoSafetyDistanceMeters
         )
     }
@@ -151,7 +170,9 @@ internal class IsolatedTimetableSimulationFactory(
                     operatingDirections = work.art1st.javarailways.basic.rail.OperatingDirectionStore(directionChanges)
                 )
             },
-            timetableExtensions = snapshot.timetableExtensions,
+            timetableExtensions = { world -> snapshot.timetableExtensions.create(world) },
+            speedSafety = snapshot.speedSafety,
+            preparedFeatures = snapshot.domainFeatures,
             dispatcherFactory = {
                     _, routeAdmissionContextProvider, signalRestrictions, inspectionRuntime, infrastructureDependencyService ->
                 TimetableDispatcher(

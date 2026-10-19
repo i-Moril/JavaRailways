@@ -2,6 +2,7 @@ package work.art1st.javarailways.bukkit.http
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -43,6 +44,18 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.World
+import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionProvider
+import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionResult
+import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionSimulationFactory
+import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionSimulationPreparation
+import work.art1st.javarailways.simpleato.api.timetable.TimetableExtensionDescriptor
+import work.art1st.javarailways.simpleato.api.timetable.TimetableRuntimeContext
 
 class IsolatedTimetableSimulationFactoryTest {
     @BeforeEach
@@ -213,6 +226,85 @@ class IsolatedTimetableSimulationFactoryTest {
         (source.tickManager as? AutoCloseable)?.close()
     }
 
+    @Test
+    fun `capture rejects an installed domain feature without detached preparation`() {
+        val source = createTestWorld()
+        registerWorldData(source)
+        try {
+            val factory = IsolatedTimetableSimulationFactory(
+                IsolatedSimulationProfileResolver { _, _, _ -> profile() }, 9.80665,
+                requiredDomainFeatures = { setOf("simplesignals") }
+            )
+            val timetable = Timetable("unsupported", services = emptyList())
+            val failure = assertThrows(IllegalArgumentException::class.java) {
+                factory.capture(source, timetable, emptyList())
+            }
+            assertTrue(failure.message!!.contains("simplesignals"))
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    fun `one captured snapshot creates new extension and domain state for every target`() {
+        val source = createTestWorld()
+        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1))
+        registerWorldData(source)
+        source.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 20.0))
+        source.basicWorldData.wayPoints.add(WayPoint("terminal", "Terminal", rail.id, 100.0))
+        val providerWorlds = arrayListOf<World>()
+        source.simpleAtoWorldData.timetableExtensions.registerCondition(object :
+            TimetableConditionProvider,
+            TimetableConditionSimulationFactory {
+            override val typeId = "test:captured"
+            override val version = 1
+            override val descriptor = TimetableExtensionDescriptor("Captured", "Target local")
+            override fun evaluate(parameters: kotlinx.serialization.json.JsonObject,
+                context: TimetableRuntimeContext) =
+                TimetableConditionResult.True
+            override fun prepareSimulation(): TimetableConditionSimulationPreparation {
+                val capturedDescriptor = descriptor
+                return TimetableConditionSimulationPreparation { target ->
+                    providerWorlds += target
+                    object : TimetableConditionProvider {
+                        override val typeId = "test:captured"
+                        override val version = 1
+                        override val descriptor = capturedDescriptor
+                        override fun evaluate(parameters: kotlinx.serialization.json.JsonObject,
+                            context: TimetableRuntimeContext) =
+                            TimetableConditionResult.True
+                    }
+                }
+            }
+        })
+        val timetable = Timetable("t", services = listOf(TimetableService("duty", TrainSelector.TrainId("shared"),
+            listOf(TimetableStep.Check("origin"), TimetableStep.At(0, TimetableAction.GoTo("terminal"))))))
+        val factory = IsolatedTimetableSimulationFactory(IsolatedSimulationProfileResolver { _, _, _ -> profile() }, 9.80665)
+        try {
+            val snapshot = factory.capture(source, timetable, listOf(
+                TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")))
+            factory.create(snapshot, 1).use { first -> factory.create(snapshot, 1).use { second ->
+                assertEquals(listOf(first.world, second.world), providerWorlds)
+                assertEquals(first.world.runtimeId, first.operationalRuntime.worldId)
+                assertEquals(second.world.runtimeId, second.operationalRuntime.worldId)
+                org.junit.jupiter.api.Assertions.assertNotEquals(first.operationalRuntime.worldId, second.operationalRuntime.worldId)
+                assertNotSame(first.world.simpleAtoWorldData.timetableExtensions, second.world.simpleAtoWorldData.timetableExtensions)
+                assertNotSame(first.world.simpleAtoWorldData.timetableExtensions.condition("test:captured"),
+                    second.world.simpleAtoWorldData.timetableExtensions.condition("test:captured"))
+                assertNotSame(first.world.simpleAtoWorldData.dispatcher, second.world.simpleAtoWorldData.dispatcher)
+                assertNotSame(first.routeAdmissionHost, second.routeAdmissionHost)
+                assertNotSame(first.world.basicWorldData.railMetadata, second.world.basicWorldData.railMetadata)
+                first.close()
+                val result = second.simulate(IsolatedTimetableSimulationRequest(timetable))
+                assertTrue(result is IsolatedTimetableSimulationResult.Completed, result.toString())
+            } }
+        } finally {
+            source.physicsCoordinator.close()
+            (source.tickManager as AutoCloseable).close()
+        }
+    }
+
     private fun profile(id: String = "template"): SimulationControlProfile {
         val carControl = CarControlConfig(
             motor = MotorControlConfig(enabled = true, maxForce = 80_000.0, maxPower = 800_000.0)
@@ -226,7 +318,7 @@ class IsolatedTimetableSimulationFactoryTest {
         )
     }
 
-    private fun registerWorldData(world: work.art1st.javarailways.core.physics.CoreWorld) {
+    private fun registerWorldData(world: CoreWorld) {
         val basicData = BasicWorldData()
         world.registerExtensionData(BasicPlugin.INSTANCE, basicData)
         val atoCoordinator = AtoWorldCoordinator(safetyInterlock = basicData.safetyInterlock)
@@ -244,14 +336,14 @@ class IsolatedTimetableSimulationFactoryTest {
             restrictions,
             inspection,
             object : InfrastructureDependencyService {
-                override fun set(request: work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest) =
-                    work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult(
-                        work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus.APPLIED
+                override fun set(request: InfrastructureDependencyRequest) =
+                    InfrastructureDependencyMutationResult(
+                        InfrastructureDependencyMutationStatus.APPLIED
                     )
 
-                override fun remove(owner: work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner) =
-                    work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult(
-                        work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus.REMOVED
+                override fun remove(owner: InfrastructureOwner) =
+                    InfrastructureDependencyMutationResult(
+                        InfrastructureDependencyMutationStatus.REMOVED
                     )
             }
         )

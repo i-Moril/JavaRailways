@@ -53,18 +53,18 @@ Core frame shape/epoch成功语义由[Core runtime](../core/runtime-publication.
 
 `RailwayObservation.fromCore(worldId, frame)`只接受一个完整`RailwayWorldFrameSnapshot`，并生成`RailwayStateStamp(worldId, physicsEpoch, topologyRevision)`。`physicsEpoch`与`topologyRevision`是两个独立runtime计数器，都不是schema version，也不能跨world比较。投影保留head/tail facing、canonical AB位置、速度、epoch-end保守`occupiedIntervals`、有序tail-to-head `bodyTraversal`、完整`sweptSpans`、同epoch有序head/tail movement traversal及同一Core frame的`ActiveRailContinuationsSnapshot`，移除render car state和所有live `World/Train/Rail`引用；observation同时保留frame的同epoch `RailwayOccupancySnapshot`引用，供准入、释放和只读consumer做局部查询，不再重建第二份world swept index。Basic不复制或解释active continuation；signal consumer以`entry RailEndpointRef`查询当前selected exit。movement traversal是后续Basic边界检测的输入，`bodyTraversal`供tail-started路线装配；两者都不在投影时按rail合并或从topology重建。当前区间成员关系必须使用`occupiedIntervals`。
 
-Bukkit adapter在exact physics ticket成功后的serialized simulation context同步发布；listener不在physics worker运行，必须快速返回，且不能直接执行entity/location/block/region side effect。world unload移除latest snapshot，plugin disable移除owner subscriptions。慢listener不得反向阻塞physics worker，也不得要求Core为每个subscriber保留逐epoch backlog。
+Bukkit adapter在exact physics ticket成功后，进入目标World owner及有效帧间准入同步发布；listener不在physics worker运行，必须快速返回，且不能直接执行entity/location/block/region side effect。world unload移除latest snapshot，plugin disable移除owner subscriptions。慢listener不得反向阻塞physics worker，也不得要求Core为每个subscriber保留逐epoch backlog。
 
 第5批区分“当前可查询值”和“一次物理epoch通知”：适配器现有每world记录保存确切Core frame引用、其投影与
 lastDeliveredEpoch。`current(worldId, frame)`按引用复用投影；帧间摆位或拓扑更新即使epoch相同，也替换当前查询值，
 不触发listener或车尾跟踪。`publish(worldId, frame, completedPhysicsEpoch)`先核对ticket epoch，再复用该当前投影，
 每个物理epoch只通知一次并返回供既有host consume链使用。提前查询新epoch不推进lastDeliveredEpoch，不能吞掉正常通知。
-不接受epoch倒退，关闭/卸载继续清除同一记录，不另建全世界索引或维护通知队列。
+不接受epoch倒退。同World的构造与当前值/通知记账保持顺序，不同World的真实投影不共用计算锁。卸载只清除该World的当前记录，原UUID订阅保留到subscription关闭或owner注销；service关闭清除全部记录及订阅。已经退出目录的记录不能被迟到转换写回。宿主的锁范围与退休机制见[Bukkit观察服务](../../bukkit-plugin/backend/lifecycle-and-threading.md#观察服务的构造与退休边界)。不另建全世界索引或维护通知队列。
 
 生产准入的latestObservation supplier从Core当前完整world frame调用上述current，而不是只按epoch缓存。
 这样同一阶段内创建/删除/摆位后的申请会验证最新geometry/occupancy；同epoch结构改变不会触发旧的“一epoch只能有一topologyrevision”限制。
 不变frame查询为O(1)，新frame投影承担原来的列车/区间值复制成本，仍共享Core occupancy。
-测试必须包含同epoch实际摆位前后占用变化、旧value不变、提前查询后仍正常通知及sameepoch新拓扑不重复通知。
+测试必须包含同epoch实际摆位前后占用变化、旧value不变、提前查询后仍正常通知及sameepoch新拓扑不重复通知；还要在真实fromCore构造内暂停A，证明B物理发布和共同领域阶段继续，并覆盖同World竞争、remove/close拒绝迟到转换、UUID订阅保留与owner注销。
 
 当前Bukkit生产composition在`DefaultRailwayObservationService.publish`返回本次新建的同一observation后，直接调用
 world-local `RouteResourceAdmissionRuntime.consumeObservation`；这条host安全链不借用普通插件listener，也没有第二个

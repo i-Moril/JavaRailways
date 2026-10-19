@@ -13,6 +13,7 @@ import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
 import work.art1st.javarailways.bukkit.persistence.CarModelSnapshotStore
 import work.art1st.javarailways.bukkit.persistence.TrainPackageSnapshotStore
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
+import work.art1st.javarailways.bukkit.util.LiveWorldManagement
 import work.art1st.javarailways.core.api.control.PreparedControllerStateUpdate
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -46,14 +47,16 @@ internal class TrainResourceReloader(private val plugin: BukkitPlugin) {
 
                 plugin.platformDispatcher.runGlobal {
                     try {
-                        val result = BukkitThreadGuardBridge.runInSimulationContext {
+                        val result = LiveWorldManagement.run {
                             val worlds = plugin.worldManager.railWorlds.entries.sortedBy { it.key.uid.toString() }
                                 .mapNotNull { (bukkit, world) -> (world as? CoreWorld)?.let { bukkit.uid to it } }
-                            fun publish(index: Int): ModelReloadResult {
-                                if (index == worlds.size) return publishPrepared(prepared, worlds)
-                                return worlds[index].second.physicsCoordinator.processBetweenFrames { publish(index + 1) }
+                            BukkitThreadGuardBridge.runWithWorlds(worlds.map { it.second }) {
+                                fun publish(index: Int): ModelReloadResult {
+                                    if (index == worlds.size) return publishPrepared(prepared, worlds)
+                                    return worlds[index].second.physicsCoordinator.processBetweenFrames { publish(index + 1) }
+                                }
+                                publish(0)
                             }
-                            publish(0)
                         }
                         completion.complete(result)
                     } catch (failure: Exception) {

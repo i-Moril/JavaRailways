@@ -31,9 +31,11 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CompletableFuture
 
-class TrainControlManager(
-    private val plugin: BukkitPlugin
+class TrainControlManager internal constructor(
+    private val pluginProvider: () -> BukkitPlugin
 ) : Listener {
+    constructor(plugin: BukkitPlugin) : this({ plugin })
+    private val plugin: BukkitPlugin get() = pluginProvider()
     sealed class AcquireResult {
         data class Acquired(val session: ManualControlSession) : AcquireResult()
         data class AlreadyControlled(val ownerId: UUID) : AcquireResult()
@@ -53,10 +55,14 @@ class TrainControlManager(
 
     private val sessionsByPlayer: MutableMap<UUID, ManualControlSession> = ConcurrentHashMap()
     private val sessionsByTrain: MutableMap<Train, ManualControlSession> = ConcurrentHashMap()
-    private val dialog = TrainControlDialog(plugin, this)
+    private val dialog by lazy { TrainControlDialog(plugin, this) }
     private val bindingScanTasks = ConcurrentHashMap<UUID, ScheduledTask>()
     private class AcquisitionRequest(val train: CoreTrain)
     private val pendingAcquisitions = ConcurrentHashMap<UUID, AcquisitionRequest>()
+    private val playerTransactions = ConcurrentHashMap<UUID, Any>()
+
+    private inline fun <T> withPlayer(playerId: UUID, action: () -> T): T =
+        synchronized(playerTransactions.computeIfAbsent(playerId) { Any() }) { action() }
 
     fun start() {
         plugin.server.pluginManager.registerEvents(this, plugin)
@@ -110,14 +116,17 @@ class TrainControlManager(
         pendingAcquisitions[playerId] = request
         return release.thenCompose {
             coreTrain.world.physicsCoordinator.submitBetweenFrames {
-                if (!pendingAcquisitions.remove(playerId, request) ||
-                    coreTrain.world.getTrain(coreTrain.id) !== coreTrain ||
-                    coreTrain.controller !== expectedController ||
-                    sessionsByPlayer[playerId] !== previous?.takeIf {
-                        it.controller.controlledTrain.world === coreTrain.world
-                    }
-                ) return@submitBetweenFrames AcquireResult.TrainUnavailable
-                acquireManualControlOnOwner(playerId, coreTrain, controlEnd)
+                sessionsByTrain[coreTrain]?.takeIf { coreTrain.controller !== it.controller }?.let(::retireSession)
+                withPlayer(playerId) {
+                    if (!pendingAcquisitions.remove(playerId, request) ||
+                        coreTrain.world.getTrain(coreTrain.id) !== coreTrain ||
+                        coreTrain.controller !== expectedController ||
+                        sessionsByPlayer[playerId] !== previous?.takeIf {
+                            it.controller.controlledTrain.world === coreTrain.world
+                        }
+                    ) return@submitBetweenFrames AcquireResult.TrainUnavailable
+                    acquireManualControlOnOwner(playerId, coreTrain, controlEnd)
+                }
             }
         }.whenComplete { _, _ -> pendingAcquisitions.remove(playerId, request) }
     }
@@ -129,12 +138,8 @@ class TrainControlManager(
         if (coreTrain.movementHeld) return AcquireResult.ConfigError("列车配置不可用，请先修复 /jr issues 中的问题")
         val train: Train = coreTrain
         sessionsByTrain[train]?.let { existing ->
-            if (coreTrain.controller !== existing.controller) {
-                retireSession(existing)
-            } else {
-                if (existing.playerId != playerId) return AcquireResult.AlreadyControlled(existing.playerId)
-                return AcquireResult.Acquired(existing)
-            }
+            if (existing.playerId != playerId) return AcquireResult.AlreadyControlled(existing.playerId)
+            return AcquireResult.Acquired(existing)
         }
 
         releaseManualControlOnOwner(playerId)
@@ -210,22 +215,30 @@ class TrainControlManager(
     ): ManualControlSession {
         val coreTrain = train as CoreTrain
         coreTrain.world.physicsCoordinator.ensureBetweenFrames("TrainControlManager.registerManualControl")
-        check(coreTrain.world.getTrain(coreTrain.id) === coreTrain && coreTrain.controller === controller)
-        releaseManualControlOnOwner(playerId)
-        val previousForTrain = sessionsByTrain.remove(train)
-        if (previousForTrain != null) {
-            sessionsByPlayer.remove(previousForTrain.playerId)
+        return withPlayer(playerId) {
+            check(coreTrain.world.getTrain(coreTrain.id) === coreTrain && coreTrain.controller === controller)
+            check(sessionsByPlayer[playerId]?.controller?.controlledTrain?.world.let { it == null || it === train.world }) {
+                "Cross-world control transfer must release the previous World first"
+            }
+            check(sessionsByTrain[train]?.playerId.let { it == null || it == playerId }) {
+                "Train is controlled by another player"
+            }
+            releaseManualControlOnOwner(playerId)
+            val previousForTrain = sessionsByTrain.remove(train)
+            if (previousForTrain != null) {
+                sessionsByPlayer.remove(previousForTrain.playerId)
+            }
+            val session = ManualControlSession(
+                trainId = train.id,
+                playerId = playerId,
+                controller = controller,
+                controlEnd = controlEnd,
+                timetableMode = timetableMode
+            )
+            sessionsByPlayer[playerId] = session
+            sessionsByTrain[train] = session
+            return@withPlayer session
         }
-        val session = ManualControlSession(
-            trainId = train.id,
-            playerId = playerId,
-            controller = controller,
-            controlEnd = controlEnd,
-            timetableMode = timetableMode
-        )
-        sessionsByPlayer[playerId] = session
-        sessionsByTrain[train] = session
-        return session
     }
 
     fun switchToFullManual(player: Player): CompletableFuture<TimetableControlTransferResult> {
@@ -261,29 +274,33 @@ class TrainControlManager(
         val session = sessionsByPlayer[playerId] ?: return CompletableFuture.completedFuture(null)
         val train = session.controller.controlledTrain as CoreTrain
         return train.world.physicsCoordinator.submitBetweenFrames {
-            if (sessionsByPlayer[playerId] !== session) return@submitBetweenFrames null
-            if (train.world.getTrain(train.id) !== train || train.controller !== session.controller) {
-                retireSession(session)
-                return@submitBetweenFrames null
+            withPlayer(playerId) {
+                if (sessionsByPlayer[playerId] !== session) return@submitBetweenFrames null
+                if (train.world.getTrain(train.id) !== train || train.controller !== session.controller) {
+                    retireSession(session)
+                    return@submitBetweenFrames null
+                }
+                releaseManualControlOnOwner(playerId)
             }
-            releaseManualControlOnOwner(playerId)
         }
     }
 
     private fun releaseManualControlOnOwner(playerId: UUID): ManualControlSession? {
-        val session = sessionsByPlayer[playerId] ?: return null
-        (session.controller.controlledTrain as CoreTrain).world.physicsCoordinator.ensureBetweenFrames(
-            "TrainControlManager.releaseManualControl"
-        )
-        val train = session.controller.controlledTrain as CoreTrain
-        retireSession(session)
-        if (train.world.getTrain(train.id) !== train || train.controller !== session.controller) return session
-        if (notifyControlTransferReleased(session)) {
-            session.controller.emergencyBrake()
-        } else {
-            session.controller.coast()
+        return withPlayer(playerId) {
+            val session = sessionsByPlayer[playerId] ?: return@withPlayer null
+            (session.controller.controlledTrain as CoreTrain).world.physicsCoordinator.ensureBetweenFrames(
+                "TrainControlManager.releaseManualControl"
+            )
+            val train = session.controller.controlledTrain as CoreTrain
+            retireSession(session)
+            if (train.world.getTrain(train.id) !== train || train.controller !== session.controller) return@withPlayer session
+            if (notifyControlTransferReleased(session)) {
+                session.controller.emergencyBrake()
+            } else {
+                session.controller.coast()
+            }
+            return@withPlayer session
         }
-        return session
     }
 
     fun releaseTrain(train: Train): ManualControlSession? {
@@ -316,8 +333,11 @@ class TrainControlManager(
     }
 
     private fun retireSession(session: ManualControlSession) {
-        sessionsByPlayer.remove(session.playerId, session)
-        sessionsByTrain.remove(session.controller.controlledTrain, session)
+        return withPlayer(session.playerId) {
+            sessionsByPlayer.remove(session.playerId, session)
+            sessionsByTrain.remove(session.controller.controlledTrain, session)
+            Unit
+        }
     }
 
     private fun notifyControlTransferReleased(session: ManualControlSession): Boolean {

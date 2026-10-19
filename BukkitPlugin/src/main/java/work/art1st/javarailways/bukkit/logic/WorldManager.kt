@@ -36,13 +36,16 @@ import work.art1st.javarailways.bukkit.persistence.WorldSnapshotCapture
 import work.art1st.javarailways.simpleato.persistence.SimpleATORuntimeSnapshotV1
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
+import work.art1st.javarailways.simpleato.simpleAtoWorldDataOrNull
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
+import work.art1st.javarailways.bukkit.util.LiveWorldManagement
 import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
 import work.art1st.javarailways.bukkit.util.LatestAffinityTaskDispatcher
 import work.art1st.javarailways.bukkit.util.PlatformCommitAffinity
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.tick.PhysicsTicket
+import work.art1st.javarailways.core.util.TickManagerImpl
 import work.art1st.javarailways.core.api.physics.train.CarFrameSnapshot
 import work.art1st.javarailways.core.api.util.tick.Synchronizable
 import work.art1st.javarailways.core.physics.train.CoreCar
@@ -91,14 +94,14 @@ class WorldManager internal constructor(
     }
     private val pendingPeriodicSnapshots = ConcurrentHashMap<BukkitWorld, WorldSnapshotCapture>()
     private val snapshotWrites = ConcurrentHashMap<BukkitWorld, Future<*>>()
-    private val speedSafetyMonitors = ConcurrentHashMap<CoreWorld, SpeedSafetyMonitor>()
-    private val topologySubscriptions = ConcurrentHashMap<CoreWorld, AutoCloseable>()
+    private val worldTickRunners = WorldTickRunnerRegistry<World>()
+    private val worldTickMetrics = ConcurrentHashMap<BukkitWorld, JavaRailwaysServerTickMetrics>()
 
     fun start() {
         check(tickTask == null) { "WorldManager is already started" }
         stopping = false
         tickTask = BukkitPlugin.INSTANCE.platformDispatcher.runGlobalAtFixedRate(1L, 1L) {
-            withSimulationContext(::tick)
+            tick()
         }
     }
 
@@ -109,6 +112,7 @@ class WorldManager internal constructor(
         unloadingWorlds.addAll(railWorlds.keys)
         tickTask?.cancel()
         tickTask = null
+        worldTickRunners.close()
         carFrameDispatcher.clear()
         platformCommitDispatcher.clear()
     }
@@ -140,6 +144,7 @@ class WorldManager internal constructor(
         )
     }
 
+    @Synchronized
     fun recentServerTickMetrics(limit: Int = 20): List<JavaRailwaysServerTickMetrics> {
         if (limit <= 0) return emptyList()
         return recentServerTickMetrics.toList().takeLast(limit)
@@ -147,126 +152,126 @@ class WorldManager internal constructor(
 
     fun registerRailWorld(bukkitWorld: BukkitWorld) {
         ThreadGuard.ensureMainThread("WorldManager.registerRailWorld")
-        if (railWorlds.containsKey(bukkitWorld)) return
-        unloadingWorlds.remove(bukkitWorld)
+        LiveWorldManagement.run {
+            if (railWorlds.containsKey(bukkitWorld)) return@run
+            unloadingWorlds.remove(bukkitWorld)
 
-        val split = when (val result = WorldPersistence.loadSplitSnapshots(bukkitWorld)) {
-            WorldPersistence.SplitSnapshotLoadResult.Missing -> null
-            is WorldPersistence.SplitSnapshotLoadResult.Loaded -> result.snapshots
-            is WorldPersistence.SplitSnapshotLoadResult.Corrupted -> {
-                BukkitPlugin.INSTANCE.logger.severe(
-                    "Failed to load split JavaRailways snapshots for world '${bukkitWorld.name}' from " +
-                        "${result.files.joinToString { it.path }}; features are disabled until fixed. " +
-                        "${result.error::class.simpleName}: ${result.error.message.orEmpty()}"
-                )
-                return
-            }
-        }
-        val splitInfrastructure = split?.infrastructure
-        val splitRuntime = split?.runtime
-        val railWorld = RailWorldFactory.createForBukkit(
-            bukkitWorld = bukkitWorld,
-            infrastructure = splitInfrastructure?.core(),
-            runtime = splitRuntime?.core(),
-            basicInfrastructure = splitInfrastructure?.basic(),
-            simpleAtoInfrastructure = splitInfrastructure?.simpleAto(),
-            basicRuntime = splitRuntime?.basic()
-        )
-        try {
-            if (railWorld is CoreWorld) {
-                topologySubscriptions[railWorld] = railWorld.registerTopologyChangeListener { change ->
-                    railWorld.simpleAtoWorldData.inspectionRuntime.invalidateTopology(change)
-                    railWorld.simpleAtoWorldData.signalEpochRuntime.invalidateTopology(change)
-                }
-                infrastructureResourceService?.registerWorld(
-                    bukkitWorld.uid,
-                    { railWorld.topologyState },
-                    railExists = { railId -> railWorld.getRail(railId) != null },
-                    topologyNodeExists = { key -> railWorld.topologyState.structuralNodeWithPorts(key.ports) != null },
-                    operatingDirections = railWorld.basicWorldData.operatingDirections::snapshot,
-                    railSpeedLimits = railWorld.basicWorldData.railMetadata::speedLimits,
-                    observeTopologyChanges = railWorld::registerTopologyChangeListener,
-                    resourceExists = { resource ->
-                    when (resource) {
-                        is RailIntervalResource -> railWorld.getRail(resource.railId)?.curve?.totalArcLength
-                            ?.let { resource.endAbMeters <= it } == true
-                        is StableInfrastructureResource ->
-                            infrastructureResourceService.stableResourceExists(bukkitWorld.uid, resource)
-                    }
-                    }
-                )
-                infrastructureResourceService?.attachInfrastructureRuntime(
-                    worldId = bukkitWorld.uid,
-                    world = railWorld,
-                    latestObservation = {
-                        observationService?.current(bukkitWorld.uid, railWorld.latestWorldFrame())
-                    },
-                    turnoutLockingDistanceMeters = railWorld.basicWorldData
-                        .turnoutSafetyDefaults.lockingDistanceMeters,
-                    stallWorld = { reason, failure ->
-                        stallWorldRuntime(bukkitWorld, railWorld, reason, failure)
-                    },
-                    publishAdmissionUpdate = railWorld.simpleAtoWorldData.signalEpochRuntime::publishAdmissionUpdate
-                )
-                splitRuntime?.simpleAto()?.restore(railWorld)
-                val simpleAtoData = railWorld.simpleAtoWorldData
-                signalEpochSourceService?.registerWorld(
-                    worldId = bukkitWorld.uid,
-                    runtime = simpleAtoData.signalEpochRuntime,
-                    inspectionRuntime = simpleAtoData.inspectionRuntime,
-                    routePlanningRuntime = simpleAtoData.routePlanningRestrictions,
-                    activeRestrictionStreams = simpleAtoData.signalRestrictions::activeRestrictionStreams,
-                    stallWorld = { reason, failure ->
-                        stallWorldRuntime(bukkitWorld, railWorld, reason, failure)
-                    }
-                )
-                val config = BukkitPlugin.INSTANCE.physicsConfig.overspeed
-                val monitor = SpeedSafetyMonitor(
-                    railWorld,
-                    SpeedSafetyMonitor.Config(
-                        derailEnabled = config.derailEnabled,
-                        toleranceMetersPerSecond = config.toleranceKmH / 3.6,
-                        graceTicks = config.graceTicks
+            val split = when (val result = WorldPersistence.loadSplitSnapshots(bukkitWorld)) {
+                WorldPersistence.SplitSnapshotLoadResult.Missing -> null
+                is WorldPersistence.SplitSnapshotLoadResult.Loaded -> result.snapshots
+                is WorldPersistence.SplitSnapshotLoadResult.Corrupted -> {
+                    BukkitPlugin.INSTANCE.logger.severe(
+                        "Failed to load split JavaRailways snapshots for world '${bukkitWorld.name}' from " +
+                            "${result.files.joinToString { it.path }}; features are disabled until fixed. " +
+                            "${result.error::class.simpleName}: ${result.error.message.orEmpty()}"
                     )
-                )
-                speedSafetyMonitors[railWorld] = monitor
-                railWorld.physicsCoordinator.registerPublishedFrameProcessor(monitor)
-            }
-            val restoredTrains = split?.runtime?.core()?.trains.orEmpty()
-            if (restoredTrains.isNotEmpty() && railWorld is CoreWorld) {
-                restoreBukkitTrainExtensions(railWorld, restoredTrains)
-                refreshTrainSpeedProfiles(railWorld)
-                markSkippedPersistedTrains(bukkitWorld, railWorld, restoredTrains)
-            }
-            (railWorld as? CoreWorld)?.physicsCoordinator?.start()
-            loadedWorlds.publish(bukkitWorld, railWorld)
-            modelPresentationService?.registerWorld(bukkitWorld.uid, bukkitWorld, railWorld, railWorld.renderChunkManager)
-        } catch (failure: Throwable) {
-            fun attemptCleanup(action: () -> Unit) {
-                try {
-                    action()
-                } catch (cleanupFailure: Throwable) {
-                    if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+                    return@run
                 }
             }
-            attemptCleanup { loadedWorlds.remove(bukkitWorld, railWorld) }
-            attemptCleanup { modelPresentationService?.removeWorld(bukkitWorld.uid, bukkitWorld) }
-            attemptCleanup { signalEpochSourceService?.removeWorld(bukkitWorld.uid) }
-            attemptCleanup { infrastructureResourceService?.removeWorld(bukkitWorld.uid) }
-            attemptCleanup { observationService?.removeWorld(bukkitWorld.uid) }
-            val coreWorld = railWorld as? CoreWorld
-            if (coreWorld != null) {
-                attemptCleanup { topologySubscriptions.remove(coreWorld)?.close() }
-                attemptCleanup {
-                    speedSafetyMonitors.remove(coreWorld)
-                        ?.let(coreWorld.physicsCoordinator::unregisterPublishedFrameProcessor)
+            val splitInfrastructure = split?.infrastructure
+            val splitRuntime = split?.runtime
+            val railWorld = RailWorldFactory.createForBukkit(
+                bukkitWorld = bukkitWorld,
+                infrastructure = splitInfrastructure?.core(),
+                runtime = splitRuntime?.core(),
+                basicInfrastructure = splitInfrastructure?.basic(),
+                simpleAtoInfrastructure = splitInfrastructure?.simpleAto(),
+                basicRuntime = splitRuntime?.basic()
+            )
+            try {
+                if (railWorld is CoreWorld) {
+                    infrastructureResourceService?.registerWorld(
+                        bukkitWorld.uid,
+                        { railWorld.topologyState },
+                        railExists = { railId -> railWorld.getRail(railId) != null },
+                        topologyNodeExists = { key -> railWorld.topologyState.structuralNodeWithPorts(key.ports) != null },
+                        operatingDirections = railWorld.basicWorldData.operatingDirections::snapshot,
+                        railSpeedLimits = railWorld.basicWorldData.railMetadata::speedLimits,
+                        observeTopologyChanges = railWorld::registerTopologyChangeListener,
+                        resourceExists = { resource ->
+                        when (resource) {
+                            is RailIntervalResource -> railWorld.getRail(resource.railId)?.curve?.totalArcLength
+                                ?.let { resource.endAbMeters <= it } == true
+                            is StableInfrastructureResource ->
+                                infrastructureResourceService.stableResourceExists(bukkitWorld.uid, resource)
+                        }
+                        }
+                    )
+                    infrastructureResourceService?.attachInfrastructureRuntime(
+                        worldId = bukkitWorld.uid,
+                        world = railWorld,
+                        latestObservation = {
+                            observationService?.current(bukkitWorld.uid, railWorld.latestWorldFrame())
+                        },
+                        turnoutLockingDistanceMeters = railWorld.basicWorldData
+                            .turnoutSafetyDefaults.lockingDistanceMeters,
+                        stallWorld = { reason, failure ->
+                            stallWorldRuntime(bukkitWorld, railWorld, reason, failure)
+                        },
+                        publishAdmissionUpdate = railWorld.simpleAtoWorldData.signalEpochRuntime::publishAdmissionUpdate
+                    )
+                    splitRuntime?.simpleAto()?.restore(railWorld)
+                    val simpleAtoData = railWorld.simpleAtoWorldData
+                    signalEpochSourceService?.registerWorld(
+                        worldId = bukkitWorld.uid,
+                        physicalWorld = railWorld,
+                        runtime = simpleAtoData.signalEpochRuntime,
+                        inspectionRuntime = simpleAtoData.inspectionRuntime,
+                        routePlanningRuntime = simpleAtoData.routePlanningRestrictions,
+                        activeRestrictionStreams = simpleAtoData.signalRestrictions::activeRestrictionStreams,
+                        stallWorld = { reason, failure ->
+                            stallWorldRuntime(bukkitWorld, railWorld, reason, failure)
+                        }
+                    )
+                    val config = BukkitPlugin.INSTANCE.physicsConfig.overspeed
+                    requireNotNull(simpleAtoData.operationalRuntime).attachSpeedSafety(
+                        SpeedSafetyMonitor.Config(
+                            derailEnabled = config.derailEnabled,
+                            toleranceMetersPerSecond = config.toleranceKmH / 3.6,
+                            graceTicks = config.graceTicks
+                        )
+                    )
                 }
-                attemptCleanup { coreWorld.physicsCoordinator.close() }
+                val restoredTrains = split?.runtime?.core()?.trains.orEmpty()
+                if (restoredTrains.isNotEmpty() && railWorld is CoreWorld) {
+                    restoreBukkitTrainExtensions(railWorld, restoredTrains)
+                    refreshTrainSpeedProfiles(railWorld)
+                    markSkippedPersistedTrains(bukkitWorld, railWorld, restoredTrains)
+                }
+                (railWorld as? CoreWorld)?.physicsCoordinator?.start()
+                loadedWorlds.publish(bukkitWorld, railWorld)
+                modelPresentationService?.registerWorld(bukkitWorld.uid, bukkitWorld, railWorld, railWorld.renderChunkManager)
+            } catch (failure: Throwable) {
+                fun attemptCleanup(action: () -> Unit) {
+                    try {
+                        action()
+                    } catch (cleanupFailure: Throwable) {
+                        if (cleanupFailure !== failure) failure.addSuppressed(cleanupFailure)
+                    }
+                }
+                attemptCleanup { loadedWorlds.remove(bukkitWorld, railWorld) }
+                worldTickRunners.retire(railWorld)
+                val coreWorld = railWorld as? CoreWorld
+                val cleanup: () -> Unit = {
+                    if (coreWorld != null) {
+                        attemptCleanup { coreWorld.physicsCoordinator.closeAndAwaitTermination() }
+                        attemptCleanup { (coreWorld.tickManager as TickManagerImpl).closeAndAwaitTermination(coreWorld.runtimeId) }
+                    }
+                    attemptCleanup { modelPresentationService?.removeWorld(bukkitWorld.uid, bukkitWorld) }
+                    attemptCleanup { signalEpochSourceService?.removeWorld(bukkitWorld.uid) }
+                    attemptCleanup { infrastructureResourceService?.removeWorld(bukkitWorld.uid) }
+                    attemptCleanup { observationService?.removeWorld(bukkitWorld.uid) }
+                    if (coreWorld != null) {
+                        attemptCleanup { coreWorld.simpleAtoWorldDataOrNull?.operationalRuntime?.close() }
+                        attemptCleanup { coreWorld.physicsCoordinator.close() }
+                    }
+                    attemptCleanup { railWorld.renderChunkManager.close() }
+                    attemptCleanup { coreWorld?.releaseRuntimeBinding() }
+                    attemptCleanup { (railWorld.tickManager as? AutoCloseable)?.close() }
+                }
+                if (coreWorld == null) cleanup() else coreWorld.executionOwner.run(cleanup)
+                throw failure
             }
-            attemptCleanup { railWorld.renderChunkManager.close() }
-            attemptCleanup { coreWorld?.releaseRuntimeBinding() }
-            attemptCleanup { (railWorld.tickManager as? AutoCloseable)?.close() }
-            throw failure
         }
     }
 
@@ -393,63 +398,71 @@ class WorldManager internal constructor(
         closeTick: (World) -> Unit
     ) {
         ThreadGuard.ensureMainThread("WorldManager.unregisterRailWorld")
-        unloadingWorlds.add(bukkitWorld)
-        loadedWorlds.withdraw(bukkitWorld)
+        LiveWorldManagement.run {
+            unloadingWorlds.add(bukkitWorld)
+            loadedWorlds.withdraw(bukkitWorld)
 
-        val ownedWorld = railWorlds[bukkitWorld]
-        var firstFailure: Throwable? = null
-        fun attempt(action: () -> Unit) {
-            try {
-                action()
-            } catch (failure: Throwable) {
-                val primary = firstFailure
-                if (primary == null) {
-                    firstFailure = failure
-                } else if (failure !== primary) {
-                    primary.addSuppressed(failure)
-                }
-            }
-        }
-
-        attempt { modelPresentationService?.removeWorld(bukkitWorld.uid, bukkitWorld) }
-        if (ownedWorld != null) {
-            val coreWorld = ownedWorld as? CoreWorld
-            if (coreWorld != null) {
-                attempt {
-                    coreWorld.physicsCoordinator.processBetweenFrames {
-                        // Retire this world's sessions before final capture, without draining
-                        // unrelated player requests once unloading has started.
-                        releaseManualControl(coreWorld)
+            val ownedWorld = railWorlds[bukkitWorld]
+            if (ownedWorld != null) worldTickRunners.retire(ownedWorld)
+            val unload: () -> Unit = {
+                var firstFailure: Throwable? = null
+                fun attempt(action: () -> Unit) {
+                    try {
+                        action()
+                    } catch (failure: Throwable) {
+                        val primary = firstFailure
+                        if (primary == null) {
+                            firstFailure = failure
+                        } else if (failure !== primary) {
+                            primary.addSuppressed(failure)
+                        }
                     }
                 }
-                attempt { retireManualControl(coreWorld) }
-                attempt { captureAndSave(coreWorld) }
-                attempt { topologySubscriptions.remove(coreWorld)?.close() }
-                attempt {
-                    speedSafetyMonitors.remove(coreWorld)
-                        ?.let(coreWorld.physicsCoordinator::unregisterPublishedFrameProcessor)
+
+                attempt { modelPresentationService?.removeWorld(bukkitWorld.uid, bukkitWorld) }
+                if (ownedWorld != null) {
+                    val coreWorld = ownedWorld as? CoreWorld
+                    if (coreWorld != null) {
+                        attempt {
+                            coreWorld.physicsCoordinator.processBetweenFrames {
+                                // Retire this world's sessions before final capture, without draining
+                                // unrelated player requests once unloading has started.
+                                releaseManualControl(coreWorld)
+                            }
+                        }
+                        attempt { retireManualControl(coreWorld) }
+                        attempt { captureAndSave(coreWorld) }
+                        attempt { coreWorld.physicsCoordinator.closeAndAwaitTermination() }
+                        attempt { (coreWorld.tickManager as TickManagerImpl).closeAndAwaitTermination(coreWorld.runtimeId) }
+                        attempt { coreWorld.simpleAtoWorldDataOrNull?.operationalRuntime?.close() }
+                    }
+                    attempt { infrastructureResourceService?.removeWorld(bukkitWorld.uid) }
+                    attempt { signalEpochSourceService?.removeWorld(bukkitWorld.uid) }
+                    attempt { observationService?.removeWorld(bukkitWorld.uid) }
+                    attempt { closeModelOperations(ownedWorld) }
+                    ownedWorld.allTrains.flatMap { it.cars }.forEach { car ->
+                        attempt { car.carRendererOrNull?.closeBehavior() }
+                    }
+                    attempt { coreWorld?.physicsCoordinator?.close() }
+                    attempt { closeRender(ownedWorld) }
+                    attempt { coreWorld?.let(releaseRuntimeBinding) }
+                    attempt { closeTick(ownedWorld) }
                 }
+                attempt { BukkitPlugin.instanceOrNull()?.worldIssues?.clearWorld(bukkitWorld.uid) }
+                attempt { clearAbnormalMarkers(bukkitWorld) }
+                attempt {
+                    if (ownedWorld != null) {
+                        railWorlds.remove(bukkitWorld, ownedWorld)
+                    }
+                }
+                firstFailure?.let { throw it }
             }
-            attempt { infrastructureResourceService?.removeWorld(bukkitWorld.uid) }
-            attempt { signalEpochSourceService?.removeWorld(bukkitWorld.uid) }
-            attempt { observationService?.removeWorld(bukkitWorld.uid) }
-            attempt { closeModelOperations(ownedWorld) }
-            ownedWorld.allTrains.flatMap { it.cars }.forEach { car ->
-                attempt { car.carRendererOrNull?.closeBehavior() }
-            }
-            attempt { coreWorld?.physicsCoordinator?.close() }
-            attempt { closeRender(ownedWorld) }
-            attempt { coreWorld?.let(releaseRuntimeBinding) }
-            attempt { closeTick(ownedWorld) }
-        }
-        attempt { BukkitPlugin.instanceOrNull()?.worldIssues?.clearWorld(bukkitWorld.uid) }
-        attempt { clearAbnormalMarkers(bukkitWorld) }
-        attempt {
-            if (ownedWorld != null) {
-                railWorlds.remove(bukkitWorld, ownedWorld)
+            try {
+                if (ownedWorld == null) unload() else BukkitThreadGuardBridge.runInSimulationContext(ownedWorld, unload)
+            } finally {
+                forgetWorldTickMetrics(bukkitWorld)
             }
         }
-        firstFailure?.let { throw it }
     }
 
     @EventHandler
@@ -463,176 +476,155 @@ class WorldManager internal constructor(
     }
 
     private fun tick() {
-        tickStart()
-        tickEnd()
-    }
-
-    private fun tickStart() {
-        ThreadGuard.ensureMainThread("WorldManager.tickStart")
+        if (stopping) return
         serverTickIndex += 1L
-        val currentTimeMs = System.currentTimeMillis()
-        railWorlds.forEach { (_, railWorld) ->
-            (railWorld as? CoreWorld)?.physicsCoordinator?.wakeFromMainThread()
-            railWorld.tickManager.preTick(currentTimeMs)
+        val wake = WorldTickWake(serverTickIndex, System.currentTimeMillis())
+        railWorlds.forEach { (bukkitWorld, railWorld) ->
+            if (bukkitWorld !in unloadingWorlds) {
+                worldTickRunners.offer(railWorld, wake) {
+                    val snapshotInterval = WorldSnapshotInterval(PERIODIC_SNAPSHOT_TICKS)
+                    WorldTickRunner(bukkitWorld.uid.toString(), { next ->
+                        BukkitThreadGuardBridge.runInSimulationContext(railWorld) {
+                            if (!stopping && bukkitWorld !in unloadingWorlds && railWorlds[bukkitWorld] === railWorld) {
+                                (railWorld as? CoreWorld)?.physicsCoordinator?.wakeFromMainThread()
+                                railWorld.tickManager.preTick(next.millis)
+                                tickWorld(bukkitWorld, railWorld, next.index, snapshotInterval)
+                            }
+                        }
+                    }, { failure ->
+                        BukkitPlugin.INSTANCE.logger.log(Level.SEVERE,
+                            "World tick failed for ${bukkitWorld.uid} (${bukkitWorld.name})", failure)
+                    })
+                }
+            }
         }
     }
 
-    private fun tickEnd() {
-        ThreadGuard.ensureMainThread("WorldManager.tickEnd")
+    private fun tickWorld(world: BukkitWorld, railWorld: World, tickIndex: Long, snapshots: WorldSnapshotInterval) {
+        ThreadGuard.ensureMainThread("WorldManager.tickWorld")
         val phaseBreakdown = linkedMapOf<String, Long>()
         var computeNanos = 0L
         var blockedWaitAsyncNanos = 0L
 
-        railWorlds.forEach { (world, railWorld) ->
-            var publishedPhysicsEpoch = 0L
-            val boundaryStartedNanos = System.nanoTime()
-            val processOwnerTick: (PhysicsTicket?) -> Unit = { physicsTicket ->
-                (railWorld as? CoreWorld)?.let { coreWorld ->
-                    val completedTicket = checkNotNull(physicsTicket)
-                    val physicsWaitNanos = System.nanoTime() - boundaryStartedNanos
-                    publishedPhysicsEpoch = completedTicket.epoch
-                    phaseBreakdown["world:${world.name}:physics_wait"] = physicsWaitNanos
-                    blockedWaitAsyncNanos += physicsWaitNanos
+        var publishedPhysicsEpoch = 0L
+        val boundaryStartedNanos = System.nanoTime()
+        val processOwnerTick: (PhysicsTicket?) -> Unit = { physicsTicket ->
+            (railWorld as? CoreWorld)?.let { coreWorld ->
+                val completedTicket = checkNotNull(physicsTicket)
+                val physicsWaitNanos = System.nanoTime() - boundaryStartedNanos
+                publishedPhysicsEpoch = completedTicket.epoch
+                phaseBreakdown["world:${world.name}:physics_wait"] = physicsWaitNanos
+                blockedWaitAsyncNanos += physicsWaitNanos
 
-                    val operationsNanos = measureNanoTime {
-                        coreWorld.physicsCoordinator.drainBetweenFramesOperations()
-                        val issues = BukkitPlugin.INSTANCE.worldIssues
-                        issues.snapshot(world.uid).filter {
-                            it.kind == WorldIssueKind.TRAIN && it.source != "javarailways:train-restore" &&
-                                coreWorld.getTrain(it.objectId) == null
-                        }.forEach { issue ->
-                            issues.resolve(world.uid, issue.source, issue.kind, issue.objectId, issue.code)
+                val operationsNanos = measureNanoTime {
+                    coreWorld.physicsCoordinator.drainBetweenFramesOperations()
+                    val issues = BukkitPlugin.INSTANCE.worldIssues
+                    issues.snapshot(world.uid).filter {
+                        it.kind == WorldIssueKind.TRAIN && it.source != "javarailways:train-restore" &&
+                            coreWorld.getTrain(it.objectId) == null
+                    }.forEach { issue ->
+                        issues.resolve(world.uid, issue.source, issue.kind, issue.objectId, issue.code)
+                    }
+                }
+                phaseBreakdown["world:${world.name}:between_frames_operations"] = operationsNanos
+                computeNanos += operationsNanos
+
+                requireNotNull(coreWorld.simpleAtoWorldData.operationalRuntime).afterPublication(
+                    completedTicket.epoch,
+                    publishObservation = {
+                        val nanos = measureNanoTime {
+                            val observation = observationService?.publish(
+                                world.uid, coreWorld.latestWorldFrame(), completedTicket.epoch)
+                            if (observation != null) infrastructureResourceService?.consumeObservation(world.uid, observation)
                         }
+                        phaseBreakdown["world:${world.name}:observation_publish"] = nanos
+                        computeNanos += nanos
+                    },
+                    beforeDispatcher = {
+                        val nanos = measureNanoTime { dispatchPublishedTrainFrames(world, coreWorld) }
+                        phaseBreakdown["world:${world.name}:train_visual_frame_consume"] = nanos
+                        computeNanos += nanos
                     }
-                    phaseBreakdown["world:${world.name}:between_frames_operations"] = operationsNanos
-                    computeNanos += operationsNanos
-
-                    val observationPublishNanos = measureNanoTime {
-                        val observation = observationService?.publish(
-                            world.uid,
-                            coreWorld.latestWorldFrame(),
-                            completedTicket.epoch
-                        )
-                        if (observation != null) {
-                            infrastructureResourceService?.consumeObservation(world.uid, observation)
-                        }
-                    }
-                    phaseBreakdown["world:${world.name}:observation_publish"] = observationPublishNanos
-                    computeNanos += observationPublishNanos
-
-                    val speedSafetyNanos = measureNanoTime {
-                        coreWorld.publishPendingDerailEvents()
-                        speedSafetyMonitors[coreWorld]
-                            ?.drainRequests(publishedPhysicsEpoch)
-                            .orEmpty()
-                            .forEach { request ->
-                                val train = coreWorld.getTrain(request.trainId) ?: return@forEach
-                                if (train.publishedFrame.physicsEpoch == request.observedPhysicsEpoch) {
-                                    train.derail(request.reason)
-                                }
-                            }
-                    }
-                    phaseBreakdown["world:${world.name}:speed_safety"] = speedSafetyNanos
-                    computeNanos += speedSafetyNanos
-
-                    val renderCommitNanos = measureNanoTime {
-                        dispatchPublishedTrainFrames(world, coreWorld)
-                    }
-                    phaseBreakdown["world:${world.name}:train_visual_frame_consume"] = renderCommitNanos
-                    computeNanos += renderCommitNanos
-                }
-
-                val timetableDispatcherNanos = measureNanoTime {
-                    railWorld.simpleAtoWorldData.dispatcher.tick(railWorld)
-                }
-                phaseBreakdown["world:${world.name}:timetable_dispatcher"] = timetableDispatcherNanos
-                computeNanos += timetableDispatcherNanos
-
-                railWorld.tickManager.postTick()
-                railWorld.tickManager.latestMainThreadTickMetrics()?.let { metrics ->
-                    computeNanos += metrics.computeNanos
-                    blockedWaitAsyncNanos += metrics.blockedWaitAsyncNanos
-                    metrics.phaseBreakdownNanos.forEach { (phase, nanos) ->
-                        phaseBreakdown["world:${world.name}:$phase"] = nanos
-                    }
-                }
-            }
-            val coordinator = (railWorld as? CoreWorld)?.physicsCoordinator
-            if (coordinator == null) {
-                processOwnerTick(null)
-            } else {
-                // Keep fallback physics out through dispatcher and generic after-commit work.
-                coordinator.processBetweenFrames { processOwnerTick(it) }
-            }
-
-            val platformCommitNanos = measureNanoTime {
-                railWorld.tickManager.drainPendingCommits().forEach { synchronizable ->
-                    val action: () -> Unit = {
-                        runCatching { synchronizable.commit() }.onFailure { error ->
-                            BukkitPlugin.INSTANCE.logger.severe(
-                                "Tick platform commit failed in world '${world.name}': " +
-                                    "${error::class.simpleName}: ${error.message.orEmpty()}"
-                            )
-                        }
-                        Unit
-                    }
-                    val location = (synchronizable as? PlatformCommitAffinity)?.commitLocation()
-                    if (location == null) {
-                        action()
-                    } else {
-                        queuePlatformCommit(PendingPlatformCommit(synchronizable, location, action))
-                    }
-                }
-            }
-            phaseBreakdown["world:${world.name}:tick_platform_commit_dispatch"] = platformCommitNanos
-            computeNanos += platformCommitNanos
-
-            if (TrainDebugLog.enabled) {
-                val debugLogNanos = measureNanoTime {
-                    (railWorld as? CoreWorld)?.let { coreWorld ->
-                        coreWorld.allTrains.forEach { train ->
-                            train.cars.forEachIndexed { index, car ->
-                                TrainDebugLog.logRow(listOf(
-                                    System.currentTimeMillis(), "physics", world.uid, train.id, index, car.id,
-                                    train.speed, train.isDerailed, train.controller?.javaClass?.simpleName ?: "",
-                                    train.head.location.rail.id, train.head.location.arcLength,
-                                    train.head.location.position.x(), train.head.location.position.y(), train.head.location.position.z(),
-                                    car.position.x(), car.position.y(), car.position.z(),
-                                    car.direction.x(), car.direction.y(), car.direction.z(),
-                                    car.normal.x(), car.normal.y(), car.normal.z(),
-                                    car.bogieA.position.x(), car.bogieA.position.y(), car.bogieA.position.z(),
-                                    car.bogieB.position.x(), car.bogieB.position.y(), car.bogieB.position.z(),
-                                    car.bogieA.direction.x(), car.bogieA.direction.y(), car.bogieA.direction.z(),
-                                    car.bogieB.direction.x(), car.bogieB.direction.y(), car.bogieB.direction.z(),
-                                    null, null, null, null, null, null, null,
-                                    "after_postTick_before_render"
-                                ))
-                            }
-                        }
-                    }
-                }
-                phaseBreakdown["world:${world.name}:train_debug_log"] = debugLogNanos
-                computeNanos += debugLogNanos
-            }
-
-            val abnormalMarkerNanos = measureNanoTime {
-                (railWorld as? CoreWorld)?.let { coreWorld ->
-                    AbnormalTrainMarker.tick(coreWorld, world)
-                }
-            }
-            phaseBreakdown["world:${world.name}:abnormal_train_marker"] = abnormalMarkerNanos
-            computeNanos += abnormalMarkerNanos
-
-            if (serverTickIndex % PERIODIC_SNAPSHOT_TICKS == 0L) {
-                (railWorld as? CoreWorld)?.let { coreWorld ->
-                    enqueuePeriodicSnapshot(world, captureSnapshots(coreWorld, publishedPhysicsEpoch))
-                }
+                )
             }
         }
 
-        rememberServerTickMetrics(
+        val coordinator = (railWorld as? CoreWorld)?.physicsCoordinator
+        if (coordinator == null) {
+            railWorld.simpleAtoWorldData.dispatcher.tick(railWorld)
+            railWorld.tickManager.postTick()
+        } else {
+            // Keep fallback physics out through dispatcher and generic after-commit work.
+            coordinator.processBetweenFrames { processOwnerTick(it) }
+        }
+
+        val platformCommitNanos = measureNanoTime {
+            railWorld.tickManager.drainPendingCommits().forEach { synchronizable ->
+                val action: () -> Unit = {
+                    runCatching { synchronizable.commit() }.onFailure { error ->
+                        BukkitPlugin.INSTANCE.logger.severe(
+                            "Tick platform commit failed in world '${world.name}': " +
+                                "${error::class.simpleName}: ${error.message.orEmpty()}"
+                        )
+                    }
+                    Unit
+                }
+                val location = (synchronizable as? PlatformCommitAffinity)?.commitLocation()
+                if (location == null) {
+                    action()
+                } else {
+                    queuePlatformCommit(PendingPlatformCommit(synchronizable, location, action))
+                }
+            }
+        }
+        phaseBreakdown["world:${world.name}:tick_platform_commit_dispatch"] = platformCommitNanos
+        computeNanos += platformCommitNanos
+
+        if (TrainDebugLog.enabled) {
+            val debugLogNanos = measureNanoTime {
+                (railWorld as? CoreWorld)?.let { coreWorld ->
+                    coreWorld.allTrains.forEach { train ->
+                        train.cars.forEachIndexed { index, car ->
+                            TrainDebugLog.logRow(listOf(
+                                System.currentTimeMillis(), "physics", world.uid, train.id, index, car.id,
+                                train.speed, train.isDerailed, train.controller?.javaClass?.simpleName ?: "",
+                                train.head.location.rail.id, train.head.location.arcLength,
+                                train.head.location.position.x(), train.head.location.position.y(), train.head.location.position.z(),
+                                car.position.x(), car.position.y(), car.position.z(),
+                                car.direction.x(), car.direction.y(), car.direction.z(),
+                                car.normal.x(), car.normal.y(), car.normal.z(),
+                                car.bogieA.position.x(), car.bogieA.position.y(), car.bogieA.position.z(),
+                                car.bogieB.position.x(), car.bogieB.position.y(), car.bogieB.position.z(),
+                                car.bogieA.direction.x(), car.bogieA.direction.y(), car.bogieA.direction.z(),
+                                car.bogieB.direction.x(), car.bogieB.direction.y(), car.bogieB.direction.z(),
+                                null, null, null, null, null, null, null,
+                                "after_postTick_before_render"
+                            ))
+                        }
+                    }
+                }
+            }
+            phaseBreakdown["world:${world.name}:train_debug_log"] = debugLogNanos
+            computeNanos += debugLogNanos
+        }
+
+        val abnormalMarkerNanos = measureNanoTime {
+            (railWorld as? CoreWorld)?.let { coreWorld ->
+                AbnormalTrainMarker.tick(coreWorld, world)
+            }
+        }
+        phaseBreakdown["world:${world.name}:abnormal_train_marker"] = abnormalMarkerNanos
+        computeNanos += abnormalMarkerNanos
+
+        (railWorld as? CoreWorld)?.let { coreWorld ->
+            snapshots.captureIfDue(tickIndex) {
+                enqueuePeriodicSnapshot(world, captureSnapshots(coreWorld, publishedPhysicsEpoch))
+            }
+        }
+
+        rememberServerTickMetrics(world,
             JavaRailwaysServerTickMetrics(
-                tickIndex = serverTickIndex,
+                tickIndex = tickIndex,
                 computeNanos = computeNanos,
                 blockedWaitAsyncNanos = blockedWaitAsyncNanos,
                 totalImpactNanos = computeNanos + blockedWaitAsyncNanos,
@@ -799,13 +791,33 @@ class WorldManager internal constructor(
     )
 
 
-    private fun rememberServerTickMetrics(snapshot: JavaRailwaysServerTickMetrics) {
-        latestServerTickMetricsSnapshot = snapshot
-        recentServerTickMetrics.addLast(snapshot)
-        while (recentServerTickMetrics.size > 200) {
-            recentServerTickMetrics.removeFirst()
-        }
+    @Synchronized
+    internal fun rememberServerTickMetrics(world: BukkitWorld, snapshot: JavaRailwaysServerTickMetrics) {
+        worldTickMetrics[world] = snapshot
+        val aggregate = checkNotNull(aggregateWorldTickMetrics())
+        latestServerTickMetricsSnapshot = aggregate
+        recentServerTickMetrics.addLast(aggregate)
+        while (recentServerTickMetrics.size > 200) recentServerTickMetrics.removeFirst()
     }
+
+    @Synchronized
+    private fun forgetWorldTickMetrics(world: BukkitWorld) {
+        worldTickMetrics.remove(world)
+        latestServerTickMetricsSnapshot = aggregateWorldTickMetrics()
+    }
+
+    private fun aggregateWorldTickMetrics(): JavaRailwaysServerTickMetrics? {
+        val values = worldTickMetrics.values.toList()
+        if (values.isEmpty()) return null
+        return JavaRailwaysServerTickMetrics(
+            tickIndex = values.maxOf { it.tickIndex },
+            computeNanos = values.sumOf { it.computeNanos },
+            blockedWaitAsyncNanos = values.sumOf { it.blockedWaitAsyncNanos },
+            totalImpactNanos = values.sumOf { it.totalImpactNanos },
+            phaseBreakdownNanos = values.flatMap { it.phaseBreakdownNanos.entries }.associate { it.toPair() }
+        )
+    }
+
 }
 
 /** Maintained only at world load/unload; the existing Bukkit-key map remains the lifecycle owner. */

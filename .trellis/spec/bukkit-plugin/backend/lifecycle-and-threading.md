@@ -77,7 +77,7 @@ Bukkit是列车控制的composition owner，但不是动力学owner：它从当�
 `RealisticManualController`或SimpleATO的`HandleTrainActuator`。不得在Bukkit恢复纵向公式、硬编码重力或为已删除的
 Bukkit controller保留兼容facade。隔离模拟capture必须把重力和profile一起冻结，worker阶段不得访问live renderer。
 
-`WorldManager` 用 global scheduler 每 tick 驱动串行 simulation context：
+`WorldManager`用global scheduler每tick仅向各World的`WorldTickRunner`提交最新唤醒，global回调不等待owner或physics。每World独立单worker运行其领域阶段，至多一个执行中和一个latest pending；积压1000次唤醒也不重放1000项，释放后只处理最新值，不建立第二套物理循环。慢A的ticket等待只占A路径，B及本地SIM继续推进。周期snapshot随所属runner记录已成功捕获的周期bucket，合并唤醒跨过1200倍数时捕获一次，不补逐tick积压；capture/enqueue失败不消费该bucket，后续wake仍可重试，runner退休一并释放该记账。
 
 ```text
 wake physics + generic preTick
@@ -88,7 +88,37 @@ wake physics + generic preTick
   → periodically capture immutable snapshots
 ```
 
-只 capture 一次并等待该 ticket；不能在 physics failure 后消费旧 frame。snapshot capture 在 simulation owner 完成，JSON/IO 交给单线程 writer，per-world pending 采用 latest-only。
+每个World只capture并等待该次ticket；不能在physics failure后消费旧frame。snapshot capture在该World owner完成，JSON/IO交给既有单线程writer，per-world pending采用latest-only。跨World指标只聚合已完成的值，并发读写的recent metrics单独短锁保护，不能为指标重新把tick串成全世界屏障。
+
+### 普通World入口与必要管理事务（2026-10-19）
+
+`BukkitThreadGuardBridge.runInSimulationContext(action)`现在只建立原线程分类，不再持全局simulationLock；具体World入口使用带World参数的重载，进入真实CoreWorld owner。线程分类不是Folia entity/region权限。帧间准入、owner重入及暂停恢复由[Core publication](../../javarailways/core/runtime-publication.md#每world领域执行归属2026-10-19)拥有。
+
+普通tick、HTTP World操作、模拟推进和具体World编辑都只进入所属owner。HTTP的稳定World读取/capture在async执行，不把等待owner的action排回global；整场模拟不持源World或LIVE管理锁。命令按真实目标决定归属，不能一律以sender.world推断；例如ATO指定其他World的reset只提交给该目标，不能先锁玩家World。
+
+`LiveWorldManagement`只序列化LIVE目录/lifecycle、资源重载及provider/contributor/owner注册卸载。先在owner外进入其mutex，再短锁捕获稳定World集合，释放service短锁，按Core owner固定顺序进入有关World；计划性跨World检查/提交还在这些World的有效帧间准入内等待exact ticket，再全检查后提交。普通World与本地模拟不取得这个管理mutex。反例是持service锁等owner，或持单World owner后阻塞等管理mutex；管理入口须在首次取mutex前拒绝后者，合法管理重入保持原作用域。
+
+provider/contributor变更、planned unregister必须阻止检查后新的准入或信号限制发布。检查失败则两侧注册都保留；forced disable、已停止World和宿主shutdown仍走原fail-close/cleanup，不因RUNNING帧间入口不可用而跳过死callback删除。World集合注册/撤销与管理快照保持同一边界，不能让新World躲过检查；正常卸载只停止目标runner、撤其lookup并等待其owner/shutdown，保留exact replacement保护与逐项清理。
+
+Signal atomic replacement仍是特殊边界：同World替换由其owner串行，编译与bounded callback不持全service长锁、不拿physics帧间准入。已开始epoch继续旧source，下一epoch读取新source；A的prepare暂停时B的正常替换仍可完成。callback重入限制是调用线程局部状态，不把另一个World的并发调用误判为重入。
+
+玩家接管保持旧World释放Future→新World入队的handoff；pending检查、session注册/释放和双索引更新按玩家短事务保护，不持玩家锁等待另一World Future或取得第二World owner。重复train ID继续以实际train/World实例区分，不增session代际或兼容路径。
+
+共同领域装配/发布后阶段由[SimpleATO simulation](../../javarailways/simpleato/simulation.md#实际与模拟共用领域阶段)拥有；平台保留渲染、profile与service适配。owner同步成本不包含普通跨World扫描；多World管理成本随有关World及原检查集合增长。必须以barrier验证真实A/B/SIM推进、latest-only、目录检查提交原子性、玩家双请求、HTTP不挡global、source replacement旧epoch及卸载失败清理；离线回归不代替Paper/Folia现场验证。无持久化版本变化。
+
+### 观察服务的构造与退休边界
+
+`DefaultRailwayObservationService`当前按World独立构造Basic observation。WorldManager的发布后阶段及准入的latestObservation supplier仍在目标World owner/帧间边界调用服务；线程分类本身不能代替owner。输入是完整不可变Core frame，输出及同epoch/通知语义由[Basic publication](../../javarailways/basic/threading-and-publication.md#对外-observation-contract)拥有，不读取可变列车状态。
+
+一次正常查询先在短目录锁中取得UUID对应的entry，再只在该entry内串行转换。已有相同frame引用直接复用；新frame先比较epoch，调用真实`RailwayObservation.fromCore`，最后在短目录锁中交换当前值。共享锁不能覆盖转换、等待目标entry或调用listener。所有会同时取得两锁的路径都先entry再目录；目录读取、订阅、卸载和关闭不等待entry，因此A转换暂停时B仍可查询、发布及完成领域阶段。
+
+entry保存frame、observation及lastDeliveredEpoch。`publish(worldId, frame, completedPhysicsEpoch)`先验证ticket与frame epoch相同，随后在目标entry顺序内更新当前值，在短目录锁内一次更新通知记账并取订阅快照；释放两锁后调用listener。普通`current`不推进通知记账。listener异常仍隔离记录，同一发布已选中的listener使用该快照；注销不回收已开始的通知。调用方的World owner保持正常领域调用顺序，服务不新增独立通知队列。
+
+`removeWorld(UUID)`撤销目录entry但保留逻辑UUID订阅，后续正式绑定可建立新entry。`close()`标记关闭并清除目录和订阅，不等待正在转换的entry。转换提交以及发布通知快照都必须确认目录仍指向开始时的同一entry；退休或被替换后返回null，不回填旧值、不通知旧结果，也不覆盖相同UUID的新entry。此identity只用于内部退休判断，不成为公开generation或永久tombstone。subscription.close与unregisterOwner仍可在转换暂停时完成。
+
+转换抛错或epoch倒退时不提交新当前值；ticket不匹配在创建entry前拒绝。相同frame查询的缓存工作为O(1)，新frame承担既有列车/区间投影成本；发布选择listener为O(S)，S是服务当前订阅数，逐个listener回调保持既有成本。短目录锁只保护内存查找/交换及订阅快照，不承诺任意第三方listener执行时长。
+
+例如A的新frame构造暂停时，B可以完成物理位移、observation发布和Dispatcher后的宿主返回；相同A的另一项查询等待该entry并复用结果。若A期间卸载且同UUID建立新记录，A迟到的转换返回null，新记录及原UUID订阅继续有效。正式`DefaultRailwayObservationServiceTest`用只读列车列表barrier暂停真实fromCore，断言上述流程、同World一次转换/最多一次通知、listener两锁外重入、owner注销和close/remove交错。无持久化迁移；完整Signals JS执行归属仍由后续信号子任务处理，不能据此声称已完成全feature模拟。
 
 ### 控制器接管与命令的帧间适配（CURRENT，第3b批平台侧）
 
@@ -114,13 +144,13 @@ world卸载先撤销loaded lookup，再在有效帧间阶段释放该world控制
 
 ### 基础设施完整操作的帧间边界（CURRENT，第5批）
 
-同步的Bound进路申请、progress、换向暂停/重基准和授权结束，在原simulation serialization内复用Core
+同步的Bound进路申请、progress、换向暂停/重基准和授权结束，在实际目标World owner内复用Core
 `withStructuralMutation`，进入后重新检查插件及确切world/runtime；整个操作包含可能的选岔准备，不能只包底层setter。
 退出前用`publishOwnerSelectionChanges()`按selection revision判断是否需要刷新；未变化轮询为O(1)，不逐次重建世界。
 手动选岔使用异步Future入口，具体合同见[Turnout Wand](./turnout-wand.md)。
 
 RailWand的几何/文件准备仍异步；八个普通prepared commit经统一回调，独立world undo是第九处。
-完整player-owner回调在既有simulation lock和`processBetweenFrames`内执行root复核、Core/metadata/undo提交、失败清理及permit释放，
+完整player-owner回调在实际目标World owner和`processBetweenFrames`内执行root复核、Core/metadata/undo提交、失败清理及permit释放，
 不将活Player/PDC/物品访问搬到global host队列。限速metadata更新和metadata undo也使用该边界。
 world undo的Future在阶段退出和清理以后才完成，使Compound undo的同步后继不会嵌套`processBetweenFrames`。
 门禁进入失败也须释放已准备undo/permit；不得只包Core install而让上层metadata或rollback跑在门禁外。
@@ -181,31 +211,31 @@ SimpleSignals的`SignalReplacementContinuityTest`覆盖；不为同一机制重�
 ## 世界 lifecycle
 
 - world load 的 split snapshot `Missing` 可创建新 world；`Corrupted` 禁用该 world 的 JavaRailways 功能并要求修复，不能当空世界覆盖。
-- world factory从创建`TickManager`起负责尚未发布的构造资源；后续Core load、extension restore、materialize或render metadata恢复失败时，按render→physics→tick逆序关闭。资源只有在factory完整成功返回时才移交给`WorldManager`。
-- unload先标记unloading并撤loaded-world lookup，再用coordinator `beginShutdown()`在其原stateLock内永久禁止新main/timer/simulation epoch并捕获exact ticket；在锁外成功await该ticket后才捕获/写最终snapshot，最后close coordinator/render/tick owner。beginShutdown保持RUNNING以允许在途正常publication，不是close/abort；失败ticket必须报告失败，不回退旧epoch，也不拿失败作为worker全部退出的证明。
-- snapshot capture/write或任一teardown步骤失败时，仍须分别尝试撤销topology/frame订阅、三个宿主service、physics/render/tick owner、异常标记与owner map。最先发生的异常保持为主异常，后续清理异常作为suppressed保留；不得因清理成功吞掉保存失败，也不得让旧world留在主tick集合阻止同UUID重新绑定。owner map删除使用卸载开始时捕获的exact world identity，不能误删随后绑定的新world。
+- world factory从创建`TickManager`起负责尚未发布的构造资源；后续Core load、extension restore、materialize或render metadata恢复失败时，逆序关闭已取得的共同领域runtime、render、runtime binding、physics与tick资源。资源只有在factory完整成功返回时才移交给`WorldManager`。
+- unload先标记unloading并撤loaded-world lookup，再用coordinator `beginShutdown()`在其原stateLock内永久禁止新main/timer/simulation epoch并捕获exact ticket；在锁外成功await该ticket后才捕获/写最终snapshot，保存尝试结束后确认目标physics/generic executor真正终止，再释放共同runtime及service/render/tick资源。beginShutdown保持RUNNING以允许在途正常publication，不是close/abort；失败ticket必须报告失败，不回退旧epoch，也不拿失败作为worker全部退出的证明。已返回的factory world若在宿主注册中启动physics后失败，也必须先确认这两个pool终止，再卸载service/domain；未启动factory构造失败仍使用原资源栈。
+- snapshot capture/write或任一teardown步骤失败时，仍先分别尝试目标physics/generic的实际终止确认，再撤销topology/frame订阅、三个宿主service、render/tick owner、异常标记与owner map。最先发生的异常保持为主异常，后续清理异常作为suppressed保留；不得因清理成功吞掉保存失败，也不得让旧world留在主tick集合阻止同UUID重新绑定。owner map删除使用卸载开始时捕获的exact world identity，不能误删随后绑定的新world。
 - platform commit 执行前重新解析 affinity；目标跨 region 时 reschedule，而不是在旧 owner 上执行。
-- 每车JS行为见[车厢行为契约](car-behavior.md)。最终snapshot保存之后，先令该world尚未完成的模型操作future失败，再分别关闭每节车厢的行为及延迟效果，随后关闭physics/render/tick；不能等region队列执行才完成旧ticket。各车关闭独立尝试，某车失败不跳过其余车厢或后续owner。
+- 每车JS行为见[车厢行为契约](car-behavior.md)。最终snapshot保存尝试及目标worker终止确认之后，先令该world尚未完成的模型操作future失败，再分别关闭每节车厢的行为及延迟效果，随后关闭render/tick；不能等region队列执行才完成旧ticket。各车关闭独立尝试，某车失败不跳过其余车厢或后续owner。
 
 上面的physics保存边界、CR-013卸载失败清理和CR-015 factory partial-init清理均已接入生产入口。没有因此承诺Bukkit跨region清理完成、失败输入可自动修复或Koin scope已经成对释放。
 
 ### 构造失败资源归还（CURRENT）
 
 1. **范围、触发与owner**：`RailWorldFactory.createForBukkit`拥有尚未返回的world构造；从第一个tick executor创建成功起，到完整world返回前，调用方没有对象可清理，因此factory不能把失败归责给`WorldManager`。
-2. **正常流程**：创建顺序为tick→physics→Core world/DI attach→render listener→extensions/restore/materialize/render metadata；全部成功后清空构造资源栈并返回world，此刻资源所有权一次性移交给已发布world lifecycle。
-3. **内部机制**：`WorldConstructionResources`只记录本factory已成功取得的close动作，使用LIFO执行，因此后取得的render先于physics和tick关闭。它不是公共API、通用事务或extension rollback框架。
+2. **正常流程**：创建顺序为tick→physics→Core world/DI attach→render listener→共同领域runtime→restore/materialize/render metadata；全部成功后清空构造资源栈并返回world，此刻资源所有权一次性移交给已发布world lifecycle。
+3. **内部机制**：`WorldConstructionResources`只记录本factory已成功取得的close动作，使用LIFO执行，因此共同领域runtime先于render、runtime binding、physics和tick关闭。它不是公共API、通用事务或extension rollback框架。
 4. **构造器边界**：`RenderChunkManager`可能在注册listener后、完成initial-player refresh前抛出，此时factory尚未取得对象；构造器自身调用`close`，最终注销listener。`close`保留首个异常、继续清理其他player并把注销异常记为suppressed。
 5. **接口与数据**：正式factory签名、split snapshot、revision/epoch及world map均不变；未新增schema version、兼容输入、自动重试或空world fallback。
-6. **失败矩阵**：tick创建失败时无资源；physics创建失败只关tick；Core load或DI attach失败关physics/tick；render构造内部失败由其自身撤listener，再由factory关physics/tick；之后任一步失败关render/physics/tick。构造主异常始终保留，清理异常按发生顺序suppressed。
+6. **失败矩阵**：tick创建失败时无资源；physics创建失败只关tick；Core load或DI attach失败关physics/tick；render构造内部失败由其自身撤listener，再由factory关physics/tick；共同领域runtime取得后任一步失败先关闭它，再逐项关render/runtime binding/physics/tick。构造主异常始终保留，清理异常按发生顺序suppressed。
 7. **线程与发布**：入口仍要求simulation main owner。失败world从未进入`WorldManager`可见map，也不得start/wake physics；清理不发布替代world，不吞掉坏snapshot诊断。
-8. **性能与退化**：构造资源栈固定最多三个close动作，为O(1)；正常成功路径只有三次注册及一次clear。失败不扫描其他world、不重试I/O，也不增加常驻线程或锁。
+8. **性能与退化**：构造资源栈只含固定数量的本world资源，为O(1)；正常成功路径为固定次数注册及一次clear。失败不扫描其他world、不重试I/O，也不增加常驻线程或锁。
 9. **必需测试**：验证render→physics→tick逆序、主异常与suppressed顺序、成功移交后不误关；验证render listener已注册后initial refresh失败会注销，且注销失败只作为suppressed。模块完整测试与`shadowJar`仍是最终门禁。
 10. **开放项与错误示例**：world context registration现由Core返回并加入同一构造栈；它只关闭DI binding。错误做法是在调用方包围factory、只关闭最后一个资源、用清理异常覆盖restore异常，或让render构造器注册副作用后抛出而无人持有；正确做法是各owner在对象可见性边界内归还自己已取得的资源。
 
 ### 卸载失败隔离（CURRENT）
 
 1. **范围、触发与owner**：`WorldManager.unregisterRailWorld(BukkitWorld)`负责已发布world的宿主卸载。适用于正常world unload与插件停用逐world清理；未返回world的factory partial-init和Folia region task完成不在此机制内。Core-owned world context token在宿主consumer关闭后由此入口释放。
-2. **正常流程**：simulation/main owner先把world加入unloading集合并撤销UUID lookup，捕获当时`railWorlds[bukkitWorld]`的exact对象；随后停止新physics epoch、等待exact ticket、捕获并写split snapshot，再依次撤订阅/service并关闭physics、render与generic tick owner，清异常标记，最后移除旧owner map。
+2. **正常流程**：simulation/main owner先把world加入unloading集合并撤销UUID lookup，捕获当时`railWorlds[bukkitWorld]`的exact对象；随后停止新physics epoch、等待exact ticket、捕获并写split snapshot，随后无论保存成败都先确认本World物理及generic worker终止，再逐项释放共同领域runtime、订阅/service及render/generic tick owner，清异常标记，最后移除旧owner map。
 3. **内部机制**：保存和每个teardown动作分别交给同一个顺序执行器。执行器记录首个`Throwable`，继续运行后续动作，并把之后不同的异常按顺序加入首个异常的suppressed列表；全部动作结束后才重新抛出。map删除使用`remove(bukkitWorld, capturedWorld)`，所以清理期间即使同一key已换成新world，也不会被旧清理删除。
 4. **接口与数据**：正式入口仍只有`fun unregisterRailWorld(bukkitWorld: BukkitWorld)`；用于失败矩阵测试的internal overload只替换持久化、marker、render和tick动作，不改变生产owner或形成add-on API。`physicsEpoch`仍来自成功完成的exact `PhysicsTicket`，不是schema version。
 5. **生命周期与线程规则**：入口必须通过`ThreadGuard.ensureMainThread`；UUID lookup在任何blocking await/I/O前撤出。保存失败也必须关闭资源并撤owner map；失败不能回退旧成功epoch或重新开放wake。新binding只能由后续load重新发布，旧清理不能按UUID宽泛删除它。

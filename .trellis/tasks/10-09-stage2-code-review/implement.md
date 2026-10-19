@@ -755,3 +755,10 @@ env GRADLE_USER_HOME=/workspace/.gradle ./gradlew --offline --rerun-tasks \
 - `TrainNameTest`、`CoreCarPositioningRegressionTest`两文件仅增加局部Unit `withWorld`和physics→binding→tick的use释放（23增/8删）；原1+3共4项业务动作、断言、几何和参数不变。setup失败沿共享fixture既有owner合同，成功后setup及assert均在释放作用域内；主异常和suppressed由use保留。
 - 独立只读check确认上述边界、JUnit返回类型和冻结hash，无需补修；不改生产代码/共享fixture或持久化。既有Core testing规范已经定义本次规则，不重复增补。主会话以`GRADLE_USER_HOME=/workspace/.gradle ./gradlew :Core:test :Basic:test --offline --no-build-cache --no-parallel --rerun-tasks -Pkotlin.incremental=false -Pkotlin.compiler.execution.strategy=in-process`完成强制门禁，`BUILD SUCCESSFUL`（54s、15 tasks全部执行）；新鲜XML Core 54 suites/319项、Basic 59 suites/385项全执行，零跳过/失败/error，两类4项全部实际执行通过。源码前后SHA-256一致：Name `fe43616e7ffcb5d0d3f52c38ef4f03ccfbb8b08370db2da1aa3a1d819c8cddb6`，Positioning `18000b7d516646cbc56442bd1ccc9cc96c9af6404e980e9b7cb54b946454261f`。scoped diff-check和task manifest 15+15通过，无独立lint配置，既有warning保留；未部署或进行游戏/opt-in stress验证。
 - 仅关闭两类资源子项；接缝运动真实epoch/发布断言、其余fixture所有权复核、RailWand完整事务集成和Basic整模块审查继续跟踪，CR-020保持partial，不归档总任务。
+
+
+### World隔离对生命周期证据的补充（2026-10-19）
+
+- 由子任务`10-18-world-runtime-isolation`实现每World执行归属与调度，保留原CR-014的成功exact ticket后捕获最终snapshot合同。另补显式executor终止确认，LIVE卸载/启动后注册失败及SIM取消在卸载domain/service前确认physics和generic callback真正退出，恢复取消中断；原`close`仍非阻塞，失败ticket仍不能证明退出。
+- CR-013补充目标runner/metrics无论卸载失败仍退休；弱目录标记不永久持有已卸载World。latest-only调度的周期snapshot改为跨周期边界成功捕获后记账，避免合并唤醒略过整数tick导致永久漏保存。
+- 本批实现、最终检查和测试证据由[子任务验证记录](../10-18-world-runtime-isolation/research/validation.md)拥有；未执行真实Folia/客户端或所有owner final-save I/O，不把本批验收当作CR-020或整个Core/Basic审查完成。

@@ -26,10 +26,10 @@ class TrainControlDialog(
     private val manager: TrainControlManager
 ) {
     fun show(player: Player, train: Train) {
-        BukkitThreadGuardBridge.runInSimulationContext { train.renderer.loadBehaviorActions() }.whenComplete { actions, failure ->
+        BukkitThreadGuardBridge.runInSimulationContext(train.world) { train.renderer.loadBehaviorActions() }.whenComplete { actions, failure ->
             plugin.platformDispatcher.runForEntity(player, action = {
                 if (failure != null) player.sendMessage(Component.text("动作列表加载失败: ${failure.message}", NamedTextColor.RED))
-                else showLoaded(player, train, actions)
+                else BukkitThreadGuardBridge.runInSimulationContext(train.world) { showLoaded(player, train, actions) }
             })
         }
     }
@@ -140,7 +140,7 @@ class TrainControlDialog(
         }
         executableActions.forEach { action ->
             buttons.add(actionButton(action.displayName, NamedTextColor.AQUA) { p ->
-                BukkitThreadGuardBridge.runInSimulationContext {
+                BukkitThreadGuardBridge.runInSimulationContext(train.world) {
                     train.renderer.executeModelAction(action.name, hasControl = manager.ownerOf(train) == p.uniqueId)
                 }.whenComplete { _, failure ->
                     plugin.platformDispatcher.runForEntity(p, action = {

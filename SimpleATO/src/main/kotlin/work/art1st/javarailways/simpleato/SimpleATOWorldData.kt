@@ -16,6 +16,7 @@ import work.art1st.javarailways.simpleato.routing.RoutePlanningRestrictionRuntim
 import work.art1st.javarailways.simpleato.signal.SignalEpochRuntime
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.TimetableStore
+import work.art1st.javarailways.simpleato.runtime.OperationalWorldRuntime
 
 /** Mutable operational runtime owned by SimpleATO for one Core world. */
 data class SimpleATOWorldData(
@@ -32,7 +33,8 @@ data class SimpleATOWorldData(
     val lines: LineStore = LineStore(),
     val timetables: TimetableStore = TimetableStore(),
     val timetableExtensions: TimetableExtensionRegistry = TimetableExtensionRegistry(),
-    val routePlanningRestrictions: RoutePlanningRestrictionRuntime = RoutePlanningRestrictionRuntime()
+    val routePlanningRestrictions: RoutePlanningRestrictionRuntime = RoutePlanningRestrictionRuntime(),
+    val operationalRuntime: OperationalWorldRuntime? = null
 ) {
     init {
         signalEpochRuntime.attachInspectionRuntime(inspectionRuntime)

@@ -30,12 +30,15 @@ internal class DefaultRailwayObservationService(
         val observation: RailwayObservation,
         val lastDeliveredEpoch: Long?
     )
-    private val latestByWorld = linkedMapOf<UUID, CurrentObservation>()
+    private class WorldObservations {
+        var current: CurrentObservation? = null
+    }
+    private val observationsByWorld = linkedMapOf<UUID, WorldObservations>()
     private val registrations = linkedMapOf<Long, Registration>()
     private var closed = false
 
     override fun latest(worldId: UUID): Optional<RailwayObservation> = synchronized(lock) {
-        Optional.ofNullable(latestByWorld[worldId]?.observation)
+        Optional.ofNullable(observationsByWorld[worldId]?.current?.observation)
     }
 
     override fun subscribe(
@@ -65,19 +68,36 @@ internal class DefaultRailwayObservationService(
     }
 
     /** Updates the current owner view without sending another physical-epoch notification. */
-    fun current(worldId: UUID, frame: RailwayWorldFrameSnapshot): RailwayObservation? = synchronized(lock) {
-        if (closed) null else currentLocked(worldId, frame).observation
+    fun current(worldId: UUID, frame: RailwayWorldFrameSnapshot): RailwayObservation? {
+        val observations = observationsFor(worldId) ?: return null
+        return synchronized(observations) { updateCurrent(worldId, observations, frame)?.observation }
     }
 
-    private fun currentLocked(worldId: UUID, frame: RailwayWorldFrameSnapshot): CurrentObservation {
-        val previous = latestByWorld[worldId]
+    private fun observationsFor(worldId: UUID): WorldObservations? = synchronized(lock) {
+        if (closed) null else observationsByWorld.getOrPut(worldId) { WorldObservations() }
+    }
+
+    /** Called with the target entry held; conversion never holds the shared directory lock. */
+    private fun updateCurrent(
+        worldId: UUID,
+        observations: WorldObservations,
+        frame: RailwayWorldFrameSnapshot
+    ): CurrentObservation? {
+        val previous = synchronized(lock) {
+            if (closed || observationsByWorld[worldId] !== observations) return null
+            observations.current
+        }
         if (previous?.frame === frame) return previous
         require(previous == null || previous.frame.physicsEpoch <= frame.physicsEpoch) {
             "observation epoch moved backwards for world $worldId"
         }
-        return CurrentObservation(
+        val current = CurrentObservation(
             frame, RailwayObservation.fromCore(worldId.toString(), frame), previous?.lastDeliveredEpoch
-        ).also { latestByWorld[worldId] = it }
+        )
+        return synchronized(lock) {
+            if (closed || observationsByWorld[worldId] !== observations) null
+            else current.also { observations.current = it }
+        }
     }
 
     /** Delivers at most once per physical epoch; same-epoch owner changes still update the view. */
@@ -89,12 +109,15 @@ internal class DefaultRailwayObservationService(
         require(frame.physicsEpoch == completedPhysicsEpoch) {
             "world frame epoch ${frame.physicsEpoch} does not match completed ticket $completedPhysicsEpoch"
         }
-        val (observation, listeners) = synchronized(lock) {
-            if (closed) return null
-            val current = currentLocked(worldId, frame)
-            if (current.lastDeliveredEpoch == frame.physicsEpoch) return null
-            latestByWorld[worldId] = current.copy(lastDeliveredEpoch = frame.physicsEpoch)
-            current.observation to registrations.values.filter { it.worldId == worldId }.sortedBy(Registration::id)
+        val observations = observationsFor(worldId) ?: return null
+        val (observation, listeners) = synchronized(observations) {
+            val current = updateCurrent(worldId, observations, frame) ?: return null
+            synchronized(lock) {
+                if (closed || observationsByWorld[worldId] !== observations ||
+                    current.lastDeliveredEpoch == frame.physicsEpoch) return null
+                observations.current = current.copy(lastDeliveredEpoch = frame.physicsEpoch)
+                current.observation to registrations.values.filter { it.worldId == worldId }.sortedBy(Registration::id)
+            }
         }
         listeners.forEach { registration ->
             try {
@@ -111,14 +134,14 @@ internal class DefaultRailwayObservationService(
     }
 
     fun removeWorld(worldId: UUID) {
-        synchronized(lock) { latestByWorld.remove(worldId) }
+        synchronized(lock) { observationsByWorld.remove(worldId) }
     }
 
     override fun close() {
         synchronized(lock) {
             if (closed) return
             closed = true
-            latestByWorld.clear()
+            observationsByWorld.clear()
             registrations.clear()
         }
     }

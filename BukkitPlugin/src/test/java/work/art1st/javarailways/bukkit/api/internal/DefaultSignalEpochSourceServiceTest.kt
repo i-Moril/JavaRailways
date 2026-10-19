@@ -43,6 +43,40 @@ class DefaultSignalEpochSourceServiceTest {
     private val railId = UUID.nameUUIDFromBytes("signal-service-rail".toByteArray())
 
     @Test
+    fun `atomic callback rejects another world reentry before waiting for its busy owner`() {
+        val service = DefaultSignalEpochSourceService()
+        val firstId = UUID.randomUUID()
+        val secondId = UUID.randomUUID()
+        val owner = plugin("signal")
+        val world = work.art1st.javarailways.core.physics.train.createTestWorld(
+            work.art1st.javarailways.core.physics.tick.PhysicsCoordinator(1, automaticFallback = false))
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            service.registerWorld(firstId, runtime(), inspectionRuntime(), { emptyList() }) { _, _ -> }
+            service.registerWorld(secondId, runtime(), inspectionRuntime(), { emptyList() }, physicalWorld = world) { _, _ -> }
+            world.executionOwner.run {
+                val rejected = executor.submit<Boolean> {
+                    try {
+                        service.replaceSourcesAtomically(owner, firstId, listOf(source("test:first", 0.0) {})) {
+                            service.replaceSources(owner, secondId, listOf(source("test:second", 20.0) {}))
+                        }
+                        false
+                    } catch (failure: IllegalStateException) {
+                        failure.message.orEmpty().contains("cannot be re-entered")
+                    }
+                }
+                assertTrue(rejected.get(5, TimeUnit.SECONDS))
+            }
+        } finally {
+            executor.shutdownNow()
+            service.close()
+            world.physicsCoordinator.close()
+            world.releaseRuntimeBinding()
+            (world.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
     fun `owner replacement preserves other owners and invalid union changes nothing`() {
         val service = DefaultSignalEpochSourceService()
         val worldId = UUID.randomUUID()
@@ -155,6 +189,9 @@ class DefaultSignalEpochSourceServiceTest {
         val commitEntered = CountDownLatch(1)
         val releaseCommit = CountDownLatch(1)
         val calls = mutableListOf<String>()
+        val otherWorldId = UUID.randomUUID()
+        val otherRuntime = runtime()
+        service.registerWorld(otherWorldId, otherRuntime, inspectionRuntime(), { emptyList() }) { _, _ -> }
         service.registerWorld(worldId, runtime, inspectionRuntime(), { emptyList() }) { _, _ -> }
         service.replaceSources(owner, worldId, listOf(source("test:old", 0.0) { calls += "old" }))
         val executor = Executors.newFixedThreadPool(2)
@@ -179,6 +216,13 @@ class DefaultSignalEpochSourceServiceTest {
             }
             physics.get(5, TimeUnit.SECONDS)
             assertEquals(listOf("old"), calls)
+            // A's slow compile/commit must not retain the service directory monitor for B.
+            executor.submit {
+                service.replaceSources(owner, otherWorldId,
+                    listOf(source("test:other", 40.0) { calls += "other" }))
+                otherRuntime.process(frame(1L))
+            }.get(5, TimeUnit.SECONDS)
+            assertEquals(listOf("old", "other"), calls)
 
             releaseCommit.countDown()
             replacement.get(5, TimeUnit.SECONDS)
@@ -188,7 +232,7 @@ class DefaultSignalEpochSourceServiceTest {
             executor.shutdownNow()
         }
 
-        assertEquals(listOf("old", "new"), calls)
+        assertEquals(listOf("old", "other", "new"), calls)
     }
 
     @Test

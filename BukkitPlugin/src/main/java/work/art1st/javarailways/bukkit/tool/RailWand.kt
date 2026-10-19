@@ -657,10 +657,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     override fun onAfterRegisterEvents() {
         plugin.platformDispatcher.runGlobalAtFixedRate(1L, 4L) {
-            BukkitThreadGuardBridge.runInSimulationContext {
-                updateSplitPreviews()
-                updateDecorationPreviews()
-            }
+            updateSplitPreviews()
+            updateDecorationPreviews()
         }
         plugin.logger.info("RailWand initialized")
     }
@@ -4037,7 +4035,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             if (player == null) {
                 splitPreviewViewers.remove(playerId)
             } else {
-                plugin.platformDispatcher.runForEntity(player, action = { updateSplitPreview(player) })
+                plugin.platformDispatcher.runForEntity(player, action = { BukkitThreadGuardBridge.runInPlayerWorldContext(player) { updateSplitPreview(player) } })
             }
         }
     }
@@ -4070,7 +4068,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             if (player == null) {
                 decorationPreviewViewers.remove(playerId)
             } else {
-                plugin.platformDispatcher.runForEntity(player, action = { updateDecorationPreview(player) })
+                plugin.platformDispatcher.runForEntity(player, action = { BukkitThreadGuardBridge.runInPlayerWorldContext(player) { updateDecorationPreview(player) } })
             }
         }
     }

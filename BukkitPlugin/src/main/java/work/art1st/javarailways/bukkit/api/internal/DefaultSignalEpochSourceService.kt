@@ -5,6 +5,10 @@ import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
 import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
+import work.art1st.javarailways.bukkit.util.LiveWorldManagement
+import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.physics.WorldExecutionOwner
+import java.util.concurrent.ConcurrentHashMap
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 import work.art1st.javarailways.simpleato.inspection.InspectionRuntime
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
@@ -23,7 +27,9 @@ internal class DefaultSignalEpochSourceService :
         val inspectionRuntime: InspectionRuntime,
         val routePlanningRuntime: RoutePlanningRestrictionRuntime,
         val activeRestrictionStreams: (Set<String>) -> List<String>,
-        val stallWorld: (String, Exception) -> Unit
+        val stallWorld: (String, Exception) -> Unit,
+        val owner: WorldExecutionOwner,
+        val physicalWorld: CoreWorld?
     )
 
     private data class OwnerSources(
@@ -34,10 +40,10 @@ internal class DefaultSignalEpochSourceService :
     )
 
     private val lock = Any()
-    private val worlds = linkedMapOf<UUID, WorldBinding>()
-    private val sourcesByWorld = linkedMapOf<UUID, MutableList<OwnerSources>>()
+    private val worlds = ConcurrentHashMap<UUID, WorldBinding>()
+    private val sourcesByWorld = ConcurrentHashMap<UUID, List<OwnerSources>>()
     private var closed = false
-    private var atomicCommitInProgress = false
+    private val atomicCommitInProgress = ThreadLocal.withInitial { false }
 
     fun registerWorld(
         worldId: UUID,
@@ -45,22 +51,25 @@ internal class DefaultSignalEpochSourceService :
         inspectionRuntime: InspectionRuntime,
         activeRestrictionStreams: (Set<String>) -> List<String>,
         routePlanningRuntime: RoutePlanningRestrictionRuntime = RoutePlanningRestrictionRuntime(),
+        physicalWorld: CoreWorld? = null,
         stallWorld: (String, Exception) -> Unit
-    ) = BukkitThreadGuardBridge.runInSimulationContext {
+    ) = LiveWorldManagement.run { BukkitThreadGuardBridge.runInSimulationContext {
         synchronized(lock) {
             requireNoAtomicCommitReentry()
             check(!closed) { "SignalEpochSourceService is closed" }
-            check(worldId !in worlds) { "Signal epoch runtime already exists for world $worldId" }
+            check(!worlds.containsKey(worldId)) { "Signal epoch runtime already exists for world $worldId" }
             worlds[worldId] = WorldBinding(
                 runtime,
                 inspectionRuntime,
                 routePlanningRuntime,
                 activeRestrictionStreams,
-                stallWorld
+                stallWorld,
+                physicalWorld?.executionOwner ?: WorldExecutionOwner(),
+                physicalWorld
             )
-            sourcesByWorld[worldId] = mutableListOf()
+            sourcesByWorld[worldId] = emptyList()
         }
-    }
+    } }
 
     override fun replaceSources(
         pluginOwner: Plugin,
@@ -73,13 +82,12 @@ internal class DefaultSignalEpochSourceService :
         worldId: UUID,
         sources: Collection<SignalEpochSource>,
         commitAction: Runnable
-    ) {
+    ) = withWorld(worldId) {
         check(pluginOwner.isEnabled) {
             "Cannot install signal sources for disabled plugin ${pluginOwner.name}"
         }
         val replacement = java.util.List.copyOf(sources)
-        synchronized(lock) {
-            requireNoAtomicCommitReentry()
+        run {
             check(!closed) { "SignalEpochSourceService is closed" }
             val world = checkNotNull(worlds[worldId]) {
                 "Railway world is not registered: $worldId"
@@ -102,7 +110,7 @@ internal class DefaultSignalEpochSourceService :
             if (!replacementOwner.isEmpty()) candidate += replacementOwner
             validateSourceOwnership(candidate)
             val committedOwnerSets = candidate.toMutableList()
-            atomicCommitInProgress = true
+            atomicCommitInProgress.set(true)
             try {
                 world.runtime.replaceSourcesAtomically(
                     candidate.flatMap(OwnerSources::epochSources)
@@ -110,7 +118,7 @@ internal class DefaultSignalEpochSourceService :
                     commitAction.run()
                 }
             } finally {
-                atomicCommitInProgress = false
+                atomicCommitInProgress.remove()
             }
 
             sourcesByWorld[worldId] = committedOwnerSets
@@ -121,13 +129,12 @@ internal class DefaultSignalEpochSourceService :
         pluginOwner: Plugin,
         worldId: UUID,
         sources: Collection<InspectionSource>
-    ) = BukkitThreadGuardBridge.runInSimulationContext {
+    ) = withWorld(worldId) {
         check(pluginOwner.isEnabled) {
             "Cannot install inspection sources for disabled plugin ${pluginOwner.name}"
         }
         val replacement = java.util.List.copyOf(sources)
-        synchronized(lock) {
-            requireNoAtomicCommitReentry()
+        run {
             check(!closed) { "InspectionSourceService is closed" }
             val world = checkNotNull(worlds[worldId]) {
                 "Railway world is not registered: $worldId"
@@ -167,8 +174,7 @@ internal class DefaultSignalEpochSourceService :
                 throw failure
             }
 
-            ownerSets.clear()
-            ownerSets += candidate
+            sourcesByWorld[worldId] = candidate
         }
     }
 
@@ -176,13 +182,12 @@ internal class DefaultSignalEpochSourceService :
         pluginOwner: Plugin,
         worldId: UUID,
         sources: Collection<RoutePlanningRestrictionBinding>
-    ) = BukkitThreadGuardBridge.runInSimulationContext {
+    ) = withWorld(worldId) {
         check(pluginOwner.isEnabled) {
             "Cannot install route-planning sources for disabled plugin ${pluginOwner.name}"
         }
         val replacement = java.util.List.copyOf(sources)
-        synchronized(lock) {
-            requireNoAtomicCommitReentry()
+        run {
             check(!closed) { "RoutePlanningRestrictionSourceService is closed" }
             val world = checkNotNull(worlds[worldId]) {
                 "Railway world is not registered: $worldId"
@@ -211,8 +216,7 @@ internal class DefaultSignalEpochSourceService :
                 candidate.flatMap(OwnerSources::routePlanningSources)
             )
 
-            ownerSets.clear()
-            ownerSets += candidate
+            sourcesByWorld[worldId] = candidate
         }
     }
 
@@ -269,7 +273,7 @@ internal class DefaultSignalEpochSourceService :
                 world.routePlanningRuntime.replaceSources(
                     candidate.flatMap(OwnerSources::routePlanningSources)
                 )
-                ownerSets.remove(owned)
+                sourcesByWorld[worldId] = candidate
             }
         }
     }
@@ -300,14 +304,13 @@ internal class DefaultSignalEpochSourceService :
                 world.routePlanningRuntime.replaceSources(
                     candidate.flatMap(OwnerSources::routePlanningSources)
                 )
-                ownerSets.remove(owned)
+                sourcesByWorld[worldId] = candidate
             }
         }
     }
 
-    fun removeWorld(worldId: UUID) = BukkitThreadGuardBridge.runInSimulationContext {
+    fun removeWorld(worldId: UUID) = withWorld(worldId) runInSimulationContext@ {
         synchronized(lock) {
-            requireNoAtomicCommitReentry()
             val world = worlds.remove(worldId) ?: return@runInSimulationContext
             sourcesByWorld.remove(worldId)
             world.runtime.replaceSources(emptyList())
@@ -316,23 +319,42 @@ internal class DefaultSignalEpochSourceService :
         }
     }
 
-    override fun close() = BukkitThreadGuardBridge.runInSimulationContext {
-        val snapshot = synchronized(lock) {
-            requireNoAtomicCommitReentry()
-            if (closed) return@runInSimulationContext
-            closed = true
-            sourcesByWorld.clear()
-            worlds.values.toList().also { worlds.clear() }
+    override fun close() = LiveWorldManagement.run {
+        WorldExecutionOwner.runTogether(executionOwners()) {
+            BukkitThreadGuardBridge.runInSimulationContext {
+                val snapshot = synchronized(lock) {
+                    requireNoAtomicCommitReentry()
+                    if (closed) return@runInSimulationContext
+                    closed = true
+                    sourcesByWorld.clear()
+                    worlds.values.toList().also { worlds.clear() }
+                }
+                snapshot.forEach {
+                    it.runtime.replaceSources(emptyList())
+                    it.inspectionRuntime.clear()
+                    it.routePlanningRuntime.replaceSources(emptyList())
+                }
+            }
         }
-        snapshot.forEach {
-            it.runtime.replaceSources(emptyList())
-            it.inspectionRuntime.clear()
-            it.routePlanningRuntime.replaceSources(emptyList())
+    }
+
+    fun executionOwners(): List<WorldExecutionOwner> = worlds.values.map { it.owner }
+
+    fun executionWorlds(): List<CoreWorld> = worlds.values.mapNotNull { it.physicalWorld }
+
+    fun requiredDomainFeatures(worldId: UUID): Set<String> =
+        sourcesByWorld[worldId].orEmpty().mapTo(linkedSetOf()) { it.owner.name.lowercase() }
+
+    private fun <T> withWorld(worldId: UUID, action: () -> T): T {
+        requireNoAtomicCommitReentry()
+        return BukkitThreadGuardBridge.runInSimulationContext {
+            val owner = worlds[worldId]?.owner
+            if (owner == null) action() else owner.run(action)
         }
     }
 
     private fun requireNoAtomicCommitReentry() {
-        check(!atomicCommitInProgress) {
+        check(!atomicCommitInProgress.get()) {
             "SignalEpochSourceService cannot be re-entered from an atomic source commit callback"
         }
     }

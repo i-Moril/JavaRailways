@@ -3,6 +3,7 @@ package work.art1st.javarailways.simpleato.api.timetable
 import kotlinx.serialization.json.JsonObject
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import java.util.concurrent.ConcurrentHashMap
+import work.art1st.javarailways.core.api.physics.World
 
 /** Serializable reference to a condition or action implementation registered by a plugin. */
 data class TimetableExtensionCall(
@@ -164,9 +165,13 @@ sealed interface TimetableExtensionActionStartResult {
     }
 }
 
-/** Opt-in factory for a provider that is pure and safe inside an isolated simulation world. */
+/** Source-world provider capable of capturing detached condition definitions for simulation. */
 fun interface TimetableConditionSimulationFactory {
-    fun createSimulationProvider(): TimetableConditionProvider
+    /**
+     * Called in the source World's stable owner boundary before worker submission. The returned
+     * preparation may retain immutable definitions, but no live World, provider state or callbacks.
+     */
+    fun prepareSimulation(): TimetableConditionSimulationPreparation
 }
 
 interface TimetableActionProvider {
@@ -184,9 +189,35 @@ interface TimetableActionProvider {
     ): TimetableExtensionActionStartResult
 }
 
-/** Opt-in factory for a pure action provider; providers without one are intentionally unavailable. */
+/** Captures detached definitions used to construct a fresh action provider in each target World. */
 fun interface TimetableActionSimulationFactory {
-    fun createSimulationProvider(): TimetableActionProvider
+    /** Captures immutable inputs under the source World owner; must not retain live mutable state. */
+    fun prepareSimulation(): TimetableActionSimulationPreparation
+}
+
+/** Captured definitions create a new provider for every target World. They must not retain live state. */
+fun interface TimetableConditionSimulationPreparation {
+    /** Creates a fresh provider bound to [world] while its target owner is installing domain state. */
+    fun create(world: World): TimetableConditionProvider
+}
+
+/** Detached action definitions, reusable across targets without sharing provider runtime state. */
+fun interface TimetableActionSimulationPreparation {
+    /** Creates a fresh provider for [world] under its target owner; never returns a live provider. */
+    fun create(world: World): TimetableActionProvider
+}
+
+/** Captured extension preparations; every target receives a new registry and new provider instances. */
+class TimetableSimulationExtensions internal constructor(
+    private val conditions: List<TimetableConditionSimulationPreparation>,
+    private val actions: List<TimetableActionSimulationPreparation>
+) {
+    /** Installs into the target [world] under its owner before physics starts. */
+    fun create(world: World): TimetableExtensionRegistry =
+        TimetableExtensionRegistry().also { registry ->
+            conditions.forEach { registry.registerCondition(it.create(world)) }
+            actions.forEach { registry.registerAction(it.create(world)) }
+        }
 }
 
 /** Thread-safe registry. Duplicate type/version registrations fail instead of silently replacing plugins. */
@@ -195,9 +226,11 @@ class TimetableExtensionRegistry(registerBuiltIns: Boolean = true) {
 
     private val conditions = ConcurrentHashMap<Key, TimetableConditionProvider>()
     private val actions = ConcurrentHashMap<Key, TimetableActionProvider>()
+    private val builtInConditions: Map<Key, TimetableConditionProvider>
 
     init {
         if (registerBuiltIns) registerJavaRailwaysConditions()
+        builtInConditions = conditions.toMap()
     }
 
     fun registerCondition(provider: TimetableConditionProvider) {
@@ -234,16 +267,25 @@ class TimetableExtensionRegistry(registerBuiltIns: Boolean = true) {
     fun actionProviders(): List<TimetableActionProvider> =
         actions.entries.sortedWith(compareBy({ it.key.typeId }, { it.key.version })).map { it.value }
 
-    /** Creates a detached registry containing built-ins and explicitly supplied simulation providers only. */
-    fun createSimulationRegistry(): TimetableExtensionRegistry = TimetableExtensionRegistry().also { target ->
-        conditionProviders().filterIsInstance<TimetableConditionSimulationFactory>().forEach { factory ->
-            val provider = factory.createSimulationProvider()
-            if (target.condition(provider.typeId, provider.version) == null) target.registerCondition(provider)
+    /**
+     * Captures definitions in the source World's stable owner boundary before worker submission.
+     * Preparations must retain no live mutable state; missing domain factories fail immediately.
+     */
+    fun prepareSimulation(): TimetableSimulationExtensions {
+        val preparedConditions = conditionProviders().mapNotNull { provider ->
+            if (builtInConditions[Key(provider.typeId, provider.version)] === provider) return@mapNotNull null
+            require(provider is TimetableConditionSimulationFactory) {
+                "simulation preparation unavailable for condition ${provider.typeId}@${provider.version}"
+            }
+            provider.prepareSimulation()
         }
-        actionProviders().filterIsInstance<TimetableActionSimulationFactory>().forEach { factory ->
-            val provider = factory.createSimulationProvider()
-            if (target.action(provider.typeId, provider.version) == null) target.registerAction(provider)
+        val preparedActions = actionProviders().map { provider ->
+            require(provider is TimetableActionSimulationFactory) {
+                "simulation preparation unavailable for action ${provider.typeId}@${provider.version}"
+            }
+            provider.prepareSimulation()
         }
+        return TimetableSimulationExtensions(preparedConditions, preparedActions)
     }
 
     fun validateCondition(

@@ -220,34 +220,11 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             }
         }
 
-        private fun <T> await(action: () -> T): T {
-            val future = CompletableFuture<T>()
-            val state = AtomicReference(RequestState.PENDING)
-            plugin.platformDispatcher.runGlobal {
-                if (!state.compareAndSet(RequestState.PENDING, RequestState.RUNNING)) return@runGlobal
-                try { future.complete(BukkitThreadGuardBridge.runInSimulationContext(action)) }
-                catch (t: Throwable) { future.completeExceptionally(t) }
-                finally { state.set(RequestState.COMPLETED) }
-            }
-            return try {
-                future.get(timeoutMillis, TimeUnit.MILLISECONDS)
-            } catch (failure: ExecutionException) {
-                val cause = failure.cause ?: failure
-                when (cause) {
-                    is RuntimeException -> throw cause
-                    is Error -> throw cause
-                    else -> throw IllegalStateException(cause)
-                }
-            } catch (_: TimeoutException) {
-                if (state.compareAndSet(RequestState.PENDING, RequestState.CANCELLED)) {
-                    future.cancel(false)
-                    throw HttpFailure(504, "request expired before entering the simulation context")
-                }
-                // Once mutation has entered the serialized simulation context, return its real
-                // outcome rather than reporting a timeout and allowing an apparently failed write.
-                future.get()
-            }
-        }
+        private fun <T> await(action: () -> T): T = awaitDomainHttpRequest(
+            plugin.platformDispatcher, timeoutMillis,
+            expired = { HttpFailure(504, "request expired before entering the simulation context") },
+            action = action
+        )
 
         private fun exchangeLoginToken(body: String): String {
             val token = json.parseToJsonElement(body).jsonObject["token"]?.jsonPrimitive?.content
@@ -476,7 +453,12 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val factory = IsolatedTimetableSimulationFactory(
                 SimulationControlProfileCatalog(plugin),
                 plugin.physicsConfig.track.gravityMetersPerSecondSquared,
-                plugin.javaRailwaysConfig.atoSafetyDistanceMeters
+                plugin.javaRailwaysConfig.atoSafetyDistanceMeters,
+                speedSafety = plugin.physicsConfig.overspeed.let {
+                    work.art1st.javarailways.basic.safety.SpeedSafetyMonitor.Config(
+                        it.derailEnabled, it.toleranceKmH / 3.6, it.graceTicks)
+                },
+                requiredDomainFeatures = plugin::requiredSimulationDomainFeatures
             )
             val snapshot = await {
                 withWorld(worldName) { _, world ->
@@ -490,8 +472,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             }
             val task = try {
                 simulationExecutor.submit<IsolatedTimetableSimulationResult> {
-                    BukkitThreadGuardBridge.runInSimulationContext {
-                        factory.create(
+                    factory.create(
                             snapshot,
                             workerThreads = plugin.physicsConfig.workerThreads.coerceIn(1, 4)
                         ).use { simulation ->
@@ -500,7 +481,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                                 delayThresholdTicks = delayThreshold
                             ))
                         }
-                    }
                 }
             } catch (_: RejectedExecutionException) {
                 throw HttpFailure(429, "timetable simulation queue is full; retry later")
@@ -834,7 +814,14 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         private fun <T> withWorld(name: String, action: (BukkitWorld, work.art1st.javarailways.core.api.physics.World) -> T): T {
             val entry = plugin.worldManager.railWorlds.entries.firstOrNull { it.key.name == name }
                 ?: throw IllegalArgumentException("world not found: $name")
-            return action(entry.key, entry.value)
+            return BukkitThreadGuardBridge.runInSimulationContext(entry.value) {
+                val coreWorld = entry.value as? work.art1st.javarailways.core.physics.CoreWorld
+                val apply = {
+                    check(plugin.worldManager.railWorlds[entry.key] === entry.value) { "world changed: $name" }
+                    action(entry.key, entry.value)
+                }
+                if (coreWorld == null) apply() else coreWorld.physicsCoordinator.withStructuralMutation(apply)
+            }
         }
         private fun descriptorJson(
             typeId: String,
@@ -872,7 +859,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         }
     }
 
-    private enum class RequestState { PENDING, RUNNING, COMPLETED, CANCELLED }
 
     private fun HttpExchange.respond(status: Int, body: String) {
         val bytes = body.toByteArray(StandardCharsets.UTF_8)
@@ -883,4 +869,41 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
     private fun error(message: String) = json.encodeToString(buildJsonObject { put("error", message) })
     private fun decode(value: String) = java.net.URLDecoder.decode(value, StandardCharsets.UTF_8)
     private fun etag(body: String): String = '"' + MessageDigest.getInstance("SHA-256").digest(body.toByteArray(StandardCharsets.UTF_8)).joinToString("") { "%02x".format(it) } + '"'
+}
+
+private enum class RequestState { PENDING, RUNNING, COMPLETED, CANCELLED }
+
+/** Domain waits run off the global scheduler so one busy World cannot stop other wakeups. */
+internal fun <T> awaitDomainHttpRequest(
+    dispatcher: work.art1st.javarailways.bukkit.util.PlatformDispatcher,
+    timeoutMillis: Long,
+    expired: () -> RuntimeException,
+    action: () -> T
+): T {
+    val future = CompletableFuture<T>()
+    val state = AtomicReference(RequestState.PENDING)
+    dispatcher.runAsync {
+        if (!state.compareAndSet(RequestState.PENDING, RequestState.RUNNING)) return@runAsync
+        try { future.complete(BukkitThreadGuardBridge.runInSimulationContext(action)) }
+        catch (t: Throwable) { future.completeExceptionally(t) }
+        finally { state.set(RequestState.COMPLETED) }
+    }
+    return try {
+        future.get(timeoutMillis, TimeUnit.MILLISECONDS)
+    } catch (failure: ExecutionException) {
+        val cause = failure.cause ?: failure
+        when (cause) {
+            is RuntimeException -> throw cause
+            is Error -> throw cause
+            else -> throw IllegalStateException(cause)
+        }
+    } catch (_: TimeoutException) {
+        if (state.compareAndSet(RequestState.PENDING, RequestState.CANCELLED)) {
+            future.cancel(false)
+            throw expired()
+        }
+        // Once mutation has entered the serialized simulation context, return its real
+        // outcome rather than reporting a timeout and allowing an apparently failed write.
+        future.get()
+    }
 }

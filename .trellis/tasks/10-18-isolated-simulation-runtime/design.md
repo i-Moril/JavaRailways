@@ -28,6 +28,8 @@ StationCallNotification当前由具体ATO队列交给对应Dispatcher，RailTopo
 
 WorldManager只触发各World的运行，不能在整个世界遍历或一次HTTP模拟外持共享simulationLock。分开安排各World的后续阶段，避免仅改锁而仍在全局调度线程等待某个World的ticket、间接阻塞其他World。复用已有exact ticket/coalescing和帧间队列，不新增第二物理循环或无界逐tick待办。
 
+observation转换同样属于目标World的普通领域计算：`RailwayObservation.fromCore`须在共享服务目录锁外执行，各World缓存/发布维持本地有序；目录短锁只处理必要登记/状态交换。保留same-frame复用、同epoch owner更新不重复通知、epoch单调，以及removeWorld/close与迟到构造交错时不回填失效状态。真实构造A暂停时B仍须完成自己的观察发布。该O1补项归子任务2，不能只以外层owner/runner barrier替代验收。
+
 必须保留的协调范围：
 
 - 资源包重载按已有稳定顺序取得有关World的帧间准入，检查并发布同类列车配置。
@@ -51,9 +53,11 @@ WorldManager只触发各World的运行，不能在整个世界遍历或一次HTT
 
 同一模拟安装必须同时接通：区间占用与信号epoch source、routePlanning restriction、固定闭塞和保护区域inspection source、固定闭塞资源存在/贡献/准备策略，以及admission update到信号runtime的交接。模拟的registry/claim/尾部释放和source生命周期均为本地。
 
-捕获current定义、规则JS源和逻辑元数据、可用外观名、方向/速度子集及相关设置。领域求值使用自己的SignalLogicRuntime；预编译的只读输入可以复用，不能共享实际JS执行器。选路、声明和限速算法不得另写“simulation版”。
+捕获current定义、规则JS源和逻辑元数据、可用外观名、方向/速度子集及相关设置。每个LIVE World及每个SIM的领域求值均有自己的SignalLogicRuntime执行和关闭归属；LIVE A与LIVE B之间也不能沿用manager的同一个串行logic实例。预编译的只读输入可以复用，不能共享可变JS执行器/Context；保留同World必要局部互斥，不直接删除同步注解。选路、声明和限速算法不得另写“simulation版”。
 
 现有catalog带CompiledModelAsset，runtime manager带Plugin/Bukkit服务，SectionOccupancyRuntime带可选模型绑定。只抽出这条运行链实际需要的中立值/效果端口，使同一领域代码可无Bukkit调用运行；平台仍负责包加载、模型资产和显示。当前模块可以保留既有Bukkit适配类，本任务不自行决定完整SimpleSignalsBukkit拆分或新公共模型库。
+
+manager的共享锁保留必要目录和规则包发布协调；普通单World规则编译/求值及其等待不能被包在跨World目录锁内。以两个真实LIVE、LIVE与SIM、两个SIM的正式规则及真实求值器做阻塞/关闭/失败回归，不以SIM对象不同替代LIVE间独立推进。完整证据与分工见[剩余锁清单](research/remaining-cross-world-locks.md)。
 
 ## 车厢行为与运营扩展（子任务4）
 

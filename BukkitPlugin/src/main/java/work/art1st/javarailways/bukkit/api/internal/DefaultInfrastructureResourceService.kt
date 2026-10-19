@@ -45,6 +45,8 @@ import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResource
 import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributor
 import work.art1st.javarailways.bukkit.api.infrastructure.RouteResourceContributorRegistration
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
+import work.art1st.javarailways.bukkit.util.LiveWorldManagement
+import work.art1st.javarailways.core.physics.WorldExecutionOwner
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
@@ -66,8 +68,11 @@ internal class DefaultInfrastructureResourceService(
         var routeAdmission: RouteResourceAdmissionRuntime? = null,
         var manualTurnoutSelection: ManualTurnoutSelectionRuntime? = null,
         var physicalWorld: CoreWorld? = null,
-        var stallWorld: ((String, Exception) -> Unit)? = null
-    )
+        var stallWorld: ((String, Exception) -> Unit)? = null,
+        val detachedOwner: WorldExecutionOwner = WorldExecutionOwner()
+    ) {
+        val owner: WorldExecutionOwner get() = physicalWorld?.executionOwner ?: detachedOwner
+    }
 
     private val worlds = linkedMapOf<UUID, WorldRuntime>()
     private class TopologyRegistration(val owner: Plugin, val world: WorldRuntime) : AutoCloseable {
@@ -109,7 +114,7 @@ internal class DefaultInfrastructureResourceService(
         observeTopologyChanges: ((RailTopologyChangeListener) -> AutoCloseable)? = null,
         railSpeedLimits: ((TopologyState, Collection<UUID>) -> Map<UUID, Double?>)? = null,
         resourceExists: (InfrastructureResource) -> Boolean
-    ) = synchronized(lock) {
+    ) = LiveWorldManagement.run { synchronized(lock) {
         check(!closed) { "InfrastructureResourceService is closed" }
         check(worldId !in worlds) { "Infrastructure coordination already exists for world $worldId" }
         worlds[worldId] = WorldRuntime(
@@ -121,7 +126,7 @@ internal class DefaultInfrastructureResourceService(
                 { currentTopology().revision }, resourceExists, railExists, topologyNodeExists
             )
         )
-    }
+    } }
 
     override fun currentTopology(worldId: UUID): TopologyState = synchronized(lock) {
         check(!closed) { "InfrastructureResourceService is closed" }
@@ -212,7 +217,7 @@ internal class DefaultInfrastructureResourceService(
         turnoutLockingDistanceMeters: Double,
         publishAdmissionUpdate: (ActiveRouteAdmissionUpdate) -> Unit = {},
         stallWorld: (String, Exception) -> Unit
-    ) = BukkitThreadGuardBridge.runInSimulationContext {
+    ) = withWorld(worldId) {
         val runtime = synchronized(lock) {
             check(!closed) { "InfrastructureResourceService is closed" }
             checkNotNull(worlds[worldId]) { "Infrastructure coordination is not registered for world $worldId" }
@@ -279,7 +284,7 @@ internal class DefaultInfrastructureResourceService(
                 "Duplicate infrastructure preparation handler kind $kindId for $typeId"
             }
         }
-        synchronized(lock) {
+        LiveWorldManagement.run { synchronized(lock) {
             check(!closed) { "InfrastructureResourceService is closed" }
             check(typeId !in resourceProviders) { "Infrastructure resource provider already exists for $typeId" }
             resourceProviders[typeId] = ProviderRegistration(
@@ -287,7 +292,7 @@ internal class DefaultInfrastructureResourceService(
                 provider,
                 java.util.Collections.unmodifiableMap(LinkedHashMap(handlersByKind))
             )
-        }
+        } }
         val registrationClosed = AtomicBoolean()
         return InfrastructureResourceProviderRegistration {
             if (!registrationClosed.get()) {
@@ -300,7 +305,7 @@ internal class DefaultInfrastructureResourceService(
     override fun registerRouteResourceContributor(
         pluginOwner: Plugin,
         contributor: RouteResourceContributor
-    ): RouteResourceContributorRegistration = BukkitThreadGuardBridge.runInSimulationContext {
+    ): RouteResourceContributorRegistration = withManagement runInSimulationContext@ {
         val registration = ContributorRegistration(requireEnabled(pluginOwner), contributor)
         synchronized(lock) {
             check(!closed) { "InfrastructureResourceService is closed" }
@@ -323,7 +328,7 @@ internal class DefaultInfrastructureResourceService(
 
     private fun unregisterRouteResourceContributor(
         registration: ContributorRegistration
-    ) = BukkitThreadGuardBridge.runInSimulationContext {
+    ) = withManagement runInSimulationContext@ {
         synchronized(lock) {
             if (closed || registration !in routeContributors) return@runInSimulationContext
             check(worlds.values.none { it.routeAdmission?.hasRouteState() == true }) {
@@ -364,7 +369,7 @@ internal class DefaultInfrastructureResourceService(
         pluginOwner: Plugin,
         typeId: String,
         provider: InfrastructureResourceProvider
-    ) = BukkitThreadGuardBridge.runInSimulationContext {
+    ) = withManagement runInSimulationContext@ {
         val snapshot = synchronized(lock) {
             if (closed) return@runInSimulationContext
             val current = resourceProviders[typeId]
@@ -460,7 +465,7 @@ internal class DefaultInfrastructureResourceService(
             withAdmission({ false }) { it.endGrant(requester, grantId) }
 
         private fun <T> withAdmission(unavailable: () -> T, action: (RouteResourceAdmissionRuntime) -> T): T =
-            BukkitThreadGuardBridge.runInSimulationContext {
+            withWorld(worldId) runInSimulationContext@ {
                 val expected = admission() ?: return@runInSimulationContext unavailable()
                 val apply = {
                     if (admission() !== expected) unavailable() else action(expected)
@@ -498,7 +503,7 @@ internal class DefaultInfrastructureResourceService(
         contributor: Plugin,
         worldId: UUID,
         contribution: ContributedRouteResource
-    ): RouteAdmissionFailure? = BukkitThreadGuardBridge.runInSimulationContext {
+    ): RouteAdmissionFailure? = withWorld(worldId) runInSimulationContext@ {
         if (!contributor.isEnabled) {
             return@runInSimulationContext contributionFailure(
                 RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "contributing plugin is disabled"
@@ -590,7 +595,7 @@ internal class DefaultInfrastructureResourceService(
         RouteAdmissionFailure(code, detail)
 
     fun removeWorld(worldId: UUID) {
-        BukkitThreadGuardBridge.runInSimulationContext {
+        withWorld(worldId) runInSimulationContext@ {
             synchronized(lock) { worlds.remove(worldId) }?.let { runtime ->
                 closeTopologyRegistrations { it.world === runtime }
                 runtime.manualTurnoutSelection?.close()
@@ -604,7 +609,7 @@ internal class DefaultInfrastructureResourceService(
     fun consumeObservation(
         worldId: UUID,
         observation: RailwayObservation
-    ) = BukkitThreadGuardBridge.runInSimulationContext {
+    ) = withWorld(worldId) runInSimulationContext@ {
         val admission = synchronized(lock) {
             check(!closed) { "InfrastructureResourceService is closed" }
             checkNotNull(worlds[worldId]?.routeAdmission) {
@@ -619,25 +624,25 @@ internal class DefaultInfrastructureResourceService(
         worldId: UUID,
         request: InfrastructureDependencyRequest
     ) =
-        BukkitThreadGuardBridge.runInSimulationContext {
+        withWorld(worldId) runInSimulationContext@ {
             registry(worldId)?.setInfrastructureDependencies(requireEnabled(pluginOwner), request)
                 ?: unavailableDependencies(worldId)
         }
 
     override fun removeInfrastructureDependencies(pluginOwner: Plugin, worldId: UUID, owner: InfrastructureOwner) =
-        BukkitThreadGuardBridge.runInSimulationContext {
+        withWorld(worldId) runInSimulationContext@ {
             registry(worldId)?.removeInfrastructureDependencies(pluginOwner, owner)
                 ?: unavailableDependencies(worldId)
         }
 
     /** Internal world-runtime seam; deliberately absent from the public add-on API. */
     fun acquireLiveClaim(pluginOwner: Plugin, worldId: UUID, request: InfrastructureClaimRequest) =
-        BukkitThreadGuardBridge.runInSimulationContext {
+        withWorld(worldId) runInSimulationContext@ {
             registry(worldId)?.acquireClaim(requireEnabled(pluginOwner), request) ?: unavailable(worldId)
         }
 
     fun releaseLiveClaim(pluginOwner: Plugin, worldId: UUID, owner: InfrastructureOwner) =
-        BukkitThreadGuardBridge.runInSimulationContext {
+        withWorld(worldId) runInSimulationContext@ {
             registry(worldId)?.releaseClaim(pluginOwner, owner) ?: unavailable(worldId)
         }
 
@@ -672,7 +677,7 @@ internal class DefaultInfrastructureResourceService(
         registry(worldId)?.claimSnapshots().orEmpty()
 
     override fun activeRouteAdmissions(worldId: UUID): List<ActiveRouteAdmissionSnapshot> =
-        BukkitThreadGuardBridge.runInSimulationContext {
+        withWorld(worldId) runInSimulationContext@ {
             val admission = synchronized(lock) {
                 check(!closed) { "InfrastructureResourceService is closed" }
                 checkNotNull(worlds[worldId]?.routeAdmission) {
@@ -683,7 +688,7 @@ internal class DefaultInfrastructureResourceService(
         }
 
     override fun unregisterOwner(pluginOwner: Plugin) {
-        BukkitThreadGuardBridge.runInSimulationContext {
+        withManagement runInSimulationContext@ {
             check(pluginOwner.isEnabled) {
                 "Cannot unregister infrastructure owner for disabled plugin ${pluginOwner.name}"
             }
@@ -752,7 +757,7 @@ internal class DefaultInfrastructureResourceService(
      * host-owned and stall their world; only non-route platform ownership receives ordinary cleanup.
      */
     fun forcedDisableOwner(pluginOwner: Plugin) {
-        BukkitThreadGuardBridge.runInSimulationContext {
+        withManagement(freezePhysics = false) runInSimulationContext@ {
             closeTopologyRegistrations { it.owner === pluginOwner }
             val (snapshot, providedTypeIds, ownedContributor) = synchronized(lock) {
                 if (closed) return@runInSimulationContext
@@ -797,7 +802,7 @@ internal class DefaultInfrastructureResourceService(
     }
 
     override fun close() {
-        BukkitThreadGuardBridge.runInSimulationContext {
+        withManagement(freezePhysics = false) runInSimulationContext@ {
             val snapshot = synchronized(lock) {
                 if (closed) return@runInSimulationContext
                 closed = true
@@ -810,6 +815,39 @@ internal class DefaultInfrastructureResourceService(
                 runtime.manualTurnoutSelection?.close()
                 runtime.routeAdmission?.close()
                 runtime.registry.close()
+            }
+        }
+    }
+
+    fun requiredDomainFeatures(worldId: UUID): Set<String> = synchronized(lock) {
+        if (worldId !in worlds) emptySet() else buildSet {
+            resourceProviders.values.forEach { add(it.pluginOwner.name.lowercase()) }
+            routeContributors.forEach { add(it.pluginOwner.name.lowercase()) }
+        }
+    }
+
+    private fun <T> withWorld(worldId: UUID, action: () -> T): T =
+        BukkitThreadGuardBridge.runInSimulationContext {
+            val owner = synchronized(lock) { worlds[worldId]?.owner }
+            if (owner == null) action() else owner.run(action)
+        }
+
+    private fun <T> withManagement(freezePhysics: Boolean = true, action: () -> T): T = LiveWorldManagement.run {
+        val snapshot = synchronized(lock) { worlds.values.toList() }
+        val owners = snapshot.map { it.owner } + signalSources?.executionOwners().orEmpty()
+        val physicalWorlds = (snapshot.mapNotNull { it.physicalWorld } +
+            signalSources?.executionWorlds().orEmpty()).distinct()
+        BukkitThreadGuardBridge.runInSimulationContext {
+            WorldExecutionOwner.runTogether(owners) {
+                fun freeze(index: Int): T {
+                    if (!freezePhysics || index == physicalWorlds.size) return action()
+                    val coordinator = physicalWorlds[index].physicsCoordinator
+                    if (coordinator.status != work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus.RUNNING) {
+                        return freeze(index + 1)
+                    }
+                    return coordinator.withStructuralMutation { freeze(index + 1) }
+                }
+                freeze(0)
             }
         }
     }

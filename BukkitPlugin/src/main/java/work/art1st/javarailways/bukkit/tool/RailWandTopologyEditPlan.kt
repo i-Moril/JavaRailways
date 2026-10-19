@@ -22,7 +22,7 @@ import java.util.UUID
 
 /** Keeps the entity-owned edit callback serialized and excludes physics through its cleanup. */
 internal fun <T> CoreWorld.processRailWandEdit(action: () -> T): T =
-    BukkitThreadGuardBridge.runInSimulationContext {
+    BukkitThreadGuardBridge.runInSimulationContext(this) {
         physicsCoordinator.processBetweenFrames { action() }
     }
 

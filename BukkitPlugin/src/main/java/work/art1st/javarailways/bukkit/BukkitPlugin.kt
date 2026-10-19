@@ -183,6 +183,12 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         }
     }
 
+    internal fun requiredSimulationDomainFeatures(world: work.art1st.javarailways.core.physics.CoreWorld): Set<String> {
+        val worldId = worldManager.railWorlds.entries.single { it.value === world }.key.uid
+        return infrastructureResourceServiceImpl.requiredDomainFeatures(worldId) +
+            signalEpochSourceServiceImpl.requiredDomainFeatures(worldId)
+    }
+
     override fun onEnable() {
         BukkitExtensionDataSerializers.register()
         val packetRuntime = checkNotNull(packetEntityRuntime) {

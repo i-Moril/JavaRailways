@@ -95,23 +95,38 @@ class TimetableExtensionRegistryTest {
     }
 
     @Test
-    fun `isolated registry copies only providers with explicit simulation factories`() {
+    fun `simulation preparation creates distinct providers per target and rejects unsupported providers`() {
         val registry = TimetableExtensionRegistry()
-        registry.registerCondition(provider("example:live-only", result = TimetableConditionResult.True))
         registry.registerCondition(object : TimetableConditionProvider, TimetableConditionSimulationFactory {
             override val typeId = "example:simulated"
             override val version = 1
             override val descriptor = this@TimetableExtensionRegistryTest.descriptor
             override fun evaluate(parameters: JsonObject, context: TimetableRuntimeContext) =
                 TimetableConditionResult.Error("live provider must not be reused")
-            override fun createSimulationProvider() =
+            override fun prepareSimulation() = TimetableConditionSimulationPreparation {
                 provider("example:simulated", result = TimetableConditionResult.True)
+            }
         })
 
-        val isolated = registry.createSimulationRegistry()
-
-        assertEquals(null, isolated.condition("example:live-only"))
-        assertEquals(TimetableConditionResult.True, isolated.evaluate(predicate("example:simulated"), context))
+        val preparation = registry.prepareSimulation()
+        val firstWorld = work.art1st.javarailways.core.physics.train.createTestWorld()
+        val secondWorld = work.art1st.javarailways.core.physics.train.createTestWorld()
+        try {
+            val isolated = preparation.create(firstWorld)
+            val second = preparation.create(secondWorld)
+            org.junit.jupiter.api.Assertions.assertNotSame(
+                isolated.condition("example:simulated"), second.condition("example:simulated")
+            )
+            assertEquals(TimetableConditionResult.True, isolated.evaluate(predicate("example:simulated"), context))
+            registry.registerCondition(provider("example:live-only", result = TimetableConditionResult.True))
+            assertEquals("simulation preparation unavailable for condition example:live-only@1",
+                assertThrows(IllegalArgumentException::class.java) { registry.prepareSimulation() }.message)
+        } finally {
+            firstWorld.physicsCoordinator.close()
+            secondWorld.physicsCoordinator.close()
+            (firstWorld.tickManager as AutoCloseable).close()
+            (secondWorld.tickManager as AutoCloseable).close()
+        }
     }
 
     @Test

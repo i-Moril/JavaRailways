@@ -147,7 +147,7 @@ class TurnoutWand(plugin: BukkitPlugin) : AbstractWand<TurnoutWandState, Turnout
                     }
                     val scheduled = plugin.platformDispatcher.runForEntity(player, action = {
                         try {
-                            BukkitThreadGuardBridge.runInSimulationContext {
+                            BukkitThreadGuardBridge.runInPlayerWorldContext(player) runInSimulationContext@ {
                                 if (!plugin.isEnabled || !player.isOnline) return@runInSimulationContext
                                 val activeState = if (isWandItem(player.inventory.itemInMainHand)) getState(player) else null
                                 if (!permitted(player)) return@runInSimulationContext
@@ -225,7 +225,7 @@ class TurnoutWand(plugin: BukkitPlugin) : AbstractWand<TurnoutWandState, Turnout
                 else {
                     player.sendMessage(Component.text(TurnoutWandI18n.result(player.locale(), result))
                         .color(if (result.successful) NamedTextColor.GREEN else NamedTextColor.YELLOW))
-                    BukkitThreadGuardBridge.runInSimulationContext { showConnection(player, state) }
+                    BukkitThreadGuardBridge.runInPlayerWorldContext(player) runInSimulationContext@ { showConnection(player, state) }
                 }
             })
         }

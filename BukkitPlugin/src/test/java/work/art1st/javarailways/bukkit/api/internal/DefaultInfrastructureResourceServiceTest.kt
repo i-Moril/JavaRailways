@@ -95,6 +95,149 @@ import java.util.concurrent.TimeUnit
 
 class DefaultInfrastructureResourceServiceTest {
     @Test
+    fun `planned owner removal awaits an in flight real signal epoch before checking restrictions`() {
+        val guard = work.art1st.javarailways.core.api.threading.host.ThreadGuardHost.registerPlatformBridge(BukkitThreadGuardBridge)
+        val sources = DefaultSignalEpochSourceService()
+        val service = DefaultInfrastructureResourceService(sources)
+        val world = createTestWorld(PhysicsCoordinator(1, automaticFallback = false))
+        val worldId = UUID.randomUUID()
+        val owner = plugin("signal")
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val checked = CountDownLatch(1)
+        val managementThread = java.util.concurrent.atomic.AtomicReference<Thread>()
+        val checkedEpoch = java.util.concurrent.atomic.AtomicLong(-1L)
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val rail = world.createRailForTest(straightCurve(0.0, 100.0, 0.0))
+            service.registerWorld(worldId, { world.topologyState }) { resource ->
+                resource is RailIntervalResource && world.getRail(resource.railId) != null ||
+                    resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
+            }
+            service.attachInfrastructureRuntime(worldId, world,
+                { RailwayObservation.fromCore(worldId.toString(), world.latestWorldFrame()) }, 5.0) { reason, failure ->
+                throw IllegalStateException(reason, failure)
+            }
+            val publisher = TrainRestrictionPublisher { snapshot ->
+                TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, snapshot.revision)
+            }
+            val epochs = SignalEpochRuntime(worldId.toString(), publisher)
+            sources.registerWorld(worldId, epochs, InspectionRuntime(publisher) { _, _, _ -> }, {
+                checkedEpoch.set(world.latestWorldFrame().physicsEpoch)
+                checked.countDown()
+                emptyList()
+            }, physicalWorld = world) { _, _ -> }
+            sources.replaceSources(owner, worldId, listOf(SignalEpochSource(
+                "test:actual-epoch", emptyList(), emptyList(), listOf(rail.id)) {
+                entered.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+                SignalEpochResult.empty()
+            }))
+            world.physicsCoordinator.registerRailwayEpochProcessor(epochs)
+            world.physicsCoordinator.start()
+            val ticket = world.physicsCoordinator.stepSimulation(50.0)
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val removal = executor.submit {
+                managementThread.set(Thread.currentThread())
+                service.unregisterOwner(owner)
+            }
+            val bean = java.lang.management.ManagementFactory.getThreadMXBean()
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (checked.count > 0L && managementThread.get()?.let {
+                bean.getThreadInfo(it.threadId())?.lockInfo?.className
+            } != "java.util.concurrent.CompletableFuture\$Signaller" && System.nanoTime() < deadline) Thread.yield()
+            assertEquals(1L, checked.count, "restriction preflight must wait for the captured epoch")
+            assertEquals("java.util.concurrent.CompletableFuture\$Signaller",
+                bean.getThreadInfo(managementThread.get().threadId())?.lockInfo?.className)
+            assertFalse(removal.isDone)
+            assertFalse(ticket.isDone)
+            release.countDown()
+            ticket.await()
+            removal.get(5, TimeUnit.SECONDS)
+            assertEquals(ticket.epoch, checkedEpoch.get())
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+            service.close()
+            sources.close()
+            world.physicsCoordinator.close()
+            world.releaseRuntimeBinding()
+            (world.tickManager as AutoCloseable).close()
+            guard.close()
+        }
+    }
+
+    @Test
+    fun `unregister check and commit exclude a new admission in another world`() {
+        val sources = DefaultSignalEpochSourceService()
+        val service = DefaultInfrastructureResourceService(sources)
+        val firstId = UUID.randomUUID()
+        val secondId = UUID.randomUUID()
+        val railId = UUID.randomUUID()
+        val owner = plugin("signal")
+        val caller = plugin("ato")
+        val checked = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val startedRequest = CountDownLatch(1)
+        val managementThread = java.util.concurrent.atomic.AtomicReference<Thread>()
+        val requestingThread = java.util.concurrent.atomic.AtomicReference<Thread>()
+        val executor = Executors.newFixedThreadPool(2)
+        val topology = buildTestTopology(7L, listOf(TestTopologyRail(railId, 100.0)), emptyMap())
+        val observation = routeObservation(secondId, 7L, 1L, railId, 0.0, 1.0)
+        try {
+            service.registerResourceProvider(owner, "test.signal:resource", rejectingRouteProvider { _, _ -> true }, emptyList())
+            registerWorld(service, firstId)
+            service.registerWorld(secondId, { topology }) { resource ->
+                resource is RailIntervalResource && resource.railId == railId ||
+                    resource is StableInfrastructureResource && service.stableResourceExists(secondId, resource)
+            }
+            service.attachInfrastructureRuntime(secondId, TestWorld(topology), { observation }, 5.0) { reason, failure ->
+                throw IllegalStateException(reason, failure)
+            }
+            var pauseCheck = false
+            registerSignalWorld(sources, firstId, activeRestrictionStreams = {
+                if (pauseCheck) {
+                    checked.countDown()
+                    check(release.await(5, TimeUnit.SECONDS))
+                }
+                emptyList()
+            })
+            sources.replaceSources(owner, firstId, listOf(SignalEpochSource(
+                "test:managed", emptyList(), emptyList(), listOf(railId)) { SignalEpochResult.empty() }))
+            val bound = service.routeAdmission(caller, secondId)
+            pauseCheck = true
+            val removed = executor.submit {
+                managementThread.set(Thread.currentThread())
+                service.unregisterOwner(owner)
+            }
+            assertTrue(checked.await(5, TimeUnit.SECONDS))
+            val request = executor.submit<RouteAdmissionResult> {
+                requestingThread.set(Thread.currentThread())
+                startedRequest.countDown()
+                bound.request(RouteResourceIntent("test.ato:request/main", InfrastructureOwner("test.ato:route/main", 1L),
+                    "train", observation.stamp, RouteSnapshot("test.ato:route/main", 1L, 7L,
+                        listOf(RouteSegmentSnapshot(railId, ViewDirection.AB, 0.0, 100.0))), RouteBoundary(20.0)))
+            }
+            assertTrue(startedRequest.await(5, TimeUnit.SECONDS))
+            val bean = java.lang.management.ManagementFactory.getThreadMXBean()
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (bean.getThreadInfo(requestingThread.get().threadId())?.lockOwnerId != managementThread.get().threadId() &&
+                System.nanoTime() < deadline) Thread.yield()
+            assertEquals(managementThread.get().threadId(), bean.getThreadInfo(requestingThread.get().threadId())?.lockOwnerId)
+            assertFalse(request.isDone)
+            release.countDown()
+            removed.get(5, TimeUnit.SECONDS)
+            assertInstanceOf(RouteAdmissionResult.Granted::class.java, request.get(5, TimeUnit.SECONDS))
+            assertTrue(service.liveClaims(secondId).isNotEmpty())
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+            service.close()
+            sources.close()
+        }
+    }
+
+    @Test
     fun `bound route request waits for the exact physics ticket before turnout preparation`() {
         val service = DefaultInfrastructureResourceService()
         val world = createTestWorld(PhysicsCoordinator(1, automaticFallback = false))
@@ -1646,7 +1789,7 @@ class DefaultInfrastructureResourceServiceTest {
             InspectionRuntime(publisher) { _, _, _ -> },
             activeRestrictionStreams,
             RoutePlanningRestrictionRuntime(),
-            stallWorld
+            stallWorld = stallWorld
         )
     }
 

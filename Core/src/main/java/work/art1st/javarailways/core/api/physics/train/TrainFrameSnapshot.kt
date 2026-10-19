@@ -116,7 +116,8 @@ data class TrainFrameSnapshot private constructor(
     val bodyTraversal: List<RailTraversalSegmentSnapshot>,
     val sweptSpans: List<SweptRailSpanSnapshot>,
     val headTraversal: List<RailTraversalSegmentSnapshot>,
-    val tailTraversal: List<RailTraversalSegmentSnapshot>
+    val tailTraversal: List<RailTraversalSegmentSnapshot>,
+    val derailReason: String? = null
 ) {
     init {
         require(trainId.isNotBlank()) { "TrainFrameSnapshot trainId must not be blank" }
@@ -144,7 +145,8 @@ data class TrainFrameSnapshot private constructor(
             bodyTraversal: Collection<RailTraversalSegmentSnapshot>,
             sweptSpans: Collection<SweptRailSpanSnapshot>,
             headTraversal: Collection<RailTraversalSegmentSnapshot>,
-            tailTraversal: Collection<RailTraversalSegmentSnapshot>
+            tailTraversal: Collection<RailTraversalSegmentSnapshot>,
+            derailReason: String? = null
         ): TrainFrameSnapshot = TrainFrameSnapshot(
             trainId = trainId,
             trainName = trainName,
@@ -160,7 +162,8 @@ data class TrainFrameSnapshot private constructor(
             bodyTraversal = java.util.List.copyOf(bodyTraversal),
             sweptSpans = java.util.List.copyOf(sweptSpans),
             headTraversal = java.util.List.copyOf(headTraversal),
-            tailTraversal = java.util.List.copyOf(tailTraversal)
+            tailTraversal = java.util.List.copyOf(tailTraversal),
+            derailReason = derailReason
         )
     }
 }

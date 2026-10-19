@@ -23,6 +23,31 @@ import java.util.UUID
 
 class ImmutableSnapshotTest {
     @Test
+    fun `train snapshot requires a frame and reads no live state fields`() {
+        val position = RailPositionSnapshot(UUID.randomUUID(), ViewDirection.BA, 2.0)
+        val frame = work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot.create(
+            trainId = "published", trainName = "published", revision = 1, physicsEpoch = 1,
+            speedMetersPerSecond = 3.0, derailed = true, reversed = false, cars = emptyList(),
+            head = position, tail = position, occupiedIntervals = emptyList(), bodyTraversal = emptyList(),
+            sweptSpans = emptyList(), headTraversal = emptyList(), tailTraversal = emptyList(),
+            derailReason = "published reason"
+        )
+        var published: work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot? = frame
+        val trainType = work.art1st.javarailways.core.api.physics.train.Train::class.java
+        val train = java.lang.reflect.Proxy.newProxyInstance(trainType.classLoader, arrayOf(trainType)) { _, method, _ ->
+            check(method.name == "getPublishedFrame") { "Unexpected live read: ${method.name}" }
+            published
+        } as work.art1st.javarailways.core.api.physics.train.Train
+        val snapshot = TrainSnapshot.capture(train, 7)
+        assertEquals("published", snapshot.trainId)
+        assertEquals(3.0, snapshot.speedMetersPerSecond)
+        assertEquals("published reason", snapshot.derailReason)
+        assertEquals(position, snapshot.head)
+        published = null
+        assertThrows(IllegalArgumentException::class.java) { TrainSnapshot.capture(train, 8) }
+    }
+
+    @Test
     fun `captures rail object without retaining the live object`() {
         val world = createTestWorld()
         try {
@@ -58,14 +83,14 @@ class ImmutableSnapshotTest {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
             val train = createTrainWithConfig("snapshot-train", rail, world, listOf(10.0))
 
-            val snapshot = TrainSnapshot.capture(train, revision = 7L, facing = ViewDirection.AB)
+            val snapshot = TrainSnapshot.capture(train, revision = 7L)
             val initialHeadArc = train.headLocation.arcLengthIn(ViewDirection.AB)
             val initialTailArc = train.tailLocation.arcLengthIn(ViewDirection.AB)
             train.world.onOwnerForTest {
                 train.setLocation(requireNotNull(train.head.location.forward(30.0)))
                 train.commit()
             }
-            val changed = TrainSnapshot.capture(train, revision = 8L, facing = ViewDirection.AB)
+            val changed = TrainSnapshot.capture(train, revision = 8L)
 
             assertEquals("snapshot-train", snapshot.trainId)
             assertEquals(7L, snapshot.revision)

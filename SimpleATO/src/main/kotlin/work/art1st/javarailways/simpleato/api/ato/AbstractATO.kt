@@ -174,9 +174,7 @@ abstract class AbstractATO(
         revision: Long,
         speedMetersPerSecond: Double = train.speed
     ): TrainSnapshot {
-        val facing = (train.headLocation as? RailLocationWithFacing)?.facing
-            ?: error("ATO requires a facing-aware train head location")
-        return TrainSnapshot.capture(train, revision, facing).copy(
+        return TrainSnapshot.capture(train, revision).copy(
             speedMetersPerSecond = speedMetersPerSecond
         )
     }

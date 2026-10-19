@@ -513,11 +513,7 @@ class SimpleATO(
                 missionLayout = stationMissionLayout,
                 missionTargetProgressMeters = targetProgress,
                 projectedProgressMeters = stationMissionLayout.project(
-                    TrainSnapshot.capture(
-                        train,
-                        perceptionEpoch,
-                        (train.headLocation as RailLocationWithFacing).facing
-                    ).head
+                    TrainSnapshot.capture(train, perceptionEpoch).head
                 )
             )
             activeCurrentStationCall = resolved
@@ -1109,7 +1105,7 @@ class SimpleATO(
         }
         observations.sortBy { it.routeDistanceMeters }
 
-        val trainSnapshot = TrainSnapshot.capture(train, perceptionEpoch, head.facing)
+        val trainSnapshot = TrainSnapshot.capture(train, perceptionEpoch)
         val perception = PerceptionSnapshot(perceptionEpoch, trainSnapshot, route, observations)
         val allObserved = previousObserved + current
         previousObserved = current

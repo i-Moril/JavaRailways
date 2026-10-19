@@ -2742,11 +2742,8 @@ class TimetableDispatcher(
         }
     }
 
-    private fun capturePublishedTrainSnapshot(run: ActiveRun): TrainSnapshot {
-        val facing = (run.train.headLocation as? work.art1st.javarailways.core.physics.rail.RailLocationWithFacing)
-            ?.facing ?: ViewDirection.AB
-        return TrainSnapshot.capture(run.train, dispatcherTick, facing)
-    }
+    private fun capturePublishedTrainSnapshot(run: ActiveRun): TrainSnapshot =
+        TrainSnapshot.capture(run.train, dispatcherTick)
 
     private fun releasePassedBerth(run: ActiveRun) {
         val stationCall = run.stationCall ?: return
@@ -4769,10 +4766,7 @@ class TimetableDispatcher(
             )
         }
         val layout = MissionRouteLayout(world, resolved)
-        val currentFacing =
-            (ato.train.headLocation as work.art1st.javarailways.core.physics.rail.RailLocationWithFacing)
-                .facing
-        val currentSnapshot = TrainSnapshot.capture(ato.train, dispatcherTick, currentFacing)
+        val currentSnapshot = TrainSnapshot.capture(ato.train, dispatcherTick)
         if (layout.project(currentSnapshot.head) == null) {
             return MissionSubmission(
                 null,

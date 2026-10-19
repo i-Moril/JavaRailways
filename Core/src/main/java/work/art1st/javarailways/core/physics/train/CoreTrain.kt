@@ -952,7 +952,9 @@ open class CoreTrain @MainThread internal constructor(
         frameTrainId = resultId,
         frameTrainName = resultName,
         frameSpeed = resultSpeed,
-        frameDerailed = resultDerailed,
+        frameDerailState = derailStateBuffer.get().let { state ->
+            if (state.derailed == resultDerailed) state else DerailState(resultDerailed, null)
+        },
         frameReversed = reversed,
         clearFrameMotion = clearMotion,
         preparedCars = preparedCars
@@ -1054,7 +1056,7 @@ open class CoreTrain @MainThread internal constructor(
         frameTrainId: String = id,
         frameTrainName: String = name,
         frameSpeed: Double = speed,
-        frameDerailed: Boolean = isDerailed,
+        frameDerailState: DerailState = derailStateBuffer.get(),
         frameReversed: Boolean = isReversed,
         clearFrameMotion: Boolean = false,
         preparedCars: Map<CoreCar, CarFrameSnapshot> = emptyMap()
@@ -1064,7 +1066,8 @@ open class CoreTrain @MainThread internal constructor(
         revision = revision,
         physicsEpoch = physicsEpoch,
         speedMetersPerSecond = frameSpeed,
-        derailed = frameDerailed,
+        derailed = frameDerailState.derailed,
+        derailReason = frameDerailState.reason,
         reversed = frameReversed,
         cars = frameCars.map { car ->
             preparedCars[car] ?: CarFrameSnapshot.create(

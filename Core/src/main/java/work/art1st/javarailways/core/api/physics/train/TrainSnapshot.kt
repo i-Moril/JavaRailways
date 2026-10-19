@@ -1,7 +1,6 @@
 package work.art1st.javarailways.core.api.physics.train
 
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
-import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 
 /**
  * Immutable, implementation-independent train state published for planning and event payloads.
@@ -29,16 +28,25 @@ data class TrainSnapshot(
     }
 
     companion object {
-        /** Capture the currently published state of [train]. */
-        fun capture(train: Train, revision: Long, facing: ViewDirection): TrainSnapshot = TrainSnapshot(
-            trainId = train.id,
-            revision = revision,
-            speedMetersPerSecond = train.speed,
-            derailed = train.isDerailed,
-            carCount = train.length,
-            head = RailPositionSnapshot.capture(train.headLocation, facing),
-            tail = RailPositionSnapshot.capture(train.tailLocation, facing),
-            derailReason = train.derailReason
-        )
+        /**
+         * Capture the currently published state of [train].
+         *
+         * Head and tail keep their own operating facings from the published frame; a single
+         * caller-supplied facing cannot represent a train straddling a reversed rail seam.
+         * A published frame is required; every state field comes from that one frame.
+         */
+        fun capture(train: Train, revision: Long): TrainSnapshot {
+            val frame = requireNotNull(train.publishedFrame) { "TrainSnapshot requires a published train frame" }
+            return TrainSnapshot(
+                trainId = frame.trainId,
+                revision = revision,
+                speedMetersPerSecond = frame.speedMetersPerSecond,
+                derailed = frame.derailed,
+                carCount = frame.cars.size,
+                head = frame.head,
+                tail = frame.tail,
+                derailReason = frame.derailReason
+            )
+        }
     }
 }

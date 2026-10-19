@@ -6,7 +6,7 @@
 - Baseline: `dev/signal-system` / `7ff3a8d3`；本轮源码未改动。
 - Status: 静态证据未变；用户于2026-10-10确认三个事件保留并考虑接入，初稿删除建议撤回。接入具体契约尚未冻结，代码未实施。
 
-> 2026-10-18后续：上方Status及下文源码行号是10月10日评估基线，不代表最新实现。用户现已确认Pre/Post按每个物理epoch发布，World直接提供来源/模式，失败有Pre无Post；实现与验证见[World epoch事件子任务](../../10-18-world-epoch-events/implement.md)及[当前事件合同](../../../spec/javarailways/core/event-bus.md)。RenderableEvent仍是保留的分组接口，本批不扩展Bukkit呈现生命周期事件。
+> 2026-10-18后续：上方Status及下文源码行号是10月10日评估基线，不代表最新实现。用户现已确认Pre/Post按每个物理epoch发布，World直接提供来源/模式，失败有Pre无Post；实现与验证见[World epoch事件子任务](../../archive/2026-10/10-18-world-epoch-events/implement.md)及[当前事件合同](../../../spec/javarailways/core/event-bus.md)。RenderableEvent仍是保留的分组接口，本批不扩展Bukkit呈现生命周期事件。
 
 ## Findings
 

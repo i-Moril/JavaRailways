@@ -4,7 +4,7 @@
 
 基线`a76b076cfe632d8058528bffb3575adc2c4a93b5`已包含坐标统一和UI改进。当前候选位于`/workspace/minecraft/JavaRailways/.worktree/world-epoch-events`，分支`codex/world-epoch-events`，用户于2026-10-19批准本地提交，父任务整合尚待进行。
 
-实现：World不可变LIVE/SIMULATION模式、统一WorldEvent来源、8类运行事件与Pre/Post来源、逐实际物理epoch通知、模拟正常碰撞事件、平台consumer模式过滤。完整机制由[事件规范](../../../spec/javarailways/core/event-bus.md)和[发布规范](../../../spec/javarailways/core/runtime-publication.md)拥有。
+实现：World不可变LIVE/SIMULATION模式、统一WorldEvent来源、8类运行事件与Pre/Post来源、逐实际物理epoch通知、模拟正常碰撞事件、平台consumer模式过滤。完整机制由[事件规范](../../../../../spec/javarailways/core/event-bus.md)和[发布规范](../../../../../spec/javarailways/core/runtime-publication.md)拥有。
 
 实现代理完成后冻结源，独立检查代理检查全部产品diff、测试、实际消费者及相关模块规范，没有发现行为缺陷。检查代理最后仅修改KDoc：说明coordinator/workers，并补本批属性文档；这些注释修改后执行diff检查，未重复整套编译、测试或Dokka。
 
@@ -50,4 +50,4 @@ WorldEventTest验证8类事件、两种模式、相同列车名称和不同World
 
 ## 2026-10-19主分支整合
 
-用户批准提交主工作区积压改动；原日志/信号/Wand/资源和文档先分批提交，再无冲突整合9ca9ebe6及1650490e。组合候选六模块2343项测试及API consumer/JAR/模块边界/Dokka通过，1070文件源码集合hash为`6dd87af9cef34dd21aa4c77bf81ce37dd4a3ab2deff42ed16745876cc0dba56a`。首次SimpleATO类加载异常、原始证据和不改源码的重建复验，见[积压整合记录](../../09-18-signal-addon-implementation/research/backlog-commit-2026-10-19.md)。本子任务完成，父任务全隔离/全Feature验收仍未完成。
+用户批准提交主工作区积压改动；原日志/信号/Wand/资源和文档先分批提交，再无冲突整合9ca9ebe6及1650490e。组合候选六模块2343项测试及API consumer/JAR/模块边界/Dokka通过，1070文件源码集合hash为`6dd87af9cef34dd21aa4c77bf81ce37dd4a3ab2deff42ed16745876cc0dba56a`。首次SimpleATO类加载异常、原始证据和不改源码的重建复验，见[积压整合记录](../../../../09-18-signal-addon-implementation/research/backlog-commit-2026-10-19.md)。本子任务完成，父任务全隔离/全Feature验收仍未完成。

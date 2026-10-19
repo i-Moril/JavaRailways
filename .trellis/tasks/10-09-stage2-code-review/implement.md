@@ -352,7 +352,7 @@ Owner合同及伪代码见[帧间操作TARGET](../../spec/javarailways/core/runt
 2. [ ] 修加载/恢复一致性（CR-023/027/028）及Core相关生命周期问题；涉及宿主或格式边界的修复单独划批，并先核对真实存档迁移要求。
 3. [ ] 分批修LINE投影、碰撞容差与运动速度事实（CR-025/024/026），同步有价值但断言无效的测试。
 4. [ ] 联结/解编先给出端部、方向和失败事务方案，再修CR-021/030及关联渲染换属主问题，不改变默认碰撞策略。CR-021解编已完成；CR-030的[联结方案](./research/core-link-transaction-plan.md)已提出，四端部范围及停车接触/无吸附规则已确认，混合安装朝向及事务细节待实现方案，运行时代码尚未修复。
-5. [ ] 旧事件按保留目标接入：2026-10-18已明确Pre/Post按每物理epoch通知，失败有Pre无Post，统一携带World实例；实现与验证归[World epoch事件子任务](../10-18-world-epoch-events/implement.md)。RenderableEvent继续保留分组接口，具体平台生命周期子事件仍不在本批范围；不把Pre/Post实现等同于全部呈现事件已接线。
+5. [ ] 旧事件按保留目标接入：2026-10-18已明确Pre/Post按每物理epoch通知，失败有Pre无Post，统一携带World实例；实现与验证归[World epoch事件子任务](../archive/2026-10/10-18-world-epoch-events/implement.md)。RenderableEvent继续保留分组接口，具体平台生命周期子事件仍不在本批范围；不把Pre/Post实现等同于全部呈现事件已接线。
 6. [ ] 随修复同步受影响契约/KDoc，另批处理确认废路径和低质量测试；未确认的Core Seat处置不混入。
 
 ### 后续授权与当前批次（2026-10-10）

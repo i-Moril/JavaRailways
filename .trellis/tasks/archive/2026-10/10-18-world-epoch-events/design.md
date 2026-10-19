@@ -4,7 +4,7 @@
 
 World增加不可变运行模式，WorldEvent只暴露World；TrainEvent复用train.world，独立事件显式带所属World。Pre/Post使用PhysicsRailEvent，按协调器计算前/成功完整发布后通知，payload提供本次epoch/实际delta与Post的已提交frame。保留普通listener异常隔离及原决策语义；不做每次发布归属校验。删除publishCollisionEvents开关及所有false调用，不改正常碰撞算法。
 
-完整交界契约见[父设计](../10-18-isolated-simulation-runtime/design.md)，本任务不能自行改变用户已确认的模式/事件/失败语义。
+完整交界契约见[父设计](../../../10-18-isolated-simulation-runtime/design.md)，本任务不能自行改变用户已确认的模式/事件/失败语义。
 
 ## 代码ownership
 

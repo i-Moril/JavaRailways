@@ -237,6 +237,16 @@ class TickManagerImpl(
         scheduler.shutdownNow()
     }
 
+    /** Stops generic workers and confirms callback exit before a host releases World dependencies. */
+    fun closeAndAwaitTermination(worldRuntimeId: String) {
+        check(!AsyncTickThreadMarker.isAsyncTickThread()) { "Generic teardown must not wait on its own worker" }
+        work.art1st.javarailways.core.api.threading.ThreadGuard.ensureMainThread(
+            "TickManagerImpl.closeAndAwaitTermination")
+        close()
+        awaitExecutorTermination(scheduler, "World $worldRuntimeId generic tick workers", LOGGER)
+        pendingCommits.clear()
+    }
+
     companion object {
         private val LOGGER = Logger.getLogger(TickManagerImpl::class.java.name)
         private const val DEFAULT_COMMIT_MAILBOX_CAPACITY = 65_536

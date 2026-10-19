@@ -14,6 +14,7 @@ import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.CollisionEnvelope
 import work.art1st.javarailways.core.util.AsyncTickThreadMarker
+import work.art1st.javarailways.core.util.awaitExecutorTermination
 import java.util.ArrayDeque
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
@@ -149,6 +150,7 @@ class PhysicsCoordinator(
         Thread(runnable, "JavaRailways-PhysicsTimer-${TIMER_SEQUENCE.incrementAndGet()}").apply { isDaemon = true }
     }
 
+    internal val executionOwner = work.art1st.javarailways.core.physics.WorldExecutionOwner()
     private val stateLock = Any()
     private val betweenFramesQueue = ArrayDeque<BetweenFramesOperation<*>>()
     private val pendingBetweenFrames = linkedSetOf<BetweenFramesOperation<*>>()
@@ -315,15 +317,17 @@ class PhysicsCoordinator(
      */
     fun <T> processBetweenFrames(action: (PhysicsTicket) -> T): T {
         ThreadGuard.ensureMainThread("PhysicsCoordinator.processBetweenFrames")
-        synchronized(stateLock) {
-            check(!processingBetweenFrames) { "Between-frames processing is already active" }
-            processingBetweenFrames = true
-            betweenFramesDrained = false
-        }
-        try {
-            return withFrameBoundary(action)
-        } finally {
-            synchronized(stateLock) { processingBetweenFrames = false }
+        return executionOwner.run {
+            synchronized(stateLock) {
+                check(!processingBetweenFrames) { "Between-frames processing is already active" }
+                processingBetweenFrames = true
+                betweenFramesDrained = false
+            }
+            try {
+                withFrameBoundary(action)
+            } finally {
+                synchronized(stateLock) { processingBetweenFrames = false }
+            }
         }
     }
 
@@ -374,7 +378,7 @@ class PhysicsCoordinator(
      */
     fun <T> withStructuralMutation(action: () -> T): T {
         ThreadGuard.ensureMainThread("PhysicsCoordinator.withStructuralMutation")
-        return withFrameBoundary { action() }
+        return executionOwner.run { withFrameBoundary { action() } }
     }
 
     private fun <T> withFrameBoundary(action: (PhysicsTicket) -> T): T {
@@ -871,6 +875,24 @@ class PhysicsCoordinator(
         fallbackTimer.shutdownNow()
         coordinatorExecutor.shutdownNow()
         workerPool.shutdownNow()
+    }
+
+    /**
+     * Host teardown that also waits for every in-flight callback to leave this coordinator's pools.
+     * [close] alone remains nonblocking cancellation. Interrupts are restored after actual exit;
+     * an uncooperative callback retains its runtime resources and emits periodic wait diagnostics.
+     * Never call from physics callbacks, completion callbacks holding the state lock, or while
+     * holding resources needed by a callback. This does not wait for platform effect completion.
+     */
+    fun closeAndAwaitTermination() {
+        check(!ThreadGuard.isAsyncTickThread()) { "Physics teardown must not wait on its own worker" }
+        ThreadGuard.ensureMainThread("PhysicsCoordinator.closeAndAwaitTermination")
+        check(!Thread.holdsLock(stateLock)) { "Physics teardown must run outside the state lock" }
+        close()
+        val owner = world?.runtimeId ?: "<unattached>"
+        awaitExecutorTermination(coordinatorExecutor, "World $owner physics coordinator", LOGGER)
+        awaitExecutorTermination(workerPool, "World $owner physics workers", LOGGER)
+        awaitExecutorTermination(fallbackTimer, "World $owner physics fallback", LOGGER)
     }
 
     private fun completedBootstrapTicket(): PhysicsTicket {

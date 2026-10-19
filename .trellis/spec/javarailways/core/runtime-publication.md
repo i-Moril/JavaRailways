@@ -10,6 +10,22 @@
 
 每个 `CoreWorld` 拥有一个 `PhysicsCoordinator`；generic `TickManagerImpl` 是另一条独立路径。`CoreTrain.setController` 只注册 coordinator。
 
+### 每World领域执行归属（2026-10-19）
+
+`CoreWorld.executionOwner: WorldExecutionOwner`与该world的coordinator持有同一个可重入串行入口，创建在attach以前，未attach的bootstrap协调器也可使用。`owner.run(action)`只取得本World锁，不取得进程级读写门禁，不创建线程，也不赋予Bukkit/线程分类权限。现有`processBetweenFrames`与`withStructuralMutation`先执行原`ensureMainThread`，再取得owner并复用帧间准入；两个合法host调用会串行执行，其他World的host和physics仍可推进。
+
+锁序为owner→短stateLock；等待ticket和领域callback仍在stateLock外。physics workers/coordinator publication不取得host owner，继续使用topology→state顺序。只持owner不等于已取得物理帧间准入；凡需禁止在途/后续physics与管理提交交错的操作，仍须复用frame boundary。`close/beginShutdown`保持原来的终态及quiesce边界，owner不是新的World.close或保存协议。
+
+`PhysicsCoordinator.closeAndAwaitTermination()`是实现层宿主拆卸入口：先沿原`close`禁止epoch并取消，再在state/topology锁外等待自身coordinator、physics worker和fallback executor真正退出；`TickManagerImpl.closeAndAwaitTermination(runtimeId)`对generic worker做相同确认。不能从相关worker或持stateLock的完成回调调用，不能把失败ticket/CLOSED视为callback退出。取消线程的interrupt临时吸收并最终恢复，未退出时低频日志说明所属World/executor并保留其依赖；原`close()`保持非阻塞语义。该边界不等待Bukkit平台效果，也不承诺强杀同JVM不退出的第三方callback。
+
+低频多World入口使用`WorldExecutionOwner.runTogether(owners, action)`，去重后按owner创建时固定的序号取锁，不按可能重复的列车/World显示名找锁。它必须从单World作用域外进入，或重入已经全部持有的owner集合；不能在持A时同步升级取得未持有的B。目录管理mutex更不能先阻塞、后检查当前owner；平台管理入口在等待其mutex之前执行`ensureNoOwner`，具体LIVE目录规则由[Bukkit lifecycle](../../bukkit-plugin/backend/lifecycle-and-threading.md)拥有。
+
+`runWithoutOwners(action)`是目标平台同步等待所需的释放/恢复能力：保存当前实际持有的owner列表和各自重入次数，逆序释放，finally按原顺序与次数恢复。恢复同一个列表对象，让原词法scope的finally继续清理同一份记账；不能替换成新列表而遗留已经释放的内层owner。当前生产没有`runOutsideSimulationContext`调用，不宣称所有区域等待都已借此改造；新增真正同步等待时才按需使用。
+
+例如A的帧间callback被barrier暂停，B仍能完成其自身epoch；同一A上的第二个callback必须等待。A→B嵌套且暂停恢复后，退出B再暂停只能释放A。错误做法是给每次owner.run增加全局read锁：一项LIVE管理write等待A时会连带挡住无关SIM的新read；正确做法是普通owner只管本World、管理事务只协调其真实有关集合。
+
+普通单World协调成本为本次锁和持有列表操作；多World取锁为W个不同owner的O(W log W)排序及实际等待，暂停恢复按持有owner和重入次数处理。不新增每epoch世界扫描、第二物理循环或无界待办。回归须覆盖同World互斥、真实异World推进、混合重入暂停、异常恢复、wrong-thread在owner被占用时仍立即拒绝，以及既有shutdown/failure矩阵。owner与scope均为运行态，不涉及格式版本或开发数据兼容。
+
 诊断出口使用各类命名的JDK JUL logger：联结处理异常及generic tick错误携带原Throwable，delta clamp/overload为WARNING且保持既有限频和Stall计数。Core不直接写文件，也不因日志改变ticket成功/失败或epoch顺序；平台文件writer和关闭规则归[Bukkit错误日志](../../bukkit-plugin/backend/error-logging.md)。
 
 ```kotlin

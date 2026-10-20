@@ -2,7 +2,7 @@
 
 ## 结论与证据基线
 
-用户要求先确认本批原有锁拆除是否完成，再把遗漏项补入计划。计划扩充后用户批准继续实施；当前O1/O2已经完成并重新验证。原先明确列出的simulationLock拆除、World owner/独立runner及入口迁移已实现，原冻结候选42源码指纹为`9f1a685d4da7edaca5a767ac072f67c9aa054cfacf727524968da243b484f851`，2391项JVM与108项前端测试通过；未提交合入。新增项不能沿用这些结果宣称已实现。
+用户要求先确认本批原有锁拆除是否完成，再把遗漏项补入计划。计划扩充后用户批准继续实施；当前O1/O2已经完成提交整合，S1-S3实现及完整候选检查也已通过，信号批次尚待本地提交。原先明确列出的simulationLock拆除、World owner/独立runner及入口迁移已实现，原冻结候选42源码指纹为`9f1a685d4da7edaca5a767ac072f67c9aa054cfacf727524968da243b484f851`，2391项JVM与108项前端测试通过，这是早期候选；后续O1/O2的2395项已提交合入。新增项不能沿用历史结果宣称已实现。
 
 以下是两处分别存在的跨World串行点：不同LIVE World竞争信号JS求值执行器；不同LIVE World竞争observation构造使用的服务锁。两种工作彼此没有共用同一把锁的含义。原设计已经要求模拟使用独立JS实例，但没有明确落实LIVE World之间的求值隔离；observation转换位于服务共享锁内也未被本批原验收覆盖。
 
@@ -34,5 +34,5 @@
 
 - 原锁/调度及O1/O2：已通过Core5d8cdabe、runtime1423116d、docs-sitecb9263b提交并整合。
 - O1/O2：已在子任务2完成，真实fromCore转换在World entry中独立串行，共享目录锁外运行；entry identity拒绝退休迟到结果，保留UUID订阅语义。新增4个正式回归及56项focused通过；最终44源702e1db6，8模块2395项和完整docs check通过，独立检查无剩余本批具体缺陷。已提交/整合，见[子任务2最终验证](../../archive/2026-10/10-18-world-runtime-isolation/research/validation.md)及对应提交清单。
-- S1：已补入信号批次prd/design/implement和上下文，任务保持planning，尚未启动实现。
-- 父任务AC4/AC5/AC7保持未完成：O1/O2子验收已通过，S1及完整信号/车厢行为和最终联合验收仍待完成。
+- S1-S3：信号批次已实现，每个LIVE及SIM自有logic/Engine及关闭归属，共享catalog.rules只读输入；manager只保留目录/identity短锁，真实编译、初始化、owner等待、求值和关闭在外。27源a5095090，真实三组LIVE-LIVE/LIVE-SIM/SIM-SIM执行锁阻塞与physics发布、同World有序、close/fail/reinstall及目录等待回归通过，完整8模块2411项及API/边界/jar/Dokka/docs门禁通过；具体用例和边界见[本批验证](../../10-18-simulation-signal-features/research/validation.md)，本地提交尚待确认。
+- 父任务：O1/O2及S1-S3已与逐车行为共同通过最终自动化验收。53源c1d805b9、8模块2507项零失败，observation/JS三模式内部barrier及非空源LIVE状态前后对照均有实际执行；父AC4/AC6/AC7已通过。提交/合并/现场验证状态见[父最终记录](../../10-18-simulation-behavior-features/research/parent-acceptance.md)。保留必要管理事务、平台/存储锁及上游fatal host全进程停机政策，不声称消除全部全局锁。

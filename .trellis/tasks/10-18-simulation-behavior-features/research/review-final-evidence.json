@@ -1,0 +1,1390 @@
+{
+  "date": "2026-10-20T15:48:56.438625+00:00",
+  "candidate": {
+    "base": "87fe3e4567c4b9fddbcee3c0b5975e460a7e05c7",
+    "beforeFingerprint": "ae862ac844d99e997c76bbf840a6ded5fe589b1d44a037f989e0effabcbcef79",
+    "fingerprint": "c781ed4f569c5bc2810d4e20faa465e32d1c8bb96f29adf330f741dc4807452f",
+    "files": [
+      {
+        "path": "BukkitPlugin/build.gradle",
+        "sha256": "f2c5eb1c4a3cc63e91ee6ffa95a3296d903f640c7e35279f8d698544934cb787"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/BukkitPlugin.kt",
+        "sha256": "d3033a1d00aa23592b798a9e4885fa9f8892de2b1a85b3c6b8883df641848b21"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/DefaultSignalEpochSourceService.kt",
+        "sha256": "6e867ff8ba512d9cd2969265d0e39a396ce8ec91298e5c1925893263b66c3fc8"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/DefaultSimulationFeatureService.kt",
+        "sha256": "335fccef7f381bac2a8ab528943ebb24fa00177a7a40f0e67d3117f74511c88b"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/JavaRailwaysServiceRegistration.kt",
+        "sha256": "19908f12a28f8aacc21418f892d0e4e023d3c6a37a08726ccf78b1fbfe38c449"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/SimulationFeatureOwnerLifecycleListener.kt",
+        "sha256": "ea84306f1f4da4f525e39bda8393a20d9b0f053a41f4b0fe5581f4df1a87b306"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/signal/SignalEpochSourceService.java",
+        "sha256": "922e71212bf26c6f4380abd7a1e06635b64216bbe3b85f35aa93d6c9175f014d"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/simulation/SimulationFeaturePreparer.java",
+        "sha256": "05682c41e1463a0903cbde3e8efe10863fed5b996e23473240b751dfec5683f4"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/simulation/SimulationFeatureService.java",
+        "sha256": "9f3eef2c7f6cec662d7521de49210293e776b9bffc48c5e2982539377d65623f"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/behavior/CapturedCarBehavior.kt",
+        "sha256": "3f0a40a1585050321f45bed6a6ff219e033844c725e44159912def580d469a4b"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/behavior/CarBehaviorTargets.kt",
+        "sha256": "fcb6c5906c2c04f561e3d5893782e6bf38c354f1bd3aaf6b07fc2cc2f8727b1f"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/CarExtension.kt",
+        "sha256": "8240d03fcda5c35e61ff3b8fc01981306a4150cbba2c7f4a167cd97c2b9ba486"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/SimulationTrainExtension.kt",
+        "sha256": "10a557d4ff9726faee3a8fa7f8ffa213614bf1015bd0974e6867f48a2f84c7bb"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/TrainComponentExtension.kt",
+        "sha256": "40be3b4e51fc5ae6134a8592bcdf0a583d85cd39a5d3996ad717008f919f4587"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/TrainExtension.kt",
+        "sha256": "6a2d53e676d9e3cac286873d4207bc0c550b8d0d15da9a30ba2b6f4c069c5580"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/http/IsolatedLineSimulator.kt",
+        "sha256": "012e6796e317459c70b694baed89ddbe742dfcf0580ab6f96fe51811b211b7c5"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/http/IsolatedTimetableSimulationFactory.kt",
+        "sha256": "449c52857a2bf13a97676b95f4e791ead9014161faa255adad8a339e6057cdb9"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/http/SimulationControlProfiles.kt",
+        "sha256": "a0a56ff0f561e301c28f04a93381f8999b19d3dd4443183ce5b0348b2faf0900"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/http/TimetableHttpBridge.kt",
+        "sha256": "5f371242bd8407464de67bd8123605cc1d40bc966e1f7c62322d7647249ea1bd"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/operation/BukkitTrainOperationGateway.kt",
+        "sha256": "2353c4484d51c7f346381a4921e5c1adca9e63a5141df5d2a3d14294ff3017e5"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/operation/ModelOperationTicket.kt",
+        "sha256": "6782db52241f47b857ea180308023c5831ec4f638b4e3e3e52e11b397754a6bb"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/operation/SimulationCarBehaviorExtension.kt",
+        "sha256": "8086b232fd60fb73586a4d83bd4b19129b8ed000724200b28771c461ee73b776"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/operation/SimulationTrainOperationGateway.kt",
+        "sha256": "7a4a0f4d008fdb24a34d936a6fe5ef2d623833917e69cddfcf03d47f1702f72d"
+      },
+      {
+        "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/Animation.kt",
+        "sha256": "38b369872db867c7c1a2621f5b1666d7a358bc8e7207aac530e07f823c3ffd27"
+      },
+      {
+        "path": "BukkitPlugin/src/signalApiConsumer/java/example/signaladdon/SignalApiConsumerPlugin.java",
+        "sha256": "e0d4d41428f2cb098cadafe93eb4706f5a60f544630d6de53ac9301e2b7b62c4"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/api/internal/DefaultSignalEpochSourceServiceTest.kt",
+        "sha256": "13f64bfc75e295f355085a64a7a28a71b4edc041077b4a2c864158155245e0da"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/api/internal/DefaultSimulationFeatureServiceTest.kt",
+        "sha256": "25be426fac1fc3cdd6495a4b78c551431f842187ef8761751428f9c35207671e"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/api/internal/JavaRailwaysServiceRegistrationTest.kt",
+        "sha256": "22c2334883e3a1882d23d4c87457f8ef988d81fe32494931b9b57513abab7f9d"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/behavior/CapturedCarBehaviorTest.kt",
+        "sha256": "ef813908901dfe93c7ff51f842cdeda73c6915c3341aa71edf5ff64ea3d686c9"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/http/FullFeatureSimulationIsolationTest.kt",
+        "sha256": "c6e7821cbce29869a51ec9045baa24003e45e251736f6d64326487cd3a10e29f"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/http/IsolatedTimetableSimulationFactoryTest.kt",
+        "sha256": "841745feeeb84d5bf1f6441ae28e69562aa6081de316420ad288e050721a8b47"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/http/SimulationControlProfilesTest.kt",
+        "sha256": "2abe46ceaf20a812cabebe469b785c9b5194870d1d3f6d798622e07512f3a07e"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/operation/SimulationBehaviorEffectCollector.kt",
+        "sha256": "1b320e35742cebae7a4ddb59596445a6b63072fcdba7d58a16e1a44f0b2e0876"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/operation/SimulationTrainOperationGatewayTest.kt",
+        "sha256": "118d6076e5f5248b0a0739270dada39154a2c8229c15563822609bda28ad0235"
+      },
+      {
+        "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/signal/SimpleSignalsSimulationFeatureFactory.java",
+        "sha256": "68121e784dd36e4df4ce4174bb5c587bc53d411f3b2381487a054da09a7327cd"
+      },
+      {
+        "path": "SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/simulation/PreparedSimulationFeature.kt",
+        "sha256": "25809584359d7fbf79278c02931f57273a131f448ca30df328d9f262f9e3b01e"
+      },
+      {
+        "path": "SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/DefaultSimulationDomainTarget.kt",
+        "sha256": "f0d28e83858ace2171513282abd780c963da028e976f5e783f23c14236f684d7"
+      },
+      {
+        "path": "SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/IsolatedTimetableSimulation.kt",
+        "sha256": "1a6271fe6e191bce390cf684e9f32f63142fa43132dabc614042e8c88e7b5cd2"
+      },
+      {
+        "path": "SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/SimulationTrainOperationGateway.kt",
+        "sha256": "<deleted>"
+      },
+      {
+        "path": "SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/IsolatedTimetableSimulationTest.kt",
+        "sha256": "a14759bc882a2c08257555bea4c45d93c45c9ea489f8785699e1c317ce16d436"
+      },
+      {
+        "path": "SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/SimulationTrainOperationGatewayTest.kt",
+        "sha256": "<deleted>"
+      },
+      {
+        "path": "SimpleSignals/src/main/java/work/art1st/javarailways/simplesignals/SimpleSignalsHostServices.java",
+        "sha256": "560d3ef0935ede2ec78292a9aa1840f11860c179c1b34e73705327b7f20961bc"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/SimpleSignalsPlugin.kt",
+        "sha256": "bee6cff003db2728ba47d01a235c2e29a7b1e339c0b5c75cd9eb9689f8d002d0"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/SimpleSignalsWorldLifecycleListener.kt",
+        "sha256": "76d54dec93fe71c350e52489e97cd0b8afd70979b4619898270f6069072c5c0c"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/block/FixedBlockRouteResourcePolicy.kt",
+        "sha256": "ace50e5e2d21dcc34964a1bf185109d0ea00d239e084e4f0d5d91da26ee5a2b8"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsSimulationFeature.kt",
+        "sha256": "fc681cec4f413b5b7e96b8a389f5bcdec3f7797befd125bdac9163d4192385aa"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntime.kt",
+        "sha256": "232c273a4bc6ac7595db9c721194fbf9e3d28daa36ab86077b796e53e004361f"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/signalpack/SignalLogicRuntime.kt",
+        "sha256": "90d8cd5194a3b6a12e089f006cbec1bd02efdac50498adebd0d569874d863c9e"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/signalpack/SignalPackCatalog.kt",
+        "sha256": "d3db358f33b48f07fb5cfa30a36fee4667b1581ba948035ac047840f2551fa6f"
+      },
+      {
+        "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/signalpack/SignalPackEpochRuntime.kt",
+        "sha256": "dd4abdf63e39da4990863852faceff3a5cca2ac0484b541064444b61e8ff73c3"
+      },
+      {
+        "path": "SimpleSignals/src/test/java/work/art1st/javarailways/simplesignals/SimpleSignalsHostServicesTest.java",
+        "sha256": "6d6be553658fe0fd3c630345d052961acfb46fcc71a4db43c6066730690c2b46"
+      },
+      {
+        "path": "SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntimeManagerTest.kt",
+        "sha256": "ead88a0c98e52070fd9333c07767716ca4bf41d6a6c60bd920516d204806a155"
+      }
+    ]
+  },
+  "base": "87fe3e4567c4b9fddbcee3c0b5975e460a7e05c7",
+  "upstream": "87fe3e4567c4b9fddbcee3c0b5975e460a7e05c7",
+  "sourceDrift": false,
+  "totals": {
+    "suites": 181,
+    "tests": 1189,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "modules": {
+    "BukkitPlugin": {
+      "counts": {
+        "suites": 122,
+        "tests": 542,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "xml": [
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.diagnostics.PluginErrorLogTest.xml",
+          "sha256": "635f81e1d55f5b3e92de3e1841ae7616b594fa2fea21d2dd1ae0c2538cdb0dcd",
+          "timestamp": "2026-10-20T15:46:12.016Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueServiceTest.xml",
+          "sha256": "b590440623eacafdeb9241e5154d10d6245b5bff13a910812d5eafcccb779861",
+          "timestamp": "2026-10-20T15:46:12.063Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.internal.BukkitRailTargetServiceTest.xml",
+          "sha256": "deafca0ccc66a1d31ef4a6eef798dda2497637a43c3aab05da581c324e5c2556",
+          "timestamp": "2026-10-20T15:46:12.074Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.internal.DefaultEditorTextServiceTest.xml",
+          "sha256": "ee7043fcb9def96ce1f8e5144cb6acff485e941727b16000b67f8c0f31426733",
+          "timestamp": "2026-10-20T15:46:17.929Z",
+          "tests": "11"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceServiceTest.xml",
+          "sha256": "8889684ffac8c8ed228b1eca12f21a91dc275930336493b1f6047468ce12cf59",
+          "timestamp": "2026-10-20T15:46:18.148Z",
+          "tests": "31"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.internal.DefaultModelPresentationServiceTest.xml",
+          "sha256": "4c459938bd3c24b09305009ccd1563abbe3b89a7103bc3fd03bba04e00475627",
+          "timestamp": "2026-10-20T15:46:18.442Z",
+          "tests": "17"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.internal.DefaultPlayerOperationServiceTest.xml",
+          "sha256": "54e00a3becb29d715bb1ad6f4e6450ce1740b730fef831c484e0416d23095e1f",
+          "timestamp": "2026-10-20T15:46:18.526Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationServiceTest.xml",
+          "sha256": "ae9d81f8f691aababebf4fc4ec4290834a516e9a8f2b47af8c2dd1aa6d47e482",
+          "timestamp": "2026-10-20T15:46:18.541Z",
+          "tests": "10"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.internal.DefaultSignalEpochSourceServiceTest.xml",
+          "sha256": "4a715469e170965f38657a30f59a768dde6fcc4315f5bcde89b8c1ea564f3aa4",
+          "timestamp": "2026-10-20T15:46:18.956Z",
+          "tests": "23"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.internal.DefaultSimulationFeatureServiceTest.xml",
+          "sha256": "ed7ca66c26b259e222ef31d61c06ecda46bdb31733d344c3b3c9fba57cbe5b7c",
+          "timestamp": "2026-10-20T15:46:21.502Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.internal.EditorMarkerLabelsTest.xml",
+          "sha256": "ecb5724d78d620a83a279d5aaa64cc8a39be7e57d45ec8f1455c984987bcfadf",
+          "timestamp": "2026-10-20T15:46:21.511Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.internal.JavaRailwaysServiceRegistrationTest.xml",
+          "sha256": "18725d37d7e776fbf5f138460d7aa6b978f5db3a61508d20d90f93604d050889",
+          "timestamp": "2026-10-20T15:46:21.593Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.model.ModelDefinitionTest.xml",
+          "sha256": "cd619e211283e532aa16e71b48489d97143a3999c02942748b6a3e081bad6a39",
+          "timestamp": "2026-10-20T15:46:21.614Z",
+          "tests": "8"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.model.ModelPresentationTest.xml",
+          "sha256": "45e541f40febd0f07e7af5475caccc9932f4013483cd7a7b7b27ef3680285999",
+          "timestamp": "2026-10-20T15:46:21.621Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.model.asset.ModelAssetYamlCompilerTest.xml",
+          "sha256": "39ba0e71012ab7e7507b3be868a8361aadded64b7bc3d5337ad15bbec4f95d15",
+          "timestamp": "2026-10-20T15:46:21.622Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.api.wand.WandModeSwitchTest.xml",
+          "sha256": "8eb88aed63fdd04afceba88508d016cb70b6328e8e9295517f1abf458994901a",
+          "timestamp": "2026-10-20T15:46:21.729Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.behavior.CapturedCarBehaviorTest.xml",
+          "sha256": "a8e02f21ce93ce76afe6134a0e87ff511c9cc9a5bccab8584c0ffb3b83c83e45",
+          "timestamp": "2026-10-20T15:46:21.736Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.behavior.CarBehaviorTest.xml",
+          "sha256": "2f6acb73f1fb18272bf243ce6337670048fa6dd854b7bfa99b58003ca7a7ed1e",
+          "timestamp": "2026-10-20T15:46:21.753Z",
+          "tests": "8"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.behavior.CarOperationBatchTest.xml",
+          "sha256": "e59e4d758101b795ada10e7f665093f21eeee0e363afd162e45806e9b8a16ac9",
+          "timestamp": "2026-10-20T15:46:21.932Z",
+          "tests": "5"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.behavior.SimulationEventBoundaryTest.xml",
+          "sha256": "c8ff89614392f5761aa4e255989301fe291dd2b27e99f0e59edaabf512e690fc",
+          "timestamp": "2026-10-20T15:46:21.939Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.behavior.TrainBehaviorRuntimeTest.xml",
+          "sha256": "00afa943c2d677615ea6dd2fa13d96682a32820adf9c5ae9ec07338e28ffe596",
+          "timestamp": "2026-10-20T15:46:22.222Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.command.CloudCommandRegistrarTest.xml",
+          "sha256": "5d884b148241041990915cc09e1d10e7f2d9a59854143ca24e763abf88fd0b58",
+          "timestamp": "2026-10-20T15:46:22.284Z",
+          "tests": "5"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.JavaRailwaysConfigTest.xml",
+          "sha256": "87948617cf22a762d3764146f17e85ea5429af278cc451fc1d9aaf27a54963da",
+          "timestamp": "2026-10-20T15:46:22.307Z",
+          "tests": "15"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.PhysicsConfigTest.xml",
+          "sha256": "bc7c32242732c00ae0365fd00eac877ba560810b9c941158c35e5af307c51a76",
+          "timestamp": "2026-10-20T15:46:22.336Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.RailModelConfigTest.xml",
+          "sha256": "74a53bf4fd895e3130eb463ab63baa1bb49d80b83914d880bc8f9f358f9c1cc1",
+          "timestamp": "2026-10-20T15:46:22.354Z",
+          "tests": "6"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.model.ControlNumericValidationTest.xml",
+          "sha256": "057ba185f2e18466c2dd77814bbf6622e0729cdd9457803ae8e1ff2a053014f6",
+          "timestamp": "2026-10-20T15:46:22.369Z",
+          "tests": "5"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.model.ModelConfigStrictValidationTest.xml",
+          "sha256": "56deb5a0f5fd53b796b213e9a873971414c6e6f096c08274fc7fc42e6771ed05",
+          "timestamp": "2026-10-20T15:46:22.396Z",
+          "tests": "7"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.model.ModelManagerReloadTest.xml",
+          "sha256": "9e4be4cc5ce261c1233eb3c7f5f30561387d11cde02ecf34f514487cf6637a33",
+          "timestamp": "2026-10-20T15:46:22.414Z",
+          "tests": "9"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.model.ModelTreeBuilderTest.xml",
+          "sha256": "9365583ae80c0f189f43d71029232aa6eb65b625324b5b9983e8b2fc67b22259",
+          "timestamp": "2026-10-20T15:46:22.534Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.model.PackageLoaderBehaviorTest.xml",
+          "sha256": "3806dd27361e94ea1d129349b61db40fb83dfbeef32ce059ab4d3226c94220ac",
+          "timestamp": "2026-10-20T15:46:22.645Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.model.PackageLoaderControlTest.xml",
+          "sha256": "81380ea7d3bea837e6c753fb5d6f0f7ad7996d2c15e515393778e7472db5f5bc",
+          "timestamp": "2026-10-20T15:46:22.648Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.model.PartAnimationRuntimeTest.xml",
+          "sha256": "e4a72b8a250820cf2f4c7c60db9e2a7f7c901c409af31e4b5b9cbe461d40ed8b",
+          "timestamp": "2026-10-20T15:46:22.654Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.model.PartRegistryAnimationTest.xml",
+          "sha256": "6e43f2a71f1a3c313daa70fd6c9546f153a3991ac66f6f2c364402f6254cbb73",
+          "timestamp": "2026-10-20T15:46:22.664Z",
+          "tests": "7"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.model.PartRegistryDriverSeatTest.xml",
+          "sha256": "b73eb6378eec5520b30341bf0ca45a85d1b8814cbac8193d3d74b822747d22a7",
+          "timestamp": "2026-10-20T15:46:22.669Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.model.S100PackageLoadTest.xml",
+          "sha256": "9915d11c80abf768604202d41d2ad73dd21f8c5dceef84761d61e21fc945365c",
+          "timestamp": "2026-10-20T15:46:22.669Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.model.SavedCarModelTreeTest.xml",
+          "sha256": "67224898c3b432231adfeca1df71099b51e67f3acb51c9c044a060e611906f63",
+          "timestamp": "2026-10-20T15:46:22.712Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.model.TrainActionConfigTest.xml",
+          "sha256": "4cbc67864c490b23c41651625f5974a23cd3c20b4872bbff1f3a28c6d14c9f76",
+          "timestamp": "2026-10-20T15:46:22.714Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.config.model.TrainPackageSnapshotTest.xml",
+          "sha256": "1468f549e44b1124f84af5b1513734099a1af86c5f63531339c31648dc49abad",
+          "timestamp": "2026-10-20T15:46:22.715Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.control.TrainControlManagerDirectionTest.xml",
+          "sha256": "ea7a396db6acf1221803ea407accf93e7633100e16fcbd9d1a4817862c6a314e",
+          "timestamp": "2026-10-20T15:46:22.743Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.control.TrainControlWorldIsolationTest.xml",
+          "sha256": "131db6c99b521500b1d0038a7e07c932ee846109c9725e8b095bed13b5b7723c",
+          "timestamp": "2026-10-20T15:46:22.824Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.extension.WorldModelOperationsTest.xml",
+          "sha256": "4958796226ec8b7efbdc041eed5212ee287d0e2a981fd9b0f37d7952dd07abcf",
+          "timestamp": "2026-10-20T15:46:22.944Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.extension.rail.RailDecorationLayoutTest.xml",
+          "sha256": "50a183eba6466a490f48d86356878737001379dc18b08a4aa670e6f59269ab25",
+          "timestamp": "2026-10-20T15:46:22.947Z",
+          "tests": "5"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.extension.rail.RailDisplayPlacementTest.xml",
+          "sha256": "1ab81bbde7461e337dd5e92bd605f253212f3b50296731ceebac913a240fea41",
+          "timestamp": "2026-10-20T15:46:22.956Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.extension.rail.RailPackageCoordinateTest.xml",
+          "sha256": "464ff3fb86ec3536dfc69192c66e2b2ddc8d6f421e0afd5a8e4919e308245fe2",
+          "timestamp": "2026-10-20T15:46:22.958Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.extension.train.CarControlSourceTest.xml",
+          "sha256": "1dd1300bb7490e7ee508546cbb5146c83823a94e8f3f7250d3d323ff9eeeabf1",
+          "timestamp": "2026-10-20T15:46:22.976Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.extension.train.CarExtensionHeldSceneTest.xml",
+          "sha256": "8d3d83d6f0edfc93147a6b7baeb07dde51766f3161f87b566e2b1bdbb280aca1",
+          "timestamp": "2026-10-20T15:46:23.245Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.extension.train.CarFrameRevisionGateTest.xml",
+          "sha256": "20f29d3cb67ff1b09a9e52dbc122a2bde894b91e999e00472b6c7f5274a5e5c1",
+          "timestamp": "2026-10-20T15:46:23.250Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.extension.train.CarFrameVelocityConversionTest.xml",
+          "sha256": "772e0a42ea3bb68ad4cf95989e101925f8d5c8f53627d388dcde3f5def33a7ca",
+          "timestamp": "2026-10-20T15:46:23.517Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.extension.train.TrainComponentExtensionAudienceTest.xml",
+          "sha256": "44d01f56a5d2db625b7e8a318d2d075952655df241ce9541827d9eaac6e7593a",
+          "timestamp": "2026-10-20T15:46:23.521Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.http.FullFeatureSimulationIsolationTest.xml",
+          "sha256": "12c934e6001acd4b02b095690347a21d4632615cf8c9e18c83531a70fd401f91",
+          "timestamp": "2026-10-20T15:46:23.525Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.http.IsolatedLineSimulatorTest.xml",
+          "sha256": "375ca146727e1a5a046f39c1d761aedda258f5320b3be924ccdfb46c79878d98",
+          "timestamp": "2026-10-20T15:46:28.516Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.http.IsolatedTimetableSimulationFactoryTest.xml",
+          "sha256": "c18a0bf586e926c83cafdef252cee3f530ab7bb9c776e24dece71ea42b965caa",
+          "timestamp": "2026-10-20T15:46:28.579Z",
+          "tests": "7"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.http.RailMapPreviewServiceTest.xml",
+          "sha256": "ac1290f5402f291b7908a02ddec5d4a4f2c5cd12b046c6e09aef9fcce020dc34",
+          "timestamp": "2026-10-20T15:46:32.394Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.http.ScriptWorkerCompatibilityTest.xml",
+          "sha256": "20c828b15bf728610405b0c8c452d31c9457a9e2cc8d5fb593f7c53ca37e6949",
+          "timestamp": "2026-10-20T15:46:32.609Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.http.SimulationControlProfilesTest.xml",
+          "sha256": "4e83a8a51fb186d73f6d87ce2f5cbeac53b830244a612e827214b8eb0969fc86",
+          "timestamp": "2026-10-20T15:46:32.779Z",
+          "tests": "5"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.http.TimetableScriptNormalizerTest.xml",
+          "sha256": "98df299c418bf57eab6b00650008a38729993ea4e9ac806a2e0ec5bb62e3a79f",
+          "timestamp": "2026-10-20T15:46:32.895Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.http.TimetableScriptStorageTest.xml",
+          "sha256": "3b770ae47d3dca8f05941eaaa96371ce2837df3f94d5a3920946067a8f218dbb",
+          "timestamp": "2026-10-20T15:46:32.914Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.http.WebUiLoginTokensTest.xml",
+          "sha256": "95bf5fc9d2074fe5f91ae09221aae4586c5b360af22ae2655a9232a6e072979f",
+          "timestamp": "2026-10-20T15:46:32.924Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.http.WorldHttpRequestIsolationTest.xml",
+          "sha256": "e338b9e8affc626a209bf9b7c60f108cd5df9c2883055c5e08c5d5b1a3189297",
+          "timestamp": "2026-10-20T15:46:32.935Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.logic.RailVisualLifetimeTest.xml",
+          "sha256": "98f8fbb336ee9b4b8e0569921c53a9e898c68d7963c0cefddbbe604a58305ed3",
+          "timestamp": "2026-10-20T15:46:32.945Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.logic.TrainResourceConfigurationTest.xml",
+          "sha256": "4dbcbfbf6c06e28802e9513a7e53607e18fe956337abcbcac6b2b95e0b90edf0",
+          "timestamp": "2026-10-20T15:46:32.970Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.logic.WorldConstructionResourcesTest.xml",
+          "sha256": "3296bb436eb52a85ac806391e516b371f1dabafb32e266dc96c0708e3d05a533",
+          "timestamp": "2026-10-20T15:46:33.064Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.logic.WorldManagerUnloadTest.xml",
+          "sha256": "123d239257d37499c03c09e418bf905994ab6bc9d3d7d0d42163daa0d472a43c",
+          "timestamp": "2026-10-20T15:46:33.067Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.logic.WorldTickRunnerRegistryTest.xml",
+          "sha256": "0c3c93f65769c8da4e36d10dd661d8332340f7433b8939bb96ea36d3abcef5ab",
+          "timestamp": "2026-10-20T15:46:33.113Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.logic.WorldTickRunnerTest.xml",
+          "sha256": "ce6d4cce40c6fd3c98e40c4bba833164f67c2eb7f3e7859e94bbe4020e9a5d03",
+          "timestamp": "2026-10-20T15:46:33.227Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.operation.BukkitTrainOperationGatewayTest.xml",
+          "sha256": "9bde521317817b756df67ddaf0e0ccde4874a778d1dac5dc6a9a21006212d45f",
+          "timestamp": "2026-10-20T15:46:33.364Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.operation.SimulationTrainOperationGatewayTest.xml",
+          "sha256": "efa28990d13e685097c71961b815757692d2ed6de6f9432e0b6f511de5aa08b6",
+          "timestamp": "2026-10-20T15:46:03.106Z",
+          "tests": "14"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.persistence.CarPackageSnapshotReferenceTest.xml",
+          "sha256": "a5341c2e88a57d8413fa55eb51add50c51ec867c5be39de1e021b101d91a4a21",
+          "timestamp": "2026-10-20T15:46:33.484Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.persistence.DevelopmentWorldMigrationTest.xml",
+          "sha256": "9bfaded796947786ecda3195b85ce60c19734d16278de06a6f74ee15e003f25e",
+          "timestamp": "2026-10-20T15:46:33.556Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.persistence.EndpointWorldMigrationTest.xml",
+          "sha256": "0cbf5dbc20c20dd2c468750509103ee482767c853f6c1fc18350d57327fae522",
+          "timestamp": "2026-10-20T15:46:33.672Z",
+          "tests": "6"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.persistence.RailInfrastructureMetadataMigrationTest.xml",
+          "sha256": "13c2e27bbfa3eab4b202ca029bb3e008724164619cce162eb5f07b329a249f4e",
+          "timestamp": "2026-10-20T15:46:33.720Z",
+          "tests": "5"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.persistence.RailRenderMetaBrightnessTest.xml",
+          "sha256": "25f5a3ef9e5fcbe28eb9bf9e326c9e8f4ded44fcb17e85c85665aa1c5955fc58",
+          "timestamp": "2026-10-20T15:46:33.748Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.persistence.RailRenderMetaStorePreparedSaveTest.xml",
+          "sha256": "920f345fdd0dc7814d5d839f4e08a2e86654ffd212359ac886366964d237aa32",
+          "timestamp": "2026-10-20T15:46:33.757Z",
+          "tests": "5"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.persistence.WorldSnapshotExtensionDataTest.xml",
+          "sha256": "7133157feb895a40713b592f8b84f6666de7c5163051175b9f2e0c1e3d978261",
+          "timestamp": "2026-10-20T15:46:33.795Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.AnimationTest.xml",
+          "sha256": "811760872de97147ec4465854d806053d6e6a6724b133ab1be52659546d4994b",
+          "timestamp": "2026-10-20T15:46:33.830Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.backend.AuthoritativeAnchorPolicyTest.xml",
+          "sha256": "42bdb868e1ae094a4174bc03c04eb144e09237e4970b8ec986d525a31733c13b",
+          "timestamp": "2026-10-20T15:46:33.832Z",
+          "tests": "6"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.backend.DisplayAppearanceBackendTest.xml",
+          "sha256": "4ca5eb67c12ea546f8d5657d16552cefd02f762703b6765bf4b836b11dbb4695",
+          "timestamp": "2026-10-20T15:46:33.836Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.backend.DisplayVisualTest.xml",
+          "sha256": "325ee62158e7dc0e1375dc4e8d212a806c60a8bbb504e73f9924845492d39803",
+          "timestamp": "2026-10-20T15:46:33.995Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.backend.LatestTargetGateTest.xml",
+          "sha256": "b6dfc7b64ec88a6c57d00e16fea778f89dfd8b5d6c00cc1207f1f6a4413c7965",
+          "timestamp": "2026-10-20T15:46:33.996Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.backend.ManagedMovementViewersTest.xml",
+          "sha256": "9795da3a4b9dac9251e7ad3f9c2906389908e515221a287d603919b7a62260e9",
+          "timestamp": "2026-10-20T15:46:33.998Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.backend.PacketMotionTraceTest.xml",
+          "sha256": "a3a3e8a64f7c5f302efab90eb672af3dc0004ff60a66759021cf43858247493f",
+          "timestamp": "2026-10-20T15:46:33.999Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.backend.PacketVirtualSeatTest.xml",
+          "sha256": "db22d3dc52f65389c36811da74f3920225ebb011f14347db26706460d0e0de0b",
+          "timestamp": "2026-10-20T15:46:34.004Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.backend.SeatAuthorityMovePlanTest.xml",
+          "sha256": "a00bd461de63c3871df9cda0527b7b2f5e7b9b5a6900e14d7cd9c35eda39f80f",
+          "timestamp": "2026-10-20T15:46:34.005Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.backend.SeatTeleportCorrectionGateTest.xml",
+          "sha256": "aea63290aa1fca01e9fbb71827afd019779e3278224ae132113075eff6a4af14",
+          "timestamp": "2026-10-20T15:46:34.006Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.backend.TrainPacketBundleCoordinatorTest.xml",
+          "sha256": "249afcd90a3be4b5e3a68ca074e4f73dd781aaa8dac153a82c75dadbf4961d5a",
+          "timestamp": "2026-10-20T15:46:34.013Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.chunk.PlayerAudienceRefreshPolicyTest.xml",
+          "sha256": "210eb15d94e00159e97d80aa69df0f740297ee604f9b548c7a0c1a682ef414dd",
+          "timestamp": "2026-10-20T15:46:34.016Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.chunk.RenderAudienceIndexTest.xml",
+          "sha256": "f3e819849a084b0b29a1d93d11043308a3ce3e8cfa9e32ac40782bf09f4611d8",
+          "timestamp": "2026-10-20T15:46:34.017Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.chunk.RenderChunkManagerConstructionTest.xml",
+          "sha256": "d89904241cc8ea6e84b31d5d657ed8b6a88cb83f831ff5cd4568091490f04c8b",
+          "timestamp": "2026-10-20T15:46:34.100Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.model.AbstractModelAnimationTest.xml",
+          "sha256": "666f2d56b2e10f4a178a8007d275420359ed78c0a4695a606d9deb93f3d716f5",
+          "timestamp": "2026-10-20T15:46:34.108Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.model.CompositeModelVisibilityTest.xml",
+          "sha256": "2a92694a91efb2d3810bf2e3d98387e9e40ec6568b0a28d8d8f02e09a14dee5c",
+          "timestamp": "2026-10-20T15:46:34.112Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.model.DisplaySmoothingTest.xml",
+          "sha256": "79fec6a0bd579af346995ab2326b8eaeff9fcb949dbe14180934e42897fee7b4",
+          "timestamp": "2026-10-20T15:46:34.129Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.model.OrdinaryModelTest.xml",
+          "sha256": "2ff215d8ebb7fd25b8702f4986f66a7547e2636ee8bc27f2a8681588bc931c96",
+          "timestamp": "2026-10-20T15:46:34.130Z",
+          "tests": "8"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.render.persistence.BukkitSerializersTest.xml",
+          "sha256": "817a5c77a42f03505c0cb8021bfccbd4397488b9ea8ab181e9bd6177d051071a",
+          "timestamp": "2026-10-20T15:46:34.143Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.DirectionRestrictionTargetLookupTest.xml",
+          "sha256": "e3da086999373f48f57e81c4965ef354b50d1ec5a5194d04b15608bea7176c39",
+          "timestamp": "2026-10-20T15:46:34.144Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.RailObjectDestinationEditTest.xml",
+          "sha256": "e1be416e0c4222686b177733d3a285dc89e7dc4ab0749d7d2835542f71f0b786",
+          "timestamp": "2026-10-20T15:46:34.154Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.RailObjectDestinationEditorTest.xml",
+          "sha256": "296c03d82fcac7f09c4c586822b75843d0aca564f3679e2f62f41e607aa0f764",
+          "timestamp": "2026-10-20T15:46:34.181Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.RailObjectDirectionDrawingTest.xml",
+          "sha256": "51bcc4301368093fa21a1b19dd013507262b61f1eb85eb9bc08fce978e9b526a",
+          "timestamp": "2026-10-20T15:46:34.267Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.RailObjectWandDynamicUiTest.xml",
+          "sha256": "9b115d7890401041d8c3cd7f4938d4bf1b00661ab34017746908383bbbe56232",
+          "timestamp": "2026-10-20T15:46:34.276Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.RailObjectWandI18nTest.xml",
+          "sha256": "78ce68655cb0d051aae5d5f012d2ea6e5fc889aa2ccd374c72eebb33e746edfa",
+          "timestamp": "2026-10-20T15:46:34.278Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.RailWandFailureMessagesTest.xml",
+          "sha256": "5a6ae2c963b05bfa4937a98bd4f37ece7dde11875ab512beccfdb34dded5f0d7",
+          "timestamp": "2026-10-20T15:46:34.280Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.RailWandGeometryDisplayTest.xml",
+          "sha256": "9609f365ad049f6a54d198460955edc522952e55628e52e9159e714513fe1f66",
+          "timestamp": "2026-10-20T15:46:34.290Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.RailWandI18nTest.xml",
+          "sha256": "aef173d149b94f927d108a560f1ba252c3c170eb7391e6b0131661f8fb8b61f0",
+          "timestamp": "2026-10-20T15:46:34.301Z",
+          "tests": "6"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.RailWandParallelLinkagePolicyTest.xml",
+          "sha256": "e1c29e7908ecd09552e837dd6bb456ee809aab0bbaca337f0ca143a58e769ccb",
+          "timestamp": "2026-10-20T15:46:34.303Z",
+          "tests": "5"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.RailWandStraightCreationTest.xml",
+          "sha256": "afa022ccfe0aaf445d34496b6ddcbbe53c92b346f08a4c52d303dc8e1f52e98b",
+          "timestamp": "2026-10-20T15:46:34.305Z",
+          "tests": "9"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.RailWandSuperelevationPolicyTest.xml",
+          "sha256": "8ed54e612daabf0247a282bd3bbef83ef45a3e40531dc52c03ea1e1e6cc71feb",
+          "timestamp": "2026-10-20T15:46:34.320Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.RailWandTopologyEditPlanTest.xml",
+          "sha256": "e22c6c11ae505a0dc393c8433549513d5eb20690ba62fe297766d735de24661e",
+          "timestamp": "2026-10-20T15:46:34.322Z",
+          "tests": "12"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.RailWandTurnoutGeometryPolicyTest.xml",
+          "sha256": "a93bbf4702e633a9641560e9823e347822ce9f887aba4349b30fe4f6f3fe9609",
+          "timestamp": "2026-10-20T15:46:34.398Z",
+          "tests": "6"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.RebuiltRailMetadataTest.xml",
+          "sha256": "cd507f5ff6c1164867a3dd0b3ac551fd09cf8e64bf1cf4692cf2ce0babd95774",
+          "timestamp": "2026-10-20T15:46:34.429Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.TurnoutWandI18nTest.xml",
+          "sha256": "b94f64fa0fbacc0b2924fb14d7ea3141dc6d6c7bcc1afc4c94edd26142aecac9",
+          "timestamp": "2026-10-20T15:46:34.431Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.TurnoutWandSelectionTest.xml",
+          "sha256": "224a258a4717c290e77e15483d0cf3222e9930a690327ee1544556f7f44f76e6",
+          "timestamp": "2026-10-20T15:46:34.436Z",
+          "tests": "7"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.WandActionUndoSupportTest.xml",
+          "sha256": "aebbf646cf0a5b928c2e40783a2267b1fce82c9125c847f162d3d5b9691a9590",
+          "timestamp": "2026-10-20T15:46:34.455Z",
+          "tests": "9"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.WandInteractionRoutingTest.xml",
+          "sha256": "2dce57d81a79682bfebfeb998c1506c2d3df0a1f63e329723a11567e67fdc192",
+          "timestamp": "2026-10-20T15:46:34.472Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.tool.WandStateCodecTest.xml",
+          "sha256": "d77d472f9f236ff55a43095325afa0e00e518bf78d5b889b0803e2adeac3135a",
+          "timestamp": "2026-10-20T15:46:34.473Z",
+          "tests": "8"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.ui.config.ConfigUIRegistryContractTest.xml",
+          "sha256": "feee3616b458f0535394b26ecac63ff54ba561497dbbe69329efb1e92b7b6d34",
+          "timestamp": "2026-10-20T15:46:34.496Z",
+          "tests": "19"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.ui.config.ConfigUIRegistryVisibilityTest.xml",
+          "sha256": "a56e836921aa69eee7236b80df7d9b604e19c7c295aa36e0a4036ffe4b9bbe91",
+          "timestamp": "2026-10-20T15:46:34.510Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.ui.dialog.DialogRendererNumberTextTest.xml",
+          "sha256": "65b93140df7d7ace38da0e40ad86fea1818cd39c5928e09934e3cde81b64328f",
+          "timestamp": "2026-10-20T15:46:34.512Z",
+          "tests": "5"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridgeTest.xml",
+          "sha256": "ac013ead4b30014b131092907554fcacb2e0f9f378617af46e84d30d274361f0",
+          "timestamp": "2026-10-20T15:46:34.564Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.util.HeavyRailQueriesTest.xml",
+          "sha256": "84d5471824bfe7903a4994da6318506f354576cdb032ffe570ee8fb3f25c9376",
+          "timestamp": "2026-10-20T15:46:34.569Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.util.LatestAffinityTaskDispatcherTest.xml",
+          "sha256": "71e6870382042b65b6eb6d1622b645a9e0bc54e9b1ac583f552165daf9f656e7",
+          "timestamp": "2026-10-20T15:46:34.574Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.util.LiveWorldManagementTest.xml",
+          "sha256": "1a20b270ac615af892a907c4084886f95f6e294e12443bca82c3a21a8078515d",
+          "timestamp": "2026-10-20T15:46:34.577Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.bukkit.util.PlatformDispatcherCleanupTest.xml",
+          "sha256": "eb0d1ca040178c7d3095dcfa707f9b049a204217d3826780c8b2b9a0243d40fe",
+          "timestamp": "2026-10-20T15:46:34.580Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/BukkitPlugin/TEST-work.art1st.javarailways.scriptworker.ScriptWorkerTest.xml",
+          "sha256": "370f38901028dc0b14a7ee1dba13936006864686b7d5075fa87b3d97362cab6e",
+          "timestamp": "2026-10-20T15:46:34.583Z",
+          "tests": "17"
+        }
+      ]
+    },
+    "SimpleSignals": {
+      "counts": {
+        "suites": 59,
+        "tests": 647,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "xml": [
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.SimpleSignalsConfigTest.xml",
+          "sha256": "2b95568265ca97a4f6d8b5a2637cffd9744b42846c2961f6ac90c639ca4ab92b",
+          "timestamp": "2026-10-20T15:46:55.842Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.SimpleSignalsHostServicesTest.xml",
+          "sha256": "164b3151262c9ef1597230fdfd4e2cdee78a53836ef89a7ef34f6a7cd1f35962",
+          "timestamp": "2026-10-20T15:46:55.835Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.BoundaryNamesTest.xml",
+          "sha256": "31c45abdc827418bcc8dedc895bb5fcdaf4f49abce316cf885a3f92b16be2bc5",
+          "timestamp": "2026-10-20T15:46:55.846Z",
+          "tests": "9"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.CurrentRoutePreviewSessionTest.xml",
+          "sha256": "d38657aa42364898c2f70a32ab490d806898342d5ea5ddc8fd708f6f3f4fd7e1",
+          "timestamp": "2026-10-20T15:46:55.859Z",
+          "tests": "9"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.CurrentRouteTracerTest.xml",
+          "sha256": "db57e1e559a1a772fa74463553665a1c6522a30623b7f6dd240c64c425758876",
+          "timestamp": "2026-10-20T15:46:55.873Z",
+          "tests": "9"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.FixedBlockSignalEntranceResolverTest.xml",
+          "sha256": "2fa197d8ba0b2f69385a54024112eba77fbbf33f513a219bdfb6be376d32d720",
+          "timestamp": "2026-10-20T15:46:55.878Z",
+          "tests": "6"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.MeasurementWandHandlerTest.xml",
+          "sha256": "e1a2919497f5ff3ba3e19af3b0ad649303b9c8a75f8f72b660d54b85ae471abd",
+          "timestamp": "2026-10-20T15:46:55.883Z",
+          "tests": "5"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.ProtectionRouteDiscoveryTest.xml",
+          "sha256": "c1e3c65f9982c454f8c9f93df89894d6070f20ba5c79e3ffa3c6f5ed165bfb85",
+          "timestamp": "2026-10-20T15:46:55.908Z",
+          "tests": "9"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.ProtectionSignalEntranceResolverTest.xml",
+          "sha256": "eb01dc3d8043ba7e31886f0b1d278bb711659413dba2bde0d6f0d18dda393f51",
+          "timestamp": "2026-10-20T15:46:55.921Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.RailMeasurementTest.xml",
+          "sha256": "75abb10e422bc9a4b1cb99f5553322c938fbb8481ad8ae0195ba0e12592ee9dd",
+          "timestamp": "2026-10-20T15:46:55.923Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.RoutePreviewDrawingTest.xml",
+          "sha256": "9e5d0c39d2873c6237054a994f2a0f5ac82c394fa2de7c72a48890f1e5af9a04",
+          "timestamp": "2026-10-20T15:46:55.926Z",
+          "tests": "5"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.RoutePreviewWandHandlerTest.xml",
+          "sha256": "f7f612e8dfcd241b5e4d4b5a7c2686e7d3338deaad6ae0e808c22d8889b30511",
+          "timestamp": "2026-10-20T15:46:55.937Z",
+          "tests": "18"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.RuntimeRoutePreviewBackendTest.xml",
+          "sha256": "db2821d491f2917c641f2ee305b5bcace0efddf11c4a9c17e004abbddd87bd4d",
+          "timestamp": "2026-10-20T15:46:56.005Z",
+          "tests": "6"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.RuntimeSectionOverlayBackendTest.xml",
+          "sha256": "a8e0823a9f379667c4ca406c9e70139a5a21e29b5161b08566dee5897cd912f3",
+          "timestamp": "2026-10-20T15:46:56.021Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.SectionAuthoringActionsTest.xml",
+          "sha256": "f85de8c2e0321ff616d9c3da60538e93dc7390b43218a4739b42ea1d570c1bab",
+          "timestamp": "2026-10-20T15:46:56.040Z",
+          "tests": "19"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.SectionOverlayDrawingTest.xml",
+          "sha256": "f473895e6d8c78d02354f435dc3a1ed257d1d6e1213a186a975d06ab3a7fd76d",
+          "timestamp": "2026-10-20T15:46:56.051Z",
+          "tests": "9"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.SectionTopologyTest.xml",
+          "sha256": "28244332b6f98d8495e16ae603b90e2d764785dc708805fc73d10cadf54bb4ba",
+          "timestamp": "2026-10-20T15:46:56.064Z",
+          "tests": "11"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.SectionWandHandlerTest.xml",
+          "sha256": "56239517ecdd3ef49386037a04853c635f9753bc8218d4367143bf27a1d1183c",
+          "timestamp": "2026-10-20T15:46:56.089Z",
+          "tests": "18"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.SectionWandOverlayTest.xml",
+          "sha256": "a25c95c8d38ebbb5d1d4ab93f809a55e3121b6d24c4d5a0e47a4eb40580374f3",
+          "timestamp": "2026-10-20T15:46:56.152Z",
+          "tests": "9"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.SignalDevicePickingTest.xml",
+          "sha256": "f005e28905488c87a6497d895507649b6e7249b8328a7bb49307804603c6664e",
+          "timestamp": "2026-10-20T15:46:56.167Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.SignalWandHandlerTest.xml",
+          "sha256": "d9ddd1ba4192792557e2d62e1fbd2f60d92e50e1c4a4cd6efc7d0b514cecb1f6",
+          "timestamp": "2026-10-20T15:46:56.170Z",
+          "tests": "32"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.WandDialogsTest.xml",
+          "sha256": "be5624796e040d3e84c8078a02d9f45cf53b091daef3b8cbe3485f04aaf66889",
+          "timestamp": "2026-10-20T15:46:56.379Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.authoring.WandI18nTest.xml",
+          "sha256": "6da54414f4463cea048a60c0d578ef4cde05f6fd0ccd1fdc5f385957bbc72433",
+          "timestamp": "2026-10-20T15:46:56.412Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.block.FixedBlockCatalogTest.xml",
+          "sha256": "5abbca45958fd69fab1dd7b322b0cd073635701b75e9413b40c39aa8b703da36",
+          "timestamp": "2026-10-20T15:46:56.412Z",
+          "tests": "7"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.block.FixedBlockInspectionSourceTest.xml",
+          "sha256": "5f9477676921f636cc640b0ced2834db0de327db9b773bf3967c56b34e2eeb01",
+          "timestamp": "2026-10-20T15:46:56.419Z",
+          "tests": "20"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.block.FixedBlockRouteResourcePolicyTest.xml",
+          "sha256": "0f8359652cf035a9340d63b57695e541eb97602b218f53fcb547390d17bf7001",
+          "timestamp": "2026-10-20T15:46:56.471Z",
+          "tests": "16"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.block.FixedBlockStopContinuationTest.xml",
+          "sha256": "80c1ac67117718506e638b848dfd5e53df270d7eec102b9ef7c64dbb3b831494",
+          "timestamp": "2026-10-20T15:46:56.494Z",
+          "tests": "5"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.block.FixedBlockTimetableDependencyTest.xml",
+          "sha256": "a5780c229700192d58f5780e043d5f8cd309994cdd90269b7463e46b18cc25e7",
+          "timestamp": "2026-10-20T15:47:17.675Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.block.StoppedReturnToDepotIntegrationTest.xml",
+          "sha256": "2db56866dbd70aca27462d87cdf1050f822246da861b7824919e79e6245e4c1e",
+          "timestamp": "2026-10-20T15:47:17.713Z",
+          "tests": "7"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.persistence.AttachedSignalPersistenceTest.xml",
+          "sha256": "d96d1ab042ca7a969b51ef1332ddd96ab6b1b34c6a34c37ce35400f277412172",
+          "timestamp": "2026-10-20T15:47:20.645Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.persistence.DeviceModelPersistenceTest.xml",
+          "sha256": "0d4fae86bb1509496e98309e0db375ae70432727c876c752a49c71337e56e42a",
+          "timestamp": "2026-10-20T15:47:20.664Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.persistence.DirectionalSignalPersistenceTest.xml",
+          "sha256": "e0333a1b9633619eadd5a6fd8e6dc06cfa428dc63f4f1343b39cc42afd8c43a6",
+          "timestamp": "2026-10-20T15:47:20.673Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.persistence.SimpleSignalsDefinitionDraftsTest.xml",
+          "sha256": "7085a3373f2cf3494c0b9a6fcc045c66c4e241b0b19c8727a4d00c15b112563d",
+          "timestamp": "2026-10-20T15:47:20.683Z",
+          "tests": "5"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitionStoreTest.xml",
+          "sha256": "5d9563a20202b4875cc61c4cec239e2a33d3d54813c2a47ba06e1e2e6c0a06b3",
+          "timestamp": "2026-10-20T15:47:20.699Z",
+          "tests": "18"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.presentation.JrFourLightDemoTest.xml",
+          "sha256": "a63f61d476e2ac2fc73dfd49e8050dbd91f75484336a4c7d7e79917984ae6dc2",
+          "timestamp": "2026-10-20T15:47:20.729Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.presentation.ModelPackageLoaderTest.xml",
+          "sha256": "2b5704a262db50c85b0b27f33b11989343905d39452fd94935ca30b124c8d8d3",
+          "timestamp": "2026-10-20T15:47:20.857Z",
+          "tests": "27"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.presentation.ModelPlacementCalculatorTest.xml",
+          "sha256": "d3f58f743ddd532b1e40e459644e0d520902a94385754eb304adf9e7d1b94765",
+          "timestamp": "2026-10-20T15:47:21.175Z",
+          "tests": "14"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.presentation.ModelPlacementTest.xml",
+          "sha256": "5d08b432c2441a5cb9b8d2eb8f191c1f54178478ab5fa5f1951ed93f17fa8161",
+          "timestamp": "2026-10-20T15:47:21.185Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.presentation.RouteIndicatorModelTest.xml",
+          "sha256": "83097488b0f72cc5ff351b8a3f4fbedc2484c1f668250fd88499fe823c14d889",
+          "timestamp": "2026-10-20T15:47:21.190Z",
+          "tests": "2"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.region.ProtectionRegionCatalogTest.xml",
+          "sha256": "43e882a0df7b7f70d94077027ca4cf5af78acc8e8b7c42ee5e94a89459afbc71",
+          "timestamp": "2026-10-20T15:47:21.227Z",
+          "tests": "10"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.region.ProtectionRegionGraphResolverTest.xml",
+          "sha256": "f52aab0d7632b39bcde726c3ddecd4f8a1266794d9d88c8e33747c5e24d2197b",
+          "timestamp": "2026-10-20T15:47:21.238Z",
+          "tests": "7"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.region.ProtectionRegionInspectionSourceTest.xml",
+          "sha256": "1ad7c6f945c50dbd15ccbbd41d50dac21b7db93ccff8ccc42bb2f585f0e55cef",
+          "timestamp": "2026-10-20T15:47:21.242Z",
+          "tests": "17"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.region.ProtectionRegionTimetableDependencyTest.xml",
+          "sha256": "51b223e6e7232545c6cd3b50e0c5486cdad806aa514330f0351f86cb532e60ae",
+          "timestamp": "2026-10-20T15:47:21.268Z",
+          "tests": "1"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.region.ProtectionRegionTopologyTest.xml",
+          "sha256": "d0c21ebea2ce84f00c15430d5bf8fbb141b5d34e95027ec05016a219ea983257",
+          "timestamp": "2026-10-20T15:47:21.290Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.region.ProtectionRouteTableCatalogTest.xml",
+          "sha256": "0a85790dbbd7c30457c08ebb921dcdf592cd2d322af05fc0029aadf1f0a476d5",
+          "timestamp": "2026-10-20T15:47:21.292Z",
+          "tests": "9"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.runtime.SectionOccupancyRuntimeTest.xml",
+          "sha256": "272773d091af78839a00cccda5e7e7f2abd4672aabe3fd02dd96350be8f549a3",
+          "timestamp": "2026-10-20T15:47:21.307Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.runtime.SectionTopologyRevalidationTest.xml",
+          "sha256": "efb774e07f4e701decda29190845106024aaf604938f3e1110b80a088b281426",
+          "timestamp": "2026-10-20T15:47:21.323Z",
+          "tests": "12"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.runtime.SimpleSignalsWorldRuntimeManagerTest.xml",
+          "sha256": "cbbe988a733f550447e4099e8028a9599506bcf49df40d3d0bba616512b86f4d",
+          "timestamp": "2026-10-20T15:46:38.321Z",
+          "tests": "159"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.signal.FixedBlockSignalCompilerTest.xml",
+          "sha256": "3d2dba54c1eb6fd4af576ce26d4619896a7271587ebdec3ce5852c3105e673f2",
+          "timestamp": "2026-10-20T15:47:21.356Z",
+          "tests": "3"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionIndexTest.xml",
+          "sha256": "957d7fe1eddc2b260c5b011dca5cfd0632e2845c33c71a7c3a968fb4fcf98811",
+          "timestamp": "2026-10-20T15:47:21.359Z",
+          "tests": "4"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.signal.ProtectionRouteSelectionRuntimeTest.xml",
+          "sha256": "986f8794ac62981b269075203f5d79866c5543f9bce70d0f4334ec7411e935e3",
+          "timestamp": "2026-10-20T15:47:21.362Z",
+          "tests": "12"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.signal.ProtectionSignalControllerHandoffTest.xml",
+          "sha256": "ebc71b4c7e9c8739dd9f44f0a1ce2d3804100d84f73a0e35f964aad09839b274",
+          "timestamp": "2026-10-20T15:47:21.389Z",
+          "tests": "7"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.signal.ProtectionSignalDevicesTest.xml",
+          "sha256": "974ce7ce3af441530bb8b5a083dbb5ad77e7e1988385aaa3236cb193c3e127bc",
+          "timestamp": "2026-10-20T15:47:24.464Z",
+          "tests": "10"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.signal.SignalReplacementContinuityTest.xml",
+          "sha256": "8054dc8a3317249fc95543fd7a385c5b72428dbf4e30db9fed25d674b8332583",
+          "timestamp": "2026-10-20T15:47:24.530Z",
+          "tests": "6"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.signalpack.JrFourLightSignalPackTest.xml",
+          "sha256": "6a7b261676baea806285bb5309b2b83983fade799982e3022ef765873e138aeb",
+          "timestamp": "2026-10-20T15:47:24.594Z",
+          "tests": "9"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.signalpack.SignalLogicRuntimeTest.xml",
+          "sha256": "da429d4b3ecc773c39b05b0a9f90dc01ea819296affa5972ea46e11b6b34f494",
+          "timestamp": "2026-10-20T15:47:24.928Z",
+          "tests": "12"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.signalpack.SignalObservationGraphPublicationTest.xml",
+          "sha256": "3a231aa35606e20112199fe7da8518b4a35f00839616cc6bc1a900033296f033",
+          "timestamp": "2026-10-20T15:47:26.101Z",
+          "tests": "6"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.signalpack.SignalObservationPlanTest.xml",
+          "sha256": "3e3d3368778563f7560da10981764d9a91c5e08249bd8d330ac1113f9e0241fa",
+          "timestamp": "2026-10-20T15:47:26.109Z",
+          "tests": "10"
+        },
+        {
+          "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/final/SimpleSignals/TEST-work.art1st.javarailways.simplesignals.signalpack.SignalPackLoaderTest.xml",
+          "sha256": "c9b042e82c23b52bff0fae08afd9f2e4fed52d95a42c88f7dbe2f01024c03964",
+          "timestamp": "2026-10-20T15:47:26.115Z",
+          "tests": "17"
+        }
+      ]
+    }
+  },
+  "newCases": 13,
+  "focused": {
+    "Bukkit": 39,
+    "SignalsManager": 159,
+    "total": 198,
+    "failures": 0
+  },
+  "redProof": {
+    "baseline": "ae862ac8",
+    "cases": 2,
+    "expectedFailures": 2,
+    "restoredAndVerified": true,
+    "results": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/red"
+  },
+  "gates": [
+    "BukkitPlugin:test",
+    "SimpleSignals:test",
+    "SimpleSignals:check",
+    "BukkitPlugin:compileSignalApiConsumerJava",
+    "verifySignalModuleBoundaries",
+    "BukkitPlugin:shadowJar",
+    "docs-site npm run check",
+    "full candidate whitespace and task context checks"
+  ],
+  "logs": [
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/simulation-review-red.log",
+      "sha256": "1e258ce9407bdca25f1dbe66b2ee792e7f04169bef9a28b3ca0eb77802cb8302"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/simulation-review-focused.log",
+      "sha256": "284918d4ed0c49c8cf59423b049be66bb4dc25b65adcb1d2b1078c5652910266"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/simulation-review-docs.log",
+      "sha256": "fea956158e9c66f7e9f5fb2620c318826695a11d9fc39bb6cbf55a40347d0305"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/simulation-review-focused-second.log",
+      "sha256": "cec8348563a94210d7d336c843dfb57fbf0b6ed97cd33a5e668722fa8a5c8601"
+    },
+    {
+      "path": "/workspace/minecraft/JavaRailways/.worktree/simulation-review-fixes-baseline-20261020/evidence/simulation-review-final-gate.log",
+      "sha256": "4e3777c69f9feb30b601b6a7903b48e193a8405222dc07ec8973d8f2037fe557"
+    }
+  ],
+  "docsSha256": "68eeeb49a93a61706f9ca5c190091545dbee1f0f7b196069a12f0c4af512dea4",
+  "limits": [
+    "No runtime server/client or heap/GC benchmark",
+    "Other modules/frontend retain earlier unmodified-baseline evidence; fresh1189 affected-module test count is reported separately",
+    "No commit/merge/push/deploy"
+  ]
+}

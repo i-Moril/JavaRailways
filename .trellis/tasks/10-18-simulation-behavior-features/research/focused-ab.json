@@ -1,0 +1,237 @@
+{
+  "log": "/tmp/simulation-behavior-ab-focused-third.log",
+  "logSha256": "8e9eaa0268435db8864402519cd61b3cba4bb9281e5dffa3325435ea1851669c",
+  "suites": [
+    {
+      "name": "work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationTest",
+      "tests": "14",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-19T09:46:18.745Z",
+      "hostname": "dev",
+      "time": "4.62",
+      "module": "SimpleATO",
+      "xml": "SimpleATO/build/test-results/test/TEST-work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationTest.xml",
+      "sha256": "1608c0b33b87e3ec01c097996c917ddf2ac1468197622735ef64c027f39848c0",
+      "cases": [
+        "target feature receives real admission updates only from its local runtime()",
+        "stops at the first configured significant delay()",
+        "partial feature install failure releases prior targets in reverse order and suppresses cleanup failure()",
+        "owner phase discards an overspeed request from an older physical frame()",
+        "disabled captured safety never consumes another target's train with the same id()",
+        "construction failure closes owned operation resource after features and preserves cleanup failures()",
+        "feature retirement removes active inspection bindings without unloading another feature()",
+        "clones static infrastructure without live trains and advances an isolated timetable()",
+        "failed physical epoch never publishes an admission observation or runs post tick()",
+        "reversal retains its grant and completes the return journey()",
+        "isolated world installs its replaceable signal processor before physics starts()",
+        "cancellation waits for physical and generic callbacks before closing feature state()",
+        "same static inputs produce identical reports with parallel physics()",
+        "simulation restores speed transitions and applies exact epoch overspeed through common owner phase()"
+      ]
+    },
+    {
+      "name": "work.art1st.javarailways.bukkit.extension.train.CarControlSourceTest",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-19T09:48:30.695Z",
+      "hostname": "dev",
+      "time": "0.272",
+      "module": "BukkitPlugin",
+      "xml": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.extension.train.CarControlSourceTest.xml",
+      "sha256": "9cfcd77b584a4895bc6c67f1fc813aff376d45f96dfa4ba0d26a61ab4e33d265",
+      "cases": [
+        "missing creation snapshot rejects lookup instead of borrowing current controls()",
+        "creation binding preserves template identity and source control without reading live package()",
+        "same basename cars use their own pinned profiles instead of changed live packages()",
+        "missing pinned file or profile fails without creating directories or borrowing live controls()"
+      ]
+    },
+    {
+      "name": "work.art1st.javarailways.bukkit.operation.SimulationTrainOperationGatewayTest",
+      "tests": "7",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-19T09:48:33.018Z",
+      "hostname": "dev",
+      "time": "0.849",
+      "module": "BukkitPlugin",
+      "xml": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.operation.SimulationTrainOperationGatewayTest.xml",
+      "sha256": "62169c3d4125ee0b208f9ea074999667302aedcfd59ac9431cecec45dc31c9b1",
+      "cases": [
+        "custom actions select actual supporters and retain real rejection semantics()",
+        "unknown animation scenes and script initialization effects fail instead of succeeding()",
+        "real per-car JS state is independent between cars and same-source target worlds()",
+        "formal doors capture installed directions and real reverse invokes only target world behavior()",
+        "all accepted delays wait for owner commits and cancelled tickets stay cancelled()",
+        "accepted delayed effects retain exact cars and physical side through split and reversal()",
+        "target close and real car destruction terminate pending work without affecting another target()"
+      ]
+    },
+    {
+      "name": "work.art1st.javarailways.bukkit.http.IsolatedTimetableSimulationFactoryTest",
+      "tests": "7",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-19T09:48:30.968Z",
+      "hostname": "dev",
+      "time": "1.929",
+      "module": "BukkitPlugin",
+      "xml": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.http.IsolatedTimetableSimulationFactoryTest.xml",
+      "sha256": "acc0bfc278bc9507d63c8254b0f654fd2f79322c5027651f98c8ad96dbeb8faf",
+      "cases": [
+        "creates only synthetic timetable trains from a static world snapshot()",
+        "capture rejects an installed domain feature without detached preparation()",
+        "reuses one named synthetic train without consuming a second origin()",
+        "isolated timetable operation honors the shared line maximum speed resolver()",
+        "one captured snapshot creates new extension and domain state for every target()",
+        "mixed installation survives seed and split rebuilds ATO from exact current car profiles()",
+        "rejects different profiles for structurally equivalent selectors()"
+      ]
+    },
+    {
+      "name": "work.art1st.javarailways.bukkit.operation.BukkitTrainOperationGatewayTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-19T09:48:32.976Z",
+      "hostname": "dev",
+      "time": "0.037",
+      "module": "BukkitPlugin",
+      "xml": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.operation.BukkitTrainOperationGatewayTest.xml",
+      "sha256": "5162d6045cefc062fe55258df3039e93cc027a31fe602d665e2c8bb917b36b14",
+      "cases": [
+        "model future failure cannot be reported as success()",
+        "synchronous completion succeeds but dispatch exception fails()",
+        "ticket waits for model completion and cancellation is terminal()"
+      ]
+    },
+    {
+      "name": "work.art1st.javarailways.bukkit.http.SimulationControlProfilesTest",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-19T09:48:32.913Z",
+      "hostname": "dev",
+      "time": "0.04",
+      "module": "BukkitPlugin",
+      "xml": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.http.SimulationControlProfilesTest.xml",
+      "sha256": "e0a9063042abfdfd383b8df147a21b3ffdb97c26577d07641a018221614ecd1f",
+      "cases": [
+        "[1] package",
+        "[2] model",
+        "mixed template captures exact car package scripts actions and control rather than template package()",
+        "template missing an exact per car package fails without borrowing template actions()",
+        "world car snapshot stays pinned while follow package captures current exact car source()"
+      ]
+    },
+    {
+      "name": "work.art1st.javarailways.bukkit.behavior.TrainBehaviorRuntimeTest",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-19T09:48:30.650Z",
+      "hostname": "dev",
+      "time": "0.042",
+      "module": "BukkitPlugin",
+      "xml": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.behavior.TrainBehaviorRuntimeTest.xml",
+      "sha256": "b9dca095073bb5068d8245b21b2893a6bebd50e9cadb5011af8f1c5c08771fd0",
+      "cases": [
+        "onStation can call declarative door actions()",
+        "custom methods can use sound and log()",
+        "missing method returns failure()",
+        "behavior can define executable actions()"
+      ]
+    },
+    {
+      "name": "work.art1st.javarailways.bukkit.logic.TrainResourceConfigurationTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-19T09:48:32.954Z",
+      "hostname": "dev",
+      "time": "0.021",
+      "module": "BukkitPlugin",
+      "xml": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.logic.TrainResourceConfigurationTest.xml",
+      "sha256": "15c87592274c783e35385db3dfbb7c387edcb8d1a73dd4cbd80c1473ceb41fb9",
+      "cases": [
+        "geometry changes reject an existing instance before model and physics diverge()",
+        "prepared update replaces active dynamics and speed offset only when installed()"
+      ]
+    },
+    {
+      "name": "work.art1st.javarailways.bukkit.behavior.CapturedCarBehaviorTest",
+      "tests": "1",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-19T09:48:29.565Z",
+      "hostname": "dev",
+      "time": "0.056",
+      "module": "BukkitPlugin",
+      "xml": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.behavior.CapturedCarBehaviorTest.xml",
+      "sha256": "8f74d1615d57d8859207f07ce6634c3d40f9052e29587d47d4ce6dea9fa51f95",
+      "cases": [
+        "capabilities use actual recursive body bogie wheel conversion with nonempty duplicate resolution()"
+      ]
+    },
+    {
+      "name": "work.art1st.javarailways.bukkit.behavior.CarOperationBatchTest",
+      "tests": "5",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-19T09:48:30.642Z",
+      "hostname": "dev",
+      "time": "0.008",
+      "module": "BukkitPlugin",
+      "xml": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.behavior.CarOperationBatchTest.xml",
+      "sha256": "0c0cd43e9a8bd3512b631b3fe65756c82695b8566807661a16c67ba6c2fa457b",
+      "cases": [
+        "synchronous completion is not success before acceptance result()",
+        "all supporter metadata must pass permission preflight before any effect()",
+        "whole train operation includes every captured car and fails promptly()",
+        "union selects supporters and waits for each accepted car()",
+        "no supporter metadata failure and cancelled queue all fail without applying()"
+      ]
+    },
+    {
+      "name": "work.art1st.javarailways.bukkit.behavior.CarBehaviorTest",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-10-19T09:48:29.624Z",
+      "hostname": "dev",
+      "time": "1.017",
+      "module": "BukkitPlugin",
+      "xml": "BukkitPlugin/build/test-results/test/TEST-work.art1st.javarailways.bukkit.behavior.CarBehaviorTest.xml",
+      "sha256": "6d58e8700b8437cd81d631457f5bdab626d7d79237abfe754775ad38780f3f63",
+      "cases": [
+        "same source has lazy independent persistent globals and pure sound completes()",
+        "missing effects and delayed failure report terminal failure once()",
+        "destroy ends accepted operations and cancels delayed effects()",
+        "declaration scan errors are visible and scriptless car has no JS declarations()",
+        "door freezes relative end once and completes only every delayed effect()",
+        "source replacement resets only JS globals and preserves already accepted physical effects()",
+        "actions registered inside behavior calls become visible and executable()",
+        "metadata initialization cannot run top level action or sound before permission checks()"
+      ]
+    }
+  ],
+  "totals": {
+    "SimpleATO": 14,
+    "BukkitPlugin": 46
+  },
+  "backup": "/tmp/simulation-behavior-ab-focused-results",
+  "note": "SimpleATO14 executed first round; unchanged test task up-to-date in third. Bukkit all selected suites actually executed third round. Historical compile failures preserved in first/second log."
+}

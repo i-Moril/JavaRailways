@@ -42,3 +42,7 @@
 
 不改变信号规则/ATO算法、不重做Basic/Core、不更改玩家建造交互、不添加新平台实现、不部署或迁移开发服数据。通用Bukkit API的方向已获用户同意，但具体接口和实施批次需独立确认；不因此立即启动本拆分任务。
 开始前须完成详细依赖清单及design.md、implement.md，整理实现/检查context，并向用户确认最终拆分与打包方案；当前记录不代表设计已收敛或可直接开始。
+
+## 2026-10-19关联任务实际进展
+
+`10-18-simulation-signal-features`为完整模拟提取了中立`catalog.rules`视图、固定闭塞领域资源policy和公开模拟Feature target/preparer接口；LIVE/SIM复用正式编译、占用/保护/inspection/资源及JS语义，各World自有logic关闭归属。本地8模块2411项与公共API/JAR边界通过，详见[信号模拟验证](../10-18-simulation-signal-features/research/validation.md)。这只完成最小业务接线：SimpleSignals模块仍包含Bukkit插件/authoring/render适配，未新建SimpleSignalsBukkit模块，也未完成无Bukkit classpath或Paper/Folia现场验收；本任务AC保持开放。

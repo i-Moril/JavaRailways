@@ -27,12 +27,12 @@
 - [x] **AC1 / R2,R3**：不同World实例及LIVE/SIMULATION来源可直接从事件取得；换向、脱轨、过信号、碰撞、联结/解编的决策及成功事件全部覆盖，同名列车不会使监听器状态串用。
 - [x] **AC2 / R4**：真实协调器回归覆盖普通/fallback/模拟、空世界、合并唤醒、处理失败、关闭/取消和listener异常；Pre在本轮计算前，Post只在完整frame发布后，epoch与frame一致。
 - [x] **AC3 / R1,R5**：同一碰撞fixture在实际模式与模拟模式触发相同决策和联结/脱轨结果；无`publishCollisionEvents=false`或等价模拟专属旁路。
-- [ ] **AC4 / R2**：用barrier证明World A或模拟A被暂停时，独立World B能推进；分别覆盖宿主owner/调度及observation真实构造。同一World操作仍串行且与物理帧间合同一致。重载/注册/卸载不会在检查后又出现未协调的新活动状态；关闭只释放所属运行资源。
-- [ ] **AC5 / R1,R2,R6**：使用正式信号JS、真实区间/保护进路/inspection及资源贡献链，验证占用停车、释放放行、进路准备、折返和不可用规则；固定输入下的实际模式fixture与模拟结果对照，不以手写空source代替SimpleSignals接线。另以真实规则/SignalLogicRuntime证明LIVE A与LIVE B、LIVE与SIM、SIM与SIM求值互不因共享执行器串行，关闭或失败只影响所属实例。
-- [ ] **AC6 / R1,R2,R5**：逐车脚本状态、方向、拒绝、延迟效果、取消及完成时机在两模式符合相同业务规则；模拟没有Bukkit效果，实际运行状态与资源不被误用，诊断正确标识所属模拟World而非实际World故障。缺失必需Feature的请求明确失败。
-- [ ] **AC7 / R1-R6**：完成受影响模块回归、API消费/构建边界检查及最终并发集成验证；保持已合入UI/坐标行为、无关WIP及现有持久化格式。分别记录源码、自动测试和未执行的现场验证。
+- [x] **AC4 / R2**：用barrier证明World A或模拟A被暂停时，独立World B能推进；分别覆盖宿主owner/调度及observation真实构造。同一World操作仍串行且与物理帧间合同一致。重载/注册/卸载不会在检查后又出现未协调的新活动状态；关闭只释放所属运行资源。
+- [x] **AC5 / R1,R2,R6**：使用正式信号JS、真实区间/保护进路/inspection及资源贡献链，验证占用停车、释放放行、进路准备、折返和不可用规则；固定输入下的实际模式fixture与模拟结果对照，不以手写空source代替SimpleSignals接线。另以真实规则/SignalLogicRuntime证明LIVE A与LIVE B、LIVE与SIM、SIM与SIM求值互不因共享执行器串行，关闭或失败只影响所属实例。
+- [x] **AC6 / R1,R2,R5**：逐车脚本状态、方向、拒绝、延迟效果、取消及完成时机在两模式符合相同业务规则；模拟没有Bukkit效果，实际运行状态与资源不被误用，诊断正确标识所属模拟World而非实际World故障。缺失必需Feature的请求明确失败。
+- [x] **AC7 / R1-R6**：完成受影响模块回归、API消费/构建边界检查及最终并发集成验证；保持已合入UI/坐标行为、无关WIP及现有持久化格式。分别记录源码、自动测试和未执行的现场验证。
 
-2026-10-19补充：原锁/调度候选已验证；O1 observation构造归子任务2，S1包括LIVE World之间的信号JS求值隔离归子任务3。两处是分别存在的跨World串行点，证据、约束与验收分工见[剩余锁清单](research/remaining-cross-world-locks.md)。本次更新计划，新增项未实现。
+2026-10-19补充：原锁/调度候选已验证；O1 observation构造归子任务2，S1包括LIVE World之间的信号JS求值隔离归子任务3。两处是分别存在的跨World串行点，证据、约束与验收分工见[剩余锁清单](research/remaining-cross-world-locks.md)。子任务2的O1/O2已通过2395项候选提交整合；2026-10-19用户批准继续，现进入子任务3的S1-S3和完整信号模拟实施，父任务验收仍未完成。
 
 ## 非目标
 
@@ -41,3 +41,9 @@
 ## 任务结构与相关工作
 
 本任务为父任务，拥有R1-R6、跨子任务验收及最终集成。子任务及依赖见`implement.md`。历史旧事件接入待办来自`10-09-stage2-code-review`；完成后回填其既有开放项，不能只更新新任务。信号领域抽取与`10-15-simplesignals-platform-split`协调，避免形成两套领域实现。
+
+2026-10-19信号子验收AC5通过：子任务3最终27源a5095090完成正式JS/实际领域链和三组LIVE/SIM并发、生命周期验证，2411项JVM及108项前端和完整构建/文档门禁通过；独立报告逐项说明业务覆盖与现场边界，产品待本地提交整合。AC4保留父最终集成核对，车厢AC6及最终联合AC7仍开放。
+
+2026-10-20上游对齐：当前候选基线更新为dev@87fe3e45，旧基线已通过项保持历史证据，当前组合须重新验证。该上游引入RailwaySimulationHalt，未知宿主/内部故障会停止同进程所有LIVE/SIM；本次保留其政策，普通业务/guest脚本故障仍须目标本地隔离，不宣称fatal故障按World隔离。具体证据见行为子任务research/upstream-alignment.md。
+
+2026-10-20父最终验收：53源c1d805b9（与P2候选相比仅两测试变化）通过当前8模块2507项/364 suites，0失败/错误/跳过；frontend108和生产构建通过，API消费/模块边界/JAR/三模块Dokka通过。补齐真实fromCore的LIVE-LIVE/LIVE-SIM/SIM-SIM模式矩阵，并以非空真实LIVE claim/Dispatcher/正式信号验证同源两SIM运行关闭不改源状态。父AC4/AC6/AC7代码及自动化验收通过，现场Paper/Folia/client/browser未执行；保留上游fatal host故障全进程停机政策。提交/合并/归档暂缓。最终索引见行为research/parent-acceptance.md，机器证据parent-final-evidence.json及独立parent-acceptance-check.md。

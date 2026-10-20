@@ -2,7 +2,6 @@
 {"file": ".trellis/spec/javarailways/shared/modules-and-build.md", "reason": "保持现有领域与平台模块ownership"}
 {"file": ".trellis/tasks/10-18-isolated-simulation-runtime/prd.md", "reason": "父任务R1-R6及跨子任务验收范围"}
 {"file": ".trellis/tasks/10-18-isolated-simulation-runtime/design.md", "reason": "共同World、事件、装配、信号和行为方案"}
-{"file": ".trellis/tasks/10-18-isolated-simulation-runtime/research/current-state.md", "reason": "当前合并基线、WIP及已核实的缺口"}
 {"file": ".trellis/tasks/10-18-simulation-behavior-features/prd.md", "reason": "本子任务需求和可验证结果"}
 {"file": ".trellis/tasks/10-18-simulation-behavior-features/design.md", "reason": "本子任务技术边界和ownership"}
 {"file": ".trellis/spec/bukkit-plugin/backend/car-behavior.md", "reason": "逐车JS方向、延迟效果与实际完成语义"}
@@ -10,3 +9,21 @@
 {"file": ".trellis/spec/javarailways/simpleato/simulation.md", "reason": "模拟现有生命周期和操作边界"}
 {"file": ".trellis/spec/javarailways/simpleato/timetable-model-and-validation.md", "reason": "运营扩展与权威validation"}
 {"file": ".trellis/spec/javarailways/simpleato/dispatcher-runtime.md", "reason": "通知/operation如何推进真实车次"}
+{"file": ".trellis/spec/bukkit-plugin/backend/index.md", "reason": "Bukkit quality gate与existing composition ownership"}
+{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "target owner/worker真终止/关闭归属，相关完整原文须直读"}
+{"file": ".trellis/spec/javarailways/simpleato/index.md", "reason": "simulation及dispatcher quality gate"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "不改变持久化形状，不猜测升版"}
+{"file": ".trellis/tasks/10-18-simulation-signal-features/research/validation.md", "reason": "已测依赖候选身份，不作为本批新增测试证明"}
+{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/car-behavior-runtime.md", "reason": "最小共同逻辑/效果接口、真实方向和生命周期研究"}
+{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/simulation-behavior-capture.md", "reason": "逐源捕获/安装方向/既有extension destroy/真实gateway注入与关闭"}
+{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/feature-coverage.md", "reason": "当前11模块inventory和确定结构变化profile缺口/联合测试边界"}
+{"file": ".trellis/spec/simple-signals/backend/simulation-runtime.md", "reason": "保留上批完整信号接线和独立执行归属"}
+{"file": ".trellis/spec/javarailways/basic/train-longitudinal-dynamics.md", "reason": "使用实际HandleTrainActuator每车resolver支持真实编组变化"}
+{"file": ".trellis/spec/bukkit-plugin/backend/simulation-car-behavior.md", "reason": "当前共同JS/效果、精确方向、结构配置继承与目标关闭唯一owner规范"}
+{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/upstream-compatibility.md", "reason": "Exact new upstream contracts, preserved candidate lineage and required fresh gates"}
+{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/upstream-alignment.md", "reason": "Exact new upstream contracts, preserved candidate lineage and required fresh gates"}
+{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/review-fixes-validation.md", "reason": "User review lifecycle fixes and independent current-source evidence"}
+{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/review-fixes-check.md", "reason": "User review lifecycle fixes and independent current-source evidence"}
+{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/observation-acceptance.md", "reason": "父最终验收的真实fromCore三模式barrier与原断言边界"}
+{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/live-preservation-acceptance.md", "reason": "非空真实LIVE状态经同源SIM捕获运行关闭后不变的直接证据"}
+{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/parent-acceptance.md", "reason": "最终父验收、当前2507用例/53源、交付状态与验证边界唯一索引"}

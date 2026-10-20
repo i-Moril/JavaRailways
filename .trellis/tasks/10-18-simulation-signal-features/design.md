@@ -24,3 +24,15 @@ SimpleSignals现有runtime、block/signal策略、signalpack逻辑目录及必�
 
 依赖10-18-world-runtime-isolation；使用其已验证的捕获/安装和本地资源接线。
 每批独立验证/提交；回滚仅撤本子任务提交，保留原合并基线与无关WIP。
+
+## 2026-10-19实施前最小边界
+
+研究确认两条真实缺口：manager的PreparedSignalPacks.logic被多个LIVE World共用；宿主HTTP只检查required Feature而未接入prepare注册，当前SimpleSignals会在模拟准备时明确拒绝。沿用现有安装端点，不新建第二套领域算法。
+
+- SimpleSignals实现者拥有模块现有runtime/manager、必要policy/domain adapter、插件接线及对应测试/build测试依赖。每World新建logic；目录锁只做短identity/交换，单Worldprepare/JS构造/host source replacement等待在外。保留既有atomic callback只做bounded校验/提交。
+- 宿主实现者拥有SimpleATO API与模拟内部adapter、Bukkit公开Feature prepare登记/实现、plugin/HTTP接线及对应测试。将原预留PreparedSimulationFeature/SimulationDomainTarget收敛为simpleato.api.simulation的中立端点，公开表面不暴露CoreWorld、OperationalWorldRuntime或SimulationRouteAdmissionHost实现。只提供target UUID/exact topology、现有方向/速度读取、signal/inspection/planning安装及resource provider/contributor注册。宿主适配现有本地domain，不重复Basic准入。
+- Bukkit公开服务只认证/登记owner preparer；source UUID捕获在现有source World稳定阶段，准备对象脱离live绑定，对每个target重新编译并新建运行对象。短登记锁外调用preparer，缺必需Feature仍明确失败。
+- 只读catalog/源与有效外观集合可共享；若CompiledModelAsset仅只读输入，不为移除其类型而另建平行catalog。SIM不创建model handle或调用平台效果。
+- 根会话拥有task/spec/docs/最终证据，两位实现者不修改这些文件。接口签名由host实现者首先发出并与SimpleSignals实现者对齐，不让两边独立猜测。
+
+不改持久化格式、不全面拆分SimpleSignalsBukkit、不实现车厢行为，不添加generic environment、永久tombstone、超时/watchdog或兼容路径。无源行为变更的局部提取须由原正式测试与新LIVE/SIM业务对照共同验证。

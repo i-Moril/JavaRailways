@@ -27,16 +27,16 @@
 
 ## 父任务最终检查
 
-- [ ] 子任务1-4全部满足各自AC，比较最终源码与被测候选。
-- [ ] 联合fixture使用真实Core/Basic/SimpleATO/SimpleSignals逻辑与正式四灯规则：占用停车/释放、保护进路、折返、碰撞联结/脱轨、逐车脚本及延迟操作。
-- [ ] 真正并发地推进LIVE与SIMULATION，以及两个同源SIMULATION；暂停任一方仍可推进另一方；两边使用相同列车ID也不串状态。
-- [ ] 分别在真实observation构造与真实信号JS求值/执行锁内暂停A，B仍完成对应领域阶段；覆盖LIVE-LIVE、LIVE-SIM和SIM-SIM，不能只验证外层owner/runner。
-- [ ] 模拟前后实际World的frame、列车、预约、Dispatcher、信号状态保持不变；没有实际平台效果，诊断可区分所属World。模拟只释放自己的资源。
-- [ ] epoch事件包含正确World、epoch/对应frame；失败与合并唤醒无伪Post/重复Pre，取消及关闭无资源泄漏。
-- [ ] 重载/插件卸载/玩家跨世界handoff保持原业务一致性，callback不在协调器提交锁内运行。
-- [ ] 模拟遗漏必需领域Feature时明确失败，无空source/固定时长替身被报告为完整验证。
-- [ ] 既有UI和坐标功能回归，更新旧事件开放项和相关规范；SimpleSignals平台拆分任务只记录本任务实际提取部分，不误报全部完成。
-- [ ] 限定diff-check、任务manifest检查、提交归属和WIP保留核对；无部署、迁移、推送。
+- [x] 子任务1-4全部满足各自AC，比较最终源码与被测候选。
+- [x] 联合fixture使用真实Core/Basic/SimpleATO/SimpleSignals逻辑与正式四灯规则：占用停车/释放、保护进路、折返、碰撞联结/脱轨、逐车脚本及延迟操作。
+- [x] 真正并发地推进LIVE与SIMULATION，以及两个同源SIMULATION；暂停任一方仍可推进另一方；两边使用相同列车ID也不串状态。
+- [x] 分别在真实observation构造与真实信号JS求值/执行锁内暂停A，B仍完成对应领域阶段；覆盖LIVE-LIVE、LIVE-SIM和SIM-SIM，不能只验证外层owner/runner。
+- [x] 模拟前后实际World的frame、列车、预约、Dispatcher、信号状态保持不变；没有实际平台效果，诊断可区分所属World。模拟只释放自己的资源。
+- [x] epoch事件包含正确World、epoch/对应frame；失败与合并唤醒无伪Post/重复Pre，取消及关闭无资源泄漏。
+- [x] 重载/插件卸载/玩家跨世界handoff保持原业务一致性，callback不在协调器提交锁内运行。
+- [x] 模拟遗漏必需领域Feature时明确失败，无空source/固定时长替身被报告为完整验证。
+- [x] 既有UI和坐标功能回归，更新旧事件开放项和相关规范；SimpleSignals平台拆分任务只记录本任务实际提取部分，不误报全部完成。
+- [x] 限定diff-check、任务manifest检查、提交归属和WIP保留核对；无部署、迁移、推送。
 
 ## 验证命令
 
@@ -64,3 +64,14 @@ git diff --check
 2026-10-19计划补充：用户要求补齐遗漏的跨World串行点；按[剩余锁清单](research/remaining-cross-world-locks.md)分配O1至子任务2、S1至子任务3。仅O1加入当前批次，当前用户请求为计划更新；本轮未改产品或启动子任务3。必要管理/注册锁继续保留，不把目标扩写为消除所有进程级锁。
 
 2026-10-19子任务2完成并整合：Core5d8cdabe、runtime1423116d、docs-sitecb9263b，O1/O2包含在2395项全通过候选，证据归档于[子任务2验证记录](../archive/2026-10/10-18-world-runtime-isolation/research/validation.md)。子任务3/4保持planning，父AC4/5/7未关闭。
+
+2026-10-19子任务3候选完成：27源a5095090，完整8模块2411项、16新增case及API/模块边界/jar/三模块Dokka、docs完整check通过；每World信号执行与完整模拟安装已实现，最终独立复核/本地提交尚在收尾。子任务4仍planning；历史“子任务3尚未实施”只描述当时状态，不作为当前状态。父AC6和最终联合AC7开放，尚不声称全Feature完成。
+
+2026-10-19用户要求继续而不立即合并：第四批在第三批已测a509工作区上推进，保留源码baseline与未提交改动。真实逐车JS、profile捕获/结构延续和operation资源真终止后释放已接入，首轮60项定向通过；实际信号/碰撞/时刻表/行为联合及当前候选完整门禁尚在进行，AC6/最终AC7不提前关闭。
+
+2026-10-20：用户要求对齐最新dev。原工作区完整保留，整合迁至codex/simulation-world-alignment（基线87fe3e45），详见行为子任务research/upstream-alignment.md。上游未知宿主故障为全进程停止；普通业务/guest失败隔离和fatal故障边界分别验证，不能把旧基线测试或消除文本冲突当作完成证明。暂不提交或合回dev。
+
+2026-10-20对齐收尾：最新dev87fe3e45上的48源ae862ac8已经独立检查，2491 JVM/364 suites零失败及108前端、API/JAR/Dokka/docs门禁通过。两个真实联合用例已包含在完整Bukkit532测试XML中。新增owner资源退休遗漏已修复并有失败→通过证据；其余上游合同保留。原候选和开发分支源码未改，活动工作区为codex/simulation-world-alignment，暂不提交/合并/归档。详见行为子任务research/upstream-alignment.md及upstream-check-result.md。
+
+2026-10-20父最终验收：53源c1d805b9（与P2候选相比仅两测试变化）通过当前8模块2507项/364 suites，0失败/错误/跳过；frontend108和生产构建通过，API消费/模块边界/JAR/三模块Dokka通过。补齐真实fromCore的LIVE-LIVE/LIVE-SIM/SIM-SIM模式矩阵，并以非空真实LIVE claim/Dispatcher/正式信号验证同源两SIM运行关闭不改源状态。父AC4/AC6/AC7代码及自动化验收通过，现场Paper/Folia/client/browser未执行；保留上游fatal host故障全进程停机政策。提交/合并/归档暂缓。最终索引见行为research/parent-acceptance.md，机器证据parent-final-evidence.json及独立parent-acceptance-check.md。
+子任务3/4实现与自动化验收均通过；未提交和未归档是当前交付状态，不作为产品功能缺口。

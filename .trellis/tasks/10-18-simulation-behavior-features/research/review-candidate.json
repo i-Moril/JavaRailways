@@ -1,0 +1,215 @@
+{
+  "base": "87fe3e4567c4b9fddbcee3c0b5975e460a7e05c7",
+  "beforeFingerprint": "ae862ac844d99e997c76bbf840a6ded5fe589b1d44a037f989e0effabcbcef79",
+  "fingerprint": "c781ed4f569c5bc2810d4e20faa465e32d1c8bb96f29adf330f741dc4807452f",
+  "files": [
+    {
+      "path": "BukkitPlugin/build.gradle",
+      "sha256": "f2c5eb1c4a3cc63e91ee6ffa95a3296d903f640c7e35279f8d698544934cb787"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/BukkitPlugin.kt",
+      "sha256": "d3033a1d00aa23592b798a9e4885fa9f8892de2b1a85b3c6b8883df641848b21"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/DefaultSignalEpochSourceService.kt",
+      "sha256": "6e867ff8ba512d9cd2969265d0e39a396ce8ec91298e5c1925893263b66c3fc8"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/DefaultSimulationFeatureService.kt",
+      "sha256": "335fccef7f381bac2a8ab528943ebb24fa00177a7a40f0e67d3117f74511c88b"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/JavaRailwaysServiceRegistration.kt",
+      "sha256": "19908f12a28f8aacc21418f892d0e4e023d3c6a37a08726ccf78b1fbfe38c449"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/SimulationFeatureOwnerLifecycleListener.kt",
+      "sha256": "ea84306f1f4da4f525e39bda8393a20d9b0f053a41f4b0fe5581f4df1a87b306"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/signal/SignalEpochSourceService.java",
+      "sha256": "922e71212bf26c6f4380abd7a1e06635b64216bbe3b85f35aa93d6c9175f014d"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/simulation/SimulationFeaturePreparer.java",
+      "sha256": "05682c41e1463a0903cbde3e8efe10863fed5b996e23473240b751dfec5683f4"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/simulation/SimulationFeatureService.java",
+      "sha256": "9f3eef2c7f6cec662d7521de49210293e776b9bffc48c5e2982539377d65623f"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/behavior/CapturedCarBehavior.kt",
+      "sha256": "3f0a40a1585050321f45bed6a6ff219e033844c725e44159912def580d469a4b"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/behavior/CarBehaviorTargets.kt",
+      "sha256": "fcb6c5906c2c04f561e3d5893782e6bf38c354f1bd3aaf6b07fc2cc2f8727b1f"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/CarExtension.kt",
+      "sha256": "8240d03fcda5c35e61ff3b8fc01981306a4150cbba2c7f4a167cd97c2b9ba486"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/SimulationTrainExtension.kt",
+      "sha256": "10a557d4ff9726faee3a8fa7f8ffa213614bf1015bd0974e6867f48a2f84c7bb"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/TrainComponentExtension.kt",
+      "sha256": "40be3b4e51fc5ae6134a8592bcdf0a583d85cd39a5d3996ad717008f919f4587"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/extension/train/TrainExtension.kt",
+      "sha256": "6a2d53e676d9e3cac286873d4207bc0c550b8d0d15da9a30ba2b6f4c069c5580"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/http/IsolatedLineSimulator.kt",
+      "sha256": "012e6796e317459c70b694baed89ddbe742dfcf0580ab6f96fe51811b211b7c5"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/http/IsolatedTimetableSimulationFactory.kt",
+      "sha256": "449c52857a2bf13a97676b95f4e791ead9014161faa255adad8a339e6057cdb9"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/http/SimulationControlProfiles.kt",
+      "sha256": "a0a56ff0f561e301c28f04a93381f8999b19d3dd4443183ce5b0348b2faf0900"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/http/TimetableHttpBridge.kt",
+      "sha256": "5f371242bd8407464de67bd8123605cc1d40bc966e1f7c62322d7647249ea1bd"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/operation/BukkitTrainOperationGateway.kt",
+      "sha256": "2353c4484d51c7f346381a4921e5c1adca9e63a5141df5d2a3d14294ff3017e5"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/operation/ModelOperationTicket.kt",
+      "sha256": "6782db52241f47b857ea180308023c5831ec4f638b4e3e3e52e11b397754a6bb"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/operation/SimulationCarBehaviorExtension.kt",
+      "sha256": "8086b232fd60fb73586a4d83bd4b19129b8ed000724200b28771c461ee73b776"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/operation/SimulationTrainOperationGateway.kt",
+      "sha256": "7a4a0f4d008fdb24a34d936a6fe5ef2d623833917e69cddfcf03d47f1702f72d"
+    },
+    {
+      "path": "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/render/Animation.kt",
+      "sha256": "38b369872db867c7c1a2621f5b1666d7a358bc8e7207aac530e07f823c3ffd27"
+    },
+    {
+      "path": "BukkitPlugin/src/signalApiConsumer/java/example/signaladdon/SignalApiConsumerPlugin.java",
+      "sha256": "e0d4d41428f2cb098cadafe93eb4706f5a60f544630d6de53ac9301e2b7b62c4"
+    },
+    {
+      "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/api/internal/DefaultSignalEpochSourceServiceTest.kt",
+      "sha256": "13f64bfc75e295f355085a64a7a28a71b4edc041077b4a2c864158155245e0da"
+    },
+    {
+      "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/api/internal/DefaultSimulationFeatureServiceTest.kt",
+      "sha256": "25be426fac1fc3cdd6495a4b78c551431f842187ef8761751428f9c35207671e"
+    },
+    {
+      "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/api/internal/JavaRailwaysServiceRegistrationTest.kt",
+      "sha256": "22c2334883e3a1882d23d4c87457f8ef988d81fe32494931b9b57513abab7f9d"
+    },
+    {
+      "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/behavior/CapturedCarBehaviorTest.kt",
+      "sha256": "ef813908901dfe93c7ff51f842cdeda73c6915c3341aa71edf5ff64ea3d686c9"
+    },
+    {
+      "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/http/FullFeatureSimulationIsolationTest.kt",
+      "sha256": "c6e7821cbce29869a51ec9045baa24003e45e251736f6d64326487cd3a10e29f"
+    },
+    {
+      "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/http/IsolatedTimetableSimulationFactoryTest.kt",
+      "sha256": "841745feeeb84d5bf1f6441ae28e69562aa6081de316420ad288e050721a8b47"
+    },
+    {
+      "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/http/SimulationControlProfilesTest.kt",
+      "sha256": "2abe46ceaf20a812cabebe469b785c9b5194870d1d3f6d798622e07512f3a07e"
+    },
+    {
+      "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/operation/SimulationBehaviorEffectCollector.kt",
+      "sha256": "1b320e35742cebae7a4ddb59596445a6b63072fcdba7d58a16e1a44f0b2e0876"
+    },
+    {
+      "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/operation/SimulationTrainOperationGatewayTest.kt",
+      "sha256": "118d6076e5f5248b0a0739270dada39154a2c8229c15563822609bda28ad0235"
+    },
+    {
+      "path": "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/signal/SimpleSignalsSimulationFeatureFactory.java",
+      "sha256": "68121e784dd36e4df4ce4174bb5c587bc53d411f3b2381487a054da09a7327cd"
+    },
+    {
+      "path": "SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/api/simulation/PreparedSimulationFeature.kt",
+      "sha256": "25809584359d7fbf79278c02931f57273a131f448ca30df328d9f262f9e3b01e"
+    },
+    {
+      "path": "SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/DefaultSimulationDomainTarget.kt",
+      "sha256": "f0d28e83858ace2171513282abd780c963da028e976f5e783f23c14236f684d7"
+    },
+    {
+      "path": "SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/IsolatedTimetableSimulation.kt",
+      "sha256": "1a6271fe6e191bce390cf684e9f32f63142fa43132dabc614042e8c88e7b5cd2"
+    },
+    {
+      "path": "SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/SimulationTrainOperationGateway.kt",
+      "sha256": "<deleted>"
+    },
+    {
+      "path": "SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/IsolatedTimetableSimulationTest.kt",
+      "sha256": "a14759bc882a2c08257555bea4c45d93c45c9ea489f8785699e1c317ce16d436"
+    },
+    {
+      "path": "SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/SimulationTrainOperationGatewayTest.kt",
+      "sha256": "<deleted>"
+    },
+    {
+      "path": "SimpleSignals/src/main/java/work/art1st/javarailways/simplesignals/SimpleSignalsHostServices.java",
+      "sha256": "560d3ef0935ede2ec78292a9aa1840f11860c179c1b34e73705327b7f20961bc"
+    },
+    {
+      "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/SimpleSignalsPlugin.kt",
+      "sha256": "bee6cff003db2728ba47d01a235c2e29a7b1e339c0b5c75cd9eb9689f8d002d0"
+    },
+    {
+      "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/SimpleSignalsWorldLifecycleListener.kt",
+      "sha256": "76d54dec93fe71c350e52489e97cd0b8afd70979b4619898270f6069072c5c0c"
+    },
+    {
+      "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/block/FixedBlockRouteResourcePolicy.kt",
+      "sha256": "ace50e5e2d21dcc34964a1bf185109d0ea00d239e084e4f0d5d91da26ee5a2b8"
+    },
+    {
+      "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsSimulationFeature.kt",
+      "sha256": "fc681cec4f413b5b7e96b8a389f5bcdec3f7797befd125bdac9163d4192385aa"
+    },
+    {
+      "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntime.kt",
+      "sha256": "232c273a4bc6ac7595db9c721194fbf9e3d28daa36ab86077b796e53e004361f"
+    },
+    {
+      "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/signalpack/SignalLogicRuntime.kt",
+      "sha256": "90d8cd5194a3b6a12e089f006cbec1bd02efdac50498adebd0d569874d863c9e"
+    },
+    {
+      "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/signalpack/SignalPackCatalog.kt",
+      "sha256": "d3db358f33b48f07fb5cfa30a36fee4667b1581ba948035ac047840f2551fa6f"
+    },
+    {
+      "path": "SimpleSignals/src/main/kotlin/work/art1st/javarailways/simplesignals/signalpack/SignalPackEpochRuntime.kt",
+      "sha256": "dd4abdf63e39da4990863852faceff3a5cca2ac0484b541064444b61e8ff73c3"
+    },
+    {
+      "path": "SimpleSignals/src/test/java/work/art1st/javarailways/simplesignals/SimpleSignalsHostServicesTest.java",
+      "sha256": "6d6be553658fe0fd3c630345d052961acfb46fcc71a4db43c6066730690c2b46"
+    },
+    {
+      "path": "SimpleSignals/src/test/kotlin/work/art1st/javarailways/simplesignals/runtime/SimpleSignalsWorldRuntimeManagerTest.kt",
+      "sha256": "ead88a0c98e52070fd9333c07767716ca4bf41d6a6c60bd920516d204806a155"
+    }
+  ]
+}

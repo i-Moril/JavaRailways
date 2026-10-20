@@ -33,6 +33,8 @@ exhaustive `when` 而不是`!!`或`listOfNotNull`兜底。`isSuccess`/nullable`c
 
 基础标架与roll旋转由Basic内部`CurveFrames`统一拥有，solver、factory、纵断面重建、测量与安全计算直接消费它，不通过高级求解器调用基础运算。`computeFrame`保持Gram-Schmidt顺序，输出`(tangent, normal, binormal)`，其中`binormal = normal × tangent`；单位切线的`abs(y) > 0.99`时选Z轴作为参考，否则选world up。`applyRollRadians`仅接收弧度，使用原Rodrigues公式，`abs(rollRadians) < 1e-12`时直接返回法向副本，不额外normalize。两者均不修改输入，返回新向量；调用方负责提供原有有效几何输入。metadata继续使用`rollDegrees`，在原旋转调用边界转换，不改变超高角度相加顺序、采样、容差或曲线算法。
 
+`RailCurveFactory`保留公开入口、线程检查、锚点准备、模板选择与端点验收。内部`ParallelCurveBuilder`只负责中心锚点计算，以及消费已成功构建的中心曲线进行端点匹配、偏移、修正与分界映射；中心曲线仍由facade调用单曲线入口构建，内部实现不反向调用factory。内部`HermiteSCurveBuilder`拥有五次Hermite采样、导数/曲率、精确半径拟合及其专用signed cant梯度限制；factory仍按原顺序判断水平距离、拟合误差和最终端点。两种构建实现共享的水平坡度计算归`CurveFrames.horizontalGrade`。这些是具体数值实现，不是可插拔策略；拆分不调整采样、拟合次数、容差、错误结果或nullable访问面。
+
 | 条件 | result |
 | --- | --- |
 | AUTO horizontal same-direction且chord aligned | STRAIGHT |

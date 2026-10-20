@@ -10,8 +10,6 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 enum class RailCurveTemplateType(val displayName: String) {
     AUTO("自动"),
@@ -169,9 +167,9 @@ object RailCurveFactory {
             }
         }
 
-        val centerFrom = centerAnchor("parallel-center-from", fromAnchors)
+        val centerFrom = ParallelCurveBuilder.centerAnchor("parallel-center-from", fromAnchors)
             ?: return RailParallelCurveBuildResult.failure("无法计算并行起点中心")
-        val centerTo = centerAnchor("parallel-center-to", toAnchors)
+        val centerTo = ParallelCurveBuilder.centerAnchor("parallel-center-to", toAnchors)
             ?: return RailParallelCurveBuildResult.failure("无法计算并行终点中心")
         val centerResult = when (val built = build(centerFrom, centerTo, options)) {
             is RailCurveBuildResult.Success -> built
@@ -180,54 +178,7 @@ object RailCurveFactory {
             )
         }
 
-        val centerCurve = centerResult.curve
-        val startRight = rightVector(centerCurve.getPointAt(0.0).tangent)
-            ?: return RailParallelCurveBuildResult.failure("无法计算并行起点偏移方向", centerResult.selectedTemplate, centerResult.selectedReason)
-        val endRight = rightVector(centerCurve.getPointAt(centerCurve.totalArcLength).tangent)
-            ?: return RailParallelCurveBuildResult.failure("无法计算并行终点偏移方向", centerResult.selectedTemplate, centerResult.selectedReason)
-        val offsets = fromAnchors.map { anchor -> Vector3d(anchor.position).sub(centerFrom.position).dot(startRight) }
-        val unmatchedEnds = toAnchors.map { anchor ->
-            anchor to Vector3d(anchor.position).sub(centerTo.position).dot(endRight)
-        }.toMutableList()
-        val matchedEnds = offsets.map { offset ->
-            val match = unmatchedEnds.minBy { (_, endOffset) -> abs(endOffset - offset) }
-            unmatchedEnds.remove(match)
-            match.first
-        }
-        val tolerance = maxOf(0.25, estimatedSpacing(offsets) * 0.1)
-        val preserveAnchorEndpointTangents = centerResult.selectedTemplate != RailCurveTemplateType.STRAIGHT
-        val curves = offsets.mapIndexed { index, offset ->
-            offsetCurve(
-                centerCurve,
-                offset,
-                fromAnchors[index],
-                matchedEnds[index],
-                tolerance,
-                preserveAnchorEndpointTangents
-            )
-                ?: return RailParallelCurveBuildResult.failure(
-                    "并行曲线端点偏离锚点过大: ${fromAnchors[index].id}→${matchedEnds[index].id}",
-                    centerResult.selectedTemplate,
-                    centerResult.selectedReason
-                )
-        }
-        curves.forEachIndexed { index, curve ->
-            val startDistance = curve.getPointAt(0.0).position.distance(fromAnchors[index].position)
-            val endDistance = curve.getPointAt(curve.totalArcLength).position.distance(matchedEnds[index].position)
-            if (startDistance > Curve.TOLERANCE || endDistance > Curve.TOLERANCE) {
-                return RailParallelCurveBuildResult.failure(
-                    "并行曲线端点未贴合锚点: ${fromAnchors[index].id}→${matchedEnds[index].id}",
-                    centerResult.selectedTemplate,
-                    centerResult.selectedReason
-                )
-            }
-        }
-        return RailParallelCurveBuildResult.success(
-            curves,
-            centerResult.selectedTemplate,
-            centerResult.selectedReason,
-            curves.map { RailCurvePartitioner.remapBreakFractions(centerCurve, it, centerResult.logicalBreakFractions) }
-        )
+        return ParallelCurveBuilder.build(fromAnchors, toAnchors, centerFrom, centerTo, centerResult)
     }
 
     private data class PreparedAnchors(
@@ -244,114 +195,6 @@ object RailCurveFactory {
         val toTan2d: Vector3d,
         val angle: Double
     )
-
-    private fun centerAnchor(id: String, anchors: List<Anchor>): Anchor? {
-        if (anchors.isEmpty()) return null
-        val referenceTangent = Vector3d(anchors.first().tangent)
-        if (referenceTangent.lengthSquared() < 1e-12) return null
-        referenceTangent.normalize()
-
-        val position = Vector3d()
-        val tangent = Vector3d()
-        anchors.forEach { anchor ->
-            position.add(anchor.position)
-            val candidate = Vector3d(anchor.tangent)
-            if (candidate.lengthSquared() < 1e-12) return null
-            candidate.normalize()
-            if (candidate.dot(referenceTangent) < 0.0) candidate.negate()
-            tangent.add(candidate)
-        }
-        position.div(anchors.size.toDouble())
-        if (tangent.lengthSquared() < 1e-12) return null
-        tangent.normalize()
-        return Anchor(id, position, tangent, anchors.firstOrNull()?.worldId)
-    }
-
-    private fun rightVector(tangent: Vector3dc): Vector3d? {
-        val horizontal = Vector3d(tangent.x(), 0.0, tangent.z())
-        if (horizontal.lengthSquared() < 1e-12) return null
-        return horizontal.normalize().cross(Vector3d(0.0, 1.0, 0.0)).normalize()
-    }
-
-    private fun estimatedSpacing(offsets: List<Double>): Double {
-        if (offsets.size < 2) return 0.0
-        return offsets.sorted().zipWithNext { a, b -> abs(b - a) }.average()
-    }
-
-    @OptIn(Heavy::class)
-    private fun offsetCurve(
-        curve: PrimeCurve,
-        offset: Double,
-        fromAnchor: Anchor,
-        toAnchor: Anchor,
-        maxEndpointCorrection: Double,
-        preserveAnchorEndpointTangents: Boolean
-    ): PrimeCurve? {
-        val centerPoints = curve.stream().toList()
-        val rawOffsetPositions = centerPoints.map { point ->
-            val right = rightVector(point.tangent) ?: Vector3d(1.0, 0.0, 0.0)
-            Vector3d(point.position).fma(offset, right)
-        }
-        val startCorrection = Vector3d(fromAnchor.position).sub(rawOffsetPositions.first())
-        val endCorrection = Vector3d(toAnchor.position).sub(rawOffsetPositions.last())
-        if (startCorrection.length() > maxEndpointCorrection || endCorrection.length() > maxEndpointCorrection) {
-            return null
-        }
-        val totalArc = curve.totalArcLength
-        val offsetPositions = rawOffsetPositions.mapIndexed { index, position ->
-            val ratio = if (totalArc > 1e-12) {
-                (centerPoints[index].arcLength / totalArc).coerceIn(0.0, 1.0)
-            } else if (rawOffsetPositions.size > 1) {
-                index.toDouble() / (rawOffsetPositions.size - 1).toDouble()
-            } else {
-                0.0
-            }
-            Vector3d(position)
-                .fma(1.0 - ratio, startCorrection)
-                .fma(ratio, endCorrection)
-        }
-        val cumulative = MutableList(offsetPositions.size) { 0.0 }
-        for (i in 1 until offsetPositions.size) {
-            cumulative[i] = cumulative[i - 1] + offsetPositions[i - 1].distance(offsetPositions[i])
-        }
-        val raw = offsetPositions.mapIndexed { index, position ->
-            val source = centerPoints[index]
-            val tangent = if (preserveAnchorEndpointTangents) {
-                when (index) {
-                    0 -> endpointTangent(fromAnchor.tangent, source.tangent)
-                    offsetPositions.lastIndex -> endpointTangent(toAnchor.tangent, source.tangent)
-                    else -> tangentAt(offsetPositions, index) ?: Vector3d(source.tangent).normalize()
-                }
-            } else {
-                tangentAt(offsetPositions, index) ?: Vector3d(source.tangent).normalize()
-            }
-            val sourceTangent = Vector3d(source.tangent)
-            if (sourceTangent.lengthSquared() > 1e-12 && tangent.dot(sourceTangent.normalize()) < 0.0) {
-                tangent.negate()
-            }
-            val normal = Vector3d(source.normal)
-            val projection = normal.dot(tangent)
-            normal.sub(Vector3d(tangent).mul(projection))
-            if (normal.lengthSquared() < 1e-12) normal.set(0.0, 1.0, 0.0) else normal.normalize()
-            Curve.RawPoint(position, tangent, normal, cumulative[index])
-        }
-        return PrimeCurve.fromPoints(raw)
-    }
-
-    private fun endpointTangent(anchorTangent: Vector3dc, curveTangent: Vector3dc): Vector3d {
-        val tangent = Vector3d(anchorTangent).normalize()
-        if (tangent.dot(curveTangent) < 0.0) tangent.negate()
-        return tangent
-    }
-
-    private fun tangentAt(positions: List<Vector3d>, index: Int): Vector3d? {
-        if (positions.size < 2) return null
-        val previous = positions[maxOf(0, index - 1)]
-        val next = positions[minOf(positions.lastIndex, index + 1)]
-        val tangent = Vector3d(next).sub(previous)
-        if (tangent.lengthSquared() < 1e-12) return null
-        return tangent.normalize()
-    }
 
     private fun prepareAnchors(from: Anchor, to: Anchor): PreparedAnchors? {
         val fromPos = Vector3d(from.position)
@@ -506,13 +349,13 @@ object RailCurveFactory {
             return RailCurveBuildResult.failure("端点距离过短", match.template, match.reason)
         }
 
-        var handle0 = hermiteHandleLength(
+        var handle0 = HermiteSCurveBuilder.hermiteHandleLength(
             prepared.chord, prepared.fromTan2d, horizontalDistance, options.geometry
         )
-        var handle1 = hermiteHandleLength(
+        var handle1 = HermiteSCurveBuilder.hermiteHandleLength(
             prepared.chord, prepared.toTan2d, horizontalDistance, options.geometry
         )
-        var minRadius = estimateHermiteMinRadius(
+        var minRadius = HermiteSCurveBuilder.estimateHermiteMinRadius(
             prepared.fromPos,
             prepared.toPos,
             prepared.fromTan2d,
@@ -522,8 +365,11 @@ object RailCurveFactory {
             options.geometry.sCurveCurvatureProbeCount
         )
         if (options.radius > 0.0) {
-            val fitted = fitHermiteHandlesToExactRadius(
-                prepared,
+            val fitted = HermiteSCurveBuilder.fitHermiteHandlesToExactRadius(
+                prepared.fromPos,
+                prepared.toPos,
+                prepared.fromTan2d,
+                prepared.toTan2d,
                 handle0,
                 handle1,
                 options.radius,
@@ -542,7 +388,7 @@ object RailCurveFactory {
             }
         }
 
-        val curve = createHermiteSCurve(
+        val curve = HermiteSCurveBuilder.createHermiteSCurve(
             prepared.fromPos,
             prepared.toPos,
             prepared.fromTan3d,
@@ -561,343 +407,6 @@ object RailCurveFactory {
             return RailCurveBuildResult.failure("S弯模板生成后端点位置/切线/roll 校验失败", match.template, match.reason)
         }
         return RailCurveBuildResult.success(curve, match.template, "${match.reason}; Hermite S弯，最小半径≈%.2fm".format(Locale.US, minRadius))
-    }
-
-    private fun horizontalGrade(tangent: Vector3dc): Double {
-        val horizontal = sqrt(tangent.x() * tangent.x() + tangent.z() * tangent.z())
-        return if (horizontal > 1e-10) tangent.y() / horizontal else 0.0
-    }
-
-    private fun hermiteHandleLength(
-        chord: Vector3dc,
-        tangent2d: Vector3dc,
-        horizontalDistance: Double,
-        geometry: RailGeometryParameters
-    ): Double {
-        val projection = abs(chord.x() * tangent2d.x() + chord.z() * tangent2d.z())
-        // Quintic zero-curvature endpoints stay flatter than cubic Hermite endpoints. A 3/4
-        // derivative handle retains comparable automatic curvature and leaves fitting headroom.
-        return (projection * 0.75)
-            .coerceAtLeast(horizontalDistance * geometry.sCurveMinimumHandleFactor)
-            .coerceAtMost(horizontalDistance * geometry.sCurveMaximumHandleFactor)
-    }
-
-    private fun createHermiteSCurve(
-        from: Vector3dc,
-        to: Vector3dc,
-        fromTangent: Vector3dc,
-        toTangent: Vector3dc,
-        fromTangent2d: Vector3dc,
-        toTangent2d: Vector3dc,
-        handle0: Double,
-        handle1: Double,
-        fromRollDegrees: Double,
-        toRollDegrees: Double,
-        horizontalDistance: Double,
-        superelevationConfig: SuperelevationConfig?,
-        geometry: RailGeometryParameters
-    ): PrimeCurve {
-        val sampleCount = maxOf(
-            geometry.sCurveMinimumSamples,
-            kotlin.math.ceil(horizontalDistance / geometry.sCurveTargetStepMeters).toInt()
-        )
-        val horizontalSamples = (0..sampleCount).map { index ->
-            val u = index.toDouble() / sampleCount
-            val p = hermitePosition2d(from, to, fromTangent2d, toTangent2d, handle0, handle1, u)
-            val d = hermiteDerivative2d(from, to, fromTangent2d, toTangent2d, handle0, handle1, u)
-            p to d
-        }
-        val cumulative = MutableList(horizontalSamples.size) { 0.0 }
-        for (i in 1 until horizontalSamples.size) {
-            cumulative[i] = cumulative[i - 1] + horizontalSamples[i - 1].first.distance(horizontalSamples[i].first)
-        }
-        val totalLength = cumulative.last().coerceAtLeast(1e-9)
-        val gA = horizontalGrade(fromTangent)
-        val gB = horizontalGrade(toTangent)
-        val dy = to.y() - from.y()
-        val u = dy - gA * totalLength
-        val v = gB - gA
-        val c = (3.0 * u - v * totalLength) / (totalLength * totalLength)
-        val d = (v * totalLength - 2.0 * u) / (totalLength * totalLength * totalLength)
-
-        fun heightAt(arc: Double): Double = from.y() + gA * arc + c * arc * arc + d * arc * arc * arc
-        fun gradeAt(arc: Double): Double = gA + 2.0 * c * arc + 3.0 * d * arc * arc
-        val signedCurvatures = horizontalSamples.indices.map { index ->
-            val parameter = index.toDouble() / sampleCount
-            hermiteSignedCurvature(
-                from,
-                to,
-                fromTangent2d,
-                toTangent2d,
-                handle0,
-                handle1,
-                parameter
-            )
-        }
-        val peakCurvature = signedCurvatures.maxOf { abs(it) }
-        val peakSuperelevation = if (superelevationConfig != null && peakCurvature > 1.0e-12) {
-            superelevationConfig.calculateSuperelevation(1.0 / peakCurvature)
-        } else {
-            0.0
-        }
-
-        // The quintic Hermite plan has zero curvature at both anchors. Target cant follows signed
-        // curvature, then each lobe is independently slew-limited from its zero-curvature bounds.
-        // Unlike global scaling, this uses all cant-gradient headroom without exceeding local balance cant.
-        val targetCantMeters = signedCurvatures.map { curvature ->
-            if (peakSuperelevation <= 0.0 || peakCurvature <= 1.0e-12) 0.0
-            else peakSuperelevation * curvature / peakCurvature
-        }
-        val cantMeters = limitSignedProfileGradient(
-            targetCantMeters,
-            cumulative,
-            superelevationConfig?.maxCantGradient ?: 0.0
-        )
-
-        fun rollAt(index: Int, arc: Double): Double {
-            val t = (arc / totalLength).coerceIn(0.0, 1.0)
-            val anchorRoll = fromRollDegrees + (toRollDegrees - fromRollDegrees) * t
-            val cantDegrees = Math.toDegrees(
-                kotlin.math.atan2(cantMeters[index], geometry.gaugeMeters)
-            )
-            return anchorRoll + cantDegrees
-        }
-
-        val points = horizontalSamples.mapIndexed { index, sample ->
-            val arc = cumulative[index]
-            val horizontalDerivative = sample.second
-            val horizontalDirection = if (index == 0) {
-                Vector3d(fromTangent2d)
-            } else if (index == horizontalSamples.lastIndex) {
-                Vector3d(toTangent2d)
-            } else {
-                Vector3d(horizontalDerivative.x(), 0.0, horizontalDerivative.z()).normalize()
-            }
-            val position = Vector3d(sample.first.x(), heightAt(arc), sample.first.z())
-            if (index == horizontalSamples.lastIndex) position.set(to.x(), to.y(), to.z())
-            if (index == 0) position.set(from.x(), from.y(), from.z())
-            val tangent = Vector3d(horizontalDirection.x(), gradeAt(arc), horizontalDirection.z()).normalize()
-            val (_, baseNormal, _) = CurveFrames.computeFrame(tangent)
-            val normal = CurveFrames.applyRollRadians(baseNormal, tangent, Math.toRadians(rollAt(index, arc)))
-            Curve.RawPoint(position, tangent, normal, arc)
-        }
-        return PrimeCurve.fromPoints(RailCurvePartitioner.withElevationArc(points))
-    }
-
-    private fun limitSignedProfileGradient(
-        target: List<Double>,
-        stations: List<Double>,
-        maximumGradient: Double
-    ): List<Double> {
-        require(target.size == stations.size)
-        if (target.isEmpty() || maximumGradient <= 0.0) return List(target.size) { 0.0 }
-        val limited = MutableList(target.size) { 0.0 }
-
-        fun profileSign(value: Double): Int = when {
-            value > 1.0e-12 -> 1
-            value < -1.0e-12 -> -1
-            else -> 0
-        }
-
-        fun zeroStation(left: Int, right: Int): Double {
-            val leftMagnitude = abs(target[left])
-            val rightMagnitude = abs(target[right])
-            val fraction = leftMagnitude / (leftMagnitude + rightMagnitude)
-            return stations[left] + (stations[right] - stations[left]) * fraction
-        }
-
-        var start = target.indexOfFirst { profileSign(it) != 0 }
-        while (start >= 0) {
-            val lobeSign = profileSign(target[start])
-            var end = start
-            while (end + 1 < target.size && profileSign(target[end + 1]) == lobeSign) end++
-
-            val leftBoundary = when {
-                start == 0 -> stations.first()
-                profileSign(target[start - 1]) == 0 -> stations[start - 1]
-                else -> zeroStation(start - 1, start)
-            }
-            val rightBoundary = when {
-                end == target.lastIndex -> stations.last()
-                profileSign(target[end + 1]) == 0 -> stations[end + 1]
-                else -> zeroStation(end, end + 1)
-            }
-
-            var previousMagnitude = 0.0
-            var previousStation = leftBoundary
-            for (index in start..end) {
-                val targetMagnitude = abs(target[index])
-                val gradientBound = previousMagnitude +
-                    maximumGradient * (stations[index] - previousStation).coerceAtLeast(0.0)
-                previousMagnitude = minOf(targetMagnitude, gradientBound)
-                limited[index] = previousMagnitude * lobeSign
-                previousStation = stations[index]
-            }
-
-            var nextMagnitude = 0.0
-            var nextStation = rightBoundary
-            for (index in end downTo start) {
-                val gradientBound = nextMagnitude +
-                    maximumGradient * (nextStation - stations[index]).coerceAtLeast(0.0)
-                nextMagnitude = minOf(abs(limited[index]), gradientBound)
-                limited[index] = nextMagnitude * lobeSign
-                nextStation = stations[index]
-            }
-
-            start = (end + 1 until target.size).firstOrNull { profileSign(target[it]) != 0 } ?: -1
-        }
-        return limited
-    }
-
-    /** Quintic Hermite interpolation with zero second derivative at both endpoints. */
-    private fun hermitePosition2d(
-        from: Vector3dc,
-        to: Vector3dc,
-        fromTangent2d: Vector3dc,
-        toTangent2d: Vector3dc,
-        handle0: Double,
-        handle1: Double,
-        u: Double
-    ): Vector3d {
-        val u2 = u * u
-        val u3 = u2 * u
-        val u4 = u3 * u
-        val u5 = u4 * u
-        val h00 = 1.0 - 10.0 * u3 + 15.0 * u4 - 6.0 * u5
-        val h10 = u - 6.0 * u3 + 8.0 * u4 - 3.0 * u5
-        val h01 = 10.0 * u3 - 15.0 * u4 + 6.0 * u5
-        val h11 = -4.0 * u3 + 7.0 * u4 - 3.0 * u5
-        return Vector3d(
-            h00 * from.x() + h10 * fromTangent2d.x() * handle0 + h01 * to.x() + h11 * toTangent2d.x() * handle1,
-            0.0,
-            h00 * from.z() + h10 * fromTangent2d.z() * handle0 + h01 * to.z() + h11 * toTangent2d.z() * handle1
-        )
-    }
-
-    private fun hermiteDerivative2d(
-        from: Vector3dc,
-        to: Vector3dc,
-        fromTangent2d: Vector3dc,
-        toTangent2d: Vector3dc,
-        handle0: Double,
-        handle1: Double,
-        u: Double
-    ): Vector3d {
-        val u2 = u * u
-        val u3 = u2 * u
-        val u4 = u3 * u
-        val h00 = -30.0 * u2 + 60.0 * u3 - 30.0 * u4
-        val h10 = 1.0 - 18.0 * u2 + 32.0 * u3 - 15.0 * u4
-        val h01 = 30.0 * u2 - 60.0 * u3 + 30.0 * u4
-        val h11 = -12.0 * u2 + 28.0 * u3 - 15.0 * u4
-        return Vector3d(
-            h00 * from.x() + h10 * fromTangent2d.x() * handle0 + h01 * to.x() + h11 * toTangent2d.x() * handle1,
-            0.0,
-            h00 * from.z() + h10 * fromTangent2d.z() * handle0 + h01 * to.z() + h11 * toTangent2d.z() * handle1
-        )
-    }
-
-    private fun hermiteSecondDerivative2d(
-        from: Vector3dc,
-        to: Vector3dc,
-        fromTangent2d: Vector3dc,
-        toTangent2d: Vector3dc,
-        handle0: Double,
-        handle1: Double,
-        u: Double
-    ): Vector3d {
-        val u2 = u * u
-        val u3 = u2 * u
-        val h00 = -60.0 * u + 180.0 * u2 - 120.0 * u3
-        val h10 = -36.0 * u + 96.0 * u2 - 60.0 * u3
-        val h01 = 60.0 * u - 180.0 * u2 + 120.0 * u3
-        val h11 = -24.0 * u + 84.0 * u2 - 60.0 * u3
-        return Vector3d(
-            h00 * from.x() + h10 * fromTangent2d.x() * handle0 + h01 * to.x() + h11 * toTangent2d.x() * handle1,
-            0.0,
-            h00 * from.z() + h10 * fromTangent2d.z() * handle0 + h01 * to.z() + h11 * toTangent2d.z() * handle1
-        )
-    }
-
-    private fun hermiteSignedCurvature(
-        from: Vector3dc,
-        to: Vector3dc,
-        fromTangent2d: Vector3dc,
-        toTangent2d: Vector3dc,
-        handle0: Double,
-        handle1: Double,
-        u: Double
-    ): Double {
-        val d1 = hermiteDerivative2d(from, to, fromTangent2d, toTangent2d, handle0, handle1, u)
-        val d2 = hermiteSecondDerivative2d(from, to, fromTangent2d, toTangent2d, handle0, handle1, u)
-        val speedSq = d1.x() * d1.x() + d1.z() * d1.z()
-        if (speedSq < 1.0e-12) return 0.0
-        return (d1.x() * d2.z() - d1.z() * d2.x()) / (speedSq * sqrt(speedSq))
-    }
-
-    private fun fitHermiteHandlesToExactRadius(
-        prepared: PreparedAnchors,
-        baseHandle0: Double,
-        baseHandle1: Double,
-        targetRadius: Double,
-        probeCount: Int
-    ): Triple<Double, Double, Double> {
-        fun radiusAt(scale: Double): Double = estimateHermiteMinRadius(
-            prepared.fromPos,
-            prepared.toPos,
-            prepared.fromTan2d,
-            prepared.toTan2d,
-            baseHandle0 * scale,
-            baseHandle1 * scale,
-            probeCount
-        )
-
-        val samples = (0..160).map { index ->
-            val scale = 0.25 + (3.0 - 0.25) * index / 160.0
-            scale to radiusAt(scale)
-        }
-        var best = samples.minBy { (_, radius) -> abs(radius - targetRadius) }
-        samples.zipWithNext().forEach { (left, right) ->
-            var lo = left.first
-            var hi = right.first
-            var loError = left.second - targetRadius
-            val hiError = right.second - targetRadius
-            if (!loError.isFinite() || !hiError.isFinite() || loError * hiError > 0.0) return@forEach
-            repeat(48) {
-                val mid = (lo + hi) / 2.0
-                val radius = radiusAt(mid)
-                if (abs(radius - targetRadius) < abs(best.second - targetRadius)) best = mid to radius
-                val error = radius - targetRadius
-                if (error == 0.0) return@repeat
-                if (loError * error <= 0.0) {
-                    hi = mid
-                } else {
-                    lo = mid
-                    loError = error
-                }
-            }
-        }
-        return Triple(baseHandle0 * best.first, baseHandle1 * best.first, best.second)
-    }
-
-    private fun estimateHermiteMinRadius(
-        from: Vector3dc,
-        to: Vector3dc,
-        fromTangent2d: Vector3dc,
-        toTangent2d: Vector3dc,
-        handle0: Double,
-        handle1: Double,
-        probeCount: Int
-    ): Double {
-        var maxCurvature = 0.0
-        for (i in 0..probeCount) {
-            val u = i.toDouble() / probeCount
-            val curvature = abs(
-                hermiteSignedCurvature(from, to, fromTangent2d, toTangent2d, handle0, handle1, u)
-            )
-            maxCurvature = maxOf(maxCurvature, curvature)
-        }
-        return if (maxCurvature < 1e-12) Double.POSITIVE_INFINITY else 1.0 / maxCurvature
     }
 
     private fun shouldFlipTangentAlongChord(tangent: Vector3dc, chord: Vector3dc): Boolean {
@@ -994,8 +503,8 @@ object RailCurveFactory {
             length = horizontalLength,
             startElevation = from.y(),
             endElevation = to.y(),
-            startGrade = horizontalGrade(fromTangent),
-            endGrade = horizontalGrade(toTangent)
+            startGrade = CurveFrames.horizontalGrade(fromTangent),
+            endGrade = CurveFrames.horizontalGrade(toTangent)
         )
         val sampleCount = maxOf(1, ceil(horizontalLength / step).toInt())
         val points = ArrayList<Curve.RawPoint>(sampleCount + 1)

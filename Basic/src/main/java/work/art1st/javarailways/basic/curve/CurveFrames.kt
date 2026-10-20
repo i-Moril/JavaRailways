@@ -5,6 +5,7 @@ import org.joml.Vector3dc
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /** Shared frame geometry. Inputs are borrowed; every returned vector is a new value. */
 internal object CurveFrames {
@@ -33,4 +34,10 @@ internal object CurveFrames {
         val axisPart = Vector3d(axis).mul(axis.dot(normal) * (1.0 - cosR))
         return normal.mul(cosR).add(cross.mul(sinR)).add(axisPart).normalize()
     }
+
+    fun horizontalGrade(tangent: Vector3dc): Double {
+        val horizontal = sqrt(tangent.x() * tangent.x() + tangent.z() * tangent.z())
+        return if (horizontal > 1e-10) tangent.y() / horizontal else 0.0
+    }
+
 }

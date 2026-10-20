@@ -31,6 +31,8 @@ exhaustive `when` 而不是`!!`或`listOfNotNull`兜底。`isSuccess`/nullable`c
 
 ## Classification/validation矩阵
 
+基础标架与roll旋转由Basic内部`CurveFrames`统一拥有，solver、factory、纵断面重建、测量与安全计算直接消费它，不通过高级求解器调用基础运算。`computeFrame`保持Gram-Schmidt顺序，输出`(tangent, normal, binormal)`，其中`binormal = normal × tangent`；单位切线的`abs(y) > 0.99`时选Z轴作为参考，否则选world up。`applyRollRadians`仅接收弧度，使用原Rodrigues公式，`abs(rollRadians) < 1e-12`时直接返回法向副本，不额外normalize。两者均不修改输入，返回新向量；调用方负责提供原有有效几何输入。metadata继续使用`rollDegrees`，在原旋转调用边界转换，不改变超高角度相加顺序、采样、容差或曲线算法。
+
 | 条件 | result |
 | --- | --- |
 | AUTO horizontal same-direction且chord aligned | STRAIGHT |

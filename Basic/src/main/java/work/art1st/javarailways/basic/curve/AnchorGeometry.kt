@@ -50,7 +50,7 @@ object AnchorGeometry {
         if (t.lengthSquared() < 1e-12 || n.lengthSquared() < 1e-12) return 0.0
         t.normalize()
         n.normalize()
-        val (_, baseNormal, _) = ConstraintSolver.computeFrame(t)
+        val (_, baseNormal, _) = CurveFrames.computeFrame(t)
         val sinRoll = Vector3d(baseNormal).cross(n).dot(t)
         val cosRoll = baseNormal.dot(n)
         return Math.toDegrees(atan2(sinRoll, cosRoll))

@@ -120,7 +120,7 @@ object StandardTurnoutFactory {
             val cumulativeArc = horizontalArc * slopeLengthFactor
             val horizontalTangent = Vector3d(direction.startTangent).rotateY(rotation).normalize()
             val tangent = Vector3d(horizontalTangent.x(), grade, horizontalTangent.z()).normalize()
-            val (_, normal, _) = ConstraintSolver.computeFrame(tangent)
+            val (_, normal, _) = CurveFrames.computeFrame(tangent)
             points += Curve.RawPoint(position, tangent, normal, cumulativeArc)
         }
         return PrimeCurve.fromPoints(points)

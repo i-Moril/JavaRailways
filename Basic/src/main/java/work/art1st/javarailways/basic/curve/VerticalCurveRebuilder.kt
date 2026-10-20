@@ -109,8 +109,8 @@ object VerticalCurveRebuilder {
             val grade = profile.gradeAt(horizontalStations[index])
             val tangent = Vector3d(horizontalDirection.x(), grade, horizontalDirection.z()).normalize()
             val rollDegrees = AnchorGeometry.rollDegreesFromNormal(sourcePoint.tangent, sourcePoint.normal)
-            val (_, baseNormal, _) = ConstraintSolver.computeFrame(tangent)
-            val normal = RailCurveFactory.applyRollToNormal(baseNormal, tangent, rollDegrees)
+            val (_, baseNormal, _) = CurveFrames.computeFrame(tangent)
+            val normal = CurveFrames.applyRollRadians(baseNormal, tangent, Math.toRadians(rollDegrees))
             Curve.RawPoint(positions[index], tangent, normal, cumulativeArc[index])
         }
         return PrimeCurve.fromPoints(rebuilt)

@@ -131,16 +131,6 @@ object ConstraintSolver {
             return Math.toRadians(fromRollDegrees + (toRollDegrees - fromRollDegrees) * t)
         }
 
-        fun applyRoll(normal: Vector3d, tangent: Vector3dc, rollRadians: Double): Vector3d {
-            if (abs(rollRadians) < 1e-12) return normal
-            val axis = Vector3d(tangent).normalize()
-            val cosR = cos(rollRadians)
-            val sinR = sin(rollRadians)
-            val cross = Vector3d(axis).cross(normal)
-            val axisPart = Vector3d(axis).mul(axis.dot(normal) * (1.0 - cosR))
-            return normal.mul(cosR).add(cross.mul(sinR)).add(axisPart).normalize()
-        }
-
         fun addSegment(len: Double, tan2d: Vector3dc, start: Vector3dc) {
             if (generatedStraightLength(len) == 0.0) return
             val tan2dn = Vector3d(tan2d).normalize()
@@ -154,8 +144,8 @@ object ConstraintSolver {
                 val p = Vector3d(start).fma(len * t, tan2dn)
                 p.y = y
                 val tan3d = Vector3d(tan2dn.x(), slope, tan2dn.z()).normalize()
-                val (_, baseNormal, _) = ConstraintSolver.computeFrame(tan3d)
-                val nrm3d = applyRoll(baseNormal, tan3d, rollAt(arc))
+                val (_, baseNormal, _) = CurveFrames.computeFrame(tan3d)
+                val nrm3d = CurveFrames.applyRollRadians(baseNormal, tan3d, rollAt(arc))
                 pts.add(Curve.RawPoint(Vector3d(p), tan3d, nrm3d, arc))
             }
             s += len
@@ -187,10 +177,10 @@ object ConstraintSolver {
             val gtz = ltx * fx.z() + ltz * fz.z()
             val slope = gradeAt(arc)
             val tan3d = Vector3d(gtx, slope, gtz).normalize()
-            val (_, baseNormal, _) = computeFrame(tan3d)
+            val (_, baseNormal, _) = CurveFrames.computeFrame(tan3d)
             val cantSign = if (r.leftTurn) -1.0 else 1.0
             val cantRoll = cantSign * curve.superelevationAngleAt(lp.arcLength)
-            val nrm3d = applyRoll(baseNormal, tan3d, rollAt(arc) + cantRoll)
+            val nrm3d = CurveFrames.applyRollRadians(baseNormal, tan3d, rollAt(arc) + cantRoll)
             pts.add(Curve.RawPoint(Vector3d(gx, gy, gz), tan3d, nrm3d, arc))
         }
         s += curve.totalLength
@@ -248,19 +238,6 @@ object ConstraintSolver {
         val fx = Vector3d(t).normalize()
         val fz = Vector3d(fx).cross(Vector3d(0.0, 1.0, 0.0)).normalize()
         return Pair(d.dot(fx), d.dot(fz))
-    }
-
-    /**
-     * Gram-Schmidt 正交化：从 3D 切线构建 orthonormal 标架 (tangent, normal, binormal)。
-     * normal = up 在切线垂直面上的投影；切线接近垂直时回退到 Z 轴。
-     */
-    fun computeFrame(tangent3d: Vector3dc): Triple<Vector3d, Vector3d, Vector3d> {
-        val t = Vector3d(tangent3d).normalize()
-        val ref = if (kotlin.math.abs(t.y()) > 0.99) Vector3d(0.0, 0.0, 1.0) else Vector3d(0.0, 1.0, 0.0)
-        val n = Vector3d(ref).sub(Vector3d(t).mul(ref.dot(t))).normalize()
-        val b = Vector3d()
-        n.cross(t, b).normalize()
-        return Triple(t, n, b)
     }
 
     fun computeAngle(a: Vector3dc, b: Vector3dc): Double {

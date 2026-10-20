@@ -677,8 +677,8 @@ object RailCurveFactory {
             if (index == horizontalSamples.lastIndex) position.set(to.x(), to.y(), to.z())
             if (index == 0) position.set(from.x(), from.y(), from.z())
             val tangent = Vector3d(horizontalDirection.x(), gradeAt(arc), horizontalDirection.z()).normalize()
-            val (_, baseNormal, _) = ConstraintSolver.computeFrame(tangent)
-            val normal = applyRollToNormal(baseNormal, tangent, rollAt(index, arc))
+            val (_, baseNormal, _) = CurveFrames.computeFrame(tangent)
+            val normal = CurveFrames.applyRollRadians(baseNormal, tangent, Math.toRadians(rollAt(index, arc)))
             Curve.RawPoint(position, tangent, normal, arc)
         }
         return PrimeCurve.fromPoints(RailCurvePartitioner.withElevationArc(points))
@@ -965,8 +965,8 @@ object RailCurveFactory {
         if (startDot < tangentToleranceDot || endDot < tangentToleranceDot) return false
 
         fun normalMatches(actual: Vector3dc, tangent: Vector3dc, rollDegrees: Double): Boolean {
-            val (_, baseNormal, _) = ConstraintSolver.computeFrame(tangent)
-            val expected = applyRollToNormal(baseNormal, tangent, rollDegrees)
+            val (_, baseNormal, _) = CurveFrames.computeFrame(tangent)
+            val expected = CurveFrames.applyRollRadians(baseNormal, tangent, Math.toRadians(rollDegrees))
             val a = Vector3d(actual)
             if (a.lengthSquared() < 1e-12) return false
             return a.normalize().dot(expected) >= tangentToleranceDot
@@ -1014,23 +1014,12 @@ object RailCurveFactory {
                 horizontalDirection.z()
             ).normalize()
             val roll = fromRollDegrees + (toRollDegrees - fromRollDegrees) * ratio
-            val (_, baseNormal, _) = ConstraintSolver.computeFrame(tangent)
-            val normal = applyRollToNormal(baseNormal, tangent, roll)
+            val (_, baseNormal, _) = CurveFrames.computeFrame(tangent)
+            val normal = CurveFrames.applyRollRadians(baseNormal, tangent, Math.toRadians(roll))
             points += Curve.RawPoint(position, tangent, normal, cumulativeArc)
             previousPosition = position
         }
         return PrimeCurve.fromPoints(points)
     }
 
-    fun applyRollToNormal(baseNormal: Vector3dc, tangent: Vector3dc, rollDegrees: Double): Vector3d {
-        val rollRadians = Math.toRadians(rollDegrees)
-        val normal = Vector3d(baseNormal)
-        if (abs(rollRadians) < 1e-12) return normal
-        val axis = Vector3d(tangent).normalize()
-        val cosR = cos(rollRadians)
-        val sinR = sin(rollRadians)
-        val cross = Vector3d(axis).cross(normal)
-        val axisPart = Vector3d(axis).mul(axis.dot(normal) * (1.0 - cosR))
-        return normal.mul(cosR).add(cross.mul(sinR)).add(axisPart).normalize()
-    }
 }

@@ -1,7 +1,7 @@
 package work.art1st.javarailways.basic.safety
 
 import org.joml.Vector3d
-import work.art1st.javarailways.basic.curve.ConstraintSolver
+import work.art1st.javarailways.basic.curve.CurveFrames
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.util.annotation.Heavy
 import kotlin.math.atan2
@@ -72,7 +72,7 @@ object RailSpeedCalculator {
             val point = points[index]
             val tangent = Vector3d(point.tangent).normalize()
             val normal = Vector3d(point.normal).normalize()
-            val (_, baseNormal, _) = ConstraintSolver.computeFrame(tangent)
+            val (_, baseNormal, _) = CurveFrames.computeFrame(tangent)
             val roll = atan2(Vector3d(baseNormal).cross(normal).dot(tangent), baseNormal.dot(normal))
             val supportingCantAngle = -sign(signedCurvature) * roll
             val denominator = curvature * cos(supportingCantAngle)

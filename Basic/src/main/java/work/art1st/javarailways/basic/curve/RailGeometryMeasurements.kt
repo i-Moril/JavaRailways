@@ -43,7 +43,7 @@ object RailGeometryMeasurementService {
                 if (tangent.lengthSquared() > 1.0e-12 && normal.lengthSquared() > 1.0e-12) {
                     tangent.normalize()
                     normal.normalize()
-                    val (_, baseNormal, _) = ConstraintSolver.computeFrame(tangent)
+                    val (_, baseNormal, _) = CurveFrames.computeFrame(tangent)
                     val roll = atan2(
                         Vector3d(baseNormal).cross(normal).dot(tangent),
                         baseNormal.dot(normal)

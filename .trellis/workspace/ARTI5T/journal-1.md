@@ -688,3 +688,27 @@ Complete and integrate per-world runtime ownership, scheduling, shared domain as
 ### Status
 
 [OK] **Completed**
+
+
+## Session 21: Commit isolated simulation runtime and final acceptance
+<!-- trellis-session: v=2 fp=8205ac7e690d9ad2 -->
+
+**Date**: 2026-10-20
+**Task**: Commit isolated simulation runtime and final acceptance
+**Package**: javarailways
+**Branch**: `codex/simulation-world-alignment`
+
+### Summary
+
+Committed world-local signal engines, complete domain simulation and real per-car behavior, including exact failed-install retirement and bounded lifecycle ownership. Independently verified staged bytes match the accepted 53-path candidate: 2507 JVM tests and 108 frontend tests passed, with API, module, package and documentation gates. Committed docs-site as 3bdd5626, archived only the completed behavior task and repaired its context links. Remain on codex/simulation-world-alignment; no merge, push, deployment or runtime server acceptance.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `207807eb` | feat(simulation): complete world-isolated signal and car behavior runtime |
+| `3e53b3d7` | docs(trellis): record complete isolated simulation acceptance |
+
+### Status
+
+[OK] **Completed**

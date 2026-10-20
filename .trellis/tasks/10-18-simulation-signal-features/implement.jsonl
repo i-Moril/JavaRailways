@@ -16,7 +16,7 @@
 {"file": ".trellis/spec/javarailways/simpleato/simulation.md", "reason": "前批已落地准备/目标装配和真终止边界"}
 {"file": ".trellis/spec/simple-signals/backend/simulation-runtime.md", "reason": "本批按World signal执行、neutral rules、完整目标安装与生命周期合同（实施中待最终验收）"}
 {"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "公开Feature准备器登记/捕获的短锁与插件owner生命周期"}
-{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/upstream-compatibility.md", "reason": "Exact new upstream contracts, preserved candidate lineage and required fresh gates"}
-{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/upstream-alignment.md", "reason": "Exact new upstream contracts, preserved candidate lineage and required fresh gates"}
-{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/review-fixes-validation.md", "reason": "User review lifecycle fixes and independent current-source evidence"}
-{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/review-fixes-check.md", "reason": "User review lifecycle fixes and independent current-source evidence"}
+{"file": ".trellis/tasks/archive/2026-10/10-18-simulation-behavior-features/research/upstream-compatibility.md", "reason": "Exact new upstream contracts, preserved candidate lineage and required fresh gates"}
+{"file": ".trellis/tasks/archive/2026-10/10-18-simulation-behavior-features/research/upstream-alignment.md", "reason": "Exact new upstream contracts, preserved candidate lineage and required fresh gates"}
+{"file": ".trellis/tasks/archive/2026-10/10-18-simulation-behavior-features/research/review-fixes-validation.md", "reason": "User review lifecycle fixes and independent current-source evidence"}
+{"file": ".trellis/tasks/archive/2026-10/10-18-simulation-behavior-features/research/review-fixes-check.md", "reason": "User review lifecycle fixes and independent current-source evidence"}

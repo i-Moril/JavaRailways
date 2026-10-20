@@ -10,5 +10,5 @@
 {"file": ".trellis/spec/simple-signals/backend/js-signal-rules.md", "reason": "正式信号规则和同epoch事实"}
 {"file": ".trellis/spec/bukkit-plugin/backend/car-behavior.md", "reason": "真实逐车行为的共同逻辑"}
 {"file": ".trellis/tasks/10-18-isolated-simulation-runtime/research/remaining-cross-world-locks.md", "reason": "2026-10-19补充O1 observation构造与S1各LIVE/SIM JS求值隔离的源码证据、任务归属和真实阻塞验收"}
-{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/parent-acceptance-check.md", "reason": "父R1-R6/AC1-AC7及跨子任务最终清单的独立证据映射与现场边界"}
-{"file": ".trellis/tasks/10-18-simulation-behavior-features/research/parent-acceptance.md", "reason": "最终父验收、当前2507用例/53源、交付状态与验证边界唯一索引"}
+{"file": ".trellis/tasks/archive/2026-10/10-18-simulation-behavior-features/research/parent-acceptance-check.md", "reason": "父R1-R6/AC1-AC7及跨子任务最终清单的独立证据映射与现场边界"}
+{"file": ".trellis/tasks/archive/2026-10/10-18-simulation-behavior-features/research/parent-acceptance.md", "reason": "最终父验收、当前2507用例/53源、交付状态与验证边界唯一索引"}

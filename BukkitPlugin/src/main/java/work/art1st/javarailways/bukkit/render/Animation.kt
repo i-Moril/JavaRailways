@@ -74,6 +74,9 @@ class Animation(
         )
     }
 
+    /** Existing runnable scene keys, detached from animation playback state. */
+    internal fun sceneNames(): Set<String> = sceneTimes.keys.toSet()
+
     fun hasScene(sceneName: String): Boolean = sceneTimes.containsKey(normalizeSceneName(sceneName))
 
     fun stateAtScene(sceneName: String): Pair<CompactTransform, AnimationDisplayState?>? {

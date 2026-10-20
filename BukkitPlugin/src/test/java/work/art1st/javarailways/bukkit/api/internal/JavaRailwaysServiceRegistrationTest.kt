@@ -28,13 +28,14 @@ import java.util.logging.Logger
 
 class JavaRailwaysServiceRegistrationTest {
     @Test
-    fun `production registrar exposes all nine public services through Bukkit discovery`() = BukkitServiceTestSupport.withServer {
+    fun `production registrar exposes all ten public services through Bukkit discovery`() = BukkitServiceTestSupport.withServer {
         val manager = SimpleServicesManager()
         val owner = plugin("JavaRailways")
         val worldManager = WorldManager()
         val railTargets = BukkitRailTargetService({ worldManager }, { error("No player query in this test") })
         val playerOperations = DefaultPlayerOperationService(Logger.getLogger("service-registration-test"))
         val observations = DefaultRailwayObservationService(Logger.getLogger("service-registration-test"))
+        val simulationFeatures = DefaultSimulationFeatureService()
         val signalSources = DefaultSignalEpochSourceService()
         val infrastructure = DefaultInfrastructureResourceService(signalSources)
         val dispatcher = Proxy.newProxyInstance(PlatformDispatcher::class.java.classLoader, arrayOf(PlatformDispatcher::class.java)) {
@@ -55,9 +56,11 @@ class JavaRailwaysServiceRegistrationTest {
                 signalSources,
                 signalSources,
                 models,
-                editorTexts
+                editorTexts,
+                simulationFeatures
             )
 
+            assertSame(simulationFeatures, manager.load(work.art1st.javarailways.bukkit.api.simulation.SimulationFeatureService::class.java))
             assertSame(railTargets, manager.load(RailTargetService::class.java))
             assertSame(playerOperations, manager.load(PlayerOperationService::class.java))
             assertSame(models, manager.load(ModelPresentationService::class.java))
@@ -70,9 +73,10 @@ class JavaRailwaysServiceRegistrationTest {
                 signalSources,
                 manager.load(RoutePlanningRestrictionSourceService::class.java)
             )
-            assertEquals(9, manager.getRegistrations(owner).size)
+            assertEquals(10, manager.getRegistrations(owner).size)
 
             manager.unregisterAll(owner)
+            assertNull(manager.load(work.art1st.javarailways.bukkit.api.simulation.SimulationFeatureService::class.java))
             assertNull(manager.load(RailTargetService::class.java))
             assertNull(manager.load(PlayerOperationService::class.java))
             assertNull(manager.load(ModelPresentationService::class.java))
@@ -83,6 +87,7 @@ class JavaRailwaysServiceRegistrationTest {
             assertNull(manager.load(InspectionSourceService::class.java))
             assertNull(manager.load(RoutePlanningRestrictionSourceService::class.java))
         } finally {
+            simulationFeatures.close()
             editorTexts.close()
             models.close()
             infrastructure.close()

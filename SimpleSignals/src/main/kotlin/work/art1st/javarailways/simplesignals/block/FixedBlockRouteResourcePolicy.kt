@@ -35,15 +35,26 @@ internal class FixedBlockRouteResourcePolicy(
         else -> null
     }
 
-    override fun contribute(
-        worldId: UUID,
-        intent: RouteResourceIntent
-    ): Collection<ContributedRouteResource> {
+    override fun contribute(worldId: UUID, intent: RouteResourceIntent): Collection<ContributedRouteResource> =
+        FixedBlockDomainResourcePolicy(worldId, directionPolicyForWorld(worldId),
+            { validateRouteAdmission(worldId, it) }, { snapshotForWorld(worldId) }).contribute(intent)
+}
+
+/** The same fixed-block resource calculation for LIVE authentication and detached simulation. */
+internal class FixedBlockDomainResourcePolicy(
+    private val worldId: UUID,
+    private val directionPolicy: FixedBlockDirectionPolicy,
+    private val validateRouteAdmission: (RouteResourceIntent) -> Unit,
+    private val snapshot: () -> FixedBlockReadSnapshot?
+) {
+    fun exists(resourceId: String): Boolean = snapshot()?.blocksById?.containsKey(resourceId) == true
+
+    fun contribute(intent: RouteResourceIntent): List<ContributedRouteResource> {
         require(intent.observationStamp.worldId == worldId.toString()) {
             "route intent belongs to world ${intent.observationStamp.worldId}, expected $worldId"
         }
-        validateRouteAdmission(worldId, intent)
-        val snapshot = checkNotNull(snapshotForWorld(worldId)) {
+        validateRouteAdmission(intent)
+        val snapshot = checkNotNull(snapshot()) {
             "SimpleSignals fixed-block runtime is unavailable for world $worldId"
         }
         val match = FixedBlockRouteMatcher.matchAuthority(
@@ -56,7 +67,6 @@ internal class FixedBlockRouteResourcePolicy(
             is FixedBlockAuthorityMatchResult.Matched -> match.windows
             is FixedBlockAuthorityMatchResult.Rejected -> error(match.detail)
         }
-        val directionPolicy = directionPolicyForWorld(worldId)
         val disabled = directionPolicy.disabledBlocks(snapshot, windows.map { snapshot.blocksById.getValue(it.blockId) }.distinct())
         val lastExitByBlock = linkedMapOf<String, Double>()
         directionPolicy.normalWindows(snapshot, windows, disabled).forEach { window ->

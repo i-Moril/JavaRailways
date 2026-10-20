@@ -161,8 +161,7 @@ inspection先执行既有world/epoch校验，只对有效clear结果省略`Route
 
 所有输入必须来自同一物理 epoch、同一拓扑／定义 revision 和仍有效的世界绑定。拓扑、包或定义替换使对应前视计划失效；旧调用不得覆盖新绑定。完整结果原子发布，消费者不读取半更新状态。
 
-插件管理器拥有一份共享 `SignalPackCatalog` 和 `SignalLogicRuntime`。包目录只在启动 worker 加载一次，不在 world
-回调或 JS 字段读取时重读。包含 signal type 绑定的 world 在 catalog 就绪前安装限制性 runtime：所有相关设备发布
+插件管理器只共享只读`SignalPackCatalog`，其单一`rules`视图捕获JS源/元数据及type到logic/有效variant字符串，切断模型资产与Bukkit Material。每个LIVE World和每个SIM分别拥有`SignalLogicRuntime`及关闭归属；同World定义/拓扑替换复用该World执行器。包目录只在启动worker加载一次，不在World回调或JS字段读取时重读；新World的Graal初始化在worker完成。包含signal type绑定的World在catalog就绪或自身规则安装前使用限制性runtime：所有相关设备发布
 `Unavailable` 和速度 0；catalog 成功后，只有 world runtime、publication 和 topology 仍与准备起点完全相同时，
 才能通过原子 source replacement 换入编译后的 `SignalPackEpochRuntime`。迟到结果不得覆盖已经替换或卸载的 world。
 
@@ -174,11 +173,11 @@ logicId 均由 catalog signal 唯一决定。`inspectionLeadTimeSeconds` 仍是�
 静态观察图使用 topology 与 definitions 的对象身份作为 cache identity，而不是只比较数值 revision。候选构图失败时，
 定义准备失败并保留旧 live publication；局部拓扑重验也必须生成同一新 topology 上的图后才能原子替换派生 publication。
 
-`SignalLogicRuntime(catalog)` 是已实现的 SimpleSignals 私有执行边界，不依赖 BukkitPlugin 私有实现类。它使用
-Graal 24.2.2，共享一个 Engine 和按 logic ID 缓存的 immutable Source；构造时用临时 Context 验证语法和 `evaluate` 入口。
+`SignalLogicRuntime(rules)`是已实现的SimpleSignals执行边界，不依赖 BukkitPlugin 私有实现类。它使用
+Graal 24.2.2，每个runtime持有自己的Engine和按logic ID缓存的immutable Source；构造时用临时Context验证语法和`evaluate`入口。
 每次 `evaluate(logicId, JsonElement)` 都创建一个全新 Context/realm，在同一调用栈同步求值，然后在 `finally` 中
 `close(true)`。fresh realm 阻止闭包和 `globalThis` 状态跨设备／调用串扰；强制关闭取消脚本偷偷启动但没有返回的 guest job，
-不会为 async 增加后台等待、future 或 timeout。Context 和 runtime 调用由 `@Synchronized` 串行化，runtime 关闭后拒绝求值。
+不会为 async 增加后台等待、future 或 timeout。同runtime的evaluate/close继续由`@Synchronized`串行化，关闭后拒绝求值；该monitor不被其他World复用。manager目录锁不覆盖JS构造/求值、单World编译、host owner等待或执行器关闭。源owner内的模拟capture只读不可变快照，不反取管理锁。退休/同UUID重装的对象身份、诊断与逐项清理边界归[World运行及模拟安装](simulation-runtime.md)。
 
 运行时禁止 Host class lookup、宿主对象遍历、文件、网络、Bukkit、线程、进程、native access、environment access、
 polyglot access、动态导入、Promise／异步回调以及任意 I/O。stdout/stderr 丢弃，guest `console` 为 no-op；`Date`、
@@ -229,8 +228,7 @@ JAR 明确拒绝包含 `org/graalvm/` 或宿主 class。真实 Paper 下载／�
 
 最大扫描距离分别截断各分支，不限制节点数或分支数，也不把所有分支长度相加。插件不设置执行时长、内存、节点、分支、递归深度或整波总量预算；这意味着错误脚本确实可以拖慢或阻塞服务器，属于明确接受的作者责任。运行时仍应避免每设备重复文件读取、每显示器重复执行和无关变化触发：一台逻辑信号在一个 signal epoch 至多求值一次，多个显示设备复用结果；输入未变时可以不求值，输出未变时不重复发布显示更新。
 
-当前 foundation 每次求值创建并强制关闭一个 Context，以换取调用间状态隔离和 detached async 取消；Engine 与 Source
-仍复用，文件不重读。这一固定成本必须在 signal epoch 接线批次用代表性包测量，不能声称等同于普通 Kotlin callback；
+当前 foundation 每次求值创建并强制关闭一个 Context，以换取调用间状态隔离和 detached async 取消；Engine与Source在所属World内复用，文件不重读。每World执行器初始化成本随规则数量/源码规模增长，不据本地功能测试宣称实时性能。这一固定成本必须在 signal epoch 接线批次用代表性包测量，不能声称等同于普通 Kotlin callback；
 也不能在没有同等隔离证据时改回长期共享 Context 或引入未批准的 context pool。
 
 ## 8. 具体情形

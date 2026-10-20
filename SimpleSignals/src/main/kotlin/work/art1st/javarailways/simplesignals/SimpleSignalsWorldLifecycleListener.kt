@@ -30,7 +30,7 @@ internal class SimpleSignalsWorldLifecycleListener(
     }
 
     private fun install(world: World) {
-        val result = runtimes.install(world.uid)
+        val result = runtimes.install(world.uid, deferSignalPreparation = true)
         when (result.status) {
             SimpleSignalsWorldInstallStatus.INSTALLED -> {
                 val source = when (result.definitionSource) {

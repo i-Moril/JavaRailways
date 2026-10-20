@@ -7,12 +7,15 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.bukkit.util.BukkitThreadGuardBridge
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
+import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
@@ -194,12 +197,16 @@ class DefaultRailwayObservationServiceTest {
         }
     }
 
-    @Test
-    fun `conversion paused inside fromCore leaves another world physics publication and domain progressing`() {
+    @ParameterizedTest(name = "{0} paused conversion leaves {1} progressing")
+    @CsvSource("LIVE,LIVE", "LIVE,SIMULATION", "SIMULATION,SIMULATION")
+    fun `conversion paused inside fromCore leaves another world physics publication and domain progressing`(
+        firstMode: WorldExecutionMode,
+        secondMode: WorldExecutionMode
+    ) {
         val guard = ThreadGuardHost.registerPlatformBridge(BukkitThreadGuardBridge)
         val service = DefaultRailwayObservationService(Logger.getAnonymousLogger())
-        val first = ObservationWorld()
-        val second = ObservationWorld()
+        val first = ObservationWorld(firstMode)
+        val second = ObservationWorld(secondMode)
         val workers = Executors.newFixedThreadPool(2)
         val barrier = ConversionBarrier(first.world.latestWorldFrame())
         val secondNotifications = mutableListOf<Long>()
@@ -207,6 +214,8 @@ class DefaultRailwayObservationServiceTest {
             secondNotifications += observation.stamp.physicsEpoch
         }
         try {
+            assertEquals(firstMode, first.world.executionMode)
+            assertEquals(secondMode, second.world.executionMode)
             val paused = workers.submit<RailwayObservation?> {
                 BukkitThreadGuardBridge.runInSimulationContext(first.world) {
                     service.current(first.id, barrier.frame)
@@ -398,9 +407,9 @@ class DefaultRailwayObservationServiceTest {
         error("same-world publication did not wait for the active conversion")
     }
 
-    private class ObservationWorld : AutoCloseable {
+    private class ObservationWorld(executionMode: WorldExecutionMode) : AutoCloseable {
         val id = UUID.randomUUID()
-        val world = createTestWorld(PhysicsCoordinator(1, automaticFallback = false))
+        val world = createTestWorld(PhysicsCoordinator(1, automaticFallback = false), executionMode)
         private val runtime: OperationalWorldRuntime
         val train: work.art1st.javarailways.core.physics.train.CoreTrain
         val initialArc: Double

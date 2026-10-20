@@ -229,6 +229,75 @@ internal class DefaultSignalEpochSourceService :
         }
     }
 
+    override fun retireSources(
+        pluginOwner: Plugin,
+        worldId: UUID,
+        expectedEpochSources: Collection<SignalEpochSource>,
+        expectedInspectionSources: Collection<InspectionSource>,
+        expectedRoutePlanningSources: Collection<RoutePlanningRestrictionBinding>
+    ) {
+        requireNoAtomicCommitReentry()
+        val world = worlds[worldId] ?: return
+        BukkitThreadGuardBridge.runInSimulationContext {
+            world.owner.run {
+                if (worlds[worldId] !== world) return@run
+                val ownerSets = sourcesByWorld[worldId] ?: return@run
+                val owned = ownerSets.firstOrNull { it.owner === pluginOwner } ?: return@run
+                val epochs = owned.epochSources.filter { source -> expectedEpochSources.any { it === source } }
+                val inspections = owned.inspectionSources.filter { source -> expectedInspectionSources.any { it === source } }
+                val planning = owned.routePlanningSources.filter { source -> expectedRoutePlanningSources.any { it === source } }
+                if (epochs.isEmpty() && inspections.isEmpty() && planning.isEmpty()) return@run
+
+                var failure: Throwable? = null
+                fun attempt(action: () -> Unit): Boolean = try {
+                    action()
+                    true
+                } catch (caught: Throwable) {
+                    if (failure == null) failure = caught else if (failure !== caught) failure!!.addSuppressed(caught)
+                    false
+                }
+                val removedRestrictionIds = (epochs.map { it.sourceId } + inspections.map { it.sourceId }).toSet()
+                var active = emptyList<String>()
+                val inspected = removedRestrictionIds.isEmpty() || attempt {
+                    active = world.activeRestrictionStreams(removedRestrictionIds) +
+                        world.inspectionRuntime.activeBindings(inspections.mapTo(linkedSetOf()) { it.sourceId })
+                            .map { "active inspection binding: $it" }
+                }
+                val safetyCleared = if (!inspected || active.isNotEmpty()) {
+                    val reason = "Retiring failed signal installation owned by ${pluginOwner.name} in world " +
+                        "$worldId with active or unavailable restrictions: ${active.joinToString()}"
+                    attempt { world.stallWorld(reason, IllegalStateException(reason, failure)) }
+                } else true
+
+                // Each successful category is reflected separately, so a failed retirement can be
+                // retried without restoring callbacks already removed by this attempt.
+                var remaining = owned
+                if (safetyCleared && epochs.isNotEmpty()) attempt {
+                    val epochSources = owned.epochSources.filterNot { source -> epochs.any { it === source } }
+                    world.runtime.replaceSources(ownerSets.flatMap { if (it === owned) epochSources else it.epochSources })
+                    remaining = remaining.copy(epochSources = epochSources)
+                }
+                if (safetyCleared) inspections.forEach { source -> attempt {
+                    // Planned replacement rejects active bindings; failure retirement stalls above
+                    // and uses the runtime's exact-source teardown instead of rebinding routes.
+                    world.inspectionRuntime.removeSource(source.sourceId)
+                    remaining = remaining.copy(inspectionSources = remaining.inspectionSources.filterNot { it === source })
+                } }
+                if (planning.isNotEmpty()) attempt {
+                    val routePlanningSources = owned.routePlanningSources.filterNot { source -> planning.any { it === source } }
+                    world.routePlanningRuntime.replaceSources(
+                        ownerSets.flatMap { if (it === owned) routePlanningSources else it.routePlanningSources }
+                    )
+                    remaining = remaining.copy(routePlanningSources = routePlanningSources)
+                }
+                sourcesByWorld[worldId] = ownerSets.mapNotNull {
+                    if (it !== owned) it else remaining.takeUnless { it.isEmpty() }
+                }
+                failure?.let { throw it }
+            }
+        }
+    }
+
     fun requireOwnerUnused(pluginOwner: Plugin) {
         synchronized(lock) {
             requireNoAtomicCommitReentry()

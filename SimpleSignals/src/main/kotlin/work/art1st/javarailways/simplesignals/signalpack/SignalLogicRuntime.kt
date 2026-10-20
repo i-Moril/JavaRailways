@@ -18,7 +18,8 @@ data class SignalLogicOutput(val speedLimitMetresPerSecond: Double?, val modelVa
 class SignalLogicException(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
 
 /** A serial, explicitly-owned GraalJS engine for one immutable prepared catalog. */
-class SignalLogicRuntime(catalog: SignalPackCatalog) : AutoCloseable {
+class SignalLogicRuntime(catalog: SignalRuleCatalog) : AutoCloseable {
+    constructor(catalog: SignalPackCatalog) : this(catalog.rules)
     private val engine = Engine.newBuilder()
         .out(DISCARD_OUTPUT)
         .err(DISCARD_OUTPUT)

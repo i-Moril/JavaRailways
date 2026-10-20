@@ -8,6 +8,9 @@ import work.art1st.javarailways.bukkit.api.internal.DefaultPlayerOperationServic
 import work.art1st.javarailways.bukkit.api.internal.OperationOwnerLifecycleListener
 import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationService
 import work.art1st.javarailways.bukkit.api.internal.ObservationOwnerLifecycleListener
+import work.art1st.javarailways.bukkit.api.simulation.SimulationFeatureService
+import work.art1st.javarailways.bukkit.api.internal.DefaultSimulationFeatureService
+import work.art1st.javarailways.bukkit.api.internal.SimulationFeatureOwnerLifecycleListener
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.internal.InfrastructureOwnerLifecycleListener
@@ -94,6 +97,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
     lateinit var infrastructureResourceService: InfrastructureResourceService
         private set
     private lateinit var infrastructureResourceServiceImpl: DefaultInfrastructureResourceService
+    lateinit var simulationFeatureService: SimulationFeatureService
+        private set
+    private lateinit var simulationFeatureServiceImpl: DefaultSimulationFeatureService
     lateinit var signalEpochSourceService: SignalEpochSourceService
         private set
     lateinit var inspectionSourceService: InspectionSourceService
@@ -188,6 +194,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             signalEpochSourceServiceImpl.requiredDomainFeatures(worldId)
     }
 
+    internal fun prepareSimulationDomainFeatures(world: work.art1st.javarailways.core.physics.CoreWorld) =
+        simulationFeatureServiceImpl.prepare(worldManager.railWorlds.entries.single { it.value === world }.key.uid)
+
     override fun onEnable() {
         BukkitExtensionDataSerializers.register()
         val packetRuntime = checkNotNull(packetEntityRuntime) {
@@ -215,6 +224,8 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         playerOperationService = playerOperationServiceImpl
         railwayObservationServiceImpl = DefaultRailwayObservationService(logger)
         railwayObservationService = railwayObservationServiceImpl
+        simulationFeatureServiceImpl = DefaultSimulationFeatureService()
+        simulationFeatureService = simulationFeatureServiceImpl
         signalEpochSourceServiceImpl = DefaultSignalEpochSourceService()
         signalEpochSourceService = signalEpochSourceServiceImpl
         inspectionSourceService = signalEpochSourceServiceImpl
@@ -253,8 +264,10 @@ class BukkitPlugin : Plugin, JavaPlugin() {
             inspectionSources = inspectionSourceService,
             routePlanningSources = routePlanningRestrictionSourceService,
             modelPresentations = modelPresentationService,
-            editorTexts = editorTextService
+            editorTexts = editorTextService,
+            simulationFeatures = simulationFeatureService
         )
+        server.pluginManager.registerEvents(SimulationFeatureOwnerLifecycleListener(simulationFeatureServiceImpl), this)
         server.pluginManager.registerEvents(OperationOwnerLifecycleListener(playerOperationServiceImpl), this)
         server.pluginManager.registerEvents(ObservationOwnerLifecycleListener(railwayObservationServiceImpl), this)
         server.pluginManager.registerEvents(ModelOwnerLifecycleListener(modelPresentationServiceImpl, this), this)
@@ -354,6 +367,9 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         timetableHttpBridge = null
         if (::timetableScriptSandbox.isInitialized) {
             runShutdownStep("timetable script sandbox") { timetableScriptSandbox.close() }
+        }
+        if (::simulationFeatureServiceImpl.isInitialized) {
+            runShutdownStep("simulation feature service") { simulationFeatureServiceImpl.close() }
         }
         if (::worldManager.isInitialized) {
             runShutdownStep("world manager stop") { worldManager.stop() }

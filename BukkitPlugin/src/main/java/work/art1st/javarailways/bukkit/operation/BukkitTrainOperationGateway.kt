@@ -4,9 +4,6 @@ import work.art1st.javarailways.basic.api.operation.TrainOperation
 import work.art1st.javarailways.basic.api.operation.TrainOperationExecutionResult
 import work.art1st.javarailways.basic.api.operation.TrainOperationGateway
 import work.art1st.javarailways.basic.api.operation.TrainOperationRequest
-import work.art1st.javarailways.basic.api.operation.TrainOperationTicket
-import work.art1st.javarailways.basic.api.operation.TrainOperationTicketSnapshot
-import work.art1st.javarailways.basic.api.operation.TrainOperationTicketState
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.extension.train.CarExtension
 import work.art1st.javarailways.bukkit.extension.train.renderer
@@ -15,7 +12,6 @@ import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.threading.ThreadGuard
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.atomic.AtomicReference
 
 /** Re-resolves the exact car's location on arrival; no simulation lock or live train traversal. */
 class RegionTrainOperationDispatcher(private val plugin: BukkitPlugin) {
@@ -52,7 +48,7 @@ class BukkitTrainOperationGateway(
         if (operation !is TrainOperation.OpenDoors && operation !is TrainOperation.CloseDoors && operation !is TrainOperation.ExecuteModelAction)
             return TrainOperationExecutionResult.Rejected("Bukkit adapter does not support ${operation::class.simpleName}")
         val train = world.getTrain(request.trainId) ?: return TrainOperationExecutionResult.Rejected("train not found: ${request.trainId}")
-        val ticket = BukkitOperationTicket(request)
+        val ticket = ModelOperationTicket(request, "bukkit")
         try {
             executeOperation(train, operation, ticket::isPending).whenComplete { _, failure ->
                 if (failure == null) ticket.complete()
@@ -62,19 +58,5 @@ class BukkitTrainOperationGateway(
             ticket.fail(failure.message ?: failure::class.java.simpleName)
         }
         return TrainOperationExecutionResult.Accepted(ticket)
-    }
-
-    private class BukkitOperationTicket(override val request: TrainOperationRequest) : TrainOperationTicket {
-        private val status = AtomicReference(TrainOperationTicketSnapshot("bukkit:${request.requestId}", request.requestId, TrainOperationTicketState.PENDING))
-        fun isPending() = status.get().state == TrainOperationTicketState.PENDING
-        fun complete() = transition(TrainOperationTicketState.SUCCEEDED)
-        fun fail(message: String) = transition(TrainOperationTicketState.FAILED, message)
-        override fun snapshot() = status.get()
-        override fun cancel() = transition(TrainOperationTicketState.CANCELLED)
-        private fun transition(state: TrainOperationTicketState, message: String? = null) {
-            status.updateAndGet { current ->
-                if (current.state == TrainOperationTicketState.PENDING) current.copy(state = state, message = message) else current
-            }
-        }
     }
 }

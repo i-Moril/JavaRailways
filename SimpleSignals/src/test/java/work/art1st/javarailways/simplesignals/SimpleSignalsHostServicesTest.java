@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simplesignals;
 
 import org.junit.jupiter.api.Test;
+import work.art1st.javarailways.bukkit.api.simulation.SimulationFeatureService;
 import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService;
 import work.art1st.javarailways.bukkit.api.observation.RailwayObservationService;
@@ -37,6 +38,7 @@ class SimpleSignalsHostServicesTest {
         assertSame(registered.get(RailTargetService.class), services.railTargets());
         assertSame(registered.get(ModelPresentationService.class), services.models());
         assertSame(registered.get(EditorTextService.class), services.editorTexts());
+        assertSame(registered.get(SimulationFeatureService.class), services.simulationFeatures());
     }
 
     @Test
@@ -68,6 +70,7 @@ class SimpleSignalsHostServicesTest {
         services.put(ModelPresentationService.class, proxy(ModelPresentationService.class));
         services.put(EditorTextService.class, proxy(EditorTextService.class));
         services.put(WorldIssueService.class, new WorldIssueService());
+        services.put(SimulationFeatureService.class, proxy(SimulationFeatureService.class));
         return services;
     }
 

@@ -30,7 +30,7 @@ data class IsolatedLineSimulationResult(val legs: List<SimulatedLeg>) {
 
 /** Bukkit DTO adapter around Basic's pure fixed-step detailed travel simulator. */
 object IsolatedLineSimulator {
-    fun simulate(
+    internal fun simulate(
         legs: List<SimulationLeg>,
         profile: SimulationControlProfile,
         gravityMetersPerSecondSquared: Double,

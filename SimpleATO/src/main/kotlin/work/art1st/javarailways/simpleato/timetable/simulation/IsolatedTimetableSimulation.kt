@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable.simulation
 
+import work.art1st.javarailways.simpleato.api.simulation.PreparedSimulationFeature
+import work.art1st.javarailways.simpleato.api.simulation.SimulationResourceProvider
 import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
@@ -15,7 +17,6 @@ import work.art1st.javarailways.basic.api.route.RouteGrantId
 import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
-import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
@@ -98,7 +99,8 @@ class IsolatedTimetableSimulationWorld private constructor(
     private val physicsCoordinator: PhysicsCoordinator,
     val routeAdmissionHost: SimulationRouteAdmissionHost,
     val operationalRuntime: OperationalWorldRuntime,
-    private val installedFeatures: List<AutoCloseable>
+    private val installedFeatures: List<AutoCloseable>,
+    private val operationResource: AutoCloseable?
 ) : AutoCloseable {
     private var logicalMillis = 0L
     private var hasSimulated = false
@@ -221,8 +223,8 @@ class IsolatedTimetableSimulationWorld private constructor(
             if (closed) return@closeOwner
             closeSimulationResources(physicsCoordinator, tickManager, world.runtimeId) {
                 closed = true
-                closeOwned(installedFeatures.asReversed() + listOf(
-                    routeAdmissionHost, operationalRuntime
+                closeOwned(installedFeatures.asReversed() + listOfNotNull(
+                    operationResource, routeAdmissionHost, operationalRuntime
                 ))
             }
         }
@@ -240,6 +242,7 @@ class IsolatedTimetableSimulationWorld private constructor(
             timetableExtensions: (CoreWorld) -> TimetableExtensionRegistry = { TimetableExtensionRegistry() },
             speedSafety: SpeedSafetyMonitor.Config = SpeedSafetyMonitor.Config(false, 0.0, 1),
             preparedFeatures: List<PreparedSimulationFeature> = emptyList(),
+            operationResourceFactory: (CoreWorld) -> AutoCloseable? = { null },
             dispatcherFactory: (
                 CoreWorld,
                 TimetableRouteAdmissionContextProvider,
@@ -268,6 +271,7 @@ class IsolatedTimetableSimulationWorld private constructor(
             var routeAdmissionHost: SimulationRouteAdmissionHost? = null
             var operationalRuntime: OperationalWorldRuntime? = null
             var createdWorld: CoreWorld? = null
+            var operationResource: AutoCloseable? = null
             val installed = arrayListOf<AutoCloseable>()
             try {
                 val world = IsolatedSimulationThreadMarker.run {
@@ -281,6 +285,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                         )
                     ).also { isolatedWorld -> isolatedWorld.executionOwner.run {
                         createdWorld = isolatedWorld
+                        operationResource = operationResourceFactory(isolatedWorld)
                         val domain = OperationalWorldRuntime.create(
                             isolatedWorld, isolatedWorld.runtimeId,
                             basicDataFactory = { changes -> basicDataFactory(isolatedWorld, changes) },
@@ -299,7 +304,7 @@ class IsolatedTimetableSimulationWorld private constructor(
                         simpleAtoInfrastructure.restore(isolatedWorld)
                         OperationalSpeedLimitSignalMaterializer.materialize(isolatedWorld)
                         domain.attachSpeedSafety(speedSafety)
-                        val target = SimulationDomainTarget(isolatedWorld, domain, checkNotNull(routeAdmissionHost))
+                        val target = DefaultSimulationDomainTarget(isolatedWorld, domain, checkNotNull(routeAdmissionHost))
                         preparedFeatures.forEach { installed += it.install(target) }
                         seed(isolatedWorld)
                     } }
@@ -311,13 +316,14 @@ class IsolatedTimetableSimulationWorld private constructor(
                     physics,
                     checkNotNull(routeAdmissionHost),
                     checkNotNull(operationalRuntime),
-                    installed.toList()
+                    installed.toList(),
+                    operationResource
                 )
             } catch (failure: Throwable) {
                 IsolatedSimulationThreadMarker.run {
                     closeSimulationResources(physics, tickManager, createdWorld?.runtimeId ?: "simulation-construction") {
                         closeOwned(installed.asReversed() + listOfNotNull(
-                            routeAdmissionHost, operationalRuntime
+                            operationResource, routeAdmissionHost, operationalRuntime
                         ), failure)
                     }
                 }
@@ -419,7 +425,14 @@ class SimulationRouteAdmissionHost internal constructor(
     }
 
     override fun close() {
-        closeOwned(listOf(AutoCloseable { runtime?.close() }, resourceValidation))
+        val dependencies = registry.dependenciesOwnedBy(requester).map { dependency -> AutoCloseable {
+            val removed = registry.removeInfrastructureDependencies(requester, dependency.owner)
+            check(removed.successful) { "could not retire simulation dependency: ${removed.detail}" }
+        } }
+        closeOwned(listOf(
+            AutoCloseable { runtime?.close() },
+            AutoCloseable { registry.releasePlatformOwner(this) }
+        ) + dependencies + resourceValidation)
         providers.clear()
         contributors.clear()
     }
@@ -457,30 +470,6 @@ private fun TimetableServiceRunSnapshot.observedDelayTicks(): Long = maxOf(
     lastLatenessTicks,
     nextScheduledTick?.let { (timetableElapsedTicks - it).coerceAtLeast(0L) } ?: 0L
 )
-
-/** Detached definitions install fresh state against the target's real domain endpoints. */
-interface PreparedSimulationFeature {
-    val id: String
-    fun install(target: SimulationDomainTarget): AutoCloseable
-}
-
-class SimulationDomainTarget internal constructor(
-    val world: CoreWorld,
-    val domain: OperationalWorldRuntime,
-    val routeAdmission: SimulationRouteAdmissionHost
-)
-
-interface SimulationResourceProvider {
-    fun exists(resource: StableInfrastructureResource): Boolean
-    fun validate(
-        contributorId: String,
-        contribution: ContributedRouteResource
-    ): RouteAdmissionFailure?
-    fun prepare(
-        resource: StableInfrastructureResource,
-        descriptor: ResourcePreparationDescriptor
-    ): (() -> ResourcePreparationTicket)?
-}
 
 private fun closeOwned(resources: List<AutoCloseable>, primary: Throwable? = null) {
     var failure = primary

@@ -17,7 +17,7 @@
 
 独立信号/ATO附属插件的正常停用必须先显式unapply其计划依赖，再调用唯一的
 `InfrastructureResourceService.unregisterOwner`。该调用同时负责插件的基础资源注册和信号source全集；
-`SignalEpochSourceService`不提供第二个完整owner删除入口。它允许空epoch-source replacement只清空该插件在该world的
+`SignalEpochSourceService`不提供第二个计划性完整owner删除入口。它允许空epoch-source replacement只清空该插件在该world的
 区间占用callback；同owner的inspection、route-planning和infrastructure注册保持不变。如果三类signal source均为空，
 内部可丢弃空owner记录，但这不等于`InfrastructureResourceService.unregisterOwner`，也不能删除基础资源owner。
 该调用只是可检查的pre-disable步骤，不会也不能替Bukkit禁用插件；任一world仍有infrastructure dependency、pending
@@ -45,7 +45,7 @@ claim/dependency，并只让包含该owner活动状态的world进入Stall；仅�
 
 `SignalEpochSourceService`同样绑定plugin instance和exact world runtime。全集replacement可删除其中部分或全部epoch source ID，
 但删除前插件必须先对每个对应`(sourceId, trainId)`流发布更高revision的空restriction snapshot；空replacement只影响
-epoch source类别，完整owner删除仍只由上述
+epoch source类别，计划性完整owner删除仍只由上述
 统一pre-disable入口执行。`replaceSourcesAtomically`不取得跨world simulation lock；它验证并编译候选全集后运行一次调用方
 bounded commit callback，callback失败保留旧runtime/owner set，成功后只做已编译引用替换。已开始的epoch完成其捕获的旧source，
 下一epoch读取新source并建立baseline。callback只允许already-staged atomic rename与immutable state swap，不得执行graph/index
@@ -60,7 +60,7 @@ binding，不误报故障。基础资源和signal的强制清理由同一个list
 source增删/替换不能静默放宽既有授权：普通replacement经world coordinator fail-close并保持旧全集；forced disable先Stall
 存在active binding的world再移除死callback。world unload和JavaRailways shutdown直接清理binding，不把正常teardown误报为
 插件故障，也不创建独立inspection unload入口。主动unregister若仍有active binding只拒绝卸载，不Stall仍可正常运行的world；
-只有插件已经被强制禁用、callback确定不可再调用时才执行fail-close。binding provider/update handler同步运行在simulation owner，
+插件被强制禁用或一次领域安装已失败、callback不能继续使用时，才经对应失败清理入口执行fail-close。binding provider/update handler同步运行在simulation owner，
 必须有界、非阻塞且不得重入source service或直接访问Bukkit world。
 
 `RoutePlanningRestrictionSourceService`也复用上述plugin/world owner registry和唯一
@@ -69,6 +69,18 @@ source增删/替换不能静默放宽既有授权：普通replacement经world co
 disable都直接清除callback，单独存在规划source不阻止停用也不stall world；已冻结路线继续由其route snapshot、Basic验证和
 资源claim约束。若应用中的时刻表依赖该插件定义，则由既有infrastructure dependency先阻止正常unregister，不能把规划source
 注册本身冒充运行期锁。
+
+## 失败安装按源对象身份退注册
+
+`CURRENT`：Bukkit宿主的`SignalEpochSourceService.retireSources(pluginOwner, worldId, expectedEpochSources, expectedInspectionSources, expectedRoutePlanningSources)`仅供一次失败安装清理三类callback。调用方保留本次实际提交的源对象；普通计划性停用继续使用上面的withdraw/unregister门，不能把此API当作无条件清除插件全集的替代。接口不删除infrastructure provider/contributor/claim/dependency。
+
+宿主捕获当前World binding，在该World owner中再次核对binding身份；仅在exact plugin owner集合中按`===`匹配每个候选对象。旧源与新源即使ID相同也不等价。同UUID世界重建、已卸载世界、没有匹配源都不修改后续安装。匹配的epoch/inspection若仍有非空restriction流或active binding，先通过现有stallWorld使目标World停止授权；停顿确认成功后才退对应callback。停顿抛错时保留实际安全源供重试，独立规划源仍可退休。每一成功子集更新宿主目录；失败保留首个异常及suppressed，不能回装已删除的源。空source owner记录移除，requiredDomainFeatures随真实剩余源变化，其他owner原样保留。
+
+此入口在插件禁用或全局halt后仍可清理，禁止重入atomic commit。正常返回保证匹配源已退；抛错时调用方必须保留它们的引擎/资源并重试，不能在finally无条件close。源替换沿既有合同允许一个已开始epoch完成旧immutable快照；同步evaluate/close与checkOpen保证不会在关闭后执行JS，过期快照最多给出Unavailable，不增加跨World等待或全局drain。
+
+例如epoch注册成功、inspection注册失败，应传入本次三类对象；不能以空全集replacement误删同ID新对象。源身份筛选为`O(N*E)`（本owner源数N、待退集合E），epoch监测区重编译复用既有union成本；这是低频安装失败路径，不新增每epoch扫描。
+
+必需回归：部分类别/其他owner保留、同ID新对象及同UUID新World不受旧退注册影响、disabled/halt清理仍可用、atomic callback重入在副作用前拒绝、active状态仅停目标World、停顿失败保留安全源与重试成功后完整退注册。该接口仅运行态，不改存档或版本，不加旧实现默认兼容分支。SimpleSignals调用顺序和失败reservation归[信号模拟生命周期](../../simple-signals/backend/simulation-runtime.md)。
 
 ## Simulation 与 physics
 
@@ -106,6 +118,14 @@ Signal atomic replacement仍是特殊边界：同World替换由其owner串行，
 
 共同领域装配/发布后阶段由[SimpleATO simulation](../../javarailways/simpleato/simulation.md#实际与模拟共用领域阶段)拥有；平台保留渲染、profile与service适配。owner同步成本不包含普通跨World扫描；多World管理成本随有关World及原检查集合增长。必须以barrier验证真实A/B/SIM推进、latest-only、目录检查提交原子性、玩家双请求、HTTP不挡global、source replacement旧epoch及卸载失败清理；离线回归不代替Paper/Folia现场验证。无持久化版本变化。
 
+### 模拟Feature准备器登记
+
+`SimulationFeatureService`通过ServicesManager向独立插件公开`register(Plugin, SimulationFeaturePreparer): AutoCloseable`。宿主在onEnable创建DefaultSimulationFeatureService，并通过JavaRailwaysServiceRegistration注册服务及owner禁用监听；onDisable先关闭登记目录，再停止World运行。插件名的小写形式与现有requiredDomainFeatures使用同一身份，每owner一个准备器；disabled/重复/服务关闭拒绝登记，token按registration实例删除，owner禁用按Plugin实例删除，不能误删重名新实例。
+
+HTTP capture沿已有source World owner/帧间准入调用宿主prepareSimulationDomainFeatures，再由factory捕获返回的detached feature。service短锁只复制登记列表并检查closed，释放后依次调用preparer.prepare(source UUID)；回调可做该源的稳定快照读取，不能持共享登记锁编译或等待。返回feature.id必须匹配owner身份，异常直接使本次capture失败；缺必需owner的原factory检查保持。关闭目录不撤销已经捕获并属于SIM的准备值。
+
+准备成本随登记数和原回调成本增长，短目录不增加世界扫描/后台队列。A准备器暂停时，B的独立capture、登记关闭和owner清理仍可完成；每目标安装及真终止后的资源清理由[SimpleATO公开安装边界](../../javarailways/simpleato/simulation.md)拥有。正式service/capture/registration测试与Java consumer须覆盖上述流程及失败身份，新增JUnit用例需核XML确实发现执行。无持久化格式或版本变化，不允许公开CoreWorld/内部domain给附属插件。
+
 ### 观察服务的构造与退休边界
 
 `DefaultRailwayObservationService`当前按World独立构造Basic observation。WorldManager的发布后阶段及准入的latestObservation supplier仍在目标World owner/帧间边界调用服务；线程分类本身不能代替owner。输入是完整不可变Core frame，输出及同epoch/通知语义由[Basic publication](../../javarailways/basic/threading-and-publication.md#对外-observation-contract)拥有，不读取可变列车状态。
@@ -118,7 +138,7 @@ entry保存frame、observation及lastDeliveredEpoch。`publish(worldId, frame, c
 
 转换抛错或epoch倒退时不提交新当前值；ticket不匹配在创建entry前拒绝。相同frame查询的缓存工作为O(1)，新frame承担既有列车/区间投影成本；发布选择listener为O(S)，S是服务当前订阅数，逐个listener回调保持既有成本。短目录锁只保护内存查找/交换及订阅快照，不承诺任意第三方listener执行时长。
 
-例如A的新frame构造暂停时，B可以完成物理位移、observation发布和Dispatcher后的宿主返回；相同A的另一项查询等待该entry并复用结果。若A期间卸载且同UUID建立新记录，A迟到的转换返回null，新记录及原UUID订阅继续有效。正式`DefaultRailwayObservationServiceTest`用只读列车列表barrier暂停真实fromCore，断言上述流程、同World一次转换/最多一次通知、listener两锁外重入、owner注销和close/remove交错。无持久化迁移；完整Signals JS执行归属仍由后续信号子任务处理，不能据此声称已完成全feature模拟。
+例如A的新frame构造暂停时，B可以完成物理位移、observation发布和Dispatcher后的宿主返回；相同A的另一项查询等待该entry并复用结果。若A期间卸载且同UUID建立新记录，A迟到的转换返回null，新记录及原UUID订阅继续有效。正式`DefaultRailwayObservationServiceTest`用只读列车列表barrier暂停真实fromCore；World以LIVE-LIVE、LIVE-SIM、SIM-SIM三组实际模式创建，每组都断言B完成真实物理位移、observation发布与领域阶段，同时A仍暂停。其他回归保持同World一次转换/最多一次通知、listener两锁外重入、owner注销和close/remove交错。无持久化迁移；完整Signals JS执行归属由[信号运行规范](../../simple-signals/backend/simulation-runtime.md)拥有，不能仅凭observation测试宣称完成全部Feature验收。
 
 ### 控制器接管与命令的帧间适配（CURRENT，第3b批平台侧）
 

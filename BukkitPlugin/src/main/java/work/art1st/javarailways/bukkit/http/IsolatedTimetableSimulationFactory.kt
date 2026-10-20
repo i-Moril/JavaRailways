@@ -1,17 +1,22 @@
 package work.art1st.javarailways.bukkit.http
 
 import work.art1st.javarailways.basic.BasicWorldData
+import work.art1st.javarailways.bukkit.BukkitPlugin
+import work.art1st.javarailways.bukkit.extension.train.SimulationTrainExtension
+import work.art1st.javarailways.bukkit.extension.train.simulationTrainProfileOrNull
+import work.art1st.javarailways.bukkit.operation.simulationBehaviorOrNull
+import work.art1st.javarailways.bukkit.operation.SimulationCarBehaviorExtension
+import work.art1st.javarailways.bukkit.operation.SimulationBehaviorEffect
+import work.art1st.javarailways.bukkit.operation.SimulationTrainOperationGateway
+import work.art1st.javarailways.core.api.util.plugin.Plugin
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
 import work.art1st.javarailways.basic.control.HandleTrainActuator
 import work.art1st.javarailways.basic.control.TrainDynamics
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
 import work.art1st.javarailways.simpleato.api.depot.RollingStockRecord
-import work.art1st.javarailways.basic.api.operation.TrainOperation
-import work.art1st.javarailways.basic.api.operation.TrainOperationRequest
-import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.api.timetable.TimetableSimulationExtensions
 import work.art1st.javarailways.basic.safety.SpeedSafetyMonitor
-import work.art1st.javarailways.simpleato.timetable.simulation.PreparedSimulationFeature
+import work.art1st.javarailways.simpleato.api.simulation.PreparedSimulationFeature
 import work.art1st.javarailways.simpleato.controller.SimpleATO
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
@@ -26,10 +31,9 @@ import work.art1st.javarailways.simpleato.timetable.TimetableService
 import work.art1st.javarailways.simpleato.timetable.TimetableStep
 import work.art1st.javarailways.simpleato.timetable.TrainSelector
 import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationWorld
-import work.art1st.javarailways.simpleato.timetable.simulation.SimulationTrainOperationDurationResolver
-import work.art1st.javarailways.simpleato.timetable.simulation.SimulationTrainOperationGateway
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.train.CoreTrain
@@ -65,7 +69,9 @@ internal class IsolatedTimetableSimulationFactory(
     private val atoSafetyDistanceMeters: Double = 5.0,
     private val speedSafety: SpeedSafetyMonitor.Config = SpeedSafetyMonitor.Config(false, 0.0, 1),
     private val requiredDomainFeatures: (CoreWorld) -> Set<String> = { emptySet() },
-    private val prepareDomainFeatures: (CoreWorld) -> List<PreparedSimulationFeature> = { emptyList() }
+    private val prepareDomainFeatures: (CoreWorld) -> List<PreparedSimulationFeature> = { emptyList() },
+    private val extensionPlugin: Plugin = BukkitPlugin.INSTANCE,
+    private val effectObserver: ((Car, SimulationBehaviorEffect) -> Unit)? = null
 ) {
     init {
         require(gravityMetersPerSecondSquared.isFinite() && gravityMetersPerSecondSquared > 0.0)
@@ -146,17 +152,13 @@ internal class IsolatedTimetableSimulationFactory(
         snapshot: IsolatedTimetableSimulationSnapshot,
         workerThreads: Int
     ): IsolatedTimetableSimulationWorld {
-        val profilesByTrainId = LinkedHashMap<String, SimulationControlProfile>()
-        val operationGateway = SimulationTrainOperationGateway(
-            SimulationTrainOperationDurationResolver { request -> operationDuration(request, profilesByTrainId) }
-        )
+        lateinit var operationGateway: SimulationTrainOperationGateway
         return IsolatedTimetableSimulationWorld.create(
             snapshot.coreInfrastructure,
             snapshot.basicInfrastructure,
             snapshot.simpleAtoInfrastructure,
             workerThreads,
-            basicDataFactory = { world, directionChanges ->
-                world.tickManager.register(operationGateway)
+            basicDataFactory = { _, directionChanges ->
                 BasicWorldData(
                     operatingDirections = work.art1st.javarailways.basic.rail.OperatingDirectionStore(directionChanges)
                 )
@@ -164,6 +166,9 @@ internal class IsolatedTimetableSimulationFactory(
             timetableExtensions = { world -> snapshot.timetableExtensions.create(world) },
             speedSafety = snapshot.speedSafety,
             preparedFeatures = snapshot.domainFeatures,
+            operationResourceFactory = { world ->
+                SimulationTrainOperationGateway(world).also { operationGateway = it }
+            },
             dispatcherFactory = {
                     _, routeAdmissionContextProvider, signalRestrictions, inspectionRuntime, infrastructureDependencyService ->
                 TimetableDispatcher(
@@ -175,22 +180,25 @@ internal class IsolatedTimetableSimulationFactory(
                     infrastructureDependencyService = infrastructureDependencyService,
                     operationGateway = operationGateway,
                     atoFactory = TimetableAtoFactory { train, owningWorld ->
-                        val profile = requireNotNull(profilesByTrainId[train.id]) {
-                            "simulation profile missing for train ${train.id}"
+                        val profile = requireNotNull(train.simulationTrainProfileOrNull) {
+                            "simulation train profile missing for train ${train.id}"
                         }
+                        fun carProfile(car: work.art1st.javarailways.core.api.physics.train.Car): TrainDynamics.CarProfile? =
+                            car.simulationBehaviorOrNull?.carProfile
+                        val carProfiles = train.cars.map { car -> requireNotNull(carProfile(car)) {
+                            "simulation car profile missing for car ${car.id}"
+                        } }
                         val gravity = snapshot.gravityMetersPerSecondSquared
                         val safety = AtoSafetyProfile(
                             safetyDistanceMeters = snapshot.atoSafetyDistanceMeters,
                             serviceDecelerationMetersPerSecondSquared =
                                 TrainDynamics.flatServiceDeceleration(
-                                    profile.trainControl,
-                                    profile.carControls,
+                                    profile,
+                                    carProfiles,
                                     gravity
                                 ),
                             reactionTimeSeconds = HandleTrainActuator.serviceBrakeReactionTimeSeconds(
-                                profile.trainControl,
-                                profile.carControls,
-                                gravity
+                                profile, carProfiles, gravity
                             )
                         )
                         SimpleATO(
@@ -198,9 +206,10 @@ internal class IsolatedTimetableSimulationFactory(
                             owningWorld,
                             HandleTrainActuator(
                                 train,
-                                profile.trainControl,
-                                profile.carControls,
-                                gravity
+                                profile,
+                                carProfiles,
+                                gravity,
+                                profileResolver = ::carProfile
                             ),
                             safety,
                             inspectionRuntime::maximumDeclaredLeadTimeSeconds
@@ -208,14 +217,13 @@ internal class IsolatedTimetableSimulationFactory(
                     }
                 )
             },
-            seed = { world -> seedTimetableTrains(world, snapshot, profilesByTrainId) }
+            seed = { world -> seedTimetableTrains(world, snapshot) }
         )
     }
 
     private fun seedTimetableTrains(
         world: CoreWorld,
-        snapshot: IsolatedTimetableSimulationSnapshot,
-        profilesByTrainId: MutableMap<String, SimulationControlProfile>
+        snapshot: IsolatedTimetableSimulationSnapshot
     ) {
         val occupiedStablingPoints = HashSet<String>()
         val occupiedDynamicWaypoints = HashSet<String>()
@@ -225,7 +233,6 @@ internal class IsolatedTimetableSimulationFactory(
             require(profile.cars.isNotEmpty()) { "simulation profile ${profile.id} has no physical car blueprint" }
             val namedTrainId = (service.trainSelector as? TrainSelector.TrainId)?.trainId
             namedTrainId?.let(namedTrains::get)?.let { existingTrain ->
-                profilesByTrainId[existingTrain.id] = profile
                 world.basicWorldData.trainSpeedProfiles.put(
                     existingTrain.id,
                     TrainSpeedProfile(profile.trainControl.curveSpeedLimitOffset)
@@ -264,7 +271,6 @@ internal class IsolatedTimetableSimulationFactory(
                 placement.wayPointId
             )
             if (namedTrainId != null) namedTrains[namedTrainId] = train
-            profilesByTrainId[train.id] = profile
             world.basicWorldData.trainSpeedProfiles.put(
                 train.id,
                 TrainSpeedProfile(profile.trainControl.curveSpeedLimitOffset)
@@ -335,41 +341,22 @@ internal class IsolatedTimetableSimulationFactory(
                         "$trainId/car-$index", bogieA, bogieB, blueprint.length, blueprint.floorHeight,
                         blueprint.connectorLengthAtA, blueprint.connectorLengthAtB,
                         blueprint.bogieAOffset, blueprint.bogieBOffset
-                    )
+                    ).also { car ->
+                        if (blueprint.installedReversed) car.reverse()
+                        val behavior = SimulationCarBehaviorExtension(blueprint.behavior, blueprint.control, effectObserver)
+                        onFailure(behavior::close)
+                        car.registerExtensionData(extensionPlugin, behavior)
+                        behavior.initialize(car, emptyMap())
+                    }
                 }
                 train(trainId, cars, trainName).also { created ->
+                    val configuration = SimulationTrainExtension(profile.trainControl)
+                    created.registerExtensionData(extensionPlugin, configuration)
+                    configuration.initialize(created, emptyMap())
                     created.setLocation(head)
                     publish()
                 }
             }
-        }
-    }
-
-    private fun operationDuration(
-        request: TrainOperationRequest,
-        profilesByTrainId: Map<String, SimulationControlProfile>
-    ): Long? {
-        val profile = profilesByTrainId[request.trainId] ?: return null
-        fun actions(vararg names: String): Long? {
-            val durations = names.map { profile.modelActionDurationTicks[it] ?: return null }
-            return durations.maxOrNull() ?: 0L
-        }
-        return when (val operation = request.operation) {
-            is TrainOperation.OpenDoors -> when (operation.side) {
-                DoorSide.LEFT -> actions("door-left-open")
-                DoorSide.RIGHT -> actions("door-right-open")
-                DoorSide.BOTH -> actions("door-left-open", "door-right-open")
-                DoorSide.NONE -> null
-            }
-            is TrainOperation.CloseDoors -> when (operation.side) {
-                DoorSide.LEFT -> actions("door-left-close")
-                DoorSide.RIGHT -> actions("door-right-close")
-                DoorSide.BOTH -> actions("door-left-close", "door-right-close")
-                DoorSide.NONE -> null
-            }
-            is TrainOperation.ExecuteModelAction -> actions(operation.actionName)
-            is TrainOperation.SetCabLights,
-            is TrainOperation.Announce -> 0L
         }
     }
 

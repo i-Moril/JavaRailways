@@ -209,6 +209,12 @@ class DefaultSignalEpochSourceServiceTest {
         }
 
         assertTrue(failure.message.orEmpty().contains("cannot be re-entered"))
+        val retirementFailure = assertThrows(IllegalStateException::class.java) {
+            service.replaceSourcesAtomically(owner, worldId, listOf(replacement)) {
+                service.retireSources(owner, worldId, listOf(old), emptyList(), emptyList())
+            }
+        }
+        assertTrue(retirementFailure.message.orEmpty().contains("cannot be re-entered"))
         runtime.process(frame(1L))
         assertEquals(listOf("old"), calls)
         service.replaceRoutePlanningSources(
@@ -701,6 +707,207 @@ class DefaultSignalEpochSourceServiceTest {
         service.replaceRoutePlanningSources(survivingOwner, worldId, listOf(source))
 
         assertEquals(emptyList<String>(), stalls)
+    }
+
+    @Test
+    fun `retirement preserves newer same ID objects and unrelated owners in every category`() {
+        val service = DefaultSignalEpochSourceService()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("signal")
+        val other = plugin("other")
+        val epochs = runtime()
+        val inspections = inspectionRuntime()
+        val calls = mutableListOf<String>()
+        val oldEpoch = source("test:signal", 0.0) { calls += "old" }
+        val newEpoch = source("test:signal", 0.0) { calls += "new" }
+        val oldInspection = inspectionSource()
+        val newInspection = inspectionSource()
+        val oldPlanning = routePlanningSource("test:planning")
+        val newPlanning = routePlanningSource("test:planning")
+        service.registerWorld(worldId, epochs, inspections, { emptyList() }) { reason, _ -> error(reason) }
+        service.replaceSources(owner, worldId, listOf(oldEpoch))
+        service.replaceInspectionSources(owner, worldId, listOf(oldInspection))
+        service.replaceRoutePlanningSources(owner, worldId, listOf(oldPlanning))
+        service.replaceSources(owner, worldId, listOf(newEpoch))
+        service.replaceInspectionSources(owner, worldId, listOf(newInspection))
+        service.replaceRoutePlanningSources(owner, worldId, listOf(newPlanning))
+        service.replaceSources(other, worldId, listOf(source("test:other", 20.0) { calls += "other" }))
+        inspections.synchronizeRoute(
+            work.art1st.javarailways.basic.api.observation.RailwayStateStamp("world", 1L, 7L),
+            "train", inspectionRoute()
+        )
+
+        service.retireSources(owner, worldId, listOf(oldEpoch), listOf(oldInspection), listOf(oldPlanning))
+        epochs.process(frame(1L))
+
+        assertEquals(listOf("other", "new"), calls)
+        assertEquals(80.0, inspections.maximumDeclaredLeadTimeSeconds("train"), 0.0)
+        assertEquals(setOf("signal", "other"), service.requiredDomainFeatures(worldId))
+        assertThrows(IllegalArgumentException::class.java) {
+            service.replaceRoutePlanningSources(plugin("third"), worldId, listOf(oldPlanning))
+        }
+    }
+
+    @Test
+    fun `partial retirement preserves same owner categories until their exact sources retire`() {
+        val service = DefaultSignalEpochSourceService()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("signal")
+        val epochs = runtime()
+        val calls = mutableListOf<String>()
+        val removed = source("test:removed", 0.0) { calls += "removed" }
+        val retained = source("test:retained", 20.0) { calls += "retained" }
+        val inspection = inspectionSource()
+        val planning = routePlanningSource("test:planning")
+        service.registerWorld(worldId, epochs, inspectionRuntime(), { emptyList() }) { reason, _ -> error(reason) }
+        service.replaceSources(owner, worldId, listOf(removed, retained))
+        service.replaceInspectionSources(owner, worldId, listOf(inspection))
+        service.replaceRoutePlanningSources(owner, worldId, listOf(planning))
+
+        service.retireSources(owner, worldId, listOf(removed), emptyList(), emptyList())
+        epochs.process(frame(1L))
+        assertEquals(listOf("retained"), calls)
+        service.retireSources(owner, worldId, listOf(retained), listOf(inspection), emptyList())
+        assertEquals(setOf("signal"), service.requiredDomainFeatures(worldId))
+        service.retireSources(owner, worldId, emptyList(), emptyList(), listOf(planning))
+        assertEquals(emptySet<String>(), service.requiredDomainFeatures(worldId))
+        // All runtime categories and ownership checks must accept the now-free IDs.
+        val next = plugin("next")
+        service.replaceSources(next, worldId, listOf(removed, retained))
+        service.replaceInspectionSources(next, worldId, listOf(inspection))
+        service.replaceRoutePlanningSources(next, worldId, listOf(planning))
+    }
+
+    @Test
+    fun `old retirement cannot remove callbacks from a replacement world with the same UUID`() {
+        val service = DefaultSignalEpochSourceService()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("signal")
+        val oldEpoch = source("test:main", 0.0) { error("old callback") }
+        val oldInspection = inspectionSource()
+        val oldPlanning = routePlanningSource("test:planning")
+        service.registerWorld(worldId, runtime(), inspectionRuntime(), { emptyList() }) { reason, _ -> error(reason) }
+        service.replaceSources(owner, worldId, listOf(oldEpoch))
+        service.replaceInspectionSources(owner, worldId, listOf(oldInspection))
+        service.replaceRoutePlanningSources(owner, worldId, listOf(oldPlanning))
+        service.removeWorld(worldId)
+        service.retireSources(owner, worldId, listOf(oldEpoch), listOf(oldInspection), listOf(oldPlanning))
+        val newRuntime = runtime()
+        var calls = 0
+        service.registerWorld(worldId, newRuntime, inspectionRuntime(), { emptyList() }) { reason, _ -> error(reason) }
+        service.replaceSources(owner, worldId, listOf(source("test:main", 0.0) { calls++ }))
+        service.replaceInspectionSources(owner, worldId, listOf(inspectionSource()))
+        service.replaceRoutePlanningSources(owner, worldId, listOf(routePlanningSource("test:planning")))
+
+        service.retireSources(owner, worldId, listOf(oldEpoch), listOf(oldInspection), listOf(oldPlanning))
+        newRuntime.process(frame(1L))
+        assertEquals(1, calls)
+        assertEquals(setOf("signal"), service.requiredDomainFeatures(worldId))
+        service.close()
+        service.retireSources(owner, worldId, listOf(oldEpoch), listOf(oldInspection), listOf(oldPlanning))
+    }
+
+    @Test
+    fun `retirement stalls affected world before clearing active inspection and restriction callbacks`() {
+        val service = DefaultSignalEpochSourceService()
+        val worldId = UUID.randomUUID()
+        val otherWorldId = UUID.randomUUID()
+        val owner = plugin("signal")
+        val epochs = runtime()
+        val inspections = inspectionRuntime()
+        val epoch = source("test:active", 0.0) { error("retired callback") }
+        val inspection = inspectionSource()
+        val planning = routePlanningSource("test:planning")
+        val stalls = mutableListOf<UUID>()
+        service.registerWorld(worldId, epochs, inspections, { ids ->
+            if ("test:active" in ids) listOf("train/test:active@7") else emptyList()
+        }) { reason, _ ->
+            assertTrue(reason.contains("train/test:active@7"))
+            assertTrue(reason.contains("active inspection binding"))
+            assertEquals(80.0, inspections.maximumDeclaredLeadTimeSeconds("train"), 0.0)
+            stalls += worldId
+        }
+        service.registerWorld(otherWorldId, runtime(), inspectionRuntime(), { emptyList() }) { _, _ -> stalls += otherWorldId }
+        service.replaceSources(owner, worldId, listOf(epoch))
+        service.replaceInspectionSources(owner, worldId, listOf(inspection))
+        service.replaceRoutePlanningSources(owner, worldId, listOf(planning))
+        inspections.synchronizeRoute(
+            work.art1st.javarailways.basic.api.observation.RailwayStateStamp("world", 1L, 7L),
+            "train", inspectionRoute()
+        )
+
+        service.retireSources(owner, worldId, listOf(epoch), listOf(inspection), listOf(planning))
+        epochs.process(frame(1L))
+        assertEquals(listOf(worldId), stalls)
+        assertEquals(0.0, inspections.maximumDeclaredLeadTimeSeconds("train"), 0.0)
+        assertEquals(emptySet<String>(), service.requiredDomainFeatures(worldId))
+    }
+
+    @Test
+    @work.art1st.javarailways.core.testing.IsolateGlobalHalt
+    fun `retirement still clears exact callbacks after plugin disable and global halt`() {
+        val service = DefaultSignalEpochSourceService()
+        val worldId = UUID.randomUUID()
+        var enabled = true
+        val owner = plugin("signal") { enabled }
+        val epochs = runtime()
+        val epoch = source("test:main", 0.0) { error("retired callback") }
+        val inspection = inspectionSource()
+        val planning = routePlanningSource("test:planning")
+        service.registerWorld(worldId, epochs, inspectionRuntime(), { emptyList() }) { reason, _ -> error(reason) }
+        service.replaceSources(owner, worldId, listOf(epoch))
+        service.replaceInspectionSources(owner, worldId, listOf(inspection))
+        service.replaceRoutePlanningSources(owner, worldId, listOf(planning))
+        enabled = false
+        work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt.halt("test retirement halt")
+        try {
+            service.retireSources(owner, worldId, listOf(epoch), listOf(inspection), listOf(planning))
+            epochs.process(frame(1L))
+            assertEquals(emptySet<String>(), service.requiredDomainFeatures(worldId))
+        } finally {
+            service.close()
+        }
+    }
+
+    @Test
+    fun `failed safety stall retains active callbacks while independently retiring planning`() {
+        val service = DefaultSignalEpochSourceService()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("signal")
+        val epochs = runtime()
+        val inspections = inspectionRuntime()
+        val lookupFailure = IllegalStateException("lookup failed")
+        val stallFailure = IllegalStateException("stall failed")
+        val epoch = source("test:main", 0.0) { error("retired callback") }
+        val inspection = inspectionSource()
+        val planning = routePlanningSource("test:planning")
+        var failSafety = true
+        service.registerWorld(worldId, epochs, inspections, {
+            if (failSafety) throw lookupFailure else emptyList()
+        }) { _, _ -> if (failSafety) throw stallFailure }
+        service.replaceSources(owner, worldId, listOf(epoch))
+        service.replaceInspectionSources(owner, worldId, listOf(inspection))
+        service.replaceRoutePlanningSources(owner, worldId, listOf(planning))
+        inspections.synchronizeRoute(
+            work.art1st.javarailways.basic.api.observation.RailwayStateStamp("world", 1L, 7L),
+            "train", inspectionRoute()
+        )
+
+        val failure = assertThrows(IllegalStateException::class.java) {
+            service.retireSources(owner, worldId, listOf(epoch), listOf(inspection), listOf(planning))
+        }
+        org.junit.jupiter.api.Assertions.assertSame(lookupFailure, failure)
+        assertEquals(listOf(stallFailure), failure.suppressed.toList())
+        assertEquals(80.0, inspections.maximumDeclaredLeadTimeSeconds("train"), 0.0)
+        assertEquals(setOf("signal"), service.requiredDomainFeatures(worldId))
+        assertThrows(IllegalStateException::class.java) { epochs.process(frame(1L)) }
+        service.replaceRoutePlanningSources(plugin("next"), worldId, listOf(planning))
+        failSafety = false
+        service.retireSources(owner, worldId, listOf(epoch), listOf(inspection), listOf(planning))
+        epochs.process(frame(2L))
+        assertEquals(0.0, inspections.maximumDeclaredLeadTimeSeconds("train"), 0.0)
+        assertEquals(setOf("next"), service.requiredDomainFeatures(worldId))
+        service.retireSources(owner, worldId, listOf(epoch), listOf(inspection), listOf(planning))
     }
 
     private fun runtime() = SignalEpochRuntime(

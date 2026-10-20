@@ -115,6 +115,10 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation(testFixtures(project(":Core")))
+    // Joint-fixture only: the host test compiles against SimpleSignals main to build the real
+    // PreparedSimulationFeature via the Java bridge. This is a test edge (acyclic: SimpleSignals
+    // main is compileOnly against BukkitPlugin main); the shadowJar runtime graph is untouched.
+    testImplementation(project(":SimpleSignals"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

@@ -76,7 +76,7 @@ Paper 先启用 JavaRailways
 ```
 
 当前要求的能力是 coherent observation、通用 infrastructure/resource、signal epoch source、
-inspection source、route-planning restriction source、rail target、model presentation、editor text和当前世界Issue九个service。
+inspection source、route-planning restriction source、rail target、model presentation、editor text、当前世界Issue和simulation feature preparation十个service。
 插件 descriptor 的 `depend: [JavaRailways]` 确保加载顺序；
 `api-version` 声明 Bukkit API 目标。宿主目前没有独立的数值化 signal API version，因此不能伪造
 字符串版本比较；实际 capability gate 是所需 service 类型能否全部发现。后续若宿主引入明确的
@@ -475,6 +475,8 @@ JS 明确设置速度和不透明模型名，物理／下游变化只触发受�
   Bukkit已经强制禁用时由host现有`PluginDisableEvent`路径删除失效
   planning callback。尚未实现planned-disable UI/state machine；未来正常停用仍必须先移除infrastructure dependency并调用
   宿主唯一owner-unregister gate，不能新增第二套卸载协议。
+
+按World执行归属、平台中立规则输入及公开目标安装见[信号模拟运行](simulation-runtime.md)；本地回归不代替Paper/Folia现场验收。
 
 ## 开发前检查
 

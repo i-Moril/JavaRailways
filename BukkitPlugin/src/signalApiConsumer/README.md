@@ -153,6 +153,14 @@ removal. Do not close provider/contributor registrations first as an attempted u
 `SignalEpochSourceService` intentionally has no owner-unregister method, and an empty source
 replacement is not a second plugin-unload path.
 
+Partial installation failure uses `SignalEpochSourceService.retireSources(plugin, worldId,
+epochSources, inspectionSources, planningSources)` with the exact objects submitted by that attempt.
+It preserves later objects with the same IDs and other owners. Retained restrictions or inspection
+bindings require the host to stall only the affected world before removing those safety callbacks;
+a failed stall keeps them available for a cleanup retry. If retirement throws, keep the callbacks'
+engine/resources alive and retry before closing them. This does not remove infrastructure
+registrations or replace the planned owner-unregister sequence above.
+
 ### Unload add-ons before JavaRailways
 
 Stop producing model updates, then call `ModelPresentationService.closeOwner(plugin)`. Its

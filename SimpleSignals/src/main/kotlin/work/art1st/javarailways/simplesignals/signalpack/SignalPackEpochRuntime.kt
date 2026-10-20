@@ -113,7 +113,7 @@ internal class SignalPackEpochRuntime private constructor(
                 val json = project(prepared, plan, occupancy, input.observation.activeContinuations, selection, candidate)
                 actualInput = json
                 val output = checkNotNull(logic).evaluate(prepared.signal.logicId, json)
-                require(output.modelVariant in prepared.signal.model.materialized.variants()) {
+                require(output.modelVariant in prepared.signal.variants) {
                     "signal device '$deviceId' selected undeclared model variant '${output.modelVariant}'"
                 }
                 SectionSignalState.Available(
@@ -251,7 +251,7 @@ internal class SignalPackEpochRuntime private constructor(
     )
 
     private class PreparedBinding(
-        val signal: SignalPackSignal,
+        val signal: SignalRuleType,
         val plans: List<PreparedPlan>,
         private val fixedRouteId: String?,
         private val currentEntryId: String?
@@ -292,6 +292,15 @@ internal class SignalPackEpochRuntime private constructor(
         fun compile(
             publication: SimpleSignalsRuntimePublication,
             catalog: SignalPackCatalog,
+            logic: SignalLogicRuntime,
+            bindings: Collection<SignalTypeBinding>,
+            reportFailure: (String, Throwable) -> Unit = { _, _ -> },
+            railSpeedLimits: ((TopologyState, Collection<UUID>) -> Map<UUID, Double?>)? = null
+        ): SignalPackEpochRuntime = compile(publication, catalog.rules, logic, bindings, reportFailure, railSpeedLimits)
+
+        fun compile(
+            publication: SimpleSignalsRuntimePublication,
+            catalog: SignalRuleCatalog,
             logic: SignalLogicRuntime,
             bindings: Collection<SignalTypeBinding>,
             reportFailure: (String, Throwable) -> Unit = { _, _ -> },

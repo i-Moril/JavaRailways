@@ -1,5 +1,8 @@
 package work.art1st.javarailways.bukkit.http
 
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertNull
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotSame
@@ -37,6 +40,7 @@ import work.art1st.javarailways.simpleato.timetable.InfrastructureDependencyServ
 import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContextProvider
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
+import work.art1st.javarailways.bukkit.behavior.CapturedCarBehavior
 import work.art1st.javarailways.bukkit.config.model.MotorControlConfig
 import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -64,6 +68,8 @@ class IsolatedTimetableSimulationFactoryTest {
         if (SimpleATOPlugin.instanceOrNull() == null) {
             SimpleATOPlugin.INSTANCE = SimpleATOPlugin(102)
         }
+        work.art1st.javarailways.core.api.util.plugin.PluginRegistry.register(BasicPlugin.INSTANCE)
+        work.art1st.javarailways.core.api.util.plugin.PluginRegistry.register(SimpleATOPlugin.INSTANCE)
     }
 
     @Test
@@ -84,7 +90,8 @@ class IsolatedTimetableSimulationFactoryTest {
         val profile = profile()
         val factory = IsolatedTimetableSimulationFactory(
             IsolatedSimulationProfileResolver { _, _, _ -> profile },
-            9.80665
+            9.80665,
+            extensionPlugin = BasicPlugin.INSTANCE
         )
         val snapshot = factory.capture(source, timetable, listOf(
             TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")
@@ -145,7 +152,8 @@ class IsolatedTimetableSimulationFactoryTest {
         val factory = IsolatedTimetableSimulationFactory(
             IsolatedSimulationProfileResolver { _, _, _ -> profile() },
             9.80665,
-            atoSafetyDistanceMeters = 7.5
+            atoSafetyDistanceMeters = 7.5,
+            extensionPlugin = BasicPlugin.INSTANCE
         )
         fun capture(timetable: Timetable) = factory.capture(source, timetable, listOf(
             TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")
@@ -190,7 +198,8 @@ class IsolatedTimetableSimulationFactoryTest {
         val profile = profile()
         val factory = IsolatedTimetableSimulationFactory(
             IsolatedSimulationProfileResolver { _, _, _ -> profile },
-            9.80665
+            9.80665,
+            extensionPlugin = BasicPlugin.INSTANCE
         )
         val snapshot = factory.capture(source, Timetable("t", services = services), services.map {
             TimetableProfileSelection(it.id, SimulationProfileType.TRAIN_TEMPLATE, "template")
@@ -212,7 +221,8 @@ class IsolatedTimetableSimulationFactoryTest {
         }
         val factory = IsolatedTimetableSimulationFactory(
             IsolatedSimulationProfileResolver { _, _, id -> profile(id) },
-            9.80665
+            9.80665,
+            extensionPlugin = BasicPlugin.INSTANCE
         )
 
         val failure = assertThrows(IllegalArgumentException::class.java) {
@@ -233,7 +243,8 @@ class IsolatedTimetableSimulationFactoryTest {
         try {
             val factory = IsolatedTimetableSimulationFactory(
                 IsolatedSimulationProfileResolver { _, _, _ -> profile() }, 9.80665,
-                requiredDomainFeatures = { setOf("simplesignals") }
+                requiredDomainFeatures = { setOf("simplesignals") },
+                extensionPlugin = BasicPlugin.INSTANCE
             )
             val timetable = Timetable("unsupported", services = emptyList())
             val failure = assertThrows(IllegalArgumentException::class.java) {
@@ -280,10 +291,50 @@ class IsolatedTimetableSimulationFactoryTest {
         })
         val timetable = Timetable("t", services = listOf(TimetableService("duty", TrainSelector.TrainId("shared"),
             listOf(TimetableStep.Check("origin"), TimetableStep.At(0, TimetableAction.GoTo("terminal"))))))
-        val factory = IsolatedTimetableSimulationFactory(IsolatedSimulationProfileResolver { _, _, _ -> profile() }, 9.80665)
+        val sourceId = java.util.UUID.randomUUID()
+        val features = work.art1st.javarailways.bukkit.api.internal.DefaultSimulationFeatureService()
+        val epochs = linkedMapOf<java.util.UUID, java.util.concurrent.atomic.AtomicInteger>()
+        val closed = arrayListOf<java.util.UUID>()
+        val owner = java.lang.reflect.Proxy.newProxyInstance(org.bukkit.plugin.Plugin::class.java.classLoader,
+            arrayOf(org.bukkit.plugin.Plugin::class.java)) { _, method, _ -> when (method.name) {
+                "getName" -> "ExampleSignals"
+                "isEnabled" -> true
+                else -> null
+            } } as org.bukkit.plugin.Plugin
+        features.register(owner) { capturedId ->
+            assertEquals(sourceId, capturedId)
+            object : work.art1st.javarailways.simpleato.api.simulation.PreparedSimulationFeature {
+                override val id = "examplesignals"
+                override fun install(target: work.art1st.javarailways.simpleato.api.simulation.SimulationDomainTarget): AutoCloseable {
+                    val calls = java.util.concurrent.atomic.AtomicInteger()
+                    epochs[target.worldId] = calls
+                    assertEquals(setOf(rail.id), target.topology.railProjection.keys)
+                    assertEquals(setOf(rail.id), target.operatingDirections(listOf(rail.id)).directions.keys)
+                    assertEquals(mapOf(rail.id to null), target.railSpeedLimits(listOf(rail.id)))
+                    val token = target.installSignalSources(listOf(
+                        work.art1st.javarailways.simpleato.api.signal.SignalEpochSource(
+                            "example:captured", emptyList(), emptyList(), listOf(rail.id)) {
+                            calls.incrementAndGet()
+                            work.art1st.javarailways.simpleato.api.signal.SignalEpochResult.empty()
+                        }))
+                    return AutoCloseable { token.close(); closed += target.worldId }
+                }
+            }
+        }
+        val factory = IsolatedTimetableSimulationFactory(
+            IsolatedSimulationProfileResolver { _, _, _ -> profile() }, 9.80665,
+            requiredDomainFeatures = { setOf("examplesignals") },
+            prepareDomainFeatures = { features.prepare(sourceId) },
+            extensionPlugin = BasicPlugin.INSTANCE
+        )
         try {
-            val snapshot = factory.capture(source, timetable, listOf(
-                TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")))
+            val snapshot = work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker.run { source.executionOwner.run {
+                source.physicsCoordinator.processBetweenFrames {
+                    factory.capture(source, timetable, listOf(
+                        TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")))
+                }
+            } }
+            features.unregisterOwner(owner)
             factory.create(snapshot, 1).use { first -> factory.create(snapshot, 1).use { second ->
                 assertEquals(listOf(first.world, second.world), providerWorlds)
                 assertEquals(first.world.runtimeId, first.operationalRuntime.worldId)
@@ -295,13 +346,92 @@ class IsolatedTimetableSimulationFactoryTest {
                 assertNotSame(first.world.simpleAtoWorldData.dispatcher, second.world.simpleAtoWorldData.dispatcher)
                 assertNotSame(first.routeAdmissionHost, second.routeAdmissionHost)
                 assertNotSame(first.world.basicWorldData.railMetadata, second.world.basicWorldData.railMetadata)
+                val firstId = java.util.UUID.fromString(first.world.runtimeId)
+                val secondId = java.util.UUID.fromString(second.world.runtimeId)
+                assertNotSame(epochs[firstId], epochs[secondId])
+                work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker.run {
+                    first.world.physicsCoordinator.stepSimulation(50.0).await()
+                }
+                assertEquals(1, epochs.getValue(firstId).get())
+                assertEquals(0, epochs.getValue(secondId).get())
                 first.close()
+                assertEquals(listOf(firstId), closed)
                 val result = second.simulate(IsolatedTimetableSimulationRequest(timetable))
                 assertTrue(result is IsolatedTimetableSimulationResult.Completed, result.toString())
+                assertTrue(epochs.getValue(secondId).get() > 0)
+                assertEquals(1, epochs.getValue(firstId).get())
             } }
         } finally {
+            features.close()
             source.physicsCoordinator.close()
             (source.tickManager as AutoCloseable).close()
+        }
+    }
+
+    @Test
+    @OptIn(work.art1st.javarailways.core.api.util.plugin.ExtensionData::class)
+    fun `mixed installation survives seed and split rebuilds ATO from exact current car profiles`() {
+        val source = createTestWorld()
+        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, 1))
+        registerWorldData(source)
+        source.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 60.0))
+        source.basicWorldData.wayPoints.add(WayPoint("terminal", "Terminal", rail.id, 250.0))
+        val controls = listOf(20_000.0, 30_000.0, 40_000.0).map { CarControlConfig(mass = it) }
+        val base = profile()
+        val mixed = base.copy(carControls = controls, cars = controls.mapIndexed { index, control ->
+            base.cars.single().copy(control = control, installedReversed = index != 1)
+        })
+        val timetable = Timetable("structure", services = listOf(TimetableService("duty",
+            TrainSelector.TrainId("scheduled"), listOf(TimetableStep.Check("origin"),
+                TimetableStep.At(0, TimetableAction.GoTo("terminal"))))))
+        val factory = IsolatedTimetableSimulationFactory(
+            IsolatedSimulationProfileResolver { _, _, _ -> mixed }, 9.80665,
+            extensionPlugin = BasicPlugin.INSTANCE)
+        val snapshot = factory.capture(source, timetable, listOf(
+            TimetableProfileSelection("duty", SimulationProfileType.TRAIN_TEMPLATE, "template")))
+        source.physicsCoordinator.close()
+        (source.tickManager as AutoCloseable).close()
+        factory.create(snapshot, 1).use { simulation ->
+            val world = simulation.world
+            val train = world.allTrains.single() as work.art1st.javarailways.core.physics.train.CoreTrain
+            assertEquals(listOf(true, false, true), world.onOwnerForTest { train.save() }.cars.map { it.installedReversed })
+            val originalCars = train.cars.toList()
+            val originalExtensions = originalCars.map {
+                it.getExtensionDataOrNull<work.art1st.javarailways.bukkit.operation.SimulationCarBehaviorExtension>(BasicPlugin.INSTANCE)
+            }
+            world.onOwnerForTest {
+                world.simpleAtoWorldData.timetables.add(timetable)
+                val started = world.simpleAtoWorldData.dispatcher.startService(world, timetable.id, "duty")
+                assertTrue(started is work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult.Started, started.toString())
+            }
+            val originalAto = train.controller as work.art1st.javarailways.simpleato.controller.SimpleATO
+            val split = train.splitBefore(originalCars[1].id, "separated")
+            world.onOwnerForTest { world.physicsCoordinator.drainBetweenFramesOperations() }
+            val separated = split.get(5, java.util.concurrent.TimeUnit.SECONDS) as work.art1st.javarailways.core.physics.train.CoreTrain
+            assertSame(originalAto, train.controller)
+            assertEquals(listOf(originalCars.first()), train.cars)
+            assertSame(controls.first(), originalAto.dynamicsProfileFor(originalCars.first()))
+            assertNull(originalAto.dynamicsProfileFor(originalCars[1]))
+            assertNull(separated.controller)
+            assertNotSame(train.getExtensionDataOrNull<work.art1st.javarailways.bukkit.extension.train.SimulationTrainExtension>(BasicPlugin.INSTANCE),
+                separated.getExtensionDataOrNull<work.art1st.javarailways.bukkit.extension.train.SimulationTrainExtension>(BasicPlugin.INSTANCE))
+            val newOrigin = "split-origin"
+            world.onOwnerForTest {
+                world.basicWorldData.wayPoints.add(WayPoint(newOrigin, "Split origin", rail.id,
+                    separated.headLocation.arcLengthIn(ViewDirection.AB)))
+                val detachedTimetable = Timetable("split-operation", services = listOf(TimetableService("split-duty",
+                    TrainSelector.TrainId(separated.id), listOf(TimetableStep.Check(newOrigin),
+                        TimetableStep.At(0, TimetableAction.GoTo("terminal"))))))
+                world.simpleAtoWorldData.timetables.add(detachedTimetable)
+                val started = world.simpleAtoWorldData.dispatcher.startService(world, detachedTimetable.id, "split-duty")
+                assertTrue(started is work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult.Started, started.toString())
+            }
+            val newAto = separated.controller as work.art1st.javarailways.simpleato.controller.SimpleATO
+            separated.cars.forEachIndexed { index, car ->
+                assertSame(originalCars[index + 1], car)
+                assertSame(originalExtensions[index + 1], car.getExtensionDataOrNull<work.art1st.javarailways.bukkit.operation.SimulationCarBehaviorExtension>(BasicPlugin.INSTANCE))
+                assertSame(controls[index + 1], newAto.dynamicsProfileFor(car))
+            }
         }
     }
 
@@ -314,7 +444,7 @@ class IsolatedTimetableSimulationFactoryTest {
             id,
             TrainControlConfig(maxSpeed = 10.0),
             listOf(carControl),
-            listOf(SimulationCarBlueprint(10.0, 0.0, 0.0, 0.0, 3.5, -3.5, carControl))
+            listOf(SimulationCarBlueprint(10.0, 0.0, 0.0, 0.0, 3.5, -3.5, carControl, CapturedCarBehavior(null, emptyMap(), emptyMap())))
         )
     }
 

@@ -234,6 +234,26 @@ internal class SimpleSignalsWorldRuntime(
     )
 
     private val lock = Any()
+    /** Low-frequency work only; the physics callback never acquires this monitor. */
+    internal val managementLock = Any()
+    internal var installed = false
+    // A failed host detach retains this reservation and its engine until remove/clear retries it.
+    @Volatile internal var sourceRetirementPending = false
+    private var signalLogic: SignalLogicRuntime? = null
+
+    internal fun signalLogic(catalog: work.art1st.javarailways.simplesignals.signalpack.SignalRuleCatalog): SignalLogicRuntime =
+        synchronized(managementLock) {
+            check(!closed) { "SimpleSignals world runtime is closed: $worldId" }
+            signalLogic ?: SignalLogicRuntime(catalog).also { signalLogic = it }
+        }
+
+    internal fun markClosed() { closed = true }
+
+    internal fun closeLogic() {
+        val retired = synchronized(managementLock) { signalLogic.also { signalLogic = null } }
+        retired?.close()
+    }
+
     internal val topologyGuard = SectionTopologyGuard()
     internal var topologySubscription: AutoCloseable? = null
     internal val topologyWorkerScheduled = java.util.concurrent.atomic.AtomicBoolean()
@@ -284,8 +304,9 @@ internal class SimpleSignalsWorldRuntime(
         closed = true
         notifyPreviewRegions()
         previewRegionObservers.clear()
-        topologySubscription?.close()
-        modelHandles.retire()
+        val subscription = topologySubscription
+        topologySubscription = null
+        try { subscription?.close() } finally { modelHandles.retire() }
     }
 
     fun currentModels(): SignalModelBinding? = state.models
@@ -957,10 +978,7 @@ internal class SimpleSignalsWorldRuntimeManager(
     private val topologyWorker: (() -> Unit) -> Unit = { action -> CompletableFuture.runAsync(action) },
     private val worldIssues: WorldIssueService = WorldIssueService()
 ) {
-    private data class PreparedSignalPacks(
-        val catalog: SignalPackCatalog,
-        val logic: SignalLogicRuntime
-    )
+    private data class PreparedSignalPacks(val catalog: SignalPackCatalog)
 
     private enum class SignalPackFallback {
         NONE,
@@ -988,22 +1006,19 @@ internal class SimpleSignalsWorldRuntimeManager(
         val prepared = try {
             java.nio.file.Files.createDirectories(directory)
             val catalog = SignalPackLoader.load(directory)
-            PreparedSignalPacks(catalog, SignalLogicRuntime(catalog))
+            PreparedSignalPacks(catalog)
         } catch (failure: Exception) {
             signalPackFailure = failure
             reportModelFailure("SimpleSignals signal rules unavailable: packages could not be loaded from $directory", failure)
             return
         }
         val worlds = synchronized(lock) {
-            if (closed) {
-                prepared.logic.close()
-                return
-            }
+            if (closed) return
             check(signalPacks == null) { "SimpleSignals signal catalog is already prepared" }
             signalPacks = prepared
             runtimes.values.toList()
         }
-        worlds.filter(::attachSignalPacks).forEach(::attachModels)
+        worlds.forEach { runtime -> modelWorker { if (attachSignalPacks(runtime)) attachModels(runtime) } }
     }
 
     private fun signalTypeBindings(publication: SimpleSignalsRuntimePublication): List<SignalTypeBinding> =
@@ -1014,6 +1029,7 @@ internal class SimpleSignalsWorldRuntimeManager(
         }).sortedBy(SignalTypeBinding::deviceId)
 
     private fun prepareSectionOccupancy(
+        runtime: SimpleSignalsWorldRuntime,
         publication: SimpleSignalsRuntimePublication,
         fallback: SignalPackFallback,
         packages: PreparedSignalPacks? = signalPacks
@@ -1023,7 +1039,7 @@ internal class SimpleSignalsWorldRuntimeManager(
         if (packages != null) {
             return try {
                 SectionOccupancyRuntime.from(publication,
-                    SignalPackEpochRuntime.compile(publication, packages.catalog, packages.logic, bindings,
+                    SignalPackEpochRuntime.compile(publication, packages.catalog.rules, runtime.signalLogic(packages.catalog.rules), bindings,
                         reportFailure = ::reportModelFailure) { topology, rails ->
                         infrastructure.railSpeedLimits(publication.definitions.worldId, topology, rails)
                     }.also { bindIssues(it, publication) })
@@ -1108,6 +1124,7 @@ internal class SimpleSignalsWorldRuntimeManager(
      * is compiled strictly against its JavaScript signal type.
      */
     private fun prepareCandidateSectionOccupancy(
+        runtime: SimpleSignalsWorldRuntime,
         base: SimpleSignalsRuntimePublication,
         candidate: SimpleSignalsRuntimePublication,
         packages: PreparedSignalPacks? = signalPacks
@@ -1119,17 +1136,17 @@ internal class SimpleSignalsWorldRuntimeManager(
         } else {
             SignalPackFallback.NONE
         }
-        return prepareSectionOccupancy(candidate, fallback, packages)
+        return prepareSectionOccupancy(runtime, candidate, fallback, packages)
     }
 
     /** Catch up one exact publication; a concurrent definition/topology replacement simply retries later. */
-    private fun attachSignalPacks(runtime: SimpleSignalsWorldRuntime): Boolean {
+    private fun attachSignalPacks(runtime: SimpleSignalsWorldRuntime): Boolean = synchronized(runtime.managementLock) {
         while (!closed && !runtime.closed && runtimeReadView[runtime.worldId] === runtime) {
             val publication = runtime.authoringPublication()
             if (signalTypeBindings(publication).isEmpty()) return true
             val previous = runtime.currentSectionOccupancy()
             val occupancy = try {
-                prepareSectionOccupancy(publication, SignalPackFallback.NONE).also { it.retainPublishedFrom(previous) }
+                prepareSectionOccupancy(runtime, publication, SignalPackFallback.NONE).also { it.retainPublishedFrom(previous) }
             } catch (failure: Exception) {
                 if (runtime.authoringPublication() !== publication) continue
                 synchronized(issueLock) {
@@ -1264,7 +1281,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                 return
             }
             val attached = try {
-                synchronized(lock) {
+                synchronized(runtime.managementLock) {
                     if (closed || runtime.closed || runtimeReadView[runtime.worldId] !== runtime) false else {
                         check(infrastructure.currentTopology(runtime.worldId) === publication.topology) {
                             "topology root changed before model attachment"
@@ -1320,24 +1337,68 @@ internal class SimpleSignalsWorldRuntimeManager(
     fun currentModelTypeCatalog(snapshot: ModelTypeCatalogSnapshot?): Boolean =
         !closed && if (snapshot == null) modelPackages == null else modelPackages?.let(snapshot::represents) == true
 
+    /** Called under the source World's capture boundary; never takes a management or guest monitor. */
+    fun prepareSimulation(worldId: UUID): work.art1st.javarailways.simpleato.api.simulation.PreparedSimulationFeature {
+        val runtime = checkNotNull(runtimeReadView[worldId]) { "SimpleSignals world runtime is unavailable: $worldId" }
+        val publication = runtime.authoringPublication()
+        val packages = checkNotNull(signalPacks) { "SimpleSignals signal catalog is unavailable for world $worldId" }
+        val guard = runtime.topologyGuard.capture()
+        check(!closed && !runtime.closed && runtimeReadView[worldId] === runtime &&
+            guard.topology === publication.topology && guard.pending.isEmpty()) {
+            "SimpleSignals topology preparation is pending for world $worldId"
+        }
+        return SimpleSignalsSimulationFeature(plugin.name.lowercase(), publication.definitions,
+            packages.catalog.rules, protectionRegionMaxDistanceMeters)
+    }
+
     fun validateRouteAdmission(worldId: UUID, intent: work.art1st.javarailways.basic.api.route.RouteResourceIntent) {
         val publication = checkNotNull(runtimeReadView[worldId]) { "SimpleSignals world runtime is unavailable" }.authoringPublication()
         publication.unavailableTerritory.requireUsable(intent.route, intent.desiredAuthority.distanceFromRouteStartMeters)
     }
 
-    fun install(worldId: UUID): SimpleSignalsWorldInstallResult {
-        val result = synchronized(lock) {
-        if (closed) return@synchronized SimpleSignalsWorldInstallResult(SimpleSignalsWorldInstallStatus.UNAVAILABLE,
-            "SimpleSignals is disabled")
-        if (worldId in runtimes) {
-            return@synchronized SimpleSignalsWorldInstallResult(
-                SimpleSignalsWorldInstallStatus.ALREADY_INSTALLED
-            )
+    fun install(worldId: UUID, deferSignalPreparation: Boolean = false): SimpleSignalsWorldInstallResult {
+        // Reserve the actual load identity without publishing an incompletely installed runtime.
+        val runtime: SimpleSignalsWorldRuntime
+        while (true) {
+            val reserved = synchronized(lock) {
+                if (closed) return SimpleSignalsWorldInstallResult(SimpleSignalsWorldInstallStatus.UNAVAILABLE,
+                    "SimpleSignals is disabled")
+                val previous = runtimes[worldId]
+                if (previous == null) {
+                    SimpleSignalsWorldRuntime(worldId,
+                        work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(
+                            { topology, rails -> infrastructure.operatingDirections(worldId, topology, rails) }),
+                        protectionRegionMaxDistanceMeters).also { runtimes[worldId] = it }
+                } else previous
+            }
+            if (!reserved.closed) {
+                // A concurrent installer owns this same reservation until its local gate completes.
+                runtime = reserved
+                break
+            }
+            synchronized(reserved.managementLock) {
+                if (reserved.sourceRetirementPending) return SimpleSignalsWorldInstallResult(
+                    SimpleSignalsWorldInstallStatus.UNAVAILABLE,
+                    "SimpleSignals failed installation is awaiting source cleanup")
+                synchronized(lock) {
+                    if (runtimes[worldId] === reserved) {
+                        clearIssues(worldId)
+                        runtimes.remove(worldId)
+                    }
+                }
+            }
         }
+        val result = synchronized(runtime.managementLock) {
+        var installFailClosed = true
+        val outcome = run installation@ {
+        if (closed || runtime.closed) return@installation SimpleSignalsWorldInstallResult(
+            SimpleSignalsWorldInstallStatus.UNAVAILABLE, "SimpleSignals world installation was retired")
+        if (runtimeReadView[worldId] === runtime) return@installation SimpleSignalsWorldInstallResult(
+            SimpleSignalsWorldInstallStatus.ALREADY_INSTALLED)
         val load = try {
             definitions.load(worldId)
         } catch (failure: Exception) {
-            return@synchronized unavailable(
+            return@installation unavailable(
                 worldId,
                 "SimpleSignals definitions could not be read: " +
                     (failure.message ?: failure.javaClass.simpleName)
@@ -1346,7 +1407,8 @@ internal class SimpleSignalsWorldRuntimeManager(
         val topology = try {
             infrastructure.currentTopology(worldId)
         } catch (failure: Exception) {
-            return@synchronized SimpleSignalsWorldInstallResult(
+            installFailClosed = false
+            return@installation SimpleSignalsWorldInstallResult(
                 SimpleSignalsWorldInstallStatus.UNAVAILABLE,
                 failure.message ?: failure.javaClass.simpleName
             )
@@ -1370,7 +1432,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                 }
             )
             is SimpleSignalsWorldDefinitionLoadResult.Corrupted -> {
-                return@synchronized unavailable(
+                return@installation unavailable(
                     worldId,
                     "all SimpleSignals definition files are invalid",
                     load.failures.map { failure ->
@@ -1380,27 +1442,25 @@ internal class SimpleSignalsWorldRuntimeManager(
             }
         }
 
-        val runtime = SimpleSignalsWorldRuntime(worldId, work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy(
-            { topology, rails -> infrastructure.operatingDirections(worldId, topology, rails) }), protectionRegionMaxDistanceMeters)
         val initial = try {
             runtime.initializeDefinitions(topology, loaded.definitions)
         } catch (failure: Exception) {
-            return@synchronized unavailable(
+            return@installation unavailable(
                 worldId,
                 "SimpleSignals definitions could not be compiled: ${describe(failure)}"
             )
         }
         if (initial.status != SimpleSignalsDefinitionPublicationStatus.PUBLISHED) {
-            return@synchronized unavailable(
+            return@installation unavailable(
                 worldId,
                 "SimpleSignals definitions were rejected: ${initial.diagnostics.joinToString()}"
             )
         }
         val sectionOccupancy = try {
-            prepareSectionOccupancy(runtime.authoringPublication(), SignalPackFallback.ANY_FAILURE)
+            prepareSectionOccupancy(runtime, runtime.authoringPublication(), SignalPackFallback.ANY_FAILURE,
+                if (deferSignalPreparation) null else signalPacks)
         } catch (failure: Exception) {
-            runtime.retire()
-            return@synchronized unavailable(
+            return@installation unavailable(
                 worldId,
                 "SimpleSignals signal runtime could not be prepared: ${describe(failure)}"
             )
@@ -1415,36 +1475,36 @@ internal class SimpleSignalsWorldRuntimeManager(
             }
             check(infrastructure.currentTopology(worldId) === topology) { "topology changed during world installation" }
         } catch (failure: Exception) {
-            runtime.retire()
-            return@synchronized unavailable(worldId, "SimpleSignals topology observation could not be installed: ${describe(failure)}")
+            return@installation unavailable(worldId, "SimpleSignals topology observation could not be installed: ${describe(failure)}")
         }
         try {
-            signalEpochSources.replaceSources(
-                plugin,
-                worldId,
-                sectionOccupancy.sources
-            )
+            signalEpochSources.replaceSourcesAtomically(plugin, worldId, sectionOccupancy.sources) {
+                check(!closed && !runtime.closed && synchronized(lock) { runtimes[worldId] === runtime }) {
+                    "world installation became stale"
+                }
+                check(infrastructure.currentTopology(worldId) === topology) { "topology changed during world installation" }
+            }
         } catch (failure: Exception) {
-            runtime.retire()
-            return@synchronized unavailable(
+            return@installation unavailable(
                 worldId,
                 "SimpleSignals section occupancy could not be registered: ${describe(failure)}"
             )
         }
         try {
+            check(!runtime.closed) { "world installation became stale" }
             routePlanningSources.replaceRoutePlanningSources(
                 plugin,
                 worldId,
                 listOf(runtime.routePlanningBinding)
             )
         } catch (failure: Exception) {
-            runtime.retire()
-            return@synchronized unavailable(
+            return@installation unavailable(
                 worldId,
                 "SimpleSignals route source could not be registered: ${describe(failure)}"
             )
         }
         try {
+            check(!runtime.closed) { "world installation became stale" }
             inspectionSources.replaceInspectionSources(
                 plugin,
                 worldId,
@@ -1454,25 +1514,56 @@ internal class SimpleSignalsWorldRuntimeManager(
                 )
             )
         } catch (failure: Exception) {
-            runtime.retire()
-            return@synchronized unavailable(
+            return@installation unavailable(
                 worldId,
                 "SimpleSignals inspection sources could not be registered: ${describe(failure)}"
             )
         }
-        runtimes[worldId] = runtime
-        publishRuntimeReadView()
-        if (runtime.topologyGuard.capture().pending.isNotEmpty()) scheduleTopologyRevalidation(runtime)
+        synchronized(lock) {
+            if (!closed && !runtime.closed && runtimes[worldId] === runtime) {
+                runtime.installed = true
+                publishRuntimeReadView()
+            }
+        }
+        if (closed || runtime.closed) return@installation SimpleSignalsWorldInstallResult(
+            SimpleSignalsWorldInstallStatus.UNAVAILABLE, "SimpleSignals world installation was retired")
         SimpleSignalsWorldInstallResult(
             SimpleSignalsWorldInstallStatus.INSTALLED,
             definitionSource = loaded.source,
             diagnostics = loaded.diagnostics
         )
         }
-        if (result.status == SimpleSignalsWorldInstallStatus.INSTALLED) runtimeReadView[worldId]?.let {
-            worldIssues.replace(worldId, "simplesignals:installation", emptyList())
-            publishIssues(it)
-            scheduleModels(it)
+        if (outcome.status != SimpleSignalsWorldInstallStatus.INSTALLED &&
+            outcome.status != SimpleSignalsWorldInstallStatus.ALREADY_INSTALLED) {
+            rollbackFailedInstallation(runtime, outcome, installFailClosed)
+        } else outcome
+        }
+        if (result.status == SimpleSignalsWorldInstallStatus.INSTALLED) {
+            synchronized(lock) {
+                if (runtimeReadView[worldId] === runtime) synchronized(issueLock) {
+                    worldIssues.replace(worldId, "simplesignals:installation", emptyList())
+                }
+            }
+            publishIssues(runtime)
+            if (runtime.topologyGuard.capture().pending.isNotEmpty()) scheduleTopologyRevalidation(runtime)
+            if (deferSignalPreparation && signalPacks != null) modelWorker {
+                if (attachSignalPacks(runtime)) attachModels(runtime)
+            } else scheduleModels(runtime)
+        } else if (result.status != SimpleSignalsWorldInstallStatus.ALREADY_INSTALLED) {
+            var retirementFailure: Throwable? = null
+            synchronized(runtime.managementLock) {
+                if (runtime.sourceRetirementPending) return result
+                try { runtime.retire() } catch (failure: Throwable) { retirementFailure = failure }
+                finally {
+                    synchronized(lock) {
+                        if (runtimes[worldId] === runtime) runtimes.remove(worldId)
+                        publishRuntimeReadView()
+                    }
+                }
+            }
+            CompletableFuture.runAsync { closeRuntimeResources(runtime, retirementFailure, retire = false) }
+                .whenComplete { _, failure -> if (failure != null)
+                    reportModelFailure("SimpleSignals failed-install cleanup for world $worldId", failure) }
         }
         return result
     }
@@ -1490,7 +1581,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                         infrastructure.currentTopology(runtime.worldId)
                         val base = runtime.authoringPublication()
                         val candidate = SectionTopologyRevalidation.compile(base, captured, protectionRegionMaxDistanceMeters)
-                        val occupancy = prepareSectionOccupancy(candidate, SignalPackFallback.ANY_FAILURE)
+                        val occupancy = prepareSectionOccupancy(runtime, candidate, SignalPackFallback.ANY_FAILURE)
                         occupancy.retainPublishedFrom(runtime.currentSectionOccupancy())
                         var committed = false
                         try {
@@ -1505,7 +1596,6 @@ internal class SimpleSignalsWorldRuntimeManager(
                         }
                         if (committed) {
                             publishIssues(runtime)
-                            worldIssues.replace(runtime.worldId, "simplesignals:revalidation", emptyList())
                             scheduleModels(runtime)
                         }
                         if (committed && runtime.topologyGuard.capture().pending.isEmpty()) break
@@ -1543,32 +1633,89 @@ internal class SimpleSignalsWorldRuntimeManager(
 
     fun remove(worldId: UUID) {
         val removed = synchronized(lock) {
-            val removed = runtimes.remove(worldId)
-            removed?.retire()
-            publishRuntimeReadView()
-            clearIssues(worldId)
-            removed
+            runtimes[worldId]?.also { it.markClosed() }
+                .also { publishRuntimeReadView() }
+        } ?: return
+        var retirementFailure: Throwable? = null
+        // Finish an old install and retire diagnostics before making its UUID available to a new load.
+        synchronized(removed.managementLock) {
+            if (removed.sourceRetirementPending) retireFailedInstallationSources(removed)
+            try { removed.retire() } catch (failure: Throwable) { retirementFailure = failure }
+            finally {
+                synchronized(lock) {
+                    if (runtimes[worldId] === removed) {
+                        clearIssues(worldId)
+                        runtimes.remove(worldId)
+                    }
+                    publishRuntimeReadView()
+                }
+            }
         }
-        removed?.let { CompletableFuture.runAsync { it.closeModels() } }
+        CompletableFuture.runAsync { closeRuntimeResources(removed, retirementFailure, retire = false) }
+            .whenComplete { _, failure -> if (failure != null)
+                reportModelFailure("SimpleSignals world cleanup failed for $worldId", failure) }
+        retirementFailure?.let { throw it }
+    }
+
+    /** Cleanup runs on workers; guest close is never performed inside either management monitor. */
+    private fun closeRuntimeResources(runtime: SimpleSignalsWorldRuntime, initialFailure: Throwable? = null,
+        retire: Boolean = true) {
+        var failure = initialFailure
+        fun attempt(action: () -> Unit) {
+            try { action() } catch (error: Throwable) {
+                if (failure == null) failure = error else if (error !== failure) failure!!.addSuppressed(error)
+            }
+        }
+        // An uncertain detach must leave the engine alive, even if every other close could proceed.
+        synchronized(runtime.managementLock) {
+            if (runtime.sourceRetirementPending) retireFailedInstallationSources(runtime)
+            synchronized(lock) {
+                if (runtimes[runtime.worldId] === runtime) runtimes.remove(runtime.worldId)
+                publishRuntimeReadView()
+            }
+        }
+        if (retire) attempt { synchronized(runtime.managementLock) { runtime.retire() } }
+        attempt { runtime.closeModels() }
+        attempt { runtime.closeLogic() }
+        failure?.let { throw it }
     }
 
     fun clearLocal(): CompletionStage<Void> {
-        val (removed, logic) = synchronized(lock) {
+        val removed = synchronized(lock) {
             closed = true
             val removed = runtimes.values.toList()
-            removed.forEach { it.retire(); clearIssues(it.worldId) }
-            runtimes.clear()
+            removed.forEach { it.markClosed() }
+            // A still-installing candidate can become pending while its management gate is held.
+            // Keep every reservation until its worker confirms source detachment under that gate.
+            publishRuntimeReadView()
+            removed
+        }
+        synchronized(issueLock) {
             listOf("simplesignals:topology", "simplesignals:rules", "simplesignals:revalidation", "simplesignals:installation", "simplesignals:preparation", "simplesignals:models", "simplesignals:model-preparation")
                 .forEach(worldIssues::clearSource)
-            publishRuntimeReadView()
-            removed to signalPacks?.logic
         }
-        // Host handles are thread-safe. This continuation survives cancellation of disabled-owner Paper tasks.
-        return CompletableFuture.runAsync {
-            removed.forEach(SimpleSignalsWorldRuntime::closeModels)
-            logic?.close()
+        val cleanups = removed.map { runtime -> CompletableFuture.runAsync { closeRuntimeResources(runtime) } }
+        return CompletableFuture.allOf(*cleanups.toTypedArray()).handle { _, _ ->
+            var first: Throwable? = null
+            cleanups.forEach { cleanup ->
+                try { cleanup.join() } catch (error: java.util.concurrent.CompletionException) {
+                    val cause = error.cause ?: error
+                    if (first == null) first = cause else if (cause !== first) first!!.addSuppressed(cause)
+                }
+            }
+            first
+        }.thenCompose { failure ->
+            val ownerCleanup = try { modelPresentation.closeOwner(plugin) }
+                catch (error: Throwable) { CompletableFuture.failedFuture<Void>(error) }
+            ownerCleanup.handle<Void> { _, error ->
+                if (failure != null) {
+                    if (error != null && error !== failure) failure.addSuppressed(error)
+                    throw java.util.concurrent.CompletionException(failure)
+                }
+                if (error != null) throw java.util.concurrent.CompletionException(error)
+                null
+            }
         }
-            .thenCompose { modelPresentation.closeOwner(plugin) }
     }
 
     private fun clearIssues(worldId: UUID) = synchronized(issueLock) {
@@ -1577,7 +1724,7 @@ internal class SimpleSignalsWorldRuntimeManager(
     }
 
     private fun publishRuntimeReadView() {
-        runtimeReadView = java.util.Map.copyOf(runtimes)
+        runtimeReadView = java.util.Map.copyOf(runtimes.filterValues { it.installed && !it.closed })
     }
 
     private sealed interface PatchPreparation {
@@ -1669,7 +1816,7 @@ internal class SimpleSignalsWorldRuntimeManager(
             is PatchPreparation.Rejected -> preparation.result
             is PatchPreparation.Ready -> try {
                 val packages = signalPacks
-                prepareCandidateSectionOccupancy(requireNotNull(preparation.value.basePublication) {
+                prepareCandidateSectionOccupancy(runtime, requireNotNull(preparation.value.basePublication) {
                     "definition edit has no live base publication"
                 }, preparation.value.candidatePublication, packages)
                 prepareModels(preparation.value.candidatePublication, runtime.currentModels()?.prepared, packages)
@@ -1727,8 +1874,13 @@ internal class SimpleSignalsWorldRuntimeManager(
             return authoringResult(SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
                 "model configuration was rejected: ${describe(failure)}")
         }
+        if (closed || runtime.closed || runtimeReadView[worldId] !== runtime) {
+            candidateModels.retire()
+            return authoringResult(SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
+                "captured world runtime is no longer available")
+        }
         val candidateOccupancy = try {
-            prepareCandidateSectionOccupancy(requireNotNull(prepared.basePublication) {
+            prepareCandidateSectionOccupancy(runtime, requireNotNull(prepared.basePublication) {
                 "definition edit has no live base publication"
             }, prepared.candidatePublication, packages)
         } catch (failure: Exception) {
@@ -1736,8 +1888,8 @@ internal class SimpleSignalsWorldRuntimeManager(
                 "signal type configuration was rejected: ${describe(failure)}")
         }
         candidateOccupancy.attachModelBinding(candidateModels)
-        val result = synchronized(lock) {
-        if (closed || runtime.closed || runtimes[worldId] !== runtime) return@synchronized authoringResult(
+        val result = synchronized(runtime.managementLock) {
+        if (closed || runtime.closed || runtimeReadView[worldId] !== runtime) return@synchronized authoringResult(
             SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
             "captured world runtime is no longer available or plugin is disabled")
         if (runtime.authoringPublication() !== prepared.basePublication) return@synchronized authoringResult(
@@ -1821,7 +1973,7 @@ internal class SimpleSignalsWorldRuntimeManager(
                         candidateOccupancy.sources
                     ) {
                         callbackStarted = true
-                        if (!authoringGuard() || expectedRuntime != null && (!plugin.isEnabled || runtimeReadView[worldId] !== expectedRuntime)) {
+                        if (closed || runtime.closed || runtimeReadView[worldId] !== runtime || !authoringGuard() || expectedRuntime != null && !plugin.isEnabled) {
                             topologyUnavailableDuringCommit = true
                             error("captured world runtime is no longer available or plugin is disabled")
                         }
@@ -2110,6 +2262,49 @@ internal class SimpleSignalsWorldRuntimeManager(
         val diagnostics: List<String> = emptyList()
     )
 
+    /** Retire host callbacks before a failed candidate's engine can be closed or its UUID reused. */
+    private fun rollbackFailedInstallation(
+        runtime: SimpleSignalsWorldRuntime,
+        outcome: SimpleSignalsWorldInstallResult,
+        installFailClosed: Boolean
+    ): SimpleSignalsWorldInstallResult {
+        val installFallback = installFailClosed && !closed && !runtime.closed && synchronized(lock) {
+            runtimes[runtime.worldId] === runtime
+        }
+        runtime.markClosed()
+        val diagnostics = outcome.diagnostics.toMutableList()
+        runtime.sourceRetirementPending = true
+        try {
+            retireFailedInstallationSources(runtime)
+        } catch (failure: Exception) {
+            diagnostics += "Could not retire failed installation sources: ${describe(failure)}"
+            reportModelFailure("SimpleSignals failed-install source cleanup for world ${runtime.worldId}", failure)
+        }
+        // This callback owns no runtime or JS resources. Preserve the existing refusal of new
+        // routes after invalid definitions, without retaining callbacks into the failed candidate.
+        if (installFallback && !closed && synchronized(lock) { runtimes[runtime.worldId] === runtime }) try {
+            routePlanningSources.replaceRoutePlanningSources(plugin, runtime.worldId, listOf(
+                RoutePlanningRestrictionBinding(PROTECTION_ROUTE_SOURCE_ID, RoutePlanningRestrictionSource {
+                    throw IllegalStateException(outcome.detail)
+                })
+            ))
+        } catch (failure: Exception) {
+            diagnostics += "Could not install fail-closed route source: ${describe(failure)}"
+            reportModelFailure("SimpleSignals failed-install fallback for world ${runtime.worldId}", failure)
+        }
+        return outcome.copy(diagnostics = java.util.List.copyOf(diagnostics))
+    }
+
+    private fun retireFailedInstallationSources(runtime: SimpleSignalsWorldRuntime) {
+        signalEpochSources.retireSources(
+            plugin, runtime.worldId,
+            runtime.currentSectionOccupancy()?.sources.orEmpty(),
+            listOf(runtime.fixedBlockInspectionSource, runtime.protectionRegionInspectionSource),
+            listOf(runtime.routePlanningBinding)
+        )
+        runtime.sourceRetirementPending = false
+    }
+
     private fun unavailable(
         worldId: UUID,
         detail: String,
@@ -2117,38 +2312,8 @@ internal class SimpleSignalsWorldRuntimeManager(
     ): SimpleSignalsWorldInstallResult {
         worldIssues.report(worldId, "simplesignals:installation", WorldIssueInput(
             WorldIssueKind.WORLD, worldId.toString(), "world-install-failed", detail, diagnostics.joinToString("\n")))
-        val allDiagnostics = diagnostics.toMutableList()
-        try {
-            signalEpochSources.replaceSources(plugin, worldId, emptyList())
-        } catch (failure: Exception) {
-            allDiagnostics += "Could not clear section occupancy source: ${describe(failure)}"
-        }
-        try {
-            routePlanningSources.replaceRoutePlanningSources(
-                plugin,
-                worldId,
-                listOf(
-                    RoutePlanningRestrictionBinding(
-                        PROTECTION_ROUTE_SOURCE_ID,
-                        RoutePlanningRestrictionSource {
-                            throw IllegalStateException(detail)
-                        }
-                    )
-                )
-            )
-        } catch (failure: Exception) {
-            allDiagnostics += "Could not install fail-closed route source: ${describe(failure)}"
-        }
-        try {
-            inspectionSources.replaceInspectionSources(plugin, worldId, emptyList())
-        } catch (failure: Exception) {
-            allDiagnostics += "Could not clear SimpleSignals inspection sources: ${describe(failure)}"
-        }
-        return SimpleSignalsWorldInstallResult(
-            SimpleSignalsWorldInstallStatus.UNAVAILABLE,
-            detail,
-            diagnostics = java.util.List.copyOf(allDiagnostics)
-        )
+        return SimpleSignalsWorldInstallResult(SimpleSignalsWorldInstallStatus.UNAVAILABLE,
+            detail, diagnostics = java.util.List.copyOf(diagnostics))
     }
 
     private fun describe(failure: Exception): String =

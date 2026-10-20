@@ -4,6 +4,7 @@ import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
 import work.art1st.javarailways.bukkit.behavior.CarOperationBatch
+import work.art1st.javarailways.bukkit.behavior.behaviorRelativeTail
 import work.art1st.javarailways.bukkit.config.TrainModelUpdatePolicy
 import work.art1st.javarailways.bukkit.config.model.DriverControlEnd
 import work.art1st.javarailways.bukkit.config.model.SavedTrainPackageSnapshot
@@ -15,7 +16,6 @@ import work.art1st.javarailways.bukkit.operation.RegionTrainOperationDispatcher
 import work.art1st.javarailways.bukkit.persistence.TrainPackageSnapshotStore
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.threading.ThreadGuard
-import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
 import java.util.concurrent.CompletableFuture
@@ -23,7 +23,7 @@ import work.art1st.javarailways.core.api.physics.train.TrainExtension as CoreTra
 
 @OptIn(ExtensionData::class)
 val Train.rendererOrNull: TrainExtension?
-    get() = BukkitPlugin.instanceOrNull()?.let { getExtensionDataOrNull(it) }
+    get() = BukkitPlugin.instanceOrNull()?.let { getExtensionDataOrNull<CoreTrainExtension>(it) as? TrainExtension }
 
 val Train.renderer: TrainExtension
     get() = rendererOrNull ?: error("Train renderer 未注册到列车 $id 上")
@@ -54,7 +54,7 @@ class TrainExtension : CoreTrainExtension {
     private fun capture(): List<Target> {
         ThreadGuard.ensureMainThread("TrainExtension.captureBehaviorTargets")
         val controlTail = BukkitPlugin.INSTANCE.trainControlManager.operatingControlEndFor(self) == DriverControlEnd.TAIL
-        return self.cars.map { car -> Target(car.carRenderer, controlTail xor ((car as CoreCar).isReversed xor self.isReversed)) }
+        return self.cars.map { car -> Target(car.carRenderer, self.behaviorRelativeTail(car, controlTail)) }
     }
 
     fun executeDoorOperation(side: DoorSide, opening: Boolean, isPending: () -> Boolean = { true }): CompletableFuture<Unit> =

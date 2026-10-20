@@ -38,19 +38,21 @@ data class TrainOperationRequest(
 | `cancel()`重复 | 幂等 | 不得后来变SUCCEEDED |
 | control transfer有pending ticket | cancel并inspect确认 | 无法确认则拒绝transfer |
 
-Bukkit adapter可从simulation main发起，再切Folia region-owned model action；atomic state发布completion。Basic不得感知scheduler。Simulation gateway按logical ticks完成且不执行platform/render side effect；无duration implementation明确Rejected。
+Bukkit adapter可从simulation main发起，再切Folia region-owned model action；atomic state发布completion。Basic不得感知scheduler。SIM gateway使用同一逐车JS/动作逻辑，以逻辑时钟推进声明effects，不执行platform/render side effect；缺少实际行为输入在准备或操作边界明确失败。不得用配置最大时长替代真实执行。具体逐车捕获、方向与生命周期归[Bukkit模拟行为](../../bukkit-plugin/backend/simulation-car-behavior.md)。
 
 ## 项目内正确示例
 
-Simulation ticket使cancel阻止后续success：
+LIVE/SIM gateway共用已有ticket的原子PENDING终态转换，取消不能被迟到完成翻为SUCCEEDED：
 
 ```kotlin
-override fun cancel() {
-    if (pending.compareAndSet(true, false)) cancelled.set(true)
+status.updateAndGet { current ->
+    if (current.state == TrainOperationTicketState.PENDING)
+        current.copy(state = nextState, message = message)
+    else current
 }
 ```
 
-来源：`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/timetable/simulation/SimulationTrainOperationGateway.kt`。`snapshot`先检查cancelled，因此后续tick不能改为SUCCEEDED。
+来源：BukkitPlugin内部`operation/ModelOperationTicket.kt`，两种效果adapter共同消费，Basic公共request/result/state不变。成功必须对应本次固定车厢集合全部已接受effects启动，非动画播放结束。SIM真实行为owner由目标world资源栈关闭，不能只删完成回调。
 
 ## 禁止实现
 
@@ -64,10 +66,11 @@ override fun cancel() {
 ## 必需测试与验证
 
 - `TimetableStationCallDispatcherTest.kt`：open success后才dwell、close success+route后才departure、failed/timeout/cancel/identity mismatch保留hold并Stall。
-- `SimulationTrainOperationGatewayTest.kt`：duration、zero duration、reject missing、cancel idempotent/no success。
+- Bukkit内部 `SimulationTrainOperationGatewayTest.kt`：真实JS持久状态/独立目标、方向/换向、多延迟全部启动、取消、错误、car destroy及结构变化；原SimpleATO duration-only gateway与tests已删除。
 - `BukkitTrainOperationGatewayTest.kt`：region dispatch、completion定义、atomic cancel race、request identity。
 
 ```bash
-./gradlew :SimpleATO:test --tests '*TimetableStationCallDispatcherTest' --tests '*SimulationTrainOperationGatewayTest'
+./gradlew :SimpleATO:test --tests '*TimetableStationCallDispatcherTest'
+./gradlew :BukkitPlugin:test --tests '*SimulationTrainOperationGatewayTest'
 ./gradlew :BukkitPlugin:test --tests '*BukkitTrainOperationGatewayTest'
 ```

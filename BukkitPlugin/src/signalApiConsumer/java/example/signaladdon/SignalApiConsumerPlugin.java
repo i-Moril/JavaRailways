@@ -1,6 +1,9 @@
 package example.signaladdon;
 
 import org.bukkit.Server;
+import work.art1st.javarailways.bukkit.api.simulation.SimulationFeatureService;
+import work.art1st.javarailways.simpleato.api.simulation.PreparedSimulationFeature;
+import work.art1st.javarailways.simpleato.api.simulation.SimulationDomainTarget;
 import org.bukkit.Material;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -205,6 +208,28 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
         return modelCleanup;
     }
 
+    /** Compiles against the public preparation boundary, without linking host implementation types. */
+    public AutoCloseable registerSimulationPreparation(SimulationFeatureService service) {
+        return service.register(this, sourceWorldId -> new PreparedSimulationFeature() {
+            @Override public String getId() { return getName().toLowerCase(java.util.Locale.ROOT); }
+            @Override public AutoCloseable install(SimulationDomainTarget target) {
+                var rails = target.getTopology().getRailProjection().keySet();
+                target.operatingDirections(rails);
+                target.railSpeedLimits(rails);
+                var signals = target.installSignalSources(List.of());
+                var inspections = target.installInspectionSources(List.of());
+                var planning = target.installRoutePlanningSources(List.of());
+                var contributor = target.registerRouteContributor("example.signaladdon:routes", intent -> List.of());
+                return () -> {
+                    contributor.close();
+                    planning.close();
+                    inspections.close();
+                    signals.close();
+                };
+            }
+        });
+    }
+
     @Override
     public void onEnable() {
         services = loadServices(getServer());
@@ -290,15 +315,8 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
             if (topology.getRevision() != observation.getStamp().getTopologyRevision()) {
                 throw new IllegalStateException("Observation and topology root are not coherent");
             }
-            services.signalSources().replaceSources(
-                this,
-                worldId,
-                List.of(compileReactiveSignalApi(observation))
-            );
-            services.inspectionSources().replaceInspectionSources(
-                this,
-                worldId,
-                List.of(new InspectionSource(
+            var epochSources = List.of(compileReactiveSignalApi(observation));
+            var inspectionSources = List.of(new InspectionSource(
                     "example.signaladdon:main",
                     input -> inspectionDeclarationsExample(input.getTrainId(), input.getRoute()),
                     input -> {
@@ -317,16 +335,25 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
                     },
                     route -> List.of(new StableInfrastructureResource("example.signaladdon:signal", "home")),
                     (route, proposedMovingRoute) -> null
-                ))
-            );
-            services.routePlanningSources().replaceRoutePlanningSources(
-                this,
-                worldId,
-                List.of(new RoutePlanningRestrictionBinding(
+                ));
+            var planningSources = List.of(new RoutePlanningRestrictionBinding(
                     "example.signaladdon:route-table",
                     sourceTopology -> RoutePlanningRestrictions.Companion.unrestricted(sourceTopology)
-                ))
-            );
+                ));
+            try {
+                services.signalSources().replaceSources(this, worldId, epochSources);
+                services.inspectionSources().replaceInspectionSources(this, worldId, inspectionSources);
+                services.routePlanningSources().replaceRoutePlanningSources(this, worldId, planningSources);
+            } catch (RuntimeException installFailure) {
+                try {
+                    services.signalSources().retireSources(
+                        this, worldId, epochSources, inspectionSources, planningSources
+                    );
+                } catch (RuntimeException retirementFailure) {
+                    installFailure.addSuppressed(retirementFailure);
+                }
+                throw installFailure;
+            }
             var signalResource = new StableInfrastructureResource("example.signaladdon:signal", "home");
             var editImpact = new TopologyEditImpact(List.of(), List.of(), List.of(signalResource));
             var editRequest = new TopologyEditRequest(

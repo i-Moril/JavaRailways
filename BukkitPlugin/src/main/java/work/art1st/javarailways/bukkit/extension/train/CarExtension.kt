@@ -29,6 +29,9 @@ import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.bukkit.extension.renderChunkManager
 import work.art1st.javarailways.bukkit.util.BukkitThreadOwnership
 import work.art1st.javarailways.bukkit.behavior.CarBehavior
+import work.art1st.javarailways.bukkit.behavior.CapturedCarBehavior
+import work.art1st.javarailways.bukkit.behavior.carBehaviorActions
+import work.art1st.javarailways.bukkit.behavior.captureAnimationCapabilities
 import work.art1st.javarailways.bukkit.behavior.TrainBehaviorActionDefinition
 import work.art1st.javarailways.bukkit.config.model.SavedTrainPackageSnapshot
 import work.art1st.javarailways.bukkit.config.model.CarControlConfig
@@ -154,17 +157,56 @@ class CarExtension : TrainComponentExtension<Car>() {
         return operationalSnapshot()?.actions.orEmpty()
     }
 
+    /** Value-only inputs from this car's exact operational package and model policy. */
+    @Synchronized
+    internal fun captureSimulationBehavior(): CapturedCarBehavior = captureSimulationBehavior(
+        BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy,
+        TrainPackageSnapshotStore::load, CarModelSnapshotStore::load,
+        BukkitPlugin.INSTANCE.modelManager::resourceVersion
+    )
+
+    @Synchronized
+    internal fun captureSimulationBehavior(
+        policy: TrainModelUpdatePolicy,
+        loadPackage: (String) -> SavedTrainPackageSnapshot?,
+        loadModel: (String) -> SavedCarModelTree?,
+        liveVersion: (String) -> TrainResourceVersion
+    ): CapturedCarBehavior {
+        val liveResources by lazy { liveVersion(requireNotNull(resourceType)) }
+        val source = requireNotNull(operationalSnapshot(policy, loadPackage) { liveResources }) {
+            "Car '${self.id}' has no operational package"
+        }
+        val modelName = requireNotNull(carModelName)
+        val model = if (policy == TrainModelUpdatePolicy.SNAPSHOT) {
+            savedModelSnapshot ?: requireNotNull(loadModel(requireNotNull(savedModelSnapshotHash) {
+                "Car '${self.id}' has no creation-time model snapshot"
+            })) { "Pinned car model snapshot '$savedModelSnapshotHash' is unavailable" }
+        } else {
+            liveResources.models.getValue(modelName)
+        }
+        return captureCarBehavior(source, model)
+    }
+
     private fun resolveBehavior(): work.art1st.javarailways.bukkit.config.model.TrainBehaviorScript? =
         operationalSnapshot()?.behavior
 
-    private fun operationalSnapshot(): SavedTrainPackageSnapshot? {
+    private fun operationalSnapshot(): SavedTrainPackageSnapshot? = operationalSnapshot(
+        BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy,
+        TrainPackageSnapshotStore::load, BukkitPlugin.INSTANCE.modelManager::resourceVersion
+    )
+
+    private fun operationalSnapshot(
+        policy: TrainModelUpdatePolicy,
+        loadPackage: (String) -> SavedTrainPackageSnapshot?,
+        liveVersion: (String) -> TrainResourceVersion
+    ): SavedTrainPackageSnapshot? {
         if (carModelName == null) return null
-        if (BukkitPlugin.INSTANCE.javaRailwaysConfig.trainModelUpdatePolicy != TrainModelUpdatePolicy.SNAPSHOT) {
+        if (policy != TrainModelUpdatePolicy.SNAPSHOT) {
             val type = requireNotNull(resourceType) { "Car '${self.id}' has no creation template" }
-            return BukkitPlugin.INSTANCE.modelManager.resourceVersion(type).carPackages.getValue(requireNotNull(carModelName))
+            return liveVersion(type).carPackages.getValue(requireNotNull(carModelName))
         }
         val hash = requireNotNull(savedPackageSnapshotHash) { "Car '${self.id}' has no creation-time configuration snapshot" }
-        return savedPackageSnapshot ?: requireNotNull(TrainPackageSnapshotStore.load(hash)) {
+        return savedPackageSnapshot ?: requireNotNull(loadPackage(hash)) {
             "Pinned car package snapshot '$hash' is unavailable"
         }.also { savedPackageSnapshot = it }
     }
@@ -177,8 +219,7 @@ class CarExtension : TrainComponentExtension<Car>() {
     @Synchronized
     internal fun behaviorActions(tail: Boolean): List<TrainBehaviorActionDefinition> {
         ensureBehaviorOwned()
-        val yaml = resolveActions().values.map { TrainBehaviorActionDefinition(it.name, it.displayName, it.executable, it.requiresControl) }
-        return (yaml.associateBy { it.name } + behavior.metadata(tail).associateBy { it.name }).values.toList()
+        return carBehaviorActions(resolveActions(), behavior.metadata(tail))
     }
 
     @Synchronized
@@ -619,3 +660,13 @@ internal class CarFramePublicationGate {
         return true
     }
 }
+
+/** Detached values only; no script initialization, render graph or source-world callback. */
+internal fun captureCarBehavior(source: SavedTrainPackageSnapshot, model: SavedCarModelTree): CapturedCarBehavior =
+    CapturedCarBehavior(
+        source.behavior?.copy(),
+        source.actions.mapValues { (_, action) -> action.copy(
+            animations = action.animations.toList(), sounds = action.sounds.toList()
+        ) },
+        model.captureAnimationCapabilities()
+    )

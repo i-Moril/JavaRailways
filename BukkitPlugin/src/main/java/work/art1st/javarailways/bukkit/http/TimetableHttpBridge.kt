@@ -458,7 +458,8 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     work.art1st.javarailways.basic.safety.SpeedSafetyMonitor.Config(
                         it.derailEnabled, it.toleranceKmH / 3.6, it.graceTicks)
                 },
-                requiredDomainFeatures = plugin::requiredSimulationDomainFeatures
+                requiredDomainFeatures = plugin::requiredSimulationDomainFeatures,
+                prepareDomainFeatures = plugin::prepareSimulationDomainFeatures
             )
             val snapshot = await {
                 withWorld(worldName) { _, world ->

@@ -27,6 +27,7 @@ import java.util.logging.Level
 class SimpleSignalsPlugin : JavaPlugin() {
     private var errorLog: PluginErrorLog? = null
     private var hostServices: SimpleSignalsHostServices? = null
+    private var simulationRegistration: AutoCloseable? = null
     private var worldRuntimes: SimpleSignalsWorldRuntimeManager? = null
     private var sectionWands: SectionWandHandler? = null
     private var sectionOverlay: SectionWandOverlay? = null
@@ -78,6 +79,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
             providerRegistration.close()
             throw failure
         }
+        simulationRegistration = services.simulationFeatures().register(this, runtimes::prepareSimulation)
         val listener = SimpleSignalsWorldLifecycleListener(this, runtimes)
         server.pluginManager.registerEvents(listener, this)
         server.worlds.forEach(listener::installAlreadyLoaded)
@@ -135,6 +137,8 @@ class SimpleSignalsPlugin : JavaPlugin() {
         val closingErrorLog = errorLog
         errorLog = null
         try {
+            simulationRegistration?.close()
+            simulationRegistration = null
             measurementWand?.close()
             measurementWand = null
             sectionOverlay?.close()

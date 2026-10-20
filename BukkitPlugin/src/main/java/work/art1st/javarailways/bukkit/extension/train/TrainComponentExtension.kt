@@ -12,6 +12,7 @@ import work.art1st.javarailways.bukkit.extension.BukkitRenderable
 import work.art1st.javarailways.bukkit.extension.bukkitLocation
 import work.art1st.javarailways.core.api.physics.train.Car
 import work.art1st.javarailways.core.api.render.Renderable
+import work.art1st.javarailways.core.api.render.RenderableExtension
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
@@ -23,7 +24,7 @@ import java.util.UUID
 val Car.rendererOrNull: TrainComponentExtension<Car>?
     get() {
         val plugin = BukkitPlugin.instanceOrNull() ?: return null
-        return getExtensionDataOrNull(plugin)
+        return getExtensionDataOrNull<RenderableExtension<Car>>(plugin) as? TrainComponentExtension<Car>
     }
 
 val Car.renderer: TrainComponentExtension<Car>

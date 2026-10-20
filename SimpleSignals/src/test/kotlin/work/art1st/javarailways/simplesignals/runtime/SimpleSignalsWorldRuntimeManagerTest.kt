@@ -1,5 +1,8 @@
 package work.art1st.javarailways.simplesignals.runtime
 
+import work.art1st.javarailways.basic.basicWorldData
+import work.art1st.javarailways.basic.rail.infrastructureMetadata
+import work.art1st.javarailways.core.physics.train.onOwnerForTest
 import work.art1st.javarailways.simplesignals.testing.signalWorldRuntime
 import work.art1st.javarailways.simplesignals.testing.reconfigured
 import work.art1st.javarailways.simplesignals.testing.protectionTestEpoch
@@ -38,6 +41,33 @@ import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionState
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
 import work.art1st.javarailways.basic.api.route.RouteBoundary
+import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
+import work.art1st.javarailways.basic.api.route.RouteResourceIntent
+import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
+import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
+import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
+import work.art1st.javarailways.basic.api.route.RouteGrantId
+import work.art1st.javarailways.basic.control.HandleTrainActuator
+import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionRuntime
+import work.art1st.javarailways.bukkit.config.model.TrainControlConfig
+import work.art1st.javarailways.bukkit.config.model.CarControlConfig
+import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
+import work.art1st.javarailways.simpleato.controller.SimpleATO
+import work.art1st.javarailways.simpleato.runtime.OperationalWorldRuntime
+import work.art1st.javarailways.simpleato.timetable.Timetable
+import work.art1st.javarailways.simpleato.timetable.TimetableService
+import work.art1st.javarailways.simpleato.timetable.TimetableStep
+import work.art1st.javarailways.simpleato.timetable.TimetableAction
+import work.art1st.javarailways.simpleato.timetable.TrainSelector
+import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
+import work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory
+import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContext
+import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContextProvider
+import work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult
+import work.art1st.javarailways.simpleato.timetable.TimetableServiceRunState
+import work.art1st.javarailways.simpleato.timetable.InfrastructureDependencyService
+import work.art1st.javarailways.simplesignals.block.FixedBlockDirectionPolicy
+import work.art1st.javarailways.simplesignals.block.FixedBlockRouteResourcePolicy
 import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest
 import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditBlocker
@@ -4920,8 +4950,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val unavailable = manager.install(fixture.worldId)
 
         assertEquals(SimpleSignalsWorldInstallStatus.UNAVAILABLE, unavailable.status)
-        assertEquals(listOf(1, 0), signalSources.replacements.map(List<SignalEpochSource>::size))
-        assertEquals(listOf(2, 0), inspectionReplacementSizes)
+        assertEquals(listOf(1), signalSources.replacements.map(List<SignalEpochSource>::size))
+        assertEquals(1, signalSources.retirements.single().epochSources.size)
+        assertEquals(listOf(2), inspectionReplacementSizes)
+        assertEquals(2, signalSources.retirements.single().inspectionSources.size)
+        assertEquals(1, signalSources.retirements.single().routePlanningSources.size)
         assertThrows(IllegalStateException::class.java) {
             routeSources.single(fixture.worldId).source.restrictions(fixture.currentTopology)
         }
@@ -4963,12 +4996,203 @@ class SimpleSignalsWorldRuntimeManagerTest {
         val unavailable = manager.install(fixture.worldId)
 
         assertEquals(SimpleSignalsWorldInstallStatus.UNAVAILABLE, unavailable.status)
-        assertEquals(listOf(1, 0), signalSources.replacements.map(List<SignalEpochSource>::size))
+        assertEquals(listOf(1), signalSources.replacements.map(List<SignalEpochSource>::size))
+        assertEquals(1, signalSources.retirements.single().epochSources.size)
         assertEquals(emptyList<SignalEpochSource>(), signalSources.sources.getValue(fixture.worldId))
         val failClosed = routeSources.single(fixture.worldId)
         assertThrows(IllegalStateException::class.java) {
             failClosed.source.restrictions(fixture.currentTopology)
         }
+    }
+
+    @Test
+    fun `failed install detaches exact callbacks before engine close and late close preserves same UUID reinstall`() {
+        val fixture = Fixture()
+        val definitions = installationFailureDefinitions(fixture)
+        val sources = CapturingSignalEpochSourceService()
+        val routes = CapturingRoutePlanningService()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val retiring = CountDownLatch(1)
+        val finishRetire = CountDownLatch(1)
+        lateinit var manager: SimpleSignalsWorldRuntimeManager
+        lateinit var old: SimpleSignalsWorldRuntime
+        lateinit var logic: work.art1st.javarailways.simplesignals.signalpack.SignalLogicRuntime
+        var first = true
+        val routeService = proxy(RoutePlanningRestrictionSourceService::class.java) { _, arguments ->
+            @Suppress("UNCHECKED_CAST")
+            val bindings = arguments!![2] as Collection<RoutePlanningRestrictionBinding>
+            if (first) {
+                first = false
+                old = reservedRuntime(manager, fixture.worldId)
+                logic = actualLogic(old)
+                entered.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+                throw IllegalStateException("injected route source install failure")
+            }
+            routes.replaceRoutePlanningSources(arguments[0] as Plugin, arguments[1] as UUID, bindings)
+        }
+        sources.onRetire = { retired ->
+            assertSame(old.currentSectionOccupancy()!!.sources.single(), retired.epochSources.single())
+            assertSame(old.routePlanningBinding, retired.routePlanningSources.single())
+            assertSame(old.fixedBlockInspectionSource, retired.inspectionSources[0])
+            assertSame(old.protectionRegionInspectionSource, retired.inspectionSources[1])
+            assertLogicOpen(logic)
+            retiring.countDown()
+            check(finishRetire.await(5, TimeUnit.SECONDS))
+        }
+        manager = runtimeManager(plugin(), MutableTopologyService(fixture.currentTopology).service,
+            routeService, definitions, sources)
+        val installation = CompletableFuture.supplyAsync { manager.install(fixture.worldId) }
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            release.countDown()
+            assertTrue(retiring.await(5, TimeUnit.SECONDS))
+            synchronized(logic) {
+                finishRetire.countDown()
+                assertEquals(SimpleSignalsWorldInstallStatus.UNAVAILABLE, installation.get(5, TimeUnit.SECONDS).status)
+                assertTrue(sources.sources.getValue(fixture.worldId).isEmpty())
+                assertLogicOpen(logic)
+                sources.onRetire = {}
+                assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+                val replacement = manager.authoringRuntime(fixture.worldId)!!
+                assertNotSame(old, replacement)
+                assertSame(replacement.routePlanningBinding, routes.single(fixture.worldId))
+            }
+            awaitLogicClosed(logic)
+            val replacement = manager.authoringRuntime(fixture.worldId)!!
+            assertSame(replacement.currentSectionOccupancy()!!.sources.single(), sources.sources.getValue(fixture.worldId).single())
+            assertSame(replacement.routePlanningBinding, routes.single(fixture.worldId))
+            assertLogicOpen(actualLogic(replacement))
+        } finally {
+            release.countDown()
+            finishRetire.countDown()
+            installation.get(5, TimeUnit.SECONDS)
+            manager.clearLocal().toCompletableFuture().join()
+        }
+    }
+
+    @Test
+    fun `failed source retirement retains engine and reservation until explicit cleanup succeeds`() {
+        val fixture = Fixture()
+        val definitions = installationFailureDefinitions(fixture)
+        val sources = CapturingSignalEpochSourceService()
+        val retirementFailure = IllegalStateException("injected source retirement failure")
+        val reports = java.util.concurrent.CopyOnWriteArrayList<Pair<String, Throwable>>()
+        lateinit var manager: SimpleSignalsWorldRuntimeManager
+        lateinit var old: SimpleSignalsWorldRuntime
+        val routes = CapturingRoutePlanningService(IllegalStateException("injected route source install failure"))
+        sources.onRetire = {
+            old = reservedRuntime(manager, fixture.worldId)
+            throw retirementFailure
+        }
+        manager = runtimeManager(plugin(), MutableTopologyService(fixture.currentTopology).service,
+            routes, definitions, sources, modelFailure = { context, error -> reports += context to error })
+        try {
+            val result = manager.install(fixture.worldId)
+            assertEquals(SimpleSignalsWorldInstallStatus.UNAVAILABLE, result.status)
+            assertTrue(result.diagnostics.any { it.contains("injected source retirement failure") })
+            assertTrue(reports.any { it.first.contains("source cleanup") && it.second === retirementFailure })
+            val logic = actualLogic(old)
+            assertLogicOpen(logic)
+            assertSame(old, reservedRuntime(manager, fixture.worldId))
+            assertTrue(sources.sources.getValue(fixture.worldId).isNotEmpty())
+            assertEquals(SimpleSignalsWorldInstallStatus.UNAVAILABLE, manager.install(fixture.worldId).status)
+            assertEquals(1, sources.replacements.size, "a failed detach must block replacement, not orphan its engine")
+            assertSame(retirementFailure, assertThrows(IllegalStateException::class.java) { manager.remove(fixture.worldId) })
+            assertLogicOpen(logic)
+            val clearFailure = assertThrows(java.util.concurrent.CompletionException::class.java) {
+                manager.clearLocal().toCompletableFuture().join()
+            }
+            assertSame(retirementFailure, clearFailure.cause)
+            assertSame(old, reservedRuntime(manager, fixture.worldId))
+            assertLogicOpen(logic)
+            sources.onRetire = {}
+            manager.clearLocal().toCompletableFuture().join()
+            assertTrue(sources.sources.getValue(fixture.worldId).isEmpty())
+            awaitLogicClosed(logic)
+        } finally {
+            sources.onRetire = {}
+            manager.clearLocal().toCompletableFuture().join()
+        }
+    }
+
+    @Test
+    fun `clear racing a partial install retains failed retirement for the next clear`() {
+        val fixture = Fixture()
+        val definitions = installationFailureDefinitions(fixture)
+        val sources = CapturingSignalEpochSourceService()
+        val retirementFailure = IllegalStateException("injected overlapping retirement failure")
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        lateinit var manager: SimpleSignalsWorldRuntimeManager
+        lateinit var old: SimpleSignalsWorldRuntime
+        lateinit var logic: work.art1st.javarailways.simplesignals.signalpack.SignalLogicRuntime
+        val routes = proxy(RoutePlanningRestrictionSourceService::class.java) { _, _ ->
+            old = reservedRuntime(manager, fixture.worldId)
+            logic = actualLogic(old)
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS))
+            throw IllegalStateException("injected partial install failure")
+        }
+        sources.onRetire = { throw retirementFailure }
+        manager = runtimeManager(plugin(), MutableTopologyService(fixture.currentTopology).service,
+            routes, definitions, sources)
+        val installation = CompletableFuture.supplyAsync { manager.install(fixture.worldId) }
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val clear = manager.clearLocal().toCompletableFuture()
+            assertFalse(clear.isDone, "clear waits for the candidate's actual management gate")
+            release.countDown()
+            assertEquals(SimpleSignalsWorldInstallStatus.UNAVAILABLE, installation.get(5, TimeUnit.SECONDS).status)
+            val failure = assertThrows(java.util.concurrent.ExecutionException::class.java) { clear.get(5, TimeUnit.SECONDS) }
+            assertSame(retirementFailure, failure.cause)
+            assertSame(old, reservedRuntime(manager, fixture.worldId))
+            assertLogicOpen(logic)
+            sources.onRetire = {}
+            manager.clearLocal().toCompletableFuture().get(5, TimeUnit.SECONDS)
+            assertTrue(sources.sources.getValue(fixture.worldId).isEmpty())
+            awaitLogicClosed(logic)
+        } finally {
+            release.countDown()
+            installation.get(5, TimeUnit.SECONDS)
+            sources.onRetire = {}
+            manager.clearLocal().toCompletableFuture().join()
+        }
+    }
+
+    private fun installationFailureDefinitions(fixture: Fixture): SimpleSignalsWorldDefinitionStore = store().also { definitions ->
+        val block = FixedBlockDefinition("test:failed-install-block", 1,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0)))
+        definitions.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1,
+            emptyList(), emptyList(), listOf(block), listOf(
+                FixedBlockSignalDefinition("test:failed-install-signal", 1, block.blockId, 0.0, "automatic:block"))))
+    }
+
+    private fun reservedRuntime(manager: SimpleSignalsWorldRuntimeManager, worldId: UUID): SimpleSignalsWorldRuntime {
+        @Suppress("UNCHECKED_CAST")
+        val directory = SimpleSignalsWorldRuntimeManager::class.java.getDeclaredField("runtimes")
+            .also { it.isAccessible = true }.get(manager) as Map<UUID, SimpleSignalsWorldRuntime>
+        return directory.getValue(worldId)
+    }
+
+    private fun assertLogicOpen(logic: work.art1st.javarailways.simplesignals.signalpack.SignalLogicRuntime) {
+        assertThrows(work.art1st.javarailways.simplesignals.signalpack.SignalLogicException::class.java) {
+            logic.evaluate("missing:test-rule", kotlinx.serialization.json.JsonObject(emptyMap()))
+        }
+    }
+
+    private fun awaitLogicClosed(logic: work.art1st.javarailways.simplesignals.signalpack.SignalLogicRuntime) {
+        val closed = CompletableFuture.runAsync {
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (System.nanoTime() < deadline) {
+                try { logic.evaluate("missing:test-rule", kotlinx.serialization.json.JsonObject(emptyMap())) }
+                catch (_: work.art1st.javarailways.simplesignals.signalpack.SignalLogicException) { Thread.yield(); continue }
+                catch (_: IllegalStateException) { return@runAsync }
+            }
+            error("failed installation's detached engine did not close")
+        }
+        closed.get(6, TimeUnit.SECONDS)
     }
 
     @Test
@@ -5964,6 +6188,40 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
+    fun `continued unrelated topology edits ask for retry after one authoring reprepare`() {
+        val fixture = Fixture()
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val store = store()
+        val original = FixedBlockDefinition("test:retry-block", 1L,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0)))
+        store.save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1L,
+            emptyList(), emptyList(), listOf(original)))
+        val originalPrimary = Files.readString(store.primaryFile(fixture.worldId))
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), store, sources)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val retained = sources.sources.getValue(fixture.worldId).single()
+        var edits = 0
+        sources.beforeCommitAction = {
+            edits++
+            infrastructure.topology = fixture.topology(fixture.currentTopology.revision + edits,
+                listOf(UUID(0L, 90L + edits)), fixture.currentTopology.railIdentities)
+        }
+
+        val result = manager.applyDefinitionPatch(fixture.worldId, 1L, SimpleSignalsDefinitionPatch(
+            upsertFixedBlocks = listOf(FixedBlockDefinition(original.blockId, 2L,
+                listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 6.0))))))
+
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.RETRY_REQUIRED, result.status)
+        assertEquals(2, edits, "only one full reprepare is allowed per authoring request")
+        assertEquals(1, sources.atomicCommitCount, "only the initial installation committed; both stale callbacks aborted")
+        assertEquals(2, infrastructure.permitCloseCount)
+        assertSame(retained, sources.sources.getValue(fixture.worldId).single())
+        assertEquals(originalPrimary, Files.readString(store.primaryFile(fixture.worldId)))
+        assertEquals(1L, manager.authoringRuntime(fixture.worldId)!!.authoringPublication().definitions.definitionRevision)
+    }
+
+    @Test
     fun `definition patch defensively copies fixed block edits`() {
         val block = FixedBlockDefinition(
             "test:block",
@@ -6013,6 +6271,869 @@ class SimpleSignalsWorldRuntimeManagerTest {
         assertEquals(SimpleSignalsWorldInstallStatus.UNAVAILABLE, rejected.status)
         assertTrue(rejected.detail.contains("overlaps protection region"))
         assertEquals(0, infrastructure.permitAcquisitionCount)
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource("false,false", "false,true", "true,true")
+    fun `formal rule execution is independent across real live and simulation worlds`(firstSimulation: Boolean, secondSimulation: Boolean) {
+        initializeDomainPlugins()
+        val source = actualSignalWorld()
+        val worlds = java.util.concurrent.ConcurrentHashMap<UUID, work.art1st.javarailways.core.physics.CoreWorld>()
+        worlds[UUID.fromString(source.runtimeId)] = source
+        val infrastructure = actualInfrastructure(worlds)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure, CapturingRoutePlanningService(), store(), sources,
+            loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(Path.of(requireNotNull(javaClass.getResource("/examples/jr-four-light/signal-packs")).toURI()))
+        val sourceId = UUID.fromString(source.runtimeId)
+        store().save(sourceId, actualDefinitions(source))
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(sourceId).status)
+        val captured = manager.prepareSimulation(sourceId)
+        val first = if (firstSimulation) actualSimulation(source, captured) else actualLive(source, manager, sources)
+        val second = if (secondSimulation) actualSimulation(source, captured) else {
+            val other = actualSignalWorld()
+            val id = UUID.fromString(other.runtimeId)
+            worlds[id] = other
+            store().save(id, actualDefinitions(other))
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(id).status)
+            actualLive(other, manager, sources)
+        }
+        val executor = java.util.concurrent.Executors.newCachedThreadPool()
+        val locked = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val logic = actualLogic(first.runtime)
+        val blocker = executor.submit {
+            synchronized(logic) { locked.countDown(); check(release.await(10, java.util.concurrent.TimeUnit.SECONDS)) }
+        }
+        try {
+            assertTrue(locked.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            val waiting = executor.submit { first.step() }
+            val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+            var enteredActualMonitor = false
+            while (System.nanoTime() < deadline && !enteredActualMonitor) {
+                enteredActualMonitor = java.lang.management.ManagementFactory.getThreadMXBean().dumpAllThreads(false, false).any {
+                    it.threadState == Thread.State.BLOCKED && it.lockInfo?.identityHashCode == System.identityHashCode(logic)
+                }
+                if (!enteredActualMonitor) Thread.yield()
+            }
+            assertTrue(enteredActualMonitor, "the real installed source must reach SignalLogicRuntime.evaluate's monitor")
+            val headBefore = second.world.allTrains.single().publishedFrame.head.arcLengthInAbMeters
+            executor.submit { second.step() }.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertFalse(waiting.isDone)
+            assertTrue(second.world.allTrains.single().publishedFrame.head.arcLengthInAbMeters > headBefore)
+            assertEquals(listOf("proceed", "slow", "caution", "stop"), actualAspects(second.runtime))
+            assertEquals(second.world.latestWorldFrame().physicsEpoch, second.runtime.sectionSignalSnapshot()!!.stamp.physicsEpoch)
+            assertEquals(listOf(null, 65.0 / 3.6, 45.0 / 3.6, 0.0), actualLimits(second.runtime))
+            val sameStarted = CountDownLatch(1)
+            val sameWorld = executor.submit { sameStarted.countDown(); first.step() }
+            assertTrue(sameStarted.await(5, TimeUnit.SECONDS))
+            assertFalse(sameWorld.isDone, "the same world cannot bypass its outstanding physics epoch")
+            release.countDown()
+            blocker.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            waiting.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            sameWorld.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertEquals(2L, first.world.latestWorldFrame().physicsEpoch)
+            first.close()
+            executor.submit { second.step() }.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertEquals(listOf("proceed", "slow", "caution", "stop"), actualAspects(second.runtime))
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+            executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)
+            first.close()
+            second.close()
+            manager.clearLocal().toCompletableFuture().join()
+            if (firstSimulation) closeActualWorld(source)
+        }
+    }
+
+    @Test
+    fun `detached simulation installs formal rules preserves captured values and updates real occupancy on release`() {
+        initializeDomainPlugins()
+        val source = actualSignalWorld()
+        val sourceId = UUID.fromString(source.runtimeId)
+        val worlds = java.util.concurrent.ConcurrentHashMap<UUID, work.art1st.javarailways.core.physics.CoreWorld>()
+        worlds[sourceId] = source
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), actualInfrastructure(worlds), CapturingRoutePlanningService(), store(), sources,
+            loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(Path.of(requireNotNull(javaClass.getResource("/examples/jr-four-light/signal-packs")).toURI()))
+        store().save(sourceId, actualDefinitions(source))
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(sourceId).status)
+        val captured = manager.prepareSimulation(sourceId)
+        manager.clearLocal().toCompletableFuture().join()
+        actualSimulation(source, captured).use { simulation ->
+            simulation.step()
+            assertEquals(listOf("proceed", "slow", "caution", "stop"), actualAspects(simulation.runtime))
+            val occupied = simulation.runtime.sectionSignalSnapshot()!!
+            simulation.world.onOwnerForTest {
+                simulation.world.allTrains.single().destroy()
+            }.toCompletableFuture().join()
+            simulation.step()
+            assertEquals(65.0 / 3.6, actualLimits(simulation.runtime).last(),
+                "an empty terminal block still brakes for the physical track end")
+            assertEquals(0.0, occupied.states.getValue("test:actual-signal-3").effectiveSpeedLimitMetersPerSecond)
+            assertEquals(simulation.world.runtimeId, simulation.runtime.sectionSignalSnapshot()!!.stamp.worldId)
+            assertEquals(sourceId, actualDefinitions(source).worldId)
+        }
+        closeActualWorld(source)
+    }
+
+    @Test
+    fun `capture create run and close preserve nonempty live claims dispatcher frames and formal signals`() {
+        initializeDomainPlugins()
+        val source = actualSignalWorld()
+        val sourceId = UUID.fromString(source.runtimeId)
+        val sourceRail = source.allRails.single()
+        val ownerPlugin = plugin()
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(ownerPlugin, actualInfrastructure(mapOf(sourceId to source)),
+            CapturingRoutePlanningService(), store(), sources, loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(Path.of(requireNotNull(javaClass.getResource("/examples/jr-four-light/signal-packs")).toURI()))
+        store().save(sourceId, actualDefinitions(source))
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(sourceId).status)
+        val liveSignal = manager.authoringRuntime(sourceId)!!
+        val registry = source.infrastructureCoordination
+        val claimHost = Any()
+        val requester = Any()
+        val policy = FixedBlockRouteResourcePolicy(ownerPlugin,
+            { FixedBlockDirectionPolicy(source.basicWorldData.operatingDirections::snapshot) },
+            manager::validateRouteAdmission, manager::fixedBlockSnapshot)
+        val validator = registry.registerResourceValidator { resource ->
+            resource is StableInfrastructureResource && resource.typeId == FIXED_BLOCK_RESOURCE_TYPE &&
+                policy.exists(sourceId, resource.resourceId)
+        }
+        var observation: RailwayObservation? = null
+        lateinit var admission: RouteResourceAdmissionRuntime
+        val service = object : RouteResourceAdmissionService {
+            override fun request(intent: RouteResourceIntent) = admission.request(requester, intent)
+            override fun progress(handle: RouteAdmissionHandle) = admission.progress(requester, handle)
+            override fun suspendReleaseForReversal(grantId: RouteGrantId) = admission.suspendReleaseForReversal(requester, grantId)
+            override fun rebaseAfterReversal(intent: RouteResourceIntent) = admission.rebaseAfterReversal(requester, intent)
+            override fun endGrant(grantId: RouteGrantId) = admission.endGrant(requester, grantId)
+        }
+        val contextProvider = TimetableRouteAdmissionContextProvider {
+            observation?.let { TimetableRouteAdmissionContext(it, service) }
+        }
+        val dependencies = object : InfrastructureDependencyService {
+            override fun set(request: InfrastructureDependencyRequest) = registry.setInfrastructureDependencies(requester, request)
+            override fun remove(owner: InfrastructureOwner) = registry.removeInfrastructureDependencies(requester, owner)
+        }
+        val domain = OperationalWorldRuntime.create(source, source.runtimeId,
+            basicDataFactory = { changed -> work.art1st.javarailways.basic.BasicWorldData(
+                railMetadata = source.basicWorldData.railMetadata,
+                operatingDirections = work.art1st.javarailways.basic.rail.OperatingDirectionStore(changed)).also {
+                it.operatingDirections.put(sourceRail.id, ViewDirection.AB)
+            } }, dispatcherFactory = { runtime ->
+                admission = RouteResourceAdmissionRuntime.create(source.runtimeId, source, registry, claimHost,
+                    { observation }, { intent -> policy.contribute(sourceId, intent).map { ownerPlugin to it } },
+                    { _, contribution -> policy.validateRouteContribution(ownerPlugin, sourceId,
+                        contribution.resource.resourceId, contribution.preparation)?.let { RouteAdmissionFailure(it, "invalid contribution") } },
+                    { _, _ -> null }, runtime.signalEpochRuntime::publishAdmissionUpdate) { _, failure -> throw failure }
+                TimetableDispatcher(contextProvider, runtime.signalRestrictions, runtime.inspectionRuntime, dependencies,
+                    atoFactory = TimetableAtoFactory { train, world ->
+                        SimpleATO(train, world, HandleTrainActuator(train, TrainControlConfig(),
+                            train.cars.map { CarControlConfig() }, 9.81), AtoSafetyProfile(),
+                            runtime.inspectionRuntime::maximumDeclaredLeadTimeSeconds)
+                    })
+            })
+        domain.inspectionRuntime.replaceSources(listOf(liveSignal.fixedBlockInspectionSource, liveSignal.protectionRegionInspectionSource))
+        val live = actualLive(source, manager, sources, domain, {
+            observation = RailwayObservation.fromCore(source.runtimeId, source.latestWorldFrame())
+            admission.consumeObservation(checkNotNull(observation))
+        }) { world ->
+            val train = work.art1st.javarailways.core.physics.train.createTrainWithConfig("actual", world.allRails.single(), world, listOf(10.0))
+            world.onOwnerForTest {
+                train.setLocation(work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(world.allRails.single().viewAB, 1000.0))
+                train.commit()
+            }
+        }
+        fun request(context: TimetableRouteAdmissionContext, railId: UUID, topologyRevision: Long) = run {
+            val train = context.observation.trains.single()
+            val route = RouteSnapshot("test:preservation-route", 1, topologyRevision, listOf(
+                RouteSegmentSnapshot(railId, ViewDirection.AB, train.tail.arcLengthInAbMeters, train.tail.arcLengthInAbMeters + 100.0)))
+            assertInstanceOf(RouteAdmissionResult.Granted::class.java, context.service.request(RouteResourceIntent(
+                "test:preservation-request", InfrastructureOwner("test:preservation-owner", 1), train.trainId,
+                context.observation.stamp, route, RouteBoundary(60.0))))
+        }
+        try {
+            live.step()
+            val baselineSignal = liveSignal.sectionSignalSnapshot()!!
+            assertEquals(source.latestWorldFrame().physicsEpoch, baselineSignal.stamp.physicsEpoch)
+            source.onOwnerForTest {
+                domain.basicData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("live-origin", "Origin", sourceRail.id, 1000.0))
+                domain.basicData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("live-target", "Target", sourceRail.id, 1300.0))
+                domain.data.timetables.add(Timetable("live-preservation", services = listOf(TimetableService("service",
+                    TrainSelector.TrainId("actual"), listOf(TimetableStep.Check("live-origin"),
+                        TimetableStep.At(1000, TimetableAction.GoTo("live-target")))))))
+                assertInstanceOf(TimetableServiceStartResult.Started::class.java,
+                    domain.data.dispatcher.startService(source, "live-preservation", "service"))
+            }
+            live.step()
+            source.onOwnerForTest { request(checkNotNull(contextProvider.current()), sourceRail.id, source.topologyRevision) }
+            live.step()
+            assertEquals(TimetableServiceRunState.WAITING_TIMETABLE_TIME, domain.data.dispatcher.statuses().single().state)
+            val blockToken = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, "test:actual-block-3")
+            assertTrue(registry.claimSnapshots().single().footprint.resources.any { it is RailIntervalResource })
+            assertTrue(blockToken in registry.claimSnapshots().single().footprint.resources)
+            assertEquals(listOf("proceed", "slow", "caution", "stop"), actualAspects(liveSignal))
+            assertEquals(work.art1st.javarailways.core.api.physics.WorldExecutionMode.LIVE, source.executionMode)
+
+            // The LIVE fixture has published real physics, a real claim and an acquired Dispatcher run.
+            // Its fallback is disabled; from here only the two detached targets are advanced.
+            val frame = source.latestWorldFrame()
+            val trainFrames = source.allTrains.associate { it.id to it.publishedFrame }
+            val claims = registry.claimSnapshots()
+            val statuses = domain.data.dispatcher.statuses()
+            val signal = liveSignal.sectionSignalSnapshot()!!
+            val restrictions = domain.signalRestrictions.snapshotsFor("actual")
+            val completed = domain.signalRestrictions.completedObservationStamp()
+            // Unchanged signal inputs stay IDLE; the coherent completed boundary still advances.
+            assertSame(baselineSignal, signal)
+            assertTrue(signal.stamp.physicsEpoch < frame.physicsEpoch)
+            assertEquals(frame.physicsEpoch, checkNotNull(completed).physicsEpoch)
+            assertEquals(source.runtimeId, completed.worldId)
+            fun assertLiveUnchanged() {
+                assertSame(frame, source.latestWorldFrame())
+                assertEquals(trainFrames.keys, source.allTrains.map { it.id }.toSet())
+                source.allTrains.forEach { assertSame(trainFrames.getValue(it.id), it.publishedFrame) }
+                assertEquals(claims, registry.claimSnapshots())
+                assertEquals(statuses, domain.data.dispatcher.statuses())
+                assertSame(signal, liveSignal.sectionSignalSnapshot())
+                assertEquals(restrictions, domain.signalRestrictions.snapshotsFor("actual"))
+                assertEquals(completed, domain.signalRestrictions.completedObservationStamp())
+                assertEquals(ViewDirection.AB, source.basicWorldData.operatingDirections[sourceRail.id])
+            }
+            val captured = source.onOwnerForTest { manager.prepareSimulation(sourceId) }
+            assertLiveUnchanged()
+            actualSimulation(source, captured).use { first ->
+                assertLiveUnchanged()
+                actualSimulation(source, captured).use { second ->
+                    assertLiveUnchanged()
+                    assertEquals(listOf("actual"), first.world.allTrains.map { it.id })
+                    assertEquals(listOf("actual"), second.world.allTrains.map { it.id })
+                    assertNotSame(source.allTrains.single(), first.world.allTrains.single())
+                    assertNotSame(first.world.allTrains.single(), second.world.allTrains.single())
+                    assertNotEquals(source.runtimeId, first.world.runtimeId)
+                    assertNotEquals(first.world.runtimeId, second.world.runtimeId)
+                    listOf(first, second).forEach { simulation ->
+                        simulation.step()
+                        simulation.world.onOwnerForTest { request(checkNotNull(simulation.simulation!!.routeAdmissionHost.contextProvider.current()),
+                            simulation.world.allRails.single().id, simulation.world.topologyRevision) }
+                        assertTrue(blockToken in simulation.world.infrastructureCoordination.claimSnapshots().single().footprint.resources)
+                        assertEquals(listOf("proceed", "slow", "caution", "stop"), actualAspects(simulation.runtime))
+                        assertLiveUnchanged()
+                    }
+                    first.world.onOwnerForTest { first.world.basicWorldData.operatingDirections.put(sourceRail.id, ViewDirection.BA) }
+                    first.step()
+                    assertTrue(actualLimits(first.runtime).all { it == 0.0 })
+                    assertLiveUnchanged()
+                    first.close()
+                    assertTrue(first.world.infrastructureCoordination.claimSnapshots().isEmpty())
+                    assertLiveUnchanged()
+                    val before = second.world.latestWorldFrame().physicsEpoch
+                    second.step()
+                    assertEquals(before + 1, second.world.latestWorldFrame().physicsEpoch)
+                    assertEquals(listOf("proceed", "slow", "caution", "stop"), actualAspects(second.runtime))
+                    assertTrue(second.world.infrastructureCoordination.claimSnapshots().isNotEmpty())
+                    assertLiveUnchanged()
+                }
+                assertLiveUnchanged()
+            }
+            assertLiveUnchanged()
+        } finally {
+            live.close()
+            admission.close()
+            registry.releasePlatformOwner(claimHost)
+            validator.close()
+            domain.close()
+            manager.clearLocal().toCompletableFuture().join()
+        }
+    }
+
+    @Test
+    fun `a world source commit wait does not hold manager directory or block another install or detached capture`() {
+        val fixture = Fixture()
+        val otherId = UUID.randomUUID()
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), store(), sources)
+        manager.install(fixture.worldId)
+        val runtime = manager.authoringRuntime(fixture.worldId)!!
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val first = java.util.concurrent.atomic.AtomicBoolean(true)
+        sources.beforeCommitAction = {
+            if (first.compareAndSet(true, false)) { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
+        }
+        val edit = CompletableFuture.supplyAsync { manager.applyDefinitionPatch(fixture.worldId, 0,
+            SimpleSignalsDefinitionPatch(upsertRegions = listOf(fixture.region)), runtime) }
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED,
+                CompletableFuture.supplyAsync { manager.install(otherId) }.get(2, TimeUnit.SECONDS).status)
+            // This is the exact owner->capture side of the former AB/BA hazard: capture must not wait for A's management gate.
+            val captured = CompletableFuture.supplyAsync { manager.prepareSimulation(fixture.worldId) }.get(2, TimeUnit.SECONDS)
+            assertEquals("simplesignals", captured.id)
+            assertEquals(0L, runtime.currentDefinitions().definitionRevision)
+            assertFalse(edit.isDone)
+        } finally { release.countDown() }
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, edit.get(5, TimeUnit.SECONDS).status)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `real simulation admission claims fixed blocks releases by tail and observes direction updates`() {
+        initializeDomainPlugins()
+        val source = actualSignalWorld()
+        val id = UUID.fromString(source.runtimeId)
+        val sources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(plugin(), actualInfrastructure(mapOf(id to source)), CapturingRoutePlanningService(), store(), sources,
+            loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(Path.of(requireNotNull(javaClass.getResource("/examples/jr-four-light/signal-packs")).toURI()))
+        store().save(id, actualDefinitions(source))
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(id).status)
+        val captured = manager.prepareSimulation(id)
+        actualSimulation(source, captured).use { simulation ->
+            val world = simulation.world
+            val rail = world.allRails.single()
+            val second = work.art1st.javarailways.core.physics.train.createTrainWithConfig("following", rail, world, listOf(10.0))
+            world.onOwnerForTest {
+                second.setLocation(work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(rail.viewAB, 1300.0))
+                second.commit()
+            }
+            simulation.step()
+            fun request(trainId: String, requestId: String): work.art1st.javarailways.basic.api.route.RouteAdmissionResult = world.onOwnerForTest {
+                val context = checkNotNull(simulation.simulation!!.routeAdmissionHost.contextProvider.current())
+                val train = context.observation.trains.single { it.trainId == trainId }
+                val route = RouteSnapshot("test:actual-route-$trainId", 1L, world.topologyRevision,
+                    listOf(RouteSegmentSnapshot(rail.id, ViewDirection.AB, train.tail.arcLengthInAbMeters,
+                        train.tail.arcLengthInAbMeters + 100.0)))
+                context.service.request(work.art1st.javarailways.basic.api.route.RouteResourceIntent(requestId,
+                    InfrastructureOwner("test:actual-owner-$trainId", 1L), trainId, context.observation.stamp, route, RouteBoundary(60.0)))
+            }
+            val first = request("actual", "test:first")
+            assertTrue(first is work.art1st.javarailways.basic.api.route.RouteAdmissionResult.Granted, first.toString())
+            val conflicting = request("following", "test:following")
+            assertTrue(conflicting is work.art1st.javarailways.basic.api.route.RouteAdmissionResult.Rejected, conflicting.toString())
+            conflicting as work.art1st.javarailways.basic.api.route.RouteAdmissionResult.Rejected
+            assertEquals(work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode.RESOURCE_CONFLICT, conflicting.failure.code)
+            assertTrue(conflicting.failure.blockers.any {
+                it is work.art1st.javarailways.basic.api.route.RouteAdmissionBlocker.ConflictingResource &&
+                    it.resource == StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, "test:actual-block-3")
+            }, "disjoint physical intervals conflict on the real SimpleSignals block token")
+            simulation.step()
+            repeat(175) { simulation.step(200.0) }
+            val afterTail = request("following", "test:following-after-tail")
+            assertTrue(afterTail is work.art1st.javarailways.basic.api.route.RouteAdmissionResult.Granted, afterTail.toString())
+            world.onOwnerForTest {
+                world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.BA)
+            }
+            simulation.step()
+            assertTrue(actualLimits(simulation.runtime).all { it == 0.0 }, "direction restrictions reach installed signal sources")
+            world.onOwnerForTest { world.basicWorldData.operatingDirections.put(rail.id, ViewDirection.AB) }
+            simulation.step()
+            assertEquals("stop", actualAspects(simulation.runtime).last())
+            assertEquals(ViewDirection.AB, source.basicWorldData.operatingDirections[rail.id], "SIM edits cannot mutate LIVE values")
+        }
+        manager.clearLocal().toCompletableFuture().join()
+        closeActualWorld(source)
+    }
+
+    @Test
+    fun `a failed simulation installation cleans its own rules and leaves another real installation usable`() {
+        initializeDomainPlugins()
+        val source = actualSignalWorld()
+        val id = UUID.fromString(source.runtimeId)
+        val manager = runtimeManager(plugin(), actualInfrastructure(mapOf(id to source)), CapturingRoutePlanningService(), store(),
+            CapturingSignalEpochSourceService(), loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(Path.of(requireNotNull(javaClass.getResource("/examples/jr-four-light/signal-packs")).toURI()))
+        store().save(id, actualDefinitions(source))
+        manager.install(id)
+        val feature = manager.prepareSimulation(id)
+        val failing = object : work.art1st.javarailways.simpleato.api.simulation.PreparedSimulationFeature {
+            override val id = feature.id
+            override fun install(target: work.art1st.javarailways.simpleato.api.simulation.SimulationDomainTarget): AutoCloseable =
+                feature.install(object : work.art1st.javarailways.simpleato.api.simulation.SimulationDomainTarget by target {
+                    override fun installSignalSources(sources: Collection<SignalEpochSource>): AutoCloseable =
+                        error("deliberate target installation failure")
+                })
+        }
+        actualSimulation(source, feature).use { survivor ->
+            assertEquals("deliberate target installation failure", assertThrows(IllegalStateException::class.java) {
+                actualSimulation(source, failing)
+            }.message)
+            survivor.step()
+            assertEquals(listOf("proceed", "slow", "caution", "stop"), actualAspects(survivor.runtime))
+            actualSimulation(source, feature).use { replacement ->
+                replacement.step()
+                assertEquals(actualLimits(survivor.runtime), actualLimits(replacement.runtime))
+            }
+            survivor.step()
+        }
+        manager.clearLocal().toCompletableFuture().join()
+        closeActualWorld(source)
+    }
+
+    @Test
+    fun `installed formal protection signal receives real admission and inspection feedback without dispatcher ticks`() {
+        initializeDomainPlugins()
+        val source = actualSignalWorld()
+        val id = UUID.fromString(source.runtimeId)
+        val rail = source.allRails.single()
+        source.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("origin", "Origin", rail.id, 480.0))
+        source.basicWorldData.wayPoints.add(work.art1st.javarailways.basic.WayPoint("target", "Target", rail.id, 1100.0))
+        val region = ProtectionRegionDefinition("test:actual-region", 1, listOf(
+            ProtectionBoundaryDefinition("test:actual-entry", RailPositionSnapshot(rail.id, ViewDirection.AB, 500.0)),
+            ProtectionBoundaryDefinition("test:actual-exit", RailPositionSnapshot(rail.id, ViewDirection.BA, 800.0))))
+        val route = ProtectionRouteDefinition("test:actual-protection-route", "test:actual-entry", "test:actual-exit",
+            listOf(ProtectionRouteTraversal(rail.id, ViewDirection.AB, 500.0, 800.0)))
+        val definition = SimpleSignalsWorldDefinitions(id, 1, listOf(region), listOf(
+            ProtectionRouteTableDefinition("test:actual-table", 1, region.regionId, 1, listOf(route))),
+            protectionSignals = listOf(ProtectionSignalDefinition("test:actual-protection-signal", 1,
+                ProtectionSignalKind.CURRENT_ENTRY, "test:actual-entry", 0.0, "jr_four_light:block")))
+        val manager = runtimeManager(plugin(), actualInfrastructure(mapOf(id to source)), CapturingRoutePlanningService(), store(),
+            CapturingSignalEpochSourceService(), loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(Path.of(requireNotNull(javaClass.getResource("/examples/jr-four-light/signal-packs")).toURI()))
+        store().save(id, definition)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(id).status)
+        val feature = manager.prepareSimulation(id)
+        val actuator = object : work.art1st.javarailways.basic.api.ato.TrainActuator {
+            override val maximumSpeedMetersPerSecond = 30.0
+            override fun step(currentSpeedMetersPerSecond: Double, demand: work.art1st.javarailways.basic.api.ato.ControlDemand,
+                deltaTimeSeconds: Double) = work.art1st.javarailways.basic.api.ato.ActuationStep(0.0, 0.0)
+            override fun brakingEnvelope(segments: List<work.art1st.javarailways.basic.api.ato.BrakingGradeSegment>) =
+                work.art1st.javarailways.basic.api.ato.GradeAwareBrakingEnvelope.constant(1.0, segments)
+        }
+        actualSimulation(source, feature, actuator) { world ->
+            seedActualTrain(world)
+            world.onOwnerForTest {
+                val train = world.allTrains.single()
+                train.setLocation(work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(world.allRails.single().viewAB, 480.0))
+                train.removeController()
+                train.commit()
+            }
+        }.use { simulation ->
+            val world = simulation.world
+            simulation.step()
+            assertEquals(0.0, simulation.runtime.sectionSignalSnapshot()!!.states
+                .getValue("test:actual-protection-signal").effectiveSpeedLimitMetersPerSecond)
+            val data = simulation.domain!!.data
+            world.onOwnerForTest {
+                data.timetables.add(work.art1st.javarailways.simpleato.timetable.Timetable("actual-protection", services = listOf(
+                    work.art1st.javarailways.simpleato.timetable.TimetableService("actual-protection-service",
+                        work.art1st.javarailways.simpleato.timetable.TrainSelector.TrainId("actual"), listOf(
+                            work.art1st.javarailways.simpleato.timetable.TimetableStep.Check("origin"),
+                            work.art1st.javarailways.simpleato.timetable.TimetableStep.At(0,
+                                work.art1st.javarailways.simpleato.timetable.TimetableAction.GoTo("target")))))))
+                assertTrue(data.dispatcher.startService(world, "actual-protection", "actual-protection-service") is
+                    work.art1st.javarailways.simpleato.timetable.TimetableServiceStartResult.Started)
+            }
+            repeat(10) { simulation.step() }
+            assertFalse(simulation.domain.atoCoordinator.isStalled, simulation.domain.atoCoordinator.lastStall.toString())
+            val selected = simulation.runtime.protectionRouteSelectionSnapshot()!!.selections.getValue("test:actual-entry")
+            assertEquals("test:actual-protection-route", selected.routeId)
+            assertTrue(selected.routeReady, selected.toString())
+            val ato = world.allTrains.single().controller as work.art1st.javarailways.simpleato.controller.SimpleATO
+            assertTrue(ato.runtimeDiagnostics.permittedSpeedMetersPerSecond > 2.0)
+            assertTrue(simulation.runtime.sectionSignalSnapshot()!!.states
+                .getValue("test:actual-protection-signal").effectiveSpeedLimitMetersPerSecond.let { it == null || it > 0.0 })
+            val occupant = work.art1st.javarailways.core.physics.train.createTrainWithConfig("protection-occupant", world.allRails.single(), world, listOf(10.0))
+            world.onOwnerForTest {
+                occupant.setLocation(work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(world.allRails.single().viewAB, 650.0))
+                occupant.commit()
+            }
+            repeat(3) { simulation.step(domainPhase = false) }
+            assertEquals(0.0, simulation.runtime.sectionSignalSnapshot()!!.states
+                .getValue("test:actual-protection-signal").effectiveSpeedLimitMetersPerSecond)
+            assertTrue(ato.runtimeDiagnostics.permittedSpeedMetersPerSecond <= kotlin.math.sqrt(40.0) + 1e-9,
+                "the real controller consumes the red protection signal through installed inspection")
+            world.onOwnerForTest { occupant.destroy() }.toCompletableFuture().join()
+            repeat(4) { simulation.step(domainPhase = false) }
+            assertTrue(simulation.runtime.protectionRouteSelectionSnapshot()!!.selections.getValue("test:actual-entry").routeReady)
+            assertTrue(ato.runtimeDiagnostics.permittedSpeedMetersPerSecond > kotlin.math.sqrt(40.0))
+        }
+        manager.clearLocal().toCompletableFuture().join()
+        closeActualWorld(source)
+    }
+
+    @Test
+    fun `real definition preparation and waiting model attachment do not capture the manager directory`() {
+        val fixture = Fixture()
+        val manager = runtimeManager(plugin(), MutableTopologyService(fixture.currentTopology).service,
+            CapturingRoutePlanningService(), store(), CapturingSignalEpochSourceService())
+        manager.install(fixture.worldId)
+        val runtime = manager.authoringRuntime(fixture.worldId)!!
+        val candidate = SimpleSignalsWorldDefinitions(fixture.worldId, 1, listOf(fixture.region), emptyList())
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        // Freeze an actual candidate read while prepareDefinitions owns its real publication monitor.
+        // The factory copies lists, so this test-local read-only wrapper is installed by reflection.
+        val regions = SimpleSignalsWorldDefinitions::class.java.getDeclaredField("regions").also { it.isAccessible = true }
+        val original = candidate.regions
+        val once = java.util.concurrent.atomic.AtomicBoolean()
+        regions.set(candidate, object : AbstractList<ProtectionRegionDefinition>() {
+            override val size = original.size
+            override fun get(index: Int): ProtectionRegionDefinition {
+                if (once.compareAndSet(false, true)) { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
+                return original[index]
+            }
+        })
+        val preparation = CompletableFuture.supplyAsync { runtime.prepareDefinitions(fixture.currentTopology, candidate) }
+        val models = SimpleSignalsWorldRuntimeManager::class.java.getDeclaredField("modelPackages").also { it.isAccessible = true }
+        models.set(manager, null)
+        val attach = SimpleSignalsWorldRuntimeManager::class.java.getDeclaredMethod("attachModels", SimpleSignalsWorldRuntime::class.java)
+            .also { it.isAccessible = true }
+        var attachment: CompletableFuture<Void>? = null
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            attachment = CompletableFuture.runAsync { attach.invoke(manager, runtime) }
+            val monitor = SimpleSignalsWorldRuntime::class.java.getDeclaredField("lock").also { it.isAccessible = true }.get(runtime)
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            var waiting = false
+            while (!waiting && System.nanoTime() < deadline) {
+                waiting = java.lang.management.ManagementFactory.getThreadMXBean().dumpAllThreads(false, false).any {
+                    it.threadState == Thread.State.BLOCKED && it.lockInfo?.identityHashCode == System.identityHashCode(monitor)
+                }
+                if (!waiting) Thread.yield()
+            }
+            assertTrue(waiting, "real attach must wait on the real candidate's publication lock")
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED,
+                CompletableFuture.supplyAsync { manager.install(UUID.randomUUID()) }.get(2, TimeUnit.SECONDS).status)
+            assertFalse(preparation.isDone)
+            assertFalse(attachment.isDone)
+        } finally { release.countDown() }
+        assertTrue(preparation.get(5, TimeUnit.SECONDS) is SimpleSignalsDefinitionPreparationResult.Prepared)
+        attachment!!.get(5, TimeUnit.SECONDS)
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `subscription retirement failure still closes the owned engine and preserves another simulation`() {
+        initializeDomainPlugins()
+        val source = actualSignalWorld()
+        val id = UUID.fromString(source.runtimeId)
+        val cleaned = CountDownLatch(1)
+        val failure = IllegalStateException("topology retirement failed")
+        val manager = runtimeManager(plugin(), actualInfrastructure(mapOf(id to source)), CapturingRoutePlanningService(), store(),
+            CapturingSignalEpochSourceService(), loadDefaultSignalCatalog = false,
+            modelFailure = { context, error -> if (context.contains("cleanup") &&
+                generateSequence(error) { it.cause }.any { it === failure }) cleaned.countDown() })
+        manager.loadSignalPacks(Path.of(requireNotNull(javaClass.getResource("/examples/jr-four-light/signal-packs")).toURI()))
+        store().save(id, actualDefinitions(source))
+        manager.install(id)
+        val runtime = manager.authoringRuntime(id)!!
+        val logic = actualLogic(runtime)
+        val feature = manager.prepareSimulation(id)
+        actualSimulation(source, feature).use { survivor ->
+            val subscription = runtime.topologySubscription
+            runtime.topologySubscription = AutoCloseable { subscription?.close(); throw failure }
+            assertSame(failure, assertThrows(IllegalStateException::class.java) { manager.remove(id) })
+            assertTrue(cleaned.await(5, TimeUnit.SECONDS), "cleanup reports only after the owned logic has closed")
+            assertThrows(IllegalStateException::class.java) { logic.evaluate("jr_four_light:block", kotlinx.serialization.json.JsonObject(emptyMap())) }
+            assertNull(manager.authoringRuntime(id))
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(id).status)
+            survivor.step()
+            assertEquals(listOf("proceed", "slow", "caution", "stop"), actualAspects(survivor.runtime))
+            val replacement = manager.authoringRuntime(id)!!
+            val replacementLogic = actualLogic(replacement)
+            replacement.topologySubscription = AutoCloseable { throw failure }
+            val closed = manager.clearLocal().toCompletableFuture()
+            val closeFailure = assertThrows(java.util.concurrent.ExecutionException::class.java) { closed.get(5, TimeUnit.SECONDS) }
+            assertSame(failure, closeFailure.cause)
+            assertThrows(IllegalStateException::class.java) { replacementLogic.evaluate("jr_four_light:block", kotlinx.serialization.json.JsonObject(emptyMap())) }
+            survivor.step()
+        }
+        closeActualWorld(source)
+    }
+
+    @Test
+    fun `late old removal cannot clear replacement world rule diagnostics`() {
+        val fixture = Fixture()
+        val sources = CapturingSignalEpochSourceService()
+        val issues = work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService()
+        val manager = runtimeManager(plugin(), MutableTopologyService(fixture.currentTopology).service,
+            CapturingRoutePlanningService(), store(), sources, worldIssues = issues)
+        manager.install(fixture.worldId)
+        val old = manager.authoringRuntime(fixture.worldId)!!
+        val held = CountDownLatch(1)
+        val replace = CountDownLatch(1)
+        val installed = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val replacement = CompletableFuture.runAsync {
+            synchronized(old.managementLock) {
+                held.countDown()
+                check(replace.await(5, TimeUnit.SECONDS))
+                val block = FixedBlockDefinition("test:diagnostic-block", 1,
+                    listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 3.0)))
+                store().save(fixture.worldId, SimpleSignalsWorldDefinitions(fixture.worldId, 1, emptyList(), emptyList(), listOf(block),
+                    listOf(FixedBlockSignalDefinition("test:diagnostic-signal", 1, block.blockId, 0.0, "missing:rule"))))
+                assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+                val epoch = SignalEpochRuntime(fixture.worldId.toString(), TrainRestrictionSnapshotStore(fixture.worldId.toString()))
+                epoch.replaceSources(sources.sources.getValue(fixture.worldId))
+                epoch.process(RailwayWorldFrameSnapshot.create(1, fixture.currentTopology.revision, emptyList(),
+                    ActiveRailContinuationsSnapshot.empty(fixture.currentTopology.revision)))
+                installed.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+            }
+        }
+        var removal: CompletableFuture<Void>? = null
+        try {
+            assertTrue(held.await(5, TimeUnit.SECONDS))
+            removal = CompletableFuture.runAsync { manager.remove(fixture.worldId) }
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (!old.closed && System.nanoTime() < deadline) Thread.yield()
+            assertTrue(old.closed)
+            replace.countDown()
+            assertTrue(installed.await(5, TimeUnit.SECONDS))
+            assertTrue(issues.snapshot(fixture.worldId).any { it.objectId == "test:diagnostic-signal" && it.code == "rule-unavailable" })
+        } finally { replace.countDown(); release.countDown() }
+        replacement.get(5, TimeUnit.SECONDS)
+        removal!!.get(5, TimeUnit.SECONDS)
+        assertNotSame(old, manager.authoringRuntime(fixture.worldId))
+        assertTrue(issues.snapshot(fixture.worldId).any { it.objectId == "test:diagnostic-signal" && it.code == "rule-unavailable" })
+        manager.clearLocal().toCompletableFuture().join()
+    }
+
+    @Test
+    fun `real simulation reversal retains the same bidirectional block claim and releases after the reverse tail`() {
+        initializeDomainPlugins()
+        val source = actualSignalWorld()
+        val id = UUID.fromString(source.runtimeId)
+        val rail = source.allRails.single()
+        source.basicWorldData.operatingDirections.put(rail.id, null)
+        val block = FixedBlockDefinition("test:actual-bidirectional", 1,
+            listOf(FixedBlockTraversal(rail.id, ViewDirection.AB, 0.0, 1450.0)), bidirectional = true)
+        val definitions = SimpleSignalsWorldDefinitions(id, 1, emptyList(), emptyList(), listOf(block), listOf(
+            FixedBlockSignalDefinition("test:forward", 1, block.blockId, 0.0, "jr_four_light:block"),
+            FixedBlockSignalDefinition("test:reverse", 1, block.blockId, 0.0, "jr_four_light:block", FixedBlockEntryDirection.REVERSE)))
+        val manager = runtimeManager(plugin(), actualInfrastructure(mapOf(id to source), null), CapturingRoutePlanningService(), store(),
+            CapturingSignalEpochSourceService(), loadDefaultSignalCatalog = false)
+        manager.loadSignalPacks(Path.of(requireNotNull(javaClass.getResource("/examples/jr-four-light/signal-packs")).toURI()))
+        store().save(id, definitions)
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(id).status)
+        actualSimulation(source, manager.prepareSimulation(id), seed = { world ->
+            seedActualTrain(world)
+            world.onOwnerForTest { world.allTrains.single().removeController() }
+        }).use { simulation ->
+            val world = simulation.world
+            val train = world.allTrains.single()
+            simulation.step()
+            val host = simulation.simulation!!.routeAdmissionHost
+            val registry = host.javaClass.getDeclaredField("registry").also { it.isAccessible = true }.get(host)
+                as InfrastructureCoordinationRegistry
+            val owner = InfrastructureOwner("test:reverse-owner", 1)
+            val grant = world.onOwnerForTest {
+                val context = checkNotNull(host.contextProvider.current())
+                val tail = context.observation.trains.single().tail.arcLengthInAbMeters
+                val route = RouteSnapshot("test:reverse-route", 1, world.topologyRevision,
+                    listOf(RouteSegmentSnapshot(rail.id, ViewDirection.AB, tail, 1400.0)))
+                val result = context.service.request(work.art1st.javarailways.basic.api.route.RouteResourceIntent(
+                    "test:reverse-request", owner, train.id, context.observation.stamp, route, RouteBoundary(100.0)))
+                assertTrue(result is work.art1st.javarailways.basic.api.route.RouteAdmissionResult.Granted, result.toString())
+                (result as work.art1st.javarailways.basic.api.route.RouteAdmissionResult.Granted).grant
+            }
+            val retained = registry.claimSnapshots().single().footprint
+            val token = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)
+            assertTrue(token in retained.resources)
+            world.onOwnerForTest {
+                val context = checkNotNull(host.contextProvider.current())
+                assertTrue(context.service.suspendReleaseForReversal(grant.grantId) is
+                    work.art1st.javarailways.basic.api.route.RouteGrantReversalResult.Accepted)
+                train.reverse()
+            }
+            simulation.step()
+            assertTrue(train.isReversed)
+            assertEquals(retained, registry.claimSnapshots().single().footprint)
+            world.onOwnerForTest {
+                val context = checkNotNull(host.contextProvider.current())
+                val observed = context.observation.trains.single()
+                val tail = 1450.0 - observed.tail.arcLengthInAbMeters
+                val bodyLength = observed.tail.arcLengthInAbMeters - observed.head.arcLengthInAbMeters
+                val route = RouteSnapshot("test:reverse-route", 2, world.topologyRevision,
+                    listOf(RouteSegmentSnapshot(rail.id, ViewDirection.BA, tail, 750.0)))
+                val rebased = context.service.rebaseAfterReversal(work.art1st.javarailways.basic.api.route.RouteResourceIntent(
+                    "test:reverse-body", owner, train.id, context.observation.stamp, route, RouteBoundary(bodyLength)))
+                assertTrue(rebased is work.art1st.javarailways.basic.api.route.RouteGrantReversalResult.Accepted, rebased.toString())
+                assertSame(grant.grantId, (rebased as work.art1st.javarailways.basic.api.route.RouteGrantReversalResult.Accepted).grant.grantId)
+                assertEquals(retained, registry.claimSnapshots().single().footprint)
+                val extended = context.service.request(work.art1st.javarailways.basic.api.route.RouteResourceIntent(
+                    "test:reverse-extension", owner, train.id, context.observation.stamp, route, RouteBoundary(60.0)))
+                assertTrue(extended is work.art1st.javarailways.basic.api.route.RouteAdmissionResult.Granted, extended.toString())
+                assertSame(grant.grantId, (extended as work.art1st.javarailways.basic.api.route.RouteAdmissionResult.Granted).grant.grantId)
+                assertEquals(1, registry.claimSnapshots().count { token in it.footprint.resources })
+                val controller = object : work.art1st.javarailways.core.api.control.TrainController(train) {
+                    fun start() { speed = 2.0; commit() }
+                }
+                train.setController(controller)
+                controller.start()
+            }
+            val before = train.publishedFrame.head.arcLengthInAbMeters
+            repeat(175) { simulation.step(200.0) }
+            assertTrue(train.publishedFrame.head.arcLengthInAbMeters < before - 60.0)
+            assertTrue(registry.claimSnapshots().none { token in it.footprint.resources })
+            world.onOwnerForTest { assertTrue(checkNotNull(host.contextProvider.current()).service.endGrant(grant.grantId)) }
+            assertTrue(simulation.runtime.sectionSignalSnapshot()!!.states.values.all { it is SectionSignalState.Available })
+        }
+        manager.clearLocal().toCompletableFuture().join()
+        closeActualWorld(source)
+    }
+
+    private class ActualSignalRun(
+        val world: work.art1st.javarailways.core.physics.CoreWorld,
+        val runtime: SimpleSignalsWorldRuntime,
+        val domain: work.art1st.javarailways.simpleato.runtime.OperationalWorldRuntime? = null,
+        val simulation: work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationWorld? = null,
+        private val publishObservation: (() -> Unit)? = null,
+        private val closeAction: () -> Unit
+    ) : AutoCloseable {
+        private val closed = java.util.concurrent.atomic.AtomicBoolean()
+        fun step(deltaMillis: Double = 50.0, domainPhase: Boolean = true) = IsolatedSimulationThreadMarker.run {
+            world.executionOwner.run {
+                val ticket = world.physicsCoordinator.stepSimulation(deltaMillis)
+                ticket.await()
+                if (domain != null && domainPhase) world.physicsCoordinator.processBetweenFrames {
+                    domain.afterPublication(ticket.epoch, publishObservation ?: { simulation!!.routeAdmissionHost.publish(
+                        RailwayObservation.fromCore(world.runtimeId, world.latestWorldFrame())) })
+                }
+            }
+        }
+        override fun close() { if (closed.compareAndSet(false, true)) closeAction() }
+    }
+
+    private fun actualLive(world: work.art1st.javarailways.core.physics.CoreWorld,
+        manager: SimpleSignalsWorldRuntimeManager, sources: CapturingSignalEpochSourceService,
+        domain: OperationalWorldRuntime? = null, publishObservation: (() -> Unit)? = null,
+        seed: (work.art1st.javarailways.core.physics.CoreWorld) -> Unit = ::seedActualTrain): ActualSignalRun {
+        val id = UUID.fromString(world.runtimeId)
+        val epoch = domain?.signalEpochRuntime ?: SignalEpochRuntime(world.runtimeId, TrainRestrictionSnapshotStore(world.runtimeId))
+        epoch.replaceSources(sources.sources.getValue(id))
+        if (domain == null) world.physicsCoordinator.registerRailwayEpochProcessor(epoch)
+        seed(world)
+        world.physicsCoordinator.start()
+        return ActualSignalRun(world, manager.authoringRuntime(id)!!, domain, publishObservation = publishObservation) {
+            closeActualWorld(world); manager.remove(id)
+        }
+    }
+
+    private fun actualSimulation(source: work.art1st.javarailways.core.physics.CoreWorld,
+        feature: work.art1st.javarailways.simpleato.api.simulation.PreparedSimulationFeature,
+        actuator: work.art1st.javarailways.basic.api.ato.TrainActuator? = null,
+        seed: (work.art1st.javarailways.core.physics.CoreWorld) -> Unit = ::seedActualTrain): ActualSignalRun {
+        var installed: AutoCloseable? = null
+        val captured = object : work.art1st.javarailways.simpleato.api.simulation.PreparedSimulationFeature {
+            override val id = feature.id
+            override fun install(target: work.art1st.javarailways.simpleato.api.simulation.SimulationDomainTarget): AutoCloseable =
+                feature.install(target).also { installed = it }
+        }
+        val simulation = work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationWorld.create(
+            source.saveInfrastructure(1),
+            work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2.capture(source, 1, emptySet()),
+            work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1(1, 1, emptyList(), emptyList(), 0),
+            workerThreads = 2,
+            basicDataFactory = { _, changed -> work.art1st.javarailways.basic.BasicWorldData(
+                operatingDirections = work.art1st.javarailways.basic.rail.OperatingDirectionStore(changed)) },
+            preparedFeatures = listOf(captured),
+            dispatcherFactory = { _, admission, restrictions, inspection, dependencies ->
+                val profile = work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile(
+                    accelerationMetersPerSecondSquared = 1.0, serviceDecelerationMetersPerSecondSquared = 1.0,
+                    reactionTimeSeconds = 0.0, safetyDistanceMeters = 2.0, stopToleranceMeters = 0.25)
+                work.art1st.javarailways.simpleato.timetable.TimetableDispatcher(admission, restrictions, inspection, dependencies,
+                    authorityStoppingMarginMeters = profile.safetyDistanceMeters,
+                    atoFactory = actuator?.let { selectedActuator -> work.art1st.javarailways.simpleato.timetable.TimetableAtoFactory { train, world ->
+                        work.art1st.javarailways.simpleato.controller.SimpleATO(train, world, selectedActuator, profile,
+                            inspection::maximumDeclaredLeadTimeSeconds)
+                    } }) },
+            seed = seed)
+        // Observe the actual feature-owned runtime without adding a production test hook or guest host access.
+        val token = checkNotNull(installed)
+        val runtime = token.javaClass.declaredFields.single { it.type == SimpleSignalsWorldRuntime::class.java }
+            .also { it.isAccessible = true }.get(token) as SimpleSignalsWorldRuntime
+        return ActualSignalRun(simulation.world, runtime, simulation.operationalRuntime, simulation) { simulation.close() }
+    }
+
+    private fun actualLogic(runtime: SimpleSignalsWorldRuntime): work.art1st.javarailways.simplesignals.signalpack.SignalLogicRuntime =
+        SimpleSignalsWorldRuntime::class.java.getDeclaredField("signalLogic").also { it.isAccessible = true }
+            .get(runtime) as work.art1st.javarailways.simplesignals.signalpack.SignalLogicRuntime
+
+    private fun actualAspects(runtime: SimpleSignalsWorldRuntime) = (0..3).map {
+        (runtime.sectionSignalSnapshot()!!.states.getValue("test:actual-signal-$it") as SectionSignalState.Available).output.modelVariant
+    }
+    private fun actualLimits(runtime: SimpleSignalsWorldRuntime) = (0..3).map {
+        runtime.sectionSignalSnapshot()!!.states.getValue("test:actual-signal-$it").effectiveSpeedLimitMetersPerSecond
+    }
+
+    private fun actualDefinitions(world: work.art1st.javarailways.core.physics.CoreWorld): SimpleSignalsWorldDefinitions {
+        val rail = world.allRails.single()
+        val boundaries = listOf(0.0, 500.0, 800.0, 950.0, 1450.0)
+        val blocks = (0..3).map { index -> FixedBlockDefinition("test:actual-block-$index", 1,
+            listOf(FixedBlockTraversal(rail.id, ViewDirection.AB, boundaries[index], boundaries[index + 1]))) }
+        return SimpleSignalsWorldDefinitions(UUID.fromString(world.runtimeId), 1, emptyList(), emptyList(), blocks,
+            blocks.mapIndexed { index, block -> FixedBlockSignalDefinition("test:actual-signal-$index", 1,
+                block.blockId, 0.0, "jr_four_light:block") })
+    }
+
+    private fun actualSignalWorld(): work.art1st.javarailways.core.physics.CoreWorld {
+        val world = work.art1st.javarailways.core.physics.train.createTestWorld(
+            work.art1st.javarailways.core.physics.tick.PhysicsCoordinator(2, automaticFallback = false))
+        val rail = work.art1st.javarailways.core.physics.train.createStraightRailFromSegments(world,
+            work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator.buildStraight(1450.0, 1, 10.0))
+        val basic = work.art1st.javarailways.basic.BasicWorldData()
+        world.registerExtensionData(work.art1st.javarailways.basic.BasicPlugin.INSTANCE, basic)
+        basic.operatingDirections.put(rail.id, ViewDirection.AB)
+        rail.infrastructureMetadata = work.art1st.javarailways.basic.rail.RailInfrastructureMetadata(
+            speedLimits = work.art1st.javarailways.basic.rail.SpeedLimitMetadata(listOf(
+                work.art1st.javarailways.basic.rail.SpeedLimitEntry(100.0 / 3.6,
+                    work.art1st.javarailways.basic.rail.SpeedLimitType.SUBGRADE))))
+        return world
+    }
+
+    private fun seedActualTrain(world: work.art1st.javarailways.core.physics.CoreWorld) {
+        val rail = world.allRails.single()
+        val train = work.art1st.javarailways.core.physics.train.createTrainWithConfig("actual", rail, world, listOf(10.0))
+        world.onOwnerForTest {
+            train.setLocation(work.art1st.javarailways.core.physics.rail.RailLocationWithFacing(rail.viewAB, 1000.0))
+            train.commit()
+            val controller = object : work.art1st.javarailways.core.api.control.TrainController(train) {
+                fun start() { speed = 2.0; commit() }
+            }
+            train.setController(controller)
+            controller.start()
+        }
+    }
+
+    private fun actualInfrastructure(worlds: Map<UUID, work.art1st.javarailways.core.physics.CoreWorld>,
+        direction: ViewDirection? = ViewDirection.AB): InfrastructureResourceService =
+        proxy(InfrastructureResourceService::class.java) { method, args ->
+            val world = worlds.getValue(args!![if (method.name == "observeTopologyChanges") 1 else 0] as UUID)
+            when (method.name) {
+                "currentTopology" -> world.topologyState
+                "observeTopologyChanges" -> AutoCloseable {}
+                "operatingDirections" -> {
+                    @Suppress("UNCHECKED_CAST") val rails = args[2] as Collection<UUID>
+                    work.art1st.javarailways.basic.api.route.RailOperatingDirections(world.topologyState,
+                        rails.associateWith { direction })
+                }
+                "railSpeedLimits" -> {
+                    @Suppress("UNCHECKED_CAST") val rails = args[2] as Collection<UUID>
+                    rails.associateWith { 100.0 / 3.6 }
+                }
+                else -> throw UnsupportedOperationException(method.name)
+            }
+        }
+
+    private fun initializeDomainPlugins() {
+        if (work.art1st.javarailways.basic.BasicPlugin.instanceOrNull() == null)
+            work.art1st.javarailways.basic.BasicPlugin.INSTANCE = work.art1st.javarailways.basic.BasicPlugin(100)
+        if (work.art1st.javarailways.simpleato.SimpleATOPlugin.instanceOrNull() == null)
+            work.art1st.javarailways.simpleato.SimpleATOPlugin.INSTANCE = work.art1st.javarailways.simpleato.SimpleATOPlugin(101)
+    }
+
+    private fun closeActualWorld(world: work.art1st.javarailways.core.physics.CoreWorld) = IsolatedSimulationThreadMarker.run {
+        world.executionOwner.run {
+            world.physicsCoordinator.closeAndAwaitTermination()
+            (world.tickManager as work.art1st.javarailways.core.util.TickManagerImpl).closeAndAwaitTermination(world.runtimeId)
+        }
     }
 
     private fun store() = SimpleSignalsWorldDefinitionStore(directory.toFile())
@@ -6272,7 +7393,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
     private class CapturingRoutePlanningService(
         private var nextFailure: RuntimeException? = null
     ) : RoutePlanningRestrictionSourceService {
-        private val bindings = linkedMapOf<UUID, List<RoutePlanningRestrictionBinding>>()
+        private val bindings = java.util.concurrent.ConcurrentHashMap<UUID, List<RoutePlanningRestrictionBinding>>()
         var replacementCount: Int = 0
             private set
 
@@ -6295,9 +7416,31 @@ class SimpleSignalsWorldRuntimeManagerTest {
     private class CapturingSignalEpochSourceService(
         var nextPrevalidationFailure: RuntimeException? = null
     ) : SignalEpochSourceService {
-        val sources = linkedMapOf<UUID, List<SignalEpochSource>>()
-        val replacements = mutableListOf<List<SignalEpochSource>>()
-        var beforeCommitAction: () -> Unit = {}
+        val sources = java.util.concurrent.ConcurrentHashMap<UUID, List<SignalEpochSource>>()
+        val replacements = java.util.concurrent.CopyOnWriteArrayList<List<SignalEpochSource>>()
+        data class Retirement(
+            val epochSources: List<SignalEpochSource>,
+            val inspectionSources: List<InspectionSource>,
+            val routePlanningSources: List<RoutePlanningRestrictionBinding>
+        )
+        val retirements = java.util.concurrent.CopyOnWriteArrayList<Retirement>()
+        var onRetire: (Retirement) -> Unit = {}
+
+        override fun retireSources(
+            pluginOwner: Plugin,
+            worldId: UUID,
+            epochSources: Collection<SignalEpochSource>,
+            inspectionSources: Collection<InspectionSource>,
+            routePlanningSources: Collection<RoutePlanningRestrictionBinding>
+        ) {
+            val retirement = Retirement(epochSources.toList(), inspectionSources.toList(), routePlanningSources.toList())
+            retirements += retirement
+            onRetire(retirement)
+            sources.computeIfPresent(worldId) { _, current ->
+                current.filterNot { source -> epochSources.any { it === source } }
+            }
+        }
+        @Volatile var beforeCommitAction: () -> Unit = {}
         var atomicCommitCount = 0
             private set
 
@@ -6496,7 +7639,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
         private fun signalSources(): SignalEpochSourceService =
             proxy(SignalEpochSourceService::class.java) { method, arguments ->
                 when (method.name) {
-                    "replaceSources" -> Unit
+                    "replaceSources", "retireSources" -> Unit
                     "replaceSourcesAtomically" -> {
                         (arguments!![3] as Runnable).run()
                         Unit

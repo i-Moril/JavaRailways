@@ -1,5 +1,9 @@
 package work.art1st.javarailways.simpleato.timetable.simulation
 
+import work.art1st.javarailways.simpleato.api.simulation.PreparedSimulationFeature
+import work.art1st.javarailways.simpleato.api.simulation.SimulationDomainTarget
+import work.art1st.javarailways.simpleato.api.simulation.SimulationResourceProvider
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -54,6 +58,11 @@ import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencies
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
@@ -271,13 +280,12 @@ class IsolatedTimetableSimulationTest {
     @Test
     fun `partial feature install failure releases prior targets in reverse order and suppresses cleanup failure`() {
         val closed = arrayListOf<String>()
-        var installedTarget: SimulationDomainTarget? = null
+        var installedWorld: CoreWorld? = null
         val failure = IllegalStateException("install failed")
         val features = listOf(
             object : PreparedSimulationFeature {
                 override val id = "test:first"
                 override fun install(target: SimulationDomainTarget): AutoCloseable {
-                    installedTarget = target
                     return AutoCloseable { closed += id }
                 }
             },
@@ -293,24 +301,48 @@ class IsolatedTimetableSimulationTest {
                 override fun install(target: SimulationDomainTarget): AutoCloseable = throw failure
             }
         )
-        assertEquals(failure, assertThrows(IllegalStateException::class.java) { fixture(features = features) })
+        assertEquals(failure, assertThrows(IllegalStateException::class.java) {
+            fixture(features = features, configureTarget = { installedWorld = it })
+        })
         assertEquals(listOf("test:second", "test:first"), closed)
         assertEquals(listOf("cleanup failed"), failure.suppressed.map { it.message })
-        assertThrows(IllegalStateException::class.java) { checkNotNull(installedTarget).world.physicsCoordinator.stepSimulation(50.0) }
+        assertThrows(IllegalStateException::class.java) { checkNotNull(installedWorld).physicsCoordinator.stepSimulation(50.0) }
+    }
+
+    @Test
+    fun `construction failure closes owned operation resource after features and preserves cleanup failures`() {
+        val order = arrayListOf<String>()
+        val original = IllegalStateException("seed setup failed")
+        val cleanup = IllegalArgumentException("operation cleanup failed")
+        val failure = assertThrows(IllegalStateException::class.java) {
+            fixture(
+                operationResourceFactory = { AutoCloseable { order += "operation"; throw cleanup } },
+                features = listOf(object : PreparedSimulationFeature {
+                    override val id = "test:installed-before-operation-failure"
+                    override fun install(target: SimulationDomainTarget): AutoCloseable = AutoCloseable { order += "feature" }
+                }, object : PreparedSimulationFeature {
+                    override val id = "test:broken-operation-owner"
+                    override fun install(target: SimulationDomainTarget): AutoCloseable = throw original
+                })
+            )
+        }
+        assertEquals(original, failure)
+        assertEquals(listOf("feature", "operation"), order)
+        assertEquals(listOf(cleanup), failure.suppressed.toList())
     }
 
     @Test
     fun `target feature receives real admission updates only from its local runtime`() {
-        val updates = java.util.IdentityHashMap<CoreWorld, MutableList<ActiveRouteAdmissionUpdate>>()
-        val preparations = java.util.IdentityHashMap<CoreWorld, Int>()
+        val updates = java.util.HashMap<java.util.UUID, MutableList<ActiveRouteAdmissionUpdate>>()
+        val preparations = java.util.HashMap<java.util.UUID, Int>()
         val feature = object : PreparedSimulationFeature {
             override val id = "test:admission-source"
             override fun install(target: SimulationDomainTarget): AutoCloseable {
                 val received = arrayListOf<ActiveRouteAdmissionUpdate>()
-                updates[target.world] = received
+                updates[target.worldId] = received
                 val resource = StableInfrastructureResource("test:device", "one")
                 val preparation = ResourcePreparationDescriptor("test:set", emptyMap())
-                val provider = target.routeAdmission.registerProvider(resource.typeId, object : SimulationResourceProvider {
+                val provider = target.registerResourceProvider(resource.typeId, object : SimulationResourceProvider {
                     override fun exists(resource: StableInfrastructureResource) = resource.resourceId == "one"
                     override fun validate(contributorId: String, contribution: ContributedRouteResource):
                         RouteAdmissionFailure? {
@@ -323,7 +355,7 @@ class IsolatedTimetableSimulationTest {
                         (() -> ResourcePreparationTicket) {
                         assertEquals(preparation, descriptor)
                         return {
-                            preparations[target.world] = (preparations[target.world] ?: 0) + 1
+                            preparations[target.worldId] = (preparations[target.worldId] ?: 0) + 1
                             object : ResourcePreparationTicket {
                                 override fun snapshot() = ResourcePreparationSnapshot(
                                     ResourcePreparationState.READY)
@@ -332,15 +364,15 @@ class IsolatedTimetableSimulationTest {
                         }
                     }
                 })
-                val contributor = target.routeAdmission.registerContributor("test:contributor") {
+                val contributor = target.registerRouteContributor("test:contributor") {
                     listOf(ContributedRouteResource(resource,
                         RouteBoundary(100.0), preparation))
                 }
-                target.domain.signalEpochRuntime.replaceSources(listOf(SignalEpochSource(
-                    "test:admission-source", emptyList(), emptyList(), target.world.allRails.map { it.id }
+                val signal = target.installSignalSources(listOf(SignalEpochSource(
+                    "test:admission-source", emptyList(), emptyList(), target.topology.railProjection.keys.toList()
                 ) { input -> received += input.admissionUpdates; SignalEpochResult.empty() }))
                 return AutoCloseable {
-                    target.domain.signalEpochRuntime.replaceSources(emptyList())
+                    signal.close()
                     contributor.close()
                     provider.close()
                 }
@@ -363,16 +395,76 @@ class IsolatedTimetableSimulationTest {
                         a.world.allTrains.single().id, context.observation.stamp, route,
                         RouteBoundary(100.0)))
                     assertTrue(granted is RouteAdmissionResult.Granted, granted.toString())
+                    val protectedRail = TopologyEditImpact(listOf(rail.id), emptyList(), emptyList())
+                    val edit = a.world.infrastructureCoordination.acquireEditPermit(
+                        this, TopologyEditRequest(a.world.topologyRevision,
+                            InfrastructureOwner("test:edit-during-admission", 0L), protectedRail))
+                    assertEquals(TopologyEditStatus.CONFLICT, edit.decision.status,
+                        "simulation admission and Core topology edits use the same world arbiter")
+                    assertThrows(IllegalStateException::class.java) {
+                        a.world.infrastructureCoordination.ensureEditProtected(protectedRail)
+                    }
+                    assertTrue(a.routeAdmissionHost.infrastructureDependencyService.set(
+                        InfrastructureDependencyRequest(InfrastructureOwner("test:static-plan", 0L),
+                            InfrastructureDependencies(listOf(rail.id), emptyList(), emptyList()))).successful)
                 }
             }
             advance(a)
             advance(b)
-            assertEquals(1, preparations[a.world])
-            assertEquals(null, preparations[b.world])
-            assertEquals(1, updates.getValue(a.world).size)
-            assertTrue(updates.getValue(a.world).single().current != null)
-            assertTrue(updates.getValue(b.world).isEmpty())
+            assertEquals(1, preparations[java.util.UUID.fromString(a.world.runtimeId)])
+            assertEquals(null, preparations[java.util.UUID.fromString(b.world.runtimeId)])
+            assertEquals(1, updates.getValue(java.util.UUID.fromString(a.world.runtimeId)).size)
+            assertTrue(updates.getValue(java.util.UUID.fromString(a.world.runtimeId)).single().current != null)
+            assertTrue(updates.getValue(java.util.UUID.fromString(b.world.runtimeId)).isEmpty())
         } }
+        val retired = first.runtime.world
+        val editor = Any()
+        val edit = retired.infrastructureCoordination.acquireEditPermit(editor, TopologyEditRequest(
+            retired.topologyRevision, InfrastructureOwner("test:edit-after-admission-close", 0L),
+            TopologyEditImpact(listOf(retired.allRails.single().id), emptyList(), emptyList())))
+        assertEquals(TopologyEditStatus.GRANTED, edit.decision.status,
+            "target retirement releases admission claims without closing the Core-owned arbiter")
+        assertTrue(retired.infrastructureCoordination.releaseEditPermit(editor, edit.id))
+    }
+
+    @Test
+    fun `feature retirement removes active inspection bindings without unloading another feature`() {
+        val tokens = linkedMapOf<String, AutoCloseable>()
+        fun feature(sourceId: String) = object : PreparedSimulationFeature {
+            override val id = sourceId
+            override fun install(target: SimulationDomainTarget): AutoCloseable {
+                val source = work.art1st.javarailways.simpleato.api.inspection.InspectionSource(
+                    sourceId,
+                    { input -> work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBinding(
+                        sourceId, input.trainId,
+                        work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding.from(input.route),
+                        1L, 1L, emptyList()) },
+                    { emptyList() }
+                )
+                return target.installInspectionSources(listOf(source)).also { tokens[sourceId] = it }
+            }
+        }
+        fixture(features = listOf(feature("test:first"), feature("test:second"))).runtime.use { simulation ->
+            val runtime = simulation.operationalRuntime.inspectionRuntime
+            val train = simulation.world.allTrains.single()
+            val rail = simulation.world.allRails.single()
+            val route = RouteSnapshot("test:active", 1L, simulation.world.topologyRevision,
+                listOf(RouteSegmentSnapshot(rail.id, ViewDirection.AB, 0.0, 200.0)))
+            IsolatedSimulationThreadMarker.run { simulation.world.executionOwner.run {
+                runtime.synchronizeRoute(work.art1st.javarailways.basic.api.observation.RailwayStateStamp(
+                    simulation.world.runtimeId, 0L, route.topologyRevision), train.id, route)
+            } }
+            assertEquals(2, runtime.activeBindings(setOf("test:first", "test:second")).size)
+            IsolatedSimulationThreadMarker.run { simulation.world.executionOwner.run {
+                simulation.world.physicsCoordinator.closeAndAwaitTermination()
+                tokens.getValue("test:first").close()
+                tokens.getValue("test:first").close()
+                assertTrue(runtime.activeBindings(setOf("test:first")).isEmpty())
+                assertEquals(1, runtime.activeBindings(setOf("test:second")).size)
+            } }
+            simulation.close()
+            assertTrue(runtime.activeBindings(setOf("test:first", "test:second")).isEmpty())
+        }
     }
 
     @Test
@@ -401,6 +493,7 @@ class IsolatedTimetableSimulationTest {
         val genericInterrupted = java.util.concurrent.CountDownLatch(1)
         val genericRelease = java.util.concurrent.CountDownLatch(1)
         val featureClosed = java.util.concurrent.CountDownLatch(1)
+        val operationClosed = java.util.concurrent.CountDownLatch(1)
         val finished = java.util.concurrent.CountDownLatch(1)
         val interruptedAfterClose = java.util.concurrent.atomic.AtomicBoolean()
         val threadFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
@@ -420,19 +513,21 @@ class IsolatedTimetableSimulationTest {
         val fixture = fixture(features = listOf(object : PreparedSimulationFeature {
             override val id = "test:cancel"
             override fun install(target: SimulationDomainTarget): AutoCloseable {
-                target.domain.signalEpochRuntime.replaceSources(listOf(SignalEpochSource(
-                    id, emptyList(), emptyList(), target.world.allRails.map { it.id }
+                val signal = target.installSignalSources(listOf(SignalEpochSource(
+                    id, emptyList(), emptyList(), target.topology.railProjection.keys.toList()
                 ) {
                     hold(physicsEntered, physicsInterrupted, physicsRelease)
                     SignalEpochResult.empty()
                 }))
-                target.world.tickManager.register(object : work.art1st.javarailways.core.api.util.tick.TickingObject {
-                    override fun tick(deltaT: Double) = hold(genericEntered, genericInterrupted, genericRelease)
-                })
-                return AutoCloseable { featureClosed.countDown() }
+                return AutoCloseable { signal.close(); featureClosed.countDown() }
             }
-        }))
-        IsolatedSimulationThreadMarker.run { fixture.runtime.world.tickManager.postTick() }
+        }), operationResourceFactory = { AutoCloseable { operationClosed.countDown() } })
+        IsolatedSimulationThreadMarker.run {
+            fixture.runtime.world.tickManager.register(object : work.art1st.javarailways.core.api.util.tick.TickingObject {
+                override fun tick(deltaT: Double) = hold(genericEntered, genericInterrupted, genericRelease)
+            })
+            fixture.runtime.world.tickManager.postTick()
+        }
         val worker = Thread {
             try {
                 fixture.runtime.use { result.set(it.simulate(IsolatedTimetableSimulationRequest(fixture.timetable))) }
@@ -449,16 +544,19 @@ class IsolatedTimetableSimulationTest {
             worker.interrupt()
             assertTrue(physicsInterrupted.await(10, java.util.concurrent.TimeUnit.SECONDS))
             assertEquals(1L, featureClosed.count, "in-flight physical callback still owns feature state")
+            assertEquals(1L, operationClosed.count, "physical callback still owns operation dependencies")
             assertEquals(1L, finished.count)
             physicsRelease.countDown()
             assertTrue(genericInterrupted.await(10, java.util.concurrent.TimeUnit.SECONDS))
             assertEquals(1L, featureClosed.count, "in-flight generic tick still owns feature state")
+            assertEquals(1L, operationClosed.count, "generic callback still owns operation dependencies")
             genericRelease.countDown()
             assertTrue(finished.await(10, java.util.concurrent.TimeUnit.SECONDS))
             assertEquals(null, threadFailure.get())
             assertTrue(result.get() is IsolatedTimetableSimulationResult.Failed)
             assertTrue(interruptedAfterClose.get(), "teardown preserves the simulation cancellation flag")
             assertEquals(0L, featureClosed.count)
+            assertEquals(0L, operationClosed.count)
         } finally {
             physicsRelease.countDown()
             genericRelease.countDown()
@@ -491,7 +589,9 @@ class IsolatedTimetableSimulationTest {
         ),
         speedSafety: SpeedSafetyMonitor.Config = SpeedSafetyMonitor.Config(false, 0.0, 1),
         configureSource: (CoreWorld) -> Unit = {},
-        features: List<PreparedSimulationFeature> = emptyList()
+        features: List<PreparedSimulationFeature> = emptyList(),
+        configureTarget: (CoreWorld) -> Unit = {},
+        operationResourceFactory: (CoreWorld) -> AutoCloseable? = { null }
     ): Fixture {
         val revision = 1L
         val (coreSnapshot, basicSnapshot, railId) = TestWorldFixture.create().use { fixture ->
@@ -531,7 +631,9 @@ class IsolatedTimetableSimulationTest {
             workerThreads = 2,
             speedSafety = speedSafety,
             preparedFeatures = features,
-            basicDataFactory = { _, directionChanges ->
+            operationResourceFactory = operationResourceFactory,
+            basicDataFactory = { target, directionChanges ->
+                configureTarget(target)
                 BasicWorldData(operatingDirections = OperatingDirectionStore(directionChanges))
             },
             dispatcherFactory = {

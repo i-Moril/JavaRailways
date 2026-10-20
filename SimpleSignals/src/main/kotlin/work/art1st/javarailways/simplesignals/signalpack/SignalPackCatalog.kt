@@ -18,6 +18,10 @@ class SignalPackCatalog internal constructor(
 
     /** First-class player-facing signal types. Placed logical-signal IDs are a separate identity. */
     val signals: Map<String, SignalPackSignal> = immutableMap(signals)
+    /** Shared domain-only input: no materialized Bukkit models enter a simulation capture. */
+    val rules = SignalRuleCatalog(logics, signals.mapValues { (_, signal) ->
+        SignalRuleType(signal.signalType, signal.logic, java.util.Set.copyOf(signal.model.materialized.variants().keys))
+    })
 }
 
 class SignalPack internal constructor(
@@ -74,3 +78,14 @@ data class SignalPackSignal(
 
 private fun <K, V> immutableMap(values: Map<K, V>): Map<K, V> =
     Collections.unmodifiableMap(LinkedHashMap(values))
+
+/** One projection of the loaded catalog, consumed by both LIVE and SIM rule execution. */
+class SignalRuleCatalog internal constructor(logics: Map<String, SignalPackLogic>, signals: Map<String, SignalRuleType>) {
+    val logics: Map<String, SignalPackLogic> = immutableMap(logics)
+    val signals: Map<String, SignalRuleType> = immutableMap(signals)
+}
+
+class SignalRuleType internal constructor(val signalType: String, val logic: SignalPackLogic, variants: Set<String>) {
+    val logicId: String get() = logic.logicId
+    val variants: Set<String> = java.util.Set.copyOf(variants)
+}

@@ -3,6 +3,8 @@ package work.art1st.javarailways.bukkit.api.signal;
 import org.bukkit.plugin.Plugin;
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService;
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource;
+import work.art1st.javarailways.simpleato.api.inspection.InspectionSource;
+import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding;
 
 import java.util.Collection;
 import java.util.UUID;
@@ -10,7 +12,7 @@ import java.util.UUID;
 /**
  * Installs independently implemented signal sources into JavaRailways worlds.
  *
- * <p>Each call replaces the complete source set owned by {@code pluginOwner} in one exact live
+ * <p>Installation replaces the complete source set owned by {@code pluginOwner} in one exact live
  * world. JavaRailways validates that complete owner set together with every other plugin's set and
  * swaps it between railway epochs; an invalid replacement leaves the previous set installed.
  * Source callbacks run synchronously on the railway coordinator and therefore must not call this
@@ -79,4 +81,29 @@ public interface SignalEpochSourceService {
         Collection<SignalEpochSource> sources,
         Runnable commitAction
     );
+
+    /**
+     * Retires callbacks from one failed installation, matched by exact object identity in each
+     * category. Sources installed later under the same IDs, other plugin owners, and infrastructure
+     * registrations are preserved. This is failure cleanup, not planned owner withdrawal.
+     *
+     * <p>Cleanup remains available after plugin disable or a global halt; a retired world is a no-op.
+     * Retained restrictions or active inspection bindings stall only the affected world before its
+     * callbacks are removed, so retiring a failed installation cannot silently widen authority.
+     * If the required stall cannot be confirmed, safety callbacks remain installed for retry;
+     * independent route-planning retirement is still attempted. After a successful safety check or
+     * stall, every matched category is attempted even if another removal fails.</p>
+     *
+     * <p>After normal return no matched callback remains registered. If this method throws, the
+     * caller must retain callback resources and retry retirement before closing them. Calls are
+     * serialized with installation on the exact world owner and cannot re-enter an atomic commit.</p>
+     */
+    void retireSources(
+        Plugin pluginOwner,
+        UUID worldId,
+        Collection<SignalEpochSource> expectedEpochSources,
+        Collection<InspectionSource> expectedInspectionSources,
+        Collection<RoutePlanningRestrictionBinding> expectedRoutePlanningSources
+    );
+
 }

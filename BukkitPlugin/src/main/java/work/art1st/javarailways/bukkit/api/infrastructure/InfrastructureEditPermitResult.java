@@ -1,6 +1,6 @@
 package work.art1st.javarailways.bukkit.api.infrastructure;
 
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditDecision;
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditDecision;
 
 import java.util.Objects;
 import java.util.Optional;

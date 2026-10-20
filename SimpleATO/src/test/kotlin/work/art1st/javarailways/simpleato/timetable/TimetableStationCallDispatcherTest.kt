@@ -1,5 +1,8 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
@@ -48,7 +51,6 @@ import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardHost
@@ -56,6 +58,20 @@ import work.art1st.javarailways.core.api.threading.host.ThreadGuardPlatformBridg
 import work.art1st.javarailways.core.api.threading.host.ThreadGuardRegistration
 
 class TimetableStationCallDispatcherTest {
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
+
+    @AfterEach
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
+    }
+
     @Test
     fun `interior station stop does not replace final operating anchor stopping margin`() {
         listOf(180.0, 179.0).forEach { anchorArc ->
@@ -131,7 +147,6 @@ class TimetableStationCallDispatcherTest {
         }
     }
 
-    private val worlds = mutableListOf<work.art1st.javarailways.core.physics.CoreWorld>()
     private var threadGuardRegistration: ThreadGuardRegistration? = null
 
     private val profile = AtoSafetyProfile(
@@ -151,8 +166,6 @@ class TimetableStationCallDispatcherTest {
 
     @AfterEach
     fun unregisterWorlds() {
-        worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
-        worlds.clear()
         threadGuardRegistration?.close()
         threadGuardRegistration = null
     }
@@ -953,7 +966,7 @@ class TimetableStationCallDispatcherTest {
 
     @Test
     fun `dwell may depart after the conflicting turnout resource tail releases`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
             authorityStoppingMarginMeters = profile.safetyDistanceMeters,
@@ -1058,7 +1071,7 @@ class TimetableStationCallDispatcherTest {
 
     @Test
     fun `conflicting explicit berth keeps the later service held without stalling`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
             authorityStoppingMarginMeters = profile.safetyDistanceMeters,
@@ -1195,7 +1208,7 @@ class TimetableStationCallDispatcherTest {
         nextMovementTick: Long = 1L,
         berthStoppingOffsetMetersBefore: Double = 0.0
     ): Fixture {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val inspectionRuntime = emptyInspectionRuntime()
         val dispatcher = TimetableDispatcher(
             authorityStoppingMarginMeters = profile.safetyDistanceMeters,

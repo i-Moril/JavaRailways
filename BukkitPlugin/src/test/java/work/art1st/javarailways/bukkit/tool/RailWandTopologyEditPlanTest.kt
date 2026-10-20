@@ -28,7 +28,6 @@ import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import java.util.stream.Stream
 import java.time.Duration
 import org.junit.jupiter.api.Assertions.assertTimeoutPreemptively
 
@@ -93,12 +92,14 @@ class RailWandTopologyEditPlanTest {
             otherWorld.physicsCoordinator.start()
             editedWorld.physicsCoordinator.start()
             val geometry = straightCurve(10.0, 20.0)
-            // Suspend the real preparation's geometry sampling, not a lock-free callback proxy.
-            val delayedGeometry = object : PrimeCurve by geometry {
-                override fun stream(): Stream<Curve.Point> {
+            // Pause endpoint sampling in real connection preparation, before any owner commit.
+            val delayedGeometry = object : PrimeCurveImpl(geometry.stream().map {
+                Curve.RawPoint(it.position, it.tangent, it.normal, it.arcLength)
+            }.toList()) {
+                override fun getPointAt(arcLength: Double): Curve.Point {
                     samplingEntered.countDown()
                     check(releaseSampling.await(10, TimeUnit.SECONDS)) { "timed out releasing track geometry preparation" }
-                    return geometry.stream()
+                    return geometry.getPointAt(arcLength)
                 }
             }
             val preparation = workers.submit(Callable {
@@ -140,7 +141,7 @@ class RailWandTopologyEditPlanTest {
             }
             if (staleBeforeCommit) {
                 // This intentional intervening edit is allowed; only the stale operation must be inert.
-                editedWorld.createRailForTest(straightCurve(30.0, 40.0))
+                IsolatedSimulationThreadMarker.run { editedWorld.removeRail(existing) }
                 val currentRoot = editedWorld.topologyState
                 val currentRails = editedWorld.allRails.toList()
                 assertFalse(plan.isCurrent(editedWorld))
@@ -208,7 +209,7 @@ class RailWandTopologyEditPlanTest {
     }
 
     @Test
-    fun `rail scoped mutation becomes stale when topology root changes`() {
+    fun `rail scoped mutation survives unrelated edits and rejects removal`() {
         val world = createTestWorld()
         try {
             val target = world.createRailForTest(straightCurve(0.0, 10.0))
@@ -216,6 +217,8 @@ class RailWandTopologyEditPlanTest {
 
             world.createRailForTest(straightCurve(20.0, 30.0))
 
+            assertTrue(plan.isCurrent(world))
+            IsolatedSimulationThreadMarker.run { world.removeRail(target) }
             assertFalse(plan.isCurrent(world))
         } finally {
             world.physicsCoordinator.close()
@@ -256,7 +259,7 @@ class RailWandTopologyEditPlanTest {
     }
 
     @Test
-    fun `plan binds the exact topology root and existing rail instances`() {
+    fun `plan preserves unrelated edits and binds existing rail instances`() {
         val world = createTestWorld()
         try {
             val affected = world.createRailForTest(straightCurve(0.0, 10.0))
@@ -266,6 +269,8 @@ class RailWandTopologyEditPlanTest {
 
             world.createRailForTest(straightCurve(20.0, 30.0))
 
+            assertTrue(plan.isCurrent(world))
+            IsolatedSimulationThreadMarker.run { world.removeRail(affected) }
             assertFalse(plan.isCurrent(world))
         } finally {
             world.physicsCoordinator.close()
@@ -407,7 +412,7 @@ class RailWandTopologyEditPlanTest {
             val source = world.createRailForTest(straightCurve(0.0, 10.0))
             val peer = world.createRailForTest(straightCurve(10.0, 20.0))
             IsolatedSimulationThreadMarker.run { CoreRail.connect(source, peer) }
-            source.viewAB.activeRail = null
+            IsolatedSimulationThreadMarker.run { source.viewAB.activeRail = null }
             val prepared = world.prepareRailCreation(straightCurve(0.0, 10.0), setOf(source.id))
             val connectionPlan = RailWandExplicitConnections.capture(
                 world,

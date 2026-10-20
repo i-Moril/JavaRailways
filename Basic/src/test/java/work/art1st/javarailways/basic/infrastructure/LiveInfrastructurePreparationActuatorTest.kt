@@ -1,5 +1,8 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import work.art1st.javarailways.core.api.physics.infrastructure.TurnoutResourceIdentity
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import work.art1st.javarailways.core.physics.createRailForTest
@@ -13,7 +16,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -33,14 +36,18 @@ class LiveInfrastructurePreparationActuatorTest {
 
     @AfterEach
     fun closeWorlds() {
-        worlds.forEach { world ->
-            world.physicsCoordinator.close()
-            (world.tickManager as? AutoCloseable)?.close()
-        }
+        val owned = worlds.toList()
+        worlds.clear()
+        assertAll(owned.flatMap { world ->
+            listOf(
+                Executable { world.physicsCoordinator.close() },
+                Executable { (world.tickManager as? AutoCloseable)?.close() }
+            )
+        })
     }
 
     @Test
-    fun `zero selections are immediately ready`() {
+    fun `zero selections are immediately ready`() = IsolatedSimulationThreadMarker.run {
         val world = world()
         val actuator = LiveInfrastructurePreparationActuator(world)
 
@@ -48,7 +55,7 @@ class LiveInfrastructurePreparationActuatorTest {
     }
 
     @Test
-    fun `reverse traversal aligns both stored directions of the same physical turnout`() {
+    fun `reverse traversal aligns both stored directions of the same physical turnout`() = IsolatedSimulationThreadMarker.run {
         val fixture = turnout()
         fixture.stem.viewAB.selectNextRail(fixture.first.viewAB)
         fixture.second.viewBA.selectNextRail(null)
@@ -65,7 +72,7 @@ class LiveInfrastructurePreparationActuatorTest {
     }
 
     @Test
-    fun `already aligned selection remains ready and aligned`() {
+    fun `already aligned selection remains ready and aligned`() = IsolatedSimulationThreadMarker.run {
         val fixture = turnout()
         fixture.stem.viewAB.selectNextRail(fixture.second.viewAB)
         fixture.second.viewBA.selectNextRail(fixture.stem.viewBA)
@@ -79,7 +86,7 @@ class LiveInfrastructurePreparationActuatorTest {
     }
 
     @Test
-    fun `connected route aligns both turnouts in one immediate batch`() {
+    fun `connected route aligns both turnouts in one immediate batch`() = IsolatedSimulationThreadMarker.run {
         val fixture = connectedTwoTurnoutRoute()
         fixture.entry.viewAB.selectNextRail(fixture.firstBranch.viewAB)
         fixture.firstBranch.viewBA.selectNextRail(fixture.entry.viewBA)
@@ -100,7 +107,7 @@ class LiveInfrastructurePreparationActuatorTest {
     }
 
     @Test
-    fun `invalid second turnout rejects connected batch before first turnout changes`() {
+    fun `invalid second turnout rejects connected batch before first turnout changes`() = IsolatedSimulationThreadMarker.run {
         val fixture = connectedTwoTurnoutRoute()
         fixture.entry.viewAB.selectNextRail(fixture.firstBranch.viewAB)
         fixture.firstBranch.viewBA.selectNextRail(fixture.entry.viewBA)
@@ -123,7 +130,7 @@ class LiveInfrastructurePreparationActuatorTest {
     }
 
     @Test
-    fun `resolution rejection occurs before any live write`() {
+    fun `resolution rejection occurs before any live write`() = IsolatedSimulationThreadMarker.run {
         val fixture = turnout()
         fixture.stem.viewAB.selectNextRail(fixture.first.viewAB)
         val actuator = LiveInfrastructurePreparationActuator(fixture.world)
@@ -138,7 +145,7 @@ class LiveInfrastructurePreparationActuatorTest {
     }
 
     @Test
-    fun `contributed preparations share one aggregate ticket with physical turnout work`() {
+    fun `contributed preparations share one aggregate ticket with physical turnout work`() = IsolatedSimulationThreadMarker.run {
         val fixture = turnout()
         fixture.stem.viewAB.selectNextRail(fixture.first.viewAB)
         val firstResource = StableInfrastructureResource("test:device", "first")
@@ -170,7 +177,7 @@ class LiveInfrastructurePreparationActuatorTest {
     }
 
     @Test
-    fun `missing contributed handler rejects before turnout work starts`() {
+    fun `missing contributed handler rejects before turnout work starts`() = IsolatedSimulationThreadMarker.run {
         val fixture = turnout()
         fixture.stem.viewAB.selectNextRail(fixture.first.viewAB)
         val unsupported = ResolvedContributedResourcePreparation(
@@ -188,7 +195,7 @@ class LiveInfrastructurePreparationActuatorTest {
     }
 
     @Test
-    fun `aggregate abort asks only preparing children and becomes safely aborted`() {
+    fun `aggregate abort asks only preparing children and becomes safely aborted`() = IsolatedSimulationThreadMarker.run {
         val world = world()
         val ready = MutableTicket(InfrastructurePreparationState.READY)
         val preparing = MutableTicket()
@@ -219,7 +226,7 @@ class LiveInfrastructurePreparationActuatorTest {
     }
 
     @Test
-    fun `terminal ticket abort is idempotent no-op`() {
+    fun `terminal ticket abort is idempotent no-op`() = IsolatedSimulationThreadMarker.run {
         val fixture = turnout()
         val ticket = accepted(
             LiveInfrastructurePreparationActuator(fixture.world).start(

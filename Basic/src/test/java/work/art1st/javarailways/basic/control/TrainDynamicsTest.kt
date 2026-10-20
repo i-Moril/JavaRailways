@@ -1,5 +1,9 @@
 package work.art1st.javarailways.basic.control
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import org.junit.jupiter.api.AfterEach
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -26,6 +30,20 @@ import java.util.concurrent.ExecutionException
 import kotlin.math.sqrt
 
 class TrainDynamicsTest {
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
+
+    @AfterEach
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestBasicWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
+    }
+
     private val trainProfile = TestTrainProfile()
     private val carProfile = TestCarProfile()
 
@@ -234,8 +252,8 @@ class TrainDynamicsTest {
     }
 
     private fun withDynamicsTrain(action: (MutableConsist) -> Unit) {
-        val world = createTestWorld()
-        (world.tickManager as AutoCloseable).use {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        run {
             run {
                 world.physicsCoordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
@@ -435,7 +453,7 @@ class TrainDynamicsTest {
 
     @Test
     fun `handle actuator progresses through configured notches and matches direct dynamics`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(200.0)
@@ -472,7 +490,7 @@ class TrainDynamicsTest {
 
     @Test
     fun `world safety interlock forces the manual controller to emergency brake`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(200.0)

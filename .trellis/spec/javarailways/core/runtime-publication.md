@@ -47,7 +47,6 @@ Wall-clock delta首 epoch 50 ms，默认 clamp 200 ms；drop计入 `droppedDelta
 
 ```text
 publish PreTickEvent once on the coordinator physics context
-→ apply prior collision decisions
 → snapshot controllers（profileId stable order）
 → synchronous previous-epoch collision prepass（先标记双方，再启动worker；规则见train physics）
 → workers tick(deltaMillis)
@@ -60,6 +59,7 @@ publish PreTickEvent once on the coordinator physics context
   （同时捕获与该root一致的immutable active turnout continuations）
 → run registered RailwayEpochProcessor synchronously in registration order
 → revalidate candidate topology/occupancy/train frames/active continuations and publish it
+→ queue this epoch's frozen collision decisions for the immediately following owner boundary
 → complete exact PhysicsTicket
 → publish PostTickEvent for that committed frame outside commit locks
 ```
@@ -222,3 +222,24 @@ override fun register(obj: TickingObject) {
   --tests 'work.art1st.javarailways.core.api.threading.*' \
   --tests '*CoreTrainPublicationBoundaryTest'
 ```
+
+## 核心故障的全局停止（CURRENT，2026-10-20）
+
+`RailwaySimulationHalt`拥有整个进程铁路模拟的终态准入门禁。Core不变量/共享发布失败、未知physics worker失败，以及存续world消费已关闭运营runtime时，记录首个原始故障并停止所有world的新physics/generic推进与帧间操作准入。它不关闭Minecraft服务器、不销毁列车、不释放占用/claim，也不提供自动恢复或重试。之后创建的coordinator同样不能绕过终态门禁。
+
+全局标记立即可见；各coordinator在自己的执行器内完成ticket及未执行操作的失败收尾，不在故障world持锁时同步取得其他world的锁。已进入的worker允许退出，失败批次等待所有已提交worker，再停止后续Core发布；新controller计算和publication阶段均检查全局门禁。不把ticket失败当作任意平台callback已经退出的证明，正常卸载仍须等待executor实际终止。
+
+只有具有明确无共享写入失败合同的拒绝才可局部处理：碰撞联结在提交前的已知准入拒绝使用`CouplingRejectedException`；它只停碰撞双方，未知准备异常及提交后错误触发全局停止。运动求解已定义的`PhysicsException`沿原列车脱轨路径记录并保留占用；JS guest错误由平台停止该车厢所属列车。不能按任意异常类/线程把未知错误降级成局部故障。既有超时预算overload是独立world的运行预算终态，保持其明确的非不变量合同。
+
+generic批次收尾分开等待与业务动作：`TickManagerImpl.finishPendingAsyncTick()`只等待捕获批次及记录结果，不执行postTick队列或平台commit。宿主阶段失败时调用它，禁止下一preTick覆盖旧barrier；重复preTick而前批未消费是核心故障。正常postTick仍按原顺序等待、执行队列。此批按用户要求仅作静态源码核对，未运行测试、编译或服务器验收。
+
+### Halt 后的资源与定义操作边界
+
+世界资源 registry 在新 claim、claim 扩展、依赖声明、编辑许可申请及既有 claim/permit 的作用域进入处检查进程 halt。
+保留查询、释放、回滚、已开始 mutation 的最终化和 close，不能因 halt 释放真实占用或阻断失败收尾。
+宿主 signal/inspection/route-planning source 的正常替换及新 world 注册拒绝 halt；正常替换在开始及实际提交前检查 halt，覆盖拿到许可后才发生的故障；
+卸载/停用清理直接走原有 retirement 路径，不给所有 World owner 调用统一加门禁。
+故意触发 halt 的回归使用 `IsolateGlobalHalt` 隔离进程，禁止重置生产终态。
+
+最后一次提交门禁是进入不可逆提交的准入点：其前发生的 halt 拒绝提交；其后发生的 halt 允许已入场事务完成原子提交/失败回滚，
+不在写盘与 publication 交换之间插入终态检查导致半提交。这不授权任何后续新操作。

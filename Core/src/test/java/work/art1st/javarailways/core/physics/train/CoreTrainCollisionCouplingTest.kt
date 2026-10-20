@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.train
 
+import work.art1st.javarailways.core.testing.IsolateGlobalHalt
+
 import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import org.junit.jupiter.params.provider.EnumSource
 import org.joml.Vector3d
@@ -38,6 +40,45 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class CoreTrainCollisionCouplingTest {
     @Test
+    fun `captured dependencies reject changed links and same id rail replacements`() {
+        TestWorldFixture.create().use { fixture ->
+            val world = fixture.world
+            val occupied = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
+            val train = createTrainWithConfig("proof-owner", occupied, world, listOf(10.0))
+            // Exercise the finite dependency proof on unoccupied rails, without bypassing edit protection.
+            val curves = PrimeCurveGenerator.buildStraight(100.0, 2)
+            val first = world.createRailForTest(curves[0])
+            val second = world.createRailForTest(curves[1])
+            world.onOwnerForTest { CoreRail.connect(first, second) }
+            val path = listOf(
+                work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot(
+                    first.id, ViewDirection.AB, 0.0, first.curve.totalArcLength),
+                work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot(
+                    second.id, ViewDirection.AB, 0.0, second.curve.totalArcLength)
+            )
+            val proof = CollisionDependencies.capture(world, train.publishedFrame, train.cars,
+                listOf(path), train.cars.map { it.isReversed })
+            assertTrue(proof.matches(train))
+            world.onOwnerForTest {
+                world.railTopologyTransaction {
+                    first.viewAB.restoreConnections(emptyList(), null)
+                    second.viewBA.restoreConnections(emptyList(), null)
+                }
+            }
+            assertFalse(proof.matches(train), "removing a required directed link invalidates the proof")
+            world.onOwnerForTest { CoreRail.connect(first, second) }
+            assertTrue(proof.matches(train))
+            val singleRailProof = CollisionDependencies.capture(world, train.publishedFrame, train.cars,
+                listOf(listOf(path.last())), train.cars.map { it.isReversed })
+            world.onOwnerForTest {
+                world.removeRail(second)
+                world.railTopologyTransaction { world.createRailInTransaction(second.id, curves[1]) }
+            }
+            assertFalse(singleRailProof.matches(train), "same UUID does not preserve captured rail identity")
+        }
+    }
+
+    @Test
     @OptIn(AsyncEventApi::class)
     fun `unselected competing turnout branch does not create a collision link and next epoch remains healthy`() {
         val owner = Thread.currentThread()
@@ -45,7 +86,10 @@ class CoreTrainCollisionCouplingTest {
             override fun isMainThread(): Boolean = Thread.currentThread() === owner
         }).use {
             val coordinator = PhysicsCoordinator(1, automaticFallback = false)
-            val world = createTestWorld(coordinator)
+            val world = try { createTestWorld(coordinator) } catch (failure: Throwable) {
+                runCatching(coordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+                throw failure
+            }
             (world.tickManager as AutoCloseable).use {
                 run {
                     coordinator.use {
@@ -151,11 +195,12 @@ class CoreTrainCollisionCouplingTest {
     ) = scenario(movingEnd, fixedEnd, movingMaster, failPreparation = false)
 
     @Test
-    fun `failed controller preparation leaves collision positions intact before fallback derail`() =
+    @IsolateGlobalHalt
+    fun `unexpected controller preparation failure halts without mutating either consist`() =
         scenario(TrainEndSide.B, TrainEndSide.A, movingMaster = true, failPreparation = true)
 
     @Test
-    fun `changed structural topology rejects captured collision evidence`() =
+    fun `unrelated structural topology change preserves captured collision evidence`() =
         scenario(TrainEndSide.A, TrainEndSide.B, true, false, staleTopology = true)
 
     @ParameterizedTest
@@ -251,6 +296,9 @@ class CoreTrainCollisionCouplingTest {
                             else -> PrimeCurveGenerator.buildStraight(300.0, 3)
                         }
                         val rail = createStraightRailFromSegments(world, curves)
+                        val fixedHead = RailLocationWithFacing(rail.viewAB, 0.0).forward(
+                            if (fixedEnd == TrainEndSide.A) 100.5 else 110.5)!!
+                        if (clearReverse) world.onOwnerForTest { fixedHead.rail.viewBA.activeRail = null }
                         fun train(id: String, count: Int): CoreTrain {
                             val anchor = RailLocationWithFacing(rail.viewAB, 40.0)
                             val cars = List(count) { index -> CoreCar.create("$id-$index",
@@ -272,8 +320,6 @@ class CoreTrainCollisionCouplingTest {
                             moving.commitMaintenancePlacement()
                         }
                         val fixed = train("stationary", 1)
-                        val fixedHead = RailLocationWithFacing(rail.viewAB, 0.0).forward(
-                            if (fixedEnd == TrainEndSide.A) 100.5 else 110.5)!!
                         fixed.world.onOwnerForTest {
                             fixed.setLocation(if (fixedEnd == TrainEndSide.A) fixedHead.reversed else fixedHead)
                             fixed.commitMaintenancePlacement()
@@ -381,11 +427,14 @@ class CoreTrainCollisionCouplingTest {
                                 val frozenMoving = moving.publishedFrame
                                 val callsAtFreeze = calls.get()
                                 if (staleTopology) createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(50.0, 1))
-                                if (clearReverse) fixed.head.location.rail.viewBA.activeRail = null
-                                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
-                                coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
+                                // The first owner boundary after detection resolves this collision; no extra epoch.
+                                if (failPreparation) {
+                                    assertThrows(work.art1st.javarailways.core.physics.tick.PhysicsStalledException::class.java) {
+                                        coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
+                                    }
+                                } else coordinator.processBetweenFrames { coordinator.drainBetweenFramesOperations() }
                                 assertEquals(callsAtFreeze, calls.get(), "collision freeze must not consume another command")
-                                val rejectedBeforeDecision = staleTopology || bothMoving
+                                val rejectedBeforeDecision = bothMoving
                                 if (rejectedBeforeDecision) assertNull(observedEnds)
                                 else assertEquals(movingEnd to fixedEnd, observedEnds)
                                 if (failPreparation || rejectedBeforeDecision || veto) {
@@ -396,8 +445,17 @@ class CoreTrainCollisionCouplingTest {
                                     assertEquals(frozenMoving.cars, moving.publishedFrame.cars)
                                     assertEquals(originalMovingCars, moving.cars)
                                     originalMovingCars.forEach { assertSame(moving, it.train) }
-                                    assertTrue(moving.isDerailed)
-                                    assertTrue(fixed.isDerailed)
+                                    if (failPreparation) {
+                                        assertTrue(work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt.isHalted)
+                                        assertFalse(moving.isDerailed)
+                                        assertFalse(fixed.isDerailed)
+                                        assertSame(controller, moving.controller)
+                                        assertEquals(originalFixedCars, fixed.cars)
+                                        originalFixedCars.forEach { assertSame(fixed, it.train) }
+                                    } else {
+                                        assertTrue(moving.isDerailed)
+                                        assertTrue(fixed.isDerailed)
+                                    }
                                 } else {
                                     val master = if (movingMaster) moving else fixed
                                     assertEquals(1, successes)

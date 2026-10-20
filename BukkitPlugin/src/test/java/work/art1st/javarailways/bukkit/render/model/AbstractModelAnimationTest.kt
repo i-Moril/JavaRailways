@@ -109,7 +109,8 @@ class AbstractModelAnimationTest {
         override val allTrains: Collection<Train> = emptyList()
         override fun getTrain(name: String): Train? = null
         override fun getRail(id: UUID): Rail? = null
-        override fun removeRail(rail: Rail) = Unit
+        override fun removeRail(rail: Rail): java.util.concurrent.CompletionStage<Void> =
+            java.util.concurrent.CompletableFuture.completedFuture(null)
         override fun <T : Any> getExtensionDataOrNull(plugin: Plugin): T? = null
         override fun <T : Any> requireExtensionData(plugin: Plugin): T = error("No extensions")
         override fun <T : Any> registerExtensionData(plugin: Plugin, data: T) = Unit

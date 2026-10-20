@@ -13,10 +13,8 @@
 - Basic `allowedDirection`/route allocation不是Core physical topology。
 - structural owner调用 `CoreWorld.railTopologyTransaction(action)`：先用协调器帧间门禁阻止新epoch并等待exact `PhysicsTicket`，再持write lock；expensive curve build在transaction外。两重载均遵守此顺序，不能在write lock内等待worker。
 - live rail创建使用两阶段批量协议：平台worker调用`CoreWorld.prepareRailCreationBatch(curves, excludedIds)`，owner线程调用`installPreparedRails(batch)`；Core不持有executor或future。`CoreRail`构造本身不注册world。持久化restore在physics启动前只使用Core内部同步`createRailInTransaction`重建索引；同步测试建轨只存在于不打入runtime JAR的Core test fixture，runtime不暴露同步创建入口。
-- RailWand online editor在worker从captured immutable `TopologyState`与明确final delta还原一次transient builder input，构造并验证
-  完整normalized topology candidate；world commit只复核exact root、delta rail identities/count、changed endpoint与diamond result，应用delta并publish
-  prepared root。它不执行完整live inventory fingerprint、`TopologyStateBuilder.build`或同步fallback。bootstrap/load以及Core内部低层同步
-  transaction仍可从live rail inventory完整构建；这些入口不得重新用于玩家在线编辑。
+- 在线编辑准备几何与明确的局部 delta，提交时验证相关 rail incarnation、连接和空间候选，应用到当前 live state，再发布当前状态生成的不可变 snapshot。不得把旧基线生成的 targetRoot 安装为当前世界；无关编辑不能互相覆盖或仅因 revision 不同被拒绝。完整 snapshot rebuild 当前仍允许；几何 exact crossing solver 仍在 prepare 阶段完成。
+- `CoreWorld.infrastructureCoordination` 是唯一资源仲裁实例，Core 与 Basic/平台共享。所有结构 mutation 由 Core 根据实际影响推导 `TopologyEditImpact` 并持有许可至 publication；平台已持有许可通过认证 lexical scope 重用，不允许调用方自行声明较小范围绕过。运行选岔使用经过认证的 runtime claim scope 或临时许可，不授权结构编辑。人工驾驶仍受物理占用校验保护。
 - split/merge的结构mutation只由RailWand的prepared connection plan在单一outer transaction内执行；Core不再保留另一套
   `splitWithPreparedRails`/`mergeWithPreparedRail`复制连接并尝试局部rollback。`RailTopologyEditor`仅保留两端merge资格校验和
   `SplitResult`值，不能作为第二个transaction owner或替代prepared stale/impact校验。
@@ -25,11 +23,11 @@
   生成完整target列表；RailWand用这两份值构造undo，不得在owner commit重新遍历live rail。该完整快照是undo输入，不参与commit的delta验证。
   `activeConnectionAtA/B`是runtime选择而不是topology root内容；普通exact snapshot restore仍比较它，structural undo则必须在边界上明确归一化并使用
   下文的preserve-active apply语义，不能把topology root identity误称为完整saved-rail版本。
-  action异常后只以`O(delta)`复核这些旧值：完全未改或完整恢复则保持world可用；任一结构结果未恢复才fault/stall。不得为了异常判断
-  恢复`O(world)` fingerprint，也不得用“曾调用过mutation”代替最终结构检查。
+  prepared action 的 inventory/连接修改必须局限于声明对象。异常后由统一 transaction fingerprint 判断是否完全未改或完整恢复；残留结构变化才 fault/stall，不以“曾调用过mutation”代替最终状态。当前提交统一从 live state 重建只读图，允许这部分 `O(world)` 工作，不能重跑几何 exact solver。
 - outer structural transaction在释放write lock前比较进入/退出时的rail identity与structural adjacency；只有成功且结构确实变化时才递增一次`topologyRevision`。nested transaction不重复递增，直接add/remove rail也进入同一边界；成功no-op与完整rollback不发布新revision。
 - transaction exception不自动rollback。若异常前结构未变化，revision不变且world仍可用；若结构已经变化，revision仍保持旧值、world topology进入`RailTopologyHealth.Faulted`并Stall physics，禁止继续发布world frame或执行新结构事务，直到reload/recovery。fault record只保留稳定reason、最后成功revision、异常类型和消息，不长期持有原始`Throwable`；嵌套失败只存在于当前`RailTopologyTransactionContext`。不得把失败后的部分结构伪装成一个正常新revision。
-- `removeRail`检查target及affected rails的full train placement envelope，修复links/spatial index后移除。
+- `removeRail`先验证所属world、Core实现和exact registered instance，再检查target及affected rails的full train placement envelope，修复links/spatial index后移除并清理全部rail-owned资源。它与`Rail.destroy()`是同一完整删除入口，返回`CompletionStage<Void>`代表拓扑退出与异步资源清理全部结束；不在锁内等待。重复删除已不存在的实例观察原清理结果，同UUID replacement必须拒绝，不能删除新实例。批量snapshot替换内部可分阶段detach/cleanup；工具以`collectRailCleanup`汇总同步提交期间启动的清理，成功通知只在其完成后回到entity执行边界。
+- `RailView.mutableNextRails`仅Core可写，对外`nextRails`不可修改；跨模块精确恢复和重排使用`restoreConnections`，进入所属world topology transaction并保留显式顺序与nullable active。默认选择按incoming end tangent与outgoing start tangent的cosine最大值，精确同角时保留连接顺序；不排序连接列表。已有明确active和snapshot回滚的选择不被默认选择覆盖；每endpoint最多两条continuation。公开 active selection 同样进入 frame boundary 并认证 selection claim/编辑许可；端口真实占用时拒绝，不使用附近距离。
 - `publishWorldFrame` 持 topology read lock 同时捕获 `topologyRevision` 与已发布列车 frames，因此不会观察到 structural transaction 的中间状态。
 
 第5批outer事务成功且root确实变化后，在释放write lock、仍持帧间门禁时复用`publishOwnerChanges(emptyList())`
@@ -68,7 +66,7 @@ data class RailInterval(
 | 条件 | 结果 | mutation |
 | --- | --- | --- |
 | topology edit有in-flight physics | await exact ticket后进write transaction | await前不改rail |
-| online edit的prepared topology已stale | commit前拒绝并提示重试 | rail/link/index/root均不变 |
+| prepared edit 的实际 rail/connection/geometry 依赖失效 | commit前拒绝并提示具体依赖变化 | rail/link/index/root均不变 |
 | nested structural transaction | 由 outer transaction 统一发布 | topology revision 只递增一次 |
 | affected rail有body occupancy | fail-fast | rail/link/index不变 |
 | action失败且结构未变化/已完整rollback | revision不变，原异常传播 | world保持可用 |
@@ -134,7 +132,7 @@ Bukkit/Paper async worker
   -> 释放read lock
   -> exact new-vs-existing + new-vs-new crossing detection
 owner/world thread
-  -> 验证world identity、同一TopologyState root、ID与replacement source
+  -> 验证world identity、局部空间候选/rail incarnation、ID与replacement source
   -> 验证outer transaction尚未改变rail inventory
   -> 一次构造并注册全部CoreRail，安装预计算sample/crossing
   -> 完成connection/removal等编辑后只发布一次TopologyState
@@ -142,7 +140,7 @@ owner/world thread
 
 候选捕获只复制被new rail spatial cells及相邻cells命中的existing sampled geometry，不复制完整world graph。设新rail数为`N`、每条压缩段数为`S_i`、空间候选集合为`C_i`，准备阶段sampling为`O(sum S_i)`，new-vs-existing exact上界为`O(sum_i sum_{c in C_i}(S_i * S_c))`；new-vs-new只在spatial footprints相邻且AABB重叠后进入segment exact phase。安装前用transaction内的rail-inventory mutation标记做`O(1)` dirty检查；安装预计算结果为`O(N + K)`，`K`为该批预计算crossing数，不得重新运行exact detector。outer transaction最终仍按既有协议构建并发布完整`TopologyState`。
 
-replacement/split/merge必须把同一事务将删除的rail ID作为`excludedIds`整体准备，不能逐rail分别prepare；否则新rail之间的crossing和批次顺序无法在一个root上证明。含excluded ID的batch只能安装在尚未改变rail inventory的outer transaction，且这些source rail必须在该transaction发布前全部移除。安装前world不一致、root/revision过期（包括source已变化/缺失）、outer transaction已改变rail inventory或batch身份冲突均抛`PreparedRailCreationRejectedException`及稳定reason，且batch本身产生零mutation；connection选择等不改变候选geometry的后续编辑可在安装后完成。Bukkit向玩家提示重试，不自动无限retry。安装后的后续编辑失败仍遵循现有transaction fault/rollback规则。
+replacement/split/merge必须把同一事务将删除的rail ID作为`excludedIds`整体准备，不能逐rail分别prepare；否则新rail之间的crossing和批次顺序无法在一个root上证明。含excluded ID的batch只能安装在尚未改变rail inventory的outer transaction，且这些source rail必须在该transaction发布前全部移除。安装前world不一致、相关 geometry candidate/source 已变化或缺失、outer transaction已改变rail inventory或batch身份冲突均抛`PreparedRailCreationRejectedException`及稳定reason，且batch本身产生零mutation；connection选择等不改变候选geometry的后续编辑可在安装后完成。Bukkit向玩家提示重试，不自动无限retry。安装后的后续编辑失败仍遵循现有transaction fault/rollback规则。
 
 Rail创建和replacement的连接只能来自调用方已经明确的endpoint关系，不存在按距离自动选择相邻轨道的生产机制。
 新建独立轨道默认不连接；锚点连接只连接玩家选中的endpoint与批内明确相邻的分段；replacement通过旧endpoint到新endpoint

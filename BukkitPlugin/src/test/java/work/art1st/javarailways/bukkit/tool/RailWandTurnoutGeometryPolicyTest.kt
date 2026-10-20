@@ -94,7 +94,7 @@ class RailWandTurnoutGeometryPolicyTest {
     @Test
     fun `mapped turnout snapshot restores selected branch after one leg replacement`() {
         val (world, stem, straight, branch) = turnout()
-        stem.viewAB.activeRail = branch.viewAB
+        IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = branch.viewAB }
         val snapshots = captureTurnoutViewSnapshots(listOf(stem))
 
         IsolatedSimulationThreadMarker.run { world.removeRail(stem) }
@@ -102,7 +102,9 @@ class RailWandTurnoutGeometryPolicyTest {
         configureTurnoutForTest(replacement, listOf(straight, branch))
         assertSame(straight.viewAB, replacement.viewAB.activeRail)
 
-        restoreMappedTurnoutViewSnapshots(world, snapshots, mapOf(stem.id to replacement.id))
+        IsolatedSimulationThreadMarker.run {
+            restoreMappedTurnoutViewSnapshots(world, snapshots, mapOf(stem.id to replacement.id))
+        }
 
         assertEquals(listOf(straight.viewAB, branch.viewAB), replacement.viewAB.nextRails)
         assertSame(branch.viewAB, replacement.viewAB.activeRail)
@@ -120,7 +122,9 @@ class RailWandTurnoutGeometryPolicyTest {
         IsolatedSimulationThreadMarker.run { CoreRail.connect(replacement, straight) }
 
         assertThrows(IllegalArgumentException::class.java) {
+            IsolatedSimulationThreadMarker.run {
             restoreMappedTurnoutViewSnapshots(world, snapshots, mapOf(stem.id to replacement.id))
+        }
         }
     }
 

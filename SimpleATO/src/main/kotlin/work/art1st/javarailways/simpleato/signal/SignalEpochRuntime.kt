@@ -4,7 +4,7 @@ import work.art1st.javarailways.basic.api.observation.RailwayAreaOccupancyEngine
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.core.api.physics.RailwayEpochProcessor
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailObjectRef

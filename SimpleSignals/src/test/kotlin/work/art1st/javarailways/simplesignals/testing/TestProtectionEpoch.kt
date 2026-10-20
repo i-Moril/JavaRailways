@@ -24,7 +24,7 @@ internal fun protectionTestEpoch(world: SimpleSignalsWorldRuntime, worldId: Stri
 
 /** Selector/graph unit fixtures supply explicit 1m-train movement proofs, not controller/geometry validation. */
 internal class TestProtectionEpoch(private val world: SimpleSignalsWorldRuntime, val runtime: SignalEpochRuntime) {
-    private val admissions = linkedMapOf<work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner, ActiveRouteAdmissionUpdate>()
+    private val admissions = linkedMapOf<work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner, ActiveRouteAdmissionUpdate>()
     private val inspection = InspectionRuntime(TrainRestrictionPublisher {
         TrainRestrictionPublicationResult(TrainRestrictionPublicationStatus.ACCEPTED, it.revision)
     }) { _, _, _ -> }

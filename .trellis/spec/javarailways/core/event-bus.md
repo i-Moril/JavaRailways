@@ -113,3 +113,5 @@ fun requestLink() {
   --tests '*CoreTrainDerailEventTest' --tests '*PhysicsCoordinatorTest' \
   --tests '*PhysicsEpochEventsTest' --tests '*CoreTrainCollisionCouplingTest'
 ```
+
+注册准备阶段拒绝`@HandlesEvent suspend`方法，并在异常中指出listener类和方法名；同步dispatcher不支持协程签名，不能推迟到dispatch失败。

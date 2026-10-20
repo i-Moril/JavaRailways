@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailSliceRef
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState

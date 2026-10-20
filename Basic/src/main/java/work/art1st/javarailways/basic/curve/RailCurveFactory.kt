@@ -32,34 +32,22 @@ data class CurveTemplateMatch(
 )
 
 sealed class RailCurveBuildResult {
-    /** Non-null only for [Success]; prefer an `is Success` check for exhaustive handling. */
-    abstract val curve: PrimeCurve?
-    abstract val error: String?
     abstract val selectedTemplate: RailCurveTemplateType?
     abstract val selectedReason: String?
 
-    val isSuccess: Boolean get() = this is Success
-
-    open val logicalBreakFractions: List<Double>
-        get() = (this as? Success)?.logicalBreakFractions.orEmpty()
-
     data class Success(
-        override val curve: PrimeCurve,
+        val curve: PrimeCurve,
         override val selectedTemplate: RailCurveTemplateType,
         override val selectedReason: String? = null,
         /** Internal player-invisible boundaries as fractions of total arc length. */
-        override val logicalBreakFractions: List<Double> = emptyList()
-    ) : RailCurveBuildResult() {
-        override val error: String? get() = null
-    }
+        val logicalBreakFractions: List<Double> = emptyList()
+    ) : RailCurveBuildResult()
 
     data class Failure(
-        override val error: String,
+        val error: String,
         override val selectedTemplate: RailCurveTemplateType? = null,
         override val selectedReason: String? = null
-    ) : RailCurveBuildResult() {
-        override val curve: PrimeCurve? get() = null
-    }
+    ) : RailCurveBuildResult()
 
     companion object {
         fun success(
@@ -78,33 +66,21 @@ sealed class RailCurveBuildResult {
 }
 
 sealed class RailParallelCurveBuildResult {
-    /** Non-null only for [Success]; prefer an `is Success` check for exhaustive handling. */
-    abstract val curves: List<PrimeCurve>?
-    abstract val error: String?
     abstract val selectedTemplate: RailCurveTemplateType?
     abstract val selectedReason: String?
 
-    val isSuccess: Boolean get() = this is Success
-
-    open val logicalBreakFractionsByLane: List<List<Double>>
-        get() = (this as? Success)?.logicalBreakFractionsByLane.orEmpty()
-
     data class Success(
-        override val curves: List<PrimeCurve>,
+        val curves: List<PrimeCurve>,
         override val selectedTemplate: RailCurveTemplateType,
         override val selectedReason: String? = null,
-        override val logicalBreakFractionsByLane: List<List<Double>> = curves.map { emptyList() }
-    ) : RailParallelCurveBuildResult() {
-        override val error: String? get() = null
-    }
+        val logicalBreakFractionsByLane: List<List<Double>> = curves.map { emptyList() }
+    ) : RailParallelCurveBuildResult()
 
     data class Failure(
-        override val error: String,
+        val error: String,
         override val selectedTemplate: RailCurveTemplateType? = null,
         override val selectedReason: String? = null
-    ) : RailParallelCurveBuildResult() {
-        override val curves: List<PrimeCurve>? get() = null
-    }
+    ) : RailParallelCurveBuildResult()
 
     companion object {
         fun success(

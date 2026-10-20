@@ -1,5 +1,6 @@
 package work.art1st.javarailways.bukkit.api.internal
 
+import work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt
 import org.bukkit.plugin.Plugin
 import work.art1st.javarailways.bukkit.api.signal.SignalEpochSourceService
 import work.art1st.javarailways.bukkit.api.signal.InspectionSourceService
@@ -56,6 +57,7 @@ internal class DefaultSignalEpochSourceService :
     ) = LiveWorldManagement.run { BukkitThreadGuardBridge.runInSimulationContext {
         synchronized(lock) {
             requireNoAtomicCommitReentry()
+            RailwaySimulationHalt.ensureRunning()
             check(!closed) { "SignalEpochSourceService is closed" }
             check(!worlds.containsKey(worldId)) { "Signal epoch runtime already exists for world $worldId" }
             worlds[worldId] = WorldBinding(
@@ -83,6 +85,7 @@ internal class DefaultSignalEpochSourceService :
         sources: Collection<SignalEpochSource>,
         commitAction: Runnable
     ) = withWorld(worldId) {
+        RailwaySimulationHalt.ensureRunning()
         check(pluginOwner.isEnabled) {
             "Cannot install signal sources for disabled plugin ${pluginOwner.name}"
         }
@@ -115,6 +118,8 @@ internal class DefaultSignalEpochSourceService :
                 world.runtime.replaceSourcesAtomically(
                     candidate.flatMap(OwnerSources::epochSources)
                 ) {
+                    // A halt during candidate preparation must not commit a previously admitted edit.
+                    RailwaySimulationHalt.ensureRunning()
                     commitAction.run()
                 }
             } finally {
@@ -130,6 +135,7 @@ internal class DefaultSignalEpochSourceService :
         worldId: UUID,
         sources: Collection<InspectionSource>
     ) = withWorld(worldId) {
+        RailwaySimulationHalt.ensureRunning()
         check(pluginOwner.isEnabled) {
             "Cannot install inspection sources for disabled plugin ${pluginOwner.name}"
         }
@@ -163,6 +169,7 @@ internal class DefaultSignalEpochSourceService :
             if (existingIndex >= 0) candidate.removeAt(existingIndex)
             candidate += replacementOwner
             validateSourceOwnership(candidate)
+            RailwaySimulationHalt.ensureRunning()
             try {
                 world.inspectionRuntime.replaceSources(candidate.flatMap(OwnerSources::inspectionSources))
             } catch (failure: Exception) {
@@ -183,6 +190,7 @@ internal class DefaultSignalEpochSourceService :
         worldId: UUID,
         sources: Collection<RoutePlanningRestrictionBinding>
     ) = withWorld(worldId) {
+        RailwaySimulationHalt.ensureRunning()
         check(pluginOwner.isEnabled) {
             "Cannot install route-planning sources for disabled plugin ${pluginOwner.name}"
         }
@@ -212,6 +220,7 @@ internal class DefaultSignalEpochSourceService :
             if (existingIndex >= 0) candidate.removeAt(existingIndex)
             candidate += replacementOwner
             validateSourceOwnership(candidate)
+            RailwaySimulationHalt.ensureRunning()
             world.routePlanningRuntime.replaceSources(
                 candidate.flatMap(OwnerSources::routePlanningSources)
             )

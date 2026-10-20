@@ -1,5 +1,9 @@
 package work.art1st.javarailways.simpleato.api.station
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import org.junit.jupiter.api.AfterEach
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -11,11 +15,24 @@ import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 class StationCallResolverTest {
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
+
+    @AfterEach
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
+    }
+
     @Test
     fun `resolves explicit berth direction offset and route revision`() {
         val fixture = fixture()
@@ -119,7 +136,7 @@ class StationCallResolverTest {
         approachDirection: ViewDirection = ViewDirection.AB,
         registerStation: Boolean = true
     ): Fixture {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(

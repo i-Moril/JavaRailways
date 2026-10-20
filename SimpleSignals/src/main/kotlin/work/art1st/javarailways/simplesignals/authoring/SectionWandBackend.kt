@@ -45,7 +45,13 @@ internal class RuntimeSectionWandBackend(
     private val targets: work.art1st.javarailways.bukkit.api.rail.RailTargetService? = null
 ) : SectionWandBackend {
     private data class Capture(override val worldId: UUID, val runtime: SimpleSignalsWorldRuntime,
-        val publication: SimpleSignalsRuntimePublication, val topology: TopologyState) : SectionWandCapture
+        val publication: SimpleSignalsRuntimePublication, val topology: TopologyState) : SectionWandCapture {
+        val watchedRails: MutableSet<UUID> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+        fun watch(railId: UUID) {
+            watchedRails += railId
+            publication.topologyIndex?.railsByObject?.values?.filter { railId in it }?.forEach(watchedRails::addAll)
+        }
+    }
     private data class Deletion(val capture: Capture, val edit: SectionAuthoringEdit, val kind: SectionWandKind,
         override val text: WandText, override val retainDevices: Boolean) : SectionWandDeletion
 
@@ -53,8 +59,9 @@ internal class RuntimeSectionWandBackend(
         override val initial: String, override val description: WandText) : SectionBoundaryNaming
 
     override fun naming(capture: SectionWandCapture, point: RailCutPosition): SectionBoundaryNaming? {
-        require(current(capture)) { "Selection expired; select again" }
         val captured = capture as Capture
+        captured.watch(point.railId)
+        require(current(capture)) { "Selection expired; select again" }
         val names = BoundaryNames(captured.publication.definitions, captured.topology) { targets?.findCurve(captured.worldId, it)?.orElse(null) }
         val selected = names.nearest(point) ?: return null
         val values = names.values(selected)
@@ -75,19 +82,20 @@ internal class RuntimeSectionWandBackend(
     }
 
     override fun capture(worldId: UUID): SectionWandCapture? = manager.authoringRuntime(worldId)?.let {
-        Capture(worldId, it, it.authoringPublication(), infrastructure.currentTopology(worldId))
+        it.authoringPublication().let { publication -> Capture(worldId, it, publication, publication.topology) }
     }
 
     override fun current(capture: SectionWandCapture): Boolean {
         val captured = capture as Capture
         return manager.authoringRuntime(captured.worldId) === captured.runtime &&
-            captured.runtime.authoringPublication() === captured.publication &&
-            infrastructure.currentTopology(captured.worldId) === captured.topology
+            captured.runtime.authoringPublication().definitions == captured.publication.definitions &&
+            infrastructure.currentTopology(captured.worldId).preservesRails(captured.topology, captured.watchedRails)
     }
 
     override fun prepareDeletion(capture: SectionWandCapture, point: RailCutPosition, retainDevices: Boolean): SectionWandDeletion? {
-        require(current(capture)) { "Selection expired; select the rail again" }
         val captured = capture as Capture
+        captured.watch(point.railId)
+        require(current(capture)) { "Selection expired; select the rail again" }
         val definitions = captured.publication.definitions
         val blocks = captured.publication.fixedBlocks.snapshot(captured.topology).candidates(setOf(point.railId)).filter { block ->
             block.definition.traversals.any { it.railId == point.railId && point.arcLengthInAbMeters > it.lowerAbMeters &&
@@ -123,8 +131,9 @@ internal class RuntimeSectionWandBackend(
 
     override fun perform(capture: SectionWandCapture, tool: SectionWandTool, leftClick: Boolean,
         point: RailCutPosition, retainDevices: Boolean, active: () -> Boolean): SectionWandOutcome {
-        require(active() && current(capture)) { "Selection expired; select the rail again" }
         val captured = capture as Capture
+        captured.watch(point.railId)
+        require(active() && current(capture)) { "Selection expired; select the rail again" }
         val publication = captured.publication
         val definitions = publication.definitions
         val topology = captured.topology

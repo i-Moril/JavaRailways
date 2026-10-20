@@ -54,7 +54,9 @@ class RailInfrastructureMetadataMigrationTest {
         assertEquals(1, migrated.migratedRailCount)
         assertEquals(listOf("standalone"), basic.wayPoints.map { it.id })
         assertEquals(30.0, basic.railMetadata.single().metadata.authoring?.designSpeedMetersPerSecond)
-        assertEquals(null, basic.railMetadata.single().metadata.operating.turnoutAtA)
+        assertFalse(migrated.file.basicSnapshotJson.contains("\"operating\""))
+        assertFalse(migrated.file.basicSnapshotJson.contains("\"turnoutAtA\""))
+        assertFalse(migrated.file.basicSnapshotJson.contains("\"turnoutAtB\""))
         assertEquals(ViewDirection.AB, basic.operatingDirections.single().permittedDirection)
         assertFalse(migrated.file.simpleAtoSnapshotJson.contains("operatingDirections"))
         assertEquals(listOf("central"), simpleAto.destinations.map { it.id })
@@ -71,6 +73,8 @@ class RailInfrastructureMetadataMigrationTest {
         val basic = BasicInfrastructureSnapshotCodec.decode(migrated.file.basicSnapshotJson)
 
         assertFalse(migrated.file.coreSnapshotJson.contains("\"metadata\""))
+        assertFalse(migrated.file.basicSnapshotJson.contains("\"turnoutAtA\""))
+        assertFalse(migrated.file.basicSnapshotJson.contains("\"turnoutAtB\""))
         assertEquals(20.0, basic.railMetadata.single().metadata.speedLimits.effectiveLimitMetersPerSecond())
         assertEquals(ViewDirection.BA, basic.operatingDirections.single().permittedDirection)
     }
@@ -136,7 +140,9 @@ class RailInfrastructureMetadataMigrationTest {
             "geometry":{"curveKind":"FIVE_SEGMENT","curveRadiusMeters":300.0,
               "automaticSuperelevation":true,"maxSuperelevationMeters":0.15,
               "allowableCantDeficiencyMeters":0.075,"parallel":null},
-            "assembly":null,"createdBySplit":null,"turnoutAtA":null,"turnoutAtB":null,
+            "assembly":null,"createdBySplit":null,
+            "turnoutAtA":{"protectionDistanceMeters":20.0,"lockingDistanceMeters":5.0},
+            "turnoutAtB":null,
             "gradeLockedAtA":true,"gradeLockedAtB":false},
           "connectionsAtA":[],"connectionsAtB":[],"activeConnectionAtA":null,"activeConnectionAtB":null
         }]}
@@ -164,7 +170,9 @@ class RailInfrastructureMetadataMigrationTest {
                  "allowableCantDeficiencyMeters":0.075,"parallel":null},
                "assembly":null,"createdBySplit":null,"gradeLockedAtA":false,
                "gradeLockedAtB":false,"curveSpeedLimitAutomatic":true},
-             "operating":{"allowedDirection":"AB","turnoutAtA":null,"turnoutAtB":null},
+             "operating":{"allowedDirection":"AB",
+               "turnoutAtA":{"protectionDistanceMeters":20.0,"lockingDistanceMeters":5.0},
+               "turnoutAtB":null},
              "speedLimits":{"entries":[{"valueMetersPerSecond":30.0,"type":"SUBGRADE"}]},
              "curveSafety":{"baseCurveDerailSpeedMetersPerSecond":null}
            }

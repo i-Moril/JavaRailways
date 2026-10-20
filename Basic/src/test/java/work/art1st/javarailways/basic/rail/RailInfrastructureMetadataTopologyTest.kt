@@ -42,8 +42,6 @@ class RailInfrastructureMetadataTopologyTest {
         val before = UUID.randomUUID()
         val after = UUID.randomUUID()
         val store = RailInfrastructureMetadataStore()
-        val turnoutA = TurnoutEndpointMetadata(20.0, 5.0)
-        val turnoutB = TurnoutEndpointMetadata(30.0, 5.0)
         val speedLimits = SpeedLimitMetadata(listOf(
             SpeedLimitEntry(25.0, SpeedLimitType.CURVE),
             SpeedLimitEntry(20.0, SpeedLimitType.SUBGRADE)
@@ -51,7 +49,6 @@ class RailInfrastructureMetadataTopologyTest {
         val curveSafety = CurveSafetyMetadata(28.0)
         val original = RailInfrastructureMetadata(
             authoring = RailAuthoringMetadata(gradeLockedAtA = true, gradeLockedAtB = true),
-            operating = RailOperatingMetadata(turnoutAtA = turnoutA, turnoutAtB = turnoutB),
             speedLimits = speedLimits,
             curveSafety = curveSafety
         )
@@ -61,12 +58,8 @@ class RailInfrastructureMetadataTopologyTest {
 
         val beforeMetadata = store.getValue(before)
         val afterMetadata = store.getValue(after)
-        assertEquals(turnoutA, beforeMetadata.operating.turnoutAtA)
-        assertNull(beforeMetadata.operating.turnoutAtB)
         assertEquals(true, beforeMetadata.authoring?.gradeLockedAtA)
         assertEquals(false, beforeMetadata.authoring?.gradeLockedAtB)
-        assertNull(afterMetadata.operating.turnoutAtA)
-        assertEquals(turnoutB, afterMetadata.operating.turnoutAtB)
         assertEquals(false, afterMetadata.authoring?.gradeLockedAtA)
         assertEquals(true, afterMetadata.authoring?.gradeLockedAtB)
         listOf(beforeMetadata, afterMetadata).forEach {
@@ -77,8 +70,6 @@ class RailInfrastructureMetadataTopologyTest {
         val merged = UUID.randomUUID()
         RailInfrastructureMetadataTopology.merge(store, before, after, merged)
         val mergedMetadata = store.getValue(merged)
-        assertEquals(turnoutA, mergedMetadata.operating.turnoutAtA)
-        assertEquals(turnoutB, mergedMetadata.operating.turnoutAtB)
         assertEquals(true, mergedMetadata.authoring?.gradeLockedAtA)
         assertEquals(true, mergedMetadata.authoring?.gradeLockedAtB)
         assertEquals(original, mergedMetadata)

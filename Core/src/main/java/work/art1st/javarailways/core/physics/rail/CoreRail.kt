@@ -44,6 +44,7 @@ class CoreRail @MainThread private constructor(
     val trains: ConcurrentLinkedQueue<TrainEnd>,
     val extensionDataContainer: ExtensionDataContainer<RenderableExtension<Rail>>
 ) : Rail, Extendable<RenderableExtension<Rail>> by extensionDataContainer, PersistentBy<CoreRail.SavedRailV1> {
+    internal val topologyIdentity: UUID = UUID.randomUUID()
     override val curve: PrimeCurve = curveAB
     val viewAB: RailView = RailView(
         this,
@@ -90,7 +91,9 @@ class CoreRail @MainThread private constructor(
 
     private val destruction = Destruction()
 
-    override fun destroy(): CompletionStage<Void> = destruction.run {
+    override fun destroy(): CompletionStage<Void> = world.removeRail(this)
+
+    internal fun destroyResources(): CompletionStage<Void> = destruction.run {
         val steps = DestructionSteps()
         signals.toList().forEach { signal -> steps.await { signal.destroy() } }
         forEachExtensionData { extension -> steps.await { extension.destroy() } }
@@ -164,6 +167,10 @@ class CoreRail @MainThread private constructor(
             val nextAtB = stateB.connectedEndpoints.map(::awayView)
             val activeAtA = stateA.activeEndpoint?.let(::awayView)
             val activeAtB = stateB.activeEndpoint?.let(::awayView)
+            val affected = (listOf(rail.id) + rail.viewBA.nextRails.map { it.rail.id } +
+                rail.viewAB.nextRails.map { it.rail.id } + nextAtA.map { it.rail.id } + nextAtB.map { it.rail.id }).toSet()
+            dependency.world.ensureRailEditProtected(affected)
+            require(dependency.world.occupyingTrainIds(affected).isEmpty()) { "Cannot restore occupied rail connections" }
             rail.viewBA.activeRail = null
             rail.viewBA.mutableNextRails.clear()
             rail.viewBA.mutableNextRails.addAll(nextAtA)

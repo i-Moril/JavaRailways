@@ -267,7 +267,10 @@ internal class DefaultModelPresentationService(
                     return
                 }
                 if (audience == null) {
-                    val published = OrdinaryModelRenderable(identity.world.railWorld, ::close)
+                    val published = OrdinaryModelRenderable(identity.world.railWorld) {
+                        close()
+                        cleanup.minimalCompletionStage()
+                    }
                     audience = published
                     published.publish(state.transform(), model!!)
                     identity.world.audiences.update(published, null, published.position)

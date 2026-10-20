@@ -210,9 +210,6 @@ object RailRenderMetaStore {
             val target = file(worldId, dataFolder)
             val (expectedIdentity, previousRecords) = synchronized(this) {
                 val currentRecords = load(worldId, worldName, target)
-                check(currentRecords == expectedRecords) {
-                    "Rail render metadata changed while the replacement was being prepared: ${target.path}"
-                }
                 val identity = target.identity()
                 val entry = cache[worldId]
                 check(entry?.corrupted != true) {
@@ -221,8 +218,22 @@ object RailRenderMetaStore {
                 }
                 identity to currentRecords.toList()
             }
+            val expectedByRail = expectedRecords.associateBy { it.railId }
+            val requestedByRail = records.associateBy { it.railId }
+            val changed = (expectedByRail.keys + requestedByRail.keys).filter {
+                expectedByRail[it] != requestedByRail[it]
+            }
+            val merged = previousRecords.associateByTo(linkedMapOf()) { it.railId }
+            check(changed.all { merged[it] == expectedByRail[it] }) {
+                "An edited rail's render metadata changed while the replacement was being prepared: ${target.path}"
+            }
+            changed.forEach { id ->
+                val replacement = requestedByRail[id]
+                if (replacement == null) merged.remove(id) else merged[id] = replacement
+            }
+            val mergedRecords = merged.values.sortedBy { it.railId.toString() }
             staged = Files.createTempFile(target.parentFile.toPath(), "${target.name}.", ".staged").toFile()
-            staged.writeText(encode(records))
+            staged.writeText(encode(mergedRecords))
             if (expectedIdentity.exists) {
                 rollback = Files.createTempFile(target.parentFile.toPath(), "${target.name}.", ".rollback").toFile()
                 Files.copy(
@@ -239,7 +250,7 @@ object RailRenderMetaStore {
                 rollback = rollback,
                 expectedIdentity = expectedIdentity,
                 previousRecords = previousRecords,
-                records = records.toList(),
+                records = mergedRecords,
                 writer = writer
             )
         } catch (failure: Throwable) {

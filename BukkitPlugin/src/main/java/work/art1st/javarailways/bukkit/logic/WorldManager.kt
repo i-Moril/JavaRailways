@@ -20,8 +20,8 @@ import work.art1st.javarailways.bukkit.api.internal.DefaultRailwayObservationSer
 import work.art1st.javarailways.bukkit.api.internal.DefaultInfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.internal.DefaultSignalEpochSourceService
 import work.art1st.javarailways.bukkit.api.internal.DefaultModelPresentationService
-import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.bukkit.debug.AbnormalTrainMarker
 import work.art1st.javarailways.bukkit.debug.JavaRailwaysServerTickMetrics
 import work.art1st.javarailways.bukkit.debug.TrainDebugLog
@@ -44,6 +44,7 @@ import work.art1st.javarailways.bukkit.util.LatestAffinityTaskDispatcher
 import work.art1st.javarailways.bukkit.util.PlatformCommitAffinity
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt
 import work.art1st.javarailways.core.physics.tick.PhysicsTicket
 import work.art1st.javarailways.core.util.TickManagerImpl
 import work.art1st.javarailways.core.api.physics.train.CarFrameSnapshot
@@ -183,15 +184,13 @@ class WorldManager internal constructor(
                     infrastructureResourceService?.registerWorld(
                         bukkitWorld.uid,
                         { railWorld.topologyState },
-                        railExists = { railId -> railWorld.getRail(railId) != null },
-                        topologyNodeExists = { key -> railWorld.topologyState.structuralNodeWithPorts(key.ports) != null },
+                        registry = (railWorld as CoreWorld).infrastructureCoordination,
                         operatingDirections = railWorld.basicWorldData.operatingDirections::snapshot,
                         railSpeedLimits = railWorld.basicWorldData.railMetadata::speedLimits,
                         observeTopologyChanges = railWorld::registerTopologyChangeListener,
                         resourceExists = { resource ->
                         when (resource) {
-                            is RailIntervalResource -> railWorld.getRail(resource.railId)?.curve?.totalArcLength
-                                ?.let { resource.endAbMeters <= it } == true
+                            is RailIntervalResource -> false // Physical intervals are validated by Core.
                             is StableInfrastructureResource ->
                                 infrastructureResourceService.stableResourceExists(bukkitWorld.uid, resource)
                         }
@@ -203,8 +202,6 @@ class WorldManager internal constructor(
                         latestObservation = {
                             observationService?.current(bukkitWorld.uid, railWorld.latestWorldFrame())
                         },
-                        turnoutLockingDistanceMeters = railWorld.basicWorldData
-                            .turnoutSafetyDefaults.lockingDistanceMeters,
                         stallWorld = { reason, failure ->
                             stallWorldRuntime(bukkitWorld, railWorld, reason, failure)
                         },
@@ -264,6 +261,7 @@ class WorldManager internal constructor(
                     if (coreWorld != null) {
                         attemptCleanup { coreWorld.simpleAtoWorldDataOrNull?.operationalRuntime?.close() }
                         attemptCleanup { coreWorld.physicsCoordinator.close() }
+                        attemptCleanup { coreWorld.infrastructureCoordination.close() }
                     }
                     attemptCleanup { railWorld.renderChunkManager.close() }
                     attemptCleanup { (railWorld.tickManager as? AutoCloseable)?.close() }
@@ -443,6 +441,7 @@ class WorldManager internal constructor(
                     attempt { coreWorld?.physicsCoordinator?.close() }
                     attempt { closeRender(ownedWorld) }
                     attempt { closeTick(ownedWorld) }
+                    attempt { coreWorld?.infrastructureCoordination?.close() }
                 }
                 attempt { BukkitPlugin.instanceOrNull()?.worldIssues?.clearWorld(bukkitWorld.uid) }
                 attempt { clearAbnormalMarkers(bukkitWorld) }
@@ -472,7 +471,7 @@ class WorldManager internal constructor(
     }
 
     private fun tick() {
-        if (stopping) return
+        if (stopping || RailwaySimulationHalt.isHalted) return
         serverTickIndex += 1L
         val wake = WorldTickWake(serverTickIndex, System.currentTimeMillis())
         railWorlds.forEach { (bukkitWorld, railWorld) ->
@@ -481,15 +480,27 @@ class WorldManager internal constructor(
                     val snapshotInterval = WorldSnapshotInterval(PERIODIC_SNAPSHOT_TICKS)
                     WorldTickRunner(bukkitWorld.uid.toString(), { next ->
                         BukkitThreadGuardBridge.runInSimulationContext(railWorld) {
-                            if (!stopping && bukkitWorld !in unloadingWorlds && railWorlds[bukkitWorld] === railWorld) {
+                            if (!stopping && !RailwaySimulationHalt.isHalted && bukkitWorld !in unloadingWorlds && railWorlds[bukkitWorld] === railWorld) {
                                 (railWorld as? CoreWorld)?.physicsCoordinator?.wakeFromMainThread()
                                 railWorld.tickManager.preTick(next.millis)
                                 tickWorld(bukkitWorld, railWorld, next.index, snapshotInterval)
                             }
                         }
                     }, { failure ->
-                        BukkitPlugin.INSTANCE.logger.log(Level.SEVERE,
-                            "World tick failed for ${bukkitWorld.uid} (${bukkitWorld.name})", failure)
+                        val coordinator = (railWorld as? CoreWorld)?.physicsCoordinator
+                        if (stopping || bukkitWorld in unloadingWorlds ||
+                            (!RailwaySimulationHalt.isHalted && coordinator?.status ==
+                                work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus.STALLED)) {
+                            // Normal retirement and the explicit per-world overload budget are
+                            // not breaches of shared Core state.
+                            BukkitPlugin.INSTANCE.logger.log(Level.SEVERE,
+                                "World tick stopped for ${bukkitWorld.uid} (${bukkitWorld.name})", failure)
+                        } else {
+                            RailwaySimulationHalt.halt("World tick failed for ${bukkitWorld.uid} (${bukkitWorld.name})", failure)
+                        }
+                        // Only join the generic worker batch. Failed owner stages must not drain
+                        // queued mutations or replace the old barrier on a subsequent wake.
+                        (railWorld.tickManager as TickManagerImpl).finishPendingAsyncTick()
                     })
                 }
             }
@@ -554,6 +565,7 @@ class WorldManager internal constructor(
             coordinator.processBetweenFrames { processOwnerTick(it) }
         }
 
+        RailwaySimulationHalt.ensureRunning()
         val platformCommitNanos = measureNanoTime {
             railWorld.tickManager.drainPendingCommits().forEach { synchronizable ->
                 val action: () -> Unit = {

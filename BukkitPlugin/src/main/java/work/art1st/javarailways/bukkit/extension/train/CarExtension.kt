@@ -73,7 +73,7 @@ class CarExtension : TrainComponentExtension<Car>() {
                 BukkitThreadOwnership.ensureLocation(location, "CarExtension.sound")
                 location.world!!.playSound(location, key, volume.toFloat(), pitch.toFloat())
             }, ::scheduleBehaviorEffect,
-            { BukkitPlugin.INSTANCE.logger.info("[CarBehavior:${self.id}] $it") })
+            { BukkitPlugin.INSTANCE.logger.info("[CarBehavior:${self.id}] $it") }, ::stopTrainForScriptFailure)
     }
     private var bodyModel: CompositeModel? = null
     private var bogieModels: List<CompositeModel> = emptyList()
@@ -203,6 +203,17 @@ class CarExtension : TrainComponentExtension<Car>() {
     internal fun executeBehavior(method: String, args: List<Any?>, tail: Boolean, done: (Result<Unit>) -> Unit, optional: Boolean = false): TrainModelOperationResult {
         ensureBehaviorOwned()
         return behavior.call(method, args, tail, done, optional)
+    }
+
+    private fun stopTrainForScriptFailure(failure: work.art1st.javarailways.bukkit.behavior.TrainBehaviorScriptException) {
+        val train = self.train as? work.art1st.javarailways.core.physics.train.CoreTrain
+        BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.SEVERE,
+            "Car behavior failed: car=${self.id}, train=${train?.id}", failure)
+        if (train != null) train.world.physicsCoordinator.submitBetweenFrames {
+            if (self.train === train && train.world.getTrain(train.id) === train) {
+                train.derail("Car behavior failed: car=${self.id}: ${failure.message}")
+            }
+        }
     }
 
     private fun ensureBehaviorOwned() {

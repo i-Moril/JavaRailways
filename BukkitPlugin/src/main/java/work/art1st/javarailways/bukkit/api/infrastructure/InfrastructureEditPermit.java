@@ -1,6 +1,6 @@
 package work.art1st.javarailways.bukkit.api.infrastructure;
 
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner;
 
 /**
  * Held exclusive permission to mutate one exact topology edit impact.
@@ -10,6 +10,9 @@ import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
  */
 public interface InfrastructureEditPermit extends AutoCloseable {
     InfrastructureOwner owner();
+
+    /** Executes one synchronous mutation while authenticating this held permit. */
+    <T> T execute(java.util.function.Supplier<T> action);
 
     @Override
     void close();

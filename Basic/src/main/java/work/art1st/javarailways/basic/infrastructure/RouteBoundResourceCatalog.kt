@@ -1,6 +1,6 @@
 package work.art1st.javarailways.basic.infrastructure
 
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.RailSliceRef
@@ -60,9 +60,10 @@ internal class RouteBoundResourceCatalog(
         topology: TopologyState,
         bindings: Collection<RouteBoundResourceBinding>
     ): RouteBoundResourceCatalogUpdate = synchronized(lock) {
-        if (topologyState() !== topology) {
+        val referencedRails = bindings.flatMap { it.anchors }.map { it.railId }.toSet()
+        if (!topologyState().preservesRails(topology, referencedRails)) {
             return@synchronized RouteBoundResourceCatalogUpdate.Rejected(
-                "route-bound resource catalog was built for a topology root that is no longer current"
+                "route-bound resource catalog references changed physical infrastructure"
             )
         }
         val candidate = when (val built = buildSnapshot(topology, bindings)) {
@@ -70,9 +71,9 @@ internal class RouteBoundResourceCatalog(
                 return@synchronized RouteBoundResourceCatalogUpdate.Rejected(built.detail)
             is SnapshotBuild.Valid -> built.snapshot
         }
-        if (topologyState() !== topology) {
+        if (!topologyState().preservesRails(topology, referencedRails)) {
             return@synchronized RouteBoundResourceCatalogUpdate.Rejected(
-                "topology changed while building the route-bound resource catalog"
+                "catalog dependencies changed while building the resource catalog"
             )
         }
         published = candidate
@@ -92,9 +93,10 @@ internal class RouteBoundResourceCatalog(
             "route-bound resource catalog has not published a complete snapshot"
         )
         val currentTopology = topologyState()
-        if (snapshot.topology !== currentTopology) {
+        val routeRails = route.occurrences.map { it.segment.railId }.toSet()
+        if (!currentTopology.preservesRails(snapshot.topology, routeRails)) {
             return RouteBoundResourceQuery.StaleTopology(
-                "physical resource catalog has not followed the current topology"
+                "physical resources on the requested route changed"
             )
         }
 
@@ -124,7 +126,7 @@ internal class RouteBoundResourceCatalog(
         }
         val merged = mergeHits(rawHits)
         val result = RouteBoundResourceQuery.Complete(merged)
-        if (published !== snapshot || topologyState() !== currentTopology) {
+        if (published !== snapshot || !topologyState().preservesRails(currentTopology, routeRails)) {
             return RouteBoundResourceQuery.StaleTopology(
                 "route-bound resource catalog or topology changed during query"
             )

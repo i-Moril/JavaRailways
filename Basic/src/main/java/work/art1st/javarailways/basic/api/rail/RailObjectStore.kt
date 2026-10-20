@@ -44,9 +44,11 @@ class RailObjectStore {
         check(registered.lifecycleState == RailObjectLifecycleState.REMOVED) {
             "RailObject owner must publish REMOVED before unregistering: $ref"
         }
-        val railId = railIdByRef[ref]
+        val railId = checkNotNull(railIdByRef[ref]) { "RailObject rail registration missing: $ref" }
+        val railObjects = checkNotNull(byRail[railId]) { "RailObject rail index missing: $ref" }
+        check(railObjects.any { it === registered }) { "RailObject missing from rail index: $ref" }
         check(byRef.remove(ref, registered)) { "RailObject changed during unregister: $ref" }
-        if (railId != null) byRail[railId]?.remove(registered)
+        railObjects.remove(registered)
         railIdByRef.remove(ref)
         registered
     }

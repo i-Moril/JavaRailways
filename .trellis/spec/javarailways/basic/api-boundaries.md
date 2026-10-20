@@ -46,7 +46,7 @@
   此时Basic保留claim并经既有world Stall owner fail-close；无资源、无pending而只等待`endGrant`的空route state可安全删除。
 - Bukkit `InfrastructureResourceService.selectTurnout(plugin, worldId, request)` 是受保护的手动道岔操作入口。
   request只携带当前topology revision和两个stable turnout port；调用在串行simulation context中阻塞至当前physics epoch
-  完成，然后同时检查确切道岔资源是否存在运行claim冲突、配置的各岔腿锁闭距离内是否存在物理占用。成功时只改变
+  完成，然后同时检查确切道岔资源是否存在运行claim冲突、结构道岔每个端口是否存在车体物理占用。成功时只改变
   live turnout selection，不产生route grant、movement authority或长期资源占用；返回值是detached typed result，不能
   暴露live `RailView`、registry handle或Core mutable object。
 
@@ -75,7 +75,7 @@ Basic只知道semantic request/result；region scheduling与model action完成�
 | 基础设施协调 | 运行claim使用immutable footprint；编辑依赖/编辑影响使用独立三类引用 + typed atomic result | 把rail/node包装成resource、让编辑依赖阻止列车claim，或向add-on暴露raw registry |
 | 路线资源准入 | ATO只提交topology-bound frozen route + train/observation/boundary；宿主收集认证contribution，Basic推导不可删除的物理底线并原子claim union | ATO认识信号资源、add-on替换物理footprint/列车长度、Basic替其寻路或执行具体信号制式 |
 | 自定义资源准备 | exact identity + provider-owned runtime descriptor；world owner thread返回typed ticket | handler读取mutable train/world、扫描路线、追加资源或把descriptor当存档schema |
-| 手动道岔操作 | stable ports + topology revision；短期占用确切道岔资源，等待physics后检查锁闭区物理占用，再通过统一live selector切换 | 绕过运行claim/物理占用、创建ATO授权，或向调用方返回live turnout object |
+| 手动道岔操作 | stable ports + topology revision；短期占用确切道岔资源，等待physics后检查结构端口物理占用，再通过统一live selector切换 | 绕过运行claim/物理占用、创建ATO授权，或向调用方返回live turnout object |
 
 每个signature/KDoc必须包含world/host owner、stable identity、字段类型和单位、thread/blocking、live/value、failure/result、register/unregister、persistence含义。annotation不能替代文字。
 

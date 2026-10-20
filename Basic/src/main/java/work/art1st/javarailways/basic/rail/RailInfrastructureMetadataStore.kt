@@ -11,7 +11,6 @@ import java.util.concurrent.ConcurrentHashMap
 @Serializable
 data class RailInfrastructureMetadata(
     val authoring: RailAuthoringMetadata? = null,
-    val operating: RailOperatingMetadata = RailOperatingMetadata(),
     val speedLimits: SpeedLimitMetadata = SpeedLimitMetadata(),
     val curveSafety: CurveSafetyMetadata = CurveSafetyMetadata()
 ) {

@@ -5,11 +5,11 @@ import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueInput
 import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueKind
 
 import org.bukkit.plugin.Plugin
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditDecision
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditDecision
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictionSource
 import work.art1st.javarailways.bukkit.api.infrastructure.InfrastructureResourceService
 import work.art1st.javarailways.bukkit.api.signal.RoutePlanningRestrictionSourceService
@@ -141,6 +141,7 @@ internal enum class SimpleSignalsDefinitionAuthoringStatus {
     PATCH_REJECTED,
     VALIDATION_REJECTED,
     EDIT_BLOCKED,
+    RETRY_REQUIRED,
     STALE_TOPOLOGY,
     PERSISTENCE_FAILED,
     WORLD_UNAVAILABLE
@@ -1622,10 +1623,6 @@ internal class SimpleSignalsWorldRuntimeManager(
                 "current topology is unavailable: ${describe(failure)}"
             ))
         }
-        if (expectedTopology != null && topology !== expectedTopology) {
-            return PatchPreparation.Rejected(authoringResult(SimpleSignalsDefinitionAuthoringStatus.STALE_TOPOLOGY,
-                "topology changed after the authoring selection"))
-        }
         val candidate = work.art1st.javarailways.simplesignals.authoring.BoundaryNames.normalize(appliedCandidate, topology)
         val prepared = when (val preparation = runtime.prepareDefinitions(topology, candidate)) {
             SimpleSignalsDefinitionPreparationResult.Unchanged -> return PatchPreparation.Rejected(authoringResult(
@@ -1639,6 +1636,12 @@ internal class SimpleSignalsWorldRuntimeManager(
             is SimpleSignalsDefinitionPreparationResult.Prepared -> preparation.value
         }
         val impactRailIds = prepared.affectedRailIds
+        if (expectedTopology != null && !topology.preservesRails(expectedTopology,
+                SimpleSignalsDefinitionEditImpact.impact(prepared.basePublication, prepared.candidatePublication,
+                    includeTopologyChanges = false)?.railIds.orEmpty())) {
+            return PatchPreparation.Rejected(authoringResult(SimpleSignalsDefinitionAuthoringStatus.STALE_TOPOLOGY,
+                "selected rail dependencies changed after the authoring selection"))
+        }
         if (impactRailIds.isEmpty()) {
             return PatchPreparation.Rejected(authoringResult(
                 SimpleSignalsDefinitionAuthoringStatus.VALIDATION_REJECTED,
@@ -1693,6 +1696,13 @@ internal class SimpleSignalsWorldRuntimeManager(
         expectedRuntime: SimpleSignalsWorldRuntime? = null,
         expectedTopology: TopologyState? = null,
         authoringGuard: () -> Boolean = { true }
+    ): SimpleSignalsDefinitionAuthoringResult = applyDefinitionPatchAttempt(worldId,
+        expectedDefinitionRevision, patch, expectedRuntime, expectedTopology, authoringGuard, true)
+
+    private fun applyDefinitionPatchAttempt(
+        worldId: UUID, expectedDefinitionRevision: Long, patch: SimpleSignalsDefinitionPatch,
+        expectedRuntime: SimpleSignalsWorldRuntime?, expectedTopology: TopologyState?,
+        authoringGuard: () -> Boolean, topologyRetryAvailable: Boolean
     ): SimpleSignalsDefinitionAuthoringResult {
         ThreadGuard.ensureOffMainThread("SimpleSignals definition authoring preparation")
         if (!authoringGuard()) return authoringResult(SimpleSignalsDefinitionAuthoringStatus.WORLD_UNAVAILABLE,
@@ -1907,6 +1917,23 @@ internal class SimpleSignalsWorldRuntimeManager(
             publishIssues(runtime)
             runtime.startModels()
         } else candidateModels.retire()
+        if (result.status == SimpleSignalsDefinitionAuthoringStatus.STALE_TOPOLOGY ||
+            result.status == SimpleSignalsDefinitionAuthoringStatus.REVISION_REJECTED) {
+            val currentPublication = runtime.authoringPublication()
+            val latestTopology = infrastructure.currentTopology(worldId)
+            val selectionRails = SimpleSignalsDefinitionEditImpact.impact(prepared.basePublication,
+                prepared.candidatePublication, includeTopologyChanges = false)?.railIds.orEmpty()
+            if ((latestTopology !== prepared.topology || currentPublication !== prepared.basePublication) &&
+                currentPublication.definitions.definitionRevision == expectedDefinitionRevision &&
+                latestTopology.preservesRails(expectedTopology ?: prepared.topology, selectionRails)) {
+                // Retire the old model preparation before recompiling all graph-bound inputs on the worker.
+                // Keep the original selection baseline and definition CAS through the retry.
+                return if (topologyRetryAvailable) applyDefinitionPatchAttempt(worldId, expectedDefinitionRevision, patch,
+                    expectedRuntime, expectedTopology ?: prepared.topology, authoringGuard, false)
+                else authoringResult(SimpleSignalsDefinitionAuthoringStatus.RETRY_REQUIRED,
+                    "unrelated topology edits continued during preparation; retry the unchanged selection")
+            }
+        }
         return result
     }
 

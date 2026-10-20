@@ -48,6 +48,10 @@ interface World : Extendable<Any> {
     /** Find a rail by persistent UUID. */
     fun getRail(id: UUID): Rail?
 
-    /** Remove [rail] from this world. Callers must first ensure no train or route still depends on it. */
-    fun removeRail(rail: Rail)
+    /**
+     * Removes the exact registered instance and cleans its owned resources without blocking.
+     * Repeating removal of an absent instance observes its original cleanup result; a replacement
+     * with the same ID or a different world is rejected before any mutation.
+     */
+    fun removeRail(rail: Rail): java.util.concurrent.CompletionStage<Void>
 }

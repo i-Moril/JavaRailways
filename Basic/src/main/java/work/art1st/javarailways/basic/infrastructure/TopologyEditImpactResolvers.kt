@@ -1,8 +1,9 @@
 package work.art1st.javarailways.basic.infrastructure
 
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.core.api.physics.infrastructure.TurnoutResourceIdentity
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableTopologyNodeKey
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditImpact
 import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef

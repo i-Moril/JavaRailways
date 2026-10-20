@@ -504,7 +504,10 @@ class CoreTrainSplitTest {
     @OptIn(AsyncEventApi::class)
     fun `stationary split contact stays harmless until a real step closes it`(connectorLength: Double) {
         val coordinator = PhysicsCoordinator(1, automaticFallback = false)
-        val world = createTestWorld(coordinator)
+        val world = try { createTestWorld(coordinator) } catch (failure: Throwable) {
+            runCatching(coordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
         try {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
             val train = createTrainWithConfig("stationary-contact", rail, world, List(2) { 10.0 },
@@ -537,7 +540,7 @@ class CoreTrainSplitTest {
                 coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
                 assertEquals(1, collisions.get(), "actual inward movement must be detected on the next prepass")
                 assertEquals(2, calls.get(), "a detected impact must freeze before another controller step")
-                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                world.onOwnerForTest { coordinator.drainBetweenFramesOperations() }
                 assertTrue(train.isDerailed)
                 assertTrue(separated.isDerailed)
             }
@@ -551,7 +554,10 @@ class CoreTrainSplitTest {
     @OptIn(AsyncEventApi::class)
     fun `micrometre inward steps on both touching couplers collide before bodies meet`() {
         val coordinator = PhysicsCoordinator(1, automaticFallback = false)
-        val world = createTestWorld(coordinator)
+        val world = try { createTestWorld(coordinator) } catch (failure: Throwable) {
+            runCatching(coordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
         try {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0, 1))
             val train = createTrainWithConfig("slow-front", rail, world, List(2) { 10.0 }, connectorLength = 0.3)
@@ -583,7 +589,7 @@ class CoreTrainSplitTest {
                 coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
                 assertEquals(1, collisions.get(), "any actual closing motion must count, even below geometry tolerance")
                 assertEquals(2, calls.get(), "contact must freeze both before another inward step")
-                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                world.onOwnerForTest { coordinator.drainBetweenFramesOperations() }
                 assertTrue(train.isDerailed)
                 assertTrue(separated.isDerailed)
                 assertEquals(2, world.allTrains.size, "both moving participants must not link")

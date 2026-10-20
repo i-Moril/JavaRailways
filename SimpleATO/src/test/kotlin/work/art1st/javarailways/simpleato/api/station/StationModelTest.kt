@@ -1,5 +1,10 @@
 package work.art1st.javarailways.simpleato.api.station
 
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import org.junit.jupiter.api.AfterEach
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertNull
@@ -13,11 +18,24 @@ import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 
 class StationModelTest {
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
+
+    @AfterEach
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
+    }
+
     @Test
     fun `station values reject invalid identities distances and times`() {
         val location = fixture("invalid").location
@@ -146,7 +164,7 @@ class StationModelTest {
     }
 
     private fun fixture(id: String): Fixture {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1)

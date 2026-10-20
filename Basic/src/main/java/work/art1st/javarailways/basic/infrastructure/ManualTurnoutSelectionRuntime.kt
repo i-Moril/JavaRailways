@@ -1,8 +1,11 @@
 package work.art1st.javarailways.basic.infrastructure
 
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.TurnoutResourceIdentity
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureFootprint
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionResult
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionStatus
@@ -18,7 +21,6 @@ class ManualTurnoutSelectionRuntime(
     private val world: World,
     private val registry: InfrastructureCoordinationRegistry,
     private val ensureBetweenFrames: () -> Unit,
-    private val lockingDistanceMeters: Double,
     private val publishSelection: () -> Unit,
     private val findBlockingTrainIds: (List<RailInterval>) -> Set<String> = { intervals ->
         world.allTrains.asSequence()
@@ -32,10 +34,6 @@ class ManualTurnoutSelectionRuntime(
     private var operationSequence = 0L
     private var closed = false
 
-    init {
-        require(lockingDistanceMeters.isFinite() && lockingDistanceMeters >= 0.0)
-    }
-
     @MainThread
     fun select(requester: Any, request: ManualTurnoutSelectionRequest): ManualTurnoutSelectionResult {
         ensureBetweenFrames()
@@ -44,12 +42,6 @@ class ManualTurnoutSelectionRuntime(
             "manual turnout runtime is closed"
         )
         val topology = world.topologyState
-        if (request.topologyRevision != topology.revision) {
-            return result(
-                ManualTurnoutSelectionStatus.STALE_TOPOLOGY,
-                "requested topology revision ${request.topologyRevision} does not match ${topology.revision}"
-            )
-        }
         val turnout = topology.structuralNodeAt(request.fromPort) as? TopologyNode.Turnout
             ?: return invalid("source port is not part of a turnout: ${request.fromPort}")
         if (topology.structuralNodeAt(request.toPort) !== turnout ||
@@ -96,22 +88,23 @@ class ManualTurnoutSelectionRuntime(
         }
 
         try {
-            if (world.topologyState !== topology) {
-                return result(
-                    ManualTurnoutSelectionStatus.STALE_TOPOLOGY,
-                    "topology changed while acquiring the turnout resource"
-                )
+            val currentSelection = try {
+                turnoutSelection.resolve(resource, request.fromPort, request.toPort)
+            } catch (failure: IllegalArgumentException) {
+                return invalid(failure.message ?: "turnout continuation changed")
+            } catch (failure: IllegalStateException) {
+                return invalid(failure.message ?: "turnout continuation changed")
             }
-            val lockIntervals = turnout.ports.map(::lockingInterval)
-            val blockingTrainIds = findBlockingTrainIds(lockIntervals)
+            val portIntervals = turnout.ports.map(::portInterval)
+            val blockingTrainIds = findBlockingTrainIds(portIntervals)
             if (blockingTrainIds.isNotEmpty()) {
                 return ManualTurnoutSelectionResult(
                     ManualTurnoutSelectionStatus.PHYSICALLY_OCCUPIED,
                     blockingTrainIds = blockingTrainIds,
-                    detail = "turnout locking area is physically occupied"
+                    detail = "turnout port is physically occupied"
                 )
             }
-            prepared.apply()
+            registry.withClaim(requester, owner) { currentSelection.apply() }
             publishSelection()
             return result(ManualTurnoutSelectionStatus.SELECTED)
         } finally {
@@ -126,15 +119,17 @@ class ManualTurnoutSelectionRuntime(
         closed = true
     }
 
-    private fun lockingInterval(port: RailEndpointRef): RailInterval {
+    // A body crossing the junction occupies an endpoint on at least one turnout leg.
+    // Closed AB intervals also cover a head/tail exactly at a port and either facing.
+    private fun portInterval(port: RailEndpointRef): RailInterval {
         val length = requireNotNull(world.getRail(port.railId)) {
             "turnout port rail no longer exists: ${port.railId}"
         }.getView(work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB).curve.totalArcLength
         return when (port.endpoint) {
-            RailEndpoint.A -> RailInterval(port.railId, 0.0, lockingDistanceMeters.coerceAtMost(length))
+            RailEndpoint.A -> RailInterval(port.railId, 0.0, 0.0)
             RailEndpoint.B -> RailInterval(
                 port.railId,
-                (length - lockingDistanceMeters).coerceAtLeast(0.0),
+                length,
                 length
             )
         }

@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.routing
 
+import org.junit.jupiter.api.Assertions.assertTrue
 import work.art1st.javarailways.basic.api.route.planning.OperatingDirectionOverlay
 
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -70,7 +71,7 @@ class FrozenRouteSelectorTest {
     }
 
     @Test
-    fun `topology observation and operating directions must be coherent`() {
+    fun `older topology observations and directions are revalidated`() {
         val rail = rail(1, 20.0)
         val topology = topology(9L, listOf(rail))
         val tail = RailPositionSnapshot(rail.id, ViewDirection.AB, 2.0)
@@ -80,8 +81,8 @@ class FrozenRouteSelectorTest {
             observation = observation(topology.revision - 1L, "train-1", tail),
             trainId = "train-1",
             target = OperationalRouteLocation(rail.id, 10.0)
-        ) as FrozenRouteSelectionResult.Rejected
-        assertEquals(FrozenRouteSelectionRejection.STALE_OBSERVATION, staleObservation.reason)
+        )
+        assertTrue(staleObservation is FrozenRouteSelectionResult.Selected)
 
         val staleDirections = select(
             topology = topology,
@@ -89,8 +90,8 @@ class FrozenRouteSelectorTest {
             trainId = "train-1",
             target = OperationalRouteLocation(rail.id, 10.0),
             overlayTopologyRevision = topology.revision - 1L
-        ) as FrozenRouteSelectionResult.Rejected
-        assertEquals(FrozenRouteSelectionRejection.STALE_OPERATING_DIRECTIONS, staleDirections.reason)
+        )
+        assertTrue(staleDirections is FrozenRouteSelectionResult.Selected)
     }
 
     @Test
@@ -252,7 +253,8 @@ class FrozenRouteSelectorTest {
             head = tail,
             tail = tail,
             occupiedIntervals = emptyList(),
-            bodyTraversal = emptyList(),
+            bodyTraversal = listOf(work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot(
+                tail.railId, tail.facing, tail.arcLengthInAbMeters, tail.arcLengthInAbMeters)),
             sweptSpans = emptyList(),
             headTraversal = emptyList(),
             tailTraversal = emptyList()

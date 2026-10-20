@@ -21,7 +21,6 @@ import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionConte
 import work.art1st.javarailways.simpleato.timetable.TimetableRouteAdmissionContextProvider
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
-import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.basic.rail.OperationalSpeedLimitSignalMaterializer
 import work.art1st.javarailways.basic.rail.infrastructureMetadata as metadata
 import work.art1st.javarailways.bukkit.extension.train.rendererOrNull
@@ -35,8 +34,8 @@ import work.art1st.javarailways.core.api.threading.ThreadGuard
 import work.art1st.javarailways.core.util.TickManagerImpl
 import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import java.util.concurrent.Executors
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.rail.OperatingDirectionStore
 import work.art1st.javarailways.simpleato.runtime.OperationalWorldRuntime
 
@@ -132,15 +131,7 @@ object RailWorldFactory {
             coreWorld, bukkitWorld.uid.toString(),
             basicDataFactory = { directionChanges ->
                 BasicWorldData(
-                    operatingDirections = OperatingDirectionStore(directionChanges),
-                    turnoutSafetyDefaults = physicsConfig.turnoutSafety.let {
-                        TurnoutSafetyDefaults(
-                            protectionDistanceMeters = it.defaultProtectionDistanceMeters,
-                            lockingDistanceMeters = it.defaultLockingDistanceMeters,
-                            decisionLeadTicks = it.decisionLeadTicks,
-                            retryTicks = it.allocationRetryTicks
-                        )
-                    }
+                    operatingDirections = OperatingDirectionStore(directionChanges)
                 )
             },
             reportStall = { report ->
@@ -162,6 +153,7 @@ object RailWorldFactory {
                 val inspectionRuntime = operational.inspectionRuntime
                 TimetableDispatcher(
                     authorityStoppingMarginMeters = atoSafetyDistanceMeters,
+                    admissionRetryTicks = plugin.javaRailwaysConfig.atoAdmissionRetryTicks,
                     routeAdmissionContextProvider = routeAdmissionProvider,
                     signalRestrictionSnapshots = signalRestrictions,
                     inspectionRuntime = inspectionRuntime,

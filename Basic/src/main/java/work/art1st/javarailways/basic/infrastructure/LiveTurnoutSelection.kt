@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.infrastructure
 
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.TurnoutResourceIdentity
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailView
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection

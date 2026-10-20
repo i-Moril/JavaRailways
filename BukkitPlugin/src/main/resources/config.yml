@@ -32,6 +32,7 @@ train-debug-log: false
 # 移动闭塞停车时为真实轨道授权保留余量，不改变运营停车目标。
 ato:
   safety-distance-meters: 5.0
+  admission-retry-ticks: 5
 
 # 轨道工程、曲线采样、物理 Worker、超速脱轨与道岔安全参数位于 physics.yml。
 

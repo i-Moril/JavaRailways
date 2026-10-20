@@ -1,8 +1,10 @@
 package work.art1st.javarailways.basic.infrastructure
 
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.core.api.physics.infrastructure.TurnoutResourceIdentity
+import work.art1st.javarailways.core.api.physics.infrastructure.PhysicalResourceIdentity
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableTopologyNodeKey
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditImpact
 import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
@@ -14,7 +16,7 @@ import java.util.UUID
 
 /** Converts one immutable Core topology root into Basic-owned physical resource identities. */
 internal object PhysicalTopologyResources {
-    const val DIAMOND_TYPE_ID = "javarailways:diamond"
+    const val DIAMOND_TYPE_ID = PhysicalResourceIdentity.DIAMOND_TYPE_ID
     internal const val DIAMOND_ANCHOR_HALF_LENGTH_METERS = 5.0e-3
 
     fun routeBoundBindings(topology: TopologyState): List<RouteBoundResourceBinding> =
@@ -38,18 +40,7 @@ internal object PhysicalTopologyResources {
     }
 
     fun diamondResource(crossing: AtGradeRailCrossing): StableInfrastructureResource =
-        StableInfrastructureResource(
-            DIAMOND_TYPE_ID,
-            buildString {
-                append(crossing.first.railId)
-                append('/')
-                append(crossing.second.railId)
-                append('/')
-                append(unsignedBits(crossing.first.arcLengthAbMeters))
-                append('-')
-                append(unsignedBits(crossing.second.arcLengthAbMeters))
-            }
-        )
+        PhysicalResourceIdentity.diamond(crossing)
 
     private fun anchor(topology: TopologyState, point: RailCrossingPoint): RailSliceRef {
         val projection = topology.railProjection[point.railId]?.singleOrNull()
@@ -63,6 +54,4 @@ internal object PhysicalTopologyResources {
         return RailSliceRef(point.railId, start, end)
     }
 
-    private fun unsignedBits(value: Double): String =
-        java.lang.Long.toUnsignedString(java.lang.Double.doubleToLongBits(value), 16)
 }

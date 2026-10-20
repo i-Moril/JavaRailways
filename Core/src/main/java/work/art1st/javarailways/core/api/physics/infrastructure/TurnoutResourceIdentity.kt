@@ -1,10 +1,10 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.core.api.physics.infrastructure
 
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 
 /** Canonical resource identity shared by every traversal direction of one physical turnout. */
-internal object TurnoutResourceIdentity {
+object TurnoutResourceIdentity {
     const val TYPE_ID: String = "javarailways:turnout"
 
     fun fromPorts(ports: Collection<RailEndpointRef>): StableInfrastructureResource {

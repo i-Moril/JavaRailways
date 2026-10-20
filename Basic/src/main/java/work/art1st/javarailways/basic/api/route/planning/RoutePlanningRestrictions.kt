@@ -71,7 +71,7 @@ data class PathReplacement private constructor(
     }
 }
 
-/** Immutable restrictions compiled for exactly one published topology root. */
+/** Immutable restrictions using stable rail positions, tagged with their source topology revision. */
 @ConsistentCopyVisibility
 data class RoutePlanningRestrictions private constructor(
     /** Runtime topology revision against which every rail position was compiled. */
@@ -106,9 +106,6 @@ data class RoutePlanningRestrictions private constructor(
             topology: TopologyState,
             contributions: Collection<RoutePlanningRestrictions>
         ): RoutePlanningRestrictions {
-            require(contributions.all { it.topologyRevision == topology.revision }) {
-                "all route-planning restrictions must target topology revision ${topology.revision}"
-            }
             return RoutePlanningRestrictions(
                 topologyRevision = topology.revision,
                 forbiddenTraversals = contributions.flatMap(RoutePlanningRestrictions::forbiddenTraversals),
@@ -124,7 +121,7 @@ data class RoutePlanningRestrictions private constructor(
  * invoked from inside Dijkstra expansion.
  */
 fun interface RoutePlanningRestrictionSource {
-    /** Returns one immutable contribution for exactly [topology]'s revision. */
+    /** Returns a contribution whose actual rail positions and connections are valid in [topology]. */
     fun restrictions(topology: TopologyState): RoutePlanningRestrictions
 }
 

@@ -17,9 +17,7 @@ import work.art1st.javarailways.basic.persistence.SavedWayPointV1
 import work.art1st.javarailways.basic.rail.CurveSafetyMetadata
 import work.art1st.javarailways.basic.rail.RailAuthoringMetadata
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadata
-import work.art1st.javarailways.basic.rail.RailOperatingMetadata
 import work.art1st.javarailways.basic.rail.SpeedLimitMetadata
-import work.art1st.javarailways.basic.rail.TurnoutEndpointMetadata
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.persistence.WorldSnapshotCodec
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -229,7 +227,6 @@ private data class LegacyBasicRailInfrastructureMetadataV1(
 ) {
     fun toCurrent(): RailInfrastructureMetadata = RailInfrastructureMetadata(
         authoring = authoring,
-        operating = RailOperatingMetadata(operating.turnoutAtA, operating.turnoutAtB),
         speedLimits = speedLimits,
         curveSafety = curveSafety
     )
@@ -238,6 +235,6 @@ private data class LegacyBasicRailInfrastructureMetadataV1(
 @Serializable
 private data class LegacyBasicRailOperatingMetadataV1(
     val allowedDirection: ViewDirection? = null,
-    val turnoutAtA: TurnoutEndpointMetadata? = null,
-    val turnoutAtB: TurnoutEndpointMetadata? = null
+    val turnoutAtA: LegacyTurnoutEndpointMetadata? = null,
+    val turnoutAtB: LegacyTurnoutEndpointMetadata? = null
 )

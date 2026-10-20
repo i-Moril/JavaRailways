@@ -7,7 +7,7 @@ import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
  * Test callers construct that orientation directly; this fixture performs no geometry search.
  */
 fun configureTurnoutForTest(stem: CoreRail, branches: List<CoreRail>) {
-    require(branches.size >= 2)
+    require(branches.size == 2)
     require(branches.all { it.world === stem.world })
     IsolatedSimulationThreadMarker.run { stem.world.railTopologyTransaction {
         setNextForTest(stem.viewAB, branches.map(CoreRail::viewAB))
@@ -18,8 +18,5 @@ fun configureTurnoutForTest(stem: CoreRail, branches: List<CoreRail>) {
 }
 
 private fun setNextForTest(view: RailView, next: List<RailView>) {
-    view.activeRail = null
-    view.mutableNextRails.clear()
-    view.mutableNextRails.addAll(next)
-    view.activeRail = next.firstOrNull()
+    view.restoreConnections(next, next.firstOrNull())
 }

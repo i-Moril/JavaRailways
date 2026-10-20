@@ -53,9 +53,7 @@ object VerticalCurveRebuilder {
     @OptIn(Heavy::class)
     fun horizontalLength(curve: PrimeCurve): Double {
         val points = curve.stream().toList()
-        return points.zipWithNext().sumOf { (a, b) ->
-            kotlin.math.hypot(b.position.x() - a.position.x(), b.position.z() - a.position.z())
-        }
+        return RailCurvePartitioner.horizontalStations(points).last()
     }
 
     @OptIn(Heavy::class)
@@ -81,15 +79,7 @@ object VerticalCurveRebuilder {
     private fun rebuildSegment(source: PrimeCurve, profile: VerticalProfileSegment): PrimeCurve {
         val sourcePoints = source.stream().toList()
         require(sourcePoints.size >= 2) { "A source curve needs at least two points" }
-        val horizontalStations = MutableList(sourcePoints.size) { 0.0 }
-        for (index in 1 until sourcePoints.size) {
-            val previous = sourcePoints[index - 1].position
-            val current = sourcePoints[index].position
-            horizontalStations[index] = horizontalStations[index - 1] + kotlin.math.hypot(
-                current.x() - previous.x(),
-                current.z() - previous.z()
-            )
-        }
+        val horizontalStations = RailCurvePartitioner.horizontalStations(sourcePoints)
         val horizontalLength = horizontalStations.last()
         require(horizontalLength > LENGTH_TOLERANCE) { "A vertical profile cannot be applied to a vertical curve" }
         require(abs(horizontalLength - profile.length) <= maxOf(LENGTH_TOLERANCE, profile.length * 1.0e-6)) {
@@ -99,11 +89,6 @@ object VerticalCurveRebuilder {
         val positions = sourcePoints.mapIndexed { index, point ->
             Vector3d(point.position.x(), profile.heightAt(horizontalStations[index]), point.position.z())
         }
-        val cumulativeArc = MutableList(positions.size) { 0.0 }
-        for (index in 1 until positions.size) {
-            cumulativeArc[index] = cumulativeArc[index - 1] + positions[index - 1].distance(positions[index])
-        }
-
         val rebuilt = sourcePoints.mapIndexed { index, sourcePoint ->
             val horizontalDirection = horizontalDirection(sourcePoints, index)
             val grade = profile.gradeAt(horizontalStations[index])
@@ -111,9 +96,9 @@ object VerticalCurveRebuilder {
             val rollDegrees = AnchorGeometry.rollDegreesFromNormal(sourcePoint.tangent, sourcePoint.normal)
             val (_, baseNormal, _) = CurveFrames.computeFrame(tangent)
             val normal = CurveFrames.applyRollRadians(baseNormal, tangent, Math.toRadians(rollDegrees))
-            Curve.RawPoint(positions[index], tangent, normal, cumulativeArc[index])
+            Curve.RawPoint(positions[index], tangent, normal, horizontalStations[index])
         }
-        return PrimeCurve.fromPoints(rebuilt)
+        return PrimeCurve.fromPoints(RailCurvePartitioner.withElevationArc(rebuilt))
     }
 
     private fun horizontalGrade(tangent: org.joml.Vector3dc): Double {

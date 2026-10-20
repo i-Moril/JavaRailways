@@ -19,7 +19,6 @@ class OperatingDirectionOverlay(
     }
 
     fun toRestrictions(topology: TopologyState): RoutePlanningRestrictions? {
-        if (topology.revision != topologyRevision) return null
         val forbidden = ArrayList<DirectedRailSpan>(allowedDirections.size)
         for ((railId, permitted) in allowedDirections.entries.sortedBy { it.key }) {
             val projection = topology.railProjection[railId]?.singleOrNull() ?: return null

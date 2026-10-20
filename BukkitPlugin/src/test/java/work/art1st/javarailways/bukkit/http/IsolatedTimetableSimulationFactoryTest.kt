@@ -44,10 +44,10 @@ import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyMutationResult
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionProvider

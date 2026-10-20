@@ -6,7 +6,8 @@ import java.util.UUID
 
 internal data class TopologyInputRail(
     val id: UUID,
-    val lengthMeters: Double
+    val lengthMeters: Double,
+    val identity: UUID = UUID.randomUUID()
 )
 
 /** Pure input captured from live Core rails before normalization. */

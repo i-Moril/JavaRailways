@@ -62,7 +62,7 @@ internal class RegionRouteWarnings {
 
 internal class RoutePreviewComputation(val path: CurrentRoutePath, val regionState: PreviewRegionState,
     val regionRailIds: Set<UUID>, val drawing: RoutePreviewDrawing,
-    val active: ActiveRailContinuationsSnapshot? = null)
+    val active: ActiveRailContinuationsSnapshot? = null, val topology: TopologyState? = null)
 
 /** Worker-only reads/geometry plus closeable read-only subscriptions; never authoring or admission. */
 internal interface RoutePreviewBackend {
@@ -115,30 +115,35 @@ internal class RuntimeRoutePreviewBackend(private val plugin: Plugin,
         val entryExists = region?.boundaries?.any { it.boundaryId == selection.entry.boundaryId } == true
         val exitExists = region?.boundaries?.any { it.boundaryId == exit.boundaryId } == true
         val active = observations.latest(selection.worldId).orElse(null)?.activeContinuations
+        val publication = selection.runtime.authoringPublication()
+        val observationTopology = listOf(topology, publication.topology).firstOrNull { it.revision == active?.topologyRevision }
+        val compiled = publication.regions.compilationSnapshot()?.regionsById?.get(selection.regionId)
+        val regionRails = compiled?.interior?.map { it.railId }.orEmpty() +
+            region?.boundaries?.map { it.position.railId }.orEmpty()
+        val compiledCurrent = compiled?.definition == region && topology.preservesRails(publication.topology, regionRails)
         val path = if (!entryExists || !exitExists) CurrentRoutePath(selection.entry, exit, emptyList(),
             selection.entry.position, CurrentRouteEnd.UNAVAILABLE, "Selected region or boundary was removed")
         else CurrentRouteTracer.trace(topology, active,
-            checkNotNull(region), selection.entry.boundaryId, exit.boundaryId, !state.unavailable)
-        val compiled = selection.runtime.authoringPublication().regions.compilationSnapshot()
-            ?.regionsById?.get(selection.regionId)
-        val regionRails = compiled?.interior?.map { it.railId }.orEmpty() +
-            region?.boundaries?.map { it.position.railId }.orEmpty()
+            checkNotNull(region), selection.entry.boundaryId, exit.boundaryId, !state.unavailable && compiledCurrent, observationTopology)
         val pathDrawing = RoutePreviewDrawing.prepare(path) { railId ->
             targets.findCurve(selection.worldId, railId).orElse(null)
         }
-        val warnings = if (compiled != null && region != null && !state.unavailable && region.boundaryDraft == null) {
+        val warnings = if (compiled != null && region != null && compiledCurrent && !state.unavailable && region.boundaryDraft == null) {
             val directions = infrastructure.operatingDirections(selection.worldId, topology, compiled.interior.map { it.railId }.toSet())
             selection.warnings.drawing(topology, region, compiled.interior, directions.directions) {
                 targets.findCurve(selection.worldId, it).orElse(null) }
         } else RoutePreviewDrawing(emptyList(), false)
         val drawing = RoutePreviewDrawing(pathDrawing.points + warnings.points, pathDrawing.connected,
             pathDrawing.unavailableGeometry + warnings.unavailableGeometry)
-        return RoutePreviewComputation(path, state, java.util.Set.copyOf(regionRails), drawing, active)
+        return RoutePreviewComputation(path, state, java.util.Set.copyOf(regionRails), drawing, active, topology)
     }
 
     override fun current(selection: RoutePreviewSelection, computation: RoutePreviewComputation): Boolean {
         if (selection.runtime.closed || runtimeForWorld(selection.worldId) !== selection.runtime) return false
         if (selection.runtime.previewRegionState(selection.regionId) != computation.regionState) return false
+        val capturedTopology = computation.topology ?: return false
+        if (!infrastructure.currentTopology(selection.worldId).preservesRails(capturedTopology,
+                computation.path.railIds + computation.regionRailIds)) return false
         val active = observations.latest(selection.worldId).orElse(null)?.activeContinuations
         return computation.path.watchedContinuations.all { (port, expected) -> active?.selectedContinuation(port) == expected }
     }

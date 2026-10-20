@@ -8,7 +8,8 @@ import java.util.UUID
 /** One physical rail accepted by [buildTestTopology]. */
 data class TestTopologyRail(
     val id: UUID,
-    val lengthMeters: Double
+    val lengthMeters: Double,
+    val identity: UUID = UUID.randomUUID()
 )
 
 /**
@@ -27,7 +28,7 @@ fun buildTestTopology(
     TopologyInput(
         revision = revision,
         rails = rails.map { rail ->
-            TopologyInputRail(rail.id, rail.lengthMeters)
+            TopologyInputRail(rail.id, rail.lengthMeters, rail.identity)
         },
         continuations = continuations,
         atGradeCrossings = atGradeCrossings

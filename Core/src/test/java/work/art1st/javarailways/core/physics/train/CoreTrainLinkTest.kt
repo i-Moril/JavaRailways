@@ -102,7 +102,8 @@ class CoreTrainLinkTest {
             }
             if (outcome != "success") {
                 val failure = assertThrows(ExecutionException::class.java) { result.get(5, TimeUnit.SECONDS) }
-                assertTrue(failure.cause is IllegalStateException)
+                if (outcome == "veto") assertTrue(failure.cause is CouplingRejectedException)
+                else assertTrue(failure.cause is IllegalStateException)
                 if (outcome == "prepare failure") assertSame(preparationFailure, failure.cause)
                 assertEquals(if (outcome == "veto") 0 else 1, preparationCalls)
                 assertEquals(0, successCalls)

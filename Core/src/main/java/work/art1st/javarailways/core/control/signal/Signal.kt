@@ -18,7 +18,7 @@ import work.art1st.javarailways.core.physics.rail.RailLocationWithoutFacing
 abstract class Signal(
     final override val ref: RailObjectRef,
     override val location: RailLocationWithoutFacing
-) : Renderable, RailObject {
+) : Renderable, RailObject, work.art1st.javarailways.core.api.util.Destroyable {
     abstract override val lifecycleState: RailObjectLifecycleState
 
     /** Allows one physical signal collection to expose direction-specific runtime signals. */

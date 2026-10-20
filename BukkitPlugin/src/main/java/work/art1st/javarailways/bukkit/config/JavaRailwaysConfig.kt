@@ -85,7 +85,8 @@ data class JavaRailwaysConfig(
     val displayRenderer: DisplayRendererConfig,
     val timetableHttpBridge: TimetableHttpBridgeConfig,
     val timetableWebUi: TimetableWebUiConfig,
-    val atoSafetyDistanceMeters: Double = 5.0
+    val atoSafetyDistanceMeters: Double = 5.0,
+    val atoAdmissionRetryTicks: Int = 5
 ) {
     companion object {
         fun load(plugin: BukkitPlugin): JavaRailwaysConfig {
@@ -118,6 +119,12 @@ data class JavaRailwaysConfig(
             require(atoSafetyDistance.isFinite() && atoSafetyDistance >= 0.0) {
                 "ato.safety-distance-meters must be finite and >= 0.0"
             }
+            val atoAdmissionRetryTicks = if (yaml.contains("ato.admission-retry-ticks", true)) {
+                requireInt(yaml, "ato.admission-retry-ticks")
+            } else {
+                5
+            }
+            require(atoAdmissionRetryTicks > 0) { "ato.admission-retry-ticks must be > 0" }
             val displayRendererBackend = DisplayRendererBackend.fromConfig(
                 requireString(yaml, "display-renderer.backend")
             )
@@ -191,6 +198,7 @@ data class JavaRailwaysConfig(
                     timeoutMillis = bridgeTimeoutMillis
                 ),
                 atoSafetyDistanceMeters = atoSafetyDistance,
+                atoAdmissionRetryTicks = atoAdmissionRetryTicks,
                 timetableWebUi = TimetableWebUiConfig(
                     mode = webUiMode,
                     bindAddress = webUiBindAddress,

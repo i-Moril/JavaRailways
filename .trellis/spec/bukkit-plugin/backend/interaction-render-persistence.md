@@ -18,7 +18,7 @@ BukkitPlugin公开`bukkit.api.wand.WandModeSwitch.handle(PlayerSwapHandItemsEven
 
 该处理为常数次调用，无轮询、全服扫描或额外任务。使用者必须复用原设置页的状态更新入口，而非只改临时显示。只读主手身份后直接执行回调，不使用事件中已交换语义的mainHandItem字段反推当前工具。无持久化字段/格式或版本变化；验证仅需真实swap事件的单次取消/路由回归及消费者模式和旧接续失效检查，不因这个小改动重复跑整模块套件。实际客户端按键效果另验。
 - RailWand结构替换先从immutable `TopologyState`捕获exact source-rail replacement plan，再申请world-local edit permit。
-  Plan绑定同一root及最终影响中的既有rail实例；permit必须跨Core transaction、Basic metadata、render sidecar persistence
+  Plan绑定实际依赖的rail实例及连接；无关root更新不使其失效；permit必须跨Core transaction、Basic metadata、render sidecar persistence
   与undo record写入持有。Split/merge/delete各用一个外层Core transaction覆盖结构mutation、Basic metadata、render sidecar、
   玩家state persistence与undo写入；RailWand在该transaction内安装prepared rails并应用exact connection plan，不再调用并行的
   `RailTopologyEditor` split/merge mutation。结构变更后的任一异常仍由同一Core transaction触发fail-close。
@@ -27,11 +27,10 @@ BukkitPlugin公开`bukkit.api.wand.WandModeSwitch.handle(PlayerSwapHandItemsEven
   批内相邻段；rebuild用旧到新endpoint映射保留已有连接。任何路径都不得按距离搜索附近endpoint或推断turnout stem/branch。
   Basic仅转换计划公布的exact existing endpoint/crossing identity，禁止用附近rail候选或整图扫描扩大impact。whole-world
   snapshot undo由Bukkit在async worker从exact prepared base/target rail值、render sidecar cache及Basic/SimpleATO immutable store
-  snapshot一次性构造完整`before`/`expectedAfter`和对应delta；回到player owner后必须验证world instance、exact topology root，以及
+  snapshot一次性构造完整`before`/`expectedAfter`和对应delta；回到player owner后必须验证world instance、实际依赖的rail生命周期身份及
   ordered physical connections没有变化。`SavedRailV1.activeTrackAtA/B`是transient运行选择，不进入structural undo的记录或相等性；
   undo应用时保留target结构中仍有效的当前选择，否则退回target首条connection或null。
-  不为写入undo record重新遍历rail、metadata、render或运营对象。主动undo仍在owner上比较完整current snapshot，随后才把Core restore plan
-  交给worker准备，并在应用前再次进行完整一致性检查；在非拓扑store具备统一revision以前，不能把这项检查降级为只比较topology root。permit持有到
+  不为写入undo record重新遍历rail、metadata、render或运营对象。主动undo仅比较该action的before/expectedAfter差异条目，将逆向delta合并到当前snapshot，再准备Core restore plan；应用前重验相同差异，保留无关rail、metadata、render及运营对象变化。permit持有到
   outer Core transaction、metadata/render、player state persistence与显示刷新全部完成。MultiAction以CompletionStage逆序串行，
   不在Bukkit owner线程阻塞等待。snapshot plan统一执行准确occupancy验证；Dispatcher已经只使用common registry中的
   route claim，因此编辑器不再读取一份私有route-allocation状态。
@@ -51,7 +50,7 @@ worker在exact edit permit内捕获旧render records并构造完整目标records
 #### 3. Internal Mechanisms & Key Algorithms
 
 - 每个world UUID对应一个writer slot；只有worker可等待该slot，physics/player owner不等待。
-- 取得slot后重新读取current records，并与undo捕获的完整旧集合比较；不相等即stale，防止后到的整文件目标覆盖先到编辑。
+- 取得slot后重新读取current records，仅校验本次before/after差异涉及的rail；将delta合并到current后编码，保留先提交的无关编辑。相关rail记录变化才拒绝。
 - staging和rollback与primary位于同目录；publish/rollback使用atomic move，文件系统不支持时只对move使用replace fallback。
 - primary身份是`exists + lastModified + length`；它负责检测插件外或旧同步writer在prepare与publish之间的普通变化。插件内部并发还由writer slot和record equality保护。
 
@@ -223,3 +222,5 @@ SNAPSHOT reload只发布资源目录，不刷新正常实例。已加载但运�
 `snapshot`返回不可修改副本，Issue包含WORLD、TRAIN、PROTECTION_REGION、BLOCK、SIGNAL对象类型；无法解码对象身份的世界安装错误使用WORLD。
 该列表不持久化、不保留历史，不改变铁路运行状态；生产者负责成功恢复/删除时解除，世界卸载清空世界，附属停用清空自己的source。
 游戏管理员通过`/jr issues [世界] [编号]`读取，玩家可点击列表打开原生详情并复制诊断，控制台必须指定世界。
+
+CoreWorld拥有唯一infrastructureCoordination；宿主仅注册领域resource validator。InfrastructureEditPermit.execute在同步修改期间认证并固定许可，跨线程准备仍由原permit生命周期保护。卸载世界最后关闭Core registry，宿主service不独立创建或提前关闭第二个registry。

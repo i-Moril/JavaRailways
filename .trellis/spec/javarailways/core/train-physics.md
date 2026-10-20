@@ -46,7 +46,7 @@ collision-only候选在claim、事件和冻结之前必须通过物理检查：�
 
 局部`CollisionPath`将该移动frame的`tailTraversal + bodyTraversal`与已捕获的车钩短桥接成有限路径，只合并相邻、同view且连续的片段；重复rail occurrence保序，位置对应多个不同occurrence时明确拒绝，不猜第一个。跨rail只验证既有连接，不读取active selection。逐车按本车当前物理前端及已有轨道间距作预测，复用`prepareFollowingCarOnPath`满足三维轴距与车钩约束；两端、车体及连接间隙只在捕获路径上裁剪。修正后的head必须在同frame的`headTraversal`内，不能撤回记录之前的步进。例如车钩在更早tick已接触、但检测直到本tick才触发时，若记录已不足就拒绝；不加历史或扩大5mm最终容差来吸附。
 
-coordinator仅在对应world frame的epoch及两份train frame引用一致时捕获该world frame的`topologyRevision`，否则联结缺少证明而拒绝；默认DERAIL仍可执行。结构作用域进入及插件准备后的第一写入前均核对该revision，拒绝把旧路径弧长投到编辑后的轨道。普通道岔选择变化不改变structural revision，因此仍可复用记录路径。`CoreCar.prepareStationaryFrame`与`CoreBogie.prepareStationaryFrameAt`只生成自身候选value；提交先安装修正几何，再按修正后的bogie坐标应用已准备的运营反向，不能用旧反向坐标覆盖新位置。控制器或extension准备失败时原几何、归属、frame与索引不变，再由同一帧间操作消费结果并回退脱轨。成功通知晚于完整结构和[共享碰撞索引安装](./rail-topology-and-occupancy.md#联结后的共享索引更新current)。
+coordinator仅在对应world frame的epoch及两份train frame引用一致时捕获该world frame的`topologyRevision`，否则联结缺少证明而拒绝；默认DERAIL仍可执行。捕获envelope同时保存其有限路径所用rail确切对象、必要有向连接及car身份/朝向；结构作用域进入、决策回调后及插件准备后的第一写入前均核对实际依赖。仅world topology revision变化不拒绝联结：远处编辑允许继续，相关对象/连接/编组变化以局部联结拒绝处理；缺失同帧证明仍是核心不变量错误。普通道岔选择变化不改变structural revision，因此仍可复用记录路径。`CoreCar.prepareStationaryFrame`与`CoreBogie.prepareStationaryFrameAt`只生成自身候选value；提交先安装修正几何，再按修正后的bogie坐标应用已准备的运营反向，不能用旧反向坐标覆盖新位置。控制器或extension准备失败时原几何、归属、frame与索引不变，再由同一帧间操作消费结果并回退脱轨。成功通知晚于完整结构和[共享碰撞索引安装](./rail-topology-and-occupancy.md#联结后的共享索引更新current)。
 
 全编组修正成本只发生于联结尝试：路径整理、定位与裁剪为有限相关片段上的顺序操作，逐车仍承担原嵌套距离求解成本，不承诺O(1)；没有每tick全编组预测。共享索引另有一次低频全世界span/bucket准备成本。无新增持久化字段、版本、路径历史或索引实现。回归通过真实coordinator推进、prepass LINK和main提交验证四端×两种主编组、非零车钩越界、静止方不动、完整frame/live向量、R30曲线与坡道，以及stale/双方运动/准备失败的拒绝及后续障碍检测；另有真实未选多支路道岔碰撞候选回归。完整自动化门禁及现场验收状态以任务记录为准。
 
@@ -129,11 +129,11 @@ motion-only epoch翻转未写入的geometry槽；两类状态仍在同一个epoc
 
 ### 碰撞查询时点（CURRENT）
 
-正常epoch先应用此前碰撞决定、捕获controller列表，然后在启动任何worker前，以AsyncTick线程上下文按该列表查询上一完整epoch的共享碰撞索引。参与双方先加入既有pending集合，后续worker跳过其controller tick并冻结物理运动。原`moveTrainForwardFromController`不重复查询；这不是预测本tick位移，也不新增移动意图、任务或等待屏障。每个controller至多一次既有局部索引查询，不扫描全世界列车。查询从worker移到coordinator串行执行，自定义不调用move的controller也先检测既有碰撞；不承诺查询总数或墙钟成本完全不变，实际开销尚未profiling。
+正常epoch先捕获controller列表，然后在启动任何worker前，以AsyncTick线程上下文按该列表查询上一完整epoch的共享碰撞索引。参与双方先加入既有pending集合，后续worker跳过其controller tick并冻结物理运动。原`moveTrainForwardFromController`不重复查询；这不是预测本tick位移，也不新增移动意图、任务或等待屏障。每个controller至多一次既有局部索引查询，不扫描全世界列车。查询从worker移到coordinator串行执行，自定义不调用move的controller也先检测既有碰撞；不承诺查询总数或墙钟成本完全不变，实际开销尚未profiling。
 
-检测先检查发起查询列车的内部active脱轨状态。此前决定可能已在本epoch标记脱轨，但published frame仍是旧值；只读published状态会在这段窗口重复派发碰撞。该检查迁移原移动入口最前面的脱轨拒绝语义，内部查询不成为公开API。不能因为查询命中的另一列车已经脱轨就忽略它：它仍是物理障碍，正常列车撞上它仍须冻结/处理；在首个候选返回后直接忽略它还会遮蔽后续候选。事件仍在physics上下文同步派发；主线程结构处理和下一epoch决定语义不变。冻结不执行controller tick，因此不提前消耗其命令或新增该tick的ATO里程，但不会撤销上一碰撞步进已发布的经过事件和里程。
+检测先检查发起查询列车的内部active脱轨状态。该检查避免对已脱轨发起方重复派发碰撞。该检查迁移原移动入口最前面的脱轨拒绝语义，内部查询不成为公开API。不能因为查询命中的另一列车已经脱轨就忽略它：它仍是物理障碍，正常列车撞上它仍须冻结/处理；在首个候选返回后直接忽略它还会遮蔽后续候选。事件仍在physics上下文同步派发；决定由本epoch完成后的紧接owner边界处理。冻结不执行controller tick，因此不提前消耗其命令或新增该tick的ATO里程，但不会撤销上一碰撞步进已发布的经过事件和里程。
 
-预扫耗时计入总`wallNanos`，但不在现有`coordinatorNanos`的worker等待后计时窗口内；不能用该局部指标声称覆盖新增串行阶段。`PhysicsCoordinatorTest`以两列重叠、均有可移动controller的真实epoch断言两个tick调用均为0、双方head/tail不变；既有下一epoch脱轨及每pair一次事件仍须通过。并行worker测试的列车必须分开放置，否则被正确冻结不能作为并行性能fixture。此调整只闭合观察帧与worker启动之间的竞态，不代表车钩检测或联结重算已经完成。
+预扫耗时计入总`wallNanos`，但不在现有`coordinatorNanos`的worker等待后计时窗口内；不能用该局部指标声称覆盖新增串行阶段。`PhysicsCoordinatorTest`以两列重叠、均有可移动controller的真实epoch断言两个tick调用均为0、双方head/tail不变；本epoch后紧接owner脱轨及每pair一次事件仍须通过。并行worker测试的列车必须分开放置，否则被正确冻结不能作为并行性能fixture。此调整只闭合观察帧与worker启动之间的竞态，不代表车钩检测或联结重算已经完成。
 
 运动失败的脱轨原因保留异常类型与消息，并附列车ID和本次请求距离（米）；它沿原有frame→Main事件链发布，不因诊断改动而重试或改变失败分类。
 `BogieException(Bogie)`在构造时复制转向架已发布位置的rail ID、facing与弧长为字符串，不持有live bogie；该位置不是失败时的active位置，不能用来声称精确故障坐标。比如请求100 m越过线路尽头时，诊断同时说明请求距离和此前已发布位置，而不是只留下异常类名。正常移动不构造这些诊断。
@@ -247,8 +247,8 @@ CoreCar 拥有车内和车间几何求解。正常运行时 controller 先移动
 
 | 触发 | 当前epoch结果 | 后续结果/side effect |
 | --- | --- | --- |
-| swept overlap首次claim | pair冻结，发布一次`CollisionEvent` | 下一epoch应用`DERAIL/LINK` |
-| listener `requestLink()` | pending resolution=`LINK` | 下一epoch owner执行link transaction |
+| swept overlap首次claim | pair冻结，发布一次`CollisionEvent` | 本epoch后紧接owner边界应用`DERAIL/LINK` |
+| listener `requestLink()` | pending resolution=`LINK` | 本epoch后紧接owner执行link transaction |
 | worker physics failure | active derail pending | epoch frame flip后queue main derail reason |
 | external `derail(reason)` / `derailAsync(reason)` | 完整帧间操作，reason非blank、确切live train | 共享train/world/occupancy发布后Main event，仅一次 |
 | controller reverse奇数request | 在帧间owner执行方向准备/安装 | 完整快照及Main事件后完成Future，下一epoch正常movement |
@@ -363,3 +363,11 @@ train.destroy().whenComplete { _, failure -> /* 将真实结果回送平台owner
 ```bash
 ./gradlew :Core:test --tests 'work.art1st.javarailways.core.physics.train.*' --tests '*PhysicsCoordinatorTest'
 ```
+
+## 创建与清理所有权（2026-10-20）
+
+`Car`及通用`Renderable`不公开`Destroyable`；车厢资源仅由Core内部随整列生命周期回收。`CoreTrain.create`只接管未属于其他列车的新车厢，构造失败内部回收；联结/解编的借用与移交仍使用内部constructor，失败不得销毁源编组。平台与持久化创建通过`CoreTrain.createOwned`/`TrainCreation`在Core拥有的创建作用域直接按参数构造新bogie、car和train，不接受返回任意现有对象的lambda。car只能使用本作用域尚未装配的bogie，train必须使用本作用域全部新car且不得带入已归属car；只允许构造一列。成功返回必须先publish，返回或失败后关闭作用域，禁止逃逸scope继续构造；独立SavedCar加载通过内部完成出口移交新car。初始化失败由作用域统一清理；已halt的部分publication保留诊断状态及真实占用。公开销毁stage只提供内部完成源的观察视图，调用方取消或完成自己的future不得改变真实清理终态。
+
+移动入口`deltaS`必须finite且非负，公开location正负位移和peek距离必须finite；不能让Infinity进入闭环遍历。
+
+碰撞prepass在本epoch冻结双方后，该epoch发布完成前即将决策排入owner队列；紧接完成ticket的帧间处理执行LINK或DERAIL，不额外等待下一物理epoch。pending冻结标记保留到owner操作结束，未知准备/发布错误仍halt。CollisionEnvelope中的内部身份引用不对外暴露为可写快照，不建立第二套world索引。

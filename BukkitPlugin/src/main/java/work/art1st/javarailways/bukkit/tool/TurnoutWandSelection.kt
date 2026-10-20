@@ -19,10 +19,12 @@ internal fun turnoutTargetValidity(
     expectedTopology: TopologyState,
     activeState: TurnoutWandState?,
     worldId: UUID,
-    topology: TopologyState?
+    topology: TopologyState?,
+    targetRailId: UUID? = null
 ): TurnoutWandTargetValidity = when {
     activeState !== state || state.querySequence != sequence -> TurnoutWandTargetValidity.CANCELLED
-    worldId != expectedWorldId || topology !== expectedTopology -> TurnoutWandTargetValidity.STALE
+    worldId != expectedWorldId || topology == null ||
+        (targetRailId != null && !topology.preservesRails(expectedTopology, setOf(targetRailId))) -> TurnoutWandTargetValidity.STALE
     else -> TurnoutWandTargetValidity.CURRENT
 }
 
@@ -33,7 +35,7 @@ internal data class TurnoutWandSelection(
     val fromPort: RailEndpointRef
 ) {
     fun isCurrent(worldId: UUID, topology: TopologyState): Boolean =
-        this.worldId == worldId && this.topology === topology
+        this.worldId == worldId && topology.preservesRails(this.topology, setOf(fromPort.railId))
 
     fun request(worldId: UUID, topology: TopologyState, toPort: RailEndpointRef): ManualTurnoutSelectionRequest? {
         if (!isCurrent(worldId, topology)) return null
@@ -59,7 +61,7 @@ internal data class TurnoutWandConnection(val toPort: RailEndpointRef, val recip
 
 /** Read on the simulation owner after selection completes, rather than predicting the request's result. */
 internal fun currentTurnoutConnection(world: World, selection: TurnoutWandSelection): TurnoutWandConnection? {
-    if (world.topologyState !== selection.topology) return null
+    if (!selection.isCurrent(selection.worldId, world.topologyState)) return null
     fun continuation(port: RailEndpointRef): RailEndpointRef? {
         val arriving = world.getRail(port.railId)?.getView(
             if (port.endpoint == RailEndpoint.A) ViewDirection.BA else ViewDirection.AB

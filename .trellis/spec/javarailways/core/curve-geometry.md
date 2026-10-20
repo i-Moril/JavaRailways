@@ -44,7 +44,7 @@ canonical AB arc length s
 
 ### 3.3 几何最近点
 
-`PrimeCurveImpl.getNearestPoint(position)`直接扫描存储的相邻piecewise-linear线段，不在`stream()`虚拟采样点中取最近点。每段计算投影比例`clamp(dot(query-start, end-start) / |end-start|², 0, 1)`，比较投影距离平方；几何零长度段按start处理，不除以零。只在距离更小时替换candidate，因此等距结果保留canonical AB顺序的第一项。最后把比例换算为该段弧长，调用一次既有`getPointAt(s)`，保持position/frame/curve身份与普通弧长查询一致。
+`PrimeCurveImpl.getNearestPoint(position)`在扫描前拒绝任一坐标非finite的查询，不让NaN距离比较退回首点。合法输入直接扫描存储的相邻piecewise-linear线段，不在`stream()`虚拟采样点中取最近点。每段计算投影比例`clamp(dot(query-start, end-start) / |end-start|², 0, 1)`，比较投影距离平方；几何零长度段按start处理，不除以零。只在距离更小时替换candidate，因此等距结果保留canonical AB顺序的第一项。最后把比例换算为该段弧长，调用一次既有`getPointAt(s)`，保持position/frame/curve身份与普通弧长查询一致。
 
 `ReversedCurve`委托original求同一几何最近点，再以`total-s`取得反向view point；不能重新按反向虚拟采样量化。按position精确定位仍使用最近点与`Curve.TOLERANCE`判断接受/拒绝，`CurveException`保留诊断message，不隐藏失败原因。
 

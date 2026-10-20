@@ -10,7 +10,7 @@ ATO 规划输入使用的不可变 Route 与 Perception 快照。集合在构造
 
 自动/手动控制共用的控制需求、车辆 Actuator 和坡度感知制动包络。它们不选择 mission、ATO安全参数或信号策略。
 
-# Package work.art1st.javarailways.basic.api.ato.provider
+# Package work.art1st.javarailways.basic.api.rail
 
 world-local 通用 RailObject、双索引 store 与 lifecycle 契约；不包含已删除的 ATO Provider/Boundary 切换机制。
 

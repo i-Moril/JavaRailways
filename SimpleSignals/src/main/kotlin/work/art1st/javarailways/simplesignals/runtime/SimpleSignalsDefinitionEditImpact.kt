@@ -1,7 +1,7 @@
 package work.art1st.javarailways.simplesignals.runtime
 
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditImpact
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.simplesignals.block.FIXED_BLOCK_RESOURCE_TYPE
 import work.art1st.javarailways.simplesignals.persistence.SimpleSignalsWorldDefinitions
@@ -13,7 +13,8 @@ import kotlin.math.abs
 /** Worker-only impact of authored changes and their compiled policy consumers in both snapshots. */
 internal object SimpleSignalsDefinitionEditImpact {
     fun impact(
-        previous: SimpleSignalsRuntimePublication?, candidate: SimpleSignalsRuntimePublication
+        previous: SimpleSignalsRuntimePublication?, candidate: SimpleSignalsRuntimePublication,
+        includeTopologyChanges: Boolean = true
     ): TopologyEditImpact? {
         val old = previous?.definitions ?: SimpleSignalsWorldDefinitions.empty(candidate.definitions.worldId)
         val next = candidate.definitions
@@ -31,7 +32,7 @@ internal object SimpleSignalsDefinitionEditImpact {
             changed(old.protectionSignals, next.protectionSignals) { it.signalId }).toMutableSet()
         val indicators = changed(old.routeIndicators, next.routeIndicators) { it.indicatorId }
         val attached = changed(old.attachedSignals, next.attachedSignals) { it.signalId }
-        if (previous != null && previous.topology !== candidate.topology) {
+        if (includeTopologyChanges && previous != null && previous.topology !== candidate.topology) {
             // Compare disposable compiled values, excluding revision-local IDs and callback identity.
             // An unrelated topology publication alone must not make all definitions edited.
             val oldRegions = checkNotNull(previous.regions.compilationSnapshot()).regionsById

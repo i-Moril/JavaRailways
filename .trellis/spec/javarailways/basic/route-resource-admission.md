@@ -4,7 +4,7 @@
 
 - **Status**：`CURRENT`。Basic 中的旧保护区域、单窗口 request/claim/validator 已删除；本页是唯一通用路线资源准入合同。
 - **Implementation progress**：内部 `PhysicalRouteResourceCompiler` 从投影后的冻结路线和显式路线范围推导完整物理底线及准备、占用检查、释放元数据；`CompiledRouteAdmission.withContributions` 合并经过资源所有者校验的附加项。`RouteResourceAdmissionEngine`把首次申请及同冻结路线后续申请的校验、delta claim、设备准备、grant更新和车尾释放串成Basic内部流程，并由集成测试覆盖。Bukkit生产composition用`RouteResourceAdmissionRuntime`把它绑定到每世界唯一registry、Core topology、认证contributor/provider和同epoch observation tail-release输入；同一准备批次可驱动即时道岔及provider注册的异步资源handler，全部`READY`前不发布grant。外部插件从`InfrastructureResourceService`取得绑定插件身份和确切world runtime的`RouteResourceAdmissionService`；production Dispatcher使用该service提交自动和`MANUAL_ROUTED`路线，并把committed grant编译为控制器限制。
-- **Owner**：Basic 拥有通用资源注册、冻结路线验证、不可省略的物理资源推导、原子 claim、设备准备、grant 生命周期与车尾释放。
+- **Owner**：Core 拥有每世界唯一的资源 registry、稳定资源身份契约及 claim/编辑许可的原子仲裁。Basic 拥有冻结路线验证、不可省略的物理资源编译、设备准备、grant 生命周期与车尾释放，并驱动 Core registry 完成资源申请和释放；宿主负责认证 provider/contributor 的注册与生命周期。
 - **Caller**：SimpleATO只提供冻结路线、列车/观察身份和目标authority；它不提交、解释或枚举具体信号资源。
   Bukkit宿主在同一次准入内调用已认证的route-resource contributor，由信号插件根据通用路线上下文产生附加资源。
 - **Non-goals**：Basic 不定义保护区域、固定闭塞、信号显示、联锁表、侧面防护规则、最远瞭望策略或国家信号制式。
@@ -21,7 +21,7 @@ SimpleATO submits one frozen route and desired authority boundary
   -> Basic validates route/topology/observation coherence
   -> Basic derives the non-removable physical resource floor from the route
   -> Basic validates and unions contributor results with that floor
-  -> Basic checks authoritative occupancy and atomically claims the union
+  -> Basic checks authoritative occupancy and requests an atomic union claim from the Core world registry
   -> registered resource handlers prepare the claimed resources
   -> Basic retains one frozen-route state with a tail cursor and nullable committed grant
   -> READY publishes or grows that grant; denial publishes no wider authority
@@ -256,8 +256,8 @@ train/world、callback、JVM class name或serialized JSON。它**不是持久化
 
 Resource registration是namespaced、world-local并绑定认证platform owner。registration定义stable identity、
 authenticated contributor与preparation descriptor validation、可选preparation handler和lifecycle ownership；
-它不允许直接修改Basic registry。contributor不必拥有resource type：例如SimpleSignals可以贡献Basic拥有的侧面防护
-道岔，但Basic的turnout registration必须按contributor身份、resource identity与descriptor明确接受，否则返回
+它不允许直接修改Core世界资源registry。contributor不必拥有resource type：例如SimpleSignals可以贡献侧面防护
+所需的Core物理道岔资源，但Basic准入使用的turnout registration必须按contributor身份、resource identity与descriptor明确接受，否则返回
 `INVALID_CONTRIBUTION`或`INVALID_PREPARATION`。
 
 当前Bukkit适配器复用已有的唯一`typeId → provider`注册表，不另外建立进路资源catalog。注册表跨world保存

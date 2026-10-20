@@ -92,9 +92,9 @@ class WorldTickRunnerTest {
                         signalRestrictionSnapshots = domain.signalRestrictions,
                         inspectionRuntime = domain.inspectionRuntime,
                         infrastructureDependencyService = object : work.art1st.javarailways.simpleato.timetable.InfrastructureDependencyService {
-                            override fun set(request: work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest): Nothing =
+                            override fun set(request: work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest): Nothing =
                                 error("idle dispatcher must not set timetable dependencies")
-                            override fun remove(owner: work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner): Nothing =
+                            override fun remove(owner: work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner): Nothing =
                                 error("idle dispatcher must not remove timetable dependencies")
                         })
                 })

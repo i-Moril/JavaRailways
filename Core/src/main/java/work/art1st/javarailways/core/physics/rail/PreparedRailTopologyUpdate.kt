@@ -12,11 +12,9 @@ import java.util.LinkedHashSet
 import java.util.UUID
 
 /**
- * Immutable normalized topology prepared away from the world owner thread for one exact live root.
- *
- * This is process-local commit data, not a persisted format or a second topology model. The final
- * transaction validates only the declared delta and publishes [targetRoot]; it never rebuilds the
- * complete graph.
+ * Prepared local edit and its immutable preview/undo values.
+ * Commit validates the declared objects and applies the delta to current state; targetRoot is
+ * never installed as the live world root, so independent edits cannot overwrite each other.
  */
 class PreparedRailTopologyUpdate internal constructor(
     @get:JvmSynthetic internal val ownerWorld: CoreWorld,
@@ -34,7 +32,7 @@ class PreparedRailTopologyUpdate internal constructor(
     expectedConnections: Map<RailEndpointRef, Set<RailEndpointRef>>,
     expectedCrossings: Map<AtGradeRailCrossingIndex.RailPair, AtGradeRailCrossing?>
 ) {
-    /** Fully prepared invalidation value; publishing it performs no graph or geometry work. */
+    /** Preview invalidation only; live publication derives its change from the actual committed state. */
     val topologyChange: RailTopologyChange? = if (targetRoot === baseRoot) null else RailTopologyChange(
         baseRoot, targetRoot, linkedSetOf<UUID>().apply {
             addAll(removedRailIds)

@@ -87,10 +87,6 @@ class PhysicsConfigTest {
         set("overspeed.derail-lateral-acceleration-mps2", 3.0)
         set("overspeed.tolerance-kmh", 5.0)
         set("overspeed.grace-ticks", 5)
-        set("turnout.default-protection-distance-meters", 20.0)
-        set("turnout.default-locking-distance-meters", 5.0)
-        set("turnout.decision-lead-ticks", 5)
-        set("turnout.allocation-retry-ticks", 5)
     }
 
     companion object {

@@ -198,3 +198,7 @@ git diff --check
 错误：把菱形交叉、站台、信号、闭塞边界全部做成永久结构节点
 正确：结构图只保留改变连通选择的道岔、尽头和环锚点；菱形交叉及运营对象由外部owner引用rail/edge interval
 ```
+
+## 局部有效性与编辑提交
+
+`TopologyState.railIdentities` 保存每个 CoreRail 生命周期的 opaque UUID；同一实例跨快照保留，持久化同 UUID 的替换实例必须不同。`preservesRails(previous, ids)` 仅比较实际涉及 rail 的 incarnation、端点关系和平交；不得用 length 或 revision 相等替代 identity。revision 继续标识 snapshot 与 node/edge ID，变化只要求重新解析局部引用，不能直接拒绝请求。编辑只应用 delta，旧 prepared targetRoot 仅供准备/undo 描述，不再直接替换 live snapshot。

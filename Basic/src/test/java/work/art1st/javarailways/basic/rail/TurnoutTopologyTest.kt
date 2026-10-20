@@ -6,8 +6,6 @@ import work.art1st.javarailways.core.physics.createRailForTest
 
 import org.joml.Vector3d
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.testing.TestBasicWorldDataRegistry
@@ -37,33 +35,6 @@ class TurnoutTopologyTest {
         }
         fixtures.clear()
         firstFailure?.let { throw it }
-    }
-
-    @Test
-    fun `split rejects a short replacement leg next to an existing turnout`() {
-        val (stem, _, _) = turnout()
-
-        assertNotNull(TurnoutTopology.splitLockingClearanceError(stem, 8.0, 5.0))
-        assertNull(TurnoutTopology.splitLockingClearanceError(stem, 5.0, 5.0))
-    }
-
-    @Test
-    fun `ordinary two-leg node does not impose turnout locking clearance`() {
-        val world = newTestWorld().also { TestBasicWorldDataRegistry.getOrCreate(it) }
-        val first = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
-        val second = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
-        IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
-
-        assertNull(TurnoutTopology.splitLockingClearanceError(first, 9.5, 5.0))
-    }
-
-    @Test
-    fun `every turnout leg is recognized regardless of stem direction`() {
-        val (stem, straight, branch) = turnout()
-
-        assertNotNull(TurnoutTopology.splitLockingClearanceError(stem, 8.0, 5.0))
-        assertNotNull(TurnoutTopology.splitLockingClearanceError(straight, 2.0, 5.0))
-        assertNotNull(TurnoutTopology.splitLockingClearanceError(branch, 2.0, 5.0))
     }
 
     @Test

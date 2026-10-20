@@ -393,7 +393,7 @@ SimpleATO在无插件addition时直接构造Basic冻结的`RouteResourceIntent`�
 观察输入交给插件的准入协调器，由插件构造并认证提交intent。两者都不再定义平行的`AutomaticRouteIntent`或
 `FrozenOperationalRoute`。`observationStamp.physicsEpoch`必须与选路所读列车状态一致；
 `route.topologyRevision`记录路线生成时的拓扑，request不复制第二个expected revision，也不把它当作当前运行有效期。SimpleATO只消费
-`Granted/Pending/Rejected`及其immutable snapshot/handle，不读取或修改Basic内部registry。SimpleATO不得用自己
+`Granted/Pending/Rejected`及其immutable snapshot/handle，不直接读取或修改Core世界资源registry。SimpleATO不得用自己
 的身份提交另一插件产生的addition。
 
 运营 overlay 引用优先保存 stable rail UUID + canonical AB interval 或独立 stable operational ID；revision-local node/edge ID 只可作为已解析 runtime reference，不能默认作为跨重启身份。

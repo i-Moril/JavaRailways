@@ -11,6 +11,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.simplesignals.testing.fixedBlockPolicy
 
 import org.bukkit.plugin.Plugin
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertInstanceOf
@@ -23,28 +24,28 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import work.art1st.javarailways.basic.route.OperationalRouteLocation
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencies
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureFootprint
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionState
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
 import work.art1st.javarailways.basic.api.route.RouteBoundary
-import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
-import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditBlocker
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditBlockerKind
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditDecision
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditOverlap
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditBlocker
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditBlockerKind
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditDecision
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditOverlap
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.route.TopologyRoutePlanner
 import work.art1st.javarailways.basic.route.TopologyRoutePlanningInput
 import work.art1st.javarailways.basic.route.TopologyRoutePlanningResult
@@ -3317,9 +3318,9 @@ class SimpleSignalsWorldRuntimeManagerTest {
     @Test
     fun `blocker command diagnostics include original kind owner revision and overlap`() {
         val rail = UUID(0, 1)
-        val node = work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey(
+        val node = work.art1st.javarailways.core.api.physics.infrastructure.StableTopologyNodeKey(
             listOf(endpoint(rail, RailEndpoint.A)))
-        val resource = work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource(
+        val resource = work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource(
             "test:resource", "test:signal")
         val decision = TopologyEditDecision(TopologyEditStatus.CONFLICT, listOf(TopologyEditBlocker(
             TopologyEditBlockerKind.INFRASTRUCTURE_DEPENDENCY, InfrastructureOwner("test:timetable", 22),
@@ -5912,6 +5913,57 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
+    fun `unrelated topology change at atomic callback reprepares fixed block edit`() {
+        val fixture = Fixture()
+        val infrastructure = MutableTopologyService(fixture.currentTopology)
+        val store = store()
+        val first = FixedBlockDefinition(
+            "test:approach-block",
+            1L,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 0.0, 5.0))
+        )
+        store.save(
+            fixture.worldId,
+            SimpleSignalsWorldDefinitions(
+                fixture.worldId,
+                1L,
+                emptyList(),
+                emptyList(),
+                listOf(first)
+            )
+        )
+        val originalPrimary = Files.readString(store.primaryFile(fixture.worldId))
+        val signalSources = CapturingSignalEpochSourceService()
+        val manager = runtimeManager(
+            plugin(), infrastructure.service, CapturingRoutePlanningService(), store, signalSources
+        )
+        assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(fixture.worldId).status)
+        val retainedSource = signalSources.sources.getValue(fixture.worldId).single()
+        signalSources.beforeCommitAction = {
+            signalSources.beforeCommitAction = {}
+            infrastructure.topology = fixture.topology(fixture.currentTopology.revision + 1L,
+                listOf(UUID(0, 99)), fixture.currentTopology.railIdentities)
+        }
+        val second = FixedBlockDefinition(
+            first.blockId,
+            2L,
+            listOf(FixedBlockTraversal(fixture.entry, ViewDirection.AB, 1.0, 6.0))
+        )
+
+        val applied = manager.applyDefinitionPatch(
+            fixture.worldId,
+            1L,
+            SimpleSignalsDefinitionPatch(upsertFixedBlocks = listOf(second))
+        )
+
+        assertEquals(SimpleSignalsDefinitionAuthoringStatus.APPLIED, applied.status)
+        assertNotSame(retainedSource, signalSources.sources.getValue(fixture.worldId).single())
+        assertNotEquals(originalPrimary, Files.readString(store.primaryFile(fixture.worldId)))
+        assertEquals(2, signalSources.atomicCommitCount)
+        assertEquals(2, infrastructure.permitCloseCount)
+    }
+
+    @Test
     fun `definition patch defensively copies fixed block edits`() {
         val block = FixedBlockDefinition(
             "test:block",
@@ -6195,6 +6247,11 @@ class SimpleSignalsWorldRuntimeManagerTest {
                         val permit = object : InfrastructureEditPermit {
                             private var closed = false
                             override fun owner(): InfrastructureOwner = owner
+                            override fun <T> execute(action: java.util.function.Supplier<T>): T {
+                                check(!closed)
+                                return if (registryPermit == null) action.get() else
+                                    registry.withEditPermit(registryOwner, registryPermit.id) { action.get() }
+                            }
                             override fun close() {
                                 if (!closed) {
                                     closed = true
@@ -6291,7 +6348,8 @@ class SimpleSignalsWorldRuntimeManagerTest {
             )
         )
 
-        fun topology(revision: Long, extraRails: List<UUID> = emptyList()): TopologyState = topologyState(
+        fun topology(revision: Long, extraRails: List<UUID> = emptyList(),
+            preservedRailIdentities: Map<UUID, UUID> = emptyMap()): TopologyState = topologyState(
             revision,
             listOf(entry, upperIn, lowerIn, upperOut, lowerOut, exit) + extraRails,
             listOf(
@@ -6303,7 +6361,7 @@ class SimpleSignalsWorldRuntimeManagerTest {
                 endpoint(lowerIn, RailEndpoint.B) to endpoint(upperOut, RailEndpoint.A),
                 endpoint(upperOut, RailEndpoint.B) to endpoint(exit, RailEndpoint.A),
                 endpoint(lowerOut, RailEndpoint.B) to endpoint(exit, RailEndpoint.A)
-            )
+            ), preservedRailIdentities = preservedRailIdentities
         )
 
         fun upperRoute() = route("test:upper", upperIn, upperOut)

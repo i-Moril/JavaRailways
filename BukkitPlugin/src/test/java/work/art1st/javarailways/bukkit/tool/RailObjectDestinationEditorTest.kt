@@ -11,8 +11,8 @@ import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.operation.DoorSide
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.api.util.plugin.PluginRegistry

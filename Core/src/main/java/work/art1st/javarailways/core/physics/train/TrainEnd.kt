@@ -56,6 +56,12 @@ open class TrainEnd(
     internal val activeLocation: RailLocationWithFacing
         get() = if (physicsDirty) locationBuffer.getActive() else locationBuffer.get()
 
+    /** Failed movement never entered the rail index; discard its staged endpoint only. */
+    internal fun discardPhysicsChanges() {
+        locationBuffer.set(locationBuffer.get())
+        physicsDirty = false
+    }
+
     internal fun publishPhysicsState() {
         if (!physicsDirty) return
         val oldLocation = locationBuffer.get()

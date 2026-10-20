@@ -1,7 +1,7 @@
 package work.art1st.javarailways.basic.api.route
 
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import java.util.Collections

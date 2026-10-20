@@ -1,12 +1,13 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.core.api.physics.infrastructure.TurnoutResourceIdentity
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
+import work.art1st.javarailways.core.api.physics.infrastructure.StableTopologyNodeKey
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.rail.topology.AtGradeRailCrossing
 import work.art1st.javarailways.core.api.physics.rail.topology.RailCrossingPoint

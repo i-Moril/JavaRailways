@@ -1,5 +1,9 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import org.junit.jupiter.api.AfterEach
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
@@ -37,13 +41,26 @@ import work.art1st.javarailways.simpleato.timetable.*
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 
 class TimetableValidatorTest {
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
+
+    @AfterEach
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
+    }
+
     @Test
     fun `endpoint anchor retains existing track when actual destination stop has enough margin`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
         world.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 10.0))
@@ -65,7 +82,7 @@ class TimetableValidatorTest {
 
     @Test
     fun `validation distinguishes pass through legs and preserves station effective stopping offset`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
         world.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 10.0))
@@ -115,7 +132,7 @@ class TimetableValidatorTest {
 
     @Test
     fun `validator rejects unknown infrastructure lines and missing line maximum speeds`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val known = LineId("known")
         world.simpleAtoWorldData.lines.put(
@@ -135,7 +152,7 @@ class TimetableValidatorTest {
 
     @Test
     fun `validator expands route between checked origin and goto target`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
@@ -168,7 +185,7 @@ class TimetableValidatorTest {
 
     @Test
     fun `validator rejects selectors and origins the dispatcher cannot execute`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
@@ -207,7 +224,7 @@ class TimetableValidatorTest {
 
     @Test
     fun `dynamic selector validates only compatible depot origins`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val metroRail = createStraightRailFromSegments(
@@ -302,7 +319,7 @@ class TimetableValidatorTest {
 
     @Test
     fun `validator rejects actions outside the declared logical game days`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
         world.basicWorldData.wayPoints.add(WayPoint("A", "A", rail.id, 10.0))
@@ -330,7 +347,7 @@ class TimetableValidatorTest {
 
     @Test
     fun `validator reports missing waypoint`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val timetable = Timetable(
             id = "demo",
@@ -350,7 +367,7 @@ class TimetableValidatorTest {
 
     @Test
     fun `invalid station approach is rejected before a service run is installed`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val profile = AtoSafetyProfile(
             accelerationMetersPerSecondSquared = 1.0,
             serviceDecelerationMetersPerSecondSquared = 1.0,

@@ -6,13 +6,16 @@ import work.art1st.javarailways.bukkit.config.model.TrainBehaviorScript
 import work.art1st.javarailways.bukkit.extension.train.TrainModelOperationResult
 
 /** One car's JS state and accepted effects. All entry points run under the car renderer monitor. */
+private class ModelEffectRejectedException(message: String) : RuntimeException(message)
+
 internal class CarBehavior(
     private val script: () -> TrainBehaviorScript?,
     private val actions: () -> Map<String, TrainActionConfig>,
     private val animate: (String, String?) -> Boolean,
     private val sound: (String, Double, Double) -> Unit,
     private val schedule: (Double, () -> Unit) -> AutoCloseable,
-    private val log: (String) -> Unit
+    private val log: (String) -> Unit,
+    private val scriptFailed: (TrainBehaviorScriptException) -> Unit
 ) : AutoCloseable {
     private var runtime: TrainBehaviorRuntime? = null
     private var loadedScript: TrainBehaviorScript? = null
@@ -26,8 +29,16 @@ internal class CarBehavior(
         private set
 
     fun metadata(tail: Boolean): List<TrainBehaviorActionDefinition> = withEnd(tail) {
-        runtimeWithDeclarations()
-        definitions
+        try {
+            runtimeWithDeclarations()
+            definitions
+        } catch (failure: TrainBehaviorScriptException) {
+            scriptFailed(failure)
+            throw failure
+        } catch (failure: Exception) {
+            throw work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt.halt(
+                "Unexpected car behavior metadata host failure", failure)
+        }
     }
 
     fun door(side: DoorSide, opening: Boolean, tail: Boolean, done: (Result<Unit>) -> Unit): TrainModelOperationResult =
@@ -74,7 +85,13 @@ internal class CarBehavior(
                 requireEffects && effects.count == 0 -> IllegalStateException("behavior declared no model effects")
                 else -> null
             }
-        } catch (failure: Exception) { failure }
+        } catch (failure: TrainBehaviorScriptException) {
+            scriptFailed(failure)
+            failure
+        } catch (failure: Exception) {
+            work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt.halt(
+                "Unexpected car behavior host failure", failure)
+        }
         finally { collecting = null }
         if (failure != null) effects.fail(failure)
         effects.seal()
@@ -84,15 +101,17 @@ internal class CarBehavior(
     }
 
     private fun action(name: String): Boolean {
-        check(!initializing) { "model effects are not allowed during behavior initialization" }
-        check(collecting != null) { "model effects are not allowed while reading action metadata" }
+        if (initializing) throw TrainBehaviorScriptException("model effects are not allowed during behavior initialization")
+        if (collecting == null) throw TrainBehaviorScriptException("model effects are not allowed while reading action metadata")
         val config = actions()[name] ?: run {
             collecting?.fail(IllegalStateException("car model action is unavailable: $name"))
             return false
         }
         var applied = false
         config.animations.forEach { animation ->
-            applied = effect(animation.at) { check(animate(animation.name, animation.scene)) { "animation unavailable: ${animation.name}" } } || applied
+            applied = effect(animation.at) {
+                if (!animate(animation.name, animation.scene)) throw ModelEffectRejectedException("animation unavailable: ${animation.name}")
+            } || applied
         }
         config.sounds.forEach { value ->
             applied = effect(value.at) { sound(value.key, value.volume, value.pitch) } || applied
@@ -101,16 +120,20 @@ internal class CarBehavior(
     }
 
     private fun effect(delay: Double, apply: () -> Unit): Boolean {
-        check(!initializing) { "model effects are not allowed during behavior initialization" }
-        val owner = checkNotNull(collecting) { "model effects are not allowed while reading action metadata" }
+        if (initializing) throw TrainBehaviorScriptException("model effects are not allowed during behavior initialization")
+        val owner = collecting ?: throw TrainBehaviorScriptException("model effects are not allowed while reading action metadata")
         owner.accept()
         val run = {
-            try {
-                check(!closed) { "car behavior is closed" }
+            if (closed) {
+                owner.fail(IllegalStateException("car behavior is closed"))
+            } else try {
                 apply()
                 owner.finish()
-            } catch (failure: Exception) {
+            } catch (failure: ModelEffectRejectedException) {
                 owner.fail(failure)
+            } catch (failure: Exception) {
+                owner.fail(work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt.halt(
+                    "Unexpected car model effect failure", failure))
             }
         }
         if (delay <= 0.0) run() else {

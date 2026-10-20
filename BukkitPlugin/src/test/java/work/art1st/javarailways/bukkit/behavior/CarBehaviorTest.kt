@@ -148,7 +148,7 @@ class CarBehaviorTest {
             animations.add("$name:$scene"); name != "missing"
         }, { key, _, _ -> sounds.add(key) }, { _, effect ->
             Delayed(effect).also { delayed.add(it) }
-        }, {})
+        }, {}, {})
         fun call(method: String) = behavior.call(method, emptyList(), false, completions::add)
         override fun close() = behavior.close()
     }

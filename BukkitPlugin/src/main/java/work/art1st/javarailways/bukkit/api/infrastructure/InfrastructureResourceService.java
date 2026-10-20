@@ -1,14 +1,14 @@
 package work.art1st.javarailways.bukkit.api.infrastructure;
 
 import org.bukkit.plugin.Plugin;
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult;
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest;
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencySnapshot;
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureClaimSnapshot;
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyMutationResult;
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest;
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencySnapshot;
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureClaimSnapshot;
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner;
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest;
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionResult;
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest;
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditRequest;
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot;
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService;
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState;
@@ -23,7 +23,7 @@ import java.util.concurrent.CompletableFuture;
  * World-local coordination for non-exclusive edit dependencies, exclusive live claims, and edits.
  *
  * <p>Every mutation is atomic and validates current referenced infrastructure. Edit commits retain
- * exact captured topology checks to prevent lost changes. Dependencies may overlap and never reserve a
+ * local dependency checks and apply deltas to the current topology to prevent lost changes. Dependencies may overlap and never reserve a
  * runtime resource. Live claims are mutually exclusive. An edit permit conflicts with both and remains
  * held until closed. Mutation methods may be called from plugin lifecycle or simulation code and
  * are serialized with JavaRailways topology changes. The protected infrastructure mutation itself
@@ -58,8 +58,8 @@ public interface InfrastructureResourceService {
 
     /**
      * Captures one immutable Basic operating-direction subset for the requested rails in one store read.
-     * The topology must be this world's exact current root; missing rails or an unavailable world
-     * fail explicitly. A null facing in the returned map means both directions are allowed.
+     * The requested rails must retain their physical identities and connections in this world;
+     * missing rails or an unavailable world fail explicitly. A null facing in the returned map means both directions are allowed.
      * This read does not reserve resources and may be made from a worker or signal callback.
      */
     work.art1st.javarailways.basic.api.route.RailOperatingDirections operatingDirections(
@@ -71,7 +71,8 @@ public interface InfrastructureResourceService {
      * Each value is the minimum of Basic's CURVE and SUBGRADE limits; a present null value means
      * neither finite limit exists. Missing rails fail rather than disappearing from the map.
      * The returned map is immutable and remains unchanged by subsequent metadata edits.
-     * The supplied topology must be this world's exact current root before and after the read.
+     * The requested rails must retain their identities and connections before and after the read;
+     * unrelated topology changes do not invalidate the request.
      * Intended for low-frequency preparation, not a live-train or signal-output lookup.
      *
      * @throws IllegalStateException if closed, unloaded, stale, or the speed provider is unavailable
@@ -161,7 +162,8 @@ public interface InfrastructureResourceService {
 
     /**
      * Checks one exact rail/node/resource impact and, on success, returns a permit that must remain
-     * open through the complete topology and persistence transaction.
+     * open through the complete topology and persistence transaction. Run synchronous structural
+     * mutations inside {@link InfrastructureEditPermit#execute(java.util.function.Supplier)}.
      */
     InfrastructureEditPermitResult acquireEditPermit(
         Plugin pluginOwner,

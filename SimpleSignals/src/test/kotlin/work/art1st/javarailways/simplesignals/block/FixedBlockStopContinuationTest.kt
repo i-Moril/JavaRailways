@@ -11,9 +11,9 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteBoundary
@@ -25,7 +25,7 @@ import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot
 import work.art1st.javarailways.basic.api.route.ResourcePreparationState
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
-import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
 import work.art1st.javarailways.core.api.physics.rail.RailInterval

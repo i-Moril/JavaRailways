@@ -290,3 +290,32 @@ private fun ViewDirection.reversed(): ViewDirection = when (this) {
     ViewDirection.AB -> ViewDirection.BA
     ViewDirection.BA -> ViewDirection.AB
 }
+
+/** Reverses only this action's delta, retaining unrelated edits made since the action. */
+internal fun rebaseRailWorldUndo(
+    current: RailWorldUndoSnapshot,
+    expected: RailWorldUndoSnapshot,
+    target: RailWorldUndoSnapshot
+): RailWorldUndoSnapshot? {
+    fun <K, V> merge(now: Map<K, V>, after: Map<K, V>, before: Map<K, V>): Map<K, V>? {
+        val changed = (after.keys + before.keys).filter { after[it] != before[it] }
+        if (changed.any { now[it] != after[it] }) return null
+        return now.toMutableMap().apply {
+            changed.forEach { key ->
+                if (key in before) put(key, before.getValue(key)) else remove(key)
+            }
+        }
+    }
+    val rails = merge(current.rails.associateBy { it.id }, expected.rails.associateBy { it.id },
+        target.rails.associateBy { it.id }) ?: return null
+    val render = merge(current.renderMetas.associateBy { it.railId }, expected.renderMetas.associateBy { it.railId },
+        target.renderMetas.associateBy { it.railId }) ?: return null
+    val metadata = merge(current.railMetadata, expected.railMetadata, target.railMetadata) ?: return null
+    val directions = merge(current.operatingDirections, expected.operatingDirections, target.operatingDirections) ?: return null
+    val destinations = merge(current.destinations.associateBy { it.id }, expected.destinations.associateBy { it.id },
+        target.destinations.associateBy { it.id }) ?: return null
+    val wayPoints = merge(current.wayPoints.associateBy { it.id }, expected.wayPoints.associateBy { it.id },
+        target.wayPoints.associateBy { it.id }) ?: return null
+    return RailWorldUndoSnapshot(rails.values.sortedBy { it.id }, render.values.sortedBy { it.railId.toString() },
+        metadata, directions, destinations.values.sortedBy { it.id }, wayPoints.values.sortedBy { it.id })
+}

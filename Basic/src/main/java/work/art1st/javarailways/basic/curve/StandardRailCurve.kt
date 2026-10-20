@@ -48,11 +48,10 @@ data class SuperelevationConfig(
      */
     fun calculateSuperelevation(radius: Double): Double {
         if (radius <= 0) return 0.0
-        if (autoCalculate && designSpeedKmH > 0) {
-            val speedMetersPerSecond = designSpeedKmH / 3.6
-            val heightMeters = gaugeMeters * speedMetersPerSecond * speedMetersPerSecond /
-                (gravityMetersPerSecondSquared * radius)
-            return minOf(heightMeters, maxSuperelevation)
+        if (autoCalculate) {
+            return StandardRailCurveBuilder.calculateSuperelevation(
+                designSpeedKmH, radius, maxSuperelevation, gaugeMeters, gravityMetersPerSecondSquared
+            )
         }
         return if (maxSuperelevation > 0) maxSuperelevation else 0.0
     }

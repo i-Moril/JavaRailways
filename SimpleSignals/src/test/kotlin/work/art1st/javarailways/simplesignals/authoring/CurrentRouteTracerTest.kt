@@ -41,6 +41,19 @@ class CurrentRouteTracerTest {
         assertEquals(mapOf(stem to branch), wrong.watchedContinuations)
     }
 
+    @Test fun `old paired observation survives distant edits but not local replacements or connections`() {
+        val extra = UUID(0, 99)
+        fun root(links: List<Pair<RailEndpointRef, RailEndpointRef>>, identities: Map<UUID, UUID>) =
+            topologyState(2, listOf(a, b, c, extra), links, preservedRailIdentities = identities)
+        val links = listOf(stem to straight, stem to branch)
+        fun traceRoot(root: TopologyState) = CurrentRouteTracer.trace(root, active(), region,
+            entry.boundaryId, exit.boundaryId, observationTopology = topology)
+        assertEquals(CurrentRouteEnd.REACHED_EXIT, traceRoot(root(links, topology.railIdentities)).end)
+        assertEquals(CurrentRouteEnd.UNAVAILABLE, traceRoot(root(links, emptyMap())).end)
+        assertEquals(CurrentRouteEnd.UNAVAILABLE,
+            traceRoot(root(listOf(stem to branch), topology.railIdentities)).end)
+    }
+
     @Test fun `unselected and illegal continuations fail at actual junction and watch the missing entry`() {
         val missing = trace(active(null))
         assertEquals(CurrentRouteEnd.UNSELECTED, missing.end)

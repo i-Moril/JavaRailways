@@ -9,9 +9,9 @@ import work.art1st.javarailways.simpleato.api.mission.AtoMissionResolver
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionSubmissionResult
 import work.art1st.javarailways.simpleato.api.mission.WayPointRef
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencies
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
@@ -283,11 +283,13 @@ class TimetableDispatcher(
     private val operationGateway: TrainOperationGateway = RejectingTrainOperationGateway,
     private val operationTimeoutTicks: Long = DEFAULT_OPERATION_TIMEOUT_TICKS,
     private val atoFactory: TimetableAtoFactory? = null,
-    private val authorityStoppingMarginMeters: Double = AtoSafetyProfile().safetyDistanceMeters
+    private val authorityStoppingMarginMeters: Double = AtoSafetyProfile().safetyDistanceMeters,
+    val admissionRetryTicks: Int = 5
 ) : DepotResetDispatchParticipant {
     init {
         require(authorityStoppingMarginMeters.isFinite() && authorityStoppingMarginMeters >= 0.0)
         require(operationTimeoutTicks > 0L)
+        require(admissionRetryTicks > 0)
     }
     private val missionRevision = AtomicLong(0L)
     private val admissionOwnerSequence = AtomicLong(0L)
@@ -3187,7 +3189,7 @@ class TimetableDispatcher(
             RouteAdmissionFailureCode.REQUEST_RANGE_TOO_LONG,
             RouteAdmissionFailureCode.PREPARATION_ABORTED_SAFE -> {
                 run.nextAdmissionAttemptTick = dispatcherTick +
-                    world.basicWorldData.turnoutSafetyDefaults.retryTicks
+                    admissionRetryTicks
                 setRouteState(
                     run,
                     TimetableServiceRunState.WAITING_ROUTE,
@@ -4246,9 +4248,9 @@ class TimetableDispatcher(
                     "could not compile applied timetable '$timetableId': ${compiled.detail}"
                 )
         }
-        if (world.topologyState !== topology) {
+        if (!world.topologyState.preservesRails(topology, physicalDependencies.railIds)) {
             return AppliedPlanInstallResult.Rejected(
-                "topology changed while compiling applied timetable '$timetableId'"
+                "selected route dependencies changed while compiling applied timetable '$timetableId'"
             )
         }
         val guardOwner = InfrastructureOwner(
@@ -4348,8 +4350,8 @@ class TimetableDispatcher(
             completedPhysical.topologyNodeKeys,
             completedPhysical.resourceIds + signalResources
         )
-        if (world.topologyState !== topology) {
-            return rejectGuardedPlan("topology changed while compiling applied timetable '$timetableId'")
+        if (!world.topologyState.preservesRails(topology, completedPhysical.railIds)) {
+            return rejectGuardedPlan("selected route dependencies changed while compiling applied timetable '$timetableId'")
         }
         if (dependencies == guard.dependencies) return AppliedPlanInstallResult.Installed(guard)
         val owner = InfrastructureOwner(guard.owner.ownerId, nextAppliedPlanRevision(guard.owner.revision))

@@ -2,7 +2,6 @@ package work.art1st.javarailways.basic
 
 import work.art1st.javarailways.basic.api.rail.RailObjectStore
 import work.art1st.javarailways.basic.api.safety.WorldSafetyInterlock
-import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.basic.rail.RailInfrastructureMetadataStore
 import work.art1st.javarailways.basic.rail.OperatingDirectionStore
 import work.art1st.javarailways.basic.safety.TrainSpeedProfileStore
@@ -19,7 +18,6 @@ data class BasicWorldData(
     val wayPoints: WayPointStore = WayPointStore(),
     val safetyInterlock: WorldSafetyInterlock = WorldSafetyInterlock(),
     val railObjects: RailObjectStore = RailObjectStore(),
-    val turnoutSafetyDefaults: TurnoutSafetyDefaults = TurnoutSafetyDefaults(),
     val railMetadata: RailInfrastructureMetadataStore = RailInfrastructureMetadataStore(),
     val trainSpeedProfiles: TrainSpeedProfileStore = TrainSpeedProfileStore(),
     val operatingDirections: OperatingDirectionStore = OperatingDirectionStore()
@@ -32,7 +30,13 @@ data class WayPoint(
     val railId: UUID,
     /** 弧长始终以 Rail 的 AB 曲线为基准；路径点本身不带行进方向。 */
     val arcLength: Double
-)
+) {
+    init {
+        require(arcLength.isFinite() && arcLength >= 0.0) {
+            "WayPoint $id on rail $railId has invalid arc length: $arcLength"
+        }
+    }
+}
 
 class WayPointStore {
     private val wayPoints = ConcurrentHashMap<String, WayPoint>()

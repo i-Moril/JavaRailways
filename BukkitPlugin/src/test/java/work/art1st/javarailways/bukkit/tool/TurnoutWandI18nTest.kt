@@ -2,12 +2,12 @@ package work.art1st.javarailways.bukkit.tool
 
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureBlocker
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureBlockerKind
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureBlocker
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureBlockerKind
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionResult
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionStatus
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import java.util.Locale
 import java.util.Properties
 

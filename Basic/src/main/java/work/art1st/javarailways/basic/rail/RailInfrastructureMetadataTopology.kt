@@ -24,12 +24,10 @@ object RailInfrastructureMetadataTopology {
         val parent = source.authoring?.createdBySplit
         val sourceRole = source.authoring?.assembly?.role
         val before = source.copy(
-            authoring = source.authoring?.copy(gradeLockedAtB = false),
-            operating = source.operating.copy(turnoutAtB = null)
+            authoring = source.authoring?.copy(gradeLockedAtB = false)
         ).withSplit(RailSplitMetadata(operationId, 0, parent, sourceRole))
         val after = source.copy(
-            authoring = source.authoring?.copy(gradeLockedAtA = false),
-            operating = source.operating.copy(turnoutAtA = null)
+            authoring = source.authoring?.copy(gradeLockedAtA = false)
         ).withSplit(RailSplitMetadata(operationId, 1, parent, sourceRole))
         val additions = linkedMapOf<UUID, RailInfrastructureMetadata>()
 
@@ -141,11 +139,7 @@ object RailInfrastructureMetadataTopology {
                     gradeLockedAtB = after.authoring?.gradeLockedAtB == true,
                     geometry = authoring.geometry.copy(parallel = null)
                 )
-            },
-            operating = before.operating.copy(
-                turnoutAtA = before.operating.turnoutAtA,
-                turnoutAtB = after.operating.turnoutAtB
-            )
+            }
         )
         val left = assemblyParts(snapshot, beforeRailId, before)
         val right = assemblyParts(snapshot, afterRailId, after)
@@ -258,7 +252,6 @@ object RailInfrastructureMetadataTopology {
             gradeLockedAtA = false,
             gradeLockedAtB = false,
             geometry = (authoring?.geometry ?: RailGeometryMetadata()).copy(parallel = null)
-        ),
-        operating = operating.copy(turnoutAtA = null, turnoutAtB = null)
+        )
     )
 }

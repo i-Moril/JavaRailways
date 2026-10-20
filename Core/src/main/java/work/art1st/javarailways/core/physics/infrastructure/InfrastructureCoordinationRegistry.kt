@@ -1,28 +1,29 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.core.physics.infrastructure
 
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencySnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureBlocker
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureBlockerKind
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureClaimSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationResult
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditBlocker
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditBlockerKind
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditDecision
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditOverlap
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencies
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyMutationResult
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencySnapshot
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureBlocker
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureBlockerKind
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureClaimSnapshot
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureFootprint
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureMutationResult
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableTopologyNodeKey
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditBlocker
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditBlockerKind
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditDecision
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditOverlap
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditStatus
+import work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt
 import java.util.UUID
 import java.util.Collections
 
@@ -47,19 +48,19 @@ class InfrastructureCoordinationRegistry(
     class EditPermit internal constructor(val id: UUID, val decision: TopologyEditDecision)
 
     /** Opaque handle for undoing only the exact claim mutation that created it. */
-    internal class ClaimMutation internal constructor(
+    class ClaimMutation internal constructor(
         val result: InfrastructureMutationResult,
         internal val rollbackToken: UUID?
     )
 
     /** Opaque handle for finalizing or undoing one append-only delta reservation. */
-    internal class ClaimAppendReservation internal constructor(
+    class ClaimAppendReservation internal constructor(
         val result: InfrastructureMutationResult,
         internal val token: UUID?
     )
 
     /** Result of shrinking committed resources while an append reservation may remain. */
-    internal data class ClaimShrinkResult(
+    data class ClaimShrinkResult(
         val mutation: InfrastructureMutationResult,
         /** True only when every remaining resource is the caller's still-pending append delta. */
         val pendingAppendOnly: Boolean
@@ -74,7 +75,8 @@ class InfrastructureCoordinationRegistry(
     private data class EditPermitHeld(
         val platformOwner: Any,
         val owner: InfrastructureOwner,
-        val impact: TopologyEditImpact
+        val impact: TopologyEditImpact,
+        var activeScopes: Int = 0
     )
 
     /** Only live claims mutate; insertion order is the public footprint order. Access is under [lock]. */
@@ -84,6 +86,7 @@ class InfrastructureCoordinationRegistry(
         footprint: InfrastructureFootprint
     ) {
         val resources = LinkedHashSet(footprint.resources)
+        var activeScopes = 0
 
         fun hasFootprint(footprint: InfrastructureFootprint): Boolean {
             if (resources.size != footprint.resources.size) return false
@@ -179,7 +182,7 @@ class InfrastructureCoordinationRegistry(
     fun acquireClaim(platformOwner: Any, request: InfrastructureClaimRequest): InfrastructureMutationResult =
         acquireClaimMutation(platformOwner, request, rollbackTracked = false).result
 
-    internal fun beginAcquireClaim(
+    fun beginAcquireClaim(
         platformOwner: Any,
         request: InfrastructureClaimRequest
     ): ClaimMutation = acquireClaimMutation(platformOwner, request, rollbackTracked = true)
@@ -190,7 +193,7 @@ class InfrastructureCoordinationRegistry(
      * The reservation is immediately exclusive but remains distinguishable from the established
      * prefix until [completeClaimAppend] or [rollbackClaimAppend] consumes its opaque handle.
      */
-    internal fun beginAppendClaim(
+    fun beginAppendClaim(
         platformOwner: Any,
         expectedOwner: InfrastructureOwner,
         deltaResources: Collection<InfrastructureResource>
@@ -267,6 +270,8 @@ class InfrastructureCoordinationRegistry(
                 "claim owner or expected revision does not match"
             )
         }
+        if (existing.activeScopes > 0) return@synchronized result(
+            InfrastructureMutationStatus.OWNER_REVISION_CONFLICT, "claim is in use by device actuation")
         claims.remove(owner.ownerId)
         result(InfrastructureMutationStatus.RELEASED)
     }
@@ -278,7 +283,7 @@ class InfrastructureCoordinationRegistry(
      * blockers, or change infrastructure preparation. Those checks cannot become newly necessary
      * when an existing claim only loses resources.
      */
-    internal fun shrinkClaim(
+    fun shrinkClaim(
         platformOwner: Any,
         expectedOwner: InfrastructureOwner,
         resourcesToRelease: Collection<InfrastructureResource>
@@ -288,7 +293,7 @@ class InfrastructureCoordinationRegistry(
         resourcesToRelease
     ).mutation
 
-    internal fun shrinkClaimWithEvidence(
+    fun shrinkClaimWithEvidence(
         platformOwner: Any,
         expectedOwner: InfrastructureOwner,
         resourcesToRelease: Collection<InfrastructureResource>
@@ -312,6 +317,8 @@ class InfrastructureCoordinationRegistry(
                     "claim owner or expected revision does not match"
                 )
             }
+            if (existing.activeScopes > 0) return@synchronized shrinkResult(
+                InfrastructureMutationStatus.OWNER_REVISION_CONFLICT, "claim is in use by device actuation")
             if (pendingInitialMutationForOwner(expectedOwner.ownerId) != null) {
                 return@synchronized shrinkResult(
                     InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
@@ -356,7 +363,7 @@ class InfrastructureCoordinationRegistry(
         ClaimShrinkResult(result(status, detail), pendingAppendOnly = false)
 
     /** Finalizes a successful admission so its exact-before rollback state can be discarded. */
-    internal fun completeClaimMutation(mutation: ClaimMutation): Boolean = synchronized(lock) {
+    fun completeClaimMutation(mutation: ClaimMutation): Boolean = synchronized(lock) {
         val token = mutation.rollbackToken ?: return@synchronized true
         val pending = pendingClaimMutations[token] ?: return@synchronized false
         if (!sameHeld(claims[pending.after.owner.ownerId], pending)) return@synchronized false
@@ -365,7 +372,7 @@ class InfrastructureCoordinationRegistry(
     }
 
     /** Removes exactly the newly acquired claim after its preparation was safely aborted. */
-    internal fun rollbackClaimMutation(mutation: ClaimMutation): InfrastructureMutationResult = synchronized(lock) {
+    fun rollbackClaimMutation(mutation: ClaimMutation): InfrastructureMutationResult = synchronized(lock) {
         val token = mutation.rollbackToken
             ?: return@synchronized result(InfrastructureMutationStatus.UNCHANGED)
         val pending = pendingClaimMutations[token]
@@ -380,13 +387,15 @@ class InfrastructureCoordinationRegistry(
                 "claim changed while its admission transaction was in progress"
             )
         }
+        if (checkNotNull(current).activeScopes > 0) return@synchronized result(
+            InfrastructureMutationStatus.OWNER_REVISION_CONFLICT, "claim is in use by device actuation")
         claims.remove(pending.after.owner.ownerId)
         pendingClaimMutations.remove(token)
         result(InfrastructureMutationStatus.RELEASED)
     }
 
     /** Commits a pending delta without changing the claim's logical owner revision. */
-    internal fun completeClaimAppend(reservation: ClaimAppendReservation): Boolean = synchronized(lock) {
+    fun completeClaimAppend(reservation: ClaimAppendReservation): Boolean = synchronized(lock) {
         val token = reservation.token ?: return@synchronized false
         val pending = pendingClaimAppends[token] ?: return@synchronized false
         val current = claims[pending.owner.ownerId] ?: return@synchronized false
@@ -402,7 +411,7 @@ class InfrastructureCoordinationRegistry(
      * Removes only this reservation's delta from the claim's then-current footprint.
      * Established prefix resources may already have been removed by tail release.
      */
-    internal fun rollbackClaimAppend(
+    fun rollbackClaimAppend(
         reservation: ClaimAppendReservation
     ): InfrastructureMutationResult = synchronized(lock) {
         val token = reservation.token
@@ -426,6 +435,8 @@ class InfrastructureCoordinationRegistry(
             )
         }
 
+        if (current.activeScopes > 0) return@synchronized result(
+            InfrastructureMutationStatus.OWNER_REVISION_CONFLICT, "claim is in use by device actuation")
         pending.deltaSet.forEach(current.resources::remove)
         if (current.resources.isEmpty()) {
             claims.remove(pending.owner.ownerId)
@@ -437,7 +448,111 @@ class InfrastructureCoordinationRegistry(
         )
     }
 
-    fun acquireEditPermit(platformOwner: Any, request: TopologyEditRequest): EditPermit = synchronized(lock) {
+    private val resourceValidators = linkedMapOf<Any, (InfrastructureResource) -> Boolean>()
+    private val activeEditPermits = ThreadLocal.withInitial { ArrayList<UUID>() }
+    private val pendingOwnerReleases = Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>())
+    private val internalEditOwner = Any()
+    private var editSequence = 0L
+
+    /** Adds host-owned resource kinds to the world's single arbiter. */
+    fun registerResourceValidator(validator: (InfrastructureResource) -> Boolean): AutoCloseable = synchronized(lock) {
+        RailwaySimulationHalt.ensureRunning()
+        check(!closed) { "registry is closed" }
+        val token = Any()
+        resourceValidators[token] = validator
+        AutoCloseable { synchronized(lock) { resourceValidators.remove(token) } }
+    }
+
+    private fun isResourcePresent(resource: InfrastructureResource): Boolean =
+        resourceExists(resource) || resourceValidators.values.any { it(resource) }
+
+    /** Enters a lexical scope using an existing, authenticated permit; does not release its ownership. */
+    fun enterEditPermit(platformOwner: Any, permitId: UUID): AutoCloseable = synchronized(lock) {
+        RailwaySimulationHalt.ensureRunning()
+        val held = checkNotNull(editPermits[permitId]) { "edit permit is no longer held" }
+        check(held.platformOwner === platformOwner) { "edit permit belongs to another owner" }
+        val thread = Thread.currentThread()
+        val active = activeEditPermits.get()
+        active.add(permitId)
+        held.activeScopes++
+        AutoCloseable {
+            check(Thread.currentThread() === thread) { "edit permit scope must close on its opening thread" }
+            check(active.lastOrNull() == permitId) { "edit permit scopes must close in reverse order" }
+            active.removeAt(active.lastIndex)
+            if (active.isEmpty()) activeEditPermits.remove()
+            synchronized(lock) {
+                held.activeScopes--
+                finishOwnerRelease(held.platformOwner)
+            }
+        }
+    }
+
+    fun <T> withEditPermit(platformOwner: Any, permitId: UUID, action: () -> T): T =
+        enterEditPermit(platformOwner, permitId).use { action() }
+
+    private val activeClaims = ThreadLocal.withInitial { ArrayList<ClaimHeld>() }
+
+    /** Authorizes device actuation using a currently held claim, never structural destruction. */
+    fun <T> withClaim(platformOwner: Any, owner: InfrastructureOwner, action: () -> T): T {
+        val held = synchronized(lock) {
+            RailwaySimulationHalt.ensureRunning()
+            check(!closed) { "registry is closed" }
+            checkNotNull(claims[owner.ownerId]).also {
+                check(it.platformOwner === platformOwner && it.owner == owner) { "claim belongs to another owner" }
+                it.activeScopes++
+            }
+        }
+        val active = activeClaims.get()
+        active.add(held)
+        try {
+            return action()
+        } finally {
+            check(active.removeAt(active.lastIndex) === held)
+            if (active.isEmpty()) activeClaims.remove()
+            synchronized(lock) {
+                held.activeScopes--
+                finishOwnerRelease(held.platformOwner)
+            }
+        }
+    }
+
+    /** Selection changes may be made by the resource's live claimant; structure edits may not. */
+    fun ensureSelectionProtected(resource: StableInfrastructureResource): AutoCloseable = synchronized(lock) {
+        RailwaySimulationHalt.ensureRunning()
+        check(!closed) { "registry is closed" }
+        if (activeClaims.get().any { held ->
+                claims[held.owner.ownerId] === held && resource in held.resources
+            }) return@synchronized AutoCloseable { }
+        ensureEditProtected(TopologyEditImpact(emptySet(), emptySet(), setOf(resource)))
+    }
+
+    /** Core mutation gate: reuse a covering scope, otherwise acquire protection from this same registry. */
+    fun ensureEditProtected(impact: TopologyEditImpact): AutoCloseable = synchronized(lock) {
+        RailwaySimulationHalt.ensureRunning()
+        check(!closed) { "registry is closed" }
+        val active = activeEditPermits.get()
+        val scopes = active.map { checkNotNull(editPermits[it]) { "active edit permit was released" } }
+        if (impact.railIds.all { id -> scopes.any { id in it.impact.railIds } } &&
+            impact.topologyNodeKeys.all { key -> scopes.any { key in it.impact.topologyNodeKeys } } &&
+            impact.resourceIds.all { id -> scopes.any { id in it.impact.resourceIds } }) {
+            return@synchronized AutoCloseable { }
+        }
+        val request = TopologyEditRequest(currentTopologyRevision(),
+            InfrastructureOwner("javarailways:core-edit/${editSequence++}", 0L), impact)
+        val acquired = acquireEditPermit(internalEditOwner, request, active.toSet())
+        check(acquired.decision.successful) { "rail edit denied: ${acquired.decision.detail}" }
+        val scope = enterEditPermit(internalEditOwner, acquired.id)
+        AutoCloseable {
+            scope.close()
+            check(releaseEditPermit(internalEditOwner, acquired.id)) { "core edit permit was released prematurely" }
+        }
+    }
+
+    fun acquireEditPermit(platformOwner: Any, request: TopologyEditRequest): EditPermit =
+        acquireEditPermit(platformOwner, request, emptySet())
+
+    private fun acquireEditPermit(platformOwner: Any, request: TopologyEditRequest,
+        enclosingPermits: Set<UUID>): EditPermit = synchronized(lock) {
         validateEdit(request)?.let { return@synchronized EditPermit(UUID(0L, 0L), it) }
         val blockers = dependencyDeclarations.values.mapNotNull { held ->
             overlaps(held.dependencies, request.impact)?.let { overlap ->
@@ -447,7 +562,7 @@ class InfrastructureCoordinationRegistry(
             claimOverlap(held.resources, request.impact)?.let { overlap ->
                 TopologyEditBlocker(TopologyEditBlockerKind.LIVE_RUNTIME_CLAIM, held.owner, overlap)
             }
-        } + editPermits.values.mapNotNull { held ->
+        } + editPermits.filterKeys { it !in enclosingPermits }.values.mapNotNull { held ->
             overlaps(held.impact, request.impact)?.let { overlap ->
                 TopologyEditBlocker(TopologyEditBlockerKind.EDIT_PERMIT, held.owner, overlap)
             }
@@ -469,7 +584,7 @@ class InfrastructureCoordinationRegistry(
 
     fun releaseEditPermit(platformOwner: Any, permitId: UUID): Boolean = synchronized(lock) {
         val permit = editPermits[permitId] ?: return@synchronized false
-        if (permit.platformOwner !== platformOwner) return@synchronized false
+        if (permit.platformOwner !== platformOwner || permit.activeScopes > 0) return@synchronized false
         editPermits.remove(permitId)
         true
     }
@@ -500,22 +615,38 @@ class InfrastructureCoordinationRegistry(
         Collections.unmodifiableList(claims.values.map { InfrastructureClaimSnapshot(it.owner, it.snapshotFootprint()) })
     }
 
+    /** Keeps in-flight operations protected, then completes owner cleanup when their scopes finish. */
     fun releasePlatformOwner(platformOwner: Any) = synchronized(lock) {
+        pendingOwnerReleases.add(platformOwner)
+        finishOwnerRelease(platformOwner)
+    }
+
+    private fun finishOwnerRelease(platformOwner: Any) {
+        if (platformOwner !in pendingOwnerReleases) return
+        if (claims.values.any { it.platformOwner === platformOwner && it.activeScopes > 0 } ||
+            editPermits.values.any { it.platformOwner === platformOwner && it.activeScopes > 0 }) return
         val pendingOwnerIds = pendingClaimMutations.values.mapTo(hashSetOf()) { it.after.owner.ownerId }
         pendingClaimAppends.values.mapTo(pendingOwnerIds) { it.owner.ownerId }
         claims.values.removeIf { held ->
             held.platformOwner === platformOwner && held.owner.ownerId !in pendingOwnerIds
         }
         editPermits.values.removeIf { it.platformOwner === platformOwner }
+        // Pending admission reservations retain their existing fail-closed recovery semantics.
+        // Owner teardown must not turn their eventual commit into permission to release a train's resources.
+        pendingOwnerReleases.remove(platformOwner)
     }
 
     fun close() = synchronized(lock) {
+        check(claims.values.none { it.activeScopes > 0 } && editPermits.values.none { it.activeScopes > 0 }) {
+            "cannot close infrastructure coordination during an active resource operation"
+        }
         closed = true
         dependencyDeclarations.clear()
         claims.clear()
         pendingClaimMutations.clear()
         pendingClaimAppends.clear()
         editPermits.clear()
+        pendingOwnerReleases.clear()
     }
 
     private fun acquireClaimMutation(
@@ -591,6 +722,7 @@ class InfrastructureCoordinationRegistry(
     private fun validateDependencies(
         request: InfrastructureDependencyRequest
     ): InfrastructureDependencyMutationResult? {
+        RailwaySimulationHalt.ensureRunning()
         if (closed) return dependencyResult(InfrastructureDependencyMutationStatus.SERVICE_CLOSED, "registry is closed")
         val invalid = firstInvalidReference(
             request.dependencies.railIds,
@@ -604,14 +736,8 @@ class InfrastructureCoordinationRegistry(
     }
 
     private fun validateEdit(request: TopologyEditRequest): TopologyEditDecision? {
+        RailwaySimulationHalt.ensureRunning()
         if (closed) return TopologyEditDecision(TopologyEditStatus.SERVICE_CLOSED, detail = "registry is closed")
-        val currentRevision = currentTopologyRevision()
-        if (request.topologyRevision != currentRevision) {
-            return TopologyEditDecision(
-                TopologyEditStatus.STALE_TOPOLOGY,
-                detail = "requested topology revision ${request.topologyRevision} does not match current $currentRevision"
-            )
-        }
         val invalid = firstInvalidReference(
             request.impact.railIds,
             request.impact.topologyNodeKeys,
@@ -619,13 +745,6 @@ class InfrastructureCoordinationRegistry(
         )
         if (invalid != null) {
             return TopologyEditDecision(TopologyEditStatus.INVALID_REFERENCE, detail = invalid)
-        }
-        val confirmedRevision = currentTopologyRevision()
-        if (request.topologyRevision != confirmedRevision) {
-            return TopologyEditDecision(
-                TopologyEditStatus.STALE_TOPOLOGY,
-                detail = "topology changed during validation from requested ${request.topologyRevision} to $confirmedRevision"
-            )
         }
         return null
     }
@@ -638,7 +757,7 @@ class InfrastructureCoordinationRegistry(
         railIds.firstOrNull { !railExists(it) }?.let { "rail does not exist: $it" }
             ?: topologyNodeKeys.firstOrNull { !topologyNodeExists(it) }
                 ?.let { "topology node does not exist: $it" }
-            ?: resourceIds.firstOrNull { !resourceExists(it) }
+            ?: resourceIds.firstOrNull { !isResourcePresent(it) }
                 ?.let { "runtime resource does not exist: $it" }
     } catch (failure: Exception) {
         "reference provider failed: ${failure::class.simpleName}: ${failure.message.orEmpty()}"
@@ -705,10 +824,11 @@ class InfrastructureCoordinationRegistry(
         }
 
     private fun validate(footprint: InfrastructureFootprint): InfrastructureMutationResult? {
+        RailwaySimulationHalt.ensureRunning()
         if (closed) return result(InfrastructureMutationStatus.SERVICE_CLOSED, "registry is closed")
         for (resource in footprint.resources) {
             val exists = try {
-                resourceExists(resource)
+                isResourcePresent(resource)
             } catch (failure: Exception) {
                 return result(
                     InfrastructureMutationStatus.RESOURCE_PROVIDER_FAILED,

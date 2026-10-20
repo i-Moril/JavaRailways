@@ -1,5 +1,12 @@
 package work.art1st.javarailways.core.physics
 
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableTopologyNodeKey
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.core.api.physics.infrastructure.TurnoutResourceIdentity
+import work.art1st.javarailways.core.api.physics.infrastructure.PhysicalResourceIdentity
 import kotlinx.serialization.Serializable
 import org.joml.Vector3dc
 import work.art1st.javarailways.core.api.util.annotation.Heavy
@@ -18,9 +25,11 @@ import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
+import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.RailwayOccupancySnapshot
 import work.art1st.javarailways.core.api.physics.train.Train
+import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl
 import work.art1st.javarailways.core.physics.rail.curve.ReversedCurve
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.util.annotation.MainThread
@@ -107,6 +116,92 @@ class CoreWorld(
             atGradeCrossings = atGradeRailCrossingIndex.snapshot()
         )
     )
+
+    /** The single world-local arbiter shared by Core mutation and higher-level route claims. */
+    val infrastructureCoordination = InfrastructureCoordinationRegistry(
+        currentTopologyRevision = { topologyRevision },
+        resourceExists = { resource ->
+            when (resource) {
+                is RailIntervalResource -> publishedTopologyState.railProjection[resource.railId]?.singleOrNull()?.let {
+                    resource.endAbMeters <= kotlin.math.abs(it.railEndAbMeters - it.railStartAbMeters)
+                } == true
+                is StableInfrastructureResource -> physicalResourceExists(resource)
+            }
+        },
+        railExists = { publishedTopologyState.railProjection.containsKey(it) },
+        topologyNodeExists = { publishedTopologyState.nodes.values.any { node -> node.ports.toSet() == it.ports.toSet() } }
+    )
+
+    private fun physicalResourceExists(resource: StableInfrastructureResource): Boolean {
+        val firstRailId = try {
+            UUID.fromString(resource.resourceId.substringBefore('@').substringBefore('/'))
+        } catch (_: IllegalArgumentException) {
+            return false
+        }
+        return when (resource.typeId) {
+            TurnoutResourceIdentity.TYPE_ID -> RailEndpoint.entries.any { end ->
+                val node = publishedTopologyState.structuralNodeAt(RailEndpointRef(firstRailId, end)) as? TopologyNode.Turnout
+                node != null && TurnoutResourceIdentity.fromPorts(node.ports) == resource
+            }
+            PhysicalResourceIdentity.DIAMOND_TYPE_ID -> publishedTopologyState.atGradeCrossingsOn(firstRailId)
+                .any { PhysicalResourceIdentity.diamond(it) == resource }
+            else -> false
+        }
+    }
+
+    /** Called before the first mutation; leases remain held through topology publication. */
+    internal fun ensureRailEditProtected(railIds: Collection<UUID>) {
+        val context = checkNotNull(railTopologyTransactionContext.get()) { "Rail edit requires a topology transaction" }
+        context.allowedEditRailIds?.let { allowed ->
+            require(railIds.all(allowed::contains)) { "Prepared edit attempted to modify an undeclared rail" }
+        }
+        val existing = railIds.filterTo(linkedSetOf()) { publishedTopologyState.railProjection.containsKey(it) }
+        if (existing.isEmpty()) return
+        val nodes = publishedTopologyState.nodes.values.filter { node -> node.ports.any { it.railId in existing } }
+        val resources = buildSet {
+            nodes.filterIsInstance<TopologyNode.Turnout>().forEach { add(TurnoutResourceIdentity.fromPorts(it.ports)) }
+            publishedTopologyState.atGradeCrossings.filter { it.first.railId in existing || it.second.railId in existing }
+                .forEach { add(PhysicalResourceIdentity.diamond(it)) }
+        }
+        context.editProtection += infrastructureCoordination.ensureEditProtected(
+            TopologyEditImpact(existing, nodes.map { StableTopologyNodeKey(it.ports) }, resources)
+        )
+    }
+
+    internal fun <T> withRailSelectionProtection(view: RailView, action: () -> T): T {
+        if (railTopologyTransactionContext.get() != null) {
+            ensureRailEditProtected(listOf(view.rail.id))
+            return action()
+        }
+        return physicsCoordinator.withStructuralMutation {
+            railTopologyLock.read { applyProtectedRailSelection(view, action) }
+        }
+    }
+
+    private fun <T> applyProtectedRailSelection(view: RailView, action: () -> T): T {
+        require(rails[view.rail.id] === view.rail) { "Selection references an unregistered rail" }
+        val endpoint = RailEndpointRef(view.rail.id,
+            if (view.viewDirection == ViewDirection.AB) RailEndpoint.B else RailEndpoint.A)
+        val node = publishedTopologyState.structuralNodeAt(endpoint) as? TopologyNode.Turnout
+        val protection = if (node == null) infrastructureCoordination.ensureEditProtected(
+            TopologyEditImpact(listOf(view.rail.id), emptyList(), emptyList())
+        ) else infrastructureCoordination.ensureSelectionProtected(TurnoutResourceIdentity.fromPorts(node.ports))
+        return protection.use {
+            val ports = (node?.ports ?: listOf(endpoint)).map { port ->
+                val rail = requireNotNull(rails[port.railId]) { "Turnout rail disappeared" }
+                val arc = if (port.endpoint == RailEndpoint.A) 0.0 else rail.curve.totalArcLength
+                work.art1st.javarailways.core.api.physics.rail.RailInterval(port.railId, arc, arc)
+            }
+            require(trains.values.none { train -> train.activePlacementEnvelope().any { occupied ->
+                ports.any { port ->
+                    port.railId == occupied.railId &&
+                        occupied.minArcAB <= port.maxArcLengthInAbMeters + Curve.TOLERANCE &&
+                        port.minArcLengthInAbMeters <= occupied.maxArcAB + Curve.TOLERANCE
+                }
+            } }) { "Cannot change an occupied turnout" }
+            action()
+        }
+    }
 
     init {
         trains.values.forEach { train ->
@@ -316,7 +411,7 @@ class CoreWorld(
         }
         val canonicalCreations = creationsInOrder.map { creation ->
             val curve = creation.curve
-            if (curve is ReversedCurve) creation.copy(curve = curve.materialize()) else creation
+            creation.copy(curve = canonicalRailCurve(curve))
         }
         val sampledRails = canonicalCreations.map { creation ->
             atGradeRailCrossingIndex.prepareGeometry(creation.railId, creation.curve)
@@ -344,7 +439,8 @@ class CoreWorld(
             creations = canonicalCreations,
             excludedExistingRailIds = excludedExistingRailIds,
             sampledRails = sampledRails,
-            crossings = crossings
+            crossings = crossings,
+            candidateSnapshot = captured.candidates
         )
     }
 
@@ -382,28 +478,39 @@ class CoreWorld(
         preserveCurrentActiveSelections: Boolean
     ): PreparedRailWorldSnapshotPlan {
         ThreadGuard.ensureOffMainThread("CoreWorld.prepareRailWorldSnapshotRestore")
-        val inputs = prepareRailSnapshotRestoreInputs(currentSnapshot, targetSnapshot)
-        val prepared = inputs.targetCreations.takeIf(List<PreparedRailCreation>::isNotEmpty)?.let { creations ->
-            prepareRailCreationBatchWithIds(creations, inputs.removedOrReplacedRailIds)
+        fun normalized(saved: CoreRail.SavedRailV1): CoreRail.SavedRailV1 =
+            if (preserveCurrentActiveSelections) saved.copy(activeConnectionAtA = null, activeConnectionAtB = null) else saved
+        val requestedBefore = currentSnapshot.associateBy { UUID.fromString(it.id) }
+        val requestedAfter = targetSnapshot.associateBy { UUID.fromString(it.id) }
+        require(requestedBefore.size == currentSnapshot.size && requestedAfter.size == targetSnapshot.size) {
+            "Rail snapshot contains duplicate identities"
+        }
+        val changedIds = (requestedBefore.keys + requestedAfter.keys).filterTo(linkedSetOf()) {
+            requestedBefore[it]?.let(::normalized) != requestedAfter[it]?.let(::normalized)
         }
         val captured = railTopologyLock.read {
             ensureTopologyHealthy()
-            val liveById = rails.toMap()
-            require(liveById.keys == inputs.currentSaved.keys &&
-                liveById.all { (railId, rail) ->
-                    rail.curve.save() == inputs.currentSaved.getValue(railId).curveAB
-                }
-            ) { "current rail snapshot changed during restore preparation" }
-            val root = publishedTopologyState
-            require(prepared == null || prepared.topologyRoot === root) {
-                "rail topology changed during restore preparation"
+            val current = rails.mapValues { it.value.save() }
+            require(changedIds.all { current[it]?.let(::normalized) == requestedBefore[it]?.let(::normalized) }) {
+                "A rail changed since the requested snapshot edit was recorded"
             }
-            Triple(root, liveById, atGradeRailCrossingIndex.snapshot())
+            Triple(publishedTopologyState, rails.toMap(), atGradeRailCrossingIndex.snapshot()) to current
+        }
+        val currentValues = captured.second
+        val targetValues = currentValues.toMutableMap().apply {
+            changedIds.forEach { id ->
+                val target = requestedAfter[id]
+                if (target == null) remove(id) else put(id, target)
+            }
+        }
+        val inputs = prepareRailSnapshotRestoreInputs(currentValues.values.toList(), targetValues.values.toList())
+        val prepared = inputs.targetCreations.takeIf(List<PreparedRailCreation>::isNotEmpty)?.let { creations ->
+            prepareRailCreationBatchWithIds(creations, inputs.removedOrReplacedRailIds)
         }
         return PreparedRailWorldSnapshotPlan.create(
             world = this,
-            topologyRoot = captured.first,
-            currentById = captured.second,
+            topologyRoot = captured.first.first,
+            currentById = captured.first.second,
             currentSaved = inputs.currentSaved,
             targetSaved = inputs.targetSaved,
             currentCurves = inputs.currentCurves,
@@ -411,7 +518,7 @@ class CoreWorld(
             removedOrReplacedRailIds = inputs.removedOrReplacedRailIds,
             createdOrReplacedRailIds = inputs.createdOrReplacedRailIds,
             preparedCreations = prepared,
-            rawCurrentCrossings = captured.third,
+            rawCurrentCrossings = captured.first.third,
             preserveCurrentActiveSelections = preserveCurrentActiveSelections
         )
     }
@@ -487,8 +594,8 @@ class CoreWorld(
         require(removedRailIds.isNotEmpty()) { "a prepared removal must name at least one rail" }
         val rawCrossings = railTopologyLock.read {
             ensureTopologyHealthy()
-            check(publishedTopologyState === baseRoot) {
-                "Rail removal preparation is stale; rebuild it from the current topology"
+            require(publishedTopologyState.preservesRails(baseRoot, removedRailIds)) {
+                "A rail selected for removal changed"
             }
             require(removedRailIds.all(rails::containsKey)) { "prepared removal references a missing rail" }
             atGradeRailCrossingIndex.snapshot()
@@ -569,16 +676,22 @@ class CoreWorld(
         }
         return railTopologyLock.read {
             ensureTopologyHealthy()
-            check(publishedTopologyState === baseRoot) {
-                "Prepared topology is stale while capturing its rollback boundary"
+            require(publishedTopologyState.preservesRails(baseRoot, affectedRailIds.filter { it in baseRoot.railProjection })) {
+                "An affected rail changed while capturing the edit boundary"
             }
             val baseRails = affectedRailIds.associateWith(rails::get)
             val baseRailSnapshot = rails.values.map(CoreRail::save).sortedBy(CoreRail.SavedRailV1::id)
-            val targetInput = CoreTopologyInputAdapter.capture(targetRoot)
+            val liveInput = CoreTopologyInputAdapter.capture(publishedTopologyState)
+            val targetIds = (rails.keys - removedRailIds) + expectedAddedRailCurves.keys
+            val targetConnections = linkedMapOf<RailEndpointRef, Set<RailEndpointRef>>()
+            liveInput.continuations.filterKeys { it.railId in targetIds }.forEach { (port, targets) ->
+                targetConnections[port] = targets.filterTo(linkedSetOf()) { it.railId in targetIds }
+            }
+            targetConnections.putAll(expectedConnections)
             val targetRailSnapshot = buildPreparedTargetRailSnapshot(
                 baseRailSnapshot,
-                targetInput.rails.mapTo(linkedSetOf(), TopologyInputRail::id),
-                targetInput.continuations,
+                targetIds,
+                targetConnections,
                 finalConnectionOrder,
                 expectedAddedRailCurves,
                 finalActiveEndpoints
@@ -599,7 +712,7 @@ class CoreWorld(
                 targetRoot = targetRoot,
                 baseRailSnapshot = baseRailSnapshot,
                 targetRailSnapshot = targetRailSnapshot,
-                expectedRailCount = expectedRailCount,
+                expectedRailCount = targetRailSnapshot.size,
                 baseRailCount = rails.size,
                 baseRails = baseRails,
                 baseConnections = baseConnections,
@@ -620,17 +733,19 @@ class CoreWorld(
             "Prepared rail-world snapshot restore requires an outer topology transaction"
         }
         plan.requireReadyToApply(this)
-        val preservedActiveEndpoints = plan.activeSelectionEndpoints().associateWith { endpoint ->
+        plan.preparedCreations?.let(::requirePreparedCreationCurrent)
+        ensureRailEditProtected(plan.affectedExistingRailIds)
+        val preservedActiveEndpoints = plan.activeSelectionEndpoints().mapNotNull { endpoint ->
             getRail(endpoint.railId)?.let { rail ->
                 val sourceView = if (endpoint.endpoint == RailEndpoint.A) rail.viewBA else rail.viewAB
-                sourceView.activeRail?.let { active ->
+                endpoint to sourceView.activeRail?.let { active ->
                     RailEndpointRef(
                         active.rail.id,
                         if (active.viewDirection == ViewDirection.AB) RailEndpoint.A else RailEndpoint.B
                     )
                 }
             }
-        }
+        }.toMap()
         val removed = plan.removedOrReplacedRailIds.map { railId ->
             requireNotNull(rails[railId]) { "snapshot replacement source $railId disappeared" }
         }
@@ -640,18 +755,19 @@ class CoreWorld(
         rails.values.asSequence().filterNot(removedInstances::contains).flatMap { rail ->
             sequenceOf(rail.viewAB, rail.viewBA)
         }.forEach { view ->
-            if (view.activeRail?.rail in removedInstances) view.activeRail = null
+            val removedActive = view.activeRail?.rail in removedInstances
+            if (removedActive) view.activeRail = null
             view.mutableNextRails.removeIf { it.rail in removedInstances }
-            if (view.activeRail == null) view.activeRail = view.mutableNextRails.firstOrNull()
+            if (removedActive) view.selectDefaultConnection()
         }
         removed.forEach { rail ->
-            rail.destroy()
             rail.viewAB.activeRail = null
             rail.viewBA.activeRail = null
             rail.viewAB.mutableNextRails.clear()
             rail.viewBA.mutableNextRails.clear()
             rails.remove(rail.id)
             atGradeRailCrossingIndex.remove(rail)
+            trackRailCleanup(rail.destroyResources())
         }
 
         plan.preparedCreations?.let { batch ->
@@ -694,11 +810,15 @@ class CoreWorld(
             sourceView.mutableNextRails.addAll(target.connectedEndpoints.map { view(it).reversed })
             val activeEndpoint = if (plan.preserveCurrentActiveSelections) {
                 preservedActiveEndpoints[endpoint]?.takeIf(target.connectedEndpoints::contains)
-                    ?: target.connectedEndpoints.firstOrNull()
             } else {
                 target.activeEndpoint
             }
             sourceView.activeRail = activeEndpoint?.let { view(it).reversed }
+            if (plan.preserveCurrentActiveSelections && sourceView.activeRail == null &&
+                (endpoint !in preservedActiveEndpoints || preservedActiveEndpoints[endpoint] != null)
+            ) {
+                sourceView.selectDefaultConnection()
+            }
         }
     }
 
@@ -750,12 +870,11 @@ class CoreWorld(
                 "The active topology transaction changed the rail inventory before prepared installation"
             )
         }
-        if (publishedTopologyState !== batch.topologyRoot) {
-            rejectPrepared(
-                PreparedRailCreationRejectionReason.STALE_TOPOLOGY,
-                "Rail topology changed from revision ${batch.topologyRevision}; rebuild and retry"
-            )
-        }
+        requirePreparedCreationCurrent(batch)
+        val affectedExisting = (batch.excludedExistingRailIds + batch.crossings.flatMap { listOf(it.first.railId, it.second.railId) })
+            .filterTo(linkedSetOf(), rails::containsKey)
+        ensureRailEditProtected(affectedExisting)
+        require(occupyingTrainIds(affectedExisting).isEmpty()) { "Cannot change occupied crossing or replacement rails" }
         val conflictingIds = batch.creations.map(PreparedRailCreation::railId).filter(rails::containsKey)
         if (conflictingIds.isNotEmpty()) {
             rejectPrepared(
@@ -782,6 +901,23 @@ class CoreWorld(
         return createdRails
     }
 
+    internal fun requirePreparedCreationCurrent(batch: PreparedRailCreationBatch) {
+        rejectPreparedWorldMismatch(batch)
+        val currentCandidates = atGradeRailCrossingIndex.captureCandidateSnapshot(
+            batch.sampledRails, batch.excludedExistingRailIds
+        )
+        val excludedCurrent = batch.excludedExistingRailIds.all { id ->
+            publishedTopologyState.railIdentities[id] == batch.topologyRoot.railIdentities[id] && rails.containsKey(id)
+        }
+        if (!excludedCurrent || currentCandidates != batch.candidateSnapshot ||
+            currentCandidates.existingRailsByNewRailId.values.flatten().any { candidate ->
+                publishedTopologyState.railIdentities[candidate.railId] != batch.topologyRoot.railIdentities[candidate.railId]
+            }) {
+            rejectPrepared(PreparedRailCreationRejectionReason.STALE_TOPOLOGY,
+                "A rail geometry used by the prepared creation changed; rebuild and retry")
+        }
+    }
+
     private fun rejectPreparedWorldMismatch(batch: PreparedRailCreationBatch) {
         if (batch.ownerWorld !== this) {
             rejectPrepared(
@@ -794,6 +930,12 @@ class CoreWorld(
     private fun rejectPrepared(reason: PreparedRailCreationRejectionReason, message: String): Nothing =
         throw PreparedRailCreationRejectedException(reason, message)
 
+    private fun canonicalRailCurve(curve: PrimeCurve): PrimeCurveImpl = when (curve) {
+        is PrimeCurveImpl -> curve
+        is ReversedCurve -> curve.materialize()
+        else -> throw IllegalArgumentException("A rail requires a canonical sampled curve")
+    }
+
     /** Core-only primitive for persistent identity restore and atomic bulk topology operations. */
     @JvmSynthetic
     @MainThread
@@ -802,10 +944,13 @@ class CoreWorld(
             "Rail creation must run inside a rail topology transaction"
         }
         require(id !in rails) { "duplicate rail id in world: $id" }
+        val geometry = atGradeRailCrossingIndex.prepareGeometry(id, curveAB)
+        val candidates = atGradeRailCrossingIndex.captureCandidateSnapshot(listOf(geometry), emptySet())
+        ensureRailEditProtected(candidates.existingRailsByNewRailId.values.flatten().map { it.railId })
         val rail = CoreRail.createUnregistered(
             id = id,
             world = this,
-            curveAB = if (curveAB is ReversedCurve) curveAB.materialize() else curveAB
+            curveAB = canonicalRailCurve(curveAB)
         )
         railTopologyTransactionContext.get()?.recordRailInventoryMutation(setOf(id))
         rails[id] = rail
@@ -874,7 +1019,11 @@ class CoreWorld(
                     }
                     throw failure
                 } finally {
-                    railTopologyTransactionContext.remove()
+                    try {
+                        context.editProtection.asReversed().forEach(AutoCloseable::close)
+                    } finally {
+                        railTopologyTransactionContext.remove()
+                    }
                 }
             }
             if (publishedTopologyState !== previousRoot) {
@@ -888,57 +1037,24 @@ class CoreWorld(
         }
     }
 
-    /**
-     * Commits one online edit whose complete normalized topology was already built off-thread.
-     * Validation and publication are proportional to the declared edit delta.
-     */
+    /** Applies the declared local edit to the current world, preserving unrelated committed edits. */
     @MainThread
     fun <T> railTopologyTransaction(prepared: PreparedRailTopologyUpdate, action: () -> T): T {
         check(railTopologyTransactionContext.get() == null) {
             "A prepared rail topology transaction cannot be nested in another topology transaction"
         }
         check(prepared.ownerWorld === this) { "Prepared topology belongs to another world" }
-        check(publishedTopologyState === prepared.baseRoot) {
-            "Prepared topology is stale; rebuild it from the current root"
-        }
-        ensureTopologyHealthy()
-        return physicsCoordinator.withStructuralMutation {
-            val previousRoot = publishedTopologyState
-            val result = railTopologyLock.write {
-                ensureTopologyHealthy()
-                check(publishedTopologyState === prepared.baseRoot) {
-                    "Prepared topology is stale; rebuild it from the current root"
-                }
-                val context = RailTopologyTransactionContext(null, prepared.inventoryMutationRailIds)
-                railTopologyTransactionContext.set(context)
-                try {
-                    val result = action()
-                    context.nestedFailure?.let { nestedFailure ->
-                        throw IllegalStateException(
-                            "A nested rail topology transaction failed even though its caller caught the exception",
-                            nestedFailure
-                        )
-                    }
-                    validateReplacementRequirements(context)
-                    validatePreparedTopologyResult(prepared)
-                    prepared.topologyChange?.let(::notifyTopologyChange)
-                    publishedTopologyState = prepared.targetRoot
-                    result
-                } catch (failure: Throwable) {
-                    val baseRestored = runCatching { matchesPreparedTopologyBase(prepared) }.getOrDefault(false)
-                    if (!baseRestored) faultTopologyAfterFailedMutation(failure)
-                    throw failure
-                } finally {
-                    railTopologyTransactionContext.remove()
-                }
+        return railTopologyTransaction {
+            require(matchesPreparedTopologyBase(prepared)) {
+                "An object or connection used by the prepared edit has changed"
             }
-            if (publishedTopologyState !== previousRoot) {
-                try {
-                    publishOwnerChanges(emptyList())
-                } catch (failure: Throwable) {
-                    throw physicsCoordinator.stall("Topology observation publication failed", failure)
-                }
-            }
+            val context = checkNotNull(railTopologyTransactionContext.get())
+            context.allowedInventoryMutationRailIds = prepared.inventoryMutationRailIds
+            context.allowedEditRailIds = prepared.baseRails.keys
+            ensureRailEditProtected(prepared.baseRails.keys)
+            val initialCount = rails.size
+            val result = action()
+            validatePreparedTopologyResult(prepared, initialCount)
             result
         }
     }
@@ -955,8 +1071,8 @@ class CoreWorld(
             }
     }
 
-    private fun validatePreparedTopologyResult(prepared: PreparedRailTopologyUpdate) {
-        check(rails.size == prepared.expectedRailCount) { "Prepared topology rail count does not match committed edit" }
+    private fun validatePreparedTopologyResult(prepared: PreparedRailTopologyUpdate, initialCount: Int) {
+        check(rails.size == initialCount + prepared.expectedAddedRailCurves.keys.count { prepared.baseRails[it] == null } - prepared.expectedAbsentRailIds.size) { "Prepared topology rail count does not match committed edit" }
         check(prepared.expectedAbsentRailIds.none(rails::containsKey)) {
             "Prepared topology removal is incomplete"
         }
@@ -977,7 +1093,6 @@ class CoreWorld(
     }
 
     private fun matchesPreparedTopologyBase(prepared: PreparedRailTopologyUpdate): Boolean {
-        if (rails.size != prepared.baseRailCount) return false
         if (prepared.baseRails.any { (railId, expectedRail) -> rails[railId] !== expectedRail }) return false
         if (prepared.baseConnections.any { (endpoint, expectedTargets) ->
                 rails[endpoint.railId] == null || endpointConnections(endpoint) != expectedTargets
@@ -1072,47 +1187,82 @@ class CoreWorld(
         }
     }
 
-    @MainThread
-    override fun removeRail(rail: Rail) {
-        if (railTopologyLock.isWriteLockedByCurrentThread) {
-            removeRailInTransaction(rail)
-        } else {
-            railTopologyTransaction { removeRailInTransaction(rail) }
+    private val railCleanupCollector = ThreadLocal<work.art1st.javarailways.core.api.util.DestructionSteps?>()
+
+    /** Captures asynchronous cleanup initiated by one synchronous owner edit without waiting under locks. */
+    fun <T> collectRailCleanup(action: () -> T): Pair<T, java.util.concurrent.CompletionStage<Void>> {
+        check(railCleanupCollector.get() == null) { "Rail cleanup collection must not be nested" }
+        val cleanup = work.art1st.javarailways.core.api.util.DestructionSteps()
+        railCleanupCollector.set(cleanup)
+        return try {
+            action() to cleanup.finish()
+        } catch (failure: Throwable) {
+            cleanup.finish().whenComplete { _, cleanupFailure ->
+                if (cleanupFailure != null) failure.addSuppressed(cleanupFailure)
+            }
+            throw failure
+        } finally {
+            railCleanupCollector.remove()
         }
     }
 
-    private fun removeRailInTransaction(rail: Rail) {
-        val removed = rail as? CoreRail
-        if (removed != null) {
-            if (rails.containsKey(removed.id)) {
-                railTopologyTransactionContext.get()?.recordRailInventoryMutation(setOf(removed.id))
+    /** Includes platform-owned rail cleanup in the current synchronous edit's completion result. */
+    fun trackRailCleanup(result: java.util.concurrent.CompletionStage<Void>): java.util.concurrent.CompletionStage<Void> {
+        railCleanupCollector.get()?.await { result }
+        return result
+    }
+
+    @MainThread
+    override fun removeRail(rail: Rail): java.util.concurrent.CompletionStage<Void> {
+        require(rail.world === this) { "Rail ${rail.id} belongs to another world" }
+        val removed = rail as? CoreRail ?: throw IllegalArgumentException("rail must be a CoreRail")
+        val absent = railTopologyLock.read {
+            val registered = rails[removed.id]
+            require(registered == null || registered === removed) {
+                "Rail ${removed.id} is not the registered instance"
             }
-            val connectedEndpointViews = sequenceOf(removed.viewAB, removed.viewBA)
-                .flatMap { it.mutableNextRails.asSequence() }
-                .map(RailView::reversed)
-                .distinct()
-                .toList()
-            val affectedRailIds = buildSet {
-                add(removed.id)
-                connectedEndpointViews.mapTo(this) { it.rail.id }
-            }
-            val occupyingTrainIds = occupyingTrainIds(affectedRailIds)
-            require(occupyingTrainIds.isEmpty()) {
-                "Cannot remove rail ${removed.id}; affected rails are occupied by ${occupyingTrainIds.sorted()}"
-            }
-            connectedEndpointViews.forEach { view ->
-                val removedWasActive = view.activeRail?.rail === removed
-                if (removedWasActive) view.activeRail = null
-                view.mutableNextRails.removeIf { it.rail === removed }
-                if (removedWasActive) view.activeRail = view.mutableNextRails.firstOrNull()
-            }
-            removed.viewAB.activeRail = null
-            removed.viewBA.activeRail = null
-            removed.viewAB.mutableNextRails.clear()
-            removed.viewBA.mutableNextRails.clear()
-            atGradeRailCrossingIndex.remove(removed)
+            registered == null
         }
-        rails.remove(rail.id)
+        if (absent) return trackRailCleanup(removed.destroyResources())
+        railTopologyTransaction {
+            val registered = rails[removed.id]
+            require(registered == null || registered === removed) {
+                "Rail ${removed.id} is not the registered instance"
+            }
+            if (registered != null) removeRailInTransaction(removed)
+        }
+        return trackRailCleanup(removed.destroyResources())
+    }
+
+    private fun removeRailInTransaction(removed: CoreRail) {
+        check(rails[removed.id] === removed)
+        val connectedEndpointViews = sequenceOf(removed.viewAB, removed.viewBA)
+            .flatMap { it.mutableNextRails.asSequence() }
+            .map(RailView::reversed)
+            .distinct()
+            .toList()
+        val affectedRailIds = buildSet {
+            add(removed.id)
+            connectedEndpointViews.mapTo(this) { it.rail.id }
+        }
+        ensureRailEditProtected(affectedRailIds)
+        val occupyingTrainIds = occupyingTrainIds(affectedRailIds)
+        require(occupyingTrainIds.isEmpty()) {
+            "Cannot remove rail ${removed.id}; affected rails are occupied by ${occupyingTrainIds.sorted()}"
+        }
+        railTopologyTransactionContext.get()?.recordRailInventoryMutation(setOf(removed.id))
+        connectedEndpointViews.forEach { view ->
+            val removedWasActive = view.activeRail?.rail === removed
+            if (removedWasActive) view.activeRail = null
+            view.mutableNextRails.removeIf { it.rail === removed }
+            if (removedWasActive) view.selectDefaultConnection()
+        }
+        removed.viewAB.activeRail = null
+        removed.viewBA.activeRail = null
+        removed.viewAB.mutableNextRails.clear()
+        removed.viewBA.mutableNextRails.clear()
+        atGradeRailCrossingIndex.remove(removed)
+        rails.remove(removed.id)
     }
 
     /**
@@ -1356,7 +1506,7 @@ class CoreWorld(
 
     private class RailTopologyTransactionContext(
         val before: RailTopologyFingerprint?,
-        private val allowedInventoryMutationRailIds: Set<UUID>?
+        var allowedInventoryMutationRailIds: Set<UUID>?
     ) {
         var nestedFailure: Throwable? = null
             private set
@@ -1365,6 +1515,8 @@ class CoreWorld(
         var railInventoryMutationCount: Int = 0
             private set
         val replacementRequirements = mutableListOf<ReplacementRequirement>()
+        val editProtection = mutableListOf<AutoCloseable>()
+        var allowedEditRailIds: Set<UUID>? = null
 
         fun recordNestedFailure(failure: Throwable) {
             if (nestedFailure == null) nestedFailure = failure
@@ -1424,8 +1576,7 @@ class CoreWorld(
             val incoming = occupancy.collisionEnvelopes[otherId]
             other != null && own != null && incoming != null &&
                 TrainCoupling.hasConnectorContact(train, other, own, incoming,
-                    occupancy.collisionTopologyRevision == topologyRevision &&
-                        occupancy.collisionActiveContinuations === publishedWorldFrame.activeContinuations)
+                    own.dependencies.matches(train) && incoming.dependencies.matches(other))
         })
     }
 

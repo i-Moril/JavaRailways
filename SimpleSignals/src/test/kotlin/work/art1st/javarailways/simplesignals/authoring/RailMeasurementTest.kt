@@ -37,7 +37,11 @@ class RailMeasurementTest {
         assertEquals(result.straightMeters, separate.straightMeters)
         assertNull(separate.trackMeters)
         assertTrue(MeasurementWandHandler.format(separate).contains("disconnected"))
-        root = topologyState(2, listOf(rail, disconnected), emptyList())
+        root = topologyState(2, listOf(rail, disconnected, UUID(0, 4)), emptyList(),
+            preservedRailIdentities = root.railIdentities)
+        assertTrue(backend.current(captured), "unrelated added rail does not expire selected points")
+        assertEquals(result, backend.measure(captured, first, end))
+        root = topologyState(3, listOf(rail, disconnected), emptyList())
         assertFalse(backend.current(captured))
         assertThrows(IllegalArgumentException::class.java) { backend.measure(captured, first, end) }
     }

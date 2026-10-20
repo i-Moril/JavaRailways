@@ -91,10 +91,7 @@ internal fun restoreMappedTurnoutViewSnapshots(
         if (expectedActive != null && expectedActive !in expectedNext) {
             throw RailWandLocalizedException("failure.turnout_active_branch_missing", mappedView)
         }
-        view.activeRail = null
-        view.mutableNextRails.clear()
-        view.mutableNextRails.addAll(expectedNext)
-        view.activeRail = expectedActive
+        view.restoreConnections(expectedNext, expectedActive)
     }
 }
 

@@ -1,6 +1,6 @@
 package work.art1st.javarailways.basic.infrastructure.admission
 
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot
 import work.art1st.javarailways.basic.api.route.ResourcePreparationState

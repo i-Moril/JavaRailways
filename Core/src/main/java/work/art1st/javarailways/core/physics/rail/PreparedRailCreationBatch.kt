@@ -20,8 +20,7 @@ data class PreparedRailCreation(
  * The result belongs to the exact [CoreWorld] instance and [topologyRevision] observed while its
  * spatial candidates were captured. Ordinary live creation supplies random IDs; persisted snapshot
  * restoration may supply its stable IDs through Core's internal preparation entry. It contains no
- * executor or future. Callers must install it on the world owner thread; a topology change makes
- * the entire batch stale.
+ * executor or future. Callers must install it on the world owner thread; only changes to its actual spatial candidates or replacement sources invalidate the batch.
  */
 class PreparedRailCreationBatch private constructor(
     @get:JvmSynthetic internal val ownerWorld: CoreWorld,
@@ -29,7 +28,8 @@ class PreparedRailCreationBatch private constructor(
     creations: List<PreparedRailCreation>,
     excludedExistingRailIds: Set<UUID>,
     sampledRails: List<AtGradeRailCrossingIndex.SampledRail>,
-    crossings: List<AtGradeRailCrossing>
+    crossings: List<AtGradeRailCrossing>,
+    internal val candidateSnapshot: AtGradeRailCrossingIndex.CandidateSnapshot
 ) {
     val topologyRevision: Long = topologyRoot.revision
     val creations: List<PreparedRailCreation> = Collections.unmodifiableList(ArrayList(creations))
@@ -60,14 +60,16 @@ class PreparedRailCreationBatch private constructor(
             creations: List<PreparedRailCreation>,
             excludedExistingRailIds: Set<UUID>,
             sampledRails: List<AtGradeRailCrossingIndex.SampledRail>,
-            crossings: List<AtGradeRailCrossing>
+            crossings: List<AtGradeRailCrossing>,
+            candidateSnapshot: AtGradeRailCrossingIndex.CandidateSnapshot
         ): PreparedRailCreationBatch = PreparedRailCreationBatch(
             ownerWorld,
             topologyRoot,
             creations,
             excludedExistingRailIds,
             sampledRails,
-            crossings
+            crossings,
+            candidateSnapshot
         )
     }
 }

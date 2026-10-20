@@ -1,5 +1,8 @@
 package work.art1st.javarailways.simpleato.api.destination
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import work.art1st.javarailways.core.physics.createRailForTest
@@ -21,18 +24,25 @@ import work.art1st.javarailways.simpleato.routing.RouteBuildResult
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
 
 class OperationalDestinationTest {
-    private val worlds = mutableListOf<work.art1st.javarailways.core.physics.CoreWorld>()
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
 
     @AfterEach
-    fun unregisterWorlds() {
-        worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
-        worlds.clear()
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
     }
+
+
 
     @Test
     fun `role-owned destination IDs use canonical owner at point format`() {
@@ -55,7 +65,7 @@ class OperationalDestinationTest {
 
     @Test
     fun `regular destinations adapt to directed mission waypoints`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
@@ -86,7 +96,7 @@ class OperationalDestinationTest {
 
     @Test
     fun `destinations default to no approach restriction`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
@@ -126,7 +136,7 @@ class OperationalDestinationTest {
 
     @Test
     fun `station destination may register a berth without door operations`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
@@ -156,7 +166,7 @@ class OperationalDestinationTest {
 
     @Test
     fun `station destinations atomically aggregate directed passive berths`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
@@ -212,7 +222,7 @@ class OperationalDestinationTest {
 
     @Test
     fun `depot destination registers one passive stabling point`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
@@ -245,7 +255,7 @@ class OperationalDestinationTest {
 
     @Test
     fun `rail deletion removes destinations and derived station and waypoint records`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
@@ -283,7 +293,7 @@ class OperationalDestinationTest {
 
     @Test
     fun `rail replacement migrates destination position direction and derived records`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val oldRail = createStraightRailFromSegments(
             world,
@@ -324,7 +334,7 @@ class OperationalDestinationTest {
 
     @Test
     fun `split and merge migration preserve destination arc coordinates`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val original = createStraightRailFromSegments(
             world,
@@ -363,7 +373,7 @@ class OperationalDestinationTest {
 
     @Test
     fun `destination replacement rolls role and legacy waypoint together`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,

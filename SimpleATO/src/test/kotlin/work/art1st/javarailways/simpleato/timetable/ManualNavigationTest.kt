@@ -1,5 +1,9 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import org.junit.jupiter.api.AfterEach
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
@@ -33,11 +37,24 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
 
 class ManualNavigationTest {
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
+
+    @AfterEach
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
+    }
+
     @Test
     fun `parser accepts pass points and strict stop JSON`() {
         val points = ManualNavigationParser.parse(listOf(
@@ -91,7 +108,7 @@ class ManualNavigationTest {
                 )
             }
         )
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         try {
@@ -152,7 +169,7 @@ class ManualNavigationTest {
 
     @Test
     fun `factory groups pass points into missions ending at each stop`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.register(world, BasicWorldData())
         try {
             val rail = createStraightRailFromSegments(

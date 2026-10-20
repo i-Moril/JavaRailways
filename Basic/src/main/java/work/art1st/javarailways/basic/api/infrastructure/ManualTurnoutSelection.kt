@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.api.infrastructure
 
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureBlocker
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import java.util.Collections
 

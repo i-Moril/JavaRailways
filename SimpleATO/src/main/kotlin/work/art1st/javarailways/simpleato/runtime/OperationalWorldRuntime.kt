@@ -44,7 +44,9 @@ class OperationalWorldRuntime private constructor(
         publishObservation: () -> Unit,
         beforeDispatcher: () -> Unit = {}
     ) {
-        check(!closed) { "operational runtime is closed" }
+        if (closed) throw work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt.halt(
+            "A live world consumed a closed operational runtime: $worldId")
+        work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt.ensureRunning()
         publishObservation()
         world.publishPendingDerailEvents()
         speedMonitor?.drainRequests(physicsEpoch).orEmpty().forEach { request ->

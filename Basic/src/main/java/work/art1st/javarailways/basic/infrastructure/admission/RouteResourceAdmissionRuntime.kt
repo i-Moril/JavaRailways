@@ -11,13 +11,13 @@ import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
 import work.art1st.javarailways.basic.api.route.RouteGrantId
 import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.util.annotation.MainThread
-import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.basic.infrastructure.PhysicalTopologyResources
 import work.art1st.javarailways.basic.infrastructure.RouteBoundResourceCatalog
 import work.art1st.javarailways.basic.infrastructure.RouteBoundResourceCatalogUpdate

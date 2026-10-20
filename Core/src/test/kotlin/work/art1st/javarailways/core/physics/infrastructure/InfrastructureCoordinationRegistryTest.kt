@@ -1,24 +1,26 @@
-package work.art1st.javarailways.basic.infrastructure
+package work.art1st.javarailways.core.physics.infrastructure
 
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureBlockerKind
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditBlockerKind
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencies
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureBlockerKind
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureFootprint
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableTopologyNodeKey
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditBlockerKind
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import java.util.UUID
@@ -27,6 +29,31 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class InfrastructureCoordinationRegistryTest {
+    @Test
+    @work.art1st.javarailways.core.testing.IsolateGlobalHalt
+    fun `halt blocks new ownership and old permit entry but retains diagnostics and cleanup`() {
+        val platform = Any()
+        val routeOwner = owner("test:halt-route", 1)
+        val mutation = registry.beginAcquireClaim(platform, InfrastructureClaimRequest(routeOwner, footprint(0.0, 10.0)))
+        val permits = InfrastructureCoordinationRegistry({ 7L }, { true }, { true }, { true })
+        val permit = permits.acquireEditPermit(platform, TopologyEditRequest(7L, owner("test:edit", 1), editImpact()))
+        assertTrue(permit.decision.successful)
+        work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt.halt("test infrastructure halt")
+        val failure = work.art1st.javarailways.core.physics.tick.PhysicsStalledException::class.java
+        assertThrows(failure) { registry.acquireClaim(platform, InfrastructureClaimRequest(owner("test:new", 1), footprint(20.0, 30.0))) }
+        assertThrows(failure) { registry.beginAppendClaim(platform, routeOwner, listOf(interval(20.0, 30.0))) }
+        assertThrows(failure) { registry.setInfrastructureDependencies(platform, dependencies(owner("test:plan", 1))) }
+        assertThrows(failure) { permits.acquireEditPermit(platform, TopologyEditRequest(7L, owner("test:new-edit", 1), editImpact())) }
+        assertThrows(failure) { permits.withEditPermit(platform, permit.id) { error("must not execute") } }
+        assertThrows(failure) { registry.withClaim(platform, routeOwner) { error("must not execute") } }
+        assertEquals(1, registry.claimSnapshots().size)
+        assertTrue(registry.rollbackClaimMutation(mutation).successful)
+        assertTrue(registry.claimSnapshots().isEmpty())
+        assertTrue(permits.releaseEditPermit(platform, permit.id))
+        registry.close()
+        permits.close()
+    }
+
     @Test
     fun `edit permit cannot enter between dependency validation and installation`() {
         val validating = CountDownLatch(1)
@@ -52,6 +79,74 @@ class InfrastructureCoordinationRegistryTest {
         releaseValidation.countDown()
         assertEquals(InfrastructureDependencyMutationStatus.APPLIED, declaration.get(5, TimeUnit.SECONDS).status)
         assertEquals(TopologyEditStatus.CONFLICT, edit.get(5, TimeUnit.SECONDS).decision.status)
+    }
+
+    @Test
+    fun `older edit request keeps valid local references`() {
+        topologyRevision = 12L
+        val permit = registry.acquireEditPermit(Any(), TopologyEditRequest(4L,
+            owner("test:editor", 1), editImpact()))
+        assertEquals(TopologyEditStatus.GRANTED, permit.decision.status)
+    }
+
+    @Test
+    fun `active edit scope authenticates ownership and pins permit`() {
+        val platform = Any()
+        val permit = registry.acquireEditPermit(platform,
+            TopologyEditRequest(4L, owner("test:editor", 1), editImpact()))
+        assertThrows(IllegalStateException::class.java) {
+            registry.enterEditPermit(Any(), permit.id)
+        }
+        registry.withEditPermit(platform, permit.id) {
+            registry.ensureEditProtected(editImpact()).use {
+                assertFalse(registry.releaseEditPermit(platform, permit.id))
+            }
+        }
+        assertTrue(registry.releaseEditPermit(platform, permit.id))
+    }
+
+    @Test
+    fun `claim actuation scope prevents removal but does not authorize structural edits`() {
+        val platform = Any()
+        val claimant = owner("test:route", 1)
+        registry.acquireClaim(platform, InfrastructureClaimRequest(claimant,
+            InfrastructureFootprint(listOf(runtimeResource))))
+        registry.withClaim(platform, claimant) {
+            registry.ensureSelectionProtected(runtimeResource).close()
+            val concurrentRelease = CompletableFuture.supplyAsync {
+                registry.releaseClaim(platform, claimant)
+            }
+            assertEquals(InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                concurrentRelease.get(5, TimeUnit.SECONDS).status)
+            assertEquals(InfrastructureMutationStatus.OWNER_REVISION_CONFLICT,
+                registry.shrinkClaim(platform, claimant, listOf(runtimeResource)).status)
+            assertThrows(IllegalStateException::class.java) {
+                registry.ensureEditProtected(editImpact())
+            }
+        }
+        assertEquals(InfrastructureMutationStatus.RELEASED,
+            registry.releaseClaim(platform, claimant).status)
+    }
+
+    @Test
+    fun `owner teardown waits for active scopes then releases automatically`() {
+        val platform = Any()
+        val claimant = owner("test:route", 1)
+        registry.acquireClaim(platform, InfrastructureClaimRequest(claimant,
+            InfrastructureFootprint(listOf(runtimeResource))))
+        registry.withClaim(platform, claimant) {
+            registry.releasePlatformOwner(platform)
+            assertEquals(1, registry.claimSnapshots().size)
+        }
+        assertTrue(registry.claimSnapshots().isEmpty())
+
+        val permit = registry.acquireEditPermit(platform,
+            TopologyEditRequest(4L, owner("test:editor", 1), editImpact()))
+        registry.withEditPermit(platform, permit.id) {
+            registry.releasePlatformOwner(platform)
+            registry.ensureEditProtected(editImpact()).close()
+        }
+        assertFalse(registry.releaseEditPermit(platform, permit.id))
     }
 
     private val railId = UUID.randomUUID()

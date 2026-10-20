@@ -10,16 +10,19 @@ import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.render.Vector3Snapshot
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.SweptRailSpan
+import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.RailView
 
 /** Same numerical residual as the rigid coupler solve, not the public 5mm geometry tolerance. */
 internal const val COUPLER_CONTACT_EPSILON_METERS = 1e-5
 
-/** Current value-only contact geometry and finite directed evidence; not another world index. */
+/** Current contact geometry and finite captured dependencies; not another world index. */
 internal data class CollisionEnvelope(
     val frame: TrainFrameSnapshot,
     val ends: Map<TrainEndSide, End>,
     val sweptSpans: List<SweptRailSpan>,
-    val activeContinuations: ActiveRailContinuationsSnapshot
+    val activeContinuations: ActiveRailContinuationsSnapshot,
+    val dependencies: CollisionDependencies
 ) {
     internal data class End(val position: Vector3Snapshot, val outward: Vector3Snapshot,
                             val connector: Double, val path: List<RailTraversalSegmentSnapshot>) {
@@ -74,7 +77,7 @@ internal data class CollisionEnvelope(
     }
 
     companion object {
-        /** Caller owns the topology read/structural boundary. No live object is retained. */
+        /** Caller owns the topology read/structural boundary; identity proofs are checked only on the owner. */
         fun capture(world: CoreWorld, frame: TrainFrameSnapshot, cars: List<CoreCar>,
                     activeContinuations: ActiveRailContinuationsSnapshot,
                     reversedCars: Set<CoreCar> = emptySet(), previous: CollisionEnvelope? = null): CollisionEnvelope {
@@ -121,10 +124,46 @@ internal data class CollisionEnvelope(
             return CollisionEnvelope(frame, java.util.Map.copyOf(ends), java.util.List.copyOf(paths.map {
                 SweptRailSpan(frame.trainId, it.railId, minOf(it.startArcLengthInAbMeters, it.endArcLengthInAbMeters),
                     maxOf(it.startArcLengthInAbMeters, it.endArcLengthInAbMeters), collisionOnly = true)
-            }), activeContinuations)
+            }), activeContinuations, CollisionDependencies.capture(world, frame, cars,
+                ends.values.map { it.path } + listOf(frame.headTraversal, frame.tailTraversal, frame.bodyTraversal),
+                cars.map { it.isReversed xor (it in reversedCars) }))
         }
     }
 }
 
 private fun ViewDirection.reversed(): ViewDirection = if (this == ViewDirection.AB) ViewDirection.BA else ViewDirection.AB
 private fun RailPositionSnapshot.reversed(): RailPositionSnapshot = copy(facing = facing.reversed())
+
+/** Exact objects and required directed links used by one captured collision observation. */
+internal class CollisionDependencies private constructor(
+    private val rails: List<CoreRail>,
+    private val connections: List<Pair<RailView, RailView>>,
+    private val cars: List<CoreCar>,
+    private val directions: List<Boolean>,
+    private val reversed: Boolean
+) {
+    fun matches(train: CoreTrain): Boolean =
+        train.isReversed == reversed && train.cars.size == cars.size &&
+            cars.indices.all { train.cars[it] === cars[it] && cars[it].train === train &&
+                cars[it].isReversed == directions[it] } &&
+            rails.all { train.world.getRail(it.id) === it } &&
+            connections.all { (from, to) -> from.nextRails.any { it === to } }
+
+    companion object {
+        fun capture(world: CoreWorld, frame: TrainFrameSnapshot, cars: List<CoreCar>,
+                    paths: List<List<RailTraversalSegmentSnapshot>>, directions: List<Boolean>): CollisionDependencies {
+            val railIds = paths.flatten().map { it.railId }.toSet() +
+                setOf(frame.head.railId, frame.tail.railId)
+            val rails = railIds.associateWith { id -> checkNotNull(world.getRail(id)) {
+                "Collision dependency rail is missing: $id"
+            } }
+            val connections = paths.flatMap { path -> path.zipWithNext().mapNotNull { (a, b) ->
+                if (a.railId == b.railId && a.facing == b.facing &&
+                    kotlin.math.abs(a.endArcLengthInAbMeters - b.startArcLengthInAbMeters) <= 1e-8) null
+                else rails.getValue(a.railId).getView(a.facing) to rails.getValue(b.railId).getView(b.facing)
+            } }.distinct()
+            return CollisionDependencies(rails.values.toList(), connections, cars.toList(),
+                directions.toList(), frame.reversed)
+        }
+    }
+}

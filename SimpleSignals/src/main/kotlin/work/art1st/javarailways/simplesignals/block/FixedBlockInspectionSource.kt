@@ -9,7 +9,7 @@ import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionSnapsh
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import work.art1st.javarailways.simplesignals.runtime.PublishedSectionSignal
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.simplesignals.signal.fixedBlockSignalDeclarationId
 import work.art1st.javarailways.simplesignals.signal.blockEntryFromSignalDeclaration
 import work.art1st.javarailways.simplesignals.signal.FixedBlockEntryDirection

@@ -43,7 +43,10 @@ class TrainUniformMotionTest {
         val length = 500.0
         val segments = PrimeCurveGenerator.buildStraight(length)
         val coordinator = PhysicsCoordinator(1, automaticFallback = false)
-        val world = createTestWorld(coordinator)
+        val world = try { createTestWorld(coordinator) } catch (failure: Throwable) {
+            runCatching(coordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
         try {
             val rail = createStraightRailFromSegments(world, segments)
             val constantSpeed = 20.0 // m/s
@@ -91,7 +94,10 @@ class TrainUniformMotionTest {
     @Test
     fun `published velocity follows reversal and clears when stopped`() {
         val coordinator = PhysicsCoordinator(1, automaticFallback = false)
-        val world = createTestWorld(coordinator)
+        val world = try { createTestWorld(coordinator) } catch (failure: Throwable) {
+            runCatching(coordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
         try {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
             val train = createTrainWithConfig("velocity-direction", rail, world, listOf(10.0, 10.0), isLoop = false)
@@ -154,7 +160,10 @@ class TrainUniformMotionTest {
         val radius = 30.0
         val speed = 10.0
         val coordinator = PhysicsCoordinator(1, automaticFallback = false)
-        val world = createTestWorld(coordinator)
+        val world = try { createTestWorld(coordinator) } catch (failure: Throwable) {
+            runCatching(coordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
         try {
             val rail = world.createRailForTest(
                 PrimeCurveGenerator.buildCircle(radius, segmentCount = 1, step = 0.02).single()
@@ -208,7 +217,10 @@ class TrainUniformMotionTest {
     @Test
     fun `explicit placement clears velocity from the previous controller epoch`() {
         val coordinator = PhysicsCoordinator(1, automaticFallback = false)
-        val world = createTestWorld(coordinator)
+        val world = try { createTestWorld(coordinator) } catch (failure: Throwable) {
+            runCatching(coordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
         try {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
             val train = createTrainWithConfig("placement-velocity", rail, world, listOf(10.0))

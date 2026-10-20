@@ -16,7 +16,7 @@ import work.art1st.javarailways.simpleato.api.constraint.FollowConstraint
 import work.art1st.javarailways.simpleato.api.constraint.MovementAuthorityConstraint
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode

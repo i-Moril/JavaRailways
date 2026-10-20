@@ -416,9 +416,9 @@ class DefaultRailwayObservationServiceTest {
                         signalRestrictionSnapshots = domain.signalRestrictions,
                         inspectionRuntime = domain.inspectionRuntime,
                         infrastructureDependencyService = object : InfrastructureDependencyService {
-                            override fun set(request: work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest): Nothing =
+                            override fun set(request: work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest): Nothing =
                                 error("idle dispatcher must not create dependencies")
-                            override fun remove(owner: work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner): Nothing =
+                            override fun remove(owner: work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner): Nothing =
                                 error("idle dispatcher must not remove dependencies")
                         })
                 })

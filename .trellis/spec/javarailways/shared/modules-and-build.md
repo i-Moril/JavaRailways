@@ -6,8 +6,8 @@
 
 | 模块 | 主要职责 | 关键证据 |
 | --- | --- | --- |
-| `Core` | 平台无关物理、车辆、轨道、事件、Tick 与底层 API | `Core/src/main/java/work/art1st/javarailways/core/api/`、`Core/src/main/java/work/art1st/javarailways/core/physics/CoreWorld.kt` |
-| `Basic` | 曲线、公共轨道方向、通用寻路、安全与资源内核，以及自动/手动共用的actuation、制动包络和route/perception snapshot primitive；长期保留平台无关底层机制、通用图算法、拓扑/物理资源推导、资源仲裁、设备准备与释放 | `Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`、`Basic/src/main/java/work/art1st/javarailways/basic/api/` |
+| `Core` | 平台无关物理、车辆、轨道、事件、Tick、统一资源仲裁与底层 API | `Core/src/main/java/work/art1st/javarailways/core/api/`、`Core/src/main/java/work/art1st/javarailways/core/physics/CoreWorld.kt` |
+| `Basic` | 曲线、公共轨道方向、通用寻路、安全与资源内核，以及自动/手动共用的actuation、制动包络和route/perception snapshot primitive；长期保留平台无关底层机制、通用图算法、拓扑/物理资源推导、进路资源编译、设备准备与释放 | `Basic/src/main/java/work/art1st/javarailways/basic/BasicWorldData.kt`、`Basic/src/main/java/work/art1st/javarailways/basic/api/` |
 | `SimpleATO` | 平台无关运营模块；当前拥有Destination、Station、Depot/rolling-stock、Line、Timetable、Dispatcher、ATO安全参数/mission/constraint/coordinator、具体controller、手动导航、运营选路/准入client和限制归约；消费Basic公共轨道方向 | `SimpleATO/build.gradle.kts`、`SimpleATO/src/main/kotlin/work/art1st/javarailways/simpleato/` |
 | `SimpleATOBukkit` | 独立源码/测试边界的Paper/Folia adapter library；由BukkitPlugin直接组合并嵌入同一主插件JAR，不具有第二个插件descriptor或lifecycle | `SimpleATOBukkit/build.gradle.kts`、`SimpleATOBukkitModule.kt` |
 | `SimpleSignals` | 独立信号插件；当前拥有保护区域/固定进路/固定闭塞、JS信号包、模型绑定与显示、定义持久化和Wand编辑；具体未完成交互与现场验证见模块README及活动任务 | `SimpleSignals/build.gradle`、`SimpleSignalsPlugin.kt`、`runtime/SimpleSignalsWorldRuntime.kt`、`authoring/SignalWandHandler.kt` |
@@ -24,7 +24,7 @@
 
 `SimpleATOBukkit`已建立为独立Gradle adapter library，并由`BukkitPlugin`直接调用、打入同一个JavaRailways JAR；它没有第二个Bukkit plugin descriptor、lifecycle或内部service-discovery跳转。首个独立信号系统插件`SimpleSignals`已建立独立JAR、descriptor、单一`JavaPlugin` lifecycle和host service capability gate；其具体完成状态见[信号模块索引](../../simple-signals/backend/index.md)，不以本页概括替代阶段验收。
 
-目标ownership是：`Basic`保存公共轨道方向，保留拓扑校验、不可删除的物理资源底线、通用资源仲裁、设备准备与释放；`SimpleATO`拥有ATO/ATP、Destination/Station/Depot/Line/Timetable、运营寻路、资源检查调度和限制归约，目标合同见[SimpleATO规范](../simpleato/index.md)；`SimpleATOBukkit`只拥有SimpleATO自身的Bukkit适配；`SimpleSignals`拥有首套简易固定闭塞、保护区域、联锁、信号模型、authoring/rendering、持久化以及可选JS/YAML；其他独立信号系统插件不依赖其领域模型；`BukkitPlugin`是唯一JavaRailways主插件的composition root，并保留通用平台调度/渲染、RailWand、手动驾驶、world composition和其他底层平台能力。每一批迁移必须同时移动contract、实现、测试和composition，不得制造两个运行owner。
+目标ownership是：`Basic`保存公共轨道方向，保留拓扑校验、不可删除的物理资源底线、进路资源编译、设备准备与释放；`SimpleATO`拥有ATO/ATP、Destination/Station/Depot/Line/Timetable、运营寻路、资源检查调度和限制归约，目标合同见[SimpleATO规范](../simpleato/index.md)；`SimpleATOBukkit`只拥有SimpleATO自身的Bukkit适配；`SimpleSignals`拥有首套简易固定闭塞、保护区域、联锁、信号模型、authoring/rendering、持久化以及可选JS/YAML；其他独立信号系统插件不依赖其领域模型；`BukkitPlugin`是唯一JavaRailways主插件的composition root，并保留通用平台调度/渲染、RailWand、手动驾驶、world composition和其他底层平台能力。每一批迁移必须同时移动contract、实现、测试和composition，不得制造两个运行owner。
 
 ## 依赖方向
 
@@ -59,3 +59,5 @@
 2. 改 API 时验证 Core/Basic Dokka 边界，并检查所有 downstream compile/test。
 3. 改 platform dependency 时检查 Shadow relocation、service resource merge、plugin dependency 与 dev server staging，不能只确认编译通过。
 4. 不修改 module 名、package 名或 submodule 结构来迎合 Trellis package 映射。
+
+Core拥有`core.api.physics.infrastructure`中立资源/依赖/编辑许可契约和唯一`InfrastructureCoordinationRegistry`；每个CoreWorld持有一个实例，所有Core物理结构修改及活动连接修改强制使用它。Basic负责将路线与领域需求编译为该registry的资源，Bukkit和isolated simulation复用world实例，禁止新增平行registry绕过保护。宿主新增resource validator不迁移运行资源所有权。

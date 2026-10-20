@@ -180,7 +180,6 @@ class WandActionUndoSupportTest {
         val prepared = builder.build()
 
         assertEquals(sourceMetadata.authoring, replacementMetadata.authoring)
-        assertEquals(sourceMetadata.operating, replacementMetadata.operating)
         assertEquals(sourceMetadata.curveSafety, replacementMetadata.curveSafety)
         assertEquals(30.0, prepared.expectedAfter.railMetadata.getValue(replacementRail).authoring?.designSpeedMetersPerSecond)
         assertEquals(15.0, prepared.expectedAfter.railMetadata.getValue(replacementRail).speedLimits.effectiveLimitMetersPerSecond())
@@ -247,4 +246,18 @@ class WandActionUndoSupportTest {
         assertEquals(listOf(secondBranch, firstBranch), prepared.before.rails.single().connectionsAtB)
         assertEquals(prepared.before.rails, prepared.expectedAfter.rails)
     }
+    @Test
+    fun `undo rebases only changed entries and rejects conflicts on those entries`() {
+        val changed = UUID.randomUUID()
+        val unrelated = UUID.randomUUID()
+        fun snapshot(directions: Map<UUID, ViewDirection>) = RailWorldUndoSnapshot(
+            emptyList(), emptyList(), emptyMap(), directions, emptyList(), emptyList())
+        val before = snapshot(mapOf(changed to ViewDirection.AB))
+        val after = snapshot(mapOf(changed to ViewDirection.BA))
+        val current = snapshot(mapOf(changed to ViewDirection.BA, unrelated to ViewDirection.AB))
+        val restored = requireNotNull(rebaseRailWorldUndo(current, after, before))
+        assertEquals(mapOf(changed to ViewDirection.AB, unrelated to ViewDirection.AB), restored.operatingDirections)
+        assertEquals(null, rebaseRailWorldUndo(snapshot(mapOf(unrelated to ViewDirection.AB)), after, before))
+    }
+
 }

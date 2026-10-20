@@ -18,6 +18,8 @@ import work.art1st.javarailways.core.physics.rail.RailSegment
 import work.art1st.javarailways.core.physics.rail.RailSegments
 import work.art1st.javarailways.core.physics.train.CoreTrain.PreparedTrainStructure
 
+internal class CouplingRejectedException(message: String) : RuntimeException(message)
+
 /**
  * Collision coupling decisions, preparation and commit ordering.
  *
@@ -36,11 +38,13 @@ internal object TrainCoupling {
         firstEnvelope: CollisionEnvelope?, otherEnvelope: CollisionEnvelope?
     ): Train {
         first.world.physicsCoordinator.ensureBetweenFrames("TrainCoupling.linkFromCollisionOnOwner")
-        check(topologyRevision != null && topologyRevision == first.world.topologyRevision) {
-            "collision topology is missing or stale"
+        check(topologyRevision != null) { "collision topology observation is missing" }
+        val envelopes = listOfNotNull(firstEnvelope?.let { first to it }, otherEnvelope?.let { other to it }).toMap()
+        check(envelopes.size == 2) { "collision dependency observation is missing" }
+        admitCoupling(envelopes.all { (train, envelope) -> envelope.dependencies.matches(train) }) {
+            "collision rail, connection or consist dependencies changed"
         }
-        return couple(first, other, beforeCollision, otherBeforeCollision, topologyRevision,
-            listOfNotNull(firstEnvelope?.let { first to it }, otherEnvelope?.let { other to it }).toMap())
+        return couple(first, other, beforeCollision, otherBeforeCollision, envelopes)
     }
 
     @OptIn(ExtensionData::class)
@@ -49,24 +53,23 @@ internal object TrainCoupling {
         other: CoreTrain,
         beforeCollision: TrainFrameSnapshot,
         otherBeforeCollision: TrainFrameSnapshot,
-        topologyRevision: Long,
         envelopes: Map<CoreTrain, CollisionEnvelope>
     ): Train = with(first) {
         check(this !== other && world === other.world) { "coupling requires two trains in one world" }
         check(world.getTrain(id) === this && world.getTrain(other.id) === other) { "collision train has retired" }
-        check(!movementHeld && !other.movementHeld) { "cannot couple a train with unavailable configuration" }
-        check(!isDerailed && !other.isDerailed) { "cannot couple a derailed train" }
+        admitCoupling(!movementHeld && !other.movementHeld) { "cannot couple a train with unavailable configuration" }
+        admitCoupling(!isDerailed && !other.isDerailed) { "cannot couple a derailed train" }
         check(beforeCollision.trainId == id && otherBeforeCollision.trainId == other.id &&
             beforeCollision.physicsEpoch == otherBeforeCollision.physicsEpoch) { "collision observations disagree" }
         val stationary = beforeCollision.isStationary()
         val otherStationary = otherBeforeCollision.isStationary()
-        check(stationary || otherStationary) { "coupling requires a stationary participant before collision" }
+        admitCoupling(stationary || otherStationary) { "coupling requires a stationary participant before collision" }
         check(publishedFrame.physicsEpoch == other.publishedFrame.physicsEpoch) { "coupling frames disagree" }
         check((cars + other.cars).map { it.id }.toSet().size == cars.size + other.cars.size) {
             "coupling would duplicate a stable car identity"
         }
-        val contact = checkNotNull(prepareContact(first, other, beforeCollision, otherBeforeCollision, stationary,
-            otherStationary, envelopes)) { "collision has no unique contact on its recorded step" }
+        val contact = prepareContact(first, other, beforeCollision, otherBeforeCollision, stationary,
+            otherStationary, envelopes) ?: throw CouplingRejectedException("collision has no unique contact on its recorded step")
         val firstEnd = contact.firstEnd
         val secondEnd = contact.secondEnd
         val decision = TrainLinkEvent(
@@ -79,12 +82,15 @@ internal object TrainCoupling {
         } finally {
             decision.freeze()
         }
-        check(listenersSucceeded) { "Link decision listener failed: $id and ${other.id}" }
-        check(!decision.isRejected) { "Link rejected: ${decision.rejectionReason}" }
+        admitCoupling(listenersSucceeded) { "Link decision listener failed: $id and ${other.id}" }
+        admitCoupling(!decision.isRejected) { "Link rejected: ${decision.rejectionReason}" }
         val master = decision.masterTrain as CoreTrain
         val removed = if (master === this) other else this
         val masterEnd = if (master === this) firstEnd else secondEnd
         val removedEnd = if (master === this) secondEnd else firstEnd
+        admitCoupling(envelopes.all { (train, envelope) -> envelope.dependencies.matches(train) }) {
+            "collision dependencies changed during link decision"
+        }
         val prepared = master.prepareCoupling(removed, masterEnd, removedEnd, decision.resultReversed, contact)
         val controllerUpdates = master.controller?.prepareConsistChange(
             prepared.structure.geometry.cars.toList(), removed.controller
@@ -106,9 +112,11 @@ internal object TrainCoupling {
             }
         }
 
+        admitCoupling(envelopes.all { (train, envelope) -> envelope.dependencies.matches(train) }) {
+            "collision rail, connection or consist dependencies changed during preparation"
+        }
         val occupancy = world.prepareCouplingOccupancy(master, removed, prepared.structure.frame,
             prepared.structure.geometry.cars, prepared.reversals.map { it.first }.toSet())
-        check(world.topologyRevision == topologyRevision) { "collision topology changed during preparation" }
 
         // Commit-only: no solver, plugin callback, Context initialization or car destruction.
         try {
@@ -136,6 +144,10 @@ internal object TrainCoupling {
             decision.firstCarIds, decision.secondCarIds, decision.firstReversed, decision.secondReversed
         ))
         master
+    }
+
+    private inline fun admitCoupling(accepted: Boolean, reason: () -> String) {
+        if (!accepted) throw CouplingRejectedException(reason())
     }
 
     private fun TrainFrameSnapshot.isStationary(): Boolean = speedMetersPerSecond == 0.0 &&

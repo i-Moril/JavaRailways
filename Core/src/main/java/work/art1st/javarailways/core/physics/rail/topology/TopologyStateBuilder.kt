@@ -93,6 +93,7 @@ internal object TopologyStateBuilder {
             nodes = nodes,
             edges = edges,
             railProjection = projection,
+            railIdentities = input.rails.associate { it.id to it.identity },
             atGradeCrossings = validateCrossings(
                 input.atGradeCrossings,
                 rails,

@@ -13,7 +13,7 @@ import work.art1st.javarailways.core.api.render.Renderable
 internal class OrdinaryModelRenderable(
     override val world: World,
     private val closeHandle: () -> CompletionStage<Void>
-) : Renderable {
+) : Renderable, work.art1st.javarailways.core.api.util.Destroyable {
     @Volatile private var pose = ModelPose.IDENTITY
     @Volatile private var model: OrdinaryModel? = null
     val isPublished: Boolean get() = model != null

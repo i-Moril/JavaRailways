@@ -1,9 +1,9 @@
 package work.art1st.javarailways.basic.infrastructure.admission
 
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureFootprint
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.RailInterval
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
@@ -19,7 +19,7 @@ import work.art1st.javarailways.basic.infrastructure.ProjectedTurnoutTraversal
 import work.art1st.javarailways.basic.infrastructure.RouteBoundResourceCatalog
 import work.art1st.javarailways.basic.infrastructure.RouteBoundResourceHit
 import work.art1st.javarailways.basic.infrastructure.RouteBoundResourceQuery
-import work.art1st.javarailways.basic.infrastructure.TurnoutResourceIdentity
+import work.art1st.javarailways.core.api.physics.infrastructure.TurnoutResourceIdentity
 
 /** Explicit route-coordinate range whose unavoidable physical resources must be compiled. */
 internal data class PhysicalRouteRange(

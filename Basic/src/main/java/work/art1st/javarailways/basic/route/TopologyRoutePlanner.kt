@@ -94,14 +94,22 @@ object TopologyRoutePlanner {
     fun isValidLocation(topology: TopologyState, location: OperationalRouteLocation): Boolean =
         resolveLocation(location, topology) != null
 
+    /** Reprojects stable rail references and verifies actual intervals and connections. */
+    fun invalidRouteReason(topology: TopologyState, route: RouteSnapshot): String? =
+        when (val result = TopologyRouteProjector.project(route, topology)) {
+            is TopologyRouteProjectionResult.Projected -> null
+            is TopologyRouteProjectionResult.Rejected -> result.detail
+        }
+
+    /** Validates stale contributions against the supplied graph rather than their source revision. */
+    fun invalidRestrictionsReason(topology: TopologyState, restrictions: RoutePlanningRestrictions): String? =
+        when (val result = RestrictionCompiler.compile(topology, restrictions)) {
+            is RestrictionCompilation.Compiled -> null
+            is RestrictionCompilation.Rejected -> result.detail
+        }
+
     fun plan(input: TopologyRoutePlanningInput): TopologyRoutePlanningResult {
         val topology = input.topology
-        if (input.restrictions.topologyRevision != topology.revision) {
-            return rejected(
-                TopologyRoutePlanningRejection.STALE_RESTRICTIONS,
-                "restriction topology revision ${input.restrictions.topologyRevision} does not match ${topology.revision}"
-            )
-        }
         val start = resolveLocation(input.start, topology)
             ?: return invalidLocation(input.start)
         val end = resolveLocation(input.end, topology)
@@ -352,7 +360,7 @@ object TopologyRoutePlanner {
                     cuts += target.unoriented()
                     macroArcs.getOrPut(start) { mutableListOf() } += GraphArc(
                         target = target,
-                        costMeters = path.spans.sumOf(DirectedRailSpan::lengthMeters),
+                        costMeters = routeSegments.sumOf(RouteSegmentSnapshot::lengthMeters),
                         segments = routeSegments
                     )
                 }
@@ -408,10 +416,13 @@ object TopologyRoutePlanner {
         val projection = topology.railProjection[span.railId]?.singleOrNull() ?: return null
         val railLength = abs(projection.railEndAbMeters - projection.railStartAbMeters)
         if (span.upperAbMeters > railLength + POSITION_EPSILON) return null
-        val canonicalStart = if (span.facing == ViewDirection.AB) span.lowerAbMeters else span.upperAbMeters
-        val canonicalEnd = if (span.facing == ViewDirection.AB) span.upperAbMeters else span.lowerAbMeters
-        val start = projection.edgeDistanceAt(canonicalStart.coerceIn(0.0, railLength))
-        val end = projection.edgeDistanceAt(canonicalEnd.coerceIn(0.0, railLength))
+        val lower = span.lowerAbMeters.coerceIn(0.0, railLength)
+        val upper = span.upperAbMeters.coerceIn(0.0, railLength)
+        if (lower >= upper) return null
+        val canonicalStart = if (span.facing == ViewDirection.AB) lower else upper
+        val canonicalEnd = if (span.facing == ViewDirection.AB) upper else lower
+        val start = projection.edgeDistanceAt(canonicalStart)
+        val end = projection.edgeDistanceAt(canonicalEnd)
         val direction = if (end > start) EdgeDirection.FIRST_TO_SECOND else EdgeDirection.SECOND_TO_FIRST
         return ProjectedSpan(
             edge = DirectedEdge(projection.edgeId, direction),
@@ -425,13 +436,16 @@ object TopologyRoutePlanner {
         val projection = topology.railProjection[railId]?.singleOrNull() ?: return null
         val railLength = abs(projection.railEndAbMeters - projection.railStartAbMeters)
         if (upperAbMeters > railLength + POSITION_EPSILON) return null
+        val lower = lowerAbMeters.coerceIn(0.0, railLength)
+        val upper = upperAbMeters.coerceIn(0.0, railLength)
+        if (lower >= upper) return null
         return when (facing) {
-            ViewDirection.AB -> RouteSegmentSnapshot(railId, facing, lowerAbMeters, upperAbMeters)
+            ViewDirection.AB -> RouteSegmentSnapshot(railId, facing, lower, upper)
             ViewDirection.BA -> RouteSegmentSnapshot(
                 railId,
                 facing,
-                railLength - upperAbMeters,
-                railLength - lowerAbMeters
+                railLength - upper,
+                railLength - lower
             )
         }
     }

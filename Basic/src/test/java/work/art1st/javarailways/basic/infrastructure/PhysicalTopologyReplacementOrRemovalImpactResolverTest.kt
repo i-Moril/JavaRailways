@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.core.api.physics.infrastructure.TurnoutResourceIdentity
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import org.joml.Vector3d
@@ -7,7 +8,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
+import work.art1st.javarailways.core.api.physics.infrastructure.StableTopologyNodeKey
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpoint

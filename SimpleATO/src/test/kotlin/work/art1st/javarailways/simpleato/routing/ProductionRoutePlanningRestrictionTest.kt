@@ -1,5 +1,8 @@
 package work.art1st.javarailways.simpleato.routing
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -12,7 +15,6 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.simpleato.api.destination.DestinationRole
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestination
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService
@@ -44,16 +46,25 @@ import work.art1st.javarailways.simpleato.timetable.TimetableValidator
 import work.art1st.javarailways.simpleato.timetable.TrainSelector
 
 class ProductionRoutePlanningRestrictionTest {
-    private val worlds = mutableListOf<CoreWorld>()
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
 
     @AfterEach
-    fun cleanup() {
-        worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
     }
+
+
 
     @Test
     fun `mission station line and timetable all obey the installed planning sources`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
         val destinations = OperationalDestinationService(world)

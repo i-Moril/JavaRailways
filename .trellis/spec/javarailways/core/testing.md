@@ -6,6 +6,31 @@
 
 用途：测试必须观察真实publication/barrier与cleanup，不用sleep、reflection或same-helper自洽掩盖错误。
 
+## 进程终态故障的测试隔离
+
+`RailwaySimulationHalt` 没有生产 reset，关闭所有 coordinator 也不清除首个故障。
+Core 中故意触发全局 halt 的测试方法使用 test-only `@IsolateGlobalHalt`：
+扩展按 JUnit invocation unique ID 在子 JVM 中执行该用例，普通测试仍在原测试 JVM 执行。
+参数化方法可用 `@IsolateGlobalHalt("stall", "epoch-failure")` 仅隔离指定字符串参数；
+不能用 Gradle `forkEvery` 的类级隔离代替 invocation 隔离。
+子 JVM 必须恰好成功执行一个测试，失败和日志返回父测试，超时终止子进程。
+Gradle 为 launcher 提供真实 test runtime classpath，代码只在 `src/testFixtures`，不进入 Core runtime。
+fixture 的 JUnit API 经 `testFixturesApi` 暴露（注解与 extension 的公开签名需要），
+launcher 仅为 fixture implementation 依赖；consumer 仍显式拥有自己的 JUnit engine。
+SimpleATO 的真实失败 epoch 模拟测试复用这一标记与其自身 test classpath；不按模块泛化隔离。
+
+带标记的方法必须在方法体内建立和释放 fixture，不在实例构造器或 class/lifecycle hooks 中建立故障状态。
+每个 invocation 只测试一个终态；需要在故障后观察新 world 被拒绝时可以在同 invocation 创建，
+但不能要求新 world 自动恢复。如果要测试另一次独立故障，应拆成新的 invocation。
+普通参数拒绝、准备前失败、事件 listener 隔离、独立 world overload 不属于全局 halt，
+不要泛化标记所有异常测试。
+
+`RailwaySimulationHaltTest` 的两个参数 invocation 分别验证 fresh-process 准入、
+多 coordinator pending work 失败以及关闭全部 coordinator 后终态仍保留。
+联结未知 controller 准备异常的生产链回归验证全局 halt 并保留原编组；
+内部准备方法直接抛错的单元用例不因此改成全局失败。
+本批仅静态检查测试源码与启动配置，未执行测试、编译或构建。
+
 ## Fixture owner 与签名
 
 Core `java-test-fixtures`导出：

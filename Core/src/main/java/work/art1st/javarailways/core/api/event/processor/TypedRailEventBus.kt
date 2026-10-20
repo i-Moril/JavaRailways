@@ -42,6 +42,7 @@ internal class TypedRailEventBus<E : Event>(
             if (!function.hasAnnotation<HandlesEvent>()) return@forEach
             val declared = "${listener::class.qualifiedName ?: listener::class.simpleName}." +
                 "${function.name}()"
+            require(!function.isSuspend) { "@HandlesEvent function $declared must not be suspend" }
             val parameters = function.parameters
             require(parameters.size == 2) {
                 "@HandlesEvent function $declared must declare exactly one event parameter"

@@ -1,5 +1,8 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.core.api.physics.infrastructure.TurnoutResourceIdentity
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import org.joml.Vector3d
@@ -7,7 +10,7 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.*
 import work.art1st.javarailways.core.api.physics.RailwayWorldFrameSnapshot
@@ -31,12 +34,12 @@ import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmi
 /** Real Core turnout topology and live preparation, with coherent immutable observation inputs. */
 class BulbLineAdmissionTest {
     @Test
-    fun `rolling suffix grants useful prefix while first turnout is held then prepares second use`() {
+    fun `rolling suffix grants useful prefix while first turnout is held then prepares second use`() = IsolatedSimulationThreadMarker.run {
         exerciseRollingBulb(sideMeters = 50.0, canClearFirstUse = true)
     }
 
     @Test
-    fun `short loop keeps turnout held when capped authority cannot clear the train tail`() {
+    fun `short loop keeps turnout held when capped authority cannot clear the train tail`() = IsolatedSimulationThreadMarker.run {
         exerciseRollingBulb(sideMeters = 5.0, canClearFirstUse = false)
     }
 
@@ -112,14 +115,16 @@ class BulbLineAdmissionTest {
                         emptyList(), emptyList())), ActiveRailContinuationsSnapshot.empty(topology.revision)))
             }
             var observation = frame(0.0, 50.0)
-            val registry = InfrastructureCoordinationRegistry({ topology.revision }, { true })
+            val registry = world.infrastructureCoordination
             val catalog = RouteBoundResourceCatalog { topology }
             catalog.publish(topology, PhysicalTopologyResources.routeBoundBindings(topology))
             val live = LiveInfrastructurePreparationActuator(world) { _, _ -> null }
             var starts = 0
             var secondReady = false
             var secondRequirements: List<InfrastructurePreparationRequirement> = emptyList()
-            val engine = RouteResourceAdmissionEngine("bulb", registry, Any(), { topology }, { observation }, catalog,
+            val hostClaimOwner = Any()
+            val owner = InfrastructureOwner("test:bulb/train", 1L)
+            val engine = RouteResourceAdmissionEngine("bulb", registry, hostClaimOwner, { topology }, { observation }, catalog,
                 { _, _ -> null }, InfrastructurePreparationActuator { requirements ->
                     if (requirements.isEmpty()) live.start(requirements) else if (++starts == 1) live.start(requirements) else {
                         secondRequirements = requirements.toList()
@@ -127,7 +132,9 @@ class BulbLineAdmissionTest {
                             private var actual: ResourcePreparationTicket? = null
                             override fun snapshot(): ResourcePreparationSnapshot {
                                 if (!secondReady) return ResourcePreparationSnapshot(ResourcePreparationState.PREPARING)
-                                if (actual == null) actual = (live.start(secondRequirements) as InfrastructurePreparationStart.Accepted).ticket
+                                if (actual == null) actual = registry.withClaim(hostClaimOwner, owner) {
+                                    (live.start(secondRequirements) as InfrastructurePreparationStart.Accepted).ticket
+                                }
                                 return actual!!.snapshot()
                             }
                             override fun abort() = Unit
@@ -135,7 +142,6 @@ class BulbLineAdmissionTest {
                     }
                 }, { _, failure -> throw failure })
             val requester = Any()
-            val owner = InfrastructureOwner("test:bulb/train", 1L)
             fun intent(end: Double) = RouteResourceIntent("test:request", owner, "train", observation.stamp, route, RouteBoundary(end))
             val tooLong = assertInstanceOf(RouteAdmissionResult.Rejected::class.java,
                 engine.request(requester, intent(route.totalLengthMeters)))
@@ -184,7 +190,7 @@ class BulbLineAdmissionTest {
 
             // A competing route cannot acquire the turnout while the first visit still holds it.
             val competitor = registry.beginAcquireClaim(Any(), InfrastructureClaimRequest(InfrastructureOwner("test:competitor", 1L),
-                work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint(listOf(turnout))))
+                work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureFootprint(listOf(turnout))))
             assertFalse(competitor.result.successful)
             assertEquals(canClearFirstUse, ceiling.distanceFromRouteStartMeters - 50.0 > 340.0)
             if (!canClearFirstUse) {

@@ -1,4 +1,4 @@
-package work.art1st.javarailways.basic.api.infrastructure
+package work.art1st.javarailways.core.api.physics.infrastructure
 
 import java.util.UUID
 import java.util.Collections

@@ -29,7 +29,7 @@ data class RouteSegmentSnapshot(
  *
  * [revision] is the route/path revision and changes whenever the selected traversal changes.
  * [topologyRevision] identifies the immutable Core topology against which [segments] were selected;
- * it is independent from [revision] and must match the topology used to validate the route.
+ * it is independent from [revision]. A later topology revalidates the referenced rails and connections.
  * The constructor defensively copies [segments].
  */
 @ConsistentCopyVisibility

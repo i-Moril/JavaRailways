@@ -33,16 +33,16 @@ import work.art1st.javarailways.bukkit.api.model.asset.ModelAssetImportMode;
 import work.art1st.javarailways.bukkit.api.model.asset.ModelAssetYamlCompilation;
 import work.art1st.javarailways.bukkit.api.model.asset.ModelAssetYamlCompiler;
 import work.art1st.javarailways.bukkit.api.model.asset.ModelAssetYamlSource;
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencies;
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest;
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner;
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencies;
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest;
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner;
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest;
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionResult;
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource;
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditBlockerKind;
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact;
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest;
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus;
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource;
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditBlockerKind;
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditImpact;
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditRequest;
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditStatus;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot;
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot;
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource;
@@ -345,7 +345,6 @@ public final class SignalApiConsumerPlugin extends JavaPlugin {
 
             infrastructureDependencyOwner = new InfrastructureOwner("example.signaladdon:dependency/main", 1L);
             var request = new InfrastructureDependencyRequest(
-                observation.getStamp().getTopologyRevision(),
                 infrastructureDependencyOwner,
                 new InfrastructureDependencies(List.of(), List.of(), List.of(
                     signalResource

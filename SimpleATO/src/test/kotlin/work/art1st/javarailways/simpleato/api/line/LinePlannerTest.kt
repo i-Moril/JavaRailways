@@ -1,5 +1,8 @@
 package work.art1st.javarailways.simpleato.api.line
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -14,15 +17,26 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
 
 class LinePlannerTest {
-    private val worlds = mutableListOf<CoreWorld>()
-    @AfterEach fun cleanup() = worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
+
+    @AfterEach
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
+    }
+
 
     @Test
     fun `chooses a directed berth route for each ordered station pair`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
         val destinations = OperationalDestinationService(world)
@@ -66,7 +80,7 @@ class LinePlannerTest {
 
     @Test
     fun `uses the exact selected berth sequence when requested`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(120.0, 1))
         val destinations = OperationalDestinationService(world)

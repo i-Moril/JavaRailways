@@ -120,7 +120,7 @@ class PreparedRailWorldSnapshotPlanTest {
             )
             IsolatedSimulationThreadMarker.run { CoreRail.connect(source, first) }
             IsolatedSimulationThreadMarker.run { CoreRail.connect(source, second) }
-            source.viewAB.activeRail = first.viewAB
+            IsolatedSimulationThreadMarker.run { source.viewAB.activeRail = first.viewAB }
             val current = world.allRails.map(CoreRail::save)
             val target = current.map { saved ->
                 if (saved.id == source.id.toString()) {
@@ -239,7 +239,7 @@ class PreparedRailWorldSnapshotPlanTest {
     }
 
     @Test
-    fun `stale plan rejects before replacing its stable UUID`() {
+    fun `replacement plan retains unrelated edits`() {
         val world = createTestWorld()
         try {
             val source = world.createRailForTest(line(Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0)))
@@ -253,13 +253,12 @@ class PreparedRailWorldSnapshotPlanTest {
                 curveAB = replacement.save() as PrimeCurveImpl.SavedPrimeCurveV1
             ))
             val plan = world.prepareRailWorldSnapshotRestore(current, target)
-            world.createRailForTest(line(Vector3d(20.0, 0.0, 0.0), Vector3d(30.0, 0.0, 0.0)))
+            val unrelated = world.createRailForTest(line(Vector3d(1000.0, 0.0, 0.0), Vector3d(1010.0, 0.0, 0.0)))
 
-            assertFalse(plan.isCurrent(world))
-            assertThrows(IllegalStateException::class.java) {
-                IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) } }
-            }
-            assertSame(source, world.getRail(source.id))
+            assertTrue(plan.isCurrent(world))
+            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) } }
+            assertTrue(source !== world.getRail(source.id))
+            assertSame(unrelated, world.getRail(unrelated.id))
         } finally {
             world.physicsCoordinator.close()
             (world.tickManager as AutoCloseable).close()
@@ -275,7 +274,7 @@ class PreparedRailWorldSnapshotPlanTest {
             val second = world.createRailForTest(line(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 5.0)))
             IsolatedSimulationThreadMarker.run { CoreRail.connect(source, first) }
             IsolatedSimulationThreadMarker.run { CoreRail.connect(source, second) }
-            source.viewAB.activeRail = first.viewAB
+            IsolatedSimulationThreadMarker.run { source.viewAB.activeRail = first.viewAB }
             val current = world.allRails.map(CoreRail::save)
             val replacement = PrimeCurve.fromPoints(listOf(
                 Curve.RawPoint(Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0),
@@ -289,8 +288,7 @@ class PreparedRailWorldSnapshotPlanTest {
             }
             val plan = world.prepareRailWorldSnapshotRestore(current, target)
 
-            source.viewAB.activeRail = second.viewAB
-
+            IsolatedSimulationThreadMarker.run { source.viewAB.activeRail = second.viewAB }
             assertFalse(plan.isCurrent(world))
             assertSame(source, world.getRail(source.id))
         } finally {
@@ -308,7 +306,7 @@ class PreparedRailWorldSnapshotPlanTest {
             val second = world.createRailForTest(line(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 5.0)))
             IsolatedSimulationThreadMarker.run { CoreRail.connect(source, first) }
             IsolatedSimulationThreadMarker.run { CoreRail.connect(source, second) }
-            source.viewAB.activeRail = first.viewAB
+            IsolatedSimulationThreadMarker.run { source.viewAB.activeRail = first.viewAB }
             val current = world.allRails.map(CoreRail::save)
             val replacement = PrimeCurve.fromPoints(listOf(
                 Curve.RawPoint(Vector3d(0.0, 0.0, 0.0), Vector3d(1.0, 0.0, 0.0), Vector3d(0.0, 1.0, 0.0), 0.0),
@@ -326,8 +324,7 @@ class PreparedRailWorldSnapshotPlanTest {
             }
             val plan = world.prepareRailWorldSnapshotRestorePreservingActiveSelections(current, target)
 
-            source.viewAB.activeRail = second.viewAB
-
+            IsolatedSimulationThreadMarker.run { source.viewAB.activeRail = second.viewAB }
             assertTrue(plan.isCurrent(world))
             IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(plan.topologyUpdate) { plan.apply(world) } }
             val restored = requireNotNull(world.getRail(source.id))
@@ -347,7 +344,7 @@ class PreparedRailWorldSnapshotPlanTest {
             val second = world.createRailForTest(line(Vector3d(10.0, 0.0, 0.0), Vector3d(20.0, 0.0, 5.0)))
             IsolatedSimulationThreadMarker.run { CoreRail.connect(source, first) }
             IsolatedSimulationThreadMarker.run { CoreRail.connect(source, second) }
-            source.viewAB.activeRail = second.viewAB
+            IsolatedSimulationThreadMarker.run { source.viewAB.activeRail = second.viewAB }
             val current = world.allRails.map(CoreRail::save)
             val target = current.map { saved ->
                 when (saved.id) {

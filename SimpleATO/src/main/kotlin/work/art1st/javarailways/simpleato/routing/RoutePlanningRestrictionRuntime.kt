@@ -45,9 +45,9 @@ class RoutePlanningRestrictionRuntime {
         captured.forEach { binding ->
             val contribution = try {
                 binding.source.restrictions(topology).also {
-                    require(it.topologyRevision == topology.revision) {
-                        "returned topology revision ${it.topologyRevision}; expected ${topology.revision}"
-                    }
+                    val invalid = work.art1st.javarailways.basic.route.TopologyRoutePlanner
+                        .invalidRestrictionsReason(topology, it)
+                    require(invalid == null) { invalid.orEmpty() }
                 }
             } catch (failure: Exception) {
                 throw IllegalArgumentException(

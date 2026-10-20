@@ -174,6 +174,17 @@ class CoreCar @MainThread internal constructor(
         publishPhysicsState()
     }
 
+    /** Restore the last publication in the worker's writable slots; never flip buffers here. */
+    internal fun discardPhysicsChanges() {
+        bogies.forEach(CoreBogie::discardPhysicsChanges)
+        _position.set(_position.get())
+        _direction.set(_direction.get())
+        _normal.set(_normal.get())
+        _motionState.set(_motionState.get())
+        geometryPhysicsDirty = false
+        motionPhysicsDirty = false
+    }
+
     internal fun captureActivePlacementFrame(): CarFrameSnapshot = CarFrameSnapshot.create(
         id, length,
         RenderableFrameSnapshot.create(Vector3Snapshot.capture(activePosition),
@@ -703,7 +714,7 @@ class CoreCar @MainThread internal constructor(
 
     private val destruction = Destruction()
 
-    override fun destroy(): CompletionStage<Void> = destruction.run {
+    internal fun destroyOwnedResources(): CompletionStage<Void> = destruction.run {
         val steps = DestructionSteps()
         bogies.forEach { steps.await { it.destroy() } }
         extensionDataContainer.extensionData.filterNotNull().forEach { steps.await { it.destroy() } }

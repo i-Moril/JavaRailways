@@ -272,8 +272,27 @@ data class TopologyState private constructor(
     /** Reverse projection from persistent rail UUIDs to their normalized edge slices. */
     val railProjection: Map<UUID, List<TrackEdgeSlice>>,
     /** At-grade shared conflicts detected from geometry; never structural continuations. */
-    val atGradeCrossings: List<AtGradeRailCrossing>
+    val atGradeCrossings: List<AtGradeRailCrossing>,
+    /** Process-local physical rail incarnation; a same-UUID replacement has a new identity. */
+    val railIdentities: Map<UUID, UUID>
 ) {
+    /** Checks only the physical rails and structural relationships actually used by a request. */
+    fun preservesRails(previous: TopologyState, railIds: Collection<UUID>): Boolean = railIds.all { railId ->
+        val identity = previous.railIdentities[railId]
+        (this === previous && railId in railProjection) || identity != null && railIdentities[railId] == identity &&
+            RailEndpoint.entries.all { end ->
+                val port = RailEndpointRef(railId, end)
+                continuationsAt(port) == previous.continuationsAt(port)
+            } && atGradeCrossingsOn(railId) == previous.atGradeCrossingsOn(railId)
+    }
+
+    /** Stable endpoint relationships, independent of revision-local node IDs. */
+    fun continuationsAt(port: RailEndpointRef): Set<RailEndpointRef> = when (val node = structuralNodeAt(port)) {
+        is TopologyNode.Turnout -> node.legalContinuations[port].orEmpty()
+        is TopologyNode.LoopAnchor -> node.ports.filterTo(linkedSetOf()) { it != port }
+        else -> ordinaryContinuationAt(port)?.let(::setOf) ?: emptySet()
+    }
+
     private val structuralNodesByPort: Map<RailEndpointRef, TopologyNode> = immutableMap(
         nodes.values.flatMap { node -> node.ports.map { port -> port to node } }.toMap()
     )
@@ -303,6 +322,7 @@ data class TopologyState private constructor(
 
     init {
         require(revision >= 0L) { "revision must be non-negative" }
+        require(railIdentities.keys == railProjection.keys) { "Every rail requires an incarnation identity" }
         require(nodes.all { (id, node) -> id == node.id && id.revision == revision })
         require(edges.all { (id, edge) -> id == edge.id && id.revision == revision })
         require(railProjection.values.flatten().all { it.edgeId in edges })
@@ -356,7 +376,8 @@ data class TopologyState private constructor(
             nodes: Map<TopologyNodeId, TopologyNode>,
             edges: Map<TrackEdgeId, TrackEdge>,
             railProjection: Map<UUID, List<TrackEdgeSlice>>,
-            atGradeCrossings: Collection<AtGradeRailCrossing>
+            atGradeCrossings: Collection<AtGradeRailCrossing>,
+            railIdentities: Map<UUID, UUID>
         ): TopologyState = TopologyState(
             revision = revision,
             nodes = immutableMap(nodes),
@@ -364,7 +385,8 @@ data class TopologyState private constructor(
             railProjection = immutableMap(
                 railProjection.mapValues { (_, slices) -> immutableList(slices) }
             ),
-            atGradeCrossings = immutableList(atGradeCrossings)
+            atGradeCrossings = immutableList(atGradeCrossings),
+            railIdentities = immutableMap(railIdentities)
         )
     }
 }

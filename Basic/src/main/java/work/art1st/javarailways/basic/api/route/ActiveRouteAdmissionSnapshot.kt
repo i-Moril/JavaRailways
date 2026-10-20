@@ -1,7 +1,7 @@
 package work.art1st.javarailways.basic.api.route
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 
 /** Current host-owned phase of a route admission visible to read-only infrastructure consumers. */
 enum class ActiveRouteAdmissionState {

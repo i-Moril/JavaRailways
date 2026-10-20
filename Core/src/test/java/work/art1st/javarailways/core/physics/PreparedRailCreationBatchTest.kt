@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics
 
+import work.art1st.javarailways.core.testing.IsolateGlobalHalt
+
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import org.joml.Vector3d
@@ -26,8 +28,8 @@ class PreparedRailCreationBatchTest {
         val installed = IsolatedSimulationThreadMarker.run { world.installPreparedRails(prepared) }.single()
         assertSame(prepared.creations.single().curve, installed.curve)
         val loaded = installed.save().curveAB.load(Unit)
-        assertEquals(reverse.getPointAt(2.5).position, loaded.getPointAt(2.5).position)
-        assertEquals(reverse.getPointAt(2.5).tangent, loaded.getPointAt(2.5).tangent)
+        assertEquals(0.0, reverse.getPointAt(2.5).position.distance(loaded.getPointAt(2.5).position), Curve.TOLERANCE)
+        assertEquals(0.0, reverse.getPointAt(2.5).tangent.distance(loaded.getPointAt(2.5).tangent), 1e-12)
         val direct = world.createRailForTest(line(0.0, 5.0, 10.0, 5.0).reversed)
         assertTrue(direct.curve is work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl)
         direct.save()
@@ -81,21 +83,47 @@ class PreparedRailCreationBatchTest {
     }
 
     @Test
-    fun `stale topology rejects whole batch before mutation`() = withWorld { world ->
+    fun `unrelated topology changes preserve a prepared batch`() = withWorld { world ->
         val prepared = world.prepareRailCreationBatch(
             listOf(line(0.0, 0.0, 10.0, 0.0), line(20.0, 0.0, 30.0, 0.0))
         )
-        val unrelated = world.createRailForTest(line(40.0, 0.0, 50.0, 0.0))
-        val revisionBeforeReject = world.topologyRevision
+        val unrelated = world.createRailForTest(line(1000.0, 0.0, 1010.0, 0.0))
+        val installed = IsolatedSimulationThreadMarker.run { world.installPreparedRails(prepared) }
+        assertEquals(3, world.allRails.size)
+        assertSame(unrelated, world.getRail(unrelated.id))
+        assertEquals(prepared.creations.map { it.railId }, installed.map { it.id })
+    }
 
+    @Test
+    fun `new intersecting geometry invalidates prepared crossings before mutation`() = withWorld { world ->
+        val prepared = world.prepareRailCreation(line(-5.0, 0.0, 5.0, 0.0))
+        val crossing = world.createRailForTest(line(0.0, -5.0, 0.0, 5.0))
         val failure = assertThrows(PreparedRailCreationRejectedException::class.java) {
             IsolatedSimulationThreadMarker.run { world.installPreparedRails(prepared) }
         }
-
         assertEquals(PreparedRailCreationRejectionReason.STALE_TOPOLOGY, failure.reason)
-        assertEquals(listOf(unrelated), world.allRails.toList())
-        assertEquals(revisionBeforeReject, world.topologyRevision)
-        assertTrue(prepared.creations.none { world.getRail(it.railId) != null })
+        assertEquals(listOf(crossing), world.allRails.toList())
+    }
+
+    @Test
+    fun `public rail deletion respects a runtime resource claim without Basic`() = withWorld { world ->
+        val rail = world.createRailForTest(line(0.0, 0.0, 10.0, 0.0))
+        val registry = world.infrastructureCoordination
+        val owner = work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner("test:route", 0L)
+        val platform = Any()
+        val acquired = registry.acquireClaim(platform,
+            work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest(owner,
+                work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureFootprint(listOf(
+                    work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource(rail.id, 0.0, 10.0)
+                ))))
+        assertTrue(acquired.successful)
+        assertThrows(IllegalStateException::class.java) {
+            IsolatedSimulationThreadMarker.run { rail.destroy() }
+        }
+        assertSame(rail, world.getRail(rail.id))
+        assertTrue(registry.releaseClaim(platform, owner).successful)
+        IsolatedSimulationThreadMarker.run { rail.destroy() }.toCompletableFuture().join()
+        assertTrue(world.allRails.isEmpty())
     }
 
     @Test
@@ -133,6 +161,7 @@ class PreparedRailCreationBatchTest {
     }
 
     @Test
+    @IsolateGlobalHalt
     fun `partial replacement rollback faults instead of publishing incomplete topology`() = withWorld { world ->
         val firstSource = world.createRailForTest(line(0.0, 0.0, 10.0, 0.0))
         val secondSource = world.createRailForTest(line(20.0, 0.0, 30.0, 0.0))

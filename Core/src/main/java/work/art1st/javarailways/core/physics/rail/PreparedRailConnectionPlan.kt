@@ -10,16 +10,27 @@ import java.util.Collections
 import java.util.LinkedHashSet
 import java.util.UUID
 
-/** Exact final connection state for one explicitly named physical rail endpoint. */
-class PreparedRailEndpointConnection(
+/**
+ * Ordered connections at one physical endpoint. The two-argument constructor asks capture to
+ * choose the straightest continuation; a supplied active endpoint, including null, is exact.
+ */
+class PreparedRailEndpointConnection private constructor(
     val endpoint: RailEndpointRef,
     connectedEndpoints: List<RailEndpointRef>,
-    val activeEndpoint: RailEndpointRef? = connectedEndpoints.firstOrNull()
+    val activeEndpoint: RailEndpointRef?,
+    internal val usesDefaultSelection: Boolean
 ) {
+    constructor(endpoint: RailEndpointRef, connectedEndpoints: List<RailEndpointRef>) :
+        this(endpoint, connectedEndpoints, null, true)
+
+    constructor(endpoint: RailEndpointRef, connectedEndpoints: List<RailEndpointRef>, activeEndpoint: RailEndpointRef?) :
+        this(endpoint, connectedEndpoints, activeEndpoint, false)
+
     val connectedEndpoints: List<RailEndpointRef> =
         Collections.unmodifiableList(ArrayList(connectedEndpoints))
 
     init {
+        require(connectedEndpoints.size <= 2) { "A rail endpoint supports at most two continuations" }
         require(connectedEndpoints.distinct().size == connectedEndpoints.size) {
             "connected endpoints must be unique"
         }
@@ -33,7 +44,8 @@ class PreparedRailEndpointConnection(
  * Process-local plan for explicit endpoint connections in one prepared rail creation batch.
  *
  * Callers name every endpoint and final continuation directly. Capture performs no proximity
- * search and makes no stem/branch choice. Apply validates every source state before mutation and
+ * search. Missing selections use the straightest tangent, retaining connection order on ties.
+ * Apply validates every source state before mutation and
  * writes only the recorded states.
  */
 class PreparedRailConnectionPlan private constructor(
@@ -58,8 +70,7 @@ class PreparedRailConnectionPlan private constructor(
     )
 
     fun isCurrent(candidateWorld: CoreWorld): Boolean =
-        candidateWorld === world && candidateWorld.topologyState === topologyRoot &&
-            candidateWorld.railInventorySize() == initialRailCount &&
+        candidateWorld === world &&
             affectedExistingRails.all { (railId, rail) -> candidateWorld.getRail(railId) === rail } &&
             existingEndpointStatesAreCurrent(candidateWorld)
 
@@ -89,7 +100,8 @@ class PreparedRailConnectionPlan private constructor(
         mutations.map(EndpointMutation::finalConnection)
 
     fun apply(candidateWorld: CoreWorld, installedRails: Collection<CoreRail>) {
-        check(candidateWorld === world && candidateWorld.topologyState === topologyRoot) {
+        candidateWorld.ensureRailEditProtected(affectedExistingRailIds)
+        check(candidateWorld === world) {
             "Prepared explicit connection plan is stale; rebuild it from the current topology"
         }
         check(affectedExistingRails.all { (railId, rail) -> candidateWorld.getRail(railId) === rail }) {
@@ -105,9 +117,6 @@ class PreparedRailConnectionPlan private constructor(
         }
         require(installedById.all { (railId, rail) -> candidateWorld.getRail(railId) === rail }) {
             "Installed rail instances do not match the prepared explicit connection batch"
-        }
-        require(candidateWorld.railInventorySize() == initialRailCount + expectedCreatedIds.size) {
-            "Target rail inventory changed after explicit connection planning"
         }
         require(candidateWorld.preparedInstallIsOnlyInventoryMutation()) {
             "Rail inventory changed after the prepared batch was installed"
@@ -240,8 +249,6 @@ class PreparedRailConnectionPlan private constructor(
                 val secondState = loadCurrent(translatedSecond)
                 if (translatedSecond !in firstState.connected) firstState.connected += translatedSecond
                 if (translatedFirst !in secondState.connected) secondState.connected += translatedFirst
-                if (firstState.active == null) firstState.active = translatedSecond
-                if (secondState.active == null) secondState.active = translatedFirst
             }
 
             val queue = ArrayDeque(states.keys)
@@ -258,7 +265,11 @@ class PreparedRailConnectionPlan private constructor(
                 require(state.connected.distinct().size <= 2) {
                     "A physical endpoint supports at most two explicit continuations"
                 }
-                PreparedRailEndpointConnection(endpoint, state.connected.distinct(), state.active)
+                if (state.active != null || endpoint in replacementEndpoints.values) {
+                    PreparedRailEndpointConnection(endpoint, state.connected.distinct(), state.active)
+                } else {
+                    PreparedRailEndpointConnection(endpoint, state.connected.distinct())
+                }
             }
             return captureLocked(world, preparedBatch, finalConnections)
         }
@@ -269,24 +280,26 @@ class PreparedRailConnectionPlan private constructor(
             preparedBatch: PreparedRailCreationBatch,
             finalConnections: Collection<PreparedRailEndpointConnection>
         ): PreparedRailConnectionPlan {
-            require(world.topologyState === preparedBatch.topologyRoot) {
-                "Prepared rail batch is stale before explicit connection planning"
-            }
+            world.requirePreparedCreationCurrent(preparedBatch)
             require(preparedBatch.ownerWorld === world) {
                 "Prepared rail batch belongs to another world"
             }
+            val creationsById = preparedBatch.creations.associateBy(PreparedRailCreation::railId)
+            fun targetCurve(railId: UUID) = creationsById[railId]?.curve
+                ?: requireNotNull(world.getRail(railId)) { "Missing explicit connection rail $railId" }.curve
             val copiedConnections = finalConnections.map { connection ->
                 PreparedRailEndpointConnection(
                     connection.endpoint,
                     connection.connectedEndpoints,
-                    connection.activeEndpoint
+                    if (connection.usesDefaultSelection) {
+                        straightestEndpoint(connection.endpoint, connection.connectedEndpoints, ::targetCurve)
+                    } else connection.activeEndpoint
                 )
             }
             val finalByEndpoint = copiedConnections.associateBy(PreparedRailEndpointConnection::endpoint)
             require(finalByEndpoint.size == finalConnections.size) {
                 "Each explicitly changed endpoint may be declared only once"
             }
-            val creationsById = preparedBatch.creations.associateBy(PreparedRailCreation::railId)
             fun isExistingTarget(railId: UUID): Boolean =
                 railId !in preparedBatch.excludedExistingRailIds && world.getRail(railId) != null
             fun isTarget(railId: UUID): Boolean = railId in creationsById || isExistingTarget(railId)
@@ -365,7 +378,7 @@ class PreparedRailConnectionPlan private constructor(
             return PreparedRailConnectionPlan(
                 world,
                 preparedBatch,
-                preparedBatch.topologyRoot,
+                world.topologyState,
                 affectedRails,
                 mutations,
                 world.railInventorySize(),
@@ -406,3 +419,22 @@ private fun endpointOfAwayView(view: RailView): RailEndpointRef = RailEndpointRe
     view.rail.id,
     if (view.viewDirection == ViewDirection.AB) RailEndpoint.A else RailEndpoint.B
 )
+
+/** Geometric default only; caller-provided order resolves exact angle ties. */
+internal fun straightestEndpoint(
+    endpoint: RailEndpointRef,
+    connected: List<RailEndpointRef>,
+    curveFor: (UUID) -> work.art1st.javarailways.core.api.physics.curve.PrimeCurve
+): RailEndpointRef? {
+    fun tangentAt(port: RailEndpointRef): org.joml.Vector3dc {
+        val curve = curveFor(port.railId)
+        return curve.getPointAt(if (port.endpoint == RailEndpoint.A) 0.0 else curve.totalArcLength).tangent
+    }
+    val incoming = tangentAt(endpoint)
+    val incomingSign = if (endpoint.endpoint == RailEndpoint.A) -1.0 else 1.0
+    return connected.maxByOrNull { target ->
+        val outgoing = tangentAt(target)
+        val outgoingSign = if (target.endpoint == RailEndpoint.A) 1.0 else -1.0
+        incomingSign * outgoingSign * incoming.dot(outgoing) / (incoming.length() * outgoing.length())
+    }
+}

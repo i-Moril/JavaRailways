@@ -2,9 +2,9 @@
 
 ## 适用场景与用途
 
-触发：修改rail authoring/operating metadata、split/merge/replacement、显式endpoint连接、turnout topology或Core topology synchronization。
+触发：修改rail authoring metadata、split/merge/replacement、显式endpoint连接、turnout topology或Core topology synchronization。
 
-用途：Basic metadata与Core physical topology必须在同一上层transaction一致迁移；metadata区分authoring、turnout endpoint、speed与safety，不让adapter复制物理策略。公共运行方向由 Basic 的独立稀疏存储保存，不塞入本 metadata store，见[方向契约](./operating-directions.md)。
+用途：Basic metadata与Core physical topology必须在同一上层transaction一致迁移；metadata区分authoring、speed与safety，不让adapter复制物理策略。公共运行方向由 Basic 的独立稀疏存储保存，不塞入本 metadata store，见[方向契约](./operating-directions.md)。
 
 ## Owner 与精确metadata
 
@@ -13,7 +13,6 @@
 ```kotlin
 data class RailInfrastructureMetadata(
     val authoring: RailAuthoringMetadata? = null,
-    val operating: RailOperatingMetadata = RailOperatingMetadata(),
     val speedLimits: SpeedLimitMetadata = SpeedLimitMetadata(),
     val curveSafety: CurveSafetyMetadata = CurveSafetyMetadata()
 )
@@ -25,10 +24,9 @@ data class RailInfrastructureMetadata(
 更新某一组时使用嵌套`copy`并保留其余组，例如只修改authoring不能把speedLimits重新折算为单一有效速度，
 否则会丢失限速类别和原始数值。authoring缺失仍用null表达；读取旧geometry默认值的调用方显式提供默认值。
 既有一次性迁移在自身decode边界将旧设计速度转换为SUBGRADE；有效限速在无设计速度或低于设计速度时转换为CURVE，
-业务模型不提供旧形状转换入口。序列化仍是相同四组字段，本批不改变schema/version或新增兼容窗口。
+业务模型不提供旧形状转换入口。当前开发格式删除无运行消费者的 operating 距离组，不改变 schema/version，也不新增兼容 reader。
 
 - authoring：design speed m/s、geometry、assembly、split lineage、A/B grade locks、automatic curve speed policy。
-- operating：只保存A/B turnout endpoint metadata；不得保存运行方向。
 - speed与derail归[speed safety](./speed-and-derail-safety.md)。
 - assembly role token：`LEADING_TANGENT/CURVE/TRAILING_TANGENT`。
 - `RailSplitMetadata(operationId,segmentIndex 0..1,parent?,sourceAssemblyRole?)`；`sourceAssemblyRole=null`是additive default，不升boundary version。
@@ -38,10 +36,10 @@ data class RailInfrastructureMetadata(
 
 | structural operation | metadata结果 | 其他owner |
 | --- | --- | --- |
-| split | parent lineage、outer grade/turnout、assembly lane/role映射到children | Destination/WayPoint按arc迁移；Basic公共方向一并迁移 |
+| split | parent lineage、outer grade、assembly lane/role映射到children | Destination/WayPoint按arc迁移；Basic公共方向一并迁移 |
 | selected lane detach | parallel group dissolve/detach | Core connections同步 |
 | merge | 仅same lineage且metadata equivalent | 重建assembly；destination arcs合并 |
-| reversed replacement | endpoint metadata/grade lock物理方向转换 | Basic公共方向和SimpleATO停车点接近方向分别转换 |
+| reversed replacement | endpoint grade lock物理方向转换 | Basic公共方向和SimpleATO停车点接近方向分别转换 |
 | delete | remove metadata | operational destinations和Basic公共方向先处理 |
 | failure任一步 | rollback Core topology + metadata + projections | 不留partial |
 
@@ -53,9 +51,9 @@ Basic不拥有按距离搜索并自动连接轨道的策略。RailWand把玩家�
 
 `ManualTurnoutSelectionRuntime.select(requester, request)`是同步Basic apply，不负责排队。
 由composition注入`ensureBetweenFrames`及`publishSelection`；先确认阶段，再在同一作用域内完成版本/端口校验、
-临时资源claim、物理锁闭区间检查、双侧选择与finally释放。不能把“等待当前ticket”注入当成完整排他。
+临时资源claim、结构端口物理占用检查、双侧选择与finally释放。不能把“等待当前ticket”注入当成完整排他。
 拒绝过期拓扑、非法端口、资源冲突或物理占用时不改变选择；成功变化后发布当前共享观测，不产生route grant。
-Basic保持既有锁闭区间算法与成本，不直接依赖Core实现或引入另一套仲裁；Bukkit负责异步请求及真实阶段进入。
+Basic使用每个结构端口的 canonical AB 零长度闭区间，不直接依赖Core实现或引入另一套仲裁；Bukkit负责异步请求及真实阶段进入。
 回归必须验证拒绝后选择/claim不变、成功后短暂claim释放、阶段外调用被拒绝，以及真实在途worker完成前不扳道。
 
 ## 项目内正确示例
@@ -94,7 +92,7 @@ var Rail.infrastructureMetadata: RailInfrastructureMetadata
 
 ## 必需测试与验证
 
-- `RailInfrastructureMetadataTopologyTest.kt`：split/merge/lineage/assembly/grade/turnout/additive old JSON。
+- `RailInfrastructureMetadataTopologyTest.kt`：split/merge/lineage/assembly/grade/current JSON。
 - `PreparedRailConnectionPlanTest.kt`：显式选择、standalone断开、stale拒绝、deterministic apply。
 - `TurnoutTopologyTest.kt`与RailWand geometry policy tests：显式fixture、occupancy/allocation、closure与active preservation。
 - 失败test断言Core links、metadata snapshot与Destinations全不变。

@@ -9,8 +9,9 @@ import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.basic.api.infrastructure.*
-import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
-import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.core.api.physics.infrastructure.*
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.curve.PrimeCurve
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection

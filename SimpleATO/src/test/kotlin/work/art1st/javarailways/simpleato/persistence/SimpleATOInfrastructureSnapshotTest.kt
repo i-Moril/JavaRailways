@@ -1,5 +1,8 @@
 package work.art1st.javarailways.simpleato.persistence
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import org.junit.jupiter.api.AfterEach
@@ -24,7 +27,6 @@ import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.simpleato.api.line.Line
 import work.art1st.javarailways.simpleato.api.line.LineId
@@ -32,12 +34,21 @@ import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 
 class SimpleATOInfrastructureSnapshotTest {
-    private val worlds = mutableListOf<CoreWorld>()
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
 
     @AfterEach
-    fun cleanup() {
-        worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
     }
+
+
 
     @Test
     fun `line snapshot requires explicit up and down patterns`() {
@@ -70,7 +81,7 @@ class SimpleATOInfrastructureSnapshotTest {
                 SimpleATOInfrastructureSnapshotV1.capture(source, infrastructureRevision = 7L)
             )
         )
-        val restored = createTestWorld().also(worlds::add)
+        val restored = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(restored)
         IsolatedSimulationThreadMarker.run { sourceRail.save().load(CoreRail.SavedRailV1.Dependency(restored)) }
 
@@ -100,7 +111,7 @@ class SimpleATOInfrastructureSnapshotTest {
 
     @Test
     fun `missing station fails before any line is materialized`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
@@ -128,7 +139,7 @@ class SimpleATOInfrastructureSnapshotTest {
 
     @Test
     fun `restore rejects a non-fresh depot store before materializing destinations`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val depotId = DepotId("existing")
         val pointRef = StablingPointRef(depotId, "one")
@@ -153,7 +164,7 @@ class SimpleATOInfrastructureSnapshotTest {
     }
 
     private fun worldWithStations(): CoreWorld {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,

@@ -16,7 +16,7 @@ internal object CoreTopologyInputAdapter {
     fun capture(source: TopologyState): TopologyInput {
         val rails = source.railProjection.map { (railId, slices) ->
             val slice = slices.single()
-            TopologyInputRail(railId, kotlin.math.abs(slice.railEndAbMeters - slice.railStartAbMeters))
+            TopologyInputRail(railId, kotlin.math.abs(slice.railEndAbMeters - slice.railStartAbMeters), source.railIdentities.getValue(railId))
         }
         val continuations = linkedMapOf<RailEndpointRef, Set<RailEndpointRef>>()
         rails.forEach { rail ->
@@ -66,7 +66,7 @@ internal object CoreTopologyInputAdapter {
         return TopologyInput(
             revision = revision,
             rails = railsById.values.map { rail ->
-                TopologyInputRail(rail.id, rail.curve.totalArcLength)
+                TopologyInputRail(rail.id, rail.curve.totalArcLength, rail.topologyIdentity)
             },
             continuations = continuations.mapValues { (_, targets) -> targets.toSet() },
             atGradeCrossings = atGradeCrossings

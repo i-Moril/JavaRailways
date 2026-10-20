@@ -1,5 +1,10 @@
 package work.art1st.javarailways.simpleato.controller
 
+import work.art1st.javarailways.core.physics.CoreWorld
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import org.junit.jupiter.api.AfterEach
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
@@ -52,7 +57,6 @@ import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld as createCoreTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
 import work.art1st.javarailways.simpleato.api.restriction.MovementAuthorityRestriction
@@ -64,7 +68,21 @@ import work.art1st.javarailways.simpleato.routing.FrozenMissionRoute
 import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionResult
 
 class SimpleATOTest {
-    private fun createTestWorld() = createCoreTestWorld().also { TestSimpleATOWorldDataRegistry.getOrCreate(it) }
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
+
+    @AfterEach
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
+    }
+
+    private fun createTestWorld() = TestWorldFixture.create().also(worldFixtures::add).world.also { TestSimpleATOWorldDataRegistry.getOrCreate(it) }
 
     private val profile = AtoSafetyProfile(
         accelerationMetersPerSecondSquared = 1.0,
@@ -286,11 +304,13 @@ class SimpleATOTest {
 
     @Test
     fun `upcoming speed signal creates a route braking constraint`() {
-        val fixture = fixture("speed-signal", railLengthMeters = 30.0)
-        val next = fixture.world.createRailForTest(
-            straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
-        )
-        IsolatedSimulationThreadMarker.run { CoreRail.connect(fixture.train.head.location.rail, next) }
+        lateinit var next: CoreRail
+        val fixture = fixture("speed-signal", railLengthMeters = 30.0, configureTrack = { world, rail ->
+            next = world.createRailForTest(
+                straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
+            )
+            world.onOwnerForTest { CoreRail.connect(rail, next) }
+        })
         next.metadata = RailInfrastructureMetadata(
             speedLimits = SpeedLimitMetadata(
                 listOf(SpeedLimitEntry(5.0, SpeedLimitType.CURVE))
@@ -308,11 +328,13 @@ class SimpleATOTest {
 
     @Test
     fun `removing curve limit restores subgrade then timetable line maximum speed`() {
-        val fixture = fixture("layered-speed", railLengthMeters = 30.0)
-        val next = fixture.world.createRailForTest(
-            straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
-        )
-        IsolatedSimulationThreadMarker.run { CoreRail.connect(fixture.train.head.location.rail, next) }
+        lateinit var next: CoreRail
+        val fixture = fixture("layered-speed", railLengthMeters = 30.0, configureTrack = { world, rail ->
+            next = world.createRailForTest(
+                straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(100.0, 0.0, 0.0))
+            )
+            world.onOwnerForTest { CoreRail.connect(rail, next) }
+        })
         val lineId = LineId("metro")
         fixture.ato.setLineMaximumSpeed(
             "line",
@@ -417,12 +439,13 @@ class SimpleATOTest {
 
     @Test
     fun `distinct observed objects with the same world reference stall instead of shadowing`() {
-        val fixture = fixture("duplicate-rail-object-ref", railLengthMeters = 30.0)
-        val head = fixture.train.head.location
-        val nextRail = fixture.world.createRailForTest(
-            straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(130.0, 0.0, 0.0))
-        )
-        IsolatedSimulationThreadMarker.run { CoreRail.connect(head.rail, nextRail) }
+        lateinit var nextRail: CoreRail
+        val fixture = fixture("duplicate-rail-object-ref", railLengthMeters = 30.0, configureTrack = { world, rail ->
+            nextRail = world.createRailForTest(
+                straightCurve(Vector3d(30.0, 0.0, 0.0), Vector3d(130.0, 0.0, 0.0))
+            )
+            world.onOwnerForTest { CoreRail.connect(rail, nextRail) }
+        })
         val ref = RailObjectRef("test", "duplicate")
         nextRail.signals.add(OperationalSpeedLimitSignal(
             ref, RailLocationWithoutFacing(nextRail, 0.0), nextRail.viewAB.viewDirection, null
@@ -455,7 +478,7 @@ class SimpleATOTest {
             straightCurve(Vector3d(40.0, 0.0, 0.0), Vector3d(100.0, 0.0, 20.0))
         )
         configureTurnoutForTest(approach, listOf(straight, branch))
-        approach.viewAB.selectNextRail(straight.viewAB)
+        world.onOwnerForTest { approach.viewAB.selectNextRail(straight.viewAB) }
         val train = createTrainWithConfig("cross-tick-duplicate", approach, world, listOf(10.0))
         val coordinator = AtoWorldCoordinator("cross-tick-duplicate", reportSink = {})
         val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
@@ -473,7 +496,7 @@ class SimpleATOTest {
         train.setControllerForTest(ato)
 
         tickAndPublish(ato, 50.0)
-        approach.viewAB.selectNextRail(branch.viewAB)
+        world.onOwnerForTest { approach.viewAB.selectNextRail(branch.viewAB) }
         tickAndPublish(ato, 50.0)
 
         assertTrue(coordinator.isStalled)
@@ -525,6 +548,7 @@ class SimpleATOTest {
     private fun fixture(
         id: String,
         railLengthMeters: Double = 500.0,
+        configureTrack: (CoreWorld, CoreRail) -> Unit = { _, _ -> },
         inspectionMaximumLeadTimeSeconds: (String) -> Double = { 0.0 }
     ): Fixture {
         val world = createTestWorld()
@@ -532,6 +556,7 @@ class SimpleATOTest {
             world,
             PrimeCurveGenerator.buildStraight(railLengthMeters, segmentCount = 1)
         )
+        configureTrack(world, rail)
         val train = createTrainWithConfig(id, rail, world, listOf(10.0))
         val coordinator = AtoWorldCoordinator("world-$id", reportSink = {})
         val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)

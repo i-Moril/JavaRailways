@@ -350,7 +350,7 @@ class TopologyRoutePlannerTest {
                 overlayTopologyRevision = topology.revision - 1
             )
         )
-        assertRejected(TopologyRoutePlanningRejection.STALE_RESTRICTIONS, stale)
+        assertTrue(stale is TopologyRoutePlanningResult.Planned)
     }
 
     private fun plan(

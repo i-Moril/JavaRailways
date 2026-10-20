@@ -16,7 +16,7 @@ import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
-import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 
 class PreparedRailConnectionPlanTest {
     @Test
@@ -55,7 +55,7 @@ class PreparedRailConnectionPlanTest {
         assertEquals(listOf(lastRail.viewAB), firstRail.viewAB.nextRails)
         assertEquals(listOf(firstRail.viewBA), lastRail.viewBA.nextRails)
         assertEquals(setOf(stemB), plan.affectedExistingEndpoints)
-        assertSame(update.targetRoot, world.topologyState)
+        assertEquals(update.targetRoot.railProjection.keys, world.topologyState.railProjection.keys)
     }
 
     @Test
@@ -85,8 +85,7 @@ class PreparedRailConnectionPlanTest {
     }
 
     @Test
-    fun `explicit connection selects only the named endpoint`() {
-        val world = createTestWorld()
+    fun `explicit connection selects only the named endpoint`() = withWorld { world ->
         val selected = world.createRailForTest(line(0.0, 10.0))
         val nearbyButUnselected = world.createRailForTest(line(10.0, 15.0))
         val prepared = world.prepareRailCreation(line(10.0, 20.0))
@@ -112,12 +111,11 @@ class PreparedRailConnectionPlanTest {
         assertEquals(listOf(selected.viewBA), created.viewBA.nextRails)
         assertTrue(nearbyButUnselected.viewBA.nextRails.isEmpty())
         assertEquals(setOf(selected.id), plan.affectedExistingRailIds)
-        assertTrue(world.topologyState === topologyUpdate.targetRoot)
+        assertEquals(topologyUpdate.targetRoot.railProjection.keys, world.topologyState.railProjection.keys)
     }
 
     @Test
-    fun `standalone prepared rail remains disconnected`() {
-        val world = createTestWorld()
+    fun `standalone prepared rail remains disconnected`() = withWorld { world ->
         world.createRailForTest(line(0.0, 10.0))
         val prepared = world.prepareRailCreation(line(10.0, 20.0))
         val plan = PreparedRailConnectionPlan.capture(world, prepared, emptyList())
@@ -132,12 +130,11 @@ class PreparedRailConnectionPlanTest {
         assertTrue(created.viewAB.nextRails.isEmpty())
         assertTrue(created.viewBA.nextRails.isEmpty())
         assertTrue(plan.affectedExistingEndpoints.isEmpty())
-        assertTrue(world.topologyState === topologyUpdate.targetRoot)
+        assertEquals(topologyUpdate.targetRoot.railProjection.keys, world.topologyState.railProjection.keys)
     }
 
     @Test
-    fun `captured plan rejects a changed topology root`() {
-        val world = createTestWorld()
+    fun `captured plan survives an unrelated topology change`() = withWorld { world ->
         val selected = world.createRailForTest(line(0.0, 10.0))
         val prepared = world.prepareRailCreation(line(10.0, 20.0))
         val createdA = RailEndpointRef(prepared.creations.single().railId, RailEndpoint.A)
@@ -151,42 +148,36 @@ class PreparedRailConnectionPlanTest {
             )
         )
 
-        world.createRailForTest(line(30.0, 40.0))
+        world.createRailForTest(line(1000.0, 1010.0))
 
-        assertFalse(plan.isCurrent(world))
-        assertThrows(IllegalStateException::class.java) { plan.requireCurrent(world) }
+        assertTrue(plan.isCurrent(world))
+        plan.requireCurrent(world)
         assertTrue(selected.viewAB.nextRails.isEmpty())
     }
 
     @Test
-    fun `stale prepared topology rejects the whole transaction before mutation`() {
-        val world = createTestWorld()
+    fun `prepared topology applies its delta after an unrelated edit`() = withWorld { world ->
         val prepared = world.prepareRailCreation(line(0.0, 10.0))
         val plan = PreparedRailConnectionPlan.capture(world, prepared, emptyList())
         val topologyUpdate = plan.prepareTopologyUpdate()
-        world.createRailForTest(line(20.0, 30.0))
-        var actionRan = false
-
-        assertThrows(IllegalStateException::class.java) {
-            IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(topologyUpdate) {
-                actionRan = true
-                world.installPreparedRails(prepared)
-            } }
-        }
-
-        assertFalse(actionRan)
-        assertEquals(null, world.getRail(prepared.creations.single().railId))
+        val other = world.createRailForTest(line(1000.0, 1010.0))
+        IsolatedSimulationThreadMarker.run { world.railTopologyTransaction(topologyUpdate) {
+            val installed = world.installPreparedRails(prepared)
+            plan.apply(world, installed)
+        } }
+        assertSame(other, world.getRail(other.id))
+        assertEquals(2, world.allRails.size)
+        assertTrue(world.getRail(prepared.creations.single().railId) != null)
     }
 
     @Test
-    fun `captured plan rejects an active branch change`() {
-        val world = createTestWorld()
+    fun `captured plan rejects an active branch change`() = withWorld { world ->
         val stem = world.createRailForTest(line(0.0, 10.0))
         val first = world.createRailForTest(line(10.0, 20.0))
         val second = world.createRailForTest(line(10.0, 30.0))
         IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, first) }
         IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, second) }
-        stem.viewAB.activeRail = first.viewAB
+        IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = first.viewAB }
         val prepared = world.prepareRailCreation(line(40.0, 50.0))
         val stemB = RailEndpointRef(stem.id, RailEndpoint.B)
         val firstA = RailEndpointRef(first.id, RailEndpoint.A)
@@ -201,15 +192,13 @@ class PreparedRailConnectionPlanTest {
             )
         )
 
-        stem.viewAB.activeRail = second.viewAB
-
+        IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = second.viewAB }
         assertFalse(plan.isCurrent(world))
         assertThrows(IllegalStateException::class.java) { plan.requireCurrent(world) }
     }
 
     @Test
-    fun `removing a surviving connection requires both endpoint states`() {
-        val world = createTestWorld()
+    fun `removing a surviving connection requires both endpoint states`() = withWorld { world ->
         val first = world.createRailForTest(line(0.0, 10.0))
         val second = world.createRailForTest(line(10.0, 20.0))
         IsolatedSimulationThreadMarker.run { CoreRail.connect(first, second) }
@@ -231,8 +220,7 @@ class PreparedRailConnectionPlanTest {
     }
 
     @Test
-    fun `occupied existing endpoint is rejected before installation`() {
-        val world = createTestWorld()
+    fun `occupied existing endpoint is rejected before installation`() = withWorld { world ->
         val selected = world.createRailForTest(line(0.0, 30.0))
         val existingPeer = world.createRailForTest(line(30.0, 60.0))
         IsolatedSimulationThreadMarker.run { CoreRail.connect(selected, existingPeer) }
@@ -258,8 +246,7 @@ class PreparedRailConnectionPlanTest {
     }
 
     @Test
-    fun `apply rejects another inventory mutation after prepared installation`() {
-        val world = createTestWorld()
+    fun `apply rejects another inventory mutation after prepared installation`() = withWorld { world ->
         val prepared = world.prepareRailCreation(line(0.0, 10.0))
         val plan = PreparedRailConnectionPlan.capture(world, prepared, emptyList())
 
@@ -276,12 +263,7 @@ class PreparedRailConnectionPlanTest {
     }
 
     private fun withWorld(block: (CoreWorld) -> Unit) {
-        val world = createTestWorld()
-        (world.tickManager as AutoCloseable).use {
-            run {
-                world.physicsCoordinator.use { block(world) }
-            }
-        }
+        TestWorldFixture.create().use { fixture -> block(fixture.world) }
     }
 
     private fun line(fromX: Double, toX: Double): PrimeCurve {

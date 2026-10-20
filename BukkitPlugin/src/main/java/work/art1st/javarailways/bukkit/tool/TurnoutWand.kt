@@ -151,8 +151,14 @@ class TurnoutWand(plugin: BukkitPlugin) : AbstractWand<TurnoutWandState, Turnout
                                 if (!plugin.isEnabled || !player.isOnline) return@runInSimulationContext
                                 val activeState = if (isWandItem(player.inventory.itemInMainHand)) getState(player) else null
                                 if (!permitted(player)) return@runInSimulationContext
+                                val currentWorld = plugin.worldManager.loadedRailWorld(player.world.uid)
+                                if (currentWorld !== world) {
+                                    state.clear()
+                                    message(player, "selection.stale")
+                                    return@runInSimulationContext
+                                }
                                 when (turnoutTargetValidity(state, sequence, worldId, topology, activeState, player.world.uid,
-                                    plugin.worldManager.loadedRailWorld(player.world.uid)?.topologyState)) {
+                                    currentWorld.topologyState, target?.orElse(null)?.rail()?.id)) {
                                     TurnoutWandTargetValidity.CANCELLED -> return@runInSimulationContext
                                     TurnoutWandTargetValidity.STALE -> {
                                         state.clear()
@@ -162,7 +168,7 @@ class TurnoutWand(plugin: BukkitPlugin) : AbstractWand<TurnoutWandState, Turnout
                                     TurnoutWandTargetValidity.CURRENT -> Unit
                                 }
                                 if (failure != null) failed(player, failure)
-                                else applyTarget(player, state, world, topology, target.orElse(null), selectApproach)
+                                else applyTarget(player, state, world, currentWorld.topologyState, target.orElse(null), selectApproach)
                                 showConnection(player, state)
                             }
                         } catch (failure: Exception) {

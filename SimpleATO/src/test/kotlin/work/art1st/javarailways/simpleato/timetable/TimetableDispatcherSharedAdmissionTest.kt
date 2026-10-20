@@ -10,13 +10,16 @@ import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 import org.joml.Vector3d
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertAll
+import org.junit.jupiter.api.function.Executable
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
 import work.art1st.javarailways.basic.api.infrastructure.*
-import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.core.api.physics.infrastructure.*
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.simpleato.persistence.SavedDispatcherV1
 import work.art1st.javarailways.simpleato.persistence.SavedTimetableClockV1
 import work.art1st.javarailways.simpleato.persistence.SavedActiveRunCheckpointV1
@@ -38,8 +41,8 @@ import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayTrainObservation
 import work.art1st.javarailways.core.api.physics.rail.topology.ActiveRailContinuationsSnapshot
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyMutationResult
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyMutationStatus
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
@@ -69,7 +72,7 @@ import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.util.AsyncTickTestSupport
@@ -84,7 +87,7 @@ import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclarationBi
 import work.art1st.javarailways.simpleato.api.inspection.InspectionSource
 
 class TimetableDispatcherSharedAdmissionTest {
-    private val worlds = mutableListOf<CoreWorld>()
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
     private val profile = AtoSafetyProfile(
         accelerationMetersPerSecondSquared = 1.0,
         serviceDecelerationMetersPerSecondSquared = 1.0,
@@ -94,9 +97,15 @@ class TimetableDispatcherSharedAdmissionTest {
     )
 
     @AfterEach
-    fun unregisterWorlds() {
-        worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
-        worlds.clear()
+    fun closeWorlds() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
     }
 
     @Test
@@ -817,7 +826,7 @@ class TimetableDispatcherSharedAdmissionTest {
 
     @Test
     fun `stored train transfers its tail held grant to the next forward service`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val coordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
         val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
         TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
@@ -938,7 +947,7 @@ class TimetableDispatcherSharedAdmissionTest {
 
     @Test
     fun `sequential services reuse the restriction stream of an externally owned ATO`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val coordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
         val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
         TestSimpleATOWorldDataRegistry.register(world, data, coordinator)
@@ -1035,7 +1044,7 @@ class TimetableDispatcherSharedAdmissionTest {
         inspectionSources: List<InspectionSource> = emptyList(),
         realEditGuards: Boolean = false
     ): Fixture {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val coordinator = AtoWorldCoordinator(WORLD_ID, reportSink = {})
         val data = BasicWorldData(safetyInterlock = coordinator.safetyInterlock)
         TestSimpleATOWorldDataRegistry.register(world, data, coordinator)

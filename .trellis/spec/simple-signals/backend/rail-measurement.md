@@ -11,19 +11,19 @@
 ```text
 玩家owner校验权限/主手工具并O(1)捕获exact topology -> RailTargetService异步选轨
   -> worker复核拓扑并查询曲线，保存第一点
-  -> 第二次选轨沿用同一拓扑，计算两种距离
+  -> 第二次选轨校验所选轨道依赖，并用当前拓扑计算两种距离
   -> 玩家owner重新核对工具、会话、世界和拓扑 -> 回复或明确要求重新选点
 ```
 
 直线距离为两点世界坐标差的欧氏长度，不是轨道弧长；沿轨距离调用Basic公开`PhysicalRailDistance.between`，内部复用已有最短路算法，具体合同归[Basic路线规划](../../javarailways/basic/route-planning.md#只读物理测距)。本模块不复制Dijkstra或读取宿主私有world/rail对象。曲线由公开`RailTargetService`取得，坐标为canonical AB米；玩家视线朝向不限制搜索方向。
 
-`MeasurementWandHandler`负责两点会话及命令/事件，`RailMeasurementBackend.capture/current/select/measure`负责捕获基线、核对是否仍有效、取得不可变点值和一次测量。`RailMeasurementCapture`只含world UUID与拓扑引用，`MeasuredRailPoint`含rail UUID、AB米及世界XYZ，`RailMeasurementResult(straightMeters, trackMeters)`中后者可空；回复以三位小数显示，内部不先舍入。
+`MeasurementWandHandler`负责两点会话及命令/事件，`RailMeasurementBackend.capture/current/select/measure`负责捕获基线、核对是否仍有效、取得不可变点值和一次测量。`RailMeasurementCapture`含world UUID、拓扑基线与已选轨道集合，`MeasuredRailPoint`含rail UUID、AB米及世界XYZ，`RailMeasurementResult(straightMeters, trackMeters)`中后者可空；回复以三位小数显示，内部不先舍入。
 
 ## 生命周期与失败
 
-选点只存在玩家会话内，工具PDC只保存`measurement_wand=measure`稳定识别marker，不保存轨道坐标或新增schema/version。玩家物品读取、世界与O(1)拓扑引用捕获和回复位于玩家owner；图搜索和曲线运算位于worker。保留exact World、topology和玩家/会话身份，世界同UUID重载或旧异步回调不能嫁接到新会话。离手、权限失效、退出、换世界、世界卸载和插件停用清理选择；迟到结果不能恢复已关闭会话。
+选点只存在玩家会话内，工具PDC只保存`measurement_wand=measure`稳定识别marker，不保存轨道坐标或新增schema/version。玩家物品读取、世界与O(1)拓扑引用捕获和回复位于玩家owner；图搜索和曲线运算位于worker。保留exact World和玩家/会话身份，拓扑基线用于校验所选轨道的实例、端点连接及平交关系，世界同UUID重载或旧异步回调不能嫁接到新会话。离手、权限失效、退出、换世界、世界卸载和插件停用清理选择；迟到结果不能恢复已关闭会话。
 
-未命中轨道、缺失/越界曲线或世界不可用须明确报告，不制造0距离。拓扑变化后清除旧第一点并要求重新选择，不自动按新拓扑解释旧意图。仅轨道不连通时仍可报告有效的直线距离，沿轨明确标为不可达；同一有效轨道位置两项均为0。错误不修改定义、资源或持久化文件。
+未命中轨道、缺失/越界曲线或世界不可用须明确报告，不制造0距离。所选轨道实例或相关连接/平交关系变化后清除旧第一点并要求重新选择；远处编辑不清除选点，最短路在当前拓扑重算，不复用旧路径。仅轨道不连通时仍可报告有效的直线距离，沿轨明确标为不可达；同一有效轨道位置两项均为0。错误不修改定义、资源或持久化文件。
 
 ## 成本、测试与非目标
 

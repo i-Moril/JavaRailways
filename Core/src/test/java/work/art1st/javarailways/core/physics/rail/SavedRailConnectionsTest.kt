@@ -51,6 +51,10 @@ class SavedRailConnectionsTest {
             withLoadedWorld(invalidRails(invalid)) { }
         }
         assertFailureContext(invalid, failure)
+        withWorld { healthy ->
+            assertEquals(PhysicsCoordinatorStatus.RUNNING, healthy.physicsCoordinator.status)
+            assertTrue(healthy.allRails.isEmpty())
+        }
     }
 
     @ParameterizedTest

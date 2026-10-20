@@ -2,7 +2,7 @@
 
 ## 范围与加载条件
 
-当前`Basic/`承载curve/rail metadata、安全、route/resource、WayPoint、route/perception snapshot，以及自动/手动控制共用的物理actuation primitive；ATO mission、constraint、world coordinator与具体controller均由`SimpleATO/`拥有，旧`AtoProvider`切换机制已经删除。Destination、Station、Depot、rolling-stock ledger、Line、timetable model/store/extensions/persistence、Dispatcher、checkpoint和隔离模拟runtime同样由`SimpleATO/`拥有。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：Basic长期只保留平台无关底层机制、通用图算法、资源注册/仲裁、冻结路线的物理资源推导、设备准备、grant与释放。固定闭塞、保护区域和具体联锁策略属于独立信号系统插件，不是Basic的通用领域模型。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
+当前`Basic/`承载curve/rail metadata、安全、route/resource、WayPoint、route/perception snapshot，以及自动/手动控制共用的物理actuation primitive；ATO mission、constraint、world coordinator与具体controller均由`SimpleATO/`拥有，旧`AtoProvider`切换机制已经删除。Destination、Station、Depot、rolling-stock ledger、Line、timetable model/store/extensions/persistence、Dispatcher、checkpoint和隔离模拟runtime同样由`SimpleATO/`拥有。目标模块边界见[模块与构建边界](../shared/modules-and-build.md)和[SimpleATO目标规范](../simpleato/index.md)：Basic长期只保留平台无关底层机制、通用图算法、冻结路线的物理资源编译、设备准备、grant与车尾释放；资源registry与原子claim/编辑许可仲裁由CoreWorld唯一拥有，Basic消费该能力。固定闭塞、保护区域和具体联锁策略属于独立信号系统插件，不是Basic的通用领域模型。Core物理与frame shape由[Core层](../core/index.md)定义；Bukkit/Paper entity、scheduler、viewer与model side effect由platform adapter拥有。
 
 ## 主题导航
 

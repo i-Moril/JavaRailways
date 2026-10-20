@@ -143,6 +143,9 @@ open class PrimeCurveImpl : PrimeCurve {
 
     @Heavy
     override fun getNearestPoint(position: Vector3dc): Curve.Point {
+        require(position.x().isFinite() && position.y().isFinite() && position.z().isFinite()) {
+            "Nearest-point query position must have finite components"
+        }
         val nearestArc = ObjectPools.withTwoVector3d { segment, relative ->
             var bestArc = pointList.first().arcLength
             var bestDistanceSquared = Double.POSITIVE_INFINITY

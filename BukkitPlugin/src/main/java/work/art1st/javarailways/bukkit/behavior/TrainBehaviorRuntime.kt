@@ -8,6 +8,8 @@ import org.graalvm.polyglot.Value
 import org.graalvm.polyglot.io.IOAccess
 import work.art1st.javarailways.bukkit.config.model.TrainBehaviorScript
 
+class TrainBehaviorScriptException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
+
 interface TrainBehaviorBindings {
     fun action(name: String): Boolean
     fun sound(key: String, volume: Double = 1.0, pitch: Double = 1.0): Boolean
@@ -48,50 +50,49 @@ class TrainBehaviorRuntime(
             context.eval(source)
         } catch (failure: Exception) {
             try { context.close(true) } catch (cleanup: Exception) { failure.addSuppressed(cleanup) }
+            if (failure is PolyglotException) {
+                if (failure.isHostException) throw failure.asHostException()
+                throw TrainBehaviorScriptException(formatLoadException(script, failure), failure)
+            }
             throw failure
         }
     }
 
-    fun listActions(): List<TrainBehaviorActionDefinition> {
-        val function = context.getBindings("js").getMember("__javaRailwaysListActions") ?: return emptyList()
-        if (!function.canExecute()) return emptyList()
-        return run {
-            val value = function.execute()
-            if (!value.hasArrayElements()) return emptyList()
-            (0 until value.arraySize).mapNotNull { index ->
-                val entry = value.getArrayElement(index)
-                val name = entry.getMember("name")?.takeIf { it.isString }?.asString() ?: return@mapNotNull null
-                val displayName = entry.getMember("displayName")?.takeIf { it.isString }?.asString() ?: name
-                val executable = entry.getMember("executable")?.takeIf { it.isBoolean }?.asBoolean() ?: true
-                val requiresControl = entry.getMember("requiresControl")?.takeIf { it.isBoolean }?.asBoolean() ?: false
-                TrainBehaviorActionDefinition(name, displayName, executable, requiresControl)
-            }
+    fun listActions(): List<TrainBehaviorActionDefinition> = evaluateGuest("listActions") {
+        val function = context.getBindings("js").getMember("__javaRailwaysListActions")
+        if (function == null || !function.canExecute()) return@evaluateGuest emptyList()
+        val value = function.execute()
+        if (!value.hasArrayElements()) return@evaluateGuest emptyList()
+        (0 until value.arraySize).mapNotNull { index ->
+            val entry = value.getArrayElement(index)
+            val name = entry.getMember("name")?.takeIf { it.isString }?.asString() ?: return@mapNotNull null
+            val displayName = entry.getMember("displayName")?.takeIf { it.isString }?.asString() ?: name
+            val executable = entry.getMember("executable")?.takeIf { it.isBoolean }?.asBoolean() ?: true
+            val requiresControl = entry.getMember("requiresControl")?.takeIf { it.isBoolean }?.asBoolean() ?: false
+            TrainBehaviorActionDefinition(name, displayName, executable, requiresControl)
         }
     }
 
-    fun runDefinedAction(name: String): TrainBehaviorCallResult {
-        return call("__javaRailwaysRunAction", listOf(name))
+    fun runDefinedAction(name: String): TrainBehaviorCallResult = call("__javaRailwaysRunAction", listOf(name))
+
+    fun callOptional(method: String, args: List<Any?>): TrainBehaviorCallResult = evaluateGuest(method) {
+        if (!context.getBindings("js").hasMember(method)) TrainBehaviorCallResult.Success(method)
+        else call(method, args)
     }
 
-    fun callOptional(method: String, args: List<Any?>): TrainBehaviorCallResult {
-        if (!context.getBindings("js").hasMember(method)) return TrainBehaviorCallResult.Success(method)
-        return call(method, args)
-    }
-
-    fun call(method: String, args: List<Any?> = emptyList()): TrainBehaviorCallResult {
+    fun call(method: String, args: List<Any?> = emptyList()): TrainBehaviorCallResult = evaluateGuest(method) {
         val function = context.getBindings("js").getMember(method)
-            ?: return TrainBehaviorCallResult.Failure("行为方法不存在: $method")
-        if (!function.canExecute()) {
-            return TrainBehaviorCallResult.Failure("行为成员不可执行: $method")
-        }
-        return try {
-            val value = function.execute(*args.toTypedArray())
-            TrainBehaviorCallResult.Success(method, value.toKotlinValue())
-        } catch (e: PolyglotException) {
-            TrainBehaviorCallResult.Failure(formatPolyglotException(method, e))
-        } catch (e: Exception) {
-            TrainBehaviorCallResult.Failure("行为执行失败 $method: ${e.message ?: e::class.java.simpleName}")
-        }
+            ?: return@evaluateGuest TrainBehaviorCallResult.Failure("行为方法不存在: $method")
+        if (!function.canExecute()) return@evaluateGuest TrainBehaviorCallResult.Failure("行为成员不可执行: $method")
+        val value = function.execute(*args.toTypedArray())
+        TrainBehaviorCallResult.Success(method, value.toKotlinValue())
+    }
+
+    private inline fun <T> evaluateGuest(method: String, action: () -> T): T = try {
+        action()
+    } catch (failure: PolyglotException) {
+        if (failure.isHostException) throw failure.asHostException()
+        throw TrainBehaviorScriptException(formatPolyglotException(method, failure), failure)
     }
 
     override fun close() {

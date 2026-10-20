@@ -70,12 +70,18 @@ internal fun buildPreparedTargetRailSnapshot(
         val retained = base.filter { it in targets }
         return retained + (targets - retained.toSet()).sortedWith(compareBy({ it.railId }, { it.endpoint }))
     }
+    val decodedBaseCurves = mutableMapOf<UUID, PrimeCurve>()
+    fun targetCurve(railId: UUID): PrimeCurve = addedRailCurves[railId] ?: decodedBaseCurves.getOrPut(railId) {
+        baseById.getValue(railId).curveAB.load(Unit)
+    }
     fun active(endpoint: RailEndpointRef, connected: List<SavedRailEndpointRef>, base: SavedRailEndpointRef?): SavedRailEndpointRef? {
         val explicit = finalActiveEndpoints[endpoint]?.let(SavedRailEndpointRef::fromEndpoint)
         return when {
             endpoint in finalActiveEndpoints -> explicit
             base in connected -> base
-            else -> connected.firstOrNull()
+            else -> straightestEndpoint(endpoint, connected.map {
+                RailEndpointRef(UUID.fromString(it.railId), it.endpoint)
+            }, ::targetCurve)?.let(SavedRailEndpointRef::fromEndpoint)
         }
     }
     return targetRailIds.sortedBy(UUID::toString).map { railId ->

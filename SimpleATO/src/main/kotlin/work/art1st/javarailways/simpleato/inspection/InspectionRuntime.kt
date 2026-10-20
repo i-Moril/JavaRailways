@@ -2,7 +2,7 @@ package work.art1st.javarailways.simpleato.inspection
 
 import work.art1st.javarailways.basic.api.ato.snapshot.PerceptionSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.simpleato.api.inspection.InspectionDeclaration

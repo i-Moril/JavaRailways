@@ -3,11 +3,11 @@ package work.art1st.javarailways.simpleato.timetable.simulation
 import work.art1st.javarailways.core.api.physics.WorldExecutionMode
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.simpleato.api.ato.AtoStallReport
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.RouteAdmissionHandle
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
@@ -15,7 +15,7 @@ import work.art1st.javarailways.basic.api.route.RouteGrantId
 import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
-import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.basic.persistence.BasicInfrastructureSnapshotV2
 import work.art1st.javarailways.simpleato.persistence.SimpleATOInfrastructureSnapshotV1
@@ -351,14 +351,8 @@ class SimulationRouteAdmissionHost internal constructor(
 
     private var latestObservation: RailwayObservation? = null
     private var runtime: RouteResourceAdmissionRuntime? = null
-    private val registry = InfrastructureCoordinationRegistry(
-        currentTopologyRevision = world::topologyRevision,
-        resourceExists = ::resourceExists,
-        railExists = { railId -> world.getRail(railId) != null },
-        topologyNodeExists = { key ->
-            world.topologyState.structuralNodeWithPorts(key.ports) != null
-        }
-    )
+    private val registry = world.infrastructureCoordination
+    private val resourceValidation = registry.registerResourceValidator(::resourceExists)
     private val service = object : RouteResourceAdmissionService {
         override fun request(intent: RouteResourceIntent): RouteAdmissionResult =
             checkNotNull(runtime).request(requester, intent)
@@ -414,7 +408,7 @@ class SimulationRouteAdmissionHost internal constructor(
                 stallWorld = { reason, failure -> stall(reason, failure) }
             )
         } catch (failure: Throwable) {
-            closeOwned(listOf(AutoCloseable { registry.close() }), failure)
+            closeOwned(listOf(resourceValidation), failure)
             throw failure
         }
     }
@@ -425,7 +419,7 @@ class SimulationRouteAdmissionHost internal constructor(
     }
 
     override fun close() {
-        closeOwned(listOf(AutoCloseable { runtime?.close() }, AutoCloseable { registry.close() }))
+        closeOwned(listOf(AutoCloseable { runtime?.close() }, resourceValidation))
         providers.clear()
         contributors.clear()
     }

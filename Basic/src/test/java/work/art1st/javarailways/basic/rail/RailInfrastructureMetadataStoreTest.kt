@@ -32,10 +32,9 @@ class RailInfrastructureMetadataStoreTest {
     }
 
     @Test
-    fun `authoring and turnout edits preserve all speed categories and curve safety`() {
+    fun `authoring edits preserve all speed categories and curve safety`() {
         val original = RailInfrastructureMetadata(
             authoring = RailAuthoringMetadata(designSpeedMetersPerSecond = 30.0),
-            operating = RailOperatingMetadata(turnoutAtA = TurnoutEndpointMetadata(20.0, 5.0)),
             speedLimits = SpeedLimitMetadata(listOf(
                 SpeedLimitEntry(25.0, SpeedLimitType.CURVE),
                 SpeedLimitEntry(20.0, SpeedLimitType.SUBGRADE)
@@ -44,21 +43,16 @@ class RailInfrastructureMetadataStoreTest {
         )
 
         val authoringEdit = original.copy(authoring = original.authoring?.copy(gradeLockedAtA = true))
-        assertEquals(original.operating, authoringEdit.operating)
         assertEquals(original.speedLimits, authoringEdit.speedLimits)
         assertEquals(original.curveSafety, authoringEdit.curveSafety)
 
-        val turnoutEdit = authoringEdit.copy(operating = authoringEdit.operating.copy(turnoutAtB = TurnoutEndpointMetadata(30.0, 5.0)))
-        assertEquals(authoringEdit.authoring, turnoutEdit.authoring)
-        assertEquals(original.speedLimits, turnoutEdit.speedLimits)
-        assertEquals(original.curveSafety, turnoutEdit.curveSafety)
     }
 
     @Test
     fun `fixed grouped JSON preserves absent authoring and all speed categories`() {
         val json = Json { encodeDefaults = true }
         val metadata = json.decodeFromString<RailInfrastructureMetadata>(
-            """{"operating":{"turnoutAtA":null,"turnoutAtB":null},
+            """{
                 "speedLimits":{"entries":[{"valueMetersPerSecond":25.0,"type":"CURVE"},
                     {"valueMetersPerSecond":20.0,"type":"SUBGRADE"}]},
                 "curveSafety":{"baseCurveDerailSpeedMetersPerSecond":28.0}}"""
@@ -69,13 +63,13 @@ class RailInfrastructureMetadataStoreTest {
         assertEquals(20.0, metadata.speedLimits.value(SpeedLimitType.SUBGRADE))
         assertEquals(28.0, metadata.curveSafety.baseCurveDerailSpeedMetersPerSecond)
         val encoded = json.encodeToString(metadata)
-        assertEquals(setOf("authoring", "operating", "speedLimits", "curveSafety"), json.parseToJsonElement(encoded).jsonObject.keys)
+        assertEquals(setOf("authoring", "speedLimits", "curveSafety"), json.parseToJsonElement(encoded).jsonObject.keys)
         assertEquals(metadata, json.decodeFromString<RailInfrastructureMetadata>(encoded))
         assertEquals(RailInfrastructureMetadata.EMPTY, json.decodeFromString<RailInfrastructureMetadata>("{}"))
     }
 
     @Test
-    fun `stores authoring operating speed and safety metadata by rail id`() {
+    fun `stores authoring speed and safety metadata by rail id`() {
         val railId = UUID.randomUUID()
         val metadata = RailInfrastructureMetadata(
             authoring = RailAuthoringMetadata(
@@ -83,7 +77,6 @@ class RailInfrastructureMetadataStoreTest {
                 designSpeedMetersPerSecond = 30.0,
                 gradeLockedAtA = true
             ),
-            operating = RailOperatingMetadata(),
             speedLimits = SpeedLimitMetadata(
                 listOf(
                     SpeedLimitEntry(30.0, SpeedLimitType.SUBGRADE),

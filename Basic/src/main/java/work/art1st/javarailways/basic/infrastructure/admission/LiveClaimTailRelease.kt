@@ -1,9 +1,9 @@
 package work.art1st.javarailways.basic.infrastructure.admission
 
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
-import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureResource
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 
 internal enum class TailReleaseFailureKind {
     INVALID_PROGRESS,

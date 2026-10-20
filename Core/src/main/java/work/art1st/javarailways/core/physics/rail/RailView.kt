@@ -15,9 +15,9 @@ class RailView(
     override val viewDirection: ViewDirection,
     override val curve: PrimeCurve,
     mutableNextRails: MutableList<RailView>,
-    nextActiveRail: RailView? = if (mutableNextRails.isEmpty()) null else mutableNextRails[0]
+    nextActiveRail: RailView? = null
 ) : ApiRailView {
-    val mutableNextRails: MutableList<RailView> = CopyOnWriteArrayList(mutableNextRails)
+    internal val mutableNextRails: MutableList<RailView> = CopyOnWriteArrayList(mutableNextRails)
 
     init {
         if (nextActiveRail != null && (mutableNextRails.isEmpty() || !mutableNextRails.contains(nextActiveRail))) {
@@ -25,9 +25,41 @@ class RailView(
         }
     }
 
-    @Suppress("UNCHECKED_CAST")
-    override val nextRails: List<ApiRailView>
-        get() = mutableNextRails as List<ApiRailView>
+    override val nextRails: List<RailView> = java.util.Collections.unmodifiableList(this.mutableNextRails)
+
+    /** Exact ordered restoration, including an explicit null selection, owned by the world boundary. */
+    fun restoreConnections(nextRails: List<RailView>, activeRail: RailView?) {
+        rail.world.railTopologyTransaction {
+            rail.world.ensureRailEditProtected(listOf(rail.id) + this.nextRails.map { it.rail.id } + nextRails.map { it.rail.id })
+            require(rail.world.getRail(rail.id) === rail) { "Rail is not the registered instance" }
+            require(nextRails.size <= 2 && nextRails.distinct().size == nextRails.size) {
+                "A rail endpoint supports at most two distinct continuations"
+            }
+            require(nextRails.all { it.rail.world === rail.world && rail.world.getRail(it.rail.id) === it.rail }) {
+                "Connections must refer to registered rails in the same world"
+            }
+            require(activeRail == null || activeRail in nextRails) { "Active rail must be a continuation" }
+            require(rail.world.occupyingTrainIds((listOf(rail.id) + this.nextRails.map { it.rail.id } + nextRails.map { it.rail.id }).toSet()).isEmpty()) {
+                "Cannot restore connections on occupied rails"
+            }
+            this.activeRail = null
+            mutableNextRails.clear()
+            mutableNextRails.addAll(nextRails)
+            this.activeRail = activeRail
+        }
+    }
+
+    /** Highest tangent cosine is the straightest continuation; exact ties retain connection order. */
+    internal fun selectDefaultConnection() {
+        val incoming = endPoint.tangent
+        activeRail = mutableNextRails.maxByOrNull { next ->
+            val outgoing = next.startPoint.tangent
+            incoming.dot(outgoing) / (incoming.length() * outgoing.length())
+        }
+        activeSelectionExplicit = false
+    }
+
+    private var activeSelectionExplicit = nextActiveRail != null
 
     @Volatile
     private var activeRailValue: RailView? = nextActiveRail
@@ -38,10 +70,13 @@ class RailView(
             if (value != null && !mutableNextRails.contains(value)) {
                 throw InvalidActiveRailException(this, value)
             }
-            rail.world.updateActiveRailSelection(
-                shouldChange = { activeRailValue !== value },
-                change = { activeRailValue = value }
-            )
+            if (activeRailValue !== value) rail.world.withRailSelectionProtection(this) {
+                rail.world.updateActiveRailSelection(
+                    shouldChange = { activeRailValue !== value },
+                    change = { activeRailValue = value }
+                )
+            }
+            activeSelectionExplicit = true
         }
 
     override val nextActiveRail: ApiRailView?
@@ -93,11 +128,17 @@ class RailView(
                 "cannot connect rails from different worlds"
             }
             viewIJ.rail.world.railTopologyTransaction {
+                viewIJ.rail.world.ensureRailEditProtected(listOf(viewIJ.rail.id, viewKJ.rail.id))
+                require(viewIJ.rail.world.occupyingTrainIds(setOf(viewIJ.rail.id, viewKJ.rail.id)).isEmpty()) {
+                    "Cannot connect occupied rails"
+                }
                 connectInTransaction(viewIJ, viewKJ)
             }
         }
 
         private fun connectInTransaction(viewIJ: RailView, viewKJ: RailView) {
+            require(viewIJ.rail.world.getRail(viewIJ.rail.id) === viewIJ.rail &&
+                viewKJ.rail.world.getRail(viewKJ.rail.id) === viewKJ.rail) { "Connection references an unregistered rail" }
             val j1 = viewIJ.endPoint.position
             val j2 = viewKJ.endPoint.position
             if (j1.distance(j2) > Curve.TOLERANCE) {
@@ -105,14 +146,16 @@ class RailView(
             }
             val ijNext = viewKJ.reversed
             val kjNext = viewIJ.reversed
-            if (!viewIJ.mutableNextRails.contains(ijNext)) {
-                viewIJ.mutableNextRails.add(ijNext)
+            require(ijNext in viewIJ.mutableNextRails || viewIJ.mutableNextRails.size < 2) {
+                "A rail endpoint supports at most two continuations"
             }
-            viewIJ.activeRail = ijNext
-            if (!viewKJ.mutableNextRails.contains(kjNext)) {
-                viewKJ.mutableNextRails.add(kjNext)
+            require(kjNext in viewKJ.mutableNextRails || viewKJ.mutableNextRails.size < 2) {
+                "A rail endpoint supports at most two continuations"
             }
-            viewKJ.activeRail = kjNext
+            if (!viewIJ.mutableNextRails.contains(ijNext)) viewIJ.mutableNextRails.add(ijNext)
+            if (!viewKJ.mutableNextRails.contains(kjNext)) viewKJ.mutableNextRails.add(kjNext)
+            if (!viewIJ.activeSelectionExplicit) viewIJ.selectDefaultConnection()
+            if (!viewKJ.activeSelectionExplicit) viewKJ.selectDefaultConnection()
         }
     }
 }

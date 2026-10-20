@@ -8,7 +8,9 @@
 
 ## Owner、输入、token与单位
 
-`Anchor(id,position:Vector3dc,tangent:Vector3dc,worldId:String?,metadata:Map<String,String>)`是value input；roll metadata key固定`rollDegrees`。geometry默认米、m/s²、grade rise/run ratio；只有字段名明确`*KmH`时用km/h。
+`Anchor(id,position:Vector3dc,tangent:Vector3dc,worldId:String?,metadata:Map<String,String>)`是value input；构造边界复制position/tangent以及metadata，`copy`、`withPosition`和`withTangent`统一经过同一构造器。`RailGeometryParameters`同样在构造和`copy`时复制fallback半径列表，公开集合不可修改；不借用caller的可变集合，也不在worker交接或每帧查询时重复复制。Anchor构造的额外存储为两个向量和一份metadata副本，geometry参数为一份列表副本，成本随输入集合大小增长。
+
+roll metadata key固定`rollDegrees`；缺省为零，字段存在时必须可解析且finite，`withRoll`也拒绝非finite值。geometry默认米、m/s²、grade rise/run ratio；只有字段名明确`*KmH`时用km/h。
 
 Template token：`AUTO/STRAIGHT/TWO_POINT_STRAIGHT/FIVE_SEGMENT/S_CURVE`，同时进入authoring metadata/persistence，rename是breaking change。
 
@@ -26,7 +28,7 @@ data class RailCurveBuildOptions(
 `build(from,to,options): RailCurveBuildResult` 与 `buildParallel(...): RailParallelCurveBuildResult` 都是小型 sealed 结果：
 `Success` 持有非空 `curve`/`curves`、非空 `selectedTemplate`、可空 `selectedReason` 与break fractions；`Failure` 持有非空`error`、
 可选template/reason。两种结果不再用独立nullable字段表达成功/失败，也不提供公开构造/copy到达矛盾状态；消费端用
-exhaustive `when` 而不是`!!`或`listOfNotNull`兜底。`isSuccess`/nullable`curve`访问器只用于兼容既有测试读取。
+exhaustive `when` 而不是`!!`或`listOfNotNull`兜底。基类不提供nullable `curve/curves/error`、`isSuccess`或失败时返回空分界列表的便利访问器；测试同样先断言具体Success/Failure类型。Wand构建helper成功返回非空值，失败沿用明确异常报告，不保留永不返回的null分支。
 两入口都`ThreadGuard.ensureOffMainThread`；`@Heavy`不调度。
 
 ## Classification/validation矩阵
@@ -68,6 +70,10 @@ Final `RailGeometryMeasurementService.measure(curves,gaugeMeters)`重测minimum 
 工程分界必须随生成、平行偏移与纵断面重建逐次映射，不得将中心线旧比例直接乘以改变后的总长度。比如直线10米、圆弧20米、直线10米，偏移仅令圆弧变为30米，则第一分界仍应在10米，而不是旧比例25%乘新总长50米得到12.5米。应复用采样的源/目标对应关系，不按空间最近点猜分界，不新建运行期轨道映射索引。
 
 实现表示：单曲线`logicalBreakFractions`对应自己的最终弧长，平行构建结果使用`logicalBreakFractionsByLane: List<List<Double>>`，与输出curves逐项对应，不能再保存一份所有lane共享的比例。RailWand纵断面重建后，在切分前将该lane的分界再次映射到rebuilt曲线；不把临时映射写入世界存档。
+
+`SuperelevationConfig.calculateSuperelevation`的自动分支统一调用`StandardRailCurveBuilder.calculateSuperelevation`纯计算；有效设计速度非正时超高为零，正速度沿用速度平方公式并受最大超高限制。手动分支直接使用非负配置上限，不把自动零速度解释为手动最大值。
+
+`VerticalCurveRebuilder.horizontalLength`、profile station与重建station统一使用`RailCurvePartitioner.horizontalStations`；重建后把这些水平station与新高度交给`withElevationArc`生成物理弧长，不重新累计水平或三维弦长。平面邻接曲线即使随整链一起重建，也保留原有水平解析行程。
 
 `RailCurvePartitioner.withElevationArc`在原水平样本上累积`hypot(Δstation, Δy)`，仅替换弧长，保留XYZ与frame。常坡结果为`L_horizontal * sqrt(1 + grade²)`，平面保留原水平解析桩距，不改用曲线采样弦长近似。变坡按既有采样段线性高差近似，精度随已有采样步长决定，不宣称解析积分精确。
 

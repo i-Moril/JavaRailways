@@ -1,14 +1,14 @@
 package work.art1st.javarailways.basic.infrastructure.admission
 
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureFootprint
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.core.api.physics.rail.topology.RailEndpointRef
-import work.art1st.javarailways.basic.infrastructure.TurnoutResourceIdentity
+import work.art1st.javarailways.core.api.physics.infrastructure.TurnoutResourceIdentity
 
 /** One ordered physical preparation required before a claimed route can become ready. */
 internal sealed interface InfrastructurePreparationRequirement {

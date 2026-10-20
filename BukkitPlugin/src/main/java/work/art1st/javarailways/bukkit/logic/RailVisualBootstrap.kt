@@ -14,12 +14,53 @@ import work.art1st.javarailways.bukkit.persistence.PersistedRailRenderMeta
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.api.threading.ThreadGuard
+import work.art1st.javarailways.core.api.render.RenderableExtension
+import work.art1st.javarailways.core.api.physics.rail.Rail
+import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
+import work.art1st.javarailways.core.api.util.plugin.ExtensionData
+import work.art1st.javarailways.core.api.util.DestructionSteps
+import work.art1st.javarailways.core.api.util.Destruction
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 object RailVisualBootstrap {
-    private val railSegments: MutableMap<UUID, MutableList<RailArcVisualSegment>> = ConcurrentHashMap()
+    private val railVisuals = ConcurrentHashMap<UUID, RailVisualLifetime>()
+
+    /** The rail owns both current visuals and cleanup already started by a replacement. */
+    internal class RailVisualLifetime(val rail: CoreRail) :
+        RenderableExtension<Rail> {
+        var segments: List<RailArcVisualSegment> = emptyList()
+        private val pending = ConcurrentLinkedQueue<CompletionStage<Void>>()
+        private val destruction = Destruction()
+
+        override fun initialize(host: Rail,
+            savedExtensionData: Map<String, SerializableExtensionData>) = Unit
+        override fun save(): Pair<String, SerializableExtensionData>? = null
+        override fun commit() = Unit
+
+        fun clear(): CompletionStage<Void> {
+            val removed = segments
+            segments = emptyList()
+            val steps = DestructionSteps()
+            removed.forEach { segment -> steps.await { segment.destroy() } }
+            val current = steps.finish()
+            pending.add(current)
+            current.whenComplete { _, failure -> if (failure == null) pending.remove(current) }
+            val all = DestructionSteps()
+            pending.forEach { result -> all.await { result } }
+            return rail.world.trackRailCleanup(all.finish())
+        }
+
+        override fun destroy(): CompletionStage<Void> = destruction.run {
+            val result = clear()
+            railVisuals.remove(rail.id, this)
+            result
+        }
+    }
 
     fun registerRail(rail: CoreRail, railType: String = "standard"): PersistedRailRenderMeta =
         registerRailWithTemplate(rail, createTemplateSnapshot(railType))
@@ -34,7 +75,7 @@ object RailVisualBootstrap {
     ): PersistedRailRenderMeta {
         ThreadGuard.ensureMainThread("RailVisualBootstrap.registerRailWithTemplate")
         val segments = createSegments(rail, templateSnapshot)
-        registerSegments(rail.id, segments)
+        registerSegments(rail, segments)
         return PersistedRailRenderMeta(
             railId = rail.id,
             segments = segments.map { RailArcSegmentMeta(it.arcStart, it.arcEnd, it.pointArcs) },
@@ -42,23 +83,20 @@ object RailVisualBootstrap {
         )
     }
 
-    fun unregisterRail(railId: UUID): java.util.concurrent.CompletionStage<Void> {
+    fun unregisterRail(railId: UUID): CompletionStage<Void> {
         ThreadGuard.ensureMainThread("RailVisualBootstrap.unregisterRail")
-        val segments = railSegments.remove(railId).orEmpty()
-        val steps = work.art1st.javarailways.core.api.util.DestructionSteps()
-        segments.forEach { segment -> steps.await { segment.destroy() } }
-        return steps.finish().whenComplete { _, failure ->
-            if (failure != null) {
-                BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.SEVERE,
-                    "Rail visual cleanup failed: rail=$railId", failure)
-            }
+        val owner = railVisuals.remove(railId)
+            ?: return CompletableFuture.completedFuture(null)
+        return owner.clear().whenComplete { _, failure ->
+            if (failure != null) BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.SEVERE,
+                "Rail visual cleanup failed: rail=$railId", failure)
         }
     }
 
     fun fromPersisted(coreWorld: CoreWorld, persisted: PersistedRailRenderMeta): Boolean {
         ThreadGuard.ensureMainThread("RailVisualBootstrap.fromPersisted")
         val rail = coreWorld.getRail(persisted.railId) ?: return false
-        registerSegments(rail.id, createSegmentsFromPersisted(rail, persisted))
+        registerSegments(rail, createSegmentsFromPersisted(rail, persisted))
         return true
     }
 
@@ -109,19 +147,30 @@ object RailVisualBootstrap {
         return PersistedRailRenderMeta(railId, segments, templateSnapshot)
     }
 
-    private fun registerSegments(railId: UUID, segments: List<RailArcVisualSegment>) {
-        unregisterRail(railId)
+    @OptIn(ExtensionData::class)
+    private fun registerSegments(rail: CoreRail, segments: List<RailArcVisualSegment>) {
+        val existing = railVisuals[rail.id]
+        val owner = if (existing != null && existing.rail === rail) existing else {
+            existing?.let { rail.world.trackRailCleanup(it.destroy()) }
+            val registered = rail.getExtensionDataOrNull<RenderableExtension<Rail>>(BukkitPlugin.INSTANCE)
+            check(registered == null || registered is RailVisualLifetime) {
+                "Rail already has a different Bukkit lifecycle extension"
+            }
+            (registered as? RailVisualLifetime ?: RailVisualLifetime(rail).also {
+                rail.registerExtensionData(BukkitPlugin.INSTANCE, it)
+            }).also { railVisuals[rail.id] = it }
+        }
+        owner.clear()
+        // Attach the full batch before indexing, so partial registration failures remain owned.
+        owner.segments = segments
         if (segments.isEmpty()) return
         val renderManager = segments.first().world.renderChunkManager
         segments.forEach { segment ->
             val extension = RailExtension()
             segment.registerExtensionData(BukkitPlugin.INSTANCE, extension)
             extension.initialize(segment, emptyMap())
-            // Register lightweight metadata only. RenderChunkManager builds entities when the
-            // first nearby player becomes an audience member and unloads them after the last leaves.
             renderManager.update(segment, null, segment.position)
         }
-        railSegments[railId] = segments.toMutableList()
     }
 
     private fun createSegments(rail: CoreRail, templateSnapshot: RailTemplateSnapshot): List<RailArcVisualSegment> {

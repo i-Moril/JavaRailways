@@ -244,7 +244,7 @@ owner确认权限/世界/仍持原工具 -> worker捕获候选与精确修订 ->
 错误做法是通过右键重新摆放实现重绑，或打开列表就保存；正确做法是独立选择和确认后用原事务提交逻辑变更。
 
 信号工具在 catalog 未就绪、信号类型或 presentation model 未知、入口不唯一、生成 ID 碰撞、revision 溢出、捕获的 catalog／runtime／
-publication／topology 过期或 manager patch 被拒绝时都只返回失败；不得改变 sidecar、live publication、inspection source、
+定义 revision／所选轨道依赖过期或 manager patch 被拒绝时都只返回失败；不得改变 sidecar、live publication、inspection source、
 JS 输出或模型 handle。PDC 中即使仍有格式合法但已删除的 `signalType`，也必须由当前 catalog 和候选编译拒绝，不能视为授权。
 删除固定闭塞主信号时，同一个 patch 还删除所有 `primarySignalId` 直接引用它的附属设备；区间、其他入口主信号及其附属设备不变。
 
@@ -361,9 +361,12 @@ JS 输出或模型 handle。PDC 中即使仍有格式合法但已删除的 `sign
 动态前视／制动或授权 floor，
 或绕过 manager 直接写文件和 handle。
 正确做法：PDC 分离稳定 marker 与带身份/revision的类型意图；设置和编辑都重新校验完整物品状态及
-exact catalog/runtime/publication/topology，通过唯一入口找到
+exact catalog/runtime、定义 revision 及所选轨道实际依赖，通过唯一入口找到
 既有设备，再用一个标准 definition patch 原子重编译逻辑、模型、许可、存档和 publication。
 
 ## 边界命名
 
 区间工具设置中的一次命名流程、共享物理边界的名称同步、文本输入和进路标签由[边界名称合同](boundary-names.md)统一定义。名称只作展示，创建/删除默认手势保持原有语义。
+
+作者 capture 的 publication 与 topology 必须同源；后续请求校验定义值和已选 rail 的实例、连接、平交关系，
+不因远处拓扑发布单独使选择失效。最终 patch 依赖及竞争重准备遵循[定义编辑影响合同](definition-edit-impact.md)。

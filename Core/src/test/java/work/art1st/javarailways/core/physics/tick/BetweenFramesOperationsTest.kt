@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.tick
 
+import work.art1st.javarailways.core.testing.IsolateGlobalHalt
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
@@ -287,6 +289,7 @@ class BetweenFramesOperationsTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["shutdown", "stall", "close", "epoch-failure"])
+    @IsolateGlobalHalt("stall", "epoch-failure")
     fun `terminal transitions fail pending work and notify outside state lock`(transition: String) = withOwner {
         PhysicsCoordinator(1, automaticFallback = false).use { coordinator ->
             val world = CoreWorld.createEmpty(NoOpTickManager, coordinator)

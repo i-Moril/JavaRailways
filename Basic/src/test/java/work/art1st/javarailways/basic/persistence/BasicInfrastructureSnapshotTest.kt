@@ -1,5 +1,8 @@
 package work.art1st.javarailways.basic.persistence
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -20,11 +23,24 @@ import work.art1st.javarailways.basic.rail.SpeedLimitType
 import work.art1st.javarailways.core.physics.rail.CoreRail
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import java.util.UUID
 
 class BasicInfrastructureSnapshotTest {
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
+
+    @AfterEach
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestBasicWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
+    }
+
     @Test
     fun `later blank waypoint refuses all Basic materialization`() = withFreshWorld { world ->
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
@@ -68,8 +84,8 @@ class BasicInfrastructureSnapshotTest {
     }
 
     private fun withFreshWorld(block: (work.art1st.javarailways.core.physics.CoreWorld) -> Unit) {
-        val world = createTestWorld()
-        (world.tickManager as AutoCloseable).use {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        run {
             run {
                 world.physicsCoordinator.use {
                     try {
@@ -95,7 +111,7 @@ class BasicInfrastructureSnapshotTest {
 
     @Test
     fun `fixed current directions round trip and restore in a Basic standalone world`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestBasicWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
         val snapshot = BasicInfrastructureSnapshotCodec.decode(
@@ -110,7 +126,7 @@ class BasicInfrastructureSnapshotTest {
 
     @Test
     fun `invalid duplicate and orphan directions refuse all Basic materialization`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestBasicWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
         val direction = SavedOperatingDirectionV1.capture(rail.id, ViewDirection.AB)
@@ -146,7 +162,7 @@ class BasicInfrastructureSnapshotTest {
 
     @Test
     fun `capture refuses orphan directions`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestBasicWorldDataRegistry.getOrCreate(world)
         val missing = UUID.randomUUID()
         world.basicWorldData.operatingDirections.put(missing, ViewDirection.AB)
@@ -181,16 +197,11 @@ class BasicInfrastructureSnapshotTest {
         }
     }
 
-    private val worlds = mutableListOf<work.art1st.javarailways.core.physics.CoreWorld>()
 
-    @AfterEach
-    fun cleanup() {
-        worlds.forEach(TestBasicWorldDataRegistry::unregister)
-    }
 
     @Test
     fun `capture rejects orphan waypoints before writing a corrupt snapshot`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestBasicWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
@@ -209,7 +220,7 @@ class BasicInfrastructureSnapshotTest {
 
     @Test
     fun `capture omits explicitly identified derived waypoint projections`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestBasicWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(
             world,
@@ -229,7 +240,7 @@ class BasicInfrastructureSnapshotTest {
 
     @Test
     fun `round trips rail infrastructure metadata`() {
-        val source = createTestWorld().also(worlds::add)
+        val source = TestWorldFixture.create().also(worldFixtures::add).world
         TestBasicWorldDataRegistry.getOrCreate(source)
         val rail = createStraightRailFromSegments(
             source,
@@ -248,7 +259,7 @@ class BasicInfrastructureSnapshotTest {
         source.basicWorldData.railMetadata.put(rail.id, metadata)
         val snapshot = BasicInfrastructureSnapshotV2.capture(source, infrastructureRevision = 2L, projectedWayPointIds = emptySet())
 
-        val restored = createTestWorld().also(worlds::add)
+        val restored = TestWorldFixture.create().also(worldFixtures::add).world
         TestBasicWorldDataRegistry.getOrCreate(restored)
         IsolatedSimulationThreadMarker.run { rail.save().load(CoreRail.SavedRailV1.Dependency(restored)) }
         snapshot.restore(restored)

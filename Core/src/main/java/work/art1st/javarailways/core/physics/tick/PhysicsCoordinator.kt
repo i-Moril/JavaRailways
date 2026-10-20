@@ -11,6 +11,7 @@ import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
 import work.art1st.javarailways.core.api.threading.ThreadGuard
 import work.art1st.javarailways.core.api.util.annotation.AsyncEventApi
 import work.art1st.javarailways.core.physics.CoreWorld
+import work.art1st.javarailways.core.physics.train.CouplingRejectedException
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.CollisionEnvelope
 import work.art1st.javarailways.core.util.AsyncTickThreadMarker
@@ -176,8 +177,11 @@ class PhysicsCoordinator(
     private var world: CoreWorld? = null
 
     @Volatile
-    var status: PhysicsCoordinatorStatus = PhysicsCoordinatorStatus.RUNNING
-        private set
+    private var localStatus: PhysicsCoordinatorStatus = PhysicsCoordinatorStatus.RUNNING
+    var status: PhysicsCoordinatorStatus
+        get() = if (localStatus != PhysicsCoordinatorStatus.CLOSED && RailwaySimulationHalt.isHalted)
+            PhysicsCoordinatorStatus.STALLED else localStatus
+        private set(value) { localStatus = value }
 
     @Volatile
     private var lastMetrics: PhysicsEpochMetrics? = null
@@ -194,6 +198,8 @@ class PhysicsCoordinator(
     private var inFlight: PhysicsTicket? = null
     private var latestCompleted: PhysicsTicket = completedBootstrapTicket()
 
+    init { RailwaySimulationHalt.register(this) }
+
     fun attachWorld(world: CoreWorld) {
         synchronized(stateLock) {
             check(this.world == null) { "PhysicsCoordinator is already attached to a world" }
@@ -203,7 +209,7 @@ class PhysicsCoordinator(
 
     fun start() {
         synchronized(stateLock) {
-            check(status != PhysicsCoordinatorStatus.CLOSED) { "PhysicsCoordinator is closed" }
+            ensureUsableLocked()
             check(acceptingWakes) { "PhysicsCoordinator shutdown has begun" }
             if (started) return
             check(world != null) { "PhysicsCoordinator must be attached to a world before start" }
@@ -295,7 +301,7 @@ class PhysicsCoordinator(
         val operation = BetweenFramesOperation(action)
         val rejection = synchronized(stateLock) {
             when {
-                status != PhysicsCoordinatorStatus.RUNNING ->
+                RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING ->
                     PhysicsStalledException("PhysicsCoordinator is ${status.name.lowercase()}")
                 !acceptingWakes -> IllegalStateException("PhysicsCoordinator shutdown has begun")
                 else -> {
@@ -372,6 +378,7 @@ class PhysicsCoordinator(
     /** Asserts owner execution after the captured physics ticket completed, without scheduling. */
     fun ensureBetweenFrames(operation: String) {
         ThreadGuard.ensureMainThread(operation)
+        RailwaySimulationHalt.ensureRunning()
         check(betweenFramesDepth.get() > 0) { "$operation must run between physics frames" }
     }
 
@@ -438,16 +445,30 @@ class PhysicsCoordinator(
      * The caller owns recovery; this coordinator will not publish another physics epoch.
      */
     internal fun stall(message: String, cause: Throwable? = null): PhysicsStalledException {
-        val failure = PhysicsStalledException(message, cause)
-        val pending = synchronized(stateLock) {
-            if (status == PhysicsCoordinatorStatus.CLOSED) return failure
-            status = PhysicsCoordinatorStatus.STALLED
-            inFlight?.completion?.completeExceptionally(failure)
-            inFlight = null
-            removePendingBetweenFramesLocked()
+        return RailwaySimulationHalt.halt(message, cause)
+    }
+
+    /** Queue terminal settlement behind in-flight work; never acquire another world's lock. */
+    internal fun requestGlobalHalt(failure: PhysicsStalledException) {
+        try {
+            coordinatorExecutor.execute { settleHalt(failure) }
+        } catch (closed: java.util.concurrent.RejectedExecutionException) {
+            // Close may retire a coordinator after the global registry captured it.
+            if (status != PhysicsCoordinatorStatus.CLOSED) throw closed
         }
+    }
+
+    private fun settleHalt(failure: PhysicsStalledException) {
+        val (ticket, pending) = synchronized(stateLock) {
+            if (status == PhysicsCoordinatorStatus.CLOSED) return
+            status = PhysicsCoordinatorStatus.STALLED
+            acceptingWakes = false
+            val ticket = inFlight
+            inFlight = null
+            ticket to removePendingBetweenFramesLocked()
+        }
+        ticket?.completion?.completeExceptionally(failure)
         failBetweenFrames(pending, failure)
-        return failure
     }
 
     /** Coordinator prepass over the previous publication; resolution is applied next epoch. */
@@ -504,7 +525,7 @@ class PhysicsCoordinator(
                 }
             }
         }
-        futures.forEach(Future<*>::get)
+        awaitWorkers(futures)
         val liveTrainIds = trains.mapTo(linkedSetOf(), CoreTrain::id)
         processors.forEach { it.completeEpoch(liveTrainIds, physicsEpoch) }
     }
@@ -533,7 +554,7 @@ class PhysicsCoordinator(
     internal fun timerWake() {
         synchronized(stateLock) {
             if (!started || !acceptingWakes || structuralMutationDepth > 0 ||
-                status != PhysicsCoordinatorStatus.RUNNING) return
+                RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING) return
             if (nanoTime() - lastMainWakeNanos >= TimeUnit.MILLISECONDS.toNanos(mainHeartbeatTimeoutMillis)) {
                 // Keep eligibility and request allocation under the same state lock: shutdown
                 // either captures this timer epoch or makes this wake a quiet no-op.
@@ -590,7 +611,7 @@ class PhysicsCoordinator(
     ) {
         try {
             val attachedWorld = synchronized(stateLock) {
-                if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
+                if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
                 checkNotNull(world)
             }
             AsyncTickThreadMarker.runInAsyncTickContext {
@@ -599,7 +620,6 @@ class PhysicsCoordinator(
             runningEpoch = ticket.epoch
             collisionClaims.clear()
             epochCandidateChecks.set(0L)
-            applyPendingCollisionDecisions(ticket.epoch)
             val snapshot = controllers.values.sortedBy { it.profileId }
             // Freeze both participants before a controller can move away from the observed frame.
             // This is the old published-index query, not a prediction of this epoch's movement.
@@ -618,6 +638,7 @@ class PhysicsCoordinator(
                     AsyncTickThreadMarker.runInAsyncTickContext {
                         val workerStart = nanoTime()
                         batch.forEach { controller ->
+                            RailwaySimulationHalt.ensureRunning()
                             if (controller.profileId !in trainsPendingCollision &&
                                 (controller.train as? CoreTrain)?.movementHeld != true) {
                                 val controllerStart = nanoTime()
@@ -631,7 +652,7 @@ class PhysicsCoordinator(
                     }
                 }
             }
-            futures.forEach { it.get() }
+            awaitWorkers(futures)
 
             val coordinatorStart = nanoTime()
             // Publish only after every worker has finished reading the previous epoch.
@@ -639,7 +660,7 @@ class PhysicsCoordinator(
             snapshot.forEach { controller ->
                 val published = attachedWorld.withRailTopologyReadLock {
                     synchronized(stateLock) {
-                        if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
+                        if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
                             false
                         } else {
                             controller.publishPhysicsBuffers()
@@ -656,7 +677,7 @@ class PhysicsCoordinator(
             // state belongs to this epoch and must cross the same publication boundary.
             val framesPublished = attachedWorld.withRailTopologyReadLock {
                 synchronized(stateLock) {
-                    if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
+                    if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
                         false
                     } else {
                         attachedWorld.allTrains.filterIsInstance<CoreTrain>().forEach { train ->
@@ -682,7 +703,7 @@ class PhysicsCoordinator(
             runPublishedFrameProcessors(publishedTrains.toList(), ticket.epoch)
             val capturedWorldFrame = attachedWorld.withRailTopologyReadLock {
                 synchronized(stateLock) {
-                    if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
+                    if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
                         null
                     } else {
                         attachedWorld.rebuildSweptOccupancyIndex(ticket.epoch)
@@ -729,7 +750,7 @@ class PhysicsCoordinator(
                         "${epochOverloadThresholdMillis}ms within ${overloadWindowMillis}ms"
                 )
                 val pending = synchronized(stateLock) {
-                    if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
+                    if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
                     lastMetrics = metrics
                     lastControllerNanos = controllerDurations.toMap()
                     status = PhysicsCoordinatorStatus.STALLED
@@ -737,15 +758,20 @@ class PhysicsCoordinator(
                     ticket.completion.completeExceptionally(failure)
                     removePendingBetweenFramesLocked()
                 }
+                LOGGER.log(Level.SEVERE, failure.message, failure)
                 failBetweenFrames(pending, failure)
                 return
             }
+
+            // Queue decisions from this frozen epoch before completing its ticket. The next
+            // owner boundary can resolve them without running another physics epoch.
+            applyPendingCollisionDecisions(ticket.epoch)
 
             // Topology transactions can stall physics while holding their write lock, so acquire
             // topology before stateLock. Close and exact-ticket publication then serialize here.
             val committed = attachedWorld.withRailTopologyReadLock {
                 synchronized(stateLock) {
-                    if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
+                    if (RailwaySimulationHalt.isHalted || status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) {
                         return@withRailTopologyReadLock false
                     }
                     attachedWorld.publishCapturedWorldFrame(capturedWorldFrame)
@@ -766,60 +792,52 @@ class PhysicsCoordinator(
             val failure = if (t is PhysicsStalledException) t else {
                 PhysicsStalledException("Physics epoch ${ticket.epoch} failed", t)
             }
-            val pending = synchronized(stateLock) {
-                if (status != PhysicsCoordinatorStatus.RUNNING || inFlight !== ticket) return
-                status = PhysicsCoordinatorStatus.STALLED
-                inFlight = null
-                ticket.completion.completeExceptionally(failure)
-                removePendingBetweenFramesLocked()
-            }
-            failBetweenFrames(pending, failure)
+            if (status == PhysicsCoordinatorStatus.CLOSED) return
+            val globalFailure = RailwaySimulationHalt.halt("Physics epoch ${ticket.epoch} failed", failure)
+            settleHalt(globalFailure)
         }
     }
 
     private fun applyPendingCollisionDecisions(epoch: Long) {
         val attachedWorld = world ?: return
         val decisions = pendingCollisionDecisions.values
-            .filter { it.detectedEpoch < epoch }
+            .filter { it.detectedEpoch <= epoch }
             .sortedWith(compareBy({ it.pair.firstTrainId }, { it.pair.secondTrainId }))
         decisions.forEach { decision ->
             if (!pendingCollisionDecisions.remove(decision.pair, decision)) return@forEach
             val first = decision.firstTrain
             val second = decision.secondTrain
-            if (attachedWorld.getTrain(first.id) !== first || attachedWorld.getTrain(second.id) !== second) {
-                trainsPendingCollision.remove(first.id)
-                trainsPendingCollision.remove(second.id)
-                return@forEach
-            }
-            when (decision.resolution) {
-                CollisionResolution.DERAIL -> {
-                    val reason = "collision at physics epoch $epoch between ${first.id} and ${second.id}"
-                    first.markDerailedFromPhysics(reason)
-                    second.markDerailedFromPhysics(reason)
-                }
-                CollisionResolution.LINK -> {
-                    // Apply and consume the real result in one owner operation, never wait for
-                    // another item on this finite FIFO queue or depend on generic postTick order.
-                    submitBetweenFrames {
-                        try {
-                            first.linkFromCollisionOnOwner(second, decision.firstFrame, decision.secondFrame,
-                                decision.topologyRevision, decision.firstEnvelope, decision.secondEnvelope)
-                        } catch (failure: Throwable) {
-                            if (status != PhysicsCoordinatorStatus.RUNNING) throw failure
-                            val reason = "collision coupling failed between ${first.id} and ${second.id}: ${failure.message}"
-                            LOGGER.log(Level.SEVERE, reason, failure)
-                            if (attachedWorld.getTrain(first.id) === first) first.derail(reason)
-                            if (attachedWorld.getTrain(second.id) === second) second.derail(reason)
-                        } finally {
-                            trainsPendingCollision.remove(first.id)
-                            trainsPendingCollision.remove(second.id)
+            submitBetweenFrames {
+                try {
+                    if (attachedWorld.getTrain(first.id) !== first || attachedWorld.getTrain(second.id) !== second) {
+                        return@submitBetweenFrames
+                    }
+                    when (decision.resolution) {
+                        CollisionResolution.DERAIL -> {
+                            val reason = "collision at physics epoch $epoch between ${first.id} and ${second.id}"
+                            first.derail(reason)
+                            second.derail(reason)
+                        }
+                        CollisionResolution.LINK -> {
+                            try {
+                                first.linkFromCollisionOnOwner(second, decision.firstFrame, decision.secondFrame,
+                                    decision.topologyRevision, decision.firstEnvelope, decision.secondEnvelope)
+                            } catch (failure: CouplingRejectedException) {
+                                RailwaySimulationHalt.ensureRunning()
+                                val reason = "collision coupling failed between ${first.id} and ${second.id}: ${failure.message}"
+                                LOGGER.log(Level.SEVERE, reason, failure)
+                                if (attachedWorld.getTrain(first.id) === first) first.derail(reason)
+                                if (attachedWorld.getTrain(second.id) === second) second.derail(reason)
+                            }
                         }
                     }
-                    return@forEach
+                } catch (failure: Throwable) {
+                    throw stall("Unexpected collision resolution failure: ${first.id}, ${second.id}", failure)
+                } finally {
+                    trainsPendingCollision.remove(first.id)
+                    trainsPendingCollision.remove(second.id)
                 }
             }
-            trainsPendingCollision.remove(decision.pair.firstTrainId)
-            trainsPendingCollision.remove(decision.pair.secondTrainId)
         }
     }
 
@@ -850,6 +868,7 @@ class PhysicsCoordinator(
     }
 
     private fun ensureUsableLocked() {
+        RailwaySimulationHalt.ensureRunning()
         when (status) {
             PhysicsCoordinatorStatus.RUNNING -> Unit
             PhysicsCoordinatorStatus.STALLED -> throw PhysicsStalledException("PhysicsCoordinator is stalled")
@@ -868,6 +887,7 @@ class PhysicsCoordinator(
     }
 
     override fun close() {
+        RailwaySimulationHalt.unregister(this)
         val pending = synchronized(stateLock) {
             if (status == PhysicsCoordinatorStatus.CLOSED) return
             status = PhysicsCoordinatorStatus.CLOSED
@@ -924,6 +944,18 @@ class PhysicsCoordinator(
             overloadCountInWindow = 0
         )
         return PhysicsTicket(0L, CompletableFuture.completedFuture(metrics))
+    }
+
+    private fun awaitWorkers(futures: List<Future<*>>) {
+        var failure: Throwable? = null
+        futures.forEach { future ->
+            try { future.get() } catch (error: java.util.concurrent.ExecutionException) {
+                val cause = error.cause ?: error
+                if (status != PhysicsCoordinatorStatus.CLOSED) RailwaySimulationHalt.halt("Physics worker failed", cause)
+                if (failure == null) failure = cause else if (failure !== cause) failure!!.addSuppressed(cause)
+            }
+        }
+        failure?.let { throw it }
     }
 
     private fun <T> partition(values: List<T>, partitions: Int): List<List<T>> {

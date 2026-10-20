@@ -42,6 +42,48 @@ import java.util.concurrent.TimeUnit
 class DefaultSignalEpochSourceServiceTest {
     private val railId = UUID.nameUUIDFromBytes("signal-service-rail".toByteArray())
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    @work.art1st.javarailways.core.testing.IsolateGlobalHalt
+    fun `halt rejects definition commit callbacks while world cleanup remains available`(haltDuringPreparation: Boolean) {
+        val service = DefaultSignalEpochSourceService()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("signal")
+        service.registerWorld(worldId, runtime(), inspectionRuntime(), { emptyList() }) { _, _ -> }
+        service.replaceSources(owner, worldId, listOf(source("test:retained", 0.0) {}))
+        var committed = false
+        val replacement = source("test:replacement", 0.0) {}
+        val candidates = if (haltDuringPreparation) object : AbstractCollection<SignalEpochSource>() {
+            override val size = 1
+            override fun iterator(): Iterator<SignalEpochSource> {
+                work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt.halt("test signal preparation halt")
+                return listOf(replacement).iterator()
+            }
+        } else listOf(replacement).also {
+            work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt.halt("test signal commit halt")
+        }
+        try {
+            assertThrows(work.art1st.javarailways.core.physics.tick.PhysicsStalledException::class.java) {
+                service.replaceSourcesAtomically(owner, worldId, candidates) {
+                    committed = true
+                }
+            }
+            assertFalse(committed)
+            assertThrows(work.art1st.javarailways.core.physics.tick.PhysicsStalledException::class.java) {
+                service.replaceInspectionSources(owner, worldId, listOf(inspectionSource()))
+            }
+            assertThrows(work.art1st.javarailways.core.physics.tick.PhysicsStalledException::class.java) {
+                service.replaceRoutePlanningSources(owner, worldId, listOf(routePlanningSource("test:planning")))
+            }
+            assertThrows(work.art1st.javarailways.core.physics.tick.PhysicsStalledException::class.java) {
+                service.registerWorld(UUID.randomUUID(), runtime(), inspectionRuntime(), { emptyList() }) { _, _ -> }
+            }
+            service.removeWorld(worldId)
+        } finally {
+            service.close()
+        }
+    }
+
     @Test
     fun `atomic callback rejects another world reentry before waiting for its busy owner`() {
         val service = DefaultSignalEpochSourceService()

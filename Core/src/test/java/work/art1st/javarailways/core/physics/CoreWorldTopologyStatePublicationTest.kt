@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics
 
+import work.art1st.javarailways.core.testing.IsolateGlobalHalt
+
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import org.joml.Vector3d
@@ -55,6 +57,7 @@ class CoreWorldTopologyStatePublicationTest {
         }
 
     @Test
+    @IsolateGlobalHalt
     fun `asymmetric adjacency is rejected instead of being repaired in the published topology`() =
         withWorld { world ->
             val first = world.createRailForTest(straightCurve(0.0, 10.0))
@@ -101,12 +104,12 @@ class CoreWorldTopologyStatePublicationTest {
             second = world.createRailInTransaction(UUID.randomUUID(), straightCurve(10.0, 25.0))
             RailView.connect(source.viewAB, first.viewBA)
             RailView.connect(source.viewAB, second.viewBA)
-            source.viewAB.activeRail = first.viewAB
+            IsolatedSimulationThreadMarker.run { source.viewAB.activeRail = first.viewAB }
         } }
         val before = world.topologyState
 
         IsolatedSimulationThreadMarker.run { world.railTopologyTransaction {
-            source.viewAB.activeRail = second.viewAB
+            IsolatedSimulationThreadMarker.run { source.viewAB.activeRail = second.viewAB }
         } }
         assertSame(before, world.topologyState)
 
@@ -127,6 +130,7 @@ class CoreWorldTopologyStatePublicationTest {
     }
 
     @Test
+    @IsolateGlobalHalt
     fun `failure after mutation preserves topology root and faults world`() = withWorld { world ->
         val before = world.topologyState
 
@@ -143,9 +147,14 @@ class CoreWorldTopologyStatePublicationTest {
     }
 
     @Test
+    @IsolateGlobalHalt
     fun `normalization failure after mutation preserves topology root and faults world`() {
         val world = createTestWorld()
-        val otherWorld = createTestWorld()
+        val otherWorld = try { createTestWorld() } catch (failure: Throwable) {
+            runCatching { world.physicsCoordinator.close() }.exceptionOrNull()?.let(failure::addSuppressed)
+            runCatching { (world.tickManager as AutoCloseable).close() }.exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
         try {
             val source = world.createRailForTest(straightCurve(0.0, 10.0))
             val outside = otherWorld.createRailForTest(straightCurve(10.0, 20.0))

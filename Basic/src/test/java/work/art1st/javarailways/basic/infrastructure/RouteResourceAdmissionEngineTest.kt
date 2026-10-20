@@ -1,5 +1,7 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot as InfrastructurePreparationSnapshot
 import work.art1st.javarailways.basic.api.route.ResourcePreparationState as InfrastructurePreparationState
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket as InfrastructurePreparationTicket
@@ -14,9 +16,9 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionState
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
@@ -1404,9 +1406,9 @@ class RouteResourceAdmissionEngineTest {
         val service = service()
         val first = assertInstanceOf(RouteAdmissionResult.Granted::class.java,
             service.request(requester, intent())).grant
-        assertEquals(work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus.ACQUIRED,
+        assertEquals(work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureMutationStatus.ACQUIRED,
             registry.acquireClaim(Any(), InfrastructureClaimRequest(InfrastructureOwner("test:route/blocker", 1L),
-                work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint(
+                work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureFootprint(
                     listOf(RailIntervalResource(railId, 25.0, 35.0)))
             )).status)
 

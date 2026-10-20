@@ -1,5 +1,6 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import work.art1st.javarailways.core.api.physics.infrastructure.TurnoutResourceIdentity
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNotEquals

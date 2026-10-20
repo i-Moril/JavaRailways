@@ -51,14 +51,13 @@ class PreparedRailWorldSnapshotPlan private constructor(
         Collections.unmodifiableSet(LinkedHashSet(affectedExistingRailIds))
 
     fun isCurrent(candidateWorld: CoreWorld): Boolean =
-        candidateWorld === ownerWorld && candidateWorld.topologyState === topologyRoot &&
+        candidateWorld === ownerWorld &&
             currentRails.all { (railId, rail) -> candidateWorld.getRail(railId) === rail } &&
             capturedEndpointStates.all { (endpoint, state) ->
                 candidateWorld.getRail(endpoint.railId)?.let { rail ->
                     endpointStateMatches(captureEndpoint(rail, endpoint.endpoint), state)
                 } == true
-            } &&
-            (preparedCreations == null || preparedCreations.topologyRoot === topologyRoot)
+            }
 
     fun requireCurrent(candidateWorld: CoreWorld) {
         check(isCurrent(candidateWorld)) {
@@ -130,7 +129,7 @@ class PreparedRailWorldSnapshotPlan private constructor(
                 "snapshot geometry preparation does not match its explicit stable IDs"
             }
             preparedCreations?.let { batch ->
-                require(batch.ownerWorld === world && batch.topologyRoot === topologyRoot)
+                require(batch.ownerWorld === world)
                 require(batch.excludedExistingRailIds == removedOrReplacedRailIds)
                 require(batch.creations.mapTo(linkedSetOf(), PreparedRailCreation::railId) == createdOrReplacedRailIds)
             }

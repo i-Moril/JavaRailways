@@ -28,7 +28,7 @@ internal class CurrentRouteRecording(private val manager: SimpleSignalsWorldRunt
         val publication = runtime.authoringPublication()
         require(publication.definitions.regions.any { region -> region.regionId == selection.regionId &&
             selection.entry in region.boundaries }) { "Selected region entry changed; select again" }
-        val topology = infrastructure.currentTopology(selection.worldId)
+        val topology = publication.topology
         val table = publication.definitions.routeTables.singleOrNull { it.regionId == selection.regionId }
             ?: return emptyList()
         return table.routes.sortedBy { it.routeId }.map { RecordedRouteDeletion(selection, publication, topology, table, it) }
@@ -38,8 +38,9 @@ internal class CurrentRouteRecording(private val manager: SimpleSignalsWorldRunt
         ThreadGuard.ensureOffMainThread("SimpleSignals route deletion")
         val selection = choice.selection
         require(active() && manager.authoringRuntime(selection.worldId) === selection.runtime &&
-            !selection.runtime.closed && selection.runtime.authoringPublication() === choice.publication &&
-            infrastructure.currentTopology(selection.worldId) === choice.topology) {
+            !selection.runtime.closed && selection.runtime.authoringPublication().definitions == choice.publication.definitions &&
+            infrastructure.currentTopology(selection.worldId).preservesRails(choice.topology,
+                choice.route.traversals.map { it.railId } + selection.regionRailIds)) {
             "Route deletion selection expired; select again"
         }
         require(choice.table in choice.publication.definitions.routeTables && choice.route in choice.table.routes &&
@@ -72,7 +73,7 @@ internal class CurrentRouteRecording(private val manager: SimpleSignalsWorldRunt
             path.end == CurrentRouteEnd.REACHED_EXIT && !path.waitingForObservation) {
             "A current complete preview reaching the selected exit is required"
         }
-        require(active() && runtime.authoringPublication() === publication) { "Route definitions changed; select again" }
+        require(active() && runtime.authoringPublication().definitions == publication.definitions) { "Route definitions changed; select again" }
         // The path is immutable. From here on live turnout selections are deliberately not a commit guard.
         val definitions = publication.definitions
         val table = definitions.routeTables.singleOrNull { it.regionId == region.regionId }

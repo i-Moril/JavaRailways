@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.routing
 
+import work.art1st.javarailways.basic.observation.invalidTopologyReason
 import work.art1st.javarailways.basic.api.route.planning.OperatingDirectionOverlay
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
@@ -85,26 +86,16 @@ internal sealed interface FrozenRouteSelectionResult {
 internal object FrozenRouteSelector {
     fun select(input: FrozenRouteSelectionInput): FrozenRouteSelectionResult {
         val topologyRevision = input.topology.revision
-        if (input.observation.stamp.topologyRevision != topologyRevision) {
-            return rejected(
-                FrozenRouteSelectionRejection.STALE_OBSERVATION,
-                "observation topology revision ${input.observation.stamp.topologyRevision} " +
-                    "does not match $topologyRevision"
-            )
-        }
-        if (input.operatingDirections.topologyRevision != topologyRevision) {
-            return rejected(
-                FrozenRouteSelectionRejection.STALE_OPERATING_DIRECTIONS,
-                "operating-direction topology revision ${input.operatingDirections.topologyRevision} " +
-                    "does not match $topologyRevision"
-            )
-        }
-
         val train = input.context.train(input.trainId)
             ?: return rejected(
                 FrozenRouteSelectionRejection.TRAIN_NOT_FOUND,
                 "train ${input.trainId} is absent from observation epoch ${input.observation.stamp.physicsEpoch}"
             )
+        if (input.observation.stamp.topologyRevision != topologyRevision) {
+            train.invalidTopologyReason(input.topology)?.let {
+                return rejected(FrozenRouteSelectionRejection.STALE_OBSERVATION, it)
+            }
+        }
         if (train.derailed) {
             return rejected(
                 FrozenRouteSelectionRejection.INVALID_TRAIN,

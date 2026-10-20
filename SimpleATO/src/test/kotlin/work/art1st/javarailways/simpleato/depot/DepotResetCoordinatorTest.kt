@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.depot
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
@@ -68,13 +70,16 @@ class DepotResetCoordinatorTest {
     )
 
     @AfterEach
-    fun unregisterWorlds() {
-        worlds.forEach { world ->
-            TestSimpleATOWorldDataRegistry.unregister(world)
-            world.physicsCoordinator.close()
-            (world.tickManager as AutoCloseable).close()
-        }
+    fun closeWorlds() {
+        val owned = worlds.toList()
         worlds.clear()
+        assertAll(owned.flatMap { world ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(world) },
+                Executable { world.physicsCoordinator.close() },
+                Executable { (world.tickManager as? AutoCloseable)?.close() }
+            )
+        })
     }
 
     @Test

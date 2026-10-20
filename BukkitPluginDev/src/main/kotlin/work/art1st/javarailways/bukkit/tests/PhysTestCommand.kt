@@ -9,9 +9,9 @@ import org.bukkit.entity.Player
 import org.bukkit.plugin.Plugin
 import org.joml.Vector3d
 import org.joml.Vector3dc
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditRequest
 import work.art1st.javarailways.basic.controller.ManualController
 import work.art1st.javarailways.basic.infrastructure.PhysicalTopologyExplicitConnectionImpactResolver
 import work.art1st.javarailways.basic.infrastructure.PhysicalTopologyReplacementOrRemovalImpactResolver
@@ -31,7 +31,6 @@ import work.art1st.javarailways.core.physics.rail.PreparedRailCreationBatch
 import work.art1st.javarailways.core.physics.rail.PreparedRailConnectionPlan
 import work.art1st.javarailways.core.physics.rail.PreparedRailEndpointConnection
 import work.art1st.javarailways.core.physics.rail.PreparedRailCreationRejectedException
-import work.art1st.javarailways.core.physics.train.CoreBogie
 import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.api.util.annotation.Heavy
@@ -178,45 +177,26 @@ class PhysTestCommand(
             val carLen = 2.0
             var loc: RailLocationWithFacing? = start
             val cars = mutableListOf<CoreCar>()
-            var created: CoreTrain? = null
-            var published = false
-            try {
+            CoreTrain.createOwned(world) {
                 repeat(carCount) { i ->
-                    val bA = CoreBogie.create(loc!!)
+                    val bA = bogie(loc!!)
                     val next = loc!!.forward(carLen)
                     if (next == null) {
                         error("forward() failed at car $i — rail too short or disconnected")
                     }
-                    val bB = CoreBogie.create(next)
-                    cars.add(CoreCar.create("phys-car-$i", bA, bB, carLen, world = world))
+                    val bB = bogie(next)
+                    cars.add(car("phys-car-$i", bA, bB, carLen))
                     loc = next
                 }
 
                 check(cars.isNotEmpty()) { "No cars created" }
-                val t = CoreTrain.create("phys-${UUID.randomUUID().toString().take(6)}", cars, world)
-                created = t
+                val t = train("phys-${UUID.randomUUID().toString().take(6)}", cars)
                 t.setLocation(start)
-                world.publishOwnerChanges(listOf(t))
-                published = true
-                train = t
+                publish()
+                this@PhysTestCommand.train = t
                 "Train ${t.id} on ${rail.id}  cars=${cars.size}"
-            } catch (failure: Throwable) {
-                if (!published && world.physicsCoordinator.status ==
-                    work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus.RUNNING
-                ) {
-                    val cleanup = DestructionSteps()
-                    val failed = created
-                    if (failed != null) cleanup.await { failed.destroy() }
-                    else cars.forEach { car -> cleanup.await { car.destroy() } }
-                    cleanup.finish().whenComplete { _, cleanupFailure ->
-                        if (cleanupFailure != null) {
-                            failure.addSuppressed(cleanupFailure)
-                            BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.SEVERE, "Playground creation cleanup failed", cleanupFailure)
-                        }
-                    }
-                }
-                throw failure
             }
+
         }.whenComplete { message, failure ->
             BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
                 sender.sendMessage(if (failure == null) message else "Spawn failed: ${failure.message}")
@@ -228,7 +208,7 @@ class PhysTestCommand(
         val t = train ?: run { sender.sendMessage("No train"); return }
         world.physicsCoordinator.submitBetweenFrames {
             check(world.getTrain(t.id) === t) { "Train changed" }
-            controller = ManualController(t, world).also {
+            controller = ManualController(t).also {
                 t.setController(it)
                 it.setThrottle(0.5)
             }
@@ -305,12 +285,21 @@ class PhysTestCommand(
         }.thenCompose { it }.whenComplete { _, failure ->
             BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
                 if (failure != null) sender.sendMessage("Cleanup failed: ${failure.message}")
-                else if (cleanRails(sender, world)) afterCleanup()
+                else cleanRails(sender, world).whenComplete { cleaned, railFailure ->
+                    BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {
+                        if (railFailure != null) sender.sendMessage("Cleanup failed: ${railFailure.message}")
+                        else if (cleaned) {
+                            sender.sendMessage("Cleaned up")
+                            afterCleanup()
+                        }
+                    })
+                }
             })
         }
     }
 
-    private fun cleanRails(sender: Player, world: CoreWorld): Boolean {
+    private fun cleanRails(sender: Player, world: CoreWorld): java.util.concurrent.CompletionStage<Boolean> {
+        val cleanup = DestructionSteps()
         val liveRails = rails.mapNotNull { rail -> world.getRail(rail.id)?.takeIf { it === rail } }
         if (liveRails.isNotEmpty()) {
             val topology = world.topologyState
@@ -318,22 +307,21 @@ class PhysTestCommand(
                 topology,
                 liveRails.map(CoreRail::id)
             )
-            val editPermit = acquireEditPermit(sender, world, topology.revision, impact) ?: return false
+            val editPermit = acquireEditPermit(sender, world, topology.revision, impact)
+                ?: return CompletableFuture.completedFuture(false)
             editPermit.use {
                 check(world.topologyState === topology) { "Rail topology changed before playground cleanup" }
                 world.railTopologyTransaction {
                     liveRails.forEach { rail ->
                         RailVisualBootstrap.unregisterRail(rail.id)
-                        rail.destroy()
-                        world.removeRail(rail)
+                        cleanup.await { world.removeRail(rail) }
                         RailRenderMetaStore.removeRail(sender.world, rail.id)
                     }
                 }
             }
         }
         rails.clear()
-        sender.sendMessage("Cleaned up")
-        return true
+        return cleanup.finish().thenApply { true }
     }
 
     private fun acquireEditPermit(

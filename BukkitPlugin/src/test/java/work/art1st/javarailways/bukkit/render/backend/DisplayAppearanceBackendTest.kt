@@ -93,14 +93,17 @@ class DisplayAppearanceBackendTest {
         } as Plugin
         val dispatcher = work.art1st.javarailways.bukkit.util.EntityCleanupDispatcher()
         val visual = NativeDisplayVisual(plugin, display, dispatcher)
-        val result = visual.destroy().toCompletableFuture()
+        val completion = visual.destroy()
+        val result = completion.toCompletableFuture()
         assertFalse(result.isDone)
-        assertSame(result, visual.destroy())
+        assertSame(completion, visual.destroy())
         assertEquals(0, removes)
         dispatcher.action!!.invoke()
         assertTrue(result.isCompletedExceptionally)
-        assertSame(failure, result.handle { _, actual -> actual }.getNow(null))
-        assertSame(result, visual.destroy())
+        assertSame(failure, org.junit.jupiter.api.Assertions.assertThrows(
+            java.util.concurrent.CompletionException::class.java
+        ) { result.join() }.cause)
+        assertSame(completion, visual.destroy())
         assertEquals(1, removes)
     }
 

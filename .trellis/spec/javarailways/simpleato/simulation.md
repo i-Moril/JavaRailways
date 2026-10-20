@@ -59,7 +59,7 @@ SIM领域stamp使用目标CoreWorld已有的`runtimeId`（UUID字符串），不
 
 ### 实际与模拟共用领域阶段
 
-`OperationalWorldRuntime`具体装配同一Core/Basic/SimpleATO链，持有新建的restriction store、inspection、SignalEpochRuntime、Basic数据、安全interlock、ATO coordinator及Dispatcher。实际平台仍拥有profile、Bukkit效果、诊断和service适配；模拟持有本地Basic registry/admission及其admission→SignalEpochRuntime更新，不共享LIVE callback或JS实例。
+`OperationalWorldRuntime`具体装配同一Core/Basic/SimpleATO链，持有新建的restriction store、inspection、SignalEpochRuntime、Basic数据、安全interlock、ATO coordinator及Dispatcher。实际平台仍拥有profile、Bukkit效果、诊断和service适配；模拟使用目标CoreWorld唯一的资源registry、本地Basic admission及其admission→SignalEpochRuntime更新，不共享LIVE callback或JS实例。
 
 静态设施restore后两模式都调用真实`OperationalSpeedLimitSignalMaterializer`生成AB/BA限速及release transition，并在physics启动前安装`SpeedSafetyMonitor`。物理成功后的`afterPublication`复用原次序：发布完整observation并消费admission释放→发布pending物理脱轨通知→消费同epoch速度脱轨请求→平台frame回调→Dispatcher→generic postTick。列车当前frame epoch不等于request的observed epoch时丢弃该速度请求；失败ticket不得调用这条消费阶段。具体Core成功事实由[发布规范](../core/runtime-publication.md)拥有。
 

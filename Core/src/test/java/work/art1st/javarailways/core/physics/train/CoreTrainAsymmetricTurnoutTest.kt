@@ -29,14 +29,13 @@ import java.util.concurrent.TimeUnit
 class CoreTrainAsymmetricTurnoutTest {
     @Test
     fun `reversed split publishes original turnout path without consulting unset reverse selection`() =
-        withFixture { fixture ->
+        withFixture(unsetReverseSelection = true) { fixture ->
             val train = fixture.train
             val oldTail = train.publishedFrame.tail
             val originalCars = train.publishedFrame.cars
             val originalSuffixHead = requireNotNull(train.cars.last().headBogie.location.forward(
                 train.cars.last().headBogieToEndPointOffset
             ))
-            fixture.junction.viewBA.activeRail = null
             val owner = Thread.currentThread()
             val result = train.splitBefore("car-4", "reversed-suffix")
             ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge {
@@ -62,20 +61,17 @@ class CoreTrainAsymmetricTurnoutTest {
         }
 
     @Test
-    fun `removing an active rail selects the first remaining candidate even in invalid multi-branch topology`() =
+    fun `removing the selected branch selects the sole remaining branch`() =
         withWorld { world ->
             val stem = rail(world, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
             val first = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
-            val second = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 5.0))
             val removed = rail(world, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, -5.0))
             IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, first) }
-            IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, second) }
             IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, removed) }
-            stem.viewAB.activeRail = removed.viewAB
-
+            IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = removed.viewAB }
             IsolatedSimulationThreadMarker.run { world.removeRail(removed) }
 
-            assertEquals(listOf(first.viewAB, second.viewAB), stem.viewAB.mutableNextRails)
+            assertEquals(listOf(first.viewAB), stem.viewAB.nextRails)
             assertTrue(stem.viewAB.activeRail === first.viewAB)
         }
 
@@ -109,32 +105,28 @@ class CoreTrainAsymmetricTurnoutTest {
     }
 
     @Test
-    fun `loading rejects a declared active target that disappeared`() = withWorld { sourceWorld ->
+    fun `prepared restore rejects a missing active target before mutation`() = withWorld { sourceWorld ->
         val stem = rail(sourceWorld, Vector3d(-10.0, 0.0, 0.0), Vector3d(0.0, 0.0, 0.0))
         val removed = rail(sourceWorld, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, -5.0))
         val first = rail(sourceWorld, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 0.0))
-        val second = rail(sourceWorld, Vector3d(0.0, 0.0, 0.0), Vector3d(10.0, 0.0, 5.0))
         IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, removed) }
         IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, first) }
-        IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, second) }
-        stem.viewAB.activeRail = removed.viewAB
+        IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = removed.viewAB }
         val saved = sourceWorld.allRails.filter { it !== removed }.map(CoreRail::save)
 
         withWorld { restoredWorld ->
-            val dependency = CoreRail.SavedRailV1.Dependency(restoredWorld)
+            val before = restoredWorld.topologyState
             assertThrows(IllegalArgumentException::class.java) {
-                IsolatedSimulationThreadMarker.run { restoredWorld.railTopologyTransaction {
-                    val disconnected = saved.associateWith { it.loadDisconnected(dependency) }
-                    disconnected.forEach { (snapshot, rail) -> snapshot.restoreConnections(rail, dependency) }
-                } }
+                restoredWorld.prepareRailWorldSnapshotRestore(emptyList(), saved)
             }
+            assertTrue(restoredWorld.allRails.isEmpty())
+            assertTrue(restoredWorld.topologyState === before)
         }
     }
 
     @Test
     fun `moving a long train uses its own tail path when reverse active path is unset`() =
-        withFixture { fixture ->
-            fixture.junction.viewBA.activeRail = null
+        withFixture(unsetReverseSelection = true) { fixture ->
             val startHeadX = fixture.train.headLocation.position.x()
             val startTailX = fixture.train.tailLocation.position.x()
 
@@ -149,8 +141,7 @@ class CoreTrainAsymmetricTurnoutTest {
 
     @Test
     fun `tail endpoint is re-anchored without accumulating head delta on repeated ticks`() =
-        withFixture { fixture ->
-            fixture.junction.viewBA.activeRail = null
+        withFixture(unsetReverseSelection = true) { fixture ->
             val train = fixture.train
             val startHeadX = train.headLocation.position.x()
             val startTailX = train.tailLocation.position.x()
@@ -192,19 +183,15 @@ class CoreTrainAsymmetricTurnoutTest {
 
     @Test
     fun `exact saved train ends restore across the same unset reverse active path`() =
-        withFixture { fixture ->
+        withFixture(unsetReverseSelection = true) { fixture ->
             val saved = fixture.train.save()
-            fixture.world.onOwnerForTest { fixture.world.unregisterTrain(fixture.train) }
-            fixture.junction.viewBA.activeRail = null
-
+            fixture.world.onOwnerForTest { fixture.train.destroy() }.toCompletableFuture().get(5, TimeUnit.SECONDS)
             assertDoesNotThrow {
                 fixture.world.onOwnerForTest { saved.load(fixture.world) }
             }
         }
 
-    private fun fixtureWithTailAcrossJunction(): Fixture = fixture()
-
-    private fun fixture(): Fixture {
+    private fun fixture(unsetReverseSelection: Boolean): Fixture {
         val coordinator = PhysicsCoordinator(1, automaticFallback = false)
         val world = try {
             createTestWorld(coordinator)
@@ -251,7 +238,17 @@ class CoreTrainAsymmetricTurnoutTest {
             check(train.tailBogie.location.rail.id == junction.id) {
                 "tail bogie=${train.tailBogie.location.rail.id}@${train.tailBogie.location.arcLength}"
             }
-            return Fixture(world, previous, junction, train)
+            val ready = if (unsetReverseSelection) {
+                // Placement initially needs the selected reverse path. Restore the saved exact
+                // footprint after clearing it on empty track, rather than switching under a train.
+                val saved = train.save()
+                world.onOwnerForTest { train.destroy() }.toCompletableFuture().get(5, TimeUnit.SECONDS)
+                world.onOwnerForTest {
+                    junction.viewBA.activeRail = null
+                    saved.load(world)
+                }
+            } else train
+            return Fixture(world, previous, junction, ready)
         } catch (failure: Throwable) {
             runCatching { closeWorld(world) }.exceptionOrNull()?.let(failure::addSuppressed)
             throw failure
@@ -305,8 +302,8 @@ class CoreTrainAsymmetricTurnoutTest {
         action: (CoreWorld) -> Unit
     ) = withCleanup({ closeWorld(world) }) { action(world) }
 
-    private inline fun withFixture(action: (Fixture) -> Unit) {
-        val fixture = fixtureWithTailAcrossJunction()
+    private inline fun withFixture(unsetReverseSelection: Boolean = false, action: (Fixture) -> Unit) {
+        val fixture = fixture(unsetReverseSelection)
         withCleanup({ closeWorld(fixture.world) }) { action(fixture) }
     }
 

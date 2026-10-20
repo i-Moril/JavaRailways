@@ -116,3 +116,7 @@ onDelayedEffect(carInstance, capturedPhysicalEffect):
 真实开发服样本的六个world均没有列车，不存在需要转换的既存每车记录；这不代表旧outer/曲线数据已完成迁移。非空车辆快照由固定fixture验证。任意JS Context/闭包不作为存档数据；显式可保存脚本状态的协议另行设计，本批不顺带添加。
 
 每车调用、动作执行和完成协议已完成本批离线验证；下一批接入完整四端联结事务，补联结/解编前后双方状态持续性的集成验证。不能把旧link调用成功或独立helper测试当成完整联结正确性；真实CarExtension的SNAPSHOT/FOLLOW_PACKAGE解析链、完整方向捕获与Folia跨region仍须集成/游戏验证。Core的collision入口及主编组政策见[train physics](../../javarailways/core/train-physics.md)，不在本页重复定义。
+
+## JS局部故障与Core全局停止（2026-10-20）
+
+Graal guest脚本加载、声明扫描或调用错误转换为`TrainBehaviorScriptException`，保留原异常并记录具体车厢/列车；平台向当前确切所属列车提交帧间脱轨停止，保留真实占用与必要资源。脚本错误不停止其他独立线路。host异常不能冒充guest错误；未知host错误进入Core全局halt门禁。效果已发生的事实不回滚，操作future仍获得失败终态。正常动作拒绝、缺少动作效果沿原明确拒绝结果处理，不按线程或宽泛异常类型决定影响范围。

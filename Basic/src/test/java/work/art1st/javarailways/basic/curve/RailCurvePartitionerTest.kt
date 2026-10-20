@@ -1,6 +1,7 @@
 package work.art1st.javarailways.basic.curve
 
 import org.joml.Vector3d
+import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -17,9 +18,9 @@ class RailCurvePartitionerTest {
             Anchor("from", Vector3d(), Vector3d(1.0, 0.0, 0.0)),
             Anchor("to", Vector3d(50.0, 0.0, 50.0), Vector3d(0.0, 0.0, 1.0)),
             RailCurveBuildOptions(template = RailCurveTemplateType.FIVE_SEGMENT, radius = 30.0))
-        assertTrue(built.isSuccess, built.error)
-        val curve = built.curve!!
-        val parts = RailCurvePartitioner.partitionFiveSegment(curve, built.logicalBreakFractions)
+        val builtSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, built)
+        val curve = builtSuccess.curve
+        val parts = RailCurvePartitioner.partitionFiveSegment(curve, builtSuccess.logicalBreakFractions)
         assertEquals(listOf(RailAssemblyRole.CURVE), parts.map { it.role })
         assertEquals(curve.totalArcLength, parts.single().curve.totalArcLength, 1e-9)
     }
@@ -34,10 +35,10 @@ class RailCurvePartitionerTest {
         val built = RailCurveFactory.build(Anchor("from", from, Vector3d(1.0, grade, 0.0)),
             Anchor("to", to, Vector3d(0.0, grade, 1.0)),
             RailCurveBuildOptions(template = RailCurveTemplateType.FIVE_SEGMENT, radius = 30.0))
-        assertTrue(built.isSuccess, built.error)
-        val curve = built.curve!!
+        val builtSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, built)
+        val curve = builtSuccess.curve
         assertEquals(solved.totalLength * kotlin.math.sqrt(1.0 + grade * grade), curve.totalArcLength, 1e-8)
-        val parts = RailCurvePartitioner.partitionFiveSegment(curve, built.logicalBreakFractions)
+        val parts = RailCurvePartitioner.partitionFiveSegment(curve, builtSuccess.logicalBreakFractions)
         assertEquals(3, parts.size)
         val leadingEnd = parts[0].curve.getPointAt(parts[0].curve.totalArcLength).position
         val trailingStart = parts[2].curve.getPointAt(0.0).position
@@ -47,8 +48,8 @@ class RailCurvePartitionerTest {
         val varying = RailCurveFactory.build(Anchor("from", from, Vector3d(1.0, 0.0, 0.0)),
             Anchor("to", to, Vector3d(0.0, 0.0, 1.0)),
             RailCurveBuildOptions(template = RailCurveTemplateType.FIVE_SEGMENT, radius = 30.0))
-        assertTrue(varying.isSuccess, varying.error)
-        val varyingCurve = varying.curve!!
+        val varyingSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, varying)
+        val varyingCurve = varyingSuccess.curve
         val steps = 10_000
         val integratedLength = (0 until steps).sumOf { index ->
             val u = (index + 0.5) / steps
@@ -56,7 +57,7 @@ class RailCurvePartitionerTest {
             kotlin.math.sqrt(1.0 + slope * slope) * solved.totalLength / steps
         }
         assertEquals(integratedLength, varyingCurve.totalArcLength, 5e-5)
-        val varyingParts = RailCurvePartitioner.partitionFiveSegment(varyingCurve, varying.logicalBreakFractions)
+        val varyingParts = RailCurvePartitioner.partitionFiveSegment(varyingCurve, varyingSuccess.logicalBreakFractions)
         val varyingJoint = varyingParts[0].curve.getPointAt(varyingParts[0].curve.totalArcLength).position
         val u = solved.straightA / solved.totalLength
         assertEquals(solved.straightA, varyingJoint.x(), 1e-7)
@@ -73,10 +74,10 @@ class RailCurvePartitionerTest {
             offsets.map { Anchor("from$it", Vector3d(0.0, 0.0, it), Vector3d(1.0, 0.0, 0.0)) },
             offsets.map { Anchor("to$it", Vector3d(100.0 - it, 0.0, 100.0), Vector3d(0.0, 0.0, 1.0)) },
             RailCurveBuildOptions(template = RailCurveTemplateType.FIVE_SEGMENT, radius = 30.0))
-        assertTrue(built.isSuccess, built.error)
-        assertEquals(3, built.logicalBreakFractionsByLane.distinct().size)
-        built.curves!!.forEachIndexed { lane, source ->
-            val fractions = built.logicalBreakFractionsByLane[lane]
+        val builtSuccess = assertInstanceOf(RailParallelCurveBuildResult.Success::class.java, built)
+        assertEquals(3, builtSuccess.logicalBreakFractionsByLane.distinct().size)
+        builtSuccess.curves.forEachIndexed { lane, source ->
+            val fractions = builtSuccess.logicalBreakFractionsByLane[lane]
             fun checkJoints(curve: PrimeCurve, boundaries: List<Double>) {
                 val parts = RailCurvePartitioner.partitionFiveSegment(curve, boundaries)
                 assertEquals(3, parts.size)
@@ -159,8 +160,8 @@ class RailCurvePartitionerTest {
             Anchor("B", Vector3d(100.0, 0.0, 50.0), Vector3d(0.0, 0.0, 1.0)),
             RailCurveBuildOptions(template = RailCurveTemplateType.FIVE_SEGMENT, radius = 30.0)
         )
-        assertTrue(built.isSuccess, built.error)
-        val parts = RailCurvePartitioner.partitionFiveSegment(built.curve!!, built.logicalBreakFractions)
+        val builtSuccess = assertInstanceOf(RailCurveBuildResult.Success::class.java, built)
+        val parts = RailCurvePartitioner.partitionFiveSegment(builtSuccess.curve, builtSuccess.logicalBreakFractions)
         val requested = 40.0
         val limits = parts.associate { part ->
             part.role to RailSpeedCalculator.calculate(

@@ -28,6 +28,9 @@ dependencies {
     compileOnly("org.joml:joml:1.10.8")
     testImplementation("org.joml:joml:1.10.8")
     testFixturesImplementation("org.joml:joml:1.10.8")
+    testFixturesApi(platform("org.junit:junit-bom:5.10.0"))
+    testFixturesApi("org.junit.jupiter:junit-jupiter-api")
+    testFixturesImplementation("org.junit.platform:junit-platform-launcher")
     implementation("net.jcip:jcip-annotations:1.0")
     //implementation(project(":Annotation"))
     //ksp(project(":Annotation"))
@@ -36,6 +39,13 @@ dependencies {
 tasks.test {
     useJUnitPlatform {
         excludeTags("physics-stress")
+    }
+}
+
+// Only explicitly marked terminal-fault invocations launch a child JVM.
+tasks.withType<Test>().configureEach {
+    doFirst {
+        systemProperty("javarailways.haltTest.classpath", classpath.asPath)
     }
 }
 

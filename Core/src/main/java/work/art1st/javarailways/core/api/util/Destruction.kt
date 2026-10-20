@@ -5,13 +5,14 @@ import java.util.concurrent.CompletionStage
 
 /** Retains a single cleanup result, publishing it before invoking potentially reentrant cleanup. */
 class Destruction {
-    private var result: CompletableFuture<Void>? = null
+    private var result: CompletionStage<Void>? = null
 
     @Synchronized
     fun run(cleanup: () -> CompletionStage<Void>): CompletionStage<Void> {
         result?.let { return it }
         val completion = CompletableFuture<Void>()
-        result = completion
+        val observation = completion.minimalCompletionStage()
+        result = observation
         try {
             cleanup().whenComplete { _, failure ->
                 if (failure == null) completion.complete(null) else completion.completeExceptionally(failure)
@@ -19,7 +20,7 @@ class Destruction {
         } catch (failure: Throwable) {
             completion.completeExceptionally(failure)
         }
-        return completion
+        return observation
     }
 }
 

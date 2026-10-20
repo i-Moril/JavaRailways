@@ -1,8 +1,8 @@
 package work.art1st.javarailways.simpleato.timetable
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.infrastructure.PhysicalRouteDependencyCompilation
 import work.art1st.javarailways.basic.infrastructure.PhysicalRouteDependencyCompiler
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState

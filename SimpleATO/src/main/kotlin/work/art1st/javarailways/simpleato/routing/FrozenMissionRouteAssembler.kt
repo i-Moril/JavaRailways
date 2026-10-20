@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.routing
 
+import work.art1st.javarailways.basic.observation.invalidTopologyReason
 import work.art1st.javarailways.simpleato.api.mission.AtoMission
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
@@ -110,17 +111,16 @@ internal object FrozenMissionRouteAssembler {
         missionHeadProgressMeters: Double
     ): FrozenMissionRouteResult {
         val observation = context.observation
-        if (observation.stamp.topologyRevision != topology.revision) {
-            return rejected(
-                FrozenMissionRouteRejection.STALE_OBSERVATION,
-                "observation topology revision ${observation.stamp.topologyRevision} does not match ${topology.revision}"
-            )
-        }
         val train = context.train(trainId)
             ?: return rejected(
                 FrozenMissionRouteRejection.TRAIN_NOT_FOUND,
                 "train $trainId is absent from observation epoch ${observation.stamp.physicsEpoch}"
             )
+        if (observation.stamp.topologyRevision != topology.revision) {
+            train.invalidTopologyReason(topology)?.let {
+                return rejected(FrozenMissionRouteRejection.STALE_OBSERVATION, it)
+            }
+        }
         if (train.derailed) {
             return rejected(
                 FrozenMissionRouteRejection.INVALID_TRAIN,
@@ -194,12 +194,10 @@ internal object FrozenMissionRouteAssembler {
     ): FrozenMissionRouteResult {
         val observation = context.observation
         val committed = existing.selection
-        if (observation.stamp.worldId != committed.observationStamp.worldId ||
-            observation.stamp.topologyRevision != topology.revision
-        ) {
+        if (observation.stamp.worldId != committed.observationStamp.worldId) {
             return rejected(
                 FrozenMissionRouteRejection.STALE_OBSERVATION,
-                "reversal observation must keep the committed world and topology ${topology.revision}"
+                "reversal observation must keep the committed world identity"
             )
         }
         val train = context.train(committed.trainId)
@@ -207,6 +205,11 @@ internal object FrozenMissionRouteAssembler {
                 FrozenMissionRouteRejection.TRAIN_NOT_FOUND,
                 "train ${committed.trainId} is absent from observation epoch ${observation.stamp.physicsEpoch}"
             )
+        if (observation.stamp.topologyRevision != topology.revision) {
+            train.invalidTopologyReason(topology)?.let {
+                return rejected(FrozenMissionRouteRejection.STALE_OBSERVATION, it)
+            }
+        }
         if (train.derailed) {
             return rejected(
                 FrozenMissionRouteRejection.INVALID_TRAIN,
@@ -268,12 +271,10 @@ internal object FrozenMissionRouteAssembler {
     ): FrozenMissionRouteResult {
         val observation = context.observation
         val committed = existing.selection
-        if (observation.stamp.worldId != committed.observationStamp.worldId ||
-            observation.stamp.topologyRevision != topology.revision
-        ) {
+        if (observation.stamp.worldId != committed.observationStamp.worldId) {
             return rejected(
                 FrozenMissionRouteRejection.STALE_OBSERVATION,
-                "continuation observation must keep the committed world and topology ${topology.revision}"
+                "continuation observation must keep the committed world identity"
             )
         }
         val train = context.train(committed.trainId)
@@ -281,6 +282,11 @@ internal object FrozenMissionRouteAssembler {
                 FrozenMissionRouteRejection.TRAIN_NOT_FOUND,
                 "train ${committed.trainId} is absent from observation epoch ${observation.stamp.physicsEpoch}"
             )
+        if (observation.stamp.topologyRevision != topology.revision) {
+            train.invalidTopologyReason(topology)?.let {
+                return rejected(FrozenMissionRouteRejection.STALE_OBSERVATION, it)
+            }
+        }
         if (train.derailed) {
             return rejected(
                 FrozenMissionRouteRejection.INVALID_TRAIN,

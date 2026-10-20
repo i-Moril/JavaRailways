@@ -78,13 +78,13 @@ class PhysicsCapacityStressTest {
             epochOverloadThresholdMillis = 1_000_000L,
             automaticFallback = false
         )
-        val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
-        val controllers = createScenario(world, config, scenario, trainCount)
-        val expectedEpochs = config.warmupEpochs + config.measurementEpochs
-        val samples = ArrayList<PhysicsEpochMetrics>(config.measurementEpochs)
-
-        coordinator.start()
         try {
+            val world = CoreWorld.createEmpty(DummyTickManager, coordinator)
+            val controllers = createScenario(world, config, scenario, trainCount)
+            val expectedEpochs = config.warmupEpochs + config.measurementEpochs
+            val samples = ArrayList<PhysicsEpochMetrics>(config.measurementEpochs)
+
+            coordinator.start()
             repeat(config.warmupEpochs) {
                 coordinator.stepSimulation(LOGICAL_DELTA_MILLIS).await()
             }

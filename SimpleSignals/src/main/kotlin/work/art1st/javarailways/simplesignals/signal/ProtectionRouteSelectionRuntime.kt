@@ -1,7 +1,7 @@
 package work.art1st.javarailways.simplesignals.signal
 
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.observation.RailwayOccupancyCrossingKind
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot

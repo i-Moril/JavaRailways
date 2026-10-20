@@ -1,5 +1,9 @@
 package work.art1st.javarailways.simpleato.persistence
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import org.junit.jupiter.api.AfterEach
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -25,10 +29,23 @@ import work.art1st.javarailways.simpleato.api.depot.DepotStablingPoint
 import work.art1st.javarailways.simpleato.api.depot.RollingStockState
 import work.art1st.javarailways.simpleato.api.depot.StablingPointRef
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 
 class DispatcherSnapshotTest {
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
+
+    @AfterEach
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
+    }
+
     @Test
     fun `SimpleATO runtime codec round trips the dispatcher checkpoint and rejects other versions`() {
         val snapshot = SimpleATORuntimeSnapshotV1(
@@ -68,7 +85,7 @@ class DispatcherSnapshotTest {
 
     @Test
     fun `SimpleATO runtime restores timetables before dispatcher clocks`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.register(world, BasicWorldData())
         val snapshot = SimpleATORuntimeSnapshotV1(
             formatVersion = SimpleATORuntimeSnapshotV1.CURRENT_FORMAT_VERSION,
@@ -95,7 +112,7 @@ class DispatcherSnapshotTest {
 
     @Test
     fun `SimpleATO runtime owns and atomically restores rolling stock`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.register(world, BasicWorldData())
         val depotId = DepotId("north")
         val pointRef = StablingPointRef(depotId, "one")
@@ -136,7 +153,7 @@ class DispatcherSnapshotTest {
 
     @Test
     fun `invalid SimpleATO rolling stock snapshot leaves ledger untouched`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.register(world, BasicWorldData())
         val depotId = DepotId("north")
         val pointRef = StablingPointRef(depotId, "one")
@@ -173,7 +190,7 @@ class DispatcherSnapshotTest {
 
     @Test
     fun `restored active runs become recovery required checkpoints`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(
@@ -241,7 +258,7 @@ class DispatcherSnapshotTest {
 
     @Test
     fun `restore publishes no clocks when an applied timetable cannot be reinstalled`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.register(world, BasicWorldData())
         val plans = RecordingInfrastructureDependencyService()
         val dispatcher = TimetableDispatcher(

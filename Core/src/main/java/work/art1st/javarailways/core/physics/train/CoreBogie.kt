@@ -109,6 +109,14 @@ class CoreBogie @MainThread internal constructor(
         }
     }
 
+    /** Discard an unsuccessful worker step without publishing either buffer slot. */
+    internal fun discardPhysicsChanges() {
+        _location.set(_location.get())
+        _velocity.set(_velocity.get())
+        locationPhysicsDirty = false
+        velocityPhysicsDirty = false
+    }
+
     internal fun updateLocation(location: RailLocationWithFacing) {
         this.location = location
         locationPhysicsDirty = true

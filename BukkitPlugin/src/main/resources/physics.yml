@@ -65,9 +65,3 @@ overspeed:
   derail-lateral-acceleration-mps2: 3.0
   tolerance-kmh: 5.0
   grace-ticks: 5
-
-turnout:
-  default-protection-distance-meters: 20.0
-  default-locking-distance-meters: 5.0
-  decision-lead-ticks: 5
-  allocation-retry-ticks: 5

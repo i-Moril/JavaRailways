@@ -25,7 +25,6 @@ import work.art1st.javarailways.simpleato.timetable.TimetableDispatcher
 import work.art1st.javarailways.simpleato.timetable.TimetableService
 import work.art1st.javarailways.simpleato.timetable.TimetableStep
 import work.art1st.javarailways.simpleato.timetable.TrainSelector
-import work.art1st.javarailways.basic.route.TurnoutSafetyDefaults
 import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationWorld
 import work.art1st.javarailways.simpleato.timetable.simulation.SimulationTrainOperationDurationResolver
 import work.art1st.javarailways.simpleato.timetable.simulation.SimulationTrainOperationGateway
@@ -33,8 +32,6 @@ import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
-import work.art1st.javarailways.core.physics.train.CoreBogie
-import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.core.physics.train.CoreTrain
 
 internal data class TimetableProfileSelection(
@@ -50,11 +47,11 @@ internal data class IsolatedTimetableSimulationSnapshot(
     val timetable: Timetable,
     val profilesByService: Map<String, SimulationControlProfile>,
     val gravityMetersPerSecondSquared: Double,
-    val turnoutSafetyDefaults: TurnoutSafetyDefaults,
     val timetableExtensions: TimetableSimulationExtensions,
     val speedSafety: SpeedSafetyMonitor.Config,
     val domainFeatures: List<PreparedSimulationFeature>,
-    val atoSafetyDistanceMeters: Double
+    val atoSafetyDistanceMeters: Double,
+    val atoAdmissionRetryTicks: Int
 )
 
 /** Captures static configuration on the live thread, then creates a runtime with no live trains. */
@@ -125,12 +122,7 @@ internal class IsolatedTimetableSimulationFactory(
         }
         val extensions = liveWorld.simpleAtoWorldData.timetableExtensions.prepareSimulation()
         val revision = 0L
-        val coreInfrastructure = liveWorld.saveInfrastructure(revision).let { infrastructure ->
-            infrastructure.copy(rails = infrastructure.rails.map { rail -> rail.copy(
-                activeConnectionAtA = rail.connectionsAtA.sortedWith(compareBy({ it.railId }, { it.endpoint })).firstOrNull(),
-                activeConnectionAtB = rail.connectionsAtB.sortedWith(compareBy({ it.railId }, { it.endpoint })).firstOrNull()
-            ) })
-        }
+        val coreInfrastructure = liveWorld.saveInfrastructure(revision)
         return IsolatedTimetableSimulationSnapshot(
             coreInfrastructure,
             BasicInfrastructureSnapshotV2.capture(
@@ -142,11 +134,11 @@ internal class IsolatedTimetableSimulationFactory(
             timetable,
             profiles,
             gravityMetersPerSecondSquared,
-            liveWorld.basicWorldData.turnoutSafetyDefaults,
             extensions,
             speedSafety.copy(),
             features,
-            atoSafetyDistanceMeters
+            atoSafetyDistanceMeters,
+            liveWorld.simpleAtoWorldData.dispatcher.admissionRetryTicks
         )
     }
 
@@ -166,7 +158,6 @@ internal class IsolatedTimetableSimulationFactory(
             basicDataFactory = { world, directionChanges ->
                 world.tickManager.register(operationGateway)
                 BasicWorldData(
-                    turnoutSafetyDefaults = snapshot.turnoutSafetyDefaults,
                     operatingDirections = work.art1st.javarailways.basic.rail.OperatingDirectionStore(directionChanges)
                 )
             },
@@ -177,6 +168,7 @@ internal class IsolatedTimetableSimulationFactory(
                     _, routeAdmissionContextProvider, signalRestrictions, inspectionRuntime, infrastructureDependencyService ->
                 TimetableDispatcher(
                     authorityStoppingMarginMeters = snapshot.atoSafetyDistanceMeters,
+                    admissionRetryTicks = snapshot.atoAdmissionRetryTicks,
                     routeAdmissionContextProvider = routeAdmissionContextProvider,
                     signalRestrictionSnapshots = signalRestrictions,
                     inspectionRuntime = inspectionRuntime,
@@ -334,26 +326,21 @@ internal class IsolatedTimetableSimulationFactory(
         val view = rail.getView(direction)
         val arc = if (direction == ViewDirection.AB) point.arcLength else view.curve.totalArcLength - point.arcLength
         val head = RailLocationWithFacing(view, arc)
-        val cars = profile.cars.mapIndexed { index, blueprint ->
-            val bogieA = CoreBogie.create(head)
-            val bogieB = CoreBogie.create(head)
-            CoreCar.create(
-                "$trainId/car-$index",
-                bogieA,
-                bogieB,
-                blueprint.length,
-                blueprint.floorHeight,
-                blueprint.connectorLengthAtA,
-                blueprint.connectorLengthAtB,
-                blueprint.bogieAOffset,
-                blueprint.bogieBOffset,
-                world
-            )
-        }
         return world.physicsCoordinator.processBetweenFrames {
-            CoreTrain.create(trainId, cars, world, trainName).also { train ->
-                train.setLocation(head)
-                world.publishOwnerChanges(listOf(train))
+            CoreTrain.createOwned(world) {
+                val cars = profile.cars.mapIndexed { index, blueprint ->
+                    val bogieA = bogie(head)
+                    val bogieB = bogie(head)
+                    car(
+                        "$trainId/car-$index", bogieA, bogieB, blueprint.length, blueprint.floorHeight,
+                        blueprint.connectorLengthAtA, blueprint.connectorLengthAtB,
+                        blueprint.bogieAOffset, blueprint.bogieBOffset
+                    )
+                }
+                train(trainId, cars, trainName).also { created ->
+                    created.setLocation(head)
+                    publish()
+                }
             }
         }
     }

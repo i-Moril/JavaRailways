@@ -1,5 +1,8 @@
 package work.art1st.javarailways.simpleato.routing
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import org.joml.Vector3d
@@ -20,22 +23,30 @@ import work.art1st.javarailways.core.physics.createRailForTest
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 
 class OperationalRoutePlannerTest {
-    private val worlds = mutableListOf<CoreWorld>()
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
 
     @AfterEach
-    fun cleanup() {
-        worlds.forEach(TestSimpleATOWorldDataRegistry::unregister)
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
     }
+
+
 
     @Test
     fun `adapts topology markers to positive expanded segments and preserves endpoint directions`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val first = world.createRailForTest(straight(0.0, 10.0))
         val second = world.createRailForTest(straight(10.0, 30.0))
@@ -66,7 +77,7 @@ class OperationalRoutePlannerTest {
 
     @Test
     fun `registered restrictions are compiled once before an operational query`() {
-        val world = createTestWorld().also(worlds::add)
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         TestSimpleATOWorldDataRegistry.getOrCreate(world)
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, 1))
         var invocations = 0

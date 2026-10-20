@@ -141,6 +141,11 @@ internal class RuntimeSignalWandBackend(
         val topology: TopologyState,
         val prepareNames: () -> BoundaryNames
     ) : SignalWandCapture {
+        val watchedRails: MutableSet<UUID> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+        fun watch(railId: UUID) {
+            watchedRails += railId
+            publication.topologyIndex?.railsByObject?.values?.filter { railId in it }?.forEach(watchedRails::addAll)
+        }
         val boundaryNames by lazy(prepareNames)
         val boundariesById by lazy { publication.definitions.regions.flatMap { it.effectiveCuts }.associateBy { it.boundaryId } }
     }
@@ -176,7 +181,7 @@ internal class RuntimeSignalWandBackend(
         val runtime = manager.authoringRuntime(worldId)
             ?: throw IllegalStateException("SimpleSignals world is unavailable")
         val publication = runtime.authoringPublication()
-        val topology = infrastructure.currentTopology(worldId)
+        val topology = publication.topology
         return Capture(worldId, signalType, modelId, catalog, modelCatalog, runtime, publication, topology) {
             BoundaryNames(publication.definitions, topology) { targets?.findCurve(worldId, it)?.orElse(null) }
         }
@@ -187,8 +192,8 @@ internal class RuntimeSignalWandBackend(
         return manager.currentSignalTypeCatalog(captured.catalog) &&
             manager.currentModelTypeCatalog(captured.modelCatalog) &&
             manager.authoringRuntime(captured.worldId) === captured.runtime &&
-            captured.runtime.authoringPublication() === captured.publication &&
-            infrastructure.currentTopology(captured.worldId) === captured.topology
+            captured.runtime.authoringPublication().definitions == captured.publication.definitions &&
+            infrastructure.currentTopology(captured.worldId).preservesRails(captured.topology, captured.watchedRails)
     }
 
     override fun rebindDevices(capture: SignalWandCapture): List<SignalRebindChoice> {
@@ -477,6 +482,7 @@ internal class RuntimeSignalWandBackend(
         point: RailPositionSnapshot
     ): List<SignalWandChoice> {
         val captured = capture as Capture
+        captured.watch(point.railId)
         require(current(captured)) { "Signal selection expired; select again" }
         return when (controlKind) {
             SignalWandControlKind.FIXED_BLOCK -> {
@@ -507,6 +513,7 @@ internal class RuntimeSignalWandBackend(
         active: () -> Boolean
     ): SignalWandOutcome {
         val captured = capture as Capture
+        if (placement is ModelPlacement.RailAttached) captured.watch(placement.position.railId)
         fun selectionCurrent(): Boolean = active() && current(captured)
         require(selectionCurrent()) { "Signal selection expired; select again" }
         require(binding.worldId == captured.worldId) { "The bound entrance belongs to another world" }

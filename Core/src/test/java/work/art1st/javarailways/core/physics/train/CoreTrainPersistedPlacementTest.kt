@@ -170,7 +170,7 @@ class CoreTrainPersistedPlacementTest {
         )))
         IsolatedSimulationThreadMarker.run { CoreRail.connect(previous, junction) }
         IsolatedSimulationThreadMarker.run { CoreRail.connect(alternate, junction) }
-        junction.viewBA.activeRail = previous.viewBA
+        IsolatedSimulationThreadMarker.run { junction.viewBA.activeRail = previous.viewBA }
         val original = configuredTrain(world, previous, "turnout")
         original.world.onOwnerForTest {
             original.setLocation(RailLocationWithFacing(junction.viewAB, 8.0))
@@ -178,9 +178,7 @@ class CoreTrainPersistedPlacementTest {
         }
         assertSame(previous, original.tail.location.rail)
         assertSame(junction, original.head.location.rail)
-        junction.viewBA.activeRail = alternate.viewAB
-
-        assertExactRestore(world, original)
+        assertExactRestore(world, original) { junction.viewBA.activeRail = alternate.viewAB }
     }
 
     private fun assertRejectedWithoutRegistrations(
@@ -207,11 +205,12 @@ class CoreTrainPersistedPlacementTest {
         assertTrue(world.drainPublishedTrainFrames().isEmpty())
     }
 
-    private fun assertExactRestore(world: CoreWorld, original: CoreTrain) {
+    private fun assertExactRestore(world: CoreWorld, original: CoreTrain, beforeRestore: () -> Unit = {}) {
         val expected = original.save()
+        world.onOwnerForTest { original.destroy() }.toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS)
         val loaded = world.onOwnerForTest {
-            original.discardFailedLoad()
             world.drainPublishedTrainFrames()
+            beforeRestore()
             expected.load(world)
         }
         assertEquals(expected, loaded.save(), "loading must preserve exact serialized bogie and end positions")

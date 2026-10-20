@@ -1,5 +1,7 @@
 package work.art1st.javarailways.core.physics.tick
 
+import work.art1st.javarailways.core.testing.IsolateGlobalHalt
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotSame
@@ -230,6 +232,7 @@ class PhysicsEpochEventsTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["processor", "controller", "overload", "close"])
+    @IsolateGlobalHalt("processor", "controller")
     fun `failed or closed epoch has pre without successful post`(phase: String) {
         val clock = AtomicLong(1_000_000_000L)
         val coordinator = PhysicsCoordinator(1, nanoTime = clock::get, automaticFallback = false,
@@ -321,7 +324,7 @@ class PhysicsEpochEventsTest {
                 assertEquals(1, collisions.size)
                 assertSame(world, collisions.single().world)
                 assertEquals(mode, collisions.single().world.executionMode)
-                coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
+                world.onOwnerForTest { coordinator.drainBetweenFramesOperations() }
                 assertTrue(first.isDerailed)
                 assertTrue(second.isDerailed)
                 assertEquals(1, collisions.size)

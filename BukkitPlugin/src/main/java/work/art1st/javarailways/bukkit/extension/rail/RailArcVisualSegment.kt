@@ -57,7 +57,7 @@ class RailArcVisualSegment(
     val pointArcs: List<Double> = emptyList(),
     val templateSnapshot: RailTemplateSnapshot? = null,
     private val extensionDataContainer: ExtensionDataContainer<RenderableExtension<RailArcVisualSegment>> = ExtensionDataContainer()
-) : Renderable, Extendable<RenderableExtension<RailArcVisualSegment>> by extensionDataContainer {
+) : Renderable, work.art1st.javarailways.core.api.util.Destroyable, Extendable<RenderableExtension<RailArcVisualSegment>> by extensionDataContainer {
 
     override val world = rail.world
 

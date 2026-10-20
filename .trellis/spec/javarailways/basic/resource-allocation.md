@@ -21,12 +21,14 @@ claim，设备准备完成后才发布grant；同一route的更远authority使�
 自动道岔切换和显式手动切换共用Basic的唯一双向live-selection原语。自动切换只发生在完整route claim建立之后；
 手动切换先以独立短生命周期owner临时claim该turnout resource，因而与active route claim和edit permit互斥，
 但不生成grant、movement authority、release queue或ATO状态。手动操作等待当前physics epoch完成，再检查turnout每个port
-向内`lockingDistanceMeters`范围的已发布列车占用；任一区间被占用即拒绝。成功、物理占用拒绝和stale返回都在方法结束前
+在 canonical AB 上的零长度闭区间与已发布列车车体占用；任一端口被占用即拒绝。
+车体跨过接点时必覆盖至少一个结构端口，头尾恰好接触端口也算占用；与列车朝向、是否持有进路 claim 无关。
+不使用任意附近距离，也不把远离接点的整段岔腿都当作互斥区。成功、物理占用拒绝和stale返回都在方法结束前
 释放临时claim。已经双向对齐的选择为`UNCHANGED`且不写live state。
 
 ## Infrastructure dependency、live claim 与 edit guard
 
-`InfrastructureCoordinationRegistry`是world-local原子registry，也是运行时进路资源的唯一登记处。它区分三类持有：
+`CoreWorld.infrastructureCoordination`拥有唯一world-local `InfrastructureCoordinationRegistry`，实现位于Core；Basic和宿主不得另建运行时仲裁实例。运行时claim、编辑许可和基础设施依赖共用这份状态。它区分三类持有：
 
 - infrastructure dependency：共享、长生命周期，分别保存persistent rail ID、`StableTopologyNodeKey`和
   `StableInfrastructureResource`三类引用；可彼此重叠，只用于阻止相关结构编辑，不参与列车资源仲裁；
@@ -40,8 +42,7 @@ claim，设备准备完成后才发布grant；同一route的更远authority使�
 `TopologyNodeId`作为长期依赖。`StableInfrastructureResource`只表示真实运行/运营资源，不得把rail或结构节点包装成
 resource。计划apply/replace时，registry对三类引用调用各自无副作用的validator；校验、依赖安装及edit permit
 冲突检查共用registry锁，因此正常编辑不能穿过依赖安装窗口。全局revision不是这些稳定引用的有效性证明；
-成功后依赖不会仅因不相交编辑使全局revision增加而自动失效。编辑申请同样双重核对revision，再在同一把锁内完成
-依赖、live claim及其他permit的冲突检查并安装permit，避免check与mutation之间的竞态。
+成功后依赖不会仅因不相交编辑使全局revision增加而自动失效。编辑申请在同一把锁内验证实际稳定引用，再检查依赖、live claim及其他permit冲突并安装permit；不因来源revision不同拒绝。Core每个结构修改入口强制持有覆盖实际影响的permit。外部许可通过认证的lexical scope复用，设备扳动可通过真实claim owner scope授权；scope期间pin所有权，release/shrink/rollback不能撤销保护，callback不持registry monitor以避免与Core world锁逆序。owner cleanup在活跃scope期间登记延迟清理，最后scope退出自动释放普通claim/permit，不要求plugin disable重试；原有pending admission reservation仍按fail-closed恢复合同保留。
 
 Infrastructure dependency mutation与edit decision使用独立typed result。Claim的`InfrastructureMutationResult`仍只描述运行
 资源冲突，不能塞入nullable rail/node diagnostics。编辑冲突返回每个owner的`TopologyEditOverlap`，明确指出三类集合
@@ -110,7 +111,7 @@ request不携带可替代Basic推导的raw `InfrastructureFootprint`或可信列
 
 运行中route state按rail ID建立反向索引，消费Core的`RailTopologyChange`。只有与事务影响相交的状态才标记不可用；
 已持有资源保留，不因编辑强制释放。未命中的grant、设备准备、后续申请和车尾游标继续工作。
-编辑候选自身仍须核对当前root，以防覆盖并发修改；这类编辑失败不得传播成全世界列车的授权失效。
+编辑候选提交局部delta并复核实际依赖，不以旧root生成的整图覆盖当前状态；这类局部失效不得传播成全世界列车的授权失效。
 
 `RouteResourceAdmissionRuntime`消费Basic内部route validation得到的唯一资源集合，在registry mutation前用同一观测的occupancy index查询已编译geometry，然后原子claim并启动同一admission中的完整有序`InfrastructurePreparationRequirement`批次。claim只建立逻辑排他性，不等于设备已经物理就绪；通用main-thread batch ticket报告`PREPARING/READY/ABORTED_SAFE/UNSAFE`，pending admission handle持有claim mutation，只有`READY`才完成claim，只有资源handler确认`ABORTED_SAFE`才删除本次新claim。`abort()`不规定恢复旧状态或默认状态。当前live actuator处理turnout requirement：它在任何side effect前解析并验证完整的双向selection批次，然后即时写入并返回`READY`；当前内存选择没有虚构的运行时失败或旧selection恢复路径。执行未完成时不会返回成功claim结果，也不存在grant；任一snapshot/actuator异常或`UNSAFE`均保留当前claim reservation并Stall world。
 

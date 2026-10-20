@@ -1,5 +1,9 @@
 package work.art1st.javarailways.simpleato.routing
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import org.junit.jupiter.api.AfterEach
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.BasicWorldData
@@ -7,7 +11,6 @@ import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionPoint
 import work.art1st.javarailways.simpleato.api.mission.AtoMissionRequest
@@ -17,9 +20,23 @@ import work.art1st.javarailways.simpleato.api.mission.WayPointRef
 import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
 
 class MissionRouteProgressTest {
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
+
+    @AfterEach
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
+    }
+
     @Test
     fun `projects BA positions onto cumulative mission distance`() {
-        val world = createTestWorld()
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
         val data = BasicWorldData()
         TestSimpleATOWorldDataRegistry.register(world, data)
         val rail = createStraightRailFromSegments(

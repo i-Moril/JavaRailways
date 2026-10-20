@@ -264,12 +264,11 @@ open class CoreTrain @MainThread internal constructor(
         require(speedMetersPerSecond.isFinite() && speedMetersPerSecond >= 0.0) {
             "speedMetersPerSecond must be finite and non-negative"
         }
+        require(deltaS.isFinite() && deltaS >= 0.0) { "deltaS must be finite and non-negative" }
         if (activeDerailState.derailed || movementHeld) {
             updateActiveMotion(0.0)
             return
         }
-
-        require(deltaS >= 0.0) { "deltaS must >= 0" }
 
         if (deltaS == 0.0) {
             updateActiveMotion(speedMetersPerSecond)
@@ -279,13 +278,9 @@ open class CoreTrain @MainThread internal constructor(
             return
         }
 
-        try {
-            // PassSignal detection
-            val signals = head.location.peekSignals(deltaS)
-            if (signals.isNotEmpty()) {
-                signals.forEach { PhysicsRailEventBus.publish(PassSignalEvent(this, it)) }
-            }
+        val signals = head.location.peekSignals(deltaS)
 
+        try {
             val previousLocations = currentRailLocations()
             val traversedSegments = head.location.peekCurve(deltaS).toList()
             headBogie.moveForward(deltaS)
@@ -300,9 +295,30 @@ open class CoreTrain @MainThread internal constructor(
             pendingHeadTraversal = traversalSnapshots(traversedSegments)
             pendingTailTraversal = traversalSnapshots(tailTraversal)
         } catch (e: PhysicsException) {
-            updateActiveMotion(0.0)
-            markDerailedFromPhysics("Train movement failed: train=$id, deltaSMeters=$deltaS: $e")
+            try {
+                cars.forEach(CoreCar::discardPhysicsChanges)
+                head.discardPhysicsChanges()
+                tail.discardPhysicsChanges()
+                pendingSweptSpans = publishedPlacementIntervals.map { interval ->
+                    SweptRailSpan(id, interval.railId,
+                        interval.minArcLengthInAbMeters, interval.maxArcLengthInAbMeters)
+                }
+                pendingHeadTraversal = emptyList()
+                pendingTailTraversal = emptyList()
+                updateActiveMotion(0.0)
+                markDerailedFromPhysics("Train movement failed: train=$id, deltaSMeters=$deltaS: $e")
+            } catch (rollbackFailure: Throwable) {
+                rollbackFailure.addSuppressed(e)
+                throw world.physicsCoordinator.stall("Failed to isolate train movement: train=$id", rollbackFailure)
+            }
+            java.util.logging.Logger.getLogger(CoreTrain::class.java.name).log(
+                java.util.logging.Level.SEVERE, "Train movement failed: train=$id, deltaSMeters=$deltaS", e
+            )
+            return
         }
+        // Only completed movement can produce crossing requests. Observer failures cannot
+        // be isolated by rolling back this train's writable geometry.
+        signals.forEach { PhysicsRailEventBus.publish(PassSignalEvent(this, it)) }
     }
 
     /** Propagates an authoritative scalar speed along the active train-local path. */
@@ -594,7 +610,7 @@ open class CoreTrain @MainThread internal constructor(
         steps.action { removeController() }
         steps.await { head.destroy() }
         steps.await { tail.destroy() }
-        cars.forEach { car -> steps.await { car.destroy() } }
+        cars.forEach { car -> steps.await { car.destroyOwnedResources() } }
         steps.action { world.unregisterTrain(this) }
         steps.finish()
     }
@@ -1237,7 +1253,7 @@ open class CoreTrain @MainThread internal constructor(
             steps.action { removeController() }
             steps.await { head.destroy() }
             steps.await { tail.destroy() }
-            cars.forEach { car -> steps.await { car.destroy() } }
+            cars.forEach { car -> steps.await { car.destroyOwnedResources() } }
             steps.action { world.unregisterTrain(this) }
             steps.action { world.publishOwnerChanges(emptyList()) }
             steps.finish()
@@ -1357,6 +1373,17 @@ open class CoreTrain @MainThread internal constructor(
         const val COLLISION_SPEED = 2.78 // ~10km/h
         private const val TAIL_END_SEARCH_MARGIN_METERS = 1.0
 
+        /** Owns new car/bogie construction and initialization through successful train publication. */
+        fun <T> createOwned(world: CoreWorld, create: TrainCreation.() -> T): T {
+            val creation = TrainCreation(world)
+            return try {
+                creation.create().also { creation.finish() }
+            } catch (failure: Throwable) {
+                creation.discard(failure)
+                throw failure
+            }
+        }
+
         @JvmStatic
         fun create(
             id: String,
@@ -1364,7 +1391,22 @@ open class CoreTrain @MainThread internal constructor(
             world: CoreWorld,
             name: String = id,
             extensionData: Map<String, SerializableExtensionData> = emptyMap()
-        ): CoreTrain = CoreTrain(id, cars, world, extensionData, name)
+        ): CoreTrain {
+            require(cars.all { it.train == null }) { "New train creation cannot borrow owned cars" }
+            return try {
+                CoreTrain(id, cars, world, extensionData, name)
+            } catch (failure: Throwable) {
+                val cleanup = DestructionSteps()
+                cars.forEach { car -> cleanup.await { car.destroyOwnedResources() } }
+                cleanup.finish().whenComplete { _, cleanupFailure ->
+                    if (cleanupFailure != null) {
+                        failure.addSuppressed(cleanupFailure)
+                        world.physicsCoordinator.stall("Failed train creation cleanup: train=$id", cleanupFailure)
+                    }
+                }
+                throw failure
+            }
+        }
 
         private fun validateTrainName(value: String): String {
             require(value.isNotBlank() && value == value.trim() && value.none(Char::isISOControl)) {

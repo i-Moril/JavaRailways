@@ -1,13 +1,14 @@
 package work.art1st.javarailways.basic.infrastructure.admission
 
+import work.art1st.javarailways.basic.observation.invalidTopologyReason
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationResult
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureMutationResult
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureFootprint
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionState
@@ -29,8 +30,8 @@ import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.util.annotation.MainThread
 import java.util.Collections
-import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
-import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.basic.infrastructure.ProjectedTopologyRoute
 import work.art1st.javarailways.basic.infrastructure.RouteBoundResourceCatalog
 import work.art1st.javarailways.basic.infrastructure.TopologyRouteProjectionResult
@@ -328,15 +329,16 @@ internal class RouteResourceAdmissionEngine(
             return rejected(RouteAdmissionFailureCode.STALE_OBSERVATION, "observation stamp is no longer current")
         }
         val topology = currentTopology()
-        if (observation.stamp.topologyRevision != topology.revision) {
-            return rejected(RouteAdmissionFailureCode.STALE_OBSERVATION,
-                "current topology has no matching physical observation yet")
-        }
         if (existing?.topologyInvalidated == true || validation.invalidated) {
             return rejected(RouteAdmissionFailureCode.STALE_TOPOLOGY, "a frozen route dependency changed")
         }
         val train = observation.trains.firstOrNull { it.trainId == intent.trainId }
             ?: return rejected(RouteAdmissionFailureCode.TRAIN_NOT_FOUND, "train is absent from observation")
+        if (observation.stamp.topologyRevision != topology.revision) {
+            train.invalidTopologyReason(topology)?.let {
+                return rejected(RouteAdmissionFailureCode.STALE_OBSERVATION, it)
+            }
+        }
         val projection = if (existing == null || appendsRoute) {
             when (val projected = TopologyRouteProjector.project(intent.route, topology)) {
                 is TopologyRouteProjectionResult.Projected -> projected.route
@@ -493,7 +495,7 @@ internal class RouteResourceAdmissionEngine(
             it is ResolvedContributedResourcePreparation && it.resource in held
         }
         val started = try {
-            preparationActuator.start(preparations)
+            registry.withClaim(hostClaimOwner, intent.owner) { preparationActuator.start(preparations) }
         } catch (failure: Exception) {
             return stalled(intent, failure, "preparation could not be started")
         }
@@ -631,10 +633,6 @@ internal class RouteResourceAdmissionEngine(
                 "reversal observation stamp is no longer current")
         }
         val topology = currentTopology()
-        if (observation.stamp.topologyRevision != topology.revision) {
-            return reversalRejected(RouteAdmissionFailureCode.STALE_OBSERVATION,
-                "current topology has no matching reversal observation yet")
-        }
         if (route.topologyInvalidated || validation.invalidated) {
             return reversalRejected(RouteAdmissionFailureCode.STALE_TOPOLOGY,
                 "frozen route topology changed during reversal")
@@ -642,6 +640,11 @@ internal class RouteResourceAdmissionEngine(
         val train = observation.trains.firstOrNull { it.trainId == intent.trainId }
             ?: return reversalRejected(RouteAdmissionFailureCode.TRAIN_NOT_FOUND,
                 "train is absent from the reversal observation")
+        if (observation.stamp.topologyRevision != topology.revision) {
+            train.invalidTopologyReason(topology)?.let {
+                return reversalRejected(RouteAdmissionFailureCode.STALE_OBSERVATION, it)
+            }
+        }
         if (train.derailed || train.speedMetersPerSecond > STOPPED_SPEED_EPSILON_METERS_PER_SECOND) {
             return reversalRejected(RouteAdmissionFailureCode.INVALID_ROUTE,
                 "reversal rebase requires a stopped, non-derailed train")

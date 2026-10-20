@@ -57,6 +57,7 @@ data class RailLocationWithFacing internal constructor(
         }
 
     fun forward(deltaS: Double): RailLocationWithFacing? {
+        require(deltaS.isFinite()) { "deltaS must be finite" }
         if (deltaS >= 0) return forwardPositive(deltaS)
         return reversed.forwardPositive(-deltaS)?.reversed
     }
@@ -86,6 +87,7 @@ data class RailLocationWithFacing internal constructor(
      * distance为负：向后peek, 方向相反
      */
     fun peekCurve(distance: Double): RailSegments {
+        require(distance.isFinite()) { "distance must be finite" }
         var arcLength: Double
         var segment: RailSegment
         var railView = this.railView

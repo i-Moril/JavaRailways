@@ -98,6 +98,12 @@ data class BasicInfrastructureSnapshotV2(
             "Infrastructure snapshot contains WayPoints on missing rails: " +
                 missingWayPointRails.joinToString { "${it.id}@${it.railId}" }
         }
+        restoredWayPoints.forEach { point ->
+            val length = requireNotNull(world.getRail(point.railId)).getView(ViewDirection.AB).curve.totalArcLength
+            require(point.arcLength <= length) {
+                "WayPoint ${point.id} on rail ${point.railId} has arc ${point.arcLength} beyond rail length $length"
+            }
+        }
         val parsedMetadata = railMetadata.map { it.parsedRailId() to it.metadata }
         val duplicateMetadataIds = parsedMetadata.groupingBy { it.first }.eachCount().filterValues { it > 1 }.keys
         check(duplicateMetadataIds.isEmpty()) {

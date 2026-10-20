@@ -86,8 +86,8 @@ class CoreCarPositioningRegressionTest {
             RailSegment(stem.viewAB, 10.0, stem.curve.totalArcLength),
             RailSegment(main.viewAB, 0.0, 20.0)
         ))
-        stem.viewAB.activeRail = branch.viewAB
-        main.viewBA.activeRail = null
+        IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = branch.viewAB }
+        IsolatedSimulationThreadMarker.run { main.viewBA.activeRail = null }
         val anchor = Vector3d(26.0, 3.1, 0.0)
 
         val prepared = car.prepareFollowingCarOnPath(

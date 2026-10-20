@@ -1,5 +1,10 @@
 package work.art1st.javarailways.basic.infrastructure
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import work.art1st.javarailways.core.api.physics.infrastructure.TurnoutResourceIdentity
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
 import work.art1st.javarailways.core.util.IsolatedSimulationThreadMarker
 
 import org.joml.Vector3d
@@ -9,8 +14,8 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureFootprint
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionStatus
 import work.art1st.javarailways.core.api.physics.curve.Curve
@@ -30,10 +35,14 @@ class ManualTurnoutSelectionRuntimeTest {
 
     @AfterEach
     fun closeWorlds() {
-        worlds.forEach { world ->
-            world.physicsCoordinator.close()
-            (world.tickManager as? AutoCloseable)?.close()
-        }
+        val owned = worlds.toList()
+        worlds.clear()
+        assertAll(owned.flatMap { world ->
+            listOf(
+                Executable { world.physicsCoordinator.close() },
+                Executable { (world.tickManager as? AutoCloseable)?.close() }
+            )
+        })
     }
 
     @Test
@@ -85,14 +94,13 @@ class ManualTurnoutSelectionRuntimeTest {
     }
 
     @Test
-    fun `physical locking occupancy rejects and releases temporary claim`() {
+    fun `physical port occupancy rejects and releases temporary claim`() {
         val fixture = turnout()
         var queriedIntervals = emptyList<RailInterval>()
         val runtime = ManualTurnoutSelectionRuntime(
             fixture.world,
             fixture.registry,
             ensureBetweenFrames = { fixture.world.physicsCoordinator.ensureBetweenFrames("manual turnout test") },
-            lockingDistanceMeters = 5.0,
             publishSelection = { fixture.world.publishOwnerChanges(emptyList()) },
             findBlockingTrainIds = { intervals ->
                 queriedIntervals = intervals
@@ -105,22 +113,21 @@ class ManualTurnoutSelectionRuntimeTest {
         assertEquals(ManualTurnoutSelectionStatus.PHYSICALLY_OCCUPIED, result.status)
         assertEquals(listOf("train-1"), result.blockingTrainIds)
         assertEquals(3, queriedIntervals.size)
-        assertTrue(queriedIntervals.all { it.maxArcLengthInAbMeters - it.minArcLengthInAbMeters == 5.0 })
+        assertTrue(queriedIntervals.all { it.maxArcLengthInAbMeters - it.minArcLengthInAbMeters == 0.0 })
         assertSame(fixture.second.viewAB, fixture.stem.viewAB.nextActiveRail)
         assertTrue(fixture.registry.claimSnapshots().isEmpty())
     }
 
     @Test
-    fun `stale topology request changes nothing`() {
+    fun `older topology request revalidates the selected continuation`() {
         val fixture = turnout()
-        val request = fixture.request(fixture.first).copy(
+        val request = fixture.request(if (fixture.stem.viewAB.nextActiveRail === fixture.first.viewAB) fixture.second else fixture.first).copy(
             topologyRevision = fixture.world.topologyState.revision - 1L
         )
 
         val result = fixture.world.onOwnerForTest { runtime(fixture).select(Any(), request) }
 
-        assertEquals(ManualTurnoutSelectionStatus.STALE_TOPOLOGY, result.status)
-        assertSame(fixture.second.viewAB, fixture.stem.viewAB.nextActiveRail)
+        assertEquals(ManualTurnoutSelectionStatus.SELECTED, result.status)
         assertTrue(fixture.registry.claimSnapshots().isEmpty())
     }
 
@@ -129,7 +136,6 @@ class ManualTurnoutSelectionRuntimeTest {
             fixture.world,
             fixture.registry,
             ensureBetweenFrames = { fixture.world.physicsCoordinator.ensureBetweenFrames("manual turnout test") },
-            lockingDistanceMeters = 5.0,
             publishSelection = { fixture.world.publishOwnerChanges(emptyList()) }
         )
 
@@ -142,11 +148,12 @@ class ManualTurnoutSelectionRuntimeTest {
         IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, second) }
         val turnout = world.topologyState.nodes.values.filterIsInstance<TopologyNode.Turnout>().single()
         val resource = TurnoutResourceIdentity.fromPorts(turnout.ports)
-        val registry = InfrastructureCoordinationRegistry(
-            currentTopologyRevision = { world.topologyState.revision },
-            resourceExists = { it == resource }
-        )
-        world.onOwnerForTest { world.publishOwnerChanges(emptyList()) }
+        val registry = world.infrastructureCoordination
+        world.onOwnerForTest {
+            stem.viewAB.selectNextRail(second.viewAB)
+            second.viewBA.selectNextRail(stem.viewBA)
+            world.publishOwnerChanges(emptyList())
+        }
         return Fixture(world, stem, first, second, resource, registry)
     }
 
@@ -167,7 +174,7 @@ class ManualTurnoutSelectionRuntimeTest {
         val stem: CoreRail,
         val first: CoreRail,
         val second: CoreRail,
-        val resource: work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource,
+        val resource: work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource,
         val registry: InfrastructureCoordinationRegistry
     ) {
         fun request(branch: CoreRail) = ManualTurnoutSelectionRequest(

@@ -21,7 +21,8 @@ internal fun topologyState(
     revision: Long,
     railIds: Collection<UUID>,
     connections: Collection<Pair<RailEndpointRef, RailEndpointRef>>,
-    atGradeCrossings: List<AtGradeRailCrossing> = emptyList()
+    atGradeCrossings: List<AtGradeRailCrossing> = emptyList(),
+    preservedRailIdentities: Map<UUID, UUID> = emptyMap()
 ): TopologyState {
     val continuations = linkedMapOf<RailEndpointRef, MutableSet<RailEndpointRef>>()
     connections.forEach { (first, second) ->
@@ -30,7 +31,7 @@ internal fun topologyState(
     }
     return buildTestTopology(
         revision = revision,
-        rails = railIds.map { TestTopologyRail(it, 10.0) },
+        rails = railIds.map { TestTopologyRail(it, 10.0, preservedRailIdentities[it] ?: UUID.randomUUID()) },
         continuations = continuations,
         atGradeCrossings = atGradeCrossings
     )

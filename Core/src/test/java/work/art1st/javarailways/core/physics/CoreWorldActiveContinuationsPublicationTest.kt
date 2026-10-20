@@ -30,12 +30,12 @@ class CoreWorldActiveContinuationsPublicationTest {
         val secondExit = RailEndpointRef(second.id, RailEndpoint.A)
 
         world.onOwnerForTest {
-            stem.viewAB.activeRail = first.viewAB
+            IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = first.viewAB }
             world.publishOwnerSelectionChanges()
             val before = world.latestWorldFrame()
             world.publishOwnerSelectionChanges()
             assertSame(before, world.latestWorldFrame(), "unchanged owner polls must not rebuild the world")
-            stem.viewAB.activeRail = second.viewAB
+            IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = second.viewAB }
             world.publishOwnerSelectionChanges()
             assertEquals(before.physicsEpoch, world.latestWorldFrame().physicsEpoch)
             assertEquals(secondExit, world.latestWorldFrame().activeContinuations.selectedContinuation(stemEntry))
@@ -44,7 +44,7 @@ class CoreWorldActiveContinuationsPublicationTest {
                 world.latestWorldFrame().occupancy.collisionActiveContinuations)
         }
 
-        stem.viewAB.activeRail = first.viewAB
+        IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = first.viewAB }
         val firstFrame = publish(world, 1L)
         val unchangedFrame = publish(world, 2L)
 
@@ -63,7 +63,7 @@ class CoreWorldActiveContinuationsPublicationTest {
         val rejectedFrame = publish(world, 3L)
         assertSame(firstFrame.activeContinuations, rejectedFrame.activeContinuations)
 
-        stem.viewAB.activeRail = second.viewAB
+        IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = second.viewAB }
         val changedFrame = publish(world, 4L)
         assertEquals(rejectedMessage, failure.message, "later selection must not rewrite captured diagnostics")
 
@@ -76,7 +76,7 @@ class CoreWorldActiveContinuationsPublicationTest {
         assertEquals(firstExit, firstFrame.activeContinuations.selectedContinuation(stemEntry))
         assertEquals(firstFrame.topologyRevision, changedFrame.topologyRevision)
 
-        stem.viewAB.activeRail = null
+        IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = null }
         val unselectedFrame = publish(world, 5L)
         assertNull(unselectedFrame.activeContinuations.selectedContinuation(stemEntry))
     }
@@ -84,12 +84,11 @@ class CoreWorldActiveContinuationsPublicationTest {
     @Test
     fun `branch change during epoch processing rejects the captured frame`() = withWorld { world ->
         val (stem, first, second) = turnout(world)
-        stem.viewAB.activeRail = first.viewAB
+        IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = first.viewAB }
         world.rebuildSweptOccupancyIndex(1L)
         val candidate = world.captureWorldFrame(1L)
 
-        stem.viewAB.activeRail = second.viewAB
-
+        IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = second.viewAB }
         val failure = assertThrows(IllegalStateException::class.java) {
             world.publishCapturedWorldFrame(candidate)
         }
@@ -100,20 +99,20 @@ class CoreWorldActiveContinuationsPublicationTest {
     @Test
     fun `collision envelope continuation uses the published turnout selection`() = withWorld { world ->
         val (stem, first, second) = turnout(world)
-        stem.viewAB.activeRail = first.viewAB
+        IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = first.viewAB }
         val firstFrame = publish(world, 1L)
 
         assertSame(firstFrame.activeContinuations, firstFrame.occupancy.collisionActiveContinuations)
         assertSame(first.viewAB, world.collisionContinuation(stem.viewAB, firstFrame.activeContinuations))
 
-        stem.viewAB.activeRail = second.viewAB
+        IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = second.viewAB }
         val secondFrame = publish(world, 2L)
 
         assertSame(second.viewAB, world.collisionContinuation(stem.viewAB, secondFrame.activeContinuations))
         assertSame(first.viewAB, world.collisionContinuation(stem.viewAB, firstFrame.activeContinuations),
             "older collision evidence must retain the branch selected in its own publication")
 
-        stem.viewAB.activeRail = null
+        IsolatedSimulationThreadMarker.run { stem.viewAB.activeRail = null }
         val unselectedFrame = publish(world, 3L)
         assertNull(world.collisionContinuation(stem.viewAB, unselectedFrame.activeContinuations))
     }

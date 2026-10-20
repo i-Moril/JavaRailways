@@ -160,7 +160,8 @@ world undo的Future在阶段退出和清理以后才完成，使Compound undo的
 
 `TrainCommand`将live身份/占用复核、车厢与列车构造、extension初始化、控制参数登记和最终Core发布作为一个帧间操作。
 成功后才在原玩家entity owner显示模型及结果，不把“排队成功”报告成“创建成功”。
-发布前且Core仍RUNNING时才清理未完成创建；Core已Stall或已成功发布后不能因后续消息失败反向删除列车。
+新建bogie/car/train在`CoreTrain.createOwned`的`TrainCreation`作用域登记，Core负责初始化失败回收，平台不再逐车销毁。`TrainCreation.publish()`在最终world publication成功后移交所有权；发布前且Core仍RUNNING时才清理未完成创建，Core已halt或已成功发布后不能因后续消息失败反向删除列车。Basic控制参数等sidecar回滚可通过作用域`onFailure`登记。
+轨道`destroy`与`World.removeRail`同为完整删除：RailWand普通prepared commit与独立world undo汇总本次操作的所有异步清理，释放world/拓扑锁后等待完成，再回entity scheduler通知成功；清理失败进入原失败反馈，不能提前发成功。Dev清理也扁平化并消费train与rail的真实完成结果。
 删除同样将会话/参数退出及`train.destroy()`放在一个操作；扁平化返回的CompletionStage，等待子模型、audience和平台实体清理后再回送成功反馈。模型及显示后端重复destroy复用同一结果；单项清理失败不阻断其他清理。entity调度拒绝、退休及执行失败均使结果失败，不能把提交成功当作删除完成。
 隔离simulation工厂在其已有simulation owner中同步进入同一阶段；Dev测试命令也按真实Future消费创建、控制和删除结果。
 不移动模型文件读取或扩展包准备到physics worker，不扩大为任意平台实体事务。

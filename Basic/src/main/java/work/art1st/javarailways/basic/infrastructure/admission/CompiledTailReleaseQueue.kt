@@ -1,8 +1,8 @@
 package work.art1st.javarailways.basic.infrastructure.admission
 
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.RailIntervalResource
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 
 internal val TAIL_RELEASE_ENTRY_ORDER: Comparator<ResolvedTailReleaseEntry> =
     Comparator { first, second ->

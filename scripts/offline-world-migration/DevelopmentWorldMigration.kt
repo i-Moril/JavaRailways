@@ -6,9 +6,9 @@ import net.minecraft.server.Bootstrap
 import org.bukkit.configuration.file.YamlConfiguration
 import work.art1st.javarailways.basic.BasicPlugin
 import work.art1st.javarailways.basic.BasicWorldData
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyMutationResult
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.persistence.BasicRuntimeSnapshotV3
 import work.art1st.javarailways.bukkit.persistence.*
 import work.art1st.javarailways.bukkit.config.PhysicsConfig

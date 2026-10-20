@@ -1,6 +1,5 @@
 package work.art1st.javarailways.bukkit.command
 
-import work.art1st.javarailways.core.api.util.DestructionSteps
 import org.bukkit.command.CommandSender
 import org.bukkit.entity.Player
 import org.joml.Vector3d
@@ -32,7 +31,6 @@ import work.art1st.javarailways.bukkit.util.PlayerOperationGate
 import work.art1st.javarailways.core.api.control.TrainController
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
-import work.art1st.javarailways.core.physics.train.CoreBogie
 import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -260,15 +258,13 @@ object TrainCommand {
                 ?: error("无法初始化车头转向架位置")
 
             val cars = mutableListOf<CoreCar>()
-            var createdTrain: CoreTrain? = null
-            var published = false
-            try {
+            CoreTrain.createOwned(coreWorld) {
                 for (i in resourceVersion.composition.indices) {
                     val carDef = carDefs[i]
-                    val bogieA = CoreBogie.create(initialBogieLocation)
-                    val bogieB = CoreBogie.create(initialBogieLocation)
+                    val bogieA = bogie(initialBogieLocation)
+                    val bogieB = bogie(initialBogieLocation)
 
-                    val car = CoreCar.create(
+                    val car = car(
                         id = "$playerName-car-$i",
                         bogieA = bogieA,
                         bogieB = bogieB,
@@ -277,8 +273,7 @@ object TrainCommand {
                         connectorLengthAtA = carDef.connectorLengthA,
                         connectorLengthAtB = carDef.connectorLengthB,
                         bogieAOffset = carDef.bogieAOffset,
-                        bogieBOffset = carDef.bogieBOffset,
-                        world = coreWorld
+                        bogieBOffset = carDef.bogieBOffset
                     )
                     cars.add(car)
 
@@ -289,12 +284,11 @@ object TrainCommand {
                 }
 
                 val trainId = UUID.randomUUID().toString()
-                val train = CoreTrain.create(
+                val train = train(
                     id = trainId,
                     cars = cars,
-                    world = coreWorld,
                     name = trainName
-                ).also { createdTrain = it }
+                )
                 train.setLocation(headLocation)
                 val trainExtension = TrainExtension()
                 train.registerExtensionData(BukkitPlugin.INSTANCE, trainExtension)
@@ -305,8 +299,8 @@ object TrainCommand {
                     TrainSpeedProfile(trainExtension.resolveControl().curveSpeedLimitOffset)
                 )
 
-                coreWorld.publishOwnerChanges(listOf(train))
-                published = true
+                onFailure { coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.remove(train.id) }
+                publish()
                 val messages = buildList {
                     add("创建列车成功: ${train.name} [${train.id}] (类型: $trainTypeName)")
                     add("手持通用列车钥匙坐在驾驶座上驾驶，可用 /jr train key 获取。")
@@ -322,24 +316,6 @@ object TrainCommand {
                     }
                 }
                 train to messages
-            } catch (failure: Throwable) {
-                if (!published && coreWorld.physicsCoordinator.status ==
-                    work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus.RUNNING
-                ) {
-                    val cleanup = DestructionSteps()
-                    val failed = createdTrain
-                    if (failed != null) {
-                        cleanup.action { coreWorld.basicWorldDataOrNull?.trainSpeedProfiles?.remove(failed.id) }
-                        cleanup.await { failed.destroy() }
-                    } else cars.forEach { car -> cleanup.await { car.destroy() } }
-                    cleanup.finish().whenComplete { _, cleanupFailure ->
-                        if (cleanupFailure != null) {
-                            failure.addSuppressed(cleanupFailure)
-                            BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.SEVERE, "Failed train creation cleanup", cleanupFailure)
-                        }
-                    }
-                }
-                throw failure
             }
         }.whenComplete { created, failure ->
             BukkitPlugin.INSTANCE.platformDispatcher.runForEntity(sender, action = {

@@ -45,13 +45,6 @@ data class OverspeedPhysicsConfig(
     val graceTicks: Int
 )
 
-data class PhysicsTurnoutSafetyConfig(
-    val defaultProtectionDistanceMeters: Double,
-    val defaultLockingDistanceMeters: Double,
-    val decisionLeadTicks: Int,
-    val allocationRetryTicks: Int
-)
-
 data class PhysicsConfig(
     val schemaVersion: Int,
     val workerThreads: Int,
@@ -59,8 +52,7 @@ data class PhysicsConfig(
     val geometrySampling: GeometrySamplingConfig,
     val autoRadius: AutoRadiusConfig,
     val standardTurnouts: Map<StandardTurnout, StandardTurnoutGeometry>,
-    val overspeed: OverspeedPhysicsConfig,
-    val turnoutSafety: PhysicsTurnoutSafetyConfig
+    val overspeed: OverspeedPhysicsConfig
 ) {
     fun railGeometryParameters(): RailGeometryParameters = RailGeometryParameters(
         gaugeMeters = track.gaugeMeters,
@@ -186,22 +178,6 @@ data class PhysicsConfig(
                 }
             )
 
-            val turnoutProtection = requireNonNegativeDouble(
-                yaml, "turnout.default-protection-distance-meters"
-            )
-            val turnoutLocking = requireNonNegativeDouble(
-                yaml, "turnout.default-locking-distance-meters"
-            )
-            require(turnoutLocking <= turnoutProtection) {
-                "turnout locking distance must not exceed protection distance"
-            }
-            val turnout = PhysicsTurnoutSafetyConfig(
-                defaultProtectionDistanceMeters = turnoutProtection,
-                defaultLockingDistanceMeters = turnoutLocking,
-                decisionLeadTicks = requirePositiveInt(yaml, "turnout.decision-lead-ticks"),
-                allocationRetryTicks = requirePositiveInt(yaml, "turnout.allocation-retry-ticks")
-            )
-
             return PhysicsConfig(
                 schemaVersion = schemaVersion,
                 workerThreads = workerThreads,
@@ -209,8 +185,7 @@ data class PhysicsConfig(
                 geometrySampling = sampling,
                 autoRadius = autoRadius,
                 standardTurnouts = standardTurnouts,
-                overspeed = overspeed,
-                turnoutSafety = turnout
+                overspeed = overspeed
             )
         }
 
@@ -226,9 +201,6 @@ data class PhysicsConfig(
             require(number.toDouble() == value.toDouble()) { "Physics config key '$path' must be an integer" }
             return value
         }
-
-        private fun requirePositiveInt(yaml: YamlConfiguration, path: String): Int =
-            requireInt(yaml, path).also { require(it > 0) { "$path must be > 0" } }
 
         private fun requireDouble(yaml: YamlConfiguration, path: String): Double {
             val value = (requireValue(yaml, path) as? Number)?.toDouble()

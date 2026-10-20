@@ -1,6 +1,6 @@
 package work.art1st.javarailways.simpleato.admission
 
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode

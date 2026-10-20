@@ -22,7 +22,10 @@ class CoreTrainDerailEventTest {
     @Test
     fun `external derail waits for owner and notifies only after coherent stationary publication`() {
         val coordinator = PhysicsCoordinator(1, automaticFallback = false)
-        val world = createTestWorld(coordinator)
+        val world = try { createTestWorld(coordinator) } catch (failure: Throwable) {
+            runCatching(coordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
         val listener = DerailCounter()
         val registration = MainRailEventBus.register(listener)
         try {
@@ -89,7 +92,10 @@ class CoreTrainDerailEventTest {
     @Test
     fun `physics derail publishes one main event after publication`() {
         val coordinator = PhysicsCoordinator(1, automaticFallback = false)
-        val world = createTestWorld(coordinator)
+        val world = try { createTestWorld(coordinator) } catch (failure: Throwable) {
+            runCatching(coordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
         try {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0))
             val train = createTrainWithConfig("physics-event", rail, world, listOf(10.0))

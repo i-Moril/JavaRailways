@@ -39,7 +39,8 @@ internal class CurrentRoutePath(
 internal object CurrentRouteTracer {
     fun trace(topology: TopologyState, active: ActiveRailContinuationsSnapshot?,
         region: ProtectionRegionDefinition, entryId: String, exitId: String,
-        available: Boolean = true): CurrentRoutePath {
+        available: Boolean = true,
+        observationTopology: TopologyState? = topology.takeIf { active?.topologyRevision == it.revision }): CurrentRoutePath {
         val entry = region.boundaries.single { it.boundaryId == entryId }
         val exit = region.boundaries.single { it.boundaryId == exitId }
         val path = arrayListOf<ProtectionRouteTraversal>()
@@ -50,7 +51,7 @@ internal object CurrentRouteTracer {
             CurrentRoutePath(entry, exit, path, point, end, detail, boundary, waiting, watched, rails)
         if (!available || region.boundaryDraft != null)
             return finish(CurrentRouteEnd.UNAVAILABLE, "Protection region is unavailable or has incomplete boundaries")
-        if (active == null || active.topologyRevision != topology.revision)
+        if (active == null || observationTopology == null || active.topologyRevision != observationTopology.revision)
             return finish(CurrentRouteEnd.UNAVAILABLE, "Waiting for a completed observation of the current topology", waiting = true)
         if (entryId == exitId) return finish(CurrentRouteEnd.UNAVAILABLE, "Choose a different exit boundary")
         val cutsByRail = region.boundaries.groupBy { it.position.railId }
@@ -59,6 +60,8 @@ internal object CurrentRouteTracer {
         var first = true
         while (visited.add(point)) {
             rails += point.railId
+            if (!topology.preservesRails(observationTopology, rails))
+                return finish(CurrentRouteEnd.UNAVAILABLE, "Reached rail dependencies changed since the observation", waiting = true)
             val length = try { topology.railLength(point.railId) } catch (_: IllegalArgumentException) {
                 return finish(CurrentRouteEnd.UNAVAILABLE, "The reached rail is missing from the current topology")
             }

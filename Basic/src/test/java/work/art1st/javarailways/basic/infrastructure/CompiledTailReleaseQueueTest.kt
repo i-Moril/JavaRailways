@@ -3,9 +3,9 @@ package work.art1st.javarailways.basic.infrastructure
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureFootprint
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureFootprint
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.infrastructure.admission.CompiledRouteAdmission
 import work.art1st.javarailways.basic.infrastructure.admission.CompiledTailReleaseQueue
 import work.art1st.javarailways.basic.infrastructure.admission.OccupancyQueryGeometry

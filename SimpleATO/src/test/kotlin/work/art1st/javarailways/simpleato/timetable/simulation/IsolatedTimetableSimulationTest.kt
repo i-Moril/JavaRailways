@@ -49,11 +49,11 @@ import work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
 import work.art1st.javarailways.basic.api.route.RouteAdmissionResult
@@ -61,7 +61,7 @@ import work.art1st.javarailways.basic.api.route.RouteBoundary
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.rail.OperatingDirectionStore
 import work.art1st.javarailways.core.api.physics.WorldExecutionMode
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.ResourcePreparationSnapshot
@@ -376,6 +376,7 @@ class IsolatedTimetableSimulationTest {
     }
 
     @Test
+    @work.art1st.javarailways.core.testing.IsolateGlobalHalt
     fun `failed physical epoch never publishes an admission observation or runs post tick`() {
         val fixture = fixture()
         fixture.runtime.use { simulation ->
@@ -492,22 +493,23 @@ class IsolatedTimetableSimulationTest {
         configureSource: (CoreWorld) -> Unit = {},
         features: List<PreparedSimulationFeature> = emptyList()
     ): Fixture {
-        val source = createTestWorld()
-        val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1))
-        source.registerExtensionData(BasicPlugin.INSTANCE, BasicWorldData())
-        source.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 20.0))
-        source.basicWorldData.wayPoints.add(WayPoint("destination", "Destination", rail.id, 100.0))
-        createTrainWithConfig("live-only", rail, source, listOf(10.0))
-        configureSource(source)
         val revision = 1L
-        val coreSnapshot = source.saveInfrastructure(revision)
-        val basicSnapshot = BasicInfrastructureSnapshotV2.capture(
-            source,
-            revision,
-            projectedWayPointIds = emptySet()
-        )
-        source.physicsCoordinator.close()
-        (source.tickManager as? AutoCloseable)?.close()
+        val (coreSnapshot, basicSnapshot, railId) = TestWorldFixture.create().use { fixture ->
+            val source = fixture.world
+            val rail = createStraightRailFromSegments(source, PrimeCurveGenerator.buildStraight(300.0, segmentCount = 1))
+            source.registerExtensionData(BasicPlugin.INSTANCE, BasicWorldData())
+            source.basicWorldData.wayPoints.add(WayPoint("origin", "Origin", rail.id, 20.0))
+            source.basicWorldData.wayPoints.add(WayPoint("destination", "Destination", rail.id, 100.0))
+            createTrainWithConfig("live-only", rail, source, listOf(10.0))
+            configureSource(source)
+            val coreSnapshot = source.saveInfrastructure(revision)
+            val basicSnapshot = BasicInfrastructureSnapshotV2.capture(
+                source,
+                revision,
+                projectedWayPointIds = emptySet()
+            )
+            Triple(coreSnapshot, basicSnapshot, rail.id)
+        }
         val timetable = Timetable(
             "simulation",
             services = listOf(TimetableService(
@@ -552,7 +554,7 @@ class IsolatedTimetableSimulationTest {
                 )
             },
             seed = { clone ->
-                val cloneRail = requireNotNull(clone.getRail(rail.id))
+                val cloneRail = requireNotNull(clone.getRail(railId))
                 createTrainWithConfig("simulation-train", cloneRail, clone, listOf(10.0))
             }
         )

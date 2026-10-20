@@ -31,7 +31,7 @@ data class RouteSegment(
 当前 `basic.api.route` 直接拥有 `RailViewRef`、`RouteSegment`、`ExpandedRoute` 和 `PlannedRoute`，
 SimpleATO 的 `CompiledLineLeg.route`、`AtoMissionLeg.plannedRoute` 和停站解析接口使用这些同一类型。
 不再通过公开签名泄漏隐藏的 `basic.route` 类型，也不创建用于跨包转换的第二套路线。
-`RouteBuildResult`与`RouteAllocationTiming`属于SimpleATO运营策略（`work.art1st.javarailways.simpleato.routing`）；Basic保留通用`TopologyRoutePlanner`、`TopologyRoutePlanningResult`、snapshot与距离/制动原语，`TurnoutSafetyDefaults`单独留在`basic.route`供BasicWorldData/Bukkit世界创建共享。寻路实现、进度计算与`toSnapshot`转换仍属于各自内部实现包。
+`RouteBuildResult`与`RouteAllocationTiming`属于SimpleATO运营策略（`work.art1st.javarailways.simpleato.routing`）；Basic保留通用`TopologyRoutePlanner`、`TopologyRoutePlanningResult`、snapshot与距离/制动原语，路线申请 retry ticks 由 SimpleATO Dispatcher 持有，平台通过 `ato.admission-retry-ticks` 注入，Basic 不保存 ATO 重试策略。寻路实现、进度计算与`toSnapshot`转换仍属于各自内部实现包。
 
 一次正常调用由 SimpleATO 选择路线，产出有序的 view-local 段，再包装为带 `routeId/revision` 的 `PlannedRoute`。
 它们只校验数值和集合形状：段允许零长，路线必须非空且总长有限、严格为正；端点 ID 和 route ID 必须非空白，
@@ -135,3 +135,7 @@ val runsFirstToSecond = if (facing == ViewDirection.AB) railRunsFirstToSecond el
 ./gradlew :SimpleATO:test --tests '*TopologyRoutePlannerTest' \
   --tests '*OperationalRoutePlannerTest' --tests '*MissionRouteProgressTest'
 ```
+
+## 拓扑来源与局部重新验证
+
+来源topology revision用于标识快照，不是请求失效条件。路线规划把stable rail spans和permitted paths重新投影到当前图，验证区间及连接；方向overlay同样按实际rail重新解析。来自旧帧的列车位置在用于新拓扑时验证该列车的head/tail、body与occupied intervals，而非因世界远处编辑拒绝。单个已发布observation内部的epoch/topology配对仍必须一致。资源目录和应用时刻表使用实际依赖rail incarnation、连接及crossing验证，不用整图root身份代替有效性。

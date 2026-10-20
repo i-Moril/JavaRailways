@@ -33,6 +33,9 @@ dependencies {
 }
 
 tasks.test {
+    doFirst {
+        systemProperty("javarailways.haltTest.classpath", classpath.asPath)
+    }
     useJUnitPlatform()
 }
 

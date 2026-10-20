@@ -11,7 +11,6 @@ import work.art1st.javarailways.bukkit.extension.rail.RailTemplateSnapshot
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
-import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -98,10 +97,11 @@ class RailRenderMetaStorePreparedSaveTest {
     }
 
     @Test
-    fun `queued preparation rejects a stale whole-world record set`() {
+    fun `queued preparation merges unrelated edits without losing the first commit`() {
         val worldId = UUID.randomUUID()
         seed(worldId, emptyList())
         val firstRecords = listOf(record())
+        val secondRecord = record()
         val first = RailRenderMetaStore.prepareSave(
             worldId, "test", emptyList(), firstRecords, dataFolder
         )
@@ -109,24 +109,22 @@ class RailRenderMetaStorePreparedSaveTest {
         try {
             val waiting = executor.submit<RailRenderMetaStore.PreparedSave> {
                 RailRenderMetaStore.prepareSave(
-                    worldId, "test", emptyList(), listOf(record()), dataFolder
+                    worldId, "test", emptyList(), listOf(secondRecord), dataFolder
                 )
             }
             first.commitPrimary()
             first.close()
 
-            val failure = assertThrows(ExecutionException::class.java) {
-                waiting.get(2, TimeUnit.SECONDS)
-            }
-            assertTrue(failure.cause is IllegalStateException)
+            waiting.get(2, TimeUnit.SECONDS).use { it.commitPrimary() }
+            val saved = target(worldId).readText()
+            assertTrue(saved.contains(firstRecords.single().railId.toString()))
+            assertTrue(saved.contains(secondRecord.railId.toString()))
 
-            RailRenderMetaStore.prepareSave(
-                worldId,
-                "test",
-                firstRecords,
-                emptyList(),
-                dataFolder
-            ).close()
+            // A conflicting edit to the same identity still rejects the old baseline.
+            assertThrows(IllegalStateException::class.java) {
+                RailRenderMetaStore.prepareSave(worldId, "test", emptyList(),
+                    listOf(firstRecords.single().copy(segments = emptyList())), dataFolder)
+            }
         } finally {
             first.close()
             executor.shutdownNow()

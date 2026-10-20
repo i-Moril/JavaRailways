@@ -1,10 +1,10 @@
 package work.art1st.javarailways.bukkit.tool
 
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditDecision
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditImpact
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditDecision
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditImpact
 import work.art1st.javarailways.basic.infrastructure.PhysicalTopologyReplacementOrRemovalImpactResolver
 import work.art1st.javarailways.basic.infrastructure.PhysicalTopologyExplicitConnectionImpactResolver
 import work.art1st.javarailways.basic.infrastructure.PhysicalTopologySnapshotRestoreImpactResolver
@@ -48,7 +48,7 @@ internal class RailWandTopologyEditPlan private constructor(
     }.orEmpty()
 
     fun isCurrent(candidateWorld: CoreWorld): Boolean =
-        candidateWorld === world && candidateWorld.topologyState === topologyRoot &&
+        candidateWorld === world && candidateWorld.topologyState.preservesRails(topologyRoot, affectedRails.keys) &&
             affectedRails.all { (railId, rail) -> candidateWorld.getRail(railId) === rail } &&
             (explicitConnectionPlan == null || explicitConnectionPlan.isCurrent(candidateWorld)) &&
             (snapshotRestorePlan == null || snapshotRestorePlan.isCurrent(candidateWorld))
@@ -236,6 +236,7 @@ internal sealed interface RailWandEditPermitAcquisition {
     class Granted(
         private val permit: InfrastructureEditPermit?
     ) : RailWandEditPermitAcquisition, AutoCloseable {
+        fun <T> execute(action: () -> T): T = if (permit == null) action() else permit.execute(action)
         override fun close() = permit?.close() ?: Unit
     }
 

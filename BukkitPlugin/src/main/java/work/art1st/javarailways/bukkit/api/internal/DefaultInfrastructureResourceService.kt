@@ -1,23 +1,23 @@
 package work.art1st.javarailways.bukkit.api.internal
 
 import org.bukkit.plugin.Plugin
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationResult
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencyRequest
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureDependencySnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureClaimSnapshot
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationResult
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureMutationStatus
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureOwner
-import work.art1st.javarailways.basic.api.infrastructure.InfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyMutationResult
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencyRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureDependencySnapshot
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureClaimSnapshot
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureMutationResult
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureMutationStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
+import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionResult
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionStatus
-import work.art1st.javarailways.basic.api.infrastructure.StableInfrastructureResource
-import work.art1st.javarailways.basic.api.infrastructure.StableTopologyNodeKey
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditDecision
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditRequest
-import work.art1st.javarailways.basic.api.infrastructure.TopologyEditStatus
+import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.core.api.physics.infrastructure.StableTopologyNodeKey
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditDecision
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditRequest
+import work.art1st.javarailways.core.api.physics.infrastructure.TopologyEditStatus
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionSnapshot
 import work.art1st.javarailways.basic.api.route.ActiveRouteAdmissionUpdate
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
@@ -31,8 +31,8 @@ import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
-import work.art1st.javarailways.basic.infrastructure.InfrastructureCoordinationRegistry
-import work.art1st.javarailways.basic.infrastructure.InfrastructureClaimRequest
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureCoordinationRegistry
+import work.art1st.javarailways.core.physics.infrastructure.InfrastructureClaimRequest
 import work.art1st.javarailways.basic.infrastructure.ManualTurnoutSelectionRuntime
 import work.art1st.javarailways.basic.infrastructure.admission.RouteResourceAdmissionRuntime
 import work.art1st.javarailways.basic.api.observation.RailwayObservation
@@ -62,6 +62,7 @@ internal class DefaultInfrastructureResourceService(
     private data class WorldRuntime(
         val currentTopology: () -> TopologyState,
         val registry: InfrastructureCoordinationRegistry,
+        val resourceValidation: AutoCloseable,
         val operatingDirections: ((TopologyState, Collection<UUID>) -> work.art1st.javarailways.basic.api.route.RailOperatingDirections)?,
         val railSpeedLimits: ((TopologyState, Collection<UUID>) -> Map<UUID, Double?>)?,
         val observeTopologyChanges: ((RailTopologyChangeListener) -> AutoCloseable)?,
@@ -108,11 +109,10 @@ internal class DefaultInfrastructureResourceService(
     fun registerWorld(
         worldId: UUID,
         currentTopology: () -> TopologyState,
-        railExists: (UUID) -> Boolean = { false },
-        topologyNodeExists: (StableTopologyNodeKey) -> Boolean = { false },
         operatingDirections: ((TopologyState, Collection<UUID>) -> work.art1st.javarailways.basic.api.route.RailOperatingDirections)? = null,
         observeTopologyChanges: ((RailTopologyChangeListener) -> AutoCloseable)? = null,
         railSpeedLimits: ((TopologyState, Collection<UUID>) -> Map<UUID, Double?>)? = null,
+        registry: InfrastructureCoordinationRegistry,
         resourceExists: (InfrastructureResource) -> Boolean
     ) = LiveWorldManagement.run { synchronized(lock) {
         check(!closed) { "InfrastructureResourceService is closed" }
@@ -122,9 +122,8 @@ internal class DefaultInfrastructureResourceService(
             operatingDirections = operatingDirections,
             railSpeedLimits = railSpeedLimits,
             observeTopologyChanges = observeTopologyChanges,
-            registry = InfrastructureCoordinationRegistry(
-                { currentTopology().revision }, resourceExists, railExists, topologyNodeExists
-            )
+            registry = registry,
+            resourceValidation = registry.registerResourceValidator(resourceExists)
         )
     } }
 
@@ -175,13 +174,14 @@ internal class DefaultInfrastructureResourceService(
             check(!closed) { "InfrastructureResourceService is closed" }
             checkNotNull(worlds[worldId]) { "Railway world is not registered: $worldId" }
         }
-        check(world.currentTopology() === topology) { "operating direction topology is stale" }
+        require(railIds.all(topology.railProjection::containsKey)) { "operating direction subset references a missing rail" }
+        check(world.currentTopology().preservesRails(topology, railIds)) { "operating direction rails changed" }
         val snapshot = checkNotNull(world.operatingDirections) { "operating directions are unavailable" }(topology, railIds)
         check(snapshot.topology === topology && snapshot.directions.keys == railIds.toSet()) {
             "operating direction subset does not match the request"
         }
         synchronized(lock) {
-            check(!closed && worlds[worldId] === world && world.currentTopology() === topology) {
+            check(!closed && worlds[worldId] === world && world.currentTopology().preservesRails(topology, railIds)) {
                 "operating direction world or topology changed during the read"
             }
         }
@@ -193,16 +193,16 @@ internal class DefaultInfrastructureResourceService(
             check(!closed) { "InfrastructureResourceService is closed" }
             checkNotNull(worlds[worldId]) { "Railway world is not registered: $worldId" }
         }
-        check(world.currentTopology() === topology) { "speed limit topology is stale" }
         val requested = railIds.toSet()
         require(requested.all(topology.railProjection::containsKey)) { "speed limit subset references a missing rail" }
+        check(world.currentTopology().preservesRails(topology, railIds)) { "speed limit rails changed" }
         val values = checkNotNull(world.railSpeedLimits) { "rail speed limits are unavailable" }(topology, requested)
         check(values.keys == requested && values.values.all { it == null || it.isFinite() && it > 0.0 }) {
             "speed limit subset does not match the request or contains an invalid speed"
         }
         val captured = java.util.Collections.unmodifiableMap(LinkedHashMap(values))
         synchronized(lock) {
-            check(!closed && worlds[worldId] === world && world.currentTopology() === topology) {
+            check(!closed && worlds[worldId] === world && world.currentTopology().preservesRails(topology, railIds)) {
                 "speed limit world or topology changed during the read"
             }
         }
@@ -214,7 +214,6 @@ internal class DefaultInfrastructureResourceService(
         worldId: UUID,
         world: World,
         latestObservation: () -> RailwayObservation?,
-        turnoutLockingDistanceMeters: Double,
         publishAdmissionUpdate: (ActiveRouteAdmissionUpdate) -> Unit = {},
         stallWorld: (String, Exception) -> Unit
     ) = withWorld(worldId) {
@@ -251,7 +250,6 @@ internal class DefaultInfrastructureResourceService(
             ensureBetweenFrames = {
                 (world as CoreWorld).physicsCoordinator.ensureBetweenFrames("ManualTurnoutSelectionRuntime.select")
             },
-            lockingDistanceMeters = turnoutLockingDistanceMeters,
             publishSelection = { (world as CoreWorld).publishOwnerChanges(emptyList()) }
         )
         synchronized(lock) {
@@ -600,7 +598,7 @@ internal class DefaultInfrastructureResourceService(
                 closeTopologyRegistrations { it.world === runtime }
                 runtime.manualTurnoutSelection?.close()
                 runtime.routeAdmission?.close()
-                runtime.registry.close()
+                runtime.resourceValidation.close()
             }
         }
     }
@@ -661,9 +659,14 @@ internal class DefaultInfrastructureResourceService(
         val permit = object : InfrastructureEditPermit {
             private val permitClosed = AtomicBoolean()
             override fun owner(): InfrastructureOwner = request.owner
-            override fun close() {
-                if (permitClosed.compareAndSet(false, true)) {
+            override fun <T> execute(action: java.util.function.Supplier<T>): T {
+                check(!permitClosed.get()) { "Infrastructure edit permit is closed" }
+                return registry.withEditPermit(owner, acquired.id) { action.get() }
+            }
+            override fun close() = synchronized(permitClosed) {
+                if (!permitClosed.get()) {
                     registry.releaseEditPermit(owner, acquired.id)
+                    permitClosed.set(true)
                 }
             }
         }
@@ -814,7 +817,7 @@ internal class DefaultInfrastructureResourceService(
                 closeTopologyRegistrations { it.world === runtime }
                 runtime.manualTurnoutSelection?.close()
                 runtime.routeAdmission?.close()
-                runtime.registry.close()
+                runtime.resourceValidation.close()
             }
         }
     }

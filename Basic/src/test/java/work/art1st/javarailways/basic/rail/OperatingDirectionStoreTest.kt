@@ -9,7 +9,8 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import java.util.UUID
 import work.art1st.javarailways.basic.BasicWorldData
-import work.art1st.javarailways.core.physics.train.createTestWorld
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
+import org.junit.jupiter.api.AfterEach
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import java.util.concurrent.CountDownLatch
@@ -17,9 +18,28 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class OperatingDirectionStoreTest {
+    private val fixtures = mutableListOf<TestWorldFixture>()
+
+    private fun newTestWorld() = TestWorldFixture.create().also { fixtures += it }.world
+
+    @AfterEach
+    fun closeTestWorlds() {
+        var firstFailure: Throwable? = null
+        fixtures.asReversed().forEach { fixture ->
+            try {
+                fixture.close()
+            } catch (failure: Throwable) {
+                val primary = firstFailure
+                if (primary == null) firstFailure = failure else primary.addSuppressed(failure)
+            }
+        }
+        fixtures.clear()
+        firstFailure?.let { throw it }
+    }
+
     @Test
     fun `requested subset never mixes two scoped replacement states`() {
-        val world = createTestWorld()
+        val world = newTestWorld()
         val first = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
         val second = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
         val topology = world.topologyState
@@ -65,8 +85,8 @@ class OperatingDirectionStoreTest {
     }
 
     @Test
-    fun `Basic direction overlay forbids only opposite physical traversal and rejects stale or orphan policy`() {
-        val world = createTestWorld()
+    fun `Basic direction overlay revalidates old topology and rejects orphan policy`() {
+        val world = newTestWorld()
         val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
         val topology = world.topologyState
         val store = BasicWorldData().operatingDirections
@@ -80,12 +100,14 @@ class OperatingDirectionStoreTest {
         store.put(UUID.randomUUID(), ViewDirection.AB)
         assertNull(store.overlay(topology).toRestrictions(topology))
         createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
-        assertNull(overlay.toRestrictions(world.topologyState))
+        val revalidated = requireNotNull(overlay.toRestrictions(world.topologyState))
+        assertEquals(world.topologyState.revision, revalidated.topologyRevision)
+        assertEquals(listOf(forbidden), revalidated.forbiddenTraversals)
     }
 
     @Test
     fun `Basic world owns detached complete direction subsets without SimpleATO`() {
-        val world = createTestWorld()
+        val world = newTestWorld()
         val first = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
         val second = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(100.0, segmentCount = 1))
         val data = BasicWorldData()

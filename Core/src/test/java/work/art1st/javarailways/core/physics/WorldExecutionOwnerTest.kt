@@ -14,7 +14,10 @@ class WorldExecutionOwnerTest {
     @Test
     fun `physics worker cannot enter blocking teardown of its own executor`() {
         val coordinator = PhysicsCoordinator(1, automaticFallback = false)
-        val world = createTestWorld(coordinator)
+        val world = try { createTestWorld(coordinator) } catch (failure: Throwable) {
+            runCatching(coordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
         val failure = AtomicReference<Throwable>()
         try {
             coordinator.registerRailwayEpochProcessor {
@@ -36,7 +39,11 @@ class WorldExecutionOwnerTest {
 
     @Test
     fun `wrong thread is rejected before waiting for a busy world owner`() {
-        val world = createTestWorld(PhysicsCoordinator(1, automaticFallback = false))
+        val worldCoordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val world = try { createTestWorld(worldCoordinator) } catch (failure: Throwable) {
+            runCatching(worldCoordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
         val executor = Executors.newFixedThreadPool(2)
         val held = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -93,8 +100,18 @@ class WorldExecutionOwnerTest {
 
     @Test
     fun `same world serializes host callbacks while another world publishes physics`() {
-        val first = createTestWorld(PhysicsCoordinator(1, automaticFallback = false))
-        val second = createTestWorld(PhysicsCoordinator(1, automaticFallback = false))
+        val firstCoordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val first = try { createTestWorld(firstCoordinator) } catch (failure: Throwable) {
+            runCatching(firstCoordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
+        val secondCoordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val second = try { createTestWorld(secondCoordinator) } catch (failure: Throwable) {
+            runCatching(secondCoordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+            runCatching { first.physicsCoordinator.close() }.exceptionOrNull()?.let(failure::addSuppressed)
+            runCatching { (first.tickManager as AutoCloseable).close() }.exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
         val executor = Executors.newFixedThreadPool(2)
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)

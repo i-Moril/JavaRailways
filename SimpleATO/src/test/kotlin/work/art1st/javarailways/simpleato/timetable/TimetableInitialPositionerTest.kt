@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
 import work.art1st.javarailways.core.physics.train.setControllerForTest
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
@@ -32,12 +34,15 @@ class TimetableInitialPositionerTest {
 
     @AfterEach
     fun closeWorlds() {
-        worlds.forEach { world ->
-            TestSimpleATOWorldDataRegistry.unregister(world)
-            world.physicsCoordinator.close()
-            (world.tickManager as AutoCloseable).close()
-        }
+        val owned = worlds.toList()
         worlds.clear()
+        assertAll(owned.flatMap { world ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(world) },
+                Executable { world.physicsCoordinator.close() },
+                Executable { (world.tickManager as? AutoCloseable)?.close() }
+            )
+        })
     }
 
     @Test

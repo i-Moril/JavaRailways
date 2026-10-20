@@ -50,6 +50,59 @@ class CoreTrainConstructionTest {
         result.toCompletableFuture().get(5, TimeUnit.SECONDS)
     }
 
+    @Test
+    fun `creation scope rejects borrowed car without destroying its owner`() = withWorld { world, rail ->
+        val original = createTrainWithConfig("borrowed-owner", rail, world, listOf(10.0))
+        val destroyed = AtomicInteger()
+        observeDestruction(original.cars.single(), destroyed)
+        world.onOwnerForTest {
+            assertThrows(IllegalArgumentException::class.java) {
+                CoreTrain.createOwned(world) {
+                    train("rejected", original.cars)
+                }
+            }
+        }
+        assertSame(original, world.getTrain(original.id))
+        assertSame(original, original.cars.single().train)
+        assertEquals(0, destroyed.get())
+    }
+
+    @Test
+    fun `creation scope rejects borrowed bogies without adopting them`() = withWorld { world, rail ->
+        val original = createTrainWithConfig("bogie-owner", rail, world, listOf(10.0))
+        val borrowed = original.cars.single()
+        world.onOwnerForTest {
+            assertThrows(IllegalArgumentException::class.java) {
+                CoreTrain.createOwned(world) {
+                    car("rejected", borrowed.bogies[0], borrowed.bogies[1])
+                }
+            }
+        }
+        assertSame(original, borrowed.train)
+        assertSame(original, world.getTrain(original.id))
+    }
+
+    @Test
+    fun `unpublished creation cleans new car and closes escaped scope`() = withWorld { world, rail ->
+        val source = createTrainWithConfig("location-source", rail, world, listOf(10.0))
+        val location = source.cars.single().bogies.first().location
+        val destroyed = AtomicInteger()
+        lateinit var escaped: TrainCreation
+        world.onOwnerForTest {
+            assertThrows(IllegalStateException::class.java) {
+                CoreTrain.createOwned(world) {
+                    escaped = this
+                    val created = car("new-car", bogie(location), bogie(location))
+                    observeDestruction(created, destroyed)
+                    // Returning without publishing is a failed creation, not ownership transfer.
+                }
+            }
+            assertThrows(IllegalStateException::class.java) { escaped.bogie(location) }
+        }
+        assertEquals(3, destroyed.get(), "one car and its two newly created bogies must be cleaned")
+        assertSame(source, world.getTrain(source.id))
+    }
+
     @ParameterizedTest(name = "id={0}, name={1}, saved load={2}")
     @CsvSource(
         "original-id, Other, false",
@@ -257,7 +310,11 @@ class CoreTrainConstructionTest {
     }
 
     private fun withWorld(action: (CoreWorld, CoreRail) -> Unit) {
-        val world = createTestWorld(PhysicsCoordinator(1, automaticFallback = false))
+        val worldCoordinator = PhysicsCoordinator(1, automaticFallback = false)
+        val world = try { createTestWorld(worldCoordinator) } catch (failure: Throwable) {
+            runCatching(worldCoordinator::close).exceptionOrNull()?.let(failure::addSuppressed)
+            throw failure
+        }
         try {
             val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(120.0, 1))
             action(world, rail)

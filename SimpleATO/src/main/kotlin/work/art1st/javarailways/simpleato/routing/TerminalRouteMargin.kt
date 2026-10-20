@@ -20,7 +20,9 @@ internal object TerminalRouteMargin {
     fun propose(topology: TopologyState, restrictions: RoutePlanningRestrictions, route: RouteSnapshot,
         requiredEndRouteMeters: Double): TerminalMarginProposal {
         require(requiredEndRouteMeters.isFinite() && requiredEndRouteMeters >= 0.0)
-        require(restrictions.topologyRevision == topology.revision)
+        val invalid = work.art1st.javarailways.basic.route.TopologyRoutePlanner
+            .invalidRestrictionsReason(topology, restrictions)
+        require(invalid == null) { invalid.orEmpty() }
         val segments = route.segments.toMutableList()
         var distance = route.totalLengthMeters
         fun proposal(failure: String? = null) = TerminalMarginProposal(

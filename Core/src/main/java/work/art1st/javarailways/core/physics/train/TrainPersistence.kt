@@ -24,46 +24,19 @@ data class SavedTrainV1(
 ) : Loads<CoreTrain, CoreWorld> {
     override fun load(dependency: CoreWorld): CoreTrain {
         dependency.physicsCoordinator.ensureBetweenFrames("SavedTrainV1.load")
-        val loadedCars = cars.map { savedCar ->
-            savedCar.load(dependency).also {
-                it.restorePersistedOperatingDirection(reversed xor savedCar.installedReversed)
-            }
-        }
-        val train = CoreTrain(
-            id,
-            loadedCars,
-            dependency,
-            extension,
-            name,
-            persistedHeadLocation = headLocation.load(dependency),
-            persistedTailLocation = tailLocation.load(dependency),
-            initialReversed = reversed
-        )
-        return try {
-            train.restorePersistedPlacement(reversed)
-            dependency.publishOwnerChanges(listOf(train))
-            train
-        } catch (failure: Exception) {
-            if (dependency.physicsCoordinator.status ==
-                work.art1st.javarailways.core.physics.tick.PhysicsCoordinatorStatus.RUNNING
-            ) {
-                train.discardFailedLoad().whenComplete { _, cleanupFailure ->
-                    if (cleanupFailure != null) {
-                        failure.addSuppressed(cleanupFailure)
-                        dependency.physicsCoordinator.stall(
-                            "Failed cleanup of rejected train '$id'", cleanupFailure
-                        )
-                    }
-                }
-                if (dependency.getTrain(id) === train) {
-                    dependency.physicsCoordinator.stall(
-                        "Failed to unregister train '$id' after a failed load", failure
-                    )
+        return CoreTrain.createOwned(dependency) {
+            val loadedCars = cars.map { savedCar ->
+                loadCar(savedCar).also {
+                    it.restorePersistedOperatingDirection(reversed xor savedCar.installedReversed)
                 }
             }
-            throw failure
+            val loaded = loadTrain(this@SavedTrainV1, loadedCars)
+            loaded.restorePersistedPlacement(reversed)
+            publish()
+            loaded
         }
     }
+
 }
 
 @Serializable
@@ -76,9 +49,14 @@ data class SavedCarV1(
     val installedReversed: Boolean = false
 ) : Loads<CoreCar, CoreWorld> {
     override fun load(dependency: CoreWorld): CoreCar {
-        val bogieA = bogieA.load(dependency)
-        val bogieB = bogieB.load(dependency)
-        return config.buildCar(id, dependency, bogieA, bogieB)
+        val creation = TrainCreation(dependency)
+        return try {
+            creation.loadCar(this)
+            creation.finishCar()
+        } catch (failure: Throwable) {
+            creation.discard(failure)
+            throw failure
+        }
     }
 
 }

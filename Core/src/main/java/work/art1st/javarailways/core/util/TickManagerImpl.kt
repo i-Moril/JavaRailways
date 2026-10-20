@@ -7,6 +7,7 @@ import work.art1st.javarailways.core.api.util.tick.Synchronizable
 import work.art1st.javarailways.core.api.util.tick.TickManager
 import work.art1st.javarailways.core.api.util.tick.TickProfiled
 import work.art1st.javarailways.core.api.util.tick.TickingObject
+import work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -27,6 +28,7 @@ class TickManagerImpl(
 
     private val postTickTasks: ConcurrentLinkedQueue<Runnable> = ConcurrentLinkedQueue()
     private var awaitAsyncAndCommit: () -> PostTickBarrierMetrics = { PostTickBarrierMetrics.EMPTY }
+    private var asyncPhasePending = false
     private var currentTickIndex: Long = 0L
     private var preTickComputeNanos: Long = 0L
 
@@ -53,6 +55,9 @@ class TickManagerImpl(
     }
 
     override fun preTick(currentTimeMs: Long) {
+        RailwaySimulationHalt.ensureRunning()
+        if (asyncPhasePending) throw RailwaySimulationHalt.halt("Previous generic tick barrier was not consumed")
+        asyncPhasePending = true
         currentTickIndex += 1L
         val preTickStartNanos = System.nanoTime()
         val deltaT = (currentTimeMs - currentTick).toDouble()
@@ -113,7 +118,10 @@ class TickManagerImpl(
             tickLatch.await()
             val waitNanos = System.nanoTime() - waitStartNanos
             val wallTimeNanos = System.nanoTime() - asyncPhaseStartNanos
-            tickErrors.forEach { LOGGER.log(Level.SEVERE, "Generic async tick $currentTickIndex failed", it) }
+            tickErrors.forEach { error ->
+                LOGGER.log(Level.SEVERE, "Generic async tick $currentTickIndex failed", error)
+                RailwaySimulationHalt.halt("Generic async tick $currentTickIndex failed", error)
+            }
 
             lastAsyncPhaseMetricsSnapshot = AsyncTickPhaseMetrics(
                 tickIndex = currentTickIndex,
@@ -132,7 +140,8 @@ class TickManagerImpl(
         val phaseBreakdown = linkedMapOf<String, Long>()
         phaseBreakdown["preTick.snapshot_and_schedule"] = preTickComputeNanos
 
-        val barrierMetrics = awaitAsyncAndCommit()
+        val barrierMetrics = finishAsyncPhase()
+        RailwaySimulationHalt.ensureRunning()
         phaseBreakdown["postTick.wait_async"] = barrierMetrics.waitNanos
         phaseBreakdown["postTick.publish_commit_requests"] = barrierMetrics.publishCommitRequestsNanos
         phaseBreakdown["postTick.post_tick_tasks"] = drainQueue(postTickTasks)
@@ -153,6 +162,19 @@ class TickManagerImpl(
 
         awaitAsyncAndCommit = { PostTickBarrierMetrics.EMPTY }
         preTickComputeNanos = 0L
+    }
+
+    /** Waits for the captured batch without executing queued owner or platform mutations. */
+    fun finishPendingAsyncTick() {
+        finishAsyncPhase()
+    }
+
+    private fun finishAsyncPhase(): PostTickBarrierMetrics {
+        if (!asyncPhasePending) return PostTickBarrierMetrics.EMPTY
+        val metrics = awaitAsyncAndCommit()
+        asyncPhasePending = false
+        awaitAsyncAndCommit = { PostTickBarrierMetrics.EMPTY }
+        return metrics
     }
 
     override fun <T> scheduleMainThreadPostTickTask(task: Callable<T>): Future<T> {

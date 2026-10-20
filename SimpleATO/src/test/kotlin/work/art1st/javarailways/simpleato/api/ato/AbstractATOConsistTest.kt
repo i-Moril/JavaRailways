@@ -1,5 +1,10 @@
 package work.art1st.javarailways.simpleato.api.ato
 
+import work.art1st.javarailways.simpleato.testing.TestSimpleATOWorldDataRegistry
+import org.junit.jupiter.api.function.Executable
+import org.junit.jupiter.api.Assertions.assertAll
+import org.junit.jupiter.api.AfterEach
+import work.art1st.javarailways.core.physics.train.TestWorldFixture
 import work.art1st.javarailways.core.physics.train.setControllerForTest
 import work.art1st.javarailways.core.physics.train.onOwnerForTest
 
@@ -19,17 +24,30 @@ import work.art1st.javarailways.core.api.util.plugin.SerializableExtensionData
 import work.art1st.javarailways.core.api.util.plugin.Plugin
 import work.art1st.javarailways.core.physics.rail.curve.PrimeCurveGenerator
 import work.art1st.javarailways.core.physics.train.createStraightRailFromSegments
-import work.art1st.javarailways.core.physics.train.createTestWorld
 import work.art1st.javarailways.core.physics.train.createTrainWithConfig
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 
 class AbstractATOConsistTest {
+    private val worldFixtures = mutableListOf<TestWorldFixture>()
+
+    @AfterEach
+    fun closeOwnedWorldFixtures() {
+        val fixtures = worldFixtures.toList()
+        worldFixtures.clear()
+        assertAll(fixtures.flatMap { fixture ->
+            listOf(
+                Executable { TestSimpleATOWorldDataRegistry.unregister(fixture.world) },
+                Executable { fixture.close() }
+            )
+        })
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = [false, true])
     fun `split updates actuator and safety together only after all preparation succeeds`(failInitialization: Boolean) {
-        val world = createTestWorld()
-        (world.tickManager as AutoCloseable).use {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        run {
             run {
                 world.physicsCoordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))
@@ -85,8 +103,8 @@ class AbstractATOConsistTest {
 
     @Test
     fun `configuration reload installs new dynamics and derived safety without replacing controller history`() {
-        val world = createTestWorld()
-        (world.tickManager as AutoCloseable).use {
+        val world = TestWorldFixture.create().also(worldFixtures::add).world
+        run {
             run {
                 world.physicsCoordinator.use {
                     val rail = createStraightRailFromSegments(world, PrimeCurveGenerator.buildStraight(200.0))

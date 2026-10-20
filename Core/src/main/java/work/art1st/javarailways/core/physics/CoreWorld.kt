@@ -31,9 +31,11 @@ import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.core.physics.train.CollisionEnvelope
 import work.art1st.javarailways.core.physics.train.TrainCoupling
-import work.art1st.javarailways.core.physics.rail.SavedRailEndpointRef
 import work.art1st.javarailways.core.physics.rail.decodeSavedRailGraph
 import work.art1st.javarailways.core.physics.rail.CoreRail
+import work.art1st.javarailways.core.physics.rail.calculateRailTopologyTarget
+import work.art1st.javarailways.core.physics.rail.prepareRailSnapshotRestoreInputs
+import work.art1st.javarailways.core.physics.rail.buildPreparedTargetRailSnapshot
 import work.art1st.javarailways.core.physics.rail.AtGradeRailCrossingIndex
 import work.art1st.javarailways.core.physics.rail.RailView
 import work.art1st.javarailways.core.physics.rail.RailSpatialIndex
@@ -380,37 +382,16 @@ class CoreWorld(
         preserveCurrentActiveSelections: Boolean
     ): PreparedRailWorldSnapshotPlan {
         ThreadGuard.ensureOffMainThread("CoreWorld.prepareRailWorldSnapshotRestore")
-        fun index(snapshot: List<CoreRail.SavedRailV1>): Map<UUID, CoreRail.SavedRailV1> {
-            val indexed = snapshot.associateBy { UUID.fromString(it.id) }
-            require(indexed.size == snapshot.size) { "rail snapshot contains duplicate IDs" }
-            return indexed
-        }
-        val currentSaved = index(currentSnapshot)
-        val targetSaved = index(targetSnapshot)
-        val removedOrReplacedRailIds = currentSaved.keys.filterTo(linkedSetOf()) { railId ->
-            val target = targetSaved[railId]
-            target == null || currentSaved.getValue(railId).curveAB != target.curveAB
-        }
-        val createdOrReplacedRailIds = targetSaved.keys.filterTo(linkedSetOf()) { railId ->
-            val current = currentSaved[railId]
-            current == null || current.curveAB != targetSaved.getValue(railId).curveAB
-        }
-        // Decode each snapshot curve once; creations, connection validation and the target
-        // topology all consume these instances instead of rebuilding them per stage.
-        val currentCurves = currentSaved.mapValues { (_, saved) -> saved.curveAB.load(Unit) }
-        val targetCurves = targetSaved.mapValues { (_, saved) -> saved.curveAB.load(Unit) }
-        val targetCreations = createdOrReplacedRailIds.map { railId ->
-            PreparedRailCreation(railId, targetCurves.getValue(railId))
-        }
-        val prepared = targetCreations.takeIf(List<PreparedRailCreation>::isNotEmpty)?.let { creations ->
-            prepareRailCreationBatchWithIds(creations, removedOrReplacedRailIds)
+        val inputs = prepareRailSnapshotRestoreInputs(currentSnapshot, targetSnapshot)
+        val prepared = inputs.targetCreations.takeIf(List<PreparedRailCreation>::isNotEmpty)?.let { creations ->
+            prepareRailCreationBatchWithIds(creations, inputs.removedOrReplacedRailIds)
         }
         val captured = railTopologyLock.read {
             ensureTopologyHealthy()
             val liveById = rails.toMap()
-            require(liveById.keys == currentSaved.keys &&
+            require(liveById.keys == inputs.currentSaved.keys &&
                 liveById.all { (railId, rail) ->
-                    rail.curve.save() == currentSaved.getValue(railId).curveAB
+                    rail.curve.save() == inputs.currentSaved.getValue(railId).curveAB
                 }
             ) { "current rail snapshot changed during restore preparation" }
             val root = publishedTopologyState
@@ -423,12 +404,12 @@ class CoreWorld(
             world = this,
             topologyRoot = captured.first,
             currentById = captured.second,
-            currentSaved = currentSaved,
-            targetSaved = targetSaved,
-            currentCurves = currentCurves,
-            targetCurves = targetCurves,
-            removedOrReplacedRailIds = removedOrReplacedRailIds,
-            createdOrReplacedRailIds = createdOrReplacedRailIds,
+            currentSaved = inputs.currentSaved,
+            targetSaved = inputs.targetSaved,
+            currentCurves = inputs.currentCurves,
+            targetCurves = inputs.targetCurves,
+            removedOrReplacedRailIds = inputs.removedOrReplacedRailIds,
+            createdOrReplacedRailIds = inputs.createdOrReplacedRailIds,
             preparedCreations = prepared,
             rawCurrentCrossings = captured.third,
             preserveCurrentActiveSelections = preserveCurrentActiveSelections
@@ -537,80 +518,27 @@ class CoreWorld(
         rawBaseCrossings: List<AtGradeRailCrossing>,
         addedCrossings: List<AtGradeRailCrossing>
     ): PreparedRailTopologyUpdate {
-        check(baseInput.revision == baseRoot.revision)
-        require(addedRailCurves.keys.intersect(removedRailIds).isEmpty())
-        require(finalActiveEndpoints.keys == finalConnections.keys)
-        require(finalConnectionOrder.keys == finalConnections.keys)
-        val targetRailIds = (baseInput.rails.mapTo(linkedSetOf(), TopologyInputRail::id) - removedRailIds) +
-            addedRailCurves.keys
-        val continuations = linkedMapOf<RailEndpointRef, MutableSet<RailEndpointRef>>()
-        baseInput.continuations.forEach { (endpoint, targets) ->
-            if (endpoint.railId !in removedRailIds) {
-                continuations[endpoint] = targets.filterTo(linkedSetOf()) { it.railId !in removedRailIds }
-            }
-        }
-        finalConnections.forEach { (endpoint, targets) ->
-            require(endpoint.railId in targetRailIds && targets.all { it.railId in targetRailIds }) {
-                "prepared connection references a rail outside the target inventory"
-            }
-            continuations[endpoint] = targets.toMutableSet()
-        }
-        val nextRevision = Math.addExact(baseRoot.revision, 1L)
-        val targetInput = TopologyInput(
-            revision = nextRevision,
-            rails = baseInput.rails.filterNot { it.id in removedRailIds } +
-                addedRailCurves.map { (railId, curve) -> TopologyInputRail(railId, curve.totalArcLength) },
-            continuations = continuations.mapValues { (_, targets) -> targets.toSet() },
-            atGradeCrossings = rawBaseCrossings.filterNot { crossing ->
-                crossing.first.railId in removedRailIds || crossing.second.railId in removedRailIds
-            } + addedCrossings
+        val target = calculateRailTopologyTarget(
+            baseRoot = baseRoot,
+            baseInput = baseInput,
+            removedRailIds = removedRailIds,
+            addedRailCurves = addedRailCurves,
+            finalConnections = finalConnections,
+            finalConnectionOrder = finalConnectionOrder,
+            finalActiveEndpoints = finalActiveEndpoints,
+            rawBaseCrossings = rawBaseCrossings,
+            addedCrossings = addedCrossings
         )
-        val expectedConnections = linkedMapOf<RailEndpointRef, Set<RailEndpointRef>>()
-        baseInput.continuations.forEach { (endpoint, targets) ->
-            if (endpoint.railId !in removedRailIds && targets.any { it.railId in removedRailIds }) {
-                expectedConnections[endpoint] = targets.filterTo(linkedSetOf()) { it.railId !in removedRailIds }
-            }
-        }
-        addedRailCurves.keys.forEach { railId ->
-            RailEndpoint.entries.forEach { endpoint ->
-                expectedConnections.putIfAbsent(
-                    RailEndpointRef(railId, endpoint),
-                    emptySet()
-                )
-            }
-        }
-        expectedConnections.putAll(finalConnections)
-        val expectedCrossings = linkedMapOf<AtGradeRailCrossingIndex.RailPair, AtGradeRailCrossing?>()
-        rawBaseCrossings.asSequence()
-            .filter { crossing ->
-                crossing.first.railId in removedRailIds || crossing.second.railId in removedRailIds
-            }
-            .forEach { crossing ->
-                expectedCrossings[
-                    AtGradeRailCrossingIndex.RailPair.of(
-                        crossing.first.railId,
-                        crossing.second.railId
-                    )
-                ] = null
-            }
-        addedCrossings.forEach { crossing ->
-            expectedCrossings[
-                AtGradeRailCrossingIndex.RailPair.of(
-                    crossing.first.railId,
-                    crossing.second.railId
-                )
-            ] = crossing
-        }
         return createPreparedRailTopologyUpdate(
             baseRoot = baseRoot,
-            targetRoot = TopologyStateBuilder.build(targetInput),
-            expectedRailCount = targetRailIds.size,
+            targetRoot = target.targetRoot,
+            expectedRailCount = target.expectedRailCount,
             finalConnectionOrder = finalConnectionOrder,
             finalActiveEndpoints = finalActiveEndpoints,
             expectedAddedRailCurves = addedRailCurves,
             removedRailIds = removedRailIds,
-            expectedConnections = expectedConnections,
-            expectedCrossings = expectedCrossings
+            expectedConnections = target.expectedConnections,
+            expectedCrossings = target.expectedCrossings
         )
     }
 
@@ -680,49 +608,6 @@ class CoreWorld(
                 removedRailIds = removedRailIds,
                 expectedConnections = expectedConnections,
                 expectedCrossings = expectedCrossings
-            )
-        }
-    }
-
-    private fun buildPreparedTargetRailSnapshot(
-        baseSnapshot: List<CoreRail.SavedRailV1>,
-        targetRailIds: Set<UUID>,
-        targetConnections: Map<RailEndpointRef, Set<RailEndpointRef>>,
-        finalConnectionOrder: Map<RailEndpointRef, List<RailEndpointRef>>,
-        addedRailCurves: Map<UUID, PrimeCurve>,
-        finalActiveEndpoints: Map<RailEndpointRef, RailEndpointRef?>
-    ): List<CoreRail.SavedRailV1> {
-        val baseById = baseSnapshot.associateBy { saved -> UUID.fromString(saved.id) }
-        fun connections(endpoint: RailEndpointRef, base: List<SavedRailEndpointRef>): List<SavedRailEndpointRef> {
-            val targets = targetConnections[endpoint].orEmpty().mapTo(linkedSetOf(), SavedRailEndpointRef::fromEndpoint)
-            val explicit = finalConnectionOrder[endpoint]
-            if (explicit != null) return explicit.map(SavedRailEndpointRef::fromEndpoint)
-            val retained = base.filter { it in targets }
-            return retained + (targets - retained.toSet()).sortedWith(compareBy({ it.railId }, { it.endpoint }))
-        }
-        fun active(endpoint: RailEndpointRef, connected: List<SavedRailEndpointRef>, base: SavedRailEndpointRef?): SavedRailEndpointRef? {
-            val explicit = finalActiveEndpoints[endpoint]?.let(SavedRailEndpointRef::fromEndpoint)
-            return when {
-                endpoint in finalActiveEndpoints -> explicit
-                base in connected -> base
-                else -> connected.firstOrNull()
-            }
-        }
-        return targetRailIds.sortedBy(UUID::toString).map { railId ->
-            val base = baseById[railId]
-            val curve = addedRailCurves[railId]?.save() as? work.art1st.javarailways.core.physics.rail.curve.PrimeCurveImpl.SavedPrimeCurveV1
-                ?: requireNotNull(base) { "missing curve for prepared target rail $railId" }.curveAB
-            val endpointA = RailEndpointRef(railId, RailEndpoint.A)
-            val endpointB = RailEndpointRef(railId, RailEndpoint.B)
-            val atA = connections(endpointA, base?.connectionsAtA.orEmpty())
-            val atB = connections(endpointB, base?.connectionsAtB.orEmpty())
-            CoreRail.SavedRailV1(
-                id = railId.toString(),
-                curveAB = curve,
-                connectionsAtA = atA,
-                connectionsAtB = atB,
-                activeConnectionAtA = active(endpointA, atA, base?.activeConnectionAtA),
-                activeConnectionAtB = active(endpointB, atB, base?.activeConnectionAtB)
             )
         }
     }

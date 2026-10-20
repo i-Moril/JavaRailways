@@ -114,6 +114,15 @@ state = when {
 
 ## Live rail创建的异步准备与原子安装
 
+纯准备运算与 live owner 分开：`physics/rail/RailTopologyPreparation.kt` 根据已经捕获的
+`TopologyState`、拓扑输入和明确 delta 计算目标 root、目标 rail 数及预期 connection/crossing；
+`RailSnapshotPreparation.kt` 一次完成 restore 输入索引、差异识别、曲线解码，并从 captured 输入生成目标 saved-rail 列表。
+这些内部函数不持有 world、锁或注册能力，也不建立策略接口。
+`CoreWorld` 仍独占 live identity 校验、读锁内 rollback capture、写事务、occupancy 与 publication。
+目标 saved-rail helper 仍在原 `createPreparedRailTopologyUpdate` 的读锁内调用；提取纯函数不改变锁范围。
+输入验证顺序、linked 集合顺序、endpoint 显式顺序及稳定排序保持原契约；restore 两侧各解码一次，
+创建与连接验证共用对应曲线实例。此组织调整不改变 snapshot 格式或版本。
+
 `PreparedRailCreationBatch`是process-local immutable值：按调用方curve顺序保存已分配的stable UUID、curve、压缩后的piecewise-linear samples、spatial footprint、预计算crossing，以及捕获时的exact `CoreWorld`与published `TopologyState` root。它不是持久化边界，也不引入新的revision类型。
 
 正常流程：

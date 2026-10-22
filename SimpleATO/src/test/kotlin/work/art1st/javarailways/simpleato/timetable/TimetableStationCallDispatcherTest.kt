@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
@@ -70,6 +71,41 @@ class TimetableStationCallDispatcherTest {
                 Executable { fixture.close() }
             )
         })
+    }
+
+    @OptIn(work.art1st.javarailways.core.api.util.plugin.ExtensionData::class)
+    @Test
+    fun `canonical marker edits and aliases cannot bypass a held stopping area`() {
+        val fixture = fixture()
+        val world = fixture.world
+        world.registerExtensionData(
+            work.art1st.javarailways.simpleato.SimpleATOPlugin.INSTANCE,
+            world.simpleAtoWorldData.copy(dispatcher = fixture.dispatcher)
+        )
+        val service = work.art1st.javarailways.simpleato.api.destination.OperationalDestinationService(world)
+        val role = work.art1st.javarailways.simpleato.api.destination.DestinationRole.StationBerthRole(
+            stationId = fixture.station.id, stationDisplayName = "Central", berthId = "one", doorSide = DoorSide.NONE, stoppingAreaId = "platform-one"
+        )
+        val destination = work.art1st.javarailways.simpleato.api.destination.OperationalDestination(
+            "central@one", "Central", fixture.berth.location.rail.id,
+            fixture.berth.location.arcLengthIn(ViewDirection.AB), ViewDirection.AB, role
+        )
+        world.simpleAtoWorldData.stations.removeBerth(fixture.berth.berthRef)
+        service.register(destination)
+        val id = TimetableServiceRunId("tt", "service")
+        val started = world.onOwnerForTest { fixture.dispatcher.startService(world, "tt", "service") } as TimetableServiceStartResult.Started
+        val call = StationCall("held-call", started.run.missionRevision, fixture.station.id, fixture.berth.berthRef, dwellPlan = DwellPlan(5L))
+        assertTrue(fixture.dispatcher.scheduleStationCall(world, id, call) is TimetableStationCallScheduleResult.Scheduled)
+        val area = work.art1st.javarailways.simpleato.api.station.StationStoppingAreaRef(fixture.station.id, "platform-one")
+        assertTrue(fixture.dispatcher.hasStationStoppingAreaAllocation(area))
+        assertThrows(IllegalStateException::class.java) { service.replace(destination.id, destination.copy(role = role.copy(stoppingAreaId = "new-area"))) }
+        assertThrows(IllegalStateException::class.java) { service.remove(destination.id) }
+        val alias = destination.copy(id = "central@two", role = role.copy(berthId = "two"))
+        assertThrows(IllegalStateException::class.java) { service.register(alias) }
+        assertEquals(destination, service[destination.id])
+        assertNull(service[alias.id])
+        assertNull(world.basicWorldData.wayPoints[alias.id])
+        assertTrue(fixture.dispatcher.hasStationStoppingAreaAllocation(area))
     }
 
     @Test

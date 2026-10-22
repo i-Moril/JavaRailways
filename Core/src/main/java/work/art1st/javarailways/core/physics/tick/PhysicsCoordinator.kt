@@ -645,7 +645,14 @@ class PhysicsCoordinator(
                                 controller.tick(deltaMillis)
                                 controllerDurations[controller.profileId] = nanoTime() - controllerStart
                             } else {
-                                controller.freezeMotionForPhysicsEpoch()
+                                try {
+                                    if (controller.profileId !in trainsPendingCollision &&
+                                        (controller.train as? CoreTrain)?.canPrepareWhileFormationHeld == true) {
+                                        controller.prepareWhileFormationHeld(deltaMillis)
+                                    }
+                                } finally {
+                                    controller.freezeMotionForPhysicsEpoch()
+                                }
                             }
                         }
                         workerDurations[index] = nanoTime() - workerStart

@@ -1,0 +1,27 @@
+{
+  "base": "a0206a9c",
+  "preserved_changes": {
+    "Basic/src/main/java/work/art1st/javarailways/basic/route/TopologyRoutePlanner.kt": "099cc11b775557acf49dd85e0b050c3842a196ed346ac4b139c5e5512f85bcae",
+    "Basic/src/test/java/work/art1st/javarailways/basic/route/TopologyRoutePlannerTest.kt": "e4d7904ec356136ace97b091c1486b96a52eed468b8d5d24afd3bb99ef4f29b3",
+    "BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/http/TimetableHttpBridge.kt": "52afaa3f830fd0564a2f7c51e3eac4e5b3b5ce0a546cae2e08271e9ff949fb44",
+    "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/http/IsolatedLineSimulatorTest.kt": "09ce4da9629a55fe417eb079b925d9147978a5435d1869d83c66202598ce6d3f",
+    "BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/http/LineSimulationMaximumSpeedTest.kt": "0ed67d339b322b0ed571a879fa1629995f11e914dfaa16ae72e0b8c03dfa48b9",
+    "SimpleATO/src/test/kotlin/work/art1st/javarailways/simpleato/api/line/LinePlannerTest.kt": "9c11cf971b06b83759a0da4749eef62d169ffa5e25c2773df5d9c5a0ba11a430",
+    "WebUI/frontend/src/CommittedNumberInput.events.test.tsx": "8302ccb8997a4cb9c40721cc05353628f210359145537def80590d311f76a4fa",
+    "WebUI/frontend/src/CommittedNumberInput.tsx": "125929b387def48d7bc4bfc61b3a501c8e4c625f03633cd46c03f38799425996",
+    "WebUI/frontend/src/DutyEditor.tsx": "e125d2f20953aec5685a1e1ee8e02d85e2a108a853a62344038c7f8cded2e7e7",
+    "WebUI/frontend/src/IssuesPage.tsx": "439f695bec9c0a10125e9ab37270683c6ec82109abb3adfc18dd6ae40242c843",
+    "WebUI/frontend/src/RunRouteEditor.tsx": "32bb27c5af411a38b9acc21bdda0a3c8be6c5aa9fa90cea19adb91cc14a4c5b0",
+    "WebUI/frontend/src/RunTitleEditor.tsx": "fdf938788f9a30fc160d9f3ff681ba024aa7f25690c8d414bd88f71490dc84c8",
+    "WebUI/frontend/src/authoring.test.ts": "851d62494ee41c752097d16c83f77186088f383588c0503bc0c2f4d9d27a53bc",
+    "WebUI/frontend/src/authoring.ts": "d90cc94d00c2130c79cce346a4df0158b90bc80a8ae9b0bbb1618adeb891f607",
+    "WebUI/frontend/src/authoringViews.test.tsx": "d5f960906b4442db673a67bd72737dfa684574e90dd9067b030690ba6a620a63",
+    "WebUI/frontend/src/i18n.tsx": "69325eff95ae3d0c0a49dfccc4b3e92ab487432eef72ef6d7b52f77d3b022691",
+    "WebUI/frontend/src/lineSimulationApi.test.ts": "3be496a38f8f63301abf74271a13eb6548df5a67731458debeb19533c0d8a51d",
+    "WebUI/frontend/src/studioPages.css": "adfeeb9929fc8592303d5086e4f86dd97a91660552f48d7b2e7fb543e2ed4c6f",
+    "WebUI/frontend/src/styles.css": "58c044061d2c16af59a5dd3928eb7751839aed1c1d5fab547226e426b0f52b04",
+    "WebUI/frontend/src/types.ts": "6e1409f2e7c8ed4a0e53ecdcd252eb3108c39e8780eb4a40b15709554ea92220",
+    "WebUI/frontend/src/worldIssues.test.tsx": "5fe3f67b11c4813cb6b6863cba6e0dab465057dd3e43b82190343d29f19f5ce8",
+    "WebUI/src/test/java/work/art1st/javarailways/webui/WebUiApplicationTest.java": "cfcc68793f3bada346ec03235df9d56cfd30e5d2918f1ca7b3eef88803bedc6b"
+  }
+}

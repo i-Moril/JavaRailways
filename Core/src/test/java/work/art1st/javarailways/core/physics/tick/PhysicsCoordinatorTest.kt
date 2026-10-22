@@ -59,7 +59,17 @@ class PhysicsCoordinatorTest {
                     moving.setLocation(RailLocationWithFacing(rail.viewAB, 150.0))
                     moving.commit()
                 }
-                held.setControllerForTest(MockTrainController(held, 10.0))
+                val heldTicks = AtomicInteger()
+                // A hold clears published physical velocity. Resumption comes from a persistent
+                // controller command, not restoration of a stale pre-hold speed buffer.
+                held.setControllerForTest(object : TrainController(held) {
+                    init { speed = 10.0 }
+                    override fun tick(deltaT: Double) {
+                        heldTicks.incrementAndGet()
+                        speed = 10.0
+                        moveControlledTrain(10.0 * deltaT * 0.001, 10.0)
+                    }
+                })
                 moving.setControllerForTest(MockTrainController(moving, 10.0))
                 val position = held.headLocation.position.x()
                 val otherPosition = moving.headLocation.position.x()
@@ -71,6 +81,7 @@ class PhysicsCoordinatorTest {
                 coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
                 assertEquals(position, held.headLocation.position.x())
                 assertEquals(0.0, held.publishedFrame.speedMetersPerSecond)
+                assertEquals(0, heldTicks.get(), "configuration hold must not invoke the ordinary control tick")
                 assertEquals(occupancy, held.publishedFrame.occupiedIntervals)
                 assertTrue(held.publishedFrame.cars.flatMap { listOf(it.state) + it.bogies }.all {
                     it.velocityX == 0.0 && it.velocityY == 0.0 && it.velocityZ == 0.0
@@ -81,6 +92,7 @@ class PhysicsCoordinatorTest {
                 coordinator.stepSimulation(50.0).completion.get(5, TimeUnit.SECONDS)
                 assertEquals(position + 0.5, held.headLocation.position.x(), 1.0e-9)
                 assertEquals(10.0, held.publishedFrame.speedMetersPerSecond)
+                assertEquals(1, heldTicks.get(), "release resumes the same controller's retained command")
             } finally {
                 coordinator.close()
             }

@@ -4,8 +4,10 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -51,6 +53,33 @@ import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
 
 internal class HttpFailure(val status: Int, message: String) : RuntimeException(message)
+
+/** Resolve either the current authoring cap or an authoritative stored service cap. */
+internal fun resolveLineSimulationMaximumSpeed(
+    request: JsonObject,
+    resolveStored: (timetableId: String, serviceId: String) -> Double
+): Double? {
+    val timetableId = request["timetableId"]?.jsonPrimitive?.content
+    val serviceId = request["serviceId"]?.jsonPrimitive?.content
+    if ((timetableId == null) != (serviceId == null)) {
+        throw HttpFailure(400, "timetableId and serviceId must be provided together")
+    }
+    val element = request["maximumSpeedMetersPerSecond"]
+    val inlineMaximum = if (element == null || element == JsonNull) null else {
+        val value = (element as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull
+        if (value == null || !value.isFinite() || value <= 0.0) {
+            throw HttpFailure(400, "maximumSpeedMetersPerSecond must be a finite positive number")
+        }
+        value
+    }
+    if (timetableId != null && serviceId != null) {
+        if (inlineMaximum != null) {
+            throw HttpFailure(400, "maximumSpeedMetersPerSecond cannot be combined with timetableId and serviceId")
+        }
+        return resolveStored(timetableId, serviceId)
+    }
+    return inlineMaximum
+}
 
 private data class LineSimulationSnapshot(
     val revision: Long,
@@ -272,6 +301,10 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         put("stationId", role.stationId.value)
                         put("stationDisplayName", role.stationDisplayName)
                         put("berthId", role.berthId)
+                        put("stoppingAreaId", role.stoppingAreaId)
+                        role.minimumTrainLengthMeters?.let { put("minimumTrainLengthMeters", it) }
+                        role.maximumTrainLengthMeters?.let { put("maximumTrainLengthMeters", it) }
+                        role.usableLengthMeters?.let { put("usableLengthMeters", it) }
                         put("destinationId", destination.id)
                     }
                 }))
@@ -420,6 +453,21 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             buildJsonObject {
                 put("valid", validation.isSuccess)
                 put("errors", JsonArray(validation.errors.map(::JsonPrimitive)))
+                validation.circulation?.let { summary ->
+                    put("circulation", buildJsonObject {
+                        put("inventory", summary.inventory.name)
+                        put("timing", summary.timing.name)
+                        put("capacity", summary.capacity.name)
+                        summary.periodicInventoryCycles?.let { put("periodicInventoryCycles", it) }
+                        put("findings", JsonArray(summary.findings.map { finding -> buildJsonObject {
+                            put("code", finding.code)
+                            put("detail", finding.detail)
+                            put("blocking", finding.blocking)
+                            finding.dutyId?.let { put("dutyId", it) }
+                            finding.stepIndex?.let { put("stepIndex", it) }
+                        } }))
+                    })
+                }
             }
 
         private fun simulateTimetableJson(worldName: String, body: String): String {
@@ -506,6 +554,9 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             return simulationResultJson(result)
         }
 
+        private fun branchPathJson(path: List<work.art1st.javarailways.simpleato.timetable.TimetableBranchEntry>) =
+            JsonArray(path.map { entry -> buildJsonObject { put("arm", entry.arm.name); put("index", entry.index) } })
+
         private fun simulationResultJson(result: IsolatedTimetableSimulationResult): String =
             json.encodeToString(buildJsonObject {
                 put("status", when (result) {
@@ -519,7 +570,8 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     put("thresholdTicks", result.thresholdTicks)
                     put("observedDelayTicks", result.observedDelayTicks)
                     put("delayedServiceId", result.delayedRun.id.serviceId)
-                    put("delayedStepIndex", result.delayedRun.nextStepIndex)
+                    put("delayedStepIndex", result.delayedRun.activeStepIndex ?: result.delayedRun.nextStepIndex)
+                    put("delayedStepBranchPath", branchPathJson(if (result.delayedRun.activeStepIndex != null) result.delayedRun.activeStepBranchPath else result.delayedRun.nextStepBranchPath))
                 }
                 if (result is IsolatedTimetableSimulationResult.Failed) put("reason", result.reason)
                 put("runs", JsonArray(result.runs.map { run -> buildJsonObject {
@@ -533,6 +585,14 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     put("lastLatenessTicks", run.lastLatenessTicks)
                     put("currentWayPointId", run.currentWayPointId)
                     put("nextStepIndex", run.nextStepIndex)
+                    put("nextStepBranchPath", branchPathJson(run.nextStepBranchPath))
+                    put("activeStepIndex", run.activeStepIndex)
+                    put("activeStepBranchPath", branchPathJson(run.activeStepBranchPath))
+                    run.selectedBerthRef?.let { berth -> put("selectedBerthRef", buildJsonObject {
+                        put("stationId", berth.stationId.value)
+                        put("berthId", berth.berthId)
+                    }) }
+                    put("selectedBerthCommitted", run.selectedBerthCommitted)
                     put("trainHeadRailId", run.trainHeadRailId)
                     put("trainHeadArcLengthInAbMeters", run.trainHeadArcLengthInAbMeters)
                     put("headProgressMeters", run.headProgressMeters)
@@ -572,12 +632,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     val data = world.basicWorldData
                     val line = world.simpleAtoWorldData.lines[LineId(lineId)]
                         ?: throw HttpFailure(404, "line not found: $lineId")
-                    val timetableId = request["timetableId"]?.jsonPrimitive?.content
-                    val serviceId = request["serviceId"]?.jsonPrimitive?.content
-                    if ((timetableId == null) != (serviceId == null)) {
-                        throw HttpFailure(400, "timetableId and serviceId must be provided together")
-                    }
-                    val lineMaximumSpeed = timetableId?.let { requestedTimetableId ->
+                    val lineMaximumSpeed = resolveLineSimulationMaximumSpeed(request) { requestedTimetableId, serviceId ->
                         val timetable = world.simpleAtoWorldData.timetables[requestedTimetableId]
                             ?: throw HttpFailure(404, "timetable not found: $requestedTimetableId")
                         val service = timetable.services.firstOrNull { it.id == serviceId }

@@ -3,6 +3,7 @@ import { Button,Flex,Segmented,Select,Space,Table,Tabs,Tag,Typography } from 'an
 import type { TableColumnsType } from 'antd';
 import { ArrowLeftOutlined,CheckCircleOutlined,DeleteOutlined,PlayCircleOutlined } from '@ant-design/icons';
 import { resizeRunRoute,type AuthoringIssue,type AuthoringRunCallV1,type AuthoringRunV1 } from './authoring';
+import { RunTitleEditor } from './RunTitleEditor';
 import { CommittedNumberInput } from './CommittedNumberInput';
 import { useI18n } from './i18n';
 import { formatTimetableTick } from './timetableTime';
@@ -13,6 +14,9 @@ const stationIds=(line:LineV1,direction:LineDirection)=>direction==='UP'?line.up
 
 interface RunRouteEditorProps {
   tools?:ReactNode;
+  onRename?:(id:string)=>void;
+  lineSpeedLimitMetersPerSecond?:number;
+  onLineSpeedLimitChange?:(kmh:number|null)=>void;
   fieldScope?:string;
   issues?:AuthoringIssue[];
   focusedCallId?:string;
@@ -25,7 +29,7 @@ interface RunRouteEditorProps {
   onDelete:()=>void;
 }
 
-export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelete,tools,issues=[],focusedCallId,fieldScope=''}:RunRouteEditorProps) {
+export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelete,tools,issues=[],focusedCallId,fieldScope='',onRename,lineSpeedLimitMetersPerSecond,onLineSpeedLimitChange}:RunRouteEditorProps) {
   const {locale,t}=useI18n();
   const [inspectorTab,setInspectorTab]=useState<'calls'|'options'|'issues'>('calls');
   const [selectedCallId,setSelectedCallId]=useState('');
@@ -62,8 +66,8 @@ export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelet
     {title:t('editor.station'),key:'station',width:132,ellipsis:true,render:(_,call)=><Button type="link" className="station-link" onClick={()=>setSelectedCallId(call.id)}>{labelStation(call.stationId)}</Button>},
     {title:t('editor.callType'),key:'status',width:92,render:(_,call)=>call.status==='ORIGIN'||call.status==='TERMINAL'?<Typography.Text>{t(call.status==='ORIGIN'?'status.origin':'status.terminal')}</Typography.Text>:<Select variant="borderless" value={call.status} onChange={(status)=>changeStatus(call,status as 'STOP'|'PASS')} options={[{value:'STOP',label:t('status.stop')},{value:'PASS',label:t('status.pass')}]}/>},
     {title:t('editor.berth'),key:'berth',width:88,render:(_,call)=><Select variant="borderless" value={call.berthId||undefined} placeholder="—" onChange={(berthId)=>changeBerth(call,berthId)} options={berthsFor(call.stationId).map((berth)=>({value:berth.berthId,label:berth.berthId}))}/>},
-    {title:t('editor.arrivalTime'),key:'arrival',width:96,render:(_,call)=><span className="editable-tick"><CommittedNumberInput fieldKey={`${fieldScope}/${run.id}/${call.id}/arrival`} variant="borderless" controls={false} min={0} precision={0} disabled={call.status==='ORIGIN'} value={call.arrivalTick} onCommit={(arrivalTick)=>patchCall(call.id,{arrivalTick})}/>{timeDisplay==='both'&&<small>{call.arrivalTick==null?'—':formatTimetableTick(call.arrivalTick,locale)}</small>}</span>},
-    {title:t('editor.departureTime'),key:'departure',width:96,render:(_,call)=><span className="editable-tick"><CommittedNumberInput fieldKey={`${fieldScope}/${run.id}/${call.id}/departure`} variant="borderless" controls={false} min={0} precision={0} disabled={call.status==='PASS'||call.status==='TERMINAL'} value={call.departureTick} onCommit={(departureTick)=>patchCall(call.id,{departureTick})}/>{timeDisplay==='both'&&<small>{call.departureTick==null?'—':formatTimetableTick(call.departureTick,locale)}</small>}</span>},
+    {title:t('editor.arrivalTime'),key:'arrival',width:96,render:(_,call)=>call.status==='ORIGIN'?<Typography.Text type="secondary">—</Typography.Text>:<span className="editable-tick"><CommittedNumberInput aria-label={`${labelStation(call.stationId)} · ${t('editor.arrivalTime')}`} fieldKey={`${fieldScope}/${run.id}/${call.id}/arrival`} variant="borderless" controls={false} min={0} precision={0} value={call.arrivalTick} onCommit={(arrivalTick)=>patchCall(call.id,{arrivalTick})}/>{timeDisplay==='both'&&<small>{call.arrivalTick==null?'—':formatTimetableTick(call.arrivalTick,locale)}</small>}</span>},
+    {title:t('editor.departureTime'),key:'departure',width:96,render:(_,call)=>call.status==='PASS'||call.status==='TERMINAL'?<Typography.Text type="secondary">—</Typography.Text>:<span className="editable-tick"><CommittedNumberInput aria-label={`${labelStation(call.stationId)} · ${t('editor.departureTime')}`} fieldKey={`${fieldScope}/${run.id}/${call.id}/departure`} variant="borderless" controls={false} min={0} precision={0} value={call.departureTick} onCommit={(departureTick)=>patchCall(call.id,{departureTick})}/>{timeDisplay==='both'&&<small>{call.departureTick==null?'—':formatTimetableTick(call.departureTick,locale)}</small>}</span>},
   ];
 
   if(!line)return <p className="empty">{t('editor.selectLineForSchedule')}</p>;
@@ -75,10 +79,15 @@ export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelet
   </section>;
 
   const calls=<div className="calls-page"><Flex className="time-mode" align="center" justify="space-between"><Typography.Text type="secondary">{t('editor.stationCallsHint')}</Typography.Text><Segmented size="small" value={timeDisplay} onChange={(value)=>setTimeDisplay(value as 'tick'|'both')} options={[{value:'tick',label:t('editor.tick')},{value:'both',label:t('editor.bothTimes')}]}/></Flex><Table<AuthoringRunCallV1> className="calls-table" size="small" pagination={false} tableLayout="fixed" rowKey="id" columns={callColumns} dataSource={run.calls}/></div>;
-  const options=<div className="run-options-page">{tools}
+  const options=<div className="run-options-page">
+    <section className="option-section"><Typography.Title level={5}>{t('ui.lineCap')}</Typography.Title><div className="run-option-grid">
+      <label>{t('duties.infrastructureLine')}<Select aria-label={t('duties.infrastructureLine')} value={run.lineId||undefined} allowClear options={lines.map((item)=>({value:item.id,label:item.displayName}))} onChange={(lineId)=>onChange({...run,lineId:lineId??null})}/></label>
+      <label>{t('ui.lineCap')}<CommittedNumberInput fieldKey={`${fieldScope}/${run.id}/${run.lineId??''}/line-cap`} aria-label={t('ui.lineCap')} min={Number.MIN_VALUE} disabled={busy||!run.lineId||!lines.some((item)=>item.id===run.lineId)||!onLineSpeedLimitChange} value={lineSpeedLimitMetersPerSecond==null?null:lineSpeedLimitMetersPerSecond*3.6} onCommit={(kmh)=>onLineSpeedLimitChange?.(kmh)} addonAfter="km/h"/></label>
+    </div><Typography.Text type="secondary">{!run.lineId||!lines.some((item)=>item.id===run.lineId)?t('ui.chooseInfrastructure'):t('ui.lineCapHint')}</Typography.Text></section>
+    {tools}
     <section className="option-section"><Typography.Title level={5}>{t('editor.runEndpoints')}</Typography.Title><Typography.Text type="secondary">{t('editor.runEndpointsHint')}</Typography.Text><div className="endpoint-options"><label>{t('status.origin')}<Select value={run.calls[0]?.stationId} onChange={(station)=>resize(station,run.calls.at(-1)!.stationId)} options={routeStations.map((station,index)=>({value:station,label:labelStation(station),disabled:index>=terminalIndex}))}/></label><label>{t('status.terminal')}<Select value={run.calls.at(-1)?.stationId} onChange={(station)=>resize(run.calls[0].stationId,station)} options={routeStations.map((station,index)=>({value:station,label:labelStation(station),disabled:index<=originIndex}))}/></label></div></section>
     <section className="option-section danger-zone"><div><Typography.Title level={5}>{t('editor.deleteRun')}</Typography.Title><Typography.Text type="secondary">{t('editor.deleteRunHint')}</Typography.Text></div><Button danger type="primary" icon={<DeleteOutlined/>} disabled={busy} onClick={onDelete}>{t('editor.deleteRun')}</Button></section>
   </div>;
   const issuesView=<div className="issues-view">{issues.map((issue,index)=><div className="validation-row" key={index}><span><b>{issue.message}</b><small>{issue.path}</small></span></div>)}{issues.length===0&&<div className="issue-success"><CheckCircleOutlined/><span><b>{t('editor.noLocalIssues')}</b><small>{t('editor.serverValidationStillRequired')}</small></span></div>}</div>;
-  return <section className="run-inspector"><Flex className="compact-inspector-head" align="center" justify="space-between"><Space><Typography.Text strong>{run.id}</Typography.Text><Tag>{t('editor.draft')}</Tag></Space></Flex><Tabs className="inspector-tabs" activeKey={inspectorTab} onChange={(key)=>setInspectorTab(key as typeof inspectorTab)} items={[{key:'calls',label:t('editor.stationCalls')},{key:'options',label:t('editor.runOptions')},{key:'issues',label:t('duties.issues')}]}/><div className="inspector-body">{inspectorTab==='calls'?calls:inspectorTab==='options'?options:issuesView}</div></section>;
+  return <section className="run-inspector"><Flex className="compact-inspector-head" align="center" justify="space-between"><Space>{onRename?<RunTitleEditor fieldKey={`${fieldScope}/${run.id}`} value={run.id} disabled={busy} onCommit={onRename}/>:<Typography.Text strong>{run.id}</Typography.Text>}<Tag>{t('editor.draft')}</Tag></Space></Flex><Tabs className="inspector-tabs" activeKey={inspectorTab} onChange={(key)=>setInspectorTab(key as typeof inspectorTab)} items={[{key:'calls',label:t('editor.stationCalls')},{key:'options',label:t('editor.runOptions')},{key:'issues',label:t('duties.issues')}]}/><div className="inspector-body">{inspectorTab==='calls'?calls:inspectorTab==='options'?options:issuesView}</div></section>;
 }

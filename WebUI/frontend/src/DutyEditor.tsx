@@ -1,10 +1,13 @@
+import {renameFormationDuty} from './formationAuthoring';
 import { useEffect,useMemo,useRef,useState,type CSSProperties } from 'react';
 import { Button,Flex,Input,InputNumber,Modal,Popover,Segmented,Select,Space,Tag,Tooltip,Typography } from 'antd';
 import { DeleteOutlined,EditOutlined,LeftOutlined,PlusOutlined,RightOutlined,SettingOutlined } from '@ant-design/icons';
+import {resolveProgramSourceTarget,type ProgramSourceTarget} from './programNavigation';
+import { adoptStationProgram } from './stationPrograms';
 import { api } from './api';
 import { frontendDemoEnabled } from './frontendDev';
 import {
-  authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,copyRunShifted,lineSimulationRoute,resetRunTimings,
+  authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,copyRunShifted,lineSimulationRoute,resetRunTimings,renameAuthoringRun,resolveAuthoringRunSelection,setAuthoringLineSpeedLimit,authoringResetProfile,
   type AuthoringDutyElementV1,type AuthoringDutyV1,type AuthoringFunctionCallV1,type AuthoringRunV1,type RunMoveMode,
   type TimetableAuthoringDocumentV1,
 } from './authoring';
@@ -21,14 +24,14 @@ import type { AuthoringCommand,AuthoringCommandState } from './authoringCommands
 import { TimetableWorkspace } from './TimetableWorkspace';
 import { useI18n } from './i18n';
 import { formatTimetableTick } from './timetableTime';
-import type { CompiledTimetableSource,EditorDocumentSummary,LineV1,TimetableSimulationResult,WorldMetadata } from './types';
+import type { StationProgramRecord,StationProgramCall,StationProgramLiteral,CompiledTimetableSource,EditorDocumentSummary,LineV1,TimetableSimulationResult,WorldMetadata } from './types';
 
 const uid=(prefix:string)=>`${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;
 const hash=(value:string)=>{let result=2166136261;for(let index=0;index<value.length;index++){result^=value.charCodeAt(index);result=Math.imul(result,16777619);}return (result>>>0).toString(16).padStart(8,'0');};
 const defaultScriptName=(id:string)=>`${(id.replace(/[^A-Za-z0-9._-]/g,'-').replace(/^[^A-Za-z0-9]+/,'')||'timetable').slice(0,120)}.js`;
 export const clampAuthoringSidebarWidth=(width:number,viewportWidth:number)=>Math.max(360,Math.min(width,960,Math.max(360,viewportWidth-320)));
 
-export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='graph',onPageChange,onCommandState}:{page?:'graph'|'duties'|'validation';onPageChange?:(page:'graph'|'duties'|'validation')=>void;onCommandState?:(state:AuthoringCommandState)=>void;world:string;recoveryOwner:string;lines:LineV1[];metadata:WorldMetadata;onError:(message:string)=>void}) {
+export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenProgramLibrary,page='graph',onPageChange,onCommandState}:{onOpenProgramLibrary?:(programId:string,stepId?:string)=>void;page?:'graph'|'duties'|'validation';onPageChange?:(page:'graph'|'duties'|'validation')=>void;onCommandState?:(state:AuthoringCommandState)=>void;world:string;recoveryOwner:string;lines:LineV1[];metadata:WorldMetadata;onError:(message:string)=>void}) {
   const {locale,t}=useI18n();
   const [initialRecovery]=useState(()=>loadAuthoringRecovery(recoveryOwner,world));
   const initialDocument=initialRecovery?.document??emptyAuthoringDocument();
@@ -38,12 +41,18 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
   if(ownerIdentity.current!==`${recoveryOwner}::${world}`){ownerIdentity.current=`${recoveryOwner}::${world}`;ownerEpoch.current++;}
   const operationSerial=useRef(0);
   const [workspaceWorld,setWorkspaceWorld]=useState(world);
+  const [programResources,setProgramResources]=useState<{world:string;records:StationProgramRecord[]}>({world:'',records:[]});
+  const [programError,setProgramError]=useState('');const [programLoading,setProgramLoading]=useState(false);const programRequest=useRef(0);
+  const loadPrograms=async()=>{const token=++programRequest.current;setProgramLoading(true);setProgramError('');try{const records=await api.stationPrograms(world);if(token===programRequest.current)setProgramResources({world,records});}catch(failure){if(token===programRequest.current)setProgramError(String(failure));}finally{if(token===programRequest.current)setProgramLoading(false);}};
+  useEffect(()=>{if(page==='duties'&&world)void loadPrograms();return()=>{programRequest.current++;};},[world,page]);
+  const programLibrary=programResources.world===world?programResources.records:[];
   const [documents,setDocuments]=useState<EditorDocumentSummary[]>([]);
   const [documentId,setDocumentId]=useState(initialRecovery?.documentId??'');
   const [formalScriptName,setFormalScriptName]=useState(initialRecovery?.formalScriptName??'new-timetable.js');
   const [persistedFormalScriptName,setPersistedFormalScriptName]=useState(initialRecovery?.persistedFormalScriptName??'');
   const documentHistory=useDocumentHistory<TimetableAuthoringDocumentV1>(()=>initialDocument);
   const {value,setValue}=documentHistory;
+  const previousSelectedRun=useRef<AuthoringRunV1|undefined>(undefined);
   const [selectedRun,setSelectedRun]=useState(initialRecovery?.selectedRun??'');
   const [previewRun,setPreviewRun]=useState<AuthoringRunV1>();
   const [moveOpen,setMoveOpen]=useState(false);
@@ -56,6 +65,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
   const copyInvalid=copyOffsetInvalid||copyCountInvalid;
   const [moveMode,setMoveMode]=useState<RunMoveMode>('OFFSET');
   const [moveValue,setMoveValue]=useState<number|''>(0);
+  const [focusedProgram,setFocusedProgram]=useState<{epoch:number;target:ProgramSourceTarget}>();
   const [selectedDuty,setSelectedDuty]=useState(initialRecovery?.selectedDuty??'');
   const [sidebarTab,setSidebarTab]=useState<'runs'|'duties'>('runs');
   const [runLibraryOpen,setRunLibraryOpen]=useState(true);
@@ -86,10 +96,11 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
   const simulationInputKey=JSON.stringify([world,generated.documentHashInput,delayThresholdTicks,Object.entries(profileAssignments).sort(([a],[b])=>a.localeCompare(b))]);
   const simulation=simulationState?.inputKey===simulationInputKey?simulationState.result:undefined;
   const simulationProfiles=metadata.simulationProfiles||[];
+  const profileDuties=value.duties.filter((duty)=>duty.selector.type!=='TAKE_FROM_FORMATION_OUTPUT');
   const profilesBySelector=new Map<string,string>();
   let hasConflictingProfiles=false;
-  value.duties.forEach((duty)=>{const selected=profileAssignments[duty.id],key=authoringSelectorKey(duty.selector),existing=profilesBySelector.get(key);if(selected&&existing&&selected!==existing)hasConflictingProfiles=true;else if(selected)profilesBySelector.set(key,selected);});
-  const hasAllProfiles=value.duties.length>0&&value.duties.every((duty)=>simulationProfiles.some((profile)=>`${profile.type}:${profile.id}`===profileAssignments[duty.id]))&&!hasConflictingProfiles;
+  profileDuties.forEach((duty)=>{const selected=profileAssignments[duty.id],key=authoringSelectorKey(duty.selector),existing=profilesBySelector.get(key);if(selected&&existing&&selected!==existing)hasConflictingProfiles=true;else if(selected)profilesBySelector.set(key,selected);});
+  const hasAllProfiles=profileDuties.length>0&&profileDuties.every((duty)=>simulationProfiles.some((profile)=>`${profile.type}:${profile.id}`===profileAssignments[duty.id]))&&!hasConflictingProfiles;
   const liveInputs=useRef({world,documentJson:JSON.stringify(value),simulationInputKey});
   liveInputs.current={world,documentJson:JSON.stringify(value),simulationInputKey};
   const assigned=new Map(value.duties.flatMap((duty)=>duty.elements.flatMap((element)=>element.type==='RUN'?[[element.runId,duty.id] as const]:[])));
@@ -98,18 +109,32 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
     return override?{...call,arrivalTick:override.tick}:call;
   })})),[value.runs,value.arrivalOverrides]);
   const selectedRunValue=effectiveRuns.find((run)=>run.id===selectedRun&&run.diagramLineId===graphLineId&&run.lineDirection===runDirection);
+  const graphTimeError=(error:unknown)=>{
+    const message=error instanceof Error?error.message:String(error);
+    if(message==='Departure violates arrival or minimum dwell')return t('ui.dwellViolation');
+    if(message==='Minimum dwell must be a non-negative integer')return t('ui.invalidDwell');
+    if(message.includes('inside the timetable period'))return t('duties.outsidePeriod');
+    if(message==='Shifted events must remain in chronological order')return t('ui.timeOrder');
+    if(message==='The selected event has no time')return t('move.noTimedCall');
+    if(message.includes('must be a safe integer'))return t('ui.invalidNumber');
+    if(message==='Unknown run'||message==='Unknown graph point'||message==='Unknown shift mode')return t('ui.shiftChanged');
+    return message;
+  };
   const stationNames=useMemo(()=>new Map((metadata.stations??[]).map((station)=>[station.stationId,station.stationDisplayName||station.stationId])),[metadata.stations]);
   const pointRun=effectiveRuns.find((run)=>run.id===selectedPoint?.runId);
   const pointRouteSignature=JSON.stringify(pointRun?.calls.map((call)=>[call.id,call.status]));
   const pointSelectionValid=Boolean(selectedPoint&&selectedPoint.routeSignature===pointRouteSignature);
   const pointCall=pointSelectionValid?pointRun?.calls.find((call)=>call.id===selectedPoint?.callId):undefined;
   const pointTick=selectedPoint?.kind==='ARRIVAL'?pointCall?.arrivalTick:pointCall?.departureTick;
+  const nodeMinimumDwell=pointCall?.minimumDwellTicks??0;
+  const nodeMinimumTick=selectedPoint?.kind==='DEPARTURE'&&pointCall?.arrivalTick!=null?Math.max(0,pointCall.arrivalTick+nodeMinimumDwell):0;
+  const nodeMaximumTick=selectedPoint?.kind==='ARRIVAL'&&pointCall?.departureTick!=null?Math.min(value.periodDays*24000-1,pointCall.departureTick-nodeMinimumDwell):value.periodDays*24000-1;
   const moveCalculation=useMemo(()=>{
     if(!selectedPoint||moveValue==='')return {preview:undefined,error:''};
     if(!pointSelectionValid||moveSource!==generated.documentHashInput)return {preview:undefined,error:t('ui.shiftChanged')};
     try{return {preview:shiftAuthoringGraphSuffix(value,selectedPoint.runId,selectedPoint,moveMode,moveValue),error:''};}
-    catch(error){return {preview:undefined,error:error instanceof Error?error.message:String(error)};}
-  },[value,selectedPoint,pointSelectionValid,moveMode,moveValue,moveSource,generated.documentHashInput]);
+    catch(error){return {preview:undefined,error:graphTimeError(error)};}
+  },[value,selectedPoint,pointSelectionValid,moveMode,moveValue,moveSource,generated.documentHashInput,locale]);
   const selectedDutyValue=value.duties.find((duty)=>duty.id===selectedDuty);
   const graphRuns=useMemo(()=>effectiveRuns.map((run)=>previewRun?.id===run.id?previewRun:run),[effectiveRuns,previewRun]);
   const fullGraphValue=useMemo(()=>authoringGraphTimetable({...value,runs:graphRuns}),[value,graphRuns]);
@@ -120,7 +145,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
     :selectedRun?[selectedRun]:[]),[sidebarTab,selectedDutyValue,selectedRun]);
   const previewRunIds=useMemo(()=>new Set(previewRun?[previewRun.id]:[]),[previewRun]);
   const authoringWorkspaceStyle={'--authoring-sidebar-width':`${sidebarWidth}px`} as CSSProperties;
-  const delayedOrigin=simulation?.delayedServiceId==null||simulation.delayedStepIndex==null?undefined:compiled?.timetable.compilationTrace?.find((trace)=>trace.serviceId===simulation.delayedServiceId&&trace.stepIndex===simulation.delayedStepIndex)?.origin;
+  const delayedOrigin=simulation?.delayedServiceId==null||simulation.delayedStepIndex==null?undefined:compiled?.timetable.compilationTrace?.find((trace)=>trace.serviceId===simulation.delayedServiceId&&trace.stepIndex===simulation.delayedStepIndex&&JSON.stringify(trace.branchPath??[])===JSON.stringify(simulation.delayedStepBranchPath??[]))?.origin;
   const persistRecovery=()=>{
     if(workspaceWorld!==world)return;
     if(JSON.stringify(value)===savedDocumentJson.current){clearAuthoringRecovery(recoveryOwner,world);return;}
@@ -135,12 +160,13 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
   useEffect(()=>{setSelectedPoint((current)=>current?.runId===selectedRun?current:undefined);setMoveOpen(false);setCopyOpen(false);},[selectedRun]);
   useEffect(()=>{if(selectedPoint&&!pointSelectionValid){setSelectedPoint(undefined);setMoveOpen(false);setPreviewRun(undefined);}},[selectedPoint,pointSelectionValid]);
   useEffect(()=>{if(!lines.some((line)=>line.id===graphLineId))setGraphLineId(lines[0]?.id??'');},[graphLineId,lines]);
-  useEffect(()=>{if(!value.runs.some((run)=>run.id===selectedRun&&run.diagramLineId===graphLineId&&run.lineDirection===runDirection))setSelectedRun(value.runs.find((run)=>run.diagramLineId===graphLineId&&run.lineDirection===runDirection)?.id??'');},[value.runs,selectedRun,graphLineId,runDirection]);
+  useEffect(()=>{const scoped=value.runs.filter((run)=>run.diagramLineId===graphLineId&&run.lineDirection===runDirection);const resolved=resolveAuthoringRunSelection(scoped,selectedRun,previousSelectedRun.current)??scoped[0];previousSelectedRun.current=resolved;if((resolved?.id??'')!==selectedRun)setSelectedRun(resolved?.id??'');},[value.runs,selectedRun,graphLineId,runDirection]);
   useEffect(()=>{if(initialRecovery)onError(t('duties.recoveredLocalDraft'));},[]);
   useEffect(()=>{const timer=window.setTimeout(persistRecovery,250);return()=>window.clearTimeout(timer);},[world,workspaceWorld,value,documentId,formalScriptName,persistedFormalScriptName,selectedRun,selectedDuty,sidebarTab,graphLineId,profileAssignments,delayThresholdTicks]);
   useEffect(()=>{const preserve=()=>persistRecovery();window.addEventListener('javarailways:unauthorized',preserve);window.addEventListener('beforeunload',preserve);return()=>{preserve();window.removeEventListener('javarailways:unauthorized',preserve);window.removeEventListener('beforeunload',preserve);};},[world,workspaceWorld,value,documentId,formalScriptName,persistedFormalScriptName,selectedRun,selectedDuty,sidebarTab,graphLineId,profileAssignments,delayThresholdTicks]);
   useEffect(()=>{
     if(workspaceWorld!==world){
+      previousSelectedRun.current=undefined;
       const recovered=loadAuthoringRecovery(recoveryOwner,world),document=recovered?.document??emptyAuthoringDocument();
       savedDocumentJson.current=recovered?.savedDocumentJson??JSON.stringify(document);documentHistory.reset(document);
       setDocumentId(recovered?.documentId??'');setFormalScriptName(recovered?.formalScriptName??'new-timetable.js');setPersistedFormalScriptName(recovered?.persistedFormalScriptName??'');
@@ -156,7 +182,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
     const epoch=++ownerEpoch.current,input=liveInputs.current;
     const loaded=id?await api.editorDocument(world,id):emptyAuthoringDocument();
     if(ownerEpoch.current!==epoch||liveInputs.current.documentJson!==input.documentJson)return;
-    setDocumentId(id);setCompiledState(undefined);setSimulationState(undefined);setCompileFailure(undefined);
+    previousSelectedRun.current=undefined;setDocumentId(id);setCompiledState(undefined);setSimulationState(undefined);setCompileFailure(undefined);
     const loadedScriptName=loaded.formalScriptName||defaultScriptName(loaded.id);
     savedDocumentJson.current=JSON.stringify(loaded);clearAuthoringRecovery(recoveryOwner,world);documentHistory.reset(loaded);setFormalScriptName(loadedScriptName);setPersistedFormalScriptName(loaded.formalScriptName||'');setSelectedRun(loaded.runs[0]?.id||'');setSelectedDuty(loaded.duties[0]?.id||'');
   });
@@ -235,7 +261,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
   });
   const publish=async()=>{if(!compiled?.validation.valid)return;await execute(async()=>{await api.publish(world,compiled.timetable);});};
   const simulate=async()=>{if(!compiled?.validation.valid||!hasAllProfiles)return;await execute(async()=>{
-    const assignments=value.duties.map((duty)=>{
+    const assignments=profileDuties.map((duty)=>{
       const selected=profileAssignments[duty.id],separator=selected.indexOf(':');
       const profileType=selected.slice(0,separator) as 'WORLD_TRAIN'|'TRAIN_TEMPLATE',profileId=selected.slice(separator+1);
       return {serviceId:duty.id,profileType,profileId};
@@ -249,13 +275,18 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
     const diagramLines=sourceLine?[...current.diagramLines.filter((line)=>line.id!==sourceLine.id),{id:sourceLine.id,upStationIds:sourceLine.upStationIds,downStationIds:sourceLine.downStationIds}]:current.diagramLines;
     return {...current,diagramLines,runs:current.runs.map((run)=>run.id===next.id?next:run),arrivalOverrides:clearArrivalOverrides?current.arrivalOverrides.filter((override)=>override.runId!==next.id):current.arrivalOverrides};
   });};
-  const renameRun=(previousId:string,nextId:string)=>{setValue((current)=>({...current,
-    runs:current.runs.map((run)=>run.id===previousId?{...run,id:nextId}:run),
-    duties:current.duties.map((duty)=>({...duty,elements:duty.elements.map((element)=>element.type==='RUN'&&element.runId===previousId?{...element,runId:nextId}:element)})),
-    arrivalOverrides:current.arrivalOverrides.map((override)=>override.runId===previousId?{...override,runId:nextId}:override),
-  }));setSelectedRun(nextId);};
+  const renameRun=(nextId:string)=>{
+    try{const next=renameAuthoringRun(value,selectedRun,nextId);if(next===value)return;ownerEpoch.current++;setValue(next);setSelectedRun(nextId);setSelectedPoint(undefined);setMoveOpen(false);setCopyOpen(false);}
+    catch(error){const message=error instanceof Error?error.message:String(error);const translated=message==='Run ID is required'?t('ui.runIdRequired'):message==='Run ID already exists'?t('ui.runIdDuplicate'):message;onError(translated);throw new Error(translated);}
+  };
+  const changeLineSpeedLimit=(kmh:number|null)=>{
+    const lineId=selectedRunValue?.lineId;
+    if(!lineId||!lines.some((line)=>line.id===lineId))throw new Error(t('ui.chooseInfrastructure'));
+    try{setValue(setAuthoringLineSpeedLimit(value,lineId,kmh));}
+    catch{const error=t('ui.lineCapInvalid');onError(error);throw new Error(error);}
+  };
   const addCopiedRuns=(copies:AuthoringRunV1[])=>{if(!copies.length)return;setValue((current)=>({...current,runs:[...current.runs,...copies]}));setSelectedRun(copies.at(-1)!.id);};
-  const patchDuty=(id:string,patch:Partial<AuthoringDutyV1>)=>setValue((current)=>({...current,duties:current.duties.map((duty)=>duty.id===id?{...duty,...patch}:duty)}));
+  const patchDuty=(id:string,patch:Partial<AuthoringDutyV1>)=>setValue((current)=>({...current,formationEvents:patch.id&&patch.id!==id?renameFormationDuty(current.formationEvents,id,patch.id):current.formationEvents,duties:current.duties.map((duty)=>duty.id===id?{...duty,...patch}:duty)}));
   const patchFunction=(elementId:string,patch:Partial<AuthoringFunctionCallV1>)=>{
     if(!selectedDutyValue)return;
     patchDuty(selectedDutyValue.id,{elements:selectedDutyValue.elements.map((element)=>
@@ -278,6 +309,20 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
   const addDuty=()=>{const id=uid('duty');setValue({...value,duties:[...value.duties,{id,selector:{type:'TRAIN_NAME',name:''},elements:[]}]});setSelectedDuty(id);};
   const assignRun=(runId:string)=>{if(!selectedDutyValue)return;setValue((current)=>moveRunToDuty(current,runId,selectedDutyValue.id,uid('element')));};
   const removeElement=(elementId:string)=>{if(selectedDutyValue)patchDuty(selectedDutyValue.id,{elements:selectedDutyValue.elements.filter((item)=>item.id!==elementId)});};
+  const addProgram=(programId:string)=>{
+    if(!selectedDutyValue)return;
+    const record=programLibrary.find((item)=>item.id===programId);
+    if(!record||record.archived)return;
+    try{
+      const next=value.boundPrograms?.some((item)=>item.programId===programId)?value:adoptStationProgram(value,record);
+      const snapshot=next.boundPrograms!.find((item)=>item.programId===programId)!;
+      const args:Record<string,StationProgramLiteral>=Object.fromEntries(snapshot.definition.parameters.map((parameter)=>[parameter.id,parameter.type==='JSON_OBJECT'?{}:parameter.type==='ID_LIST'?[]:parameter.type==='DURATION'?1:parameter.type==='TICK'?0:'']));
+      const call:StationProgramCall={id:uid('program-call'),programId,tick:0,arguments:args};
+      setValue({...next,duties:next.duties.map((duty)=>duty.id===selectedDutyValue.id?{...duty,elements:[...duty.elements,{id:uid('element'),type:'PROGRAM',call}]}:duty)});
+    }catch(failure){onError(String(failure));}
+  };
+  const adoptProgram=(programId:string)=>{const record=programLibrary.find((item)=>item.id===programId);if(!record)return;try{setValue(adoptStationProgram(value,record));}catch(failure){onError(String(failure));}};
+  const patchProgram=(elementId:string,patch:Partial<StationProgramCall>)=>{if(!selectedDutyValue)return;patchDuty(selectedDutyValue.id,{elements:selectedDutyValue.elements.map((element)=>element.id===elementId&&element.type==='PROGRAM'?{...element,call:{...element.call,...patch}}:element)});};
   const addFunction=(call:AuthoringFunctionCallV1)=>{if(!selectedDutyValue)return;const element:AuthoringDutyElementV1={id:uid('element'),type:'FUNCTION',call};const elements=call.type==='PLACE_INITIAL'?[element,...selectedDutyValue.elements]:[...selectedDutyValue.elements,element];patchDuty(selectedDutyValue.id,{elements});};
   const selectGraphRun=(serviceIndex:number)=>{const runId=graphValue.services[serviceIndex]?.id,run=value.runs.find((candidate)=>candidate.id===runId);if(runId){setSelectedRun(runId);setFocusedCall('');}if(run)setRunDirection(run.lineDirection);if(run?.diagramLineId)setGraphLineId(run.diagramLineId);};
   const addRunToSelectedDuty=(runId:string)=>{
@@ -312,7 +357,12 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
     window.addEventListener('javarailways:authoring-command',handle);return()=>window.removeEventListener('javarailways:authoring-command',handle);
   });
   const viewRun=(id:string,callId='')=>{const run=value.runs.find((item)=>item.id===id);if(!run)return;setSelectedRun(id);setFocusedCall(callId);setGraphLineId(run.diagramLineId??'');setRunDirection(run.lineDirection);onPageChange?.('graph');};
+  const programTarget=(path:string)=>resolveProgramSourceTarget(value,path,generated.documentHashInput,compiled?{input:compiledState!.documentHashInput,timetable:compiled.timetable}:undefined);
+  const visibleFocusedProgram=focusedProgram?.epoch===ownerEpoch.current&&value.boundPrograms?.some((snapshot)=>snapshot.programId===focusedProgram.target.programId&&snapshot.revision===focusedProgram.target.revision&&snapshot.contentIdentity===focusedProgram.target.contentIdentity)?focusedProgram.target:undefined;
   const navigateIssue=(path:string)=>{
+    const target=programTarget(path);
+    if(target){setSelectedDuty(target.dutyId);setFocusedProgram({epoch:ownerEpoch.current,target});onPageChange?.('duties');return;}
+
     const runIndex=/runs\[(\d+)\]/.exec(path),dutyIndex=/duties\[(\d+)\]/.exec(path),overrideIndex=/arrivalOverrides\[(\d+)\]/.exec(path);
     const runId=/run:([^/]+)/.exec(path)?.[1],dutyId=/duty:([^/]+)/.exec(path)?.[1];
     if(runIndex){const run=value.runs[Number(runIndex[1])],callIndex=/calls\[(\d+)\]/.exec(path);if(run)viewRun(run.id,callIndex?run.calls[Number(callIndex[1])]?.id:'');}
@@ -333,7 +383,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
   };
   const editPointTick=(tick:number|null)=>{
     if(!selectedPoint||!pointSelectionValid||tick==null||busy)return;
-    try{setValue(editAuthoringGraphTime(value,selectedPoint.runId,selectedPoint,tick));}catch(error){onError(error instanceof Error?error.message:String(error));throw error;}
+    try{setValue(editAuthoringGraphTime(value,selectedPoint.runId,selectedPoint,tick));}catch(error){onError(graphTimeError(error));throw error;}
   };
   const resetTimes=()=>void execute(async()=>{
     const run=selectedRunValue,profile=simulationProfiles.find((item)=>`${item.type}:${item.id}`===resetProfile);
@@ -341,7 +391,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
     const firstDeparture=run.calls[0]?.departureTick;
     if(firstDeparture==null)throw new Error(t('ui.originRequired'));
     const input=liveInputs.current,epoch=ownerEpoch.current;
-    const result=await api.simulateLine(world,run.diagramLineId,{profileType:profile.type,profileId:profile.id,direction:run.lineDirection,...lineSimulationRoute(run)});
+    const result=await api.simulateLine(world,run.diagramLineId,authoringResetProfile(value,run,{profileType:profile.type,profileId:profile.id}));
     if(ownerEpoch.current!==epoch||liveInputs.current.world!==input.world||liveInputs.current.documentJson!==input.documentJson)throw new Error(t('duties.resetChanged'));
     const next=resetRunTimings(run,result,firstDeparture,fixedDwell);
     if(next.calls.some((call)=>[call.arrivalTick,call.departureTick].some((tick)=>tick!=null&&tick>=value.periodDays*24000)))throw new Error(t('duties.outsidePeriod'));
@@ -356,8 +406,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
   };
   const fieldScope=`${ownerIdentity.current}/${ownerEpoch.current}/${documentId}/${value.id}`;
   const runTools=<section className="option-section"><Typography.Title level={5}>{t('ui.resetSetup')}</Typography.Title><div className="function-fields">
-    <label>{t('duties.infrastructureLine')}<Select value={selectedRunValue?.lineId||undefined} allowClear options={lines.map((line)=>({value:line.id,label:line.displayName}))} onChange={(lineId)=>selectedRunValue&&replaceRun({...selectedRunValue,lineId:lineId??null})}/></label>
-    <label>{t('duties.originDepartureMode')}<Select value={selectedRunValue?.originDepartureMode??'AUTO'} options={(['AUTO','CONTINUE','REVERSE'] as const).map((mode)=>({value:mode,label:t(`duties.originDeparture.${mode}`)}))} onChange={(originDepartureMode)=>selectedRunValue&&replaceRun({...selectedRunValue,originDepartureMode})}/></label>
+    <label>{t('duties.originDepartureMode')}<Select value={selectedRunValue?.originDepartureMode??'AUTO'} options={(['AUTO','CONTINUE','REVERSE'] as const).map((mode)=>({value:mode,label:t(`duties.originDeparture.${mode}`)}))} onChange={(originDepartureMode)=>selectedRunValue&&replaceRun({...selectedRunValue,originDepartureMode})}/><Typography.Text type="secondary">{t('duties.originDepartureHelp')}</Typography.Text></label>
     <label>{t('simulation.profile')}<Select value={resetProfile||undefined} onChange={setResetProfile} options={simulationProfiles.map((profile)=>({value:`${profile.type}:${profile.id}`,label:profile.displayName}))}/></label>
     <Typography.Text type="secondary">{selectedRunValue?.calls[0]?.departureTick==null?t('ui.originRequired'):`${t('ui.departure')}: ${selectedRunValue.calls[0].departureTick}`}</Typography.Text>
     <label>{t('duties.fixedDwell')}<CommittedNumberInput fieldKey={`${fieldScope}/${selectedRun}/reset-dwell`} allowEmpty={false} min={0} precision={0} value={fixedDwell} onCommit={(tick)=>setFixedDwell(tick??0)}/></label>
@@ -374,12 +423,12 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
     <Flex gap={6} wrap><Button icon={<EditOutlined/>} onClick={()=>void renameFormalScript()} disabled={busy||!persistedFormalScriptName||formalScriptName===persistedFormalScriptName}>{t('duties.renameScript')}</Button><Button danger icon={<DeleteOutlined/>} onClick={()=>void deleteFormalScript()} disabled={busy||!persistedFormalScriptName}>{t('duties.deleteScript')}</Button><Button danger onClick={()=>void remove()} disabled={!documentId||busy||!!persistedFormalScriptName}>{t('common.deleteDocument')}</Button></Flex>
   </div>;
   return <section className="duty-page studio-timetable-page">
-    {page==='duties'?<DutyManagement fieldScope={fieldScope} duties={value.duties} runs={value.runs} selectedId={selectedDuty} metadata={metadata} onSelect={setSelectedDuty} onAdd={addDuty}
+    {page==='duties'?<DutyManagement formationEvents={value.formationEvents} onFormationEventsChange={(formationEvents)=>setValue((current)=>({...current,formationEvents}))} focusedProgram={visibleFocusedProgram} onOpenProgramLibrary={onOpenProgramLibrary} programLibrary={programLibrary} boundPrograms={value.boundPrograms} programError={programError} programLoading={programLoading} onRefreshPrograms={()=>void loadPrograms()} onAddProgram={addProgram} onAdoptProgram={adoptProgram} onPatchProgram={patchProgram} fieldScope={fieldScope} duties={value.duties} runs={value.runs} selectedId={selectedDuty} metadata={metadata} onSelect={setSelectedDuty} onAdd={addDuty}
       onDelete={()=>{if(!selectedDutyValue||!window.confirm(t('ui.confirmDuty')))return;setValue((current)=>({...current,duties:current.duties.filter((duty)=>duty.id!==selectedDutyValue.id)}));setSelectedDuty('');}}
       onPatch={renameDuty} onAssign={assignRun} onAddFunction={(type)=>{const id=uid('function');addFunction(type==='PLACE_INITIAL'?{id,type,trainName:selectedDutyValue?.selector.type==='TRAIN_NAME'?selectedDutyValue.selector.name:'',wayPointId:''}:type==='WAIT'?{id,type,tick:0,durationTicks:200}:type==='STORE_AT_DEPOT'?{id,type,tick:0,depotId:'',stablingPointIds:[]}:{id,type:'REVERSE',tick:0});}}
       onPatchFunction={patchFunction} onMove={moveElement} onRemove={removeElement} onViewRun={viewRun}/>:page==='validation'?<AuthoringValidation fieldScope={fieldScope} duties={value.duties} issues={generated.issues} compiled={compiled} compileError={compileFailure?.key===generated.documentHashInput?compileFailure.message:''}
       simulation={simulation} profiles={simulationProfiles} assignments={profileAssignments} threshold={delayThresholdTicks} conflicting={hasConflictingProfiles} busy={busy} compileReason={compileReason} simulationReason={simulationReason} delayedOrigin={delayedOrigin} source={generated.source}
-      onCompile={()=>void compile()} onSimulate={()=>void simulate()} onAssignment={(id,profile)=>setProfileAssignments((current)=>({...current,[id]:profile}))} onThreshold={setDelayThresholdTicks} onNavigate={navigateIssue}/>:<>
+      onCompile={()=>void compile()} onSimulate={()=>void simulate()} onAssignment={(id,profile)=>setProfileAssignments((current)=>({...current,[id]:profile}))} onThreshold={setDelayThresholdTicks} onNavigate={navigateIssue} canNavigate={(path)=>!!programTarget(path)}/>:<>
 
     <TimetableWorkspace
       lines={lines} activeLineId={graphLineId} runs={lineRuns} selectedRunId={selectedRun} search={runSearch} direction={runDirection}
@@ -388,13 +437,14 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,page='gra
       onSearchChange={setRunSearch} onSelectRun={(id)=>{setSelectedRun(id);setFocusedCall('');}} onAddRun={addRun} assignmentFor={(runId)=>assigned.get(runId)}
       graph={<Graph value={graphValue} metadata={metadata} line={lines.find((line)=>line.id===graphLineId)} graphLineId={graphLineId||undefined}
         highlightedServiceIds={highlightedRunIds} previewServiceIds={previewRunIds} onSelectPoint={selectPoint} onDismissPoint={()=>{if(!moveOpen)setSelectedPoint(undefined);}}/>}
-      inspector={!selectedRunValue?<p className="empty inspector-empty">{t('duties.selectRun')}</p>:<RunRouteEditor fieldScope={fieldScope} focusedCallId={focusedCall} tools={runTools} issues={generated.issues.filter((issue)=>issue.path.startsWith(`runs[${value.runs.findIndex((run)=>run.id===selectedRunValue.id)}]`))} run={selectedRunValue} lines={lines} metadata={metadata} busy={busy} onError={onError} onChange={replaceRun} onDelete={deleteSelectedRun}/>}
+      inspector={!selectedRunValue?<p className="empty inspector-empty">{t('duties.selectRun')}</p>:<RunRouteEditor onRename={renameRun} lineSpeedLimitMetersPerSecond={selectedRunValue.lineId?value.lineSpeedLimits?.find((limit)=>limit.lineId===selectedRunValue.lineId)?.maximumSpeedMetersPerSecond:undefined} onLineSpeedLimitChange={changeLineSpeedLimit} fieldScope={fieldScope} focusedCallId={focusedCall} tools={runTools} issues={generated.issues.filter((issue)=>issue.path.startsWith(`runs[${value.runs.findIndex((run)=>run.id===selectedRunValue.id)}]`))} run={selectedRunValue} lines={lines} metadata={metadata} busy={busy} onError={onError} onChange={replaceRun} onDelete={deleteSelectedRun}/>}
       graphActions={<Popover trigger="click" placement="bottomRight" title={t('common.documentSettings')} content={documentSettings}><Button type="text" icon={<SettingOutlined/>}/></Popover>}
       graphPreviewActive={Boolean(previewRun)} saved={JSON.stringify(value)===savedDocumentJson.current}/></>}
 
     {page==='graph'&&selectedPoint&&pointCall&&!moveOpen&&<div className="graph-node-toolbar panel-surface" role="dialog" aria-label={t('ui.nodeEditor')} style={{left:Math.max(12,Math.min(selectedPoint.anchor.x+12,typeof window==='undefined'?1000:window.innerWidth-330)),top:Math.max(54,Math.min(selectedPoint.anchor.y+12,typeof window==='undefined'?500:window.innerHeight-205))}}>
       <Flex align="center" justify="space-between"><Typography.Text strong>{selectedPoint.runId} · {stationNames.get(pointCall.stationId)||pointCall.stationId}</Typography.Text><Button type="text" aria-label={t('ui.closeNode')} onClick={()=>setSelectedPoint(undefined)}>×</Button></Flex>
-      <label>{t(selectedPoint.kind==='ARRIVAL'?'move.arrival':'move.departure')}<CommittedNumberInput fieldKey={`${fieldScope}/${selectedPoint.runId}/${selectedPoint.callId}/${selectedPoint.kind}/node`} aria-label={t('ui.nodeTick')} min={0} max={value.periodDays*24000-1} precision={0} allowEmpty={false} value={pointTick} onCommit={editPointTick}/></label>
+      <label>{t(selectedPoint.kind==='ARRIVAL'?'move.arrival':'move.departure')}<CommittedNumberInput fieldKey={`${fieldScope}/${selectedPoint.runId}/${selectedPoint.callId}/${selectedPoint.kind}/node`} aria-label={t('ui.nodeTick')} min={nodeMinimumTick} max={nodeMaximumTick} precision={0} allowEmpty={false} value={pointTick} onCommit={editPointTick}/></label>
+      <Typography.Text type="secondary">{t('ui.allowedRange')}: {nodeMinimumTick}–{nodeMaximumTick} Tick · {t('editor.minimumDwell')}: {nodeMinimumDwell}</Typography.Text>
       <Button onClick={openMove} disabled={busy||pointTick==null}>{t('ui.shiftSuffix')}</Button>{pointTick==null&&<Typography.Text type="secondary">{t('move.noTimedCall')}</Typography.Text>}
     </div>}
     <Modal title={t('ui.shiftSuffix')} open={moveOpen} onCancel={closeMove} onOk={applyMove} okText={t('move.apply')} okButtonProps={{disabled:!moveCalculation.preview||moveInvalid}} destroyOnHidden>

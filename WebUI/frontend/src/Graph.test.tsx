@@ -9,8 +9,8 @@ const value:SavedTimetableV1={
   id:'demo',periodDays:1,diagramLines:[{id:'airport',upStationIds:['harbour','airport'],downStationIds:['airport','harbour']}],
   services:[{id:'AP101',diagramLineId:'airport',selectorType:'TRAIN_ID',activation:{type:'SCHEDULED'},steps:[
     {type:'CHECK',wayPointId:'harbour@1'},
-    {type:'AT',tick:1_200,action:{type:'STATION_DESTINATION_OPTIONS',stationId:'airport',berthId:'1',arrivalTick:4_700,wayPointIds:[],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenActions:[],elseActions:[]}},
-    {type:'AT',tick:1_200,action:{type:'DESTINATION',wayPointIds:['airport@1'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenActions:[],elseActions:[]}},
+    {type:'AT',tick:1_200,action:{type:'STATION_DESTINATION_OPTIONS',stationId:'airport',berthId:'1',arrivalTick:4_700,wayPointIds:[],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}},
+    {type:'AT',tick:1_200,action:{type:'DESTINATION',wayPointIds:['airport@1'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}},
   ]}],
 };
 

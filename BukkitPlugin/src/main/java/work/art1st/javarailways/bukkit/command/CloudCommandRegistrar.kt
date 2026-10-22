@@ -76,7 +76,7 @@ class CloudCommandRegistrar(plugin: BukkitPlugin) {
             parent("route"); args("route", "validate")
             args("navigate"); args("nav")
             parent("depot")
-            args("depot", "assign"); parent("depot", "list"); args("depot", "reset"); args("depot", "reset-all")
+            args("depot", "assign"); args("depot", "register-unit"); parent("depot", "list"); args("depot", "reset"); args("depot", "reset-all")
             listOf("timetable", "tt").forEach { name ->
                 parent(name)
                 listOf("edit", "load", "dump", "start", "reset", "status", "stop", "replan")

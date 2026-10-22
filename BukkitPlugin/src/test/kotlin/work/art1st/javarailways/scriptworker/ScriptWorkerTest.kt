@@ -97,7 +97,7 @@ class ScriptWorkerTest {
         val action = result.services.single().steps.last().action!!
         assertEquals(SavedTimetableActionTypeV1.CONDITIONAL, action.type)
         assertEquals("javarailways:occupied", action.condition!!.call!!.typeId)
-        assertEquals(1, action.elseActions.size)
+        assertEquals(1, action.elseSteps.size)
     }
 
     @Test fun `conditional service activation is serialized`() {
@@ -186,4 +186,84 @@ class ScriptWorkerTest {
         val error = assertThrows(Throwable::class.java) { run("timetable.setPeriodDays(1); Java.type('java.lang.System');") }
         assertTrue(error.toString().contains("Java") || error.toString().contains("host", ignoreCase = true))
     }
+
+    @Test fun `timed JS branch callbacks share sequence builder and retain addressed origins`() {
+        val result = run("""
+            timetable.setPeriodDays(1);
+            const condition = timetable.predicate('test:choose', {});
+            timetable.service('s', 'train', t => {
+              t.check('start');
+              t.origin('outer', t => t.at(10).whenCondition(condition,
+                yes => yes.origin('yes-leaf', a => a.at(20).action('test:action', {})),
+                no => no.origin('no-leaf', a => a.at(30).action('test:action', {}))));
+              t.action('test:suffix', {});
+            });
+        """)
+        val steps = result.services.single().steps
+        assertEquals(20L, steps[1].action!!.thenSteps.single().tick)
+        assertEquals(30L, steps[1].action!!.elseSteps.single().tick)
+        assertEquals(30L, steps.last().tick)
+        val yes = result.compilationTrace.single { it.origin == "yes-leaf" }
+        assertEquals(1, yes.stepIndex)
+        assertEquals(listOf(SavedTimetableBranchPathEntryV1(SavedTimetableBranchArmV1.THEN, 0)), yes.branchPath)
+        assertEquals(SavedTimetableBranchArmV1.ELSE,
+            result.compilationTrace.single { it.origin == "no-leaf" }.branchPath.single().arm)
+    }
+
+    @Test fun `JS nested conditional cannot hide a fixed event or move suffix before arm schedule`() {
+        for (body in listOf(
+            "t.at(10).whenCondition(condition, a => a.whenCondition(condition, b => b.split('split')))",
+            "t.at(10).whenCondition(condition, a => a.at(20).action('test:action', {})); t.at(15).action('test:suffix', {})")) {
+            assertThrows(Throwable::class.java) {
+                run("timetable.setPeriodDays(1); const condition=timetable.predicate('test:choose',{}); timetable.service('s','train',t=>{t.check('start'); $body;});")
+            }
+        }
+    }
+
+
+    @Test fun `captured timed builder compares emitted actions rather than unused selections`() {
+        val saved = run("""
+            timetable.setPeriodDays(1);
+            timetable.service('s','train',t=>{
+              t.check('start'); const earlier=t.at(5); t.at(20);
+              earlier.destination('target'); t.at(6).action('test:action',{});
+            });
+        """)
+        assertEquals(listOf(5L,5L,6L), saved.services.single().steps.drop(1).map { it.tick })
+        assertThrows(Throwable::class.java) {
+            run("timetable.setPeriodDays(1);timetable.service('s','train',t=>{const earlier=t.at(5);t.at(20).action('test:action',{});earlier.action('test:action',{});});")
+        }
+    }
+
+
+    @Test fun `selectStop emits one movement action with ordered finite station candidates`() {
+        val saved = run("""
+            timetable.setPeriodDays(1);
+            timetable.service('s','train',t=>{
+              t.check('start'); t.at(5).selectStop('central',['long','short'],'AVAILABLE_PRIORITY',
+                {minimumDwellTicks:30,stoppingOffsetMetersBefore:1.5,doorSide:'RIGHT'});
+            });
+        """)
+        val steps = saved.services.single().steps
+        assertEquals(2, steps.size)
+        val action = steps.last().action!!
+        assertEquals(SavedTimetableActionTypeV1.SELECT_STOP, action.type)
+        assertEquals("central", action.stationId)
+        assertEquals(listOf(SavedStationStopCandidateV1("long",0), SavedStationStopCandidateV1("short",1)), action.berthCandidates)
+        assertEquals(SavedStationStopSelectionPolicyV1.AVAILABLE_PRIORITY, action.selectionPolicy)
+        assertEquals(30L, action.minimumDwellTicks)
+        assertEquals(1.5, action.stoppingOffsetMetersBefore)
+        assertEquals("RIGHT", action.doorSideOverride)
+        assertTrue(action.wayPointIds.isEmpty())
+    }
+
+    @Test fun `selectStop rejects empty duplicate candidates and unsupported policy before generation`() {
+        for (call in listOf("'central',[],'FIXED_PREFERENCE'", "'central',['same','same'],'AVAILABLE_PRIORITY'",
+            "'central',['one'],'PREDICTED_RELEASE'", "'central',['one'],'FIXED_PREFERENCE',{unknown:1}")) {
+            assertThrows(Throwable::class.java) {
+                run("timetable.setPeriodDays(1);timetable.service('s','train',t=>{t.check('start');t.selectStop($call);});")
+            }
+        }
+    }
+
 }

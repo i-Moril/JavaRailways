@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.controller
 
+import work.art1st.javarailways.core.physics.tick.PhysicsCoordinator
 import work.art1st.javarailways.core.physics.CoreWorld
 import org.junit.jupiter.api.function.Executable
 import org.junit.jupiter.api.Assertions.assertAll
@@ -18,6 +19,18 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
+import work.art1st.javarailways.basic.api.route.ExpandedRoute
+import work.art1st.javarailways.basic.api.route.PlannedRoute
+import work.art1st.javarailways.basic.api.route.RailViewRef
+import work.art1st.javarailways.basic.api.route.RouteSegment
+import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simpleato.api.mission.AtoMission
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionLeg
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionOrigin
 import work.art1st.javarailways.basic.BasicWorldData
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.simpleato.api.ato.AtoSafetyProfile
@@ -82,7 +95,7 @@ class SimpleATOTest {
         })
     }
 
-    private fun createTestWorld() = TestWorldFixture.create().also(worldFixtures::add).world.also { TestSimpleATOWorldDataRegistry.getOrCreate(it) }
+    private fun createTestWorld(physicsCoordinator: PhysicsCoordinator? = null) = TestWorldFixture.create(physicsCoordinator).also(worldFixtures::add).world.also { TestSimpleATOWorldDataRegistry.getOrCreate(it) }
 
     private val profile = AtoSafetyProfile(
         accelerationMetersPerSecondSquared = 1.0,
@@ -519,6 +532,81 @@ class SimpleATOTest {
         assertFalse(fixture.coordinator.isStalled)
     }
 
+    @OptIn(work.art1st.javarailways.core.api.util.annotation.AsyncEventApi::class)
+    @ParameterizedTest
+    @CsvSource("false,false", "false,true", "true,false", "true,true")
+    fun `formation mission activates only at its exact physical head before any movement`(reversed: Boolean, stale: Boolean) {
+        PhysicsCoordinator(1, automaticFallback = false).use { physics ->
+            val fixture = fixture("formation-origin-$reversed-$stale", physicsCoordinator = physics)
+            val train = fixture.train
+            if (reversed) fixture.world.onOwnerForTest { train.reverse() }
+            val anchor = train.publishedFrame.head
+            val rail = train.head.location.rail
+            val origin = AtoMissionOrigin.FormationOutput("cycle-0/split", "first", anchor)
+            val start = if (anchor.facing == ViewDirection.AB) anchor.arcLengthInAbMeters
+                else rail.curve.totalArcLength - anchor.arcLengthInAbMeters
+            val mission = AtoMission("formation-origin", 1, origin,
+                listOf(AtoMissionLeg(0, AtoMissionPoint.Stop(WayPointRef("target")),
+                    PlannedRoute("selected", 1, ExpandedRoute(origin.id, "target",
+                        listOf(RouteSegment(RailViewRef(rail.id, anchor.facing), start, start + 5.0)))))))
+            assertNull(fixture.data.wayPoints[origin.id])
+            assertTrue(fixture.ato.submitMission(mission) is AtoMissionSubmissionResult.Accepted)
+            fixture.ato.setMovementAuthority(mission.revision, 5.0)
+            assertNull(fixture.ato.currentMission, "submission is queued, not evidence of activation")
+            if (stale) fixture.world.onOwnerForTest { train.moveTrainForward(1.0); train.commit() }
+            val before = train.publishedFrame.head
+            fixture.world.physicsCoordinator.start()
+            repeat(2) { fixture.world.physicsCoordinator.stepSimulation(50.0).await() }
+            if (stale) {
+                assertTrue(fixture.coordinator.isStalled)
+                assertTrue(fixture.coordinator.lastStall?.message?.contains("formation Mission origin changed before activation") == true)
+                assertNull(fixture.ato.currentMission)
+                assertEquals(before, train.publishedFrame.head)
+                assertEquals(0.0, train.publishedFrame.speedMetersPerSecond)
+            } else {
+                assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
+                assertSame(mission, fixture.ato.currentMission)
+                assertTrue(train.publishedFrame.head != before, "the activated mission must drive real Core publication")
+                assertEquals(anchor.facing, train.publishedFrame.head.facing)
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = [false, true])
+    fun `formation retirement clears only consumed mission and preserves later submission`(submitNext: Boolean) {
+        val fixture = fixture("retire-formation-$submitNext")
+        authorizeMovement(fixture)
+        val consumed = checkNotNull(fixture.ato.currentMission)
+        fixture.ato.setSpeedLimit("retained-external", 0.7)
+        fixture.world.onOwnerForTest {
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException::class.java) {
+                fixture.ato.retireMissionForFormation()
+            }
+            fixture.train.setMovementHeld(true)
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException::class.java) {
+                fixture.ato.retireMissionForFormation()
+            }
+            fixture.train.setMovementHeld(false)
+            val held = fixture.world.restoreFormationMovementHold(fixture.train.id, fixture.train.cars.map { it.id })
+                as work.art1st.javarailways.core.api.physics.train.FormationMovementHoldRestoration.Accepted
+            fixture.ato.retireMissionForFormation()
+            assertSame(consumed, fixture.ato.currentMission, "retirement is queued")
+            if (submitNext) {
+                val next = AtoMission(consumed.id, 2, consumed.origin, consumed.legs.map { leg ->
+                    AtoMissionLeg(leg.index, leg.point, PlannedRoute(leg.plannedRoute.routeId, 2, leg.plannedRoute.expandedRoute))
+                })
+                assertTrue(fixture.ato.submitMission(next) is AtoMissionSubmissionResult.Accepted)
+            }
+            assertTrue(fixture.world.releaseFormationMovementHold(held.hold))
+        }
+        tickAndPublish(fixture.ato, 0.0)
+        assertEquals(if (submitNext) 2L else null, fixture.ato.currentMission?.revision)
+        assertSame(fixture.ato, fixture.train.controller)
+        assertTrue(fixture.ato.runtimeDiagnostics.constraints.any { it.contains("retained-external") })
+        assertFalse(fixture.coordinator.isStalled, fixture.coordinator.lastStall.toString())
+    }
+
     private fun authorizeMovement(fixture: Fixture) {
         val rail = fixture.train.head.location.rail
         val originArc = fixture.train.head.location.arcLength
@@ -549,9 +637,10 @@ class SimpleATOTest {
         id: String,
         railLengthMeters: Double = 500.0,
         configureTrack: (CoreWorld, CoreRail) -> Unit = { _, _ -> },
+        physicsCoordinator: PhysicsCoordinator? = null,
         inspectionMaximumLeadTimeSeconds: (String) -> Double = { 0.0 }
     ): Fixture {
-        val world = createTestWorld()
+        val world = createTestWorld(physicsCoordinator)
         val rail = createStraightRailFromSegments(
             world,
             PrimeCurveGenerator.buildStraight(railLengthMeters, segmentCount = 1)

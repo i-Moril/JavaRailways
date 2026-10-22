@@ -71,3 +71,45 @@ Timetable/rolling-stock 数据仍须由 09-24 配对迁移工具搬到 SimpleATO
 ./gradlew :BukkitPlugin:test --tests '*WorldSnapshotExtensionDataTest'
 git diff --check
 ```
+
+
+## B1 runtime新增默认字段与联合恢复（CURRENT）
+
+`SavedRollingStockV1.stablingDepotId: String = homeDepotId`明确实际储存点所属depot。
+有`stablingPointId`时按该depot恢复实际位置；home affiliation独立保留，允许home=A而physical=B。
+无point表示没有physical storage association，不按home推断在库。现有current JSON缺少新字段时有明确home默认值，
+writer始终写current；不增加runtime版本或旧输入业务分支。
+
+`SimpleATORuntimeSnapshotV1`增加默认空`fixedUnits`和`fixedUnitAssignments`。
+前者保存`id/homeDepotId/carIds/controlCompatibilityKey`，后者保存`unitId/trainId/assignmentId`；
+这是现有runtime边界的默认字段，nested DTO不独立编号。unit car列表是不可变的永久运营成员定义，
+Core runtime仍决定当前formation顺序/朝向；不能保存另一份可写Core composition。
+
+恢复依赖Core实际cars和已恢复的Depot配置。`restoreOperationalLedger`先检查stock的state/point/assignment，
+再检查unit definitions互不重叠、Core成员完整连续、声明family、claim唯一及完整formation归属；
+claimed formation必须有相同assignment的非AVAILABLE stock，assigned registered stock不得遗漏claims。
+全部验证通过后才在同一DepotStore锁内发布stock和unit账本，失败时两个ledger均为空；
+随后才恢复时刻表和recovery-required Dispatcher checkpoint，不重新开始结构动作或构造live allocation tokens。
+
+恢复与保存仅在owner同步边界执行；unit restore检查成本与unit数量、全Core车厢及unit长度乘积相关，
+不是每tick重新解码。非法成员/重复claim/缺失stock或assignment不一致明确拒绝，不能把漏掉claims当作空闲资产。
+`CrossDepotStoreTest`检查缺省字段及外库roundtrip；`FixedEmuUnitLedgerTest`检查unit DTO及联合恢复失败原子性；
+现有`DispatcherSnapshotTest`继续覆盖原current空列表与recovery-required语义。
+
+本次均为有明确默认值的新增字段，版本保持1；没有新增runtime migration或改变历史基线判断。
+错误做法是依Core train容器ID猜测新unit或恢复后自动重放couple；正确做法是读取stable unit/car定义、
+校验当前Core成员，再由显式恢复流程处置保留的assignment。计划重联/解编的恢复状态仍属于后续批次。
+
+## Unresolved fixed-formation changes
+
+The current runtime snapshot has default-empty `unresolvedFormationChanges` and `heldFormationOutputs` fields. A change stores fixed event identity, exact source/output assignments, ordered stable car IDs, directions, dispositions and a phase defaulting to `SOURCES_HELD`. Neither Basic handles nor Core movement-hold capabilities are serialized. These additive defaults do not change format version1.
+
+`SOURCES_HELD` retains exact source metadata/unit claims and permits actual Core composition to be either unchanged sources or the expected published outputs. `commitFixedFormationChange` atomically installs exact output metadata/claims and returns a new immutable `OUTPUT_OWNERS_COMMITTED` token while retaining the pending record. The old token becomes stale. Restoration of this committed phase requires exact published outputs and complete output metadata/unit claims; source-shaped physical data or source claims are rejected.
+
+The coordinator calls internal `finishFixedFormationChange` with every installed output owner and the exact subset of continuing outputs still awaiting departure, after disposition/mission installation and ready grant adoption in one serialized owner operation. Finish removes the group event and stores independent `FixedFormationHeldOutput(owner, disposition)` records for permanent HOLD outputs and pending CONTINUE_DUTY outputs. The flat saved owner fields gain a disposition defaulting to HOLD; no version change is needed. A departed peer may subsequently store or change formation without invalidating the delayed peer's evidence. The coordinator validates a pending owner before Basic resume and removes only its exact immutable token immediately after success in the same owner callback. Metadata, complete whole-unit claims, ordered membership and direction are revalidated; a permanent HOLD or restored pending record cannot be released by this runtime handoff path. This ledger readiness assertion does not itself certify mission installation, stopped physical state or release Core capabilities; those remain the coordinator's responsibility.
+
+DepotStore validates the complete incoming operational ledger before applying it. Cars and registered whole units are conserved; overlapping events/held owners, duplicate or missing claims, unrelated output IDs, incomplete units, wrong direction and phase-inconsistent compositions reject restoration atomically. Ordinary claims retain the normal current-train membership invariant. Held outputs reject acquisition, release, storage and Reset through the existing depot guards.
+
+After ledger restore, SimpleATOWorldData re-establishes separate private Core formation movement holds on every actual unresolved body and independent HOLD or pending continuation output before restoring dispatcher clocks. Existing configuration-hold release cannot release them. Failed later fencing retains already-installed protection. There is no automatic structural replay, ledger commit, AVAILABLE transition, HOLD release or output resumption.
+
+`FixedFormationChangeTest` verifies exact phase tokens, partial finish, missing/source claims after commit and HOLD/pending continuation independence from continuing-peer storage. `FormationRecoverySnapshotTest` exercises real Core save/load before publication, after publication with source owners, after output-owner commit, after finish with only the independent HOLD body fenced, with independently pending continuation evidence, and while one committed output is genuinely moving before save. Core's current train persistence stores pose/direction and extensions, not controller or velocities: that moving checkpoint loads stopped before ticks, preserves its exact saved pose, and therefore satisfies the existing strict fence restoration. No live force-stop/replay API is needed. These tests establish ledger/recovery boundaries, not full scheduled rendezvous or live game acceptance.

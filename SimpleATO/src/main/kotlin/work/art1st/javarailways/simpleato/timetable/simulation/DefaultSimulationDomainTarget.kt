@@ -1,5 +1,7 @@
 package work.art1st.javarailways.simpleato.timetable.simulation
 
+import work.art1st.javarailways.basic.api.route.FormationRouteContext
+import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.core.physics.CoreWorld
@@ -45,6 +47,10 @@ internal class DefaultSimulationDomainTarget(
 
     override fun registerRouteContributor(id: String, collect: (RouteResourceIntent) -> List<ContributedRouteResource>) =
         admission.registerContributor(id, collect)
+
+    override fun registerFormationRouteContributor(id: String, collect: (RouteResourceIntent) -> List<ContributedRouteResource>,
+        authorize: (FormationRouteContext, RouteResourceIntent) -> RouteAdmissionFailure?) =
+        admission.registerFormationContributor(id, collect, authorize)
 
     private fun <T> install(
         registrations: MutableList<List<T>>,

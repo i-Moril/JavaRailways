@@ -26,6 +26,9 @@ import work.art1st.javarailways.basic.api.route.RouteGrantSnapshot
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.api.route.ResourcePreparationState
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
+import work.art1st.javarailways.basic.api.route.FixedFormationChangeIntent
+import work.art1st.javarailways.basic.api.route.FormationChangeHandle
+import work.art1st.javarailways.basic.api.route.FormationChangeResult
 import work.art1st.javarailways.core.api.physics.curve.Curve
 import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
 import work.art1st.javarailways.core.api.util.annotation.MainThread
@@ -54,7 +57,15 @@ internal class RouteResourceAdmissionEngine(
     private val preparationActuator: InfrastructurePreparationActuator,
     private val stallWorld: (String, Exception) -> Unit,
     private val collectContributions: (RouteResourceIntent) -> List<Pair<Any, ContributedRouteResource>> = { emptyList() },
-    private val publishAdmissionUpdate: (ActiveRouteAdmissionUpdate) -> Unit = {}
+    private val publishAdmissionUpdate: (ActiveRouteAdmissionUpdate) -> Unit = {},
+    private val formationWorld: work.art1st.javarailways.core.api.physics.World? = null,
+    authorizeFormationRoute: (
+        work.art1st.javarailways.basic.api.route.FormationRouteContext,
+        RouteResourceIntent
+    ) -> work.art1st.javarailways.basic.api.route.FormationRoutePolicyResult = { _, _ ->
+        work.art1st.javarailways.basic.api.route.FormationRoutePolicyResult.Rejected(
+            RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "formation policy is unavailable"))
+    }
 ) {
     private val physicalCompiler = PhysicalRouteResourceCompiler(routeBoundResources)
     private val pending = LinkedHashMap<RouteAdmissionHandle, PendingRequest>()
@@ -68,6 +79,17 @@ internal class RouteResourceAdmissionEngine(
     private val terminal = java.util.WeakHashMap<RouteAdmissionHandle, TerminalRequest>()
     private val routes = java.util.TreeMap<String, RouteState>()
     private var worldStalled = false
+    private val formations = PreparedFormationAdmission(formationWorld, worldId, latestObservation,
+        { reason, failure -> markWorldStalled(reason, failure) }, registry, hostClaimOwner,
+        preparationActuator, { intent, movement, contact -> compileFormationRoute(intent, movement, contactProof = contact) },
+        { intent, movement, cursor -> compileFormationRoute(intent, movement, cursor) },
+        authorizeFormationRoute, ::publishFormationApproach,
+        ::formationOutputBoundaries, ::publishFormationOutput, ::detachFormationOutput, ::completeFormationOutputs,
+        { requester, owner, trainId, sources ->
+            val existing = routes[owner.ownerId]
+            (existing == null && registry.claimSnapshots().none { it.owner.ownerId == owner.ownerId }) || (existing != null && existing.requester === requester && existing.owner == owner &&
+                existing.trainId == trainId && sources.any { it.grant.owner == owner && it.grant.trainId == trainId })
+        }, { owner -> routes[owner.ownerId]?.topologyInvalidated != false })
     private val dependencyLock = Any()
     private val routesByRail = hashMapOf<java.util.UUID, MutableSet<RouteState>>()
     private val validationsByRail = hashMapOf<java.util.UUID, MutableSet<Validation>>()
@@ -135,6 +157,8 @@ internal class RouteResourceAdmissionEngine(
     ) {
         @Volatile var topologyInvalidated = false
         var indexedRails: Set<java.util.UUID> = emptySet()
+        var formationChange: FormationChangeHandle? = null
+        var formationContext: work.art1st.javarailways.basic.api.route.FormationRouteContext? = null
     }
 
     private data class ReservedDelta(
@@ -210,7 +234,7 @@ internal class RouteResourceAdmissionEngine(
                             observation.stamp.physicsEpoch, route.cursor,
                             LiveClaimTailRelease(
                                 registry, hostClaimOwner, intent.owner,
-                                CompiledTailReleaseQueue(deltaEntries)
+                                CompiledTailReleaseQueue(deltaEntries), { protectedClaimRemainder(intent.owner) }
                             ), { reason, failure -> markWorldStalled(reason, failure) }
                         )
                     } else {
@@ -282,9 +306,13 @@ internal class RouteResourceAdmissionEngine(
 
     private fun requestValidated(requester: Any, intent: RouteResourceIntent, validation: Validation): RouteAdmissionResult {
         if (worldStalled) return rejected(RouteAdmissionFailureCode.WORLD_STALLED, "world is stalled")
+        if (intent.formationContext != null) return rejected(RouteAdmissionFailureCode.OWNER_MISMATCH,
+            "formation context is accepted only through its prepared event")
         if (intent.observationStamp.worldId != worldId) {
             return rejected(RouteAdmissionFailureCode.WORLD_UNAVAILABLE, "request belongs to another world")
         }
+        if (!formations.retainedOwnerAvailable(requester, intent.owner)) return rejected(RouteAdmissionFailureCode.OWNER_MISMATCH,
+            "logical owner belongs to another retained formation requester or revision")
         val existing = routes[intent.owner.ownerId]
         var appendsRoute = false
         if (existing != null) {
@@ -294,6 +322,10 @@ internal class RouteResourceAdmissionEngine(
             if (existing.trainId != intent.trainId) {
                 return rejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
                     "request must keep the same train")
+            }
+            if (existing.formationChange != null) {
+                return rejected(RouteAdmissionFailureCode.REQUEST_BUSY,
+                    "source grant is retained by a prepared formation event")
             }
             if (existing.reversalFromTrainState != null) {
                 return rejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
@@ -438,6 +470,8 @@ internal class RouteResourceAdmissionEngine(
         if (latestObservation()?.stamp != observation.stamp) {
             return rejected(RouteAdmissionFailureCode.STALE_OBSERVATION, "observation changed during validation")
         }
+        if (formations.overlapsRetained(compiled.resources.resources))
+            return rejected(RouteAdmissionFailureCode.REQUEST_BUSY, "ordinary route overlaps retained formation protection")
         val heldEntries = compiled.tailReleaseEntries.filter { it.resource in held }.map { entry ->
             entry.copy(tailClearRouteMeters = maxOf(entry.tailClearRouteMeters,
                 held.getValue(entry.resource).tailClearRouteMeters))
@@ -463,7 +497,7 @@ internal class RouteResourceAdmissionEngine(
             }
         }
         val deltaResources = compiled.resources.resources.filterNot { it in held }
-        val reservation = if (release == null || release.resourceQueueEmpty) {
+        val reservation = if ((release == null || release.resourceQueueEmpty) && formations.retainedResources(intent.owner).isEmpty()) {
             val mutation = registry.beginAcquireClaim(hostClaimOwner,
                 InfrastructureClaimRequest(intent.owner, InfrastructureFootprint(deltaResources)))
             ReservedDelta(mutation.result, { registry.completeClaimMutation(mutation) },
@@ -529,6 +563,7 @@ internal class RouteResourceAdmissionEngine(
 
     @MainThread
     fun progress(requester: Any, handle: RouteAdmissionHandle): RouteAdmissionResult {
+        formations.progress(requester, handle)?.let { return it }
         terminal[handle]?.let { completed ->
             return if (completed.requester === requester) completed.result else rejected(
                 RouteAdmissionFailureCode.OWNER_MISMATCH,
@@ -563,6 +598,7 @@ internal class RouteResourceAdmissionEngine(
             return reversalRejected(RouteAdmissionFailureCode.OWNER_MISMATCH,
                 "route grant belongs to another requester")
         }
+        route.formationChange?.let { return formations.suspendOutputReversal(requester, it, grantId) }
         if (route.pendingHandle != null) {
             return reversalRejected(RouteAdmissionFailureCode.REQUEST_BUSY,
                 "route grant has a pending admission")
@@ -613,6 +649,7 @@ internal class RouteResourceAdmissionEngine(
             return reversalRejected(RouteAdmissionFailureCode.OWNER_MISMATCH,
                 "reversal owner does not match route state")
         }
+        route.formationChange?.let { return formations.rebaseOutputReversal(requester, it, intent) }
         if (route.trainId != intent.trainId) {
             return reversalRejected(RouteAdmissionFailureCode.ROUTE_STATE_MISMATCH,
                 "reversal must keep the same train")
@@ -714,6 +751,8 @@ internal class RouteResourceAdmissionEngine(
         }
 
         val release = checkNotNull(route.tailRelease)
+        if (formations.overlapsRetained(compiled.resources.resources)) return reversalRejected(RouteAdmissionFailureCode.REQUEST_BUSY,
+            "reversal overlaps retained formation protection")
         val retainedEntries = release.remainingEntries
         if (retainedEntries.isEmpty()) {
             return reversalRejected(RouteAdmissionFailureCode.INVALID_ROUTE,
@@ -766,7 +805,7 @@ internal class RouteResourceAdmissionEngine(
                 registry,
                 hostClaimOwner,
                 intent.owner,
-                CompiledTailReleaseQueue(rebasedEntries)
+                CompiledTailReleaseQueue(rebasedEntries), { protectedClaimRemainder(intent.owner) }
             ),
             { reason, failure -> markWorldStalled(reason, failure) }
         )
@@ -795,12 +834,15 @@ internal class RouteResourceAdmissionEngine(
     @MainThread
     fun consumeObservation(observation: RailwayObservation): List<RouteGrantTailReleaseUpdate> {
         if (worldStalled || routes.values.none { it.committedGrant != null }) return emptyList()
+        formations.consume(observation)
+        if (worldStalled) return emptyList()
         val trains = observation.trains.associateBy { it.trainId }
         val updates = ArrayList<RouteGrantTailReleaseUpdate>(routes.size)
         for (route in routes.values) {
             if (route.committedGrant == null) continue
             if (route.topologyInvalidated) continue // Retain claims; never release from invalid progress geometry.
             if (route.reversalFromTrainState != null) continue
+            if (route.formationChange != null) continue
             val update = checkNotNull(route.tailRelease).consume(observation.stamp, trains[route.trainId])
             publishAdmission(route)
             updates += update
@@ -814,12 +856,280 @@ internal class RouteResourceAdmissionEngine(
     fun endGrant(requester: Any, grantId: RouteGrantId): Boolean {
         val route = routes.values.firstOrNull { it.committedGrant?.grantId === grantId } ?: return false
         if (route.requester !== requester || route.pendingHandle != null ||
+            route.formationChange != null ||
             !checkNotNull(route.tailRelease).resourceQueueEmpty
         ) return false
         removeRoute(route.owner.ownerId)
         publishAdmission(route)
         return true
     }
+
+    @MainThread
+    fun prepareFormationChange(requester: Any, intent: FixedFormationChangeIntent): FormationChangeResult {
+        if (worldStalled) return FormationChangeResult.Rejected(RouteAdmissionFailure(
+            RouteAdmissionFailureCode.WORLD_STALLED, "world is stalled"))
+        val ids = when (intent) {
+            is FixedFormationChangeIntent.Couple -> listOf(intent.approachingGrantId, intent.stationaryGrantId)
+            is FixedFormationChangeIntent.Split -> listOf(intent.sourceGrantId)
+        }
+        val bindings = ids.map { id ->
+            val route = routes.values.firstOrNull { it.committedGrant?.grantId === id }
+            if (route == null || route.requester !== requester) return FormationChangeResult.Rejected(
+                RouteAdmissionFailure(RouteAdmissionFailureCode.OWNER_MISMATCH, "unknown or foreign source grant"))
+            if (route.formationChange != null || route.tailRelease == null || route.pendingHandle != null || route.reversalFromTrainState != null)
+                return FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.REQUEST_BUSY, "source grant is retained or busy"))
+            FormationSourceGrant(checkNotNull(route.committedGrant),
+                checkNotNull(route.tailRelease).remainingEntries.map { it.resource },
+                route.preparationsByResource.toMap(),
+                { route.pendingHandle != null || route.reversalFromTrainState != null || route.formationChange != null },
+                { route.topologyInvalidated }, { route.formationChange = it })
+        }
+        return formations.prepare(requester, intent, bindings)
+    }
+
+    @MainThread
+    fun sealFormationPublication(requester: Any, handle: FormationChangeHandle): FormationChangeResult =
+        formations.seal(requester, handle)
+
+    @MainThread
+    fun formationChangeState(requester: Any, handle: FormationChangeHandle): FormationChangeResult =
+        formations.snapshot(requester, handle)
+
+    @MainThread
+    fun abortFormationChange(requester: Any, handle: FormationChangeHandle): FormationChangeResult =
+        formations.abort(requester, handle)
+
+    @MainThread
+    fun requestCouplingApproach(requester: Any, handle: FormationChangeHandle,
+                                intent: RouteResourceIntent): RouteAdmissionResult =
+        if (worldStalled) rejected(RouteAdmissionFailureCode.WORLD_STALLED, "world is stalled")
+        else formations.requestApproach(requester, handle, intent)
+
+    @MainThread
+    fun bindFormationOutputs(requester: Any, handle: FormationChangeHandle, intents: List<RouteResourceIntent>): FormationChangeResult =
+        if (worldStalled) FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_STALLED, "world is stalled"))
+        else formations.bindOutputs(requester, handle, intents)
+
+    @MainThread
+    fun requestFormationOutput(requester: Any, handle: FormationChangeHandle, intent: RouteResourceIntent): RouteAdmissionResult {
+        if (worldStalled) return rejected(RouteAdmissionFailureCode.WORLD_STALLED, "world is stalled")
+        if (formations.outputDetached(requester, handle, intent.trainId)) return request(requester, intent)
+        return formations.requestOutput(requester, handle, intent)
+    }
+
+    @MainThread
+    fun resumeFormationOutput(requester: Any, handle: FormationChangeHandle, grant: RouteGrantId): FormationChangeResult =
+        if (worldStalled) FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_STALLED, "world is stalled"))
+        else formations.resumeOutput(requester, handle, grant)
+
+    private fun formationOutputBoundaries(compiled: FormationRouteCompilation.Compiled,
+                                          resources: Collection<InfrastructureResource>): Map<InfrastructureResource, Double?> {
+        val full = physicalCompiler.compile(compiled.projection, PhysicalRouteRange(0.0, compiled.intent.route.totalLengthMeters))
+        check(full is PhysicalRouteCompilation.Compiled)
+        val physical = full.admission.tailReleaseEntries.associate { it.resource to it.tailClearRouteMeters }
+        val contributed = compiled.admission.tailReleaseEntries.associate { it.resource to it.tailClearRouteMeters }
+        return resources.associateWith { resource -> when (resource) {
+            is RailIntervalResource -> compiled.projection.occurrences.mapNotNull { occurrence ->
+                if (occurrence.segment.railId != resource.railId) null else {
+                    val low = maxOf(minOf(occurrence.canonicalStartAbMeters, occurrence.canonicalEndAbMeters), resource.startAbMeters)
+                    val high = minOf(maxOf(occurrence.canonicalStartAbMeters, occurrence.canonicalEndAbMeters), resource.endAbMeters)
+                    if (low > high) null else occurrence.routeStartMeters +
+                        if (occurrence.segment.facing == work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB)
+                            high - occurrence.canonicalStartAbMeters else occurrence.canonicalStartAbMeters - low
+                }
+            }.maxOrNull()
+            is StableInfrastructureResource -> physical[resource] ?: contributed[resource]
+        } }
+    }
+
+    private fun publishFormationOutput(requester: Any, handle: FormationChangeHandle, output: FormationOutputRoute) {
+        val compiled = output.compiled
+        val old = routes[output.grant.owner.ownerId]
+        old?.let(::unindexRoute)
+        val route = RouteState(requester, output.grant.owner, output.grant.trainId, compiled.projection,
+            output.cursor, compiled.admission.routeProgressPath, output.grant,
+            preparationsByResource = compiled.admission.preparations.associateByTo(linkedMapOf()) { it.resource })
+        route.formationChange = handle
+        route.formationContext = compiled.intent.formationContext
+        routes[route.owner.ownerId] = route
+        indexRoute(route)
+        publishAdmission(route)
+    }
+
+    private fun completeFormationOutputs(requester: Any, sources: List<FormationSourceGrant>, outputs: List<FormationOutputRoute>) {
+        val owners = outputs.map { it.grant.owner }.toSet()
+        sources.filter { it.grant.owner !in owners }.forEach { source ->
+            routes.remove(source.grant.owner.ownerId)?.let { route ->
+                unindexRoute(route)
+                publishAdmissionUpdate(ActiveRouteAdmissionUpdate(route.owner, null))
+            }
+        }
+    }
+
+    /** Exact original remainder is owned by formation groups, not this route's release queue. */
+    private fun protectedClaimRemainder(owner: InfrastructureOwner): Collection<InfrastructureResource> {
+        val originals = formations.retainedResources(owner)
+        if (originals.isEmpty()) return emptyList()
+        val pendingDelta = routes[owner.ownerId]?.pendingHandle?.let(pending::get)?.deltaEntries.orEmpty().map { it.resource }
+        return originals + pendingDelta
+    }
+
+    private fun detachFormationOutput(requester: Any, output: FormationOutputRoute) {
+        val route = checkNotNull(routes[output.grant.owner.ownerId])
+        check(route.requester === requester && !route.topologyInvalidated)
+        val entries = output.exclusive.map { ResolvedTailReleaseEntry(it.key, it.value) }.sortedWith(TAIL_RELEASE_ENTRY_ORDER)
+        route.tailRelease = RouteGrantTailRelease(worldId, output.grant.trainId,
+            checkNotNull(latestObservation()).stamp.physicsEpoch, output.cursor,
+            LiveClaimTailRelease(registry, hostClaimOwner, output.grant.owner,
+                if (entries.isEmpty()) null else CompiledTailReleaseQueue(entries),
+                { protectedClaimRemainder(output.grant.owner) }), ::markWorldStalled)
+        route.formationChange = null
+        route.formationContext = null
+        publishAdmission(route)
+    }
+
+    private fun publishFormationApproach(compiled: FormationRouteCompilation.Compiled, grant: RouteGrantSnapshot) {
+        val route = checkNotNull(routes[grant.owner.ownerId])
+        check(route.formationChange != null && route.owner == grant.owner && route.trainId == grant.trainId)
+        route.projection = compiled.projection
+        route.routeProgressPath = compiled.admission.routeProgressPath
+        route.committedGrant = grant
+        route.formationContext = compiled.intent.formationContext
+        compiled.admission.preparations.forEach { route.preparationsByResource[it.resource] = it }
+        indexRoute(route)
+        publishAdmission(route)
+    }
+
+    private fun compileFormationRoute(intent: RouteResourceIntent, movementFrom: Double?,
+                                      priorCursor: RouteProgressCursorState? = null,
+                                      contactProof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof? = null): FormationRouteCompilation =
+        validateTopology(intent.route) { validation ->
+            fun reject(code: RouteAdmissionFailureCode, detail: String) =
+                FormationRouteCompilation.Rejected(RouteAdmissionFailure(code, detail))
+            val observation = latestObservation()
+                ?: return@validateTopology reject(RouteAdmissionFailureCode.STALE_OBSERVATION, "no coherent observation")
+            if (worldStalled || intent.observationStamp.worldId != worldId || intent.observationStamp != observation.stamp)
+                return@validateTopology reject(RouteAdmissionFailureCode.STALE_OBSERVATION, "formation observation is stale")
+            val train = observation.trains.firstOrNull { it.trainId == intent.trainId }
+                ?: return@validateTopology reject(RouteAdmissionFailureCode.TRAIN_NOT_FOUND, "formation train is absent")
+            val topology = currentTopology()
+            train.invalidTopologyReason(topology)?.let {
+                return@validateTopology reject(RouteAdmissionFailureCode.STALE_TOPOLOGY, it)
+            }
+            val projected = TopologyRouteProjector.project(intent.route, topology)
+            if (projected !is TopologyRouteProjectionResult.Projected)
+                return@validateTopology reject(RouteAdmissionFailureCode.INVALID_ROUTE,
+                    (projected as TopologyRouteProjectionResult.Rejected).detail)
+            val path = CompiledRouteProgressPath.compile(projected.route)
+            val initial = path.initializeCursor(train.tail)
+            val headCursor = if (priorCursor != null) RouteProgressCursor(path.occurrences,
+                priorCursor.occurrenceIndex, priorCursor.routeDistanceMeters)
+            else (initial as? RouteProgressCursorInitialization.Initialized)?.cursor
+                ?: return@validateTopology reject(RouteAdmissionFailureCode.INVALID_ROUTE, "actual tail does not initialize the route")
+            val tail = headCursor.update(train.tail)
+            if (tail !is RouteProgressCursorUpdate.Resolved)
+                return@validateTopology reject(RouteAdmissionFailureCode.INVALID_ROUTE, "output tail left its authoritative route cursor")
+            val floorStart = if (priorCursor == null) 0.0 else tail.state.routeDistanceMeters
+            val physicalResult = physicalCompiler.compile(projected.route,
+                PhysicalRouteRange(floorStart, intent.desiredAuthority.distanceFromRouteStartMeters))
+            if (physicalResult !is PhysicalRouteCompilation.Compiled)
+                return@validateTopology reject(RouteAdmissionFailureCode.INVALID_ROUTE,
+                    (physicalResult as PhysicalRouteCompilation.Rejected).detail)
+            val head = headCursor.project(train.head)
+            if (head !is RouteProgressCursorUpdate.Resolved ||
+                head.state.routeDistanceMeters > intent.desiredAuthority.distanceFromRouteStartMeters + Curve.TOLERANCE)
+                return@validateTopology reject(RouteAdmissionFailureCode.INVALID_BOUNDARY, "authority precedes observed head")
+            val collected = try { collectContributions(intent) } catch (failure: Exception) {
+                return@validateTopology reject(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+                    "formation contributor failed: ${failure.message}")
+            }
+            val contributions = validateContributions(collected, intent.desiredAuthority.distanceFromRouteStartMeters,
+                "formation contribution exceeds requested authority") { true }
+            if (contributions is ContributionValidation.Rejected)
+                return@validateTopology FormationRouteCompilation.Rejected(contributions.failure)
+            val merged = physicalResult.admission.withContributions((contributions as ContributionValidation.Accepted).contributions.filter {
+                priorCursor == null || it.releaseAfterTailPasses.distanceFromRouteStartMeters > floorStart
+            })
+            if (merged is RouteContributionsCompilation.Rejected)
+                return@validateTopology FormationRouteCompilation.Rejected(merged.failure)
+            if (formations.overlapsRetained((merged as RouteContributionsCompilation.Compiled).admission.resources.resources,
+                    intent.formationContext?.eventId)) return@validateTopology reject(RouteAdmissionFailureCode.REQUEST_BUSY,
+                "formation route overlaps another event's retained protection")
+            val occupancy = if (movementFrom != null &&
+                intent.desiredAuthority.distanceFromRouteStartMeters > movementFrom + 1e-8) {
+                when (val movement = physicalCompiler.compile(projected.route,
+                    PhysicalRouteRange(movementFrom, intent.desiredAuthority.distanceFromRouteStartMeters))) {
+                    is PhysicalRouteCompilation.Compiled -> movement.admission.occupancyGeometry.intervals
+                    is PhysicalRouteCompilation.Rejected -> return@validateTopology reject(
+                        RouteAdmissionFailureCode.INVALID_ROUTE, movement.detail)
+                }
+            } else emptyList()
+            val blockers = observation.occupancy.blockingTrainIds(occupancy, intent.trainId).filterNot { blocker ->
+                contactProof != null && blocker == contactProof.request.stationaryTrainId &&
+                    formationWorld?.validateCouplingApproachGeometry(contactProof) == true &&
+                    certifiedContactBoundaryOnly(contactProof, observation, occupancy)
+            }
+            if (blockers.isNotEmpty()) return@validateTopology FormationRouteCompilation.Rejected(RouteAdmissionFailure(
+                RouteAdmissionFailureCode.PHYSICALLY_OCCUPIED, "another train occupies the formation movement",
+                blockers.map(RouteAdmissionBlocker::OccupyingTrain)))
+            if (validation.invalidated || latestObservation() !== observation)
+                return@validateTopology reject(RouteAdmissionFailureCode.STALE_OBSERVATION, "formation changed during validation")
+            FormationRouteCompilation.Compiled(intent, observation, train, projected.route,
+                (merged as RouteContributionsCompilation.Compiled).admission, head.state.routeDistanceMeters, occupancy)
+        }
+
+    /** Only the certified terminal contact may meet its stopped peer's boundary. No body overlap exemption. */
+    private fun certifiedContactBoundaryOnly(
+        proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof,
+        observation: RailwayObservation,
+        intervals: Collection<work.art1st.javarailways.core.api.physics.rail.RailInterval>
+    ): Boolean {
+        val peer = observation.trains.singleOrNull { it.trainId == proof.request.stationaryTrainId } ?: return false
+        if (peer.speedMetersPerSecond != 0.0 || peer.derailed || peer.head != proof.stationaryFrame.head ||
+            peer.tail != proof.stationaryFrame.tail || peer.bodyTraversal != proof.stationaryFrame.bodyTraversal) return false
+        val contact = proof.contactHead
+        val near = intervals.flatMap { interval -> peer.sweptSpans.filter { span ->
+            span.railId == interval.railId && span.minArcAB <= interval.maxArcLengthInAbMeters + Curve.TOLERANCE &&
+                interval.minArcLengthInAbMeters <= span.maxArcAB + Curve.TOLERANCE
+        }.map { interval to it } }
+        return near.isNotEmpty() && near.all { (interval, span) ->
+            interval.railId == contact.railId && if (contact.facing == work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB) {
+                kotlin.math.abs(interval.maxArcLengthInAbMeters - contact.arcLengthInAbMeters) <= 1e-8 &&
+                    span.minArcAB >= contact.arcLengthInAbMeters - 1e-8
+            } else {
+                kotlin.math.abs(interval.minArcLengthInAbMeters - contact.arcLengthInAbMeters) <= 1e-8 &&
+                    span.maxArcAB <= contact.arcLengthInAbMeters + 1e-8
+            }
+        }
+    }
+
+    @OptIn(work.art1st.javarailways.core.api.util.annotation.AsyncEventApi::class)
+    fun observeFormationCollision(event: work.art1st.javarailways.core.api.event.CollisionEvent) = formations.collision(event)
+
+    fun disableFormationContact() = formations.disableContactPermissions()
+
+    @MainThread
+    fun guardFormationLink(event: work.art1st.javarailways.core.api.event.TrainLinkEvent) {
+        if (worldStalled) { event.reject("admission world is stalled"); return }
+        val controlled = routes.values.filter { it.trainId == event.firstTrain.id || it.trainId == event.secondTrain.id }
+        if (controlled.any { it.committedGrant != null && it.formationChange == null })
+            event.reject("live route grants require a prepared formation event")
+        formations.guardLink(event)
+    }
+
+    @MainThread
+    fun guardFormationSplit(event: work.art1st.javarailways.core.api.event.TrainSplitEvent) {
+        if (worldStalled) { event.reject("admission world is stalled"); return }
+        if (routes.values.any { it.trainId == event.train.id && it.committedGrant != null && it.formationChange == null })
+            event.reject("live route grants require a prepared formation event")
+        formations.guardSplit(event)
+    }
+
+    @MainThread
+    fun observedFormationLink(event: work.art1st.javarailways.core.api.event.TrainLinkSuccessEvent) = formations.observedLink(event)
+
+    @MainThread
+    fun observedFormationSplit(event: work.art1st.javarailways.core.api.event.TrainSplitSuccessEvent) = formations.observedSplit(event)
 
     /**
      * Returns only route states that still protect a registry reservation/release-queue entry or
@@ -829,10 +1139,11 @@ internal class RouteResourceAdmissionEngine(
     @MainThread
     fun requesterActivity(requester: Any): List<RouteAdmissionRequesterActivity> {
         val claimsByOwner = registry.claimSnapshots().associateBy { it.owner }
-        return routes.values.mapNotNull { route ->
+        val ordinary = routes.values.mapNotNull { route ->
             if (route.requester !== requester) return@mapNotNull null
             routeActivity(route, claimsByOwner[route.owner]?.footprint?.resources?.size ?: 0)
         }
+        return ordinary + formations.retainedActivity(requester).filter { retained -> ordinary.none { it.owner == retained.owner } }
     }
 
     /** Active routes that still depend on a stable resource type owned by one provider. */
@@ -840,7 +1151,7 @@ internal class RouteResourceAdmissionEngine(
     fun providerActivity(typeIds: Set<String>): List<RouteAdmissionRequesterActivity> {
         if (typeIds.isEmpty()) return emptyList()
         val claimsByOwner = registry.claimSnapshots().associateBy { it.owner }
-        return routes.values.mapNotNull { route ->
+        val ordinary = routes.values.mapNotNull { route ->
             val claimed = claimsByOwner[route.owner]?.footprint?.resources.orEmpty()
             val committed = route.tailRelease?.remainingEntries.orEmpty().map { it.resource }
             val pendingResources = route.pendingHandle?.let(pending::get)
@@ -855,6 +1166,7 @@ internal class RouteResourceAdmissionEngine(
             val activity = routeActivity(route, claimed.size) ?: return@mapNotNull null
             activity.copy(resourceTypeIds = matchingTypes)
         }
+        return ordinary + formations.retainedActivity(typeIds = typeIds).filter { retained -> ordinary.none { it.owner == retained.owner } }
     }
 
     /**
@@ -877,7 +1189,8 @@ internal class RouteResourceAdmissionEngine(
             if (activePending == null) ActiveRouteAdmissionState.GRANTED else ActiveRouteAdmissionState.PREPARING,
             activePending?.intent?.desiredAuthority ?: checkNotNull(grant).committedAuthority,
             grant?.committedAuthority,
-            route.tailRelease?.releasedThroughRouteMeters ?: 0.0
+            if (route.formationContext == null) route.tailRelease?.releasedThroughRouteMeters ?: 0.0 else 0.0,
+            route.formationContext
         )
     }
 
@@ -890,12 +1203,12 @@ internal class RouteResourceAdmissionEngine(
 
     /** Contributor membership is frozen while any route state may request another suffix. */
     @MainThread
-    fun hasRouteState(): Boolean = routes.isNotEmpty()
+    fun hasRouteState(): Boolean = routes.isNotEmpty() || formations.hasRetainedResources()
 
     /** A forced policy loss cannot silently make later route extensions less restrictive. */
     @MainThread
     fun failClosedContributorLoss(contributorDescription: String): Boolean {
-        if (routes.isEmpty()) return false
+        if (!hasRouteState()) return false
         markWorldStalled(
             "route-resource contributor $contributorDescription disappeared while route states remain; " +
                 "future admissions disabled",
@@ -1041,14 +1354,6 @@ internal class RouteResourceAdmissionEngine(
         return ContributionValidation.Accepted(retained)
     }
 
-    private fun isAppendOnlyContinuation(
-        committed: RouteSnapshot,
-        requested: RouteSnapshot
-    ): Boolean = requested.routeId == committed.routeId &&
-        requested.revision > committed.revision &&
-        requested.segments.size > committed.segments.size &&
-        requested.segments.subList(0, committed.segments.size) == committed.segments
-
     private fun firstUncoveredResource(
         required: Collection<InfrastructureResource>,
         retained: Collection<InfrastructureResource>
@@ -1082,6 +1387,7 @@ internal class RouteResourceAdmissionEngine(
     private fun markWorldStalled(reason: String, cause: Exception) {
         if (worldStalled) return
         worldStalled = true
+        formations.disableContactPermissions()
         stallWorld(reason, cause)
     }
 

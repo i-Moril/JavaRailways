@@ -11,6 +11,10 @@ import work.art1st.javarailways.core.api.physics.rail.ViewDirection
 import work.art1st.javarailways.core.api.physics.train.Train
 import work.art1st.javarailways.core.api.physics.train.TrainEndSide
 import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
+import work.art1st.javarailways.core.api.physics.train.CouplingApproachRequest
+import work.art1st.javarailways.core.api.physics.train.CouplingApproachProof
+import work.art1st.javarailways.core.api.physics.train.CouplingApproachInspection
+import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.api.physics.train.RailTraversalSegmentSnapshot
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.core.physics.rail.RailLocationWithFacing
@@ -28,6 +32,124 @@ internal class CouplingRejectedException(message: String) : RuntimeException(mes
  * path. CollisionEnvelope owns the finite coupler candidate footprint and captured route proof.
  */
 internal object TrainCoupling {
+    private class ApproachEvidence(
+        val world: CoreWorld,
+        val approaching: CoreTrain,
+        val stationary: CoreTrain,
+        val approachingEnvelope: CollisionEnvelope,
+        val stationaryEnvelope: CollisionEnvelope,
+        val path: CollisionPath,
+        val leadingBogie: CoreBogie,
+        val contactBogieDistanceMeters: Double,
+        val approachingGeometryIdentity: Any = approaching.formationGeometryIdentity,
+        val stationaryGeometryIdentity: Any = stationary.formationGeometryIdentity
+    )
+
+    /** Same finite route support and rigid leading-car solve as collision preparation. No writes. */
+    fun inspectApproach(world: CoreWorld, request: CouplingApproachRequest): CouplingApproachInspection {
+        fun rejected(reason: String) = CouplingApproachInspection.Rejected(reason)
+        val moving = world.getTrain(request.approachingTrainId) ?: return rejected("approaching train is absent")
+        val fixed = world.getTrain(request.stationaryTrainId) ?: return rejected("stationary train is absent")
+        if (moving.movementHeld || fixed.movementHeld || moving.isDerailed || fixed.isDerailed)
+            return rejected("coupling participant cannot move safely")
+        if (request.approachingEnd != if (moving.isReversed) TrainEndSide.B else TrainEndSide.A)
+            return rejected("approach must use the operating head")
+        val own = world.collisionEnvelope(moving.id) ?: return rejected("approach envelope is unavailable")
+        val incoming = world.collisionEnvelope(fixed.id) ?: return rejected("stationary envelope is unavailable")
+        if (own.frame !== moving.publishedFrame || incoming.frame !== fixed.publishedFrame ||
+            own.frame.physicsEpoch != incoming.frame.physicsEpoch ||
+            !own.dependencies.matches(moving) || !incoming.dependencies.matches(fixed))
+            return rejected("coupling observation is stale")
+        if (!incoming.frame.isStationary()) return rejected("target must be stationary")
+        val bridge = own.bridge(request.approachingEnd, incoming, request.stationaryEnd)
+            ?: return rejected("couplers have no unique selected continuation")
+        if (!own.ends.getValue(request.approachingEnd).faces(incoming.ends.getValue(request.stationaryEnd)))
+            return rejected("couplers do not face each other")
+        return try {
+            val evidence = CollisionPath(moving.resolve(own.frame.bodyTraversal + bridge))
+            val approach = CollisionPath(moving.resolve(bridge))
+            val contact = moving.prepareContactHead(evidence, approach, fixed.coupler(request.stationaryEnd),
+                maximumTailDistance = evidence.length)
+                ?: return rejected("contact is outside the captured approach")
+            val path = approach.cut(moving.resolve(own.frame.head), contact.head).map { segment ->
+                val length = segment.railView.curve.totalArcLength
+                fun canonical(arc: Double) = if (segment.railView.viewDirection == ViewDirection.AB) arc else length - arc
+                RailTraversalSegmentSnapshot(segment.railView.rail.id, segment.railView.viewDirection,
+                    canonical(segment.startArcLength), canonical(segment.endArcLength))
+            }
+            val stationaryAtHead = (request.stationaryEnd == TrainEndSide.A) != incoming.frame.reversed
+            val stationaryPath = moving.resolve(incoming.frame.bodyTraversal).let {
+                if (stationaryAtHead) reversedSegments(it) else it
+            }
+            val protected = CollisionPath(moving.resolve(own.frame.bodyTraversal + bridge) + stationaryPath)
+                .segments.map { segment ->
+                    val length = segment.railView.curve.totalArcLength
+                    fun canonical(arc: Double) = if (segment.railView.viewDirection == ViewDirection.AB) arc else length - arc
+                    RailTraversalSegmentSnapshot(segment.railView.rail.id, segment.railView.viewDirection,
+                        canonical(segment.startArcLength), canonical(segment.endArcLength))
+                }
+            CouplingApproachInspection.Accepted(CouplingApproachProof(request, own.frame, incoming.frame,
+                RailPositionSnapshot.capture(contact.head, contact.head.facing), path, protected,
+                ApproachEvidence(world, moving, fixed, own, incoming, evidence, moving.headBogie,
+                    checkNotNull(evidence.distanceTo(if (moving.headCar.isReversed)
+                        contact.geometry.bogieBLocation else contact.geometry.bogieALocation)))))
+        } catch (failure: BogieException) {
+            rejected("contact geometry cannot be solved: ${failure.message}")
+        } catch (failure: IllegalStateException) {
+            rejected("contact path cannot be proved: ${failure.message}")
+        }
+    }
+
+    fun validateApproach(world: CoreWorld, proof: CouplingApproachProof): Boolean {
+        if (!validateApproachGeometry(world, proof)) return false
+        val evidence = proof.hostEvidence as? ApproachEvidence ?: return false
+        return evidence.approaching.publishedFrame === proof.approachingFrame &&
+            evidence.stationary.publishedFrame === proof.stationaryFrame
+    }
+
+    fun validateApproachGeometry(world: CoreWorld, proof: CouplingApproachProof): Boolean {
+        val evidence = proof.hostEvidence as? ApproachEvidence ?: return false
+        val targetFrame = evidence.stationary.publishedFrame
+        return evidence.world === world && world.getTrain(evidence.approaching.id) === evidence.approaching &&
+            world.getTrain(evidence.stationary.id) === evidence.stationary &&
+            targetFrame.head == proof.stationaryFrame.head && targetFrame.tail == proof.stationaryFrame.tail &&
+            targetFrame.cars == proof.stationaryFrame.cars && targetFrame.isStationary() &&
+            world.latestWorldFrame().activeContinuations === evidence.approachingEnvelope.activeContinuations &&
+            !evidence.approaching.movementHeld && !evidence.stationary.movementHeld &&
+            !evidence.approaching.isDerailed && !evidence.stationary.isDerailed &&
+            evidence.approachingEnvelope.dependencies.matches(evidence.approaching) &&
+            evidence.stationaryEnvelope.dependencies.matches(evidence.stationary)
+    }
+
+    fun validatePublishedApproach(world: CoreWorld, proof: CouplingApproachProof): Boolean {
+        val evidence = proof.hostEvidence as? ApproachEvidence ?: return false
+        if (evidence.world !== world ||
+            evidence.approaching.formationGeometryIdentity !== evidence.approachingGeometryIdentity ||
+            evidence.stationary.formationGeometryIdentity !== evidence.stationaryGeometryIdentity) return false
+        val publication = world.latestWorldFrame()
+        if (publication.activeContinuations !== evidence.approachingEnvelope.activeContinuations) return false
+        val moving = publication.trains.firstOrNull { it.trainId == proof.request.approachingTrainId } ?: return false
+        val fixed = publication.trains.firstOrNull { it.trainId == proof.request.stationaryTrainId } ?: return false
+        return moving === evidence.approaching.publishedFrame && fixed === evidence.stationary.publishedFrame &&
+            !moving.derailed && !fixed.derailed && !evidence.approaching.movementHeld && !evidence.stationary.movementHeld &&
+            moving.reversed == proof.approachingFrame.reversed &&
+            moving.cars.map { it.carId } == proof.approachingFrame.cars.map { it.carId } &&
+            fixed.reversed == proof.stationaryFrame.reversed && fixed.cars == proof.stationaryFrame.cars &&
+            fixed.head == proof.stationaryFrame.head && fixed.tail == proof.stationaryFrame.tail && fixed.isStationary()
+    }
+
+    fun clampApproachDistance(world: CoreWorld, proof: CouplingApproachProof, requested: Double): Double {
+        require(requested.isFinite() && requested >= 0.0) { "contact distance must be finite and non-negative" }
+        check(validatePublishedApproach(world, proof)) { "contact proof is no longer valid in the published world" }
+        val evidence = proof.hostEvidence as ApproachEvidence
+        val current = checkNotNull(evidence.path.distanceTo(evidence.leadingBogie.location)) {
+            "approaching leading bogie left the host contact path"
+        }
+        val remaining = evidence.contactBogieDistanceMeters - current
+        check(remaining >= -COUPLER_CONTACT_EPSILON_METERS) { "approaching bogie already passed the contact target" }
+        return minOf(requested, remaining.coerceAtLeast(0.0))
+    }
+
     /** Collision-only owner transaction. The two input frames precede collision stabilization. */
     fun linkFromCollisionOnOwner(
         first: CoreTrain,
@@ -75,6 +197,10 @@ internal object TrainCoupling {
         val decision = TrainLinkEvent(
             this, other, firstEnd, secondEnd,
             beforeCollision.speedMetersPerSecond, otherBeforeCollision.speedMetersPerSecond,
+            RailPositionSnapshot.capture(contact.placements.getValue(this).head,
+                contact.placements.getValue(this).head.facing),
+            RailPositionSnapshot.capture(contact.placements.getValue(other).head,
+                contact.placements.getValue(other).head.facing),
             if (stationary) this else other
         )
         val listenersSucceeded = try {
@@ -117,6 +243,7 @@ internal object TrainCoupling {
         }
         val occupancy = world.prepareCouplingOccupancy(master, removed, prepared.structure.frame,
             prepared.structure.geometry.cars, prepared.reversals.map { it.first }.toSet())
+        var movementHold: work.art1st.javarailways.core.api.physics.train.FormationMovementHold? = null
 
         // Commit-only: no solver, plugin callback, Context initialization or car destruction.
         try {
@@ -134,6 +261,7 @@ internal object TrainCoupling {
                 )
             }
             master.applyPreparedStructure(prepared.structure)
+            if (decision.holdResultMovement) movementHold = master.installFormationMovementHold()
             world.applyPreparedOccupancy(occupancy)
             world.publishWorldFrame(prepared.structure.frame.physicsEpoch)
         } catch (failure: Throwable) {
@@ -141,7 +269,8 @@ internal object TrainCoupling {
         }
         MainRailEventBus.publish(TrainLinkSuccessEvent(
             master, removed, this, other, firstEnd, secondEnd,
-            decision.firstCarIds, decision.secondCarIds, decision.firstReversed, decision.secondReversed
+            decision.firstCarIds, decision.secondCarIds, decision.firstReversed, decision.secondReversed,
+            movementHold
         ))
         master
     }
@@ -356,12 +485,13 @@ internal object TrainCoupling {
     private data class PreparedContactHead(val geometry: CoreCar.PreparedCarGeometry, val head: RailLocationWithFacing)
 
     /** Preclaim needs only the leading car, never an all-consist prediction for each neighbour. */
-    private fun CoreTrain.prepareContactHead(path: CollisionPath, movement: CollisionPath, anchor: Coupler): PreparedContactHead? {
+    private fun CoreTrain.prepareContactHead(path: CollisionPath, movement: CollisionPath, anchor: Coupler,
+                                           maximumTailDistance: Double? = null): PreparedContactHead? {
         val car = headCar
         val tail = path.distanceTo(car.tailBogie.location) ?: error("collision path lacks leading tail bogie")
         val head = path.distanceTo(car.headBogie.location) ?: error("collision path lacks leading head bogie")
         val geometry = car.prepareFollowingCarOnPath(RailSegments(path.segments), car.isReversed,
-            anchor.position, anchor.length, tail, tail, head - tail)
+            anchor.position, anchor.length, maximumTailDistance ?: tail, tail, head - tail)
         val bogie = if (car.isReversed) geometry.bogieBLocation else geometry.bogieALocation
         val endpoint = path.locationAt((path.distanceTo(bogie) ?: error("collision path lacks prepared leading bogie")) +
             car.headBogieToEndPointOffset)

@@ -83,6 +83,16 @@ class TrainDynamicsExecutor(
         deltaSeconds = deltaTimeSeconds
     )
 
+    /** Captures the current consist and grades once; speculative states never commit to this executor. */
+    internal fun snapshotPreview(deltaTimeSeconds: Double): (TrainDynamics.State, String) -> TrainDynamics.StepResult {
+        val profile = trainProfile
+        val inputs = carInputs()
+        return { speculativeState, handle ->
+            TrainDynamics.step(speculativeState, profile, inputs, handle,
+                gravityMetersPerSecondSquared, deltaTimeSeconds)
+        }
+    }
+
     fun step(
         currentSpeedMetersPerSecond: Double,
         handle: String,

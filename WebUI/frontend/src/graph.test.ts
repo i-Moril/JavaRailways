@@ -13,8 +13,8 @@ const value: SavedTimetableV1 = {
       activation: { type: 'SCHEDULED' },
       steps: [
         { type: 'CHECK', wayPointId: 'alpha@1' },
-        { type: 'AT', tick: 200, action: { type: 'STATION_DESTINATION_OPTIONS', stationId:'beta', berthId:'1', arrivalTick:800, wayPointIds: [], requiredTags: [], requiredCapabilities: [], stablingPointIds: [], thenActions: [], elseActions: [] } },
-        { type: 'AT', tick: 200, action: { type: 'DESTINATION', wayPointIds: ['beta@1'], requiredTags: [], requiredCapabilities: [], stablingPointIds: [], thenActions: [], elseActions: [] } },
+        { type: 'AT', tick: 200, action: { type: 'STATION_DESTINATION_OPTIONS', stationId:'beta', berthId:'1', arrivalTick:800, wayPointIds: [], requiredTags: [], requiredCapabilities: [], stablingPointIds: [], thenSteps: [], elseSteps: [] } },
+        { type: 'AT', tick: 200, action: { type: 'DESTINATION', wayPointIds: ['beta@1'], requiredTags: [], requiredCapabilities: [], stablingPointIds: [], thenSteps: [], elseSteps: [] } },
       ],
     },
   ],
@@ -55,9 +55,9 @@ describe('graph layout', () => {
   it('omits depot and ordinary-destination movements from station graphs', () => {
     const nonStation:SavedTimetableV1={...value,services:[{...value.services[0],steps:[
       {type:'CHECK',wayPointId:'alpha@1'},
-      {type:'AT',tick:100,action:{type:'DESTINATION_OPTIONS',arrivalTick:300,wayPointIds:['siding'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenActions:[],elseActions:[]}},
-      {type:'AT',tick:100,action:{type:'DESTINATION',wayPointIds:['siding'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenActions:[],elseActions:[]}},
-      {type:'AT',tick:400,action:{type:'STORE_AT_DEPOT',depotId:'depot',wayPointIds:[],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenActions:[],elseActions:[]}},
+      {type:'AT',tick:100,action:{type:'DESTINATION_OPTIONS',arrivalTick:300,wayPointIds:['siding'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}},
+      {type:'AT',tick:100,action:{type:'DESTINATION',wayPointIds:['siding'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}},
+      {type:'AT',tick:400,action:{type:'STORE_AT_DEPOT',depotId:'depot',wayPointIds:[],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}},
     ]}]};
     const layout=layoutGraph(nonStation,1000,58,170,{stations:[{stationId:'alpha',berthId:'1',destinationId:'alpha@1'}]});
     expect(layout.paths).toEqual([]);
@@ -78,8 +78,8 @@ describe('graph layout', () => {
       diagramLines:[{id:'line',upStationIds:['alpha','central'],downStationIds:['central','alpha']}],
       services:[{...value.services[0],diagramLineId:'line',steps:[
         {type:'CHECK',wayPointId:'alpha@1'},
-        {type:'AT',tick:200,action:{type:'STATION_DESTINATION_OPTIONS',stationId:'central',berthId:'2',arrivalTick:900,wayPointIds:[],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenActions:[],elseActions:[]}},
-        {type:'AT',tick:200,action:{type:'DESTINATION',wayPointIds:['central@2'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenActions:[],elseActions:[]}},
+        {type:'AT',tick:200,action:{type:'STATION_DESTINATION_OPTIONS',stationId:'central',berthId:'2',arrivalTick:900,wayPointIds:[],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}},
+        {type:'AT',tick:200,action:{type:'DESTINATION',wayPointIds:['central@2'],requiredTags:[],requiredCapabilities:[],stablingPointIds:[],thenSteps:[],elseSteps:[]}},
       ]}],
     };
     const layout=layoutGraph(visual,1000,58,170,{stations:[

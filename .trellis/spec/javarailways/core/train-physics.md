@@ -371,3 +371,15 @@ train.destroy().whenComplete { _, failure -> /* 将真实结果回送平台owner
 移动入口`deltaS`必须finite且非负，公开location正负位移和peek距离必须finite；不能让Infinity进入闭环遍历。
 
 碰撞prepass在本epoch冻结双方后，该epoch发布完成前即将决策排入owner队列；紧接完成ticket的帧间处理执行LINK或DERAIL，不额外等待下一物理epoch。pending冻结标记保留到owner操作结束，未知准备/发布错误仍halt。CollisionEnvelope中的内部身份引用不对外暴露为可写快照，不建立第二套world索引。
+
+## Host-issued coupling geometry and output fences
+
+`World.inspectCouplingApproach` is a serialized read-only host operation. It uses the same finite selected continuation, coupler envelope and rigid contact solver as actual collision preparation. The opaque proof captures exact source composition/direction, stationary pose, selected topology and solved contact head; it grants no infrastructure or signal permission. `validateCouplingApproachGeometry` remains owner-only. Physics controllers use `validatePublishedCouplingApproach`, which reads a coherent immutable publication and private host/structure identities instead of traversing writable ownership maps. A structural publication invalidates the proof even when new cars reuse the same IDs.
+
+`clampCouplingApproachDistance` is physics-worker-only: it computes raw leading-bogie travel to the solved contact bogie on the captured path, rejects invalid/stale/off-path proof and never returns extra movement beyond contact. Head-arc displacement on a curve is not interchangeable with raw bogie movement. Actual structural events expose Core-solved contact heads so the admission guard can verify the final geometry.
+
+Prepared link/split decisions can request sticky independent `FormationMovementHold` capabilities. Core installs every result fence before publication; controllers and explicit distance movement cannot move fenced outputs. Releasing one exact live token preserves configuration quarantine. Strict `restoreFormationMovementHold` accepts only exact current ordered cars, coherent direction, nonderailed stopped frame and zero car/bogie velocities; no stale or foreign token releases another output. No capability is serialized.
+
+Only an unquarantined formation hold permits `TrainController.prepareWhileFormationHeld` on the physics worker instead of normal `tick`. Configuration quarantine, derailment and pending collision exclude this callback. It prepares controller value state without actuation, movement, reversal or structural mutation. Core unconditionally freezes the controller speed buffer and complete car/bogie motion afterward, including when preparation throws; the independent physical fence remains authoritative. The default callback does nothing. `FormationHeldControllerPreparationTest` exercises these exclusions and a faulty callback attempting movement.
+
+`CoreTrain.hasFormationMovementHold` exposes only read-only structural fence presence, never the release token; consumers must not substitute configuration quarantine for a formation fence.

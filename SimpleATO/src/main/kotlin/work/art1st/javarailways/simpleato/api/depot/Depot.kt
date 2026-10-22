@@ -53,7 +53,7 @@ data class DepotStablingPoint(
 data class RollingStockRecord(
     val trainId: String,
     val homeDepotId: DepotId,
-    val modelPackageId: String,
+    val modelPackageId: String?,
     val tags: Set<String>,
     val carCount: Int,
     val lengthMeters: Double,
@@ -62,7 +62,7 @@ data class RollingStockRecord(
 ) {
     init {
         requireStableId("trainId", trainId)
-        requireStableId("modelPackageId", modelPackageId)
+        modelPackageId?.let { requireStableId("modelPackageId", it) }
         requireTags("tags", tags)
         require(carCount > 0)
         require(lengthMeters.isFinite() && lengthMeters > 0.0)
@@ -90,8 +90,7 @@ data class DepotTrainSelector(
     }
 
     fun matches(record: RollingStockRecord): Boolean =
-        record.homeDepotId == depotId &&
-            record.tags.containsAll(requiredTags) &&
+        record.tags.containsAll(requiredTags) &&
             (minimumCars == null || record.carCount >= minimumCars) &&
             (maximumCars == null || record.carCount <= maximumCars) &&
             (minimumSpeedMetersPerSecond == null ||
@@ -195,12 +194,349 @@ class DepotStore {
     private val assignments = LinkedHashMap<String, DepotTrainAllocation>()
     private val storageReservations = LinkedHashMap<String, DepotStorageReservation>()
 
+    private val fixedUnits = LinkedHashMap<String, FixedEmuUnit>()
+    private val fixedUnitAssignments = LinkedHashMap<String, FixedEmuUnitAssignment>()
+
+    private val formationChanges = LinkedHashMap<String, FixedFormationChange>()
+    private val formationRecoveryHolds = LinkedHashMap<String, FixedFormationRecoveryHold>()
+    private val heldFormationOutputs = LinkedHashMap<String, FixedFormationHeldOutput>()
+    private val recoveredFormationOutputIds = HashSet<String>()
+
+    internal fun operationalSnapshot(): DepotOperationalSnapshot = synchronized(lock) {
+        DepotOperationalSnapshot(fixedUnits.values.toList(), rollingStock.values.map { it.snapshot() },
+            points.values.map { StablingPointSnapshot(it.point, it.occupantTrainId, it.reservedByAssignmentId) },
+            fixedUnitAssignments.values.toList(), heldFormationOutputs.values.toList(), formationChanges.values.toList())
+    }
+
+    fun heldFormationOutputs(): List<FixedFormationHeldOutput> = synchronized(lock) { heldFormationOutputs.values.toList() }
+
+    fun unresolvedFormationChanges(): List<FixedFormationChange> = synchronized(lock) { formationChanges.values.toList() }
+    fun recoveredFormationHolds(): List<FixedFormationRecoveryHold> = synchronized(lock) { formationRecoveryHolds.values.toList() }
+
+    /** Stage only after physical/admission preflight; original claims stay live until reconciliation. */
+    @MainThread
+    fun prepareFixedFormationChange(change: FixedFormationChange, physicalFormations: Map<String, List<String>>, physicalDirections: Map<String, Boolean>) = synchronized(lock) {
+        require(change.phase == FixedFormationPhase.SOURCES_HELD) { "new formation must retain source owners" }
+        require(change.eventId !in formationChanges) { "formation event already exists: ${change.eventId}" }
+        validateFormationMembership(change, fixedUnits.values)
+        val involved = change.sources + change.outputs.map { it.owner }
+        require(involved.none { owner -> formationChanges.values.any { existing -> changesOverlap(existing, owner) } ||
+            heldFormationOutputs.values.any { held -> ownersOverlap(held.owner, owner) } }) {
+            "formation is already held by another structural event"
+        }
+        val sourceIds = change.sources.map { it.trainId }.toSet()
+        val sourceAssignments = change.sources.map { it.assignmentId }.toSet()
+        change.sources.forEach { source ->
+            require(physicalFormations[source.trainId] == source.carIds && physicalDirections[source.trainId] == source.reversed) { "source Core membership changed: ${source.trainId}" }
+            val stock = requireNotNull(rollingStock[source.trainId]) { "source rolling stock is missing: ${source.trainId}" }
+            require(stock.state == RollingStockState.IN_SERVICE && stock.assignmentId == source.assignmentId && stock.stablingPointRef == null && stock.record.carCount == source.carIds.size) {
+                "source must be IN_SERVICE after complete departure: ${source.trainId}"
+            }
+            require(storageReservations[source.assignmentId] == null) { "source has a storage reservation" }
+            val expected = resolveFixedUnits(source.carIds).map { FixedEmuUnitAssignment(it.id, source.trainId, source.assignmentId) }.toSet()
+            require(fixedUnitAssignments.values.filter { it.trainId == source.trainId }.toSet() == expected) { "source unit ownership changed" }
+        }
+        change.outputs.forEach { output ->
+            require(output.owner.trainId in sourceIds || output.owner.trainId !in rollingStock && output.owner.trainId !in physicalFormations) { "output train ID is already occupied" }
+            require(output.owner.assignmentId in sourceAssignments ||
+                rollingStock.values.none { it.assignmentId == output.owner.assignmentId } &&
+                fixedUnitAssignments.values.none { it.assignmentId == output.owner.assignmentId }) { "output assignment ID is already occupied" }
+        }
+        formationChanges[change.eventId] = change
+    }
+
+    /** Coordinator calls only after Basic has confirmed an unsealed abort; no physical rollback. */
+    @MainThread
+    internal fun abortFixedFormationChange(change: FixedFormationChange,
+        physicalFormations: Map<String, List<String>>, physicalDirections: Map<String, Boolean>) = synchronized(lock) {
+        require(formationChanges[change.eventId] === change) { "formation event token is stale" }
+        require(change.phase == FixedFormationPhase.SOURCES_HELD) { "output ownership is already committed" }
+        check(change.eventId !in formationRecoveryHolds) { "restored formation event requires explicit recovery" }
+        require(matchesFormationSide(change.sources, change, physicalFormations, physicalDirections)) {
+            "published formation no longer matches the original sources"
+        }
+        formationChanges.remove(change.eventId)
+    }
+
+    /** Called only after Basic observes and holds every published output; no release/reclaim interval. */
+    @MainThread
+    fun commitFixedFormationChange(change: FixedFormationChange, physicalFormations: Map<String, List<String>>, outputRecords: List<RollingStockRecord>, physicalDirections: Map<String, Boolean>): FixedFormationChange = synchronized(lock) {
+        require(formationChanges[change.eventId] === change) { "formation event token is stale" }
+        require(change.phase == FixedFormationPhase.SOURCES_HELD) { "output ownership is already committed" }
+        check(change.eventId !in formationRecoveryHolds) { "restored formation event requires explicit recovery" }
+        require(matchesFormationSide(change.outputs.map { it.owner }, change, physicalFormations, physicalDirections)) { "published Core outputs do not match the prepared change" }
+        require(outputRecords.map { it.trainId }.toSet() == change.outputs.map { it.owner.trainId }.toSet() && outputRecords.size == change.outputs.size) { "output metadata is incomplete" }
+        val records = outputRecords.associateBy { it.trainId }
+        val newClaims = change.outputs.flatMap { output ->
+            val record = records.getValue(output.owner.trainId)
+            require(record.carCount == output.owner.carIds.size && record.homeDepotId in depots) { "output metadata does not match the formation" }
+            resolveFixedUnits(output.owner.carIds).map { FixedEmuUnitAssignment(it.id, output.owner.trainId, output.owner.assignmentId) }
+        }
+        change.sources.forEach { source ->
+            rollingStock.remove(source.trainId)
+            assignments.remove(source.assignmentId)
+        }
+        change.outputs.forEach { output ->
+            rollingStock[output.owner.trainId] = RollingRuntime(records.getValue(output.owner.trainId), RollingStockState.IN_SERVICE, null, output.owner.assignmentId)
+        }
+        newClaims.forEach { fixedUnitAssignments[it.unitId] = it }
+        FixedFormationChange(change.eventId, change.kind, change.sources, change.outputs,
+            FixedFormationPhase.OUTPUT_OWNERS_COMMITTED).also { formationChanges[change.eventId] = it }
+    }
+
+    /**
+     * The serialized coordinator calls only after installing every mission/disposition, adopting
+     * all ready grants before the next physics frame. Each pending continuation then has its own
+     * persisted fence ownership; a departed peer no longer belongs to this unresolved group.
+     */
+    @MainThread
+    internal fun finishFixedFormationChange(change: FixedFormationChange, physicalFormations: Map<String, List<String>>,
+        physicalDirections: Map<String, Boolean>, installedOutputOwners: List<FixedFormationOwner>,
+        pendingContinuingOwners: List<FixedFormationOwner> = emptyList()) = synchronized(lock) {
+        require(formationChanges[change.eventId] === change) { "formation event token is stale" }
+        require(change.phase == FixedFormationPhase.OUTPUT_OWNERS_COMMITTED) { "output ownership is not committed" }
+        check(change.eventId !in formationRecoveryHolds) { "restored formation event requires explicit recovery" }
+        val outputs = change.outputs.map { it.owner }
+        require(installedOutputOwners.size == outputs.size && installedOutputOwners.toSet() == outputs.toSet()) {
+            "every exact output disposition must be installed before finishing"
+        }
+        val continuing = change.outputs.filter { it.disposition == FixedFormationDisposition.CONTINUE_DUTY }.map { it.owner }.toSet()
+        require(pendingContinuingOwners.distinct().size == pendingContinuingOwners.size &&
+            pendingContinuingOwners.all { it in continuing }) { "pending continuation owners must be exact continuing outputs" }
+        require(matchesFormationSide(outputs, change, physicalFormations, physicalDirections)) { "physical outputs changed before finish" }
+        outputs.forEach { owner ->
+            val stock = requireNotNull(rollingStock[owner.trainId])
+            require(stock.state == RollingStockState.IN_SERVICE && stock.assignmentId == owner.assignmentId &&
+                stock.stablingPointRef == null && stock.record.carCount == owner.carIds.size) { "output metadata changed before finish" }
+            val expected = resolveFixedUnits(owner.carIds).map { FixedEmuUnitAssignment(it.id, owner.trainId, owner.assignmentId) }.toSet()
+            require(fixedUnitAssignments.values.filter { it.trainId == owner.trainId }.toSet() == expected) { "output unit claims changed before finish" }
+        }
+        change.outputs.filter { it.disposition == FixedFormationDisposition.HOLD || it.owner in pendingContinuingOwners }.forEach { output ->
+            heldFormationOutputs[output.owner.trainId] = FixedFormationHeldOutput(output.owner, output.disposition)
+        }
+        formationChanges.remove(change.eventId)
+    }
+
+    /** Caller validates the actual stopped Core frame before releasing its Basic fence. */
+    @MainThread
+    internal fun validatePendingFormationOutput(owner: FixedFormationOwner, physicalFormations: Map<String, List<String>>,
+        physicalDirections: Map<String, Boolean>): FixedFormationHeldOutput = synchronized(lock) {
+        val held = requireNotNull(heldFormationOutputs[owner.trainId]) { "pending formation output is missing" }
+        require(held.owner == owner && held.disposition == FixedFormationDisposition.CONTINUE_DUTY) { "output is not this pending continuation" }
+        check(owner.trainId !in recoveredFormationOutputIds) { "restored formation output requires explicit recovery" }
+        validatePendingFormationOwnership(owner, physicalFormations, physicalDirections)
+        held
+    }
+
+    private fun validatePendingFormationOwnership(owner: FixedFormationOwner,
+        physicalFormations: Map<String, List<String>>, physicalDirections: Map<String, Boolean>) {
+        require(physicalFormations.filterValues { cars -> cars.any(owner.carIds::contains) } == mapOf(owner.trainId to owner.carIds) &&
+            physicalDirections[owner.trainId] == owner.reversed) { "pending physical formation changed" }
+        val stock = requireNotNull(rollingStock[owner.trainId]) { "pending output metadata is missing" }
+        require(stock.state == RollingStockState.IN_SERVICE && stock.assignmentId == owner.assignmentId &&
+            stock.stablingPointRef == null && stock.record.carCount == owner.carIds.size) { "pending output metadata changed" }
+        val expected = resolveFixedUnits(owner.carIds).map { FixedEmuUnitAssignment(it.id, owner.trainId, owner.assignmentId) }.toSet()
+        require(fixedUnitAssignments.values.filter { it.trainId == owner.trainId }.toSet() == expected) { "pending unit ownership changed" }
+    }
+
+    /** Called immediately after the authorized stopped Core reversal, before another frame. */
+    @MainThread
+    internal fun recordPendingFormationReversal(token: FixedFormationHeldOutput,
+        physicalFormations: Map<String, List<String>>, physicalDirections: Map<String, Boolean>): FixedFormationHeldOutput = synchronized(lock) {
+        val owner = token.owner
+        require(heldFormationOutputs[owner.trainId] === token) { "pending output reversal token is stale" }
+        require(token.disposition == FixedFormationDisposition.CONTINUE_DUTY) { "HOLD output cannot reverse as a duty" }
+        check(owner.trainId !in recoveredFormationOutputIds) { "restored formation output requires explicit recovery" }
+        val reversed = FixedFormationOwner(owner.trainId, owner.assignmentId, owner.carIds, !owner.reversed)
+        validatePendingFormationOwnership(reversed, physicalFormations, physicalDirections)
+        FixedFormationHeldOutput(reversed, token.disposition).also { heldFormationOutputs[owner.trainId] = it }
+    }
+
+    /** Same serialized callback, immediately after successful Basic resume; never release a peer. */
+    @MainThread
+    internal fun releasePendingFormationOutput(token: FixedFormationHeldOutput, physicalFormations: Map<String, List<String>>,
+        physicalDirections: Map<String, Boolean>) = synchronized(lock) {
+        require(heldFormationOutputs[token.owner.trainId] === token) { "pending output token is stale" }
+        check(validatePendingFormationOutput(token.owner, physicalFormations, physicalDirections) === token)
+        heldFormationOutputs.remove(token.owner.trainId)
+        Unit
+    }
+
+    private fun ownersOverlap(first: FixedFormationOwner, second: FixedFormationOwner): Boolean =
+        first.trainId == second.trainId || first.assignmentId == second.assignmentId || first.carIds.any(second.carIds::contains)
+
+    private fun changesOverlap(change: FixedFormationChange, owner: FixedFormationOwner): Boolean =
+        (change.sources + change.outputs.map { it.owner }).any {
+            it.trainId == owner.trainId || it.assignmentId == owner.assignmentId || it.carIds.any(owner.carIds::contains)
+        }
+
+    private fun assignmentIsOwned(assignmentId: String): Boolean =
+        assignmentId in assignments || rollingStock.values.any { it.assignmentId == assignmentId } ||
+            fixedUnitAssignments.values.any { it.assignmentId == assignmentId } ||
+            formationChanges.values.any { change -> (change.sources + change.outputs.map { it.owner }).any { it.assignmentId == assignmentId } }
+
+    private fun formationHoldsTrain(trainId: String): Boolean = trainId in heldFormationOutputs || formationChanges.values.any { change ->
+        change.sources.any { it.trainId == trainId } || change.outputs.any { it.owner.trainId == trainId }
+    }
+
+    private fun validateFormationMembership(change: FixedFormationChange, units: Collection<FixedEmuUnit>) {
+        (change.sources + change.outputs.map { it.owner }).forEach { resolveFixedUnits(it.carIds, units) }
+        if (change.kind == FixedFormationChangeKind.SPLIT) {
+            val source = change.sources.single().carIds
+            val first = change.outputs[0].owner.carIds
+            val second = change.outputs[1].owner.carIds
+            require(first + second == source) { "separation outputs must preserve the ordered partition" }
+        }
+    }
+
+    private fun matchesFormationSide(side: List<FixedFormationOwner>, change: FixedFormationChange, physical: Map<String, List<String>>, directions: Map<String, Boolean>): Boolean {
+        val relevantCars = change.sources.flatMap { it.carIds }.toSet()
+        val observed = physical.filter { (id, cars) ->
+            cars.any(relevantCars::contains) || (change.sources + change.outputs.map { it.owner }).any { it.trainId == id }
+        }
+        return observed == side.associate { it.trainId to it.carIds } && side.all { directions[it.trainId] == it.reversed }
+    }
+
+    /** Caller supplies ordered stable car IDs from the current Core formation. */
+    @MainThread
+    fun registerFixedUnit(unit: FixedEmuUnit, physicalCarIds: List<String>) = synchronized(lock) {
+        require(unit.homeDepotId in depots) { "unit home Depot not found: ${unit.homeDepotId}" }
+        require(unit.id !in fixedUnits) { "unit already registered: ${unit.id}" }
+        require(fixedUnits.values.none { it.carIds.any(unit.carIds::contains) }) { "a car cannot belong to two fixed units" }
+        require(physicalCarIds.distinct().size == physicalCarIds.size) { "physical car IDs must be unique" }
+        require(containsUnit(physicalCarIds, unit.carIds)) { "unit membership is not contiguous in the physical formation" }
+        fixedUnits[unit.id] = unit
+    }
+
+    /** Resolves complete units in actual formation order, allowing a whole unit to be reversed. */
+    fun fixedUnitsForFormation(physicalCarIds: List<String>): List<FixedEmuUnit> = synchronized(lock) {
+        resolveFixedUnits(physicalCarIds)
+    }
+
+    @MainThread
+    fun claimFixedFormation(trainId: String, physicalCarIds: List<String>, assignmentId: String): List<FixedEmuUnitAssignment> = synchronized(lock) {
+        val claims = prepareFixedClaims(trainId, physicalCarIds, assignmentId, allowUnregistered = false)
+        claims.forEach { fixedUnitAssignments[it.unitId] = it }
+        claims
+    }
+
+    /** Exact ownership only; physical resources are released separately by their existing owners. */
+    @MainThread
+    fun releaseFixedFormation(trainId: String, assignmentId: String): Boolean = synchronized(lock) {
+        if (formationHoldsTrain(trainId)) return@synchronized false
+        val selected = fixedUnitAssignments.values.filter { it.trainId == trainId && it.assignmentId == assignmentId }
+        selected.forEach { fixedUnitAssignments.remove(it.unitId) }
+        selected.isNotEmpty()
+    }
+
+    /** Reject an internal-car split before invoking any Core structure mutation. */
+    fun validateFixedUnitSplit(physicalCarIds: List<String>, beforeCarId: String): Pair<List<FixedEmuUnit>, List<FixedEmuUnit>> = synchronized(lock) {
+        val units = resolveFixedUnits(physicalCarIds)
+        val splitIndex = physicalCarIds.indexOf(beforeCarId)
+        require(splitIndex > 0 && splitIndex < physicalCarIds.size) { "split must produce two non-empty formations" }
+        var boundary = 0
+        val unitIndex = units.indexOfFirst { unit ->
+            val atBoundary = boundary == splitIndex
+            boundary += unit.carIds.size
+            atBoundary
+        }
+        require(unitIndex > 0) { "cannot split inside a fixed EMU unit" }
+        units.take(unitIndex) to units.drop(unitIndex)
+    }
+
+    fun allFixedUnits(): List<FixedEmuUnit> = synchronized(lock) { fixedUnits.values.sortedBy { it.id } }
+    fun allFixedUnitAssignments(): List<FixedEmuUnitAssignment> = synchronized(lock) { fixedUnitAssignments.values.sortedBy { it.unitId } }
+
+    /** Restore definitions/claims only; no pending structural operation is replayed. */
+    @MainThread
+    fun restoreFixedUnits(units: List<FixedEmuUnit>, claims: List<FixedEmuUnitAssignment>, physicalFormations: Map<String, List<String>>) = synchronized(lock) {
+        validateFixedUnitRestore(units, claims, physicalFormations)
+        applyFixedUnitRestore(units, claims)
+    }
+
+    private fun ledgerFormationOwners(change: FixedFormationChange): List<FixedFormationOwner> = when (change.phase) {
+        FixedFormationPhase.SOURCES_HELD -> change.sources
+        FixedFormationPhase.OUTPUT_OWNERS_COMMITTED -> change.outputs.map { it.owner }
+    }
+
+    private fun validateFixedUnitRestore(units: List<FixedEmuUnit>, claims: List<FixedEmuUnitAssignment>, physicalFormations: Map<String, List<String>>, changes: List<FixedFormationChange> = emptyList()) {
+        check(fixedUnits.isEmpty() && fixedUnitAssignments.isEmpty()) { "fixed unit ledger must be empty before restore" }
+        require(units.map { it.id }.distinct().size == units.size) { "duplicate fixed unit IDs" }
+        val cars = units.flatMap { it.carIds }
+        require(cars.distinct().size == cars.size) { "a car cannot belong to two fixed units" }
+        val actualCars = physicalFormations.values.flatten()
+        require(actualCars.distinct().size == actualCars.size) { "a car cannot belong to two physical formations" }
+        require(units.all { unit -> unit.homeDepotId in depots && physicalFormations.values.count { containsUnit(it, unit.carIds) } == 1 }) { "fixed unit home or physical membership is invalid" }
+        val byId = units.associateBy { it.id }
+        require(claims.map { it.unitId }.distinct().size == claims.size) { "duplicate fixed unit claims" }
+        val pendingClaims = changes.flatMap { change -> ledgerFormationOwners(change).flatMap { source ->
+            resolveFixedUnits(source.carIds, units).map { FixedEmuUnitAssignment(it.id, source.trainId, source.assignmentId) }
+        } }.toSet()
+        require(claims.containsAll(pendingClaims)) { "unresolved formation event is missing original unit claims" }
+        require(claims.all { claim -> claim in pendingClaims || byId[claim.unitId]?.let { unit -> physicalFormations[claim.trainId]?.let { containsUnit(it, unit.carIds) } } == true }) { "fixed unit claim does not match Core formation" }
+        require(claims.groupBy { it.trainId }.values.all { group -> group.map { it.assignmentId }.distinct().size == 1 } &&
+            claims.groupBy { it.assignmentId }.values.all { group -> group.map { it.trainId }.distinct().size == 1 }) { "formation has multiple assignment owners" }
+        // Check the entire claimed formation, not just each individually valid member.
+        physicalFormations.forEach { (trainId, formationCars) ->
+            if (formationCars.any(cars::contains)) {
+                val members = resolveFixedUnits(formationCars, units).map { it.id }.toSet()
+                val assigned = claims.filter { it.trainId == trainId && it !in pendingClaims }.map { it.unitId }.toSet()
+                require(assigned.isEmpty() || assigned == members) { "formation assignment must include every fixed unit" }
+            }
+        }
+    }
+
+    private fun applyFixedUnitRestore(units: List<FixedEmuUnit>, claims: List<FixedEmuUnitAssignment>) {
+        fixedUnits.putAll(units.associate { unit -> unit.id to unit })
+        claims.forEach { fixedUnitAssignments[it.unitId] = it }
+    }
+
+    private fun prepareFixedClaims(trainId: String, physicalCarIds: List<String>?, assignmentId: String, allowUnregistered: Boolean = true): List<FixedEmuUnitAssignment> {
+        if (allowUnregistered && fixedUnits.isEmpty()) return emptyList()
+        requireNotNull(physicalCarIds) { "current Core car IDs are required for fixed-unit acquisition" }
+        if (allowUnregistered && fixedUnits.values.none { unit -> unit.carIds.any(physicalCarIds::contains) }) return emptyList()
+        requireStableId("trainId", trainId)
+        requireStableId("assignmentId", assignmentId)
+        require(trainId !in heldFormationOutputs && formationChanges.values.none { change ->
+            changesOverlap(change, FixedFormationOwner(trainId, assignmentId, physicalCarIds))
+        }) { "formation is held by an unresolved structural event" }
+        val units = resolveFixedUnits(physicalCarIds)
+        val claims = units.map { FixedEmuUnitAssignment(it.id, trainId, assignmentId) }
+        val existingMembers = fixedUnitAssignments.values.filter { it.trainId == trainId }.map { it.unitId }.toSet()
+        require(existingMembers.isEmpty() || existingMembers == units.map { it.id }.toSet()) { "claimed formation membership changed" }
+        require(fixedUnitAssignments.values.none { (it.trainId == trainId && it.assignmentId != assignmentId) ||
+            (it.assignmentId == assignmentId && it.trainId != trainId) }) { "formation has another assignment" }
+        require(claims.all { fixedUnitAssignments[it.unitId] == null || fixedUnitAssignments[it.unitId] == it }) { "fixed unit is already assigned" }
+        rollingStock[trainId]?.assignmentId?.let { require(it == assignmentId) { "rolling stock has another assignment" } }
+        return claims
+    }
+
+    private fun resolveFixedUnits(physicalCarIds: List<String>, definitions: Collection<FixedEmuUnit> = fixedUnits.values): List<FixedEmuUnit> {
+        require(physicalCarIds.isNotEmpty() && physicalCarIds.distinct().size == physicalCarIds.size) { "formation cars must be non-empty and unique" }
+        val byCar = definitions.flatMap { unit -> unit.carIds.map { it to unit } }.toMap()
+        val units = ArrayList<FixedEmuUnit>()
+        var cursor = 0
+        while (cursor < physicalCarIds.size) {
+            val unit = requireNotNull(byCar[physicalCarIds[cursor]]) { "unregistered fixed-unit car: ${physicalCarIds[cursor]}" }
+            val end = cursor + unit.carIds.size
+            require(end <= physicalCarIds.size && physicalCarIds.subList(cursor, end).let { it == unit.carIds || it == unit.carIds.asReversed() }) { "formation contains an incomplete or reordered fixed unit: ${unit.id}" }
+            units += unit
+            cursor = end
+        }
+        require(units.map { it.id }.distinct().size == units.size) { "formation contains a unit more than once" }
+        require(units.map { it.controlCompatibilityKey }.distinct().size == 1) { "fixed units have incompatible declared control families" }
+        return units
+    }
+
+    private fun containsUnit(physicalCarIds: List<String>, unitCars: List<String>): Boolean =
+        physicalCarIds.windowed(unitCars.size).any { it == unitCars || it == unitCars.asReversed() }
+
     /** Build a deterministic full matching without mutating occupancy or rolling-stock state. */
     @MainThread
     fun planReset(requestedDepotIds: Set<DepotId>? = null): DepotResetPlanningResult =
         synchronized(lock) {
             val depotIds = (requestedDepotIds ?: rollingStock.values
-                .map { it.record.homeDepotId }
+                .flatMap { resetDepots(it) }
                 .toSet()).toSet()
             if (requestedDepotIds != null) {
                 requestedDepotIds.firstOrNull { it !in depots }?.let {
@@ -208,11 +544,11 @@ class DepotStore {
                 }
             }
             val records = rollingStock.values
-                .filter { it.record.homeDepotId in depotIds }
+                .filter { resetDepots(it).any(depotIds::contains) }
                 .sortedBy { it.record.trainId }
             val candidates = records.associate { runtime ->
                 runtime.record.trainId to points.values.asSequence()
-                    .filter { it.point.ref.depotId == runtime.record.homeDepotId }
+                    .filter { it.point.ref.depotId in resetDepots(runtime) && it.point.ref.depotId in depotIds }
                     .filter { pointAccepts(it.point, runtime.record) }
                     .map { it.point }
                     .sortedBy { it.ref.pointId }
@@ -242,7 +578,7 @@ class DepotStore {
                 if (!match(runtime.record.trainId, LinkedHashSet())) {
                     return@synchronized DepotResetPlanningResult.Failure(
                         "insufficient compatible StablingPoint capacity for Depot " +
-                            runtime.record.homeDepotId
+                            resetDepots(runtime).joinToString()
                     )
                 }
             }
@@ -270,12 +606,14 @@ class DepotStore {
     fun applyReset(plan: DepotResetPlan): Boolean = synchronized(lock) {
         if (validateResetPlanLocked(plan) != null) return@synchronized false
         val trainIds = plan.assignments.mapTo(LinkedHashSet()) { it.trainId }
-        points.values.filter { it.point.ref.depotId in plan.depotIds }.forEach { point ->
-            point.occupantTrainId = null
-            point.reservedByAssignmentId = null
+        val assignmentIds = trainIds.mapNotNullTo(HashSet()) { rollingStock.getValue(it).assignmentId }
+        points.values.forEach { point ->
+            if (point.occupantTrainId in trainIds) point.occupantTrainId = null
+            if (point.reservedByAssignmentId in assignmentIds) point.reservedByAssignmentId = null
         }
         assignments.entries.removeIf { it.value.trainId in trainIds }
         storageReservations.entries.removeIf { it.value.trainId in trainIds }
+        fixedUnitAssignments.entries.removeIf { it.value.trainId in trainIds }
         trainIds.forEach { trainId ->
             val runtime = rollingStock.getValue(trainId)
             runtime.state = RollingStockState.AVAILABLE
@@ -315,6 +653,11 @@ class DepotStore {
         check(runtime.occupantTrainId == null && runtime.reservedByAssignmentId == null) {
             "cannot remove occupied or reserved StablingPoint: $ref"
         }
+        if (depots[ref.depotId]?.stablingPointRefs?.size == 1) {
+            check(rollingStock.values.none { it.record.homeDepotId == ref.depotId } && fixedUnits.values.none { it.homeDepotId == ref.depotId }) {
+                "cannot remove the final point of a Depot with registered home stock or units: ${ref.depotId}"
+            }
+        }
         points.remove(ref)
         depots[ref.depotId]?.let { depot ->
             val remaining = depot.stablingPointRefs.filterNot { it == ref }
@@ -326,9 +669,10 @@ class DepotStore {
 
     @MainThread
     fun registerRollingStock(record: RollingStockRecord, at: StablingPointRef) = synchronized(lock) {
+        require(!formationHoldsTrain(record.trainId)) { "train ID is held by an unresolved formation event" }
         check(rollingStock[record.trainId] == null) { "RollingStock already registered: ${record.trainId}" }
         val point = points[at] ?: throw IllegalArgumentException("StablingPoint not found: $at")
-        require(at.depotId == record.homeDepotId) { "initial point must belong to home depot" }
+        require(record.homeDepotId in depots) { "RollingStock home Depot not found: ${record.homeDepotId}" }
         require(point.occupantTrainId == null && point.reservedByAssignmentId == null) {
             "StablingPoint is occupied or reserved: $at"
         }
@@ -340,6 +684,68 @@ class DepotStore {
     /** Restore one complete persisted ledger after validating every reference, without partial mutation. */
     @MainThread
     fun restoreRollingStock(snapshots: List<RollingStockSnapshot>) = synchronized(lock) {
+        validateRollingStockRestore(snapshots)
+        applyRollingStockRestore(snapshots)
+    }
+
+    /** Validate both ledgers against restored Core membership before publishing either one. */
+    @MainThread
+    fun restoreOperationalLedger(snapshots: List<RollingStockSnapshot>, units: List<FixedEmuUnit>, claims: List<FixedEmuUnitAssignment>, physicalFormations: Map<String, List<String>>, changes: List<FixedFormationChange> = emptyList(), physicalDirections: Map<String, Boolean> = emptyMap(), heldOutputs: List<FixedFormationHeldOutput> = emptyList()) = synchronized(lock) {
+        validateRollingStockRestore(snapshots)
+        check(formationChanges.isEmpty() && formationRecoveryHolds.isEmpty() && heldFormationOutputs.isEmpty())
+        require(changes.map { it.eventId }.distinct().size == changes.size) { "duplicate unresolved formation events" }
+        val recoveryHolds = changes.mapIndexed { index, change ->
+            validateFormationMembership(change, units)
+            require((change.sources + change.outputs.map { it.owner }).none { owner -> changes.take(index).any { changesOverlap(it, owner) } }) { "unresolved formation events overlap" }
+            val ledgerOwners = ledgerFormationOwners(change)
+            val ledgerTrainIds = ledgerOwners.map { it.trainId }.toSet()
+            val ledgerAssignments = ledgerOwners.map { it.assignmentId }.toSet()
+            ledgerOwners.forEach { owner ->
+                val stock = requireNotNull(snapshots.find { it.record.trainId == owner.trainId }) { "unresolved formation owner metadata is missing" }
+                require(stock.state == RollingStockState.IN_SERVICE && stock.assignmentId == owner.assignmentId && stock.stablingPointRef == null &&
+                    stock.record.carCount == owner.carIds.size) { "unresolved formation ledger owner is invalid" }
+            }
+            (change.sources + change.outputs.map { it.owner }).forEach { owner ->
+                require(snapshots.none { (it.record.trainId == owner.trainId && it.record.trainId !in ledgerTrainIds) ||
+                    (it.assignmentId == owner.assignmentId && it.assignmentId !in ledgerAssignments) }) { "unresolved formation conflicts with unrelated stock" }
+            }
+            val composition = when {
+                change.phase == FixedFormationPhase.SOURCES_HELD && matchesFormationSide(change.sources, change, physicalFormations, physicalDirections) ->
+                    RecoveredFormationComposition.UNCHANGED_SOURCES
+                matchesFormationSide(change.outputs.map { it.owner }, change, physicalFormations, physicalDirections) ->
+                    RecoveredFormationComposition.EXPECTED_OUTPUTS
+                else -> throw IllegalArgumentException("unresolved formation event ${change.eventId} does not match its phase and Core composition")
+            }
+            FixedFormationRecoveryHold(change, composition)
+        }
+        validateFixedUnitRestore(units, claims, physicalFormations, changes)
+        claims.forEach { claim ->
+            val stock = requireNotNull(snapshots.find { it.record.trainId == claim.trainId }) { "claimed fixed formation has no rolling stock metadata" }
+            require(stock.assignmentId == claim.assignmentId && stock.state != RollingStockState.AVAILABLE) { "unit and rolling stock assignment disagree" }
+        }
+        val unitCars = units.flatMap { it.carIds }.toSet()
+        snapshots.filter { it.assignmentId != null && physicalFormations[it.record.trainId].orEmpty().any(unitCars::contains) }.forEach { stock ->
+            require(claims.any { it.trainId == stock.record.trainId && it.assignmentId == stock.assignmentId }) { "assigned rolling stock has no unit assignment" }
+        }
+        require(heldOutputs.map { it.owner.trainId }.distinct().size == heldOutputs.size) { "duplicate held formation outputs" }
+        heldOutputs.forEachIndexed { index, held ->
+            val owner = held.owner
+            require(changes.none { changesOverlap(it, owner) } && heldOutputs.take(index).none { ownersOverlap(it.owner, owner) }) { "held formation owners overlap" }
+            require(physicalFormations[owner.trainId] == owner.carIds && physicalDirections[owner.trainId] == owner.reversed) { "held Core formation changed" }
+            val stock = requireNotNull(snapshots.find { it.record.trainId == owner.trainId }) { "held formation metadata missing" }
+            require(stock.state == RollingStockState.IN_SERVICE && stock.assignmentId == owner.assignmentId && stock.stablingPointRef == null &&
+                stock.record.carCount == owner.carIds.size) { "held formation owner metadata changed" }
+            val expected = resolveFixedUnits(owner.carIds, units).map { FixedEmuUnitAssignment(it.id, owner.trainId, owner.assignmentId) }.toSet()
+            require(claims.filter { it.trainId == owner.trainId }.toSet() == expected) { "held formation unit ownership changed" }
+        }
+        applyFixedUnitRestore(units, claims)
+        applyRollingStockRestore(snapshots)
+        heldOutputs.forEach { heldFormationOutputs[it.owner.trainId] = it; recoveredFormationOutputIds += it.owner.trainId }
+        changes.forEach { formationChanges[it.eventId] = it }
+        recoveryHolds.forEach { formationRecoveryHolds[it.change.eventId] = it }
+    }
+
+    private fun validateRollingStockRestore(snapshots: List<RollingStockSnapshot>) {
         check(rollingStock.isEmpty()) { "RollingStock ledger must be empty before restore" }
         require(snapshots.map { it.record.trainId }.distinct().size == snapshots.size) {
             "RollingStock snapshot contains duplicate train IDs"
@@ -371,13 +777,14 @@ class DepotStore {
                     "IN_SERVICE RollingStock must retain its assignment"
                 }
             }
-            require(snapshot.stablingPointRef == null ||
-                snapshot.stablingPointRef.depotId == snapshot.record.homeDepotId)
             if (point != null) {
                 require(point.occupantTrainId == null && point.reservedByAssignmentId == null)
                 require(pointAccepts(point.point, snapshot.record))
             }
         }
+    }
+
+    private fun applyRollingStockRestore(snapshots: List<RollingStockSnapshot>) {
         snapshots.forEach { snapshot ->
             snapshot.stablingPointRef?.let { ref ->
                 points.getValue(ref).apply {
@@ -417,12 +824,18 @@ class DepotStore {
         trainId: String,
         pointRef: StablingPointRef,
         selector: DepotTrainSelector,
-        assignmentId: String
+        assignmentId: String,
+        physicalCarIds: List<String>? = null
     ): DepotTrainAllocation? = synchronized(lock) {
-        if (assignments[assignmentId] != null) return@synchronized null
+        val claims = prepareFixedClaims(trainId, physicalCarIds, assignmentId)
+        if (claims.isNotEmpty()) require(rollingStock[trainId]?.let { it.state == RollingStockState.AVAILABLE && it.assignmentId == null } == true) {
+            "registered fixed formation is not AVAILABLE rolling stock"
+        }
+        require(!assignmentIsOwned(assignmentId)) { "assignment is already owned: $assignmentId" }
         val runtime = rollingStock[trainId] ?: return@synchronized null
         val point = points[pointRef] ?: return@synchronized null
         if (runtime.state != RollingStockState.AVAILABLE || runtime.assignmentId != null ||
+            pointRef.depotId != selector.depotId ||
             runtime.stablingPointRef != pointRef || point.occupantTrainId != trainId ||
             !selector.matches(runtime.record)
         ) return@synchronized null
@@ -431,6 +844,7 @@ class DepotStore {
         runtime.assignmentId = assignmentId
         point.reservedByAssignmentId = assignmentId
         assignments[assignmentId] = allocation
+        claims.forEach { fixedUnitAssignments[it.unitId] = it }
         allocation
     }
 
@@ -438,17 +852,19 @@ class DepotStore {
     fun allocate(
         selector: DepotTrainSelector,
         assignmentId: String,
-        stableSeed: String
+        stableSeed: String,
+        physicalCarsByTrain: Map<String, List<String>> = emptyMap()
     ): DepotTrainAllocationResult = synchronized(lock) {
         requireStableId("assignmentId", assignmentId)
-        if (assignments.containsKey(assignmentId)) {
+        if (assignmentIsOwned(assignmentId)) {
             return@synchronized DepotTrainAllocationResult.AssignmentConflict(assignmentId)
         }
         val availableInDepot = rollingStock.values.count {
-            it.record.homeDepotId == selector.depotId && it.state == RollingStockState.AVAILABLE
+            it.stablingPointRef?.depotId == selector.depotId && it.state == RollingStockState.AVAILABLE
         }
         val candidates = rollingStock.values.asSequence()
-            .filter { it.state == RollingStockState.AVAILABLE && selector.matches(it.record) }
+            .filter { it.state == RollingStockState.AVAILABLE &&
+                it.stablingPointRef?.depotId == selector.depotId && selector.matches(it.record) }
             .filter { runtime ->
                 val ref = runtime.stablingPointRef ?: return@filter false
                 val point = points[ref] ?: return@filter false
@@ -466,6 +882,7 @@ class DepotStore {
             )
         }
         val selected = candidates[stableSelectionIndex(stableSeed, candidates.size)]
+        val claims = prepareFixedClaims(selected.record.trainId, physicalCarsByTrain[selected.record.trainId], assignmentId)
         val pointRef = requireNotNull(selected.stablingPointRef)
         val allocation = DepotTrainAllocation(
             assignmentId,
@@ -477,6 +894,7 @@ class DepotStore {
         selected.assignmentId = assignmentId
         points.getValue(pointRef).reservedByAssignmentId = assignmentId
         assignments[assignmentId] = allocation
+        claims.forEach { fixedUnitAssignments[it.unitId] = it }
         DepotTrainAllocationResult.Allocated(allocation)
     }
 
@@ -507,15 +925,16 @@ class DepotStore {
         assignmentId: String,
         stableSeed: String
     ): DepotStorageReservationResult = synchronized(lock) {
+        if (formationHoldsTrain(trainId)) return@synchronized DepotStorageReservationResult.RollingStockUnavailable(trainId, "formation is held by an unresolved structural event")
         val runtime = rollingStock[trainId]
             ?: return@synchronized DepotStorageReservationResult.RollingStockUnavailable(
                 trainId,
                 "RollingStock is not registered"
             )
-        if (runtime.homeAssignmentMismatch(depotId, assignmentId)) {
+        if (runtime.state != RollingStockState.IN_SERVICE || runtime.assignmentId != assignmentId) {
             return@synchronized DepotStorageReservationResult.RollingStockUnavailable(
                 trainId,
-                "RollingStock is not IN_SERVICE for assignment $assignmentId in its home Depot"
+                "RollingStock is not IN_SERVICE for assignment $assignmentId"
             )
         }
         storageReservations[assignmentId]?.let { existing ->
@@ -553,9 +972,8 @@ class DepotStore {
 
     @MainThread
     fun cancelStorage(reservation: DepotStorageReservation): Boolean = synchronized(lock) {
-        if (storageReservations.remove(reservation.assignmentId) != reservation) {
-            return@synchronized false
-        }
+        if (storageReservations[reservation.assignmentId] != reservation) return@synchronized false
+        storageReservations.remove(reservation.assignmentId)
         points[reservation.stablingPointRef]?.let { point ->
             if (point.reservedByAssignmentId == reservation.assignmentId &&
                 point.occupantTrainId == null
@@ -570,8 +988,7 @@ class DepotStore {
     @MainThread
     fun completeStorage(reservation: DepotStorageReservation): Boolean = synchronized(lock) {
         if (storageReservations[reservation.assignmentId] != reservation) return@synchronized false
-        val allocation = assignments[reservation.assignmentId] ?: return@synchronized false
-        if (allocation.trainId != reservation.trainId) return@synchronized false
+        if (formationHoldsTrain(reservation.trainId)) return@synchronized false
         val runtime = rollingStock[reservation.trainId] ?: return@synchronized false
         if (runtime.state != RollingStockState.IN_SERVICE ||
             runtime.assignmentId != reservation.assignmentId ||
@@ -589,6 +1006,7 @@ class DepotStore {
         runtime.assignmentId = null
         storageReservations.remove(reservation.assignmentId)
         assignments.remove(reservation.assignmentId)
+        fixedUnitAssignments.entries.removeIf { it.value.trainId == reservation.trainId && it.value.assignmentId == reservation.assignmentId }
         true
     }
 
@@ -605,9 +1023,11 @@ class DepotStore {
 
     @MainThread
     fun cancelReservation(allocation: DepotTrainAllocation): Boolean = synchronized(lock) {
-        if (assignments.remove(allocation.assignmentId) != allocation) return@synchronized false
+        if (assignments[allocation.assignmentId] != allocation) return@synchronized false
         val runtime = rollingStock[allocation.trainId] ?: return@synchronized false
-        if (runtime.state != RollingStockState.RESERVED) return@synchronized false
+        if (runtime.state != RollingStockState.RESERVED || runtime.assignmentId != allocation.assignmentId) return@synchronized false
+        assignments.remove(allocation.assignmentId)
+        fixedUnitAssignments.entries.removeIf { it.value.trainId == allocation.trainId && it.value.assignmentId == allocation.assignmentId }
         runtime.state = RollingStockState.AVAILABLE
         runtime.assignmentId = null
         points[allocation.stablingPointRef]?.let { point ->
@@ -663,8 +1083,9 @@ class DepotStore {
     }
 
     private fun validateResetPlanLocked(plan: DepotResetPlan): String? {
+        if (plan.assignments.any { formationHoldsTrain(it.trainId) }) return "Reset intersects an unresolved formation event"
         val expectedTrainIds = rollingStock.values.asSequence()
-            .filter { it.record.homeDepotId in plan.depotIds }
+            .filter { resetDepots(it).any(plan.depotIds::contains) }
             .map { it.record.trainId }
             .toSet()
         val assignedTrainIds = plan.assignments.map { it.trainId }.toSet()
@@ -679,7 +1100,7 @@ class DepotStore {
                 ?: return "RollingStock disappeared: ${assignment.trainId}"
             val point = points[assignment.stablingPointRef]
                 ?: return "StablingPoint disappeared: ${assignment.stablingPointRef}"
-            if (runtime.record.homeDepotId != assignment.stablingPointRef.depotId ||
+            if (assignment.stablingPointRef.depotId !in resetDepots(runtime) ||
                 !pointAccepts(point.point, runtime.record)
             ) {
                 return "RollingStock ${assignment.trainId} no longer fits ${assignment.stablingPointRef}"
@@ -691,12 +1112,10 @@ class DepotStore {
         return null
     }
 
-    private fun RollingRuntime.homeAssignmentMismatch(
-        depotId: DepotId,
-        expectedAssignmentId: String
-    ): Boolean = record.homeDepotId != depotId ||
-        state != RollingStockState.IN_SERVICE ||
-        assignmentId != expectedAssignmentId
+    private fun resetDepots(runtime: RollingRuntime): Set<DepotId> = buildSet {
+        runtime.stablingPointRef?.let { add(it.depotId) }
+        runtime.assignmentId?.let(storageReservations::get)?.let { add(it.stablingPointRef.depotId) }
+    }
 
     private fun RollingRuntime.snapshot(): RollingStockSnapshot = RollingStockSnapshot(
         record,
@@ -718,7 +1137,7 @@ private fun stableSelectionIndex(seed: String, size: Int): Int {
     return (value % size.toLong()).toInt()
 }
 
-private fun requireStableId(label: String, value: String) {
+internal fun requireStableId(label: String, value: String) {
     require(value.isNotBlank() && value == value.trim() && value.none(Char::isISOControl)) {
         "$label must be stable non-blank text"
     }

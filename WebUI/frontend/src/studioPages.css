@@ -1,3 +1,48 @@
+/* Current authoring controls share the studio theme; Ant components own their native internals. */
+.document-settings { width: 360px; display: grid; gap: 12px; }
+.document-settings label { display: grid; gap: 5px; color: var(--ant-color-text-secondary); font-size: 12px; }
+.document-settings .ant-input-number { width: 100%; }
+.empty { color: var(--ant-color-text-tertiary); }
+.run-library-empty { padding: 14px; }
+.editable-tick { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.editable-tick small { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.run-inspector { height: 100%; display: grid; grid-template-rows: 42px 42px minmax(0,1fr); overflow: hidden; }
+.compact-inspector-head { padding: 5px 12px; border-bottom: 1px solid var(--ant-color-border-secondary); }
+.inspector-tabs { padding: 0 13px; border-bottom: 1px solid var(--ant-color-border-secondary); }
+.inspector-tabs .ant-tabs-nav { margin: 0; }
+.inspector-tabs .ant-tabs-content-holder { display: none; }
+.inspector-body { min-height: 0; overflow: hidden; }
+.calls-page { height: 100%; display: flex; flex-direction: column; overflow: auto; }
+.time-mode { min-height: 48px; padding: 9px 11px; flex: 0 0 auto; }
+.time-mode > .ant-typography { font-size: 11px; }
+.calls-table { flex: 1; }
+.calls-table .ant-table { border-top: 1px solid var(--ant-color-border-secondary); }
+.calls-table .ant-table-tbody > tr > td { height: 66px; padding: 8px 6px !important; }
+.calls-table .ant-select,.calls-table .ant-input-number { width: 100%; }
+.station-link.ant-btn { height: auto; padding: 0; white-space: normal; text-align: left; font-weight: 600; }
+.editable-tick small { color: var(--ant-color-text-tertiary); }
+.run-options-page { height: 100%; padding: 14px; display: grid; align-content: start; gap: 12px; overflow-y: auto; }
+.run-option-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
+.run-option-grid label,.call-detail-form label { display: grid; gap: 5px; color: var(--ant-color-text-secondary); font-size: 12px; }
+.run-option-grid .ant-input-number,.run-option-grid .ant-select,.call-detail-form .ant-input-number,.call-detail-form .ant-select { width: 100%; }
+.option-section { padding: 13px; border: 1px solid var(--ant-color-border-secondary); border-radius: 8px; background: var(--ant-color-fill-quaternary); }
+.option-section .ant-typography { margin: 0 0 10px; }
+.call-subpage { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.subpage-head { min-height: 44px; padding: 4px 8px; border-bottom: 1px solid var(--ant-color-border-secondary); }
+.subpage-title { padding: 14px 16px; border-bottom: 1px solid var(--ant-color-border-secondary); }
+.subpage-title .ant-typography { margin: 0 0 4px; }
+.call-detail-form { padding: 14px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.station-actions-reserved { flex: 1; min-height: 0; margin: 0 16px 16px; padding: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; border: 1px dashed var(--ant-color-border); border-radius: 10px; background-color: var(--ant-color-fill-quaternary); background-image: radial-gradient(var(--ant-color-border-secondary) 1px,transparent 1px); background-size: 16px 16px; }
+.station-actions-reserved > .anticon { color: var(--ant-color-primary); font-size: 28px; }
+.station-actions-reserved .ant-typography { max-width: 390px; margin: 0; }
+.issues-view { padding: 14px; display: grid; gap: 10px; }
+.issue-success,.issue-warning { padding: 13px; display: flex; gap: 11px; border: 1px solid; border-radius: 8px; font-size: 18px; }
+.issue-success { color: var(--ant-color-success); background: var(--ant-color-success-bg); border-color: var(--ant-color-success-border); }
+.issue-warning { color: var(--ant-color-warning); background: var(--ant-color-warning-bg); border-color: var(--ant-color-warning-border); }
+.issue-success span,.issue-warning span { display: flex; flex-direction: column; color: var(--ant-color-text); font-size: 13px; }
+.issue-success small,.issue-warning small { color: var(--ant-color-text-secondary); font-weight: normal; }
+
+
 .studio-timetable-page { height: 100%; min-height: 0; display: block; background: var(--ant-color-bg-layout); }
 .workspace-grid { height: 100%; min-width: 0; min-height: 0; padding: 10px; display: grid; gap: 10px; background: var(--ant-color-bg-layout); transition: grid-template-columns .16s ease; }
 .panel-surface { min-width: 0; min-height: 0; overflow: hidden; background: var(--ant-color-bg-container); border: 1px solid var(--ant-color-border-secondary); border-radius: 9px; box-shadow: 0 1px 2px rgba(15,23,42,.025); }
@@ -142,3 +187,28 @@
 .graph-node-toolbar .ant-typography { overflow-wrap:anywhere; }
 .graph-node-toolbar label { display:grid; gap:6px; color:var(--ant-color-text-secondary); }
 .graph-node-toolbar .ant-input-number { width:100%; }
+
+.issues-module .page-heading { flex-wrap:wrap; padding-bottom:12px; }
+.issues-panel { margin-top:12px; }
+.issues-loading { padding:12px 16px; border-bottom:1px solid var(--ant-color-border-secondary); color:var(--ant-color-text-secondary); }
+.issue-diagnostics { display:grid; gap:8px; }
+.issue-diagnostics pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+
+.run-title-edit { font-weight:600; max-width:100%; height:auto; padding:0 4px !important; }
+.run-title-edit > span:last-child { overflow-wrap:anywhere; white-space:normal; }
+.run-title-draft { min-width:160px; max-width:100%; display:grid; gap:4px; }
+
+.program-editor-fields { border: 0; padding: 0; margin: 16px 0; min-width: 0; }
+.program-step { padding: 12px; margin: 12px 0; display: grid; gap: 10px; }
+.program-step label { display: grid; gap: 6px; }
+.program-step > .ant-flex > .ant-input { width: 180px; }
+.program-field-row { margin: 8px 0; }
+.program-field-row > .ant-input { width: 180px; }
+.program-field-row > .ant-select { min-width: 160px; }
+
+.program-step-focused { outline: 2px solid var(--ant-color-primary); outline-offset: 2px; }
+.program-bound-step { padding: 12px 0; }
+.program-bound-step pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.program-json-input { min-width: 220px; max-width: 100%; }
+
+.program-branch { border-inline-start: 2px solid var(--ant-color-border); padding-inline-start: 12px; min-width: 0; }

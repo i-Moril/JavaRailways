@@ -97,8 +97,18 @@ abstract class TrainController(
         operation.copy()
     }
 
+    /**
+     * Prepare non-motion controller state under a formation fence on the physics worker.
+     * Core calls this instead of [tick] only when no configuration quarantine, derailment or
+     * collision is pending. Implementations may process commands and publish planning state;
+     * they must not actuate, move, reverse or change physical structure. Core freezes motion
+     * unconditionally afterward. The default controller has nothing to prepare.
+     */
+    open fun prepareWhileFormationHeld(deltaT: Double) = Unit
+
     /** Publishes a stopped motion state when collision arbitration freezes this controller. */
     internal fun freezeMotionForPhysicsEpoch() {
+        speed = 0.0
         (train as? CoreTrain)?.clearActiveMotionFromPhysics()
     }
 

@@ -739,7 +739,7 @@ class CoreCar @MainThread internal constructor(
     companion object {
         internal const val FORWARD_SEARCH_RADIUS_METERS = 1.0
         // Keep axle anchoring error well below the final 5mm geometry budget, including reload.
-        private const val AXLE_TOLERANCE = 1e-6
+        internal const val AXLE_TOLERANCE = 1e-6
         private const val COUPLER_TOLERANCE = COUPLER_CONTACT_EPSILON_METERS
 
         @JvmStatic

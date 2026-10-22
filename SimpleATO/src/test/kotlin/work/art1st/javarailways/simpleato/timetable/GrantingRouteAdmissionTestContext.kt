@@ -27,6 +27,7 @@ import work.art1st.javarailways.core.physics.CoreWorld
 
 /** Unit-test host for Basic's real admission runtime over manually published Core train frames. */
 internal class GrantingRouteAdmissionTestContext(
+    private val preparationFactory: (() -> work.art1st.javarailways.basic.api.route.ResourcePreparationTicket)? = null,
     private val world: () -> CoreWorld?
 ) : TimetableRouteAdmissionContextProvider {
     private var epoch = 0L
@@ -34,6 +35,7 @@ internal class GrantingRouteAdmissionTestContext(
     private var runtime: RouteResourceAdmissionRuntime? = null
     private var latestObservation: RailwayObservation? = null
     private val requester = Any()
+    private val preparationResource = StableInfrastructureResource("test:station-selection", "gate")
     private val service = object : RouteResourceAdmissionService {
         override fun request(intent: RouteResourceIntent): RouteAdmissionResult =
             checkNotNull(runtime).request(requester, intent)
@@ -120,7 +122,7 @@ internal class GrantingRouteAdmissionTestContext(
                     is RailIntervalResource -> currentWorld.getRail(resource.railId)
                         ?.curve?.totalArcLength?.let { resource.endAbMeters <= it } == true
                     is StableInfrastructureResource ->
-                        createdRuntime.physicalResourceExists(resource)
+                        (preparationFactory != null && resource == preparationResource) || createdRuntime.physicalResourceExists(resource)
                 }
             },
             railExists = { railId -> currentWorld.getRail(railId) != null },
@@ -134,9 +136,12 @@ internal class GrantingRouteAdmissionTestContext(
             registry = createdRegistry,
             hostClaimOwner = this,
             latestObservation = { latestObservation },
-            collectContributions = { emptyList() },
+            collectContributions = { intent -> if (preparationFactory == null) emptyList() else listOf(
+                requester to work.art1st.javarailways.basic.api.route.ContributedRouteResource(preparationResource,
+                    intent.desiredAuthority, work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor(
+                        "test:station-selection", emptyMap()))) },
             validateContribution = { _, _ -> null },
-            resolveContributedPreparation = { _, _ -> null },
+            resolveContributedPreparation = { resource, _ -> preparationFactory?.takeIf { resource == preparationResource } },
             stallWorld = { reason, failure ->
                 val coordinator = currentWorld.simpleAtoWorldData.atoCoordinator
                 coordinator.stall(AtoStallReport(

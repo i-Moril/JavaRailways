@@ -2,6 +2,7 @@ package work.art1st.javarailways.basic.route
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import work.art1st.javarailways.basic.api.ato.snapshot.RouteSegmentSnapshot
 import work.art1st.javarailways.basic.api.route.planning.DirectedRailSpan
@@ -19,6 +20,110 @@ import work.art1st.javarailways.core.physics.rail.topology.buildTestTopology
 import java.util.UUID
 
 class TopologyRoutePlannerTest {
+    @Test
+    fun `fractional edge endpoints retain exact rail-local coordinates in reverse`() {
+        val first = rail(1, 100.1)
+        val second = rail(2, 20.2)
+        val topology = topology(
+            revision = 20L,
+            rails = listOf(first, second),
+            connections = listOf(endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A))
+        )
+
+        val result = TopologyRoutePlanner.plan(
+            input(topology, location(second, 20.2), location(first, 0.0)).copy(
+                startFacing = ViewDirection.BA
+            )
+        ) as TopologyRoutePlanningResult.Planned
+
+        assertEquals(
+            listOf(segment(second, ViewDirection.BA, 0.0, 20.2),
+                segment(first, ViewDirection.BA, 0.0, 100.1)),
+            result.route.segments
+        )
+        assertEquals(120.3, result.route.totalLengthMeters, 1e-12)
+        assertEquals(null, TopologyRoutePlanner.invalidRouteReason(topology, result.route))
+    }
+
+    @Test
+    fun `fractional edge endpoints retain exact rail-local coordinates forward`() {
+        val first = rail(1, 100.1)
+        val second = rail(2, 20.2)
+        val topology = topology(21L, listOf(first, second),
+            listOf(endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A)))
+
+        val result = TopologyRoutePlanner.plan(
+            input(topology, location(first, 0.0), location(second, 20.2)).copy(
+                startFacing = ViewDirection.AB
+            )
+        ) as TopologyRoutePlanningResult.Planned
+
+        assertEquals(listOf(segment(first, ViewDirection.AB, 0.0, 100.1),
+            segment(second, ViewDirection.AB, 0.0, 20.2)), result.route.segments)
+        assertEquals(null, TopologyRoutePlanner.invalidRouteReason(topology, result.route))
+    }
+
+    @Test
+    fun `fractional backwards physical rail retains endpoints in both traversal directions`() {
+        val first = rail(1, 100.1)
+        val backwards = rail(2, 20.2)
+        val topology = topology(22L, listOf(first, backwards),
+            listOf(endpoint(first, RailEndpoint.B) to endpoint(backwards, RailEndpoint.B)))
+
+        val forward = plan(topology, location(first, 0.0), location(backwards, 0.0))
+            as TopologyRoutePlanningResult.Planned
+        val reverse = plan(topology, location(backwards, 0.0), location(first, 0.0))
+            as TopologyRoutePlanningResult.Planned
+
+        assertEquals(listOf(segment(first, ViewDirection.AB, 0.0, 100.1),
+            segment(backwards, ViewDirection.BA, 0.0, 20.2)), forward.route.segments)
+        assertEquals(listOf(segment(backwards, ViewDirection.AB, 0.0, 20.2),
+            segment(first, ViewDirection.BA, 0.0, 100.1)), reverse.route.segments)
+        assertEquals(null, TopologyRoutePlanner.invalidRouteReason(topology, forward.route))
+        assertEquals(null, TopologyRoutePlanner.invalidRouteReason(topology, reverse.route))
+    }
+
+    @Test
+    fun `fractional partial interiors remain partial in both traversal directions`() {
+        val first = rail(1, 100.1)
+        val second = rail(2, 20.2)
+        val topology = topology(23L, listOf(first, second),
+            listOf(endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A)))
+
+        val forward = plan(topology, location(first, 12.3), location(second, 8.1))
+            as TopologyRoutePlanningResult.Planned
+        val reverse = plan(topology, location(second, 8.1), location(first, 12.3))
+            as TopologyRoutePlanningResult.Planned
+
+        assertEquals(12.3, forward.route.segments.first().startArcLengthMeters, 1e-12)
+        assertEquals(8.1, forward.route.segments.last().endArcLengthMeters, 1e-12)
+        assertEquals(20.2 - 8.1, reverse.route.segments.first().startArcLengthMeters, 1e-12)
+        assertEquals(100.1 - 12.3, reverse.route.segments.last().endArcLengthMeters, 1e-12)
+        assertEquals(95.9, forward.route.totalLengthMeters, 1e-12)
+        assertEquals(forward.route.totalLengthMeters, reverse.route.totalLengthMeters, 1e-12)
+        assertEquals(null, TopologyRoutePlanner.invalidRouteReason(topology, forward.route))
+        assertEquals(null, TopologyRoutePlanner.invalidRouteReason(topology, reverse.route))
+    }
+
+    @Test
+    fun `fractional endpoint conversion does not accept out of rail source positions`() {
+        val first = rail(1, 100.1)
+        val second = rail(2, 20.2)
+        val topology = topology(24L, listOf(first, second),
+            listOf(endpoint(first, RailEndpoint.B) to endpoint(second, RailEndpoint.A)))
+
+        assertRejected(TopologyRoutePlanningRejection.INVALID_LOCATION,
+            plan(topology, location(first, -1e-12), location(second, 8.1)))
+        assertRejected(TopologyRoutePlanningRejection.INVALID_LOCATION,
+            plan(topology, location(second, 20.2 + 1e-12), location(first, 12.3)))
+        assertThrows(IllegalArgumentException::class.java) {
+            OperationalRouteLocation(first.id, Double.NaN)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            segment(first, ViewDirection.AB, -1e-12, 1.0)
+        }
+    }
+
     @Test
     fun `facing-constrained route at an edge end retains its exact zero-length start`() {
         val first = rail(1, 10.0)

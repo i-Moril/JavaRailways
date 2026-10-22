@@ -5,7 +5,7 @@ import work.art1st.javarailways.simpleato.api.NAMESPACED_SIMPLE_ATO_ID
 import work.art1st.javarailways.simpleato.api.route.FrozenRouteBinding
 import java.util.Collections
 
-/** A signalling-owned restriction that can only tighten one train's permitted movement. */
+/** A route-bound restriction consumed by the shared train protection pipeline. */
 sealed interface TrainRestriction {
     /** Stable namespaced identity unique within one source snapshot. */
     val restrictionId: String
@@ -87,6 +87,14 @@ data class MovementAuthorityRestriction(
     }
 }
 
+/** Host-issued, process-local authority for one exact physical coupling contact. */
+class CouplingContactRestriction internal constructor(
+    override val restrictionId: String,
+    val authority: work.art1st.javarailways.basic.api.route.CouplingContactAuthority
+) : TrainRestriction {
+    init { requireNamespacedRestrictionId(restrictionId) }
+}
+
 /**
  * Complete immutable output from one signalling source for one train and one frozen route.
  *
@@ -143,6 +151,7 @@ data class TrainRestrictionSnapshot private constructor(
                 is RouteSpeedRestriction -> restriction.routeDistanceMeters
                 is StopTrainRestriction -> restriction.routeDistanceMeters
                 is MovementAuthorityRestriction -> restriction.routeDistanceMeters
+                is CouplingContactRestriction -> restriction.authority.contactBoundary.distanceFromRouteStartMeters
             }
             require(target == null || target <= route.totalLengthMeters) {
                 "restriction ${restriction.restrictionId} exceeds the frozen route"

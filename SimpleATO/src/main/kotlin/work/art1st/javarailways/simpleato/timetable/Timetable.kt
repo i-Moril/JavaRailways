@@ -1,5 +1,6 @@
 package work.art1st.javarailways.simpleato.timetable
 
+import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationIds
 import work.art1st.javarailways.simpleato.api.depot.DepotId
 import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
 import work.art1st.javarailways.simpleato.api.line.LineId
@@ -16,6 +17,7 @@ import work.art1st.javarailways.simpleato.api.station.StationCallRequest
 import work.art1st.javarailways.simpleato.api.station.StationCallResolutionResult
 import work.art1st.javarailways.simpleato.api.station.StationCallResolver
 import work.art1st.javarailways.simpleato.api.station.StationId
+import work.art1st.javarailways.simpleato.api.station.StationStopSelection
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.route.ExpandedRoute
 import work.art1st.javarailways.simpleato.routing.RouteBuildResult
@@ -32,7 +34,8 @@ data class Timetable(
     val periodDays: Long = 1L,
     val services: List<TimetableService> = emptyList(),
     val initialPositions: List<TimetableInitialPosition> = emptyList(),
-    val lineSpeedLimits: List<TimetableLineSpeedLimit> = emptyList()
+    val lineSpeedLimits: List<TimetableLineSpeedLimit> = emptyList(),
+    val formationEvents: TimetableFormationCatalog = TimetableFormationCatalog(emptyList())
 ) {
     init {
         require(periodDays > 0L) { "Timetable periodDays must be positive" }
@@ -132,7 +135,17 @@ sealed class TimetableStep {
 }
 
 sealed class TimetableAction {
-    /** Select and reserve one compatible AVAILABLE train from its home Depot. */
+    /** Claims exactly this event output from the same source timetable cycle, never a latest match. */
+    data class TakeFromFormationOutput(val eventId: String, val outputId: String) : TimetableAction() {
+        init { require(eventId.isNotBlank() && eventId == eventId.trim()); require(outputId.isNotBlank() && outputId == outputId.trim()) }
+    }
+    data class Couple(val eventId: String) : TimetableAction() {
+        init { require(eventId.isNotBlank() && eventId == eventId.trim()) }
+    }
+    data class Split(val eventId: String) : TimetableAction() {
+        init { require(eventId.isNotBlank() && eventId == eventId.trim()) }
+    }
+    /** Select and reserve one compatible AVAILABLE train from its physical Depot. */
     data class TakeFromDepot(val selector: DepotTrainSelector) : TimetableAction()
 
     /** Acquire an unassigned stopped train from the first matching directed waypoint. */
@@ -160,23 +173,29 @@ sealed class TimetableAction {
     data class Extension(val call: TimetableExtensionCall) : TimetableAction()
 
     /**
-     * Evaluate once when this action is reached and execute the selected extension-action branch.
+     * Evaluate once at its At tick and execute the selected timed branch.
      *
-     * Core movement and safety actions are deliberately excluded from branches in the first
-     * version. This keeps route validation deterministic while still supporting node-specific
-     * plugin operations. Nested conditional and extension actions are accepted.
+     * Finite timed branches share the same addressed execution cursor and retained route validation.
+     * Acquisition and fixed circulation events remain outside runtime branches.
      */
-    data class Conditional(
+    class Conditional(
         val condition: TimetableCondition,
-        val thenActions: List<TimetableAction>,
-        val elseActions: List<TimetableAction> = emptyList()
+        thenSteps: List<TimetableStep.At>,
+        elseSteps: List<TimetableStep.At> = emptyList()
     ) : TimetableAction() {
+        val thenSteps: List<TimetableStep.At> = java.util.List.copyOf(thenSteps)
+        val elseSteps: List<TimetableStep.At> = java.util.List.copyOf(elseSteps)
         init {
-            require(thenActions.all(TimetableAction::isRuntimeExtensionAction))
-            require(elseActions.all(TimetableAction::isRuntimeExtensionAction))
+            require(thenSteps.all { it.action.isRuntimeProgramAction() })
+            require(elseSteps.all { it.action.isRuntimeProgramAction() })
         }
+        override fun equals(other: Any?) = other is Conditional && condition == other.condition &&
+            thenSteps == other.thenSteps && elseSteps == other.elseSteps
+        override fun hashCode() = 31 * (31 * condition.hashCode() + thenSteps.hashCode()) + elseSteps.hashCode()
     }
 
+    /** Hold at the acquired/checked position until the enclosing At.tick, then continue. */
+    data object WaitUntil : TimetableAction()
     data object Halt : TimetableAction()
     data object Reverse : TimetableAction()
     data class DestinationOptions(
@@ -192,6 +211,19 @@ sealed class TimetableAction {
                 stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
         }
     }
+    /** One selected station movement; successor state is the actual chosen stopping marker. */
+    data class SelectStop(
+        val selection: StationStopSelection,
+        val minimumDwellTicks: Long? = null,
+        val stoppingOffsetMetersBefore: Double? = null,
+        val doorSideOverride: DoorSide? = null
+    ) : TimetableAction() {
+        init {
+            require(minimumDwellTicks == null || minimumDwellTicks >= 0L)
+            require(stoppingOffsetMetersBefore == null || stoppingOffsetMetersBefore.isFinite() && stoppingOffsetMetersBefore >= 0.0)
+        }
+    }
+
     data class CallStation(
         val stationId: String,
         val berthId: String,
@@ -210,25 +242,62 @@ sealed class TimetableAction {
             get() = StationBerthRef(StationId(stationId), berthId)
     }
 
-    private fun isRuntimeExtensionAction(): Boolean = when (this) {
-        is Extension -> true
-        is Conditional -> thenActions.all(TimetableAction::isRuntimeExtensionAction) &&
-            elseActions.all(TimetableAction::isRuntimeExtensionAction)
+    private fun isRuntimeProgramAction(): Boolean = when (this) {
+        is Extension, is Stop, WaitUntil, Reverse, is GoTo, is GoVia, is DestinationOptions, is CallStation, is SelectStop -> true
+        is Conditional -> thenSteps.all { it.action.isRuntimeProgramAction() } &&
+            elseSteps.all { it.action.isRuntimeProgramAction() }
         else -> false
     }
 }
+
+/** Candidate retained only after its whole normal continuation has been validated. */
+internal data class ValidatedStationSelectionKey(val serviceId: String, val address: TimetableStepAddress,
+    val originId: String?, val berthId: String)
+
+/** Transient, validated association; not an authored or persisted identity. */
+data class ValidatedTimetableRouteKey(
+    val serviceId: String,
+    val stepIndex: Int,
+    val originId: String,
+    val legIndex: Int,
+    val targetId: String,
+    val startDirection: ViewDirection,
+    val address: TimetableStepAddress = TimetableStepAddress(stepIndex),
+    val stoppingOffsetMeters: Double? = 0.0
+) {
+    init { require(address.topLevelIndex == stepIndex) }
+}
+
+data class ValidatedTimetableRoute(
+    val route: ExpandedRoute,
+    val stoppingOffsetMeters: Double?,
+    val topology: work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
+)
 
 @ConsistentCopyVisibility
 data class TimetableValidationResult private constructor(
     val errors: List<String>,
     val routes: List<ExpandedRoute>,
     /** Offset before the endpoint anchor; null denotes a pass-through leg, aligned with [routes]. */
-    val routeStoppingOffsetsMeters: List<Double?>
+    val routeStoppingOffsetsMeters: List<Double?>,
+    val retainedRoutes: Map<ValidatedTimetableRouteKey, ValidatedTimetableRoute>,
+    internal val structural: StructuralTimetableValidation,
+    val circulation: work.art1st.javarailways.simpleato.api.timetable.TimetableCirculationSummary?
 ) {
     constructor(errors: Collection<String>, routes: Collection<ExpandedRoute>,
-        routeStoppingOffsetsMeters: Collection<Double?> = List(routes.size) { 0.0 }) : this(
+        routeStoppingOffsetsMeters: Collection<Double?> = List(routes.size) { 0.0 },
+        retainedRoutes: Map<ValidatedTimetableRouteKey, ValidatedTimetableRoute> = emptyMap()) : this(
         java.util.List.copyOf(errors), java.util.List.copyOf(routes),
-        java.util.Collections.unmodifiableList(ArrayList(routeStoppingOffsetsMeters)))
+        java.util.Collections.unmodifiableList(ArrayList(routeStoppingOffsetsMeters)),
+        java.util.Collections.unmodifiableMap(LinkedHashMap(retainedRoutes)), StructuralTimetableValidation(), null)
+
+    internal constructor(errors: Collection<String>, routes: Collection<ExpandedRoute>,
+        routeStoppingOffsetsMeters: Collection<Double?>,
+        retainedRoutes: Map<ValidatedTimetableRouteKey, ValidatedTimetableRoute>, structural: StructuralTimetableValidation,
+        circulation: work.art1st.javarailways.simpleato.api.timetable.TimetableCirculationSummary? = null) : this(
+        java.util.List.copyOf(errors), java.util.List.copyOf(routes),
+        java.util.Collections.unmodifiableList(ArrayList(routeStoppingOffsetsMeters)),
+        java.util.Collections.unmodifiableMap(LinkedHashMap(retainedRoutes)), structural, circulation)
 
     init {
         require(routes.size == routeStoppingOffsetsMeters.size) { "route stopping offsets must align with routes" }
@@ -242,10 +311,21 @@ data class TimetableValidationResult private constructor(
 class TimetableValidator(private val world: World) {
     private val routePlanner = OperationalRoutePlanner(world)
 
-    fun validate(timetable: Timetable): TimetableValidationResult {
+    fun validate(timetable: Timetable): TimetableValidationResult = validateDefinition(timetable, timetable)
+
+    /** A service start checks its current physical route without shrinking the recurring inventory graph. */
+    internal fun validateForServiceStart(timetable: Timetable, serviceId: String): TimetableValidationResult {
+        val service = requireNotNull(timetable.services.singleOrNull { it.id == serviceId }) { "Service is absent or duplicated: $serviceId" }
+        val routeDefinition = if (timetable.formationEvents.isEmpty()) timetable.copy(services = listOf(service)) else timetable
+        return validateDefinition(routeDefinition, timetable)
+    }
+
+    private fun validateDefinition(timetable: Timetable, circulationTimetable: Timetable): TimetableValidationResult {
         val errors = mutableListOf<String>()
         val routes = mutableListOf<ExpandedRoute>()
         val routeStoppingOffsets = mutableListOf<Double?>()
+        val retainedRoutes = LinkedHashMap<ValidatedTimetableRouteKey, ValidatedTimetableRoute>()
+        val retainedSelections = linkedSetOf<ValidatedStationSelectionKey>()
 
         if (timetable.id.isBlank()) errors.add("时刻表 id 不能为空")
         if (timetable.periodDays <= 0L) errors.add("时刻表周期天数必须 > 0: ${timetable.periodDays}")
@@ -259,13 +339,46 @@ class TimetableValidator(private val world: World) {
                 errors.add("线路限速引用不存在的 LineId: ${limit.lineId.value}")
             }
         }
+        val formationErrors = FormationEventValidator.validate(timetable)
+        errors += formationErrors
+        timetable.formationEvents.filterIsInstance<TimetableFormationEvent.Couple>().forEach { event ->
+            listOf(event.rendezvous.approachDestinationId, event.rendezvous.stationaryDestinationId).forEach { id ->
+                if (!wayPointExists(id)) errors += "formation event ${event.id} destination does not exist: $id"
+            }
+        }
         val serviceIds = mutableSetOf<String>()
         for (service in timetable.services) {
+            val program = TimetableServiceTraversal(service)
+            val branchErrors = TimetableBranchGuard.validate(program,
+                conditionalActivation = service.activation is TimetableServiceActivation.Conditional)
+            errors += branchErrors.map { "[${timetable.id}/${service.id}] ${it.address} ${it.code}: ${it.detail}" }
+            if (branchErrors.any { it.code == "PROGRAM_LIMIT" }) continue
+            errors += TimetableProgramSchedule.validate(program, periodTicks).map {
+                "[${timetable.id}/${service.id}] ${it.address} ${it.code}: ${it.detail}"
+            }
             validateServiceLine(timetable, service, errors)
-            validateService(timetable.id, periodTicks, service, errors, routes, routeStoppingOffsets)
+            validateService(timetable.id, periodTicks, service, errors, routes, routeStoppingOffsets, retainedRoutes, retainedSelections)
             if (!serviceIds.add(service.id)) errors.add("重复 service id: ${service.id}")
         }
-        return TimetableValidationResult(errors, routes, routeStoppingOffsets)
+        val structural = if (timetable.formationEvents.isEmpty() || formationErrors.isNotEmpty()) StructuralTimetableValidation()
+        else try {
+            val validateStructural = {
+                StructuralTimetableValidator(world, retainedRoutes, retainedSelections) { selector ->
+                    depotValidationOrigins(selector).map { it.point.destinationId }
+                }.validate(timetable)
+            }
+            if (timetable.formationEvents.any { it is TimetableFormationEvent.Couple }) {
+                val core = world as? work.art1st.javarailways.core.physics.CoreWorld
+                    ?: error("coupling static proof requires the Core serialized owner")
+                core.physicsCoordinator.withStructuralMutation { validateStructural() }
+            } else validateStructural()
+        } catch (failure: Exception) {
+            StructuralTimetableValidation(listOf("formation output has no retained onward-route proof: ${failure.message ?: failure.javaClass.simpleName}"))
+        }
+        errors += structural.errors
+        val circulation = CurrentUnitCirculation.analyze(world, circulationTimetable).summary()
+        errors += circulation.findings.filter { it.blocking }.map { "[${timetable.id}] circulation ${it.code}: ${it.detail}" }
+        return TimetableValidationResult(errors, routes, routeStoppingOffsets, retainedRoutes, structural, circulation)
     }
 
     private fun validateServiceLine(
@@ -289,7 +402,9 @@ class TimetableValidator(private val world: World) {
         service: TimetableService,
         errors: MutableList<String>,
         routes: MutableList<ExpandedRoute>,
-        routeStoppingOffsets: MutableList<Double?>
+        routeStoppingOffsets: MutableList<Double?>,
+        retainedRoutes: MutableMap<ValidatedTimetableRouteKey, ValidatedTimetableRoute>,
+        retainedSelections: MutableSet<ValidatedStationSelectionKey>
     ) {
         val prefix = "[$timetableId/${service.id}]"
         if (service.id.isBlank()) errors.add("$prefix service id 不能为空")
@@ -305,19 +420,71 @@ class TimetableValidator(private val world: World) {
             }
         }
 
-        var currentWayPointId: String? = initialWayPoint(service.trainSelector, prefix, errors)
-        var requiredStartDirection: ViewDirection? = null
-        var previousAtTick: Long? = null
-        var pendingStationCall: Pair<Int, TimetableAction.CallStation>? = null
-        var pendingDestinationOptions: Pair<Int, TimetableAction.DestinationOptions>? = null
-        var dynamicOriginCandidates: List<String>? = null
-        var takeFromDepotCount = 0
-        var takeActionCount = 0
-        var takeFromDepotId: DepotId? = null
-        var takeFromDepotSelector: DepotTrainSelector? = null
-        var hasMovement = false
+        data class State(
+            val currentWayPointId: String?, val requiredStartDirections: Set<ViewDirection?> = setOf(null),
+            val previousAtTick: Long? = null,
+            val pendingStationCall: Pair<Int, TimetableAction.CallStation>? = null,
+            val pendingDestinationOptions: Pair<Int, TimetableAction.DestinationOptions>? = null,
+            val dynamicOriginCandidates: List<String>? = null, val takeActionCount: Int = 0,
+            val takeFromDepotSelector: DepotTrainSelector? = null, val hasMovement: Boolean = false,
+            val hasFormationOrigin: Boolean = false)
+        class ProofSink(
+            val errors: MutableList<String> = arrayListOf(),
+            val routes: MutableList<ExpandedRoute> = arrayListOf(),
+            val offsets: MutableList<Double?> = arrayListOf(),
+            val retained: MutableMap<ValidatedTimetableRouteKey, ValidatedTimetableRoute> = linkedMapOf(),
+            val selections: MutableSet<ValidatedStationSelectionKey> = linkedSetOf()
+        ) {
+            fun merge(other: ProofSink) {
+                this.errors += other.errors
+                this.selections += other.selections
+                other.retained.forEach { (key, evidence) ->
+                    val previous = this.retained.putIfAbsent(key, evidence)
+                    if (previous == null) {
+                        // Legacy route arrays retain each association, including shared suffix geometry
+                        // from different origins. Cached copies of the same key are published only once.
+                        this.routes.add(evidence.route)
+                        this.offsets.add(evidence.stoppingOffsetMeters)
+                    } else if (previous != evidence) {
+                        this.errors += "$prefix route key has conflicting geometry or stopping constraints: $key"
+                    }
+                }
+            }
+        }
 
-        service.steps.forEachIndexed { index, step ->
+        val allProofs = ProofSink(errors, routes, routeStoppingOffsets, retainedRoutes, retainedSelections)
+        var proofWork = 0
+        var budgetFailure: String? = null
+        fun chargeProofWork(sink: ProofSink, count: Int = 1): Boolean {
+            require(count >= 0)
+            if (budgetFailure == null && count <= 4096 - proofWork) {
+                proofWork += count
+                return true
+            }
+            val message = budgetFailure ?: "$prefix finite continuation proof exceeds 4096 work items"
+            budgetFailure = message
+            if (message !in errors) errors += message
+            if (message !in sink.errors) sink.errors += message
+            return false
+        }
+        val servicePrefix = prefix
+        fun process(step: TimetableStep, address: TimetableStepAddress, input: State, sink: ProofSink): State {
+            val errors = sink.errors
+            val routes = sink.routes
+            val routeStoppingOffsets = sink.offsets
+            val retainedRoutes = sink.retained
+            val index = address.topLevelIndex
+            val prefix = "$servicePrefix $address"
+            var currentWayPointId = input.currentWayPointId
+            var requiredStartDirections = input.requiredStartDirections
+            var previousAtTick = input.previousAtTick
+            var pendingStationCall = input.pendingStationCall
+            var pendingDestinationOptions = input.pendingDestinationOptions
+            var dynamicOriginCandidates = input.dynamicOriginCandidates
+            var takeActionCount = input.takeActionCount
+            var takeFromDepotSelector = input.takeFromDepotSelector
+            var hasMovement = input.hasMovement
+            var hasFormationOrigin = input.hasFormationOrigin
             when (step) {
                 is TimetableStep.Check -> {
                     if (takeActionCount > 0) {
@@ -341,15 +508,28 @@ class TimetableValidator(private val world: World) {
                     }
                     previousAtTick = step.tick
                     when (step.action) {
+                        is TimetableAction.SelectStop -> error("SelectStop requires candidate continuation validation")
                         is TimetableAction.TakeFromDepot -> {
-                            takeFromDepotCount++
                             takeActionCount++
-                            takeFromDepotId = step.action.selector.depotId
                             takeFromDepotSelector = step.action.selector
                             validateTakeAction(
                                 prefix, index, "takeFromDepot", takeActionCount,
                                 service, pendingStationCall, pendingDestinationOptions, errors
                             )
+                        }
+                        is TimetableAction.TakeFromFormationOutput -> {
+                            hasFormationOrigin = true
+                            takeActionCount++
+                            validateTakeAction(prefix, index, "takeFromFormationOutput", takeActionCount,
+                                service, pendingStationCall, pendingDestinationOptions, errors)
+                        }
+                        is TimetableAction.Couple, is TimetableAction.Split -> {
+                            if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin)
+                                errors += "$prefix step#$index formation action requires an acquired or checked train"
+                            hasFormationOrigin = true
+                            takeFromDepotSelector = null
+                            if (pendingStationCall != null || pendingDestinationOptions != null)
+                                errors += "$prefix step#$index formation action cannot interrupt pending destination navigation"
                         }
                         is TimetableAction.TakeFromWaypoint -> {
                             takeActionCount++
@@ -359,9 +539,12 @@ class TimetableValidator(private val world: World) {
                             )
                         }
                         is TimetableAction.StoreAtDepot -> {
-                            if (takeFromDepotCount != 1 || takeFromDepotId != step.action.depotId) {
+                            if (service.activation is TimetableServiceActivation.Conditional) {
+                                errors.add("$prefix step#$index storeAtDepot 不得用于运行时条件激活的 service")
+                            }
+                            if (takeActionCount != 1 && !(takeActionCount == 0 && hasFormationOrigin)) {
                                 errors.add(
-                                    "$prefix step#$index storeAtDepot 必须返回 takeFromDepot 的 home Depot"
+                                    "$prefix step#$index storeAtDepot 前必须有且仅有一次取车"
                                 )
                             }
                             if (index != service.steps.lastIndex) {
@@ -389,25 +572,10 @@ class TimetableValidator(private val world: World) {
                         is TimetableAction.GoTo,
                         is TimetableAction.GoVia -> {
                             hasMovement = true
-                            if (currentWayPointId == null && takeActionCount == 0) {
+                            if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin) {
                                 errors.add(
                                     "$prefix step#$index destination 缺少初始 check、takeFromDepot 或 takeFromWaypoint"
                                 )
-                            }
-                            pendingStationCall?.let { (callIndex, call) ->
-                                (dynamicOriginCandidates ?: listOfNotNull(currentWayPointId))
-                                    .forEach { origin ->
-                                        val stationOffset = validateStationCallPrefix(
-                                            prefix,
-                                            callIndex,
-                                            origin,
-                                            call,
-                                            step.action,
-                                            requiredStartDirection,
-                                            errors
-                                        )
-                                        if (stationOffset != null) movementStoppingOffset = stationOffset
-                                    }
                             }
                             val movementTargets = when (val movement = step.action) {
                                 is TimetableAction.GoTo -> listOf(movement.wayPointId)
@@ -421,23 +589,6 @@ class TimetableValidator(private val world: World) {
                                     )
                                 }
                             }
-                            val firstTarget = movementTargets.firstOrNull()
-                            if (firstTarget != null) {
-                                dynamicOriginCandidates.orEmpty().drop(1).forEach { origin ->
-                                    validateGoTo(
-                                        prefix,
-                                        index,
-                                        origin,
-                                        firstTarget,
-                                        errors,
-                                        routes,
-                                        routeStoppingOffsets,
-                                        stoppingOffset = if (movementTargets.size == 1) movementStoppingOffset else null
-                                    )
-                                }
-                            }
-                            pendingStationCall = null
-                            pendingDestinationOptions = null
                         }
                         TimetableAction.Halt -> {
                             if (!hasMovement) errors.add("$prefix step#$index halt 前必须至少有一个 destination")
@@ -448,8 +599,16 @@ class TimetableValidator(private val world: World) {
                                 errors.add("$prefix step#$index destination options 后必须先完成导航")
                             }
                         }
+                        TimetableAction.WaitUntil -> {
+                            if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin) {
+                                errors.add("$prefix step#$index waitUntil 前必须先通过 check/take 确定列车位置")
+                            }
+                            if (pendingStationCall != null || pendingDestinationOptions != null) {
+                                errors.add("$prefix step#$index destination options 后必须先完成导航")
+                            }
+                        }
                         TimetableAction.Reverse -> {
-                            if (!hasMovement && takeActionCount == 0 && currentWayPointId == null) {
+                            if (!hasMovement && takeActionCount == 0 && currentWayPointId == null && !hasFormationOrigin) {
                                 errors.add(
                                     "$prefix step#$index reverse 前必须先通过 check/take 确定列车位置"
                                 )
@@ -459,92 +618,204 @@ class TimetableValidator(private val world: World) {
                             }
                         }
                         is TimetableAction.Stop -> {
-                            if (!hasMovement) {
-                                errors.add("$prefix step#$index 首次 destination 前不得 stop")
+                            if (!hasMovement && takeActionCount != 1 && !hasFormationOrigin) {
+                                errors.add("$prefix step#$index stop 前必须完成取车或 destination")
                             }
                             if (pendingStationCall != null || pendingDestinationOptions != null) {
                                 errors.add("$prefix step#$index destination options 后必须直接跟随导航")
                             }
                         }
                         is TimetableAction.Extension -> {
-                            if (!hasMovement) {
-                                errors.add("$prefix step#$index 首次 destination 前不得执行扩展动作")
+                            if (!hasMovement && takeActionCount != 1 && !hasFormationOrigin) {
+                                errors.add("$prefix step#$index 扩展动作前必须完成取车或 destination")
                             }
-                            validateExtensionAction(prefix, index, step.action, errors)
+                            if (pendingStationCall != null || pendingDestinationOptions != null) {
+                                errors.add("$prefix step#$index destination options 后必须直接跟随导航")
+                            }
+                            validateExtensionAction(prefix, address, step.action, errors)
                         }
                         is TimetableAction.Conditional -> {
-                            if (!hasMovement) {
-                                errors.add("$prefix step#$index 首次 destination 前不得执行条件分支")
-                            }
-                            world.simpleAtoWorldData.timetableExtensions
-                                .validateCondition(
-                                    step.action.condition,
-                                    TimetableConditionScope.RUNTIME_BRANCH
-                                )
-                                .forEach { errors.add("$prefix step#$index condition: $it") }
-                            step.action.thenActions.forEach {
-                                validateExtensionAction(prefix, index, it, errors)
-                            }
-                            step.action.elseActions.forEach {
-                                validateExtensionAction(prefix, index, it, errors)
-                            }
+                            if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin)
+                                errors += "$prefix conditional requires an acquired or checked train"
+                            world.simpleAtoWorldData.timetableExtensions.validateCondition(step.action.condition,
+                                TimetableConditionScope.RUNTIME_BRANCH).forEach { errors += "$prefix condition: $it" }
                         }
                     }
-                    currentWayPointId = validateAction(
-                        prefix,
-                        index,
-                        currentWayPointId,
-                        step.action,
-                        errors,
-                        routes,
-                        routeStoppingOffsets,
-                        takeFromDepotSelector,
-                        requiredStartDirection,
-                        movementStoppingOffset
-                    )
-                    requiredStartDirection = when (step.action) {
-                        TimetableAction.Reverse -> {
-                            val direction = requiredStartDirection
-                                ?: currentWayPointId?.let {
-                                    world.simpleAtoWorldData.destinations[it]?.approachDirection
-                                }
-                            direction?.opposite()
+                    val movement = step.action is TimetableAction.GoTo || step.action is TimetableAction.GoVia
+                    val origins = if (movement || step.action is TimetableAction.StoreAtDepot)
+                        dynamicOriginCandidates ?: listOf(currentWayPointId) else listOf(currentWayPointId)
+                    var successor = currentWayPointId
+                    val arrivalDirections = linkedSetOf<ViewDirection?>()
+                    for ((originIndex, origin) in origins.withIndex()) {
+                        if (budgetFailure != null) { chargeProofWork(sink, 0); break }
+                        val directionalMovement = movement || step.action is TimetableAction.StoreAtDepot
+                        val inputs = if (directionalMovement) requiredStartDirections.flatMap { direction ->
+                            val effective = direction ?: origin?.let(::destinationDirection)
+                            if (effective == null) ViewDirection.entries else listOf(effective)
+                        }.distinct() else listOf(requiredStartDirections.firstOrNull())
+                        val rejected = ArrayList<String>()
+                        var accepted = false
+                        for (inputDirection in inputs) {
+                            val routeWork = when (val action = step.action) {
+                                is TimetableAction.GoVia -> action.wayPointIds.size
+                                is TimetableAction.GoTo, is TimetableAction.StoreAtDepot -> 1
+                                else -> 0
+                            }
+                            if (!chargeProofWork(sink, routeWork)) break
+                            val candidateRoutes = ArrayList<ExpandedRoute>()
+                            val candidateOffsets = ArrayList<Double?>()
+                            val candidateErrors = ArrayList<String>()
+                            val next = validateAction(prefix, index, origin, step.action, candidateErrors, candidateRoutes,
+                                candidateOffsets, takeFromDepotSelector, inputDirection, movementStoppingOffset)
+                            if (movement && pendingStationCall != null && candidateRoutes.isNotEmpty()) {
+                                val (callIndex, call) = pendingStationCall!!
+                                val offset = validateStationCallPrefix(prefix, callIndex, origin, call,
+                                    candidateRoutes, inputDirection, candidateErrors)
+                                if (offset != null) candidateOffsets[candidateOffsets.lastIndex] = offset
+                            }
+                            if (candidateErrors.isNotEmpty()) {
+                                rejected += candidateErrors
+                                // A known predecessor direction is a real possible state, not an optional search direction.
+                                if (inputDirection != null && inputDirection in requiredStartDirections) errors += candidateErrors
+                                continue
+                            }
+                            accepted = true
+                            if (originIndex == 0) successor = next
+                            if (movement) candidateRoutes.lastOrNull()?.let {
+                                arrivalDirections += it.segments.last().railViewRef.direction
+                            }
+                            candidateRoutes.forEachIndexed { legIndex, route ->
+                                val key = ValidatedTimetableRouteKey(service.id, index, requireNotNull(origin),
+                                    if (step.action is TimetableAction.StoreAtDepot) 0 else legIndex,
+                                    route.toWayPointId, route.segments.first().railViewRef.direction, address, candidateOffsets[legIndex])
+                                val evidence = ValidatedTimetableRoute(route, candidateOffsets[legIndex], world.topologyState)
+                                val previous = retainedRoutes.putIfAbsent(key, evidence)
+                                if (previous != null && previous != evidence)
+                                    errors += "$prefix route key has conflicting geometry or stopping constraints: $key"
+                            }
+                            routes += candidateRoutes
+                            routeStoppingOffsets += candidateOffsets
                         }
+                        if (!accepted) errors += rejected.distinct()
+                    }
+                    currentWayPointId = successor
+                    if (movement) { pendingStationCall = null; pendingDestinationOptions = null }
+                    requiredStartDirections = when (step.action) {
+                        TimetableAction.Reverse -> requiredStartDirections.map { direction ->
+                            (direction ?: currentWayPointId?.let(::destinationDirection))?.opposite()
+                        }.toSet()
                         is TimetableAction.GoTo,
-                        is TimetableAction.GoVia,
+                        is TimetableAction.GoVia -> arrivalDirections.ifEmpty { setOf(null) }
                         is TimetableAction.TakeFromDepot,
-                        is TimetableAction.TakeFromWaypoint -> null
-                        else -> requiredStartDirection
+                        is TimetableAction.TakeFromFormationOutput,
+                        is TimetableAction.Couple,
+                        is TimetableAction.Split,
+                        is TimetableAction.TakeFromWaypoint -> setOf(null)
+                        else -> requiredStartDirections
                     }
                     when (val action = step.action) {
                         is TimetableAction.TakeFromDepot -> {
-                            dynamicOriginCandidates = world.simpleAtoWorldData.depots
-                                .compatibleStablingPoints(action.selector)
+                            dynamicOriginCandidates = depotValidationOrigins(action.selector)
                                 .map { it.point.destinationId }
                                 .filter(::wayPointExists)
                         }
                         is TimetableAction.TakeFromWaypoint -> {
                             dynamicOriginCandidates = action.wayPointIds.filter(::wayPointExists)
                         }
+                        is TimetableAction.TakeFromFormationOutput,
+                        is TimetableAction.Couple,
+                        is TimetableAction.Split -> dynamicOriginCandidates = null
                         is TimetableAction.GoTo,
                         is TimetableAction.GoVia -> dynamicOriginCandidates = null
                         else -> Unit
                     }
                 }
             }
+            return State(currentWayPointId, requiredStartDirections, previousAtTick, pendingStationCall,
+                pendingDestinationOptions, dynamicOriginCandidates, takeActionCount, takeFromDepotSelector,
+                hasMovement, hasFormationOrigin)
         }
-        pendingStationCall?.let { (index, _) ->
-            errors.add("$prefix step#$index 车站操作缺少 destination 导航")
+        fun validateOutcome(outcome: State, sink: ProofSink) {
+            outcome.pendingStationCall?.let { (index, _) ->
+                sink.errors += "$prefix step#$index 车站操作缺少 destination 导航"
+            }
+            outcome.pendingDestinationOptions?.let { (index, _) ->
+                sink.errors += "$prefix step#$index destination options 缺少导航"
+            }
+            if (service.trainSelector == TrainSelector.AnyTrain && outcome.takeActionCount == 0)
+                sink.errors += "$prefix AnyTrain service 必须以 takeFromDepot 或 takeFromWaypoint 开始"
+            if (!outcome.hasMovement && service.steps.none { it is TimetableStep.At &&
+                    (it.action is TimetableAction.Couple || it.action is TimetableAction.Split ||
+                        outcome.hasFormationOrigin && it.action is TimetableAction.StoreAtDepot) })
+                sink.errors += "$prefix service 至少需要一个 destination"
         }
-        pendingDestinationOptions?.let { (index, _) ->
-            errors.add("$prefix step#$index destination options 缺少导航")
+        data class ContinuationKey(val address: TimetableStepAddress?, val state: State, val depth: Int)
+        data class ContinuationResult(val outcomes: List<State>, val proof: ProofSink)
+        val continuations = hashMapOf<ContinuationKey, ContinuationResult>()
+        fun walk(initialCursor: TimetableProgramCursor, initialState: State, destination: ProofSink, depth: Int): List<State> {
+            if (budgetFailure != null) { chargeProofWork(destination, 0); return emptyList() }
+            val key = ContinuationKey(initialCursor.address, initialState, depth)
+            continuations[key]?.let { cached -> destination.merge(cached.proof); return cached.outcomes }
+            val sink = ProofSink()
+            fun compute(): List<State> {
+            if (depth > 32) {
+                sink.errors += "$prefix continuation proof depth exceeds 32"
+                return emptyList()
+            }
+            var cursor = initialCursor
+            var state = initialState
+            while (!cursor.isComplete) {
+                val address = checkNotNull(cursor.address)
+                if (!chargeProofWork(sink)) return emptyList()
+                val step = checkNotNull(cursor.currentStep())
+                val action = (step as? TimetableStep.At)?.action
+                if (action is TimetableAction.Conditional) {
+                    val next = process(step, address, state, sink)
+                    return (walk(cursor.enter(TimetableBranchArm.THEN), next, sink, depth + 1) +
+                        walk(cursor.enter(TimetableBranchArm.ELSE), next, sink, depth + 1)).distinct()
+                }
+                if (action is TimetableAction.SelectStop) {
+                    val tick = (step as TimetableStep.At).tick
+                    if (state.pendingStationCall != null || state.pendingDestinationOptions != null) {
+                        sink.errors += "$prefix $address selected stop cannot interrupt pending destination navigation"
+                        return emptyList()
+                    }
+                    val accepted = arrayListOf<State>()
+                    val rejected = arrayListOf<String>()
+                    for (candidate in action.selection.candidates.sortedWith(compareBy({ it.priority }, { it.berthId }))) {
+                        if (!chargeProofWork(sink)) return emptyList()
+                        val proof = ProofSink()
+                        val target = OperationalDestinationIds.stationBerth(action.selection.stationId, candidate.berthId)
+                        val call = TimetableAction.CallStation(action.selection.stationId.value, candidate.berthId,
+                            action.minimumDwellTicks, action.stoppingOffsetMetersBefore, action.doorSideOverride)
+                        val pending = process(TimetableStep.At(tick, call), address, state, proof)
+                        val arrived = process(TimetableStep.At(tick, TimetableAction.GoTo(target)), address, pending, proof)
+                        val outcomes = if (proof.errors.isEmpty()) walk(cursor.advance(), arrived, proof, depth + 1) else emptyList()
+                        if (proof.errors.isEmpty()) {
+                            (state.dynamicOriginCandidates ?: listOf(state.currentWayPointId)).forEach { origin ->
+                                proof.selections += ValidatedStationSelectionKey(service.id, address, origin, candidate.berthId)
+                            }
+                            sink.merge(proof)
+                            accepted += outcomes
+                        } else rejected += "${candidate.berthId}: ${proof.errors.distinct().joinToString("; ")}"
+                    }
+                    if (accepted.isEmpty()) sink.errors += "$prefix $address selected stop has no eligible incoming and onward candidate: ${rejected.joinToString(" | ")}"
+                    return accepted.distinct()
+                }
+                state = process(step, address, state, sink)
+                cursor = cursor.advance()
+            }
+            validateOutcome(state, sink)
+            return listOf(state)
+            }
+            val outcomes = compute()
+            // These immutable continuation inputs permit reusing evidence, never re-evaluating a runtime condition.
+            if (budgetFailure == null) continuations[key] = ContinuationResult(outcomes, sink)
+            destination.merge(sink)
+            return outcomes
         }
-        if (service.trainSelector == TrainSelector.AnyTrain && takeActionCount == 0) {
-            errors.add("$prefix AnyTrain service 必须以 takeFromDepot 或 takeFromWaypoint 开始")
-        }
-        if (!hasMovement) {
-            errors.add("$prefix service 至少需要一个 destination")
-        }
+        walk(TimetableProgramCursor.start(TimetableServiceTraversal(service)),
+            State(initialWayPoint(service.trainSelector, prefix, errors)), allProofs, 0)
     }
 
     private fun validateTakeAction(
@@ -587,7 +858,7 @@ class TimetableValidator(private val world: World) {
 
     private fun validateExtensionAction(
         prefix: String,
-        stepIndex: Int,
+        address: TimetableStepAddress,
         action: TimetableAction,
         errors: MutableList<String>
     ) {
@@ -596,11 +867,11 @@ class TimetableValidator(private val world: World) {
                 val call = action.call
                 val provider = world.simpleAtoWorldData.timetableExtensions.action(call.typeId, call.version)
                 if (provider == null) {
-                    errors.add("$prefix step#$stepIndex action provider is not registered: ${call.typeId}@${call.version}")
+                    errors.add("$prefix $address action provider is not registered: ${call.typeId}@${call.version}")
                 } else {
                     runCatching { provider.validate(call.parameters) }
                         .getOrElse { listOf("provider validation failed: ${it.message}") }
-                        .forEach { errors.add("$prefix step#$stepIndex action ${call.typeId}: $it") }
+                        .forEach { errors.add("$prefix $address action ${call.typeId}: $it") }
                 }
             }
             is TimetableAction.Conditional -> {
@@ -608,11 +879,13 @@ class TimetableValidator(private val world: World) {
                     action.condition,
                     TimetableConditionScope.RUNTIME_BRANCH
                 )
-                    .forEach { errors.add("$prefix step#$stepIndex condition: $it") }
-                action.thenActions.forEach { validateExtensionAction(prefix, stepIndex, it, errors) }
-                action.elseActions.forEach { validateExtensionAction(prefix, stepIndex, it, errors) }
+                    .forEach { errors.add("$prefix $address condition: $it") }
+                action.thenSteps.forEachIndexed { index, step -> validateExtensionAction(prefix, address.child(TimetableBranchArm.THEN, index), step.action, errors) }
+                action.elseSteps.forEachIndexed { index, step -> validateExtensionAction(prefix, address.child(TimetableBranchArm.ELSE, index), step.action, errors) }
             }
-            else -> errors.add("$prefix step#$stepIndex conditional branches only support extension actions")
+            TimetableAction.WaitUntil -> Unit
+            is TimetableAction.Stop -> if (action.ticks <= 0) errors.add("$prefix $address wait duration must be positive")
+            else -> errors.add("$prefix $address conditional branches currently support stationary extension and wait actions")
         }
     }
 
@@ -629,10 +902,14 @@ class TimetableValidator(private val world: World) {
         movementStoppingOffset: Double
     ): String? {
         return when (action) {
+            is TimetableAction.SelectStop -> error("SelectStop requires candidate continuation validation")
+            // Physical output state must be resolved after the event; no old origin/route is reused.
+            is TimetableAction.TakeFromFormationOutput,
+            is TimetableAction.Couple,
+            is TimetableAction.Split -> null
             is TimetableAction.TakeFromDepot -> {
                 val points = world.simpleAtoWorldData.depots.stablingPoints(action.selector.depotId)
-                val compatiblePoints = world.simpleAtoWorldData.depots
-                    .compatibleStablingPoints(action.selector)
+                val compatiblePoints = depotValidationOrigins(action.selector)
                 if (points.isEmpty()) {
                     errors.add(
                         "$prefix step#$stepIndex Depot 不存在或没有 StablingPoint: " +
@@ -667,12 +944,13 @@ class TimetableValidator(private val world: World) {
                         it.point.ref.pointId in action.stablingPointIds
                 }
                 val routePoints = depotSelector?.let {
-                    world.simpleAtoWorldData.depots.compatibleStablingPoints(it)
-                }.orEmpty().filter {
+                    world.simpleAtoWorldData.depots.compatibleStablingPoints(it.copy(depotId = action.depotId))
+                }?.filter {
                     it.point.ref.depotId == action.depotId &&
                         (action.stablingPointIds.isEmpty() ||
                             it.point.ref.pointId in action.stablingPointIds)
                 }
+                val candidatePoints = routePoints ?: points
                 if (allPoints.isEmpty()) {
                     errors.add("$prefix step#$stepIndex Depot 不存在或没有 StablingPoint: ${action.depotId}")
                     currentWayPointId
@@ -687,7 +965,10 @@ class TimetableValidator(private val world: World) {
                     (action.stablingPointIds - known).forEach { missing ->
                         errors.add("$prefix step#$stepIndex StablingPoint 不存在: ${action.depotId}/$missing")
                     }
-                    routePoints.forEach { point ->
+                    if (candidatePoints.isEmpty()) {
+                        errors.add("$prefix step#$stepIndex 目标 Depot 没有兼容的 StablingPoint: ${action.depotId}")
+                    }
+                    candidatePoints.forEach { point ->
                         validateGoTo(
                             prefix,
                             stepIndex,
@@ -695,13 +976,15 @@ class TimetableValidator(private val world: World) {
                             point.point.destinationId,
                             errors,
                             routes,
-                            routeStoppingOffsets
+                            routeStoppingOffsets,
+                            requiredStartDirection = requiredStartDirection
                         )
                     }
-                    routePoints.firstOrNull()?.point?.destinationId
+                    candidatePoints.firstOrNull()?.point?.destinationId
                         ?.takeIf(::wayPointExists) ?: currentWayPointId
                 }
             }
+            TimetableAction.WaitUntil,
             TimetableAction.Halt,
             TimetableAction.Reverse,
             is TimetableAction.Extension,
@@ -728,6 +1011,13 @@ class TimetableValidator(private val world: World) {
                 if (action.wayPointIds.isEmpty()) {
                     errors.add("$prefix step#$stepIndex destination 至少需要一个路径点")
                     currentWayPointId
+                } else if (currentWayPointId == null) {
+                    // A formation output has no nominal first origin. Its entire aggregate route
+                    // is proved by the structural validator; do not fabricate a suffix route here.
+                    action.wayPointIds.forEach { target ->
+                        if (!wayPointExists(target)) errors += "$prefix step#$stepIndex destination 路径点不存在: $target"
+                    }
+                    action.wayPointIds.lastOrNull()?.takeIf(::wayPointExists)
                 } else {
                     var cursor = currentWayPointId
                     var startDirection = requiredStartDirection
@@ -743,7 +1033,8 @@ class TimetableValidator(private val world: World) {
                             startDirection,
                             if (targetIndex == action.wayPointIds.lastIndex) movementStoppingOffset else null
                         )
-                        startDirection = null
+                        startDirection = routes.lastOrNull()?.takeIf { it.toWayPointId == target }
+                            ?.segments?.last()?.railViewRef?.direction
                         if (wayPointExists(target)) cursor = target
                     }
                     cursor
@@ -774,90 +1065,33 @@ class TimetableValidator(private val world: World) {
         stepIndex: Int,
         fromWayPointId: String?,
         callAction: TimetableAction.CallStation,
-        movementAction: TimetableAction,
+        movementRoutes: List<ExpandedRoute>,
         requiredStartDirection: ViewDirection?,
         errors: MutableList<String>
     ): Double? {
         val origin = fromWayPointId ?: return null
         val berthRef = runCatching { callAction.berthRef }.getOrNull() ?: return null
-        val resolved = when (val result = StationCallResolver(world).resolve(
-            StationCallRequest(
-                serviceRunId = "validation",
-                origin = WayPointRef(origin),
-                call = StationCall(
-                    callId = "validation-$stepIndex",
-                    missionRevision = 0L,
-                    stationId = berthRef.stationId,
-                    berthRef = berthRef,
-                    plannedArrivalTick = null,
-                    dwellPlan = DwellPlan(callAction.minimumDwellTicks ?: 0L),
-                    stoppingOffsetMetersBeforeOverride = callAction.stoppingOffsetMetersBefore,
-                    doorSideOverride = callAction.doorSideOverride
-                )
-            ),
-            requiredStartDirection = requiredStartDirection
-        )) {
-            is StationCallResolutionResult.Success -> result
-            is StationCallResolutionResult.Failure -> {
-                errors.add("$prefix step#$stepIndex 车站 destination 无法解析: ${result.message}")
-                return null
-            }
-        }
-        val berth = world.simpleAtoWorldData.stations.berth(berthRef) ?: return null
-        val arrivalDirection = resolved.resolved.plannedRoute.expandedRoute
-            .segments.last().railViewRef.direction
-        val berthArcInView = when (arrivalDirection) {
-            ViewDirection.AB -> berth.location.arcLengthIn(ViewDirection.AB)
-            ViewDirection.BA -> berth.location.arcLengthIn(ViewDirection.BA)
-        }
-        val targets = when (movementAction) {
-            is TimetableAction.GoTo -> listOf(movementAction.wayPointId)
-            is TimetableAction.GoVia -> movementAction.wayPointIds
-            else -> return null
-        }
-        var cursor = origin
-        var startDirection = requiredStartDirection
-        var cumulative = 0.0
-        val candidates = ArrayList<Double>()
-        for (target in targets) {
-            val route = when (val result = routePlanner.buildRoute(
-                cursor,
-                target,
-                requiredGoalDirection = destinationDirection(target),
-                requiredStartDirection = startDirection ?: destinationDirection(cursor)
-            )) {
-                is RouteBuildResult.Success -> result.route
-                is RouteBuildResult.Failure -> return null
-            }
-            var segmentStart = cumulative
-            route.segments.forEach { segment ->
-                if (segment.railViewRef.railId == berth.location.rail.id &&
-                    segment.railViewRef.direction == arrivalDirection &&
-                    berthArcInView >= segment.startArcLength - 1.0e-6 &&
-                    berthArcInView <= segment.endArcLength + 1.0e-6
-                ) {
-                    candidates += segmentStart +
-                        (berthArcInView.coerceIn(segment.startArcLength, segment.endArcLength) -
-                            segment.startArcLength)
-                }
-                segmentStart += segment.length
-            }
-            cumulative += route.totalLength
-            cursor = target
-            startDirection = route.segments.last().railViewRef.direction
-        }
-        val stationDistance = resolved.resolved.plannedRoute.expandedRoute.totalLength
-        if (candidates.none { abs(it - stationDistance) <= 0.5 }) {
-            errors.add(
-                "$prefix step#$stepIndex berth $berthRef 不在 destination 经路上 " +
-                    "(stationDistance=$stationDistance, candidates=$candidates)"
-            )
+        val call = StationCall("validation-$stepIndex", 0L, berthRef.stationId, berthRef,
+            plannedArrivalTick = null, dwellPlan = DwellPlan(callAction.minimumDwellTicks ?: 0L),
+            stoppingOffsetMetersBeforeOverride = callAction.stoppingOffsetMetersBefore,
+            doorSideOverride = callAction.doorSideOverride)
+        val prefixRoute = stationCallRoutePrefix(world, origin, call, movementRoutes)
+        if (prefixRoute == null) {
+            errors.add("$prefix step#$stepIndex 车站 destination berth $berthRef 不在 destination 经路上")
             return null
         }
-        // An interior station call resumes toward the final destination after departure.
-        // Only a terminal berth replaces that destination's stopping target.
-        return (cumulative - stationDistance + resolved.resolved.stoppingOffsetMetersBefore).coerceAtLeast(0.0)
-            .takeIf { abs(cumulative - stationDistance) <= 0.5 }
+        val resolved = StationCallResolver(world).resolve(StationCallRequest("validation", WayPointRef(origin), call),
+            requiredStartDirection = requiredStartDirection,
+            retainedRoute = prefixRoute, retainedTopology = world.topologyState)
+        if (resolved is StationCallResolutionResult.Failure) {
+            errors.add("$prefix step#$stepIndex 车站 destination 无法解析: ${resolved.message}")
+            return null
+        }
+        resolved as StationCallResolutionResult.Success
+        val cumulative = movementRoutes.sumOf { it.totalLength }
+        return resolved.resolved.stoppingOffsetMetersBefore.takeIf {
+            abs(cumulative - prefixRoute.totalLength) <= 0.5
+        }
     }
 
     private fun validateGoTo(
@@ -889,6 +1123,24 @@ class TimetableValidator(private val world: World) {
             }
             is RouteBuildResult.Failure -> errors.add("$prefix step#$stepIndex 经路不可达: $fromWayPointId -> $toWayPointId (${result.reason})")
         }
+    }
+
+    /** Include the existing physical-only acquisition path in static route coverage. */
+    private fun depotValidationOrigins(selector: DepotTrainSelector): List<work.art1st.javarailways.simpleato.api.depot.StablingPointSnapshot> {
+        val store = world.simpleAtoWorldData.depots
+        val registered = store.compatibleStablingPoints(selector)
+        if (selector.requiredTags.isNotEmpty() || selector.requiredCapabilities.isNotEmpty() ||
+            selector.minimumSpeedMetersPerSecond != null) return registered
+        val physical = store.stablingPoints(selector.depotId).filter { point ->
+            val waypoint = world.basicWorldData.wayPoints[point.point.destinationId] ?: return@filter false
+            world.allTrains.filterIsInstance<work.art1st.javarailways.core.physics.train.CoreTrain>().any { train ->
+                store.rollingStock(train.id) == null && train.headLocation.rail.id == waypoint.railId &&
+                    abs(train.headLocation.arcLengthIn(ViewDirection.AB) - waypoint.arcLength) <= 0.5 &&
+                    train.cars.size >= (selector.minimumCars ?: 0) &&
+                    (selector.maximumCars == null || train.cars.size <= selector.maximumCars)
+            }
+        }
+        return (registered + physical).distinctBy { it.point.ref }.sortedBy { it.point.ref.pointId }
     }
 
     private fun wayPointExists(id: String): Boolean = world.basicWorldData.wayPoints[id] != null

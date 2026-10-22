@@ -88,13 +88,43 @@ open class CoreTrain @MainThread internal constructor(
     @Volatile
     var movementHeld: Boolean = false
         private set
+    private var configurationMovementHeld = false
+    private var formationMovementHold: work.art1st.javarailways.core.api.physics.train.FormationMovementHold? = null
+
+    /** Read-only structural fence state; this exposes no authority to release the fence. */
+    val hasFormationMovementHold: Boolean get() = formationMovementHold != null
+
+    internal val canPrepareWhileFormationHeld: Boolean
+        get() = formationMovementHold != null && !configurationMovementHeld && !isDerailed
 
     /** Quarantine movement without removing the train or its physical occupancy. */
     fun setMovementHeld(held: Boolean) {
         world.physicsCoordinator.ensureBetweenFrames("CoreTrain.setMovementHeld")
         check(world.getTrain(id) === this) { "Cannot hold a retired train '$id'" }
-        movementHeld = held
+        configurationMovementHeld = held
+        movementHeld = held || formationMovementHold != null
     }
+
+    /** Commit-only owner installation, before the resulting world frame can be observed. */
+    internal fun installFormationMovementHold(): work.art1st.javarailways.core.api.physics.train.FormationMovementHold {
+        check(formationMovementHold == null) { "formation output already has a movement fence" }
+        return work.art1st.javarailways.core.api.physics.train.FormationMovementHold(id, this).also {
+            formationMovementHold = it
+            movementHeld = true
+        }
+    }
+
+    internal fun releaseFormationMovementHold(
+        hold: work.art1st.javarailways.core.api.physics.train.FormationMovementHold
+    ): Boolean {
+        if (hold.source !== this || formationMovementHold !== hold) return false
+        formationMovementHold = null
+        movementHeld = configurationMovementHeld
+        return true
+    }
+
+    internal fun restoreFormationMovementHold(): work.art1st.javarailways.core.api.physics.train.FormationMovementHold =
+        formationMovementHold ?: installFormationMovementHold()
 
     override var cars: List<CoreCar> = cars
         protected set
@@ -123,6 +153,11 @@ open class CoreTrain @MainThread internal constructor(
     private var publishedTailTraversal: List<RailTraversalSegmentSnapshot> = emptyList()
     private var pendingHeadTraversal: List<RailTraversalSegmentSnapshot>? = null
     private var pendingTailTraversal: List<RailTraversalSegmentSnapshot>? = null
+    /** Invalidates read-only physical proofs before any structural/configuration publication. */
+    @Volatile
+    internal var formationGeometryIdentity: Any = Any()
+        private set
+
     private val frameRevision = AtomicLong(0L)
     private val publishedFrameRef = AtomicReference<TrainFrameSnapshot?>()
     private var stagedPlacementDirection: Boolean? = null
@@ -796,8 +831,9 @@ open class CoreTrain @MainThread internal constructor(
                 val sourcePath = placementSegments(tail.location, head.location)
                 val retainedSplit = prepareSplit(
                     prepareSplitGeometry(retainedCars, sourcePath), decision.retainedReversed,
-                    id, name, frameRevision.get() + 1L, speed, isDerailed,
-                    clearMotion = decision.retainedReversed != isReversed
+                    id, name, frameRevision.get() + 1L,
+                    if (decision.holdResultMovement) 0.0 else speed, isDerailed,
+                    clearMotion = decision.holdResultMovement || decision.retainedReversed != isReversed
                 )
                 val separatedSourceGeometry = prepareSplitGeometry(separatedCars, sourcePath)
                 val separatedSplit = prepareSplit(
@@ -825,10 +861,17 @@ open class CoreTrain @MainThread internal constructor(
                     persistedTailLocation = separatedSourceGeometry.tailLocation,
                     initialReversed = isReversed
                 )
+                var retainedHold: work.art1st.javarailways.core.api.physics.train.FormationMovementHold? = null
+                var separatedHold: work.art1st.javarailways.core.api.physics.train.FormationMovementHold? = null
                 try {
                     controllerUpdates.forEach { it.install() }
+                    if (decision.holdResultMovement) controller?.commitStructuralStop()
                     newTrain.applyPreparedStructure(separatedSplit)
                     applyPreparedStructure(retainedSplit)
+                    if (decision.holdResultMovement) {
+                        retainedHold = installFormationMovementHold()
+                        separatedHold = newTrain.installFormationMovementHold()
+                    }
                     world.rebuildSweptOccupancyIndex(retainedSplit.frame.physicsEpoch)
                     world.publishWorldFrame(retainedSplit.frame.physicsEpoch)
                 } catch (failure: Throwable) {
@@ -839,7 +882,9 @@ open class CoreTrain @MainThread internal constructor(
                     separatedTrain = newTrain,
                     carId = carId,
                     originalCarIds = decision.originalCarIds,
-                    originalReversed = decision.originalReversed
+                    originalReversed = decision.originalReversed,
+                    retainedMovementHold = retainedHold,
+                    separatedMovementHold = separatedHold
                 ))
                 newTrain
             }
@@ -990,6 +1035,7 @@ open class CoreTrain @MainThread internal constructor(
     )
 
     internal fun applyPreparedStructure(prepared: PreparedTrainStructure) {
+        formationGeometryIdentity = Any()
         val geometry = prepared.geometry
         cars = geometry.cars
         if (prepared.reversedBogieLocations.isNotEmpty()) {

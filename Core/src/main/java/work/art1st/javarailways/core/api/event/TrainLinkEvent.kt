@@ -38,6 +38,9 @@ class TrainLinkEvent internal constructor(
     val secondEnd: TrainEndSide,
     val firstSpeedBeforeCollision: Double,
     val secondSpeedBeforeCollision: Double,
+    /** Host-solved head placement at the exact recorded contact, before any structure mutation. */
+    val firstContactHead: work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot,
+    val secondContactHead: work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot,
     private val defaultMaster: Train
 ) : MainThreadRailEvent, WorldEvent {
     override val world: World get() = firstTrain.world
@@ -50,6 +53,9 @@ class TrainLinkEvent internal constructor(
     var rejectionReason: String? = null
         private set
     val isRejected: Boolean get() = rejectionReason != null
+    /** Whether the resulting survivor must remain fenced until operational reconciliation. */
+    var holdResultMovement: Boolean = false
+        private set
 
     private var masterRequest: Train? = null
     private var directionRequest: Boolean? = null
@@ -75,6 +81,12 @@ class TrainLinkEvent internal constructor(
         checkEditable()
         if (directionRequest != null && directionRequest != reversed) reject("Conflicting link directions")
         else directionRequest = reversed
+    }
+
+    /** Requests a separate Core output fence; it cannot be cleared by another decision listener. */
+    fun requestMovementHold() {
+        checkEditable()
+        holdResultMovement = true
     }
 
     internal fun freeze() { frozen = true }

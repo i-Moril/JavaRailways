@@ -51,7 +51,7 @@ class WorldEventTest {
                                 PassSignalEvent(first, signal),
                                 DerailEvent(first, "fixture"),
                                 TrainSwitchDirectionEvent(first),
-                                TrainLinkEvent(first, second, TrainEndSide.A, TrainEndSide.B, 0.5, 0.0, second),
+                                TrainLinkEvent(first, second, TrainEndSide.A, TrainEndSide.B, 0.5, 0.0, first.publishedFrame.head, second.publishedFrame.head, second),
                                 TrainLinkSuccessEvent(first, second, first, second, TrainEndSide.A, TrainEndSide.B,
                                     first.cars.map { it.id }, second.cars.map { it.id }, false, false),
                                 TrainSplitEvent(first, first.cars.last().id, "separated"),

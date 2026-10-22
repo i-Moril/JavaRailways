@@ -89,6 +89,13 @@ class WayPointEditKeys {
         4,
         DestinationRoleType.STATION_BERTH
     )
+    val stoppingAreaId = stringKey(
+        "railObject.waypoint.stoppingAreaId", "waypoint.stopping_area.label", 10,
+        DestinationRoleType.STATION_BERTH
+    )
+    val minimumTrainLength = markerLengthKey("minimumTrainLength", "waypoint.minimum_train_length.label", 11)
+    val maximumTrainLength = markerLengthKey("maximumTrainLength", "waypoint.maximum_train_length.label", 12)
+
     val doorSide = ConfigKey.build<DoorSide>("railObject.waypoint.doorSide") {
         label = "waypoint.door_side.label"
         description = "waypoint.door_side.description"
@@ -147,6 +154,19 @@ class WayPointEditKeys {
         private fun roleVisible(role: DestinationRoleType): (work.art1st.javarailways.bukkit.api.wand.config.ConfigSnapshot) -> Boolean =
             { snapshot -> snapshot.get<DestinationRoleType>(ROLE_KEY_ID) == role }
 
+        private fun markerLengthKey(id: String, textKey: String, itemOrder: Int) =
+            ConfigKey.build<Double>("railObject.waypoint.$id") {
+                label = textKey
+                description = "waypoint.marker_length.description"
+                defaultValue(0.0)
+                valueType = ConfigValueType.NUMBER_TEXT
+                constraints = ConfigConstraints.NumberRange(0.0, 10000.0, 0.1, "m")
+                group = GROUP_ID
+                order = itemOrder
+                dependsOn = listOf(ROLE_KEY_ID)
+                visibleWhen = roleVisible(DestinationRoleType.STATION_BERTH)
+            }
+
         private fun stringKey(
             id: String,
             textKey: String,
@@ -188,6 +208,9 @@ class RailObjectDestinationEditor {
                 WandConfigItemImpl(keys.stationId),
                 WandConfigItemImpl(keys.berthId),
                 WandConfigItemImpl(keys.doorSide),
+                WandConfigItemImpl(keys.stoppingAreaId),
+                WandConfigItemImpl(keys.minimumTrainLength),
+                WandConfigItemImpl(keys.maximumTrainLength),
                 WandConfigItemImpl(keys.depotId),
                 WandConfigItemImpl(keys.stablingPointId),
                 WandConfigItemImpl(keys.stablingUsableLength),
@@ -217,6 +240,9 @@ class RailObjectDestinationEditor {
         session.setValue(keys.stationId, stationRole?.stationId?.value.orEmpty())
         session.setValue(keys.berthId, stationRole?.berthId.orEmpty())
         session.setValue(keys.doorSide, stationRole?.doorSide ?: DoorSide.LEFT)
+        session.setValue(keys.stoppingAreaId, stationRole?.stoppingAreaId.orEmpty())
+        session.setValue(keys.minimumTrainLength, stationRole?.minimumTrainLengthMeters ?: 0.0)
+        session.setValue(keys.maximumTrainLength, stationRole?.maximumTrainLengthMeters ?: 0.0)
         val depotRole = role as? DestinationRole.DepotStablingPointRole
         session.setValue(keys.depotId, depotRole?.depotId.orEmpty())
         session.setValue(keys.stablingPointId, depotRole?.stablingPointId.orEmpty())
@@ -241,6 +267,9 @@ class RailObjectDestinationEditor {
                 stationId = session.getValue(keys.stationId).orEmpty(),
                 berthId = session.getValue(keys.berthId).orEmpty(),
                 doorSide = session.getValue(keys.doorSide) ?: DoorSide.LEFT,
+                stoppingAreaId = session.getValue(keys.stoppingAreaId),
+                minimumTrainLengthMeters = session.getValue(keys.minimumTrainLength)?.takeIf { it > 0.0 },
+                maximumTrainLengthMeters = session.getValue(keys.maximumTrainLength)?.takeIf { it > 0.0 },
                 depotId = session.getValue(keys.depotId).orEmpty(),
                 stablingPointId = session.getValue(keys.stablingPointId).orEmpty(),
                 stablingUsableLengthMeters = session.getValue(keys.stablingUsableLength)

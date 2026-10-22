@@ -35,6 +35,7 @@ public final class WebUiApplication {
     private final ObjectMapper mapper;
     private final DraftRepository drafts;
     private final DraftRepository editorDocuments;
+    private final VisualProgramRepository stationPrograms;
     private final BridgeClient bridge;
     private final WebUiSessions sessions = new WebUiSessions(Duration.ofMinutes(30));
     private final ConcurrentHashMap<String, Queue<TrainSubscriber>> trainStreamClients = new ConcurrentHashMap<>();
@@ -79,6 +80,7 @@ public final class WebUiApplication {
         this.mapper = mapper;
         this.drafts = new DraftRepository(config.draftDirectory(), mapper);
         this.editorDocuments = new DraftRepository(config.draftDirectory().resolve("editor-documents"), mapper);
+        this.stationPrograms = new VisualProgramRepository(config.draftDirectory().resolve("station-programs"), mapper, StationProgramValidator::validate);
         this.bridge = new BridgeClient(config, mapper);
     }
 
@@ -124,6 +126,13 @@ public final class WebUiApplication {
         app.get("/api/v1/worlds/{world}/drafts/{draft}", this::getDraft);
         app.put("/api/v1/worlds/{world}/drafts/{draft}", this::putDraft);
         app.delete("/api/v1/worlds/{world}/drafts/{draft}", this::deleteDraft);
+        app.get("/api/v1/worlds/{world}/station-programs", context -> context.json(stationPrograms.list(context.pathParam("world"))));
+        app.get("/api/v1/worlds/{world}/station-programs/{program}", context ->
+            stationPrograms.find(context.pathParam("world"), context.pathParam("program"))
+                .ifPresentOrElse(context::json, () -> error(context, 404, "program not found")));
+        app.post("/api/v1/worlds/{world}/station-programs", this::createStationProgram);
+        app.put("/api/v1/worlds/{world}/station-programs/{program}", this::updateStationProgram);
+        app.post("/api/v1/worlds/{world}/station-programs/{program}/archive", this::archiveStationProgram);
         app.get("/api/v1/worlds/{world}/editor-documents", this::listEditorDocuments);
         app.post("/api/v1/worlds/{world}/editor-documents", this::createEditorDocument);
         app.get("/api/v1/worlds/{world}/editor-documents/{document}", this::getEditorDocument);
@@ -142,6 +151,8 @@ public final class WebUiApplication {
         }));
         app.exception(UnauthorizedResponse.class,
             (exception, context) -> error(context, 401, "login required or session expired"));
+        app.exception(VisualProgramRepository.Conflict.class,
+            (exception, context) -> error(context, 409, exception.getMessage()));
         app.exception(IllegalArgumentException.class,
             (exception, context) -> error(context, 400, exception.getMessage()));
         app.exception(IllegalStateException.class,
@@ -437,6 +448,31 @@ public final class WebUiApplication {
             return;
         }
         context.status(204);
+    }
+
+    private void createStationProgram(Context context) throws IOException {
+        JsonNode request = requestJson(context);
+        StationProgramValidator.fields(request, java.util.Set.of("id", "name", "definition"), "create program request");
+        context.status(201).json(stationPrograms.create(context.pathParam("world"),
+            StationProgramValidator.text(request.path("id"), "program id"),
+            StationProgramValidator.text(request.path("name"), "program name"), request.path("definition")));
+    }
+
+    private void updateStationProgram(Context context) throws IOException {
+        JsonNode request = requestJson(context);
+        StationProgramValidator.fields(request, java.util.Set.of("expectedRevision", "name", "definition"), "update program request");
+        stationPrograms.update(context.pathParam("world"), context.pathParam("program"),
+            StationProgramValidator.revision(request.path("expectedRevision")),
+            StationProgramValidator.text(request.path("name"), "program name"), request.path("definition"))
+            .ifPresentOrElse(context::json, () -> error(context, 404, "program not found"));
+    }
+
+    private void archiveStationProgram(Context context) throws IOException {
+        JsonNode request = requestJson(context);
+        StationProgramValidator.fields(request, java.util.Set.of("expectedRevision"), "archive program request");
+        stationPrograms.archive(context.pathParam("world"), context.pathParam("program"),
+            StationProgramValidator.revision(request.path("expectedRevision")))
+            .ifPresentOrElse(context::json, () -> error(context, 404, "program not found"));
     }
 
     private void listEditorDocuments(Context context) throws IOException {

@@ -20,7 +20,9 @@ class TrainSplitSuccessEvent internal constructor(
     val separatedTrain: Train,
     val carId: String,
     originalCarIds: Collection<String>,
-    val originalReversed: Boolean
+    val originalReversed: Boolean,
+    val retainedMovementHold: work.art1st.javarailways.core.api.physics.train.FormationMovementHold? = null,
+    val separatedMovementHold: work.art1st.javarailways.core.api.physics.train.FormationMovementHold? = null
 ) : MainThreadTrainEvent {
     val originalCarIds: List<String> = java.util.List.copyOf(originalCarIds)
 }

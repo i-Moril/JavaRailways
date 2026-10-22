@@ -11,6 +11,8 @@ import work.art1st.javarailways.simpleato.api.constraint.MovementAuthorityConstr
 import work.art1st.javarailways.simpleato.api.constraint.RouteSpeedLimitConstraint
 import work.art1st.javarailways.simpleato.api.constraint.StopConstraint
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
+import work.art1st.javarailways.basic.api.route.CouplingContactAuthority
+import work.art1st.javarailways.simpleato.api.restriction.CouplingContactRestriction
 import work.art1st.javarailways.simpleato.api.restriction.CurrentSpeedRestriction
 import work.art1st.javarailways.simpleato.api.restriction.MovementAuthorityRestriction
 import work.art1st.javarailways.simpleato.api.restriction.RouteSpeedRestriction
@@ -51,6 +53,8 @@ class TrainRestrictionConstraintAdapter(
     private val snapshots = TreeMap<String, TrainRestrictionSnapshot>()
     private val unavailableSources = linkedSetOf<String>()
     private var closed = false
+    internal var appliedContactAuthority: CouplingContactAuthority? = null
+        private set
 
     init {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
@@ -91,7 +95,8 @@ class TrainRestrictionConstraintAdapter(
     internal fun apply(
         currentStamp: RailwayStateStamp,
         currentRoute: FrozenRouteBinding,
-        routeProgressMeters: Double
+        routeProgressMeters: Double,
+        validateContact: (CouplingContactAuthority) -> Boolean = { false }
     ): List<TrainRestrictionSourceEnforcement> {
         require(routeProgressMeters.isFinite() && routeProgressMeters >= 0.0) {
             "routeProgressMeters must be finite and non-negative"
@@ -100,8 +105,11 @@ class TrainRestrictionConstraintAdapter(
             check(!closed) { "train restriction adapter is closed" }
             val compiled = snapshots.values.map { snapshot ->
                 compile(snapshot, snapshot.sourceId in unavailableSources,
-                    currentStamp, currentRoute, routeProgressMeters)
+                    currentStamp, currentRoute, routeProgressMeters, validateContact)
             }
+            val contacts = compiled.mapNotNull(CompiledSource::contact)
+            check(contacts.size <= 1) { "multiple coupling contact authorities are active" }
+            appliedContactAuthority = contacts.singleOrNull()
             constraintManager.replace(constraintOwner, compiled.flatMap(CompiledSource::constraints))
             java.util.List.copyOf(compiled.map(CompiledSource::enforcement))
         }
@@ -112,6 +120,7 @@ class TrainRestrictionConstraintAdapter(
         synchronized(lock) {
             if (closed) return
             closed = true
+            appliedContactAuthority = null
             snapshots.clear()
             unavailableSources.clear()
         }
@@ -123,8 +132,10 @@ class TrainRestrictionConstraintAdapter(
         unavailable: Boolean,
         currentStamp: RailwayStateStamp,
         currentRoute: FrozenRouteBinding,
-        routeProgressMeters: Double
+        routeProgressMeters: Double,
+        validateContact: (CouplingContactAuthority) -> Boolean
     ): CompiledSource {
+        val contacts = snapshot.restrictions.filterIsInstance<CouplingContactRestriction>()
         val invalid = when {
             unavailable -> "restriction source is unavailable"
             currentStamp.worldId != snapshot.observationStamp.worldId -> "restriction belongs to another world"
@@ -133,6 +144,8 @@ class TrainRestrictionConstraintAdapter(
             currentRoute != snapshot.route -> "restriction frozen route is no longer active"
             routeProgressMeters > currentRoute.totalLengthMeters ->
                 "current route progress exceeds the frozen route"
+            contacts.size > 1 -> "multiple coupling contact authorities in one source"
+            contacts.any { !validateContact(it.authority) } -> "coupling contact proof or mission is no longer valid"
             else -> null
         }
         if (invalid != null) {
@@ -157,7 +170,8 @@ class TrainRestrictionConstraintAdapter(
                 snapshot.sourceId,
                 snapshot.revision,
                 TrainRestrictionEnforcementStatus.APPLIED
-            )
+            ),
+            contacts.singleOrNull()?.authority
         )
     }
 
@@ -182,6 +196,9 @@ class TrainRestrictionConstraintAdapter(
                 key,
                 (routeDistanceMeters - routeProgressMeters).coerceAtLeast(0.0)
             )
+            is CouplingContactRestriction -> StopConstraint(key,
+                (authority.contactBoundary.distanceFromRouteStartMeters - routeProgressMeters).coerceAtLeast(0.0),
+                stoppingMarginMeters = 0.0)
         }
     }
 
@@ -190,7 +207,8 @@ class TrainRestrictionConstraintAdapter(
 
     private data class CompiledSource(
         val constraints: List<AtoConstraint>,
-        val enforcement: TrainRestrictionSourceEnforcement
+        val enforcement: TrainRestrictionSourceEnforcement,
+        val contact: CouplingContactAuthority? = null
     )
 
     private companion object {

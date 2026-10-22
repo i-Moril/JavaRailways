@@ -12,6 +12,8 @@ import work.art1st.javarailways.basic.api.route.RouteGrantReversalResult
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.core.api.util.annotation.MainThread
+import work.art1st.javarailways.simpleato.api.restriction.CurrentSpeedRestriction
+import work.art1st.javarailways.simpleato.api.restriction.CouplingContactRestriction
 import work.art1st.javarailways.simpleato.api.restriction.MovementAuthorityRestriction
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestriction
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublisher
@@ -25,8 +27,8 @@ import work.art1st.javarailways.simpleato.routing.FrozenRouteSelectionResult
  * The client never compiles or inspects infrastructure resources. It submits the selected frozen
  * route unchanged, owns at most one pending handle, and publishes only the authority boundary from
  * a committed Basic grant. Before the first grant, zero route metres is the fail-closed authority.
- * A grant covering the complete frozen route publishes an empty restriction set: Basic no longer
- * truncates movement inside that route, while the mission's terminal Stop remains authoritative.
+ * Full-route grants retain their physical boundary and any explicit speed ceiling; the mission's
+ * operational stop remains a separate constraint.
  */
 internal class RouteAuthorityAdmissionClient(
     private val trainId: String,
@@ -54,6 +56,25 @@ internal class RouteAuthorityAdmissionClient(
 
     /** Exact Basic publication retained by this client, never an operationally clipped boundary. */
     val committedGrantSnapshot: RouteGrantSnapshot? get() = active?.committedGrant
+
+    /**
+     * Installs a READY grant returned by the fixed-formation admission path. Basic, not this
+     * client, retains the old source owners. The coordinator keeps physical outputs fenced
+     * until mission, ledger and these restrictions are installed; adopting is not resuming.
+     */
+    @MainThread
+    fun adoptFormationGrant(selection: FrozenRouteSelectionResult.Selected, grant: RouteGrantSnapshot) {
+        require(selection.trainId == trainId) { "formation selection belongs to another train" }
+        validateGrantIdentity(selection, grant)
+        active?.let { current ->
+            check(current.pending == null && !current.reversalPending && !current.unsafeFailure) {
+                "cannot replace a pending or unsafe admission with formation authority"
+            }
+        }
+        val replacement = ActiveRoute(selection, committedGrant = grant)
+        active = replacement
+        publishAuthority(replacement, grant.observationStamp, grant.committedAuthority.distanceFromRouteStartMeters)
+    }
 
     /**
      * Projects an already committed prefix onto an append candidate before its rolling extension.
@@ -331,8 +352,10 @@ internal class RouteAuthorityAdmissionClient(
             check(returned.grantId === committed.grantId) {
                 "pending admission replaced the committed grant identity"
             }
-            check(returned.committedAuthority == committed.committedAuthority) {
-                "pending admission changed committed authority"
+            check(returned.committedAuthority == committed.committedAuthority &&
+                returned.maximumSpeedMetersPerSecond == committed.maximumSpeedMetersPerSecond &&
+                returned.couplingContactAuthority === committed.couplingContactAuthority) {
+                "pending admission changed committed authority, contact proof or speed ceiling"
             }
         }
     }
@@ -376,7 +399,20 @@ internal class RouteAuthorityAdmissionClient(
         stamp: RailwayStateStamp,
         boundaryMeters: Double
     ) {
-        val restrictions = listOf(MovementAuthorityRestriction(AUTHORITY_RESTRICTION_ID, boundaryMeters))
+        val restrictions = buildList<TrainRestriction> {
+            val contact = route.committedGrant?.couplingContactAuthority
+            if (contact == null) add(MovementAuthorityRestriction(AUTHORITY_RESTRICTION_ID, boundaryMeters))
+            else {
+                check(contact.contactBoundary.distanceFromRouteStartMeters == boundaryMeters &&
+                    route.restrictionRoute == FrozenRouteBinding.from(route.selection.route)) {
+                    "contact authority cannot be projected onto a different route"
+                }
+                add(CouplingContactRestriction(AUTHORITY_RESTRICTION_ID, contact))
+            }
+            route.committedGrant?.maximumSpeedMetersPerSecond?.let { maximumSpeed ->
+                add(CurrentSpeedRestriction(SPEED_RESTRICTION_ID, maximumSpeed))
+            }
+        }
         publish(
             route,
             restrictions,
@@ -429,6 +465,7 @@ internal class RouteAuthorityAdmissionClient(
     private companion object {
         const val AUTHORITY_SOURCE_ID = "simpleato:resource-admission"
         const val AUTHORITY_RESTRICTION_ID = "simpleato:committed-authority"
+        const val SPEED_RESTRICTION_ID = "simpleato:admitted-speed"
         const val COMPLETE_ROUTE_EPSILON_METERS = 1.0e-6
 
         fun rejected(code: RouteAdmissionFailureCode, detail: String): RouteAdmissionResult.Rejected =

@@ -10,8 +10,34 @@ import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
 import work.art1st.javarailways.simpleato.simpleAtoWorldData
 import java.util.Collections
 
+/** Exact mission origin; structural outputs retain their published physical anchor. */
+sealed interface AtoMissionOrigin {
+    val id: String
+
+    sealed interface Physical : AtoMissionOrigin {
+        val position: work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+    }
+
+    data class FormationContact(
+        val eventInstanceId: String,
+        override val position: work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+    ) : Physical {
+        init { require(eventInstanceId.isNotBlank()) }
+        override val id: String = "formation-contact:${eventInstanceId.length}:$eventInstanceId"
+    }
+
+    data class FormationOutput(
+        val eventInstanceId: String,
+        val outputId: String,
+        override val position: work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot
+    ) : Physical {
+        init { require(eventInstanceId.isNotBlank() && outputId.isNotBlank()) }
+        override val id: String = "formation:${eventInstanceId.length}:$eventInstanceId:$outputId"
+    }
+}
+
 /** Stable reference to a Basic WayPoint without retaining a live rail object. */
-data class WayPointRef(val id: String) {
+data class WayPointRef(override val id: String) : AtoMissionOrigin {
     init {
         require(id.isNotBlank() && id == id.trim())
     }
@@ -92,13 +118,13 @@ data class AtoMissionLeg(
 data class AtoMission private constructor(
     val id: String,
     val revision: Long,
-    val origin: WayPointRef,
+    val origin: AtoMissionOrigin,
     val legs: List<AtoMissionLeg>
 ) {
     constructor(
         id: String,
         revision: Long,
-        origin: WayPointRef,
+        origin: AtoMissionOrigin,
         legs: Collection<AtoMissionLeg>
     ) : this(id, revision, origin, immutableCopy(legs))
 
@@ -111,7 +137,7 @@ data class AtoMission private constructor(
         var expectedFrom = origin.id
         legs.forEach { leg ->
             require(leg.plannedRoute.expandedRoute.fromWayPointId == expectedFrom) {
-                "AtoMission legs must form one continuous WayPoint chain"
+                "AtoMission legs must form one continuous chain from its exact origin"
             }
             expectedFrom = leg.point.target.id
         }

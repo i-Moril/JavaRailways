@@ -26,6 +26,10 @@ object TimetableDumper {
             "periodDays" to JsonPrimitive(periodDays),
             "periodTicks" to JsonPrimitive(periodTicks),
             "services" to JsonArray(services.map { it.toJson() }),
+            "formationEvents" to JsonArray(formationEvents.map { event ->
+                json.encodeToJsonElement(work.art1st.javarailways.simpleato.persistence.SavedFormationEventV1.serializer(),
+                    work.art1st.javarailways.simpleato.persistence.captureFormationEvent(event))
+            }),
             "lineSpeedLimits" to JsonArray(lineSpeedLimits.map { limit -> JsonObject(mapOf(
                 "lineId" to JsonPrimitive(limit.lineId.value),
                 "maximumSpeedMetersPerSecond" to JsonPrimitive(limit.maximumSpeedMetersPerSecond)
@@ -121,6 +125,18 @@ object TimetableDumper {
     }
 
     private fun TimetableAction.toJson(): JsonObject = when (this) {
+        is TimetableAction.SelectStop -> JsonObject(mapOf(
+            "type" to JsonPrimitive("selectStop"), "stationId" to JsonPrimitive(selection.stationId.value),
+            "selectionPolicy" to JsonPrimitive(selection.policy.name),
+            "berthCandidates" to JsonArray(selection.candidates.map { JsonObject(mapOf(
+                "berthId" to JsonPrimitive(it.berthId), "priority" to JsonPrimitive(it.priority))) }),
+            "minimumDwellTicks" to (minimumDwellTicks?.let(::JsonPrimitive) ?: JsonNull),
+            "stoppingOffsetMetersBefore" to (stoppingOffsetMetersBefore?.let(::JsonPrimitive) ?: JsonNull),
+            "doorSideOverride" to (doorSideOverride?.name?.let(::JsonPrimitive) ?: JsonNull)))
+        is TimetableAction.Couple -> JsonObject(mapOf("type" to JsonPrimitive("couple"), "eventId" to JsonPrimitive(eventId)))
+        is TimetableAction.Split -> JsonObject(mapOf("type" to JsonPrimitive("split"), "eventId" to JsonPrimitive(eventId)))
+        is TimetableAction.TakeFromFormationOutput -> JsonObject(mapOf("type" to JsonPrimitive("takeFromFormationOutput"),
+            "eventId" to JsonPrimitive(eventId), "outputId" to JsonPrimitive(outputId)))
         is TimetableAction.TakeFromDepot -> JsonObject(
             mapOf(
                 "type" to JsonPrimitive("takeFromDepot"),
@@ -163,6 +179,7 @@ object TimetableDumper {
         is TimetableAction.Stop -> JsonObject(
             mapOf("type" to JsonPrimitive("stop"), "ticks" to JsonPrimitive(ticks))
         )
+        TimetableAction.WaitUntil -> JsonObject(mapOf("type" to JsonPrimitive("waitUntil")))
         TimetableAction.Halt -> JsonObject(
             mapOf("type" to JsonPrimitive("halt"))
         )
@@ -186,8 +203,8 @@ object TimetableDumper {
             mapOf(
                 "type" to JsonPrimitive("conditional"),
                 "condition" to condition.toJson(),
-                "thenActions" to JsonArray(thenActions.map { it.toJson() }),
-                "elseActions" to JsonArray(elseActions.map { it.toJson() })
+                "thenSteps" to JsonArray(thenSteps.map { it.toJson() }),
+                "elseSteps" to JsonArray(elseSteps.map { it.toJson() })
             )
         )
         is TimetableAction.CallStation -> JsonObject(

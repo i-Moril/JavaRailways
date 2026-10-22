@@ -152,8 +152,8 @@ class JavaRailwaysCommand {
                 filtered(values)
             }
             "depot" -> when (args.size) {
-                2 -> filtered(listOf("assign", "list", "reset", "reset-all"))
-                3 -> if (args[1].equals("assign", true)) filtered(trains()) else emptyList()
+                2 -> filtered(listOf("assign", "register-unit", "list", "reset", "reset-all"))
+                3 -> if (args[1].lowercase() in setOf("assign", "register-unit")) filtered(trains()) else emptyList()
                 else -> emptyList()
             }
             "ato" -> when (args.size) {
@@ -571,6 +571,47 @@ class JavaRailwaysCommand {
         }
         val store = world.simpleAtoWorldData.depots
         when (args.firstOrNull()?.lowercase()) {
+            "register-unit" -> {
+                val trainId = args.getOrNull(1)
+                val unitId = args.getOrNull(2)
+                if (trainId == null || unitId == null || args.size !in 3..4) {
+                    sender.sendMessage("用法: /jr depot register-unit <train> <unitId> [controlFamily]（将整列登记为一个固定动车组单元）")
+                    return true
+                }
+                submitWorldOperation(sender, world, sender.world.uid, "/jr depot register-unit") registerUnit@{
+                    val train = world.getTrain(trainId) as? CoreTrain
+                    val stock = train?.let { store.rollingStock(it.id) }
+                    if (train == null || stock == null) {
+                        return@registerUnit listOf("列车必须先登记到车辆段: $trainId")
+                    }
+                    val frame = train.publishedFrame
+                    val stationary = frame.speedMetersPerSecond == 0.0 && frame.cars.all { car ->
+                        (listOf(car.state) + car.bogies).all {
+                            it.velocityX == 0.0 && it.velocityY == 0.0 && it.velocityZ == 0.0
+                        }
+                    }
+                    if (!stationary || train.controller != null || train.isDerailed || train.movementHeld ||
+                        stock.state != work.art1st.javarailways.simpleato.api.depot.RollingStockState.AVAILABLE ||
+                        stock.assignmentId != null
+                    ) {
+                        return@registerUnit listOf("只能登记配置有效、已停止、未分配任务且无控制器的在库列车")
+                    }
+                    val controlFamily = args.getOrNull(3) ?: stock.record.modelPackageId
+                        ?: return@registerUnit listOf("混合车型不能自动推断控制族，请显式指定 controlFamily")
+                    val carIds = train.cars.map { it.id }
+                    val result = runCatching {
+                        store.registerFixedUnit(
+                            work.art1st.javarailways.simpleato.api.depot.FixedEmuUnit(
+                                unitId, stock.record.homeDepotId, carIds, controlFamily
+                            ), carIds
+                        )
+                    }
+                    listOf(result.fold(
+                        { "已登记固定动车组单元 $unitId，包含 ${carIds.size} 节车厢；归属 ${stock.record.homeDepotId}" },
+                        { "动车组单元登记失败: ${it.message}" }
+                    ))
+                }
+            }
             "assign" -> {
                 val trainId = args.getOrNull(1)
                 val depotValue = args.getOrNull(2)
@@ -688,7 +729,7 @@ class JavaRailwaysCommand {
                     )
                 }
             }
-            else -> sender.sendMessage("用法: /jr depot <assign|list|reset|reset-all>")
+            else -> sender.sendMessage("用法: /jr depot <assign|register-unit|list|reset|reset-all>")
         }
         return true
     }
@@ -1399,7 +1440,7 @@ class JavaRailwaysCommand {
         sender.sendMessage("/jr waypoint list|info|remove - 管理路径点")
         sender.sendMessage("/jr route validate <from> <to> - 验证路径点之间的展开经路")
         sender.sendMessage("/jr navigate [--measure|-m] <waypoints...> - 为驾驶中的列车提交临时 ATO 导航")
-        sender.sendMessage("/jr depot assign|list ... - 登记和查看车辆段列车")
+        sender.sendMessage("/jr depot assign|register-unit|list ... - 登记和查看车辆段列车及固定动车组单元")
         sender.sendMessage("/jr depot reset <depot> confirm | reset-all confirm - Stall 中原子重置")
         sender.sendMessage("/jr timetable replan <id> <service> <current-waypoint> [cycle] - 人工接管后显式重新规划")
         sender.sendMessage("/jr timetable edit - 获取短期有效的 WebUI 登录链接")

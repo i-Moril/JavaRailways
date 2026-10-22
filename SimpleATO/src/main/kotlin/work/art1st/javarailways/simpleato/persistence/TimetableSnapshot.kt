@@ -8,6 +8,7 @@ import work.art1st.javarailways.simpleato.api.depot.DepotTrainSelector
 import work.art1st.javarailways.simpleato.api.line.LineId
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.simpleato.api.timetable.*
+import work.art1st.javarailways.simpleato.api.station.*
 import work.art1st.javarailways.simpleato.timetable.*
 
 @Serializable
@@ -106,13 +107,18 @@ data class SavedTimetableActivationV1(
 enum class SavedTimetableActionTypeV1 {
     TAKE_FROM_DEPOT,
     TAKE_FROM_WAYPOINT,
+    TAKE_FROM_FORMATION_OUTPUT,
+    COUPLE,
+    SPLIT,
     STORE_AT_DEPOT,
     DESTINATION,
     DESTINATION_OPTIONS,
     STOP,
+    WAIT_UNTIL,
     HALT,
     REVERSE,
     STATION_DESTINATION_OPTIONS,
+    SELECT_STOP,
     EXTENSION,
     CONDITIONAL
 }
@@ -138,10 +144,23 @@ data class SavedTimetableActionV1(
     val doorSideOverride: DoorSide? = null,
     val extensionCall: SavedTimetableExtensionCallV1? = null,
     val condition: SavedTimetableConditionV1? = null,
-    val thenActions: List<SavedTimetableActionV1> = emptyList(),
-    val elseActions: List<SavedTimetableActionV1> = emptyList()
+    val thenSteps: List<SavedTimetableStepV1> = emptyList(),
+    val elseSteps: List<SavedTimetableStepV1> = emptyList(),
+    val eventId: String? = null,
+    val outputId: String? = null,
+    val berthCandidates: List<SavedStationStopCandidateV1> = emptyList(),
+    val selectionPolicy: SavedStationStopSelectionPolicyV1? = null
 ) {
     fun restore(): TimetableAction = when (type) {
+        SavedTimetableActionTypeV1.SELECT_STOP -> TimetableAction.SelectStop(
+            StationStopSelection(StationId(requireNotNull(stationId)),
+                berthCandidates.map { StationStopCandidate(it.berthId, it.priority) },
+                StationStopSelectionPolicy.valueOf(requireNotNull(selectionPolicy).name)),
+            minimumDwellTicks, stoppingOffsetMetersBefore, doorSideOverride)
+        SavedTimetableActionTypeV1.COUPLE -> TimetableAction.Couple(requireNotNull(eventId))
+        SavedTimetableActionTypeV1.SPLIT -> TimetableAction.Split(requireNotNull(eventId))
+        SavedTimetableActionTypeV1.TAKE_FROM_FORMATION_OUTPUT ->
+            TimetableAction.TakeFromFormationOutput(requireNotNull(eventId), requireNotNull(outputId))
         SavedTimetableActionTypeV1.TAKE_FROM_DEPOT -> TimetableAction.TakeFromDepot(
             DepotTrainSelector(
                 depotId = DepotId(requireNotNull(depotId)),
@@ -170,6 +189,7 @@ data class SavedTimetableActionV1(
             doorSide = doorSideOverride
         )
         SavedTimetableActionTypeV1.STOP -> TimetableAction.Stop(requireNotNull(stopTicks))
+        SavedTimetableActionTypeV1.WAIT_UNTIL -> TimetableAction.WaitUntil
         SavedTimetableActionTypeV1.HALT -> TimetableAction.Halt
         SavedTimetableActionTypeV1.REVERSE -> TimetableAction.Reverse
         SavedTimetableActionTypeV1.STATION_DESTINATION_OPTIONS -> TimetableAction.CallStation(
@@ -184,13 +204,23 @@ data class SavedTimetableActionV1(
         )
         SavedTimetableActionTypeV1.CONDITIONAL -> TimetableAction.Conditional(
             condition = requireNotNull(condition).restore(),
-            thenActions = thenActions.map { it.restore() },
-            elseActions = elseActions.map { it.restore() }
+            thenSteps = thenSteps.map { requireNotNull(it.restore() as? TimetableStep.At) { "Conditional children must be AT steps" } },
+            elseSteps = elseSteps.map { requireNotNull(it.restore() as? TimetableStep.At) { "Conditional children must be AT steps" } }
         )
     }
 
     companion object {
         fun capture(value: TimetableAction): SavedTimetableActionV1 = when (value) {
+            is TimetableAction.SelectStop -> SavedTimetableActionV1(SavedTimetableActionTypeV1.SELECT_STOP,
+                stationId = value.selection.stationId.value,
+                berthCandidates = value.selection.candidates.map { SavedStationStopCandidateV1(it.berthId, it.priority) },
+                selectionPolicy = SavedStationStopSelectionPolicyV1.valueOf(value.selection.policy.name),
+                minimumDwellTicks = value.minimumDwellTicks, stoppingOffsetMetersBefore = value.stoppingOffsetMetersBefore,
+                doorSideOverride = value.doorSideOverride)
+            is TimetableAction.Couple -> SavedTimetableActionV1(SavedTimetableActionTypeV1.COUPLE, eventId = value.eventId)
+            is TimetableAction.Split -> SavedTimetableActionV1(SavedTimetableActionTypeV1.SPLIT, eventId = value.eventId)
+            is TimetableAction.TakeFromFormationOutput -> SavedTimetableActionV1(SavedTimetableActionTypeV1.TAKE_FROM_FORMATION_OUTPUT,
+                eventId = value.eventId, outputId = value.outputId)
             is TimetableAction.TakeFromDepot -> SavedTimetableActionV1(
                 type = SavedTimetableActionTypeV1.TAKE_FROM_DEPOT,
                 depotId = value.selector.depotId.value,
@@ -228,6 +258,7 @@ data class SavedTimetableActionV1(
                 SavedTimetableActionTypeV1.STOP,
                 stopTicks = value.ticks
             )
+            TimetableAction.WaitUntil -> SavedTimetableActionV1(SavedTimetableActionTypeV1.WAIT_UNTIL)
             TimetableAction.Halt -> SavedTimetableActionV1(
                 SavedTimetableActionTypeV1.HALT
             )
@@ -249,8 +280,8 @@ data class SavedTimetableActionV1(
             is TimetableAction.Conditional -> SavedTimetableActionV1(
                 type = SavedTimetableActionTypeV1.CONDITIONAL,
                 condition = SavedTimetableConditionV1.capture(value.condition),
-                thenActions = value.thenActions.map(::capture),
-                elseActions = value.elseActions.map(::capture)
+                thenSteps = value.thenSteps.map(SavedTimetableStepV1::capture),
+                elseSteps = value.elseSteps.map(SavedTimetableStepV1::capture)
             )
         }
     }
@@ -465,7 +496,8 @@ data class SavedInitialPositionV1(
 data class SavedCompilationTraceV1(
     val serviceId: String,
     val stepIndex: Int,
-    val origin: String
+    val origin: String,
+    val branchPath: List<SavedTimetableBranchPathEntryV1> = emptyList()
 )
 
 @Serializable
@@ -493,14 +525,16 @@ data class SavedTimetableV1(
     val initialPositions: List<SavedInitialPositionV1> = emptyList(),
     /** Presentation-only compiler trace; ignored by restore(). */
     val compilationTrace: List<SavedCompilationTraceV1> = emptyList(),
-    val lineSpeedLimits: List<SavedTimetableLineSpeedLimitV1> = emptyList()
+    val lineSpeedLimits: List<SavedTimetableLineSpeedLimitV1> = emptyList(),
+    val formationEvents: List<SavedFormationEventV1> = emptyList()
 ) {
     fun restore(): Timetable = Timetable(
         id = id,
         periodDays = periodDays,
         services = services.map(SavedTimetableServiceV1::restore),
         initialPositions = initialPositions.map(SavedInitialPositionV1::restore),
-        lineSpeedLimits = lineSpeedLimits.map(SavedTimetableLineSpeedLimitV1::restore)
+        lineSpeedLimits = lineSpeedLimits.map(SavedTimetableLineSpeedLimitV1::restore),
+        formationEvents = TimetableFormationCatalog(formationEvents.map { it.restore() })
     )
 
     companion object {
@@ -509,7 +543,8 @@ data class SavedTimetableV1(
             value.periodDays,
             value.services.map(SavedTimetableServiceV1::capture),
             initialPositions = value.initialPositions.map(SavedInitialPositionV1::capture),
-            lineSpeedLimits = value.lineSpeedLimits.map(SavedTimetableLineSpeedLimitV1::capture)
+            lineSpeedLimits = value.lineSpeedLimits.map(SavedTimetableLineSpeedLimitV1::capture),
+            formationEvents = value.formationEvents.map(::captureFormationEvent)
         )
     }
 }
@@ -518,4 +553,101 @@ object TimetableSnapshotCodec {
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = false; prettyPrint = true }
     fun encode(value: SavedTimetableV1): String = json.encodeToString(SavedTimetableV1.serializer(), value)
     fun decode(value: String): SavedTimetableV1 = json.decodeFromString(SavedTimetableV1.serializer(), value)
+}
+
+@Serializable enum class SavedFormationEventKind { COUPLE, SPLIT }
+@Serializable enum class SavedFormationStationaryEnd { HEAD, TAIL }
+@Serializable enum class SavedFormationDispositionType { DUTY, HOLD }
+@Serializable enum class SavedFormationSplitGroup { FIRST, REST }
+@Serializable enum class SavedFormationPartitionFrom { HEAD }
+@Serializable data class SavedFormationDispositionV1(val type: SavedFormationDispositionType, val dutyId: String? = null) {
+    init { require(if (type == SavedFormationDispositionType.DUTY) !dutyId.isNullOrBlank() && dutyId == dutyId.trim() else dutyId == null) }
+}
+@Serializable data class SavedFormationOutputV1(val id: String, val disposition: SavedFormationDispositionV1) {
+    init { require(id.isNotBlank() && id == id.trim()) }
+}
+@Serializable data class SavedFormationSplitOutputV1(val id: String, val group: SavedFormationSplitGroup, val disposition: SavedFormationDispositionV1) {
+    init { require(id.isNotBlank() && id == id.trim()) }
+}
+@Serializable data class SavedFormationRendezvousV1(val approachDestinationId: String, val stationaryDestinationId: String) {
+    init { require(listOf(approachDestinationId, stationaryDestinationId).all { it.isNotBlank() && it == it.trim() }) }
+}
+@Serializable data class SavedFormationPartitionV1(val from: SavedFormationPartitionFrom, val firstUnitCount: Int) {
+    init { require(firstUnitCount > 0) { "HEAD partition firstUnitCount must be positive" } }
+}
+@Serializable data class SavedFormationEventV1(
+    val id: String,
+    val kind: SavedFormationEventKind,
+    val coordinatorDutyId: String,
+    val approachingDutyId: String? = null,
+    val stationaryDutyId: String? = null,
+    val stationaryEnd: SavedFormationStationaryEnd? = null,
+    val rendezvous: SavedFormationRendezvousV1? = null,
+    val maximumApproachSpeedMetersPerSecond: Double? = null,
+    val output: SavedFormationOutputV1? = null,
+    val partition: SavedFormationPartitionV1? = null,
+    val outputs: List<SavedFormationSplitOutputV1> = emptyList()
+) {
+    init {
+        require(id.isNotBlank() && id == id.trim() && coordinatorDutyId.isNotBlank() && coordinatorDutyId == coordinatorDutyId.trim())
+        when (kind) {
+            SavedFormationEventKind.COUPLE -> {
+                require(!approachingDutyId.isNullOrBlank() && approachingDutyId == approachingDutyId.trim())
+                require(!stationaryDutyId.isNullOrBlank() && stationaryDutyId == stationaryDutyId.trim())
+                require(approachingDutyId != stationaryDutyId && coordinatorDutyId in setOf(approachingDutyId, stationaryDutyId))
+                require(stationaryEnd != null && rendezvous != null && output != null)
+                require(maximumApproachSpeedMetersPerSecond != null && maximumApproachSpeedMetersPerSecond.isFinite() && maximumApproachSpeedMetersPerSecond > 0.0)
+                require(partition == null && outputs.isEmpty()) { "COUPLE cannot declare a split partition" }
+            }
+            SavedFormationEventKind.SPLIT -> {
+                require(partition != null && outputs.size == 2 && outputs.map { it.group }.toSet() == SavedFormationSplitGroup.entries.toSet())
+                require(outputs.map { it.id }.distinct().size == 2)
+                val duties = outputs.mapNotNull { it.disposition.dutyId }
+                require(duties.distinct().size == duties.size) { "split outputs cannot share a duty" }
+                require(listOf(approachingDutyId, stationaryDutyId, stationaryEnd, rendezvous, maximumApproachSpeedMetersPerSecond, output).all { it == null })
+            }
+        }
+    }
+}
+
+private fun SavedFormationDispositionV1.restore(): FormationOutputDisposition = when (type) {
+    SavedFormationDispositionType.DUTY -> FormationOutputDisposition.Duty(requireNotNull(dutyId))
+    SavedFormationDispositionType.HOLD -> FormationOutputDisposition.Hold
+}
+private fun SavedFormationOutputV1.restore() = TimetableFormationOutput(id, disposition.restore())
+private fun SavedFormationSplitOutputV1.restore() = TimetableFormationOutput(id, disposition.restore())
+private fun SavedFormationEventV1.restore(): TimetableFormationEvent = when (kind) {
+    SavedFormationEventKind.COUPLE -> TimetableFormationEvent.Couple(id, coordinatorDutyId,
+        requireNotNull(approachingDutyId), requireNotNull(stationaryDutyId),
+        FormationStationaryEnd.valueOf(requireNotNull(stationaryEnd).name),
+        requireNotNull(rendezvous).let { FormationRendezvous(it.approachDestinationId, it.stationaryDestinationId) },
+        requireNotNull(maximumApproachSpeedMetersPerSecond), requireNotNull(output).restore())
+    SavedFormationEventKind.SPLIT -> TimetableFormationEvent.Split(id, coordinatorDutyId,
+        requireNotNull(partition).firstUnitCount,
+        outputs.single { it.group == SavedFormationSplitGroup.FIRST }.restore(),
+        outputs.single { it.group == SavedFormationSplitGroup.REST }.restore())
+}
+private fun captureDisposition(value: FormationOutputDisposition): SavedFormationDispositionV1 = when (value) {
+    is FormationOutputDisposition.Duty -> SavedFormationDispositionV1(SavedFormationDispositionType.DUTY, value.dutyId)
+    FormationOutputDisposition.Hold -> SavedFormationDispositionV1(SavedFormationDispositionType.HOLD)
+}
+fun captureFormationEvent(value: TimetableFormationEvent): SavedFormationEventV1 = when (value) {
+    is TimetableFormationEvent.Couple -> SavedFormationEventV1(value.id, SavedFormationEventKind.COUPLE, value.coordinatorDutyId,
+        value.approachingDutyId, value.stationaryDutyId, SavedFormationStationaryEnd.valueOf(value.stationaryEnd.name),
+        SavedFormationRendezvousV1(value.rendezvous.approachDestinationId, value.rendezvous.stationaryDestinationId),
+        value.maximumApproachSpeedMetersPerSecond, SavedFormationOutputV1(value.output.id, captureDisposition(value.output.disposition)))
+    is TimetableFormationEvent.Split -> SavedFormationEventV1(value.id, SavedFormationEventKind.SPLIT, value.coordinatorDutyId,
+        partition = SavedFormationPartitionV1(SavedFormationPartitionFrom.HEAD, value.firstUnitCount), outputs = listOf(
+            SavedFormationSplitOutputV1(value.first.id, SavedFormationSplitGroup.FIRST, captureDisposition(value.first.disposition)),
+            SavedFormationSplitOutputV1(value.rest.id, SavedFormationSplitGroup.REST, captureDisposition(value.rest.disposition))))
+}
+
+@Serializable enum class SavedTimetableBranchArmV1 { THEN, ELSE }
+@Serializable data class SavedTimetableBranchPathEntryV1(val arm: SavedTimetableBranchArmV1, val index: Int) {
+    init { require(index >= 0) }
+}
+
+@Serializable enum class SavedStationStopSelectionPolicyV1 { FIXED_PREFERENCE, AVAILABLE_PRIORITY }
+@Serializable data class SavedStationStopCandidateV1(val berthId: String, val priority: Int) {
+    init { require(berthId.isNotBlank() && berthId == berthId.trim() && priority >= 0) }
 }

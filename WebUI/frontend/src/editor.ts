@@ -9,8 +9,8 @@ export const emptyAction = (type: ActionType = 'DESTINATION'): TimetableActionV1
  stopTicks: type === 'STOP' ? 20 : null,
  stationId: type === 'STATION_DESTINATION_OPTIONS' ? '' : null,
  berthId: type === 'STATION_DESTINATION_OPTIONS' ? '' : null,
- thenActions: [],
- elseActions: [],
+ thenSteps: [],
+ elseSteps: [],
 });
 export const emptyTimetable = (): SavedTimetableV1 => ({ id:'new-timetable', periodDays:1, services:[] });
 export type EditorAction =

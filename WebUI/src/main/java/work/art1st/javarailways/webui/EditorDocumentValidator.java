@@ -24,6 +24,36 @@ final class EditorDocumentValidator {
         requireObjectArray(document, "duties");
         requireObjectArray(document, "diagramLines");
         requireObjectArray(document, "arrivalOverrides");
+        java.util.Map<String, JsonNode> programs = new java.util.HashMap<>();
+        if (document.has("boundPrograms")) {
+            requireObjectArray(document, "boundPrograms");
+            for (JsonNode snapshot : document.path("boundPrograms")) {
+                StationProgramValidator.fields(snapshot, java.util.Set.of("programId", "revision", "contentIdentity", "definition"), "bound program");
+                String id = StationProgramValidator.text(snapshot.path("programId"), "bound program id");
+                if (!id.matches("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")) fail("invalid bound program id");
+                if (programs.put(id, snapshot) != null) fail("duplicate bound program");
+                StationProgramValidator.revision(snapshot.path("revision"));
+                StationProgramValidator.validate(snapshot.path("definition"));
+                if (!ProgramContentIdentity.of(snapshot.path("definition")).equals(snapshot.path("contentIdentity").asText())) fail("bound program content identity mismatch");
+            }
+        }
+        for (JsonNode duty : document.path("duties")) {
+            java.util.Set<String> callIds = new java.util.HashSet<>();
+            for (JsonNode element : duty.path("elements")) if (element.path("type").asText().equals("PROGRAM")) {
+                JsonNode call = element.path("call");
+                StationProgramValidator.fields(call, java.util.Set.of("id", "programId", "tick", "arguments"), "program call");
+                String callId = StationProgramValidator.text(call.path("id"), "program call id");
+                if (!callId.matches("[A-Za-z0-9][A-Za-z0-9_-]{0,127}") || !callIds.add(callId)) fail("invalid or duplicate program call id");
+                JsonNode snapshot = programs.get(call.path("programId").asText());
+                if (snapshot == null) fail("missing bound program");
+                if (!call.path("tick").isIntegralNumber() || !call.path("tick").canConvertToLong() || call.path("tick").asLong() < 0 || call.path("tick").asLong() > 9_007_199_254_740_991L) fail("invalid program call tick");
+                StationProgramValidator.validateArguments(snapshot.path("definition"), call.path("arguments"));
+            }
+        }
+        if (document.has("formationEvents")) {
+            requireObjectArray(document, "formationEvents");
+            document.path("formationEvents").forEach(FormationAuthoringValidator::validate);
+        }
         document.path("runs").forEach(EditorDocumentValidator::validateRun);
         document.path("duties").forEach(EditorDocumentValidator::validateDuty);
         document.path("diagramLines").forEach(EditorDocumentValidator::validateDiagramLine);
@@ -60,6 +90,11 @@ final class EditorDocumentValidator {
                 requireIntegral(selector, "tick", "depot selector");
                 requireStringArray(selector, "tags", "depot selector");
             }
+            case "TAKE_FROM_FORMATION_OUTPUT" -> {
+                requireIntegral(selector, "tick", "formation output selector");
+                requireText(selector, "eventId", "formation output selector");
+                requireText(selector, "outputId", "formation output selector");
+            }
             case "TAKE_FROM_WAYPOINT" -> {
                 requireIntegral(selector, "tick", "waypoint selector");
                 requireStringArray(selector, "wayPointIds", "waypoint selector");
@@ -73,6 +108,7 @@ final class EditorDocumentValidator {
         requireText(element, "type", "duty element");
         switch (element.path("type").asText()) {
             case "RUN" -> requireText(element, "runId", "run element");
+            case "PROGRAM" -> { if (!element.path("call").isObject()) fail("program call must be an object"); }
             case "FUNCTION" -> {
                 JsonNode call = element.path("call");
                 if (!call.isObject()) fail("function element call must be an object");

@@ -3,6 +3,9 @@ package work.art1st.javarailways.simpleato
 import work.art1st.javarailways.basic.api.rail.RailObjectStore
 import work.art1st.javarailways.basic.api.safety.WorldSafetyInterlock
 import work.art1st.javarailways.core.api.physics.World
+import work.art1st.javarailways.core.api.physics.train.FormationMovementHold
+import work.art1st.javarailways.core.api.physics.train.FormationMovementHoldRestoration
+import work.art1st.javarailways.simpleato.api.depot.RecoveredFormationComposition
 import work.art1st.javarailways.core.api.util.plugin.ExtensionData
 import work.art1st.javarailways.simpleato.api.destination.OperationalDestinationStore
 import work.art1st.javarailways.simpleato.api.depot.DepotStore
@@ -36,6 +39,37 @@ data class SimpleATOWorldData(
     val routePlanningRestrictions: RoutePlanningRestrictionRuntime = RoutePlanningRestrictionRuntime(),
     val operationalRuntime: OperationalWorldRuntime? = null
 ) {
+    // Capabilities are process-local. Saved event identities, never saved tokens, rebuild these.
+    private val formationRecoveryMovementHolds = LinkedHashMap<String, List<FormationMovementHold>>()
+    private val heldFormationMovementHolds = LinkedHashMap<String, FormationMovementHold>()
+
+    internal fun restoreFormationRecoveryMovementHolds(world: World) {
+        check(formationRecoveryMovementHolds.isEmpty() && heldFormationMovementHolds.isEmpty()) { "formation recovery fences already restored" }
+        depots.recoveredFormationHolds().forEach { recovery ->
+            val owners = when (recovery.composition) {
+                RecoveredFormationComposition.UNCHANGED_SOURCES -> recovery.change.sources
+                RecoveredFormationComposition.EXPECTED_OUTPUTS -> recovery.change.outputs.map { it.owner }
+            }
+            val tokens = ArrayList<FormationMovementHold>()
+            // Retain installed capabilities even if a later fence rejects; never roll back protection.
+            formationRecoveryMovementHolds[recovery.change.eventId] = tokens
+            owners.forEach { owner ->
+                when (val result = world.restoreFormationMovementHold(owner.trainId, owner.carIds)) {
+                    is FormationMovementHoldRestoration.Accepted -> tokens += result.hold
+                    is FormationMovementHoldRestoration.Rejected -> error(
+                        "Formation recovery ${recovery.change.eventId} cannot fence ${owner.trainId}: ${result.reason}")
+                }
+            }
+        }
+        depots.heldFormationOutputs().forEach { held ->
+            val owner = held.owner
+            when (val result = world.restoreFormationMovementHold(owner.trainId, owner.carIds)) {
+                is FormationMovementHoldRestoration.Accepted -> heldFormationMovementHolds[owner.trainId] = result.hold
+                is FormationMovementHoldRestoration.Rejected -> error("Held formation ${owner.trainId} cannot be fenced: ${result.reason}")
+            }
+        }
+    }
+
     init {
         signalEpochRuntime.attachInspectionRuntime(inspectionRuntime)
         require(stations.usesRailObjectStore(sharedRailObjects)) {

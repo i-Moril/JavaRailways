@@ -569,3 +569,46 @@ Correct: each signalling plugin owns its policy model and contributes generic re
 Wrong: SimpleATO constructs resource identities or preparation arguments for each signal system
 Correct: the host authenticates contributors; Basic validates their bounded results and claims one union
 ```
+
+## Fixed formation contact and output ownership
+
+`prepareFormationChange` binds exact live source grants, ordered car identities and output directions under one authenticated requester. It freezes their ordinary extension/reversal/end and tail release without releasing or transferring any registry owner. Only an unchanged unsealed event can abort. Core decision guards reject unmatched manual structural operations, including a held split child. Physical success installs separate Core output fences before publication; a coherent observation advances to `OUTPUTS_HELD`.
+
+`requestCouplingApproach` requires the sealed host proof's exact body+contact traversal, contact boundary, positive speed cap and unchanged stopped target. It runs normal physical compilation and occupancy queries excluding only the requesting train, preserves retained preparations, acquires actual missing delta and requires explicit provider/contributor formation authorization. No peer occupancy or signal restriction is bypassed. A READY grant includes `maximumSpeedMetersPerSecond` and purpose-bound `couplingContactAuthority`; its actual route is published to domain owners. Core's actual solved collision contact must match the proof before the prepared link is admitted.
+
+`bindFormationOutputs` validates every exact stopped output as one batch: unique owner, actual tail initialization, full ordered published body prefix, body-only authority, inherited source coverage and complete provider clearance declarations on the **complete selected frozen route**. Null clearance explicitly means not needed; missing/duplicate/unauthorized declarations reject. The operating coordinator owns ledger commit and every mission/disposition installation. Binding alone keeps all Core fences.
+
+Before the first output fence release, `resumeFormationOutput` revalidates the exact stopped binding pose: direction, head/tail, ordered body traversal and complete car/bogie geometry must still match the immutable frame captured at binding. An intervening owner reversal or maintenance placement rejects without releasing the hold or any claim, even before the next observation consumption.
+
+`requestFormationOutput` admits a farther output authority using its authoritative cursor occurrence+distance, compiling the current-tail-to-authority resource floor and head-forward occupancy. It cannot reacquire a historical prefix behind the tail, borrow another output's new exclusive delta, change retained preparations or infer provider permission. Pending READY is revalidated; safe abort rolls back only the exact reservation, while unsafe outcomes retain protection. `resumeFormationOutput` releases only that output's exact Core fence after READY forward authority; `REQUEST_BUSY` distinguishes safe waiting for preparation/forward authority or a peer still using shared originals.
+
+Forward output extensions retain the exact committed grant ID and owner, including across delayed preparation. PREPARING returns the unchanged previous committed grant; READY updates its boundary/observation without resetting the consumer restriction stream. A moving tail may trim the safely protected resource prefix while preparation waits, but cannot add unreserved resources or alter preparation/clearance evidence.
+
+Original resources shrink only after **all** outputs have complete-route last-use/tail evidence and no actual body still overlaps their rail intervals. Each output's exclusive delta has its own release queue. An output whose tail permanently clears every remaining original can detach independently while a peer remains HOLD: its existing owner/grant/cursor and exact exclusive queue become an ordinary route, without release/reacquire. Its old group stops interpreting that train's later direction or composition, so another prepared split can execute independently. Ordinary requests, reversals and successor formation floors must reject overlap with remaining old-group originals; those resources do not become the detached route's queue merely because the registry owner is the same.
+
+The same registry owner may therefore contain an ordinary queue plus independently retained aggregate originals. A final own-queue shrink returning REPLACED is accepted only when the actual remaining footprint equals the engine's exact protected aggregate remainder plus any exact pending delta. No generic permissive remainder flag exists. Requester/provider activity remains visible for aggregate originals even after a detached source container or route no longer exists. Final group completion never overwrites a newer detached route.
+
+`CouplingApproachAdmissionTest` exercises real straight/curved low-speed contact and retained owners; `FormationOutputAdmissionTest` exercises two-output conjunctive release, wrong-tail rejection, physical/resource contention, repeated prefix-safe extensions, independent HOLD detachment and a second real prepared split. These are focused runtime tests, not scheduled live-world acceptance.
+
+### 零长度车钩的接触边界
+
+Formation contact 的 occupancy 校验仅在私有编译调用显式携带当前 Core host proof 时，允许已封存 stationary
+参与者在认证 contactHead 终点发生边界接触。检查当前 peer 的零速、位置和 body traversal，并逐项检查
+其 swept span 与 movement query 的接近区间：只能在 contact rail 的终端边界相遇，不能穿入 peer body。
+其他列车、其他位置的交叠和普通 output movement 仍被拒绝。完整 route 随后仍必须与 host 的 body+approach
+路径完全一致，准备完成后再次核验；不能通过 submitted formationContext 自行要求豁免。
+
+碰撞许可必须按 Core 的已发布帧语义识别最后一步运动：非零 head/tail traversal 可以伴随步末零速度。
+不能仅因 approaching speed=0 拒绝一次实际制动到接触点的联挂；仍要求有限非负速度且不超过 grant cap、
+非零记录位移、完整有效 host proof、精确参与者、静止目标和匹配 contactHead。没有位移的停放帧不因此获得许可。
+
+`CouplingApproachAdmissionTest` 使用真实 Core 碰撞验证 connector=0 与0.3 的联挂，并对两种长度验证
+错误 boundary、policy 拒绝和第三列车阻挡。Dispatcher 实际事件测试进一步覆盖零长度车钩、HOLD和继续运行。
+
+After structural output publication, SimpleATO retires the consumed mission through `retireMissionForFormation()`: enqueue requires the current controller, a structural fence, stopped physical evidence and no active/queued station call. Retirement executes on the command consumer, preserving the controller and external restrictions; a later mission revision submitted before command consumption survives. It does not impersonate reverse preparation or release infrastructure.
+
+Held-body equality normalizes only adjacent contiguous pieces of the same oriented rail occurrence and drops zero-length pieces; it preserves ordered revisits and compares traversal coordinates at the existing 1e-8 metre body precision, while head/tail and car poses remain exact. Structural coupling and a later stopped physics publication may segment the same body differently. Completed unsafe preparation remains available as cached terminal evidence after RECOVERY_REQUIRED, without advancing or restarting any preparation; safe abort removes only the new delta, whereas unsafe abort retains all reservations.
+
+A still-fenced output bound only to its exact body may select its first departure by appending an immutable directed suffix: same route ID, increasing revision, exact occurrence prefix, old authority at body end, and no previously acquired output delta. Basic recompiles and reserves the suffix while retaining the body grant; safe abort leaves that grant and cursor unchanged. Only successful installation extends the cursor and replaces the clearance proof. Resume still waits for any moving sibling to clear retained originals. A later deferred sibling may select its own departure; resources already released must be reacquired. After departure, an exact immutable-prefix append is also allowed once authority reaches the old route end. Existing original last-use may extend while still retained; if this output had certified a resource clear, it cannot re-enter while a moving sibling still relies on that resource. Exclusive last-use boundaries are recomputed without shortening, and cursor/release evidence change only after READY. Newly required or previously released resources go through ordinary delta reservation; route replacement remains forbidden.
+
+A structurally fenced output with no forward authority, pending preparation or acquired output delta may suspend release for an explicit reversal. Its selected route may already contain a suffix; suspension retains all original claims and blocks resume and resource release. Only the exact stopped reversal is accepted: swapped head/tail with reversed facing, reversed ordered body traversal, and unchanged canonical car/bogie positions, directions and normals. Core reversal changes operating direction, not physical render orientation. Rebase compiles a body-only route under the same owner/grant, requires inherited coverage and unchanged preparation obligations, and atomically replaces its cursor, held frame, clearances and expected output orientation. The operating coordinator updates the exact pending ledger owner in the same reversal callback; no historical source identity or physical membership changes.

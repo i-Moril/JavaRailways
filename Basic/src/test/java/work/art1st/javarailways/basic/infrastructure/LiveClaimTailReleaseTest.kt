@@ -28,6 +28,35 @@ class LiveClaimTailReleaseTest {
     private val claimOwner = InfrastructureOwner("test:route", 4)
 
     @Test
+    fun `final own queue can retain only the exact independently protected aggregate remainder`() {
+        val own = interval(20.0, 30.0)
+        val aggregate = interval(0.0, 10.0)
+        val registry = InfrastructureCoordinationRegistry(currentTopologyRevision = { 8L }, resourceExists = { true })
+        registry.acquireClaim(platformOwner, InfrastructureClaimRequest(claimOwner, InfrastructureFootprint(listOf(own, aggregate))))
+        val release = LiveClaimTailRelease(registry, platformOwner, claimOwner,
+            CompiledTailReleaseQueue(listOf(entry(own, 30.0))), { listOf(aggregate) })
+        assertInstanceOf(LiveClaimTailReleaseResult.Completed::class.java, release.advance(30.0))
+        assertTrue(release.resourceQueueEmpty)
+        assertEquals(listOf(aggregate), registry.claimSnapshots().single().footprint.resources)
+        assertInstanceOf(LiveClaimTailReleaseResult.Completed::class.java, release.advance(31.0))
+        assertEquals(listOf(aggregate), registry.claimSnapshots().single().footprint.resources)
+    }
+
+    @Test
+    fun `undeclared extra remainder still fails closed rather than borrowing aggregate permission`() {
+        val own = interval(20.0, 30.0)
+        val aggregate = interval(0.0, 10.0)
+        val unknown = interval(40.0, 50.0)
+        val registry = InfrastructureCoordinationRegistry(currentTopologyRevision = { 8L }, resourceExists = { true })
+        registry.acquireClaim(platformOwner, InfrastructureClaimRequest(claimOwner, InfrastructureFootprint(listOf(own, aggregate, unknown))))
+        val release = LiveClaimTailRelease(registry, platformOwner, claimOwner,
+            CompiledTailReleaseQueue(listOf(entry(own, 30.0))), { listOf(aggregate) })
+        assertInstanceOf(LiveClaimTailReleaseResult.FailedClosed::class.java, release.advance(30.0))
+        assertTrue(registry.claimSnapshots().single().footprint.resources.containsAll(listOf(aggregate, unknown)))
+        assertEquals(listOf(own), release.remainingEntries.map { it.resource }, "unexpected mutation must not advance local lifecycle")
+    }
+
+    @Test
     fun `valid progress below the head is retained monotonically`() {
         val first = interval(0.0, 40.0)
         val second = interval(20.0, 60.0)

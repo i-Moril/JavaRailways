@@ -1,3 +1,5 @@
+import {formationEventShape} from './formationAuthoring';
+import { validateStationProgram } from './stationPrograms';
 import type { TimetableAuthoringDocumentV1 } from './authoring';
 
 export interface AuthoringRecoveryState {
@@ -25,6 +27,13 @@ export function parseAuthoringRecovery(serialized:string|null,owner:string,world
   try{
     const value=JSON.parse(serialized) as Partial<AuthoringRecoveryState>;
     if(value.version!==1||value.owner!==owner||value.world!==world||!value.document||typeof value.document!=='object'||typeof value.savedDocumentJson!=='string')return undefined;
+    if(value.document.formationEvents!==undefined&&(!Array.isArray(value.document.formationEvents)||!value.document.formationEvents.every(formationEventShape)))return undefined;
+    if(value.document.boundPrograms!==undefined){
+      if(!Array.isArray(value.document.boundPrograms)||value.document.boundPrograms.some((snapshot)=>!snapshot||typeof snapshot.programId!=='string'||!Number.isSafeInteger(snapshot.revision)||snapshot.revision<1||typeof snapshot.contentIdentity!=='string'||validateStationProgram(snapshot.definition).length>0))return undefined;
+    }
+    for(const duty of value.document.duties??[])for(const element of duty.elements??[])if(element.type==='PROGRAM'){
+      if(!element.call||typeof element.call.id!=='string'||typeof element.call.programId!=='string'||typeof element.call.tick!=='number'||!element.call.arguments||typeof element.call.arguments!=='object'||Array.isArray(element.call.arguments))return undefined;
+    }
     if(typeof value.documentId!=='string'||typeof value.formalScriptName!=='string'||typeof value.persistedFormalScriptName!=='string')return undefined;
     return {
       version:1,owner,world,documentId:value.documentId,formalScriptName:value.formalScriptName,persistedFormalScriptName:value.persistedFormalScriptName,

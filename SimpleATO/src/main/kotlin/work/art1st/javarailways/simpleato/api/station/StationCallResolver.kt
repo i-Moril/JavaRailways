@@ -2,9 +2,13 @@ package work.art1st.javarailways.simpleato.api.station
 
 import work.art1st.javarailways.basic.WayPoint
 import work.art1st.javarailways.simpleato.api.mission.WayPointRef
+import work.art1st.javarailways.simpleato.api.mission.AtoMissionOrigin
 import work.art1st.javarailways.basic.api.operation.DoorSide
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.api.route.PlannedRoute
+import work.art1st.javarailways.basic.api.route.ExpandedRoute
+import work.art1st.javarailways.core.api.physics.rail.topology.TopologyState
+import work.art1st.javarailways.simpleato.timetable.retainedRouteFailure
 import work.art1st.javarailways.simpleato.routing.RouteBuildResult
 import work.art1st.javarailways.core.api.physics.World
 import work.art1st.javarailways.core.api.physics.rail.RailObjectLifecycleState
@@ -15,7 +19,7 @@ import work.art1st.javarailways.simpleato.simpleAtoWorldData
 
 data class StationCallRequest(
     val serviceRunId: String,
-    val origin: WayPointRef,
+    val origin: AtoMissionOrigin,
     val call: StationCall
 ) {
     init {
@@ -61,6 +65,7 @@ enum class StationCallResolutionFailure {
     BERTH_DIRECTION_UNAVAILABLE,
     ROUTE_UNAVAILABLE,
     TRAIN_TOO_LONG,
+    TRAIN_LENGTH_INELIGIBLE,
     MISSION_REVISION_MISMATCH
 }
 
@@ -72,16 +77,32 @@ class StationCallResolver(private val world: World) {
     fun resolve(
         request: StationCallRequest,
         trainLengthMeters: Double? = null,
-        requiredStartDirection: ViewDirection? = null
+        requiredStartDirection: ViewDirection? = null,
+        retainedRoute: ExpandedRoute? = null,
+        retainedTopology: TopologyState? = null
     ): StationCallResolutionResult {
         require(trainLengthMeters == null || trainLengthMeters.isFinite() && trainLengthMeters > 0.0)
         val basicData = world.basicWorldData
         val operationalData = world.simpleAtoWorldData
-        val origin = basicData.wayPoints[request.origin.id]
-            ?: return failure(
+        require((retainedRoute == null) == (retainedTopology == null)) { "retained station route requires its captured topology" }
+        val origin = when (val source = request.origin) {
+            is WayPointRef -> basicData.wayPoints[source.id] ?: return failure(
                 StationCallResolutionFailure.ORIGIN_UNRESOLVED,
                 "station call origin not found: ${request.origin.id}"
             )
+            is AtoMissionOrigin.Physical -> {
+                if (retainedRoute == null || trainLengthMeters == null) return failure(
+                    StationCallResolutionFailure.ORIGIN_UNRESOLVED,
+                    "physical station origin requires a retained route, topology and actual train length"
+                )
+                if (requiredStartDirection != null && requiredStartDirection != source.position.facing ||
+                    retainedRoute.segments.first().railViewRef.direction != source.position.facing) return failure(
+                    StationCallResolutionFailure.ROUTE_UNAVAILABLE, "physical station origin direction changed"
+                )
+                // Endpoint descriptor only: physical origins are never registered as authored markers.
+                WayPoint(source.id, source.id, source.position.railId, source.position.arcLengthInAbMeters)
+            }
+        }
         val station = operationalData.stations[request.call.stationId]
             ?: return failure(
                 StationCallResolutionFailure.STATION_UNRESOLVED,
@@ -114,6 +135,16 @@ class StationCallResolver(private val world: World) {
             )
         }
 
+        if (trainLengthMeters != null &&
+            (berth.minimumTrainLengthMeters?.let { trainLengthMeters < it } == true ||
+                berth.maximumTrainLengthMeters?.let { trainLengthMeters > it } == true)
+        ) {
+            return failure(
+                StationCallResolutionFailure.TRAIN_LENGTH_INELIGIBLE,
+                "train length $trainLengthMeters is outside marker ${request.call.berthRef} eligibility"
+            )
+        }
+
         val target = WayPoint(
             id = "station-call:${request.call.callId}:${request.call.berthRef}",
             displayName = request.call.berthRef.toString(),
@@ -122,7 +153,13 @@ class StationCallResolver(private val world: World) {
                 work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB
             )
         )
-        val expanded = when (val result = routePlanner.buildRoute(
+        val expanded = if (retainedRoute != null) {
+            retainedRouteFailure(world, retainedRoute, requireNotNull(retainedTopology), origin, target,
+                requiredStartDirection, berth.approachDirection)?.let {
+                return failure(StationCallResolutionFailure.ROUTE_UNAVAILABLE, it)
+            }
+            retainedRoute
+        } else when (val result = routePlanner.buildRoute(
             origin,
             target,
             requiredGoalDirection = berth.approachDirection,

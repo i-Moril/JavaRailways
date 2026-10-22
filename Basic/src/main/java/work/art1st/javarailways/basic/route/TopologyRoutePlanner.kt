@@ -567,14 +567,21 @@ object TopologyRoutePlanner {
         EdgeDirection.SECOND_TO_FIRST -> first.takeIf { samePosition(point.distanceMeters, 0.0) }
     }
 
-    private fun TrackEdgeSlice.edgeDistanceAt(canonicalAbMeters: Double): Double =
-        if (railEndAbMeters > railStartAbMeters) {
+    private fun TrackEdgeSlice.edgeDistanceAt(canonicalAbMeters: Double): Double = when (canonicalAbMeters) {
+        railStartAbMeters -> edgeStartMeters
+        railEndAbMeters -> edgeEndMeters
+        else -> if (railEndAbMeters > railStartAbMeters) {
             edgeStartMeters + canonicalAbMeters - railStartAbMeters
         } else {
             edgeStartMeters + railStartAbMeters - canonicalAbMeters
         }
+    }
 
     private fun SliceWithOffset.canonicalAbAt(edgeDistance: Double): Double {
+        // Accumulated edge offsets can round differently from this rail's own length.
+        // Preserve known physical endpoints rather than subtracting their rounded offsets.
+        if (edgeDistance == edgeStartMeters) return railStartAbMeters
+        if (edgeDistance == edgeEndMeters) return railEndAbMeters
         val localDistance = edgeDistance - edgeStartMeters
         return if (railEndAbMeters > railStartAbMeters) {
             railStartAbMeters + localDistance

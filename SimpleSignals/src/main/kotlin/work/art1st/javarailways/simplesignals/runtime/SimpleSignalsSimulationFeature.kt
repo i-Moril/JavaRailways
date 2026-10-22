@@ -1,6 +1,9 @@
 package work.art1st.javarailways.simplesignals.runtime
 
 import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.route.FormationRouteContext
+import work.art1st.javarailways.basic.api.route.FormationRoutePolicyResult
+import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.ResourcePreparationTicket
@@ -68,10 +71,16 @@ internal class SimpleSignalsSimulationFeature(
                     return RouteAdmissionFailure(code, "invalid SimpleSignals simulation contribution in ${target.worldId}")
                 }
 
+                override fun authorizeFormationResource(resource: StableInfrastructureResource, context: FormationRouteContext,
+                    intent: RouteResourceIntent): FormationRoutePolicyResult =
+                    if (resource.typeId == FIXED_BLOCK_RESOURCE_TYPE) policy.authorizeFormationResource(resource.resourceId, context, intent)
+                    else FormationRoutePolicyResult.Rejected(RouteAdmissionFailure(
+                        RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "not a SimpleSignals resource"))
+
                 override fun prepare(resource: StableInfrastructureResource, descriptor: ResourcePreparationDescriptor):
                     (() -> ResourcePreparationTicket)? = null
             })
-            registrations += target.registerRouteContributor(id, policy::contribute)
+            registrations += target.registerFormationRouteContributor(id, policy::contribute, policy::authorizeFormationRoute)
             registrations += target.installRoutePlanningSources(listOf(runtime.routePlanningBinding))
             registrations += target.installInspectionSources(listOf(runtime.fixedBlockInspectionSource, runtime.protectionRegionInspectionSource))
             registrations += target.installSignalSources(occupancy.sources)

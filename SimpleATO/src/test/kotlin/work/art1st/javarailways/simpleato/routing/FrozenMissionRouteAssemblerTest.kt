@@ -113,6 +113,33 @@ class FrozenMissionRouteAssemblerTest {
     }
 
     @Test
+    fun `physical continuation preserves stop error without changing committed overlap`() {
+        val rail = UUID(0L, 46L)
+        val topology = buildTestTopology(16L, listOf(TestTopologyRail(rail, 240.0)), emptyMap())
+        for (facing in ViewDirection.entries) for (arc in listOf(99.9, 100.1)) {
+            fun position(directed: Double) = RailPositionSnapshot(rail, facing,
+                if (facing == ViewDirection.AB) directed else 240.0 - directed)
+            val observed = observation(topology.revision, position(arc - 10.0), position(arc),
+                listOf(traversal(rail, facing, position(arc - 10.0).arcLengthInAbMeters, position(arc).arcLengthInAbMeters)))
+            val original = FrozenMissionRoute(FrozenRouteSelectionResult.Selected(TRAIN_ID, observed.stamp,
+                RouteSnapshot("operating", 1L, topology.revision,
+                    listOf(RouteSegmentSnapshot(rail, facing, 10.0, 100.0),
+                        RouteSegmentSnapshot(rail, facing, 100.0, 140.0)))),
+                10.0, 0.0, operationalEndRouteDistanceMeters = 90.0)
+            val origin = work.art1st.javarailways.simpleato.api.mission.AtoMissionOrigin.FormationOutput("split", "first", position(arc))
+            val planned = PlannedRoute("physical/leg/0", 2L, ExpandedRoute(origin.id, "target",
+                listOf(RouteSegment(RailViewRef(rail, facing), arc, 180.0))))
+            val next = AtoMission("physical", 2L, origin,
+                listOf(AtoMissionLeg(0, AtoMissionPoint.Stop(WayPointRef("target")), planned)))
+            val appended = (FrozenMissionRouteAssembler.append(topology, FrozenRouteSelectionContext(observed),
+                original, next, 0.0) as FrozenMissionRouteResult.Frozen).route
+            assertEquals(original.selection.route.segments, appended.selection.route.segments.take(2))
+            assertEquals(arc - 10.0, appended.routeProgressMeters(0.0), 1.0e-9)
+            assertEquals(170.0, appended.operationalEndRouteDistanceMeters, 1.0e-9)
+        }
+    }
+
+    @Test
     fun `ordinary stop appends a separately revisioned mission without changing the route prefix`() {
         val rail = UUID(0L, 40L)
         val topology = buildTestTopology(

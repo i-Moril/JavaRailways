@@ -34,5 +34,9 @@ function NumberDraft({fieldKey:_,value,onCommit,allowEmpty=true,onValidityChange
     onInput={update}
     onChange={(next)=>update(next==null?'':String(next))}
     onKeyDown={(event)=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();const initial=value==null?'':String(value);raw.current=initial;lastCommit.current=initial;setDraft(initial);setInvalid(false);onValidityChange?.(true);}props.onKeyDown?.(event);}}
-    onBlur={commit} onPressEnter={(event)=>{event.preventDefault();event.stopPropagation();commit();}}/>;
+    onKeyDownCapture={(event)=>{
+      props.onKeyDownCapture?.(event);
+      // InputNumber otherwise flushes/clamps the draft before onPressEnter runs.
+      if(event.key==='Enter'&&!event.nativeEvent.isComposing&&!event.defaultPrevented){event.preventDefault();event.stopPropagation();commit();}
+    }} onBlur={commit}/>;
 }

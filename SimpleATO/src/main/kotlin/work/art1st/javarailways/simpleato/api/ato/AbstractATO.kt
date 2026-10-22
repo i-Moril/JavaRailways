@@ -116,13 +116,36 @@ abstract class AbstractATO(
                 return
             }
             val step = actuator.step(activeSpeed, demand, deltaTimeSeconds)
+            val distance = constrainMovementDistance(step.distanceMeters)
+            check(distance.isFinite() && distance >= 0.0 && distance <= step.distanceMeters) {
+                "controller movement boundary may only shorten the actuator step"
+            }
             speed = step.speedMetersPerSecond
-            moveControlledTrain(step.distanceMeters, step.speedMetersPerSecond)
-            lastTravelDistanceMeters = step.distanceMeters
-            activeLifetimeTravelDistanceMeters += step.distanceMeters
+            moveControlledTrain(distance, step.speedMetersPerSecond)
+            lastTravelDistanceMeters = distance
+            activeLifetimeTravelDistanceMeters += distance
         } catch (failure: Exception) {
             atoCoordinator.stall(createStallReport(failure))
             freeze()
+        }
+    }
+
+    /** Publish mission/inspection readiness without advancing actuator history or physical motion. */
+    final override fun prepareWhileFormationHeld(deltaT: Double) {
+        atoTick++
+        speed = 0.0
+        // The last movement belongs to the pre-publication formation, never the new mission.
+        lastTravelDistanceMeters = 0.0
+        if (atoCoordinator.isStalled) return
+        try {
+            processPendingCommands()
+            plan(deltaT * 0.001)
+            validateBeforeMovement()
+        } catch (failure: Exception) {
+            atoCoordinator.stall(createStallReport(failure))
+        } finally {
+            speed = 0.0
+            lastTravelDistanceMeters = 0.0
         }
     }
 
@@ -131,6 +154,9 @@ abstract class AbstractATO(
     protected abstract fun plan(deltaTimeSeconds: Double): ControlDemand
 
     protected open fun validateBeforeMovement() = Unit
+
+    /** Exact host physical boundary; ordinary movement retains the complete actuator result. */
+    protected open fun constrainMovementDistance(requestedDistanceMeters: Double): Double = requestedDistanceMeters
 
     protected open fun constraintSnapshot(): Map<ConstraintOwner, List<AtoConstraint>> = emptyMap()
 

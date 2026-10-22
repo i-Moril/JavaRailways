@@ -73,3 +73,29 @@ Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有�
 
 错误做法：每个页面创建自己的 document/recovery；把任何无错误列表渲染为“全部世界检查通过”；迟到响应无条件 `setValue(capturedDocument)`；删除成功却保留已删除的 documentId。
 正确做法：受控视图共享一个 owner；结果区分未执行、当前结果与阻塞原因；响应先核对 owner 和输入，保留期间的新编辑并正确更新持久身份。
+
+## 共享站内程序（顺序子集）
+
+世界共享库使用已认证的 `station-programs` API，库编辑状态和时刻表文档分离。新记录以稳定 ID、revision、archived、definition 和内容哈希保存；更新/归档必须提供 expectedRevision，冲突409不能覆盖本地草稿或伪装成功。归档保留内容，不再允许新增选择或库修改。世界切换/卸载使迟到响应失效。
+
+时刻表通过可选 `boundPrograms`（缺省空）保存 `{programId,revision,contentIdentity,definition}`，一个程序一个不可变快照。首次选择复制定义；后续调用沿用绑定版本，库刷新不写文档。采用更新是显式按钮且只产生一次现有 document/history 事务，参数变化需重新校验，旧编译/模拟结果因输入变化失效。既有绑定即使库归档仍可生成。无新 editor/recovery schema version 或任意 JS 反向解析。
+
+`PROGRAM` duty element 的 call 为 `{id,programId,tick,arguments}`。参数类型为 TICK/DURATION/DESTINATION/DEPOT/STRING/ID_LIST；引用的声明类型必须精确匹配字段，不能用 STRING 参数替代目的地/车库。有限顺序步骤为 WAIT_UNTIL、WAIT_DURATION、REVERSE、MOVE、STORE_AT_DEPOT；表达式只接受 `{value}` 或 `{parameterId}`。数值为安全整数，时长严格正数。生成只读 JS 时每个已用绑定定义声明一次，现有 origin scope 加上 call/program/step 身份。完整展开先校验，再一次性追加到 ScriptWorker builder，拒绝错误后不能留下部分动作。
+
+绝对等待是实际 WAIT_UNTIL gate，不是只改变编译游标；其他动作继承当前 schedule cursor。出库仍由既有交路 acquisition selector 唯一拥有；程序要求此前 CHECK/acquisition，不暴露伪造的 callback 出库。分支、动态选站、重联/解编和库内 acquisition 尚不属于此顺序子集。具体接口与测试证据在活动任务 research/library-transport-contract-2026-10-22.md、b2-sequential-library-validation-2026-10-22.md；不能把局部132项前端测试当作完整五批功能或游戏验收。
+
+### 扩展动作与来源定位
+
+顺序程序增加 EXTENSION，静态绑定 namespaced typeId/positive version，parameters 仅为整个 JSON_OBJECT literal 或整个 JSON_OBJECT 参数引用。嵌套内容是 JSON 数据，不做内部参数替换、不解释 JavaScript。注册描述的 schema 是说明数据，不假设完整标准 JSON-Schema；UI 只选择世界 metadata 中的已注册动作，真实编译继续由运行时 registry/provider.validate 决定可用性。
+
+JSON 对象允许{}；拒绝空文本/非对象、不有限数字和超出安全整数范围的整数值。三端统一深度16、节点4096、单个 key/string8192 UTF-16 单元上限。内容身份先校验再归一有限 IEEE754 数值，1/1.0 和正负零等价；生成的定义及参数用 JSON.parse(quoted JSON) 保留 __proto__ 等合法 JSON key，不能直接用会改变这些字段语义的 JS 对象 literal。JSON 输入只在 blur/Ctrl+Enter 提交，Escape 丢弃，身份改变/卸载禁止旧回调写文档。
+
+来源导航先验证当前文档输入及实际 trace，再匹配稳定 call/program/step。交路页显示已绑定步骤只读，可显式打开共享库对应步骤编辑，再由用户采用更新；不提供就地修改绑定快照的第二 owner。无法在当前绑定找到的步骤、不同调用及过期编译 trace 不得猜测定位。ScriptWorker 保留 captured timed builder 的 Tick，并在完整展开前严格检查表达式原始 keyset，不能让 nullable decode 把额外的 parameterId:null 当作字段不存在。
+
+### 固定重联／解编事件编辑
+
+当前共享程序增加 COUPLE/SPLIT，eventId 只接受 literal 或 FORMATION_EVENT 类型静态参数。时刻表文档可选 formationEvents 缺省空；交路页在同一 history owner 下编辑固定参与交路、HEAD 完整单元数量、FIRST/REST 输出去向、会合目的地与接近速度（显示 km/h，协议 m/s）。输出去向为 HOLD 或 DUTY，后续新交路使用 TAKE_FROM_FORMATION_OUTPUT(eventId,outputId,tick)，不重新分配模拟车型。
+
+前端校验声明与实际程序调用种类、每个参与者恰好调用一次、被消耗参与者结束、输出交路互反引用。最终物理、单位、依赖环校验仍由服务器负责。重命名交路同时更新固定事件引用；删除/改事件 ID 不猜测改写共享快照中的 literal，保留上下文错误。生成使用现有 formationEvent 与 takeFromFormationOutput DSL，并安全引用 JSON。库/编辑器后端及本地恢复同步当前格式，不升级版本。
+
+浏览器 demo 的新增/Enter/Undo 与编译失效已检查；不能据此声称真实服务器编译或重联运行验收完成。分支编辑、动态选择和完整运行诊断仍由活动任务后续批次实现。

@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.http
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -65,7 +67,9 @@ class IsolatedLineSimulatorTest {
             listOf(SimulationLeg("A", "B", 1_000.0)),
             profile,
             gravityMetersPerSecondSquared = 9.80665,
-            lineMaximumSpeedMetersPerSecond = 5.0
+            lineMaximumSpeedMetersPerSecond = resolveLineSimulationMaximumSpeed(
+                Json.parseToJsonElement("""{"maximumSpeedMetersPerSecond":5.0}""").jsonObject
+            ) { _, _ -> error("authoring Reset must not read a stored timetable") }
         )
 
         assertTrue(capped.legs.single().peakSpeedMetersPerSecond <= 5.0)

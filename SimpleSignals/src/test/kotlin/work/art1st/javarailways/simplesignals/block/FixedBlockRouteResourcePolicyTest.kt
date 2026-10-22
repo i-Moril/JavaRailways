@@ -13,6 +13,10 @@ import work.art1st.javarailways.basic.api.ato.snapshot.RouteSnapshot
 import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
 import work.art1st.javarailways.basic.api.observation.RailwayStateStamp
+import work.art1st.javarailways.basic.api.route.FormationRouteContext
+import work.art1st.javarailways.basic.api.route.FormationRoutePurpose
+import work.art1st.javarailways.basic.api.route.FormationRoutePolicyResult
+import work.art1st.javarailways.basic.api.route.FormationTrainIdentity
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
 import work.art1st.javarailways.basic.api.route.RouteBoundary
@@ -385,6 +389,53 @@ class FixedBlockRouteResourcePolicyTest {
 
         assertTrue(failure.message.orEmpty().contains("runtime is unavailable"))
     }
+
+    @Test
+    fun `formation clearance uses complete frozen route beyond short body authority`() {
+        val identity = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)
+        val context = formationContext(listOf(identity))
+        val request = intent(5.0).copy(formationContext = context)
+        assertNull(policy.authorizeFormationRoute(worldId, context, request))
+        val result = policy.authorizeFormationResource(worldId, identity.resourceId, context, request)
+            as FormationRoutePolicyResult.Accepted
+        assertEquals(identity, result.clearances.single().resource)
+        assertEquals(RouteBoundary(18.0), result.clearances.single().releaseAfterTailPasses)
+        assertEquals(RouteBoundary(5.0), policy.contribute(worldId, request).single().releaseAfterTailPasses)
+    }
+
+    @Test
+    fun `formation off-route resource explicitly clears but missing resource never clears`() {
+        val absent = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, "missing")
+        val context = formationContext(listOf(absent))
+        assertTrue(policy.authorizeFormationResource(worldId, absent.resourceId, context,
+            intent(5.0).copy(formationContext = context)) is FormationRoutePolicyResult.Rejected)
+        val identity = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, block.blockId)
+        val offRoute = route(listOf(RouteSegmentSnapshot(first, ViewDirection.AB, 0.0, 1.0)))
+        val retained = formationContext(listOf(identity))
+        val result = policy.authorizeFormationResource(worldId, identity.resourceId, retained,
+            intent(1.0, offRoute).copy(formationContext = retained)) as FormationRoutePolicyResult.Accepted
+        assertNull(result.clearances.single().releaseAfterTailPasses)
+    }
+
+    @Test
+    fun `formation opt-in still rejects wrong context direction and unavailable territory`() {
+        val context = formationContext(emptyList())
+        assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+            policy.authorizeFormationRoute(worldId, context, intent(5.0)))
+        val blocked = FixedBlockRouteResourcePolicy(plugin, validateRouteAdmission = { _, _ -> error("territory unavailable") },
+            snapshotForWorld = { snapshot })
+        assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+            blocked.authorizeFormationRoute(worldId, context, intent(5.0).copy(formationContext = context)))
+        val unsetDirections = FixedBlockRouteResourcePolicy(plugin, snapshotForWorld = { snapshot })
+        assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+            unsetDirections.authorizeFormationRoute(worldId, context, intent(5.0).copy(formationContext = context)))
+    }
+
+    // Fixture only: production contexts are issued exclusively by Basic's prepared formation owner.
+    private fun formationContext(resources: List<StableInfrastructureResource>): FormationRouteContext =
+        FormationRouteContext::class.java.constructors.single { it.parameterCount == 6 }.newInstance("test:event", FormationRoutePurpose.OUTPUT_BODY,
+            listOf(FormationTrainIdentity("source", listOf("car"), false)),
+            listOf(FormationTrainIdentity("train", listOf("car"), false)), resources, null) as FormationRouteContext
 
     private fun intent(
         desiredAuthorityMeters: Double,

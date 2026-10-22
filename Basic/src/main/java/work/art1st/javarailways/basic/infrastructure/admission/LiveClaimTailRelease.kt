@@ -64,7 +64,8 @@ internal class LiveClaimTailRelease(
     private val registry: InfrastructureCoordinationRegistry,
     private val platformOwner: Any,
     private val claimOwner: InfrastructureOwner,
-    queue: CompiledTailReleaseQueue
+    queue: CompiledTailReleaseQueue?,
+    private val protectedRemainder: () -> Collection<InfrastructureResource> = { emptyList() }
 ) {
     private val lock = Any()
     private var remainingQueue: CompiledTailReleaseQueue? = queue
@@ -229,7 +230,11 @@ internal class LiveClaimTailRelease(
             val mutation = shrink.mutation
             val pendingDeltaKeptClaimAlive = queueCompleted &&
                 mutation.status == InfrastructureMutationStatus.REPLACED && shrink.pendingAppendOnly
-            if (mutation.status != expectedStatus && !pendingDeltaKeptClaimAlive) {
+            val expectedRemainder = if (queueCompleted && mutation.status == InfrastructureMutationStatus.REPLACED &&
+                !pendingDeltaKeptClaimAlive) protectedRemainder().toSet() else emptySet()
+            val aggregateKeptClaimAlive = expectedRemainder.isNotEmpty() &&
+                registry.claimSnapshots().singleOrNull { it.owner == claimOwner }?.footprint?.resources?.toSet() == expectedRemainder
+            if (mutation.status != expectedStatus && !pendingDeltaKeptClaimAlive && !aggregateKeptClaimAlive) {
                 return@synchronized failClosed(
                     TailReleaseFailureKind.CLAIM_SHRINK_FAILED,
                     mutation.detail.ifBlank {

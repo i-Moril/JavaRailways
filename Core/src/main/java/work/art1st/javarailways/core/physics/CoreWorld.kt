@@ -1583,6 +1583,71 @@ class CoreWorld(
     internal fun collisionEnvelope(trainId: String): CollisionEnvelope? =
         sweptOccupancy.collisionEnvelopes[trainId]
 
+    override fun inspectCouplingApproach(
+        request: work.art1st.javarailways.core.api.physics.train.CouplingApproachRequest
+    ): work.art1st.javarailways.core.api.physics.train.CouplingApproachInspection {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.inspectCouplingApproach")
+        return railTopologyLock.read { TrainCoupling.inspectApproach(this, request) }
+    }
+
+    override fun validateCouplingApproach(
+        proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof
+    ): Boolean {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.validateCouplingApproach")
+        return railTopologyLock.read { TrainCoupling.validateApproach(this, proof) }
+    }
+
+    override fun validateCouplingApproachGeometry(
+        proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof
+    ): Boolean {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.validateCouplingApproachGeometry")
+        return railTopologyLock.read { TrainCoupling.validateApproachGeometry(this, proof) }
+    }
+
+    override fun validatePublishedCouplingApproach(
+        proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof
+    ): Boolean = TrainCoupling.validatePublishedApproach(this, proof)
+
+    override fun clampCouplingApproachDistance(
+        proof: work.art1st.javarailways.core.api.physics.train.CouplingApproachProof,
+        requestedDistanceMeters: Double
+    ): Double {
+        work.art1st.javarailways.core.api.threading.ThreadGuard.ensureAsyncTickThread("CoreWorld.clampCouplingApproachDistance")
+        return TrainCoupling.clampApproachDistance(this, proof, requestedDistanceMeters)
+    }
+
+    override fun releaseFormationMovementHold(
+        hold: work.art1st.javarailways.core.api.physics.train.FormationMovementHold
+    ): Boolean {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.releaseFormationMovementHold")
+        val train = getTrain(hold.trainId) ?: return false
+        return train.releaseFormationMovementHold(hold)
+    }
+
+    override fun restoreFormationMovementHold(
+        trainId: String,
+        expectedCarIds: List<String>
+    ): work.art1st.javarailways.core.api.physics.train.FormationMovementHoldRestoration {
+        physicsCoordinator.ensureBetweenFrames("CoreWorld.restoreFormationMovementHold")
+        val train = getTrain(trainId)
+        val frame = train?.publishedFrame
+        return if (expectedCarIds.isEmpty() || expectedCarIds.any(String::isBlank) ||
+            expectedCarIds.distinct().size != expectedCarIds.size || train == null ||
+            train.cars.map { it.id } != expectedCarIds ||
+            frame == null || frame.cars.map { it.carId } != expectedCarIds ||
+            frame.reversed != train.isReversed || frame.derailed || train.isDerailed ||
+            frame.speedMetersPerSecond != 0.0 ||
+            (frame.headTraversal + frame.tailTraversal).any {
+                it.startArcLengthInAbMeters != it.endArcLengthInAbMeters
+            } || frame.cars.any { car -> (car.bogies + car.state).any {
+                it.velocityX != 0.0 || it.velocityY != 0.0 || it.velocityZ != 0.0
+            } }
+        ) work.art1st.javarailways.core.api.physics.train.FormationMovementHoldRestoration.Rejected(
+            "recovery requires an exact stopped current formation")
+        else work.art1st.javarailways.core.api.physics.train.FormationMovementHoldRestoration.Accepted(
+            train.restoreFormationMovementHold())
+    }
+
     /** Called by the Coordinator after atomically publishing an active train frame. */
     internal fun publishTrainFrame(frame: TrainFrameSnapshot) {
         publishedTrainFrames.offer(frame)

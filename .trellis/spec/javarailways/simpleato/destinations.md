@@ -54,7 +54,7 @@ try {
 } catch (failure: Exception) {
     basicData.wayPoints.remove(destination.id)
     if (stationRole != null) data.stations.removeBerth(stationRole.berthRef)
-    if (depotRole != null) basicData.depots.removeStablingPoint(depotRole.pointRef)
+    if (depotRole != null) data.depots.removeStablingPoint(depotRole.pointRef)
     throw failure
 }
 ```
@@ -78,3 +78,24 @@ try {
 ./gradlew :SimpleATO:test --tests '*SimpleATOInfrastructureSnapshotTest'
 ./gradlew :Basic:test --tests '*BasicInfrastructureSnapshotTest'
 ```
+
+
+## B1：保持停车区配置与实际allocation一致（CURRENT）
+
+Station角色新增`stoppingAreaId`（默认本berthId）和可选正finite的`minimumTrainLengthMeters`、
+`maximumTrainLengthMeters`；min不能大于max。这些字段只由canonical Destination保存，
+`registerStationBerth`原样投影到同world StationStore，基础设施snapshot使用明确默认值，不增加独立marker版本。
+
+正常新增/替换先校验新角色area，移除先校验旧角色area。Service查询Dispatcher
+`hasStationStoppingAreaAllocation(StationStoppingAreaRef)`；已held时抛`IllegalStateException`，
+发生在任何Destination/WayPoint/Station projection mutation以前。替换为另一个已held area也在remove旧值以前拒绝；
+同rail批量删除先检查所有受影响area，避免先删除一部分再遇到持有的marker。
+
+例如T持有central/platform-one时，不能把central@short改为new-area、删除该marker，或在已held area新增另一个alias。
+允许在无关联且未held的area编辑。此边界保护逻辑容量；不会通过改配置释放已占物理资源。
+查询只读、O(1)；canonical mutation仍是main-thread service事务，allocator保留取得时area，确保exact release不漂移。
+
+`TimetableStationCallDispatcherTest`使用真实Dispatcher持有station allocation后检查replace/remove/register均拒绝，
+并断言旧Destination、WayPoint与area ownership保留；现有roundtrip/projector测试仍覆盖三个新字段。
+错误做法是只在UI隐藏编辑按钮或释放时重新解析area；正确做法是Service预校验加allocator取得时identity。
+尚未证明真实游戏中的多marker竞争与动态选择，不能用该配置拒绝单测代替B4 integrated acceptance。

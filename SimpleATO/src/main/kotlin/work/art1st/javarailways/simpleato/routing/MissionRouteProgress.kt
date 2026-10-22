@@ -46,6 +46,15 @@ class MissionRouteLayout(
         }
         segments = locatedSegments.toList()
         totalLengthMeters = legStart
+        (mission.origin as? work.art1st.javarailways.simpleato.api.mission.AtoMissionOrigin.Physical)?.let { origin ->
+            val first = segments.first()
+            val arc = if (origin.position.facing == ViewDirection.AB) origin.position.arcLengthInAbMeters
+                else first.railLengthMeters - origin.position.arcLengthInAbMeters
+            require(first.railViewRef.railId == origin.position.railId &&
+                first.railViewRef.direction == origin.position.facing && abs(first.startArcLengthMeters - arc) <= 1e-8) {
+                "formation Mission route does not start at its exact published origin"
+            }
+        }
     }
 
     /**

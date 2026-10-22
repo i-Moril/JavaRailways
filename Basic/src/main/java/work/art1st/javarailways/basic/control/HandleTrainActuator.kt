@@ -83,7 +83,14 @@ class HandleTrainActuator(
         require(deltaTimeSeconds.isFinite() && deltaTimeSeconds >= 0.0)
         val target = demand.targetSpeedMetersPerSecond.coerceAtMost(maximumSpeedMetersPerSecond)
         val desired = desiredHandle(currentSpeedMetersPerSecond, target, deltaTimeSeconds)
-        selectedHandle = progressToward(selectedHandle, desired)
+        val proposed = progressToward(selectedHandle, desired)
+        selectedHandle = if (target >= currentSpeedMetersPerSecond && deltaTimeSeconds > 0.0 &&
+            !canRecoverBelowTarget(currentSpeedMetersPerSecond, proposed, target, deltaTimeSeconds)) {
+            // No proven safe acceleration: start the real configured braking sequence now.
+            // A suddenly reduced limit or changed grade may already be physically unattainable;
+            // never conceal that by changing the integrated speed or distance.
+            progressToward(selectedHandle, serviceBrakeHandles.lastOrNull() ?: NEUTRAL_HANDLE)
+        } else proposed
         val result = dynamics.step(currentSpeedMetersPerSecond, selectedHandle, deltaTimeSeconds)
         return ActuationStep(result.state.speed, result.distance)
     }
@@ -100,6 +107,29 @@ class HandleTrainActuator(
             segments,
             currentAccelerationMetersPerSecondSquared = dynamics.state.acceleration
         )
+
+    /**
+     * A one-tick safe speed is insufficient: handle travel and positive residual acceleration can
+     * cross the limit later. Prove a bounded recovery using the same dynamics and current grades.
+     * Exhausting the budget is inconclusive, so it never authorizes further traction.
+     */
+    private fun canRecoverBelowTarget(currentSpeed: Double, proposed: String, target: Double, delta: Double): Boolean {
+        val preview = dynamics.snapshotPreview(delta)
+        val braking = serviceBrakeHandles.lastOrNull() ?: NEUTRAL_HANDLE
+        val brakeScale = dynamics.trainProfile.normalizedBrakeScale(braking)
+        var handle = proposed
+        var state = dynamics.state.copy(speed = currentSpeed)
+        repeat(MAX_RECOVERY_PREVIEW_STEPS) {
+            val result = preview(state, handle)
+            state = result.state
+            if (state.speed > target + SPEED_EPSILON) return false
+            val netForce = result.tractionForce - result.brakeForce - result.resistanceForce - result.gradeForce
+            if (handle == braking && state.acceleration <= 0.0 && state.brakeScale <= brakeScale &&
+                netForce <= 0.0) return true
+            handle = progressToward(handle, braking)
+        }
+        return false
+    }
 
     private fun desiredHandle(currentSpeed: Double, targetSpeed: Double, deltaSeconds: Double): String {
         if (targetSpeed == 0.0 && currentSpeed > SPEED_EPSILON && serviceBrakeHandles.isNotEmpty()) {
@@ -157,6 +187,7 @@ class HandleTrainActuator(
     companion object {
         private const val NEUTRAL_HANDLE = "N"
         private const val EMERGENCY_BRAKE_HANDLE = "EB"
+        private const val MAX_RECOVERY_PREVIEW_STEPS = 256
         private const val SPEED_EPSILON = 1.0e-6
         private const val NOMINAL_CONTROL_STEP_SECONDS = 0.05
 

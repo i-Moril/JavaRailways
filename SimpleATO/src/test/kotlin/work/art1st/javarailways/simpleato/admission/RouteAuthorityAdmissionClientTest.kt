@@ -30,6 +30,7 @@ import work.art1st.javarailways.basic.api.route.RouteGrantSnapshot
 import work.art1st.javarailways.basic.api.route.RouteResourceAdmissionService
 import work.art1st.javarailways.basic.api.route.RouteResourceIntent
 import work.art1st.javarailways.core.api.physics.rail.ViewDirection
+import work.art1st.javarailways.simpleato.api.restriction.CurrentSpeedRestriction
 import work.art1st.javarailways.simpleato.api.restriction.MovementAuthorityRestriction
 import work.art1st.javarailways.simpleato.api.restriction.RouteSpeedRestriction
 import work.art1st.javarailways.simpleato.api.restriction.TrainRestrictionPublicationResult
@@ -485,6 +486,55 @@ class RouteAuthorityAdmissionClientTest {
         )
         adapter.apply(stamp, FrozenRouteBinding.from(route), 0.0)
         assertEquals(0.0, manager.permittedSpeedMetersPerSecond(0.0, 30.0, AtoSafetyProfile()))
+    }
+
+    @Test
+    fun `explicit formation grant adoption changes the binding without releasing source resources`() {
+        service.onRequest = { RouteAdmissionResult.Granted(grant(40.0)) }
+        client.request(40.0)
+        val approach = route("simpleato:route/contact", 3L)
+        val ready = grant(approach.totalLengthMeters, approach).copy(maximumSpeedMetersPerSecond = 0.2)
+        client.adoptFormationGrant(selection(approach), ready)
+        assertSame(ready, client.committedGrantSnapshot)
+        assertEquals(FrozenRouteBinding.from(approach), publisher.snapshots.last().route)
+        assertEquals(0.2, publisher.snapshots.last().restrictions.filterIsInstance<CurrentSpeedRestriction>().single().maximumSpeedMetersPerSecond)
+        assertEquals(1, service.intents.size, "adoption must not submit or reacquire an ordinary route")
+        assertTrue(service.ended.isEmpty(), "source resources remain with the Basic formation owner")
+        assertThrows(IllegalStateException::class.java) { client.adoptFormationGrant(selection(approach), ready.copy(trainId = "foreign")) }
+        assertSame(ready, client.committedGrantSnapshot)
+    }
+
+    @Test
+    fun `admitted contact speed reaches the constraint adapter even with full route authority`() {
+        val manager = ConstraintManager()
+        val adapter = TrainRestrictionConstraintAdapter("train", manager)
+        val integrated = client(service, adapter::publish)
+        val committed = grant(route.totalLengthMeters).copy(maximumSpeedMetersPerSecond = 0.2)
+        service.onRequest = { RouteAdmissionResult.Granted(committed) }
+        integrated.request(route.totalLengthMeters)
+        adapter.apply(stamp, FrozenRouteBinding.from(route), 0.0)
+        assertEquals(0.2, manager.permittedSpeedMetersPerSecond(0.0, 30.0, AtoSafetyProfile()))
+        adapter.apply(stamp, FrozenRouteBinding.from(route), route.totalLengthMeters - 1.0)
+        assertTrue(manager.permittedSpeedMetersPerSecond(0.0, 30.0, AtoSafetyProfile()) <= 0.2)
+    }
+
+    @Test
+    fun `pending admission and prepared continuation retain the committed speed ceiling`() {
+        val held = grant(route.totalLengthMeters).copy(maximumSpeedMetersPerSecond = 0.2)
+        service.onRequest = { RouteAdmissionResult.Granted(held) }
+        client.request(route.totalLengthMeters)
+        val next = RouteSnapshot(route.routeId, route.revision + 1L, route.topologyRevision,
+            route.segments + RouteSegmentSnapshot(UUID(0L, 9L), ViewDirection.AB, 0.0, 60.0))
+        val continued = selection(next)
+        client.prepareContinuation(continued)
+        assertEquals(0.2, publisher.snapshots.last().restrictions.filterIsInstance<CurrentSpeedRestriction>().single().maximumSpeedMetersPerSecond)
+        val pending = RouteAdmissionTestFixtures.handle()
+        service.onRequest = { RouteAdmissionResult.Pending(pending, held) }
+        client.request(continued, RouteBoundary(next.totalLengthMeters))
+        assertEquals(0.2, publisher.snapshots.last().restrictions.filterIsInstance<CurrentSpeedRestriction>().single().maximumSpeedMetersPerSecond)
+        service.onProgress = { RouteAdmissionResult.Pending(pending, held.copy(maximumSpeedMetersPerSecond = null)) }
+        assertThrows(IllegalStateException::class.java) { client.progress() }
+        assertEquals(0.2, publisher.snapshots.last().restrictions.filterIsInstance<CurrentSpeedRestriction>().single().maximumSpeedMetersPerSecond)
     }
 
     private fun client(

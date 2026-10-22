@@ -45,12 +45,23 @@ data class RouteGrantSnapshot(
     val routeId: String,
     val routeRevision: Long,
     val observationStamp: RailwayStateStamp,
-    val committedAuthority: RouteBoundary
+    val committedAuthority: RouteBoundary,
+    /** Optional host-enforced movement ceiling, metres per second, including a terminal authority. */
+    val maximumSpeedMetersPerSecond: Double? = null,
+    val couplingContactAuthority: CouplingContactAuthority? = null
 ) {
     init {
         require(trainId.isNotBlank()) { "trainId must not be blank" }
         require(routeId.isNotBlank()) { "routeId must not be blank" }
         require(routeRevision >= 0L) { "routeRevision must be non-negative" }
+        require(maximumSpeedMetersPerSecond == null ||
+            maximumSpeedMetersPerSecond.isFinite() && maximumSpeedMetersPerSecond > 0.0) {
+            "maximumSpeedMetersPerSecond must be finite and positive when present"
+        }
+        require(couplingContactAuthority == null || maximumSpeedMetersPerSecond != null &&
+            couplingContactAuthority.contactBoundary == committedAuthority) {
+            "contact authority requires its exact contact boundary and a speed ceiling"
+        }
     }
 }
 
@@ -198,6 +209,56 @@ sealed interface RouteGrantReversalResult {
  * API values themselves provide no persistence or restart recovery.
  */
 interface RouteResourceAdmissionService {
+    /**
+     * Atomically retains the exact stopped source grants for one fixed formation event. Does not
+     * move trains, create contact permission or publish output movement authority. Immediate
+     * owner-thread call; unsupported service implementations explicitly reject.
+     */
+    @MainThread
+    fun prepareFormationChange(intent: FixedFormationChangeIntent): FormationChangeResult =
+        FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            "service does not support fixed formation changes"))
+
+    /** Seals source release before any operation capable of physical publication is submitted. */
+    @MainThread
+    fun sealFormationPublication(handle: FormationChangeHandle): FormationChangeResult =
+        FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            "service does not support fixed formation changes"))
+
+    /** Reads host-observed physical phase; no caller-reported success or movement permission. */
+    @MainThread
+    fun formationChangeState(handle: FormationChangeHandle): FormationChangeResult =
+        FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            "service does not support fixed formation changes"))
+
+    /** Only unsealed, unchanged stopped sources can abort; publication uncertainty retains claims. */
+    @MainThread
+    fun abortFormationChange(handle: FormationChangeHandle): FormationChangeResult =
+        FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            "service does not support fixed formation changes"))
+
+    @MainThread
+    fun requestCouplingApproach(handle: FormationChangeHandle, intent: RouteResourceIntent): RouteAdmissionResult =
+        RouteAdmissionResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            "service does not support fixed formation approach"))
+
+    /** Called after the operating owner commits its exact staged mapping; keeps every output fenced. */
+    @MainThread
+    fun bindFormationOutputs(handle: FormationChangeHandle, outputBodyIntents: List<RouteResourceIntent>): FormationChangeResult =
+        FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            "service does not support fixed formation output binding"))
+
+    @MainThread
+    fun requestFormationOutput(handle: FormationChangeHandle, intent: RouteResourceIntent): RouteAdmissionResult =
+        RouteAdmissionResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            "service does not support fixed formation output admission"))
+
+    /** Releases only a READY output's exact Core fence, preserving independent configuration holds. */
+    @MainThread
+    fun resumeFormationOutput(handle: FormationChangeHandle, outputGrantId: RouteGrantId): FormationChangeResult =
+        FormationChangeResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.WORLD_UNAVAILABLE,
+            "service does not support fixed formation output resume"))
+
     /**
      * Requests a farther authority boundary on one operating route, with or without a prior grant.
      * A host may accept a strict forward continuation after the committed route end; it retains the

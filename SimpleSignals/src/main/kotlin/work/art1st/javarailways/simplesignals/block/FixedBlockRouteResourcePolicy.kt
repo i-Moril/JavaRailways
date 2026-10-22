@@ -2,6 +2,11 @@ package work.art1st.javarailways.simplesignals.block
 
 import org.bukkit.plugin.Plugin
 import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
+import work.art1st.javarailways.basic.api.route.FormationRouteContext
+import work.art1st.javarailways.basic.api.route.FormationRoutePurpose
+import work.art1st.javarailways.basic.api.route.FormationRoutePolicyResult
+import work.art1st.javarailways.basic.api.route.FormationResourceClearance
+import work.art1st.javarailways.basic.api.route.RouteAdmissionFailure
 import work.art1st.javarailways.basic.api.route.ContributedRouteResource
 import work.art1st.javarailways.basic.api.route.ResourcePreparationDescriptor
 import work.art1st.javarailways.basic.api.route.RouteAdmissionFailureCode
@@ -35,9 +40,17 @@ internal class FixedBlockRouteResourcePolicy(
         else -> null
     }
 
+    private fun policy(worldId: UUID) = FixedBlockDomainResourcePolicy(worldId, directionPolicyForWorld(worldId),
+        { validateRouteAdmission(worldId, it) }, { snapshotForWorld(worldId) })
+
+    override fun authorizeFormationRoute(worldId: UUID, context: FormationRouteContext,
+        intent: RouteResourceIntent): RouteAdmissionFailureCode? = policy(worldId).authorizeFormationRoute(context, intent)?.code
+
+    override fun authorizeFormationResource(worldId: UUID, resourceId: String, context: FormationRouteContext,
+        intent: RouteResourceIntent): FormationRoutePolicyResult = policy(worldId).authorizeFormationResource(resourceId, context, intent)
+
     override fun contribute(worldId: UUID, intent: RouteResourceIntent): Collection<ContributedRouteResource> =
-        FixedBlockDomainResourcePolicy(worldId, directionPolicyForWorld(worldId),
-            { validateRouteAdmission(worldId, it) }, { snapshotForWorld(worldId) }).contribute(intent)
+        policy(worldId).contribute(intent)
 }
 
 /** The same fixed-block resource calculation for LIVE authentication and detached simulation. */
@@ -48,6 +61,38 @@ internal class FixedBlockDomainResourcePolicy(
     private val snapshot: () -> FixedBlockReadSnapshot?
 ) {
     fun exists(resourceId: String): Boolean = snapshot()?.blocksById?.containsKey(resourceId) == true
+
+    /** Same territory, direction and matcher gates as ordinary admission, without partner-lock exemptions. */
+    fun authorizeFormationRoute(context: FormationRouteContext, intent: RouteResourceIntent): RouteAdmissionFailure? = try {
+        require(intent.formationContext === context) { "formation context does not match intent" }
+        if (context.purpose != FormationRoutePurpose.COUPLING_APPROACH)
+            require(context.outputs.count { it.trainId == intent.trainId } == 1) { "formation route must name one exact output" }
+        contribute(if (context.purpose == FormationRoutePurpose.COUPLING_APPROACH) intent
+            else intent.copy(desiredAuthority = RouteBoundary(intent.route.totalLengthMeters)))
+        null
+    } catch (failure: Exception) {
+        RouteAdmissionFailure(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+            "SimpleSignals formation route rejected: ${failure.message ?: failure.javaClass.simpleName}")
+    }
+
+    fun authorizeFormationResource(resourceId: String, context: FormationRouteContext,
+        intent: RouteResourceIntent): FormationRoutePolicyResult {
+        authorizeFormationRoute(context, intent)?.let { return FormationRoutePolicyResult.Rejected(it) }
+        val resource = StableInfrastructureResource(FIXED_BLOCK_RESOURCE_TYPE, resourceId)
+        if (context.purpose == FormationRoutePurpose.COUPLING_APPROACH ||
+            resource !in context.retainedStableResources || !exists(resourceId))
+            return FormationRoutePolicyResult.Rejected(RouteAdmissionFailure(
+                RouteAdmissionFailureCode.INVALID_CONTRIBUTION, "not a retained SimpleSignals output resource"))
+        return try {
+            // Complete route, never the short output-body authority: child release must remain conservative.
+            val boundary = contribute(intent.copy(desiredAuthority = RouteBoundary(intent.route.totalLengthMeters)))
+                .singleOrNull { it.resource == resource }?.releaseAfterTailPasses
+            FormationRoutePolicyResult.Accepted(listOf(FormationResourceClearance(resource, boundary)))
+        } catch (failure: Exception) {
+            FormationRoutePolicyResult.Rejected(RouteAdmissionFailure(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
+                "SimpleSignals clearance failed: ${failure.message ?: failure.javaClass.simpleName}"))
+        }
+    }
 
     fun contribute(intent: RouteResourceIntent): List<ContributedRouteResource> {
         require(intent.observationStamp.worldId == worldId.toString()) {

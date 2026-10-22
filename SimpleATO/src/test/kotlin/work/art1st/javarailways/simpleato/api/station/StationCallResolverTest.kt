@@ -34,6 +34,74 @@ class StationCallResolverTest {
     }
 
     @Test
+    fun `physical output origin uses exact retained geometry without registering or searching a waypoint`() {
+        val fixture = fixture()
+        val resolver = StationCallResolver(fixture.world)
+        val original = StationCallRequest("run", WayPointRef("A"), fixture.call(1L))
+        val route = (resolver.resolve(original) as StationCallResolutionResult.Success).resolved.plannedRoute.expandedRoute
+        val point = requireNotNull(fixture.data.wayPoints["A"])
+        val origin = work.art1st.javarailways.simpleato.api.mission.AtoMissionOrigin.FormationOutput("event", "first",
+            work.art1st.javarailways.core.api.physics.rail.RailPositionSnapshot(point.railId, ViewDirection.AB, point.arcLength))
+        val retained = work.art1st.javarailways.basic.api.route.ExpandedRoute(origin.id, route.toWayPointId, route.segments)
+        val topology = fixture.world.topologyState
+        fixture.world.simpleAtoWorldData.routePlanningRestrictions.replaceSources(listOf(
+            work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding("test:no-physical-search",
+                work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictionSource { error("physical origin must not search") })))
+        val request = original.copy(origin = origin)
+        assertTrue(fixture.data.wayPoints[origin.id] == null)
+        val result = resolver.resolve(request, 10.0, ViewDirection.AB, retained, topology)
+        assertTrue(result is StationCallResolutionResult.Success, result.toString())
+        assertTrue((result as StationCallResolutionResult.Success).resolved.request.origin === origin)
+        assertTrue(fixture.data.wayPoints[origin.id] == null)
+        assertTrue(resolver.resolve(request, 10.0) is StationCallResolutionResult.Failure)
+        assertTrue(resolver.resolve(request, retainedRoute = retained, retainedTopology = topology) is StationCallResolutionResult.Failure)
+        assertTrue(resolver.resolve(request.copy(origin = origin.copy(position = origin.position.copy(arcLengthInAbMeters = point.arcLength + 1.0))),
+            10.0, ViewDirection.AB, retained, topology) is StationCallResolutionResult.Failure)
+        assertTrue(resolver.resolve(request.copy(origin = origin.copy(position = origin.position.copy(facing = ViewDirection.BA))),
+            10.0, null, retained, topology) is StationCallResolutionResult.Failure)
+    }
+
+    @Test
+    fun `retained station route avoids search while checking physical length endpoint and direction`() {
+        val fixture = fixture()
+        val resolver = StationCallResolver(fixture.world)
+        val request = StationCallRequest("run", WayPointRef("A"), fixture.call(1L))
+        val first = resolver.resolve(request) as StationCallResolutionResult.Success
+        val route = first.resolved.plannedRoute.expandedRoute
+        val topology = fixture.world.topologyState
+        fixture.world.simpleAtoWorldData.routePlanningRestrictions.replaceSources(listOf(
+            work.art1st.javarailways.simpleato.api.route.RoutePlanningRestrictionBinding("test:no-station-replan",
+                work.art1st.javarailways.basic.api.route.planning.RoutePlanningRestrictionSource {
+                    error("station retained consumption must not search")
+                })))
+        val retained = resolver.resolve(request, trainLengthMeters = 10.0,
+            retainedRoute = route, retainedTopology = topology)
+        assertTrue(retained is StationCallResolutionResult.Success)
+        assertTrue((retained as StationCallResolutionResult.Success).resolved.plannedRoute.expandedRoute === route)
+        assertEquals(StationCallResolutionFailure.TRAIN_TOO_LONG,
+            (resolver.resolve(request, trainLengthMeters = 1000.0, retainedRoute = route,
+                retainedTopology = topology) as StationCallResolutionResult.Failure).reason)
+        assertTrue(resolver.resolve(request, retainedRoute = work.art1st.javarailways.basic.api.route.ExpandedRoute(route.fromWayPointId, "wrong", route.segments),
+            retainedTopology = topology) is StationCallResolutionResult.Failure)
+        assertTrue(resolver.resolve(request, requiredStartDirection = ViewDirection.BA,
+            retainedRoute = route, retainedTopology = topology) is StationCallResolutionResult.Failure)
+    }
+
+    @Test
+    fun `marker eligibility differs from platform length and includes boundaries`() {
+        val fixture = fixture(minimumTrainLengthMeters = 20.0, maximumTrainLengthMeters = 40.0)
+        val resolver = StationCallResolver(fixture.world)
+        val request = StationCallRequest("run", WayPointRef("A"), fixture.call(1L))
+        for (length in listOf(19.0, 41.0)) {
+            val result = resolver.resolve(request, trainLengthMeters = length) as StationCallResolutionResult.Failure
+            assertEquals(StationCallResolutionFailure.TRAIN_LENGTH_INELIGIBLE, result.reason)
+        }
+        for (length in listOf(20.0, 40.0)) {
+            assertTrue(resolver.resolve(request, trainLengthMeters = length) is StationCallResolutionResult.Success)
+        }
+    }
+
+    @Test
     fun `resolves explicit berth direction offset and route revision`() {
         val fixture = fixture()
         val call = fixture.call(
@@ -134,7 +202,9 @@ class StationCallResolverTest {
 
     private fun fixture(
         approachDirection: ViewDirection = ViewDirection.AB,
-        registerStation: Boolean = true
+        registerStation: Boolean = true,
+        minimumTrainLengthMeters: Double? = null,
+        maximumTrainLengthMeters: Double? = null
     ): Fixture {
         val world = TestWorldFixture.create().also(worldFixtures::add).world
         val data = BasicWorldData()
@@ -155,6 +225,8 @@ class StationCallResolverTest {
             stoppingOffsetMetersBefore = 1.0,
             positionToleranceMeters = 0.2,
             usableLengthMeters = 100.0,
+            minimumTrainLengthMeters = minimumTrainLengthMeters,
+            maximumTrainLengthMeters = maximumTrainLengthMeters,
             defaultDwellTicks = 40L,
             releaseDistanceMetersAfter = 4.0,
             doorSide = DoorSide.LEFT

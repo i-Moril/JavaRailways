@@ -712,3 +712,32 @@ Committed world-local signal engines, complete domain simulation and real per-ca
 ### Status
 
 [OK] **Completed**
+
+
+## Session 22: Commit and deploy station operation programming
+<!-- trellis-session: v=2 fp=ab584619e26cf82c -->
+
+**Date**: 2026-10-22
+**Task**: Commit and deploy station operation programming
+**Package**: javarailways
+**Branch**: `codex/station-operation-programming`
+
+### Summary
+
+Committed station programs and fixed EMU operations, preserved deployed signal issue recovery, backed up and deployed JavaRailwaysTest; ATO/signals/WebUI health and artifact hashes verified. Further game acceptance and fixes deferred per user.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e38c67a5` | feat(timetable): add shared station programs and fixed EMU operations |
+| `3b09e17b` | fix(signals): preserve deployed rule issue recovery behavior |
+| `290aa909` | docs(trellis): record station programming deployment verification |
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Observe real game/client behavior before further fixes; no automatic replay or additional feature changes.

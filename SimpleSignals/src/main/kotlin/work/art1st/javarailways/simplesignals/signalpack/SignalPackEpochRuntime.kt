@@ -133,7 +133,7 @@ internal class SignalPackEpochRuntime private constructor(
             if (previous?.states?.get(deviceId) != next) {
                 changed += deviceId
                 if (evaluationFailure != null) issueChanged(deviceId, (next as SectionSignalState.Unavailable).reason)
-                else if (next is SectionSignalState.Available) issueChanged(deviceId, null)
+                else issueChanged(deviceId, null)
                 evaluationFailure?.let { failure ->
                     reportFailure(
                         "signal-rule-failed world=${publication.definitions.worldId} device=$deviceId " +

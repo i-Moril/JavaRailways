@@ -65,3 +65,5 @@ Evidence for current consist foundations and the deferred locomotive scope is in
 ## Status
 
 Implementation is in progress in `.worktree/station-operation-programming` after explicit approval. Required prior UI/backend changes are preserved in the recorded baseline; concurrent primary-worktree signal edits are excluded. B1–B5 implementation is integrated, including scheduled physical EMU coupling/separation, branches, station selection and circulation diagnostics. Local browser persistence, frontend and broad backend checks passed; the final held-output reversal/route-extension follow-up passed both its focused gate and the final affected-module regression (Basic427, SimpleATO576, Bukkit575). No commit or deployment performed. Live game acceptance remains outstanding; exact local coverage is recorded in research/formation-authoring-and-simulation-2026-10-22.md.
+
+Deployment checkpoint: committed and deployed2026-10-22 under explicit authorization; see research/deployment-2026-10-22.md. Startup/ATO/signals/WebUI checks passed. Interactive acceptance and any resulting fixes are deferred to user observation.

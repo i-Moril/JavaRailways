@@ -224,3 +224,32 @@ SNAPSHOT reload只发布资源目录，不刷新正常实例。已加载但运�
 游戏管理员通过`/jr issues [世界] [编号]`读取，玩家可点击列表打开原生详情并复制诊断，控制台必须指定世界。
 
 CoreWorld拥有唯一infrastructureCoordination；宿主仅注册领域resource validator。InfrastructureEditPermit.execute在同步修改期间认证并固定许可，跨线程准备仍由原permit生命周期保护。卸载世界最后关闭Core registry，宿主service不独立创建或提前关闭第二个registry。
+
+### 首批审查修复约束（2026-10-23）
+
+- 删除列车时，显式 ID 不存在必须拒绝；仅省略 ID 才允许最近列车选择。
+- HTTP 路由先按 rawPath 分段，再对每段百分号解码一次；路径中的加号保持原值，query 参数仍使用其原有 form 解码规则。
+- 地图 marker 缓存签名包含 railId，只有换轨、其余属性不变时也必须重新生成。
+- destination marker 句柄记录创建时的 world UUID，重命名只匹配同世界句柄，包括异步实体尚未生成的句柄。
+- 内联模型变换由 definition 持有一次；import 的引用局部变换仍叠加。动画离散外观只取播放时间已到达的关键帧，不能随插值提前读取未来帧。
+
+### 第二批审查：编辑和模型失败边界（CURRENT）
+
+装饰命令先捕获无注册副作用的 PersistedRailRenderMeta，再执行 sidecar 写入；写入成功后才安装/删除显示并记录 undo。RailRenderMetaStore.updateAll 对损坏输入抛出拒绝错误，不可正常返回伪装保存成功；拒绝路径保留原文件、显示及撤销记录。端点发现从 CoreWorld 的物理轨道枚举，不依赖显示 sidecar；清除装饰不改变端点可编辑性。
+
+AbstractWand 的 BoundState.writable 在 decode 失败时为 false。同一 item UUID 的所有持久化路径保留该标志，交互、模式切换和退出均不覆盖原损坏 PDC；缺少目标绑定时 persistState 也必须先 getState 解码以确定 writable，不能因退出或未先读取就默认允许写入；换成新物品才建立新绑定。DestinationEdit 保存原 Bukkit/Core world、编辑 token、configSession 和原 WayPoint/Destination 实例。DialogRenderer 在捕获输入、提交配置和切换 enum 页之前调用 isCurrent；Wand 在领域 mutation 内再次检查。世界切换、目标替换、新会话及卸载均使旧回复无效。检查为常数次身份查询；不能只在保存时检查，因为旧回复此前就可能污染共享 session。
+
+ModelConstruction.build 在 ModelTreeBuilder 和 CarExtension 构造期间记录尚未转交的资源；成功挂入父 owner 后 transfer，失败按逆序销毁未转交资源并组合异步 cleanup。DisplayCleanupException 保留原构造错误为 cause，清理错误作为 suppressed，不吞掉原失败。车体、全部 bogie 和初始动画场景准备完成后才发布 CarExtension 字段；失败不留下可被重试覆盖的半成品。资源记录随本次构造结束释放，空间/清理成本 O(本次创建节点数)，不建立全局模型账本。ModelTreeBuilderTest 与 ModelConstructionTest 覆盖子树、兄弟、根创建/挂载和异步清理失败。无持久化格式变化或运行时旧数据兼容。
+
+### 玩家指定放车位置（CURRENT，2026-10-23 用户决策）
+
+`/jr train create` 仍把玩家位置投影到最近轨道，投影点固定作为车头位置。只在该点按 AB、BA 顺序检查后方能否容纳整列车（车体长度总和加车间连接器间距）；均不满足则拒绝，禁止指数探测、二分或自动前移寻找替代放置点。后续占用检查及 CoreTrain.setLocation 的完整摆位校验保留。方向选择不是位置调整；两向均可时保持 AB 优先。无需改动 Core 几何或持久化格式。
+
+
+### 第三批：注册句柄、道岔结果与模型引用图（CURRENT）
+
+InfrastructureResourceProviderRegistration持有本次准确ProviderRegistration实例，注销前后只按引用身份匹配。unregisterOwner后复用同provider对象重新登记，旧句柄close不删除新登记；不增加世代编号。现有活动资源/依赖拒绝门禁保留。
+
+InfrastructureResourceService.selectTurnout保留CompletableFuture公开签名，返回内部帧间Future的独立dependent future。调用方complete/completeExceptionally/cancel/orTimeout只改变自己的等待结果，不更改内部队列是否执行、发布状态或完成时间；实际操作仍在既有帧间owner执行。不能让队列内部result.isDone被外部等待策略改变。回归检查外部完成前未切岔、帧间drain后实际切岔且世界continuation已发布。
+
+SavedCarModelTree.build在加载/重载准备资源时检查当前活动解析路径，A→A或A→B→A拒绝并显示引用路径；已经完成的共享子零件或diamond复用允许。失败候选不发布新模型资源，旧可用registry/资源版本按原reload失败合同保留。未改变快照schema/hash或引入旧开发数据reader。真实YAML加载/重载及图构造回归分别验证拒绝环和允许复用。

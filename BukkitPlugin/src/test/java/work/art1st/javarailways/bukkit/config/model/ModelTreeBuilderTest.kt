@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import work.art1st.javarailways.bukkit.render.backend.DisplayRenderBackend
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisualContent
 import work.art1st.javarailways.bukkit.render.backend.DisplayVisualDescriptor
@@ -22,8 +23,54 @@ import work.art1st.javarailways.bukkit.render.model.CompositeModel
 import work.art1st.javarailways.core.physics.CoreWorld
 import work.art1st.javarailways.core.physics.train.createTestWorld
 import java.lang.reflect.Proxy
+import java.nio.file.Path
 
 class ModelTreeBuilderTest {
+    @Test
+    fun `loaded YAML applies inline transforms once and preserves import transforms`(@TempDir directory: Path) = withWorld { world ->
+        val namespace = directory.resolve("train").toFile().apply { mkdirs() }
+        namespace.resolve("body.yml").writeText("""
+            config-version: 1
+            name: body
+            type: dummy
+            offset: {x: 2.0}
+            rotation: {z: 10.0}
+            parts:
+              - config-version: 1
+                name: inline
+                type: dummy
+                offset: {x: 1.0, y: 3.0}
+                rotation: {z: 30.0}
+              - import: child
+                offset: {y: 4.0}
+                rotation: {z: 20.0}
+        """.trimIndent())
+        namespace.resolve("child.yml").writeText("""
+            config-version: 1
+            name: child
+            type: dummy
+            offset: {x: 5.0}
+            rotation: {z: 40.0}
+        """.trimIndent())
+        val registry = PartRegistry(directory.toFile()).apply { load() }
+        val builder = ModelTreeBuilder(world, registry) { RecordingRoot() }
+        val model = builder.buildCarBody(
+            CarDefinition("train/car", bodyParts = listOf(PartRefEntry.import("body"))),
+            Location(null, 0.0, 0.0, 0.0)
+        )
+        try {
+            val nodes = nodes(model)
+            assertEquals(3, nodes.size)
+            assertEquals(Vector3d(2.0, 0.0, 0.0), nodes[0].state.localTransform.position)
+            assertEquals(Vector3d(1.0, 3.0, 0.0), nodes[1].state.localTransform.position)
+            assertTrue(Quaterniond().rotateZ(Math.toRadians(30.0)).equals(nodes[1].state.localTransform.rotation, 1e-9))
+            assertEquals(Vector3d(5.0, 4.0, 0.0), nodes[2].state.localTransform.position)
+            assertTrue(Quaterniond().rotateZ(Math.toRadians(60.0)).equals(nodes[2].state.localTransform.rotation, 1e-9))
+        } finally {
+            model.destroy()
+        }
+    }
+
     @Test
     fun `car and bogie roots and items retain three tick smoothing and legacy item keys`() = withWorld { world ->
         ModelRuntimeTestSupport.bootstrap()
@@ -135,6 +182,40 @@ class ModelTreeBuilderTest {
         }
     }
 
+    @Test
+    fun `partial child sibling and root failures release every created visual once`() = withWorld { world ->
+        ModelRuntimeTestSupport.bootstrap()
+        val bukkitWorld = Proxy.newProxyInstance(org.bukkit.World::class.java.classLoader, arrayOf(org.bukkit.World::class.java)) { _, method, _ ->
+            if (method.name == "toString") "CleanupWorld" else error("Unexpected call: ${method.name}")
+        } as org.bukkit.World
+        val anchor = Location(bukkitWorld, 0.0, 0.0, 0.0)
+        val item = PartDefinition("train/item", PartType.ITEM_DISPLAY, item = PartItemConfig("paper"))
+        val invalidParent = PartDefinition("train/parent", PartType.ITEM_DISPLAY, parts = listOf(PartRefEntry.import("item")))
+        for (scenario in listOf("sibling", "parent", "root", "mount")) {
+            val visuals = mutableListOf<RecordingRoot>()
+            val original = IllegalStateException("root failure")
+            val backend = object : DisplayRenderBackend {
+                override fun create(world: org.bukkit.World, descriptor: DisplayVisualDescriptor): DisplayVisual {
+                    if (scenario == "root" && visuals.size == 1) throw original
+                    return RecordingRoot(if (scenario == "mount" && visuals.size == 1) original else null).also(visuals::add)
+                }
+            }
+            val builder = ModelTreeBuilder(world, SnapshotPartRegistry(listOf(item, invalidParent).associateBy { it.name }), null, backend, 1f)
+            val refs = when (scenario) {
+                "sibling" -> listOf(PartRefEntry.import("item"), PartRefEntry.import("missing"))
+                "parent" -> listOf(PartRefEntry.import("parent"))
+                else -> listOf(PartRefEntry.import("item"))
+            }
+            val failure = org.junit.jupiter.api.Assertions.assertThrows(work.art1st.javarailways.bukkit.render.backend.DisplayCleanupException::class.java) {
+                builder.buildCarBody(CarDefinition("train/car", bodyParts = refs), anchor)
+            }
+            failure.cleanup.toCompletableFuture().join()
+            assertTrue(visuals.isNotEmpty())
+            assertTrue(visuals.all { it.destroyCalls == 1 }, scenario)
+            if (scenario == "root" || scenario == "mount") assertSame(original, failure.cause)
+        }
+    }
+
     private fun nodes(model: CompositeModel): List<AbstractModel> = buildList {
         model.forEachModelRecursive { add(it) }
     }
@@ -149,7 +230,8 @@ class ModelTreeBuilderTest {
         }
     }
 
-    private class RecordingRoot : DisplayVisual {
+    private class RecordingRoot(private val mountFailure: Throwable? = null) : DisplayVisual {
+        var destroyCalls = 0
         override fun showTo(player: Player) = Unit
         override fun hideFrom(player: Player) = Unit
         override fun teleport(location: Location) = Unit
@@ -157,7 +239,7 @@ class ModelTreeBuilderTest {
         override fun setItemStack(itemStack: ItemStack) = Unit
         override fun setBrightness(blockLight: Int, skyLight: Int) = Unit
         override fun clearBrightness() = Unit
-        override fun addPassenger(passenger: DisplayVisual): Boolean = true
-        override fun destroy(): java.util.concurrent.CompletionStage<Void> = java.util.concurrent.CompletableFuture.completedFuture(null)
+        override fun addPassenger(passenger: DisplayVisual): Boolean { mountFailure?.let { throw it }; return true }
+        override fun destroy(): java.util.concurrent.CompletionStage<Void> { destroyCalls++; return java.util.concurrent.CompletableFuture.completedFuture(null) }
     }
 }

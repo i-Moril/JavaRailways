@@ -28,7 +28,11 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 object RailVisualBootstrap {
-    private val railVisuals = ConcurrentHashMap<UUID, RailVisualLifetime>()
+    internal data class RailVisualKey(val worldRuntimeId: String, val railId: UUID)
+
+    private val railVisuals = ConcurrentHashMap<RailVisualKey, RailVisualLifetime>()
+
+    private fun key(rail: CoreRail) = RailVisualKey(rail.world.runtimeId, rail.id)
 
     /** The rail owns both current visuals and cleanup already started by a replacement. */
     internal class RailVisualLifetime(val rail: CoreRail) :
@@ -57,7 +61,7 @@ object RailVisualBootstrap {
 
         override fun destroy(): CompletionStage<Void> = destruction.run {
             val result = clear()
-            railVisuals.remove(rail.id, this)
+            railVisuals.remove(key(rail), this)
             result
         }
     }
@@ -83,14 +87,31 @@ object RailVisualBootstrap {
         )
     }
 
-    fun unregisterRail(railId: UUID): CompletionStage<Void> {
+    /** Computes decoration records without replacing any registered visual. */
+    internal fun capturePersistedMeta(rail: CoreRail, template: RailTemplateSnapshot): PersistedRailRenderMeta =
+        PersistedRailRenderMeta(
+            rail.id,
+            createSegments(rail, template).map { RailArcSegmentMeta(it.arcStart, it.arcEnd, it.pointArcs) },
+            template
+        )
+
+    fun unregisterRail(world: CoreWorld, railId: UUID): CompletionStage<Void> {
         ThreadGuard.ensureMainThread("RailVisualBootstrap.unregisterRail")
-        val owner = railVisuals.remove(railId)
+        val owner = railVisuals.remove(RailVisualKey(world.runtimeId, railId))
             ?: return CompletableFuture.completedFuture(null)
         return owner.clear().whenComplete { _, failure ->
             if (failure != null) BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.SEVERE,
                 "Rail visual cleanup failed: rail=$railId", failure)
         }
+    }
+
+    /** Retires only the exact runtime, even if another loaded world has copied rail IDs. */
+    internal fun retireWorld(world: CoreWorld): CompletionStage<Void> {
+        val cleanup = DestructionSteps()
+        railVisuals.entries.filter { it.key.worldRuntimeId == world.runtimeId }.forEach { (key, owner) ->
+            if (railVisuals.remove(key, owner)) cleanup.await { owner.destroy() }
+        }
+        return cleanup.finish()
     }
 
     fun fromPersisted(coreWorld: CoreWorld, persisted: PersistedRailRenderMeta): Boolean {
@@ -149,7 +170,7 @@ object RailVisualBootstrap {
 
     @OptIn(ExtensionData::class)
     private fun registerSegments(rail: CoreRail, segments: List<RailArcVisualSegment>) {
-        val existing = railVisuals[rail.id]
+        val existing = railVisuals[key(rail)]
         val owner = if (existing != null && existing.rail === rail) existing else {
             existing?.let { rail.world.trackRailCleanup(it.destroy()) }
             val registered = rail.getExtensionDataOrNull<RenderableExtension<Rail>>(BukkitPlugin.INSTANCE)
@@ -158,7 +179,7 @@ object RailVisualBootstrap {
             }
             (registered as? RailVisualLifetime ?: RailVisualLifetime(rail).also {
                 rail.registerExtensionData(BukkitPlugin.INSTANCE, it)
-            }).also { railVisuals[rail.id] = it }
+            }).also { railVisuals[key(rail)] = it }
         }
         owner.clear()
         // Attach the full batch before indexing, so partial registration failures remain owned.

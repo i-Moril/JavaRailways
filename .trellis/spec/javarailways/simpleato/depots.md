@@ -59,6 +59,8 @@ fun planReset(requestedDepotIds: Set<DepotId>? = null): DepotResetPlanningResult
 
 ## 禁止实现
 
+取消 reservation 必须在同一 lock 内先校验完整 token，再校验对应 runtime 的状态和 assignment 身份，最后删除 ledger。返回 false 时不得删除已有有效 reservation；storage cancellation 同样先匹配完整 token，再修改账本。回归覆盖同 assignment ID 的错误 token，以及已进入服务状态后拒绝取消仍能正常释放。
+
 - 只看ledger occupancy就选train；
 - 未校验location/speed/derail/controller/active run/envelope；
 - head进入就release departure或complete storage；

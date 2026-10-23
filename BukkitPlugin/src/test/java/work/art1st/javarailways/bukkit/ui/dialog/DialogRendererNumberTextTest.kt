@@ -76,6 +76,29 @@ class DialogRendererNumberTextTest {
         ), messages)
     }
 
+    @Test
+    fun `expired dialog confirmation never reads input mutates session or invokes save`() {
+        val (renderer, built, session) = filteredFixture()
+        val view = Proxy.newProxyInstance(DialogResponseView::class.java.classLoader,
+            arrayOf(DialogResponseView::class.java)) { _, _, _ -> error("Stale inputs must not be read")
+        } as DialogResponseView
+        val player = Proxy.newProxyInstance(org.bukkit.entity.Player::class.java.classLoader,
+            arrayOf(org.bukkit.entity.Player::class.java)) { _, _, _ -> error("Stale player must not be used")
+        } as org.bukkit.entity.Player
+        val method = DialogRenderer::class.java.getDeclaredMethod("onConfirm", DialogResponseView::class.java,
+            BuiltGroup::class.java, PlayerConfigSession::class.java, org.bukkit.entity.Player::class.java,
+            Function1::class.java, List::class.java, Function1::class.java, Function1::class.java)
+            .also { it.isAccessible = true }
+        var saved = false
+        method.invoke(renderer, view, built, session, player, { text: String -> text },
+            emptyList<net.kyori.adventure.text.Component>(), { _: org.bukkit.entity.Player -> false },
+            { _: org.bukkit.entity.Player -> saved = true })
+        assertFalse(saved)
+        assertTrue(session.getDirtyKeyIds().isEmpty())
+        @Suppress("UNCHECKED_CAST")
+        assertEquals(1.0, session.getValue(built.effectiveItems.single().key as ConfigKey<Double>))
+    }
+
     private fun filteredFixture(): Triple<DialogRenderer, BuiltGroup, PlayerConfigSession> {
         val registry = ConfigUIRegistry()
         val visible = WandConfigItemImpl(ConfigKey("visible", "visible", defaultValue = 1.0, valueType = ConfigValueType.NUMBER_TEXT))

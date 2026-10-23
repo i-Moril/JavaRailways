@@ -89,10 +89,8 @@ internal class SignalPackEpochRuntime private constructor(
                 issueChanged(deviceId, reason)
             }
         }
-        require(bindingsByDeviceId.isEmpty() ||
-            input.observation.stamp.topologyRevision == publication.topology.revision) {
-            "signal observation topology does not match its prepared publication"
-        }
+        // Unrelated topology edits keep this publication valid. The per-device topology
+        // guard below rejects affected plans until their local revalidation completes.
         if (previous != null) bindingsByDeviceId.keys.forEach { deviceId ->
             previous.states[deviceId]?.let { candidate[deviceId] = it }
         }
@@ -263,7 +261,9 @@ internal class SignalPackEpochRuntime private constructor(
             plans.flatMapTo(linkedSetOf()) { it.observation.watchedContinuationEntries }
         val protectionEntryIds: Set<String> = plans.flatMapTo(linkedSetOf()) { plan ->
             plan.observation.protectionRoutes.map(ProtectionRouteChoice::entryBoundaryId)
-        } + listOfNotNull(currentEntryId)
+        } + listOfNotNull(currentEntryId) + if (fixedRouteId != null) {
+            plans.map { it.observation.root.state.entryBoundaryId }
+        } else emptyList()
 
         fun selectPlan(
             selection: ProtectionRouteSelectionSnapshot?,

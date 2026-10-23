@@ -26,7 +26,16 @@ import work.art1st.javarailways.simpleato.routing.OperationalRoutePlanner
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
-/** 自动时刻表的内部 Kotlin 数据模型。JS loader 后续只负责生成这些数据。 */
+/**
+ * 自动时刻表的内部 Kotlin 数据模型。JS loader 只负责生成这些数据。
+ *
+ * Ownership: before validation, Store/Dispatcher handoff or persistence capture, the producer must
+ * freeze the entire reachable value graph, including nested action lists and extension JSON backing
+ * maps. Retained mutable aliases must not be changed afterwards. Store and running services may
+ * share these values; editing creates a new timetable and uses the explicit replacement lifecycle.
+ * Kotlin [List] is a read-only view, not a runtime immutability guarantee. These internal models do
+ * not defensively copy every collection; [copy] also shares unchanged nested values.
+ */
 data class Timetable(
     val id: String,
     val periodDays: Long = 1L,
@@ -52,6 +61,7 @@ data class Timetable(
 class TimetableStore {
     private val timetables = ConcurrentHashMap<String, Timetable>()
 
+    /** Stores a frozen [Timetable]; returned values remain subject to the same ownership contract. */
     fun add(timetable: Timetable) {
         require(timetable.id.isNotBlank()) { "timetable id must not be blank" }
         timetables[timetable.id] = timetable
@@ -73,6 +83,7 @@ data class TimetableLineSpeedLimit(
     }
 }
 
+/** Nested values follow [Timetable] ownership; do not mutate retained lists after handoff. */
 data class TimetableService(
     val id: String,
     val trainSelector: TrainSelector = TrainSelector.AnyTrain,

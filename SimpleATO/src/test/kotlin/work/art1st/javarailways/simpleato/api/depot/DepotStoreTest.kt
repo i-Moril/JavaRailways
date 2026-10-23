@@ -1,6 +1,7 @@
 package work.art1st.javarailways.simpleato.api.depot
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -195,6 +196,71 @@ class DepotStoreTest {
         assertEquals(RollingStockState.AVAILABLE, rolling.state)
         assertEquals(allocated.allocation.trainId, point.occupantTrainId)
         assertEquals(null, point.reservedByAssignmentId)
+    }
+
+    @Test
+    fun `wrong allocation cancellation preserves the valid reservation`() {
+        val store = storeWithRollingStock()
+        val allocation = (store.allocate(
+            DepotTrainSelector(DepotId("north")), "service", "seed"
+        ) as DepotTrainAllocationResult.Allocated).allocation
+        val stockBefore = store.allRollingStock()
+        val pointsBefore = store.stablingPoints(DepotId("north"))
+
+        assertFalse(store.cancelReservation(allocation.copy(trainId = "wrong-train")))
+
+        assertEquals(stockBefore, store.allRollingStock())
+        assertEquals(pointsBefore, store.stablingPoints(DepotId("north")))
+        assertTrue(store.cancelReservation(allocation))
+        assertEquals(RollingStockState.AVAILABLE, store.rollingStock(allocation.trainId)?.state)
+    }
+
+    @Test
+    fun `in service cancellation preserves assignment for departure and storage`() {
+        val store = storeWithRollingStock()
+        val allocation = (store.allocate(
+            DepotTrainSelector(DepotId("north")), "service", "seed"
+        ) as DepotTrainAllocationResult.Allocated).allocation
+        assertTrue(store.confirmInService(allocation))
+        val stockBefore = store.allRollingStock()
+        val pointsBefore = store.stablingPoints(DepotId("north"))
+
+        assertFalse(store.cancelReservation(allocation))
+
+        assertEquals(stockBefore, store.allRollingStock())
+        assertEquals(pointsBefore, store.stablingPoints(DepotId("north")))
+        assertTrue(store.releaseDeparture(allocation))
+        val reservation = (store.reserveStorage(
+            allocation.trainId, DepotId("north"), emptySet(), allocation.assignmentId, "store"
+        ) as DepotStorageReservationResult.Reserved).reservation
+        assertTrue(store.completeStorage(reservation))
+        assertEquals(RollingStockState.AVAILABLE, store.rollingStock(allocation.trainId)?.state)
+    }
+
+    @Test
+    fun `wrong storage cancellation preserves the valid reservation`() {
+        val store = storeWithRollingStock()
+        val allocation = (store.allocate(
+            DepotTrainSelector(DepotId("north")), "service", "seed"
+        ) as DepotTrainAllocationResult.Allocated).allocation
+        assertTrue(store.confirmInService(allocation))
+        assertTrue(store.releaseDeparture(allocation))
+        val reservation = (store.reserveStorage(
+            allocation.trainId, DepotId("north"), emptySet(), allocation.assignmentId, "store"
+        ) as DepotStorageReservationResult.Reserved).reservation
+        val stockBefore = store.allRollingStock()
+        val pointsBefore = store.stablingPoints(DepotId("north"))
+
+        assertFalse(store.cancelStorage(reservation.copy(trainId = "wrong-train")))
+
+        assertEquals(stockBefore, store.allRollingStock())
+        assertEquals(pointsBefore, store.stablingPoints(DepotId("north")))
+        assertTrue(store.cancelStorage(reservation))
+        assertEquals(null, store.stablingPoint(reservation.stablingPointRef)?.reservedByAssignmentId)
+        val replacement = (store.reserveStorage(
+            allocation.trainId, DepotId("north"), emptySet(), allocation.assignmentId, "store"
+        ) as DepotStorageReservationResult.Reserved).reservation
+        assertTrue(store.completeStorage(replacement))
     }
 
     @Test

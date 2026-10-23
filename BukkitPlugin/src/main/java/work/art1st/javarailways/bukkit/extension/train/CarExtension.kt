@@ -15,6 +15,7 @@ import work.art1st.javarailways.bukkit.BukkitPlugin
 import work.art1st.javarailways.bukkit.config.TrainModelUpdatePolicy
 import work.art1st.javarailways.bukkit.debug.TrainDebugLog
 import work.art1st.javarailways.bukkit.persistence.CarModelSnapshotStore
+import work.art1st.javarailways.bukkit.render.model.ModelConstruction
 import work.art1st.javarailways.bukkit.render.model.CompactTransform
 import work.art1st.javarailways.bukkit.render.model.CompositeModel
 import work.art1st.javarailways.bukkit.render.model.PlatformModel
@@ -386,19 +387,27 @@ class CarExtension : TrainComponentExtension<Car>() {
         val rootState = renderFrame().state
         val rootLocation = Location(bukkitWorld, rootState.positionX, rootState.positionY, rootState.positionZ)
 
-        bodyModel = builder.buildCarBody(carDef, rootLocation, self)
-        bogieModels = carDef.bogies.map { bogieDef ->
-            builder.buildBogie(bogieDef, carDef.namespace, rootLocation)
+        ModelConstruction.build { construction ->
+            val body = builder.buildCarBody(carDef, rootLocation, self)
+            construction.own(body, body::destroy)
+            val bogies = carDef.bogies.map { bogieDef ->
+                builder.buildBogie(bogieDef, carDef.namespace, rootLocation).also { construction.own(it, it::destroy) }
+            }
+            val platforms = buildList<PlatformModel> {
+                body.collectModelsOfType(this)
+                bogies.forEach { it.collectModelsOfType(this) }
+            }
+            val seats = buildList<SeatModel> {
+                body.collectModelsOfType(this)
+                bogies.forEach { it.collectModelsOfType(this) }
+            }
+            body.setAnimationScenes(pendingHeldScenes)
+            bogies.forEach { it.setAnimationScenes(pendingHeldScenes) }
+            bodyModel = body
+            bogieModels = bogies
+            platformModels = platforms
+            seatModels = seats
         }
-        platformModels = buildList {
-            bodyModel?.collectModelsOfType(this)
-            bogieModels.forEach { it.collectModelsOfType(this) }
-        }
-        seatModels = buildList {
-            bodyModel?.collectModelsOfType(this)
-            bogieModels.forEach { it.collectModelsOfType(this) }
-        }
-        applyHeldScenes(pendingHeldScenes)
         builtModelGeneration = modelGeneration
     }
 

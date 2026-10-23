@@ -5,6 +5,8 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.security.MessageDigest
 import java.util.TreeMap
+import java.util.Collections
+import java.util.IdentityHashMap
 
 @Serializable
 data class SavedCarModelTree(
@@ -22,10 +24,12 @@ data class SavedCarModelTree(
 
         fun build(car: CarDefinition, partResolver: PartResolver): SavedCarModelTree {
             val collected = TreeMap<String, PartDefinition>()
-            collectEntries(car.bodyParts, car.namespace, partResolver, collected)
+            val active = mutableListOf<PartDefinition>()
+            val visited = Collections.newSetFromMap(IdentityHashMap<PartDefinition, Boolean>())
+            collectEntries(car.bodyParts, car.namespace, partResolver, collected, active, visited)
             car.bogies.forEach { bogie ->
-                collectEntries(bogie.parts, car.namespace, partResolver, collected)
-                collectEntries(bogie.wheelParts, car.namespace, partResolver, collected)
+                collectEntries(bogie.parts, car.namespace, partResolver, collected, active, visited)
+                collectEntries(bogie.wheelParts, car.namespace, partResolver, collected, active, visited)
             }
             val parts = collected.toMap()
             val hash = computeHash(car, parts)
@@ -47,13 +51,25 @@ data class SavedCarModelTree(
             entries: List<PartRefEntry>,
             namespace: String,
             partResolver: PartResolver,
-            target: MutableMap<String, PartDefinition>
+            target: MutableMap<String, PartDefinition>,
+            active: MutableList<PartDefinition>,
+            visited: MutableSet<PartDefinition>
         ) {
             for (entry in entries) {
                 val part = entry.inline ?: partResolver.resolve(entry.name, namespace).resolved
-                val existing = target.putIfAbsent(part.name, part)
-                if (existing == null) {
-                    collectEntries(part.parts, part.namespace, partResolver, target)
+                require(active.none { it === part }) {
+                    "Cyclic model part reference: ${(active.dropWhile { it !== part }.map { it.name } + part.name).joinToString(" -> ")}"
+                }
+                target.putIfAbsent(part.name, part)
+                // An inline definition may reuse a registered name without being the same
+                // definition. Snapshot keys must not suppress validation of that subtree.
+                if (visited.add(part)) {
+                    active.add(part)
+                    try {
+                        collectEntries(part.parts, part.namespace, partResolver, target, active, visited)
+                    } finally {
+                        active.removeAt(active.lastIndex)
+                    }
                 }
             }
         }

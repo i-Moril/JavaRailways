@@ -287,3 +287,9 @@ runtime/publication/topology 守卫替换显示绑定；缺失或未知 signal t
 错误做法：每次 `lookup` 重新走拓扑；遇环拒绝整个包；用 future 超时但让脚本后台继续；把保护区域另做一套查询；让 JS 直接修改世界；以旧绿灯作为异常 fallback。
 
 正确做法：低频编译只读树计划；运行时填充同 epoch 数据；每分支检测重复有向状态并报告 `cycle`；setter 结果原子校验；任何规则失败只收紧相关消费者，且不释放真实资源或扩大授权。
+
+### 局部有效性与固定进路自身入口（CURRENT）
+
+SignalPackEpochRuntime.PreparedBinding.protectionEntryIds 包含 FIXED_ROUTE 自身 root 的 entryBoundaryId，不能只记录下游保护进路和 CURRENT_ENTRY。即使 occupancy/continuations 不变，自身 readiness/净空撤销也通过 evaluatedProtectionEntries 重新求值。
+
+准备 publication 的全局 topology revision 不必等于后续 observation：无关轨道编辑按既有局部依赖合同复用旧计划。运行期由 per-device topologyGuard 与 section availability 拒绝受影响计划；仍保留 world 身份和 occupancy stamp 一致性检查。禁止用 blanket revision equality 让无关编辑导致整个 epoch 抛错，也禁止移除局部禁行检查。每个 fixed binding 仅补自身入口，运行复杂度沿原 dirty 索引，无新增全图重编译。SimpleSignalsWorldRuntimeManagerTest 用真实 catalog JS 验证 readiness-only 开放/撤回，以及无关编辑后占用变化正常求值、相关几何修改在重验前保持 Unavailable。无 schema 变化。

@@ -40,6 +40,36 @@ class WorldManagerUnloadTest {
     }
 
     @Test
+    fun `cancelled Bukkit unload leaves registered world runtime alive`() {
+        val fixture = Fixture()
+        try {
+            val handler = WorldManager::class.java.getMethod("onWorldUnload", org.bukkit.event.world.WorldUnloadEvent::class.java)
+                .getAnnotation(org.bukkit.event.EventHandler::class.java)
+            assertEquals(org.bukkit.event.EventPriority.MONITOR, handler.priority)
+            assertTrue(handler.ignoreCancelled)
+            val plugin = Proxy.newProxyInstance(
+                org.bukkit.plugin.Plugin::class.java.classLoader,
+                arrayOf(org.bukkit.plugin.Plugin::class.java)
+            ) { _, method, _ -> error("Unexpected plugin call: ${method.name}") } as org.bukkit.plugin.Plugin
+            val listener = org.bukkit.plugin.RegisteredListener(
+                fixture.manager,
+                { _, event -> fixture.manager.onWorldUnload(event as org.bukkit.event.world.WorldUnloadEvent) },
+                handler.priority,
+                plugin,
+                handler.ignoreCancelled
+            )
+            val event = org.bukkit.event.world.WorldUnloadEvent(fixture.oldBukkitWorld).apply { isCancelled = true }
+            listener.callEvent(event)
+            assertSame(fixture.oldCoreWorld(), fixture.manager.loadedRailWorld(fixture.worldId))
+            assertSame(fixture.oldCoreWorld(), fixture.manager.railWorlds[fixture.oldBukkitWorld])
+            assertFalse(fixture.pendingModelOperation.isDone)
+            assertTrue(fixture.events.isEmpty())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
     @OptIn(work.art1st.javarailways.core.api.util.annotation.AsyncEventApi::class)
     fun `failed capture retains world resources until post event and generic callbacks actually exit`() {
         val fixture = Fixture()

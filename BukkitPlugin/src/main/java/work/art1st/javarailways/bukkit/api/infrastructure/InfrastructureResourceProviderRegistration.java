@@ -10,6 +10,8 @@ package work.art1st.javarailways.bukkit.api.infrastructure;
 public interface InfrastructureResourceProviderRegistration extends AutoCloseable {
     /**
      * Removes this provider registration when its resource type is no longer active.
+     * If it was already removed through owner cleanup, closing this handle is a no-op even when
+     * the same plugin and provider object have registered the type again.
      *
      * @throws IllegalStateException if protected route resources still reference the type
      */

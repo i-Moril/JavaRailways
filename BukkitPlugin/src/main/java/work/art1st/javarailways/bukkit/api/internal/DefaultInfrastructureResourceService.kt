@@ -282,19 +282,20 @@ internal class DefaultInfrastructureResourceService(
                 "Duplicate infrastructure preparation handler kind $kindId for $typeId"
             }
         }
+        val registration = ProviderRegistration(
+            owner,
+            provider,
+            java.util.Collections.unmodifiableMap(LinkedHashMap(handlersByKind))
+        )
         LiveWorldManagement.run { synchronized(lock) {
             check(!closed) { "InfrastructureResourceService is closed" }
             check(typeId !in resourceProviders) { "Infrastructure resource provider already exists for $typeId" }
-            resourceProviders[typeId] = ProviderRegistration(
-                owner,
-                provider,
-                java.util.Collections.unmodifiableMap(LinkedHashMap(handlersByKind))
-            )
+            resourceProviders[typeId] = registration
         } }
         val registrationClosed = AtomicBoolean()
         return InfrastructureResourceProviderRegistration {
             if (!registrationClosed.get()) {
-                unregisterResourceProvider(owner, typeId, provider)
+                unregisterResourceProvider(typeId, registration)
                 registrationClosed.set(true)
             }
         }
@@ -364,14 +365,12 @@ internal class DefaultInfrastructureResourceService(
     }
 
     private fun unregisterResourceProvider(
-        pluginOwner: Plugin,
         typeId: String,
-        provider: InfrastructureResourceProvider
+        registration: ProviderRegistration
     ) = withManagement runInSimulationContext@ {
         val snapshot = synchronized(lock) {
             if (closed) return@runInSimulationContext
-            val current = resourceProviders[typeId]
-            if (current?.pluginOwner !== pluginOwner || current.provider !== provider) {
+            if (resourceProviders[typeId] !== registration) {
                 return@runInSimulationContext
             }
             worlds.entries.map { it.key to it.value }
@@ -393,9 +392,7 @@ internal class DefaultInfrastructureResourceService(
                 listOf(routeDetails, dependencyDetails).filter(String::isNotEmpty).joinToString()
         }
         synchronized(lock) {
-            resourceProviders[typeId]?.takeIf {
-                it.pluginOwner === pluginOwner && it.provider === provider
-            }?.let { resourceProviders.remove(typeId) }
+            if (resourceProviders[typeId] === registration) resourceProviders.remove(typeId)
         }
     }
 
@@ -439,7 +436,7 @@ internal class DefaultInfrastructureResourceService(
                     bound.physicalWorld === physicalWorld && bound.manualTurnoutSelection === selection
             }
             if (!available) unavailable() else selection.select(requester, request)
-        }
+        }.thenApply { it }
     }
 
     private inner class BoundRouteAdmissionService(

@@ -170,3 +170,7 @@ Bukkit通过`SignalEpochSourceService`按`(plugin owner, world UUID)`安装完�
 Immutable revisioned presentation、per-object latest-only Bukkit/Folia dispatch与具体模型应用均由具体信号插件负责；
 `SimpleATOBukkit`只适配SimpleATO自身的平台功能，Stage 1也不为尚无消费者的需求增加临时presentation API。
 出现真实跨插件平台需求后才能单独评审host public service。上述Stage 2具体策略和呈现工作完成前，不得声称完整信号系统已经生产可用。
+
+### 撤销快照跨路线消费（CURRENT）
+
+TrainRestrictionConstraintAdapter 保留空快照 revision 来拒绝旧消息，但空 restrictions 表示显式撤销，不再因 frozen route 改变生成停车约束。非空旧路线限制仍 fail closed；world 不符、未来 epoch、异常来源 unavailable 及非法 route progress 的原验证不变。无需删除流或引入超时。TrainRestrictionConstraintAdapterTest 覆盖限速→更高 revision 空流→换路线仍清空、旧 revision 拒绝、异常丢失仍停车，单源判断保持 O(1)。

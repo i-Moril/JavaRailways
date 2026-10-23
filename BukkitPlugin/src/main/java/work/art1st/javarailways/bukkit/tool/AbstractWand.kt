@@ -56,7 +56,7 @@ abstract class AbstractWand<S, M>(
     private val modes: List<M>
 ) : Listener where S : WandState<M>, M : Enum<M>, M : WandModeSpec {
     /** PDC is persisted by modern Paper inside the item's minecraft:custom_data component. */
-    private data class BoundState<S>(val itemId: UUID, val state: S)
+    private data class BoundState<S>(val itemId: UUID, val state: S, val writable: Boolean)
 
     protected open val modeHandlesSneakLeftClickAir: Boolean = false
 
@@ -125,7 +125,7 @@ abstract class AbstractWand<S, M>(
             )
         }
         val state = decoded ?: createDefaultState()
-        playerStates[player.uniqueId] = BoundState(itemId, state)
+        playerStates[player.uniqueId] = BoundState(itemId, state, writable = !corrupted)
         if (!corrupted) persistState(player, state)
         return state
     }
@@ -137,7 +137,10 @@ abstract class AbstractWand<S, M>(
             return
         }
         val item = findActiveWand(player) ?: return
-        val replacement = BoundState(ensureItemId(item), state)
+        val itemId = ensureItemId(item)
+        if (bound?.itemId != itemId) getState(player)
+        val target = playerStates[player.uniqueId]?.takeIf { it.itemId == itemId } ?: return
+        val replacement = BoundState(itemId, state, writable = target.writable)
         playerStates[player.uniqueId] = replacement
         persistBoundState(player, replacement)
     }
@@ -261,6 +264,7 @@ abstract class AbstractWand<S, M>(
     }
 
     private fun persistBoundState(player: Player, bound: BoundState<S>) {
+        if (!bound.writable) return
         val item = player.inventory.contents.firstOrNull { candidate ->
             if (!isWandItem(candidate)) return@firstOrNull false
             candidate?.itemMeta?.persistentDataContainer

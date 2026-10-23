@@ -1749,6 +1749,12 @@ class TimetableDispatcher(
         require(timetableId.isNotBlank())
         bindWorld(world)
         val selected = runs.values.filter { it.id.timetableId == timetableId }
+        // Validate the whole selection before discarding any run or its controller.
+        selected.forEach { run ->
+            check(run.admissionClient == null || run.admissionEnded) {
+                "cannot discard ${run.id} while Basic route resources remain active"
+            }
+        }
         selected.forEach { run -> discardRun(world, run) }
         val recovered = recoveryRequiredRuns.count { it.timetableId == timetableId }
         recoveryRequiredRuns.removeIf { it.timetableId == timetableId }
@@ -4096,6 +4102,17 @@ class TimetableDispatcher(
 
     private fun cancelExtensionAction(run: ActiveRun): String? {
         val active = run.extensionAction ?: return null
+        val before = try {
+            active.ticket.snapshot()
+        } catch (failure: Exception) {
+            return "extension action ${active.typeId} snapshot failed before cancellation: " +
+                (failure.message ?: failure::class.java.simpleName)
+        }
+        if (before.state != TimetableExtensionActionState.PENDING) {
+            run.extensionAction = null
+            run.extensionActionQueue.clear()
+            return null
+        }
         try {
             active.ticket.cancel()
         } catch (failure: Exception) {

@@ -2481,12 +2481,18 @@ class SimpleSignalsWorldRuntimeManagerTest {
         process(2, upper, ActiveRouteAdmissionState.PREPARING)
         assertWaiting() // A selected request still has no completed authority/preparation.
         process(3, upper)
+        assertEquals(15.0, runtime.sectionSignalSnapshot()!!.states.getValue(fixed.signalId).effectiveSpeedLimitMetersPerSecond,
+            "fixed route must react to readiness alone with unchanged occupancy and continuations")
         val captured = runtime.sectionSignalSnapshot()!!
         assertEquals(15.0, captured.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
         process(4, lower)
         assertEquals(30.0, runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
         process(5, upper)
         assertEquals(15.0, runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+        assertEquals(15.0, runtime.sectionSignalSnapshot()!!.states.getValue(fixed.signalId).effectiveSpeedLimitMetersPerSecond)
+        process(6, upper, ActiveRouteAdmissionState.PREPARING)
+        assertWaiting() // Revoking readiness alone must also close the fixed-route signal.
+        assertEquals(6L, runtime.signalDeviceDiagnostics(fixed.signalId)!!.stamp!!.physicsEpoch)
         assertEquals(1, infrastructure.speedLimitReadCount, "route changes select cached per-root speeds and distances")
         assertEquals(15.0, captured.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
         assertTrue(reports.isEmpty(), "a fixed-route signal waiting while a sibling route is selected is also normal")
@@ -7189,6 +7195,71 @@ class SimpleSignalsWorldRuntimeManagerTest {
             logic: automatic:slow
         """.trimIndent())
         return root
+    }
+
+    @Test
+    fun `catalog rules keep evaluating after unrelated topology edit and reject affected geometry`() {
+        val f = Fixture()
+        val unrelated = UUID.randomUUID()
+        val initial = f.topology(41L, listOf(unrelated))
+        val block = FixedBlockDefinition("test:local-block", 1,
+            listOf(FixedBlockTraversal(f.entry, ViewDirection.AB, 0.0, 4.0)))
+        val signal = FixedBlockSignalDefinition("test:local-signal", 1, block.blockId, 0.0, "automatic:block")
+        val definitions = store()
+        definitions.save(f.worldId, SimpleSignalsWorldDefinitions(f.worldId, 1, emptyList(), emptyList(),
+            listOf(block), listOf(signal)))
+        val infrastructure = MutableTopologyService(initial)
+        val sources = CapturingSignalEpochSourceService()
+        val queue = java.util.ArrayDeque<() -> Unit>()
+        val manager = runtimeManager(plugin(), infrastructure.service, CapturingRoutePlanningService(), definitions,
+            sources, topologyWorker = { queue += it }, loadDefaultSignalCatalog = false)
+        try {
+            manager.loadSignalPacks(writeAutomaticSignalPack(script = """
+                function evaluate(input, output) {
+                  output.setSpeedLimit(input.self.occupied ? 0 : 25);
+                  output.setModelVariant('clear');
+                }
+            """.trimIndent()))
+            assertEquals(SimpleSignalsWorldInstallStatus.INSTALLED, manager.install(f.worldId).status)
+            val runtime = manager.authoringRuntime(f.worldId)!!
+            val publication = runtime.authoringPublication()
+            val epoch = SignalEpochRuntime(f.worldId.toString(), TrainRestrictionSnapshotStore(f.worldId.toString()))
+            epoch.replaceSources(sources.sources.getValue(f.worldId))
+            fun process(number: Long, occupied: Boolean) {
+                val position = RailPositionSnapshot(f.entry, ViewDirection.AB, 2.0)
+                val trains = if (!occupied) emptyList() else listOf(TrainFrameSnapshot.create(
+                    "local-train", "Local train", number, number, 0.0, false, false, emptyList(), position, position,
+                    listOf(work.art1st.javarailways.core.api.physics.rail.RailInterval(f.entry, 1.0, 2.0)),
+                    emptyList(), emptyList(), emptyList(), emptyList()))
+                val revision = infrastructure.topology!!.revision
+                epoch.process(RailwayWorldFrameSnapshot.create(number, revision, trains,
+                    ActiveRailContinuationsSnapshot.empty(revision)))
+            }
+            fun change(next: TopologyState, affected: UUID) {
+                val change = work.art1st.javarailways.core.api.physics.rail.topology.RailTopologyChange(
+                    infrastructure.topology!!, next, setOf(affected))
+                epoch.invalidateTopology(change)
+                infrastructure.commitTopology(next, setOf(affected))
+            }
+            process(1, false)
+            assertEquals(25.0, runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+            change(f.topology(42L, listOf(unrelated), initial.railIdentities), unrelated)
+            assertSame(publication, runtime.authoringPublication(), "unrelated changes must retain the prepared plan")
+            assertTrue(queue.isEmpty())
+            process(2, true)
+            assertEquals(0.0, runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+            assertEquals(2L, runtime.signalDeviceDiagnostics(signal.signalId)!!.stamp!!.physicsEpoch)
+            process(3, false)
+            assertEquals(25.0, runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId).effectiveSpeedLimitMetersPerSecond)
+            change(f.topology(43L, listOf(unrelated), initial.railIdentities - f.entry), f.entry)
+            assertTrue(queue.isNotEmpty()) // Keep revalidation pending while evaluating the old source.
+            process(4, false)
+            val unavailable = runtime.sectionSignalSnapshot()!!.states.getValue(signal.signalId)
+            assertInstanceOf(SectionSignalState.Unavailable::class.java, unavailable)
+            assertEquals(0.0, unavailable.effectiveSpeedLimitMetersPerSecond)
+        } finally {
+            manager.clearLocal().toCompletableFuture().join()
+        }
     }
 
     @Test

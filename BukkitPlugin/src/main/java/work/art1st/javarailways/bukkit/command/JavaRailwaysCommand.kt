@@ -964,13 +964,14 @@ class JavaRailwaysCommand {
                                 timetable.initialPositions.any { it.trainSelector.matches(train.name) }
                             }
                             .forEach { selectedTrainIds += it.id }
+                        val discardedRuns = dispatcher.forceDiscardTimetable(world, timetableId)
                         selectedTrainIds.forEach { trainId ->
                             world.getTrain(trainId)?.let { train ->
                                 BukkitPlugin.INSTANCE.trainControlManager.releaseTrain(train)
                                 (train as? CoreTrain)?.setController(null)
                             }
                         }
-                        dispatcher.forceDiscardTimetable(world, timetableId).also {
+                        discardedRuns.also {
                             if (coordinator.isStalled) coordinator.reset()
                         }
                     } else if (coordinator.isStalled) {

@@ -3,7 +3,7 @@ package work.art1st.javarailways.bukkit.http
 import work.art1st.javarailways.simpleato.persistence.SavedTimetableV1
 import work.art1st.javarailways.simpleato.persistence.TimetableSnapshotCodec
 import work.art1st.javarailways.bukkit.BukkitPlugin
-import work.art1st.javarailways.scriptworker.executeScript
+import work.art1st.javarailways.scriptworker.ScriptExecution
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -11,24 +11,37 @@ import java.nio.file.StandardCopyOption
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.Semaphore
+import java.util.concurrent.TimeUnit
 
 class TimetableScriptFailure(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
 class TimetableScriptConflict(message: String) : IllegalStateException(message)
 data class TimetableScriptDescriptor(val name: String, val sizeBytes: Long, val modifiedAtEpochMillis: Long)
 
 /** Compiles and stores timetable JavaScript inside the plugin JVM. */
-class TimetableScriptSandbox private constructor(private val scriptsDirectory: Path) : AutoCloseable {
-    constructor(plugin: BukkitPlugin) : this(plugin.dataFolder.toPath().toAbsolutePath().resolve("timetables"))
-    internal constructor(scriptsDirectory: Path, testOnly: Unit = Unit) : this(scriptsDirectory.toAbsolutePath())
+class TimetableScriptSandbox private constructor(
+    private val scriptsDirectory: Path,
+    private val executionTimeoutMillis: Long
+) : AutoCloseable {
+    constructor(plugin: BukkitPlugin) : this(plugin.dataFolder.toPath().toAbsolutePath().resolve("timetables"), 60_000)
+    internal constructor(scriptsDirectory: Path, executionTimeoutMillis: Long = 60_000, testOnly: Unit = Unit) :
+        this(scriptsDirectory.toAbsolutePath(), executionTimeoutMillis)
 
     private val storageLock = Any()
+    private val lifecycleLock = Any()
+    private var closed = false
+    private val activeExecutions = mutableSetOf<ScriptExecution>()
+    private val deadlineExecutor = ScheduledThreadPoolExecutor(1) { task ->
+        Thread(task, "JavaRailways-timetable-js-deadline").apply { isDaemon = true }
+    }.apply { removeOnCancelPolicy = true }
     private val permits = Semaphore(2)
     private val executor = Executors.newCachedThreadPool { task ->
         Thread(task, "JavaRailways-timetable-js").apply { isDaemon = true }
     }
 
     init {
+        require(executionTimeoutMillis > 0) { "execution timeout must be positive" }
         Files.createDirectories(scriptsDirectory)
     }
 
@@ -98,10 +111,20 @@ class TimetableScriptSandbox private constructor(private val scriptsDirectory: P
         if (source.toByteArray(StandardCharsets.UTF_8).size > MAX_SOURCE_BYTES) {
             throw TimetableScriptFailure("script exceeds $MAX_SOURCE_BYTES bytes")
         }
-        if (!permits.tryAcquire()) throw TimetableScriptFailure("script compiler capacity is busy; retry later")
+        val execution = ScriptExecution()
+        val deadline = synchronized(lifecycleLock) {
+            if (closed) throw TimetableScriptFailure("script compiler is closed")
+            if (!permits.tryAcquire()) throw TimetableScriptFailure("script compiler capacity is busy; retry later")
+            activeExecutions.add(execution)
+            deadlineExecutor.schedule(
+                { execution.cancel("script execution timed out after $executionTimeoutMillis ms") },
+                executionTimeoutMillis,
+                TimeUnit.MILLISECONDS
+            )
+        }
         try {
             val output = try {
-                executeScript(source, timetableId)
+                execution.execute(source, timetableId)
             } catch (error: Throwable) {
                 throw TimetableScriptFailure(error.message ?: "JavaScript compilation failed", error)
             }
@@ -111,12 +134,32 @@ class TimetableScriptSandbox private constructor(private val scriptsDirectory: P
             return runCatching { TimetableSnapshotCodec.decode(output) }
                 .getOrElse { throw TimetableScriptFailure("compiler returned invalid timetable JSON: ${it.message}", it) }
         } finally {
+            deadline.cancel(false)
+            synchronized(lifecycleLock) { activeExecutions.remove(execution) }
             permits.release()
         }
     }
 
     override fun close() {
-        executor.shutdownNow()
+        val active = synchronized(lifecycleLock) {
+            if (closed) return
+            closed = true
+            activeExecutions.toList()
+        }
+        var failure: Throwable? = null
+        try {
+            active.forEach { execution ->
+                try {
+                    execution.cancel("script compiler is closed")
+                } catch (error: Throwable) {
+                    if (failure == null) failure = error else failure!!.addSuppressed(error)
+                }
+            }
+        } finally {
+            deadlineExecutor.shutdownNow()
+            executor.shutdownNow()
+        }
+        failure?.let { throw it }
     }
 
     private fun resolveScript(scriptName: String): Path = existingScriptPath(scriptName)

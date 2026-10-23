@@ -18,6 +18,7 @@ import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureMu
 import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureOwner
 import work.art1st.javarailways.core.api.physics.infrastructure.InfrastructureResource
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionRequest
+import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionResult
 import work.art1st.javarailways.basic.api.infrastructure.ManualTurnoutSelectionStatus
 import work.art1st.javarailways.core.api.physics.infrastructure.RailIntervalResource
 import work.art1st.javarailways.core.api.physics.infrastructure.StableInfrastructureResource
@@ -89,7 +90,9 @@ import work.art1st.javarailways.simpleato.api.signal.SignalEpochSource
 import work.art1st.javarailways.simpleato.api.signal.SignalEpochResult
 import java.lang.reflect.Proxy
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -824,6 +827,61 @@ class DefaultInfrastructureResourceServiceTest {
     }
 
     @Test
+    fun `external completion cancellation and timeout cannot control queued turnout selection`() {
+        val service = DefaultInfrastructureResourceService()
+        val worldId = UUID.randomUUID()
+        val requester = plugin("operator")
+        val world = createTestWorld()
+        val changeWaitingResult: List<(CompletableFuture<ManualTurnoutSelectionResult>) -> Unit> = listOf(
+            { future -> future.complete(ManualTurnoutSelectionResult(ManualTurnoutSelectionStatus.SELECTED)) },
+            { future -> future.completeExceptionally(IllegalStateException("caller stopped waiting")) },
+            { future -> future.cancel(false) },
+            { future ->
+                future.orTimeout(0, TimeUnit.MILLISECONDS)
+                assertThrows(ExecutionException::class.java) { future.get(5, TimeUnit.SECONDS) }
+            }
+        )
+        try {
+            val stem = world.createRailForTest(straightCurve(-10.0, 0.0, 0.0))
+            val first = world.createRailForTest(straightCurve(0.0, 10.0, -5.0))
+            val second = world.createRailForTest(straightCurve(0.0, 10.0, 5.0))
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, first) }
+            IsolatedSimulationThreadMarker.run { CoreRail.connect(stem, second) }
+            world.onOwnerForTest { stem.viewAB.selectNextRail(second.viewAB) }
+            service.registerWorld(worldId, { world.topologyState }, registry = world.infrastructureCoordination) { resource ->
+                resource is RailIntervalResource && world.getRail(resource.railId) != null ||
+                    resource is StableInfrastructureResource && service.stableResourceExists(worldId, resource)
+            }
+            service.attachInfrastructureRuntime(worldId, world, { null }) { reason, failure ->
+                throw IllegalStateException(reason, failure)
+            }
+            changeWaitingResult.forEachIndexed { index, changeResult ->
+                val target = if (index % 2 == 0) first else second
+                val previous = if (index % 2 == 0) second else first
+                val pending = service.selectTurnout(requester, worldId, ManualTurnoutSelectionRequest(
+                    world.topologyRevision,
+                    RailEndpointRef(stem.id, RailEndpoint.B),
+                    RailEndpointRef(target.id, RailEndpoint.A)
+                ))
+                assertFalse(pending.isDone)
+                changeResult(pending)
+                assertTrue(pending.isDone)
+                assertSame(previous.viewAB, stem.viewAB.nextActiveRail,
+                    "modifying the waiting result must not execute selection early")
+                world.onOwnerForTest { world.physicsCoordinator.drainBetweenFramesOperations() }
+                assertSame(target.viewAB, stem.viewAB.nextActiveRail,
+                    "modifying the waiting result must not skip selection")
+                assertEquals(RailEndpointRef(target.id, RailEndpoint.A),
+                    world.latestWorldFrame().activeContinuations.selectedContinuation(RailEndpointRef(stem.id, RailEndpoint.B)))
+            }
+        } finally {
+            service.close()
+            world.physicsCoordinator.close()
+            (world.tickManager as? AutoCloseable)?.close()
+        }
+    }
+
+    @Test
     fun `Basic-owned diamond is claimable without an external resource provider`() {
         val service = DefaultInfrastructureResourceService()
         val worldId = UUID.randomUUID()
@@ -1413,6 +1471,30 @@ class DefaultInfrastructureResourceServiceTest {
         assertEquals(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
             service.validateRouteContribution(requester, worldId, contribution)?.code)
         assertTrue(service.liveClaims(worldId).isEmpty())
+    }
+
+    @Test
+    fun `old provider handle cannot remove registration after owner cleanup and same object registration`() {
+        val service = DefaultInfrastructureResourceService()
+        val worldId = UUID.randomUUID()
+        val owner = plugin("resource-owner")
+        val resource = StableInfrastructureResource("example.signal:block", "home")
+        val provider = rejectingRouteProvider { _, _ -> true }
+        try {
+            registerWorld(service, worldId)
+            val oldRegistration = service.registerResourceProvider(owner, resource.typeId, provider, emptyList())
+            assertTrue(service.stableResourceExists(worldId, resource))
+            service.unregisterOwner(owner)
+            assertFalse(service.stableResourceExists(worldId, resource))
+            val replacement = service.registerResourceProvider(owner, resource.typeId, provider, emptyList())
+            oldRegistration.close()
+            oldRegistration.close()
+            assertTrue(service.stableResourceExists(worldId, resource))
+            replacement.close()
+            assertFalse(service.stableResourceExists(worldId, resource))
+        } finally {
+            service.close()
+        }
     }
 
     @Test

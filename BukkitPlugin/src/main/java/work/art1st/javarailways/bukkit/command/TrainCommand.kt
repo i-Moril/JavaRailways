@@ -161,7 +161,7 @@ object TrainCommand {
                     return@supply
                 }
                 completeCreateOnMainThread(
-                    livePlayer, liveWorld, trainTypeName, trainName, resourceVersion, carDefs, playerPos, nearestRail
+                    livePlayer, liveWorld, trainTypeName, trainName, resourceVersion, carDefs, nearestRail
                 )
             },
             onFailure = { error ->
@@ -233,7 +233,6 @@ object TrainCommand {
         trainName: String,
         resourceVersion: TrainResourceVersion,
         carDefs: List<CarDefinition>,
-        playerPos: Vector3dc,
         nearestRail: HeavyRailQueries.NearestRailMatch?
     ) {
         val playerName = sender.name
@@ -249,8 +248,8 @@ object TrainCommand {
             val requiredBehindHead = estimateTrainLengthBehindHead(carDefs)
             val railViewAB = rail.getView(work.art1st.javarailways.core.api.physics.rail.ViewDirection.AB)
             val rawHeadAB = RailLocationWithFacing(railViewAB, match.arcLength)
-            val headLocation = findPlaceableHeadLocation(rawHeadAB, requiredBehindHead, playerPos)
-                ?: error("附近轨道长度不足，无法放置 ${"%.1f".format(requiredBehindHead)}m 的列车")
+            val headLocation = findPlaceableHeadLocation(rawHeadAB, requiredBehindHead)
+                ?: error("所选位置两侧轨道长度不足，无法放置 ${"%.1f".format(requiredBehindHead)}m 的列车")
             val blockingTrainId = findBlockingTrainForPlacement(headLocation, requiredBehindHead)
             check(blockingTrainId == null) { "放置区域已有列车 $blockingTrainId，请先移走或删除后再创建" }
             val firstHeadBogieOffset = headBogieToEndPointOffset(carDefs.first())
@@ -355,50 +354,6 @@ object TrainCommand {
     private fun headBogieToEndPointOffset(carDef: CarDefinition): Double {
         val bogieAOffset = carDef.bogieAOffset ?: (carDef.length * 0.3)
         return carDef.length / 2.0 - bogieAOffset
-    }
-
-    private fun findPlaceableHeadLocation(
-        rawHeadAB: RailLocationWithFacing,
-        requiredBehindHead: Double,
-        playerPos: Vector3dc
-    ): RailLocationWithFacing? {
-        val candidates = listOf(rawHeadAB, rawHeadAB.reversed).mapNotNull { raw ->
-            shiftHeadForwardUntilTailFits(raw, requiredBehindHead)
-        }
-        return candidates.minByOrNull { it.position.distance(playerPos) }
-    }
-
-    private fun shiftHeadForwardUntilTailFits(
-        rawHead: RailLocationWithFacing,
-        requiredBehindHead: Double
-    ): RailLocationWithFacing? {
-        if (rawHead.forward(-requiredBehindHead) != null) return rawHead
-
-        var hi = 1.0
-        var hiLoc: RailLocationWithFacing? = null
-        val maxShift = requiredBehindHead * 2.0 + 1.0
-        while (hi <= maxShift) {
-            val shifted = rawHead.forward(hi) ?: return null
-            if (shifted.forward(-requiredBehindHead) != null) {
-                hiLoc = shifted
-                break
-            }
-            hi *= 2.0
-        }
-        hiLoc ?: return null
-
-        var lo = 0.0
-        repeat(40) {
-            val mid = (lo + hi) / 2.0
-            val shifted = rawHead.forward(mid)
-            if (shifted != null && shifted.forward(-requiredBehindHead) != null) {
-                hi = mid
-                hiLoc = shifted
-            } else {
-                lo = mid
-            }
-        }
-        return hiLoc
     }
 
     private fun handleStart(sender: CommandSender, args: List<String>): Boolean {
@@ -664,10 +619,10 @@ object TrainCommand {
             return true
         }
 
-        val train = args.firstOrNull()?.let { coreWorld.getTrain(it) }
-            ?: findNearestTrain(sender, coreWorld)
+        val requestedId = args.firstOrNull()
+        val train = selectTrainForDeletion(coreWorld, requestedId) { findNearestTrain(sender, coreWorld) }
             ?: run {
-                sender.sendMessage("错误: 附近没有列车")
+                sender.sendMessage(if (requestedId == null) "错误: 附近没有列车" else "错误: 列车不存在: $requestedId")
                 return true
             }
 
@@ -920,4 +875,20 @@ object TrainCommand {
         val worldManager = BukkitPlugin.INSTANCE.worldManager
         return worldManager.railWorlds[bukkitWorld]
     }
+}
+
+/** An explicit ID is authoritative: a typo must never target a nearby train. */
+internal fun selectTrainForDeletion(
+    world: CoreWorld,
+    requestedId: String?,
+    nearestTrain: () -> CoreTrain?
+): CoreTrain? = if (requestedId == null) nearestTrain() else world.getTrain(requestedId)
+
+/** Keep the selected head point; only choose which direction has room for the whole consist. */
+internal fun findPlaceableHeadLocation(
+    rawHeadAB: RailLocationWithFacing,
+    requiredBehindHead: Double
+): RailLocationWithFacing? {
+    if (rawHeadAB.forward(-requiredBehindHead) != null) return rawHeadAB
+    return rawHeadAB.reversed.takeIf { it.forward(-requiredBehindHead) != null }
 }

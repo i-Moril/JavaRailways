@@ -50,6 +50,12 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
 
+// Split before decoding so encoded slashes remain within one segment; '+' is literal in paths.
+internal fun timetablePathSegments(uri: java.net.URI): List<String> =
+    uri.rawPath.trim('/').split('/').filter { it.isNotEmpty() }.map {
+        java.net.URLDecoder.decode(it.replace("+", "%2B"), StandardCharsets.UTF_8)
+    }
+
 internal class HttpFailure(val status: Int, message: String) : RuntimeException(message)
 
 private data class LineSimulationSnapshot(
@@ -90,7 +96,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         plugin.logger.info("Timetable HTTP bridge listening on ${config.bindAddress}:${config.port}")
     }
 
-    @EventHandler
+    @EventHandler(priority = org.bukkit.event.EventPriority.MONITOR, ignoreCancelled = true)
     fun onWorldUnload(event:WorldUnloadEvent)=railMapPreview.invalidate(event.world.name)
 
     fun stop() {
@@ -125,7 +131,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         }
 
         private fun route(exchange: HttpExchange) {
-            val parts = exchange.requestURI.path.trim('/').split('/').filter { it.isNotEmpty() }
+            val parts = timetablePathSegments(exchange.requestURI)
             when {
                 exchange.requestMethod == "GET" && parts == listOf("health") -> exchange.respond(200, "{\"ok\":true}")
                 exchange.requestMethod == "POST" && parts == listOf("auth", "exchange") -> {
@@ -138,7 +144,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         }
 
         private fun routeWorld(exchange: HttpExchange, parts: List<String>) {
-            val worldName = decode(parts[0])
+            val worldName = parts[0]
             when {
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "issues" -> exchange.respond(200, await {
                     withWorld(worldName) { bukkit, _ ->
@@ -174,47 +180,47 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     exchange.respond(200, compileSourceJson(worldName, readBody(exchange)))
                 }
                 exchange.requestMethod == "PUT" && parts.size == 3 && parts[1] == "scripts" -> {
-                    exchange.respond(200, saveScriptJson(worldName, decode(parts[2]), readBody(exchange)))
+                    exchange.respond(200, saveScriptJson(worldName, parts[2], readBody(exchange)))
                 }
                 exchange.requestMethod == "POST" && parts.size == 4 && parts[1] == "scripts" && parts[3] == "rename" -> {
-                    exchange.respond(200, renameScriptJson(decode(parts[2]), readBody(exchange)))
+                    exchange.respond(200, renameScriptJson(parts[2], readBody(exchange)))
                 }
                 exchange.requestMethod == "DELETE" && parts.size == 3 && parts[1] == "scripts" -> {
-                    exchange.respond(200, deleteScriptJson(decode(parts[2])))
+                    exchange.respond(200, deleteScriptJson(parts[2]))
                 }
                 exchange.requestMethod == "GET" && parts.size == 3 && parts[1] == "scripts" -> {
-                    val scriptName = decode(parts[2])
+                    val scriptName = parts[2]
                     val timetableId = exchange.requestURI.rawQuery?.split('&')?.mapNotNull { pair ->
                         val pieces = pair.split('=', limit = 2)
-                        if (pieces.firstOrNull() == "id") decode(pieces.getOrElse(1) { "" }) else null
+                        if (pieces.firstOrNull() == "id") java.net.URLDecoder.decode(pieces.getOrElse(1) { "" }, StandardCharsets.UTF_8) else null
                     }?.firstOrNull()?.takeIf { it.isNotBlank() } ?: scriptName.removeSuffix(".js")
                     exchange.respond(200, renderScriptJson(worldName, scriptName, timetableId))
                 }
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "lines" -> exchange.respond(200, await { linesJson(worldName) })
                 exchange.requestMethod == "POST" && parts.size == 4 && parts[1] == "lines" && parts[3] == "simulate" -> {
                     val body = readBody(exchange)
-                    exchange.respond(200, simulateLineJson(worldName, decode(parts[2]), body))
+                    exchange.respond(200, simulateLineJson(worldName, parts[2], body))
                 }
                 exchange.requestMethod == "PUT" && parts.size == 3 && parts[1] == "lines" -> {
                     val body = readBody(exchange)
-                    exchange.respond(200, await { putLineJson(worldName, decode(parts[2]), body) })
+                    exchange.respond(200, await { putLineJson(worldName, parts[2], body) })
                 }
                 exchange.requestMethod == "DELETE" && parts.size == 3 && parts[1] == "lines" -> {
                     val body = readBody(exchange)
-                    exchange.respond(200, await { deleteLineJson(worldName, decode(parts[2]), body) })
+                    exchange.respond(200, await { deleteLineJson(worldName, parts[2], body) })
                 }
                 exchange.requestMethod == "POST" && parts.size == 3 && parts[1] == "timetables" && parts[2] == "simulate" -> {
                     exchange.respond(200, simulateTimetableJson(worldName, readBody(exchange)))
                 }
                 exchange.requestMethod == "GET" && parts.size == 2 && parts[1] == "timetables" -> exchange.respond(200, await { timetablesJson(worldName) })
-                exchange.requestMethod == "GET" && parts.size == 3 && parts[1] == "timetables" -> exchange.respond(200, await { timetableJson(worldName, decode(parts[2])) })
+                exchange.requestMethod == "GET" && parts.size == 3 && parts[1] == "timetables" -> exchange.respond(200, await { timetableJson(worldName, parts[2]) })
                 exchange.requestMethod == "POST" && parts.size == 4 && parts[1] == "timetables" && parts[3] == "validate" -> {
                     val body = readBody(exchange)
-                    exchange.respond(200, await { validateJson(worldName, decode(parts[2]), body) })
+                    exchange.respond(200, await { validateJson(worldName, parts[2], body) })
                 }
                 exchange.requestMethod == "PUT" && parts.size == 4 && parts[1] == "timetables" && parts[3] == "publish" -> {
                     val body = readBody(exchange)
-                    exchange.respond(200, await { publishJson(worldName, decode(parts[2]), body, exchange.requestHeaders.getFirst("If-Match")) })
+                    exchange.respond(200, await { publishJson(worldName, parts[2], body, exchange.requestHeaders.getFirst("If-Match")) })
                 }
                 else -> exchange.respond(404, error("not found"))
             }
@@ -868,7 +874,6 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
         responseBody.use { it.write(bytes) }
     }
     private fun error(message: String) = json.encodeToString(buildJsonObject { put("error", message) })
-    private fun decode(value: String) = java.net.URLDecoder.decode(value, StandardCharsets.UTF_8)
     private fun etag(body: String): String = '"' + MessageDigest.getInstance("SHA-256").digest(body.toByteArray(StandardCharsets.UTF_8)).joinToString("") { "%02x".format(it) } + '"'
 }
 

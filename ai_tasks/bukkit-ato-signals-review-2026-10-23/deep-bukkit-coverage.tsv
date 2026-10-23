@@ -1,0 +1,40 @@
+aspect	file	read_scope	conclusion	unverified
+skill	.agents/skills/javarailways-code-review/SKILL.md	FULL	applied	no edits authorized
+history	.agents/skills/javarailways-code-review/references/missed-findings.md	FULL	R01/R02 methods reapplied	prior findings not current evidence
+contracts	.trellis/spec/bukkit-plugin/backend/index.md	FULL	ownership/lifecycle scope	no mandated test execution because user forbids
+contracts	.trellis/spec/bukkit-plugin/backend/model-presentation-api.md	1-100,270-310 and search hits	sticky failure deliberate; close snapshot contract	remaining sections not reread fully
+contracts	.trellis/spec/bukkit-plugin/backend/editor-markers.md	60-80 and search hits	close failure observable and exact identities	no client validation
+completion/identity/cleanup	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/DefaultModelPresentationService.kt	FULL 1-351	no new defect confirmed	platform scheduler/runtime not executed
+completion/identity/cleanup	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/DefaultEditorTextService.kt	FULL 1-308	no new defect confirmed	platform scheduler/runtime not executed
+completion/history	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/DefaultPlayerOperationService.kt	FULL 1-192	writable observation future does not control history; inflight shutdown contract gap	external unfinished stage case not reproduced
+identity	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/DefaultSimulationFeatureService.kt	FULL 1-49	exact registration compare removes ABA risk	concurrent prepare semantics not tested
+observer lifecycle	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/DefaultRailwayObservationService.kt	FULL 1-148	captured callback after unsubscribe possible; no strict cancellation contract	no race execution
+provider identity/completion	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/DefaultInfrastructureResourceService.kt	1-360,366-495,540-880	BUK-20/21; close throwing candidate rejected	unread middle contribution validation 496-539 this pass
+source cleanup	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/DefaultSignalEpochSourceService.kt	PARTIAL tail lifecycle from truncated batch	no conclusion in this specialization	not full read this pass
+service assembly	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/JavaRailwaysServiceRegistration.kt	FULL	public service published	no runtime service registry validation
+lifecycle	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/ModelOwnerLifecycleListener.kt	FULL	exact owner close delegation	no plugin disable execution
+lifecycle	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/EditorTextLifecycleListener.kt	FULL	cancelled unload ignored; exact viewer/world cleanup	no client execution
+lifecycle	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/OperationOwnerLifecycleListener.kt	FULL	owner disable unregister retained history	inflight contract gap
+lifecycle	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/internal/ObservationOwnerLifecycleListener.kt	FULL	owner disable registration removal	no captured batch guarantee
+queue semantics	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/util/LatestAffinityTaskDispatcher.kt	FULL	per-handle serialization; clear stale completion not reachable with new same handle after stop	no scheduler experiment
+contracts	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/operation/PlayerOperationService.java	FULL	no in-flight unregister guarantee	contract ambiguity
+contracts	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/operation/UndoableOperation.java	FULL	CompletionStage result	no cancellation guarantee
+contracts	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/model/ModelHandle.java	FULL	close idempotent	no cleanup-retry promise
+contracts	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/model/ModelPresentationService.java	FULL	stop producers before closeOwner; exact identity	no new defect
+contracts	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/editor/EditorTextService.java	FULL	sticky cleanup exception deliberate	no new defect
+contracts	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/observation/RailwayObservationSubscription.java	FULL	idempotent registration handle only	inflight callback semantic unspecified
+contracts	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/infrastructure/InfrastructureResourceProviderRegistration.java	FULL	this registration identity contract	BUK-20
+contracts	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/api/infrastructure/InfrastructureResourceService.java	90-133	future completes after real coherent selection; registration retry	BUK-20/21
+caller	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/tool/TurnoutWand.kt	210-251	production wand only observes future	no current wand spoofing
+completion gate	Core/src/main/java/work/art1st/javarailways/core/physics/tick/PhysicsCoordinator.kt	50-95,290-376	isDone suppresses queued action; raw result returned	BUK-21 boundary only
+close counterexample	Core/src/main/java/work/art1st/javarailways/core/physics/CoreWorld.kt	1140-1160	listener close pure set removal	not whole Core reviewed
+close counterexample	Core/src/main/java/work/art1st/javarailways/core/physics/infrastructure/InfrastructureCoordinationRegistry.kt	454-469	validator close pure map removal	not whole registry reviewed
+close counterexample	Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/ManualTurnoutSelectionRuntime.kt	113-143	close only sets boolean	not whole Basic reviewed
+close counterexample	Basic/src/main/java/work/art1st/javarailways/basic/infrastructure/admission/RouteResourceAdmissionRuntime.kt	141-220	close only Core topology registration	no plugin callback failure found
+history tests	BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/api/internal/DefaultPlayerOperationServiceTest.kt	FULL	retry/chronology/normal unregister tests	not executed
+cleanup tests	BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/api/internal/DefaultModelPresentationServiceTest.kt	240-330 plus search	cleanup failure preserved and children attempted	not executed; rest not reread
+cleanup tests	BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/api/internal/DefaultEditorTextServiceTest.kt	240-322 plus search	independent cleanup/retired fallback covered	not executed; rest not reread
+provider/turnout tests	BukkitPlugin/src/test/java/work/art1st/javarailways/bukkit/api/internal/DefaultInfrastructureResourceServiceTest.kt	745-827,1380-1465 plus search	no old-owner-unregister ABA or consumer-completion cases	not executed
+parent finding countercheck	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/PartRegistry.kt	25-102 plus cycle search	load parse only; no upstream cycle guard	parent owns full-chain finding BUK-22
+parent finding countercheck	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/SavedCarModelTree.kt	20-61	putIfAbsent accepts cyclic reference graph	static only
+parent finding countercheck	BukkitPlugin/src/main/java/work/art1st/javarailways/bukkit/config/model/ModelManager.kt	50-175	buildResourceVersion no other cycle gate	static only

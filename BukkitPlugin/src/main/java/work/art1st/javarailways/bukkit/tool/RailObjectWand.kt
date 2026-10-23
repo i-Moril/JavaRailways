@@ -11,6 +11,7 @@ import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.entity.ItemDisplay
 import org.bukkit.entity.Player
+import org.bukkit.event.EventPriority
 import org.bukkit.event.EventHandler
 import org.bukkit.event.block.Action
 import org.bukkit.event.player.PlayerInteractEvent
@@ -189,7 +190,25 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     /** Per-player transient marker entities: player UUID -> (wayPoint id -> entity UUID). */
     private val markerEntities =
         ConcurrentHashMap<UUID, ConcurrentHashMap<String, MarkerHandle>>()
-    private val editingWayPoint = mutableMapOf<UUID, String>()
+    internal class DestinationEdit(
+        val world: World,
+        val coreWorld: CoreWorld,
+        val wayPoint: WayPoint,
+        val destination: work.art1st.javarailways.simpleato.api.destination.OperationalDestination?,
+        val pending: Boolean,
+        val configSession: work.art1st.javarailways.bukkit.api.wand.config.PlayerConfigSession
+    ) {
+        fun isCurrent(
+            activeEdit: DestinationEdit?,
+            currentWorld: World,
+            currentCoreWorld: CoreWorld?,
+            currentSession: work.art1st.javarailways.bukkit.api.wand.config.PlayerConfigSession,
+            currentWayPoint: WayPoint?,
+            currentDestination: work.art1st.javarailways.simpleato.api.destination.OperationalDestination?
+        ): Boolean = activeEdit === this && currentWorld === world && currentCoreWorld === coreWorld &&
+            currentSession === configSession && currentWayPoint === wayPoint && currentDestination === destination
+    }
+    private val editingWayPoint = mutableMapOf<UUID, DestinationEdit>()
     /** Unsaved clicks stay private to the dialog and are never registered or rendered. */
     private val pendingWayPoints = mutableMapOf<UUID, WayPoint>()
     private val heavyOperationGate = PlayerOperationGate()
@@ -235,6 +254,8 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     }
 
     override fun clearSelection(player: Player, state: RailObjectWandState) {
+        editingWayPoint.remove(player.uniqueId)
+        pendingWayPoints.remove(player.uniqueId)
         closeDirectionOverlay(player.uniqueId)
         state.pendingDeleteWayPoint?.let { setMarkerMaterial(player, it, Material.LIME_CONCRETE) }
         state.pendingDeleteWayPoint = null
@@ -625,26 +646,42 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val coreWorld = getCoreWorld(player) ?: return
         val pending = pendingWayPoints[player.uniqueId]?.takeIf { it.id == wayPointId }
         val wayPoint = coreWorld.basicWorldData.wayPoints[wayPointId] ?: pending ?: return
-        editingWayPoint[player.uniqueId] = wayPointId
         val destination = coreWorld.simpleAtoWorldData.destinations[wayPointId]
         destinationEditor.seedSession(
             player.uniqueId, wayPoint, destination, pending != null, preferredRole
         )
+        val edit = DestinationEdit(player.world, coreWorld, wayPoint, destination, pending != null,
+            destinationEditor.configUI.getPlayerSession(player.uniqueId))
+        editingWayPoint[player.uniqueId] = edit
         dialogRenderer.showConfigDialog(
             player,
             WayPointEditKeys.GROUP_ID,
-            textResolver = RailObjectWandI18n.resolver(player)
+            textResolver = RailObjectWandI18n.resolver(player),
+            isCurrent = { isCurrentDestinationEdit(it, edit) }
         ) { p ->
-            applyWayPointDialog(p)
+            applyWayPointDialog(p, edit)
         }
     }
 
-    private fun applyWayPointDialog(player: Player) {
-        val oldId = editingWayPoint.remove(player.uniqueId) ?: return
-        val coreWorld = getCoreWorld(player) ?: return
-        val pending = pendingWayPoints[player.uniqueId]?.takeIf { it.id == oldId }
-        val wayPoint = coreWorld.basicWorldData.wayPoints[oldId] ?: pending ?: return
-        val original = coreWorld.simpleAtoWorldData.destinations[oldId]
+    private fun isCurrentDestinationEdit(player: Player, edit: DestinationEdit): Boolean {
+        if (editingWayPoint[player.uniqueId] !== edit || player.world !== edit.world ||
+            getCoreWorld(player) !== edit.coreWorld) return false
+        return edit.isCurrent(
+            editingWayPoint[player.uniqueId], player.world, getCoreWorld(player),
+            destinationEditor.configUI.getPlayerSession(player.uniqueId),
+            if (edit.pending) pendingWayPoints[player.uniqueId] else
+                edit.coreWorld.basicWorldData.wayPoints[edit.wayPoint.id],
+            edit.coreWorld.simpleAtoWorldData.destinations[edit.wayPoint.id]
+        )
+    }
+
+    private fun applyWayPointDialog(player: Player, edit: DestinationEdit) {
+        if (!isCurrentDestinationEdit(player, edit)) return
+        val oldId = edit.wayPoint.id
+        val coreWorld = edit.coreWorld
+        val pending = edit.wayPoint.takeIf { edit.pending }
+        val wayPoint = edit.wayPoint
+        val original = edit.destination
         val updated = try {
             destinationEditor.readEdit(player.uniqueId, wayPoint, original)
         } catch (failure: Exception) {
@@ -655,8 +692,10 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         }
         try {
             if (!mutateRailScoped(player, coreWorld, setOf(wayPoint.railId)) {
-                    if (pending != null) pendingWayPoints.remove(player.uniqueId)
+                    check(isCurrentDestinationEdit(player, edit)) { "Destination edit is no longer current" }
                     destinationEditor.save(coreWorld, wayPoint, updated, pending != null)
+                    if (pending != null) pendingWayPoints.remove(player.uniqueId, pending)
+                    editingWayPoint.remove(player.uniqueId, edit)
                 }
             ) {
                 return
@@ -667,7 +706,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             )
             return
         }
-        if (pending == null) renameMarker(oldId, updated.id, updated.id)
+        if (pending == null) renameMarker(player.world.uid, oldId, updated.id, updated.id)
         spawnOrReplaceMarker(player, updated.toWayPoint())
         player.sendMessage(
             RailObjectWandI18n.component(
@@ -719,7 +758,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         val location = Location(world, position.x(), position.y() + 1.0, position.z())
         val playerId = player.uniqueId
         val playerMarkers = markerEntities.computeIfAbsent(playerId) { ConcurrentHashMap() }
-        val handle = MarkerHandle(wayPoint.id, wayPoint.id)
+        val handle = MarkerHandle(world.uid, wayPoint.id, wayPoint.id)
         playerMarkers[wayPoint.id] = handle
 
         plugin.platformDispatcher.runAt(location) markerTask@{
@@ -760,12 +799,8 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         plugin.platformDispatcher.runForEntity(entity, action = { entity.remove() })
     }
 
-    private fun renameMarker(oldId: String, newId: String, displayName: String) {
-        markerEntities.forEach { (_, playerMarkers) ->
-            val handle = playerMarkers.remove(oldId) ?: return@forEach
-            handle.id = newId
-            handle.displayName = displayName
-            playerMarkers[newId] = handle
+    private fun renameMarker(worldId: UUID, oldId: String, newId: String, displayName: String) {
+        renameMarkers(markerEntities.values, worldId, oldId, newId, displayName) { handle ->
             handle.entity?.let { entity ->
                 plugin.platformDispatcher.runForEntity(entity, action = {
                     entity.customName(Component.text(displayName, NamedTextColor.GREEN))
@@ -823,11 +858,16 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     @EventHandler
     fun onRailObjectWandWorldChanged(event: PlayerChangedWorldEvent) {
         closeDirectionOverlay(event.player.uniqueId)
+        editingWayPoint.remove(event.player.uniqueId)
+        pendingWayPoints.remove(event.player.uniqueId)
         scheduleMarkerVisibilityRefresh(event.player)
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     fun onRailObjectWandWorldUnload(event: WorldUnloadEvent) {
+        editingWayPoint.entries.removeIf { (playerId, edit) ->
+            (edit.world === event.world).also { if (it) pendingWayPoints.remove(playerId) }
+        }
         directionOverlays.forEach { (playerId, session) ->
             if (session.world === event.world && directionOverlays.remove(playerId, session)) session.close()
         }
@@ -843,7 +883,8 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
         destinationEditor.configUI.removePlayerSession(player.uniqueId)
     }
 
-    private class MarkerHandle(
+    internal class MarkerHandle(
+        val worldId: UUID,
         @Volatile var id: String,
         @Volatile var displayName: String,
         @Volatile var material: Material = Material.LIME_CONCRETE,
@@ -880,6 +921,24 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
     )
 
     companion object {
+        internal fun renameMarkers(
+            playerMarkers: Collection<ConcurrentHashMap<String, MarkerHandle>>,
+            worldId: UUID,
+            oldId: String,
+            newId: String,
+            displayName: String,
+            updateEntity: (MarkerHandle) -> Unit
+        ) {
+            playerMarkers.forEach { markers ->
+                val handle = markers[oldId] ?: return@forEach
+                if (handle.worldId != worldId || !markers.remove(oldId, handle)) return@forEach
+                handle.id = newId
+                handle.displayName = displayName
+                markers[newId] = handle
+                updateEntity(handle)
+            }
+        }
+
         private const val MAX_SELECT_DISTANCE = 6.0
         private const val MIN_DIRECTION_ARC_DIFFERENCE = 0.25
         private const val DIRECTION_REFRESH_TICKS = 10L

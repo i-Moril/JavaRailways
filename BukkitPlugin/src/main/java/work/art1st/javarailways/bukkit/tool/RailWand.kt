@@ -562,6 +562,31 @@ private const val SPLIT_OBJECT_CLEARANCE_METERS = 1.0
 // RailWand 主类
 // ═══════════════════════════════════════════════════════════════
 
+/** Decoration is optional; endpoint editing follows physical rails and assembly boundaries. */
+internal fun physicalRailEndpointCandidates(world: CoreWorld): List<Pair<CoreRail, Char>> {
+    val rails = world.allRails
+    return rails.flatMap { rail ->
+        val split = rail.metadata.authoring?.createdBySplit
+        val assembly = rail.metadata.authoring?.assembly
+        val siblings = if (split == null) emptyList() else rails.filter {
+            it.metadata.authoring?.createdBySplit?.operationId == split.operationId
+        }
+        val hasSiblingPair = split != null &&
+            siblings.count { it.metadata.authoring?.createdBySplit?.segmentIndex == 0 } == 1 &&
+            siblings.count { it.metadata.authoring?.createdBySplit?.segmentIndex == 1 } == 1
+        listOfNotNull(
+            (rail to 'A').takeUnless {
+                (hasSiblingPair && split!!.segmentIndex == 1) ||
+                    (assembly != null && assembly.segmentIndex > 0)
+            },
+            (rail to 'B').takeUnless {
+                (hasSiblingPair && split!!.segmentIndex == 0) ||
+                    (assembly != null && assembly.segmentIndex < assembly.segmentCount - 1)
+            }
+        )
+    }
+}
+
 class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
     plugin = plugin,
     wandKey = "javarailways_rail_wand",
@@ -1909,7 +1934,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         destinationsMigrated = true
                     }
                     liveAdjacentRails.values.forEach { oldRail ->
-                        RailVisualBootstrap.unregisterRail(oldRail.id)
+                        RailVisualBootstrap.unregisterRail(oldRail.world, oldRail.id)
                         liveCoreWorld.removeRail(oldRail)
                         liveCoreWorld.basicWorldData.railMetadata.remove(oldRail.id)
                     }
@@ -1950,7 +1975,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         }
                     }
                     createdRails.forEach { rail ->
-                        RailVisualBootstrap.unregisterRail(rail.id)
+                        RailVisualBootstrap.unregisterRail(rail.world, rail.id)
                         liveCoreWorld.removeRail(rail)
                         liveCoreWorld.basicWorldData.railMetadata.remove(rail.id)
                     }
@@ -2249,7 +2274,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         oldToNew.mapValues { (_, replacement) -> replacement.id }
                     )
                     liveAffectedRails.forEach { rail ->
-                        RailVisualBootstrap.unregisterRail(rail.id)
+                        RailVisualBootstrap.unregisterRail(rail.world, rail.id)
                         liveCoreWorld.removeRail(rail)
                         liveCoreWorld.basicWorldData.railMetadata.remove(rail.id)
                     }
@@ -2274,7 +2299,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     } catch (e: Exception) {
                     restoreOperatingDirections(liveCoreWorld, undoSnapshot.operatingDirections)
                     createdRails.forEach { rail ->
-                        RailVisualBootstrap.unregisterRail(rail.id)
+                        RailVisualBootstrap.unregisterRail(rail.world, rail.id)
                         liveCoreWorld.removeRail(rail)
                         liveCoreWorld.basicWorldData.railMetadata.remove(rail.id)
                     }
@@ -2971,7 +2996,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             OperationalDestinationService(world).migrateAllOnRails(oldToNew)
             migrateOperatingDirections(world, oldToNew)
             oldRails.forEach { old ->
-                RailVisualBootstrap.unregisterRail(old.id)
+                RailVisualBootstrap.unregisterRail(old.world, old.id)
                 world.removeRail(old)
                 world.basicWorldData.railMetadata.remove(old.id)
             }
@@ -2998,7 +3023,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             } catch (failure: Exception) {
             restoreOperatingDirections(world, undoSnapshot.operatingDirections)
             created.forEach { rail ->
-                RailVisualBootstrap.unregisterRail(rail.id)
+                RailVisualBootstrap.unregisterRail(rail.world, rail.id)
                 world.removeRail(rail)
                 world.basicWorldData.railMetadata.remove(rail.id)
             }
@@ -3766,7 +3791,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         replacementDirections = replacementDirections
                     )
                     liveOldRails.forEach { old ->
-                        RailVisualBootstrap.unregisterRail(old.id)
+                        RailVisualBootstrap.unregisterRail(old.world, old.id)
                         liveWorld.removeRail(old)
                         liveWorld.basicWorldData.railMetadata.remove(old.id)
                     }
@@ -3798,7 +3823,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     } catch (error: Exception) {
                     restoreOperatingDirections(liveWorld, undoSnapshot.operatingDirections)
                     created.forEach { rail ->
-                        RailVisualBootstrap.unregisterRail(rail.id)
+                        RailVisualBootstrap.unregisterRail(rail.world, rail.id)
                         liveWorld.removeRail(rail)
                         liveWorld.basicWorldData.railMetadata.remove(rail.id)
                     }
@@ -4364,7 +4389,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             )
                             val changedExistingIds = undo.metadataAdditions.keys
                                 .filterTo(linkedSetOf()) { it != result.before.id && it != result.after.id }
-                            RailVisualBootstrap.unregisterRail(railId)
+                            RailVisualBootstrap.unregisterRail(liveWorld, railId)
                             val replacementIds = changedExistingIds + result.before.id + result.after.id
                             val replacementMetas = undo.renderAdditionsByRail
                                 .filterKeys(replacementIds::contains)
@@ -4630,8 +4655,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                             )
                             val changedExistingIds = undo.metadataAdditions.keys
                                 .filterTo(linkedSetOf()) { it != merged.id }
-                            RailVisualBootstrap.unregisterRail(beforeRailId)
-                            RailVisualBootstrap.unregisterRail(afterRailId)
+                            RailVisualBootstrap.unregisterRail(liveWorld, beforeRailId)
+                            RailVisualBootstrap.unregisterRail(liveWorld, afterRailId)
                             val replacementIds = changedExistingIds + merged.id
                             val replacementMetas = undo.renderAdditionsByRail
                                 .filterKeys(replacementIds::contains)
@@ -4902,7 +4927,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             return
         }
         val rail = coreWorld.getRail(railId) ?: run {
-            val cleanup = RailVisualBootstrap.unregisterRail(railId)
+            val cleanup = RailVisualBootstrap.unregisterRail(coreWorld, railId)
             RailRenderMetaStore.removeRail(player.world, railId)
             coreWorld.basicWorldData.railMetadata.remove(railId)
             coreWorld.basicWorldData.operatingDirections.put(railId, null)
@@ -4985,7 +5010,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         val destinations = OperationalDestinationService(coreWorld)
                         removedDestinations = targetIds.sumOf { destinations.removeAllOnRail(it).size }
                         liveTargets.forEach { target ->
-                            RailVisualBootstrap.unregisterRail(target.id)
+                            RailVisualBootstrap.unregisterRail(target.world, target.id)
                             coreWorld.removeRail(target)
                             coreWorld.basicWorldData.railMetadata.remove(target.id)
                         }
@@ -5197,23 +5222,8 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
 
     private fun getRailEndpointAnchors(world: World): List<Anchor> {
         val coreWorld = BukkitPlugin.INSTANCE.worldManager.railWorlds[world] as? CoreWorld ?: return emptyList()
-        return RailRenderMetaStore.load(world).flatMap { meta ->
-            val rail = coreWorld.getRail(meta.railId) ?: return@flatMap emptyList()
-            val split = rail.metadata.authoring?.createdBySplit
-            val assembly = rail.metadata.authoring?.assembly
-            val hasSiblingPair = split != null && findSplitPair(coreWorld, split.operationId) != null
-            listOfNotNull(
-                getRailEndpointAnchor(world, railEndpointAnchorId(rail.id, 'A'))
-                    .takeUnless {
-                        (hasSiblingPair && split.segmentIndex == 1) ||
-                            (assembly != null && assembly.segmentIndex > 0)
-                    },
-                getRailEndpointAnchor(world, railEndpointAnchorId(rail.id, 'B'))
-                    .takeUnless {
-                        (hasSiblingPair && split.segmentIndex == 0) ||
-                            (assembly != null && assembly.segmentIndex < assembly.segmentCount - 1)
-                    }
-            )
+        return physicalRailEndpointCandidates(coreWorld).mapNotNull { (rail, end) ->
+            getRailEndpointAnchor(world, railEndpointAnchorId(rail.id, end))
         }
     }
 
@@ -5894,11 +5904,11 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
         val current = RailRenderMetaStore.load(player.world)
         val currentTargets = current.filter { it.railId in action.railIds }.sortedBy { it.railId.toString() }
         if (currentTargets != action.expectedAfter.sortedBy { it.railId.toString() }) return false
-        action.railIds.forEach(RailVisualBootstrap::unregisterRail)
         RailRenderMetaStore.saveAll(
             player.world,
             current.filterNot { it.railId in action.railIds } + action.renderMetasBefore
         )
+        action.railIds.forEach { RailVisualBootstrap.unregisterRail(coreWorld, it) }
         action.renderMetasBefore.forEach { RailVisualBootstrap.fromPersisted(coreWorld, it) }
         return true
     }
@@ -6055,7 +6065,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             val changedRenderIds = (currentRenderMetas.keys + targetRenderMetas.keys).filterTo(linkedSetOf()) { railId ->
                 currentRenderMetas[railId] != targetRenderMetas[railId]
             }.apply { addAll(editPlan.snapshotGeometryChangedRailIds) }
-            changedRenderIds.forEach(RailVisualBootstrap::unregisterRail)
+            changedRenderIds.forEach { RailVisualBootstrap.unregisterRail(coreWorld, it) }
 
             editPlan.applySnapshotRestore(coreWorld)
 

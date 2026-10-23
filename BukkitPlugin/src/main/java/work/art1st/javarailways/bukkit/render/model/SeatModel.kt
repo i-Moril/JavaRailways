@@ -6,6 +6,7 @@ import org.bukkit.entity.ArmorStand
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Interaction
 import org.bukkit.entity.Player
+import org.bukkit.event.EventPriority
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.entity.EntityDismountEvent
@@ -381,13 +382,17 @@ class SeatModel internal constructor(
             val controlEnd: DriverControlEnd?
         )
 
-        @EventHandler
+        @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
         fun onPlayerDismountSeat(event: EntityDismountEvent) {
+            handleDismount(event, BukkitPlugin.INSTANCE.platformDispatcher)
+        }
+
+        internal fun handleDismount(event: EntityDismountEvent, dispatcher: work.art1st.javarailways.bukkit.util.PlatformDispatcher) {
             val player = event.entity as? Player ?: return
             val carrier = event.dismounted
             val binding = seatsByCarrier[carrier.uniqueId] ?: return
             binding.alignAfterDismount(player)
-            BukkitPlugin.INSTANCE.platformDispatcher.runForEntityLater(carrier, 1L, action = {
+            dispatcher.runForEntityLater(carrier, 1L, action = {
                 restoreIfEmpty(binding)
             })
             if (!binding.driverSeat) return

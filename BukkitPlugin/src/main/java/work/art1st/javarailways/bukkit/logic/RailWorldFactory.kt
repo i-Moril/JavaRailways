@@ -201,6 +201,14 @@ object RailWorldFactory {
         simpleAtoInfrastructure?.restore(coreWorld)
         basicRuntime?.restore()
         OperationalSpeedLimitSignalMaterializer.materialize(coreWorld)
+        // Visual restoration can fail before this factory returns a world to WorldManager.
+        // Keep the global visual index under construction ownership until the handoff.
+        construction.own {
+            RailVisualBootstrap.retireWorld(coreWorld).whenComplete { _, cleanupFailure ->
+                if (cleanupFailure != null) plugin.logger.log(java.util.logging.Level.SEVERE,
+                    "Rail visual cleanup failed for uninstalled world ${bukkitWorld.uid}", cleanupFailure)
+            }
+        }
         val persisted = RailRenderMetaStore.load(bukkitWorld)
         val restored = persisted.filter { RailVisualBootstrap.fromPersisted(coreWorld, it) }
         if (restored.size != persisted.size) {

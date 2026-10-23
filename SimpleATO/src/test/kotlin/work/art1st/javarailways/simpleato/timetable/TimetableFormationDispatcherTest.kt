@@ -322,6 +322,112 @@ class TimetableFormationDispatcherTest {
         }
     }
 
+
+    @Test
+    fun `branch display update follows actual unit through scheduled split and held sibling stays separate`() {
+        Fixture(false,separateDutyCaps=true).use { f ->
+            f.world.onOwnerForTest {
+                f.world.simpleAtoWorldData.timetableExtensions.registerCondition(object : TimetableConditionProvider {
+                    override val typeId="test:display"
+                    override val version=1
+                    override val descriptor=TimetableExtensionDescriptor("Display","Actual unit display branch")
+                    override fun validate(parameters: JsonObject)=emptyList<String>()
+                    override fun evaluate(parameters: JsonObject,context: TimetableRuntimeContext)=TimetableConditionResult.True
+                })
+                val table=checkNotNull(f.world.simpleAtoWorldData.timetables["split"])
+                val source=table.services.single()
+                val branch=TimetableStep.At(0,TimetableAction.Conditional(TimetableCondition.Predicate(TimetableExtensionCall("test:display")),
+                    listOf(TimetableStep.At(0,TimetableAction.SetDisplay(listOf(1),kotlinx.serialization.json.buildJsonObject { put("destination",kotlinx.serialization.json.JsonPrimitive("D express")) }))),
+                    listOf(TimetableStep.At(0,TimetableAction.ResetDisplay(listOf(1))))))
+                val steps=listOf(source.steps[0],branch)+source.steps.drop(1)
+                val line=checkNotNull(source.lineId)
+                val updated=source.copy(steps=steps,runSegments=listOf(TimetableRunSegment("before",line,0,2),TimetableRunSegment("after",line,3,4)))
+                val d=TimetableOperationalTrip("D",kotlinx.serialization.json.buildJsonObject { put("destination",kotlinx.serialization.json.JsonPrimitive("D")) },
+                    listOf(TimetableOperationalTripSegment("source","before",listOf(1)),TimetableOperationalTripSegment("source","after",listOf(1))))
+                val e=TimetableOperationalTrip("E",kotlinx.serialization.json.buildJsonObject { put("destination",kotlinx.serialization.json.JsonPrimitive("E")) },
+                    listOf(TimetableOperationalTripSegment("source","before",listOf(2))))
+                f.world.simpleAtoWorldData.timetables.add(table.copy(services=listOf(updated),operationalTrips=listOf(d,e),lineSpeedLimits=table.lineSpeedLimits.map { it.copy(maximumSpeedMetersPerSecond=2.0) }))
+            }
+            f.begin(); f.physics.start()
+            repeat(4000) { f.tick() }
+            val run=f.dispatcher.statuses().single()
+            assertEquals(TimetableServiceRunState.COMPLETED,run.state,run.toString())
+            val outputs=f.world.allTrains.filterIsInstance<CoreTrain>()
+            assertEquals(2,outputs.size)
+            f.world.onOwnerForTest {
+                val displays=outputs.flatMap { f.dispatcher.unitDisplaysForTrain(f.world,it.id,"split",0) }.associateBy { it.unitId }
+                assertEquals("D express",displays.getValue("unit-0").values["destination"].toString().trim('"'))
+                assertEquals("E",displays.getValue("unit-1").values["destination"].toString().trim('"'))
+            }
+        }
+    }
+
+    @Test
+    fun `absent registered unit slot fails validation before installing controller`() {
+        Fixture(false,separateDutyCaps=true).use { f ->
+            f.world.onOwnerForTest {
+                val table=checkNotNull(f.world.simpleAtoWorldData.timetables["split"])
+                val source=table.services.single()
+                val updated=source.copy(runSegments=listOf(TimetableRunSegment("before",checkNotNull(source.lineId),0,1)))
+                val trip=TimetableOperationalTrip("bad",JsonObject(emptyMap()),listOf(TimetableOperationalTripSegment("source","before",listOf(3))))
+                val invalid=table.copy(services=listOf(updated),operationalTrips=listOf(trip))
+                val result=TimetableValidator(f.world).validate(invalid)
+                assertFalse(result.isSuccess)
+                assertTrue(result.errors.any { "absent complete-unit slot" in it },result.errors.toString())
+                assertNull(f.train.controller)
+            }
+        }
+    }
+
+    @Test
+    fun `trip cannot jump from the held rear unit to the continuing front unit`() {
+        Fixture(false,separateDutyCaps=true).use { f ->
+            f.world.onOwnerForTest {
+                val table=checkNotNull(f.world.simpleAtoWorldData.timetables["split"])
+                val source=table.services.single()
+                val line=checkNotNull(source.lineId)
+                val updated=source.copy(runSegments=listOf(TimetableRunSegment("before",line,0,1),TimetableRunSegment("after",line,2,3)))
+                val trip=TimetableOperationalTrip("bad",JsonObject(emptyMap()),listOf(
+                    TimetableOperationalTripSegment("source","before",listOf(2)),
+                    TimetableOperationalTripSegment("source","after",listOf(1))))
+                val result=TimetableValidator(f.world).validate(table.copy(services=listOf(updated),operationalTrips=listOf(trip)))
+                assertFalse(result.isSuccess)
+                assertTrue(result.errors.any { "unrelated physical unit" in it },result.errors.toString())
+                assertNull(f.train.controller)
+            }
+        }
+    }
+
+    @Test
+    fun `an unrelated run without trip metadata does not require registered units`() {
+        Fixture(false,separateDutyCaps=true).use { f ->
+            val otherRail=createStraightRailFromSegments(f.world,PrimeCurveGenerator.buildStraight(100.0,1))
+            val other=createTrainWithConfig("unregistered",otherRail,f.world,listOf(10.0))
+            f.world.onOwnerForTest {
+                f.world.basicWorldData.wayPoints.add(WayPoint("other-origin","Other",otherRail.id,other.publishedFrame.head.arcLengthInAbMeters))
+                f.world.basicWorldData.wayPoints.add(WayPoint("other-end","Other end",otherRail.id,80.0))
+                val table=checkNotNull(f.world.simpleAtoWorldData.timetables["split"])
+                val source=table.services.single()
+                val line=checkNotNull(source.lineId)
+                val updated=source.copy(steps=listOf(TimetableStep.Check("origin"),TimetableStep.At(0,TimetableAction.GoTo("end"))),
+                    runSegments=listOf(TimetableRunSegment("before",line,0,2)))
+                val unrelated=TimetableService("unrelated",TrainSelector.TrainId(other.id),listOf(TimetableStep.Check("other-origin"),TimetableStep.At(0,TimetableAction.GoTo("other-end"))),
+                    runSegments=listOf(TimetableRunSegment("unrelated-run",line,0,2)))
+                val trip=TimetableOperationalTrip("trip",JsonObject(emptyMap()),listOf(TimetableOperationalTripSegment("source","before",listOf(1))))
+                f.world.simpleAtoWorldData.timetables.add(table.copy(services=listOf(updated,unrelated),formationEvents=TimetableFormationCatalog(emptyList()),operationalTrips=listOf(trip)))
+            }
+            f.begin()
+            f.world.onOwnerForTest {
+                val started=f.dispatcher.startService(f.world,"split","unrelated")
+                assertInstanceOf(TimetableServiceStartResult.Started::class.java,started,started.toString())
+                val run=f.dispatcher.statuses().single { it.id.serviceId=="unrelated" }
+                assertEquals("unrelated-run",run.currentRunId,run.toString())
+                assertNotEquals(TimetableServiceRunState.MANUAL_INTERVENTION,run.state,run.toString())
+                assertTrue(run.unitDisplays.isEmpty())
+            }
+        }
+    }
+
     private class Fixture(private val newDuty: Boolean, sourceReversed: Boolean = false, outputReversed: Boolean = false, orientationCase: Boolean = false, separateDutyCaps: Boolean = false, private val coupling: Boolean = false, coupledContinuation: Boolean = false, viaOutput: Boolean = false, deferredOutput: Boolean = false, chooseOutputBranch: Boolean = true, reverseOutputBranch: Boolean = false) : AutoCloseable {
         val physics = PhysicsCoordinator(1, automaticFallback = false)
         private val fixture = TestWorldFixture.create(physics)
@@ -480,7 +586,8 @@ class TimetableFormationDispatcherTest {
                 formationEvents = TimetableFormationCatalog(listOf(TimetableFormationEvent.Split("divide", "source", 1, first, rest)))))
         }
         fun begin() = owner {
-            assertInstanceOf(TimetableEpochStartResult.Started::class.java, dispatcher.beginTimetable(world, "split"))
+            val result = dispatcher.beginTimetable(world, "split")
+            assertInstanceOf(TimetableEpochStartResult.Started::class.java, result, result.toString())
             assertInstanceOf(TimetableServiceStartResult.Started::class.java, dispatcher.startService(world, "split", "source"))
             if (coupling) assertInstanceOf(TimetableServiceStartResult.Started::class.java, dispatcher.startService(world, "split", "peer"))
         }

@@ -14,7 +14,7 @@ class LineSimulationMaximumSpeedTest {
     @Test
     fun `absent and null inline caps preserve uncapped authoring requests`() {
         listOf("{}", """{"maximumSpeedMetersPerSecond":null}""").forEach { body ->
-            assertNull(resolveLineSimulationMaximumSpeed(Json.parseToJsonElement(body).jsonObject) { _, _ ->
+            assertNull(resolveLineSimulationMaximumSpeed(Json.parseToJsonElement(body).jsonObject) { _, _, _ ->
                 error("must not read stored timetables")
             })
         }
@@ -25,13 +25,13 @@ class LineSimulationMaximumSpeedTest {
         listOf("5", "5.5", "1e1").forEach { number ->
             assertEquals(number.toDouble(), resolveLineSimulationMaximumSpeed(
                 Json.parseToJsonElement("""{"maximumSpeedMetersPerSecond":$number}""").jsonObject
-            ) { _, _ -> error("must not read stored timetables") })
+            ) { _, _, _ -> error("must not read stored timetables") })
         }
         listOf("0", "-1", "\"5\"", "true", "false", "[]", "{}", "1e999").forEach { value ->
             val failure = assertThrows(HttpFailure::class.java) {
                 resolveLineSimulationMaximumSpeed(Json.parseToJsonElement(
                     """{"maximumSpeedMetersPerSecond":$value}"""
-                ).jsonObject) { _, _ -> error("invalid request cannot resolve a stored service") }
+                ).jsonObject) { _, _, _ -> error("invalid request cannot resolve a stored service") }
             }
             assertEquals(400, failure.status)
         }
@@ -39,7 +39,7 @@ class LineSimulationMaximumSpeedTest {
             val failure = assertThrows(HttpFailure::class.java) {
                 resolveLineSimulationMaximumSpeed(buildJsonObject {
                     put("maximumSpeedMetersPerSecond", JsonPrimitive(value))
-                }) { _, _ -> error("invalid request cannot resolve a stored service") }
+                }) { _, _, _ -> error("invalid request cannot resolve a stored service") }
             }
             assertEquals(400, failure.status)
         }
@@ -50,11 +50,27 @@ class LineSimulationMaximumSpeedTest {
         listOf("", ",\"maximumSpeedMetersPerSecond\":null").forEach { suffix ->
             assertEquals(7.5, resolveLineSimulationMaximumSpeed(Json.parseToJsonElement(
                 """{"timetableId":"weekday","serviceId":"service"$suffix}"""
-            ).jsonObject) { timetable, service ->
+            ).jsonObject) { timetable, service, runId ->
+                assertNull(runId)
                 assertEquals("weekday", timetable)
                 assertEquals("service", service)
                 7.5
             })
+        }
+    }
+
+    @Test
+    fun `stored segment identity is passed exactly and requires stored pair`() {
+        assertEquals(3.0, resolveLineSimulationMaximumSpeed(Json.parseToJsonElement(
+            """{"timetableId":"t","serviceId":"s","runId":"second-main"}"""
+        ).jsonObject) { timetable, service, run ->
+            assertEquals("t", timetable); assertEquals("s", service); assertEquals("second-main", run)
+            3.0
+        })
+        listOf("""{"runId":"r"}""", """{"timetableId":"t","serviceId":"s","runId":""}""").forEach { body ->
+            assertThrows(HttpFailure::class.java) {
+                resolveLineSimulationMaximumSpeed(Json.parseToJsonElement(body).jsonObject) { _, _, _ -> error("invalid selection") }
+            }
         }
     }
 
@@ -66,7 +82,7 @@ class LineSimulationMaximumSpeedTest {
             """{"serviceId":"service","maximumSpeedMetersPerSecond":5}"""
         ).forEach { body ->
             val failure = assertThrows(HttpFailure::class.java) {
-                resolveLineSimulationMaximumSpeed(Json.parseToJsonElement(body).jsonObject) { _, _ ->
+                resolveLineSimulationMaximumSpeed(Json.parseToJsonElement(body).jsonObject) { _, _, _ ->
                     error("ambiguous request cannot resolve stored caps")
                 }
             }

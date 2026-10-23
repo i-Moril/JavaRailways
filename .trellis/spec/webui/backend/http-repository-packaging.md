@@ -55,3 +55,7 @@ installFrontend (npm ci)
 改 frontend build input/output 时同步 Gradle task inputs/outputs；不要手工提交 `dist` 代替 build。`BukkitPlugin:processResources` 再嵌入 WebUI shadow JAR，因此 packaging 变更需验证两级产物。
 
 部署产物不得因 frontend 源码未变而直接跳过 `buildFrontend`：干净候选可能没有 `dist`，Java 编译和 shadow JAR 仍能成功，但首页会因缺少 `/public/index.html` 返回404。离线复用与 lockfile 匹配的依赖时可以跳过 `installFrontend`，仍须执行真实前端构建。交付前检查 WebUI JAR 的 `public/index.html` 及其中引用的每个 JS/CSS，确认主 JAR 的 `webui/JavaRailways-WebUI.jar` 与该产物哈希一致；启动后分别验证首页与所引用静态资源返回200。不要用不明来源的旧缓存 JAR 补资源，也不要通过修改路由掩盖资源缺失。
+
+## 跨线与单元显示 wire
+
+EditorDocumentValidator 校验可选 operationalTrips（唯一 id、受限 defaults、service/run/unitSlots 引用）；共享程序校验 SET_DISPLAY/RESET_DISPLAY 与 UNIT_SLOTS。Bukkit bridge 的单线模拟在使用已存时刻表时接收 runId，要求它属于所选 service/line；没有段且明确 service.lineId 的服务保留原能力。模拟状态投影 currentRunId/currentLineId 与完整 unitDisplays（包括 active/unresolvedRuns），不能把未知后续单元绑定表现为完整停站表。领域定义与原子显示更新见 [SimpleATO 契约](../../javarailways/simpleato/through-running-and-unit-displays.md)。

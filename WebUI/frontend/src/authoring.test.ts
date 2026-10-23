@@ -17,13 +17,13 @@ const line:LineV1={id:'line-1',displayName:'Line 1',upStationIds:['a','b','c','d
 
 const valid=():TimetableAuthoringDocumentV1=>({
   formatVersion:1,id:'l1',periodDays:1,
-  diagramLines:[{id:'line-1',upStationIds:['a','b'],downStationIds:['b','a']}],arrivalOverrides:[],
+  lineSpeedLimits:[{lineId:'line-1',maximumSpeedMetersPerSecond:20}],diagramLines:[{id:'line-1',upStationIds:['a','b'],downStationIds:['b','a']}],arrivalOverrides:[],
   runs:[
-    {id:'up-01',type:'PASSENGER',diagramLineId:'line-1',lineDirection:'UP',calls:[
+    {id:'up-01',type:'PASSENGER',lineId:'line-1',diagramLineId:'line-1',lineDirection:'UP',calls:[
       {id:'up-a',stationId:'a',berthId:'1',status:'ORIGIN',targetId:'a@1',departureTick:100},
       {id:'up-b',stationId:'b',berthId:'1',status:'TERMINAL',targetId:'b@1',arrivalTick:800},
     ]},
-    {id:'down-01',type:'PASSENGER',diagramLineId:'line-1',lineDirection:'DOWN',calls:[
+    {id:'down-01',type:'PASSENGER',lineId:'line-1',diagramLineId:'line-1',lineDirection:'DOWN',calls:[
       {id:'down-b',stationId:'b',berthId:'1',status:'ORIGIN',targetId:'b@1',departureTick:1000},
       {id:'down-a',stationId:'a',berthId:'2',status:'TERMINAL',targetId:'a@2',arrivalTick:1800,doorSide:'NONE'},
     ]},
@@ -88,7 +88,7 @@ describe('timetable editor document',()=>{
   });
 
   it('uses actual infrastructure IDs and refuses invalid caps without diagram-line fallback',()=>{
-    const document=valid();document.lineSpeedLimits=[{lineId:'line-1',maximumSpeedMetersPerSecond:20}];
+    const document=valid();document.runs[0].lineId=undefined;document.lineSpeedLimits=[{lineId:'line-1',maximumSpeedMetersPerSecond:20}];
     const profile={profileType:'WORLD_TRAIN' as const,profileId:'train'};
     expect(authoringResetProfile(document,document.runs[0],profile).maximumSpeedMetersPerSecond).toBeUndefined();
     const before=JSON.stringify(document);
@@ -142,10 +142,10 @@ describe('timetable editor document',()=>{
     expect(first.issues).toEqual([]);
     expect(first.source).toBe(second.source);
     expect(first.source).toContain('timetable.setInitialPosition(timetable.named("train-1"), timetable.named("a@1"))');
-    expect(first.source).toContain('timetable.service("duty-a", "train-1", { diagramLineId: "line-1" }, t => {');
+    expect(first.source).toContain('timetable.service("duty-a", "train-1", { diagramLineId: "line-1", lineId: "line-1" }, t => {');
     expect(first.source).toContain('t.origin("duty:duty-a/element:up-element/run:up-01", scoped => {');
-    expect(first.source).toContain('scoped.at(100).destination("b@1", { arrivalTick: 800 })');
-    expect(first.source).toContain('scoped.at(1000).destination("a@2", { arrivalTick: 1800, doorSide: "NONE" })');
+    expect(first.source).toContain('runScope.at(100).destination("b@1", { arrivalTick: 800 })');
+    expect(first.source).toContain('runScope.at(1000).destination("a@2", { arrivalTick: 1800, doorSide: "NONE" })');
   });
 
   it('generates infrastructure line context and its all-train maximum speed separately',()=>{
@@ -164,7 +164,7 @@ describe('timetable editor document',()=>{
     const document=valid();
     document.arrivalOverrides=[{runId:'up-01',callId:'up-b',tick:760}];
     const result=generateTimetableSource(document);
-    expect(result.source).toContain('scoped.at(100).destination("b@1", { arrivalTick: 760 })');
+    expect(result.source).toContain('runScope.at(100).destination("b@1", { arrivalTick: 760 })');
   });
 
   it('rejects duty functions that violate element order or cross the period',()=>{
@@ -190,12 +190,12 @@ describe('timetable editor document',()=>{
     expect(messages).toContain('Duplicate arrival override for up-01/up-b');
   });
 
-  it('rejects duties spanning multiple diagram lines instead of dropping presentation data',()=>{
+  it('allows duties spanning multiple diagram lines with per-run presentation data',()=>{
     const document=valid();
     document.diagramLines.push({id:'line-2',upStationIds:['a','b'],downStationIds:['b','a']});
     document.runs[1].diagramLineId='line-2';
-    expect(validateAuthoringDocument(document).map((item)=>item.message))
-      .toContain('A duty cannot contain runs from multiple diagram lines');
+    expect(validateAuthoringDocument(document)).toEqual([]);
+    expect(generateTimetableSource(document).source.match(/scoped.runSegment/g)).toHaveLength(2);
   });
 
   it('validates function targets and stable IDs',()=>{
@@ -369,7 +369,7 @@ describe('timetable editor document',()=>{
     document.duties[0].elements.push({id:'express-element',type:'RUN',runId:'express'});
     const result=generateTimetableSource(document);
     expect(result.issues).toEqual([]);
-    expect(result.source).toContain('scoped.at(100).pass("b@1").destination("c@1", { arrivalTick: 300');
-    expect(result.source).toContain('scoped.at(400).destination("d@1", { arrivalTick: 500');
+    expect(result.source).toContain('runScope.at(100).pass("b@1").destination("c@1", { arrivalTick: 300');
+    expect(result.source).toContain('runScope.at(400).destination("d@1", { arrivalTick: 500');
   });
 });

@@ -9,7 +9,7 @@ import java.util.Set;
 
 /** Strict authoring structure. World references and executable continuity remain runtime validation. */
 final class StationProgramValidator {
-    private static final Set<String> PARAMETER_TYPES = Set.of("TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "FORMATION_EVENT", "STRING", "ID_LIST", "JSON_OBJECT");
+    private static final Set<String> PARAMETER_TYPES = Set.of("TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "FORMATION_EVENT", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS");
     private static final long MAX_SAFE_INTEGER = 9_007_199_254_740_991L;
     private StationProgramValidator() {}
 
@@ -38,6 +38,20 @@ final class StationProgramValidator {
             String type = text(step.path("type"), "step type");
             if (depth > 0 && Set.of("COUPLE", "SPLIT", "STORE_AT_DEPOT").contains(type)) fail("fixed operations cannot be conditional: " + id);
             switch (type) {
+                case "SET_DISPLAY" -> {
+                    fields(step, step.has("removeKeys") ? Set.of("id", "type", "unitSlots", "values", "removeKeys") : Set.of("id", "type", "unitSlots", "values"), "SET_DISPLAY step");
+                    value(step.path("unitSlots"), "UNIT_SLOTS", parameters, false);
+                    value(step.path("values"), "JSON_OBJECT", parameters, false);
+                    if (step.path("values").has("value")) displayValues(step.path("values").path("value"));
+                    if (step.has("removeKeys")) {
+                        value(step.path("removeKeys"), "ID_LIST", parameters, false);
+                        if (step.path("removeKeys").has("value")) displayRemovalKeys(step.path("removeKeys").path("value"));
+                    }
+                }
+                case "RESET_DISPLAY" -> {
+                    fields(step, Set.of("id", "type", "unitSlots"), "RESET_DISPLAY step");
+                    value(step.path("unitSlots"), "UNIT_SLOTS", parameters, false);
+                }
                 case "WAIT_UNTIL" -> {
                     fields(step, Set.of("id", "type", "tick"), "WAIT_UNTIL step");
                     value(step.path("tick"), "TICK", parameters, false);
@@ -108,6 +122,12 @@ final class StationProgramValidator {
                 validateStepArguments(step.path("thenSteps"), arguments);
                 validateStepArguments(step.path("elseSteps"), arguments);
             }
+            if (step.path("type").asText().equals("SET_DISPLAY") && step.path("removeKeys").has("parameterId")) {
+                displayRemovalKeys(arguments.path(step.path("removeKeys").path("parameterId").asText()));
+            }
+            if (step.path("type").asText().equals("SET_DISPLAY") && step.path("values").has("parameterId")) {
+                displayValues(arguments.path(step.path("values").path("parameterId").asText()));
+            }
             if (step.path("type").asText().equals("SELECT_STOP") && step.path("berthIds").has("parameterId")) {
                 berthIds(arguments.path(step.path("berthIds").path("parameterId").asText()));
             }
@@ -138,12 +158,36 @@ final class StationProgramValidator {
             case "TICK", "DURATION" -> {
                 if (!value.isIntegralNumber() || !value.canConvertToLong() || value.asLong() < (positive ? 1 : 0) || value.asLong() > MAX_SAFE_INTEGER) fail(type + " must be a " + (positive ? "positive" : "nonnegative") + " safe integer");
             }
+            case "UNIT_SLOTS" -> unitSlots(value);
             case "JSON_OBJECT" -> ProgramJsonValidator.object(value);
             case "ID_LIST" -> {
                 array(value, 256, "ID_LIST");
                 for (JsonNode item : value) text(item, "ID_LIST item");
             }
             default -> text(value, type);
+        }
+    }
+
+    private static void displayRemovalKeys(JsonNode values) {
+        array(values, 256, "display removal keys");
+        Set<String> keys = new HashSet<>();
+        for (JsonNode value : values) if (!keys.add(text(value, "display removal key"))) fail("duplicate display removal key");
+    }
+
+    static void displayValues(JsonNode values) {
+        ProgramJsonValidator.object(values);
+        if (values.size() > 128 || values.toString().length() > 65536) fail("display values exceed128 keys or64 KiB");
+        values.fieldNames().forEachRemaining(key -> { if (key.isBlank()) fail("display keys must not be blank"); });
+    }
+
+    static void unitSlots(JsonNode values) {
+        array(values, 128, "unitSlots");
+        if (values.isEmpty()) fail("unitSlots must not be empty");
+        Set<Integer> slots = new HashSet<>();
+        for (JsonNode slot : values) {
+            if (!slot.isIntegralNumber() || !slot.canConvertToInt() || slot.asInt() <= 0 || !slots.add(slot.asInt())) {
+                fail("unitSlots must contain distinct positive integers");
+            }
         }
     }
 

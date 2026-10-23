@@ -26,6 +26,7 @@ object TimetableDumper {
             "periodDays" to JsonPrimitive(periodDays),
             "periodTicks" to JsonPrimitive(periodTicks),
             "services" to JsonArray(services.map { it.toJson() }),
+            "operationalTrips" to JsonArray(operationalTrips.map { json.encodeToJsonElement(work.art1st.javarailways.simpleato.persistence.SavedTimetableOperationalTripV1.serializer(), work.art1st.javarailways.simpleato.persistence.SavedTimetableOperationalTripV1.capture(it)) }),
             "formationEvents" to JsonArray(formationEvents.map { event ->
                 json.encodeToJsonElement(work.art1st.javarailways.simpleato.persistence.SavedFormationEventV1.serializer(),
                     work.art1st.javarailways.simpleato.persistence.captureFormationEvent(event))
@@ -65,6 +66,7 @@ object TimetableDumper {
             "lineId" to (lineId?.value?.let(::JsonPrimitive) ?: JsonNull),
             "trainSelector" to trainSelector.toJson(),
             "activation" to activation.toJson(),
+            "runSegments" to JsonArray(runSegments.map { json.encodeToJsonElement(work.art1st.javarailways.simpleato.persistence.SavedTimetableRunSegmentV1.serializer(),work.art1st.javarailways.simpleato.persistence.SavedTimetableRunSegmentV1.capture(it)) }),
             "steps" to JsonArray(steps.map { it.toJson() })
         )
     )
@@ -125,6 +127,9 @@ object TimetableDumper {
     }
 
     private fun TimetableAction.toJson(): JsonObject = when (this) {
+        is TimetableAction.BeginOperationalTrip -> JsonObject(mapOf("type" to JsonPrimitive("beginOperationalTrip"), "operationalTripId" to JsonPrimitive(tripId), "runId" to JsonPrimitive(runId), "unitSlots" to JsonArray(unitSlots.map(::JsonPrimitive))))
+        is TimetableAction.SetDisplay -> JsonObject(mapOf("type" to JsonPrimitive("setDisplay"), "unitSlots" to JsonArray(unitSlots.map(::JsonPrimitive)), "displayValues" to values, "removeDisplayKeys" to JsonArray(removeKeys.map(::JsonPrimitive))))
+        is TimetableAction.ResetDisplay -> JsonObject(mapOf("type" to JsonPrimitive("resetDisplay"), "unitSlots" to JsonArray(unitSlots.map(::JsonPrimitive))))
         is TimetableAction.SelectStop -> JsonObject(mapOf(
             "type" to JsonPrimitive("selectStop"), "stationId" to JsonPrimitive(selection.stationId.value),
             "selectionPolicy" to JsonPrimitive(selection.policy.name),

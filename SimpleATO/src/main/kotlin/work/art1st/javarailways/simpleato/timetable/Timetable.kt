@@ -35,7 +35,8 @@ data class Timetable(
     val services: List<TimetableService> = emptyList(),
     val initialPositions: List<TimetableInitialPosition> = emptyList(),
     val lineSpeedLimits: List<TimetableLineSpeedLimit> = emptyList(),
-    val formationEvents: TimetableFormationCatalog = TimetableFormationCatalog(emptyList())
+    val formationEvents: TimetableFormationCatalog = TimetableFormationCatalog(emptyList()),
+    val operationalTrips: List<TimetableOperationalTrip> = emptyList()
 ) {
     init {
         require(periodDays > 0L) { "Timetable periodDays must be positive" }
@@ -57,7 +58,10 @@ class TimetableStore {
 
     fun add(timetable: Timetable) {
         require(timetable.id.isNotBlank()) { "timetable id must not be blank" }
-        timetables[timetable.id] = timetable
+        timetables[timetable.id] = timetable.copy(
+            operationalTrips = java.util.List.copyOf(timetable.operationalTrips),
+            services = timetable.services.map { service -> service.copy(runSegments = java.util.List.copyOf(service.runSegments)) }
+        )
     }
 
     fun remove(id: String): Timetable? = timetables.remove(id)
@@ -83,14 +87,20 @@ data class TimetableService(
     val activation: TimetableServiceActivation = TimetableServiceActivation.Scheduled,
     val editorRows: List<TimetableServiceEditorRow>? = null,
     /** Actual Basic infrastructure line; never substitute presentation-only diagramLineId. */
-    val lineId: LineId? = null
+    val lineId: LineId? = null,
+    val runSegments: List<TimetableRunSegment> = emptyList()
 )
 
 class LineMaximumSpeedResolver(private val timetable: Timetable) {
     fun resolve(service: TimetableService): Double? {
-        val lineId = service.lineId ?: return null
+        val lineId = service.runSegments.firstOrNull()?.lineId ?: service.lineId ?: return null
         return timetable.lineSpeedLimits.singleOrNull { it.lineId == lineId }
             ?.maximumSpeedMetersPerSecond
+    }
+
+    fun resolve(service: TimetableService, stepIndex: Int): Double? {
+        val lineId = service.segmentAtOrBefore(stepIndex)?.lineId ?: service.lineId ?: return null
+        return timetable.lineSpeedLimits.singleOrNull { it.lineId == lineId }?.maximumSpeedMetersPerSecond
     }
 
     companion object {
@@ -135,6 +145,25 @@ sealed class TimetableStep {
 }
 
 sealed class TimetableAction {
+    class BeginOperationalTrip(val tripId: String, val runId: String, unitSlots: List<Int>) : TimetableAction() {
+        val unitSlots = immutableUnitSlots(unitSlots)
+        init { require(tripId.isNotBlank() && runId.isNotBlank()) }
+        override fun equals(other: Any?) = other is BeginOperationalTrip && tripId == other.tripId && runId == other.runId && unitSlots == other.unitSlots
+        override fun hashCode() = java.util.Objects.hash(tripId,runId,unitSlots)
+    }
+    class SetDisplay(unitSlots: List<Int>, values: kotlinx.serialization.json.JsonObject, removeKeys: List<String> = emptyList()) : TimetableAction() {
+        val unitSlots = immutableUnitSlots(unitSlots)
+        val values = immutableDisplayValues(values)
+        val removeKeys: List<String> = java.util.List.copyOf(removeKeys)
+        init { require(removeKeys.distinct().size == removeKeys.size && removeKeys.all { it.isNotBlank() }) }
+        override fun equals(other: Any?) = other is SetDisplay && unitSlots == other.unitSlots && values == other.values && removeKeys == other.removeKeys
+        override fun hashCode() = java.util.Objects.hash(unitSlots, values, removeKeys)
+    }
+    class ResetDisplay(unitSlots: List<Int>) : TimetableAction() {
+        val unitSlots = immutableUnitSlots(unitSlots)
+        override fun equals(other: Any?) = other is ResetDisplay && unitSlots == other.unitSlots
+        override fun hashCode() = unitSlots.hashCode()
+    }
     /** Claims exactly this event output from the same source timetable cycle, never a latest match. */
     data class TakeFromFormationOutput(val eventId: String, val outputId: String) : TimetableAction() {
         init { require(eventId.isNotBlank() && eventId == eventId.trim()); require(outputId.isNotBlank() && outputId == outputId.trim()) }
@@ -243,7 +272,7 @@ sealed class TimetableAction {
     }
 
     private fun isRuntimeProgramAction(): Boolean = when (this) {
-        is Extension, is Stop, WaitUntil, Reverse, is GoTo, is GoVia, is DestinationOptions, is CallStation, is SelectStop -> true
+        is SetDisplay, is ResetDisplay, is Extension, is Stop, WaitUntil, Reverse, is GoTo, is GoVia, is DestinationOptions, is CallStation, is SelectStop -> true
         is Conditional -> thenSteps.all { it.action.isRuntimeProgramAction() } &&
             elseSteps.all { it.action.isRuntimeProgramAction() }
         else -> false
@@ -339,6 +368,7 @@ class TimetableValidator(private val world: World) {
                 errors.add("线路限速引用不存在的 LineId: ${limit.lineId.value}")
             }
         }
+        errors += TimetableMetadataValidator.validate(world, circulationTimetable)
         val formationErrors = FormationEventValidator.validate(timetable)
         errors += formationErrors
         timetable.formationEvents.filterIsInstance<TimetableFormationEvent.Couple>().forEach { event ->
@@ -376,6 +406,7 @@ class TimetableValidator(private val world: World) {
             StructuralTimetableValidation(listOf("formation output has no retained onward-route proof: ${failure.message ?: failure.javaClass.simpleName}"))
         }
         errors += structural.errors
+        if (structural.errors.isEmpty()) errors += TimetableMetadataValidator.validatePhysical(world,circulationTimetable,structural)
         val circulation = CurrentUnitCirculation.analyze(world, circulationTimetable).summary()
         errors += circulation.findings.filter { it.blocking }.map { "[${timetable.id}] circulation ${it.code}: ${it.detail}" }
         return TimetableValidationResult(errors, routes, routeStoppingOffsets, retainedRoutes, structural, circulation)
@@ -386,13 +417,11 @@ class TimetableValidator(private val world: World) {
         service: TimetableService,
         errors: MutableList<String>
     ) {
-        val lineId = service.lineId ?: return
         val prefix = "[${timetable.id}/${service.id}]"
-        if (world.simpleAtoWorldData.lines[lineId] == null) {
-            errors.add("$prefix 引用不存在的 LineId: ${lineId.value}")
-        }
-        if (LineMaximumSpeedResolver.resolve(timetable, service) == null) {
-            errors.add("$prefix 未配置线路最高速度: ${lineId.value}")
+        val lines = if (service.runSegments.isEmpty()) listOfNotNull(service.lineId) else service.runSegments.map { it.lineId }.distinct()
+        lines.forEach { lineId ->
+            if (world.simpleAtoWorldData.lines[lineId] == null) errors += "$prefix 引用不存在的 LineId: ${lineId.value}"
+            if (timetable.lineSpeedLimits.none { it.lineId == lineId }) errors += "$prefix 未配置线路最高速度: ${lineId.value}"
         }
     }
 
@@ -508,6 +537,10 @@ class TimetableValidator(private val world: World) {
                     }
                     previousAtTick = step.tick
                     when (step.action) {
+                        is TimetableAction.BeginOperationalTrip, is TimetableAction.SetDisplay, is TimetableAction.ResetDisplay -> {
+                            if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin && !(service.trainSelector is TrainSelector.TrainId && service.steps.any { it is TimetableStep.Check })) errors += "$prefix display action requires an acquired or checked train"
+                            if (pendingStationCall != null || pendingDestinationOptions != null) errors += "$prefix display action cannot interrupt destination options"
+                        }
                         is TimetableAction.SelectStop -> error("SelectStop requires candidate continuation validation")
                         is TimetableAction.TakeFromDepot -> {
                             takeActionCount++
@@ -635,7 +668,7 @@ class TimetableValidator(private val world: World) {
                             validateExtensionAction(prefix, address, step.action, errors)
                         }
                         is TimetableAction.Conditional -> {
-                            if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin)
+                            if (currentWayPointId == null && takeActionCount == 0 && !hasFormationOrigin && !(service.trainSelector is TrainSelector.TrainId && service.steps.any { it is TimetableStep.Check }))
                                 errors += "$prefix conditional requires an acquired or checked train"
                             world.simpleAtoWorldData.timetableExtensions.validateCondition(step.action.condition,
                                 TimetableConditionScope.RUNTIME_BRANCH).forEach { errors += "$prefix condition: $it" }
@@ -863,6 +896,7 @@ class TimetableValidator(private val world: World) {
         errors: MutableList<String>
     ) {
         when (action) {
+            is TimetableAction.BeginOperationalTrip, is TimetableAction.SetDisplay, is TimetableAction.ResetDisplay -> Unit
             is TimetableAction.Extension -> {
                 val call = action.call
                 val provider = world.simpleAtoWorldData.timetableExtensions.action(call.typeId, call.version)
@@ -988,6 +1022,9 @@ class TimetableValidator(private val world: World) {
             TimetableAction.Halt,
             TimetableAction.Reverse,
             is TimetableAction.Extension,
+            is TimetableAction.BeginOperationalTrip,
+            is TimetableAction.SetDisplay,
+            is TimetableAction.ResetDisplay,
             is TimetableAction.Conditional -> currentWayPointId
             is TimetableAction.Stop -> {
                 if (action.ticks <= 0) errors.add("$prefix step#$stepIndex stop ticks 必须 > 0: ${action.ticks}")

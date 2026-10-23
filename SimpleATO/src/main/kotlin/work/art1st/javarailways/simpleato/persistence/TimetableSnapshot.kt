@@ -119,6 +119,9 @@ enum class SavedTimetableActionTypeV1 {
     REVERSE,
     STATION_DESTINATION_OPTIONS,
     SELECT_STOP,
+    BEGIN_OPERATIONAL_TRIP,
+    SET_DISPLAY,
+    RESET_DISPLAY,
     EXTENSION,
     CONDITIONAL
 }
@@ -149,9 +152,17 @@ data class SavedTimetableActionV1(
     val eventId: String? = null,
     val outputId: String? = null,
     val berthCandidates: List<SavedStationStopCandidateV1> = emptyList(),
-    val selectionPolicy: SavedStationStopSelectionPolicyV1? = null
+    val selectionPolicy: SavedStationStopSelectionPolicyV1? = null,
+    val operationalTripId: String? = null,
+    val runId: String? = null,
+    val unitSlots: List<Int> = emptyList(),
+    val displayValues: JsonObject = JsonObject(emptyMap()),
+    val removeDisplayKeys: List<String> = emptyList()
 ) {
     fun restore(): TimetableAction = when (type) {
+        SavedTimetableActionTypeV1.BEGIN_OPERATIONAL_TRIP -> TimetableAction.BeginOperationalTrip(requireNotNull(operationalTripId),requireNotNull(runId),unitSlots)
+        SavedTimetableActionTypeV1.SET_DISPLAY -> TimetableAction.SetDisplay(unitSlots, displayValues, removeDisplayKeys)
+        SavedTimetableActionTypeV1.RESET_DISPLAY -> TimetableAction.ResetDisplay(unitSlots)
         SavedTimetableActionTypeV1.SELECT_STOP -> TimetableAction.SelectStop(
             StationStopSelection(StationId(requireNotNull(stationId)),
                 berthCandidates.map { StationStopCandidate(it.berthId, it.priority) },
@@ -211,6 +222,9 @@ data class SavedTimetableActionV1(
 
     companion object {
         fun capture(value: TimetableAction): SavedTimetableActionV1 = when (value) {
+            is TimetableAction.BeginOperationalTrip -> SavedTimetableActionV1(SavedTimetableActionTypeV1.BEGIN_OPERATIONAL_TRIP,operationalTripId=value.tripId,runId=value.runId,unitSlots=value.unitSlots)
+            is TimetableAction.SetDisplay -> SavedTimetableActionV1(SavedTimetableActionTypeV1.SET_DISPLAY, unitSlots = value.unitSlots, displayValues = value.values, removeDisplayKeys = value.removeKeys)
+            is TimetableAction.ResetDisplay -> SavedTimetableActionV1(SavedTimetableActionTypeV1.RESET_DISPLAY, unitSlots = value.unitSlots)
             is TimetableAction.SelectStop -> SavedTimetableActionV1(SavedTimetableActionTypeV1.SELECT_STOP,
                 stationId = value.selection.stationId.value,
                 berthCandidates = value.selection.candidates.map { SavedStationStopCandidateV1(it.berthId, it.priority) },
@@ -395,7 +409,8 @@ data class SavedTimetableServiceV1(
     val lineDirection: SavedDiagramDirectionV1? = null,
     val rows: List<SavedServiceEditorRowV1>? = null,
     /** Actual Basic infrastructure line; independent from diagramLineId. */
-    val lineId: String? = null
+    val lineId: String? = null,
+    val runSegments: List<SavedTimetableRunSegmentV1> = emptyList()
 ) {
     fun restore(): TimetableService = TimetableService(
         id = id,
@@ -406,7 +421,8 @@ data class SavedTimetableServiceV1(
         steps = steps.map(SavedTimetableStepV1::restore),
         activation = activation.restore(),
         editorRows = rows?.map(SavedServiceEditorRowV1::restore),
-        lineId = lineId?.let(::LineId)
+        lineId = lineId?.let(::LineId),
+        runSegments = java.util.List.copyOf(runSegments.map { it.restore() })
     )
 
     companion object {
@@ -419,7 +435,8 @@ data class SavedTimetableServiceV1(
             steps = value.steps.map(SavedTimetableStepV1::capture),
             activation = SavedTimetableActivationV1.capture(value.activation),
             rows = value.editorRows?.map(SavedServiceEditorRowV1::capture),
-            lineId = value.lineId?.value
+            lineId = value.lineId?.value,
+            runSegments = value.runSegments.map(SavedTimetableRunSegmentV1::capture)
         )
     }
 }
@@ -526,7 +543,8 @@ data class SavedTimetableV1(
     /** Presentation-only compiler trace; ignored by restore(). */
     val compilationTrace: List<SavedCompilationTraceV1> = emptyList(),
     val lineSpeedLimits: List<SavedTimetableLineSpeedLimitV1> = emptyList(),
-    val formationEvents: List<SavedFormationEventV1> = emptyList()
+    val formationEvents: List<SavedFormationEventV1> = emptyList(),
+    val operationalTrips: List<SavedTimetableOperationalTripV1> = emptyList()
 ) {
     fun restore(): Timetable = Timetable(
         id = id,
@@ -534,7 +552,8 @@ data class SavedTimetableV1(
         services = services.map(SavedTimetableServiceV1::restore),
         initialPositions = initialPositions.map(SavedInitialPositionV1::restore),
         lineSpeedLimits = lineSpeedLimits.map(SavedTimetableLineSpeedLimitV1::restore),
-        formationEvents = TimetableFormationCatalog(formationEvents.map { it.restore() })
+        formationEvents = TimetableFormationCatalog(formationEvents.map { it.restore() }),
+        operationalTrips = java.util.List.copyOf(operationalTrips.map { it.restore() })
     )
 
     companion object {
@@ -544,7 +563,8 @@ data class SavedTimetableV1(
             value.services.map(SavedTimetableServiceV1::capture),
             initialPositions = value.initialPositions.map(SavedInitialPositionV1::capture),
             lineSpeedLimits = value.lineSpeedLimits.map(SavedTimetableLineSpeedLimitV1::capture),
-            formationEvents = value.formationEvents.map(::captureFormationEvent)
+            formationEvents = value.formationEvents.map(::captureFormationEvent),
+            operationalTrips = value.operationalTrips.map(SavedTimetableOperationalTripV1::capture)
         )
     }
 }
@@ -650,4 +670,30 @@ fun captureFormationEvent(value: TimetableFormationEvent): SavedFormationEventV1
 @Serializable enum class SavedStationStopSelectionPolicyV1 { FIXED_PREFERENCE, AVAILABLE_PRIORITY }
 @Serializable data class SavedStationStopCandidateV1(val berthId: String, val priority: Int) {
     init { require(berthId.isNotBlank() && berthId == berthId.trim() && priority >= 0) }
+}
+
+
+@Serializable
+data class SavedTimetableRunCallV1(val id: String, val stationId: String, val destinationId: String,
+    val status: SavedServiceStopStatusV1, val arrivalTick: Long? = null, val departureTick: Long? = null) {
+    fun restore() = TimetableRunCall(id,stationId,destinationId,TimetableServiceStopStatus.valueOf(status.name),arrivalTick,departureTick)
+    companion object { fun capture(value: TimetableRunCall) = SavedTimetableRunCallV1(value.id,value.stationId,value.destinationId,SavedServiceStopStatusV1.valueOf(value.status.name),value.arrivalTick,value.departureTick) }
+}
+@Serializable
+data class SavedTimetableRunSegmentV1(val runId: String, val lineId: String, val startStepIndex: Int,
+    val endStepIndexExclusive: Int, val diagramLineId: String? = null, val lineDirection: SavedDiagramDirectionV1? = null,
+    val calls: List<SavedTimetableRunCallV1> = emptyList()) {
+    fun restore() = TimetableRunSegment(runId,LineId(lineId),startStepIndex,endStepIndexExclusive,diagramLineId,
+        lineDirection?.let { work.art1st.javarailways.simpleato.api.line.LineDirection.valueOf(it.name) },calls.map { it.restore() })
+    companion object { fun capture(value: TimetableRunSegment) = SavedTimetableRunSegmentV1(value.runId,value.lineId.value,value.startStepIndex,value.endStepIndexExclusive,value.diagramLineId,value.lineDirection?.let { SavedDiagramDirectionV1.valueOf(it.name) },value.calls.map(SavedTimetableRunCallV1::capture)) }
+}
+@Serializable
+data class SavedTimetableOperationalTripSegmentV1(val serviceId: String, val runId: String, val unitSlots: List<Int>) {
+    fun restore() = TimetableOperationalTripSegment(serviceId,runId,unitSlots)
+    companion object { fun capture(value: TimetableOperationalTripSegment) = SavedTimetableOperationalTripSegmentV1(value.serviceId,value.runId,value.unitSlots) }
+}
+@Serializable
+data class SavedTimetableOperationalTripV1(val id: String, val defaults: JsonObject = JsonObject(emptyMap()), val segments: List<SavedTimetableOperationalTripSegmentV1>) {
+    fun restore() = TimetableOperationalTrip(id,defaults,segments.map { it.restore() })
+    companion object { fun capture(value: TimetableOperationalTrip) = SavedTimetableOperationalTripV1(value.id,value.defaults,value.segments.map(SavedTimetableOperationalTripSegmentV1::capture)) }
 }

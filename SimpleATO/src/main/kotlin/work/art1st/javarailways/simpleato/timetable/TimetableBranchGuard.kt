@@ -35,6 +35,7 @@ internal object TimetableBranchGuard {
             val code = when {
                 nested && (action is TimetableAction.TakeFromDepot || action is TimetableAction.TakeFromWaypoint || action is TimetableAction.TakeFromFormationOutput) -> "CONDITIONAL_ACQUISITION"
                 (nested || conditionalActivation) && (action is TimetableAction.StoreAtDepot || action is TimetableAction.Couple || action is TimetableAction.Split) -> "CONDITIONAL_FIXED_EVENT"
+                nested && action is TimetableAction.BeginOperationalTrip -> "CONDITIONAL_TRIP_BOUNDARY"
                 nested && action is TimetableAction.Halt -> "CONDITIONAL_TERMINATION"
                 else -> null
             }

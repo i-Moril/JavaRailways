@@ -31,7 +31,6 @@ import work.art1st.javarailways.simpleato.api.timetable.TimetableConditionProvid
 import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.simpleato.persistence.SavedTimetableV1
 import work.art1st.javarailways.simpleato.persistence.TimetableSnapshotCodec
-import work.art1st.javarailways.simpleato.timetable.LineMaximumSpeedResolver
 import work.art1st.javarailways.simpleato.timetable.TimetableValidator
 import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationRequest
 import work.art1st.javarailways.simpleato.timetable.simulation.IsolatedTimetableSimulationResult
@@ -57,13 +56,15 @@ internal class HttpFailure(val status: Int, message: String) : RuntimeException(
 /** Resolve either the current authoring cap or an authoritative stored service cap. */
 internal fun resolveLineSimulationMaximumSpeed(
     request: JsonObject,
-    resolveStored: (timetableId: String, serviceId: String) -> Double
+    resolveStored: (timetableId: String, serviceId: String, runId: String?) -> Double
 ): Double? {
     val timetableId = request["timetableId"]?.jsonPrimitive?.content
     val serviceId = request["serviceId"]?.jsonPrimitive?.content
     if ((timetableId == null) != (serviceId == null)) {
         throw HttpFailure(400, "timetableId and serviceId must be provided together")
     }
+    val runId = request["runId"]?.jsonPrimitive?.content
+    if (runId != null && (runId.isBlank() || timetableId == null)) throw HttpFailure(400, "runId requires timetableId and serviceId")
     val element = request["maximumSpeedMetersPerSecond"]
     val inlineMaximum = if (element == null || element == JsonNull) null else {
         val value = (element as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull
@@ -76,9 +77,28 @@ internal fun resolveLineSimulationMaximumSpeed(
         if (inlineMaximum != null) {
             throw HttpFailure(400, "maximumSpeedMetersPerSecond cannot be combined with timetableId and serviceId")
         }
-        return resolveStored(timetableId, serviceId)
+        return resolveStored(timetableId, serviceId, runId)
     }
     return inlineMaximum
+}
+
+internal fun unitDisplayJson(display: work.art1st.javarailways.simpleato.timetable.TimetableUnitDisplaySnapshot): JsonObject = buildJsonObject {
+    put("unitId", display.unitId)
+    put("operationalTripId", display.operationalTripId)
+    put("cycleIndex", display.cycleIndex)
+    put("active", display.active)
+    put("values", display.values)
+    fun stops(values: List<work.art1st.javarailways.simpleato.timetable.TimetableUnitStopSnapshot>) = JsonArray(values.map { stop -> buildJsonObject {
+        put("serviceId", stop.serviceId); put("runId", stop.runId); put("completed", stop.completed)
+        put("call", buildJsonObject {
+            put("id", stop.call.id); put("stationId", stop.call.stationId); put("destinationId", stop.call.destinationId)
+            put("status", stop.call.status.name); put("arrivalTick", stop.call.arrivalTick); put("departureTick", stop.call.departureTick)
+        })
+    } })
+    put("plannedStops", stops(display.plannedStops))
+    put("completedStops", stops(display.completedStops))
+    put("remainingStops", stops(display.remainingStops))
+    put("unresolvedRuns", JsonArray(display.unresolvedRuns.map { JsonPrimitive(it) }))
 }
 
 private data class LineSimulationSnapshot(
@@ -584,6 +604,9 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     put("nextScheduledTick", run.nextScheduledTick)
                     put("lastLatenessTicks", run.lastLatenessTicks)
                     put("currentWayPointId", run.currentWayPointId)
+                    put("currentRunId", run.currentRunId)
+                    put("currentLineId", run.currentLineId?.value)
+                    put("unitDisplays", JsonArray(run.unitDisplays.map(::unitDisplayJson)))
                     put("nextStepIndex", run.nextStepIndex)
                     put("nextStepBranchPath", branchPathJson(run.nextStepBranchPath))
                     put("activeStepIndex", run.activeStepIndex)
@@ -632,16 +655,22 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     val data = world.basicWorldData
                     val line = world.simpleAtoWorldData.lines[LineId(lineId)]
                         ?: throw HttpFailure(404, "line not found: $lineId")
-                    val lineMaximumSpeed = resolveLineSimulationMaximumSpeed(request) { requestedTimetableId, serviceId ->
+                    val lineMaximumSpeed = resolveLineSimulationMaximumSpeed(request) { requestedTimetableId, serviceId, runId ->
                         val timetable = world.simpleAtoWorldData.timetables[requestedTimetableId]
                             ?: throw HttpFailure(404, "timetable not found: $requestedTimetableId")
                         val service = timetable.services.firstOrNull { it.id == serviceId }
                             ?: throw HttpFailure(404, "service not found: $requestedTimetableId/$serviceId")
-                        if (service.lineId != line.id) {
-                            throw HttpFailure(400, "service infrastructure line does not match requested line: $lineId")
+                        val selectedLineId = if (service.runSegments.isEmpty()) {
+                            if (runId != null) throw HttpFailure(400, "service has no run segments")
+                            service.lineId
+                        } else {
+                            if (runId == null) throw HttpFailure(400, "runId is required for a segmented service")
+                            service.runSegments.singleOrNull { it.runId == runId }?.lineId
+                                ?: throw HttpFailure(404, "run segment not found: $requestedTimetableId/$serviceId/$runId")
                         }
-                        LineMaximumSpeedResolver(timetable).resolve(service)
-                            ?: throw HttpFailure(422, "service has no configured line maximum speed: $requestedTimetableId/$serviceId")
+                        if (selectedLineId != line.id) throw HttpFailure(400, "run infrastructure line does not match requested line: $lineId")
+                        timetable.lineSpeedLimits.singleOrNull { it.lineId == selectedLineId }?.maximumSpeedMetersPerSecond
+                            ?: throw HttpFailure(422, "run has no configured line maximum speed: $requestedTimetableId/$serviceId/$runId")
                     }
                     val direction = request["direction"]?.jsonPrimitive?.content?.let {
                         runCatching { LineDirection.valueOf(it.uppercase()) }.getOrElse { throw HttpFailure(400, "direction must be UP or DOWN") }

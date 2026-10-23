@@ -308,7 +308,7 @@ internal class StructuralTimetableValidator(private val world: World,
                     is TimetableAction.CallStation -> candidates.map { it.copy(pendingStation = child) }
                     is TimetableAction.SelectStop -> selectStop(cursor, candidates, childAddress, child)
                     is TimetableAction.Extension -> candidates.map { it.copy(exactInitialEligible = false) }
-                    is TimetableAction.Stop, TimetableAction.WaitUntil -> candidates
+                    is TimetableAction.SetDisplay, is TimetableAction.ResetDisplay, is TimetableAction.Stop, TimetableAction.WaitUntil -> candidates
                     else -> error("unsupported structural branch action at $childAddress: ${child.javaClass.simpleName}")
                 }
             }

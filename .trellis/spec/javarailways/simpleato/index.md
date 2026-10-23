@@ -21,6 +21,7 @@ SimpleATO 规划时读取公共配置并组合其他选路限制；目标选择�
 | [响应式信号epoch](./reactive-signal-epochs.md) | 改监测区更新路由、信号callback或同步restriction publication | 平台无关source host、校验、fail-closed epoch顺序 |
 | [Dispatcher runtime](./dispatcher-runtime.md) | 改 timetable clock/run state、车次推进、车站/车辆段动作或恢复 | `SimpleATOWorldData.dispatcher` |
 | [Timetable model 与 validation](./timetable-model-and-validation.md) | 改 authoring/runtime model、validator、store或extension | execution authority与validation gate |
+| [停车跨线与单元显示](./through-running-and-unit-displays.md) | 改 runSegments、运营车次、按单元显示和编译范围 | 单个物理 service、真实单元身份、受控显示与跨层投影 |
 | [Timetable simulation](./simulation.md) | 改 detailed/isolated simulation | 共同领域装配、clone boundary、determinism、detached prepare与公开api.simulation目标安装 |
 | [Destinations](./destinations.md) | 创建/migrate operational stop | canonical destination与derived WayPoint transaction |
 | [Stations](./stations.md) | berth/call/dwell/allocation | exact berth、door gate、tail release |

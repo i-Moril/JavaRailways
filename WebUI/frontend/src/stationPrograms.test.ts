@@ -10,9 +10,9 @@ const definition:StationProgramDefinition={parameters:[{id:'target',type:'DESTIN
 const record=(revision=1):StationProgramRecord=>({formatVersion:1,id:'turnback',name:'Turnback',revision,archived:false,contentIdentity:`sha256:${String(revision).repeat(64)}`,definition:JSON.parse(JSON.stringify(definition))});
 const snapshot:BoundStationProgram={programId:'turnback',revision:1,contentIdentity:`sha256:${'1'.repeat(64)}`,definition};
 const call={id:'call-1',programId:'turnback',tick:900,arguments:{target:'b@1'}};
-const document=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),boundPrograms:[snapshot],diagramLines:[{id:'line',upStationIds:['a','b'],downStationIds:['b','a']}],runs:[
-  {id:'up',type:'PASSENGER',diagramLineId:'line',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a@1',status:'ORIGIN',departureTick:100},{id:'b',stationId:'b',targetId:'b@1',status:'TERMINAL',arrivalTick:800}]},
-  {id:'down',type:'PASSENGER',diagramLineId:'line',lineDirection:'DOWN',calls:[{id:'c',stationId:'b',targetId:'b@1',status:'ORIGIN',departureTick:1000},{id:'d',stationId:'a',targetId:'a@1',status:'TERMINAL',arrivalTick:1800}]},
+const document=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),boundPrograms:[snapshot],lineSpeedLimits:[{lineId:'line',maximumSpeedMetersPerSecond:20}],diagramLines:[{id:'line',upStationIds:['a','b'],downStationIds:['b','a']}],runs:[
+  {id:'up',type:'PASSENGER',lineId:'line',diagramLineId:'line',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a@1',status:'ORIGIN',departureTick:100},{id:'b',stationId:'b',targetId:'b@1',status:'TERMINAL',arrivalTick:800}]},
+  {id:'down',type:'PASSENGER',lineId:'line',diagramLineId:'line',lineDirection:'DOWN',calls:[{id:'c',stationId:'b',targetId:'b@1',status:'ORIGIN',departureTick:1000},{id:'d',stationId:'a',targetId:'a@1',status:'TERMINAL',arrivalTick:1800}]},
 ],duties:[{id:'duty',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'up',type:'RUN',runId:'up'},{id:'program',type:'PROGRAM',call},{id:'down',type:'RUN',runId:'down'}]}]});
 afterEach(()=>vi.unstubAllGlobals());
 describe('shared station program bindings',()=>{

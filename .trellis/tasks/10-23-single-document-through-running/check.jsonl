@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/javarailways/simpleato/lines.md", "reason": "canonical lines, separate diagram identity, through-running speed requirement"}
+{"file": ".trellis/spec/javarailways/simpleato/timetable-model-and-validation.md", "reason": "service traversal and address/proof contracts"}
+{"file": ".trellis/spec/javarailways/simpleato/dispatcher-runtime.md", "reason": "sole execution owner, station and held formation transitions"}
+{"file": ".trellis/spec/javarailways/simpleato/controller-runtime.md", "reason": "serialized constraints and mission lifecycle"}
+{"file": ".trellis/spec/javarailways/simpleato/stations.md", "reason": "berth and door lifecycle continuity"}
+{"file": ".trellis/spec/webui/frontend/studio-authoring.md", "reason": "sole document/history owner and source identities"}
+{"file": ".trellis/spec/webui/backend/http-repository-packaging.md", "reason": "document transport and packaging"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "release baseline before schema decisions"}
+{"file": ".trellis/tasks/10-23-single-document-through-running/design.md", "reason": "reviewed proposed cross-layer design and open boundary"}
+{"file": ".trellis/tasks/10-23-single-document-through-running/research/implementation-contract.md", "reason": "approved concrete shared implementation wire/ownership contract"}

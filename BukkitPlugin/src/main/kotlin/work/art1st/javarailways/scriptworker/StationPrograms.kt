@@ -10,6 +10,9 @@ import kotlinx.serialization.json.*
 @Serializable internal data class StationProgramDefinition(val parameters: List<StationProgramParameter>, val steps: List<StationProgramStep>)
 @Serializable internal sealed class StationProgramStep {
     abstract val id: String
+    @Serializable @SerialName("SET_DISPLAY") data class SetDisplay(override val id: String, val unitSlots: StationProgramValue,
+        val values: StationProgramValue, val removeKeys: StationProgramValue = StationProgramValue(value = JsonArray(emptyList()))) : StationProgramStep()
+    @Serializable @SerialName("RESET_DISPLAY") data class ResetDisplay(override val id: String, val unitSlots: StationProgramValue) : StationProgramStep()
     @Serializable @SerialName("WAIT_UNTIL") data class WaitUntil(override val id: String, val tick: StationProgramValue) : StationProgramStep()
     @Serializable @SerialName("WAIT_DURATION") data class WaitDuration(override val id: String, val durationTicks: StationProgramValue) : StationProgramStep()
     @Serializable @SerialName("EXTENSION") data class Extension(override val id: String, val typeId: String, val version: Int, val parameters: StationProgramValue) : StationProgramStep()
@@ -49,6 +52,8 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
             "step:$id: fixed operations cannot be conditional"
         }
         when (step["type"]?.jsonPrimitive?.content) {
+            "SET_DISPLAY" -> { expressionShape(step.getValue("unitSlots")); expressionShape(step.getValue("values")); step["removeKeys"]?.let(::expressionShape) }
+            "RESET_DISPLAY" -> expressionShape(step.getValue("unitSlots"))
             "COUPLE", "SPLIT" -> expressionShape(step.getValue("eventId"))
             "BRANCH" -> {
                 expressionShape(step.getValue("parameters"))
@@ -70,7 +75,7 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
     require(definition.parameters.size <= 64 && definition.steps.size <= 256) { "program exceeds parameter/step limits" }
     val parameters = definition.parameters.associate { parameter ->
         requireProgramId(parameter.id)
-        require(parameter.type in setOf("TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "FORMATION_EVENT", "STRING", "ID_LIST", "JSON_OBJECT")) { "unknown parameter type: ${parameter.type}" }
+        require(parameter.type in setOf("TICK", "DURATION", "DESTINATION", "STATION", "DEPOT", "FORMATION_EVENT", "STRING", "ID_LIST", "JSON_OBJECT", "UNIT_SLOTS")) { "unknown parameter type: ${parameter.type}" }
         parameter.id to parameter.type
     }
     require(parameters.size == definition.parameters.size) { "duplicate program parameter id" }
@@ -98,6 +103,15 @@ internal fun expandStationProgram(definitionJson: JsonElement, argumentsJson: Js
       try {
         requireProgramId(step.id)
         when (step) {
+            is StationProgramStep.SetDisplay -> {
+                val slots = value(step.unitSlots, "UNIT_SLOTS").jsonArray.map { it.jsonPrimitive.int }
+                val keys = value(step.removeKeys, "ID_LIST").jsonArray.map { it.jsonPrimitive.content }
+                require(keys.distinct().size == keys.size) { "display removal keys must be distinct" }
+                append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.SET_DISPLAY, unitSlots = slots,
+                    displayValues = value(step.values, "JSON_OBJECT").jsonObject.also(::validateDisplayValues), removeDisplayKeys = keys))
+            }
+            is StationProgramStep.ResetDisplay -> append(step.id, SavedTimetableActionV1(SavedTimetableActionTypeV1.RESET_DISPLAY,
+                unitSlots = value(step.unitSlots, "UNIT_SLOTS").jsonArray.map { it.jsonPrimitive.int }))
             is StationProgramStep.WaitUntil -> {
                 val next = value(step.tick, "TICK").jsonPrimitive.long
                 require(next >= tick) { "WAIT_UNTIL target precedes the current program schedule" }
@@ -175,6 +189,10 @@ private fun validateProgramLiteral(value: JsonElement, type: String) {
             val number = primitive?.takeUnless { it.isString }?.longOrNull
             require(number != null && number in 0L..9_007_199_254_740_991L) { "$type must be a nonnegative safe integer" }
         }
+        "UNIT_SLOTS" -> {
+            require(value is JsonArray) { "UNIT_SLOTS must be an array" }
+            requireUnitSlots(value.map { (it as? JsonPrimitive)?.takeUnless { p -> p.isString }?.intOrNull ?: error("UNIT_SLOTS must be integers") })
+        }
         "JSON_OBJECT" -> validateProgramJsonObject(value)
         "ID_LIST" -> {
             require(value is JsonArray && value.size <= 256) { "ID_LIST must be an array with at most256 entries" }
@@ -184,7 +202,7 @@ private fun validateProgramLiteral(value: JsonElement, type: String) {
     }
 }
 
-private fun validateProgramJsonObject(value: JsonElement) {
+internal fun validateProgramJsonObject(value: JsonElement) {
     require(value is JsonObject) { "JSON_OBJECT must be a JSON object" }
     var nodes = 0
     fun walk(node: JsonElement, depth: Int) {
@@ -203,4 +221,11 @@ private fun validateProgramJsonObject(value: JsonElement) {
         }
     }
     walk(value, 0)
+}
+
+internal fun validateDisplayValues(value: JsonObject) {
+    validateProgramJsonObject(value)
+    require(value.size <= 128 && value.keys.all { it.isNotBlank() } && value.toString().length <= 65536) {
+        "display values require at most128 nonblank keys and64 KiB"
+    }
 }

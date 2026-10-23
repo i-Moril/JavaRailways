@@ -19,6 +19,7 @@ class TimetableBuilder(private val id: String) {
     private val compilationTrace = mutableListOf<SavedCompilationTraceV1>()
     private val lineSpeedLimits = mutableListOf<SavedTimetableLineSpeedLimitV1>()
     private val formationEvents = mutableListOf<SavedFormationEventV1>()
+    private val operationalTrips = mutableListOf<SavedTimetableOperationalTripV1>()
 
     @HostAccess.Export fun setPeriodDays(days: Long): TimetableBuilder { require(days > 0); Math.multiplyExact(days, 24_000); periodDays = days; return this }
     @HostAccess.Export
@@ -60,6 +61,19 @@ class TimetableBuilder(private val id: String) {
         val value = toJson(definition, 8) as? JsonObject ?: error("formation event must be an object")
         val declaration = Json.decodeFromJsonElement(SavedFormationEventV1.serializer(), JsonObject(value + ("id" to JsonPrimitive(id))))
         formationEvents += declaration
+        return this
+    }
+
+    @HostAccess.Export fun operationalTrip(tripId: String, definition: Value): TimetableBuilder {
+        require(tripId.isNotBlank() && tripId == tripId.trim()) { "invalid operational trip id" }
+        definition.requireOnly(setOf("defaults", "segments"), "operational trip")
+        val raw = toJson(definition, 24) as? JsonObject ?: error("operational trip must be an object")
+        val trip = Json.decodeFromJsonElement(SavedTimetableOperationalTripV1.serializer(), JsonObject(raw + ("id" to JsonPrimitive(tripId))))
+        require(operationalTrips.none { it.id == tripId }) { "duplicate operational trip id: $tripId" }
+        require(trip.segments.isNotEmpty()) { "operational trip must contain segments" }
+        trip.segments.forEach { requireUnitSlots(it.unitSlots) }
+        validateDisplayValues(trip.defaults)
+        operationalTrips += trip
         return this
     }
 
@@ -198,7 +212,7 @@ class TimetableBuilder(private val id: String) {
             runCatching { SavedLineDirectionV1.valueOf(it) }.getOrElse { error("lineDirection must be UP or DOWN") }
         }
         require(diagramLineId != null || lineDirection == null) { "lineDirection requires diagramLineId" }
-        services += SavedTimetableServiceV1(serviceId, if (trainId == null) SavedTrainSelectorTypeV1.ANY else SavedTrainSelectorTypeV1.TRAIN_ID, trainId, builder.buildSteps(), activation, diagramLineId, lineDirection, lineId)
+        services += SavedTimetableServiceV1(serviceId, if (trainId == null) SavedTrainSelectorTypeV1.ANY else SavedTrainSelectorTypeV1.TRAIN_ID, trainId, builder.buildSteps(), activation, diagramLineId, lineDirection, lineId, builder.buildRunSegments())
         compilationTrace += builder.buildTrace().map { trace ->
             SavedCompilationTraceV1(serviceId, trace.stepIndex, trace.origin, trace.branchPath)
         }
@@ -208,17 +222,80 @@ class TimetableBuilder(private val id: String) {
     fun build(): SavedTimetableV1 {
         require(id.isNotBlank()) { "timetable id must not be blank" }
         require(services.map { it.id }.distinct().size == services.size) { "duplicate service id" }
+        val preparedTrace = compilationTrace.toMutableList()
+        val preparedServices = services.map { service -> prepareDisplayBoundaries(service, operationalTrips, preparedTrace) }
+        val assignments = mutableSetOf<Triple<String, String, Int>>()
+        operationalTrips.forEach { trip -> trip.segments.forEach { segment ->
+            val service = services.singleOrNull { it.id == segment.serviceId } ?: error("operational trip references missing service")
+            require(service.runSegments.any { it.runId == segment.runId }) { "operational trip references missing run segment" }
+            segment.unitSlots.forEach { slot -> require(assignments.add(Triple(segment.serviceId, segment.runId, slot))) {
+                "duplicate operational trip unit assignment"
+            } }
+        } }
         return SavedTimetableV1(
             id,
             requireNotNull(periodDays) { "setPeriodDays() is required" },
-            services.toList(),
+            preparedServices,
             diagramLines.toList(),
             initialPositions.toList(),
-            compilationTrace.toList(),
+            preparedTrace.toList(),
             lineSpeedLimits.toList(),
-            formationEvents.toList()
+            formationEvents.toList(),
+            operationalTrips.toList()
         )
     }
+}
+
+/** Activate the upcoming trip before its station display program, once actual unit order is established. */
+private fun prepareDisplayBoundaries(
+    service: SavedTimetableServiceV1,
+    trips: List<SavedTimetableOperationalTripV1>,
+    trace: MutableList<SavedCompilationTraceV1>
+): SavedTimetableServiceV1 {
+    val steps = service.steps.toMutableList()
+    var segments = service.runSegments
+    val structural = setOf(SavedTimetableActionTypeV1.TAKE_FROM_DEPOT, SavedTimetableActionTypeV1.TAKE_FROM_WAYPOINT,
+        SavedTimetableActionTypeV1.TAKE_FROM_FORMATION_OUTPUT, SavedTimetableActionTypeV1.COUPLE,
+        SavedTimetableActionTypeV1.SPLIT, SavedTimetableActionTypeV1.REVERSE)
+    fun changesDisplay(step: SavedTimetableStepV1): Boolean = step.action?.let { action ->
+        action.type in setOf(SavedTimetableActionTypeV1.SET_DISPLAY, SavedTimetableActionTypeV1.RESET_DISPLAY) ||
+            action.thenSteps.any(::changesDisplay) || action.elseSteps.any(::changesDisplay)
+    } == true
+    for (segment in service.runSegments.sortedByDescending { it.startStepIndex }) {
+        val gapStart = service.runSegments.filter { it.endStepIndexExclusive <= segment.startStepIndex }
+            .maxOfOrNull { it.endStepIndexExclusive } ?: 0
+        val afterStructure = (gapStart until segment.startStepIndex)
+            .lastOrNull { steps[it].action?.type in structural }?.plus(1) ?: gapStart
+        val insertion = (afterStructure until segment.startStepIndex).firstOrNull { changesDisplay(steps[it]) } ?: continue
+        val declarations = trips.flatMap { trip -> trip.segments.filter { it.serviceId == service.id && it.runId == segment.runId }
+            .map { trip.id to it.unitSlots } }.filter { (tripId, slots) ->
+            (afterStructure until insertion).none { index -> steps[index].action?.let {
+                it.type == SavedTimetableActionTypeV1.BEGIN_OPERATIONAL_TRIP && it.operationalTripId == tripId &&
+                    it.runId == segment.runId && it.unitSlots.toSet() == slots.toSet()
+            } == true }
+        }
+        if (declarations.isEmpty()) continue
+        val tick = requireNotNull(steps[insertion].tick)
+        val origin = trace.firstOrNull { it.serviceId == service.id && it.stepIndex == insertion }?.origin
+        steps.addAll(insertion, declarations.map { (tripId, slots) -> SavedTimetableStepV1(SavedTimetableStepTypeV1.AT,
+            tick = tick, action = SavedTimetableActionV1(SavedTimetableActionTypeV1.BEGIN_OPERATIONAL_TRIP,
+                operationalTripId = tripId, runId = segment.runId, unitSlots = slots)) })
+        val count = declarations.size
+        segments = segments.map { scope -> when {
+            scope.startStepIndex >= insertion -> scope.copy(startStepIndex = scope.startStepIndex + count,
+                endStepIndexExclusive = scope.endStepIndexExclusive + count)
+            scope.endStepIndexExclusive > insertion -> scope.copy(endStepIndexExclusive = scope.endStepIndexExclusive + count)
+            else -> scope
+        } }
+        for (index in trace.indices) {
+            val source = trace[index]
+            if (source.serviceId == service.id && source.stepIndex >= insertion) trace[index] = source.copy(stepIndex = source.stepIndex + count)
+        }
+        if (origin != null) declarations.forEachIndexed { offset, (tripId, _) ->
+            trace += SavedCompilationTraceV1(service.id, insertion + offset, "$origin/operational-trip:$tripId")
+        }
+    }
+    return service.copy(steps = steps.toList(), runSegments = segments)
 }
 
 internal data class BuilderStepOrigin(val stepIndex: Int, val origin: String, val branchPath: List<SavedTimetableBranchPathEntryV1> = emptyList())
@@ -226,10 +303,57 @@ internal data class BuilderStepOrigin(val stepIndex: Int, val origin: String, va
 class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, initialOrigin: String? = null) {
     private val steps = mutableListOf<SavedTimetableStepV1>()
     private val trace = mutableListOf<BuilderStepOrigin>()
+    private val runSegments = mutableListOf<SavedTimetableRunSegmentV1>()
+    private var insideRunSegment = false
     private val pendingPasses = mutableListOf<String>()
     private var currentTick = initialTick
     private var lastEmittedTick = initialTick
     private var currentOrigin: String? = initialOrigin
+
+    @HostAccess.Export fun runSegment(options: Value, callback: Value): ServiceBuilder {
+        require(branchDepth == 0 && !insideRunSegment) { "run segments cannot be nested or conditional" }
+        requireNoPendingRoute()
+        options.requireOnly(setOf("runId", "lineId", "diagramLineId", "lineDirection", "calls"), "run segment")
+        val raw = toJson(options, 24) as? JsonObject ?: error("run segment must be an object")
+        val start = steps.size
+        require(callback.canExecute()) { "run segment builder must be a function" }
+        insideRunSegment = true
+        try { callback.executeVoid(this); requireNoPendingRoute() } finally { insideRunSegment = false }
+        require(steps.size > start) { "run segment must contain steps" }
+        val segment = Json.decodeFromJsonElement(SavedTimetableRunSegmentV1.serializer(), JsonObject(raw + mapOf(
+            "startStepIndex" to JsonPrimitive(start), "endStepIndexExclusive" to JsonPrimitive(steps.size))))
+        require(segment.runId.isNotBlank() && segment.lineId.isNotBlank()) { "run segment IDs must not be blank" }
+        require(runSegments.none { it.runId == segment.runId }) { "duplicate run segment id" }
+        runSegments += segment
+        return this
+    }
+
+    @HostAccess.Export fun setDisplay(unitSlots: Value, values: Value): ServiceBuilder = setDisplay(unitSlots, values, Value.asValue(null))
+    @HostAccess.Export fun setDisplay(unitSlots: Value, values: Value, removeKeys: Value): ServiceBuilder =
+        displayAt(currentTick, unitSlots, values, removeKeys)
+    @HostAccess.Export fun resetDisplay(unitSlots: Value): ServiceBuilder = resetDisplayAt(currentTick, unitSlots)
+    @HostAccess.Export fun beginOperationalTrip(tripId: String, runId: String, unitSlots: Value): ServiceBuilder =
+        beginOperationalTripAt(currentTick, tripId, runId, unitSlots)
+    internal fun beginOperationalTripAt(tick: Long, tripId: String, runId: String, unitSlots: Value): ServiceBuilder {
+        require(branchDepth == 0 && !insideRunSegment) { "operational trip boundaries must be outside run scopes and conditions" }
+        require(tripId.isNotBlank() && tripId == tripId.trim() && runId.isNotBlank() && runId == runId.trim()) { "invalid trip boundary IDs" }
+        return add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.BEGIN_OPERATIONAL_TRIP,
+            operationalTripId = tripId, runId = runId, unitSlots = parseUnitSlots(unitSlots)))
+    }
+    internal fun displayAt(tick: Long, slots: Value, values: Value, removeKeys: Value): ServiceBuilder {
+        val ids = parseUnitSlots(slots)
+        val json = toJson(values, 24) as? JsonObject ?: error("display values must be a JSON object")
+        validateDisplayValues(json)
+        val keys = if (removeKeys.isNull) emptyList() else {
+            val raw = toJson(removeKeys, 2) as? JsonArray ?: error("display removal keys must be an array")
+            raw.map { key -> (key as? JsonPrimitive)?.takeIf { it.isString }?.content ?: error("display removal keys must be strings") }
+        }
+        require(keys.distinct().size == keys.size && keys.size <= 256 && keys.all { it.isNotBlank() && it.length <= 256 }) { "invalid display removal keys" }
+        return add(tick, SavedTimetableActionV1(SavedTimetableActionTypeV1.SET_DISPLAY, unitSlots = ids, displayValues = json, removeDisplayKeys = keys))
+    }
+    internal fun resetDisplayAt(tick: Long, slots: Value): ServiceBuilder = add(tick,
+        SavedTimetableActionV1(SavedTimetableActionTypeV1.RESET_DISPLAY, unitSlots = parseUnitSlots(slots)))
+    internal fun buildRunSegments(): List<SavedTimetableRunSegmentV1> = runSegments.toList()
 
     @HostAccess.Export fun origin(origin: String, callback: Value): ServiceBuilder {
         requireNoPendingRoute()
@@ -438,6 +562,11 @@ class ServiceBuilder(private val branchDepth: Int = 0, initialTick: Long = 0L, i
 }
 
 class TimedActionBuilder(private val service: ServiceBuilder, private val tick: Long) {
+    @HostAccess.Export fun beginOperationalTrip(tripId: String, runId: String, unitSlots: Value): ServiceBuilder =
+        service.beginOperationalTripAt(tick, tripId, runId, unitSlots)
+    @HostAccess.Export fun setDisplay(unitSlots: Value, values: Value): ServiceBuilder = service.displayAt(tick, unitSlots, values, Value.asValue(null))
+    @HostAccess.Export fun setDisplay(unitSlots: Value, values: Value, removeKeys: Value): ServiceBuilder = service.displayAt(tick, unitSlots, values, removeKeys)
+    @HostAccess.Export fun resetDisplay(unitSlots: Value): ServiceBuilder = service.resetDisplayAt(tick, unitSlots)
     @HostAccess.Export fun selectStop(stationId: String, berthIds: Value, policy: String): ServiceBuilder =
         service.selectStopAt(tick, stationId, berthIds, policy, Value.asValue(null))
     @HostAccess.Export fun selectStop(stationId: String, berthIds: Value, policy: String, options: Value): ServiceBuilder =
@@ -563,4 +692,14 @@ private fun toJson(v: Value, remainingDepth: Int = Int.MAX_VALUE): JsonElement {
 private fun fixedFormationId(value: Value): String {
     require(value.isString) { "formation references must be fixed string IDs" }
     return value.asString().also { require(it.isNotBlank() && it == it.trim()) { "formation ID must be nonblank and trimmed" } }
+}
+
+internal fun requireUnitSlots(slots: List<Int>) {
+    require(slots.isNotEmpty() && slots.size <= 128 && slots.distinct().size == slots.size && slots.all { it > 0 }) {
+        "unitSlots must contain distinct positive integers (at most128)"
+    }
+}
+private fun parseUnitSlots(value: Value): List<Int> {
+    val raw = toJson(value, 2) as? JsonArray ?: error("unitSlots must be an array")
+    return raw.map { (it as? JsonPrimitive)?.takeUnless { p -> p.isString }?.intOrNull ?: error("unitSlots must be integers") }.also(::requireUnitSlots)
 }

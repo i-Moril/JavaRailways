@@ -8,7 +8,7 @@ import kotlinx.serialization.json.JsonObject
 @Serializable enum class SavedTimetableStepTypeV1 { CHECK, AT }
 @Serializable enum class SavedTimetableConditionTypeV1 { PREDICATE, ALL, ANY, NOT }
 @Serializable enum class SavedTimetableActivationTypeV1 { SCHEDULED, MANUAL, CONDITIONAL }
-@Serializable enum class SavedTimetableActionTypeV1 { TAKE_FROM_DEPOT, TAKE_FROM_WAYPOINT, TAKE_FROM_FORMATION_OUTPUT, COUPLE, SPLIT, STORE_AT_DEPOT, DESTINATION, DESTINATION_OPTIONS, STOP, HALT, REVERSE, WAIT_UNTIL, STATION_DESTINATION_OPTIONS, SELECT_STOP, EXTENSION, CONDITIONAL }
+@Serializable enum class SavedTimetableActionTypeV1 { TAKE_FROM_DEPOT, TAKE_FROM_WAYPOINT, TAKE_FROM_FORMATION_OUTPUT, COUPLE, SPLIT, STORE_AT_DEPOT, DESTINATION, DESTINATION_OPTIONS, STOP, HALT, REVERSE, WAIT_UNTIL, STATION_DESTINATION_OPTIONS, SELECT_STOP, EXTENSION, CONDITIONAL, SET_DISPLAY, RESET_DISPLAY, BEGIN_OPERATIONAL_TRIP }
 
 @Serializable data class SavedTimetableExtensionCallV1(val typeId: String, val version: Int = 1, val parameters: JsonObject = JsonObject(emptyMap()))
 @Serializable data class SavedTimetableConditionV1(val type: SavedTimetableConditionTypeV1, val call: SavedTimetableExtensionCallV1? = null, val conditions: List<SavedTimetableConditionV1> = emptyList())
@@ -27,10 +27,13 @@ import kotlinx.serialization.json.JsonObject
     val elseSteps: List<SavedTimetableStepV1> = emptyList(),
     val eventId: String? = null, val outputId: String? = null,
     val berthCandidates: List<SavedStationStopCandidateV1> = emptyList(),
-    val selectionPolicy: SavedStationStopSelectionPolicyV1? = null
+    val selectionPolicy: SavedStationStopSelectionPolicyV1? = null,
+    val unitSlots: List<Int> = emptyList(), val displayValues: JsonObject = JsonObject(emptyMap()),
+    val removeDisplayKeys: List<String> = emptyList(),
+    val operationalTripId: String? = null, val runId: String? = null
 )
 @Serializable data class SavedTimetableStepV1(val type: SavedTimetableStepTypeV1, val tick: Long? = null, val wayPointId: String? = null, val action: SavedTimetableActionV1? = null)
-@Serializable data class SavedTimetableServiceV1(val id: String, val selectorType: SavedTrainSelectorTypeV1, val trainId: String? = null, val steps: List<SavedTimetableStepV1>, val activation: SavedTimetableActivationV1 = SavedTimetableActivationV1(), val diagramLineId: String? = null, val lineDirection: SavedLineDirectionV1? = null, val lineId: String? = null)
+@Serializable data class SavedTimetableServiceV1(val id: String, val selectorType: SavedTrainSelectorTypeV1, val trainId: String? = null, val steps: List<SavedTimetableStepV1>, val activation: SavedTimetableActivationV1 = SavedTimetableActivationV1(), val diagramLineId: String? = null, val lineDirection: SavedLineDirectionV1? = null, val lineId: String? = null, val runSegments: List<SavedTimetableRunSegmentV1> = emptyList())
 @Serializable data class SavedDiagramLineV1(val id: String, val upStationIds: List<String>, val downStationIds: List<String>)
 @Serializable enum class SavedObjectSelectorTypeV1 { REGEX, AND, OR, NOT, TAGS }
 @Serializable data class SavedObjectSelectorV1(val type: SavedObjectSelectorTypeV1, val pattern: String? = null, val selectors: List<SavedObjectSelectorV1> = emptyList(), val tags: Set<String> = emptySet())
@@ -45,7 +48,8 @@ import kotlinx.serialization.json.JsonObject
     val initialPositions: List<SavedInitialPositionV1> = emptyList(),
     val compilationTrace: List<SavedCompilationTraceV1> = emptyList(),
     val lineSpeedLimits: List<SavedTimetableLineSpeedLimitV1> = emptyList(),
-    val formationEvents: List<SavedFormationEventV1> = emptyList()
+    val formationEvents: List<SavedFormationEventV1> = emptyList(),
+    val operationalTrips: List<SavedTimetableOperationalTripV1> = emptyList()
 )
 
 @Serializable enum class SavedFormationEventKind { COUPLE, SPLIT }
@@ -112,3 +116,13 @@ import kotlinx.serialization.json.JsonObject
 @Serializable data class SavedStationStopCandidateV1(val berthId: String, val priority: Int) {
     init { require(berthId.isNotBlank() && berthId == berthId.trim() && priority >= 0) }
 }
+
+@Serializable enum class SavedRunCallStatusV1 { ORIGIN, STOP, PASS, TERMINAL }
+@Serializable data class SavedTimetableRunCallV1(val id: String, val stationId: String, val destinationId: String,
+    val status: SavedRunCallStatusV1, val arrivalTick: Long? = null, val departureTick: Long? = null)
+@Serializable data class SavedTimetableRunSegmentV1(val runId: String, val lineId: String,
+    val startStepIndex: Int, val endStepIndexExclusive: Int, val diagramLineId: String? = null,
+    val lineDirection: SavedLineDirectionV1? = null, val calls: List<SavedTimetableRunCallV1> = emptyList())
+@Serializable data class SavedTimetableOperationalTripSegmentV1(val serviceId: String, val runId: String, val unitSlots: List<Int>)
+@Serializable data class SavedTimetableOperationalTripV1(val id: String, val defaults: JsonObject = JsonObject(emptyMap()),
+    val segments: List<SavedTimetableOperationalTripSegmentV1>)

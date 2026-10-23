@@ -3,8 +3,9 @@ import type { BoundStationProgram,StationProgramCall,StationProgramDefinition,St
 
 const clone=<T,>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
 const validId=(value:string)=>/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value);
-const types:StationProgramParameterType[]=['TICK','DURATION','DESTINATION','STATION','DEPOT','FORMATION_EVENT','STRING','ID_LIST','JSON_OBJECT'];
+const types:StationProgramParameterType[]=['TICK','DURATION','DESTINATION','STATION','DEPOT','FORMATION_EVENT','STRING','ID_LIST','JSON_OBJECT','UNIT_SLOTS'];
 export function stationProgramLiteralValid(value:unknown,type:StationProgramParameterType):boolean {
+  if(type==='UNIT_SLOTS')return Array.isArray(value)&&value.length>0&&value.length<=128&&value.every((slot)=>Number.isSafeInteger(slot)&&slot>0&&slot<=2147483647)&&new Set(value).size===value.length;
   if(type==='JSON_OBJECT')return programJsonObjectError(value)==='';
   if(type==='TICK'||type==='DURATION')return Number.isSafeInteger(value)&&Number(value)>=0;
   if(type==='ID_LIST')return Array.isArray(value)&&value.length<=256&&value.every((item)=>typeof item==='string'&&!!item.trim()&&item.length<=256);
@@ -41,6 +42,15 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
     ids.add(step.id);
     if(depth>0&&['COUPLE','SPLIT','STORE_AT_DEPOT'].includes(step.type))errors.push(`Fixed operations cannot be conditional: ${step.id}`);
     switch(step.type){
+      case 'SET_DISPLAY':{
+        check(step.unitSlots,'UNIT_SLOTS');check(step.values,'JSON_OBJECT');if(step.removeKeys)check(step.removeKeys,'ID_LIST');
+        const values=step.values&&('value' in step.values?step.values.value:args?.[step.values.parameterId]);
+        if(values!==undefined){const error=displayValuesError(values);if(error)errors.push(error);}
+        const keys=step.removeKeys&&('value' in step.removeKeys?step.removeKeys.value:args?.[step.removeKeys.parameterId]);
+        if(Array.isArray(keys)&&new Set<unknown>(keys).size!==keys.length)errors.push('Display removal keys must be unique');
+        break;
+      }
+      case 'RESET_DISPLAY':check(step.unitSlots,'UNIT_SLOTS');break;
       case 'WAIT_UNTIL':check(step.tick,'TICK');break;
       case 'WAIT_DURATION':check(step.durationTicks,'DURATION',true);break;
       case 'BRANCH':visit(step.thenSteps,depth+1);visit(step.elseSteps,depth+1);
@@ -56,7 +66,7 @@ export function validateStationProgram(definition:StationProgramDefinition,args?
         check(step.stationId,'STATION');check(step.berthIds,'ID_LIST');
         if(!['FIXED_PREFERENCE','AVAILABLE_PRIORITY'].includes(step.selectionPolicy))errors.push('Invalid station selection policy');
         {const expression=step.berthIds;const ids=expression&&('value' in expression?expression.value:args?.[expression.parameterId]);
-        if(Array.isArray(ids)&&(!ids.length||ids.length>64||new Set(ids).size!==ids.length))errors.push('Station selection requires distinct nonempty berth IDs (at most64)');}
+        if(Array.isArray(ids)&&(!ids.length||ids.length>64||new Set<unknown>(ids).size!==ids.length))errors.push('Station selection requires distinct nonempty berth IDs (at most64)');}
         break;
       case 'STORE_AT_DEPOT':check(step.depotId,'DEPOT');check(step.stablingPointIds,'ID_LIST');break;
       default:errors.push('Unsupported program step');
@@ -137,4 +147,10 @@ export function findProgramStep(steps:StationProgramStep[],id:string):StationPro
       if(found)return found;
     }
   }
+}
+
+export function displayValuesError(value:unknown):string {
+  const error=programJsonObjectError(value);if(error)return error;
+  const keys=Object.keys(value as object);
+  return keys.length>128||keys.some((key)=>!key.trim())||JSON.stringify(value).length>65536?'Display values require at most128 nonblank keys and64 KiB':'';
 }

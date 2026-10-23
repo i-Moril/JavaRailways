@@ -218,7 +218,10 @@ data class TimetableServiceRunSnapshot(
     val operationTicketError: String? = null,
     val controlTransferOwner: String? = null,
     val controlMode: TimetableControlMode = TimetableControlMode.AUTOMATIC,
-    val message: String? = null
+    val message: String? = null,
+    val currentRunId: String? = null,
+    val currentLineId: work.art1st.javarailways.simpleato.api.line.LineId? = null,
+    val unitDisplays: List<TimetableUnitDisplaySnapshot> = emptyList()
 )
 
 sealed interface TimetableServiceStartResult {
@@ -311,6 +314,7 @@ class TimetableDispatcher(
     private val admissionOwnerSequence = AtomicLong(0L)
     private val appliedPlanRevision = AtomicLong(0L)
     private val runs = LinkedHashMap<TimetableServiceRunKey, ActiveRun>()
+    private val displayRuntime = TimetableDisplayRuntime()
     private val preparingCouplings = LinkedHashMap<String, PreparingCoupling>()
     private val fixedFormations = LinkedHashMap<String, DispatcherFixedFormation>()
     private val timetableClocks = LinkedHashMap<String, TimetableClock>()
@@ -1218,7 +1222,7 @@ class TimetableDispatcher(
         if (replacementAto.authorityStoppingMarginMeters != authorityStoppingMarginMeters) {
             return TimetableReplanResult.Failure("replacement controller safety distance does not match the Dispatcher world configuration")
         }
-        applyTimetableLineSpeedLimit(replacementAto, timetable, run.service, run.id)
+        applyTimetableLineSpeedLimit(replacementAto, timetable, run.service, run.id, run.activeStepAddress?.topLevelIndex ?: run.nextStepIndex)
         val target = WayPointRef(run.currentRuntime.targetWayPointId)
         if (target.id == originWayPointId) {
             run.ato = replacementAto
@@ -1339,6 +1343,7 @@ class TimetableDispatcher(
                 run.state == TimetableServiceRunState.SUSPENDED ||
                 run.state == TimetableServiceRunState.REPLAN_REQUIRED
             val controlTransferred = manualRouted || fullManual
+            if (run.currentUnitIds.isNotEmpty()) refreshUnitDisplays(world,run)
             val publishedAtoState = run.ato.publishedState
             run.lastPublishedAtoState = publishedAtoState
             val snapshot = if (controlTransferred) {
@@ -1465,6 +1470,7 @@ class TimetableDispatcher(
             }
             if (run.state == TimetableServiceRunState.STOPPING) {
                 if (run.ato.isStopped(snapshot.speedMetersPerSecond)) {
+                    retireRunDisplays(world,run)
                     run.state = TimetableServiceRunState.STOPPED
                     run.message = run.message ?: "stopped by operator"
                     finishControllerIfReleased(run, snapshot)
@@ -1851,6 +1857,7 @@ class TimetableDispatcher(
                 participant.formationBlocked = false
                 participant.formationSourceAdmissionWaiting = false
                 participant.ato.setSpeedLimit(stopKey(participant), 0.0)
+                retireRunDisplays(world,participant)
                 participant.state = TimetableServiceRunState.STOPPED
                 participant.message = "coupling preparation cancelled; source resources retained"
             }
@@ -1882,6 +1889,18 @@ class TimetableDispatcher(
     fun statuses(): List<TimetableServiceRunSnapshot> = runs.values
         .sortedWith(compareBy({ it.id.timetableId }, { it.id.serviceId }, { it.cycleStartDispatcherTick }))
         .map(ActiveRun::snapshot)
+
+    /** Actual registered membership also resolves held formation children with no running duty. */
+    @MainThread
+    fun unitDisplaysForTrain(world: World, trainId: String, timetableId: String, cycleIndex: Long): List<TimetableUnitDisplaySnapshot> {
+        ensureOwner(world)
+        check(boundWorld === world) { "display runtime belongs to a different or unbound world" }
+        val train = requireNotNull(world.getTrain(trainId) as? CoreTrain) { "train not found: $trainId" }
+        val timetable = requireNotNull(world.simpleAtoWorldData.timetables[timetableId]) { "timetable not found: $timetableId" }
+        val cars = train.cars.map { it.id }.let { if (train.isReversed) it.reversed() else it }
+        val units = world.simpleAtoWorldData.depots.fixedUnitsForFormation(cars).map { it.id }
+        return displayRuntime.snapshots(timetable,cycleIndex,units)
+    }
 
     private fun findRun(id: TimetableServiceRunId, cycleIndex: Long? = null): ActiveRun? =
         runs.values
@@ -1980,6 +1999,8 @@ class TimetableDispatcher(
         if (run.train.controller === run.ato) run.train.setController(null)
         waypointProgressListeners.remove(run.waypointProgressKey())
         runs.entries.removeIf { (_, candidate) -> candidate === run }
+        displayRuntime.retainCycles(runs.values.map { it.id.timetableId to it.cycleIndex }.toSet() +
+            fixedFormations.values.map { it.source.id.timetableId to it.source.cycleIndex })
     }
 
     /** Preflight forced resource cleanup used only by an administrator-confirmed Depot Reset. */
@@ -3643,6 +3664,7 @@ class TimetableDispatcher(
                 constraints = emptyMap()
             )
         )
+        retireRunDisplays(world,run)
         run.state = TimetableServiceRunState.FAILED
         run.message = effectiveReason
     }
@@ -3768,7 +3790,6 @@ class TimetableDispatcher(
         snapshot: TrainSnapshot
     ) {
         val listeners = waypointProgressListeners[run.waypointProgressKey()]?.toList().orEmpty()
-        if (listeners.isEmpty()) return
         var cumulativeDistance = 0.0
         runtime.mission.legs.forEachIndexed { index, leg ->
             cumulativeDistance += leg.plannedRoute.expandedRoute.totalLength
@@ -3793,6 +3814,14 @@ class TimetableDispatcher(
             if (!reached) return
             if (leg.point is AtoMissionPoint.Stop && !validateCommittedAuthority(world, run)) return
             runtime.reportedPointCount = index + 1
+            run.currentSegment?.let { segment ->
+                val call = segment.calls.firstOrNull { it.destinationId == leg.point.target.id && it.id !in run.completedCallIds }
+                if (call != null) {
+                    run.completedCallIds += call.id
+                    displayRuntime.reached(run.id.timetableId,run.cycleIndex,run.service.id,segment.runId,call.id,run.currentUnitIds)
+                    refreshUnitDisplays(world,run)
+                }
+            }
             val event = TimetableWaypointProgress(
                 runId = run.id,
                 cycleIndex = run.cycleIndex,
@@ -3822,6 +3851,7 @@ class TimetableDispatcher(
     private fun advanceService(world: World, run: ActiveRun) {
         if (!validateCommittedAuthority(world, run)) return
         while (!run.programCursor.isComplete) {
+            if (!enterRunSegment(world, run)) return
             run.activeStepAddress = run.programCursor.address
             when (val step = checkNotNull(run.programCursor.currentStep())) {
                 is TimetableStep.Check -> {
@@ -3835,6 +3865,44 @@ class TimetableDispatcher(
                     run.programCursor = run.programCursor.advance()
                 }
                 is TimetableStep.At -> when (val action = step.action) {
+                    is TimetableAction.BeginOperationalTrip -> {
+                        if (timetableElapsedTicks(run) < step.tick) {
+                            waitForTimetableTick(run,step.tick,pendingStep=true)
+                            return
+                        }
+                        val failure=runCatching {
+                            val timetable=checkNotNull(world.simpleAtoWorldData.timetables[run.id.timetableId])
+                            val units=registeredOperatingUnits(world,run)
+                            displayRuntime.begin(timetable,run.cycleIndex,run.service,action,units)
+                            proveUnitFuture(world,run,timetable,run.service.runSegments.single { it.runId==action.runId },units)
+                            run.currentUnitIds=units
+                            refreshUnitDisplays(world,run)
+                        }.exceptionOrNull()
+                        if(failure!=null) { stallRun(world,run,"DisplayContextFailure",failure.message ?: failure.javaClass.name); return }
+                        recordScheduledAction(run,step.tick)
+                        run.programCursor=run.programCursor.advance()
+                    }
+                    is TimetableAction.SetDisplay, is TimetableAction.ResetDisplay -> {
+                        if (timetableElapsedTicks(run) < step.tick) {
+                            waitForTimetableTick(run, step.tick, pendingStep = true)
+                            return
+                        }
+                        val failure = runCatching {
+                            val units = registeredOperatingUnits(world, run)
+                            run.currentUnitIds = units
+                            val slots = if (action is TimetableAction.SetDisplay) action.unitSlots else (action as TimetableAction.ResetDisplay).unitSlots
+                            val selected = slots.map { slot -> requireNotNull(units.getOrNull(slot - 1)) { "absent registered unit slot $slot" } }
+                            if (action is TimetableAction.SetDisplay) displayRuntime.set(run.id.timetableId,run.cycleIndex,selected,action.values,action.removeKeys)
+                            else displayRuntime.set(run.id.timetableId,run.cycleIndex,selected,null)
+                            refreshUnitDisplays(world,run)
+                        }.exceptionOrNull()
+                        if (failure != null) {
+                            stallRun(world,run,"DisplayContextFailure",failure.message ?: failure.javaClass.name)
+                            return
+                        }
+                        recordScheduledAction(run,step.tick)
+                        run.programCursor = run.programCursor.advance()
+                    }
                     is TimetableAction.Split -> {
                         if (timetableElapsedTicks(run) < step.tick) {
                             waitForTimetableTick(run, step.tick, pendingStep = true)
@@ -4184,6 +4252,11 @@ class TimetableDispatcher(
             }
         }
         run.state = TimetableServiceRunState.COMPLETED
+        if(run.currentUnitIds.isNotEmpty()) {
+            val timetable=checkNotNull(world.simpleAtoWorldData.timetables[run.id.timetableId])
+            displayRuntime.finish(timetable,run.cycleIndex,run.service.id,run.currentUnitIds)
+            refreshUnitDisplays(world,run)
+        }
         run.message = "service completed; route remains held until the tail clears"
     }
 
@@ -5096,6 +5169,9 @@ class TimetableDispatcher(
                 if (index == action.wayPointIds.lastIndex) AtoMissionPoint.Stop(target, stopOffset)
                 else AtoMissionPoint.Via(target)
             }
+            is TimetableAction.BeginOperationalTrip,
+            is TimetableAction.SetDisplay,
+            is TimetableAction.ResetDisplay,
             is TimetableAction.TakeFromDepot,
             is TimetableAction.TakeFromWaypoint,
             is TimetableAction.TakeFromFormationOutput,
@@ -5501,6 +5577,7 @@ class TimetableDispatcher(
     }
 
     private fun installFixedOutputMission(run: ActiveRun) {
+        check(enterRunSegment(checkNotNull(boundWorld),run,run.currentRuntime.address.topLevelIndex)) { "formation output run segment failed" }
         val accepted = run.ato.submitMission(run.currentRuntime.mission)
         check(accepted is AtoMissionSubmissionResult.Accepted) { "physical output mission rejected: $accepted" }
         publishInitialMovementAuthority(run, run.currentRuntime)
@@ -5622,6 +5699,8 @@ class TimetableDispatcher(
                     val held = checkNotNull(world.getTrain(output.owner.trainId)) as CoreTrain
                     held.setController(null)
                     inspectionRuntime.removeTrain(held.id)
+                    val unitIds=world.simpleAtoWorldData.depots.fixedUnitsForFormation(output.owner.carIds).map { it.id }
+                    displayRuntime.retire(event.source.id.timetableId,event.source.cycleIndex,unitIds)
                 } else {
                     check(checkNotNull(run.routeEditProtection).protect(world.topologyState, intent.route) is FrozenRouteProtectionResult.Protected)
                     if (event.sourceRuns.none { it.train === run.train }) run.train.setController(run.ato)
@@ -5631,7 +5710,7 @@ class TimetableDispatcher(
                         run.ato.removeSpeedLimit(timetableLineSpeedKey(previous.id))
                     }
                     val timetable = checkNotNull(world.simpleAtoWorldData.timetables[run.id.timetableId])
-                    applyTimetableLineSpeedLimit(run.ato, timetable, run.service, run.id)
+                    applyTimetableLineSpeedLimit(run.ato, timetable, run.service, run.id, run.activeStepAddress?.topLevelIndex ?: run.nextStepIndex)
                     val client = run.admissionClient ?: RouteAuthorityAdmissionClient(run.train.id, intent.requestId, intent.owner,
                         formationAwareAdmissionService(run, event.admission), run.ato.trainRestrictionPublisher).also { run.admissionClient = it }
                     client.adoptFormationGrant(checkNotNull(run.admittedRoute).route.selection, grant)
@@ -5661,6 +5740,7 @@ class TimetableDispatcher(
             }, failClosed = { detail -> stallRun(world, source, "FormationRecoveryRequired", detail) })
         // The old source has become a structural record, not a second owner of either output.
         event.sourceRuns.filter { previous -> runs.values.any { it === previous } }.forEach { previous ->
+            previous.unitDisplays=displayRuntime.snapshots(checkNotNull(world.simpleAtoWorldData.timetables[previous.id.timetableId]),previous.cycleIndex,previous.currentUnitIds)
             previous.state = TimetableServiceRunState.COMPLETED
             previous.message = "source duty handed its formation to declared held outputs"
         }
@@ -5841,19 +5921,93 @@ class TimetableDispatcher(
     private fun absoluteTimetableTick(run: ActiveRun, relativeTick: Long): Long =
         Math.addExact(run.cycleStartDispatcherTick, relativeTick)
 
+    private fun proveUnitFuture(world: World, run: ActiveRun, timetable: Timetable, segment: TimetableRunSegment, units: List<String>) {
+        displayRuntime.proveFuture(timetable,run.cycleIndex,run.service,segment,units) { eventId, expected ->
+            run.structural.couplings.filterKeys { it.eventId==eventId }.values.map { proof ->
+                val cars=proof.outputCarIds.let { if(proof.outputReversed) it.reversed() else it }
+                world.simpleAtoWorldData.depots.fixedUnitsForFormation(cars).map { it.id }
+            }.filter { it.toSet()==expected }.distinct().singleOrNull()
+        }
+    }
+
+    private fun retireRunDisplays(world: World, run: ActiveRun) {
+        if(run.currentUnitIds.isEmpty() || world.getTrain(run.train.id) !== run.train) return
+        val actual=registeredOperatingUnits(world,run)
+        displayRuntime.retire(run.id.timetableId,run.cycleIndex,actual)
+        val timetable=world.simpleAtoWorldData.timetables[run.id.timetableId] ?: return
+        run.unitDisplays=displayRuntime.snapshots(timetable,run.cycleIndex,run.currentUnitIds)
+    }
+
+    private fun registeredOperatingUnits(world: World, run: ActiveRun): List<String> {
+        val cars = run.train.cars.map { it.id }.let { if (run.train.isReversed) it.reversed() else it }
+        return world.simpleAtoWorldData.depots.fixedUnitsForFormation(cars).map { it.id }
+    }
+
+    private fun refreshUnitDisplays(world: World, run: ActiveRun) {
+        val timetable = checkNotNull(world.simpleAtoWorldData.timetables[run.id.timetableId])
+        if (timetable.operationalTrips.isNotEmpty() && run.currentUnitIds.isNotEmpty()) {
+            run.currentUnitIds = registeredOperatingUnits(world,run)
+            run.unitDisplays = displayRuntime.snapshots(timetable,run.cycleIndex,run.currentUnitIds)
+        } else run.unitDisplays = emptyList()
+    }
+
+    /** Switching only queues a replacement on the same owner; controller consumes all commands before motion. */
+    private fun enterRunSegment(world: World, run: ActiveRun, stepIndex: Int = run.nextStepIndex): Boolean {
+        val segment = run.service.segmentAtOrBefore(stepIndex) ?: return true
+        if (stepIndex < segment.startStepIndex || stepIndex >= segment.endStepIndexExclusive) return true
+        if (run.currentSegment === segment) return true
+        val failure = runCatching {
+            if (run.currentSegment != null) check(run.ato.isStopped(run.ato.publishedState.trainSnapshot.speedMetersPerSecond)) { "through-running requires a stopped boundary" }
+            segment.calls.firstOrNull()?.let { origin ->
+                val heldOrigin = run.stationCall?.let { call -> call.berthed && !call.departed &&
+                    OperationalDestinationIds.stationBerth(call.resolved.berthRef.stationId,call.resolved.berthRef.berthId) == origin.destinationId } == true
+                check(heldOrigin || validateAtWayPoint(world,run.train,origin.destinationId) == null) {
+                    "run ${segment.runId} does not start at its actual directed origin ${origin.destinationId}"
+                }
+            }
+            val timetable = checkNotNull(world.simpleAtoWorldData.timetables[run.id.timetableId])
+            applyTimetableLineSpeedLimit(run.ato,timetable,run.service,run.id,stepIndex)
+            val relevant = timetable.operationalTrips.any { trip -> trip.segments.any { it.serviceId == run.service.id && it.runId == segment.runId } }
+            val units = if (relevant) registeredOperatingUnits(world,run) else emptyList()
+            if(!relevant && timetable.operationalTrips.isNotEmpty()) {
+                val cars=run.train.cars.map { it.id }.toSet()
+                displayRuntime.retire(timetable.id,run.cycleIndex,world.simpleAtoWorldData.depots.allFixedUnits().filter { unit->unit.carIds.all { it in cars } }.map { it.id })
+            }
+            if (relevant) {
+                displayRuntime.enter(timetable,run.cycleIndex,run.service,segment,units)
+                proveUnitFuture(world,run,timetable,segment,units)
+            }
+            run.currentSegment = segment
+            run.currentUnitIds = units
+            run.completedCallIds.clear()
+            segment.calls.firstOrNull()?.takeIf { it.status == TimetableServiceStopStatus.ORIGIN }?.let { call ->
+                run.completedCallIds += call.id
+                displayRuntime.reached(timetable.id,run.cycleIndex,run.service.id,segment.runId,call.id,units)
+            }
+            refreshUnitDisplays(world,run)
+        }.exceptionOrNull()
+        if (failure == null) return true
+        stallRun(world,run,"RunSegmentContextFailure",failure.message ?: failure.javaClass.name)
+        return false
+    }
+
     private fun applyTimetableLineSpeedLimit(
         ato: SimpleATO,
         timetable: Timetable,
         service: TimetableService,
-        runId: TimetableServiceRunId
+        runId: TimetableServiceRunId,
+        stepIndex: Int = 0
     ) {
+        val speed = LineMaximumSpeedResolver(timetable).resolve(service, stepIndex)
+        if (service.runSegments.isNotEmpty()) {
+            ato.setSpeedLimit(timetableLineSpeedKey(runId), requireNotNull(speed) { "segmented run has no line speed" })
+            return
+        }
         ato.setLineMaximumSpeed(
             timetableLineSpeedKey(runId),
             LineMaximumSpeedResolver(timetable),
             service
         )
-        // TODO: through-running must update an explicit currentLineId at the infrastructure line
-        // boundary and re-resolve this cap; never retain the origin line's speed on another line.
     }
 
     private fun timetableLineSpeedKey(runId: TimetableServiceRunId): String =
@@ -6180,6 +6334,10 @@ class TimetableDispatcher(
                 cursor = cursor.advance()
             }
         }
+        var currentSegment: TimetableRunSegment? = null
+        var currentUnitIds: List<String> = emptyList()
+        var unitDisplays: List<TimetableUnitDisplaySnapshot> = emptyList()
+        val completedCallIds = hashSetOf<String>()
         var currentRuntimeOrNull: MissionRuntime? = currentRuntime
         var currentRuntime: MissionRuntime
             get() = checkNotNull(currentRuntimeOrNull) { "service $id has not submitted its first Mission" }
@@ -6286,7 +6444,10 @@ class TimetableDispatcher(
                 operationTicketError = operationError,
                 controlTransferOwner = controlTransferOwner,
                 controlMode = controlMode,
-                message = message
+                message = message,
+                currentRunId = currentSegment?.runId,
+                currentLineId = currentSegment?.lineId ?: service.lineId,
+                unitDisplays = unitDisplays
             )
         }
     }

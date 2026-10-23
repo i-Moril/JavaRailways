@@ -99,3 +99,11 @@ JSON 对象允许{}；拒绝空文本/非对象、不有限数字和超出安全
 前端校验声明与实际程序调用种类、每个参与者恰好调用一次、被消耗参与者结束、输出交路互反引用。最终物理、单位、依赖环校验仍由服务器负责。重命名交路同时更新固定事件引用；删除/改事件 ID 不猜测改写共享快照中的 literal，保留上下文错误。生成使用现有 formationEvent 与 takeFromFormationOutput DSL，并安全引用 JSON。库/编辑器后端及本地恢复同步当前格式，不升级版本。
 
 浏览器 demo 的新增/Enter/Undo 与编译失效已检查；不能据此声称真实服务器编译或重联运行验收完成。分支编辑、动态选择和完整运行诊断仍由活动任务后续批次实现。
+
+## 单文档跨线与运营车次编辑
+
+当前同一 duty 可引用不同基础设施线路和不同运行图的 RUN，每 RUN 必须有明确 lineId。`RunConnectionEditor` 对相邻 RUN 的到达/发车作一次 document/history 事务，校验使用 arrivalOverride 后的实际计划值与最小停站。`DutyGraphEditor` 仅派生整编组 RUN 边及共享编组节点；运营车次列表另按完整 RUN 和单元槽位组织，不能复制运行任务。
+
+默认显示 JSON 草稿的有效性回传到 DutyEditor；无效时禁用保存/编译/正式脚本/模拟/发布，并递增草稿 revision，拒绝同文档哈希下已过期的异步结果。字段提交仍经 blur/Ctrl+Enter，Escape 恢复。生成 JS 时，命名车初始 PROGRAM 前使用明确初始位置或首 RUN 起点建立一次 CHECK。编译器在合适边界初始化新车次，具体动作、wire 和运行时生命周期由 [SimpleATO 规范](../../javarailways/simpleato/through-running-and-unit-displays.md) 定义。
+
+正式编译图按 runSegment 投影并保留原 service/step 地址。单 RUN Reset 使用精确 timetable/service/runId 选线；首 tick 不变。`operationalTrips` 为当前 editor/recovery 格式的可选空默认字段，不新增版本或业务层旧格式兼容。

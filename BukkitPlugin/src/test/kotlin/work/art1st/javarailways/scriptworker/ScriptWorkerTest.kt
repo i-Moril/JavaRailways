@@ -8,6 +8,63 @@ class ScriptWorkerTest {
     private val json = Json { ignoreUnknownKeys = true }
     private fun run(body: String) = json.decodeFromString<SavedTimetableV1>(executeScript("function main(timetable) { $body }", "test"))
 
+    @Test fun `segments capture actual scoped action ranges and trips preserve per-unit definitions`() {
+        val result = run("""
+            timetable.setPeriodDays(1);
+            timetable.operationalTrip('trip', {defaults:{destination:'E'},segments:[{serviceId:'s',runId:'branch',unitSlots:[2]}]});
+            timetable.service('s','train',t=>{
+              t.check('A');
+              t.runSegment({runId:'main',lineId:'A',calls:[]},r=>r.origin('run:main',a=>a.at(10).destination('C')));
+              t.runSegment({runId:'branch',lineId:'B',diagramLineId:'diagram-B',lineDirection:'DOWN',calls:[
+                {id:'origin',stationId:'C',destinationId:'C@1',status:'ORIGIN',departureTick:20},
+                {id:'end',stationId:'E',destinationId:'E@1',status:'TERMINAL',arrivalTick:40}]},r=>{
+                  r.at(20).setDisplay([2],{kind:'express'},['old']);r.at(40).destination('E');r.resetDisplay([2]);
+              });
+            });
+        """)
+        val service = result.services.single()
+        assertEquals(listOf(1,3), service.runSegments.map { it.startStepIndex })
+        assertEquals(listOf(3,7), service.runSegments.map { it.endStepIndexExclusive })
+        assertEquals("E", service.runSegments.last().calls.last().stationId)
+        assertEquals(listOf(2), result.operationalTrips.single().segments.single().unitSlots)
+        assertEquals(SavedTimetableActionTypeV1.SET_DISPLAY, service.steps[3].action!!.type)
+        assertEquals(SavedTimetableActionTypeV1.RESET_DISPLAY, service.steps.last().action!!.type)
+        assertEquals(1, result.compilationTrace.first().stepIndex)
+    }
+
+    @Test fun `nested and empty segments and invalid display slots fail closed`() {
+        listOf(
+            "t.runSegment({runId:'r',lineId:'A'},r=>{});",
+            "t.runSegment({runId:'r',lineId:'A'},r=>r.runSegment({runId:'nested',lineId:'A'},a=>a.halt()));",
+            "t.setDisplay([0],{});", "t.resetDisplay([1,1]);", "t.setDisplay(['1'],{});"
+        ).forEach { body -> assertThrows(Throwable::class.java) {
+            run("timetable.setPeriodDays(1);timetable.service('s','train',t=>{t.check('A');$body});")
+        } }
+    }
+
+    @Test fun `station display before a run starts its upcoming trip after the final structural action`() {
+        val result = run("""
+            timetable.setPeriodDays(1);
+            timetable.service('s','train',t=>{
+              t.check('A'); t.at(5).reverse();
+              t.origin('duty:s/program:display',p=>p.at(5).setDisplay([1],{destination:'E'}));
+              t.runSegment({runId:'branch',lineId:'B',calls:[]},r=>r.at(10).destination('E'));
+            });
+            timetable.operationalTrip('next', {defaults:{destination:'D'},segments:[{serviceId:'s',runId:'branch',unitSlots:[1]}]});
+        """)
+        val service = result.services.single()
+        assertEquals(SavedTimetableActionTypeV1.REVERSE, service.steps[1].action!!.type)
+        val begin = service.steps[2].action!!
+        assertEquals(SavedTimetableActionTypeV1.BEGIN_OPERATIONAL_TRIP, begin.type)
+        assertEquals("next", begin.operationalTripId)
+        assertEquals("branch", begin.runId)
+        assertEquals(listOf(1), begin.unitSlots)
+        assertEquals(SavedTimetableActionTypeV1.SET_DISPLAY, service.steps[3].action!!.type)
+        assertEquals(4, service.runSegments.single().startStepIndex)
+        assertEquals(listOf(3, 2), result.compilationTrace.map { it.stepIndex })
+        assertTrue(result.compilationTrace.last().origin.endsWith("/operational-trip:next"))
+    }
+
     @Test fun `valid core DSL produces current snapshot`() {
         val result = run("""
             timetable.setPeriodDays(1);

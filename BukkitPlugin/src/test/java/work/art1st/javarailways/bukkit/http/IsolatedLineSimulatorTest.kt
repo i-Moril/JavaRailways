@@ -69,7 +69,7 @@ class IsolatedLineSimulatorTest {
             gravityMetersPerSecondSquared = 9.80665,
             lineMaximumSpeedMetersPerSecond = resolveLineSimulationMaximumSpeed(
                 Json.parseToJsonElement("""{"maximumSpeedMetersPerSecond":5.0}""").jsonObject
-            ) { _, _ -> error("authoring Reset must not read a stored timetable") }
+            ) { _, _, _ -> error("authoring Reset must not read a stored timetable") }
         )
 
         assertTrue(capped.legs.single().peakSpeedMetersPerSecond <= 5.0)

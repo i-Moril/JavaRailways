@@ -339,7 +339,7 @@ class WorldManager internal constructor(
                     train.setMovementHeld(true)
                     plugin.worldIssues.report(worldId, "javarailways:train-configuration", WorldIssueInput(
                         WorldIssueKind.TRAIN, train.id, "CONFIGURATION_UNAVAILABLE",
-                        "列车配置不可用，已暂停移动：${failure.message}", failure.stackTraceToString()))
+                        "列车配置不可用，已暂停移动：${failure.message}"))
                     plugin.logger.log(java.util.logging.Level.SEVERE,
                         "Train '${train.id}' configuration is unavailable; holding movement", failure)
                 }

@@ -4,8 +4,6 @@ import work.art1st.javarailways.basic.basicWorldData
 import work.art1st.javarailways.basic.control.RealisticManualController
 import work.art1st.javarailways.basic.safety.TrainSpeedProfile
 import work.art1st.javarailways.bukkit.BukkitPlugin
-import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueInput
-import work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueKind
 import work.art1st.javarailways.bukkit.config.TrainModelUpdatePolicy
 import work.art1st.javarailways.bukkit.config.model.*
 import work.art1st.javarailways.bukkit.extension.train.carRendererOrNull
@@ -77,7 +75,7 @@ internal class TrainResourceReloader(private val plugin: BukkitPlugin) {
             worlds.forEach { (_, world) ->
                 plugin.worldManager.refreshTrainSpeedProfiles(world, onlyHeld = true)
             }
-            reportReloadFailures(result, worlds)
+            reportReloadFailures(result)
             return result
         }
         val trains = worlds.flatMap { it.second.allTrains }
@@ -137,7 +135,7 @@ internal class TrainResourceReloader(private val plugin: BukkitPlugin) {
             }
         }
         worlds.forEach { (_, world) -> plugin.worldManager.refreshTrainSpeedProfiles(world, onlyHeld = true) }
-        reportReloadFailures(result, worlds)
+        reportReloadFailures(result)
         return result
     }
 
@@ -146,17 +144,11 @@ internal class TrainResourceReloader(private val plugin: BukkitPlugin) {
         train.cars.mapNotNullTo(this) { it.carRendererOrNull?.resourceType }
     }
 
-    private fun reportReloadFailures(result: ModelReloadResult, worlds: List<Pair<java.util.UUID, CoreWorld>>) {
+    private fun reportReloadFailures(result: ModelReloadResult) {
+        // Rejected candidates retain the active resources. Current configuration/model faults
+        // are reported by their revalidation owners, not by this failed reload attempt.
         result.failures.forEach { (type, failure) ->
             plugin.logger.log(Level.SEVERE, "Train resource reload failed for '$type'; retaining its previous version", failure)
-        }
-        worlds.forEach { (id, world) ->
-            plugin.worldIssues.replace(id, "javarailways:train-resources", world.allTrains.flatMap { train ->
-                resourceTypes(train).mapNotNull { type -> result.failures[type]?.let { failure ->
-                    WorldIssueInput(WorldIssueKind.TRAIN, train.id, "RESOURCE_RELOAD_FAILED:$type",
-                        "列车类型 '$type' 更新失败，保留原版本：${failure.message}", failure.stackTraceToString())
-                } }
-            })
         }
     }
 }

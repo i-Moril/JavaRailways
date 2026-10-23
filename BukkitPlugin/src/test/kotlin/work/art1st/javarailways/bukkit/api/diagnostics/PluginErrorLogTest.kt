@@ -3,6 +3,8 @@ package work.art1st.javarailways.bukkit.api.diagnostics
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import work.art1st.javarailways.diagnostics.PluginErrorLog
+
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
@@ -67,6 +69,38 @@ class PluginErrorLogTest {
         log.reportFailure("after close callback", failure)
         assertEquals(before, Files.readString(path))
         assertEquals(1, logger.handlers.size, "close detaches only its own handler")
+    }
+
+    @Test
+    fun `queue saturation stays nonblocking and reports exact loss when worker drains on close`() {
+        val logger = logger()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val console = CopyOnWriteArrayList<LogRecord>()
+        logger.addHandler(handler { record ->
+            console += record
+            if (record.message == "blocked worker") {
+                entered.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+            }
+        })
+        val path = directory.resolve("logs/errors.log")
+        val log = PluginErrorLog(path, logger, "Bukkit", maximumBytes = 64L * 1024L * 1024L)
+        try {
+            log.reportFailure("blocked worker", IllegalStateException("original"))
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            // One running task, exactly 1024 queued tasks, then observable overflow.
+            repeat(1034) { index -> log.reportFailure("queued-$index", IllegalStateException("failure")) }
+            assertFalse(Files.exists(path))
+            assertEquals(1, console.size, "producer never falls back to synchronous console work")
+        } finally {
+            release.countDown()
+            log.close()
+        }
+        val text = Files.readString(path)
+        assertEquals(1024, Regex("queued-\\d+").findAll(text).count())
+        assertTrue(text.contains("queue overflow: 10 records were not retained"))
+        assertEquals(1, console.count { it.message.contains("queue overflow: 10 records") })
     }
 
     @Test

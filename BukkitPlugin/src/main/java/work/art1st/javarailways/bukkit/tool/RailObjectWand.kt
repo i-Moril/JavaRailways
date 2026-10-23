@@ -519,7 +519,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             },
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
-                plugin.logger.warning("RailObjectWand direction lookup failed: ${error.message ?: error::class.simpleName}")
+                plugin.logger.log(java.util.logging.Level.WARNING, "RailObjectWand direction lookup failed", error)
                 plugin.server.getPlayer(player.uniqueId)?.sendActionBar(
                     Component.text("方向限制操作失败", NamedTextColor.RED)
                 )
@@ -605,7 +605,7 @@ class RailObjectWand(plugin: BukkitPlugin) : AbstractWand<RailObjectWandState, R
             onFailure = { error ->
                 capturedSession.busy = false
                 if (directionOverlays.remove(playerId, capturedSession)) capturedSession.close()
-                plugin.logger.warning("RailObjectWand direction display failed: ${error.message ?: error::class.simpleName}")
+                plugin.logger.log(java.util.logging.Level.WARNING, "RailObjectWand direction display failed", error)
             },
             onRetired = {
                 if (directionOverlays.remove(playerId, capturedSession)) capturedSession.close()

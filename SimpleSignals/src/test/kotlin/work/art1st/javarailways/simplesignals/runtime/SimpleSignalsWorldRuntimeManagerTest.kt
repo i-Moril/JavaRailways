@@ -5073,6 +5073,38 @@ class SimpleSignalsWorldRuntimeManagerTest {
     }
 
     @Test
+    fun `installation failure preserves throwable chain separately from current content issue`() {
+        val fixture = Fixture()
+        val failure = IllegalStateException("route registration failed", IllegalArgumentException("root cause"))
+        failure.addSuppressed(IllegalStateException("cleanup detail"))
+        val reports = mutableListOf<Pair<String, Throwable>>()
+        val issues = work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueService()
+        val manager = runtimeManager(plugin(), MutableTopologyService(fixture.currentTopology).service,
+            CapturingRoutePlanningService(failure), installationFailureDefinitions(fixture),
+            CapturingSignalEpochSourceService(), modelFailure = { context, error -> reports += context to error },
+            worldIssues = issues)
+        try {
+            assertEquals(SimpleSignalsWorldInstallStatus.UNAVAILABLE, manager.install(fixture.worldId).status)
+            val reported = reports.single { it.first.contains("route source could not be registered") }
+            assertSame(failure, reported.second)
+            assertTrue(reported.first.contains(fixture.worldId.toString()))
+            assertEquals("root cause", reported.second.cause!!.message)
+            assertEquals("cleanup detail", reported.second.suppressed.single().message)
+            val issue = issues.snapshot(fixture.worldId).single { it.source == "simplesignals:installation" }
+            assertTrue(issue.message.contains("route source"))
+            assertFalse(issue.details.orEmpty().contains("at work.art1st"))
+            issues.report(fixture.worldId, "other-plugin", work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueInput(
+                work.art1st.javarailways.bukkit.api.diagnostics.WorldIssueKind.WORLD,
+                fixture.worldId.toString(), "unavailable", "Other content fault"))
+            manager.remove(fixture.worldId)
+            assertEquals("other-plugin", issues.snapshot(fixture.worldId).single().source)
+            assertTrue(reports.any { it.second === failure }, "clearing current content must not erase error reports")
+        } finally {
+            manager.clearLocal().toCompletableFuture().join()
+        }
+    }
+
+    @Test
     fun `failed source retirement retains engine and reservation until explicit cleanup succeeds`() {
         val fixture = Fixture()
         val definitions = installationFailureDefinitions(fixture)
@@ -6638,6 +6670,39 @@ class SimpleSignalsWorldRuntimeManagerTest {
         }
         manager.clearLocal().toCompletableFuture().join()
         closeActualWorld(source)
+    }
+
+    @Test
+    fun `detached simulation rule failure reaches registered module logger with throwable`() {
+        initializeDomainPlugins()
+        val source = actualSignalWorld()
+        val records = java.util.concurrent.CopyOnWriteArrayList<java.util.logging.LogRecord>()
+        val logger = java.util.logging.Logger.getLogger("work.art1st.javarailways.simplesignals")
+        val handler = object : java.util.logging.Handler() {
+            override fun publish(record: java.util.logging.LogRecord) { records += record }
+            override fun flush() = Unit
+            override fun close() = Unit
+        }
+        logger.addHandler(handler)
+        try {
+            val definitions = actualDefinitions(source)
+            val failing = SimpleSignalsWorldDefinitions(definitions.worldId, 1, emptyList(), emptyList(),
+                definitions.fixedBlocks, definitions.fixedBlockSignals.map { it.reconfigured(signalType = "automatic:block") })
+            val rules = work.art1st.javarailways.simplesignals.signalpack.SignalPackLoader.load(
+                writeAutomaticSignalPack(script = "function evaluate(input, output) { throw new Error('detached-rule-failure'); }")).rules
+            actualSimulation(source, SimpleSignalsSimulationFeature("simplesignals", failing, rules, 5000.0)).use { simulation ->
+                simulation.step()
+                val errors = records.filter { it.message.contains("detached-rule-failure") ||
+                    it.thrown?.message.orEmpty().contains("detached-rule-failure") }
+                assertTrue(errors.isNotEmpty(), "real detached rule failures must reach the module logger")
+                assertTrue(errors.all { it.level == java.util.logging.Level.SEVERE && it.thrown != null })
+                assertTrue(errors.all { it.message.contains(simulation.world.runtimeId) })
+                assertTrue(actualLimits(simulation.runtime).all { it == 0.0 })
+            }
+        } finally {
+            logger.removeHandler(handler)
+            closeActualWorld(source)
+        }
     }
 
     @Test

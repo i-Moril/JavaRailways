@@ -6,6 +6,7 @@ import { api } from './api';
 import { frontendDemoEnabled } from './frontendDev';
 import { DutyEditor } from './DutyEditor';
 import { LinesPage } from './LinesPage';
+import { LogsPage } from './LogsPage';
 import { IssuesPage } from './IssuesPage';
 import { RailMap } from './RailMap';
 import { useI18n } from './i18n';
@@ -15,10 +16,10 @@ import type { LineCollection,WorldMetadata,WorldSummary } from './types';
 import './styles.css';
 import './studioPages.css';
 
-export type View = 'graph' | 'map' | 'lines' | 'duties' | 'validation' | 'issues';
+export type View = 'graph' | 'map' | 'lines' | 'duties' | 'validation' | 'issues' | 'logs';
 export const DEFAULT_VIEW:View='map';
 export const navigationForAuthentication=(authenticated:boolean|null):View[]=>authenticated
-  ?['graph','map','lines','duties','validation','issues']
+  ?['graph','map','lines','duties','validation','issues','logs']
   :['map'];
 
 type WorldResources={world:string;metadata:WorldMetadata;lineCollection:LineCollection};
@@ -72,12 +73,14 @@ export default function App() {
           if(!response.ok){const body=await response.json().catch(()=>({})) as {error?:string};loginError=body.error||`Login failed (${response.status})`;}
         }
         const session=await api.session();
+        if(cancelled)return;
+        setAuthenticated(session.authenticated);setAuthenticatedPlayer(session.playerName||'');setView(session.authenticated?'graph':'map');
         const values=await api.worlds();
         if(cancelled)return;
-        setAuthenticated(session.authenticated);setAuthenticatedPlayer(session.playerName||'');setWorlds(values);setView(session.authenticated?'graph':'map');
+        setWorlds(values);
         setWorld(values.find((candidate)=>candidate.id===session.worldId)?.id||values[0]?.id||'');
         if(loginError)setError(loginError);
-      }catch(failure){if(!cancelled){setAuthenticated(false);setError(failure instanceof Error?failure.message:String(failure));}}
+      }catch(failure){if(!cancelled){setAuthenticated((current)=>current??false);setError(failure instanceof Error?failure.message:String(failure));}}
       finally{if(!cancelled)setBusy(false);}
     })();
     return()=>{cancelled=true;};
@@ -115,7 +118,7 @@ export default function App() {
   const workspaceNotice=!authenticated?t('auth.mapOnly'):
     ['graph','duties','validation'].includes(view)?t('duties.workspace'):
     view==='lines'?t('lines.description'):
-    view==='issues'?t('issues.description'):t('map.public');
+    view==='issues'?t('issues.description'):view==='logs'?t('logs.description'):t('map.public');
   return <ConfigProvider
     locale={antDesignLocale(locale)}
     theme={antDesignTheme(theme)}
@@ -129,7 +132,7 @@ export default function App() {
         <Flex align="center" gap={8} className="studio-controls">
           {frontendDemoEnabled&&<Tag color="blue">{t('dev.frontendDemo')}</Tag>}
           <Tag color={authenticated?'green':'default'}>{authenticated?t('auth.authenticated')+(authenticatedPlayer?` · ${authenticatedPlayer}`:''):t('auth.guest')}</Tag>
-          <Select aria-label={t('common.world')} value={world||undefined} placeholder={t('common.world')} onChange={setWorld}
+          <Select disabled={view==='logs'} aria-label={t('common.world')} value={world||undefined} placeholder={t('common.world')} onChange={setWorld}
             options={worlds.map((item)=>({value:item.id,label:item.name||item.id}))}/>
           <Switch aria-label={t('common.theme')} checked={theme==='dark'} onChange={(checked)=>setTheme(checked?'dark':'light')}
             checkedChildren={<MoonOutlined />} unCheckedChildren={<SunOutlined />}/>
@@ -155,6 +158,7 @@ export default function App() {
     </section>
 
     {authenticated&&<section className="persistent-graph-view" hidden={!['graph','duties','validation'].includes(view)}><DutyEditor onCommandState={setAuthoringState} page={view==='duties'?'duties':view==='validation'?'validation':'graph'} onPageChange={setView} world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
+    {authenticated&&view === 'logs' && <LogsPage />}
     {authenticated&&view === 'issues' && <IssuesPage key={world} world={world} />}
     {view === 'map' && <RailMap key={world} world={world} onError={setError} />}
     {view === 'lines' && <LinesPage world={world} metadata={metadata} collection={lineCollection}

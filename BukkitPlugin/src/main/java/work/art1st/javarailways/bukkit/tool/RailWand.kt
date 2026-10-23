@@ -1515,7 +1515,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             },
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
-                plugin.logger.warning("RailWand turnout build failed: ${error.message ?: error::class.simpleName}")
+                plugin.logger.log(java.util.logging.Level.WARNING, "RailWand turnout build failed", error)
                 plugin.server.getPlayer(player.uniqueId)?.let { livePlayer ->
                     livePlayer.sendMessage(RailWandI18n.component(
                         livePlayer,
@@ -2850,7 +2850,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             },
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
-                plugin.logger.warning("Rail grade smoothing failed: ${error.message ?: error::class.simpleName}")
+                plugin.logger.log(java.util.logging.Level.WARNING, "Rail grade smoothing failed", error)
                 plugin.server.getPlayer(player.uniqueId)?.let { livePlayer ->
                     livePlayer.sendMessage(RailWandI18n.component(
                         livePlayer,
@@ -3143,7 +3143,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             },
             onFailure = { failure ->
                 heavyOperationGate.finish(player.uniqueId)
-                plugin.logger.warning("Rail actual-value measurement failed: ${failure.message ?: failure::class.simpleName}")
+                plugin.logger.log(java.util.logging.Level.WARNING, "Rail actual-value measurement failed", failure)
                 plugin.server.getPlayer(player.uniqueId)?.let { livePlayer ->
                     livePlayer.sendMessage(RailWandI18n.component(
                         livePlayer,
@@ -3426,7 +3426,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                         }
                     }
                 } catch (failure: Exception) {
-                    plugin.logger.warning("Rail curve speed update frame boundary failed: ${failure.message ?: failure::class.simpleName}")
+                    plugin.logger.log(java.util.logging.Level.WARNING, "Rail curve speed update frame boundary failed", failure)
                     livePlayer.sendMessage(RailWandI18n.component(
                         livePlayer,
                         "message.speed_update_failed",
@@ -3436,7 +3436,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             },
             onFailure = { failure ->
                 heavyOperationGate.finish(player.uniqueId)
-                plugin.logger.warning("Rail curve speed update failed: ${failure.message ?: failure::class.simpleName}")
+                plugin.logger.log(java.util.logging.Level.WARNING, "Rail curve speed update failed", failure)
                 plugin.server.getPlayer(player.uniqueId)?.let { livePlayer ->
                     livePlayer.sendMessage(RailWandI18n.component(
                         livePlayer,
@@ -3822,7 +3822,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             },
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
-                plugin.logger.warning("Rail radius rebuild failed: ${error.message ?: error::class.simpleName}")
+                plugin.logger.log(java.util.logging.Level.WARNING, "Rail radius rebuild failed", error)
                 plugin.server.getPlayer(player.uniqueId)?.let { livePlayer ->
                     livePlayer.sendMessage(RailWandI18n.component(
                         livePlayer,
@@ -4396,7 +4396,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     ).color(NamedTextColor.GREEN)) }
                     },
                     failure = { failedPlayer, error ->
-                        plugin.logger.warning("Rail split failed: ${error::class.simpleName}: ${error.message ?: ""}")
+                        plugin.logger.log(java.util.logging.Level.WARNING, "Rail split failed", error)
                         failedPlayer?.sendMessage(RailWandI18n.component(
                             failedPlayer,
                             "message.split_failed",
@@ -4407,7 +4407,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             },
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
-                plugin.logger.warning("Rail curve split failed: ${error::class.simpleName}: ${error.message ?: ""}")
+                plugin.logger.log(java.util.logging.Level.WARNING, "Rail curve split failed", error)
                 plugin.server.getPlayer(player.uniqueId)?.let { livePlayer ->
                     livePlayer.sendMessage(RailWandI18n.component(
                         livePlayer,
@@ -4662,7 +4662,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
                     ).color(NamedTextColor.GREEN)) }
                     },
                     failure = { failedPlayer, error ->
-                        plugin.logger.warning("Rail merge failed: ${error::class.simpleName}: ${error.message ?: ""}")
+                        plugin.logger.log(java.util.logging.Level.WARNING, "Rail merge failed", error)
                         failedPlayer?.sendMessage(RailWandI18n.component(
                             failedPlayer,
                             "message.merge_failed",
@@ -4673,7 +4673,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             },
             onFailure = { error ->
                 heavyOperationGate.finish(player.uniqueId)
-                plugin.logger.warning("Rail curve merge failed: ${error::class.simpleName}: ${error.message ?: ""}")
+                plugin.logger.log(java.util.logging.Level.WARNING, "Rail curve merge failed", error)
                 plugin.server.getPlayer(player.uniqueId)?.let { livePlayer ->
                     livePlayer.sendMessage(RailWandI18n.component(
                         livePlayer,
@@ -5030,7 +5030,7 @@ class RailWand(plugin: BukkitPlugin) : AbstractWand<WandPlayerState, WandMode>(
             },
             onFailure = { failure ->
                 heavyOperationGate.finish(player.uniqueId)
-                plugin.logger.warning("Rail deletion preparation failed: ${failure.message ?: failure::class.simpleName}")
+                plugin.logger.log(java.util.logging.Level.WARNING, "Rail deletion preparation failed", failure)
             },
             onRetired = { heavyOperationGate.finish(player.uniqueId) }
         )

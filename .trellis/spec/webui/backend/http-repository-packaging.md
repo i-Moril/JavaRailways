@@ -55,3 +55,11 @@ installFrontend (npm ci)
 改 frontend build input/output 时同步 Gradle task inputs/outputs；不要手工提交 `dist` 代替 build。`BukkitPlugin:processResources` 再嵌入 WebUI shadow JAR，因此 packaging 变更需验证两级产物。
 
 部署产物不得因 frontend 源码未变而直接跳过 `buildFrontend`：干净候选可能没有 `dist`，Java 编译和 shadow JAR 仍能成功，但首页会因缺少 `/public/index.html` 返回404。离线复用与 lockfile 匹配的依赖时可以跳过 `installFrontend`，仍须执行真实前端构建。交付前检查 WebUI JAR 的 `public/index.html` 及其中引用的每个 JS/CSS，确认主 JAR 的 `webui/JavaRailways-WebUI.jar` 与该产物哈希一致；启动后分别验证首页与所引用静态资源返回200。不要用不明来源的旧缓存 JAR 补资源，也不要通过修改路由掩盖资源缺失。
+
+## 服务器日志查询
+
+`GET /api/v1/logs/sources`和`GET /api/v1/logs?source=...&query=...&cursor=...`必须通过现有session认证，不能加入public map allowlist，也不依赖某个已加载世界。来源返回`{sources:[{id,label,available}],warning?:string}`；本地来源`webui-errors`由独立进程直接读取，其余来源代理带Bearer的Bukkit bridge `logs`/`logs/sources`。桥接失败时仍返回健康的本地来源，同时显式给出warning，不能伪装成完整来源清单。
+
+读取返回`source/entries/nextCursor/reset/scannedBytes/retention`；每条为`text/module/level/time/partial`。来源只接受`[a-z-]{1,64}`，query最多200字符，cursor最多512字符；路径由服务端白名单登记，禁止请求任意文件。未知来源由reader拒绝。读取在HTTP worker执行，不能走world await，也不在物理/region线程读文件。分页及轮转详细合同唯一归属[Diagnostics](../../diagnostics/backend/disk-logs.md)。
+
+WebUI IO与未预期Exception出口将原Throwable及method/path写入本地PluginErrorLog；不记录query/body/cookie/Bearer。正常输入错误和会话拒绝保留既有状态映射。server stop关闭writer并停止原有流工作线程；启动失败报告原异常并关闭已创建writer。Tests需验证实际System.Logger→JUL→磁盘→authenticated HTTP，而非仅手写JSON fixture。

@@ -54,6 +54,38 @@ class BukkitTrainOperationGatewayTest {
         assertTrue(success.execute(request(train.id, TrainOperation.SetCabLights(true))) is TrainOperationExecutionResult.Rejected)
     }
 
+    @Test
+    fun `failed operation retains exception chain and cancelled or rejected work stays quiet`() = withTrain { world, train ->
+        val records = mutableListOf<java.util.logging.LogRecord>()
+        val logger = java.util.logging.Logger.getLogger(BukkitTrainOperationGateway::class.java.name)
+        val handler = object : java.util.logging.Handler() {
+            override fun publish(record: java.util.logging.LogRecord) { records += record }
+            override fun flush() = Unit
+            override fun close() = Unit
+        }
+        logger.addHandler(handler)
+        try {
+            val completion = CompletableFuture<Unit>()
+            val gateway = BukkitTrainOperationGateway(world) { _, _, _ -> completion }
+            val operation = request(train.id, TrainOperation.OpenDoors(DoorSide.LEFT))
+            val ticket = (gateway.execute(operation) as TrainOperationExecutionResult.Accepted).ticket
+            val failure = IllegalStateException("model failed", IllegalArgumentException("cause"))
+            failure.addSuppressed(IllegalStateException("suppressed"))
+            completion.completeExceptionally(failure)
+            assertEquals(TrainOperationTicketState.FAILED, ticket.snapshot().state)
+            assertSame(failure, records.single().thrown)
+            assertTrue(records.single().message.contains("train=${train.id}"))
+            assertEquals("cause", records.single().thrown.cause!!.message)
+            assertEquals("suppressed", records.single().thrown.suppressed.single().message)
+            val cancelled = CompletableFuture<Unit>()
+            val second = BukkitTrainOperationGateway(world) { _, _, _ -> cancelled }
+            (second.execute(operation) as TrainOperationExecutionResult.Accepted).ticket.cancel()
+            cancelled.cancel(false)
+            assertTrue(second.execute(request(train.id, TrainOperation.SetCabLights(true))) is TrainOperationExecutionResult.Rejected)
+            assertEquals(1, records.size)
+        } finally { logger.removeHandler(handler) }
+    }
+
     private fun withTrain(test: (work.art1st.javarailways.core.physics.CoreWorld, CoreTrain) -> Unit) {
         ThreadGuardHost.registerPlatformBridge(object : ThreadGuardPlatformBridge { override fun isMainThread() = true }).use {
             val world = createTestWorld()

@@ -1,6 +1,6 @@
 package work.art1st.javarailways.bukkit
 
-import work.art1st.javarailways.bukkit.api.diagnostics.PluginErrorLog
+import work.art1st.javarailways.diagnostics.PluginErrorLog
 
 import org.bukkit.plugin.java.JavaPlugin
 import work.art1st.javarailways.bukkit.api.internal.BukkitRailTargetService
@@ -168,6 +168,7 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         errorLog = PluginErrorLog(
             dataFolder.toPath().resolve("logs/errors.log"), logger, "Bukkit",
             mapOf(
+                java.util.logging.Logger.getLogger("work.art1st.javarailways.bukkit") to "Bukkit",
                 java.util.logging.Logger.getLogger("work.art1st.javarailways.core") to "Core",
                 java.util.logging.Logger.getLogger("work.art1st.javarailways.basic") to "Basic",
                 java.util.logging.Logger.getLogger("work.art1st.javarailways.simpleato") to "SimpleATO",
@@ -198,6 +199,15 @@ class BukkitPlugin : Plugin, JavaPlugin() {
         simulationFeatureServiceImpl.prepare(worldManager.railWorlds.entries.single { it.value === world }.key.uid)
 
     override fun onEnable() {
+        try {
+            enablePlugin()
+        } catch (failure: Throwable) {
+            errorLog?.reportFailure("JavaRailways enable failed", failure)
+            throw failure
+        }
+    }
+
+    private fun enablePlugin() {
         BukkitExtensionDataSerializers.register()
         val packetRuntime = checkNotNull(packetEntityRuntime) {
             "Packet entity runtime was not loaded"

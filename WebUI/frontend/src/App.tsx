@@ -156,7 +156,7 @@ export default function App() {
       {error && <div className="error" role="alert">{error}</div>}
     </section>
 
-    {authenticated&&<section className="persistent-graph-view" hidden={!['graph','duties','validation'].includes(view)}><DutyEditor onOpenProgramLibrary={(programId,stepId)=>{setProgramFocus({world,programId,stepId});setView('programs');}} onCommandState={setAuthoringState} page={view==='duties'?'duties':view==='validation'?'validation':'graph'} onPageChange={setView} world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
+    {authenticated&&<section className="persistent-graph-view" hidden={!['graph','duties','validation'].includes(view)}><DutyEditor key={JSON.stringify([authenticatedPlayer,world])} onOpenProgramLibrary={(programId,stepId)=>{setProgramFocus({world,programId,stepId});setView('programs');}} onCommandState={setAuthoringState} page={view==='duties'?'duties':view==='validation'?'validation':'graph'} onPageChange={setView} world={world} recoveryOwner={authenticatedPlayer} lines={lineCollection.lines} metadata={metadata} onError={setError}/></section>}
     {authenticated&&view === 'programs'&&<StationProgramLibrary key={world} world={world} extensions={metadata.extensions?.actions} conditions={metadata.extensions?.conditions} focus={programFocus?.world===world?programFocus:undefined}/> }
     {authenticated&&view === 'issues' && <IssuesPage key={world} world={world} />}
     {view === 'map' && <RailMap key={world} world={world} onError={setError} />}

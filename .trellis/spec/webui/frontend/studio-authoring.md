@@ -41,7 +41,7 @@ shiftAuthoringGraphSuffix(document, runId, point, mode: 'OFFSET'|'ABSOLUTE', val
 
 Reset 仅重生选中运行线的时刻，始发 Tick 来自该运行线原有首站 departureTick，没有另一个始发输入；缺少始发时刻则提示先填写。独立 Copy run ribbon 打开间隔/数量弹窗，复制使用 effective run，按 D、2D、…、ND 平移并生成全新 run/call ID，不分配交路。运行选项不再混入复制设置。线路和方向共同限制选中运行线，删除后不得选中其他线路 inspector。
 
-本地 recovery 沿用已有 owner/world 隔离和 shape；不新增 schema version、迁移链或持久 panel 偏好。
+本地未保存草稿沿用已有 owner/world 隔离和 shape；已保存文档另用同样隔离的最后打开文档指针恢复，详见下文。不新增旧格式迁移链或持久 panel 偏好。
 
 ## 校验与失败处理
 
@@ -113,3 +113,15 @@ JSON 对象允许{}；拒绝空文本/非对象、不有限数字和超出安全
 线路页维护 `LineV1.maximumSpeedMetersPerSecond`，显示单位 km/h；run options 仅选择基础设施线路。生成、校验和 Reset 使用当前线路集合中被文档引用的速度，文档 writer 只写当前编辑模型字段，不再保存独立的 `lineSpeedLimits` 配置。运行时限速快照及缺省行为见 [SimpleATO 线路契约](../../javarailways/simpleato/lines.md)。
 
 生成输入哈希包含被引用的线路速度，线路速度改变会使旧编译和模拟失效。Reset 的异步响应除检查文档和 owner 外还须检查生成输入，避免按旧速度计算的时刻覆盖新线路设置下的编辑。
+
+## 已保存文档的重开与草稿恢复
+
+CURRENT：`authoringResume.ts` 保存 owner/world 隔离的最后文档 ID；内容仍以服务器 `editor-documents` 文件为准。成功打开、保存文档或保存/重命名正式脚本后同步记住 ID；明确新建或成功删除后清除指针。账号与世界共同作为 `DutyEditor` 的 React key，切换时卸载旧 owner。
+
+重新进入先检查本地未保存草稿，有实际未保存修改则优先恢复。否则读取服务器文档列表，再 GET 记住的文档。列表确认文档不存在才清除指针，网络失败保留指针并显示错误；没有指针时不猜测打开列表中的其他文档（demo 模式的示例自动打开除外）。浏览器清理本地存储后仍可通过文档选择器手动打开服务器文件。
+
+列表和 GET 属于同一个初始化操作，开始前捕获 owner epoch、操作序号及文档编辑 revision；列表更新只检查 owner 仍挂载，保证请求期间编辑不会导致文档选择器变空；自动 GET、缺失指针清理和内容写回还需检查操作和编辑 revision。期间编辑、手动加载、新建、切换身份或卸载，都会使自动恢复响应失效，不能用迟到响应覆盖新内容。edit revision 同时防止修改后 Undo 回到相同 JSON 时被误判为未编辑。
+
+未保存恢复写入读取最新的完整状态快照；只在真实卸载/beforeunload/认证失效时运行生命周期保存，并保留250ms编辑防抖。不得在每次依赖变化的 effect cleanup 中把旧文档与新的 saved baseline 混合，否则保存或加载成功后可能复活旧草稿。成功加载和保存时同步更新最新快照，避免 state 尚未提交就卸载的间隙。
+
+最后文档指针是独立、可丢弃的导航记录（version 1）；浏览器存储损坏或不可写不能中断服务器保存。没有修改既有编辑文档或草稿 schema 版本。测试应覆盖 owner/world、损坏和拒绝存储，dirty 优先、缺失/网络失败、列表与 GET 两阶段迟到响应；后端需重建服务实例并在同一磁盘目录读取此前保存的内容。浏览器另验真实页面保存、服务重启重新登录和未保存草稿恢复。

@@ -11,6 +11,7 @@ import {
   type AuthoringDutyElementV1,type AuthoringDutyV1,type AuthoringFunctionCallV1,type AuthoringRunV1,type RunMoveMode,
   type TimetableAuthoringDocumentV1,
 } from './authoring';
+import {loadLastAuthoringDocument,rememberAuthoringDocument,resumeAuthoringWorkspace} from './authoringResume';
 import { clearAuthoringRecovery,loadAuthoringRecovery,saveAuthoringRecovery } from './authoringRecovery';
 import { useDocumentHistory } from './documentHistory';
 import { Graph } from './Graph';
@@ -33,14 +34,13 @@ export const clampAuthoringSidebarWidth=(width:number,viewportWidth:number)=>Mat
 
 export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenProgramLibrary,page='graph',onPageChange,onCommandState}:{onOpenProgramLibrary?:(programId:string,stepId?:string)=>void;page?:'graph'|'duties'|'validation';onPageChange?:(page:'graph'|'duties'|'validation')=>void;onCommandState?:(state:AuthoringCommandState)=>void;world:string;recoveryOwner:string;lines:LineV1[];metadata:WorldMetadata;onError:(message:string)=>void}) {
   const {locale,t}=useI18n();
-  const [initialRecovery]=useState(()=>loadAuthoringRecovery(recoveryOwner,world));
+  const [initialRecovery]=useState(()=>{const recovered=loadAuthoringRecovery(recoveryOwner,world);return recovered&&JSON.stringify(recovered.document)!==recovered.savedDocumentJson?recovered:undefined;});
   const initialDocument=initialRecovery?.document??emptyAuthoringDocument();
   const savedDocumentJson=useRef(initialRecovery?.savedDocumentJson??JSON.stringify(initialDocument));
   const ownerEpoch=useRef(0);
   const ownerIdentity=useRef(`${recoveryOwner}::${world}`);
   if(ownerIdentity.current!==`${recoveryOwner}::${world}`){ownerIdentity.current=`${recoveryOwner}::${world}`;ownerEpoch.current++;}
   const operationSerial=useRef(0);
-  const [workspaceWorld,setWorkspaceWorld]=useState(world);
   const [programResources,setProgramResources]=useState<{world:string;records:StationProgramRecord[]}>({world:'',records:[]});
   const [programError,setProgramError]=useState('');const [programLoading,setProgramLoading]=useState(false);const programRequest=useRef(0);
   const loadPrograms=async()=>{const token=++programRequest.current;setProgramLoading(true);setProgramError('');try{const records=await api.stationPrograms(world);if(token===programRequest.current)setProgramResources({world,records});}catch(failure){if(token===programRequest.current)setProgramError(String(failure));}finally{if(token===programRequest.current)setProgramLoading(false);}};
@@ -78,7 +78,6 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     return clampAuthoringSidebarWidth(Number.isFinite(saved)&&saved>0?saved:520,window.innerWidth);
   });
   const sidebarResize=useRef<{startX:number;startWidth:number}|null>(null);
-  const demoAutoloadAttempted=useRef(false);
   const [graphLineId,setGraphLineId]=useState(initialRecovery?.graphLineId??'');
   const [tripDraftInvalid,setTripDraftInvalid]=useState(false);
   const tripDraftValidity=useRef({valid:true,revision:0});
@@ -109,8 +108,10 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   let hasConflictingProfiles=false;
   profileDuties.forEach((duty)=>{const selected=profileAssignments[duty.id],key=authoringSelectorKey(duty.selector),existing=profilesBySelector.get(key);if(selected&&existing&&selected!==existing)hasConflictingProfiles=true;else if(selected)profilesBySelector.set(key,selected);});
   const hasAllProfiles=profileDuties.length>0&&profileDuties.every((duty)=>simulationProfiles.some((profile)=>`${profile.type}:${profile.id}`===profileAssignments[duty.id]))&&!hasConflictingProfiles;
-  const liveInputs=useRef({world,documentJson:JSON.stringify(value),simulationInputKey,documentHashInput:generated.documentHashInput});
-  liveInputs.current={world,documentJson:JSON.stringify(value),simulationInputKey,documentHashInput:generated.documentHashInput};
+  const documentRevision=useRef({value,revision:0});
+  if(documentRevision.current.value!==value)documentRevision.current={value,revision:documentRevision.current.revision+1};
+  const liveInputs=useRef({revision:documentRevision.current.revision,world,documentJson:JSON.stringify(value),simulationInputKey,documentHashInput:generated.documentHashInput});
+  liveInputs.current={revision:documentRevision.current.revision,world,documentJson:JSON.stringify(value),simulationInputKey,documentHashInput:generated.documentHashInput};
   const assigned=new Map(value.duties.flatMap((duty)=>duty.elements.flatMap((element)=>element.type==='RUN'?[[element.runId,duty.id] as const]:[])));
   const effectiveRuns=useMemo(()=>value.runs.map((run)=>({...run,calls:run.calls.map((call)=>{
     const override=value.arrivalOverrides.find((item)=>item.runId===run.id&&item.callId===call.id);
@@ -154,13 +155,22 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   const previewRunIds=useMemo(()=>new Set(previewRun?[previewRun.id]:[]),[previewRun]);
   const authoringWorkspaceStyle={'--authoring-sidebar-width':`${sidebarWidth}px`} as CSSProperties;
   const delayedOrigin=simulation?.delayedServiceId==null||simulation.delayedStepIndex==null?undefined:compiled?.timetable.compilationTrace?.find((trace)=>trace.serviceId===simulation.delayedServiceId&&trace.stepIndex===simulation.delayedStepIndex&&JSON.stringify(trace.branchPath??[])===JSON.stringify(simulation.delayedStepBranchPath??[]))?.origin;
+  const recoverySnapshot={owner:recoveryOwner,world,documentId,formalScriptName,persistedFormalScriptName,document:value,savedDocumentJson:savedDocumentJson.current,selectedRun,selectedDuty,sidebarTab,graphLineId,profileAssignments,delayThresholdTicks};
+  const latestRecovery=useRef(recoverySnapshot);
+  latestRecovery.current=recoverySnapshot;
   const persistRecovery=()=>{
-    if(workspaceWorld!==world)return;
-    if(JSON.stringify(value)===savedDocumentJson.current){clearAuthoringRecovery(recoveryOwner,world);return;}
-    saveAuthoringRecovery({owner:recoveryOwner,world,documentId,formalScriptName,persistedFormalScriptName,document:value,savedDocumentJson:savedDocumentJson.current,selectedRun,selectedDuty,sidebarTab,graphLineId,profileAssignments,delayThresholdTicks});
+    const state=latestRecovery.current;
+    if(JSON.stringify(state.document)===state.savedDocumentJson){clearAuthoringRecovery(state.owner,state.world);return;}
+    saveAuthoringRecovery(state);
+  };
+  const acceptLoadedDocument=(id:string,loaded:TimetableAuthoringDocumentV1)=>{
+    previousSelectedRun.current=undefined;setDocumentId(id);setCompiledState(undefined);setSimulationState(undefined);setCompileFailure(undefined);
+    const loadedScriptName=loaded.formalScriptName||defaultScriptName(loaded.id);
+    savedDocumentJson.current=JSON.stringify(loaded);clearAuthoringRecovery(recoveryOwner,world);documentHistory.reset(loaded);setFormalScriptName(loadedScriptName);setPersistedFormalScriptName(loaded.formalScriptName||'');setSelectedRun(loaded.runs[0]?.id||'');setSelectedDuty(loaded.duties[0]?.id||'');
+    latestRecovery.current={...latestRecovery.current,documentId:id,document:loaded,savedDocumentJson:savedDocumentJson.current,formalScriptName:loadedScriptName,persistedFormalScriptName:loaded.formalScriptName||'',selectedRun:loaded.runs[0]?.id||'',selectedDuty:loaded.duties[0]?.id||''};
+    rememberAuthoringDocument(recoveryOwner,world,id);
   };
 
-  const refresh=async()=>{const epoch=ownerEpoch.current;const documents=await api.editorDocuments(world);if(ownerEpoch.current===epoch)setDocuments(documents);};
   useEffect(()=>{if(typeof window!=='undefined')window.localStorage.setItem('javarailways.authoringSidebarWidthV2',String(sidebarWidth));},[sidebarWidth]);
   useEffect(()=>{setPreviewRun(undefined);},[selectedRun]);
   useEffect(()=>{const document=moveOpen?moveCalculation.preview?.document:undefined;const run=document?.runs.find((run)=>run.id===selectedPoint?.runId);setPreviewRun(run?{...run,calls:run.calls.map((call)=>{const override=document!.arrivalOverrides.find((item)=>item.runId===run.id&&item.callId===call.id);return override?{...call,arrivalTick:override.tick}:call;})}:undefined);},[moveOpen,moveCalculation.preview,selectedPoint?.runId]);
@@ -170,34 +180,30 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   useEffect(()=>{if(!lines.some((line)=>line.id===graphLineId))setGraphLineId(lines[0]?.id??'');},[graphLineId,lines]);
   useEffect(()=>{const scoped=value.runs.filter((run)=>run.diagramLineId===graphLineId&&run.lineDirection===runDirection);const resolved=resolveAuthoringRunSelection(scoped,selectedRun,previousSelectedRun.current)??scoped[0];previousSelectedRun.current=resolved;if((resolved?.id??'')!==selectedRun)setSelectedRun(resolved?.id??'');},[value.runs,selectedRun,graphLineId,runDirection]);
   useEffect(()=>{if(initialRecovery)onError(t('duties.recoveredLocalDraft'));},[]);
-  useEffect(()=>{const timer=window.setTimeout(persistRecovery,250);return()=>window.clearTimeout(timer);},[world,workspaceWorld,value,documentId,formalScriptName,persistedFormalScriptName,selectedRun,selectedDuty,sidebarTab,graphLineId,profileAssignments,delayThresholdTicks]);
-  useEffect(()=>{const preserve=()=>persistRecovery();window.addEventListener('javarailways:unauthorized',preserve);window.addEventListener('beforeunload',preserve);return()=>{preserve();window.removeEventListener('javarailways:unauthorized',preserve);window.removeEventListener('beforeunload',preserve);};},[world,workspaceWorld,value,documentId,formalScriptName,persistedFormalScriptName,selectedRun,selectedDuty,sidebarTab,graphLineId,profileAssignments,delayThresholdTicks]);
+  useEffect(()=>{const timer=window.setTimeout(persistRecovery,250);return()=>window.clearTimeout(timer);},[value,documentId,formalScriptName,persistedFormalScriptName,selectedRun,selectedDuty,sidebarTab,graphLineId,profileAssignments,delayThresholdTicks]);
   useEffect(()=>{
-    if(workspaceWorld!==world){
-      previousSelectedRun.current=undefined;
-      const recovered=loadAuthoringRecovery(recoveryOwner,world),document=recovered?.document??emptyAuthoringDocument();
-      savedDocumentJson.current=recovered?.savedDocumentJson??JSON.stringify(document);documentHistory.reset(document);
-      setDocumentId(recovered?.documentId??'');setFormalScriptName(recovered?.formalScriptName??'new-timetable.js');setPersistedFormalScriptName(recovered?.persistedFormalScriptName??'');
-      setSelectedRun(recovered?.selectedRun??'');setRunDirection(document.runs.find((run)=>run.id===recovered?.selectedRun)?.lineDirection??'UP');setSelectedDuty(recovered?.selectedDuty??'');setSidebarTab('runs');setGraphLineId(recovered?.graphLineId??'');
-      setProfileAssignments(recovered?.profileAssignments??{});setDelayThresholdTicks(recovered?.delayThresholdTicks??1_200);setWorkspaceWorld(world);
-      if(recovered)onError(t('duties.recoveredLocalDraft'));
-    }
-    setPreviewRun(undefined);setCompiledState(undefined);setSimulationState(undefined);setCompileFailure(undefined);
-    if(world)void refresh().catch((error)=>onError(String(error)));
-  },[world]);
+    const preserve=()=>persistRecovery();
+    window.addEventListener('javarailways:unauthorized',preserve);window.addEventListener('beforeunload',preserve);
+    return()=>{preserve();ownerEpoch.current++;operationSerial.current++;window.removeEventListener('javarailways:unauthorized',preserve);window.removeEventListener('beforeunload',preserve);};
+  },[]);
+  useEffect(()=>{
+    const epoch=ownerEpoch.current,input=liveInputs.current,serial=operationSerial.current;
+    let active=true;
+    const isCurrent=()=>active&&ownerEpoch.current===epoch&&operationSerial.current===serial&&liveInputs.current.revision===input.revision;
+    if(world)void resumeAuthoringWorkspace({
+      documentId:loadLastAuthoringDocument(recoveryOwner,world),hasRecovery:Boolean(initialRecovery),demoAutoload:frontendDemoEnabled,isOwnerCurrent:()=>active,isCurrent,
+      list:()=>api.editorDocuments(world),load:(id)=>api.editorDocument(world,id),onList:setDocuments,
+      onMissing:()=>rememberAuthoringDocument(recoveryOwner,world,''),onResume:acceptLoadedDocument,
+    }).catch((error)=>{if(isCurrent())onError(String(error));});
+    return()=>{active=false;};
+  },[]);
   const execute=async(operation:()=>Promise<void>)=>{const serial=++operationSerial.current,identity=ownerIdentity.current;setBusy(true);onError('');try{await operation();}catch(error){if(ownerIdentity.current===identity&&serial===operationSerial.current)onError(error instanceof Error?error.message:String(error));}finally{if(serial===operationSerial.current)setBusy(false);}};
   const load=async(id:string)=>execute(async()=>{
     const epoch=++ownerEpoch.current,input=liveInputs.current;
     const loaded=id?await api.editorDocument(world,id):emptyAuthoringDocument();
-    if(ownerEpoch.current!==epoch||liveInputs.current.documentJson!==input.documentJson)return;
-    previousSelectedRun.current=undefined;setDocumentId(id);setCompiledState(undefined);setSimulationState(undefined);setCompileFailure(undefined);
-    const loadedScriptName=loaded.formalScriptName||defaultScriptName(loaded.id);
-    savedDocumentJson.current=JSON.stringify(loaded);clearAuthoringRecovery(recoveryOwner,world);documentHistory.reset(loaded);setFormalScriptName(loadedScriptName);setPersistedFormalScriptName(loaded.formalScriptName||'');setSelectedRun(loaded.runs[0]?.id||'');setSelectedDuty(loaded.duties[0]?.id||'');
+    if(ownerEpoch.current!==epoch||liveInputs.current.revision!==input.revision)return;
+    acceptLoadedDocument(id,loaded);
   });
-  useEffect(()=>{
-    if(!frontendDemoEnabled||demoAutoloadAttempted.current||initialRecovery||documentId||!documents[0])return;
-    demoAutoloadAttempted.current=true;void load(documents[0].id);
-  },[documents,documentId,world]);
   const save=async()=>execute(async()=>{
     if(!tripDraftValidity.current.valid)throw new Error(t('programs.invalidJson'));
     const epoch=ownerEpoch.current,snapshot=JSON.stringify(value);
@@ -206,6 +212,9 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     if(ownerEpoch.current!==epoch)return;
     if(created)setDocumentId(created.id);
     savedDocumentJson.current=snapshot;
+    const savedId=created?.id??documentId;
+    latestRecovery.current={...latestRecovery.current,documentId:savedId,savedDocumentJson:snapshot};
+    rememberAuthoringDocument(recoveryOwner,world,savedId);
     if(liveInputs.current.documentJson===snapshot)clearAuthoringRecovery(recoveryOwner,world);
     const documents=await api.editorDocuments(world);if(ownerEpoch.current===epoch)setDocuments(documents);
   });
@@ -224,6 +233,8 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     }
     if(ownerEpoch.current!==epoch)return;
     savedDocumentJson.current=JSON.stringify(document);setPersistedFormalScriptName(formalScriptName);
+    latestRecovery.current={...latestRecovery.current,documentId:targetDocumentId,savedDocumentJson:savedDocumentJson.current,persistedFormalScriptName:formalScriptName,...(liveInputs.current.documentJson===snapshot?{document}:{})};
+    rememberAuthoringDocument(recoveryOwner,world,targetDocumentId);
     if(liveInputs.current.documentJson===snapshot){clearAuthoringRecovery(recoveryOwner,world);setValue(document);}
     const documents=await api.editorDocuments(world);if(ownerEpoch.current===epoch)setDocuments(documents);
   });
@@ -234,17 +245,20 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     await api.renameFormalScript(world,documentId,persistedFormalScriptName,formalScriptName,document);
     if(ownerEpoch.current!==epoch)return;
     savedDocumentJson.current=JSON.stringify(document);setPersistedFormalScriptName(formalScriptName);
+    latestRecovery.current={...latestRecovery.current,savedDocumentJson:savedDocumentJson.current,persistedFormalScriptName:formalScriptName,...(liveInputs.current.documentJson===snapshot?{document}:{})};
+    rememberAuthoringDocument(recoveryOwner,world,documentId);
     if(liveInputs.current.documentJson===snapshot){clearAuthoringRecovery(recoveryOwner,world);setValue(document);}
     const documents=await api.editorDocuments(world);if(ownerEpoch.current===epoch)setDocuments(documents);
   });
-  const resetDeletedDocument=()=>{const empty=emptyAuthoringDocument();savedDocumentJson.current=JSON.stringify(empty);clearAuthoringRecovery(recoveryOwner,world);setDocumentId('');documentHistory.reset(empty);setFormalScriptName(defaultScriptName(empty.id));setPersistedFormalScriptName('');setSelectedRun('');setSelectedDuty('');setCompiledState(undefined);setSimulationState(undefined);};
+  const resetDeletedDocument=()=>acceptLoadedDocument('',emptyAuthoringDocument());
   const deleteFormalScript=async()=>{if(!documentId||!persistedFormalScriptName||!window.confirm(t('duties.confirmDeleteScript')))return;await execute(async()=>{
     const epoch=ownerEpoch.current,input=liveInputs.current;
     await api.deleteFormalScript(world,documentId,persistedFormalScriptName);
     if(ownerEpoch.current!==epoch)return;
     ownerEpoch.current++;
+    rememberAuthoringDocument(recoveryOwner,world,'');
     if(liveInputs.current.documentJson===input.documentJson)resetDeletedDocument();
-    else {savedDocumentJson.current='';setDocumentId('');setPersistedFormalScriptName('');setCompiledState(undefined);setSimulationState(undefined);}
+    else {savedDocumentJson.current='';latestRecovery.current={...latestRecovery.current,documentId:'',savedDocumentJson:'',persistedFormalScriptName:''};setDocumentId('');setPersistedFormalScriptName('');setCompiledState(undefined);setSimulationState(undefined);}
     const nextEpoch=ownerEpoch.current;
     const documents=await api.editorDocuments(world);if(ownerEpoch.current===nextEpoch)setDocuments(documents);
   });};
@@ -253,8 +267,9 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     await api.deleteEditorDocument(world,documentId);
     if(ownerEpoch.current!==epoch)return;
     ownerEpoch.current++;
+    rememberAuthoringDocument(recoveryOwner,world,'');
     if(liveInputs.current.documentJson===input.documentJson)resetDeletedDocument();
-    else {savedDocumentJson.current='';setDocumentId('');setPersistedFormalScriptName('');setCompiledState(undefined);setSimulationState(undefined);}
+    else {savedDocumentJson.current='';latestRecovery.current={...latestRecovery.current,documentId:'',savedDocumentJson:'',persistedFormalScriptName:''};setDocumentId('');setPersistedFormalScriptName('');setCompiledState(undefined);setSimulationState(undefined);}
     const nextEpoch=ownerEpoch.current;
     const documents=await api.editorDocuments(world);if(ownerEpoch.current===nextEpoch)setDocuments(documents);
   });};

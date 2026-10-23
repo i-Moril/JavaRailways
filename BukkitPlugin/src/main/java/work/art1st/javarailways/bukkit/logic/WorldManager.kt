@@ -48,6 +48,8 @@ import work.art1st.javarailways.core.physics.tick.RailwaySimulationHalt
 import work.art1st.javarailways.core.physics.tick.PhysicsTicket
 import work.art1st.javarailways.core.util.TickManagerImpl
 import work.art1st.javarailways.core.api.physics.train.CarFrameSnapshot
+import work.art1st.javarailways.core.api.physics.train.TrainFrameSnapshot
+import work.art1st.javarailways.core.physics.train.CoreTrain
 import work.art1st.javarailways.core.api.util.tick.Synchronizable
 import work.art1st.javarailways.core.physics.train.CoreCar
 import work.art1st.javarailways.core.api.threading.ThreadGuard
@@ -643,11 +645,7 @@ class WorldManager internal constructor(
 
     /** Keeps at most one in-flight and one latest pending region task per car. */
     private fun dispatchPublishedTrainFrames(bukkitWorld: BukkitWorld, coreWorld: CoreWorld) {
-        coreWorld.drainPublishedTrainFrames().forEach { trainFrame ->
-            val train = coreWorld.getTrain(trainFrame.trainId) ?: return@forEach
-            if (train.publishedFrame !== trainFrame) return@forEach
-            if (train.cars.size != trainFrame.cars.size) return@forEach
-            if (trainFrame.cars.indices.any { train.cars[it].id != trainFrame.cars[it].carId }) return@forEach
+        consumePendingTrainFrames(coreWorld) { train, trainFrame ->
             for (index in trainFrame.cars.indices) {
                 queueCarFrame(
                     PendingCarFrame(
@@ -854,5 +852,17 @@ internal class LoadedRailWorldRegistry(private val railWorlds: MutableMap<Bukkit
 
     fun clearLookup() {
         byId.clear()
+    }
+}
+
+/** Drain refresh notifications at the world's frame boundary, then capture each current complete frame. */
+internal fun consumePendingTrainFrames(
+    coreWorld: CoreWorld,
+    consume: (CoreTrain, TrainFrameSnapshot) -> Unit
+) {
+    coreWorld.drainPublishedTrainFrames().forEach { queuedFrame ->
+        val train = coreWorld.getTrain(queuedFrame.trainId) ?: return@forEach
+        val latestFrame = train.publishedFrame
+        consume(train, latestFrame)
     }
 }

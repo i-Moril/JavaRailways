@@ -4,7 +4,7 @@
 
 触发：增加train/car/bogie render字段、生成`TrainFrameSnapshot`、修改Core mailbox或Bukkit frame consumer。
 
-用途：physics只发布完整value frame；平台按revision latest-wins消费，不补读live train，避免mixed epoch、stale region task和slow renderer反压physics。
+用途：physics只发布完整value frame；平台在成功帧边界按待刷新train ID一次读取最新完整publishedFrame，随后按revision latest-wins消费，避免mixed epoch、stale region task和slow renderer反压physics。
 
 ## Owner 与精确frame
 
@@ -55,11 +55,11 @@ occurrence保序且不按rail ID合并。每段保存stable rail UUID、`ViewDir
 
 | 条件 | Core结果 | platform结果 |
 | --- | --- | --- |
-| 完整epoch flip | `publishFrame(epoch)`生成new revision | await exact ticket后drain |
+| 完整epoch flip | `publishFrame(epoch)`生成new revision | await exact ticket后drain待刷新通知，每车一次读取当前完整publishedFrame |
 | 同train新revision且old pending | mailbox替换，`COALESCED` | 只apply新frame |
 | stale/equal revision | `DROPPED_STALE` | 无side effect |
 | capacity满且新train | 淘汰最老train frame并计metric | 不阻塞publisher |
-| stationary unchanged | coordinator不逐epochoffer | 保持last applied state |
+| stationary unchanged | coordinator不逐epochoffer | 无通知则保持last applied state；已有初始/停车通知时消费当前完整帧，不能因旧队列对象过期而丢弃 |
 | 帧间rename | 只更新live名称及索引，下一正常epoch发布frame并offer（即使静止） | revision guard apply |
 | ticket failure | 可能已有partial flip | consumer不得drain/apply为成功epoch |
 
@@ -86,7 +86,9 @@ if (current != null && current.revision >= frame.revision) {
 }
 ```
 
-来源：`Core/src/main/java/work/art1st/javarailways/core/physics/tick/LatestTrainFrameMailbox.kt`。它保证delayed worker/platform task不能覆盖较新视觉状态。
+来源：`Core/src/main/java/work/art1st/javarailways/core/physics/tick/LatestTrainFrameMailbox.kt`。它合并发布通知并拒绝较旧的pending revision；region中的revision gate另行防止迟到task覆盖较新显示状态。
+
+Bukkit把drain结果作为按train ID合并的刷新通知，在world帧间owner中解析当前train并一次捕获其完整`publishedFrame`。队列内的旧快照不再直接用于显示，也不要求与当前帧是同一对象。已删除train的通知跳过；同ID当前实例刷新其自身快照。`drain`在既有mailbox锁下取出并删除本批，之后到达的offer保留给下一批，不在消费结束时另行clear。每批只遍历待刷新列车及其车厢，无全world轮询、重试循环或新状态。
 
 ## 禁止实现
 
@@ -103,7 +105,7 @@ if (current != null && current.revision >= frame.revision) {
 - `LatestTrainFrameMailboxTest.kt`：defensive copy、stale、coalesce、capacity、metrics、concurrent highest revision。
 - `PhysicsCoordinatorTest.kt`：frame epoch/revision、stationary suppression、terminal frame、slow consumer。
 - `CoreRenderCommitDecouplingTest.kt`：car/bogie不进generic mailbox，Core commit无platform side effect。
-- Bukkit frame tests：stable ID mapping、region ownership、revision guard。
+- Bukkit `PendingTrainFramesTest`：静止初始帧跨epoch、停车后延迟消费、消费期间新通知留给下一批、删除通知；既有frame tests继续覆盖region ownership与revision guard。
 
 ```bash
 ./gradlew :Core:test --tests '*LatestTrainFrameMailboxTest' --tests '*PhysicsCoordinatorTest' \

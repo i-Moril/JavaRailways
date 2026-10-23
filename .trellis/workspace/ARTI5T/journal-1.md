@@ -712,3 +712,35 @@ Committed world-local signal engines, complete domain simulation and real per-ca
 ### Status
 
 [OK] **Completed**
+
+
+## Session 23: Disk error logs in WebUI and current world issues
+<!-- trellis-session: v=2 fp=60f44971b5bf1af9 -->
+
+**Date**: 2026-10-23
+**Task**: Disk error logs in WebUI and current world issues
+**Package**: javarailways
+**Branch**: `feat/error-log-webui`
+
+### Summary
+
+Implemented independent authenticated disk log page, module/Throwable/context logging and bounded queue; world issues reflect current content only. Backend 2515 and frontend 115 tests passed; packaging and local browser verified. No deployment or live Paper/Folia acceptance.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `64129b79` | feat(diagnostics): expose disk logs in WebUI and clarify world issues |
+
+### Testing
+
+- [OK] 2515 backend tests and 115 frontend tests passed; production builds and packaging verified
+- [OK] Local real WebUI browser: world outage, disk error stack, paging and rotation reset passed
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Review or merge feat/error-log-webui; live Paper/Folia acceptance remains separate

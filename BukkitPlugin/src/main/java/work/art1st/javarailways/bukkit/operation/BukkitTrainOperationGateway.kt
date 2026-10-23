@@ -52,11 +52,23 @@ class BukkitTrainOperationGateway(
         try {
             executeOperation(train, operation, ticket::isPending).whenComplete { _, failure ->
                 if (failure == null) ticket.complete()
-                else ticket.fail(failure.cause?.message ?: failure.message ?: failure::class.java.simpleName)
+                else {
+                    reportFailure(request, ticket, failure)
+                    ticket.fail(failure.cause?.message ?: failure.message ?: failure::class.java.simpleName)
+                }
             }
         } catch (failure: Exception) {
+            reportFailure(request, ticket, failure)
             ticket.fail(failure.message ?: failure::class.java.simpleName)
         }
         return TrainOperationExecutionResult.Accepted(ticket)
+    }
+
+    private fun reportFailure(request: TrainOperationRequest, ticket: ModelOperationTicket, failure: Throwable) {
+        if (!ticket.isPending() || failure is java.util.concurrent.CancellationException ||
+            failure.cause is java.util.concurrent.CancellationException) return
+        java.util.logging.Logger.getLogger(BukkitTrainOperationGateway::class.java.name).log(
+            java.util.logging.Level.WARNING,
+            "Train operation failed request=${request.requestId} train=${request.trainId} operation=${request.operation}", failure)
     }
 }

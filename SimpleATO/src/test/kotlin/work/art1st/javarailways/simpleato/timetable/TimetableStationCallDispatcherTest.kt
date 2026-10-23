@@ -605,6 +605,39 @@ class TimetableStationCallDispatcherTest {
     }
 
     @Test
+    fun `operation gateway failure logs original cause while preserving failed run state`() {
+        val failure = IllegalStateException("gateway broke", IllegalArgumentException("root cause"))
+        failure.addSuppressed(IllegalStateException("cleanup detail"))
+        val records = java.util.concurrent.CopyOnWriteArrayList<java.util.logging.LogRecord>()
+        val logger = java.util.logging.Logger.getLogger(TimetableDispatcher::class.java.name)
+        val handler = object : java.util.logging.Handler() {
+            override fun publish(record: java.util.logging.LogRecord) { records += record }
+            override fun flush() = Unit
+            override fun close() = Unit
+        }
+        logger.addHandler(handler)
+        try {
+            val fixture = fixture(includeStationAction = true, doorSide = DoorSide.RIGHT,
+                operationGateway = object : TrainOperationGateway {
+                    override fun execute(request: TrainOperationRequest): TrainOperationExecutionResult = throw failure
+                })
+            val id = TimetableServiceRunId("tt", "service")
+            fixture.world.onOwnerForTest { fixture.dispatcher.startService(fixture.world, "tt", "service") }
+            for (tick in 0 until 1_000) {
+                fixture.tick()
+                if (fixture.dispatcher.status(id)?.state == TimetableServiceRunState.FAILED) break
+            }
+            assertEquals(TimetableServiceRunState.FAILED, fixture.dispatcher.status(id)?.state)
+            val record = records.single { it.thrown === failure }
+            assertEquals(java.util.logging.Level.WARNING, record.level)
+            assertTrue(record.message.contains("train=${fixture.train.id}"))
+            assertTrue(record.message.contains("run="))
+            assertEquals("root cause", record.thrown.cause!!.message)
+            assertEquals("cleanup detail", record.thrown.suppressed.single().message)
+        } finally { logger.removeHandler(handler) }
+    }
+
+    @Test
     fun `door operation timeout stalls world and keeps departure hold`() {
         val gateway = ControllableOperationGateway()
         val fixture = fixture(

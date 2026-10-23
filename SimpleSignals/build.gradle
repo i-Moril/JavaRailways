@@ -21,6 +21,7 @@ repositories {
 }
 
 dependencies {
+    compileOnly(project(':Diagnostics'))
     compileOnly('io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT')
     compileOnly('org.jetbrains.kotlin:kotlin-stdlib-jdk8')
     compileOnly('org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0')
@@ -149,6 +150,7 @@ def verifyPluginJar = tasks.register('verifyPluginJar') {
             )
         }
         def forbiddenPrefixes = [
+            'work/art1st/javarailways/diagnostics/',
             'work/art1st/javarailways/core/',
             'work/art1st/javarailways/basic/',
             'work/art1st/javarailways/simpleato/',

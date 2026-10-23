@@ -1,5 +1,7 @@
 package work.art1st.javarailways.bukkit.http
 
+import work.art1st.javarailways.diagnostics.DiskLogReader
+import java.util.logging.Level
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import kotlinx.serialization.json.Json
@@ -67,6 +69,17 @@ private data class LineSimulationSnapshot(
 )
 
 class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
+    private val logReader = DiskLogReader(linkedMapOf(
+        "host-errors" to DiskLogReader.Location("JavaRailways errors", plugin.dataFolder.toPath().resolve("logs/errors.log")),
+        "simplesignals-errors" to DiskLogReader.Location("SimpleSignals errors", (plugin.server.pluginManager.getPlugin("SimpleSignals")?.dataFolder?.toPath()
+            ?: plugin.dataFolder.toPath().resolveSibling("SimpleSignals")).resolve("logs/errors.log")),
+        "tunnelbridgebuilder-errors" to DiskLogReader.Location("TunnelBridgeBuilder errors", (plugin.server.pluginManager.getPlugin("TunnelBridgeBuilder")?.dataFolder?.toPath()
+            ?: plugin.dataFolder.toPath().resolveSibling("TunnelBridgeBuilder")).resolve("logs/errors.log")),
+        "webui-process" to DiskLogReader.Location("Managed WebUI process output", plugin.dataFolder.toPath().resolve("logs/webui.log")),
+        "host-timetable" to DiskLogReader.Location("Timetable operations", plugin.dataFolder.toPath().resolve("logs/timetable.log")),
+        "host-commands" to DiskLogReader.Location("Command operations", plugin.dataFolder.toPath().resolve("logs/commands.log")),
+        "host-ato" to DiskLogReader.Location("ATO operations", plugin.dataFolder.toPath().resolve("logs/ato.log"))
+    ))
     private val json = Json { encodeDefaults = true; prettyPrint = true; ignoreUnknownKeys = false }
     private var server: HttpServer? = null
     private val executor = Executors.newCachedThreadPool { Thread(it, "JavaRailways-timetable-http").apply { isDaemon = true } }
@@ -125,7 +138,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             } catch (e: IllegalArgumentException) {
                 exchange.respond(400, error(e.message ?: "bad request"))
             } catch (e: Exception) {
-                plugin.logger.warning("Timetable HTTP bridge request failed: ${e.message}")
+                plugin.logger.log(Level.SEVERE, "Timetable HTTP bridge request failed method=${exchange.requestMethod} path=${exchange.requestURI.path}", e)
                 exchange.respond(500, error("internal error"))
             }
         }
@@ -136,6 +149,29 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                 exchange.requestMethod == "GET" && parts == listOf("health") -> exchange.respond(200, "{\"ok\":true}")
                 exchange.requestMethod == "POST" && parts == listOf("auth", "exchange") -> {
                     exchange.respond(200, exchangeLoginToken(readBody(exchange)))
+                }
+                exchange.requestMethod == "GET" && parts == listOf("logs", "sources") -> exchange.respond(200, json.encodeToString(buildJsonObject {
+                    put("sources", buildJsonArray { logReader.sources().forEach { source -> add(buildJsonObject {
+                        put("id", source.id()); put("label", source.label()); put("available", source.available())
+                    }) } })
+                }))
+                exchange.requestMethod == "GET" && parts == listOf("logs") -> {
+                    val params = exchange.requestURI.rawQuery.orEmpty().split('&').filter { it.isNotEmpty() }.associate { pair ->
+                        val pieces = pair.split('=', limit = 2)
+                        java.net.URLDecoder.decode(pieces[0], StandardCharsets.UTF_8) to
+                            java.net.URLDecoder.decode(pieces.getOrElse(1) { "" }, StandardCharsets.UTF_8)
+                    }
+                    val page = logReader.read(params["source"] ?: throw IllegalArgumentException("Log source is required"), params["query"], params["cursor"])
+                    exchange.respond(200, json.encodeToString(buildJsonObject {
+                        put("source", page.source()); put("reset", page.reset()); put("scannedBytes", page.scannedBytes()); put("retention", page.retention())
+                        put("nextCursor", page.nextCursor()?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                        put("entries", buildJsonArray { page.entries().forEach { entry -> add(buildJsonObject {
+                            put("text", entry.text()); put("partial", entry.partial())
+                            put("module", entry.module()?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                            put("level", entry.level()?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                            put("time", entry.time()?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                        }) } })
+                    }))
                 }
                 exchange.requestMethod == "GET" && parts == listOf("worlds") -> exchange.respond(200, await { worldsJson() })
                 parts.size >= 2 && parts[0] == "worlds" -> routeWorld(exchange, parts.drop(1))

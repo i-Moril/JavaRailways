@@ -21,3 +21,5 @@ include 'BukkitPluginDev'
 include 'TunnelBridgeBuilder'
 include 'ConfigLib'
 include 'WebUI'
+
+include 'Diagnostics'

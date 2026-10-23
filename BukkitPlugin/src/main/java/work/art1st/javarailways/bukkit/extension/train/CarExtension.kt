@@ -362,7 +362,7 @@ class CarExtension : TrainComponentExtension<Car>() {
             plugin.worldIssues.resolve(worldId, "javarailways:train-model", WorldIssueKind.TRAIN, trainId, "MODEL_UNAVAILABLE:${self.id}")
         } catch (failure: Exception) {
             plugin.worldIssues.report(worldId, "javarailways:train-model", WorldIssueInput(WorldIssueKind.TRAIN, trainId,
-                "MODEL_UNAVAILABLE:${self.id}", "Car '${self.id}' model is unavailable: ${failure.message}", failure.stackTraceToString()))
+                "MODEL_UNAVAILABLE:${self.id}", "Car '${self.id}' model is unavailable: ${failure.message}"))
             throw failure
         }
     }

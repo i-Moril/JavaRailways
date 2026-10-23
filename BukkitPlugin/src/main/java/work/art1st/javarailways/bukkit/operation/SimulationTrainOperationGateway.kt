@@ -28,7 +28,7 @@ internal class SimulationTrainOperationGateway(private val world: World) : Train
             val result = CompletableFuture<Unit>()
             broadcast(event.train, result) { car, tail, done -> car.call("onReverse", listOf(event.train.id), tail, done) }
             result.whenComplete { _, failure ->
-                if (failure != null) LOGGER.log(System.Logger.Level.WARNING,
+                if (failure != null) LOGGER.log(java.util.logging.Level.WARNING,
                     "[simulation ${(world as CoreWorld).runtimeId} train ${event.train.id}] onReverse failed", failure)
             }
         }
@@ -47,7 +47,14 @@ internal class SimulationTrainOperationGateway(private val world: World) : Train
         result.whenComplete { _, failure ->
             operations.remove(result)
             if (failure == null) ticket.complete()
-            else ticket.fail(failure.cause?.message ?: failure.message ?: failure::class.java.simpleName)
+            else {
+                if (!closed && ticket.isPending() && failure !is java.util.concurrent.CancellationException &&
+                    failure.cause !is java.util.concurrent.CancellationException) {
+                    LOGGER.log(java.util.logging.Level.WARNING,
+                        "Simulation operation failed simulation=${world.runtimeId} request=${request.requestId} train=${request.trainId}", failure)
+                }
+                ticket.fail(failure.cause?.message ?: failure.message ?: failure::class.java.simpleName)
+            }
         }
         try {
             broadcast(train, result, ticket::isPending, (operation as? TrainOperation.ExecuteModelAction)?.actionName) { car, tail, done ->
@@ -101,6 +108,6 @@ internal class SimulationTrainOperationGateway(private val world: World) : Train
     }
 
     companion object {
-        private val LOGGER = System.getLogger(SimulationTrainOperationGateway::class.java.name)
+        private val LOGGER = java.util.logging.Logger.getLogger(SimulationTrainOperationGateway::class.java.name)
     }
 }

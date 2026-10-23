@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/bukkit-plugin/backend/lifecycle-and-threading.md", "reason": "宿主生命周期、异步线程和关闭"}
+{"file": ".trellis/spec/bukkit-plugin/backend/interaction-render-persistence.md", "reason": "当前世界问题及内容恢复合同"}
+{"file": ".trellis/spec/webui/backend/http-repository-packaging.md", "reason": "认证、HTTP 和 sidecar"}
+{"file": ".trellis/spec/webui/frontend/components-state-contracts.md", "reason": "正式前端状态和 API"}
+{"file": ".trellis/spec/javarailways/shared/versioning.md", "reason": "现有日志边界及字段扩展"}
+{"file": ".trellis/tasks/10-23-error-log-webui/prd.md", "reason": "用户需求和验收"}
+{"file": ".trellis/tasks/10-23-error-log-webui/design.md", "reason": "日志存储、查询、世界问题职责"}
+{"file": ".trellis/spec/diagnostics/backend/disk-logs.md", "reason": "共享磁盘读取边界和有界分页"}
+{"file": ".trellis/spec/bukkit-plugin/backend/error-logging.md", "reason": "异步写入、模块归属和队列饱和"}
+{"file": ".trellis/tasks/10-23-error-log-webui/research/runtime-coverage.md", "reason": "运行时出口审查覆盖和限制"}

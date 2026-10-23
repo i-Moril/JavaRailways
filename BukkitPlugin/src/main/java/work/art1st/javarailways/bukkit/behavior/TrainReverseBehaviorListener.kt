@@ -14,7 +14,8 @@ class TrainReverseBehaviorListener : EventListener {
         val trainId = event.train.id
         event.train.renderer.callBehavior("onReverse", listOf(trainId), optional = true).whenComplete { _, failure ->
             if (failure != null) {
-                BukkitPlugin.INSTANCE.logger.warning("[CarBehavior:$trainId] onReverse failed: ${failure.message}")
+                BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.WARNING,
+                    "[CarBehavior:$trainId] onReverse failed", failure)
             }
         }
     }

@@ -388,6 +388,8 @@ internal class RouteResourceAdmissionEngine(
         val authenticatedContributions = try {
             collectContributions(intent)
         } catch (failure: Exception) {
+            java.util.logging.Logger.getLogger(RouteResourceAdmissionEngine::class.java.name).log(
+                java.util.logging.Level.WARNING, "Route resource contributor failed world=$worldId train=${intent.trainId}", failure)
             return rejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
                 "route-resource contributor failed: ${failure.message ?: failure.javaClass.simpleName}")
         }
@@ -694,6 +696,8 @@ internal class RouteResourceAdmissionEngine(
         val authenticatedContributions = try {
             collectContributions(intent)
         } catch (failure: Exception) {
+            java.util.logging.Logger.getLogger(RouteResourceAdmissionEngine::class.java.name).log(
+                java.util.logging.Level.WARNING, "Route resource contributor failed world=$worldId train=${intent.trainId}", failure)
             return reversalRejected(RouteAdmissionFailureCode.INVALID_CONTRIBUTION,
                 "route-resource contributor failed: ${failure.message ?: failure.javaClass.simpleName}")
         }

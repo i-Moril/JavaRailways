@@ -41,7 +41,7 @@ object CarModelSnapshotStore {
                 }
             }
         } catch (e: Exception) {
-            BukkitPlugin.INSTANCE.logger.warning("Failed to load car model snapshot $hash: ${e.message}")
+            BukkitPlugin.INSTANCE.logger.log(java.util.logging.Level.WARNING, "Failed to load car model snapshot $hash", e)
             null
         }
     }

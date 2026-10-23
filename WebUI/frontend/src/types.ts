@@ -53,7 +53,7 @@ export interface DraftSummary { id: string; updatedAt?: string; timetable?: Save
 export interface EditorDocumentSummary { id:string; updatedAt?:string }
 export interface ValidationIssue { path?: string; message: string; severity?: string }
 export interface ValidationResult { valid: boolean; errors?: ValidationIssue[]; warnings?: ValidationIssue[] }
-export interface LineV1 { id:string; displayName:string; upStationIds:string[]; downStationIds:string[]; color?:string|null }
+export interface LineV1 { maximumSpeedMetersPerSecond?:number|null; id:string; displayName:string; upStationIds:string[]; downStationIds:string[]; color?:string|null }
 export interface LineCollection { revision:number; lines:LineV1[] }
 export interface SavedLineResult { revision:number; line:LineV1 }
 export interface SimulationProfile {

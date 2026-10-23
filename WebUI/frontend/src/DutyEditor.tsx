@@ -7,7 +7,7 @@ import { adoptStationProgram } from './stationPrograms';
 import { api } from './api';
 import { frontendDemoEnabled } from './frontendDev';
 import {
-  authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,copyRunShifted,lineSimulationRoute,resetRunTimings,renameAuthoringRun,resolveAuthoringRunSelection,setAuthoringLineSpeedLimit,authoringResetProfile,
+  authoringGraphTimetable,authoringSelectorKey,createRunFromLine,deleteRunFromDocument,emptyAuthoringDocument,generateTimetableSource,moveRunToDuty,copyRunShifted,lineSimulationRoute,resetRunTimings,renameAuthoringRun,resolveAuthoringRunSelection,authoringResetProfile,
   type AuthoringDutyElementV1,type AuthoringDutyV1,type AuthoringFunctionCallV1,type AuthoringRunV1,type RunMoveMode,
   type TimetableAuthoringDocumentV1,
 } from './authoring';
@@ -93,7 +93,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   const [profileAssignments,setProfileAssignments]=useState<Record<string,string>>(initialRecovery?.profileAssignments??{});
   const [delayThresholdTicks,setDelayThresholdTicks]=useState(initialRecovery?.delayThresholdTicks??1_200);
   const [simulationState,setSimulationState]=useState<{result:TimetableSimulationResult;inputKey:string}>();
-  const generated=useMemo(()=>generateTimetableSource(value),[value]);
+  const generated=useMemo(()=>generateTimetableSource(value,lines),[value,lines]);
   const compiled=!tripDraftInvalid&&compiledState?.documentHashInput===generated.documentHashInput?compiledState.result:undefined;
   const simulationInputKey=JSON.stringify([world,generated.documentHashInput,delayThresholdTicks,Object.entries(profileAssignments).sort(([a],[b])=>a.localeCompare(b))]);
   const simulation=!tripDraftInvalid&&simulationState?.inputKey===simulationInputKey?simulationState.result:undefined;
@@ -109,8 +109,8 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   let hasConflictingProfiles=false;
   profileDuties.forEach((duty)=>{const selected=profileAssignments[duty.id],key=authoringSelectorKey(duty.selector),existing=profilesBySelector.get(key);if(selected&&existing&&selected!==existing)hasConflictingProfiles=true;else if(selected)profilesBySelector.set(key,selected);});
   const hasAllProfiles=profileDuties.length>0&&profileDuties.every((duty)=>simulationProfiles.some((profile)=>`${profile.type}:${profile.id}`===profileAssignments[duty.id]))&&!hasConflictingProfiles;
-  const liveInputs=useRef({world,documentJson:JSON.stringify(value),simulationInputKey});
-  liveInputs.current={world,documentJson:JSON.stringify(value),simulationInputKey};
+  const liveInputs=useRef({world,documentJson:JSON.stringify(value),simulationInputKey,documentHashInput:generated.documentHashInput});
+  liveInputs.current={world,documentJson:JSON.stringify(value),simulationInputKey,documentHashInput:generated.documentHashInput};
   const assigned=new Map(value.duties.flatMap((duty)=>duty.elements.flatMap((element)=>element.type==='RUN'?[[element.runId,duty.id] as const]:[])));
   const effectiveRuns=useMemo(()=>value.runs.map((run)=>({...run,calls:run.calls.map((call)=>{
     const override=value.arrivalOverrides.find((item)=>item.runId===run.id&&item.callId===call.id);
@@ -145,7 +145,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
   },[value,selectedPoint,pointSelectionValid,moveMode,moveValue,moveSource,generated.documentHashInput,locale]);
   const selectedDutyValue=value.duties.find((duty)=>duty.id===selectedDuty);
   const graphRuns=useMemo(()=>effectiveRuns.map((run)=>previewRun?.id===run.id?previewRun:run),[effectiveRuns,previewRun]);
-  const fullGraphValue=useMemo(()=>authoringGraphTimetable({...value,runs:graphRuns}),[value,graphRuns]);
+  const fullGraphValue=useMemo(()=>authoringGraphTimetable({...value,runs:graphRuns},lines),[value,graphRuns,lines]);
   const graphValue=useMemo(()=>({...fullGraphValue,services:fullGraphValue.services.filter((service)=>!graphLineId||service.diagramLineId===graphLineId)}),[fullGraphValue,graphLineId]);
   const lineRuns=useMemo(()=>value.runs.filter((run)=>run.diagramLineId===graphLineId&&run.lineDirection===runDirection&&run.id.toLowerCase().includes(runSearch.trim().toLowerCase())),[value.runs,graphLineId,runDirection,runSearch]);
   const highlightedRunIds=useMemo(()=>new Set(sidebarTab==='duties'
@@ -290,12 +290,6 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     try{const next=renameAuthoringRun(value,selectedRun,nextId);if(next===value)return;ownerEpoch.current++;setValue(next);setSelectedRun(nextId);setSelectedPoint(undefined);setMoveOpen(false);setCopyOpen(false);}
     catch(error){const message=error instanceof Error?error.message:String(error);const translated=message==='Run ID is required'?t('ui.runIdRequired'):message==='Run ID already exists'?t('ui.runIdDuplicate'):message;onError(translated);throw new Error(translated);}
   };
-  const changeLineSpeedLimit=(kmh:number|null)=>{
-    const lineId=selectedRunValue?.lineId;
-    if(!lineId||!lines.some((line)=>line.id===lineId))throw new Error(t('ui.chooseInfrastructure'));
-    try{setValue(setAuthoringLineSpeedLimit(value,lineId,kmh));}
-    catch{const error=t('ui.lineCapInvalid');onError(error);throw new Error(error);}
-  };
   const addCopiedRuns=(copies:AuthoringRunV1[])=>{if(!copies.length)return;setValue((current)=>({...current,runs:[...current.runs,...copies]}));setSelectedRun(copies.at(-1)!.id);};
   const patchDuty=(id:string,patch:Partial<AuthoringDutyV1>)=>setValue((current)=>({...current,operationalTrips:current.operationalTrips?.map((trip)=>({...trip,segments:trip.segments.filter((s)=>!patch.elements||s.serviceId!==id||patch.elements.some((e)=>e.type==='RUN'&&e.runId===s.runId)).map((s)=>patch.id&&s.serviceId===id?{...s,serviceId:patch.id}:s)})),formationEvents:patch.id&&patch.id!==id?renameFormationDuty(current.formationEvents,id,patch.id):current.formationEvents,duties:current.duties.map((duty)=>duty.id===id?{...duty,...patch}:duty)}));
   const patchFunction=(elementId:string,patch:Partial<AuthoringFunctionCallV1>)=>{
@@ -402,8 +396,8 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
     const firstDeparture=run.calls[0]?.departureTick;
     if(firstDeparture==null)throw new Error(t('ui.originRequired'));
     const input=liveInputs.current,epoch=ownerEpoch.current;
-    const result=await api.simulateLine(world,run.diagramLineId,authoringResetProfile(value,run,{profileType:profile.type,profileId:profile.id}));
-    if(ownerEpoch.current!==epoch||liveInputs.current.world!==input.world||liveInputs.current.documentJson!==input.documentJson)throw new Error(t('duties.resetChanged'));
+    const result=await api.simulateLine(world,run.lineId!,authoringResetProfile(lines,run,{profileType:profile.type,profileId:profile.id}));
+    if(ownerEpoch.current!==epoch||liveInputs.current.world!==input.world||liveInputs.current.documentJson!==input.documentJson||liveInputs.current.documentHashInput!==input.documentHashInput)throw new Error(t('duties.resetChanged'));
     const next=resetRunTimings(run,result,firstDeparture,fixedDwell);
     if(next.calls.some((call)=>[call.arrivalTick,call.departureTick].some((tick)=>tick!=null&&tick>=value.periodDays*24000)))throw new Error(t('duties.outsidePeriod'));
     replaceRun(next,true);
@@ -448,7 +442,7 @@ export function DutyEditor({world,recoveryOwner,lines,metadata,onError,onOpenPro
       onSearchChange={setRunSearch} onSelectRun={(id)=>{setSelectedRun(id);setFocusedCall('');}} onAddRun={addRun} assignmentFor={(runId)=>assigned.get(runId)}
       graph={<Graph value={graphValue} metadata={metadata} line={lines.find((line)=>line.id===graphLineId)} graphLineId={graphLineId||undefined}
         highlightedServiceIds={highlightedRunIds} previewServiceIds={previewRunIds} onSelectPoint={selectPoint} onDismissPoint={()=>{if(!moveOpen)setSelectedPoint(undefined);}}/>}
-      inspector={!selectedRunValue?<p className="empty inspector-empty">{t('duties.selectRun')}</p>:<RunRouteEditor onRename={renameRun} lineSpeedLimitMetersPerSecond={selectedRunValue.lineId?value.lineSpeedLimits?.find((limit)=>limit.lineId===selectedRunValue.lineId)?.maximumSpeedMetersPerSecond:undefined} onLineSpeedLimitChange={changeLineSpeedLimit} fieldScope={fieldScope} focusedCallId={focusedCall} tools={runTools} issues={generated.issues.filter((issue)=>issue.path.startsWith(`runs[${value.runs.findIndex((run)=>run.id===selectedRunValue.id)}]`))} run={selectedRunValue} lines={lines} metadata={metadata} busy={busy} onError={onError} onChange={replaceRun} onDelete={deleteSelectedRun}/>}
+      inspector={!selectedRunValue?<p className="empty inspector-empty">{t('duties.selectRun')}</p>:<RunRouteEditor onRename={renameRun} fieldScope={fieldScope} focusedCallId={focusedCall} tools={runTools} issues={generated.issues.filter((issue)=>issue.path.startsWith(`runs[${value.runs.findIndex((run)=>run.id===selectedRunValue.id)}]`))} run={selectedRunValue} lines={lines} metadata={metadata} busy={busy} onError={onError} onChange={replaceRun} onDelete={deleteSelectedRun}/>}
       graphActions={<Popover trigger="click" placement="bottomRight" title={t('common.documentSettings')} content={documentSettings}><Button type="text" icon={<SettingOutlined/>}/></Popover>}
       graphPreviewActive={Boolean(previewRun)} saved={JSON.stringify(value)===savedDocumentJson.current}/></>}
 

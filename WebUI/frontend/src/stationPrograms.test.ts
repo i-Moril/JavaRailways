@@ -2,15 +2,18 @@ import {afterEach,describe,expect,it,vi} from 'vitest';
 import {api} from './api';
 import {parseProgramJsonDraft} from './ProgramJsonInput';
 import {findProgramStep,stationProgramSchedule,adoptStationProgram,programJsonObjectError,validateStationProgram,validateStationProgramCall} from './stationPrograms';
-import {emptyAuthoringDocument,generateTimetableSource,validateAuthoringDocument,type TimetableAuthoringDocumentV1} from './authoring';
+import {emptyAuthoringDocument,generateTimetableSource as generateWithLines,validateAuthoringDocument as validateWithLines,type TimetableAuthoringDocumentV1} from './authoring';
 import {createDocumentHistory,updateDocumentHistory,undoDocumentHistory,redoDocumentHistory} from './documentHistory';
 import {parseAuthoringRecovery} from './authoringRecovery';
 import type {BoundStationProgram,StationProgramDefinition,StationProgramRecord} from './types';
+const infrastructureLines=[{"id": "line", "displayName": "line", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 20}];
+const generateTimetableSource=(document:TimetableAuthoringDocumentV1)=>generateWithLines(document,infrastructureLines);
+const validateAuthoringDocument=(document:TimetableAuthoringDocumentV1)=>validateWithLines(document,infrastructureLines);
 const definition:StationProgramDefinition={parameters:[{id:'target',type:'DESTINATION'}],steps:[{id:'reverse',type:'REVERSE'},{id:'move',type:'MOVE',destinationId:{parameterId:'target'},viaIds:{value:[]}}]};
 const record=(revision=1):StationProgramRecord=>({formatVersion:1,id:'turnback',name:'Turnback',revision,archived:false,contentIdentity:`sha256:${String(revision).repeat(64)}`,definition:JSON.parse(JSON.stringify(definition))});
 const snapshot:BoundStationProgram={programId:'turnback',revision:1,contentIdentity:`sha256:${'1'.repeat(64)}`,definition};
 const call={id:'call-1',programId:'turnback',tick:900,arguments:{target:'b@1'}};
-const document=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),boundPrograms:[snapshot],lineSpeedLimits:[{lineId:'line',maximumSpeedMetersPerSecond:20}],diagramLines:[{id:'line',upStationIds:['a','b'],downStationIds:['b','a']}],runs:[
+const document=():TimetableAuthoringDocumentV1=>({...emptyAuthoringDocument(),boundPrograms:[snapshot],diagramLines:[{id:'line',upStationIds:['a','b'],downStationIds:['b','a']}],runs:[
   {id:'up',type:'PASSENGER',lineId:'line',diagramLineId:'line',lineDirection:'UP',calls:[{id:'a',stationId:'a',targetId:'a@1',status:'ORIGIN',departureTick:100},{id:'b',stationId:'b',targetId:'b@1',status:'TERMINAL',arrivalTick:800}]},
   {id:'down',type:'PASSENGER',lineId:'line',diagramLineId:'line',lineDirection:'DOWN',calls:[{id:'c',stationId:'b',targetId:'b@1',status:'ORIGIN',departureTick:1000},{id:'d',stationId:'a',targetId:'a@1',status:'TERMINAL',arrivalTick:1800}]},
 ],duties:[{id:'duty',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'up',type:'RUN',runId:'up'},{id:'program',type:'PROGRAM',call},{id:'down',type:'RUN',runId:'down'}]}]});

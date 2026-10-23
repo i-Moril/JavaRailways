@@ -14,7 +14,7 @@ const clone=<T,>(value:T):T=>JSON.parse(JSON.stringify(value)) as T;
 const now=()=>new Date().toISOString();
 
 const lineSeed:LineV1[]=[
-  {id:'airport-line',displayName:'Airport Line',color:'#1677ff',upStationIds:['harbour','old-town','central','university','airport-t2'],downStationIds:['airport-t2','university','central','old-town','harbour']},
+  {id:'airport-line',maximumSpeedMetersPerSecond:27.78,displayName:'Airport Line',color:'#1677ff',upStationIds:['harbour','old-town','central','university','airport-t2'],downStationIds:['airport-t2','university','central','old-town','harbour']},
   {id:'coastal-line',displayName:'Coastal Line',color:'#13a8a8',upStationIds:['marina','museum','central','cliff-gardens','north-port'],downStationIds:['north-port','cliff-gardens','central','museum','marina']},
   {id:'university-link',displayName:'University Link',color:'#722ed1',upStationIds:['old-town','market','university'],downStationIds:['university','market','old-town']},
 ];
@@ -36,7 +36,7 @@ const metadataSeed:WorldMetadata={
 const documentSeed:TimetableAuthoringDocumentV1={
   formatVersion:1,id:'weekday-demo',formalScriptName:'weekday-demo.js',periodDays:1,
   diagramLines:lineSeed.map(({id,upStationIds,downStationIds})=>({id,upStationIds,downStationIds})),
-  lineSpeedLimits:[{lineId:'airport-line',maximumSpeedMetersPerSecond:27.78}],arrivalOverrides:[],
+  arrivalOverrides:[],
   runs:[
     {id:'AP101',type:'PASSENGER',diagramLineId:'airport-line',lineDirection:'UP',originDepartureMode:'AUTO',calls:[
       {id:'AP101-1',stationId:'harbour',berthId:'harbour-platform-1',status:'ORIGIN',targetId:'harbour-destination',departureTick:1200},
@@ -55,7 +55,7 @@ const documentSeed:TimetableAuthoringDocumentV1={
   ],
   duties:[{id:'Duty A',selector:{type:'TRAIN_NAME',name:'demo-express'},elements:[{id:'duty-a-1',type:'RUN',runId:'AP101'},{id:'duty-a-2',type:'RUN',runId:'AP102'}]}],
 };
-const timetableSeed:SavedTimetableV1={id:'weekday-demo',periodDays:1,services:[],diagramLines:documentSeed.diagramLines,lineSpeedLimits:documentSeed.lineSpeedLimits};
+const timetableSeed:SavedTimetableV1={id:'weekday-demo',periodDays:1,services:[],diagramLines:documentSeed.diagramLines,lineSpeedLimits:lineSeed.filter((line)=>line.maximumSpeedMetersPerSecond!=null).map((line)=>({lineId:line.id,maximumSpeedMetersPerSecond:line.maximumSpeedMetersPerSecond!}))};
 const railMapSeed:RailMapFile={
   formatVersion:1,world:'demo-world',runtimeId:'frontend-demo',generatedAtEpochMillis:Date.now(),
   rails:[

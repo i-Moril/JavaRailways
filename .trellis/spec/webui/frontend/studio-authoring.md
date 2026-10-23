@@ -107,3 +107,9 @@ JSON 对象允许{}；拒绝空文本/非对象、不有限数字和超出安全
 默认显示 JSON 草稿的有效性回传到 DutyEditor；无效时禁用保存/编译/正式脚本/模拟/发布，并递增草稿 revision，拒绝同文档哈希下已过期的异步结果。字段提交仍经 blur/Ctrl+Enter，Escape 恢复。生成 JS 时，命名车初始 PROGRAM 前使用明确初始位置或首 RUN 起点建立一次 CHECK。编译器在合适边界初始化新车次，具体动作、wire 和运行时生命周期由 [SimpleATO 规范](../../javarailways/simpleato/through-running-and-unit-displays.md) 定义。
 
 正式编译图按 runSegment 投影并保留原 service/step 地址。单 RUN Reset 使用精确 timetable/service/runId 选线；首 tick 不变。`operationalTrips` 为当前 editor/recovery 格式的可选空默认字段，不新增版本或业务层旧格式兼容。
+
+## 线路最高速度
+
+线路页维护 `LineV1.maximumSpeedMetersPerSecond`，显示单位 km/h；run options 仅选择基础设施线路。生成、校验和 Reset 使用当前线路集合中被文档引用的速度，文档 writer 只写当前编辑模型字段，不再保存独立的 `lineSpeedLimits` 配置。运行时限速快照及缺省行为见 [SimpleATO 线路契约](../../javarailways/simpleato/lines.md)。
+
+生成输入哈希包含被引用的线路速度，线路速度改变会使旧编译和模拟失效。Reset 的异步响应除检查文档和 owner 外还须检查生成输入，避免按旧速度计算的时刻覆盖新线路设置下的编辑。

@@ -6,13 +6,23 @@ import org.junit.jupiter.api.Test
 import work.art1st.javarailways.simpleato.api.station.StationId
 
 class LineStoreTest {
-    private fun line(id: String = "L1") = Line(
+    private fun line(id: String = "L1", maximumSpeed: Double? = null) = Line(
         LineId(id),
         "Line $id",
         listOf(StationId("A"), StationId("B")),
         listOf(StationId("B"), StationId("A")),
-        "#56c5ff"
+        "#56c5ff",
+        maximumSpeed
     )
+
+    @Test
+    fun `line maximum speed is optional and otherwise finite positive`() {
+        assertEquals(null, line().maximumSpeedMetersPerSecond)
+        assertEquals(20.0, line(maximumSpeed = 20.0).maximumSpeedMetersPerSecond)
+        listOf(0.0, -1.0, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY).forEach { speed ->
+            assertThrows(IllegalArgumentException::class.java) { line(maximumSpeed = speed) }
+        }
+    }
 
     @Test
     fun `mutations require current revision`() {

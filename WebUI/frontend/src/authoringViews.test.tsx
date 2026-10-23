@@ -1,3 +1,4 @@
+import {LinesPage} from './LinesPage';
 import {ProgramDefinitionEditor} from './ProgramFields';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe,expect,it } from 'vitest';
@@ -9,6 +10,14 @@ const noop=()=>undefined;
 const props:AuthoringValidationProps={duties:[{id:'duty-a',selector:{type:'TRAIN_NAME',name:'train'},elements:[]}],issues:[],compileError:'',profiles:[{type:'WORLD_TRAIN',id:'train',displayName:'Train A',carCount:2}],assignments:{},threshold:1200,conflicting:false,busy:false,compileReason:'',simulationReason:'Compile the current document successfully first.',source:'// generated',onCompile:noop,onSimulate:noop,onAssignment:noop,onThreshold:noop,onNavigate:noop};
 const render=(element:React.ReactNode)=>renderToStaticMarkup(<I18nProvider>{element}</I18nProvider>);
 describe('authoring workspace views',()=>{
+ it('edits the cap in line settings and keeps run options free of a cap input',()=>{
+   const line={id:'L',displayName:'Line',upStationIds:['a','b'],downStationIds:['b','a'],maximumSpeedMetersPerSecond:20};
+   const html=render(<LinesPage world="world" metadata={{}} collection={{revision:0,lines:[line]}} onCollection={noop} run={async(operation)=>operation()}/>);
+   expect(html).toContain('value="72"');expect(html).toContain('km/h');
+   const run={id:'R',type:'PASSENGER' as const,lineId:'L',diagramLineId:'L',lineDirection:'UP' as const,calls:[]};
+   const runHtml=render(<RunRouteEditor run={run} lines={[line]} metadata={{}} busy={false} onError={noop} onChange={noop} onDelete={noop}/>);
+   expect(runHtml).not.toContain('aria-label="'+translate('en-US','ui.lineCap')+'"');
+ });
  it('distinguishes a tentative platform from an admitted selection and shows the active branch',()=>{
   for(const committed of [false,true]){
    const html=render(<AuthoringValidation {...props} simulation={{status:'PERIOD_ENDED',simulatedTicks:100,runs:[{timetableId:'t',serviceId:'duty-a',trainId:'train',state:'WAITING_ROUTE',timetableElapsedTicks:100,lastLatenessTicks:0,nextStepIndex:4,activeStepIndex:2,activeStepBranchPath:[{arm:'ELSE',index:1}],selectedBerthRef:{stationId:'central',berthId:'long'},selectedBerthCommitted:committed}]}}/>);

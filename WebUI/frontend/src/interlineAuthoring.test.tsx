@@ -4,11 +4,14 @@ import {DutyGraphEditor} from './DutyGraphEditor';
 import {I18nProvider} from './i18n';
 import {buildDutyGraph} from './dutyGraph';
 import {filterTimetableForDiagramLine,layoutGraph} from './graph';
-import {deleteRunFromDocument,editRunConnection,generateTimetableSource,moveRunToDuty,renameAuthoringRun,validateAuthoringDocument,type TimetableAuthoringDocumentV1} from './authoring';
+import {deleteRunFromDocument,editRunConnection,generateTimetableSource as generateWithLines,moveRunToDuty,renameAuthoringRun,validateAuthoringDocument as validateWithLines,type TimetableAuthoringDocumentV1} from './authoring';
 import {createDocumentHistory,updateDocumentHistory,undoDocumentHistory,redoDocumentHistory} from './documentHistory';
 import {displayValuesError,validateStationProgram} from './stationPrograms';
 import type {SavedTimetableV1,TimetableServiceV1} from './types';
-const document=():TimetableAuthoringDocumentV1=>({formatVersion:1,id:'through',periodDays:1,arrivalOverrides:[],diagramLines:[{id:'main',upStationIds:['A','B','C','D'],downStationIds:['D','C','B','A']},{id:'branch',upStationIds:['C','E'],downStationIds:['E','C']}],lineSpeedLimits:[{lineId:'main',maximumSpeedMetersPerSecond:20},{lineId:'branch',maximumSpeedMetersPerSecond:10}],runs:[
+const infrastructureLines=[{"id": "main", "displayName": "main", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 20}, {"id": "branch", "displayName": "branch", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 10}];
+const generateTimetableSource=(document:TimetableAuthoringDocumentV1)=>generateWithLines(document,infrastructureLines);
+const validateAuthoringDocument=(document:TimetableAuthoringDocumentV1)=>validateWithLines(document,infrastructureLines);
+const document=():TimetableAuthoringDocumentV1=>({formatVersion:1,id:'through',periodDays:1,arrivalOverrides:[],diagramLines:[{id:'main',upStationIds:['A','B','C','D'],downStationIds:['D','C','B','A']},{id:'branch',upStationIds:['C','E'],downStationIds:['E','C']}],runs:[
  {id:'M01',lineId:'main',diagramLineId:'main',lineDirection:'UP',type:'PASSENGER',calls:[{id:'a',stationId:'A',status:'ORIGIN',targetId:'A@1',departureTick:100},{id:'b',stationId:'B',status:'PASS',targetId:'B@1',arrivalTick:200},{id:'c',stationId:'C',status:'TERMINAL',targetId:'C@1',arrivalTick:300,minimumDwellTicks:20,doorSide:'LEFT'}]},
  {id:'B01',lineId:'branch',diagramLineId:'branch',lineDirection:'UP',type:'PASSENGER',calls:[{id:'c2',stationId:'C',status:'ORIGIN',targetId:'C@1',departureTick:350},{id:'e',stationId:'E',status:'TERMINAL',targetId:'E@1',arrivalTick:500}]},
 ],duties:[{id:'duty',selector:{type:'TRAIN_NAME',name:'train'},elements:[{id:'m',type:'RUN',runId:'M01'},{id:'b',type:'RUN',runId:'B01'}]}],operationalTrips:[{id:'to-E',defaults:{destination:'E'},segments:[{serviceId:'duty',runId:'M01',unitSlots:[1]},{serviceId:'duty',runId:'B01',unitSlots:[1]}]},{id:'to-D',defaults:{destination:'D'},segments:[{serviceId:'duty',runId:'M01',unitSlots:[2]}]}]});

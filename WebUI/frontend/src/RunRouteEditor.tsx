@@ -15,8 +15,6 @@ const stationIds=(line:LineV1,direction:LineDirection)=>direction==='UP'?line.up
 interface RunRouteEditorProps {
   tools?:ReactNode;
   onRename?:(id:string)=>void;
-  lineSpeedLimitMetersPerSecond?:number;
-  onLineSpeedLimitChange?:(kmh:number|null)=>void;
   fieldScope?:string;
   issues?:AuthoringIssue[];
   focusedCallId?:string;
@@ -29,7 +27,7 @@ interface RunRouteEditorProps {
   onDelete:()=>void;
 }
 
-export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelete,tools,issues=[],focusedCallId,fieldScope='',onRename,lineSpeedLimitMetersPerSecond,onLineSpeedLimitChange}:RunRouteEditorProps) {
+export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelete,tools,issues=[],focusedCallId,fieldScope='',onRename}:RunRouteEditorProps) {
   const {locale,t}=useI18n();
   const [inspectorTab,setInspectorTab]=useState<'calls'|'options'|'issues'>('calls');
   const [selectedCallId,setSelectedCallId]=useState('');
@@ -80,9 +78,8 @@ export function RunRouteEditor({run,lines,metadata,busy,onError,onChange,onDelet
 
   const calls=<div className="calls-page"><Flex className="time-mode" align="center" justify="space-between"><Typography.Text type="secondary">{t('editor.stationCallsHint')}</Typography.Text><Segmented size="small" value={timeDisplay} onChange={(value)=>setTimeDisplay(value as 'tick'|'both')} options={[{value:'tick',label:t('editor.tick')},{value:'both',label:t('editor.bothTimes')}]}/></Flex><Table<AuthoringRunCallV1> className="calls-table" size="small" pagination={false} tableLayout="fixed" rowKey="id" columns={callColumns} dataSource={run.calls}/></div>;
   const options=<div className="run-options-page">
-    <section className="option-section"><Typography.Title level={5}>{t('ui.lineCap')}</Typography.Title><div className="run-option-grid">
+    <section className="option-section"><Typography.Title level={5}>{t('duties.infrastructureLine')}</Typography.Title><div className="run-option-grid">
       <label>{t('duties.infrastructureLine')}<Select aria-label={t('duties.infrastructureLine')} value={run.lineId||undefined} allowClear options={lines.map((item)=>({value:item.id,label:item.displayName}))} onChange={(lineId)=>onChange({...run,lineId:lineId??null})}/></label>
-      <label>{t('ui.lineCap')}<CommittedNumberInput fieldKey={`${fieldScope}/${run.id}/${run.lineId??''}/line-cap`} aria-label={t('ui.lineCap')} min={Number.MIN_VALUE} disabled={busy||!run.lineId||!lines.some((item)=>item.id===run.lineId)||!onLineSpeedLimitChange} value={lineSpeedLimitMetersPerSecond==null?null:lineSpeedLimitMetersPerSecond*3.6} onCommit={(kmh)=>onLineSpeedLimitChange?.(kmh)} addonAfter="km/h"/></label>
     </div><Typography.Text type="secondary">{!run.lineId||!lines.some((item)=>item.id===run.lineId)?t('ui.chooseInfrastructure'):t('ui.lineCapHint')}</Typography.Text></section>
     {tools}
     <section className="option-section"><Typography.Title level={5}>{t('editor.runEndpoints')}</Typography.Title><Typography.Text type="secondary">{t('editor.runEndpointsHint')}</Typography.Text><div className="endpoint-options"><label>{t('status.origin')}<Select value={run.calls[0]?.stationId} onChange={(station)=>resize(station,run.calls.at(-1)!.stationId)} options={routeStations.map((station,index)=>({value:station,label:labelStation(station),disabled:index>=terminalIndex}))}/></label><label>{t('status.terminal')}<Select value={run.calls.at(-1)?.stationId} onChange={(station)=>resize(run.calls[0].stationId,station)} options={routeStations.map((station,index)=>({value:station,label:labelStation(station),disabled:index<=originIndex}))}/></label></div></section>

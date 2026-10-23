@@ -53,11 +53,15 @@ export interface TimetableAuthoringDocumentV1 {
   runs:AuthoringRunV1[];
   duties:AuthoringDutyV1[];
   diagramLines:DiagramLineV1[];
-  lineSpeedLimits?:{lineId:string;maximumSpeedMetersPerSecond:number}[];
   arrivalOverrides:ArrivalOverrideV1[];
   boundPrograms?:BoundStationProgram[];
   formationEvents?:AuthoringFormationEvent[];
   operationalTrips?:OperationalTrip[];
+}
+/** Serialize only the current editor contract, never derived runtime line caps. */
+export function authoringDocumentForSave(document:TimetableAuthoringDocumentV1):TimetableAuthoringDocumentV1 {
+  const {formatVersion,id,formalScriptName,periodDays,runs,duties,diagramLines,arrivalOverrides,boundPrograms,formationEvents,operationalTrips}=document;
+  return {formatVersion,id,formalScriptName,periodDays,runs,duties,diagramLines,arrivalOverrides,boundPrograms,formationEvents,operationalTrips};
 }
 export interface AuthoringIssue {path:string;message:string;severity:'error'|'warning'}
 export interface GeneratedTimetableSource {
@@ -106,20 +110,16 @@ export function resolveAuthoringRunSelection(runs:AuthoringRunV1[],selectedId:st
   return candidates.length===1?candidates[0]:undefined;
 }
 
-/** Changes the current timetable's shared infrastructure-line cap; UI input is km/h. */
-export function setAuthoringLineSpeedLimit(document:TimetableAuthoringDocumentV1,lineId:string,maximumSpeedKmh:number|null):TimetableAuthoringDocumentV1 {
-  if(!lineId.trim())throw new Error('Infrastructure line ID is required');
-  const maximumSpeedMetersPerSecond=maximumSpeedKmh==null?null:maximumSpeedKmh/3.6;
-  if(maximumSpeedMetersPerSecond!=null&&(!Number.isFinite(maximumSpeedMetersPerSecond)||maximumSpeedMetersPerSecond<=0))throw new Error('Line maximum speed must be finite and positive');
-  const existing=(document.lineSpeedLimits??[]).filter((limit)=>limit.lineId===lineId);
-  if(maximumSpeedMetersPerSecond==null&&!existing.length||existing.length===1&&existing[0].maximumSpeedMetersPerSecond===maximumSpeedMetersPerSecond)return document;
-  return {...document,lineSpeedLimits:[...(document.lineSpeedLimits??[]).filter((limit)=>limit.lineId!==lineId),...(maximumSpeedMetersPerSecond==null?[]:[{lineId,maximumSpeedMetersPerSecond}])]};
+/** Runtime caps are snapshots of the authoritative infrastructure line settings. */
+export function authoringLineSpeedLimits(lines:LineV1[],document:TimetableAuthoringDocumentV1) {
+  const usedLineIds=new Set(document.runs.map((run)=>run.lineId));
+  return lines.filter((line)=>usedLineIds.has(line.id)&&line.maximumSpeedMetersPerSecond!=null).map((line)=>({lineId:line.id,maximumSpeedMetersPerSecond:line.maximumSpeedMetersPerSecond!}));
 }
 
-/** Unsaved Reset uses exactly the same actual-line cap as generated/full timetables. */
-export function authoringResetProfile(document:TimetableAuthoringDocumentV1,run:AuthoringRunV1,profile:Pick<SimulationProfile,'profileType'|'profileId'>):SimulationProfile {
-  const cap=run.lineId?document.lineSpeedLimits?.find((limit)=>limit.lineId===run.lineId)?.maximumSpeedMetersPerSecond:undefined;
-  return {...profile,direction:run.lineDirection,...lineSimulationRoute(run),...(cap==null?{}:{maximumSpeedMetersPerSecond:cap})};
+export function authoringResetProfile(lines:LineV1[],run:AuthoringRunV1,profile:Pick<SimulationProfile,'profileType'|'profileId'>):SimulationProfile {
+  const cap=lines.find((line)=>line.id===run.lineId)?.maximumSpeedMetersPerSecond;
+  if(cap==null||!Number.isFinite(cap)||cap<=0)throw new Error(`No maximum speed is configured for infrastructure line: ${run.lineId??''}`);
+  return {...profile,direction:run.lineDirection,...lineSimulationRoute(run),maximumSpeedMetersPerSecond:cap};
 }
 
 /** Atomically removes a run from any previous duty and appends it to the target duty. */
@@ -147,7 +147,6 @@ export const emptyAuthoringDocument = ():TimetableAuthoringDocumentV1 => ({
   runs:[],
   duties:[],
   diagramLines:[],
-  lineSpeedLimits:[],
   arrivalOverrides:[],
 });
 
@@ -308,7 +307,7 @@ const quote=(value:string)=>JSON.stringify(value);
 const origin=(dutyId:string,elementId:string,runId?:string,functionId?:string)=>
   [`duty:${dutyId}`,`element:${elementId}`,runId&&`run:${runId}`,functionId&&`function:${functionId}`].filter(Boolean).join('/');
 
-export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1):AuthoringIssue[] {
+export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[]):AuthoringIssue[] {
   const issues:AuthoringIssue[]=[];
   if(document.formatVersion!==1) issues.push(issue('formatVersion','Unsupported editor document version'));
   if(!document.id.trim()) issues.push(issue('id','Timetable ID is required'));
@@ -324,7 +323,7 @@ export function validateAuthoringDocument(document:TimetableAuthoringDocumentV1)
     if(new Set(line.upStationIds).size!==line.upStationIds.length||new Set(line.downStationIds).size!==line.downStationIds.length) issues.push(issue(path,'Diagram line directions must not contain duplicate stations'));
   });
   const lineSpeedLimitIds=new Set<string>();
-  (document.lineSpeedLimits??[]).forEach((limit,index)=>{
+  authoringLineSpeedLimits(infrastructureLines,document).forEach((limit,index)=>{
     const path=`lineSpeedLimits[${index}]`;
     if(!limit.lineId.trim()) issues.push(issue(`${path}.lineId`,'Infrastructure line ID is required'));
     else if(lineSpeedLimitIds.has(limit.lineId)) issues.push(issue(`${path}.lineId`,`Duplicate line speed limit: ${limit.lineId}`));
@@ -499,9 +498,9 @@ const graphAction=(type:TimetableActionV1['type'],overrides:Partial<TimetableAct
 });
 
 /** Builds a presentation-only service per run so the graph stays live without compiling the duty document. */
-export function authoringGraphTimetable(document:TimetableAuthoringDocumentV1):SavedTimetableV1 {
+export function authoringGraphTimetable(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[]):SavedTimetableV1 {
   return {
-    id:document.id,periodDays:document.periodDays,diagramLines:document.diagramLines,lineSpeedLimits:document.lineSpeedLimits??[],
+    id:document.id,periodDays:document.periodDays,diagramLines:document.diagramLines,lineSpeedLimits:authoringLineSpeedLimits(infrastructureLines,document),
     services:document.runs.map((run)=>{
       if(run.calls.length===0)return {id:run.id,lineId:run.lineId,diagramLineId:run.diagramLineId,lineDirection:run.lineDirection,selectorType:'ANY' as const,activation:{type:'SCHEDULED' as const},steps:[]};
       const fallbackLegTicks=Math.max(20,Math.floor(document.periodDays*24_000/(run.calls.length+1)));
@@ -562,8 +561,8 @@ function destinationOptions(call:AuthoringRunCallV1,override?:number):string {
   return fields.length?`, { ${fields.join(', ')} }`:'';
 }
 
-export function generateTimetableSource(document:TimetableAuthoringDocumentV1):GeneratedTimetableSource {
-  const issues=validateAuthoringDocument(document);
+export function generateTimetableSource(document:TimetableAuthoringDocumentV1,infrastructureLines:LineV1[]=[]):GeneratedTimetableSource {
+  const issues=validateAuthoringDocument(document,infrastructureLines);
   const lines:string[]=['// Generated by JavaRailways WebUI. Do not edit in structured mode.','function main(timetable) {',`    timetable.setPeriodDays(${document.periodDays})`];
   for(const [index,snapshot] of (document.boundPrograms??[]).entries()) {
     if(document.duties.some((duty)=>duty.elements.some((element)=>element.type==='PROGRAM'&&element.call.programId===snapshot.programId)))lines.push(`    const program${index} = JSON.parse(${quote(JSON.stringify(snapshot.definition))})`);
@@ -572,7 +571,7 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1):G
     const {id,...definition}=event;
     lines.push(`    timetable.formationEvent(${quote(id)}, JSON.parse(${quote(JSON.stringify(definition))}))`);
   }
-  for(const limit of document.lineSpeedLimits??[]) {
+  for(const limit of authoringLineSpeedLimits(infrastructureLines,document)) {
     lines.push(`    timetable.lineSpeedLimit(${quote(limit.lineId)}, ${limit.maximumSpeedMetersPerSecond})`);
   }
   for(const trip of document.operationalTrips??[]) {
@@ -650,8 +649,8 @@ export function generateTimetableSource(document:TimetableAuthoringDocumentV1):G
     lines.push('    })');
   }
   lines.push('}','');
-  const {formalScriptName:_,...semanticDocument}=document;
-  return {source:lines.join('\n'),issues,documentHashInput:JSON.stringify(semanticDocument)};
+  const {formalScriptName:_,...semanticDocument}=authoringDocumentForSave(document);
+  return {source:lines.join('\n'),issues,documentHashInput:JSON.stringify({document:semanticDocument,lineSpeedLimits:authoringLineSpeedLimits(infrastructureLines,document)})};
 }
 
 export interface CompiledEditorDocument {

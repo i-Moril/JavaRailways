@@ -22,17 +22,22 @@ data class Line private constructor(
     val displayName: String,
     val upStationIds: List<StationId>,
     val downStationIds: List<StationId>,
-    val color: String? = null
+    val color: String? = null,
+    val maximumSpeedMetersPerSecond: Double? = null
 ) {
     constructor(
         id: LineId,
         displayName: String,
         upStationIds: Collection<StationId>,
         downStationIds: Collection<StationId>,
-        color: String? = null
-    ) : this(id, displayName, immutable(upStationIds), immutable(downStationIds), color)
+        color: String? = null,
+        maximumSpeedMetersPerSecond: Double? = null
+    ) : this(id, displayName, immutable(upStationIds), immutable(downStationIds), color, maximumSpeedMetersPerSecond)
 
     init {
+        require(maximumSpeedMetersPerSecond == null || (maximumSpeedMetersPerSecond.isFinite() && maximumSpeedMetersPerSecond > 0.0)) {
+            "Line maximum speed must be finite and positive"
+        }
         require(displayName.isNotBlank() && displayName == displayName.trim())
         validatePattern("UP", upStationIds)
         validatePattern("DOWN", downStationIds)

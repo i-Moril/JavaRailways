@@ -1,12 +1,15 @@
 import { describe,expect,it } from 'vitest';
 import {
-  authoringGraphTimetable,authoringSelectorKey,copyRunShifted,createRunFromLine,deleteRunFromDocument,generateTimetableSource,moveRunToDuty,
-  authoringResetProfile,renameAuthoringRun,resolveAuthoringRunSelection,setAuthoringLineSpeedLimit,lineSimulationRoute,moveRunFromCall,resetRunTimings,resizeRunRoute,shiftRunFromDeparture,validateAuthoringDocument,type TimetableAuthoringDocumentV1,
+  authoringDocumentForSave,authoringGraphTimetable,authoringSelectorKey,copyRunShifted,createRunFromLine,deleteRunFromDocument,generateTimetableSource as generateWithLines,moveRunToDuty,
+  authoringResetProfile,renameAuthoringRun,resolveAuthoringRunSelection,lineSimulationRoute,moveRunFromCall,resetRunTimings,resizeRunRoute,shiftRunFromDeparture,validateAuthoringDocument as validateWithLines,type TimetableAuthoringDocumentV1,
 } from './authoring';
 import {createDocumentHistory,redoDocumentHistory,undoDocumentHistory,updateDocumentHistory} from './documentHistory';
 import {layoutGraph} from './graph';
 import type { LineSimulationResult,LineV1,WorldMetadata } from './types';
 
+const infrastructureLines=[{"id": "line-1", "displayName": "line-1", "upStationIds": ["a", "b"], "downStationIds": ["b", "a"], "maximumSpeedMetersPerSecond": 20}];
+const generateTimetableSource=(document:TimetableAuthoringDocumentV1)=>generateWithLines(document,infrastructureLines);
+const validateAuthoringDocument=(document:TimetableAuthoringDocumentV1)=>validateWithLines(document,infrastructureLines);
 const metadata:WorldMetadata={stations:[
   {stationId:'a',berthId:'1',destinationId:'a@1'},
   {stationId:'b',berthId:'1',destinationId:'b@1'},
@@ -17,7 +20,7 @@ const line:LineV1={id:'line-1',displayName:'Line 1',upStationIds:['a','b','c','d
 
 const valid=():TimetableAuthoringDocumentV1=>({
   formatVersion:1,id:'l1',periodDays:1,
-  lineSpeedLimits:[{lineId:'line-1',maximumSpeedMetersPerSecond:20}],diagramLines:[{id:'line-1',upStationIds:['a','b'],downStationIds:['b','a']}],arrivalOverrides:[],
+  diagramLines:[{id:'line-1',upStationIds:['a','b'],downStationIds:['b','a']}],arrivalOverrides:[],
   runs:[
     {id:'up-01',type:'PASSENGER',lineId:'line-1',diagramLineId:'line-1',lineDirection:'UP',calls:[
       {id:'up-a',stationId:'a',berthId:'1',status:'ORIGIN',targetId:'a@1',departureTick:100},
@@ -71,32 +74,18 @@ describe('timetable editor document',()=>{
     expect(resolveAuthoringRunSelection([differentPrefix,document.runs[1]],'second-service',renamed.runs[1])?.id).toBe('down-01');
   });
 
-  it('stores kmh caps in mps once per actual line without changing authored times',()=>{
-    const document=valid();document.runs=document.runs.map((run)=>({...run,lineId:'infrastructure-a'}));
-    document.lineSpeedLimits=[{lineId:'infrastructure-other',maximumSpeedMetersPerSecond:30}];
-    const capped=setAuthoringLineSpeedLimit(document,'infrastructure-a',72);
-    expect(capped.lineSpeedLimits).toEqual([{lineId:'infrastructure-other',maximumSpeedMetersPerSecond:30},{lineId:'infrastructure-a',maximumSpeedMetersPerSecond:20}]);
-    expect(capped.runs).toBe(document.runs);expect(capped.arrivalOverrides).toBe(document.arrivalOverrides);
-    expect(setAuthoringLineSpeedLimit(capped,'infrastructure-a',72)).toBe(capped);
-    const source=generateTimetableSource(capped);expect(source.issues).toEqual([]);expect(source.source).toContain('timetable.lineSpeedLimit("infrastructure-a", 20)');
+  it('uses current line settings for generation and reset, ignoring stale document caps',()=>{
+    const document={...valid(),lineSpeedLimits:[{lineId:'line-1',maximumSpeedMetersPerSecond:99}]};
+    expect(authoringDocumentForSave(document)).not.toHaveProperty('lineSpeedLimits');
     const profile={profileType:'TRAIN_TEMPLATE' as const,profileId:'vehicle'};
-    expect(authoringResetProfile(capped,capped.runs[0],profile).maximumSpeedMetersPerSecond).toBe(20);
-    expect(authoringResetProfile(capped,capped.runs[1],profile).maximumSpeedMetersPerSecond).toBe(20);
-    const cleared=setAuthoringLineSpeedLimit(capped,'infrastructure-a',null);
-    expect(cleared.lineSpeedLimits).toEqual(document.lineSpeedLimits);expect(cleared.runs).toBe(document.runs);
-    expect(authoringResetProfile(cleared,cleared.runs[0],profile).maximumSpeedMetersPerSecond).toBeUndefined();
-  });
-
-  it('uses actual infrastructure IDs and refuses invalid caps without diagram-line fallback',()=>{
-    const document=valid();document.runs[0].lineId=undefined;document.lineSpeedLimits=[{lineId:'line-1',maximumSpeedMetersPerSecond:20}];
-    const profile={profileType:'WORLD_TRAIN' as const,profileId:'train'};
-    expect(authoringResetProfile(document,document.runs[0],profile).maximumSpeedMetersPerSecond).toBeUndefined();
-    const before=JSON.stringify(document);
-    for(const speed of [0,-1,NaN,Infinity,Number.MIN_VALUE])expect(()=>setAuthoringLineSpeedLimit(document,'line-1',speed)).toThrow();
-    expect(()=>setAuthoringLineSpeedLimit(document,'',72)).toThrow();expect(JSON.stringify(document)).toBe(before);
-    const next=setAuthoringLineSpeedLimit(document,'actual-line',90);const selected={...document.runs[0],lineId:'actual-line'};
-    expect(authoringResetProfile(next,selected,profile).maximumSpeedMetersPerSecond).toBe(25);
-    expect(authoringResetProfile(next,selected,profile).timetableId).toBeUndefined();expect(authoringResetProfile(next,selected,profile).serviceId).toBeUndefined();
+    const changed=infrastructureLines.map((line)=>({...line,maximumSpeedMetersPerSecond:25}));
+    expect(generateWithLines(document,changed).source).toContain('timetable.lineSpeedLimit("line-1", 25)');
+    expect(generateWithLines(document,changed).source).not.toContain('99');
+    expect(generateWithLines(document,changed).documentHashInput).not.toBe(generateWithLines(document,infrastructureLines).documentHashInput);
+    expect(authoringResetProfile(changed,document.runs[0],profile).maximumSpeedMetersPerSecond).toBe(25);
+    expect(()=>authoringResetProfile([],document.runs[0],profile)).toThrow('No maximum speed');
+    expect(validateWithLines(document,[]).some((issue)=>issue.message.includes('No maximum speed'))).toBe(true);
+    expect(()=>authoringResetProfile(changed,{...document.runs[0],lineId:'missing'},profile)).toThrow('No maximum speed');
   });
 
   it('requires every run to have one unique duty owner',()=>{
@@ -150,13 +139,12 @@ describe('timetable editor document',()=>{
 
   it('generates infrastructure line context and its all-train maximum speed separately',()=>{
     const document=valid();
-    document.lineSpeedLimits=[{lineId:'line-1',maximumSpeedMetersPerSecond:22}];
     document.runs=document.runs.map((run)=>({...run,lineId:'line-1'}));
 
     const result=generateTimetableSource(document);
 
     expect(result.issues).toEqual([]);
-    expect(result.source).toContain('timetable.lineSpeedLimit("line-1", 22)');
+    expect(result.source).toContain('timetable.lineSpeedLimit("line-1", 20)');
     expect(result.source).toContain('{ diagramLineId: "line-1", lineId: "line-1" }');
   });
 

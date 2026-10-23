@@ -3,6 +3,7 @@ package work.art1st.javarailways.bukkit.http
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -65,14 +66,7 @@ internal fun resolveLineSimulationMaximumSpeed(
     }
     val runId = request["runId"]?.jsonPrimitive?.content
     if (runId != null && (runId.isBlank() || timetableId == null)) throw HttpFailure(400, "runId requires timetableId and serviceId")
-    val element = request["maximumSpeedMetersPerSecond"]
-    val inlineMaximum = if (element == null || element == JsonNull) null else {
-        val value = (element as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull
-        if (value == null || !value.isFinite() || value <= 0.0) {
-            throw HttpFailure(400, "maximumSpeedMetersPerSecond must be a finite positive number")
-        }
-        value
-    }
+    val inlineMaximum = parseLineMaximumSpeed(request["maximumSpeedMetersPerSecond"])
     if (timetableId != null && serviceId != null) {
         if (inlineMaximum != null) {
             throw HttpFailure(400, "maximumSpeedMetersPerSecond cannot be combined with timetableId and serviceId")
@@ -80,6 +74,21 @@ internal fun resolveLineSimulationMaximumSpeed(
         return resolveStored(timetableId, serviceId, runId)
     }
     return inlineMaximum
+}
+
+internal fun parseLineMaximumSpeed(element: JsonElement?): Double? {
+    if (element == null || element == JsonNull) return null
+    val value = (element as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull
+    if (value == null || !value.isFinite() || value <= 0.0) {
+        throw HttpFailure(400, "maximumSpeedMetersPerSecond must be a finite positive number")
+    }
+    return value
+}
+
+internal fun resolveInfrastructureLineMaximumSpeed(configured: Double?, requested: Double?): Double {
+    val maximum = configured ?: throw HttpFailure(422, "No maximum speed is configured for infrastructure line")
+    if (requested != null && requested != maximum) throw HttpFailure(400, "Set maximum speed in line settings")
+    return maximum
 }
 
 internal fun unitDisplayJson(display: work.art1st.javarailways.simpleato.timetable.TimetableUnitDisplaySnapshot): JsonObject = buildJsonObject {
@@ -655,7 +664,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                     val data = world.basicWorldData
                     val line = world.simpleAtoWorldData.lines[LineId(lineId)]
                         ?: throw HttpFailure(404, "line not found: $lineId")
-                    val lineMaximumSpeed = resolveLineSimulationMaximumSpeed(request) { requestedTimetableId, serviceId, runId ->
+                    val requestedMaximumSpeed = resolveLineSimulationMaximumSpeed(request) { requestedTimetableId, serviceId, runId ->
                         val timetable = world.simpleAtoWorldData.timetables[requestedTimetableId]
                             ?: throw HttpFailure(404, "timetable not found: $requestedTimetableId")
                         val service = timetable.services.firstOrNull { it.id == serviceId }
@@ -672,6 +681,9 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
                         timetable.lineSpeedLimits.singleOrNull { it.lineId == selectedLineId }?.maximumSpeedMetersPerSecond
                             ?: throw HttpFailure(422, "run has no configured line maximum speed: $requestedTimetableId/$serviceId/$runId")
                     }
+                    val lineMaximumSpeed = if (request["timetableId"] == null) {
+                        resolveInfrastructureLineMaximumSpeed(line.maximumSpeedMetersPerSecond, requestedMaximumSpeed)
+                    } else requestedMaximumSpeed
                     val direction = request["direction"]?.jsonPrimitive?.content?.let {
                         runCatching { LineDirection.valueOf(it.uppercase()) }.getOrElse { throw HttpFailure(400, "direction must be UP or DOWN") }
                     } ?: LineDirection.UP
@@ -847,7 +859,8 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             val upIds = up.map { StationId(it.jsonPrimitive.content) }
             val downIds = down.map { StationId(it.jsonPrimitive.content) }
             val color = value["color"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-            return Line(LineId(id), displayName, upIds, downIds, color)
+            val maximumSpeed = parseLineMaximumSpeed(value["maximumSpeedMetersPerSecond"])
+            return Line(LineId(id), displayName, upIds, downIds, color, maximumSpeed)
         }
 
         private fun lineJson(line: Line) = buildJsonObject {
@@ -856,6 +869,7 @@ class TimetableHttpBridge(private val plugin: BukkitPlugin) : Listener {
             put("upStationIds", JsonArray(line.upStationIds.map { JsonPrimitive(it.value) }))
             put("downStationIds", JsonArray(line.downStationIds.map { JsonPrimitive(it.value) }))
             line.color?.let { put("color", it) }
+            line.maximumSpeedMetersPerSecond?.let { put("maximumSpeedMetersPerSecond", it) }
         }
 
         private fun timetablesJson(worldName: String) = withWorld(worldName) { _, world ->

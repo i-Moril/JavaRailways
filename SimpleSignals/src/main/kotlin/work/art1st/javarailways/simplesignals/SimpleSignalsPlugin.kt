@@ -108,7 +108,7 @@ class SimpleSignalsPlugin : JavaPlugin() {
         val routeAuthoring = CurrentRouteRecording(runtimes, services.infrastructure(), previewBackend)
         val previews = RoutePreviewWandHandler(this, previewBackend, services.railTargets(),
             record = routeAuthoring::record, deletionChoices = routeAuthoring::deletionChoices,
-            deleteRoute = routeAuthoring::delete)
+            deleteRoute = routeAuthoring::delete, checkOverlay = overlay::check)
         routePreviewWand = previews
         server.pluginManager.registerEvents(previews, this)
         val signals = SignalWandHandler(this, RuntimeSignalWandBackend(runtimes, services.infrastructure(), targets = services.railTargets()),

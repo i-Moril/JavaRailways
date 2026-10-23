@@ -29,6 +29,23 @@ class PhysicsConfigTest {
     }
 
     @Test
+    fun `geometry capture detaches configuration radii and updates by replacement`() {
+        val radii = mutableListOf(40.0, 30.0, 20.0, 10.0)
+        val loaded = PhysicsConfig.fromYaml(validYaml())
+        val config = loaded.copy(autoRadius = loaded.autoRadius.copy(fallbackRadiiMeters = radii))
+        val geometry = config.railGeometryParameters()
+
+        radii[0] = 50.0
+        val replacement = config.railGeometryParameters()
+
+        assertEquals(listOf(40.0, 30.0, 20.0, 10.0), geometry.autoRadiusFallbackRadiiMeters)
+        assertEquals(listOf(50.0, 30.0, 20.0, 10.0), replacement.autoRadiusFallbackRadiiMeters)
+        assertThrows(IllegalArgumentException::class.java) {
+            geometry.copy(autoRadiusFallbackRadiiMeters = listOf(10.0, 20.0))
+        }
+    }
+
+    @Test
     fun `physics config rejects unsupported schema and invalid gradient`() {
         val unsupported = validYaml().apply { set("schema-version", 1) }
         val invalidGradient = validYaml().apply { set("track.maximum-cant-gradient", 0.0) }

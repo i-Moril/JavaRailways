@@ -12,6 +12,8 @@ import java.util.concurrent.CopyOnWriteArrayList
  *
  * Generic object owners must publish [RailObjectLifecycleState.REMOVED] before unregistering.
  * The store never knows concrete object types or performs owner-specific lifecycle transitions.
+ * All index mutations belong to this store and are serialized by its mutation lock. Owner getters
+ * are evaluated before registration writes; failures of the underlying JVM containers are not recoverable.
  */
 class RailObjectStore {
     private val byRef = ConcurrentHashMap<RailObjectRef, RailObject>()
@@ -28,14 +30,8 @@ class RailObjectStore {
         check(byRef.putIfAbsent(ref, railObject) == null) {
             "RailObjectRef already registered: $ref"
         }
-        try {
-            byRail.computeIfAbsent(railId) { CopyOnWriteArrayList() }.add(railObject)
-            railIdByRef[ref] = railId
-        } catch (failure: Throwable) {
-            byRef.remove(ref, railObject)
-            railIdByRef.remove(ref)
-            throw failure
-        }
+        byRail.computeIfAbsent(railId) { CopyOnWriteArrayList() }.add(railObject)
+        railIdByRef[ref] = railId
         Unit
     }
 
@@ -46,9 +42,8 @@ class RailObjectStore {
         }
         val railId = checkNotNull(railIdByRef[ref]) { "RailObject rail registration missing: $ref" }
         val railObjects = checkNotNull(byRail[railId]) { "RailObject rail index missing: $ref" }
-        check(railObjects.any { it === registered }) { "RailObject missing from rail index: $ref" }
-        check(byRef.remove(ref, registered)) { "RailObject changed during unregister: $ref" }
-        railObjects.remove(registered)
+        check(railObjects.remove(registered)) { "RailObject missing from rail index: $ref" }
+        byRef.remove(ref)
         railIdByRef.remove(ref)
         registered
     }

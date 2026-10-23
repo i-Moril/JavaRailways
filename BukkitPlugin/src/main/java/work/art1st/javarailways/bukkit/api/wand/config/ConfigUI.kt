@@ -34,7 +34,7 @@ interface ConfigUI {
     fun register(item: WandConfigItem)
 
     /**
-     * 注册一组配置项。
+     * 注册一组配置项。完整批次通过支持实现、值及类型校验后才登记任何项。
      */
     fun register(items: Sequence<WandConfigItem>)
 
@@ -57,9 +57,6 @@ interface ConfigUI {
      * @throws IllegalArgumentException 目标分组存在但不允许扩展
      */
     fun registerToGroup(groupId: String, subGroup: ConfigGroup)
-
-    /** 仍在等待目标分组注册的扩展贡献分组 ID；用于诊断悬而未决的贡献。 */
-    fun pendingExtensionGroupIds(): Set<String>
 
     // ═══════════════════════════════════════════
     // 值访问

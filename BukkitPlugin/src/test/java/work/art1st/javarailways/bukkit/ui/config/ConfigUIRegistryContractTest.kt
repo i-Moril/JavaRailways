@@ -129,7 +129,6 @@ class ConfigUIRegistryContractTest {
         val closedItem = WandConfigItemImpl(ConfigKey("closed.extra", "extra", defaultValue = "v", valueType = ConfigValueType.STRING))
         registry.registerToGroup("open", openItem)
         registry.registerToGroup("closed", closedItem)
-        assertEquals(setOf("open", "closed"), registry.pendingExtensionGroupIds())
         assertNull(registry.getItem("open.extra"))
         assertNull(registry.getItem("closed.extra"))
 
@@ -139,7 +138,13 @@ class ConfigUIRegistryContractTest {
         assertTrue(registry.getItem("open.extra") === openItem)
         assertTrue(registry.getGroup("open")!!.items.contains(openItem))
         assertNull(registry.getItem("closed.extra"))
-        assertTrue(registry.pendingExtensionGroupIds().isEmpty())
+        assertTrue(registry.getGroup("closed")!!.items.isEmpty())
+
+        registry.register(ConfigGroup("open", "open"))
+        registry.register(ConfigGroup("closed", "closed"))
+        assertEquals(listOf(openItem), registry.getGroup("open")!!.items)
+        assertTrue(registry.getGroup("closed")!!.items.isEmpty())
+        assertNull(registry.getItem("closed.extra"))
     }
     private enum class First { VALUE }
     private enum class Second { VALUE }
@@ -274,7 +279,11 @@ class ConfigUIRegistryContractTest {
         assertTrue(registry.getGroup("root")!!.subGroups.isEmpty())
         assertNull(registry.getItem("valid"))
         assertThrows(IllegalArgumentException::class.java) { registry.registerToGroup("pending", group) }
-        assertTrue(registry.pendingExtensionGroupIds().isEmpty())
+        registry.register(ConfigGroup("pending", "pending"))
+        assertTrue(registry.getGroup("pending")!!.items.isEmpty())
+        assertTrue(registry.getGroup("pending")!!.subGroups.isEmpty())
+        assertNull(registry.getItem("valid"))
+        assertNull(registry.getItem("invalid"))
     }
 
     @Test
@@ -288,7 +297,6 @@ class ConfigUIRegistryContractTest {
         assertNull(registry.getGroup("root"))
         assertNull(registry.getItem("valid"))
         assertNull(registry.getItem("conflict"))
-        assertEquals(setOf("root"), registry.pendingExtensionGroupIds())
         registry.register(ConfigGroup("root", "root"))
         assertEquals("value", registry.getItem("conflict")!!.currentValue)
     }

@@ -54,6 +54,7 @@ data class PhysicsConfig(
     val standardTurnouts: Map<StandardTurnout, StandardTurnoutGeometry>,
     val overspeed: OverspeedPhysicsConfig
 ) {
+    /** Capture configuration radii once; published geometry inputs are read-only and updated by replacement. */
     fun railGeometryParameters(): RailGeometryParameters = RailGeometryParameters(
         gaugeMeters = track.gaugeMeters,
         gravityMetersPerSecondSquared = track.gravityMetersPerSecondSquared,
@@ -73,7 +74,7 @@ data class PhysicsConfig(
         turnoutStepMeters = geometrySampling.turnoutStepMeters,
         autoRadiusDistanceFactor = autoRadius.distanceFactor,
         autoRadiusIncrementMeters = autoRadius.incrementMeters,
-        autoRadiusFallbackRadiiMeters = autoRadius.fallbackRadiiMeters
+        autoRadiusFallbackRadiiMeters = autoRadius.fallbackRadiiMeters.toList()
     )
 
     fun railSpeedPhysics(): RailSpeedPhysics = RailSpeedPhysics(

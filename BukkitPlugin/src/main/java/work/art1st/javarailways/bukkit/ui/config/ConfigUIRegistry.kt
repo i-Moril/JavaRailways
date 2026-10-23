@@ -81,27 +81,13 @@ class ConfigUIRegistry : ConfigUI {
 
     override fun register(item: WandConfigItem) {
         validateItems(listOf(item))
-        items[item.key.id] = item
-        val groupId = item.key.group
-        if (groupId != null) {
-            val group = groups[groupId]
-            if (group != null) {
-                synchronized(group) {
-                    if (!group.items.contains(item)) {
-                        group.items.add(item)
-                    }
-                }
-            } else {
-                // 目标分组尚不存在，暂存
-                pendingItems.getOrPut(groupId) { mutableListOf() }.add(item)
-            }
-        }
+        installValidated(item)
     }
 
     override fun register(items: Sequence<WandConfigItem>) {
         val batch = items.toList()
         validateItems(batch)
-        batch.forEach { register(it) }
+        batch.forEach(::installValidated)
     }
 
     override fun registerToGroup(groupId: String, item: WandConfigItem) {
@@ -130,9 +116,6 @@ class ConfigUIRegistry : ConfigUI {
         }
         acceptExtensionSubGroup(group, subGroup)
     }
-
-    override fun pendingExtensionGroupIds(): Set<String> =
-        (pendingItems.keys + pendingSubGroups.keys).toSet()
 
     // ═══════════════════════════════════════════
     // 值访问
@@ -275,6 +258,25 @@ class ConfigUIRegistry : ConfigUI {
             onValueChanged(key, oldValue, newValue)
         } catch (failure: Exception) {
             throw ConfigNotificationException(key.id, failure)
+        }
+    }
+
+    /** 调用者已验证完整批次；注册与结构变更按 ConfigUI 合同串行执行。 */
+    private fun installValidated(item: WandConfigItem) {
+        items[item.key.id] = item
+        val groupId = item.key.group
+        if (groupId != null) {
+            val group = groups[groupId]
+            if (group != null) {
+                synchronized(group) {
+                    if (!group.items.contains(item)) {
+                        group.items.add(item)
+                    }
+                }
+            } else {
+                // 目标分组尚不存在，暂存
+                pendingItems.getOrPut(groupId) { mutableListOf() }.add(item)
+            }
         }
     }
 

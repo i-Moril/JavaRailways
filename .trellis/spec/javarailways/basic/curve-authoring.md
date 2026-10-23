@@ -8,7 +8,7 @@
 
 ## Owner、输入、token与单位
 
-`Anchor(id,position:Vector3dc,tangent:Vector3dc,worldId:String?,metadata:Map<String,String>)`是value input；构造边界复制position/tangent以及metadata，`copy`、`withPosition`和`withTangent`统一经过同一构造器。`RailGeometryParameters`同样在构造和`copy`时复制fallback半径列表，公开集合不可修改；不借用caller的可变集合，也不在worker交接或每帧查询时重复复制。Anchor构造的额外存储为两个向量和一份metadata副本，geometry参数为一份列表副本，成本随输入集合大小增长。
+`Anchor(id,position:Vector3dc,tangent:Vector3dc,worldId:String?,metadata:Map<String,String>)`是value input；构造边界复制position/tangent以及metadata，`copy`、`withPosition`和`withTangent`统一经过同一构造器。`RailGeometryParameters`是简洁的data class；构造和`copy`保留fallback半径列表引用，调用方必须保证发布后整个配置只读，不修改传入列表；配置更新通过创建新值完成。Bukkit `PhysicsConfig.railGeometryParameters()`在配置到geometry的交接处复制一次fallback列表，worker交接和每帧查询不重复复制。Anchor构造的额外存储为两个向量和一份metadata副本；geometry构造保留数值校验，只有配置交接副本随列表大小增长。
 
 roll metadata key固定`rollDegrees`；缺省为零，字段存在时必须可解析且finite，`withRoll`也拒绝非finite值。geometry默认米、m/s²、grade rise/run ratio；只有字段名明确`*KmH`时用km/h。
 
